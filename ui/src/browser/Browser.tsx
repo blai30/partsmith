@@ -31,7 +31,7 @@ import { reportFailure } from '../app/report'
 import { featureIcon } from '../commands/icons'
 import { explainDisabled } from '../commands/registry'
 import { Tooltip } from '../components/Tooltip'
-import { featureLabel } from '../core/labels'
+import { featureLabel, type WorldAxis } from '../core/labels'
 import { formatParameterValue } from '../expression/evaluate'
 import { isPlainNumber } from '../expression/step'
 import type { Body, FeatureRecord, Parameter } from '../generated/protocol'
@@ -56,7 +56,7 @@ import { SeverityIcon } from '../print/SeverityIcon'
 import { selectCommandBlock } from '../state/selectors'
 import type { AppState, OriginName, SelectionItem } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { AXIS_ROLES, COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { BodyColorButton } from './BodyColor'
 
 // The browser (ui.md 3.10): a tree of the origin, bodies, sketches, datum planes and parameters.
@@ -121,6 +121,20 @@ const ORIGIN_ROWS: readonly {
   { origin: 'O', kind: 'origin_point', icon: Dot },
 ]
 
+function isWorldAxis(origin: OriginName): origin is WorldAxis {
+  return origin === 'X' || origin === 'Y' || origin === 'Z'
+}
+
+/**
+ * An origin row's icon color: an axis row's in its axis role, beside the name that carries its
+ * letter; a plane's name carries the letters of its own two axes, so its icon stays muted (3.10).
+ */
+function originIconColor(origin: OriginName): string {
+  return isWorldAxis(origin)
+    ? COLOR_CLASSES[AXIS_ROLES[origin]].foreground
+    : COLOR_CLASSES.textMuted.foreground
+}
+
 /** Stops a row button's click from also selecting the row. */
 function own(handler: () => void): (event: MouseEvent) => void {
   return (event) => {
@@ -159,7 +173,7 @@ function RowButton({ label, icon: Icon, pressed, disabledReason = null, onClick 
         event.stopPropagation()
       }}
       className={clsx(
-        'inline-flex size-6 shrink-0 items-center justify-center rounded-sm transition-colors duration-150 motion-reduce:transition-none',
+        'inline-flex size-6 shrink-0 items-center justify-center rounded-md transition-colors duration-150 motion-reduce:transition-none',
         disabledReason === null
           ? COLOR_CLASSES.textMuted.foreground
           : COLOR_CLASSES.textDisabled.foreground,
@@ -234,7 +248,7 @@ function Row({
         }
       }}
       className={clsx(
-        'flex h-8 cursor-default items-center gap-2 rounded-sm pr-1 pl-7 text-sm',
+        'flex h-8 cursor-default items-center gap-2 rounded-md pr-1 pl-7 text-sm',
         COLOR_CLASSES.focusRing.outline,
         COLOR_CLASSES.accent.outline,
         selected ? COLOR_CLASSES.selection.background : COLOR_CLASSES.hover.background,
@@ -293,7 +307,7 @@ function GroupHeader({ id, title, expanded, onToggle, actions }: GroupProps) {
         }
       }}
       className={clsx(
-        'mt-2 flex h-8 cursor-default items-center gap-1 rounded-sm px-1 text-xs font-semibold first:mt-0',
+        'mt-2 flex h-8 cursor-default items-center gap-1 rounded-md px-1 text-xs font-semibold first:mt-0',
         COLOR_CLASSES.textMuted.foreground,
         COLOR_CLASSES.focusRing.outline,
         COLOR_CLASSES.accent.outline,
@@ -315,14 +329,8 @@ function StatusBadge({ featureId }: { readonly featureId: string }) {
   ) : null
 }
 
-function rowIcon(Icon: LucideIcon): ReactNode {
-  return (
-    <Icon
-      aria-hidden="true"
-      strokeWidth={1.75}
-      className={clsx('size-4 shrink-0', COLOR_CLASSES.textMuted.foreground)}
-    />
-  )
+function rowIcon(Icon: LucideIcon, color: string = COLOR_CLASSES.textMuted.foreground): ReactNode {
+  return <Icon aria-hidden="true" strokeWidth={1.75} className={clsx('size-4 shrink-0', color)} />
 }
 
 function useSelectedKeys(): ReadonlySet<string> {
@@ -355,7 +363,7 @@ function OriginRows({ selected }: { readonly selected: ReadonlySet<string> }) {
         id={row.origin}
         selection={selection}
         selected={selected.has(selection.key)}
-        icon={rowIcon(row.icon)}
+        icon={rowIcon(row.icon, originIconColor(row.origin))}
         actions={<SessionEye itemKey={selection.key} name={selection.label} />}
       >
         <span className="truncate">{selection.label}</span>
@@ -654,104 +662,109 @@ export function Browser() {
       id={BROWSER_PANEL_ID}
       aria-label="Browser"
       data-testid="browser"
+      // A frame island (3.2), docked in the first column from 65rem and floating over the free
+      // area's cell below it; its tree scrolls inside it.
       className={clsx(
-        'col-start-1 row-start-2 flex min-h-0 w-66 flex-col overflow-y-auto border-r max-lg:absolute max-lg:inset-y-0 max-lg:left-0 max-lg:z-30 max-lg:shadow-lg',
+        'relative z-10 col-start-1 row-start-2 mr-2 flex min-h-0 w-66 max-w-full flex-col overflow-hidden rounded-xl border shadow-md @max-5xl/app:absolute @max-5xl/app:inset-y-0 @max-5xl/app:left-0 @max-5xl/app:z-20 @max-5xl/app:col-start-2 @max-5xl/app:col-end-3 @max-5xl/app:row-end-3 @max-5xl/app:shadow-lg',
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.border.border,
+        COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}
     >
-      <ul
-        ref={tree}
-        role="tree"
-        aria-label="Browser"
-        onKeyDown={(event) => {
-          treeKeyDown(event, expanded, toggle)
-        }}
-        onFocus={(event) => {
-          if (event.target.hasAttribute('data-tree-item')) {
-            lastFocused.current = event.target
-          }
-        }}
-        className="flex flex-col p-2"
-      >
-        <GroupHeader id="origin" title="Origin" expanded={expanded.origin} onToggle={toggle} />
-        {expanded.origin ? <OriginRows selected={selected} /> : null}
-        <GroupHeader id="bodies" title="Bodies" expanded={expanded.bodies} onToggle={toggle} />
-        {expanded.bodies
-          ? bodies.map((body) => (
-              <BodyRow
-                key={body.id}
-                body={body}
-                selected={selected.has(bodyKey(body.id))}
-                renaming={renaming === bodyKey(body.id)}
-                onRename={setRenaming}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <ul
+          ref={tree}
+          role="tree"
+          aria-label="Browser"
+          onKeyDown={(event) => {
+            treeKeyDown(event, expanded, toggle)
+          }}
+          onFocus={(event) => {
+            if (event.target.hasAttribute('data-tree-item')) {
+              lastFocused.current = event.target
+            }
+          }}
+          className="flex flex-col p-1"
+        >
+          <GroupHeader id="origin" title="Origin" expanded={expanded.origin} onToggle={toggle} />
+          {expanded.origin ? <OriginRows selected={selected} /> : null}
+          <GroupHeader id="bodies" title="Bodies" expanded={expanded.bodies} onToggle={toggle} />
+          {expanded.bodies
+            ? bodies.map((body) => (
+                <BodyRow
+                  key={body.id}
+                  body={body}
+                  selected={selected.has(bodyKey(body.id))}
+                  renaming={renaming === bodyKey(body.id)}
+                  onRename={setRenaming}
+                />
+              ))
+            : null}
+          <GroupHeader
+            id="sketches"
+            title="Sketches"
+            expanded={expanded.sketches}
+            onToggle={toggle}
+          />
+          {expanded.sketches
+            ? sketches.map((record) => (
+                <FeatureRow
+                  key={record.id}
+                  record={record}
+                  kind="sketch"
+                  label={labelOf(record)}
+                  selected={selected.has(featureKey(record.id))}
+                  renaming={renaming === featureKey(record.id)}
+                  onRename={setRenaming}
+                />
+              ))
+            : null}
+          <GroupHeader
+            id="datums"
+            title="Datum planes"
+            expanded={expanded.datums}
+            onToggle={toggle}
+          />
+          {expanded.datums
+            ? datums.map((record) => (
+                <FeatureRow
+                  key={record.id}
+                  record={record}
+                  kind="datum"
+                  label={labelOf(record)}
+                  selected={selected.has(featureKey(record.id))}
+                  renaming={renaming === featureKey(record.id)}
+                  onRename={setRenaming}
+                />
+              ))
+            : null}
+          <GroupHeader
+            id="parameters"
+            title="Parameters"
+            expanded={expanded.parameters}
+            onToggle={toggle}
+            actions={
+              <RowButton
+                label="Edit parameters"
+                icon={SlidersHorizontal}
+                onClick={() => {
+                  openSidePanel(app, 'parameters')
+                }}
               />
-            ))
-          : null}
-        <GroupHeader
-          id="sketches"
-          title="Sketches"
-          expanded={expanded.sketches}
-          onToggle={toggle}
-        />
-        {expanded.sketches
-          ? sketches.map((record) => (
-              <FeatureRow
-                key={record.id}
-                record={record}
-                kind="sketch"
-                label={labelOf(record)}
-                selected={selected.has(featureKey(record.id))}
-                renaming={renaming === featureKey(record.id)}
-                onRename={setRenaming}
-              />
-            ))
-          : null}
-        <GroupHeader
-          id="datums"
-          title="Datum planes"
-          expanded={expanded.datums}
-          onToggle={toggle}
-        />
-        {expanded.datums
-          ? datums.map((record) => (
-              <FeatureRow
-                key={record.id}
-                record={record}
-                kind="datum"
-                label={labelOf(record)}
-                selected={selected.has(featureKey(record.id))}
-                renaming={renaming === featureKey(record.id)}
-                onRename={setRenaming}
-              />
-            ))
-          : null}
-        <GroupHeader
-          id="parameters"
-          title="Parameters"
-          expanded={expanded.parameters}
-          onToggle={toggle}
-          actions={
-            <RowButton
-              label="Edit parameters"
-              icon={SlidersHorizontal}
-              onClick={() => {
-                openSidePanel(app, 'parameters')
-              }}
-            />
-          }
-        />
-        {expanded.parameters
-          ? parameters.map((parameter) => (
-              <ParameterRow
-                key={parameter.id}
-                parameter={parameter}
-                selected={selected.has(parameterKey(parameter.id))}
-              />
-            ))
-          : null}
-      </ul>
+            }
+          />
+          {expanded.parameters
+            ? parameters.map((parameter) => (
+                <ParameterRow
+                  key={parameter.id}
+                  parameter={parameter}
+                  selected={selected.has(parameterKey(parameter.id))}
+                />
+              ))
+            : null}
+        </ul>
+      </div>
     </nav>
   )
 }

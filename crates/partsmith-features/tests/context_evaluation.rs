@@ -14,7 +14,7 @@ mod common;
 
 use std::f64::consts::FRAC_PI_2;
 
-use common::{ContextFixture, NoNames, TOLERANCE};
+use common::{ContextFixture, NoNames, TOLERANCE, render_error};
 use partsmith_features::{Bound, FeatureError, FieldUnit};
 use partsmith_model::{Expr, Units};
 
@@ -118,7 +118,7 @@ fn t003_count_with_a_fraction_is_not_a_whole_number() {
 
     assert_eq!(error.code(), "not_whole_number");
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        render_error(&error, "f-test1", &NoNames),
         "Count must be a whole number, but it is 2.5. Use 2 or 3."
     );
 }
@@ -168,7 +168,7 @@ fn t003_count_with_a_length_is_an_expression_error() {
 
     assert_eq!(error.code(), "expression");
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        render_error(&error, "f-test1", &NoNames),
         "Count: Expected a plain number, but this expression gives a length."
     );
 }
@@ -184,7 +184,7 @@ fn t004_length_with_an_angle_is_an_expression_error() {
 
     assert_eq!(error.code(), "expression");
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        render_error(&error, "f-test1", &NoNames),
         "Distance: Expected a length, but this expression gives an angle."
     );
 }
@@ -242,7 +242,7 @@ fn t019_count_below_the_minimum_suggests_the_minimum() {
 
     assert_count_out_of_range(Err(error.clone()), Bound::AtLeast(1.0));
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        render_error(&error, "f-test1", &NoNames),
         "Count must be at least 1, but it is 0.5. Use 1 or more."
     );
     assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
@@ -264,7 +264,7 @@ fn t019_fraction_in_range_is_not_a_whole_number() {
 
     assert_eq!(error.code(), "not_whole_number");
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        render_error(&error, "f-test1", &NoNames),
         "Count must be a whole number, but it is 1.5. Use 1 or 2."
     );
 }

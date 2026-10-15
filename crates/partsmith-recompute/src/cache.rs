@@ -138,6 +138,7 @@ mod tests {
         let built = Built::new(FeatureOutput {
             data: OutputData::Datum(DatumResult::Plane(OriginPlane::Xy.placement())),
             warnings: Vec::new(),
+            absent: Vec::new(),
         });
 
         assert!(built.bodies.is_empty());
@@ -155,6 +156,7 @@ mod tests {
                 measured: partsmith_features::Measurements::default(),
             }]),
             warnings: Vec::new(),
+            absent: Vec::new(),
         });
 
         assert_eq!(built.bodies.len(), 1);

@@ -7,17 +7,22 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
   type RefObject,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { sketchParamsOf } from '../app/actions/sketch'
 import { useApp, useAppState } from '../app/AppProvider'
 import { CONSTRAINT_ICONS } from '../commands/icons'
+import type { WorldAxis } from '../core/labels'
 import type { ConstraintSolveState, SketchSolution } from '../generated/protocol'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
 import { selectEditedSketch } from '../state/selectors'
-import { COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
+import { AXIS_ROLES, COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
+import { useCanvasLayer } from '../viewport/canvas-layer'
 import { positionElement } from '../viewport/overlay'
+import { sketchWorldAxes } from '../viewport/planes'
 import { hasGlyph } from './annotations'
 import {
   CONSTRAINT_TITLES,
@@ -31,7 +36,7 @@ import { DimensionEditor } from './DimensionEditor'
 import { DrawInputs } from './DrawInputs'
 import type { Vector2 } from './geometry'
 import { issueRings } from './issues'
-import type { DrawInputsPlacement } from './screen'
+import { keptInside, type DrawInputsPlacement, type ScreenBox } from './screen'
 import type { OverlayPaint } from './overlay-paint'
 import {
   createSketchController,
@@ -43,7 +48,7 @@ import {
 import { SketchHeader } from './SketchHeader'
 
 // Sketch mode over the view (ui.md 3.2, 3.12, 3.16): the sketch header and hint in the top-center
-// slot and, while a sketch is edited, its overlay: constraint glyphs, dimensions, profile issue
+// slot and, while a sketch is edited, its overlay in the viewport's canvas layer: constraint glyphs, dimensions, profile issue
 // rings, the rubber band, inference glyphs, draw inputs, the dimension editor and the selection
 // box. React renders the elements; the sketch controller writes their positions and the dimension
 // values each frame, so a drag re-renders nothing (ADR 0002).
@@ -66,6 +71,7 @@ type OverlayElements = {
   readonly drawInputs: HTMLFieldSetElement | null
   readonly editor: HTMLDivElement | null
   readonly placing: HTMLDivElement | null
+  readonly axisLabels: ReadonlyMap<WorldAxis, HTMLElement>
 }
 
 /**
@@ -85,15 +91,41 @@ function placeAt(element: HTMLElement | null, at: Vector2 | null): void {
 }
 
 /**
+ * Places an element that takes typed values at a canvas pixel, moved so its measured box keeps
+ * inside `area` (3.12), or hides it. `start` is where its box begins relative to the pixel, in its
+ * size (`keptInside`).
+ */
+function placeInside(
+  element: HTMLElement | null,
+  at: Vector2 | null,
+  start: Vector2,
+  area: ScreenBox,
+): void {
+  if (element === null || at === null) {
+    placeAt(element, null)
+    return
+  }
+  // A hidden element measures nothing, so it is shown before it is measured.
+  element.hidden = false
+  const size = { width: element.offsetWidth, height: element.offsetHeight }
+  placeAt(element, keptInside(at, size, start, area))
+}
+
+/**
  * Places the draw inputs at their corner; `data-left` and `data-above` say which way they extend,
  * which their content's translate classes follow (3.16.4).
  */
-function placeDrawInputs(element: HTMLElement | null, placement: DrawInputsPlacement | null): void {
-  placeAt(element, placement?.at ?? null)
+function placeDrawInputs(
+  element: HTMLElement | null,
+  placement: DrawInputsPlacement | null,
+  area: ScreenBox,
+): void {
   if (element !== null && placement !== null) {
     element.toggleAttribute('data-left', placement.left)
     element.toggleAttribute('data-above', placement.above)
   }
+  const start: Vector2 = [placement?.left === true ? -1 : 0, placement?.above === true ? -1 : 0]
+  placeInside(element, placement?.at ?? null, start, area)
 }
 
 function setAttribute(element: Element | null, name: string, value: string): void {
@@ -138,9 +170,13 @@ function paintOverlay(paint: OverlayPaint, elements: OverlayElements): void {
     setAttribute(box, 'height', String(bottom - top))
   }
   placeAt(elements.inference, paint.inference)
-  placeDrawInputs(elements.drawInputs, paint.drawInputs)
-  placeAt(elements.editor, paint.editor)
+  placeDrawInputs(elements.drawInputs, paint.drawInputs, paint.typingArea)
+  // The editor is centered on its anchor.
+  placeInside(elements.editor, paint.editor, [-0.5, -0.5], paint.typingArea)
   placeAt(elements.placing, paint.placing)
+  for (const [axis, element] of elements.axisLabels) {
+    placeAt(element, paint.axisLabels.get(axis) ?? null)
+  }
   // Empty draw inputs show the rubber band's measured values, written here and never by React.
   for (const input of elements.drawInputs?.querySelectorAll('input') ?? []) {
     const name = input.dataset['field']
@@ -174,6 +210,9 @@ function ringTitlesOf(solution: SketchSolution | undefined): readonly string[] {
  */
 export function SketchOverlay() {
   const sketchId = useAppState(selectEditedSketch)
+  // The layer works in canvas pixels, so it sits in the viewport's canvas layer, outside the
+  // free-area layer that holds the header (3.2); outside a viewport it renders in place.
+  const canvasLayer = useCanvasLayer()
   const [controller, setController] = useState<SketchController | null>(null)
   const model = useSyncExternalStore(
     controller?.subscribe ?? subscribeNothing,
@@ -189,15 +228,28 @@ export function SketchOverlay() {
         freePlacement={editing && model.freePlacement}
       />
       {editing ? (
-        <SketchLayer
-          key={sketchId}
-          sketchId={sketchId}
-          model={model}
-          onController={setController}
-        />
+        <Portal host={canvasLayer}>
+          <SketchLayer
+            key={sketchId}
+            sketchId={sketchId}
+            model={model}
+            onController={setController}
+          />
+        </Portal>
       ) : null}
     </>
   )
+}
+
+/** Its children in `host` through a portal, or in place without a host. */
+function Portal({
+  host,
+  children,
+}: {
+  readonly host: HTMLElement | null
+  readonly children: ReactNode
+}) {
+  return host === null ? children : createPortal(children, host)
 }
 
 type SketchLayerProps = {
@@ -237,6 +289,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
   const glyphConstraints = useMemo(() => constraints.filter(hasGlyph), [constraints])
   const dimensions = useMemo(() => constraints.filter(isDimension), [constraints])
   const selected = useMemo(() => new Set((selection ?? []).map((item) => item.key)), [selection])
+  const worldAxes = useMemo(() => (record === null ? null : sketchWorldAxes(record)), [record])
 
   const glyphElements = useRef(new Map<string, HTMLElement>())
   const labelElements = useRef(new Map<string, HTMLElement>())
@@ -252,6 +305,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
   const drawInputs = useRef<HTMLFieldSetElement>(null)
   const editor = useRef<HTMLDivElement>(null)
   const placing = useRef<HTMLDivElement>(null)
+  const axisLabelElements = useRef(new Map<WorldAxis, HTMLElement>())
 
   // The controller reads pointer input on the viewport's canvas, beside the viewport controller.
   useEffect(() => {
@@ -291,6 +345,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
         drawInputs: drawInputs.current,
         editor: editor.current,
         placing: placing.current,
+        axisLabels: axisLabelElements.current,
       })
     })
     return () => {
@@ -373,6 +428,9 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
             />
           )}
         </svg>
+        {(worldAxes ?? []).map((axis) => (
+          <SketchAxisLabel key={axis} axis={axis} elements={axisLabelElements} />
+        ))}
         {showConstraints && solved
           ? glyphConstraints.map((constraint) => (
               <ConstraintGlyph
@@ -436,6 +494,34 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
         )}
       </div>
     </>
+  )
+}
+
+/**
+ * The letter of the world axis a sketch axis lies on, on a raised chip in its axis role (3.16.2),
+ * centered on the position the painter gives its wrapper.
+ */
+function SketchAxisLabel({
+  axis,
+  elements,
+}: {
+  readonly axis: WorldAxis
+  readonly elements: RefObject<Map<WorldAxis, HTMLElement>>
+}) {
+  return (
+    <div ref={register(elements, axis)} hidden className="absolute top-0 left-0">
+      <span
+        data-testid="axis-label"
+        data-axis={axis}
+        className={clsx(
+          'block -translate-x-1/2 -translate-y-1/2 rounded-sm px-1 text-xs font-semibold',
+          COLOR_CLASSES.surfaceRaised.background,
+          COLOR_CLASSES[AXIS_ROLES[axis]].foreground,
+        )}
+      >
+        {axis}
+      </span>
+    </div>
   )
 }
 

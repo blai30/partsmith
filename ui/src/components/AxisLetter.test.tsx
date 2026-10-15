@@ -41,14 +41,15 @@ describe('AxisLetter', () => {
   })
 })
 
-describe('AxisValues (U-182)', () => {
-  function renderReadout() {
-    render(
-      <AxisValues testId="body-size" values={['40', '20', '10']} unit="mm" text="40 × 20 × 10 mm" />,
-    )
-    return screen.getByTestId('body-size')
-  }
+/** A size readout of 40 by 20 by 10 mm. */
+function renderReadout() {
+  render(
+    <AxisValues testId="body-size" values={['40', '20', '10']} unit="mm" text="40 × 20 × 10 mm" />,
+  )
+  return screen.getByTestId('body-size')
+}
 
+describe('AxisValues (U-182)', () => {
   it('reads each value after its letter, then the unit, with single spaces', () => {
     const readout = renderReadout()
     expect(readout.textContent).toBe('X 40 Y 20 Z 10 mm')
@@ -57,7 +58,14 @@ describe('AxisValues (U-182)', () => {
 
   it('wraps three equal cells that never shrink below their content', () => {
     const readout = renderReadout()
-    expect(readout).toHaveClass('flex', 'w-full', 'flex-wrap', 'items-baseline', 'gap-x-2', 'gap-y-1')
+    expect(readout).toHaveClass(
+      'flex',
+      'w-full',
+      'flex-wrap',
+      'items-baseline',
+      'gap-x-2',
+      'gap-y-1',
+    )
     const cells = [...readout.children].slice(0, 3)
     expect(cells).toHaveLength(3)
     for (const cell of cells) {

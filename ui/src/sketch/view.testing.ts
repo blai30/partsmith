@@ -17,7 +17,7 @@ import type {
 import { createAppStore, type AppState } from '../state/store'
 import { coreErrorFor } from '../test/fakes/core-api'
 import { createTestApp } from '../test/fakes/test-app'
-import { DEFAULT_CAMERA, standardViewRotation, type Camera } from '../viewport/camera'
+import { DEFAULT_CAMERA, standardViewRotation, wholeCanvas, type Camera } from '../viewport/camera'
 import type { ViewportHandle } from '../viewport/controller'
 import {
   SKETCH_ID,
@@ -84,7 +84,7 @@ export function mountView(): TestView {
   }
 }
 
-/** A viewport handle whose camera is `camera`; the other methods are mocks. */
+/** A viewport handle whose camera is `camera` over the whole test canvas; the other methods are mocks. */
 export function fixedViewport(camera: Camera = TOP_CAMERA): ViewportHandle {
   return {
     getCamera: () => camera,
@@ -95,6 +95,7 @@ export function fixedViewport(camera: Camera = TOP_CAMERA): ViewportHandle {
     lookAlong: vi.fn<ViewportHandle['lookAlong']>(),
     zoomToBounds: vi.fn<ViewportHandle['zoomToBounds']>(),
     screenRectangle: () => null,
+    viewWindow: () => wholeCanvas({ width: VIEW_PIXELS, height: VIEW_PIXELS }),
     requestRender: vi.fn<ViewportHandle['requestRender']>(),
   }
 }

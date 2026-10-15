@@ -1,7 +1,7 @@
 [package]
 name = "partsmith-features"
 description = "Feature trait, registry and built-in modeling features for Partsmith."
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { classifyView, DEFAULT_CAMERA, forward, standardViewRotation, up } from './camera'
-import type { Vector3 } from './math'
+import type { WorldAxis } from '../core/labels'
+import { rotateVector, type Vector3 } from './math'
 import {
   CUBE_FACES,
   FACE_PLACEMENT_CLASSES,
+  FACE_SIDE_AXES,
   faceCells,
   faceName,
   partById,
@@ -269,6 +271,27 @@ describe('FACE_PLACEMENT_CLASSES', () => {
       expect(translations[0]).toMatch(/^-?translate-[xyz]-12$/)
     }
   })
+})
+
+describe('FACE_SIDE_AXES (3.14)', () => {
+  const UNIT_VECTORS: Readonly<Record<WorldAxis, Vector3>> = {
+    X: [1, 0, 0],
+    Y: [0, 1, 0],
+    Z: [0, 0, 1],
+  }
+
+  it.each(CUBE_FACES)(
+    'the %s face’s horizontal sides run along its view’s right and its vertical sides along up',
+    (face) => {
+      // Each face reads upright from its standard view (above), so its sides run along that view's
+      // screen axes.
+      const rotation = standardViewRotation(face)
+      const right = rotateVector(rotation, [1, 0, 0]).map(Math.abs)
+      const upward = rotateVector(rotation, [0, 1, 0]).map(Math.abs)
+      expect(right).toEqual(closeTo(UNIT_VECTORS[FACE_SIDE_AXES[face].horizontal]))
+      expect(upward).toEqual(closeTo(UNIT_VECTORS[FACE_SIDE_AXES[face].vertical]))
+    },
+  )
 })
 
 describe('faceCells', () => {

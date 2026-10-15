@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   circleThroughThreePoints,
+  clipSegment,
   distancePointToArc,
   distancePointToSegment,
+  segmentTouchesBox,
   tessellateArc,
   type Vector2,
 } from './geometry'
@@ -113,5 +115,31 @@ describe('distancePointToArc', () => {
       Math.hypot(12, 10),
       12,
     )
+  })
+})
+
+describe('clipSegment', () => {
+  const BOX = { min: [0, 0], max: [10, 10] } as const
+
+  it('gives the whole segment when it lies inside', () => {
+    expect(clipSegment(BOX, [2, 2], [8, 4])).toEqual([0, 1])
+  })
+
+  it('gives the parameters where a crossing segment enters and leaves', () => {
+    expect(clipSegment(BOX, [-10, 5], [20, 5])).toEqual([
+      expect.closeTo(1 / 3),
+      expect.closeTo(2 / 3),
+    ])
+    expect(clipSegment(BOX, [5, 5], [5, 25])).toEqual([0, expect.closeTo(0.25)])
+  })
+
+  it('gives null for a segment beside the box, and a degenerate segment outside it', () => {
+    expect(clipSegment(BOX, [-5, -5], [-1, 20])).toBeNull()
+    expect(clipSegment(BOX, [11, 5], [11, 5])).toBeNull()
+  })
+
+  it('agrees with segmentTouchesBox', () => {
+    expect(segmentTouchesBox(BOX, [-10, 5], [20, 5])).toBe(true)
+    expect(segmentTouchesBox(BOX, [-5, -5], [-1, 20])).toBe(false)
   })
 })

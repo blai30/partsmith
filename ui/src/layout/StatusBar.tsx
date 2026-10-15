@@ -180,8 +180,8 @@ function StatusButton({
       aria-describedby={rest['aria-describedby']}
       onClick={onClick}
       className={clsx(
-        'inline-flex h-6 shrink-0 items-center rounded-sm px-2 text-xs whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
-        COLOR_CLASSES.focusRing.outline,
+        'inline-flex h-6 shrink-0 items-center rounded-md px-2 text-xs whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+        COLOR_CLASSES.focusRing.inset,
         COLOR_CLASSES.accent.outline,
         disabled
           ? clsx(COLOR_CLASSES.textDisabled.foreground, 'cursor-not-allowed')
@@ -311,9 +311,10 @@ export function StatusBar() {
     <footer
       data-testid="status-bar"
       className={clsx(
-        'col-span-3 row-start-4 flex h-7 min-w-0 items-center gap-3 overflow-x-auto border-t px-2 text-xs',
+        'relative z-10 col-span-3 row-start-4 mt-2 flex h-7 min-w-0 items-center gap-3 overflow-x-auto rounded-lg border px-2 text-xs shadow-md',
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.border.border,
+        COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.textMuted.foreground,
       )}
     >

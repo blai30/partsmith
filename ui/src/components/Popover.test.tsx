@@ -105,13 +105,14 @@ describe('Popover', () => {
     expect(isPopoverOpen(popoverElement())).toBe(true)
   })
 
-  it('is a raised floating panel', async () => {
+  it('U-188 is a raised floating panel with the popup shape', async () => {
     render(<Harness />)
     await userEvent.click(screen.getByRole('button', { name: 'Section view' }))
     const dialog = screen.getByRole('dialog', { name: 'Section' })
     expect(dialog).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
     expect(dialog).toHaveClass(COLOR_CLASSES.border.border)
-    expect(dialog).toHaveClass('border', 'rounded-md', 'shadow-lg')
+    expect(dialog).toHaveClass(COLOR_CLASSES.elevation.shadow)
+    expect(dialog).toHaveClass('pointer-events-auto', 'border', 'rounded-lg', 'shadow-lg')
   })
 
   it('takes pointer input inside a pointer-events-none parent, such as the sketch header slot', async () => {

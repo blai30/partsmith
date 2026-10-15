@@ -8,9 +8,10 @@ export function DropOverlay() {
       <div
         data-testid="drop-overlay"
         className={clsx(
-          'rounded-md border-2 border-dashed px-8 py-6 text-base font-semibold shadow-lg',
+          'rounded-xl border-2 border-dashed px-8 py-6 text-base font-semibold shadow-lg',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.accent.border,
+          COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
         )}
       >

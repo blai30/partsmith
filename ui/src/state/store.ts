@@ -20,6 +20,7 @@ import type {
   SketchParams,
 } from '../generated/protocol'
 import type { JsonSchema } from '../inspector/model'
+import { startsNarrow } from '../layout/docking'
 import { loadSettings, type Settings } from '../settings/settings'
 import type { SketchToolId } from '../sketch/session'
 import type { Camera, StandardView } from '../viewport/camera'
@@ -291,9 +292,6 @@ export type PickHint = { readonly message: string; readonly field: string | null
 
 export type AppStore = StoreApi<AppState>
 
-/** Below this window width (CSS pixels) at startup the browser starts closed (3.2). */
-const NARROW_WINDOW_WIDTH = 1024
-
 /** The page's localStorage, or null where reading it is not allowed. */
 export function browserStorage(): Storage | null {
   try {
@@ -302,10 +300,6 @@ export function browserStorage(): Storage | null {
     // Opaque origins and blocked site data throw on access.
     return null
   }
-}
-
-function startsWithBrowserOpen(): boolean {
-  return typeof window === 'undefined' || window.innerWidth >= NARROW_WINDOW_WIDTH
 }
 
 export const INITIAL_STATE: AppState = {
@@ -345,7 +339,7 @@ export const INITIAL_STATE: AppState = {
     gridSpacing: null,
   },
   panels: {
-    browserOpen: startsWithBrowserOpen(),
+    browserOpen: true,
     timelineCollapsed: false,
     paletteOpen: false,
     side: null,
@@ -358,6 +352,14 @@ export const INITIAL_STATE: AppState = {
   lastFeatureType: null,
 }
 
+/**
+ * A store from `INITIAL_STATE` and the overrides. Without overridden panels, the browser starts
+ * closed in a window narrower than 65rem at the stored UI scale, where it would float over the
+ * free area (3.2).
+ */
 export function createAppStore(overrides: Partial<AppState> = {}): AppStore {
-  return createStore<AppState>()(() => ({ ...INITIAL_STATE, ...overrides }))
+  const state = { ...INITIAL_STATE, ...overrides }
+  const narrow = overrides.panels === undefined && startsNarrow(state.settings.uiScale)
+  const panels = narrow ? { ...state.panels, browserOpen: false } : state.panels
+  return createStore<AppState>()(() => ({ ...state, panels }))
 }

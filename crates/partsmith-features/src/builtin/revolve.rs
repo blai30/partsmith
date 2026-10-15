@@ -7,21 +7,22 @@ use partsmith_model::{
     ANGULAR_TOLERANCE, Category, Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE,
     SelectionKind,
 };
+use partsmith_naming::roles;
 use partsmith_occt_sys::{Axis, Point, Vector, revolve};
 use partsmith_sketch::{Placement, ProfileCurve};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    body_hint, body_op_hint, call, essential, flag, hint, is_false, manifest, op_keyword,
-    options_hint, out_of_range, profile_arguments, require_selection, selection_hint,
-    sweep_profile, unit_hint,
+    apply_tool, body_hint, body_op_hint, call, essential, face_name, flag, hint, is_false,
+    manifest, op_keyword, options_hint, out_of_range, profile_arguments, profile_messages,
+    require_selection, selection_hint, swept_tool, unit_hint,
 };
 use crate::context::{BuildContext, ResolvedProfile};
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError, Noun};
 use crate::feature::Feature;
-use crate::output::FeatureOutput;
+use crate::output::{Absence, AbsentFace, FeatureOutput};
 use crate::params::{AxisRef, BodyOp, PlacementExt, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
@@ -118,17 +119,24 @@ impl Feature for Revolve {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let profile = context.profile("profile", &params.profile)?;
-        let axis = context.axis("axis", &params.axis)?;
+        let resolved_axis = context.axis("axis", &params.axis)?;
+        let axis = resolved_axis.value;
         if !lies_in_plane(&axis, &profile.sketch.placement) {
             return Err(FeatureError::AxisNotInPlane);
         }
         if crosses_axis(&profile, &axis) {
             return Err(FeatureError::ProfileCrossesAxis);
         }
-        let angle = turn(params, context)?.sweep_angle(params.reverse);
-        sweep_profile(context, &params.body, params.op, profile, |faces| {
-            revolve(faces, &axis, angle)
-        })
+        let turn = turn(params, context)?;
+        let angle = turn.sweep_angle(params.reverse);
+        let tool = swept_tool(context, &profile, |faces| revolve(faces, &axis, angle))?;
+        let mut messages = profile_messages(profile);
+        messages.extend(resolved_axis.warnings);
+        let mut output = apply_tool(context, &params.body, params.op, tool, messages)?;
+        if turn == Turn::Full {
+            output.absent = full_turn_caps(context.feature())?;
+        }
+        Ok(output)
     }
 
     /// `revolve(profile, axis, angle, regions=..., reverse=True, op=...)`, without `angle` for a
@@ -167,6 +175,19 @@ impl Turn {
             Turn::Partial(angle) => angle,
         }
     }
+}
+
+/// The caps a full turn does not make, in name order (features/revolve.md section 3.3 step 7).
+fn full_turn_caps(feature: &Id) -> Result<Vec<AbsentFace>, FeatureError> {
+    [roles::END_CAP, roles::START_CAP]
+        .into_iter()
+        .map(|role| {
+            Ok(AbsentFace {
+                name: face_name(feature, role, None)?,
+                why: Absence::FullTurn,
+            })
+        })
+        .collect()
 }
 
 /// The turn of the extent with the range checks of features/revolve.md section 3.3 step 4: an

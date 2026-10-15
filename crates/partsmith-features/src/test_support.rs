@@ -74,6 +74,8 @@ pub(crate) struct Fixture {
     pub(crate) values: Values,
     /// Declared bodies.
     pub(crate) bodies: BTreeMap<Id, BodyState>,
+    /// The writer chain of each declared body; empty unless a test sets it.
+    pub(crate) history: BTreeMap<Id, Vec<(Id, BodyState)>>,
     /// Outputs of declared features.
     pub(crate) upstream: BTreeMap<Id, Arc<FeatureOutput>>,
     /// Bytes of declared assets.
@@ -90,6 +92,7 @@ impl Fixture {
             manifest: manifest(Vec::new()),
             values: Values::default(),
             bodies: BTreeMap::new(),
+            history: BTreeMap::new(),
             upstream: BTreeMap::new(),
             assets: BTreeMap::new(),
             cancel: CancelToken::new(),
@@ -110,6 +113,7 @@ impl Fixture {
             units: Units::Mm,
             values: &self.values,
             bodies: &self.bodies,
+            history: &self.history,
             upstream: &self.upstream,
             assets: &self.assets,
             cancel: &self.cancel,

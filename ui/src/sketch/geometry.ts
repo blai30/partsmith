@@ -251,12 +251,15 @@ export function boxContains(box: Box2, point: Vector2): boolean {
   )
 }
 
-/** Whether the segment from `start` to `end` has any part inside the box. */
-export function segmentTouchesBox(box: Box2, start: Vector2, end: Vector2): boolean {
-  if (boxContains(box, start) || boxContains(box, end)) {
-    return true
-  }
-  // Liang-Barsky clipping: the segment enters the box when the clipped interval is not empty.
+/**
+ * The part of the segment from `start` to `end` inside the box, as the interval of its parameter
+ * (0 at `start`, 1 at `end`), or null when no part is inside (Liang-Barsky clipping).
+ */
+export function clipSegment(
+  box: Box2,
+  start: Vector2,
+  end: Vector2,
+): readonly [enter: number, leave: number] | null {
   let enter = 0
   let leave = 1
   const delta = subtract(end, start)
@@ -269,7 +272,7 @@ export function segmentTouchesBox(box: Box2, start: Vector2, end: Vector2): bool
   for (const [rate, room] of bounds) {
     if (rate === 0) {
       if (room < 0) {
-        return false
+        return null
       }
       continue
     }
@@ -280,8 +283,13 @@ export function segmentTouchesBox(box: Box2, start: Vector2, end: Vector2): bool
       leave = Math.min(leave, amount)
     }
     if (enter > leave) {
-      return false
+      return null
     }
   }
-  return true
+  return [enter, leave]
+}
+
+/** Whether the segment from `start` to `end` has any part inside the box. */
+export function segmentTouchesBox(box: Box2, start: Vector2, end: Vector2): boolean {
+  return clipSegment(box, start, end) !== null
 }

@@ -2,21 +2,22 @@
 //! with a body (features/extrude.md).
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
+use partsmith_naming::{ElementKind, ElementName, NamingMap, roles};
 use partsmith_occt_sys::{Point, Vector, extrude};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    THROUGH_ALL_MARGIN, body_hint, body_op_hint, call, essential, farthest_corner, flag, hint,
-    is_false, is_positive_length, length_in_range, manifest, op_keyword, options_hint,
-    positive_length, profile_arguments, require_selection, selection_hint, sweep_profile,
-    unit_hint,
+    THROUGH_ALL_MARGIN, apply_tool, body_hint, body_op_hint, call, essential, face_name,
+    farthest_corner, flag, hint, is_false, is_positive_length, length_in_range, manifest,
+    op_keyword, options_hint, positive_length, profile_arguments, profile_messages,
+    require_selection, selection_hint, swept_tool, unit_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
-use crate::error::{Bound, FeatureError, Noun};
+use crate::error::{Bound, FeatureError, FeatureWarning, Noun};
 use crate::feature::Feature;
-use crate::output::FeatureOutput;
+use crate::output::{Absence, AbsentFace, FeatureOutput, OutputData};
 use crate::params::{BodyOp, PlacementExt, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
@@ -149,9 +150,19 @@ impl Feature for Extrude {
             plane.normal
         };
         let (start, end) = interval(params, context, plane.origin, direction)?;
-        sweep_profile(context, &params.body, params.op, profile, |faces| {
+        let tool = swept_tool(context, &profile, |faces| {
             extrude(faces, direction, start, end)
-        })
+        })?;
+        let caps = match params.op {
+            BodyOp::Cut => Some(CutCaps::of(context.feature(), &tool.naming)?),
+            _ => None,
+        };
+        let messages = profile_messages(profile);
+        let mut output = apply_tool(context, &params.body, params.op, tool, messages)?;
+        if let Some(caps) = caps {
+            output.absent = caps.absent_from(&output);
+        }
+        Ok(output)
     }
 
     fn python(params: &ExtrudeParams, names: &dyn PythonNames) -> Option<PythonCall> {
@@ -217,6 +228,7 @@ fn interval(
             let state = context.body(&params.body)?;
             let Some(shape) = state.shape() else {
                 return Err(FeatureError::BodyEmpty {
+                    field: context.field("body"),
                     body: params.body.clone(),
                     use_new: true,
                 });
@@ -229,6 +241,74 @@ fn interval(
             }
             Ok((0.0, reach + THROUGH_ALL_MARGIN))
         }
+    }
+}
+
+/// The caps of a cut's tool, read before the cut, to find the end caps its result does not have
+/// (features/extrude.md section 3.3 step 6).
+struct CutCaps {
+    /// The tool's end caps: `<feature>/end-cap`, or `end-cap#n` for several.
+    end_caps: Vec<ElementName>,
+    /// `<feature>/start-cap`, the split base of every start cap.
+    start_cap: ElementName,
+}
+
+impl CutCaps {
+    /// The caps of the tool `feature` named.
+    fn of(feature: &Id, tool: &NamingMap) -> Result<CutCaps, FeatureError> {
+        let end_cap = face_name(feature, roles::END_CAP, None)?;
+        let end_caps = tool
+            .names(ElementKind::Face)
+            .map(|(_, name)| name)
+            .filter(|name| name.split_base() == end_cap)
+            .cloned()
+            .collect();
+        Ok(CutCaps {
+            end_caps,
+            start_cap: face_name(feature, roles::START_CAP, None)?,
+        })
+    }
+
+    /// Each end cap the cut's result does not have (no face of that name or split from it):
+    /// `Through` when no start cap is in the result either, else `EndOutside`. A cut without
+    /// effect records none, since its `NoEffect` warning tells why none of its faces are there.
+    fn absent_from(&self, output: &FeatureOutput) -> Vec<AbsentFace> {
+        let no_effect = output
+            .warnings
+            .iter()
+            .any(|warning| matches!(warning, FeatureWarning::NoEffect { .. }));
+        let OutputData::Bodies(updates) = &output.data else {
+            return Vec::new();
+        };
+        let Some(update) = updates.first().filter(|_| !no_effect) else {
+            return Vec::new();
+        };
+        let result: Vec<&ElementName> = update
+            .naming
+            .names(ElementKind::Face)
+            .map(|(_, name)| name)
+            .collect();
+        let has = |cap: &ElementName| {
+            result
+                .iter()
+                .any(|name| *name == cap || name.is_split_descendant_of(cap))
+        };
+        let why = if result
+            .iter()
+            .any(|name| name.split_base() == self.start_cap)
+        {
+            Absence::EndOutside
+        } else {
+            Absence::Through
+        };
+        self.end_caps
+            .iter()
+            .filter(|cap| !has(cap))
+            .map(|cap| AbsentFace {
+                name: cap.clone(),
+                why,
+            })
+            .collect()
     }
 }
 

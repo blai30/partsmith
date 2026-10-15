@@ -1,18 +1,11 @@
 import { useEffect, useEffectEvent, type RefObject } from 'react'
+import { isNarrowWindow } from './docking'
 
-// Narrow windows (ui.md 3.2): below the lg breakpoint the browser and the side panel open as
-// overlays above the viewport, and close on Esc or on a pointer press outside them.
-
-/** Tailwind's lg breakpoint; media queries measure rem in the browser's default font size. */
-const NARROW_QUERY = '(width < 64rem)'
-
-/** Whether the window is narrower than lg, where the browser and the side panel are overlays. */
-export function isNarrowWindow(): boolean {
-  return typeof matchMedia === 'function' && matchMedia(NARROW_QUERY).matches
-}
+// Narrow windows (ui.md 3.2): below 65rem the browser and the side panel float over the free area
+// as overlay islands, and close on Esc or on a pointer press outside them.
 
 /**
- * Closes the panel on Esc or a press outside it while the window is narrower than lg. A press on a
+ * Closes the panel on Esc or a press outside it while the window is narrower than 65rem. A press on a
  * control of the panel (`aria-controls` naming the panel's id) is left to that control.
  */
 export function useOverlayDismiss(

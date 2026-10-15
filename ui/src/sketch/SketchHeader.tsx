@@ -31,6 +31,7 @@ import {
 } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
+import { TopCenterSlot } from '../viewport/TopCenterSlot'
 import { constraintTitle } from './constraints'
 import { entitySelectionItem } from './hit'
 import { outlineProblems, profileFindingMessage } from './issues'
@@ -76,7 +77,7 @@ export type SketchHeaderProps = {
 export function SketchHeader({ hint = null, freePlacement = false }: SketchHeaderProps) {
   const sketchId = useAppState(selectEditedSketch)
   return (
-    <div className="pointer-events-none absolute inset-x-32 top-4 z-10 flex flex-col items-center gap-2">
+    <TopCenterSlot>
       {sketchId === undefined ? null : sketchId === null ? (
         <PlanePicking />
       ) : (
@@ -89,7 +90,7 @@ export function SketchHeader({ hint = null, freePlacement = false }: SketchHeade
         hint={hint}
         freePlacement={freePlacement}
       />
-    </div>
+    </TopCenterSlot>
   )
 }
 
@@ -112,9 +113,10 @@ function PlanePicking() {
       // A narrow slot (200 percent UI scale) wraps the prompt and the buttons onto more lines
       // instead of pushing them out of the viewport.
       className={clsx(
-        'pointer-events-auto flex min-h-10 max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-md border py-1 pr-1 pl-3 text-sm shadow-sm',
+        'pointer-events-auto flex min-h-10 max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border py-1 pr-1 pl-3 text-sm shadow-md',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
+        COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}
     >
@@ -178,9 +180,10 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
           setOpen((wasOpen) => !wasOpen)
         }}
         className={clsx(
-          'pointer-events-auto flex h-8 max-w-full items-center gap-3 rounded-md border pr-2 pl-3 text-sm whitespace-nowrap shadow-sm transition-colors duration-150 motion-reduce:transition-none',
+          'pointer-events-auto flex h-8 max-w-full items-center gap-3 rounded-lg border pr-2 pl-3 text-sm whitespace-nowrap shadow-md transition-colors duration-150 motion-reduce:transition-none',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
+          COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
           COLOR_CLASSES.hover.background,
           COLOR_CLASSES.focusRing.outline,
@@ -195,7 +198,7 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
             <span
               className={clsx(
                 'min-w-0 truncate border-l pl-3',
-                COLOR_CLASSES.border.border,
+                COLOR_CLASSES.divider.border,
                 status.error
                   ? COLOR_CLASSES.errorText.foreground
                   : COLOR_CLASSES.textMuted.foreground,
@@ -264,9 +267,10 @@ function SketchHint({ sketchId, active, hint, freePlacement }: SketchHintProps) 
       className={clsx(
         text === null
           ? 'sr-only'
-          : 'max-w-full rounded-md border px-3 py-1 text-center text-xs text-pretty shadow-sm',
+          : 'max-w-full rounded-lg border px-3 py-1 text-center text-xs text-pretty shadow-md',
         text !== null && COLOR_CLASSES.surfaceRaised.background,
         text !== null && COLOR_CLASSES.border.border,
+        text !== null && COLOR_CLASSES.elevation.shadow,
         text !== null && warning && COLOR_CLASSES.text.foreground,
         text !== null && !warning && COLOR_CLASSES.textMuted.foreground,
       )}

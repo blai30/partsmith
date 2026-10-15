@@ -431,6 +431,12 @@ describe('parameter name completion (2.13, U-118)', () => {
     const { input, user, onCommit } = setUpNames()
     await user.type(input, 'si')
     expect(options()[0]).toBe('size = 20 mm')
+    // U-188: the list is a popup.
+    expect(screen.getByTestId('expression-suggestions')).toHaveClass(
+      'rounded-lg',
+      'border',
+      'shadow-lg',
+    )
     expect(input).toHaveAttribute('aria-expanded', 'true')
     expect(input).not.toHaveAttribute('aria-activedescendant')
     await user.keyboard('{Tab}')

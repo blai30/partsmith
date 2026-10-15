@@ -5,7 +5,7 @@ use partsmith_sketch::Placement;
 use schemars::Schema;
 use serde_json::Value;
 
-use crate::context::BuildContext;
+use crate::context::{BuildContext, WithWarnings};
 use crate::deps::Dependencies;
 use crate::error::FeatureError;
 use crate::params::{PlacementExt, PlaneRef};
@@ -55,16 +55,23 @@ impl PrimitivePlacement<'_> {
         }
     }
 
-    /// The primitive's local frame: the plane's placement with its origin moved to the position.
-    pub fn frame(&self, context: &BuildContext<'_>) -> Result<Placement, FeatureError> {
+    /// The primitive's local frame: the plane's placement with its origin moved to the position,
+    /// with the warnings and notices of the plane's reference (section 3.8).
+    pub fn frame(
+        &self,
+        context: &BuildContext<'_>,
+    ) -> Result<WithWarnings<Placement>, FeatureError> {
         let plane = context.plane("plane", self.plane)?;
         let mut offset = [0.0; 3];
         for ((value, field), expr) in offset.iter_mut().zip(POSITION_FIELDS).zip(self.position) {
             *value = context.eval_length(field, expr)?;
         }
-        Ok(Placement {
-            origin: plane.local_to_world(offset),
-            ..plane
+        Ok(WithWarnings {
+            value: Placement {
+                origin: plane.value.local_to_world(offset),
+                ..plane.value
+            },
+            warnings: plane.warnings,
         })
     }
 

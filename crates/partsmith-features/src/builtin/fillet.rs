@@ -63,7 +63,7 @@ impl Feature for Fillet {
         params: &FilletParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let (state, shape) = solid_body(context, &params.body)?;
+        let (state, shape) = solid_body(context, "body", &params.body)?;
         let radius = positive_length(context, "radius", &params.radius)?;
         let selection = select_edges(context, &params.body, state, shape, &params.edges)?;
         if selection.edges.is_empty() {

@@ -2,7 +2,8 @@ import type { Placement, SketchSolution } from '../generated/protocol'
 import { tessellateArc, type Vector2 } from '../sketch/geometry'
 import type { SelectionItem, SketchItemReference } from '../state/store'
 import type { Geometry } from './backend'
-import { addScaled, cross, extendBounds, type Bounds, type Vector3 } from './math'
+import { framedArea, visibleHeightAtTarget, type Camera, type ViewWindow } from './camera'
+import { addScaled, cross, dot, extendBounds, subtract, type Bounds, type Vector3 } from './math'
 import type { SelectionItemKind } from './picking'
 
 // Sketch geometry as the scene draws it (ui.md 3.12 pass 7, 3.16.2): curves as polylines on the
@@ -38,6 +39,38 @@ export function onPlane(placement: Placement, yAxis: Vector3, point: Vector2): V
 /** The sketch +v direction of a placement. */
 export function yAxisOf(placement: Placement): Vector3 {
   return cross(placement.normal, placement.x_axis)
+}
+
+/** A sketch's axes reach this many visible heights (times the canvas's longer side in free-area heights, when longer) each way. */
+const SKETCH_AXIS_REACH = 4
+
+/**
+ * Where the scene draws a sketch's axes (3.16.2): across the view, from `center - reach` to
+ * `center + reach` along each in sketch millimeters, about the camera target's foot on the plane
+ * rounded to a `quantum`, so they are uploaded again only after a large camera change.
+ */
+export type SketchAxisSpans = {
+  readonly center: Vector2
+  readonly reach: number
+  readonly quantum: number
+}
+
+export function sketchAxisSpans(
+  placement: Placement,
+  camera: Camera,
+  view: ViewWindow,
+): SketchAxisSpans {
+  // The visible height spans the free area; the axes cross the whole canvas around it (2.11).
+  const across = Math.max(view.width, view.height) / Math.max(framedArea(view).height, 1)
+  const reach = SKETCH_AXIS_REACH * visibleHeightAtTarget(camera) * Math.max(across, 1)
+  const offset = subtract(camera.target, placement.origin)
+  const quantum = Math.max(reach / 8, 1e-6)
+  const quantized = (along: number): number => Math.round(along / quantum) * quantum
+  return {
+    center: [quantized(dot(offset, placement.x_axis)), quantized(dot(offset, yAxisOf(placement)))],
+    reach,
+    quantum,
+  }
 }
 
 /** The 2D polyline of an entity's curve, or null for a point entity. */

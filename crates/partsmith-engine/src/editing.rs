@@ -1,6 +1,6 @@
 //! Edits, transactions, coalescing, undo and redo, and parameter renames (engine.md section 3.3).
 
-use partsmith_features::{DocumentNames, Registry};
+use partsmith_features::Registry;
 use partsmith_model::{Document, Edit, Id, RecordKind, Step, Transaction};
 use partsmith_protocol::DocHandle;
 
@@ -8,6 +8,7 @@ use crate::document::OpenTransaction;
 use crate::error::{EngineError, saturating_u32};
 use crate::session::Session;
 use crate::state::{feature_label, is_active};
+use crate::status::render_feature_error;
 use crate::types::{Committed, Stepped};
 
 impl Session {
@@ -251,7 +252,7 @@ fn canonical_edit(
             index: edit_index,
             feature: feature.id.clone(),
             feature_type: feature.kind.clone(),
-            message: error.render(&DocumentNames { document, registry }, document.units),
+            message: render_feature_error(&error, document, registry, &feature.id),
         })?;
     Ok(match edit {
         Edit::AddFeature { index, .. } => Edit::AddFeature {

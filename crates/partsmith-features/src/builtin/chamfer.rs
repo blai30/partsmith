@@ -168,7 +168,7 @@ impl Feature for Chamfer {
         params: &ChamferParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let (state, shape) = solid_body(context, &params.body)?;
+        let (state, shape) = solid_body(context, "body", &params.body)?;
         let (distances, field) = match &params.distance {
             ChamferDistance::Equal { expr } => (
                 Distances::Equal(positive_length(context, "distance.expr", expr)?),

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { showPickHint } from '../app/actions/notifications'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import type { Diagnostic, FeatureStatus } from '../generated/protocol'
+import type { BoundingBox, Diagnostic, FeatureStatus } from '../generated/protocol'
 import {
   CYLINDRICAL_FACE,
   cubeDocumentState,
@@ -514,15 +514,93 @@ describe('the selection inspector (3.8)', () => {
     expect(panel).toHaveAttribute('data-mode', 'selection')
     expect(panel).toHaveAccessibleName('Selection')
     expect(within(panel).getByTestId('selection-title')).toHaveTextContent('Cube')
-    expect(within(panel).getByTestId('body-size')).toHaveTextContent('20 × 20 × 20 mm')
-    expect(within(panel).getByTestId('body-center')).toHaveTextContent('0, 0, 10 mm')
-    expect(within(panel).getByTestId('body-size')).toHaveClass(FONT_CLASSES.values)
+    expect(within(panel).getByTestId('body-size')).toHaveAttribute('data-value', '20 × 20 × 20 mm')
+    expect(within(panel).getByTestId('body-center')).toHaveAttribute('data-value', '0, 0, 10 mm')
     expect(within(panel).getByRole('switch', { name: 'Visible' })).toBeChecked()
   })
 
-  it('shows "Empty" for a body without geometry', () => {
-    renderInspector(cubeDocumentState({ meshes: {} }), { selection: [bodyItem('b-cube', 'Cube')] })
-    expect(within(inspector()).getByTestId('body-size')).toHaveTextContent('Empty')
+  describe('coordinate readouts (3.8, U-182)', () => {
+    const BOX_BOUNDS: BoundingBox = { min: [0, 0, 0], max: [40, 20, 10] }
+    const AXIS_FOREGROUNDS = [
+      COLOR_CLASSES.axisX.foreground,
+      COLOR_CLASSES.axisY.foreground,
+      COLOR_CLASSES.axisZ.foreground,
+    ]
+
+    function renderBox(): HTMLElement {
+      renderInspector(cubeDocumentState({ meshes: { 'b-cube': meshSummary(1, BOX_BOUNDS) } }), {
+        selection: [bodyItem('b-cube', 'Cube')],
+      })
+      return inspector()
+    }
+
+    it('U-182 reads the size and center after their axis letters, keeping the plain text', () => {
+      const panel = renderBox()
+      const size = within(panel).getByTestId('body-size')
+      const center = within(panel).getByTestId('body-center')
+      expect(size.textContent).toBe('X 40 Y 20 Z 10 mm')
+      expect(size).toHaveAttribute('data-value', '40 × 20 × 10 mm')
+      expect(center.textContent).toBe('X 20 Y 10 Z 5 mm')
+      expect(center).toHaveAttribute('data-value', '20, 10, 5 mm')
+    })
+
+    it.each(['body-size', 'body-center'])(
+      'U-182 puts %s on a line of its own under its label, in three cells and the unit',
+      (testId) => {
+        const readout = within(renderBox()).getByTestId(testId)
+        expect(readout).toHaveClass(
+          'flex',
+          'w-full',
+          'flex-wrap',
+          'items-baseline',
+          'gap-x-2',
+          'gap-y-1',
+        )
+        const label = readout.previousElementSibling
+        expect(label).toHaveTextContent(testId === 'body-size' ? /^Size$/ : /^Center$/)
+        expect(label).toHaveClass('text-xs', COLOR_CLASSES.textMuted.foreground)
+        expect(readout.parentElement).toHaveClass('flex-col')
+        const cells = [...readout.children].slice(0, 3)
+        for (const [index, cell] of cells.entries()) {
+          expect(cell).toHaveClass('flex', 'flex-1', 'basis-0', 'items-baseline', 'gap-1')
+          const letter = within(cell as HTMLElement).getByTestId('axis-letter')
+          expect(letter).toHaveTextContent(['X', 'Y', 'Z'][index] ?? '')
+          expect(letter).not.toHaveAttribute('aria-hidden')
+          expect(letter).toHaveClass('font-semibold', AXIS_FOREGROUNDS[index] ?? '')
+          expect(cell.lastElementChild).toHaveClass('tabular-nums', FONT_CLASSES.values)
+        }
+        expect(readout.lastElementChild).toHaveTextContent(/^mm$/)
+        expect(readout.lastElementChild).toHaveClass('shrink-0')
+      },
+    )
+
+    it('U-182 shows "Empty" without letters and no center for a body without geometry', () => {
+      renderInspector(cubeDocumentState({ meshes: {} }), {
+        selection: [bodyItem('b-cube', 'Cube')],
+      })
+      const size = within(inspector()).getByTestId('body-size')
+      expect(size).toHaveTextContent(/^Empty$/)
+      expect(size).toHaveAttribute('data-value', 'Empty')
+      expect(within(inspector()).queryByTestId('axis-letter')).toBeNull()
+      expect(within(inspector()).queryByTestId('body-center')).toBeNull()
+    })
+
+    it('U-182 reads a vertex’s position after its axis letters', () => {
+      const vertex = {
+        name: 'vertex(f-ext1/end-cap|f-ext1/side-0|f-ext1/side-1)',
+        kind: 'vertex' as const,
+        body: 'b-cube',
+        feature: 'f-ext1',
+        reference: CUBE_TOP_FACE.reference,
+        centroid: [10, -10, 20] as [number, number, number],
+        adjacent: [],
+      }
+      renderInspector(cubeDocumentState(), { selection: [elementItem(vertex)] })
+      const position = within(inspector()).getByTestId('vertex-position')
+      expect(position.textContent).toBe('X 10 Y -10 Z 20 mm')
+      expect(position).toHaveAttribute('data-value', '10, -10, 20 mm')
+      expect(position.previousElementSibling).toHaveTextContent(/^Position$/)
+    })
   })
 
   it('commits a material with Enter as "Change material"', async () => {

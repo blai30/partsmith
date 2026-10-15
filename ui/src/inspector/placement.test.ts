@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { placeInspector, type Rectangle } from './placement'
+import { inspectorBounds, placeInspector, type Rectangle } from './placement'
 
 const BOUNDS: Rectangle = { x: 0, y: 0, width: 1000, height: 600 }
 const PANEL = { width: 320, height: 400 }
@@ -71,5 +71,42 @@ describe('placeInspector', () => {
     expect(
       placeInspector({ anchor: anchor(300, 150, 50, 50), panel: PANEL, bounds, gap: 8 }),
     ).toEqual({ x: 358, y: 150 })
+  })
+})
+
+describe('inspectorBounds (U-187)', () => {
+  const area: Rectangle = { x: 0, y: 0, width: 992, height: 548 }
+  const controls: Rectangle = { x: 16, y: 16, width: 42, height: 150 }
+  const slot: Rectangle = { x: 176, y: 16, width: 640, height: 80 }
+  const panel = { width: 320, height: 300 }
+
+  it('U-187 starts right of the viewport controls, so an inspector in the corner leaves them free', () => {
+    const bounds = inspectorBounds({ area, controls, slot: null, panel })
+    expect(bounds).toEqual({ x: 58, y: 0, width: 934, height: 548 })
+    expect(placeInspector({ anchor: null, panel, bounds })).toEqual({ x: 74, y: 16 })
+  })
+
+  it('U-187 places an anchored inspector by placeInspector inside those bounds', () => {
+    const bounds = inspectorBounds({ area, controls, slot: null, panel })
+    const moved = anchor(600 - 280, 200 - 64, 40, 40)
+    expect(placeInspector({ anchor: moved, panel, bounds })).toEqual({ x: 376, y: 136 })
+  })
+
+  it('U-187 starts under the top-center slot content where the panel fits under it', () => {
+    const bounds = inspectorBounds({ area, controls, slot, panel })
+    expect(placeInspector({ anchor: null, panel, bounds })).toEqual({ x: 74, y: 112 })
+  })
+
+  it('U-187 keeps the free area top for a panel too tall to fit under the slot content', () => {
+    const tall = { width: 320, height: 450 }
+    const bounds = inspectorBounds({ area, controls, slot, panel: tall })
+    expect(placeInspector({ anchor: null, panel: tall, bounds })).toEqual({ x: 74, y: 16 })
+  })
+
+  it('U-187 keeps the free area left side where right of the controls is too narrow', () => {
+    const narrow: Rectangle = { x: 0, y: 0, width: 384, height: 548 }
+    const bounds = inspectorBounds({ area: narrow, controls, slot: null, panel })
+    expect(bounds.x).toBe(0)
+    expect(placeInspector({ anchor: null, panel, bounds })).toEqual({ x: 16, y: 16 })
   })
 })

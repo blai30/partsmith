@@ -1,4 +1,5 @@
-// Where the floating inspector opens (ui.md 3.7): beside the items it is about, inside the viewport.
+// Where the floating inspector opens (ui.md 3.7): beside the items it is about, inside the free
+// area, clear of the viewport controls and the top-center slot's content where it still fits.
 
 /** A rectangle in CSS pixels. */
 export type Rectangle = {
@@ -41,4 +42,32 @@ export function placeInspector(input: {
   const bottom = bounds.y + bounds.height - panel.height - gap
   const y = panel.height > bounds.height - 2 * gap ? top : Math.min(Math.max(anchor.y, top), bottom)
   return { x, y }
+}
+
+/**
+ * The bounds the inspector opens in (3.7): the free area, with its left side moved to the right
+ * edge of the viewport controls and its top side to the bottom of the top-center slot's content,
+ * each only where that still leaves the panel's size plus two gaps. All rectangles are in the
+ * free-area layer's coordinates; `controls` and `slot` are null when not shown.
+ */
+export function inspectorBounds(input: {
+  readonly area: Rectangle
+  readonly controls: Rectangle | null
+  readonly slot: Rectangle | null
+  readonly panel: { readonly width: number; readonly height: number }
+  readonly gap?: number
+}): Rectangle {
+  const { area, controls, slot, panel } = input
+  const gap = input.gap ?? DEFAULT_GAP
+  const right = area.x + area.width
+  const bottom = area.y + area.height
+  const left =
+    controls !== null && right - (controls.x + controls.width) >= panel.width + 2 * gap
+      ? controls.x + controls.width
+      : area.x
+  const top =
+    slot !== null && bottom - (slot.y + slot.height) >= panel.height + 2 * gap
+      ? slot.y + slot.height
+      : area.y
+  return { x: left, y: top, width: right - left, height: bottom - top }
 }

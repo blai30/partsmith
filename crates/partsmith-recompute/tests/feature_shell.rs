@@ -4,6 +4,7 @@
 
 mod feature_support;
 
+use std::collections::BTreeMap;
 use std::f64::consts::PI;
 use std::time::Duration;
 
@@ -15,7 +16,8 @@ use feature_support::{
     assert_volume, body_update, document, face, face_index, face_names_with_prefix, load_example,
     median_failed_build_time, suggested_limit,
 };
-use partsmith_features::{BodyChange, FeatureError};
+use feature_support::{assert_messages_pass_lint, message};
+use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, Fix};
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
 
@@ -310,12 +312,40 @@ fn t007_removed_face_lost() {
     let run = Run::records(&["b-1"], &[BOX805030, &shell_record("2", &[LOST_FACE])]);
 
     run.assert_error("f-sh1", "references_not_found");
+    // Recompute's diagnosis: `f-box9` is not in the document, which the face's description already says.
+    let diagnosis = Diagnosis {
+        losses: BTreeMap::from([(
+            0,
+            Explanation {
+                text: "is gone".to_string(),
+                after: None,
+                fixes: Vec::new(),
+                upstream: false,
+            },
+        )]),
+        ..Diagnosis::default()
+    };
     assert_eq!(
-        run.messages("f-sh1"),
-        [
-            "The face selected for Faces to remove can no longer be found. Re-pick it in the repair panel."
-        ]
+        run.render_error("f-sh1", &diagnosis),
+        "A face of a feature that is not in this document selected for Faces to remove is gone."
     );
+    let fixes = run.error_fixes("f-sh1", &diagnosis);
+    let (pick, candidates) = fixes.split_last().expect("the error has fixes");
+    assert_eq!(
+        pick,
+        &Fix::Pick {
+            pointer: "/remove_faces/0".to_string()
+        }
+    );
+    assert!(
+        !candidates.is_empty()
+            && candidates.iter().all(|fix| matches!(
+                fix,
+                Fix::UseReferences { pointer, references } if pointer == "/remove_faces/0" && references.len() == 1
+            )),
+        "a UseReferences per candidate face, then Pick: {fixes:?}"
+    );
+    assert_messages_pass_lint(&run, "f-sh1");
     assert_unchanged(&run, "f-sh1", "b-1");
 }
 
@@ -329,11 +359,12 @@ fn t008_one_of_two_removed_faces_lost() {
     assert_list_field(warning.field(), "remove_faces", 1);
     assert_element_repair(warning.repair(), "/remove_faces/1", "b-1");
     assert_eq!(
-        run.messages("f-sh1"),
-        [
-            "One of the faces selected for Faces to remove can no longer be found, so it was skipped. Re-pick it in the repair panel."
-        ]
+        message(&run, "f-sh1", "reference_missing")
+            .pointer
+            .as_deref(),
+        Some("/remove_faces/1")
     );
+    assert_messages_pass_lint(&run, "f-sh1");
     assert_open_top_geometry(&run);
 }
 
@@ -368,7 +399,7 @@ fn t011_empty_body() {
     assert_eq!(
         run.messages("f-sh1"),
         [
-            "Body 'Body 1' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid."
+            "Body 'Body 1' has no solid at this point, so this shell has nothing to work on. Pick a body that has a solid."
         ]
     );
 }

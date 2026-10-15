@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use partsmith_features::{DocumentNames, Registry, SketchResult};
+use partsmith_features::{Registry, SketchResult};
 use partsmith_model::{Dimension, Document, FeatureRecord, Id, Scope};
 use partsmith_protocol::{
     ConstraintSolveState, ConstraintState, RegionInfo, SketchSolution, SolvedEntity, SolvedPoint,
@@ -15,6 +15,7 @@ use partsmith_sketch::{
 };
 
 use crate::error::EngineError;
+use crate::status::render_feature_error;
 
 /// The type name of sketch features.
 pub(crate) const SKETCH_TYPE: &str = "sketch";
@@ -40,7 +41,7 @@ pub(crate) fn sketch_params(
     let validated = registry
         .validate_and_canonicalize(record)
         .map_err(|error| EngineError::InvalidSketch {
-            message: error.render(&DocumentNames { document, registry }, document.units),
+            message: render_feature_error(&error, document, registry, &record.id),
         })?;
     serde_json::from_value(serde_json::Value::Object(validated.record.params))
         .map_err(EngineError::unexpected)

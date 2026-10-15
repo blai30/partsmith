@@ -454,6 +454,54 @@ describe('overlays', () => {
     }
   })
 
+  it('U-183 labels the shown origin axes with their letters in their axis roles on a raised chip (3.12)', () => {
+    setUp({
+      view: {
+        ...INITIAL_STATE.view,
+        sessionVisible: { 'origin:X': true, 'origin:Y': true, 'origin:Z': true },
+      },
+    })
+    flush()
+    const labels = screen.getAllByTestId('axis-label')
+    expect(labels.map((label) => label.textContent)).toEqual(['X', 'Y', 'Z'])
+    const foregrounds = [
+      COLOR_CLASSES.axisX.foreground,
+      COLOR_CLASSES.axisY.foreground,
+      COLOR_CLASSES.axisZ.foreground,
+    ]
+    for (const [index, label] of labels.entries()) {
+      expect(label).toHaveAttribute('data-axis', label.textContent)
+      expect(label).toHaveClass(
+        'font-semibold',
+        foregrounds[index] ?? '',
+        COLOR_CLASSES.surfaceRaised.background,
+      )
+      expect(label).toHaveAttribute('data-positioned')
+    }
+  })
+
+  it('labels only the shown origin axes, and none while a sketch is edited (3.16.2)', () => {
+    setUp({ view: { ...INITIAL_STATE.view, sessionVisible: { 'origin:Z': true } } })
+    flush()
+    expect(screen.getAllByTestId('axis-label').map((label) => label.dataset['axis'])).toEqual(['Z'])
+    cleanup()
+    setUp({
+      context: 'sketch',
+      sketch: {
+        sketchId: 'f-sk1',
+        tool: null,
+        construction: false,
+        showConstraints: true,
+        selection: [],
+        dragging: false,
+        cameraBefore: null,
+      },
+      view: { ...INITIAL_STATE.view, sessionVisible: { 'origin:Z': true } },
+    })
+    flush()
+    expect(screen.queryAllByTestId('axis-label')).toEqual([])
+  })
+
   it('labels only the origin planes that are drawn', () => {
     setUp({ view: { ...INITIAL_STATE.view, sessionVisible: { 'origin:XZ': true } } })
     flush()

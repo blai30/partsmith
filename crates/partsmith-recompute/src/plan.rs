@@ -116,6 +116,7 @@ mod tests {
         Outcome::Built(Built::new(FeatureOutput {
             data: OutputData::Nothing,
             warnings: Vec::new(),
+            absent: Vec::new(),
         }))
     }
 

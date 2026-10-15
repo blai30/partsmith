@@ -61,7 +61,7 @@ function Section({ title, children }: { readonly title: string; readonly childre
   return (
     <section
       aria-labelledby={headingId}
-      className={clsx('flex flex-col gap-3 border-t pt-4', COLOR_CLASSES.border.border)}
+      className={clsx('flex flex-col gap-3 border-t pt-4', COLOR_CLASSES.divider.border)}
     >
       <h3 id={headingId} className="text-sm font-semibold">
         {title}

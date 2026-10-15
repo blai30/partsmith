@@ -5,7 +5,7 @@ import { fieldForPointer, repairField } from '../inspector/status'
 import { MESSAGES } from '../messages'
 import { isCheckHidden } from '../print/checks'
 import { sameOrientation } from '../print/orientation'
-import type { AppState, DocumentState, SketchSession } from './store'
+import type { AppState, DocumentState, SelectionItem, SketchSession } from './store'
 
 // Derived views of the state (ui.md 2.8). Selectors that build new values remember their last
 // inputs and result, so `useAppState(selector)` gets the same value back until the inputs change.
@@ -76,6 +76,22 @@ export function editingSession(state: AppState): EditingSession | null {
 /** The edited sketch's id: undefined outside sketch mode, null while picking a plane. */
 export function selectEditedSketch(state: AppState): string | null | undefined {
   return state.context === 'sketch' && state.sketch !== null ? state.sketch.sketchId : undefined
+}
+
+/**
+ * The items the selection inspector shows (3.8): the sketch selection in sketch mode while no tool
+ * is active, the app selection elsewhere.
+ */
+export function selectInspectedItems(state: AppState): readonly SelectionItem[] {
+  if (state.context !== 'sketch') {
+    return state.selection
+  }
+  return state.sketch !== null && state.sketch.tool === null ? state.sketch.selection : []
+}
+
+/** Whether the inspector is open (3.7, 3.8): for a feature command, or for inspected items. */
+export function selectInspectorOpen(state: AppState): boolean {
+  return state.command !== null || selectInspectedItems(state).length > 0
 }
 
 /** Ids of the features before the rollback marker, in timeline order. */

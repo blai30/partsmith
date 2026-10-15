@@ -68,7 +68,7 @@ function ControlButton({
       aria-label={label}
       aria-pressed={pressed}
       className={clsx(
-        'inline-flex size-8 items-center justify-center rounded-sm transition-colors duration-150 motion-reduce:transition-none',
+        'inline-flex size-8 items-center justify-center rounded-md transition-colors duration-150 motion-reduce:transition-none',
         COLOR_CLASSES.focusRing.outline,
         selected && COLOR_CLASSES.selection.background,
         selected && COLOR_CLASSES.text.foreground,
@@ -82,7 +82,7 @@ function ControlButton({
 }
 
 /**
- * The viewport controls (3.14): Fit to view, Orthographic, Section view and the Selection filter, a vertical stack under the view cube. Turning the section on opens the section popover anchored to its control. The stack is not in the tab order, since the viewport is one tab stop (3.24): every control is also a command with a shortcut (`view.fit`, `view.projection`, `view.section`) or a palette entry (`view.filter.*`).
+ * The viewport controls (3.14): Fit to view, Orthographic, Section view and the Selection filter, a vertical stack in a card at the free area's top-left corner, the first child of its left column. Turning the section on opens the section popover anchored to its control. The stack is not in the tab order, since the viewport is one tab stop (3.24): every control is also a command with a shortcut (`view.fit`, `view.projection`, `view.section`) or a palette entry (`view.filter.*`).
  */
 export function ViewportControls({
   orthographic,
@@ -125,55 +125,54 @@ export function ViewportControls({
           },
         }))
 
-  // The outer box, as wide as the view cube, centers the stack under it. It starts at 9.5rem, below the farthest reach of the turning cube: the 6rem cube is centered 4rem from the top, and its corners reach 3√3 ≈ 5.2rem from its center. The menu and the popover stay outside it, since they would inherit its pointer-events-none.
+  // The menu and the popover open in the top layer, beside the card rather than inside it.
   return (
     <>
-      <div className="pointer-events-none absolute top-42 right-6 flex w-24 justify-center">
-        <fieldset
-          aria-label="View controls"
-          data-testid="viewport-controls"
-          className={clsx(
-            'pointer-events-auto flex flex-col gap-1 rounded-md border p-1',
-            COLOR_CLASSES.surfaceRaised.background,
-            COLOR_CLASSES.border.border,
-          )}
-        >
-          <Tooltip label="Fit to view" shortcut={shortcuts?.fit ?? null}>
-            <ControlButton label="Fit to view" icon={Maximize} onClick={onFit} />
-          </Tooltip>
-          <Tooltip label="Orthographic" shortcut={shortcuts?.projection ?? null}>
+      <fieldset
+        aria-label="View controls"
+        data-testid="viewport-controls"
+        className={clsx(
+          'pointer-events-auto flex flex-col gap-1 rounded-xl border p-1 shadow-md',
+          COLOR_CLASSES.surfaceRaised.background,
+          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.elevation.shadow,
+        )}
+      >
+        <Tooltip label="Fit to view" shortcut={shortcuts?.fit ?? null}>
+          <ControlButton label="Fit to view" icon={Maximize} onClick={onFit} />
+        </Tooltip>
+        <Tooltip label="Orthographic" shortcut={shortcuts?.projection ?? null}>
+          <ControlButton
+            label="Orthographic"
+            icon={Cuboid}
+            aria-pressed={orthographic}
+            onClick={onToggleProjection}
+          />
+        </Tooltip>
+        <Tooltip label="Section view" shortcut={shortcuts?.section ?? null}>
+          <ControlButton
+            label="Section view"
+            icon={ScanLine}
+            ref={sectionButton}
+            aria-pressed={sectionOn}
+            onClick={onToggleSection}
+          />
+        </Tooltip>
+        {filter === null ? null : (
+          <Tooltip label="Selection filter">
             <ControlButton
-              label="Orthographic"
-              icon={Cuboid}
-              aria-pressed={orthographic}
-              onClick={onToggleProjection}
+              label="Selection filter"
+              icon={MousePointer2}
+              ref={filterButton}
+              aria-haspopup="menu"
+              aria-expanded={filterMenuOpen}
+              onClick={() => {
+                setFilterMenuOpen((open) => !open)
+              }}
             />
           </Tooltip>
-          <Tooltip label="Section view" shortcut={shortcuts?.section ?? null}>
-            <ControlButton
-              label="Section view"
-              icon={ScanLine}
-              ref={sectionButton}
-              aria-pressed={sectionOn}
-              onClick={onToggleSection}
-            />
-          </Tooltip>
-          {filter === null ? null : (
-            <Tooltip label="Selection filter">
-              <ControlButton
-                label="Selection filter"
-                icon={MousePointer2}
-                ref={filterButton}
-                aria-haspopup="menu"
-                aria-expanded={filterMenuOpen}
-                onClick={() => {
-                  setFilterMenuOpen((open) => !open)
-                }}
-              />
-            </Tooltip>
-          )}
-        </fieldset>
-      </div>
+        )}
+      </fieldset>
       <Menu
         label="Selection filter"
         open={filterMenuOpen}

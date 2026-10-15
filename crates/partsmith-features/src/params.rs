@@ -5,7 +5,8 @@ use partsmith_naming::Reference;
 use partsmith_occt_sys::{Plane, Point, Vector};
 use partsmith_sketch::{OriginPlane, Placement, RegionRef};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// How a solid feature combines its tool shape with its target body.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -110,6 +111,14 @@ pub enum AxisRef {
         body: Id,
         /// The edge.
         edge: Reference,
+        /// The axis direction the user picked, a unit vector in body coordinates (section 3.6).
+        /// Omitted when None.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "unit_direction"
+        )]
+        direction: Option<[f64; 3]>,
     },
     /// The axis of a cylindrical, conical, spherical or toroidal face of a body.
     Face {
@@ -117,7 +126,40 @@ pub enum AxisRef {
         body: Id,
         /// The face.
         face: Reference,
+        /// The axis direction the user picked, as for `Edge`. Omitted when None.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "unit_direction"
+        )]
+        direction: Option<[f64; 3]>,
     },
+}
+
+/// Largest difference from 1 of the length of a stored axis direction (section 2.5).
+const DIRECTION_LENGTH_TOLERANCE: f64 = 1e-6;
+
+/// Reads a picked axis direction: three finite numbers whose length is within
+/// `DIRECTION_LENGTH_TOLERANCE` of 1 (section 2.5).
+fn unit_direction<'de, D>(deserializer: D) -> Result<Option<[f64; 3]>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let direction = <[f64; 3]>::deserialize(deserializer)?;
+    let length = direction
+        .iter()
+        .map(|value| value * value)
+        .sum::<f64>()
+        .sqrt();
+    if direction.iter().all(|value| value.is_finite())
+        && (length - 1.0).abs() <= DIRECTION_LENGTH_TOLERANCE
+    {
+        Ok(Some(direction))
+    } else {
+        Err(D::Error::custom(
+            "an axis direction is three numbers whose length is 1",
+        ))
+    }
 }
 
 /// The origin axes. Serialized "X", "Y", "Z".

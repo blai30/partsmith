@@ -21,7 +21,7 @@ import {
   parametersOf,
 } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
-import { BODY_SWATCHES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
+import { BODY_SWATCHES, COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 
 beforeEach(installPopoverPolyfill)
 
@@ -54,6 +54,11 @@ function row(kind: string, id: string): HTMLElement {
     throw new Error(`No browser row ${kind} ${id}`)
   }
   return found
+}
+
+/** A row's icon: its first child. */
+function iconOf(element: HTMLElement): Element | null {
+  return element.firstElementChild
 }
 
 const DATUM_DOCUMENT: Document = {
@@ -120,6 +125,36 @@ describe('the browser tree (3.10)', () => {
       expect(row('origin_axis', id)).toHaveTextContent(`${id} axis`)
     }
     expect(row('origin_point', 'O')).toHaveTextContent('Origin')
+  })
+
+  it('U-185 colors the axis rows’ icons by their axis and leaves the planes’ and the origin’s', async () => {
+    const { user, browser } = renderBrowser()
+    await user.click(within(browser).getByText('Origin'))
+    const axisForegrounds = [
+      COLOR_CLASSES.axisX.foreground,
+      COLOR_CLASSES.axisY.foreground,
+      COLOR_CLASSES.axisZ.foreground,
+    ]
+    for (const [index, id] of ['X', 'Y', 'Z'].entries()) {
+      const icon = iconOf(row('origin_axis', id))
+      expect(icon?.tagName.toLowerCase()).toBe('svg')
+      expect(icon).toHaveClass(axisForegrounds[index] ?? '')
+    }
+    const others = [
+      row('origin_plane', 'XY'),
+      row('origin_plane', 'XZ'),
+      row('origin_plane', 'YZ'),
+      row('origin_point', 'O'),
+    ]
+    for (const other of others) {
+      const icon = iconOf(other)
+      expect(icon?.tagName.toLowerCase()).toBe('svg')
+      for (const foreground of axisForegrounds) {
+        for (const name of foreground.split(' ')) {
+          expect(icon?.classList.contains(name)).toBe(false)
+        }
+      }
+    }
   })
 
   it('shows the origin axes and point in a document without features, so Hide X axis is offered (3.10)', async () => {

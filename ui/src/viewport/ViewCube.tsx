@@ -1,12 +1,13 @@
 import { clsx } from 'clsx/lite'
 import { House } from 'lucide-react'
 import { useRef, useState, type PointerEvent, type Ref } from 'react'
-import { COLOR_CLASSES } from '../theme/roles'
+import { AXIS_ROLES, COLOR_CLASSES } from '../theme/roles'
 import type { Quaternion } from './math'
 import { GESTURE_THRESHOLD_PIXELS, LEFT_BUTTON } from './navigation'
 import {
   CUBE_FACES,
   FACE_PLACEMENT_CLASSES,
+  FACE_SIDE_AXES,
   faceCells,
   faceName,
   partById,
@@ -138,7 +139,7 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
     <fieldset
       data-testid="view-cube"
       aria-label="View cube"
-      className="absolute top-8 right-6 size-24 touch-none select-none"
+      className="pointer-events-auto absolute top-11 right-9 size-24 touch-none select-none"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endPress}
@@ -156,8 +157,7 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
             <div
               key={face}
               className={clsx(
-                'absolute inset-0 grid grid-cols-8 grid-rows-8 border backface-hidden',
-                COLOR_CLASSES.border.border,
+                'absolute inset-0 grid grid-cols-8 grid-rows-8 backface-hidden',
                 FACE_PLACEMENT_CLASSES[face],
               )}
             >
@@ -201,6 +201,21 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
               >
                 {faceName(face)}
               </span>
+              {/* The sides in the colors of the axes they run along, over the cells (3.14). */}
+              <span
+                aria-hidden="true"
+                className={clsx(
+                  'pointer-events-none absolute inset-0 border-y-2',
+                  COLOR_CLASSES[AXIS_ROLES[FACE_SIDE_AXES[face].horizontal]].border,
+                )}
+              />
+              <span
+                aria-hidden="true"
+                className={clsx(
+                  'pointer-events-none absolute inset-0 border-x-2',
+                  COLOR_CLASSES[AXIS_ROLES[FACE_SIDE_AXES[face].vertical]].border,
+                )}
+              />
             </div>
           ))}
         </div>
@@ -210,7 +225,7 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
         tabIndex={-1}
         aria-label="Home view"
         className={clsx(
-          'absolute top-0 left-0 z-10 flex size-6 cursor-pointer items-center justify-center rounded-sm border transition-colors duration-150 motion-reduce:transition-none',
+          'absolute top-0 left-0 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md border transition-colors duration-150 motion-reduce:transition-none',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
           COLOR_CLASSES.textMuted.foreground,

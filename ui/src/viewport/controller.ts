@@ -8,18 +8,20 @@ import { CoreError } from '../core/client'
 import type { BoundingBox, ElementDescriptor } from '../generated/protocol'
 import type { Rectangle } from '../inspector/placement'
 import { requestUi } from '../layout/requests'
+import { selectInspectorOpen } from '../state/selectors'
 import { measureTiming, TIMING_NAMES } from '../performance/marks'
 import type { AppState, SelectionItem } from '../state/store'
 import type { RenderBackend, RenderFrame } from './backend'
 import {
   aspectOf,
-  canvasPosition,
   DEFAULT_CAMERA,
+  DEFAULT_FIT_MARGIN,
   classifyView,
   easeOutCubic,
   eye,
   fitBounds,
   forward,
+  framedArea,
   interpolateCameras,
   normalizedPosition,
   orbit,
@@ -29,11 +31,16 @@ import {
   standardViewRotation,
   visibleHeightAtDepth,
   wheelZoomFactor,
+  windowAspect,
+  windowCursor,
+  windowPosition,
   withProjection,
   zoomAt,
   type Camera,
   type StandardView,
   type Vector3,
+  type ViewRectangle,
+  type ViewWindow,
 } from './camera'
 import { drawnGridSpacing } from './grid'
 import { dot, normalize, scale, subtract } from './math'
@@ -74,13 +81,15 @@ export type ViewportHandle = {
   lookAlong(normal: Vector3, upHint: Vector3, target: Vector3): void
   zoomToBounds(bounds: BoundingBox, margin: number): void
   screenRectangle(items: readonly SelectionItem[]): Rectangle | null
+  /** The canvas size and the free area last measured (3.2). */
+  viewWindow(): ViewWindow
   requestRender(): void
 }
 
 /** What a rendered frame offers the chrome that follows the camera in the same animation frame. */
 export type RenderedFrame = {
   readonly camera: Camera
-  readonly size: { readonly width: number; readonly height: number }
+  readonly view: ViewWindow
   /** The CSS pixel position of a world point in the canvas, or null behind the eye. */
   project(point: Vector3): { readonly x: number; readonly y: number } | null
 }
@@ -190,18 +199,30 @@ function relevantChange(state: AppState, previous: AppState): boolean {
   )
 }
 
+/** What the last fit or zoom to bounds framed and the camera it set (2.11). */
+type Fitted = { readonly camera: Camera; readonly bounds: BoundingBox; readonly margin: number }
+
+/**
+ * `overlay` is the overlay layer of 3.12, whose anchored children the controller moves each frame;
+ * `freeArea` is the `viewport` element, the free area of 3.2, which the camera frames.
+ */
 export function createViewportController(options: {
   app: App
   canvas: HTMLCanvasElement
   overlay: HTMLElement
+  freeArea: HTMLElement
   backend: RenderBackend
   scene: Scene
 }): ViewportController {
-  const { app, canvas, overlay, backend, scene } = options
+  const { app, canvas, overlay, freeArea, backend, scene } = options
   const store = app.store
   let camera: Camera = DEFAULT_CAMERA
   let animation: CameraAnimation | null = null
   let size = { width: 0, height: 0, pixelRatio: 1 }
+  /** The free area in canvas CSS pixels, as last measured. */
+  let free: ViewRectangle = { x: 0, y: 0, width: 0, height: 0 }
+  /** The last fit, while the camera is still the one it set: a new free area frames it again. */
+  let fitted: Fitted | null = null
   let cancelFrame: (() => void) | null = null
   let renderNeeded = true
   let disposed = false
@@ -225,9 +246,24 @@ export function createViewportController(options: {
 
   const highlights = createHighlights({ app, scene, onChange: requestRender })
 
-  /** The canvas point (x, y) in normalized device coordinates. */
+  /** The canvas size and the free area last measured. */
+  function viewWindow(): ViewWindow {
+    return { width: size.width, height: size.height, free }
+  }
+
+  /** The canvas point (x, y) in the free area's normalized device coordinates (2.11). */
   function cursorAt(x: number, y: number): [number, number] {
-    return [(x / Math.max(size.width, 1)) * 2 - 1, 1 - (y / Math.max(size.height, 1)) * 2]
+    return windowCursor(viewWindow(), x, y)
+  }
+
+  /** The aspect every camera function gets: the free area's. */
+  function aspect(): number {
+    return windowAspect(viewWindow())
+  }
+
+  /** The free area's height in CSS pixels, which pans, zooms and pixel sizes measure. */
+  function freeHeight(): number {
+    return Math.max(framedArea(viewWindow()).height, 1)
   }
 
   function radius(): number {
@@ -293,10 +329,11 @@ export function createViewportController(options: {
       renderedCamera = camera
       cameraChangedAt = performance.now()
     }
-    lastFrame = scene.frame(state, camera, size)
+    const view = viewWindow()
+    lastFrame = scene.frame(state, camera, { ...view, pixelRatio: size.pixelRatio })
     backend.render(lastFrame)
     timeFrame(frameTime, moving)
-    const rendered: RenderedFrame = { camera, size, project }
+    const rendered: RenderedFrame = { camera, view, project }
     for (const listener of Array.from(renderListeners)) {
       listener(rendered)
     }
@@ -323,25 +360,29 @@ export function createViewportController(options: {
 
   /** Mirrors the drawn grid's minor spacing in the store when it changes, for the status bar (3.12, 3.21). */
   function mirrorGridSpacing(state: AppState): void {
-    const spacing = drawnGridSpacing(state, camera, size.height)
+    const spacing = drawnGridSpacing(state, camera, framedArea(viewWindow()).height)
     if (state.view.gridSpacing !== spacing) {
       store.setState((current) => ({ view: { ...current.view, gridSpacing: spacing } }))
     }
   }
 
-  /** The CSS pixel position of a world point, or null behind the eye. */
+  /** The canvas CSS pixel position of a world point, or null behind the eye. */
   function project(point: Vector3): { x: number; y: number } | null {
-    const position = normalizedPosition(camera, point, aspectOf(size))
-    return position === null ? null : canvasPosition(position, size)
+    const position = normalizedPosition(camera, point, aspect())
+    return position === null ? null : windowPosition(viewWindow(), position)
   }
 
-  /** Moves the overlay's anchored elements (`data-anchor="x,y,z"`) to their projections (3.12). */
+  /**
+   * Moves the overlay's anchored elements (`data-anchor="x,y,z"`) to their projections, hiding
+   * those whose anchor is behind the eye or outside the free area (3.12).
+   */
   function positionAnchors(): void {
+    const area = framedArea(viewWindow())
     for (const element of overlay.querySelectorAll<HTMLElement>('[data-anchor]')) {
       const coordinates = (element.dataset['anchor'] ?? '').split(',').map(Number)
       const [x = Number.NaN, y = Number.NaN, z = Number.NaN] = coordinates
       const position = Number.isFinite(x + y + z) ? project([x, y, z]) : null
-      placeElement(element, visiblePosition(position, size))
+      placeElement(element, visiblePosition(position, area))
     }
   }
 
@@ -416,13 +457,61 @@ export function createViewportController(options: {
     setCamera(next, { animate: true, record: true })
   }
 
+  /**
+   * The part of the free area the camera frames into, in free-area pixels: beside an open
+   * inspector, the side away from it when that side is at least half the free area, else all of
+   * it (2.11).
+   */
+  function framingPart(): { readonly x: number; readonly width: number } {
+    const area = framedArea(viewWindow())
+    const whole = { x: 0, width: area.width }
+    // The store decides whether the inspector is open: an action that frames as it clears the
+    // selection (entering a sketch) runs before React removes the closing inspector.
+    const inspector = selectInspectorOpen(store.getState())
+      ? freeArea.querySelector('[data-testid="inspector"]')
+      : null
+    if (inspector === null) {
+      return whole
+    }
+    const box = inspector.getBoundingClientRect()
+    const left = box.left - freeArea.getBoundingClientRect().left
+    const right = left + box.width
+    const part =
+      left + box.width / 2 < area.width / 2
+        ? { x: right, width: area.width - right }
+        : { x: 0, width: left }
+    return part.width < area.width / 2 ? whole : part
+  }
+
+  /** Moves a camera so the point at its target's screen position goes to the framing part's center. */
+  function centeredInPart(next: Camera): Camera {
+    const part = framingPart()
+    const offset = part.x + part.width / 2 - framedArea(viewWindow()).width / 2
+    return offset === 0 ? next : pan(next, offset, 0, freeHeight())
+  }
+
+  /** The camera that frames `bounds` with `margin` in the framing part, as fit does (2.11). */
+  function framing(start: Camera, bounds: BoundingBox, margin: number): Camera {
+    const part = framingPart()
+    const partAspect = aspectOf({ width: part.width, height: freeHeight() })
+    return centeredInPart(fitBounds(start, bounds, partAspect, margin))
+  }
+
+  /** Frames bounds as a user camera change, and remembers them for a new free area. */
+  function frameBounds(bounds: BoundingBox, margin: number): void {
+    const next = framing(goalCamera(), bounds, margin)
+    moveCamera(next)
+    fitted = { camera: next, bounds, margin }
+  }
+
   function fit(bounds?: BoundingBox): void {
     const framed = bounds ?? scene.visibleBounds(store.getState()) ?? emptyFitBounds()
-    moveCamera(fitBounds(goalCamera(), framed, aspectOf(size)))
+    frameBounds(framed, DEFAULT_FIT_MARGIN)
   }
 
   // Sizes.
 
+  /** Measures the canvas and the free area in it, after layout (3.2). */
   function resize(): void {
     const width = canvas.clientWidth
     const height = canvas.clientHeight
@@ -430,12 +519,47 @@ export function createViewportController(options: {
       typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? devicePixelRatio : 1,
       MAXIMUM_PIXEL_RATIO,
     )
-    if (width === size.width && height === size.height && pixelRatio === size.pixelRatio) {
+    const canvasBox = canvas.getBoundingClientRect()
+    const freeBox = freeArea.getBoundingClientRect()
+    const measured: ViewRectangle = {
+      x: freeBox.left - canvasBox.left,
+      y: freeBox.top - canvasBox.top,
+      width: freeBox.width,
+      height: freeBox.height,
+    }
+    const sizeChanged =
+      width !== size.width || height !== size.height || pixelRatio !== size.pixelRatio
+    const freeChanged =
+      measured.x !== free.x ||
+      measured.y !== free.y ||
+      measured.width !== free.width ||
+      measured.height !== free.height
+    if (!sizeChanged && !freeChanged) {
       return
     }
-    size = { width, height, pixelRatio }
-    backend.resize(width, height, pixelRatio)
+    if (sizeChanged) {
+      size = { width, height, pixelRatio }
+      backend.resize(width, height, pixelRatio)
+    }
+    free = measured
+    reframe()
     requestRender()
+  }
+
+  /**
+   * Frames the last fit's bounds again in a new free area, at once and without history, while the
+   * camera is still the one that fit set; any other camera keeps its target, rotation and visible
+   * height (2.11).
+   */
+  function reframe(): void {
+    if (fitted === null || goalCamera() !== fitted.camera) {
+      return
+    }
+    const next = framing(fitted.camera, fitted.bounds, fitted.margin)
+    animation = null
+    camera = next
+    fitted = { ...fitted, camera: next }
+    mirrorCamera(camera)
   }
 
   // Picking.
@@ -450,7 +574,10 @@ export function createViewportController(options: {
       renderNeeded = false
       render(performance.now())
     }
-    return lastFrame ?? scene.frame(store.getState(), camera, size)
+    return (
+      lastFrame ??
+      scene.frame(store.getState(), camera, { ...viewWindow(), pixelRatio: size.pixelRatio })
+    )
   }
 
   /** The pick the pointer means at (x, y), with the world point under it when the depth is known. */
@@ -489,9 +616,7 @@ export function createViewportController(options: {
       return null
     }
     const world =
-      found.depth === null
-        ? null
-        : pointAtDepth(camera, cursorAt(x, y), aspectOf(size), found.depth)
+      found.depth === null ? null : pointAtDepth(camera, cursorAt(x, y), aspect(), found.depth)
     return { ...found.result, world }
   }
 
@@ -588,8 +713,8 @@ export function createViewportController(options: {
    */
   function pointerRay(x: number, y: number, picked: Vector3 | null): PointerRay {
     const cursor = cursorAt(x, y)
-    const near = pointAtDepth(camera, cursor, aspectOf(size), 0)
-    const far = pointAtDepth(camera, cursor, aspectOf(size), 1)
+    const near = pointAtDepth(camera, cursor, aspect(), 0)
+    const far = pointAtDepth(camera, cursor, aspect(), 1)
     const direction =
       camera.projection === 'perspective'
         ? (normalize(subtract(far, eye(camera))) ?? forward(camera))
@@ -597,8 +722,7 @@ export function createViewportController(options: {
     const origin = camera.projection === 'perspective' ? eye(camera) : near
     const depth = picked === null ? null : dot(subtract(picked, eye(camera)), forward(camera))
     const visibleHeight = visibleHeightAtDepth(camera, depth ?? camera.distance)
-    const millimetersPerPixel =
-      (visibleHeight / Math.max(size.height, 1)) * store.getState().settings.uiScale
+    const millimetersPerPixel = (visibleHeight / freeHeight()) * store.getState().settings.uiScale
     return { origin, direction, millimetersPerPixel }
   }
 
@@ -612,7 +736,7 @@ export function createViewportController(options: {
     if (sample?.depth === null || sample === undefined) {
       return camera.target
     }
-    return pointAtDepth(camera, cursorAt(x, y), aspectOf(size), sample.depth)
+    return pointAtDepth(camera, cursorAt(x, y), aspect(), sample.depth)
   }
 
   /** The selection item of a mesh pick through the core, or null when the pick went stale. */
@@ -830,7 +954,7 @@ export function createViewportController(options: {
       camera = orbit(camera, deltaX, deltaY, press.pivot ?? camera.target)
       requestRender()
     } else if (press.gesture === 'pan') {
-      camera = pan(camera, deltaX, deltaY, Math.max(size.height, 1))
+      camera = pan(camera, deltaX, deltaY, freeHeight())
       requestRender()
     }
   }
@@ -993,8 +1117,8 @@ export function createViewportController(options: {
       wheelBurst.timer = setTimeout(endWheelBurst, WHEEL_BURST_MILLISECONDS)
     }
     animation = null
-    const factor = wheelZoomFactor(event, Math.max(size.height, 1))
-    camera = zoomAt(camera, factor, cursorAt(point.x, point.y), aspectOf(size))
+    const factor = wheelZoomFactor(event, freeHeight())
+    camera = zoomAt(camera, factor, cursorAt(point.x, point.y), aspect())
     requestRender()
   }
 
@@ -1081,18 +1205,19 @@ export function createViewportController(options: {
     }
   })
 
+  // Islands opening, closing or collapsing change the free area without resizing the canvas.
   if (typeof ResizeObserver === 'function') {
     const observer = new ResizeObserver(resize)
     observer.observe(canvas)
+    observer.observe(freeArea)
     cleanups.push(() => {
       observer.disconnect()
     })
-  } else {
-    window.addEventListener('resize', resize)
-    cleanups.push(() => {
-      window.removeEventListener('resize', resize)
-    })
   }
+  window.addEventListener('resize', resize)
+  cleanups.push(() => {
+    window.removeEventListener('resize', resize)
+  })
 
   resize()
   // Highlight what the store already selects.
@@ -1113,14 +1238,14 @@ export function createViewportController(options: {
     },
     lookAlong(normal, upHint, target) {
       const goal = goalCamera()
-      moveCamera({ ...goal, target, rotation: rotationLookingAlong(scale(normal, -1), upHint) })
+      const rotation = rotationLookingAlong(scale(normal, -1), upHint)
+      moveCamera(centeredInPart({ ...goal, target, rotation }))
     },
-    zoomToBounds(bounds, margin) {
-      moveCamera(fitBounds(goalCamera(), bounds, aspectOf(size), margin))
-    },
+    zoomToBounds: frameBounds,
     screenRectangle(items) {
-      return scene.screenRectangle(items, camera, size)
+      return scene.screenRectangle(items, camera, viewWindow())
     },
+    viewWindow,
     requestRender,
     navigate(navigation) {
       const goal = goalCamera()
@@ -1133,14 +1258,14 @@ export function createViewportController(options: {
           })
           return
         case 'pan': {
-          const height = Math.max(size.height, 1)
+          const height = freeHeight()
           setCamera(pan(goal, navigation.deltaX * height, navigation.deltaY * height, height), {
             record: true,
           })
           return
         }
         case 'zoom':
-          setCamera(zoomAt(goal, navigation.factor, [0, 0], aspectOf(size)), { record: true })
+          setCamera(zoomAt(goal, navigation.factor, [0, 0], aspect()), { record: true })
       }
     },
     onRender(listener) {

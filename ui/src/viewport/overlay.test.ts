@@ -79,17 +79,18 @@ describe('placeElement', () => {
 })
 
 describe('visiblePosition', () => {
-  const size = { width: 800, height: 600 }
+  const area = { x: 280, y: 64, width: 640, height: 600 }
 
-  it('keeps a position on the canvas, edges included', () => {
-    expect(visiblePosition({ x: 0, y: 600 }, size)).toEqual({ x: 0, y: 600 })
-    expect(visiblePosition({ x: 800, y: 0 }, size)).toEqual({ x: 800, y: 0 })
+  it('keeps a position in the free area, edges included', () => {
+    expect(visiblePosition({ x: 280, y: 664 }, area)).toEqual({ x: 280, y: 664 })
+    expect(visiblePosition({ x: 920, y: 64 }, area)).toEqual({ x: 920, y: 64 })
   })
 
-  it('is null behind the camera, off the canvas or for a position that is not a number', () => {
-    expect(visiblePosition(null, size)).toBeNull()
-    expect(visiblePosition({ x: -0.5, y: 10 }, size)).toBeNull()
-    expect(visiblePosition({ x: 10, y: 600.5 }, size)).toBeNull()
-    expect(visiblePosition({ x: Number.NaN, y: 10 }, size)).toBeNull()
+  it('is null behind the camera, outside the free area or for a position that is not a number (3.12)', () => {
+    expect(visiblePosition(null, area)).toBeNull()
+    expect(visiblePosition({ x: 100, y: 300 }, area)).toBeNull()
+    expect(visiblePosition({ x: 279.5, y: 300 }, area)).toBeNull()
+    expect(visiblePosition({ x: 600, y: 664.5 }, area)).toBeNull()
+    expect(visiblePosition({ x: Number.NaN, y: 300 }, area)).toBeNull()
   })
 })

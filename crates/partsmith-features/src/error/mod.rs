@@ -1,29 +1,40 @@
-//! Errors and warnings of features, the parts of their messages, suggested fixes and repair data
+//! Errors and warnings of features, the parts of their messages, element descriptions, fixes and repair data
 //! (features.md sections 2.8, 3.12 and 4).
 
+pub(crate) mod describe;
 pub(crate) mod field;
+mod fix;
+mod loss;
 mod message;
+mod render;
 mod warning;
 
+use std::collections::BTreeMap;
+
 use partsmith_model::{Expr, ExprError, FieldUnit, Id, Units};
-use partsmith_naming::{ElementKind, ElementName, Reference};
+use partsmith_naming::ElementKind;
 use partsmith_occt_sys::KernelError;
 use partsmith_sketch::{SketchError, SolveIssue};
 
+pub use describe::describe_elements;
 pub use field::FieldRef;
-pub use message::{
-    Bound, DocumentNames, FallbackReason, IgnoredReason, Names, Noun, Repair, format_value,
-};
-use message::{IdNames, Renderer, plural, suggested_limit};
+pub use fix::{Fix, Place};
+pub use loss::{Loss, LossCandidate, RegionLost, Repair, Severity};
+pub use message::{Bound, DocumentNames, FallbackReason, IgnoredReason, Names, Noun, format_value};
+pub use render::{Because, Diagnosis, Explanation, RenderContext};
 pub use warning::FeatureWarning;
+
+use message::{IdNames, plural, suggested_limit};
+use render::{Renderer, capitalized, entry_pointer, loss_fixes, region_reason, region_reasons};
 
 use crate::params::BodyOp;
 
-/// Why a feature could not be built. Stores ids and internal-unit numbers, never display names or
-/// formatted values, so a cached error renders correctly after a rename or a units change.
-/// `Display` renders the message with ids in place of names and values in millimeters.
+/// Why a feature could not be built. Stores ids and internal-unit numbers, never display names, formatted values or
+/// diagnoses, so a cached error renders correctly after a rename, a units change or an edit elsewhere in the
+/// timeline. `Display` renders the message with ids in place of names, values in millimeters, `this feature` for
+/// `{this}` and no diagnosis.
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
-#[error("{}", self.render(&IdNames, Units::Mm))]
+#[error("{}", self.plain_text())]
 #[non_exhaustive]
 pub enum FeatureError {
     /// The record's type is not registered.
@@ -124,7 +135,7 @@ pub enum FeatureError {
         /// The feature.
         feature: Id,
     },
-    /// A referenced feature failed.
+    /// A referenced feature failed. Recompute's diagnosis gives the root of the chain.
     UpstreamFailed {
         /// The feature.
         feature: Id,
@@ -146,15 +157,19 @@ pub enum FeatureError {
         /// The body.
         body: Id,
     },
-    /// A body that must hold a solid is empty.
+    /// A body that must hold a solid is empty. Recompute's diagnosis says why.
     BodyEmpty {
+        /// The body field.
+        field: FieldRef,
         /// The body.
         body: Id,
         /// True when op new would start it (solid features); false for modifying features.
         use_new: bool,
     },
-    /// A tool body is empty.
+    /// A tool body is empty. Recompute's diagnosis says why.
     ToolEmpty {
+        /// The tool entry, for example `tools[0]`.
+        field: FieldRef,
         /// The tool body.
         body: Id,
     },
@@ -165,34 +180,30 @@ pub enum FeatureError {
         /// The op that emptied it.
         op: BodyOp,
     },
-    /// No reference of a list resolves.
+    /// No reference of a non-empty list resolves; every loss is kept, in reference order.
     ReferencesNotFound {
         /// The list field.
         field: FieldRef,
-        /// The number of references in the list.
-        count: usize,
         /// The kind of element the list selects.
         kind: ElementKind,
+        /// One loss per reference.
+        losses: Vec<Loss>,
     },
     /// A required reference is missing or ambiguous.
     ReferenceNotFound {
         /// The reference field.
         field: FieldRef,
-        /// The body it is resolved in.
-        body: Id,
-        /// The stored reference.
-        reference: Reference,
-        /// The kind of element it selects.
-        kind: ElementKind,
-        /// The elements an ambiguous reference matches; empty when it matches none.
-        candidates: Vec<ElementName>,
+        /// The loss.
+        loss: Loss,
     },
-    /// No region of a profile resolves.
+    /// No region of a profile resolves; every region is kept, in profile order.
     ProfileNotFound {
         /// The profile field.
         field: FieldRef,
         /// The sketch.
         sketch: Id,
+        /// One lost region per stored region.
+        regions: Vec<RegionLost>,
     },
     /// A face used as a plane is not flat.
     NotPlanar {
@@ -320,13 +331,134 @@ pub enum FeatureError {
         /// What went wrong.
         message: String,
     },
+    /// The names of the feature's output are too long to build: a chain of fillets and chamfers on each other.
+    NameTooDeep {
+        /// The length in bytes of the name that was too long.
+        length: usize,
+    },
 }
 
 impl FeatureError {
-    /// The message with current names and units.
-    pub fn render(&self, names: &dyn Names, units: Units) -> String {
-        let renderer = Renderer { names, units };
+    /// An `Internal` error for a failure that valid input cannot cause.
+    pub fn internal(message: impl Into<String>) -> FeatureError {
+        FeatureError::Internal {
+            message: message.into(),
+        }
+    }
+
+    /// The message (section 4.1), with current names and units and the diagnosis.
+    pub fn render(&self, context: &RenderContext<'_>) -> String {
+        self.text(&Renderer::new(context))
+    }
+
+    /// The text `Display` writes: ids for names, millimeters, `this feature`, no diagnosis.
+    fn plain_text(&self) -> String {
+        let bodies = BTreeMap::new();
+        let diagnosis = Diagnosis::default();
+        self.text(&Renderer::plain(&IdNames, &bodies, &diagnosis))
+    }
+
+    /// The message rendered by `renderer`.
+    fn text(&self, renderer: &Renderer<'_>) -> String {
         match self {
+            FeatureError::UpstreamFailed { feature } => {
+                let feature = renderer.quoted_feature(feature);
+                capitalized(&match &renderer.diagnosis().root {
+                    Some(root) => {
+                        let root = renderer.quoted_feature(root);
+                        format!(
+                            "{feature} cannot be built because {root} has an error, so {} cannot use it either. Fix {root} first.",
+                            renderer.this()
+                        )
+                    }
+                    None => format!(
+                        "{feature} has an error, so {} cannot use it. Fix {feature} first.",
+                        renderer.this()
+                    ),
+                })
+            }
+            FeatureError::UndeclaredDependency { .. } => format!(
+                "Partsmith hit a bug in {}, so it was not built. Suppress it to keep working, and report it with the details.",
+                renderer.this()
+            ),
+            FeatureError::BodyEmpty { body, use_new, .. } => {
+                body_empty_text(renderer, body, *use_new)
+            }
+            FeatureError::ToolEmpty { body, .. } => {
+                let subject = renderer.body_subject(body);
+                match renderer.empty_because() {
+                    Some(because) => format!(
+                        "{subject} is empty here because {because}, so it cannot be used as a tool."
+                    ),
+                    None => format!("{subject} is empty here, so it cannot be used as a tool."),
+                }
+            }
+            FeatureError::ReferencesNotFound {
+                field,
+                kind,
+                losses,
+            } => match losses.as_slice() {
+                [loss] => lost_reference_text(renderer, loss, &field.label),
+                [first, ..] => {
+                    let reason = if first.ambiguous {
+                        renderer.ambiguity(first)
+                    } else {
+                        renderer.reason(first)
+                    };
+                    format!(
+                        "None of the {count} {kinds} selected for {label} are left: {element} {reason}, and {more} more.{ending}",
+                        count = losses.len(),
+                        kinds = plural(*kind),
+                        label = field.label,
+                        element = renderer.lost_element(first),
+                        more = losses.len() - 1,
+                        ending = renderer.upstream_ending(first),
+                    )
+                }
+                [] => format!(
+                    "None of the {} selected for {} are left.",
+                    plural(*kind),
+                    field.label
+                ),
+            },
+            FeatureError::ReferenceNotFound { field, loss } => {
+                lost_reference_text(renderer, loss, &field.label)
+            }
+            FeatureError::ProfileNotFound {
+                field,
+                sketch,
+                regions,
+            } => {
+                let sketch = renderer.region_sketch(sketch);
+                match regions.as_slice() {
+                    [region] => match &region.loss {
+                        Some(loss) => format!(
+                            "The region of {sketch} selected for {} is gone because {}.",
+                            field.label,
+                            region_reason(loss)
+                        ),
+                        None => format!(
+                            "The region of {sketch} selected for {} now matches {} separate areas. Pick the one you mean.",
+                            field.label,
+                            region.candidates.len()
+                        ),
+                    },
+                    _ => format!(
+                        "None of the {} regions of {sketch} selected for {} are left, because {}.",
+                        regions.len(),
+                        field.label,
+                        region_reasons(regions)
+                    ),
+                }
+            }
+            FeatureError::Internal { .. } => format!(
+                "Partsmith hit a bug while building {}. Suppress it or undo the last change to keep working, and report it with the details.",
+                renderer.this()
+            ),
+            FeatureError::NameTooDeep { .. } => format!(
+                "{} builds on a chain of rounded or beveled edges too long for Partsmith to name. Combine some of the fillets or chamfers into one.",
+                renderer.this_title()
+            ),
             FeatureError::UnknownType { type_name } => format!(
                 "This document uses a feature type '{type_name}' that this version of Partsmith does not have. Update Partsmith, or delete the feature."
             ),
@@ -356,16 +488,13 @@ impl FeatureError {
                 value,
                 bound,
                 bound_name,
-            } => out_of_range(&renderer, field, *kind, *value, *bound, bound_name.as_deref()),
+            } => out_of_range(renderer, field, *kind, *value, *bound, bound_name.as_deref()),
             FeatureError::NotWholeNumber { field, value } => format!(
                 "{} must be a whole number, but it is {}. Use {} or {}.",
                 field.label,
                 renderer.value(FieldUnit::Scalar, *value),
                 renderer.value(FieldUnit::Count, value.floor()),
                 renderer.value(FieldUnit::Count, value.ceil())
-            ),
-            FeatureError::UndeclaredDependency { what } => format!(
-                "This feature read {what} without declaring it. This is a bug in the feature; please report it."
             ),
             FeatureError::UnknownBody { field, body } => format!(
                 "Body '{}' does not exist in this document. Pick an existing body for {}.",
@@ -374,7 +503,7 @@ impl FeatureError {
             ),
             FeatureError::UnknownFeature { field, feature } => format!(
                 "Feature '{}' does not exist in this document. Pick another one for {}.",
-                renderer.feature(feature),
+                renderer.feature_label(feature),
                 field.label
             ),
             FeatureError::WrongFeatureType {
@@ -383,22 +512,16 @@ impl FeatureError {
                 expected,
             } => format!(
                 "'{}' is not a {expected}. Pick a {expected} for {}.",
-                renderer.feature(feature),
+                renderer.feature_label(feature),
                 field.label
             ),
             FeatureError::ForwardReference { field, feature } => format!(
                 "'{}' comes later in the timeline than this feature. Move it above this feature, or pick something earlier for {}.",
-                renderer.feature(feature),
+                renderer.feature_label(feature),
                 field.label
             ),
-            FeatureError::UpstreamFailed { feature } => {
-                let feature = renderer.feature(feature);
-                format!(
-                    "'{feature}' has an error, so this feature cannot use it. Fix '{feature}' first."
-                )
-            }
             FeatureError::UpstreamSuppressed { feature } => {
-                let feature = renderer.feature(feature);
+                let feature = renderer.feature_label(feature);
                 format!(
                     "'{feature}' is suppressed, so this feature cannot use it. Unsuppress '{feature}', or pick something else."
                 )
@@ -408,24 +531,6 @@ impl FeatureError {
             ),
             FeatureError::BodyNotEmpty { body } => format!(
                 "Body '{}' already has a solid at this point, so op new cannot start it. Use join, cut or intersect, or pick an empty body.",
-                renderer.body(body)
-            ),
-            FeatureError::BodyEmpty {
-                body,
-                use_new: true,
-            } => format!(
-                "Body '{}' is empty at this point. Use op new to start it.",
-                renderer.body(body)
-            ),
-            FeatureError::BodyEmpty {
-                body,
-                use_new: false,
-            } => format!(
-                "Body '{}' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid.",
-                renderer.body(body)
-            ),
-            FeatureError::ToolEmpty { body } => format!(
-                "Body '{}' is empty at this point, so it cannot be used as a tool. Pick a body that has a solid.",
                 renderer.body(body)
             ),
             FeatureError::EmptyResult {
@@ -438,37 +543,6 @@ impl FeatureError {
             FeatureError::EmptyResult { body, .. } => format!(
                 "This cut removes all of body '{}'. Make the cut smaller, or change its position or direction.",
                 renderer.body(body)
-            ),
-            FeatureError::ReferencesNotFound { field, count, kind } => match count {
-                1 => format!(
-                    "The {kind} selected for {} can no longer be found. Re-pick it in the repair panel.",
-                    field.label
-                ),
-                _ => format!(
-                    "None of the {count} {} selected for {} can be found anymore. Re-pick them in the repair panel.",
-                    plural(*kind),
-                    field.label
-                ),
-            },
-            FeatureError::ReferenceNotFound {
-                field,
-                kind,
-                candidates,
-                ..
-            } => match candidates.len() {
-                0 => format!(
-                    "The {kind} selected for {} can no longer be found. Re-pick it in the repair panel.",
-                    field.label
-                ),
-                count => format!(
-                    "The {kind} selected for {} now matches {count} {}. Pick the one you mean in the repair panel.",
-                    field.label,
-                    plural(*kind)
-                ),
-            },
-            FeatureError::ProfileNotFound { sketch, .. } => format!(
-                "None of the selected regions of '{}' can be found anymore. Re-pick the profile.",
-                renderer.feature(sketch)
             ),
             FeatureError::NotPlanar { field } => format!(
                 "The face selected for {} is not flat. Pick a flat face, a datum plane or an origin plane.",
@@ -489,7 +563,7 @@ impl FeatureError {
                 noun,
             } => format!(
                 "'{}' has no {noun} '{entity}'. Re-pick it for {}.",
-                renderer.feature(sketch),
+                renderer.feature_label(sketch),
                 field.label
             ),
             FeatureError::NotALine {
@@ -498,7 +572,7 @@ impl FeatureError {
                 entity,
             } => format!(
                 "'{entity}' in '{}' is not a line with length. Pick a line for {}.",
-                renderer.feature(sketch),
+                renderer.feature_label(sketch),
                 field.label
             ),
             FeatureError::SketchInvalid { error } => error.to_string(),
@@ -588,9 +662,6 @@ impl FeatureError {
             FeatureError::Canceled => {
                 "Recompute was canceled before this feature finished.".to_string()
             }
-            FeatureError::Internal { message } => format!(
-                "Partsmith hit an internal error in this feature ({message}). Please report it; the rest of the model was still rebuilt."
-            ),
         }
     }
 
@@ -643,6 +714,7 @@ impl FeatureError {
             FeatureError::TooManyInstances { .. } => "too_many_instances",
             FeatureError::Canceled => "canceled",
             FeatureError::Internal { .. } => "internal",
+            FeatureError::NameTooDeep { .. } => "name_too_deep",
         }
     }
 
@@ -661,6 +733,8 @@ impl FeatureError {
             | FeatureError::WrongFeatureType { field, .. }
             | FeatureError::ForwardReference { field, .. }
             | FeatureError::AssetMissing { field, .. }
+            | FeatureError::BodyEmpty { field, .. }
+            | FeatureError::ToolEmpty { field, .. }
             | FeatureError::ReferencesNotFound { field, .. }
             | FeatureError::ReferenceNotFound { field, .. }
             | FeatureError::ProfileNotFound { field, .. }
@@ -678,8 +752,6 @@ impl FeatureError {
             | FeatureError::UpstreamFailed { .. }
             | FeatureError::UpstreamSuppressed { .. }
             | FeatureError::BodyNotEmpty { .. }
-            | FeatureError::BodyEmpty { .. }
-            | FeatureError::ToolEmpty { .. }
             | FeatureError::EmptyResult { .. }
             | FeatureError::SketchInvalid { .. }
             | FeatureError::SketchConflict { .. }
@@ -694,12 +766,13 @@ impl FeatureError {
             | FeatureError::PlaneMissesBody { .. }
             | FeatureError::TooManyInstances { .. }
             | FeatureError::Canceled
-            | FeatureError::Internal { .. } => None,
+            | FeatureError::Internal { .. }
+            | FeatureError::NameTooDeep { .. } => None,
         }
     }
 
-    /// A replacement expression for `field()` that fixes the problem, in display units, when the
-    /// feature computed a limit (section 4.4).
+    /// A replacement expression for `field()` that fixes the problem, in display units, when the feature computed a
+    /// limit: the value of the first own `SetField` of `fixes` (section 4.4).
     pub fn suggestion(&self, units: Units) -> Option<String> {
         match self {
             FeatureError::FilletTooLarge { max: Some(max), .. }
@@ -722,32 +795,295 @@ impl FeatureError {
         }
     }
 
-    /// Repair data, if the error is about a lost reference or region.
-    pub fn repair(&self) -> Option<Repair> {
+    /// The one-click fixes in the order hosts offer them, the diagnosis' fixes merged in (section 4.4).
+    pub fn fixes(&self, context: &RenderContext<'_>) -> Vec<Fix> {
+        let renderer = Renderer::new(context);
+        let this = || context.feature.clone();
         match self {
-            FeatureError::ReferenceNotFound {
+            FeatureError::EmptySelection { field, .. }
+            | FeatureError::SameBody { field, .. }
+            | FeatureError::UnknownBody { field, .. }
+            | FeatureError::UnknownFeature { field, .. }
+            | FeatureError::WrongFeatureType { field, .. }
+            | FeatureError::NotPlanar { field }
+            | FeatureError::NotStraight { field }
+            | FeatureError::NoAxis { field }
+            | FeatureError::UnknownEntity { field, .. }
+            | FeatureError::NotALine { field, .. } => vec![Fix::pick(field.pointer())],
+            FeatureError::OutOfRange { field, .. } => self
+                .suggestion(context.units)
+                .map(|value| Fix::SetField {
+                    feature: None,
+                    field: field.clone(),
+                    value: serde_json::Value::String(value),
+                })
+                .into_iter()
+                .collect(),
+            FeatureError::NotWholeNumber { field, value } => [value.floor(), value.ceil()]
+                .into_iter()
+                .map(|whole| Fix::SetField {
+                    feature: None,
+                    field: field.clone(),
+                    value: serde_json::Value::String(format_value(
+                        FieldUnit::Count,
+                        whole,
+                        context.units,
+                    )),
+                })
+                .collect(),
+            FeatureError::ForwardReference { field, feature } => vec![
+                Fix::Move {
+                    feature: this(),
+                    place: Place::Below(feature.clone()),
+                },
+                Fix::pick(field.pointer()),
+            ],
+            FeatureError::UpstreamFailed { feature } => {
+                vec![Fix::show(
+                    context.diagnosis.root.as_ref().unwrap_or(feature),
+                )]
+            }
+            FeatureError::UpstreamSuppressed { feature } => vec![Fix::Unsuppress {
+                feature: feature.clone(),
+            }],
+            FeatureError::UndeclaredDependency { .. }
+            | FeatureError::Kernel { .. }
+            | FeatureError::Internal { .. } => vec![Fix::Suppress { feature: this() }],
+            FeatureError::BodyEmpty { field, use_new, .. } => {
+                let fixes = renderer.empty_fixes(field);
+                if fixes.is_empty() && *use_new {
+                    vec![Fix::SetField {
+                        feature: None,
+                        field: FieldRef {
+                            path: "op".to_string(),
+                            label: "Operation".to_string(),
+                        },
+                        value: serde_json::Value::String("new".to_string()),
+                    }]
+                } else {
+                    fixes
+                }
+            }
+            FeatureError::ToolEmpty { field, .. } => {
+                let mut fixes = renderer.empty_fixes(field);
+                fixes.push(Fix::pick(field.pointer()));
+                fixes
+            }
+            FeatureError::ReferencesNotFound { field, losses, .. } => losses
+                .iter()
+                .flat_map(|loss| {
+                    loss_fixes(
+                        loss,
+                        &entry_pointer(field, loss.position),
+                        renderer.explanation(loss.position),
+                        false,
+                    )
+                })
+                .collect(),
+            FeatureError::ReferenceNotFound { field, loss } => loss_fixes(
+                loss,
+                &field.pointer(),
+                renderer.explanation(loss.position),
+                false,
+            ),
+            FeatureError::ProfileNotFound {
                 field,
-                body,
-                reference,
-                candidates,
+                sketch,
+                regions,
+            } => {
+                let mut fixes: Vec<Fix> = regions
+                    .iter()
+                    .flat_map(|region| {
+                        renderer.use_regions(
+                            &entry_pointer(&regions_field(field), region.position),
+                            sketch,
+                            &region.candidates,
+                        )
+                    })
+                    .collect();
+                fixes.push(Fix::show(sketch));
+                fixes.extend(regions.iter().map(|region| {
+                    Fix::pick(entry_pointer(&regions_field(field), region.position))
+                }));
+                fixes
+            }
+            FeatureError::ProfileCrossesAxis | FeatureError::AxisNotInPlane => {
+                vec![Fix::pick("/axis")]
+            }
+            FeatureError::PlaneMissesBody { .. } => vec![Fix::pick("/plane")],
+            _ => Vec::new(),
+        }
+    }
+
+    /// Always `Severity::Error`.
+    pub fn severity(&self) -> Severity {
+        Severity::Error
+    }
+
+    /// The technical text a report needs, never shown as the message (section 2.8).
+    pub fn detail(&self) -> Option<String> {
+        match self {
+            FeatureError::Kernel { error }
+            | FeatureError::FilletTooLarge {
+                max: None,
+                cause: error,
                 ..
-            } => Some(Repair::Element {
-                pointer: field.pointer(),
-                body: body.clone(),
-                reference: reference.clone(),
-                ambiguous: !candidates.is_empty(),
-                candidates: candidates.clone(),
-            }),
+            }
+            | FeatureError::ChamferTooLarge {
+                max: None,
+                cause: error,
+                ..
+            }
+            | FeatureError::ShellTooThick {
+                max: None,
+                cause: error,
+                ..
+            } => Some(error.to_string()),
+            FeatureError::Internal { message } => Some(message.clone()),
+            FeatureError::InvalidParams { detail } => Some(detail.clone()),
+            FeatureError::UndeclaredDependency { what } => Some(what.clone()),
+            FeatureError::AssetMissing { asset, .. } => Some(asset.clone()),
+            FeatureError::UnknownEntity { entity, .. } => Some(entity.clone()),
+            FeatureError::NameTooDeep { length } => Some(length.to_string()),
+            FeatureError::SketchInvalid { error } => Some(error.to_string()),
+            FeatureError::ReferencesNotFound { field, losses, .. } => Some(
+                losses
+                    .iter()
+                    .map(|loss| loss_detail(&format!("{}[{}]", field.path, loss.position), loss))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ),
+            FeatureError::ReferenceNotFound { field, loss } => Some(loss_detail(&field.path, loss)),
             _ => None,
         }
     }
 
-    /// An `Internal` error for a failure that valid input cannot cause.
-    pub fn internal(message: impl Into<String>) -> FeatureError {
-        FeatureError::Internal {
-            message: message.into(),
+    /// Repair data of the error's lost references or regions: one per loss of `ReferencesNotFound` and
+    /// `ProfileNotFound`.
+    pub fn repairs(&self) -> Vec<Repair> {
+        match self {
+            FeatureError::ReferencesNotFound { field, losses, .. } => losses
+                .iter()
+                .map(|loss| Repair::element(entry_pointer(field, loss.position), loss))
+                .collect(),
+            FeatureError::ReferenceNotFound { field, loss } => {
+                vec![Repair::element(field.pointer(), loss)]
+            }
+            FeatureError::ProfileNotFound {
+                field,
+                sketch,
+                regions,
+            } => regions
+                .iter()
+                .map(|region| {
+                    let pointer = entry_pointer(&regions_field(field), region.position);
+                    match &region.loss {
+                        Some(loss) => Repair::region_lost(pointer, sketch, &region.region, loss),
+                        None => Repair::region_in_use(
+                            pointer,
+                            sketch,
+                            &region.region,
+                            region.candidates.clone(),
+                        ),
+                    }
+                })
+                .collect(),
+            _ => Vec::new(),
         }
     }
+
+    /// The first of `repairs`.
+    pub fn repair(&self) -> Option<Repair> {
+        self.repairs().into_iter().next()
+    }
+}
+
+/// The text of one lost reference (section 4.1): `{Element} {reason}.`, or for an ambiguous one `{Element} now
+/// matches {n} {kind}s{after}. Pick the one you mean.`
+fn lost_reference_text(renderer: &Renderer<'_>, loss: &Loss, label: &str) -> String {
+    let element = renderer.lost_element_selected(loss, label);
+    if loss.ambiguous {
+        format!(
+            "{element} {}. Pick the one you mean.",
+            renderer.ambiguity(loss)
+        )
+    } else {
+        format!(
+            "{element} {}.{}",
+            renderer.reason(loss),
+            renderer.upstream_ending(loss)
+        )
+    }
+}
+
+/// The text of an empty body (section 4.1, `body_empty`).
+fn body_empty_text(renderer: &Renderer<'_>, body: &Id, use_new: bool) -> String {
+    let subject = renderer.body_subject(body);
+    match (renderer.empty_because(), &renderer.diagnosis().because) {
+        (Some(because), Some(Because::Failed(feature))) => format!(
+            "{subject} is empty here because {because}. Fix {} first.",
+            renderer.quoted_feature(feature)
+        ),
+        (Some(because), _) => format!("{subject} is empty here because {because}."),
+        (None, _) if use_new => format!(
+            "{subject} has no solid yet at this point, so there is nothing to add to. Set Operation to New body to start it here."
+        ),
+        (None, _) => format!(
+            "{subject} has no solid at this point, so {} has nothing to work on. Pick a body that has a solid.",
+            renderer.this()
+        ),
+    }
+}
+
+/// The field of the region list of a profile field: `profile.regions`.
+fn regions_field(profile: &FieldRef) -> FieldRef {
+    FieldRef {
+        path: format!("{}.regions", profile.path),
+        label: profile.label.clone(),
+    }
+}
+
+/// The detail of one loss (section 2.8): `edges[0] q=edge(f-box1/front|f-box1/top) resolution=missing
+/// lost.unmet=true candidates=<q>:<score>,...`.
+pub(crate) fn loss_detail(path: &str, loss: &Loss) -> String {
+    let names = |names: &[partsmith_naming::ElementName]| {
+        names
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let resolution = if loss.ambiguous {
+        "ambiguous"
+    } else {
+        "missing"
+    };
+    let mut detail = format!("{path} q={} resolution={resolution}", loss.reference.query);
+    if !loss.lost.parts.is_empty() {
+        detail.push_str(&format!(" lost.parts={}", names(&loss.lost.parts)));
+    }
+    if !loss.lost.pieces.is_empty() {
+        detail.push_str(&format!(" lost.pieces={}", names(&loss.lost.pieces)));
+    }
+    if loss.lost.unmet {
+        detail.push_str(" lost.unmet=true");
+    }
+    if !loss.candidates.is_empty() {
+        detail.push_str(&format!(
+            " candidates={}",
+            candidate_detail(&loss.candidates)
+        ));
+    }
+    detail
+}
+
+/// Candidates of a detail: `<q>:<score>` with 6 decimals, joined by `,`.
+pub(crate) fn candidate_detail(candidates: &[LossCandidate]) -> String {
+    candidates
+        .iter()
+        .map(|candidate| format!("{}:{:.6}", candidate.reference.query, candidate.score))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// The `OutOfRange` message for one bound (section 4.1).
@@ -784,6 +1120,7 @@ fn out_of_range(
 
 #[cfg(test)]
 mod tests {
+    use partsmith_naming::{Lost, Reference};
     use partsmith_occt_sys::{KernelErrorKind, Operation};
 
     use super::*;
@@ -815,8 +1152,28 @@ mod tests {
         .expect("the reference is valid")
     }
 
+    /// A loss of `reference()` at `position` with `count` candidates.
+    fn loss(position: usize, ambiguous: bool, count: usize) -> Loss {
+        let candidate = LossCandidate {
+            reference: reference(),
+            meaning: false,
+            distance: 1.0,
+            score: 0.5,
+        };
+        Loss {
+            position,
+            body: id("b-1"),
+            reference: reference(),
+            kind: ElementKind::Edge,
+            ambiguous,
+            lost: Lost::default(),
+            candidates: vec![candidate; count],
+        }
+    }
+
+    /// The message with ids, millimeters and `this feature` (section 2.8, `Display`).
     fn render(error: &FeatureError) -> String {
-        error.render(&IdNames, Units::Mm)
+        error.to_string()
     }
 
     #[test]
@@ -868,46 +1225,56 @@ mod tests {
     }
 
     #[test]
-    fn references_not_found_singular_and_plural() {
-        let one = FeatureError::ReferencesNotFound {
+    fn references_not_found_keeps_every_loss() {
+        // Section 3.8: every loss is kept, each with its own repair at its list entry.
+        let error = FeatureError::ReferencesNotFound {
             field: field("edges", "Edges"),
-            count: 1,
             kind: ElementKind::Edge,
-        };
-        let three = FeatureError::ReferencesNotFound {
-            field: field("vertices", "Vertices"),
-            count: 3,
-            kind: ElementKind::Vertex,
+            losses: vec![loss(0, false, 0), loss(2, false, 1)],
         };
 
-        assert_eq!(
-            render(&one),
-            "The edge selected for Edges can no longer be found. Re-pick it in the repair panel."
-        );
-        assert_eq!(
-            render(&three),
-            "None of the 3 vertices selected for Vertices can be found anymore. Re-pick them in the repair panel."
-        );
+        let pointers: Vec<String> = error
+            .repairs()
+            .into_iter()
+            .map(|repair| match repair {
+                Repair::Element { pointer, .. } | Repair::Region { pointer, .. } => pointer,
+            })
+            .collect();
+        assert_eq!(pointers, ["/edges/0", "/edges/2"]);
+        assert_eq!(error.code(), "references_not_found");
     }
 
     #[test]
-    fn reference_not_found_with_candidates_is_ambiguous() {
-        let candidate = ElementName::parse("f-box1/top").expect("valid name");
-        let error = FeatureError::ReferenceNotFound {
-            field: field("axis.edge", "Axis"),
-            body: id("b-1"),
-            reference: reference(),
+    fn several_losses_name_the_first_and_count_the_others() {
+        let error = FeatureError::ReferencesNotFound {
+            field: field("edges", "Edges"),
             kind: ElementKind::Edge,
-            candidates: vec![candidate.clone(), candidate],
+            losses: vec![loss(0, false, 0), loss(1, false, 0), loss(2, false, 0)],
         };
 
-        assert_eq!(
-            render(&error),
-            "The edge selected for Axis now matches 2 edges. Pick the one you mean in the repair panel."
+        let text = render(&error);
+
+        assert!(
+            text.starts_with("None of the 3 edges selected for Edges are left: "),
+            "{text}"
         );
+        assert!(text.ends_with(", and 2 more."), "{text}");
+    }
+
+    #[test]
+    fn an_ambiguous_reference_asks_for_the_one_meant() {
+        let error = FeatureError::ReferenceNotFound {
+            field: field("axis.edge", "Axis"),
+            loss: loss(0, true, 2),
+        };
+
+        let text = render(&error);
+
+        assert!(text.contains(" now matches 2 edges"), "{text}");
+        assert!(text.ends_with(" Pick the one you mean."), "{text}");
         assert!(matches!(
             error.repair(),
-            Some(Repair::Element { pointer, ambiguous: true, .. }) if pointer == "/axis/edge"
+            Some(Repair::Element { pointer, loss, .. }) if pointer == "/axis/edge" && loss.ambiguous
         ));
     }
 
@@ -1010,9 +1377,14 @@ mod tests {
 
     #[test]
     fn internal_errors_carry_their_message() {
+        // Section 4: the message goes to the detail, never into the text.
+        assert_eq!(
+            FeatureError::internal("no tool").detail().as_deref(),
+            Some("no tool")
+        );
         assert_eq!(
             render(&FeatureError::internal("no tool")),
-            "Partsmith hit an internal error in this feature (no tool). Please report it; the rest of the model was still rebuilt."
+            "Partsmith hit a bug while building this feature. Suppress it or undo the last change to keep working, and report it with the details."
         );
     }
 
@@ -1064,5 +1436,14 @@ mod tests {
         let source = std::error::Error::source(&error).expect("a kernel error has a source");
 
         assert_eq!(source.to_string(), kernel_error().to_string());
+    }
+
+    #[test]
+    fn a_name_too_deep_is_its_own_error() {
+        let error = crate::naming::naming_failed(partsmith_naming::NamingError::NameTooLong {
+            length: 5000,
+        });
+
+        assert_eq!(error, FeatureError::NameTooDeep { length: 5000 });
     }
 }

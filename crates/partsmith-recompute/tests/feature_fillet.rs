@@ -4,6 +4,7 @@
 
 mod feature_support;
 
+use std::collections::BTreeMap;
 use std::f64::consts::PI;
 use std::time::Duration;
 
@@ -11,17 +12,15 @@ use feature_support::{
     CUBE20, FRONT_TOP_EDGE, PLATE, PLATE_TOP_EDGES, Run, assert_bounding_box,
     assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_count, assert_face_kind, assert_face_radius, assert_list_field,
-    assert_median_build_within, assert_same_body, assert_unchanged, assert_volume, body_update,
-    document, face, face_names_with_prefix, load_example, median_failed_build_time, output_body,
-    suggested_limit,
+    assert_median_build_within, assert_messages_pass_lint, assert_same_body, assert_unchanged,
+    assert_volume, body_update, document, face, face_names_with_prefix, load_example,
+    median_failed_build_time, message, output_body, suggested_limit, use_reference,
 };
-use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
+use partsmith_features::{
+    BodyChange, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, IgnoredReason,
+};
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
-
-/// `E-LOST`: an edge reference that matches nothing.
-const LOST_EDGE: &str =
-    r#"{"q": "edge(f-box1/nothing|f-box1/top)", "fp": "line|n=0,0,1|c=500,500,500|l=1"}"#;
 
 /// The names of the twelve edges of a box `f-box1`.
 const BOX_EDGE_NAMES: [&str; 12] = [
@@ -181,23 +180,54 @@ fn t006_one_edge_lost() {
     assert_list_field(warning.field(), "edges", 1);
     assert_element_repair(warning.repair(), "/edges/1", "b-1");
     assert_eq!(
-        run.messages("f-fil1"),
-        [
-            "One of the edges selected for Edges can no longer be found, so it was skipped. Re-pick it in the repair panel."
-        ]
+        message(&run, "f-fil1", "reference_missing")
+            .pointer
+            .as_deref(),
+        Some("/edges/1")
     );
+    assert_messages_pass_lint(&run, "f-fil1");
     assert_volume(run.shape("b-1"), 7982.831853);
 }
 
 #[test]
 fn t007_every_edge_lost() {
-    let run = Run::records(&["b-1"], &[CUBE20, &fillet_record(&[LOST_EDGE], "2")]);
+    // An edge of a feature that is not in the document.
+    let lost = r#"{"q": "edge(f-box9/front|f-box9/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20"}"#;
+    let run = Run::records(&["b-1"], &[CUBE20, &fillet_record(&[lost], "2")]);
 
     run.assert_error("f-fil1", "references_not_found");
+    // Recompute's diagnosis: the edge's feature is not in the document, which its description already says.
+    let diagnosis = Diagnosis {
+        losses: BTreeMap::from([(
+            0,
+            Explanation {
+                text: "is gone".to_string(),
+                after: None,
+                fixes: Vec::new(),
+                upstream: false,
+            },
+        )]),
+        ..Diagnosis::default()
+    };
     assert_eq!(
-        run.messages("f-fil1"),
-        ["The edge selected for Edges can no longer be found. Re-pick it in the repair panel."]
+        run.render_error("f-fil1", &diagnosis),
+        "An edge of a feature that is not in this document selected for Edges is gone."
     );
+    let fixes = run.error_fixes("f-fil1", &diagnosis);
+    assert_eq!(
+        fixes.first(),
+        Some(&use_reference(
+            "/edges/0",
+            run.picked_before("f-fil1", "b-1", "edge(f-box1/front|f-box1/top)")
+        ))
+    );
+    assert_eq!(
+        fixes.last(),
+        Some(&Fix::Pick {
+            pointer: "/edges/0".to_string()
+        })
+    );
+    assert_messages_pass_lint(&run, "f-fil1");
     assert_unchanged(&run, "f-fil1", "b-1");
     let shape = run.shape("b-1");
     assert_volume(shape, 8000.0);
@@ -350,7 +380,7 @@ fn t013_empty_body() {
     assert_eq!(
         run.messages("f-fil1"),
         [
-            "Body 'Body 1' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid."
+            "Body 'Body 1' has no solid at this point, so this fillet has nothing to work on. Pick a body that has a solid."
         ]
     );
 }

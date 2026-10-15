@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use partsmith_model::{Category, FeatureManifest, Id, SelectionKind};
-use partsmith_naming::{FaceSource, NamingMap, roles};
+use partsmith_naming::{FaceSource, Motion, NamingMap, Successions, roles};
 use partsmith_occt_sys::{PlaneSide, Shape, SplitResult, SubShapeKind, split};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -89,9 +89,9 @@ impl Feature for SplitBody {
         params: &SplitBodyParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let (state, shape) = solid_body(context, &params.body)?;
+        let (state, shape) = solid_body(context, "body", &params.body)?;
         let plane = context.plane("plane", &params.plane)?;
-        let pieces = split(shape, &plane.to_kernel())?;
+        let pieces = split(shape, &plane.value.to_kernel())?;
         // A side holds no solid when its volume is at most the volume tolerance of the body
         // (split_body.md section 3.3).
         let threshold = VOLUME_TOLERANCE * state.volume()?;
@@ -131,7 +131,7 @@ impl Feature for SplitBody {
                 BodyChange::New,
             )?);
         }
-        Ok(bodies(updates, Vec::new()))
+        Ok(bodies(updates, plane.warnings))
     }
 
     /// `split(plane, into=<target part>, flip=True)` (split_body.md section 2): `into` when a
@@ -216,7 +216,14 @@ fn name_pieces(
             })
         })
         .collect();
-    Ok(name_shape(&pieces.result.shape, faces, &[input])?.naming)
+    let named = name_shape(
+        &pieces.result.shape,
+        faces,
+        &[input],
+        &Successions::default(),
+        &Motion::IDENTITY,
+    )?;
+    Ok(named.naming)
 }
 
 /// The update giving `body` these solids of the split `result`: one solid as it is, several as
@@ -287,6 +294,7 @@ mod tests {
             FeatureOutput {
                 data: OutputData::Datum(DatumResult::Plane(placement)),
                 warnings: Vec::new(),
+                absent: Vec::new(),
             },
         )
     }

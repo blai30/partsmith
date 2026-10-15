@@ -66,11 +66,11 @@ export function HealthBadge({ badge, onClick }: HealthBadgeProps) {
       aria-label={healthBadgeName(badge)}
       onClick={onClick}
       className={clsx(
-        'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-2 text-xs whitespace-nowrap tabular-nums transition-colors duration-150 motion-reduce:transition-none',
+        'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs whitespace-nowrap tabular-nums transition-colors duration-150 motion-reduce:transition-none',
         // An out-of-date report recedes: muted text, which keeps 4.5:1, and a dimmed icon (3.17).
         outdated ? COLOR_CLASSES.textMuted.foreground : COLOR_CLASSES.text.foreground,
         COLOR_CLASSES.hover.background,
-        COLOR_CLASSES.focusRing.outline,
+        COLOR_CLASSES.focusRing.inset,
         // A resting outline color equal to the ring's, so transition-colors does not fade the
         // ring in from the text color.
         COLOR_CLASSES.accent.outline,

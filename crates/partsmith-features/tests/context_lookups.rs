@@ -27,13 +27,16 @@ fn assert_undeclared<T: std::fmt::Debug>(result: Result<T, FeatureError>) {
     );
 }
 
-/// The placement that `ctx.plane` gives for an origin plane.
+/// The placement that `ctx.plane` gives for an origin plane, which has no warning (features.md section 2.6:
+/// `ctx.plane` returns `WithWarnings`).
 fn origin_plane_placement(plane: OriginPlane) -> Placement {
     let fixture = ContextFixture::new(Units::Mm, &[]);
-    fixture
+    let resolved = fixture
         .context()
         .plane("plane", &PlaneRef::Origin { plane })
-        .expect("origin planes always resolve")
+        .expect("origin planes always resolve");
+    assert!(resolved.warnings.is_empty());
+    resolved.value
 }
 
 #[test]

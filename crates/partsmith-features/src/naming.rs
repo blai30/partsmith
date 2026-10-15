@@ -81,22 +81,20 @@ pub struct Named {
 }
 
 /// Names every element of `shape` from one source per face, in face index order (naming.md
-/// section 3.3). `inherited` are the naming maps of every input shape, the body the feature writes
-/// first; each `FaceSource::From` source names its map by its index there.
+/// section 3.3, `NamingMap::build`). `inherited` are the naming maps of every input, the body the
+/// feature writes first, which `FaceSource::From` entries index; `successions` are the sketch
+/// successions the feature records (extrude and revolve, features.md section 3.9); `new_motion` is
+/// the motion of the geometry its new faces are built on (features.md section 3.9).
 pub fn name_shape(
     shape: &Shape,
     faces: Vec<FaceSource>,
     inherited: &[&NamingMap],
+    successions: &Successions,
+    new_motion: &Motion,
 ) -> Result<Named, FeatureError> {
     let topology = topology_info(shape)?;
-    let naming = NamingMap::build(
-        faces,
-        &topology,
-        inherited,
-        &Successions::default(),
-        &Motion::IDENTITY,
-    )
-    .map_err(naming_failed)?;
+    let naming = NamingMap::build(faces, &topology, inherited, successions, new_motion)
+        .map_err(naming_failed)?;
     Ok(Named {
         naming,
         topology: Arc::new(topology),
@@ -144,12 +142,13 @@ pub fn modified_sources(
 
 /// Names a kernel result by the boolean rule (naming.md section 3.6): each face descends from the
 /// input faces whose `modified` lists contain it, and a face without one gets the fallback name
-/// `<feature>/face`. `inputs` names the operation's history inputs in order; their aliases are
-/// inherited.
+/// `<feature>/face` with `new_motion`. `inputs` names the operation's history inputs in order; their
+/// aliases, successions and motions are inherited.
 pub fn name_by_history(
     feature: &Id,
     result: &OpResult,
     inputs: &[&NamingMap],
+    new_motion: &Motion,
 ) -> Result<Named, FeatureError> {
     let fallback = ElementName::generated(feature, roles::FACE, None).map_err(naming_failed)?;
     let faces = modified_sources(result, inputs)?
@@ -162,7 +161,13 @@ pub fn name_by_history(
             }
         })
         .collect();
-    name_shape(&result.shape, faces, inputs)
+    name_shape(
+        &result.shape,
+        faces,
+        inputs,
+        &Successions::default(),
+        new_motion,
+    )
 }
 
 /// True when `shape` has exactly these numbers of faces, edges and vertices, compared in that
@@ -191,9 +196,15 @@ pub(crate) fn sub_shape_kind(kind: ElementKind) -> SubShapeKind {
     }
 }
 
-/// A naming failure, which valid kernel output cannot cause, as an internal error.
+/// A naming failure as a feature error: a name too long to build is `NameTooDeep` (features.md section 4.1), any
+/// other failure, which valid kernel output cannot cause, `Internal`.
 pub(crate) fn naming_failed(error: partsmith_naming::NamingError) -> FeatureError {
-    FeatureError::internal(format!("naming the result failed: {error}"))
+    match error {
+        partsmith_naming::NamingError::NameTooLong { length } => {
+            FeatureError::NameTooDeep { length }
+        }
+        error => FeatureError::internal(format!("naming the result failed: {error}")),
+    }
 }
 
 /// The fingerprint of one element from its kernel geometry (naming.md section 3.7.1): faces and
@@ -317,9 +328,14 @@ mod tests {
         let second = named_box("f-b", [20.0, 0.0, 0.0], 10.0);
         let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
 
-        let naming = name_by_history(&id("f-c"), &result, &[&first.naming, &second.naming])
-            .expect("the result is named")
-            .naming;
+        let naming = name_by_history(
+            &id("f-c"),
+            &result,
+            &[&first.naming, &second.naming],
+            &Motion::IDENTITY,
+        )
+        .expect("the result is named")
+        .naming;
 
         let names = face_names(&naming);
         assert_eq!(names.len(), 12);
@@ -333,9 +349,14 @@ mod tests {
         let second = named_box("f-b", [10.0, 0.0, 0.0], 10.0);
         let result = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
 
-        let naming = name_by_history(&id("f-c"), &result, &[&first.naming, &second.naming])
-            .expect("the result is named")
-            .naming;
+        let naming = name_by_history(
+            &id("f-c"),
+            &result,
+            &[&first.naming, &second.naming],
+            &Motion::IDENTITY,
+        )
+        .expect("the result is named")
+        .naming;
 
         let top = ElementName::parse("f-a/top").expect("valid name");
         let merged = ElementName::parse("f-b/top").expect("valid name");

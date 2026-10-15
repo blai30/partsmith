@@ -240,15 +240,10 @@ fn face_ambiguous() {
         "fallback reason {reason:?}"
     );
     assert_eq!(run.messages("f-sk1"), [FACE_AMBIGUOUS_TEXT]);
+    // features.md section 4.2: an element repair carries the loss, ambiguous when several faces fit.
     let repair = run.feature("f-sk1").warnings[0].repair();
     assert!(
-        matches!(
-            repair,
-            Some(Repair::Element {
-                ambiguous: true,
-                ..
-            })
-        ),
+        matches!(&repair, Some(Repair::Element { loss, .. }) if loss.ambiguous),
         "repair data {repair:?}",
     );
     assert_eq!(

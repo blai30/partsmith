@@ -172,9 +172,10 @@ fn t021_features_that_read_a_failed_output_report_upstream_failed() {
 
     assert_eq!(error_code(&report, "f-sk1"), "sketch_conflict");
     assert_eq!(error_code(&report, "f-ext1"), "upstream_failed");
+    // recompute.md test 21: `{this}` names the feature's type.
     assert_eq!(
         message_texts(&report, "f-ext1"),
-        owned(&["'Sketch 1' has an error, so this feature cannot use it. Fix 'Sketch 1' first."])
+        owned(&["'Sketch 1' has an error, so this extrude cannot use it. Fix 'Sketch 1' first."])
     );
     assert_eq!(error_code(&report, "f-fil1"), "body_empty");
     assert_statuses(&report, &[("f-box2", "ok"), ("f-dp1", "ok")]);
@@ -270,6 +271,15 @@ fn t027_an_undeclared_update_is_not_applied() {
     assert_volume(shape(final_state(&report, "b-2")), 1000.0);
 }
 
+/// The detail of the internal error `feature` reported (features.md section 4.1).
+fn panic_detail(report: &Report, feature_id: &str) -> String {
+    feature(report, feature_id)
+        .error
+        .as_ref()
+        .and_then(|error| error.detail())
+        .unwrap_or_else(|| panic!("{feature_id} has no error detail"))
+}
+
 #[test]
 fn t028_a_panic_is_an_internal_error_and_is_never_cached() {
     let mut harness = Harness::builtins();
@@ -281,11 +291,13 @@ fn t028_a_panic_is_an_internal_error_and_is_never_cached() {
     let second = harness.run(&document);
 
     assert_eq!(error_code(&first, "f-t3"), "internal");
+    // recompute.md test 28 and features.md section 4.1: the panic message is in the detail, not in the text.
     assert!(
-        first_message(&first, "f-t3").text.contains("boom"),
+        !first_message(&first, "f-t3").text.contains("boom"),
         "message {}",
         first_message(&first, "f-t3").text
     );
+    assert!(panic_detail(&first, "f-t3").contains("boom"));
     assert_statuses(&first, &[("f-fil1", "ok"), ("f-dp1", "ok")]);
     assert!(!feature(&second, "f-t3").timing.from_cache);
     assert_eq!(error_code(&second, "f-t3"), "internal");
@@ -521,14 +533,17 @@ fn suppressed_features_do_nothing_and_leave_their_bodies_empty() {
     assert!(feature(&report, "f-a").output.is_none());
     assert!(bodies_before_ids(&report, "f-a").is_empty());
     assert_eq!(error_code(&report, "f-b"), "body_empty");
+    // features.md section 4.1, `body_empty` without a diagnosis; recompute.md section 3.10 adds why the body is empty.
     assert_eq!(
         message_texts(&report, "f-b"),
-        owned(&["Body 'Body 1' is empty at this point. Use op new to start it."])
+        owned(&[
+            "Body 'Body 1' has no solid yet at this point, so there is nothing to add to. Set Operation to New body to start it here."
+        ])
     );
     assert_eq!(
         message_texts(&report, "f-p"),
         owned(&[
-            "Body 'Body 1' is empty at this point, so this feature has nothing to work on. Pick a body that has a solid."
+            "Body 'Body 1' has no solid at this point, so this test probe has nothing to work on. Pick a body that has a solid."
         ])
     );
 }
@@ -675,10 +690,11 @@ fn a_link_to_a_failed_feature_reports_upstream_failed() {
 
     assert_eq!(error_code(&report, "f-e"), "expression");
     assert_eq!(error_code(&report, "f-f"), "upstream_failed");
+    // features.md section 4.1, `upstream_failed`: `{this}` names the feature's type.
     assert_eq!(
         message_texts(&report, "f-f"),
         owned(&[
-            "'Test datum 1' has an error, so this feature cannot use it. Fix 'Test datum 1' first."
+            "'Test datum 1' has an error, so this test datum cannot use it. Fix 'Test datum 1' first."
         ])
     );
 }
@@ -875,10 +891,11 @@ fn two_updates_of_one_body_are_rejected_and_not_applied() {
     let report = harness.run(&document);
 
     assert_eq!(error_code(&report, "f-t"), "undeclared_dependency");
+    // features.md section 4.1, `undeclared_dependency`: what was undeclared goes to the detail.
     assert_eq!(
         message_texts(&report, "f-t"),
         [
-            "This feature read body 'b-1' again to update it a second time without declaring it. This is a bug in the feature; please report it."
+            "Partsmith hit a bug in this test twice, so it was not built. Suppress it to keep working, and report it with the details."
         ]
     );
     assert_volume(shape(final_state(&report, "b-1")), 8.0);
@@ -899,7 +916,7 @@ fn a_panic_is_an_internal_error_that_is_built_again_on_every_run() {
     let second = harness.run(&document);
 
     assert_eq!(error_code(&first, "f-t3"), "internal");
-    assert!(first_message(&first, "f-t3").text.contains("boom"));
+    assert!(panic_detail(&first, "f-t3").contains("boom"));
     assert_eq!(status(&first, "f-d2"), "ok");
     assert_eq!(harness.cache_len(), 2);
     assert_eq!(not_reused(&second), owned(&["f-t3"]));

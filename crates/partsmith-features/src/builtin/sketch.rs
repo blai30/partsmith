@@ -2,6 +2,7 @@
 //! its geometry and closed regions (features/sketch.md).
 
 use partsmith_model::{Category, FeatureManifest, FieldUnit, SelectionKind};
+use partsmith_naming::Motion;
 use partsmith_sketch::{
     DimensionValues, NativeSolver, SketchParams, SketchPlane, SolveIssue, Solver, ValueKind,
     build_profile,
@@ -141,10 +142,12 @@ impl Feature for SketchFeature {
         Ok(FeatureOutput {
             data: OutputData::Sketch(SketchResult {
                 placement,
+                motion: Motion::IDENTITY,
                 solved,
                 profile,
             }),
             warnings,
+            absent: Vec::new(),
         })
     }
 }

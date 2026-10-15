@@ -7,11 +7,12 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    BOX_BELOW, LENGTH_TOLERANCE, Run, assert_bounding_box, assert_coordinates, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
-    assert_face_kind, assert_face_radius, assert_has_face, assert_median_build_within,
-    assert_no_face, assert_solid_count, assert_unchanged, assert_volume, body_update, document,
-    face, face_names_with_prefix, load_example, output_body, vertex,
+    BOX_BELOW, LENGTH_TOLERANCE, Run, absent_faces, assert_bounding_box, assert_coordinates,
+    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
+    assert_face_in_plane, assert_face_kind, assert_face_radius, assert_has_face,
+    assert_median_build_within, assert_no_face, assert_solid_count, assert_unchanged,
+    assert_volume, body_update, document, face, face_names_with_prefix, load_example, output_body,
+    vertex,
 };
 use partsmith_features::{BodyChange, Bound, FeatureError};
 use partsmith_model::Document;
@@ -631,4 +632,44 @@ fn t033_ten_holes_in_a_200_face_body_within_80_ms() {
     assert_face_count(run.shape("b-1"), 210);
 
     assert_median_build_within(&document, "f-hole2", 7, Duration::from_millis(80));
+}
+
+#[test]
+fn t036_a_through_hole_records_its_bottom_absent() {
+    let run = run_hole(&hole(r#"["e-p1"]"#, THROUGH_ALL));
+
+    run.assert_ok("f-hole1");
+    assert_eq!(
+        absent_faces(&run, "f-hole1"),
+        [("f-hole1/bottom/e-p1".to_string(), "Through".to_string())]
+    );
+}
+
+#[test]
+fn t036_a_blind_hole_records_nothing_absent() {
+    let run = run_hole(&hole(
+        r#"["e-p1"]"#,
+        r#""extent": {"kind": "distance", "expr": "5"}"#,
+    ));
+
+    run.assert_ok("f-hole1");
+    assert!(absent_faces(&run, "f-hole1").is_empty());
+}
+
+#[test]
+fn t036_a_hole_that_starts_inside_the_body_ends_outside() {
+    let datum = r#"{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "-5"}"#;
+    let sketch = POINTS_SKETCH.replace(
+        r#""plane": {"kind": "origin", "plane": "XY"}"#,
+        r#""plane": {"kind": "datum", "feature": "f-dp1"}"#,
+    );
+    let through = hole(r#"["e-p1"]"#, THROUGH_ALL);
+
+    let run = Run::records(&["b-1"], &[BOX_BELOW, datum, &sketch, &through]);
+
+    run.assert_ok("f-hole1");
+    assert_eq!(
+        absent_faces(&run, "f-hole1"),
+        [("f-hole1/bottom/e-p1".to_string(), "EndOutside".to_string())]
+    );
 }

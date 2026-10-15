@@ -41,7 +41,7 @@ async function clickCanvas(page: Page, dxInHeights: number, dyInHeights: number)
 async function expectBodySize(page: Page, name: string, size: string): Promise<void> {
   await bodyRow(page, name).click()
   await expect(page.getByTestId('selection-title')).toHaveText(name)
-  await expect(page.getByTestId('body-size')).toHaveText(size)
+  await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', size)
 }
 
 /** Expects the timeline to hold items with these labels, in order. */
@@ -276,10 +276,10 @@ test.describe('inspector, timeline and browser', () => {
     await expression.fill('30 mm')
     await expression.press('Enter')
     await expect(page.getByTestId('parameter-value')).toHaveText('30 mm')
-    await expect(page.getByTestId('body-size')).toHaveText('30 × 30 × 30 mm')
+    await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', '30 × 30 × 30 mm')
     await leaveParametersField(page)
     await page.keyboard.press('ControlOrMeta+Z')
-    await expect(page.getByTestId('body-size')).toHaveText('20 × 20 × 20 mm')
+    await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', '20 × 20 × 20 mm')
   })
 
   test('E-24 dragging the rollback marker rolls features back and undo restores them', async ({
@@ -404,7 +404,7 @@ test.describe('inspector, timeline and browser', () => {
     await expect(inspector(page)).not.toHaveAttribute('data-mode', 'command')
     await expectBodySize(page, 'Cube', '20 × 20 × 30 mm')
     await page.keyboard.press('ControlOrMeta+Z')
-    await expect(page.getByTestId('body-size')).toHaveText('20 × 20 × 20 mm')
+    await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', '20 × 20 × 20 mm')
   })
 
   test('E-30 essential fields, More options and its remembered state', async ({ page }) => {
@@ -758,7 +758,7 @@ const FEATURE_ROWS: readonly FeatureRow[] = [
     },
     result: async (page) => {
       await bodyRow(page, 'Cube').click()
-      await expect(page.getByTestId('body-center')).toHaveText('10, 0, 10 mm')
+      await expect(page.getByTestId('body-center')).toHaveAttribute('data-value', '10, 0, 10 mm')
     },
   },
   {
@@ -799,7 +799,7 @@ const FEATURE_ROWS: readonly FeatureRow[] = [
     },
     result: async (page) => {
       await expectBodySize(page, 'Cube', '60 × 20 × 20 mm')
-      await expect(page.getByTestId('body-center')).toHaveText('0, 0, 10 mm')
+      await expect(page.getByTestId('body-center')).toHaveAttribute('data-value', '0, 0, 10 mm')
     },
   },
   {
@@ -1066,7 +1066,7 @@ test.describe('one interface for everyone', () => {
     await confirmAndExpectOk(page, 'Mirror 1')
     await expect(bodyRow(page, 'Cube')).toHaveCount(1)
     await expectBodySize(page, 'Body 1', '20 × 20 × 20 mm')
-    await expect(page.getByTestId('body-center')).toHaveText('-20, 0, 10 mm')
+    await expect(page.getByTestId('body-center')).toHaveAttribute('data-value', '-20, 0, 10 mm')
   })
 
   test('E-76 a cut sketched on a face goes into the body', async ({ page }) => {

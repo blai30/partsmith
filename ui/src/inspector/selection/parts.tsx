@@ -5,7 +5,10 @@ import { useApp, useAppState } from '../../app/AppProvider'
 import { reportFailure } from '../../app/report'
 import { runCommand } from '../../commands/registry'
 import { ariaKeyShortcut, formatShortcut } from '../../commands/shortcuts'
+import { AxisValues } from '../../components/AxisLetter'
 import { Button } from '../../components/Button'
+import { formatNumber } from '../../expression/format'
+import type { Units } from '../../generated/protocol'
 import type { SelectionItem } from '../../state/store'
 import { COLOR_CLASSES, FONT_CLASSES } from '../../theme/roles'
 import { measuredBody, measureSelection, selectionMeasurements, volumeMeter } from '../measurements'
@@ -30,6 +33,49 @@ export function Row({ label, children }: { readonly label: string; readonly chil
       <span className={COLOR_CLASSES.textMuted.foreground}>{label}</span>
       <span className="min-w-0 text-right">{children}</span>
     </div>
+  )
+}
+
+/** A coordinate readout's row (3.8): its label on one line and the readout on the next. */
+export function ReadoutRow({
+  label,
+  children,
+}: {
+  readonly label: string
+  readonly children: ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-1 py-1.5 text-sm">
+      <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>{label}</span>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * The X, Y and Z of a point or of a box's extents after their axis letters, in the document unit,
+ * with the plain text (`formatPoint` or `formatSize`) in `data-value` (3.8).
+ */
+export function CoordinateReadout({
+  testId,
+  coordinates,
+  units,
+  text,
+}: {
+  readonly testId: string
+  readonly coordinates: readonly [number, number, number]
+  readonly units: Units
+  readonly text: string
+}) {
+  const [x, y, z] = coordinates
+  const format = (value: number): string => formatNumber(value, 'length', units)
+  return (
+    <AxisValues
+      testId={testId}
+      values={[format(x), format(y), format(z)]}
+      unit={units}
+      text={text}
+    />
   )
 }
 

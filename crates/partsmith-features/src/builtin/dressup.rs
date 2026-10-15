@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use partsmith_model::Id;
 use partsmith_naming::{
-    EdgeInfo, ElementKind, ElementName, FaceSource, Generator, NamingMap, Reference, TopologyInfo,
-    roles,
+    EdgeInfo, ElementInfo, ElementKind, ElementName, FaceSource, Generator, Motion, NamingMap,
+    Reference, Successions, TopologyInfo, roles,
 };
 use partsmith_occt_sys::{
     Continuity, EdgeNormals, InputHistory, KernelError, KernelErrorKind, OpResult, Shape,
@@ -31,7 +31,8 @@ const SMOOTH_ANGLE: f64 = 1e-3;
 pub(super) struct EdgeSelection {
     /// The selected edges that have a corner, in resolver order.
     pub(super) edges: Vec<SelectedEdge>,
-    /// Warnings for lost or ambiguous references, then one per skipped smooth edge.
+    /// Warnings for lost, guessed or widened references, notices for followed ones, then one
+    /// warning per skipped smooth edge.
     pub(super) warnings: Vec<FeatureWarning>,
 }
 
@@ -46,8 +47,8 @@ pub(super) struct SelectedEdge {
 
 /// Resolves the `edges` references in `body`, which holds `shape` in `state`, and skips the smooth
 /// edges with an `Ignored` warning each (fillet.md section 3.3 steps 3 and 4, chamfer.md step 3).
-/// The faces of each edge come from the body state's topology, which resolving the references has
-/// already read.
+/// Smooth edges are never offered as candidates of a loss (features.md section 3.8). The faces of
+/// each edge come from the body state's topology, which resolving the references has already read.
 pub(super) fn select_edges(
     context: &BuildContext<'_>,
     body: &Id,
@@ -55,11 +56,18 @@ pub(super) fn select_edges(
     shape: &Shape,
     edges: &[Reference],
 ) -> Result<EdgeSelection, FeatureError> {
-    let resolved = context.resolve_all("edges", body, edges, ElementKind::Edge)?;
     let topology = state.topology()?;
+    let has_corner = |info: &ElementInfo| match state.naming().index(&info.name) {
+        Some(index) => Ok(!is_smooth(shape, &topology, index)?),
+        None => Ok(false),
+    };
+    let resolved =
+        context.resolve_all_usable("edges", body, edges, ElementKind::Edge, &has_corner)?;
+    let mut warnings = resolved.warnings;
+    warnings.extend(resolved.notices);
     let mut selection = EdgeSelection {
         edges: Vec::new(),
-        warnings: resolved.warnings,
+        warnings,
     };
     for element in resolved.elements {
         if is_smooth(shape, &topology, element.index)? {
@@ -313,7 +321,13 @@ fn name_blend(
             new_face(feature, roles::FACE, None)
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    name_shape(&result.shape, faces, &[input])
+    name_shape(
+        &result.shape,
+        faces,
+        &[input],
+        &Successions::default(),
+        &Motion::IDENTITY,
+    )
 }
 
 /// The output of a dress-up feature that changed `body` into `shape` named by `named`, with the

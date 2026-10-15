@@ -25,10 +25,10 @@ function setUp() {
 }
 
 describe('ViewCube', () => {
-  it('is a group named "View cube" at the top right of the viewport, size-24', () => {
+  it('U-186 is a group named "View cube" at the top right of the free area, size-24', () => {
     const { cube } = setUp()
     expect(screen.getByRole('group', { name: 'View cube' })).toBe(cube)
-    expect(cube).toHaveClass('absolute', 'top-8', 'right-6', 'size-24')
+    expect(cube).toHaveClass('pointer-events-auto', 'absolute', 'top-11', 'right-9', 'size-24')
   })
 
   it('sits low enough that the iso view keeps its top corner inside the viewport (3.14)', () => {
@@ -70,6 +70,50 @@ describe('ViewCube', () => {
     }
     expect(within(cube).getByRole('button', { name: 'Home view' })).toBeInTheDocument()
     expect(within(cube).getAllByRole('button')).toHaveLength(VIEW_CUBE_PARTS.length + 1)
+  })
+
+  it('U-184 draws each face’s sides in the colors of the axes they run along, keeping the cells’ size', () => {
+    const { rotorRef } = setUp()
+    const expected: Readonly<Record<string, readonly [string, string]>> = {
+      Top: [COLOR_CLASSES.axisX.border, COLOR_CLASSES.axisY.border],
+      Bottom: [COLOR_CLASSES.axisX.border, COLOR_CLASSES.axisY.border],
+      Front: [COLOR_CLASSES.axisX.border, COLOR_CLASSES.axisZ.border],
+      Back: [COLOR_CLASSES.axisX.border, COLOR_CLASSES.axisZ.border],
+      Left: [COLOR_CLASSES.axisY.border, COLOR_CLASSES.axisZ.border],
+      Right: [COLOR_CLASSES.axisY.border, COLOR_CLASSES.axisZ.border],
+    }
+    const faces = [...(rotorRef.current?.children ?? [])]
+    expect(faces).toHaveLength(6)
+    const seen: string[] = []
+    for (const face of faces) {
+      const name = [...face.children].find(
+        (child) => child.textContent !== '' && !child.matches('button, [data-view-cube-part]'),
+      )?.textContent
+      const [horizontal, vertical] = expected[name ?? ''] ?? ['', '']
+      seen.push(name ?? '')
+      const sides = [...face.children].filter(
+        (child) => child.classList.contains('border-y-2') || child.classList.contains('border-x-2'),
+      )
+      expect(sides).toHaveLength(2)
+      for (const side of sides) {
+        expect(side).toHaveAttribute('aria-hidden', 'true')
+        expect(side).toHaveClass('pointer-events-none', 'absolute', 'inset-0')
+      }
+      const [horizontalSides, verticalSides] = [
+        sides.find((side) => side.classList.contains('border-y-2')),
+        sides.find((side) => side.classList.contains('border-x-2')),
+      ]
+      expect(horizontalSides).toHaveClass(horizontal)
+      expect(verticalSides).toHaveClass(vertical)
+      expect(face).not.toHaveClass(COLOR_CLASSES.border.border)
+      expect(face).not.toHaveClass('border')
+    }
+    expect(seen.toSorted()).toEqual(['Back', 'Bottom', 'Front', 'Left', 'Right', 'Top'])
+  })
+
+  it('U-184 keeps a rounded-md Home view button', () => {
+    setUp()
+    expect(screen.getByRole('button', { name: 'Home view' })).toHaveClass('rounded-md')
   })
 
   it('labels its faces Top, Bottom, Front, Back, Left and Right', () => {

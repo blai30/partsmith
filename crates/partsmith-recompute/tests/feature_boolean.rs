@@ -12,6 +12,8 @@ use feature_support::{
     assert_median_build_within, assert_solid_count, assert_unchanged, assert_volume, body_changes,
     face, link_ids, load_example,
 };
+use partsmith_features::{Because, Diagnosis, Fix};
+use partsmith_model::Id;
 use partsmith_occt_sys::GeometryKind;
 
 /// The bodies of every boolean test.
@@ -167,12 +169,17 @@ fn t008_repeated_tool() {
 fn t009_empty_tool() {
     let run = Run::records(&BODIES, &[BOX1, &boolean(r#"["b-2"]"#, "join")]);
 
-    run.assert_error("f-bool1", "tool_empty");
+    let error = run.assert_error("f-bool1", "tool_empty");
+    assert_error_field(error, "tools[0]");
     assert_eq!(
         run.messages("f-bool1"),
-        [
-            "Body 'Body 2' is empty at this point, so it cannot be used as a tool. Pick a body that has a solid."
-        ]
+        ["Body 'Body 2' is empty here, so it cannot be used as a tool."]
+    );
+    assert_eq!(
+        run.error_fixes("f-bool1", &Diagnosis::default()),
+        [Fix::Pick {
+            pointer: "/tools/0".to_string()
+        }]
     );
     assert_unchanged(&run, "f-bool1", "b-1");
 }
@@ -182,6 +189,12 @@ fn t010_empty_target() {
     let run = Run::records(&BODIES, &[BOX2, &boolean(r#"["b-2"]"#, "join")]);
 
     run.assert_error("f-bool1", "body_empty");
+    assert_eq!(
+        run.messages("f-bool1"),
+        [
+            "Body 'Body 1' has no solid at this point, so this boolean has nothing to work on. Pick a body that has a solid."
+        ]
+    );
     assert_unchanged(&run, "f-bool1", "b-2");
 }
 
@@ -253,4 +266,49 @@ fn t016_join_builds_within_15_ms() {
     let document = load_example("boolean/join.ptsm");
 
     assert_median_build_within(&document, "f-bool1", 21, Duration::from_millis(15));
+}
+
+/// `BOX2` suppressed.
+const BOX2_SUPPRESSED: &str = r#"{"id": "f-box2", "type": "box", "suppressed": true, "body": "b-2", "size": ["20", "20", "20"], "position": ["10", "0", "0"], "op": "new"}"#;
+
+#[test]
+fn t017_a_tool_whose_feature_is_suppressed() {
+    let run = Run::records(
+        &BODIES,
+        &[BOX1, BOX2_SUPPRESSED, &boolean(r#"["b-2"]"#, "join")],
+    );
+    // Recompute's diagnosis finds the suppressed writer of b-2 (recompute.md section 3.10, `because`).
+    let diagnosis = Diagnosis {
+        because: Some(Because::Suppressed(Id::new("f-box2").expect("a valid id"))),
+        ..Diagnosis::default()
+    };
+
+    run.assert_error("f-bool1", "tool_empty");
+    assert_eq!(
+        run.render_error("f-bool1", &diagnosis),
+        "Body 'Body 2' is empty here because 'Box 2', which makes it, is suppressed, so it cannot be used as a tool."
+    );
+    assert_eq!(
+        run.error_fixes("f-bool1", &diagnosis),
+        [
+            Fix::Unsuppress {
+                feature: Id::new("f-box2").expect("a valid id")
+            },
+            Fix::Pick {
+                pointer: "/tools/0".to_string()
+            },
+        ]
+    );
+    assert_unchanged(&run, "f-bool1", "b-1");
+}
+
+#[test]
+fn t017_unsuppressing_the_tool_gives_test_1() {
+    let run = Run::records(&BODIES, &[BOX1, BOX2, &boolean(r#"["b-2"]"#, "join")]);
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 12000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [20.0, 10.0, 20.0]);
 }

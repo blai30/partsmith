@@ -8,7 +8,7 @@ import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { MESSAGES } from '../messages'
 import { isView } from './focus'
-import { isNarrowWindow } from './use-overlay-dismiss'
+import { isNarrowWindow } from './docking'
 
 // The Esc and Enter ladders (ui.md 3.5): what the two keys do when no focused control takes them.
 

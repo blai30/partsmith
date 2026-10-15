@@ -3,7 +3,9 @@
 
 use std::sync::{Arc, OnceLock};
 
-use partsmith_naming::{ElementInfo, Motion, NamingMap, Successions, TopologyInfo};
+use partsmith_naming::{
+    ElementInfo, ElementName, ElementSet, Motion, NamingMap, Successions, TopologyInfo,
+};
 use partsmith_occt_sys::Shape;
 
 use crate::error::FeatureError;
@@ -28,6 +30,8 @@ struct BodyContent {
     topology: OnceLock<Result<Arc<TopologyInfo>, FeatureError>>,
     /// Element infos, computed on first use.
     elements: OnceLock<Result<Arc<[ElementInfo]>, FeatureError>>,
+    /// The resolver's view of the state, computed on first use.
+    element_set: OnceLock<Result<Arc<ElementSet>, FeatureError>>,
     /// Volume, carried from the update or computed on first use.
     volume: OnceLock<Result<f64, FeatureError>>,
 }
@@ -114,6 +118,39 @@ impl BodyState {
             .clone()
     }
 
+    /// The resolver's view of the state (naming.md section 2.7): `ElementSet::new` of `elements` with the naming
+    /// map's aliases and successions, computed once on first use and shared by clones. Empty for an empty body.
+    pub fn element_set(&self) -> Result<Arc<ElementSet>, FeatureError> {
+        self.content
+            .element_set
+            .get_or_init(|| {
+                let naming = &self.content.naming;
+                ElementSet::new(
+                    self.elements()?,
+                    naming.aliases().clone(),
+                    naming.successions().clone(),
+                )
+                .map(Arc::new)
+                .map_err(naming_failed)
+            })
+            .clone()
+    }
+
+    /// True when `elements` (or `element_set`, which computes it) has been computed for this state or a clone of
+    /// it.
+    pub fn elements_computed(&self) -> bool {
+        self.content.elements.get().is_some()
+    }
+
+    /// The motion the naming map records for a face name (naming.md section 3.3 step 8), also for a name no longer
+    /// in the shape; the identity for an empty body.
+    pub fn motion(&self, face: &ElementName) -> Motion {
+        if self.is_empty() {
+            return Motion::IDENTITY;
+        }
+        self.content.naming.motion(face)
+    }
+
     /// Volume of the shape in cubic millimeters (0 for an empty body), computed once on first use
     /// and shared by clones.
     pub fn volume(&self) -> Result<f64, FeatureError> {
@@ -153,6 +190,7 @@ impl BodyState {
                 naming,
                 topology: known(measured.topology.map(Ok)),
                 elements: OnceLock::new(),
+                element_set: OnceLock::new(),
                 volume: known(measured.volume.map(Ok)),
             }),
         }

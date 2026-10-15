@@ -93,8 +93,14 @@ impl Feature for Mirror {
     ) -> Result<FeatureOutput, FeatureError> {
         let source = Source::new(context, &params.body)?;
         let plane = context.plane("plane", &params.plane)?;
-        let image = source.copy(context, &Transform::mirror(&plane.to_kernel()), IMAGE)?;
-        source.place(context, params.op, params.target.as_ref(), vec![image])
+        let image = source.copy(context, &Transform::mirror(&plane.value.to_kernel()), IMAGE)?;
+        source.place(
+            context,
+            params.op,
+            params.target.as_ref(),
+            vec![image],
+            plane.warnings,
+        )
     }
 
     /// `mirror(plane, into=<target part>)`: `into` only with op new (mirror.md section 2). None
@@ -241,6 +247,7 @@ mod tests {
                 partsmith_sketch::OriginPlane::Yz.placement().offset(20.0),
             )),
             warnings: Vec::new(),
+            absent: Vec::new(),
         };
 
         let output = build::<Mirror>(

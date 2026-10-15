@@ -91,7 +91,7 @@ impl<'a> Source<'a> {
         context: &BuildContext<'a>,
         body: &'a Id,
     ) -> Result<Source<'a>, FeatureError> {
-        let (state, shape) = solid_body(context, body)?;
+        let (state, shape) = solid_body(context, "body", body)?;
         Ok(Source { body, state, shape })
     }
 
@@ -128,6 +128,7 @@ impl<'a> Source<'a> {
         op: CopyOp,
         target: Option<&Id>,
         copies: Vec<Tool>,
+        mut warnings: Vec<FeatureWarning>,
     ) -> Result<FeatureOutput, FeatureError> {
         let destination = match op {
             CopyOp::Join => self.body,
@@ -146,9 +147,9 @@ impl<'a> Source<'a> {
             }
         };
         if copies.is_empty() {
-            let warnings = vec![FeatureWarning::NoEffect {
+            warnings.push(FeatureWarning::NoEffect {
                 body: destination.clone(),
-            }];
+            });
             let updates = match op {
                 CopyOp::Join => vec![unchanged(self.body, self.state, BodyChange::Join)],
                 CopyOp::New => Vec::new(),
@@ -159,7 +160,8 @@ impl<'a> Source<'a> {
             CopyOp::Join => BodyOp::Join,
             CopyOp::New => BodyOp::New,
         };
-        let (update, warnings) = apply_op(context, destination, body_op, copies)?;
+        let (update, op_warnings) = apply_op(context, destination, body_op, copies)?;
+        warnings.extend(op_warnings);
         Ok(bodies(vec![update], warnings))
     }
 }
@@ -319,13 +321,15 @@ mod tests {
     #[test]
     fn an_empty_source_has_nothing_to_copy() {
         let fixture = Fixture::new("f-lp1").with_body("b-1", BodyState::empty());
+        let context = fixture.context();
         let body = id("b-1");
 
-        let result = Source::new(&fixture.context(), &body);
+        let result = Source::new(&context, &body);
 
         assert_eq!(
             result.map(|_| ()),
             Err(FeatureError::BodyEmpty {
+                field: context.field("body"),
                 body: id("b-1"),
                 use_new: false
             })
@@ -342,7 +346,7 @@ mod tests {
         let copies = vec![named_box("f-box9", [20.0, 0.0, 0.0], 10.0)];
 
         let output = source
-            .place(&context, CopyOp::Join, None, copies)
+            .place(&context, CopyOp::Join, None, copies, Vec::new())
             .expect("the copies join");
 
         let updates = updates(&output);
@@ -360,7 +364,7 @@ mod tests {
         let source = Source::new(&context, &body).expect("the body holds a solid");
 
         let output = source
-            .place(&context, CopyOp::Join, None, Vec::new())
+            .place(&context, CopyOp::Join, None, Vec::new(), Vec::new())
             .expect("no copies is not an error");
 
         let update = update(&output, "b-1");
@@ -382,7 +386,13 @@ mod tests {
         let source = Source::new(&context, &body).expect("the body holds a solid");
 
         let output = source
-            .place(&context, CopyOp::New, Some(&id("b-2")), Vec::new())
+            .place(
+                &context,
+                CopyOp::New,
+                Some(&id("b-2")),
+                Vec::new(),
+                Vec::new(),
+            )
             .expect("no copies is not an error");
 
         assert!(updates(&output).is_empty());
@@ -401,7 +411,13 @@ mod tests {
         let body = id("b-1");
         let source = Source::new(&context, &body).expect("the body holds a solid");
 
-        let result = source.place(&context, CopyOp::New, Some(&id("b-2")), Vec::new());
+        let result = source.place(
+            &context,
+            CopyOp::New,
+            Some(&id("b-2")),
+            Vec::new(),
+            Vec::new(),
+        );
 
         assert_eq!(
             result.map(|_| ()),
@@ -419,7 +435,7 @@ mod tests {
         let source = Source::new(&context, &body).expect("the body holds a solid");
         let copies = vec![named_box("f-box9", [20.0, 0.0, 0.0], 10.0)];
 
-        let result = source.place(&context, CopyOp::New, Some(&id("b-2")), copies);
+        let result = source.place(&context, CopyOp::New, Some(&id("b-2")), copies, Vec::new());
 
         assert_eq!(
             result.map(|_| ()),

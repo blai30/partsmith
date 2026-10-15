@@ -8,7 +8,7 @@ import { Switch } from '../../components/Switch'
 import { formatPoint, formatSize } from '../../expression/format'
 import type { DocumentState, SelectionItem } from '../../state/store'
 import { COLOR_CLASSES } from '../../theme/roles'
-import { MeasureRows, Row, Suggestions, Title, Value } from './parts'
+import { CoordinateReadout, MeasureRows, ReadoutRow, Row, Suggestions, Title } from './parts'
 
 // The selection inspector of one body (ui.md 3.8): its size, center and measures, color, material
 // and visibility.
@@ -34,30 +34,46 @@ export function BodySection({
     return <Title>{bodyId}</Title>
   }
   const units = document.recipe.units
-  const mesh = document.meshes[body.id]
-  const box = mesh?.boundingBox
-  const center =
+  const box = document.meshes[body.id]?.boundingBox
+  const center: [number, number, number] | null =
     box === undefined
       ? null
-      : formatPoint(
-          [
-            (box.min[0] + box.max[0]) / 2,
-            (box.min[1] + box.max[1]) / 2,
-            (box.min[2] + box.max[2]) / 2,
-          ],
-          units,
-        )
+      : [
+          (box.min[0] + box.max[0]) / 2,
+          (box.min[1] + box.max[1]) / 2,
+          (box.min[2] + box.max[2]) / 2,
+        ]
   return (
     <>
       <Title>{body.name}</Title>
       <div className="flex flex-col">
-        <Row label="Size">
-          <Value testId="body-size">{box === undefined ? 'Empty' : formatSize(box, units)}</Value>
-        </Row>
+        <ReadoutRow label="Size">
+          {box === undefined ? (
+            <span data-testid="body-size" data-value="Empty">
+              Empty
+            </span>
+          ) : (
+            <CoordinateReadout
+              testId="body-size"
+              coordinates={[
+                box.max[0] - box.min[0],
+                box.max[1] - box.min[1],
+                box.max[2] - box.min[2],
+              ]}
+              units={units}
+              text={formatSize(box, units)}
+            />
+          )}
+        </ReadoutRow>
         {center === null ? null : (
-          <Row label="Center">
-            <Value testId="body-center">{center}</Value>
-          </Row>
+          <ReadoutRow label="Center">
+            <CoordinateReadout
+              testId="body-center"
+              coordinates={center}
+              units={units}
+              text={formatPoint(center, units)}
+            />
+          </ReadoutRow>
         )}
         <MeasureRows items={items} />
         <Row label="Color">
@@ -84,7 +100,7 @@ export function BodySection({
               }
             }}
             className={clsx(
-              'h-8 w-36 rounded-sm border px-2 text-sm',
+              'h-8 w-36 rounded-md border px-2 text-sm',
               COLOR_CLASSES.field.background,
               COLOR_CLASSES.text.foreground,
               COLOR_CLASSES.borderControl.border,

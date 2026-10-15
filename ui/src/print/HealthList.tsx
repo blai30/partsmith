@@ -120,7 +120,7 @@ export function HealthList({
   const notice = noticeFor(hasGeometry, missingReport, rows.length, profileName)
   return (
     <div data-testid="health-list" className="flex h-full min-h-0 flex-col">
-      <div className={clsx('flex flex-col gap-3 border-b p-4', COLOR_CLASSES.border.border)}>
+      <div className={clsx('flex flex-col gap-3 border-b p-4', COLOR_CLASSES.divider.border)}>
         <div className="flex min-h-6 items-start justify-between gap-2">
           <h2 id={headingId} className="min-w-0 text-base font-semibold break-words">
             Print check: {profileName}
@@ -171,7 +171,7 @@ export function HealthList({
                     onFocusFinding(row.key)
                   }}
                   className={clsx(
-                    'flex min-w-0 flex-1 items-start gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors duration-150 motion-reduce:transition-none',
+                    'flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors duration-150 motion-reduce:transition-none',
                     COLOR_CLASSES.text.foreground,
                     COLOR_CLASSES.focusRing.outline,
                     // A resting outline color equal to the ring's, so transition-colors does not

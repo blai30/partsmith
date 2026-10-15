@@ -280,7 +280,7 @@ export function SelectionField({
             setHoveredField(app, null)
           }}
           className={clsx(
-            'flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm border px-2 text-left text-sm',
+            'flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md border px-2 text-left text-sm',
             COLOR_CLASSES.field.background,
             COLOR_CLASSES.focusRing.outline,
             empty ? COLOR_CLASSES.textMuted.foreground : COLOR_CLASSES.text.foreground,

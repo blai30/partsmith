@@ -2,14 +2,31 @@
 
 mod common;
 
+use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_4, TAU};
 
 use common::{NoNames, field, hint, id, manifest};
 use partsmith_features::{
-    Bound, DocumentNames, FeatureError, FieldRef, FieldUnit, Registry, format_value,
+    Bound, Diagnosis, DocumentNames, FeatureError, FieldRef, FieldUnit, Names, Registry,
+    RenderContext, format_value,
 };
 use partsmith_model::{Body, Document, Units};
 use partsmith_occt_sys::{KernelError, KernelErrorKind, Operation};
+
+/// `error` rendered on `f-test1` with `names` in a document of `units`, without body states or a diagnosis
+/// (features.md section 4: messages render with a `RenderContext`).
+fn rendered(error: &FeatureError, names: &dyn Names, units: Units) -> String {
+    let feature = id("f-test1");
+    let bodies = BTreeMap::new();
+    let diagnosis = Diagnosis::default();
+    error.render(&RenderContext {
+        feature: &feature,
+        names,
+        units,
+        bodies: &bodies,
+        diagnosis: &diagnosis,
+    })
+}
 
 /// A kernel failure used as the cause of "too large" errors.
 fn fillet_failure() -> KernelError {
@@ -109,7 +126,7 @@ fn t010_scalar_is_a_plain_number() {
 #[test]
 fn t011_fillet_too_large_in_a_millimeter_document() {
     assert_eq!(
-        fillet_too_large().render(&NoNames, Units::Mm),
+        rendered(&fillet_too_large(), &NoNames, Units::Mm),
         "Fillet radius 3 mm is too large for the selected edges. The largest radius that works is about 2.3 mm. Try 2.3 mm or less."
     );
 }
@@ -117,7 +134,7 @@ fn t011_fillet_too_large_in_a_millimeter_document() {
 #[test]
 fn t011_fillet_too_large_in_an_inch_document() {
     assert_eq!(
-        fillet_too_large().render(&NoNames, Units::In),
+        rendered(&fillet_too_large(), &NoNames, Units::In),
         "Fillet radius 0.11811 in is too large for the selected edges. The largest radius that works is about 0.094 in. Try 0.094 in or less."
     );
 }
@@ -136,14 +153,16 @@ fn t012_messages_name_bodies_by_their_current_name() {
     let registry = Registry::new();
     let mut document = Document::new(Units::Mm);
     document.bodies.push(Body::new(id("b-1"), "Bracket"));
+    let outputs = BTreeMap::new();
     let names = DocumentNames {
         document: &document,
         registry: &registry,
+        outputs: &outputs,
     };
     let error = FeatureError::BodyNotEmpty { body: id("b-1") };
 
     assert_eq!(
-        error.render(&names, Units::Mm),
+        rendered(&error, &names, Units::Mm),
         "Body 'Bracket' already has a solid at this point, so op new cannot start it. Use join, cut or intersect, or pick an empty body."
     );
 }
@@ -162,14 +181,16 @@ fn t012_display_names_bodies_by_id() {
 fn t012_body_without_a_current_name_renders_as_its_id() {
     let registry = Registry::new();
     let document = Document::new(Units::Mm);
+    let outputs = BTreeMap::new();
     let names = DocumentNames {
         document: &document,
         registry: &registry,
+        outputs: &outputs,
     };
     let error = FeatureError::BodyNotEmpty { body: id("b-1") };
 
     assert_eq!(
-        error.render(&names, Units::Mm),
+        rendered(&error, &names, Units::Mm),
         "Body 'b-1' already has a solid at this point, so op new cannot start it. Use join, cut or intersect, or pick an empty body."
     );
 }
@@ -251,6 +272,7 @@ fn t015_strict_bound_has_no_suggestion() {
 #[test]
 fn t015_body_empty_has_no_suggestion() {
     let error = FeatureError::BodyEmpty {
+        field: field("body", "Body"),
         body: id("b-1"),
         use_new: true,
     };
@@ -278,7 +300,7 @@ fn t015_out_of_range_message_with_a_strict_bound() {
     let error = out_of_range(FieldUnit::Length, -5.0, Bound::GreaterThan(0.0));
 
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        rendered(&error, &NoNames, Units::Mm),
         "Distance must be greater than 0 mm, but it is -5 mm. Use a value greater than 0 mm."
     );
 }
@@ -294,7 +316,7 @@ fn t015_out_of_range_message_with_a_named_bound() {
     };
 
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        rendered(&error, &NoNames, Units::Mm),
         "Counterbore depth must be less than the hole depth (5 mm), but it is 6 mm. Use a value less than 5 mm."
     );
 }

@@ -137,14 +137,20 @@ impl Feature for CircularPattern {
         let mut copies = Vec::new();
         for instance in 1..count {
             check_canceled(context)?;
-            let rotation = Transform::rotation(&axis, step * f64::from(instance));
+            let rotation = Transform::rotation(&axis.value, step * f64::from(instance));
             let suffix = Instance {
                 first: instance,
                 second: 0,
             };
             copies.push(source.copy(context, &rotation, suffix)?);
         }
-        source.place(context, params.op, params.target.as_ref(), copies)
+        source.place(
+            context,
+            params.op,
+            params.target.as_ref(),
+            copies,
+            axis.warnings,
+        )
     }
 
     /// `circular_pattern(axis, count, angle, reverse=True, into=...)` (circular_pattern.md

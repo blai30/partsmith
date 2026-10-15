@@ -66,7 +66,7 @@ export function Switch({
             onChange(!checked)
           }}
           className={clsx(
-            'inline-flex h-6 w-10 shrink-0 items-center rounded-sm border p-0.5 transition-colors duration-150 motion-reduce:transition-none',
+            'inline-flex h-6 w-10 shrink-0 items-center rounded-md border p-0.5 transition-colors duration-150 motion-reduce:transition-none',
             checked ? 'justify-end' : 'justify-start',
             COLOR_CLASSES.focusRing.outline,
             // A resting outline color equal to the ring's, so transition-colors does not fade the
@@ -80,7 +80,7 @@ export function Switch({
           <span
             aria-hidden="true"
             className={clsx(
-              'size-4 rounded-xs bg-current',
+              'size-4 rounded-sm bg-current',
               disabled && COLOR_CLASSES.textDisabled.foreground,
               !disabled && checked && COLOR_CLASSES.accent.foreground,
               !disabled && !checked && COLOR_CLASSES.textMuted.foreground,

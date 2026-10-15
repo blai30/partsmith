@@ -13,11 +13,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use partsmith_features::{
-    BodyState, BodyUpdate, CancelToken, DatumResult, Dependencies, FeatureError, FeatureOutput,
-    FieldRef, Link, OutputData, Registry, Repair, SketchResult,
+    BodyState, BodyUpdate, CancelToken, DatumResult, Dependencies, Diagnosis, DocumentNames,
+    FeatureError, FeatureOutput, FeatureWarning, FieldRef, Fix, Link, Names, OutputData, Registry,
+    RenderContext, Repair, Severity, SketchResult,
 };
-use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit};
-use partsmith_naming::{ElementKind, ElementName};
+use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit, Id};
+use partsmith_naming::{ElementKind, ElementName, Reference};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, Shape, SubShapeKind, Vector};
 use partsmith_recompute::{BodyReport, FeatureReport, Input, Message, Recompute, Report, Status};
 use partsmith_sketch::Placement;
@@ -94,7 +95,7 @@ pub fn document_text(
 ) -> String {
     let bodies: Vec<String> = bodies.iter().map(|body| body_json(body)).collect();
     format!(
-        r#"{{"format": "partsmith", "format_version": 1, "units": "{units}", "parameters": [{}], "bodies": [{}], "features": [{}]}}"#,
+        r#"{{"format": "partsmith", "format_version": 2, "units": "{units}", "parameters": [{}], "bodies": [{}], "features": [{}]}}"#,
         parameters.join(", "),
         bodies.join(", "),
         features.join(", "),
@@ -957,4 +958,272 @@ pub fn assert_no_face(state: &BodyState, name: &str) {
         "unexpected face named {name}; faces: {:?}",
         face_names(state),
     );
+}
+
+// Helpers for messages, fixes and repairs (features.md sections 3.7, 3.8, 3.12, 4 and 6.5): rendering a
+// feature's errors and warnings with the diagnosis a scenario implies, notices, picked references,
+// successions, absent faces and the message lint.
+
+impl Run {
+    /// Calls `use_context` with the render context of `feature` in this run (features.md section 2.8): the document's
+    /// names with the run's outputs, the document's units, the states of the feature's declared bodies just before
+    /// it, and `diagnosis`. Tests pass the diagnosis a scenario's cause implies (recompute.md section 3.10).
+    pub fn with_context<T>(
+        &self,
+        feature: &str,
+        diagnosis: &Diagnosis,
+        use_context: impl FnOnce(&RenderContext<'_>) -> T,
+    ) -> T {
+        let bodies: BTreeMap<Id, BodyState> = self
+            .feature(feature)
+            .bodies_before
+            .iter()
+            .cloned()
+            .collect();
+        let feature = self.feature(feature).feature.clone();
+        self.with_names(|names| {
+            use_context(&RenderContext {
+                feature: &feature,
+                names,
+                units: self.document.units,
+                bodies: &bodies,
+                diagnosis,
+            })
+        })
+    }
+
+    /// Calls `use_names` with the document's names (features.md section 2.8): labels, records, and the sketch results
+    /// of this run.
+    pub fn with_names<T>(&self, use_names: impl FnOnce(&dyn Names) -> T) -> T {
+        let outputs: BTreeMap<Id, Arc<FeatureOutput>> = self
+            .report
+            .features
+            .iter()
+            .filter_map(|report| {
+                report
+                    .output
+                    .as_ref()
+                    .map(|output| (report.feature.clone(), Arc::clone(output)))
+            })
+            .collect();
+        let names = DocumentNames {
+            document: &self.document,
+            registry: self.recompute.registry().as_ref(),
+            outputs: &outputs,
+        };
+        use_names(&names)
+    }
+
+    /// The error of `feature` rendered with `diagnosis`.
+    pub fn render_error(&self, feature: &str, diagnosis: &Diagnosis) -> String {
+        let error = self.error(feature);
+        self.with_context(feature, diagnosis, |context| error.render(context))
+    }
+
+    /// The fixes of `feature`'s error with `diagnosis`.
+    pub fn error_fixes(&self, feature: &str, diagnosis: &Diagnosis) -> Vec<Fix> {
+        let error = self.error(feature);
+        self.with_context(feature, diagnosis, |context| error.fixes(context))
+    }
+
+    /// The only warning or notice of `feature` with this code, rendered with `diagnosis`.
+    pub fn render_warning(&self, feature: &str, code: &str, diagnosis: &Diagnosis) -> String {
+        let warning = self.warning(feature, code);
+        self.with_context(feature, diagnosis, |context| warning.render(context))
+    }
+
+    /// The fixes of the only warning or notice of `feature` with this code, with `diagnosis`.
+    pub fn warning_fixes(&self, feature: &str, code: &str, diagnosis: &Diagnosis) -> Vec<Fix> {
+        let warning = self.warning(feature, code);
+        self.with_context(feature, diagnosis, |context| warning.fixes(context))
+    }
+
+    /// The error of `feature`; fails the test when it has none.
+    pub fn error(&self, feature: &str) -> &FeatureError {
+        self.feature(feature)
+            .error
+            .as_ref()
+            .unwrap_or_else(|| panic!("{feature} has no error; {}", self.summary()))
+    }
+
+    /// The only warning or notice of `feature` with this code.
+    pub fn warning(&self, feature: &str, code: &str) -> &FeatureWarning {
+        let matching: Vec<&FeatureWarning> = self
+            .feature(feature)
+            .warnings
+            .iter()
+            .filter(|warning| warning.code() == code)
+            .collect();
+        match matching.as_slice() {
+            [warning] => warning,
+            _ => panic!(
+                "{feature} should have exactly one {code}, but its messages are {:?}",
+                self.messages(feature)
+            ),
+        }
+    }
+
+    /// Asserts that `feature` built with status ok and exactly these notices, in order, each of severity info
+    /// (recompute.md section 3.5 step 11: notices leave the status ok).
+    pub fn assert_notices(&self, feature: &str, codes: &[&str]) {
+        let report = self.feature(feature);
+        assert!(
+            matches!(report.status, Status::Ok),
+            "{feature} should be ok with notices {codes:?}, but it is {:?} with messages {:?}",
+            report.status,
+            self.messages(feature),
+        );
+        let actual: Vec<&str> = report
+            .warnings
+            .iter()
+            .map(|warning| warning.code())
+            .collect();
+        assert_eq!(actual, codes, "notice codes of {feature}");
+        for warning in &report.warnings {
+            assert_eq!(
+                warning.severity(),
+                Severity::Info,
+                "{feature}'s {} is a notice",
+                warning.code()
+            );
+        }
+    }
+
+    /// `Reference::from_element` of the element named `name` in `body` just before `feature`: what a pick there
+    /// stores, and what a candidate or fix of that feature holds.
+    pub fn picked_before(&self, feature: &str, body: &str, name: &str) -> Reference {
+        picked_in(body_before(self, feature, body), name)
+    }
+}
+
+/// `Reference::from_element` of the element named `name` in `state`.
+pub fn picked_in(state: &BodyState, name: &str) -> Reference {
+    let set = state
+        .element_set()
+        .expect("the element set of a built body");
+    let name = ElementName::parse(name)
+        .unwrap_or_else(|error| panic!("{name} is not a valid element name: {error}"));
+    let info = set
+        .elements()
+        .iter()
+        .find(|info| info.name == name)
+        .unwrap_or_else(|| panic!("the body has no element {name}"));
+    Reference::from_element(info, &set)
+}
+
+/// `UseReferences` of one reference at `pointer`.
+pub fn use_reference(pointer: &str, reference: Reference) -> Fix {
+    Fix::UseReferences {
+        pointer: pointer.to_string(),
+        references: vec![reference],
+    }
+}
+
+/// The successions a body's naming map records, as (stored face, faces now) names.
+pub fn successions(state: &BodyState) -> Vec<(String, Vec<String>)> {
+    state
+        .naming()
+        .successions()
+        .0
+        .iter()
+        .map(|(key, now)| {
+            (
+                key.to_string(),
+                now.iter().map(ToString::to_string).collect(),
+            )
+        })
+        .collect()
+}
+
+/// The faces `feature` records absent (features.md section 2.7), as (name, why) with `why` in its `Debug` form.
+pub fn absent_faces(run: &Run, feature: &str) -> Vec<(String, String)> {
+    run.output(feature)
+        .absent
+        .iter()
+        .map(|face| (face.name.to_string(), format!("{:?}", face.why)))
+        .collect()
+}
+
+/// The lint rules of the error guidelines a message breaks (features.md section 3.12): `repair panel`,
+/// `\bop (new|join|cut|intersect)\b`, `\b[fbec]-[0-9a-z]+\b`, `(Edge|Face|Vertex|Curve) [0-9]`, `[0-9]+% match`, a
+/// backtick or `os error`.
+pub fn lint_failures(message: &str) -> Vec<&'static str> {
+    let is_word = |character: char| character.is_ascii_alphanumeric() || character == '_';
+    let starts_word = |start: usize| !message[..start].chars().next_back().is_some_and(is_word);
+    let ends_word = |end: usize| !message[end..].chars().next().is_some_and(is_word);
+    let mut failures = Vec::new();
+    if message.contains("repair panel") {
+        failures.push("repair panel");
+    }
+    let mentions_op = ["op new", "op join", "op cut", "op intersect"]
+        .iter()
+        .any(|phrase| {
+            message
+                .match_indices(phrase)
+                .any(|(start, _)| starts_word(start) && ends_word(start + phrase.len()))
+        });
+    if mentions_op {
+        failures.push("op");
+    }
+    let characters: Vec<(usize, char)> = message.char_indices().collect();
+    let mentions_id = characters
+        .iter()
+        .enumerate()
+        .any(|(position, &(start, letter))| {
+            if !matches!(letter, 'f' | 'b' | 'e' | 'c') || !starts_word(start) {
+                return false;
+            }
+            if characters.get(position + 1).map(|&(_, next)| next) != Some('-') {
+                return false;
+            }
+            let run: Vec<&(usize, char)> = characters[position + 2..]
+                .iter()
+                .take_while(|(_, character)| {
+                    character.is_ascii_digit() || character.is_ascii_lowercase()
+                })
+                .collect();
+            run.last()
+                .is_some_and(|&&(last, character)| ends_word(last + character.len_utf8()))
+        });
+    if mentions_id {
+        failures.push("an id");
+    }
+    let numbered = ["Edge ", "Face ", "Vertex ", "Curve "].iter().any(|word| {
+        message.match_indices(word).any(|(start, _)| {
+            message[start + word.len()..]
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_digit())
+        })
+    });
+    if numbered {
+        failures.push("a numbered element");
+    }
+    let percentage = message.match_indices("% match").any(|(start, _)| {
+        message[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|character| character.is_ascii_digit())
+    });
+    if percentage {
+        failures.push("a match percentage");
+    }
+    if message.contains('`') {
+        failures.push("a backtick");
+    }
+    if message.contains("os error") {
+        failures.push("os error");
+    }
+    failures
+}
+
+/// Asserts that every rendered message of `feature` passes the message lint.
+pub fn assert_messages_pass_lint(run: &Run, feature: &str) {
+    for text in run.messages(feature) {
+        let failures = lint_failures(text);
+        assert!(
+            failures.is_empty(),
+            "the message {text:?} of {feature} breaks the message lint: {failures:?}"
+        );
+    }
 }

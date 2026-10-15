@@ -424,7 +424,7 @@ export function ExpressionInput({
               onBlur?.(value, state)
             }}
             className={clsx(
-              'h-8 w-full min-w-0 rounded-sm border px-2 text-sm',
+              'h-8 w-full min-w-0 rounded-md border px-2 text-sm',
               axis !== null && 'pl-6',
               FONT_CLASSES.values,
               COLOR_CLASSES.field.background,
@@ -451,9 +451,10 @@ export function ExpressionInput({
               data-testid={open ? 'expression-suggestions' : undefined}
               hidden={!open}
               className={clsx(
-                'absolute top-full left-0 z-30 mt-1 flex w-full min-w-48 flex-col rounded-sm border py-1 shadow-lg',
+                'absolute top-full left-0 z-30 mt-1 flex w-full min-w-48 flex-col rounded-lg border py-1 shadow-lg',
                 COLOR_CLASSES.surfaceRaised.background,
                 COLOR_CLASSES.border.border,
+                COLOR_CLASSES.elevation.shadow,
               )}
             >
               {suggestions?.completion.options.map((option, index) => (

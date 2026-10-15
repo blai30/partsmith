@@ -1,15 +1,17 @@
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import { Profiler } from 'react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { SketchConstraint } from '../generated/protocol'
 import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
 import { circleEntity, lineEntity, SKETCH_ID, solutionFor, solvedSketch } from './fixtures.testing'
 import type { SketchToolId } from './session'
 import { SketchOverlay } from './SketchOverlay'
+import { standardViewRotation, type Camera } from '../viewport/camera'
 import {
   clickAt,
+  fixedViewport,
   mountView,
   nextFrame,
   pointerAt,
@@ -17,6 +19,7 @@ import {
   setTool,
   settleCommits,
   sketchHarness,
+  TOP_CAMERA,
   type SketchHarness,
   type TestView,
 } from './view.testing'
@@ -291,6 +294,81 @@ describe('SketchOverlay annotations (3.16.2)', () => {
   })
 })
 
+function labels(): HTMLElement[] {
+  return within(screen.getByTestId('sketch-overlay')).queryAllByTestId('axis-label')
+}
+
+function translateOf(label: HTMLElement | undefined): string | null | undefined {
+  return label?.parentElement?.getAttribute('style')
+}
+
+describe('SketchOverlay axis labels (3.16.2, U-183)', () => {
+  const FRONT_CAMERA: Camera = { ...TOP_CAMERA, rotation: standardViewRotation('front') }
+
+  it('labels the axes of a sketch on the Top plane X and Y in their axis roles on a raised chip', () => {
+    const harness = sketchHarness({ entities: [BASE] })
+    renderOverlay(harness)
+    const [x, y] = labels()
+    expect([x?.dataset['axis'], y?.dataset['axis']]).toEqual(['X', 'Y'])
+    expect(x).toHaveTextContent(/^X$/)
+    expect(x).toHaveClass(
+      'font-semibold',
+      COLOR_CLASSES.axisX.foreground,
+      COLOR_CLASSES.surfaceRaised.background,
+    )
+    expect(y).toHaveClass(COLOR_CLASSES.axisY.foreground)
+  })
+
+  it('places each label where its positive half leaves the view, 1rem inside its edge', async () => {
+    const harness = sketchHarness({ entities: [BASE] })
+    renderOverlay(harness)
+    await nextFrame()
+    const [x, y] = labels()
+    // The origin is at the canvas center (512, 512); +X runs right and +Y up.
+    expect(translateOf(x)).toMatch(/^translate: 1008px 512px;?$/)
+    expect(translateOf(y)).toMatch(/^translate: 512px 16px;?$/)
+    expect(x?.parentElement).toHaveAttribute('data-positioned')
+    expect(x).toHaveClass('-translate-x-1/2', '-translate-y-1/2')
+  })
+
+  it('hides the label of an axis whose positive half does not cross the view', async () => {
+    const harness = sketchHarness({ entities: [BASE] })
+    harness.app.attachViewport(fixedViewport({ ...TOP_CAMERA, target: [200, 0, 0] }))
+    renderOverlay(harness)
+    await nextFrame()
+    const [x, y] = labels()
+    // The origin lies 200 mm left of a view 128 mm wide: +X crosses it, +Y passes left of it.
+    expect(x?.parentElement).not.toHaveAttribute('hidden')
+    expect(y?.parentElement).toHaveAttribute('hidden')
+  })
+
+  it('U-183 labels the axes of a sketch on the Front plane X and Z', async () => {
+    const harness = sketchHarness({
+      entities: [BASE],
+      plane: { kind: 'origin', plane: 'XZ' },
+      solution: solutionFor([BASE], {
+        placement: { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, -1, 0] },
+      }),
+    })
+    harness.app.attachViewport(fixedViewport(FRONT_CAMERA))
+    renderOverlay(harness)
+    await nextFrame()
+    const [x, z] = labels()
+    expect([x?.dataset['axis'], z?.dataset['axis']]).toEqual(['X', 'Z'])
+    expect(z).toHaveClass(COLOR_CLASSES.axisZ.foreground)
+    expect(translateOf(z)).toMatch(/^translate: 512px 16px;?$/)
+  })
+
+  it('U-183 labels no axis of a sketch on a datum plane', () => {
+    const harness = sketchHarness({
+      entities: [BASE],
+      plane: { kind: 'datum', feature: 'f-dp1' },
+    })
+    renderOverlay(harness)
+    expect(labels()).toEqual([])
+  })
+})
+
 describe('SketchOverlay drawing (3.16.4, 3.16.5)', () => {
   it('shows the inference glyph near the origin', async () => {
     const harness = sketchHarness()
@@ -314,6 +392,11 @@ describe('SketchOverlay drawing (3.16.4, 3.16.5)', () => {
     await nextFrame()
     const inputs = screen.getAllByTestId('draw-input')
     expect(inputs.map((input) => input.getAttribute('aria-label'))).toEqual(['Length', 'Angle'])
+    // U-188: draw inputs are controls without a shadow.
+    for (const input of inputs) {
+      expect(input).toHaveClass('rounded-md')
+      expect([...input.classList].filter((name) => name.startsWith('shadow-'))).toEqual([])
+    }
     expect(inputs[0]).toHaveAttribute('placeholder', '15')
     act(() => {
       pressKey('2')
@@ -553,5 +636,104 @@ describe('SketchOverlay box selection (3.16.9)', () => {
     act(() => {
       setTool(harness.app, null)
     })
+  })
+})
+
+/** Dispatches a pointer event at a canvas pixel. */
+function pointerAtPixel(
+  canvas: HTMLCanvasElement,
+  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  [x, y]: readonly [number, number],
+): void {
+  canvas.dispatchEvent(
+    new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      button: type === 'pointermove' ? -1 : 0,
+      buttons: type === 'pointerdown' ? 1 : 0,
+      clientX: x,
+      clientY: y,
+    }),
+  )
+}
+
+describe('overlay elements stay in the free area (U-189)', () => {
+  // A 1200 by 800 canvas with the free area at (280, 64, 640, 600): the 128 mm visible height spans
+  // the free area's 600 pixels, with the sketch origin at its center (600, 364).
+  const WINDOW = { width: 1200, height: 800, free: { x: 280, y: 64, width: 640, height: 600 } }
+  const PIXELS_PER_MILLIMETER = 600 / 128
+
+  /** The canvas pixel of a sketch point on the XY plane in this window. */
+  function pixel(x: number, y: number): readonly [number, number] {
+    return [600 + x * PIXELS_PER_MILLIMETER, 364 - y * PIXELS_PER_MILLIMETER]
+  }
+
+  it('U-189 hides a constraint glyph anchored outside the free area and places one inside it', () => {
+    // Midpoints at sketch x 0 (canvas x 600) and at canvas x 100, left of the free area.
+    const farLeft = (100 - 600) / PIXELS_PER_MILLIMETER
+    const inside = lineEntity('e-1', [-5, 0], [5, 0])
+    const outside = lineEntity('e-2', [farLeft - 3, 0], [farLeft + 3, 0])
+    const harness = sketchHarness({
+      entities: [inside, outside],
+      constraints: [
+        { id: 'c-1', type: 'horizontal', line: 'e-1' },
+        { id: 'c-2', type: 'horizontal', line: 'e-2' },
+      ],
+    })
+    harness.app.attachViewport({ ...fixedViewport(), viewWindow: () => WINDOW })
+    renderOverlay(harness)
+    const [shown, hidden] = ['c-1', 'c-2'].map(
+      (id) =>
+        screen
+          .getAllByTestId('constraint-glyph')
+          .find((glyph) => glyph.getAttribute('data-constraint-id') === id)?.parentElement,
+    )
+    expect(hidden?.hidden).toBe(true)
+    expect(shown?.hidden).toBe(false)
+    expect(shown?.getAttribute('style')).toMatch(/^translate: 600px [\d.]+px;?$/)
+  })
+
+  it('U-189 keeps draw inputs 0.5rem inside the free area right edge', async () => {
+    const harness = sketchHarness()
+    harness.app.attachViewport({ ...fixedViewport(), viewWindow: () => WINDOW })
+    const sizes = [
+      vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function width(
+        this: HTMLElement,
+      ) {
+        return this.tagName === 'FIELDSET' && this.querySelector('[data-testid="draw-input"]')
+          ? 168
+          : 0
+      }),
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function height(
+        this: HTMLElement,
+      ) {
+        return this.tagName === 'FIELDSET' && this.querySelector('[data-testid="draw-input"]')
+          ? 24
+          : 0
+      }),
+    ]
+    try {
+      const canvas = renderOverlay(harness, 'line')
+      // The rubber band runs right to left, so its midpoint at canvas x 915 puts the inputs right
+      // of it, toward the free area's right edge at 920.
+      const start = pixel((915 - 600) / PIXELS_PER_MILLIMETER + 7.2, 0)
+      const end = pixel((915 - 600) / PIXELS_PER_MILLIMETER - 7.2, 0)
+      act(() => {
+        pointerAtPixel(canvas, 'pointermove', start)
+        pointerAtPixel(canvas, 'pointerdown', start)
+        pointerAtPixel(canvas, 'pointerup', start)
+        pointerAtPixel(canvas, 'pointermove', end)
+      })
+      await nextFrame()
+      const inputs = screen.getAllByTestId('draw-input')[0]?.closest('fieldset') ?? null
+      expect(inputs?.hidden).toBe(false)
+      const left = Number(/^translate: ([\d.]+)px/.exec(inputs?.getAttribute('style') ?? '')?.[1])
+      expect(left + 168).toBeLessThanOrEqual(912 + 1e-6)
+    } finally {
+      for (const size of sizes) {
+        size.mockRestore()
+      }
+    }
   })
 })

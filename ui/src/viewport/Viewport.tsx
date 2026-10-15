@@ -18,9 +18,9 @@ import { focusedFindingPoint } from '../print/health'
 import { selectRepairMarkers } from '../state/selectors'
 import type { AppState, SectionState, ViewState } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
-import { COLOR_CLASSES } from '../theme/roles'
+import { AXIS_ROLES, COLOR_CLASSES } from '../theme/roles'
 import { createWebGl2Backend } from './backend'
-import { orbit, type Vector3 } from './camera'
+import { framedArea, orbit, type Vector3 } from './camera'
 import { createViewportController, type RenderedFrame, type ViewportController } from './controller'
 import { keyNavigation } from './navigation'
 import { orientElement, visiblePosition } from './overlay'
@@ -31,15 +31,19 @@ import { ViewCube } from './ViewCube'
 import { viewCubeRotorMatrix } from './view-cube'
 import { ViewportControls, type SelectionFilterKind } from './ViewportControls'
 import { ViewportMenu } from './ViewportMenu'
+import { CanvasLayerContext } from './canvas-layer'
 import { VIEW_ID } from '../layout/focus'
 
-// The 3D view (ui.md 3.2, 3.12 to 3.15): the canvas and its controller, the overlay layer, the
-// view cube and viewport controls, and the core's loading, still-working and fatal states. React
+// The 3D view (ui.md 3.2, 3.12 to 3.15): the canvas and its controller under the islands, the
+// overlay layer, and the free-area layer with the view cube, the viewport controls and legend, the
+// top-center slot, the inspector and the core's loading, still-working and fatal states. React
 // renders the chrome once; the controller draws and moves runtime positions without React
 // (ADR 0002).
 
 export type ViewportProps = {
-  /** Chrome over the view: the inspector, the sketch header and legends. */
+  /** The legend at the bottom of the free area's left column, under the viewport controls (3.14). */
+  readonly legend?: ReactNode
+  /** Chrome in the free area: the top-center slot's content and the inspector. */
   readonly children?: ReactNode
 }
 
@@ -70,7 +74,10 @@ function gridSpacingText(state: AppState): string {
 
 const AXIS_LABELS = ['X', 'Y', 'Z'] as const
 
-/** The axis labels at the positive ends of the visible origin axes, anchored in the overlay (3.12). */
+/**
+ * The letters at the positive ends of the visible origin axes, in their axis roles on a raised
+ * chip, anchored in the overlay (3.12); a sketch being edited labels its own axes (3.16.2).
+ */
 function AxisLabels({ scene }: { readonly scene: Scene }) {
   // Compared by value: the selectors run on every store change.
   const axes = useAppState(
@@ -90,12 +97,14 @@ function AxisLabels({ scene }: { readonly scene: Scene }) {
     return (
       <span
         key={axis}
+        data-testid="axis-label"
+        data-axis={axis}
         data-anchor={anchor}
         hidden
         className={clsx(
-          'absolute top-0 left-0 rounded-sm px-1 text-xs font-medium',
+          'pointer-events-none absolute top-0 left-0 rounded-sm px-1 text-xs font-semibold',
           COLOR_CLASSES.surfaceRaised.background,
-          COLOR_CLASSES.textMuted.foreground,
+          COLOR_CLASSES[AXIS_ROLES[axis]].foreground,
         )}
       >
         {axis}
@@ -135,17 +144,18 @@ function PlaneLabels({ scene }: { readonly scene: Scene }) {
 }
 
 /**
- * A centered chip over the view on the `surfaceRaised` role (3.24: text over the view sits on a
- * chip), in a layer above the inspector so the core's panels and their buttons stay uncovered (4.4).
+ * A card centered in the free area on the `surfaceRaised` role (3.24: text over the view sits on a
+ * card), in a layer above the inspector so the core's panels and their buttons stay uncovered (4.4).
  */
 function OverlayChip({ children }: { readonly children: ReactNode }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-4">
       <div
         className={clsx(
-          'pointer-events-auto flex max-w-110 flex-col gap-3 rounded-md border p-4 text-sm shadow-lg',
+          'pointer-events-auto flex max-w-110 flex-col gap-3 rounded-xl border p-4 text-sm shadow-lg',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
+          COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
         )}
       >
@@ -296,7 +306,7 @@ function SectionOffset({ scene }: { readonly scene: Scene }) {
 /** The finding marker's radius in CSS pixels: a ring 16 pixels across (3.17). */
 const FINDING_MARKER_RADIUS = 8
 
-/** Moves each repair marker over its point, or hides it behind the eye or off the canvas (3.7). */
+/** Moves each repair marker over its point, or hides it behind the eye or outside the free area (3.7). */
 function placeRepairMarkers(overlay: HTMLElement | null, frame: RenderedFrame): void {
   for (const marker of overlay?.querySelectorAll<SVGCircleElement>(
     '[data-testid="repair-marker"]',
@@ -313,7 +323,7 @@ function placeRepairMarkers(overlay: HTMLElement | null, frame: RenderedFrame): 
 /** Apps whose first usable frame has been marked as `ps:usable`. */
 const usableMarked = new WeakSet<App>()
 
-/** Moves the finding marker over its point, or hides it behind the eye or off the canvas (3.12). */
+/** Moves the finding marker over its point, or hides it behind the eye or outside the free area (3.12). */
 function placeFindingMarker(
   marker: SVGCircleElement | null,
   point: Vector3 | null,
@@ -322,7 +332,10 @@ function placeFindingMarker(
   if (marker === null) {
     return
   }
-  const position = visiblePosition(point === null ? null : frame.project(point), frame.size)
+  const position = visiblePosition(
+    point === null ? null : frame.project(point),
+    framedArea(frame.view),
+  )
   if (position === null) {
     marker.setAttribute('display', 'none')
     return
@@ -332,11 +345,13 @@ function placeFindingMarker(
   marker.removeAttribute('display')
 }
 
-export function Viewport({ children }: ViewportProps) {
+export function Viewport({ legend = null, children }: ViewportProps) {
   const app = useApp()
+  const region = useRef<HTMLElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const surface = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLDivElement>(null)
+  const [canvasLayer, setCanvasLayer] = useState<HTMLDivElement | null>(null)
   const rotor = useRef<HTMLDivElement>(null)
   const controller = useRef<ViewportController | null>(null)
   const [scene, setScene] = useState<Scene | null>(null)
@@ -361,7 +376,8 @@ export function Viewport({ children }: ViewportProps) {
   useEffect(() => {
     const canvasElement = canvas.current
     const overlayElement = overlay.current
-    if (canvasElement === null || overlayElement === null) {
+    const freeArea = region.current
+    if (canvasElement === null || overlayElement === null || freeArea === null) {
       return undefined
     }
     const backend = createWebGl2Backend(canvasElement)
@@ -373,6 +389,7 @@ export function Viewport({ children }: ViewportProps) {
       app,
       canvas: canvasElement,
       overlay: overlayElement,
+      freeArea,
       backend,
       scene: created,
     })
@@ -427,15 +444,20 @@ export function Viewport({ children }: ViewportProps) {
     }
   }, [app, scene, section])
 
-  /** Opens the context menu from the keyboard: at the center of the selection on screen, or of the view (3.13). */
-  function openMenuFromKeyboard(element: HTMLElement): void {
+  /** Opens the context menu from the keyboard: at the center of the selection on screen, or of the free area (3.13). */
+  function openMenuFromKeyboard(): void {
+    const handle = app.viewport()
+    if (handle === null) {
+      return
+    }
     const state = app.store.getState()
     const items = state.context === 'sketch' ? (state.sketch?.selection ?? []) : state.selection
-    const rectangle = items.length === 0 ? null : (app.viewport()?.screenRectangle(items) ?? null)
+    const rectangle = items.length === 0 ? null : handle.screenRectangle(items)
+    const center = rectangle ?? framedArea(handle.viewWindow())
     requestUi(app, {
       kind: 'viewport_menu',
-      x: rectangle === null ? element.clientWidth / 2 : rectangle.x + rectangle.width / 2,
-      y: rectangle === null ? element.clientHeight / 2 : rectangle.y + rectangle.height / 2,
+      x: center.x + center.width / 2,
+      y: center.y + center.height / 2,
     })
   }
 
@@ -446,7 +468,7 @@ export function Viewport({ children }: ViewportProps) {
     }
     if ((event.key === 'F10' && event.shiftKey) || event.key === 'ContextMenu') {
       event.preventDefault()
-      openMenuFromKeyboard(event.currentTarget)
+      openMenuFromKeyboard()
       return
     }
     const step = keyNavigation(event.key, {
@@ -467,9 +489,11 @@ export function Viewport({ children }: ViewportProps) {
   }
 
   return (
-    // Isolated, so the core's panels sit above the inspector while the regions drawn over the
-    // viewport (the browser and side panel overlays, the notifications) stay above both (4.4).
+    // The free area (3.2): the grid cell the islands leave. It is not positioned, so the canvas,
+    // the overlay layer, the canvas layer and the menu anchor take the app root as their
+    // containing block and fill the window under the islands, in canvas pixels.
     <main
+      ref={region}
       aria-label="3D view"
       data-testid="viewport"
       data-view={named}
@@ -480,9 +504,10 @@ export function Viewport({ children }: ViewportProps) {
       data-hover-key={hoverKey ?? undefined}
       data-selection-count={selectionCount}
       data-grid-spacing={gridSpacing}
-      className="relative isolate col-start-2 row-start-2 min-h-0 min-w-0 overflow-hidden"
+      className="col-start-2 row-start-2 min-h-0 min-w-0"
     >
       {/* The spec makes the view one focusable application that takes the camera keys (3.13). */}
+      {/* Its focus ring is drawn around the free area by the free-area layer (3.23). */}
       {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
         ref={surface}
@@ -493,10 +518,7 @@ export function Viewport({ children }: ViewportProps) {
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className={clsx(
-          'absolute inset-0 focus-visible:outline-2 focus-visible:-outline-offset-2',
-          COLOR_CLASSES.accent.outline,
-        )}
+        className="peer absolute inset-0 outline-none"
       >
         <canvas ref={canvas} className="absolute inset-0 block size-full touch-none" />
       </div>
@@ -530,56 +552,68 @@ export function Viewport({ children }: ViewportProps) {
         {scene === null ? null : <AxisLabels scene={scene} />}
         {scene === null ? null : <PlaneLabels scene={scene} />}
       </div>
-      <ViewCube
-        rotorRef={rotor}
-        onChooseView={(rotation) => {
-          const handle = app.viewport()
-          handle?.setCamera({ ...handle.getCamera(), rotation }, { animate: true, record: true })
-        }}
-        onHome={() => {
-          const handle = app.viewport()
-          handle?.setStandardView('iso')
-          handle?.fit()
-        }}
-        onOrbit={(deltaX, deltaY) => {
-          const handle = app.viewport()
-          if (handle !== null) {
-            const camera = handle.getCamera()
-            handle.setCamera(orbit(camera, deltaX, deltaY, camera.target))
-          }
-        }}
-      />
-      <ViewportControls
-        orthographic={projection === 'orthographic'}
-        section={section === null ? null : { plane: section.plane, flipped: section.flipped }}
-        filter={sketchSession ? null : filter}
-        shortcuts={{
-          fit: formatShortcut('F6', platform),
-          projection: formatShortcut('Shift+P', platform),
-          section: formatShortcut('Shift+X', platform),
-        }}
-        onFit={() => {
-          app.viewport()?.fit()
-        }}
-        onToggleProjection={() => {
-          app.viewport()?.toggleProjection()
-        }}
-        onToggleSection={toggleSection}
-        onToggleFilter={(kind: SelectionFilterKind) => {
-          setView(app, { filter: { ...filter, [kind]: !filter[kind] } })
-        }}
-        onSectionPlaneChange={(plane) => {
-          const text = scene === null ? '' : defaultOffsetText(app.store.getState(), scene, plane)
-          setSection(app, (current) => ({ ...current, plane, offset: text }))
-        }}
-        onSectionFlippedChange={(flipped) => {
-          setSection(app, (current) => ({ ...current, flipped }))
-        }}
-        sectionOffsetField={scene === null ? null : <SectionOffset scene={scene} />}
-      />
+      <div ref={setCanvasLayer} className="pointer-events-none absolute inset-0" />
       <ViewportMenu surface={surface} />
-      <CoreStatus restoring={restoring} />
-      {children}
+      <div
+        className={clsx(
+          'pointer-events-none relative isolate size-full rounded-xl peer-focus-visible:outline-2 peer-focus-visible:-outline-offset-2',
+          COLOR_CLASSES.accent.outline,
+        )}
+      >
+        <ViewCube
+          rotorRef={rotor}
+          onChooseView={(rotation) => {
+            const handle = app.viewport()
+            handle?.setCamera({ ...handle.getCamera(), rotation }, { animate: true, record: true })
+          }}
+          onHome={() => {
+            const handle = app.viewport()
+            handle?.setStandardView('iso')
+            handle?.fit()
+          }}
+          onOrbit={(deltaX, deltaY) => {
+            const handle = app.viewport()
+            if (handle !== null) {
+              const camera = handle.getCamera()
+              handle.setCamera(orbit(camera, deltaX, deltaY, camera.target))
+            }
+          }}
+        />
+        <div className="pointer-events-none absolute inset-y-4 left-4 flex flex-col flex-wrap content-start items-start gap-2">
+          <ViewportControls
+            orthographic={projection === 'orthographic'}
+            section={section === null ? null : { plane: section.plane, flipped: section.flipped }}
+            filter={sketchSession ? null : filter}
+            shortcuts={{
+              fit: formatShortcut('F6', platform),
+              projection: formatShortcut('Shift+P', platform),
+              section: formatShortcut('Shift+X', platform),
+            }}
+            onFit={() => {
+              app.viewport()?.fit()
+            }}
+            onToggleProjection={() => {
+              app.viewport()?.toggleProjection()
+            }}
+            onToggleSection={toggleSection}
+            onToggleFilter={(kind: SelectionFilterKind) => {
+              setView(app, { filter: { ...filter, [kind]: !filter[kind] } })
+            }}
+            onSectionPlaneChange={(plane) => {
+              const text =
+                scene === null ? '' : defaultOffsetText(app.store.getState(), scene, plane)
+              setSection(app, (current) => ({ ...current, plane, offset: text }))
+            }}
+            onSectionFlippedChange={(flipped) => {
+              setSection(app, (current) => ({ ...current, flipped }))
+            }}
+            sectionOffsetField={scene === null ? null : <SectionOffset scene={scene} />}
+          />
+          {legend}
+        </div>
+        <CanvasLayerContext value={canvasLayer}>{children}</CanvasLayerContext>
+        <CoreStatus restoring={restoring} />
+      </div>
     </main>
   )
 }

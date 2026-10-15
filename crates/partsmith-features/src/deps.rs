@@ -286,6 +286,7 @@ mod tests {
             &AxisRef::Face {
                 body: id("b-2"),
                 face: face(),
+                direction: None,
             },
         );
 

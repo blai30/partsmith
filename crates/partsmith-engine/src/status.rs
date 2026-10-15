@@ -1,7 +1,11 @@
 //! Feature statuses, parameter values and document diagnostics of a recompute (engine.md
 //! section 3.4).
 
-use partsmith_features::Repair as FeatureRepair;
+use std::collections::BTreeMap;
+
+use partsmith_features::{
+    Diagnosis, DocumentNames, FeatureError, Registry, RenderContext, Repair as FeatureRepair,
+};
 use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName};
 use partsmith_protocol::{
@@ -113,15 +117,13 @@ fn repair(message: &Message) -> Option<Repair> {
         FeatureRepair::Element {
             pointer,
             body,
-            reference,
-            ambiguous,
-            ..
+            loss,
         } => Repair::Element {
             path: pointer.clone(),
             body: body.clone(),
-            reference: reference.clone(),
-            resolution: resolution(*ambiguous),
-            centroid: reference.fingerprint.centroid,
+            reference: loss.reference.clone(),
+            resolution: resolution(loss.ambiguous),
+            centroid: loss.reference.fingerprint.centroid,
             description: String::new(),
             candidates: Vec::new(),
             ghost: None,
@@ -131,6 +133,7 @@ fn repair(message: &Message) -> Option<Repair> {
             sketch,
             region,
             ambiguous,
+            ..
         } => Repair::Region {
             path: pointer.clone(),
             sketch: sketch.clone(),
@@ -140,6 +143,31 @@ fn repair(message: &Message) -> Option<Repair> {
             candidates: Vec::new(),
             ghost: None,
         },
+    })
+}
+
+/// A feature error of `feature` rendered with the document's current names and units, without body states or a
+/// diagnosis (features.md section 4).
+pub(crate) fn render_feature_error(
+    error: &FeatureError,
+    document: &Document,
+    registry: &Registry,
+    feature: &Id,
+) -> String {
+    let outputs = BTreeMap::new();
+    let names = DocumentNames {
+        document,
+        registry,
+        outputs: &outputs,
+    };
+    let bodies = BTreeMap::new();
+    let diagnosis = Diagnosis::default();
+    error.render(&RenderContext {
+        feature,
+        names: &names,
+        units: document.units,
+        bodies: &bodies,
+        diagnosis: &diagnosis,
     })
 }
 
@@ -185,7 +213,8 @@ pub(crate) fn document_diagnostics(computed: &Computed) -> Vec<Diagnostic> {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_naming::Reference;
+    use partsmith_features::Loss;
+    use partsmith_naming::{Lost, Reference};
 
     use super::*;
     use crate::test_support::id;
@@ -236,9 +265,15 @@ mod tests {
         let rendered = message(Some(FeatureRepair::Element {
             pointer: "/edges/0".to_string(),
             body: id("b-1"),
-            reference: reference(),
-            ambiguous: false,
-            candidates: Vec::new(),
+            loss: Loss {
+                position: 0,
+                body: id("b-1"),
+                reference: reference(),
+                kind: ElementKind::Edge,
+                ambiguous: false,
+                lost: Lost::default(),
+                candidates: Vec::new(),
+            },
         }));
 
         let Some(Repair::Element {

@@ -197,7 +197,7 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
           choose(choice)
         }}
         className={clsx(
-          'flex min-h-8 w-full shrink-0 items-center gap-2 rounded-sm px-2 py-1.5 text-left whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+          'flex min-h-8 w-full shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-left whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
           COLOR_CLASSES.focusRing.outline,
           // A resting outline color equal to the ring's, so transition-colors does not fade the
           // ring in from the text color.
@@ -242,9 +242,10 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
       onKeyDown={onKeyDown}
       // `hidden open:flex`: a display class would override the browser's hiding of a closed popover.
       className={clsx(
-        'fixed top-0 left-0 m-0 hidden max-h-dvh min-w-56 max-w-80 flex-col open:flex overflow-y-auto rounded-md border p-1 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
+        'pointer-events-auto fixed top-0 left-0 m-0 hidden max-h-dvh min-w-56 max-w-80 flex-col open:flex overflow-y-auto rounded-lg border p-1 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
+        COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}
     >
@@ -268,7 +269,7 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
       ))}
       {groups.length === 0 ? null : (
         // Presentational: a separator would end the set of radio items.
-        <hr aria-hidden="true" className={clsx('-mx-1 my-1', COLOR_CLASSES.border.border)} />
+        <hr aria-hidden="true" className={clsx('-mx-1 my-1', COLOR_CLASSES.divider.border)} />
       )}
       {choices.map((choice, index) => (choice.technology === null ? item(choice, index) : null))}
     </div>

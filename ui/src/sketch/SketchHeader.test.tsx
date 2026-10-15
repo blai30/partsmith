@@ -18,6 +18,7 @@ import {
   solvedAs,
   solvedSketch,
 } from './fixtures.testing'
+import { COLOR_CLASSES } from '../theme/roles'
 import { SketchHeader } from './SketchHeader'
 import { settleCommits, sketchHarness } from './view.testing'
 
@@ -307,20 +308,39 @@ describe('sketch hint (3.16.3)', () => {
 })
 
 describe('top-center slot (3.2)', () => {
-  it('sits in the slot of 3.2, clear of the view cube and passing picks through', () => {
+  it('U-186 sits in the top-center slot of 3.2, clear of the view cube and passing picks through', () => {
     renderWith(editing([LINE]))
-    const slot = screen.getByTestId('sketch-header').parentElement
-    expect(slot).toHaveClass(
-      'pointer-events-none',
-      'absolute',
-      'top-4',
-      'inset-x-32',
+    const column = screen.getByTestId('sketch-header').parentElement
+    expect(column).toBe(screen.getByTestId('top-center-slot'))
+    expect(column).toHaveClass(
       'flex',
+      'shrink-0',
       'flex-col',
       'items-center',
       'gap-2',
+      '@xl/slot:mx-36',
     )
-    expect(slot).toContainElement(screen.getByTestId('sketch-hint'))
+    expect(column).toContainElement(screen.getByTestId('sketch-hint'))
+    const slot = column?.parentElement
+    expect(slot).toHaveClass(
+      'pointer-events-none',
+      'absolute',
+      'inset-4',
+      'flex',
+      'flex-col',
+      '@container/slot',
+    )
+    const spacer = slot?.firstElementChild
+    expect(spacer).toHaveAttribute('aria-hidden', 'true')
+    expect(spacer).toHaveClass('@max-xl/slot:h-44')
+  })
+
+  it('U-186 shows the header and the hint as one-line chips', () => {
+    renderWith({ context: 'sketch', sketch: sketchSession({ sketchId: null }) })
+    for (const chip of [screen.getByTestId('sketch-header'), screen.getByTestId('sketch-hint')]) {
+      expect(chip).toHaveClass('rounded-lg', 'border', 'shadow-md')
+      expect(chip).toHaveClass(COLOR_CLASSES.elevation.shadow)
+    }
   })
 
   it('shows the hint it is given in place of the step prompt', () => {

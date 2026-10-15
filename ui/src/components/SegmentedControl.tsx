@@ -84,7 +84,7 @@ export function SegmentedControl<Value extends string>({
       aria-label={label}
       aria-describedby={describedBy}
       className={clsx(
-        'h-8 items-stretch gap-0.5 rounded-sm border p-0.5',
+        'h-8 items-stretch gap-0.5 rounded-md border p-0.5',
         stretch ? 'flex flex-1' : 'inline-flex shrink-0',
         COLOR_CLASSES.field.background,
         COLOR_CLASSES.border.border,
@@ -155,7 +155,7 @@ function Segment<Value extends string>({
   return (
     <label
       className={clsx(
-        'relative flex items-center gap-2 rounded-xs text-sm whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+        'relative flex items-center gap-2 rounded-sm text-sm whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
         // Shared segments keep room to spare, so a bold checked label never overflows the row.
         stretch ? 'flex-1 justify-center px-2' : 'px-3',
         disabled && COLOR_CLASSES.textDisabled.foreground,
@@ -179,7 +179,7 @@ function Segment<Value extends string>({
         onChange={onChange}
         onKeyDown={onKeyDown}
         className={clsx(
-          'absolute inset-0 m-0 size-full appearance-none rounded-xs',
+          'absolute inset-0 m-0 size-full appearance-none rounded-sm',
           COLOR_CLASSES.focusRing.outline,
           disabled && 'cursor-not-allowed',
         )}

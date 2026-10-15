@@ -4,8 +4,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use partsmith_features::{BodyState, FeatureError, FeatureOutput, FeatureWarning, Names, Repair};
-use partsmith_model::{ExprError, Id, Quantity, Units};
+use partsmith_features::{
+    BodyState, FeatureError, FeatureOutput, FeatureWarning, RenderContext, Repair,
+};
+use partsmith_model::{ExprError, Id, Quantity};
 
 use crate::key::CacheKey;
 
@@ -138,25 +140,25 @@ pub struct Message {
 
 impl Message {
     /// The rendered message of a feature error.
-    pub(crate) fn error(error: &FeatureError, names: &dyn Names, units: Units) -> Message {
+    pub(crate) fn error(error: &FeatureError, context: &RenderContext<'_>) -> Message {
         Message {
             severity: Severity::Error,
             code: error.code(),
             pointer: error.field().map(|field| field.pointer()),
-            text: error.render(names, units),
-            suggestion: error.suggestion(units),
+            text: error.render(context),
+            suggestion: error.suggestion(context.units),
             repair: error.repair(),
         }
     }
 
     /// The rendered message of a feature warning.
-    pub(crate) fn warning(warning: &FeatureWarning, names: &dyn Names, units: Units) -> Message {
+    pub(crate) fn warning(warning: &FeatureWarning, context: &RenderContext<'_>) -> Message {
         Message {
             severity: Severity::Warning,
             code: warning.code(),
             pointer: warning.field().map(|field| field.pointer()),
-            text: warning.render(names, units),
-            suggestion: warning.suggestion(units),
+            text: warning.render(context),
+            suggestion: warning.suggestion(context.units),
             repair: warning.repair(),
         }
     }
@@ -204,23 +206,25 @@ pub enum Severity {
 pub(crate) fn render_messages(
     error: Option<&FeatureError>,
     warnings: &[FeatureWarning],
-    names: &dyn Names,
-    units: Units,
+    context: &RenderContext<'_>,
 ) -> Vec<Message> {
     error
-        .map(|error| Message::error(error, names, units))
+        .map(|error| Message::error(error, context))
         .into_iter()
         .chain(
             warnings
                 .iter()
-                .map(|warning| Message::warning(warning, names, units)),
+                .map(|warning| Message::warning(warning, context)),
         )
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use partsmith_features::FieldRef;
+    use std::collections::BTreeMap;
+
+    use partsmith_features::{Diagnosis, FieldRef, Names, SketchResult};
+    use partsmith_model::{FeatureRecord, Units};
 
     use super::*;
     use crate::test_support::id;
@@ -236,6 +240,33 @@ mod tests {
         fn feature_label(&self, feature: &Id) -> Option<String> {
             (feature.as_str() == "f-1").then(|| "Base".to_string())
         }
+
+        fn type_label(&self, _feature: &Id) -> Option<String> {
+            None
+        }
+
+        fn feature_record(&self, _feature: &Id) -> Option<&FeatureRecord> {
+            None
+        }
+
+        fn sketch_result(&self, _sketch: &Id) -> Option<&SketchResult> {
+            None
+        }
+    }
+
+    /// Calls `render` with a context for feature `f-2` that names with `Bracket`, in millimeters, without body
+    /// states or a diagnosis (features.md section 4: messages render with a `RenderContext`).
+    fn with_context<T>(render: impl FnOnce(&RenderContext<'_>) -> T) -> T {
+        let feature = id("f-2");
+        let bodies = BTreeMap::new();
+        let diagnosis = Diagnosis::default();
+        render(&RenderContext {
+            feature: &feature,
+            names: &Bracket,
+            units: Units::Mm,
+            bodies: &bodies,
+            diagnosis: &diagnosis,
+        })
     }
 
     fn field(path: &str, label: &str) -> FieldRef {
@@ -252,7 +283,7 @@ mod tests {
             body: id("b-9"),
         };
 
-        let message = Message::error(&error, &Bracket, Units::Mm);
+        let message = with_context(|context| Message::error(&error, context));
 
         assert_eq!(message.severity, Severity::Error);
         assert_eq!(message.code, "unknown_body");
@@ -269,7 +300,7 @@ mod tests {
     fn warning_messages_render_body_names() {
         let warning = FeatureWarning::NoEffect { body: id("b-1") };
 
-        let message = Message::warning(&warning, &Bracket, Units::Mm);
+        let message = with_context(|context| Message::warning(&warning, context));
 
         assert_eq!(message.severity, Severity::Warning);
         assert_eq!(message.code, "no_effect");
@@ -290,7 +321,7 @@ mod tests {
             },
         ];
 
-        let messages = render_messages(Some(&error), &warnings, &Bracket, Units::Mm);
+        let messages = with_context(|context| render_messages(Some(&error), &warnings, context));
 
         let codes: Vec<&str> = messages.iter().map(|message| message.code).collect();
         assert_eq!(codes, ["upstream_failed", "no_effect", "unknown_params"]);
@@ -302,7 +333,7 @@ mod tests {
 
     #[test]
     fn messages_without_error_or_warnings_are_empty() {
-        assert!(render_messages(None, &[], &Bracket, Units::Mm).is_empty());
+        assert!(with_context(|context| render_messages(None, &[], context)).is_empty());
     }
 
     #[test]

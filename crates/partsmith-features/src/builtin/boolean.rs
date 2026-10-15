@@ -120,13 +120,14 @@ impl Feature for Boolean {
         params: &BooleanParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        solid_body(context, &params.target)?;
+        solid_body(context, "target", &params.target)?;
         let mut tools = Vec::with_capacity(params.tools.len());
-        for tool in &params.tools {
+        for (position, tool) in params.tools.iter().enumerate() {
             let state = context.body(tool)?;
-            let shape = state
-                .shape()
-                .ok_or_else(|| FeatureError::ToolEmpty { body: tool.clone() })?;
+            let shape = state.shape().ok_or_else(|| FeatureError::ToolEmpty {
+                field: context.field(&format!("tools[{position}]")),
+                body: tool.clone(),
+            })?;
             tools.push(Tool {
                 shape: shape.clone(),
                 naming: NamingMap::clone(state.naming()),
@@ -179,7 +180,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::error::FeatureWarning;
+    use crate::error::{FeatureWarning, FieldRef};
     use crate::registry::Registry;
     use crate::test_support::{
         ScriptNames, assert_bounds, assert_volume, box_body, build, face_names, id, params, python,
@@ -388,6 +389,7 @@ mod tests {
         assert_eq!(
             result.map(|_| ()),
             Err(FeatureError::BodyEmpty {
+                field: FieldRef::new("target", &Boolean::manifest()),
                 body: id("b-1"),
                 use_new: false
             })
@@ -402,7 +404,10 @@ mod tests {
 
         assert_eq!(
             result.map(|_| ()),
-            Err(FeatureError::ToolEmpty { body: id("b-2") })
+            Err(FeatureError::ToolEmpty {
+                field: FieldRef::new("tools[0]", &Boolean::manifest()),
+                body: id("b-2")
+            })
         );
     }
 

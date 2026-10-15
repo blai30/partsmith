@@ -26,9 +26,10 @@ import { Timeline } from './timeline/Timeline'
 import { EmptyState } from './viewport/EmptyState'
 import { Viewport } from './viewport/Viewport'
 
-// The layout shell (ui.md 3.2): top bar, browser, viewport, side panel, timeline and status bar,
-// each in its own error boundary (4.4), plus the palette, the live regions, file drops, the theme
-// on the root element (2.16.8) and the Esc and Enter ladders (3.5).
+// The layout shell (ui.md 3.2): the 3D view fills the window, and the top bar, browser, side
+// panel, timeline and status bar float over it as islands, each in its own error boundary (4.4),
+// plus the palette, the live regions, file drops, the theme on the root element (2.16.8) and the
+// Esc and Enter ladders (3.5).
 
 /** `ready` only once the core runs and the first document is open (3.1). */
 function selectCoreStatus(state: AppState): AppState['core']['status'] {
@@ -67,8 +68,9 @@ export function App() {
   useEnterLadder(app)
   useTypedValues(app)
   // One grid places every region by area, so the DOM, and with it the tab order, follows 3.24:
-  // the timeline comes before the side panel, and the notification stack, drawn over the
-  // viewport's bottom-right, comes last.
+  // the timeline comes before the side panel, and the notification stack, drawn over the free
+  // area's bottom-right, comes last. The grid has no gap: each island keeps 0.5rem from the free
+  // area with a margin on the side facing it, and the root's padding keeps it from the window.
   return (
     <div
       data-testid="app"
@@ -76,36 +78,53 @@ export function App() {
       data-context={context}
       {...drop.handlers}
       className={clsx(
-        'relative grid h-dvh w-dvw grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)_auto_auto] overflow-hidden antialiased',
+        '@container/app relative grid h-dvh w-dvw grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)_auto_auto] overflow-hidden p-2 antialiased',
         FONT_CLASSES.interfaceText,
-        COLOR_CLASSES.surface.background,
+        COLOR_CLASSES.stage.background,
         COLOR_CLASSES.text.foreground,
       )}
     >
-      <RegionBoundary region="top bar" fallbackClassName="col-span-3 row-start-1 h-12">
+      <RegionBoundary
+        region="top bar"
+        fallbackClassName="relative z-10 col-span-3 row-start-1 mb-2 h-12 rounded-xl border shadow-md"
+      >
         <TopBar />
       </RegionBoundary>
       {browserOpen ? (
-        <RegionBoundary region="browser" fallbackClassName="col-start-1 row-start-2 w-66">
+        <RegionBoundary
+          region="browser"
+          fallbackClassName="relative z-10 col-start-1 row-start-2 mr-2 w-66 rounded-xl border shadow-md"
+        >
           <Browser />
         </RegionBoundary>
       ) : null}
-      <RegionBoundary region="viewport" fallbackClassName="col-start-2 row-start-2">
-        <Viewport>
+      <RegionBoundary
+        region="viewport"
+        fallbackClassName="relative col-start-2 row-start-2 rounded-xl border shadow-md"
+      >
+        <Viewport legend={<PrintLegend />}>
           <EmptyState />
           <SketchOverlay />
           <PrintHint />
-          <PrintLegend />
           <Inspector />
         </Viewport>
       </RegionBoundary>
-      <RegionBoundary region="timeline" fallbackClassName="col-span-3 row-start-3 h-14">
+      <RegionBoundary
+        region="timeline"
+        fallbackClassName="relative z-10 col-span-3 row-start-3 mt-2 h-14 rounded-xl border shadow-md"
+      >
         <Timeline />
       </RegionBoundary>
-      <RegionBoundary region="side panel" fallbackClassName="col-start-3 row-start-2 w-90">
+      <RegionBoundary
+        region="side panel"
+        fallbackClassName="relative z-10 col-start-3 row-start-2 ml-2 w-90 rounded-xl border shadow-md"
+      >
         <SidePanel />
       </RegionBoundary>
-      <RegionBoundary region="status bar" fallbackClassName="col-span-3 row-start-4 h-7">
+      <RegionBoundary
+        region="status bar"
+        fallbackClassName="relative z-10 col-span-3 row-start-4 mt-2 h-7 rounded-lg border shadow-md"
+      >
         <StatusBar />
       </RegionBoundary>
       <Notifications />

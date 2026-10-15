@@ -394,14 +394,17 @@ pub fn texts(report: &FeatureReport) -> Vec<&str> {
         .collect()
 }
 
-/// The element repair data a message carries: its pointer and candidates.
+/// The element repair data a message carries: its pointer and the names of its loss's candidates (features.md
+/// section 4.2: an element repair carries the loss).
 pub fn element_repair(message: &Message) -> Option<(String, Vec<ElementName>)> {
     match &message.repair {
-        Some(Repair::Element {
-            pointer,
-            candidates,
-            ..
-        }) => Some((pointer.clone(), candidates.clone())),
+        Some(Repair::Element { pointer, loss, .. }) => Some((
+            pointer.clone(),
+            loss.candidates
+                .iter()
+                .map(|candidate| candidate.reference.query.clone())
+                .collect(),
+        )),
         _ => None,
     }
 }

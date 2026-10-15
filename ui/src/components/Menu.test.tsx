@@ -108,6 +108,9 @@ describe('Menu', () => {
     const { menu } = await openMenu(documentEntries(handlers()))
     expect(within(menu).getAllByRole('menuitem').length).toBeGreaterThanOrEqual(3)
     expect(within(menu).getByRole('separator')).toBeInTheDocument()
+    // U-188: items are controls, separators quiet dividers inside the popup.
+    expect(within(menu).getAllByRole('menuitem')[0]).toHaveClass('rounded-md')
+    expect(within(menu).getByRole('separator')).toHaveClass(COLOR_CLASSES.divider.border)
     const checkbox = within(menu).getByRole('menuitemcheckbox', { name: 'Show constraints' })
     expect(checkbox).toBeChecked()
   })
@@ -260,11 +263,12 @@ describe('Menu', () => {
     })
   })
 
-  it('is a raised floating panel', async () => {
+  it('U-188 is a raised floating panel with the popup shape', async () => {
     const { menu } = await openMenu(documentEntries(handlers()))
     expect(menu).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
     expect(menu).toHaveClass(COLOR_CLASSES.border.border)
-    expect(menu).toHaveClass('border', 'rounded-md', 'shadow-lg')
+    expect(menu).toHaveClass(COLOR_CLASSES.elevation.shadow)
+    expect(menu).toHaveClass('pointer-events-auto', 'border', 'rounded-lg', 'shadow-lg')
   })
 
   it('takes pointer input inside a pointer-events-none parent, whose setting the top layer keeps', async () => {

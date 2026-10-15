@@ -15,6 +15,8 @@ export type IconButtonProps = Omit<
   readonly pressed?: boolean
   /** `toolbar` is size-9 with a size-5 icon; `field` is size-8 with a size-4 icon, beside a field's input; `compact` is size-6 with a size-4 icon, for rows and fields. */
   readonly size?: 'toolbar' | 'field' | 'compact'
+  /** The focus ring: `inset` inside the button, for islands under 2.5rem tall whose edge would cut an outer ring (3.23). */
+  readonly focusRing?: 'outline' | 'inset'
 }
 
 /** An icon-only button named by its label; a toggle when `pressed` is given. */
@@ -23,6 +25,7 @@ export function IconButton({
   icon: Icon,
   pressed,
   size = 'toolbar',
+  focusRing = 'outline',
   className,
   disabled,
   ...rest
@@ -37,11 +40,11 @@ export function IconButton({
       aria-pressed={pressed}
       disabled={disabled}
       className={clsx(
-        'inline-flex shrink-0 items-center justify-center rounded-sm transition-colors duration-150 motion-reduce:transition-none',
+        'inline-flex shrink-0 items-center justify-center rounded-md transition-colors duration-150 motion-reduce:transition-none',
         size === 'toolbar' && 'size-9',
         size === 'field' && 'size-8',
         size === 'compact' && 'size-6',
-        COLOR_CLASSES.focusRing.outline,
+        COLOR_CLASSES.focusRing[focusRing],
         // A resting outline color equal to the ring's, so transition-colors does not fade the
         // ring in from the text color.
         COLOR_CLASSES.accent.outline,

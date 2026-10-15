@@ -1,5 +1,7 @@
+import type { WorldAxis } from '../core/labels'
 import { formatNumber } from '../expression/format'
 import type { PointRef, SketchConstraint, SketchSolution, Units } from '../generated/protocol'
+import type { SketchAxisSpans } from '../viewport/sketch-drawables'
 import { dimensionGeometry, dimensionLabelText, hasGlyph } from './annotations'
 import { constraintReferences, isDimension } from './constraints'
 import { defaultLabelPosition } from './dimensions'
@@ -9,11 +11,14 @@ import { issueRings } from './issues'
 import { ownerOf, pointPosition, solvedEntity } from './operands'
 import { isAxis, ORIGIN_POINT } from './refs'
 import {
+  axisLabelPosition,
   circlePath,
   dimensionPaths,
   drawInputsPlacement,
   entityPoints,
   glyphCenters,
+  insetBox,
+  insideBox,
   polylinePath,
   projectPolyline,
   screenBox,
@@ -35,6 +40,10 @@ const MARKER_PIXELS = 5
 const INFERENCE_OFFSET_PIXELS = 16
 /** Draw inputs sit this many CSS pixels (times the UI scale) off the rubber band's midpoint. */
 const DRAW_INPUT_OFFSET_PIXELS = 12
+/** Axis labels sit this many CSS pixels (times the UI scale), 1rem, inside the free area (3.16.2). */
+const AXIS_LABEL_INSET_PIXELS = 16
+/** Draw inputs and the dimension editor keep this many CSS pixels (times the UI scale), 0.5rem, inside the free area (3.12). */
+const TYPING_INSET_PIXELS = 8
 
 /** Where the overlay's elements go this frame, in canvas CSS pixels (3.12 runtime positions). */
 export type OverlayPaint = {
@@ -65,6 +74,10 @@ export type OverlayPaint = {
   readonly box: ScreenBox | null
   /** The rubber band's quantities as text, shown in empty draw inputs. */
   readonly measures: Readonly<Partial<Record<DrawFieldName, string>>>
+  /** Center of the label of each world axis the sketch's axes lie on; null hides it. */
+  readonly axisLabels: ReadonlyMap<WorldAxis, Vector2 | null>
+  /** The box the draw inputs and the dimension editor stay inside: the free area, 0.5rem in (3.12). */
+  readonly typingArea: ScreenBox
 }
 
 export const EMPTY_PAINT: OverlayPaint = {
@@ -83,6 +96,8 @@ export const EMPTY_PAINT: OverlayPaint = {
   placing: null,
   box: null,
   measures: {},
+  axisLabels: new Map(),
+  typingArea: { left: 0, top: 0, right: 0, bottom: 0 },
 }
 
 /** A dimension not stored yet, drawn while it is placed or edited, with its label position. */
@@ -118,6 +133,12 @@ export type PaintSnapshot = {
   readonly hovered: string | null
   /** The selection box being dragged, between two canvas pixels, or null. */
   readonly box: { readonly start: Vector2; readonly end: Vector2 } | null
+  /** The world axes along the sketch's x and y axes on an origin plane, else null (3.16.2). */
+  readonly worldAxes: readonly [WorldAxis, WorldAxis] | null
+  /** Where the scene draws the sketch's axes. */
+  readonly axisSpans: SketchAxisSpans
+  /** The free area (3.2) in canvas pixels: elements anchored outside it are hidden, and the axis labels and typed inputs stay inside it. */
+  readonly freeArea: ScreenBox
 }
 
 /** The point references and curve ids a constraint names, split into the two. */
@@ -139,16 +160,20 @@ function constrainedItems(
   return { points, curves }
 }
 
-/** The constraint glyphs' centers, or none while constraints are hidden. */
+/** The constraint glyphs' centers, hidden outside the free area, or none while constraints are hidden. */
 function glyphLayer(snapshot: PaintSnapshot): OverlayPaint['glyphs'] {
-  return snapshot.showConstraints
-    ? glyphCenters(
-        snapshot.constraints.filter(hasGlyph),
-        snapshot.solution,
-        snapshot.project,
-        snapshot.uiScale,
-      )
-    : new Map<string, Vector2 | null>()
+  if (!snapshot.showConstraints) {
+    return new Map<string, Vector2 | null>()
+  }
+  const centers = glyphCenters(
+    snapshot.constraints.filter(hasGlyph),
+    snapshot.solution,
+    snapshot.project,
+    snapshot.uiScale,
+  )
+  return new Map(
+    [...centers].map(([id, center]) => [id, insideBox(center, snapshot.freeArea)] as const),
+  )
 }
 
 /**
@@ -181,7 +206,7 @@ export function dimensionLayer(
     const labelAt =
       snapshot.labelPositions.get(constraint.id) ??
       defaultLabelPosition(constraint, solution, snapshot.pixelSize)
-    labels.set(constraint.id, project(labelAt))
+    labels.set(constraint.id, insideBox(project(labelAt), snapshot.freeArea))
     labelTexts.set(
       constraint.id,
       dimensionLabelText(constraint, values.get(constraint.id) ?? null, snapshot.units),
@@ -279,10 +304,36 @@ export function chromePositions(
         ? null
         : drawInputsPlacement(inputsAt, pointer, DRAW_INPUT_OFFSET_PIXELS * uiScale),
     editor: snapshot.editor === null ? null : project(snapshot.editor.at),
-    placing: snapshot.placing === null ? null : pointer,
+    placing: snapshot.placing === null ? null : insideBox(pointer, snapshot.freeArea),
     box: snapshot.box === null ? null : screenBox(snapshot.box.start, snapshot.box.end),
     measures,
   }
+}
+
+/**
+ * The labels of a sketch's axes on an origin plane (3.16.2): each world axis's letter where the
+ * axis's positive half leaves the free area, 1rem inside its edge, or hidden while that half does
+ * not cross it; none on a datum plane or a face.
+ */
+export function axisLabelLayer(snapshot: PaintSnapshot): OverlayPaint['axisLabels'] {
+  const labels = new Map<WorldAxis, Vector2 | null>()
+  if (snapshot.worldAxes === null) {
+    return labels
+  }
+  const area = insetBox(snapshot.freeArea, AXIS_LABEL_INSET_PIXELS * snapshot.uiScale)
+  const { center, reach } = snapshot.axisSpans
+  const [alongX, alongY] = snapshot.worldAxes
+  const directions: readonly (readonly [WorldAxis, Vector2, number])[] = [
+    [alongX, [1, 0], center[0]],
+    [alongY, [0, 1], center[1]],
+  ]
+  for (const [axis, direction, middle] of directions) {
+    labels.set(
+      axis,
+      axisLabelPosition(snapshot.project, direction, [middle - reach, middle + reach], area),
+    )
+  }
+  return labels
 }
 
 /** Everything the overlay paints from a snapshot. */
@@ -292,10 +343,14 @@ export function overlayPaint(snapshot: PaintSnapshot): OverlayPaint {
     glyphs: glyphLayer(snapshot),
     labels,
     labelTexts,
-    issues: issueRings(snapshot.solution).map((ring) => snapshot.project(ring.at)),
+    issues: issueRings(snapshot.solution).map((ring) =>
+      insideBox(snapshot.project(ring.at), snapshot.freeArea),
+    ),
     dimensionLines,
     dimensionArrows,
     ...highlightLayer(snapshot),
     ...chromePositions(snapshot),
+    axisLabels: axisLabelLayer(snapshot),
+    typingArea: insetBox(snapshot.freeArea, TYPING_INSET_PIXELS * snapshot.uiScale),
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BodyMeshData } from '../core/events'
-import type { Document, SketchSolution } from '../generated/protocol'
+import type { Document, Placement, SketchSolution } from '../generated/protocol'
 import {
   bodyMeshEvent,
   boxMesh,
@@ -20,11 +20,16 @@ import {
   type SketchSession,
 } from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
-import { CUBE_DOCUMENT, RECT_SKETCH_SOLUTION, TWO_BODIES_DOCUMENT } from '../test/fakes/documents'
+import {
+  CUBE_DOCUMENT,
+  featuresOf,
+  RECT_SKETCH_SOLUTION,
+  TWO_BODIES_DOCUMENT,
+} from '../test/fakes/documents'
 import { acceptsTarget } from '../inspector/selection-values'
 import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 import { linearFromHex, VIEWPORT_COLORS, viewportTheme } from '../theme/roles'
-import type { DrawCall, Geometry, RenderFrame } from './backend'
+import { ELEMENT_STATE, type DrawCall, type Geometry, type RenderFrame } from './backend'
 import {
   DEFAULT_CAMERA,
   eye,
@@ -32,11 +37,14 @@ import {
   viewMatrix,
   type Camera,
   type Vector3,
+  wholeCanvas,
 } from './camera'
 import { dot, subtract } from './math'
+import { ORIGIN_PLANE_PLACEMENTS } from './planes'
 import { createScene, type Scene } from './scene'
+import { EMPHASIS_LINE_WIDTH } from './webgl2/layout'
 
-const SIZE = { width: 800, height: 600, pixelRatio: 1 }
+const SIZE = { ...wholeCanvas({ width: 800, height: 600 }), pixelRatio: 1 }
 const CUBE_MESH = boxMesh([-10, -10, 0], [10, 10, 20])
 const PEG_MESH = boxMesh([-4, -4, 10], [4, 4, 30])
 
@@ -556,7 +564,11 @@ describe('screenRectangle', () => {
       sketchItem: null,
       origin: null,
     }
-    const rectangle = fixture.scene.screenRectangle([body], camera, { width: 1000, height: 500 })
+    const rectangle = fixture.scene.screenRectangle(
+      [body],
+      camera,
+      wholeCanvas({ width: 1000, height: 500 }),
+    )
     expect(rectangle?.x).toBeCloseTo(300, 6)
     expect(rectangle?.y).toBeCloseTo(50, 6)
     expect(rectangle?.width).toBeCloseTo(400, 6)
@@ -566,7 +578,7 @@ describe('screenRectangle', () => {
   it('is null for no items', () => {
     const fixture = cubeScene()
     expect(
-      fixture.scene.screenRectangle([], DEFAULT_CAMERA, { width: 1000, height: 500 }),
+      fixture.scene.screenRectangle([], DEFAULT_CAMERA, wholeCanvas({ width: 1000, height: 500 })),
     ).toBeNull()
   })
 })
@@ -885,5 +897,201 @@ describe('the grid (3.12)', () => {
     expect(fixture.backend.geometries.get('grid:minor')).toBe(first)
     render(fixture, cubeState(), { ...DEFAULT_CAMERA, distance: DEFAULT_CAMERA.distance * 20 })
     expect(fixture.backend.geometries.get('grid:minor')).not.toBe(first)
+  })
+})
+
+function linear(
+  theme: 'light' | 'dark',
+  role: 'axisX' | 'axisY' | 'axisZ' | 'datum' | 'sketchReference',
+): number[] {
+  return [...linearFromHex(VIEWPORT_COLORS[theme][role])]
+}
+
+function close(values: readonly number[]): unknown[] {
+  return values.map((value) => expect.closeTo(value, 6))
+}
+
+/** The color each element of a draw is drawn in: its element color, else the draw's color. */
+function elementColorsOf(draw: DrawCall | undefined, count: number): number[][] {
+  if (draw === undefined) {
+    throw new Error('No such draw.')
+  }
+  return Array.from({ length: count }, (_, index) =>
+    draw.elementColors === null
+      ? [...draw.color]
+      : Array.from(draw.elementColors.slice(3 * index, 3 * index + 3)),
+  )
+}
+
+function drawById(frame: RenderFrame, id: string): DrawCall | undefined {
+  return frame.draws.find((draw) => draw.id === id)
+}
+
+describe('axis colors (3.12, 3.16.2, U-183)', () => {
+  const THEMES = ['light', 'dark'] as const
+  const ALL_ORIGIN_ITEMS = {
+    'origin:X': true,
+    'origin:Y': true,
+    'origin:Z': true,
+    'origin:XY': true,
+    'origin:XZ': true,
+    'origin:YZ': true,
+  }
+  const EDITING_SKETCH: SketchSession = {
+    sketchId: 'f-sk1',
+    tool: null,
+    construction: false,
+    showConstraints: true,
+    selection: [],
+    dragging: false,
+    cameraBefore: null,
+  }
+
+  function originState(theme: 'light' | 'dark', overrides: Partial<AppState> = {}): AppState {
+    const base = cubeState()
+    return cubeState({
+      settings: { ...DEFAULT_SETTINGS, theme },
+      view: { ...base.view, sessionVisible: ALL_ORIGIN_ITEMS },
+      ...overrides,
+    })
+  }
+
+  /** The cube document in sketch mode on `f-sk1`, its record on `plane` and its solution placed by `placement`. */
+  function sketchModeOn(plane: unknown, placement: Placement): AppState {
+    const base = cubeState({ context: 'sketch', sketch: EDITING_SKETCH })
+    const document = base.document
+    const sketch = document?.sketches['f-sk1']
+    if (document === null || sketch === undefined) {
+      throw new Error('The cube document has no sketch.')
+    }
+    const record = featuresOf(document.recipe).find((feature) => feature.id === 'f-sk1')
+    if (record === undefined) {
+      throw new Error('The cube document has no sketch record.')
+    }
+    return {
+      ...base,
+      document: {
+        ...document,
+        recipe: {
+          ...document.recipe,
+          features: [
+            { ...record, plane },
+            ...featuresOf(document.recipe).filter((feature) => feature !== record),
+          ],
+        },
+        sketches: {
+          ...document.sketches,
+          'f-sk1': { ...sketch, solution: { ...sketch.solution, placement } },
+        },
+      },
+    }
+  }
+
+  it.each(THEMES)(
+    'U-183 draws the origin axes dashed, 1.25 pixels wide, in the X, Y and Z colors (%s)',
+    (theme) => {
+      const fixture = cubeScene()
+      const frame = render(fixture, originState(theme))
+      const axes = drawById(frame, 'origin:axes')
+      expect(axes?.dashed).toBe(true)
+      expect(axes?.size).toBeCloseTo(1.25, 9)
+      expect(elementColorsOf(axes, 3)).toEqual([
+        close(linear(theme, 'axisX')),
+        close(linear(theme, 'axisY')),
+        close(linear(theme, 'axisZ')),
+      ])
+    },
+  )
+
+  it('U-183 marks a hovered origin axis hovered, which the backend draws 2.5 pixels wide in highlight', () => {
+    const fixture = cubeScene()
+    render(fixture, originState('light', { hover: { key: 'origin:Y', kind: 'origin_axis' } }))
+    const states = fixture.backend.elementStates.get('origin:axes')
+    expect([...(states ?? [])]).toEqual([0, ELEMENT_STATE.hover, 0])
+    expect(EMPHASIS_LINE_WIDTH).toBe(2.5)
+  })
+
+  it.each(THEMES)(
+    'U-183 fills and outlines each origin plane in its normal’s color at 15 and 60 percent (%s)',
+    (theme) => {
+      const fixture = cubeScene()
+      const frame = render(fixture, originState(theme))
+      const normals = { XY: 'axisZ', XZ: 'axisY', YZ: 'axisX' } as const
+      for (const [plane, role] of Object.entries(normals)) {
+        const fill = drawById(frame, `plane:origin:${plane}:fill`)
+        const outline = drawById(frame, `plane:origin:${plane}:outline`)
+        expect([...(fill?.color ?? [])]).toEqual(close(linear(theme, role)))
+        expect(fill?.opacity).toBe(0.15)
+        expect([...(outline?.color ?? [])]).toEqual(close(linear(theme, role)))
+        expect(outline?.opacity).toBe(0.6)
+      }
+    },
+  )
+
+  it('U-183 marks a hovered origin plane’s outline hovered, which the backend draws 2.5 pixels wide', () => {
+    const fixture = cubeScene()
+    render(fixture, originState('light', { hover: { key: 'origin:XZ', kind: 'origin_plane' } }))
+    expect([...(fixture.backend.elementStates.get('plane:origin:XZ:outline') ?? [])]).toEqual([
+      ELEMENT_STATE.hover,
+    ])
+    expect([...(fixture.backend.elementStates.get('plane:origin:XY:outline') ?? [])]).toEqual([0])
+  })
+
+  it('U-183 keeps a datum plane in the datum color', () => {
+    const backend = createFakeBackend()
+    const scene = createScene(backend)
+    const document: Document = {
+      ...CUBE_DOCUMENT,
+      bodies: [],
+      features: [
+        {
+          id: 'f-dp1',
+          type: 'datum_plane',
+          base: { kind: 'origin', plane: 'XY' },
+          offset: '10 mm',
+        },
+      ],
+    }
+    const state = stateOf(
+      documentState(document, {
+        datums: { 'f-dp1': { origin: [0, 0, 10], x_axis: [1, 0, 0], normal: [0, 0, 1] } },
+      }),
+    )
+    const frame = scene.frame(state, DEFAULT_CAMERA, SIZE)
+    for (const id of ['plane:feature:f-dp1:fill', 'plane:feature:f-dp1:outline']) {
+      expect([...(drawById(frame, id)?.color ?? [])]).toEqual(close(linear('light', 'datum')))
+    }
+  })
+
+  it.each([
+    ['XY', 'axisX', 'axisY'],
+    ['XZ', 'axisX', 'axisZ'],
+    ['YZ', 'axisY', 'axisZ'],
+  ] as const)(
+    'U-183 draws the axes of a sketch on the %s plane in the colors of the world axes they lie on',
+    (plane, first, second) => {
+      const fixture = cubeScene()
+      const frame = render(
+        fixture,
+        sketchModeOn({ kind: 'origin', plane }, ORIGIN_PLANE_PLACEMENTS[plane]),
+      )
+      expect(elementColorsOf(drawById(frame, 'sketch:f-sk1:axes'), 2)).toEqual([
+        close(linear('light', first)),
+        close(linear('light', second)),
+      ])
+    },
+  )
+
+  it('U-183 draws both axes of a sketch on a datum plane in the reference color', () => {
+    const fixture = cubeScene()
+    const frame = render(
+      fixture,
+      sketchModeOn(
+        { kind: 'datum', feature: 'f-dp1' },
+        { origin: [0, 0, 10], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+      ),
+    )
+    const reference = close(linear('light', 'sketchReference'))
+    expect(elementColorsOf(drawById(frame, 'sketch:f-sk1:axes'), 2)).toEqual([reference, reference])
   })
 })

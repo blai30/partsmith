@@ -24,7 +24,7 @@ import { SIDE_PANEL_ID } from './panel-ids'
 import { useOverlayDismiss } from './use-overlay-dismiss'
 
 // The right side panel (ui.md 3.2): Parameters, Print check, Problems or Keyboard and mouse, one at
-// a time. Below the lg breakpoint it opens as an overlay above the viewport.
+// a time. In a window narrower than 65rem it floats over the free area as an overlay island.
 
 /** The print check panel (3.17), a region named by its visible heading "Print check: {profile name}". */
 function PrintCheckPanel() {
@@ -107,10 +107,13 @@ function OpenSidePanel({ side }: { readonly side: NonNullable<PanelsState['side'
       id={SIDE_PANEL_ID}
       data-testid="side-panel"
       aria-label={SIDE_PANEL_NAMES[side]}
+      // A frame island (3.2), docked in the last column from 65rem and floating over the free
+      // area's cell below it; each panel scrolls its own body.
       className={clsx(
-        'col-start-3 row-start-2 flex min-h-0 w-90 max-w-full flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-lg',
+        'relative z-10 col-start-3 row-start-2 ml-2 flex min-h-0 w-90 max-w-full flex-col overflow-hidden rounded-xl border shadow-md @max-5xl/app:absolute @max-5xl/app:inset-y-0 @max-5xl/app:right-0 @max-5xl/app:z-20 @max-5xl/app:col-start-2 @max-5xl/app:col-end-3 @max-5xl/app:row-end-3 @max-5xl/app:shadow-lg',
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.border.border,
+        COLOR_CLASSES.elevation.shadow,
       )}
     >
       {side === 'parameters' ? <ParametersPanel /> : null}

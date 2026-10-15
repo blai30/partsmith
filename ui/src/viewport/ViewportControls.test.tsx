@@ -50,15 +50,23 @@ function button(name: string): HTMLElement {
 }
 
 describe('ViewportControls layout', () => {
-  it('sits under the view cube, below the reach of its corners in every orientation', () => {
+  it('U-186 is a card of rounded-md buttons, for the top-left corner of the free area', () => {
     const { controls } = setUp()
-    const box = controls.parentElement
-    // Centered under the cube, which is as wide and as far from the right edge.
-    expect(box).toHaveClass('absolute', 'right-6', 'w-24')
-    const top = /\btop-(\d+)\b/.exec(box?.className ?? '')?.[1]
-    // The 6rem cube at top-8 is centered 5rem down; its corners turn up to 3√3 rem from the center, a little more under the cube's perspective.
-    const cubeReach = 5 + 3 * Math.sqrt(3) * 1.01
-    expect(Number(top) * 0.25).toBeGreaterThan(cubeReach)
+    expect(controls).toHaveClass(
+      'pointer-events-auto',
+      'flex',
+      'flex-col',
+      'gap-1',
+      'rounded-xl',
+      'border',
+      'p-1',
+      'shadow-md',
+    )
+    expect(controls).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
+    expect(controls).toHaveClass(COLOR_CLASSES.elevation.shadow)
+    for (const element of within(controls).getAllByRole('button')) {
+      expect(element).toHaveClass('rounded-md')
+    }
   })
 })
 

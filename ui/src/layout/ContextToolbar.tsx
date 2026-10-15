@@ -110,8 +110,8 @@ function ToolbarButton({
         aria-expanded={popup === undefined ? undefined : expanded === true}
         onClick={onClick}
         className={clsx(
-          'inline-flex shrink-0 items-center justify-center gap-2 rounded-sm text-sm font-medium whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
-          showLabel ? 'h-10 px-3' : 'h-9 min-w-9 px-2',
+          'inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+          showLabel ? 'h-9 px-3' : 'h-9 min-w-9 px-2',
           COLOR_CLASSES.focusRing.outline,
           COLOR_CLASSES.accent.outline,
           accent && COLOR_CLASSES.accent.background,
@@ -696,7 +696,7 @@ export function ContextToolbar() {
         <hr
           key={item.key}
           aria-orientation="vertical"
-          className={clsx('mx-1 h-6 w-0 shrink-0 border-0 border-l', COLOR_CLASSES.border.border)}
+          className={clsx('mx-1 h-6 w-0 shrink-0 border-0 border-l', COLOR_CLASSES.divider.border)}
         />
       )
     }

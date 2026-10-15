@@ -7,11 +7,14 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_count, assert_face_in_plane, assert_face_kind,
-    assert_face_radius, assert_has_face, assert_median_build_within, assert_no_face,
-    assert_unchanged, assert_volume, face, link_ids, load_example,
+    Run, absent_faces, assert_bounding_box, assert_empty, assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
+    assert_face_kind, assert_face_radius, assert_has_face, assert_median_build_within,
+    assert_messages_pass_lint, assert_no_face, assert_unchanged, assert_volume, face, link_ids,
+    load_example, message, output_body, successions,
 };
+use partsmith_features::{Diagnosis, FeatureWarning, Fix};
+use partsmith_naming::Follow;
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 
 /// `SK-RING`: `RECT(10, 0, 20, 30)` on XZ with id `f-sk1`, so x from 10 to 20 and z from 0 to 30.
@@ -463,4 +466,98 @@ fn t026_angle_within_the_tolerance_of_zero() {
         ["Angle must be greater than 0 deg, but it is 0 deg. Use a value greater than 0 deg."],
     );
     assert_empty(&run, "b-1");
+}
+
+#[test]
+fn t027_a_full_turn_records_both_caps_absent() {
+    for extent in [FULL.to_string(), angle("360 deg")] {
+        let run = run_ring(&extent);
+
+        assert_eq!(
+            absent_faces(&run, "f-rev1"),
+            [
+                ("f-rev1/end-cap".to_string(), "FullTurn".to_string()),
+                ("f-rev1/start-cap".to_string(), "FullTurn".to_string()),
+            ],
+            "extent {extent}"
+        );
+    }
+}
+
+#[test]
+fn t027_a_quarter_turn_records_nothing_absent() {
+    let run = run_ring(&angle("90 deg"));
+
+    assert!(absent_faces(&run, "f-rev1").is_empty());
+}
+
+/// `P-RING-V2`: the region of `SK-RING` as a pick stores it since file format version 2.
+const RING_PROFILE_V2: &str = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=15,15|a=300", "outline": "e-1,e-2,e-3,e-4"}]}"#;
+
+/// The ring of test 31 after its edit: `e-2` deleted and `e-9` drawn in its place, turned all the way round, with the
+/// fillet of radius 2 on the outer top rim as stored before the edit.
+fn redrawn_outer_side() -> Run {
+    let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XZ"}, "entities": [{"id": "e-1", "type": "line", "start": [10, 0], "end": [20, 0]}, {"id": "e-3", "type": "line", "start": [20, 30], "end": [10, 30]}, {"id": "e-4", "type": "line", "start": [10, 30], "end": [10, 0]}, {"id": "e-9", "type": "line", "start": [20, 0], "end": [20, 30]}]}"#;
+    let fillet = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-rev1/lateral/e-2|f-rev1/lateral/e-3)", "fp": "circle|n=0,0,1|c=0,0,30|l=125.663706|r=20|adj=2,1"}], "radius": "2"}"#;
+    Run::records(
+        &["b-1"],
+        &[
+            sketch,
+            &revolve(RING_PROFILE_V2, AXIS_Z, FULL, "new"),
+            fillet,
+        ],
+    )
+}
+
+#[test]
+fn t031_a_side_line_deleted_and_drawn_again_is_followed() {
+    let run = redrawn_outer_side();
+
+    run.assert_ok("f-rev1");
+    let after_revolve = output_body(&run, "f-rev1", "b-1");
+    assert_has_face(&after_revolve, "f-rev1/lateral/e-9");
+    assert_eq!(
+        successions(&after_revolve),
+        [(
+            "f-rev1/lateral/e-2".to_string(),
+            vec!["f-rev1/lateral/e-9".to_string()]
+        )],
+    );
+    run.assert_notices("f-fil1", &["reference_followed"]);
+    assert!(matches!(
+        run.warning("f-fil1", "reference_followed"),
+        FeatureWarning::ReferenceFollowed {
+            follow: Follow::Replaced,
+            ..
+        }
+    ));
+    assert_eq!(
+        message(&run, "f-fil1", "reference_followed")
+            .pointer
+            .as_deref(),
+        Some("/edges/0"),
+    );
+    assert_eq!(
+        run.warning_fixes("f-fil1", "reference_followed", &Diagnosis::default()),
+        [
+            Fix::KeepMatch {
+                pointer: "/edges/0".to_string()
+            },
+            Fix::Pick {
+                pointer: "/edges/0".to_string()
+            },
+        ],
+    );
+    assert_messages_pass_lint(&run, "f-fil1");
+}
+
+#[test]
+fn t031_the_fillet_stays_on_the_outer_top_rim() {
+    let run = redrawn_outer_side();
+
+    assert_has_face(
+        run.body("b-1"),
+        "f-fil1/fillet/edge(f-rev1/lateral/e-3|f-rev1/lateral/e-9)",
+    );
+    assert_volume(run.shape("b-1"), 28168.872718);
 }

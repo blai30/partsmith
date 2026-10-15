@@ -62,7 +62,7 @@ function DocumentTitle() {
           setOpen((current) => !current)
         }}
         className={clsx(
-          'h-8 max-w-60 truncate rounded-sm px-2 text-sm font-semibold transition-colors duration-150 motion-reduce:transition-none',
+          'h-8 max-w-60 truncate rounded-md px-2 text-sm font-semibold transition-colors duration-150 motion-reduce:transition-none',
           COLOR_CLASSES.hover.background,
           COLOR_CLASSES.focusRing.outline,
           COLOR_CLASSES.accent.outline,
@@ -115,7 +115,7 @@ function PaletteButton() {
         setPaletteOpen(app, true)
       }}
       className={clsx(
-        'inline-flex h-8 shrink-0 items-center gap-2 rounded-sm border px-2 text-sm transition-colors duration-150 motion-reduce:transition-none',
+        'inline-flex h-8 shrink-0 items-center gap-2 rounded-md border px-2 text-sm transition-colors duration-150 motion-reduce:transition-none',
         COLOR_CLASSES.field.background,
         COLOR_CLASSES.border.border,
         COLOR_CLASSES.textMuted.foreground,
@@ -161,7 +161,7 @@ function ExportButton() {
             }
           }}
           className={clsx(
-            'inline-flex h-8 shrink-0 items-center gap-2 rounded-sm border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
+            'inline-flex h-8 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
             COLOR_CLASSES.border.border,
             COLOR_CLASSES.focusRing.outline,
             COLOR_CLASSES.accent.outline,
@@ -206,9 +206,10 @@ export function TopBar() {
     <header
       data-testid="top-bar"
       className={clsx(
-        '@container col-span-3 row-start-1 flex h-12 min-w-0 items-center gap-2 border-b px-2',
+        '@container relative z-10 col-span-3 row-start-1 mb-2 flex h-12 min-w-0 items-center gap-2 rounded-xl border px-2 shadow-md',
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.border.border,
+        COLOR_CLASSES.elevation.shadow,
       )}
     >
       <BrowserToggle />

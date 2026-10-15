@@ -433,6 +433,87 @@ export function canvasPosition(
   }
 }
 
+/** A rectangle in CSS pixels from the canvas's top-left corner. */
+export type ViewRectangle = {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** The canvas size and the free area inside it (3.2), in CSS pixels from the canvas's top-left corner. */
+export type ViewWindow = {
+  readonly width: number
+  readonly height: number
+  readonly free: ViewRectangle
+}
+
+/** A view window whose free area is the whole canvas. */
+export function wholeCanvas(size: { readonly width: number; readonly height: number }): ViewWindow {
+  return { ...size, free: { x: 0, y: 0, width: size.width, height: size.height } }
+}
+
+/** The area the camera frames: the free area, or the whole canvas while a side of the free area is below 1 CSS pixel (not measured yet). */
+export function framedArea(view: ViewWindow): ViewRectangle {
+  const { free } = view
+  return free.width >= 1 && free.height >= 1
+    ? free
+    : { x: 0, y: 0, width: view.width, height: view.height }
+}
+
+/** The width-to-height ratio of the framed area: the aspect every camera function gets (2.11). */
+export function windowAspect(view: ViewWindow): number {
+  return aspectOf(framedArea(view))
+}
+
+/** A canvas point in the framed area's normalized device coordinates: -1 to 1 across it, beyond outside it. */
+export function windowCursor(view: ViewWindow, x: number, y: number): [number, number] {
+  const area = framedArea(view)
+  return [
+    (2 * (x - area.x)) / Math.max(area.width, 1) - 1,
+    1 - (2 * (y - area.y)) / Math.max(area.height, 1),
+  ]
+}
+
+/** The canvas point of a position in the framed area's normalized device coordinates. */
+export function windowPosition(
+  view: ViewWindow,
+  position: { readonly x: number; readonly y: number },
+): { x: number; y: number } {
+  const area = framedArea(view)
+  const inArea = canvasPosition(position, area)
+  return { x: area.x + inArea.x, y: area.y + inArea.y }
+}
+
+/**
+ * `projectionMatrix` for the framed area's aspect, followed by the clip-space scale and shift that
+ * put the framed area where it lies on the canvas: an off-center frustum, so the target projects
+ * to the free area's center and the canvas around it shows more of the same projection (2.11).
+ */
+export function windowProjection(
+  camera: Camera,
+  view: ViewWindow,
+  near: number,
+  far: number,
+): Float32Array {
+  const projection = projectionMatrix(camera, windowAspect(view), near, far)
+  if (!(view.width > 0 && view.height > 0)) {
+    return projection
+  }
+  const area = framedArea(view)
+  const scaleX = area.width / view.width
+  const scaleY = area.height / view.height
+  const shiftX = (2 * area.x + area.width) / view.width - 1
+  const shiftY = 1 - (2 * area.y + area.height) / view.height
+  // Column-major: row r of column c is at c * 4 + r; the shift is added in proportion to w (row 3).
+  for (let column = 0; column < 4; column += 1) {
+    const homogeneous = projection[column * 4 + 3] ?? 0
+    projection[column * 4] = scaleX * (projection[column * 4] ?? 0) + shiftX * homogeneous
+    projection[column * 4 + 1] = scaleY * (projection[column * 4 + 1] ?? 0) + shiftY * homogeneous
+  }
+  return projection
+}
+
 /** A world point in normalized device coordinates with its view depth, or null when it is not in front of a perspective eye. */
 export function normalizedPosition(
   camera: Camera,

@@ -112,13 +112,15 @@ impl Feature for MoveBody {
         params: &MoveBodyParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let (state, shape) = solid_body(context, &params.body)?;
+        let (state, shape) = solid_body(context, "body", &params.body)?;
         let translation = three_lengths(context, TRANSLATION_FIELDS, &params.translation)?;
+        let mut warnings = Vec::new();
         let rotation = match &params.rotation {
             Some(rotation) => {
                 let angle = context.eval_angle("rotation.angle", &rotation.angle)?;
                 let axis = context.axis("rotation.axis", &rotation.axis)?;
-                Some((axis, angle))
+                warnings = axis.warnings;
+                Some((axis.value, angle))
             }
             None => None,
         };
@@ -126,12 +128,12 @@ impl Feature for MoveBody {
             .as_ref()
             .is_none_or(|(_, angle)| is_whole_turns(*angle));
         if turns_nothing && translation.iter().all(|value| value.abs() <= NOTHING_MOVES) {
-            let warning = FeatureWarning::NoEffect {
+            warnings.push(FeatureWarning::NoEffect {
                 body: params.body.clone(),
-            };
+            });
             return Ok(bodies(
                 vec![unchanged(&params.body, state, BodyChange::Modify)],
-                vec![warning],
+                warnings,
             ));
         }
         let motion = rotation
@@ -147,7 +149,7 @@ impl Feature for MoveBody {
             change: BodyChange::Modify,
             measured: Measurements::default(),
         };
-        Ok(bodies(vec![update], Vec::new()))
+        Ok(bodies(vec![update], warnings))
     }
 
     /// `move(translate=(x, y, z), rotate=(axis, angle))` (move_body.md section 2): `translate`

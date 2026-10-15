@@ -191,7 +191,7 @@ function StatusBanner({
       data-testid="inspector-error"
       role={error ? 'alert' : undefined}
       className={clsx(
-        'flex flex-col gap-2 rounded-sm p-3 text-sm',
+        'flex flex-col gap-2 rounded-lg p-3 text-sm',
         error ? COLOR_CLASSES.errorSubtle.background : COLOR_CLASSES.warningSubtle.background,
       )}
     >
@@ -352,7 +352,7 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
                 })
               }}
               className={clsx(
-                'inline-flex h-8 max-w-full min-w-0 items-center gap-1 self-start rounded-sm px-1 text-left text-sm font-medium',
+                'inline-flex h-8 max-w-full min-w-0 items-center gap-1 self-start rounded-md px-1 text-left text-sm font-medium',
                 COLOR_CLASSES.textMuted.foreground,
                 COLOR_CLASSES.hover.background,
                 COLOR_CLASSES.focusRing.outline,
@@ -369,7 +369,7 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
           {moreOpen ? model.more.map(renderField) : null}
         </div>
       )}
-      <div className={clsx('flex justify-end gap-2 border-t pt-4', COLOR_CLASSES.border.border)}>
+      <div className={clsx('flex justify-end gap-2 border-t pt-4', COLOR_CLASSES.divider.border)}>
         <Tooltip label="Cancel" shortcut={formatShortcut('Escape', app.platform)}>
           <Button
             onClick={() => {

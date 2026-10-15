@@ -2,7 +2,7 @@
 //! removing faces (features/shell.md).
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_naming::{ElementKind, FaceSource, NamingMap, Reference, roles};
+use partsmith_naming::{ElementKind, FaceSource, Motion, NamingMap, Reference, Successions, roles};
 use partsmith_occt_sys::{KernelError, OpResult, Shape, SubShapeKind, compound, shell};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -68,7 +68,7 @@ impl Feature for Shell {
         params: &ShellParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let (state, shape) = solid_body(context, &params.body)?;
+        let (state, shape) = solid_body(context, "body", &params.body)?;
         let thickness = positive_length(context, "thickness", &params.thickness)?;
         // A shell meant to be open never silently becomes a closed hollow: a list that resolves
         // to nothing is an error.
@@ -82,7 +82,9 @@ impl Feature for Shell {
                 ElementKind::Face,
             )?;
             let faces = resolved.elements.iter().map(|face| face.index).collect();
-            (faces, resolved.warnings)
+            let mut warnings = resolved.warnings;
+            warnings.extend(resolved.notices);
+            (faces, warnings)
         };
         let solids = body_solids(shape, &removed)?;
         let hollow = run_or_search(
@@ -260,7 +262,13 @@ fn name_shell(
         .iter()
         .map(|origin| face_source(feature, input, removed, origin))
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    name_shape(&hollow.shape, faces, &[input])
+    name_shape(
+        &hollow.shape,
+        faces,
+        &[input],
+        &Successions::default(),
+        &Motion::IDENTITY,
+    )
 }
 
 /// The source of one face of the hollow body by the first rule of naming.md section 3.6.7 that
@@ -474,9 +482,14 @@ mod tests {
         let first = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
         let second = named_box("f-box2", [30.0, 0.0, 0.0], 10.0);
         let both = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
-        let naming = name_by_history(&id("f-box2"), &both, &[&first.naming, &second.naming])
-            .expect("named")
-            .naming;
+        let naming = name_by_history(
+            &id("f-box2"),
+            &both,
+            &[&first.naming, &second.naming],
+            &Motion::IDENTITY,
+        )
+        .expect("named")
+        .naming;
         let tops = [
             face_index(&naming, "f-box1/top"),
             face_index(&naming, "f-box2/top"),
@@ -498,9 +511,14 @@ mod tests {
         let first = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
         let second = named_box("f-box2", [30.0, 0.0, 0.0], 10.0);
         let both = fuse(&first.shape, std::slice::from_ref(&second.shape)).expect("fuses");
-        let naming = name_by_history(&id("f-box2"), &both, &[&first.naming, &second.naming])
-            .expect("named")
-            .naming;
+        let naming = name_by_history(
+            &id("f-box2"),
+            &both,
+            &[&first.naming, &second.naming],
+            &Motion::IDENTITY,
+        )
+        .expect("named")
+        .naming;
         let top = face_index(&naming, "f-box1/top");
 
         let solids = body_solids(&both.shape, &[top]).expect("solids");

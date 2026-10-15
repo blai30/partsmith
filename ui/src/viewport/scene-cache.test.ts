@@ -5,7 +5,7 @@ import { tessellateArc } from '../sketch/geometry'
 import { createAppStore, type AppState } from '../state/store'
 import { createFakeBackend } from '../test/fakes/backend'
 import { RECT_SKETCH_SOLUTION } from '../test/fakes/documents'
-import { DEFAULT_CAMERA, orbit } from './camera'
+import { DEFAULT_CAMERA, orbit, wholeCanvas } from './camera'
 import { createScene } from './scene'
 
 // The scene keeps the tessellation, bounds and upload signature of an unchanged sketch (3.12).
@@ -18,7 +18,7 @@ vi.mock('../sketch/geometry', async (importOriginal) => {
   }
 })
 
-const SIZE = { width: 800, height: 600, pixelRatio: 1 }
+const SIZE = { ...wholeCanvas({ width: 800, height: 600 }), pixelRatio: 1 }
 
 const CIRCLE_SOLUTION: SketchSolution = {
   ...RECT_SKETCH_SOLUTION,

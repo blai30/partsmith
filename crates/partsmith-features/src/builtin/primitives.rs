@@ -85,9 +85,9 @@ impl PrimitiveParams<'_> {
         make: impl FnOnce(&Placement) -> Result<Primitive, KernelError>,
     ) -> Result<FeatureOutput, FeatureError> {
         let frame = self.placement.frame(context)?;
-        let solid = make(&frame)?;
+        let solid = make(&frame.value)?;
         let tool = primitive_tool(context.feature(), solid)?;
-        apply_tool(context, self.body, self.op, tool, Vec::new())
+        apply_tool(context, self.body, self.op, tool, frame.warnings)
     }
 
     /// The dedicated Python form `function(sizes..., plane=..., position=..., op=...)`, with the

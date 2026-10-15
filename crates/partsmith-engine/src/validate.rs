@@ -5,8 +5,7 @@ use std::sync::Arc;
 
 use partsmith_features::builtin::hole::HoleParams;
 use partsmith_features::{
-    CancelToken, Dependencies, DocumentNames, ExprUse, FeatureError, FieldRef, Noun, Registry,
-    Values,
+    CancelToken, Dependencies, ExprUse, FeatureError, FieldRef, Noun, Registry, Values,
 };
 use partsmith_model::{
     Document, ExprErrorKind, FeatureManifest, FeatureRecord, Id, LoadError, Scope, load,
@@ -21,6 +20,7 @@ use crate::document::{canonical_text, canonicalize_params, load_error};
 use crate::error::{EngineError, saturating_u32};
 use crate::session::Session;
 use crate::sketch::{SKETCH_TYPE, dimension_values};
+use crate::status::render_feature_error;
 use crate::types::{Asset, ValidateOptions, ValidationDiagnostic, ValidationReport};
 
 /// The type name of the hole feature, whose `points` name sketch points (features/hole.md).
@@ -48,13 +48,8 @@ impl Session {
         let mut document = loaded.document;
         canonicalize_params(&self.registry, &mut document);
         let registry = Arc::clone(&self.registry);
-        let names = DocumentNames {
-            document: &document,
-            registry: &registry,
-        };
         let mut checks = Checks {
             registry: &registry,
-            names: &names,
             document: &document,
             diagnostics: &mut report.diagnostics,
         };
@@ -141,18 +136,16 @@ struct Checked<'a> {
 }
 
 /// The checks of section 3.19, steps 2 to 7, writing diagnostics in step order.
-struct Checks<'a, 'r> {
+struct Checks<'a> {
     /// The registry.
     registry: &'a Registry,
-    /// Names for rendering feature messages.
-    names: &'a DocumentNames<'r>,
     /// The loaded document, params canonicalized.
     document: &'a Document,
     /// The report's diagnostics.
     diagnostics: &'a mut Vec<ValidationDiagnostic>,
 }
 
-impl<'a> Checks<'a, '_> {
+impl<'a> Checks<'a> {
     /// Adds a diagnostic without a position in the text.
     fn push(&mut self, severity: Severity, code: &str, message: String, path: Option<String>) {
         self.diagnostics.push(ValidationDiagnostic {
@@ -167,7 +160,8 @@ impl<'a> Checks<'a, '_> {
 
     /// Adds a feature error at `/features/<position>` plus its field.
     fn feature_error(&mut self, position: usize, code: &str, error: &FeatureError) {
-        let message = error.render(self.names, self.document.units);
+        let feature = &self.document.features[position].id;
+        let message = render_feature_error(error, self.document, self.registry, feature);
         let path = feature_path(position, error.field());
         self.push(Severity::Error, code, message, Some(path));
     }

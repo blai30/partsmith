@@ -1,6 +1,7 @@
 import { clsx } from 'clsx/lite'
 import { GripHorizontal, Shapes, X } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, type PointerEvent, type ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { cancelCommand } from '../app/actions/command'
 import { clearSelection } from '../app/actions/selection'
 import { useApp, useAppState } from '../app/AppProvider'
@@ -9,22 +10,63 @@ import { reportFailure } from '../app/report'
 import { FEATURE_ICONS } from '../commands/icons'
 import { IconButton } from '../components/IconButton'
 import { Tooltip } from '../components/Tooltip'
+import { selectInspectedItems } from '../state/selectors'
 import type { AppState, SelectionItem } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
+import { framedArea } from '../viewport/camera'
 import { positionElement } from '../viewport/overlay'
 import { commandSelectionFields } from '../viewport/picking-rules'
 import { CommandInspector } from './CommandInspector'
 import { fieldInputId } from './fields/field-id'
 import { activeCommandModel, fieldsOf, isEmptyValue } from './model'
-import { placeInspector } from './placement'
+import { inspectorBounds, placeInspector, type Rectangle } from './placement'
 import { SelectionInspector } from './SelectionInspector'
 import { itemsFromValue } from './selection-values'
 
-// The floating inspector (ui.md 3.7, 3.8): one panel inside the viewport for the active feature
+// The floating inspector (ui.md 3.7, 3.8): one card in the free area for the active feature
 // command or the selection, placed beside what it is about and dragged by its header. Its
 // position is a runtime translate (3.12), never a style prop.
 
 type Position = { readonly x: number; readonly y: number }
+
+/** An element's box relative to the free-area layer's box. */
+function boxIn(element: Element, layer: DOMRect): Rectangle {
+  const box = element.getBoundingClientRect()
+  return { x: box.left - layer.left, y: box.top - layer.top, width: box.width, height: box.height }
+}
+
+/**
+ * Where an opening inspector goes in the free-area layer `layer` (3.7): beside the items it is
+ * about, whose canvas rectangle moves by the free area's offset in the canvas, inside the free
+ * area clear of the viewport controls and of the top-center slot's content where it fits.
+ */
+function openingPosition(app: App, layer: HTMLElement, panel: HTMLElement): Position {
+  const layerBox = layer.getBoundingClientRect()
+  const controls = layer.querySelector('[data-testid="viewport-controls"]')
+  // Only a slot that shows a card or chip has a height; an empty one holds a hidden live region.
+  const slots = Array.from(layer.querySelectorAll('[data-testid="top-center-slot"]'), (slot) =>
+    boxIn(slot, layerBox),
+  ).filter((box) => box.height > 0)
+  const slot =
+    slots.length === 0
+      ? null
+      : slots.reduce((lowest, box) =>
+          box.y + box.height > lowest.y + lowest.height ? box : lowest,
+        )
+  const size = { width: panel.offsetWidth, height: panel.offsetHeight }
+  const bounds = inspectorBounds({
+    area: { x: 0, y: 0, width: layerBox.width, height: layerBox.height },
+    controls: controls === null ? null : boxIn(controls, layerBox),
+    slot,
+    panel: size,
+  })
+  const viewport = app.viewport()
+  const items = viewport?.screenRectangle(anchorItems(app)) ?? null
+  const free = viewport === null ? null : framedArea(viewport.viewWindow())
+  const anchor =
+    items === null || free === null ? null : { ...items, x: items.x - free.x, y: items.y - free.y }
+  return placeInspector({ anchor, panel: size, bounds })
+}
 
 /** The items the panel is about, for its placement: the selection, or the command's picks. */
 function anchorItems(app: App): readonly SelectionItem[] {
@@ -74,23 +116,12 @@ function Panel({
   // Placed once when it opens; it then stays put while open (3.7).
   useLayoutEffect(() => {
     const element = panel.current
-    if (element === null) {
+    const layer = element?.parentElement ?? null
+    if (element === null || layer === null) {
       return
     }
-    const container = element.parentElement
-    const bounds = {
-      x: 0,
-      y: 0,
-      width: container?.clientWidth ?? 0,
-      height: container?.clientHeight ?? 0,
-    }
     const placed =
-      app.store.getState().panels.inspectorPosition ??
-      placeInspector({
-        anchor: app.viewport()?.screenRectangle(anchorItems(app)) ?? null,
-        panel: { width: element.offsetWidth, height: element.offsetHeight },
-        bounds,
-      })
+      app.store.getState().panels.inspectorPosition ?? openingPosition(app, layer, element)
     position.current = placed
     positionElement(element, placed.x, placed.y)
   }, [app])
@@ -145,9 +176,10 @@ function Panel({
     if (current === null || element === null || current.pointerId !== event.pointerId) {
       return
     }
-    const container = element.parentElement
-    const maximumX = Math.max(0, (container?.clientWidth ?? 0) - element.offsetWidth)
-    const maximumY = Math.max(0, (container?.clientHeight ?? 0) - element.offsetHeight)
+    // The free-area layer bounds the drag (3.7).
+    const layer = element.parentElement?.getBoundingClientRect()
+    const maximumX = Math.max(0, (layer?.width ?? 0) - element.offsetWidth)
+    const maximumY = Math.max(0, (layer?.height ?? 0) - element.offsetHeight)
     const next = {
       x: Math.min(Math.max(current.from.x + event.clientX - current.startX, 0), maximumX),
       y: Math.min(Math.max(current.from.y + event.clientY - current.startY, 0), maximumY),
@@ -185,9 +217,10 @@ function Panel({
       data-mode={mode}
       data-preview={preview}
       className={clsx(
-        'pointer-events-auto absolute top-0 left-0 z-20 flex max-h-[calc(100%-2rem)] w-80 flex-col gap-4 overflow-y-auto rounded-md border p-4 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
+        'pointer-events-auto absolute top-0 left-0 z-20 flex max-h-[calc(100%-2rem)] w-80 flex-col gap-4 overflow-y-auto rounded-xl border p-4 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
+        COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}
     >
@@ -245,8 +278,8 @@ export function Inspector() {
   const command = useAppState((state) => state.command)
   const catalog = useAppState((state) => state.catalog)
   const context = useAppState((state) => state.context)
-  const selection = useAppState((state) => state.selection)
-  const sketch = useAppState((state) => state.sketch)
+  // Compared by value: the selector makes a new empty list on every store change.
+  const items = useAppState(useShallow(selectInspectedItems))
 
   if (command !== null) {
     const feature = catalog?.byType[command.featureType]
@@ -272,12 +305,6 @@ export function Inspector() {
     )
   }
 
-  const items =
-    context === 'sketch'
-      ? sketch !== null && sketch.tool === null
-        ? sketch.selection
-        : []
-      : selection
   if (items.length === 0) {
     return null
   }

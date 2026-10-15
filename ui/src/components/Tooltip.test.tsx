@@ -60,6 +60,15 @@ describe('Tooltip', () => {
     expect(shownTooltip()).toBeNull()
   })
 
+  it('U-188 has the tooltip shape: rounded-lg, an outline and a shadow-md in the elevation color', async () => {
+    const { user, trigger } = setUp()
+    await user.hover(trigger)
+    advance(500)
+    const tooltip = shownTooltip()
+    expect(tooltip).toHaveClass('rounded-lg', 'border', 'shadow-md')
+    expect(tooltip).toHaveClass(COLOR_CLASSES.elevation.shadow)
+  })
+
   it('appears after 500 ms of hover, not before', async () => {
     const { user, trigger } = setUp()
     await user.hover(trigger)

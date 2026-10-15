@@ -13,7 +13,7 @@ import type { AppState, DocumentState, SelectionItem } from '../../state/store'
 import { COLOR_CLASSES } from '../../theme/roles'
 import { formatArea } from '../area'
 import { bodySelectionItem, featureKey } from '../selection-values'
-import { MeasureRows, Row, Suggestions, Title, Value } from './parts'
+import { CoordinateReadout, MeasureRows, ReadoutRow, Row, Suggestions, Title, Value } from './parts'
 
 // The selection inspector of faces, edges and vertices (ui.md 3.8): their bodies, the feature that
 // made one of them, and its measures.
@@ -202,8 +202,13 @@ function ElementMeasures({
     )
   }
   return (
-    <Row label="Position">
-      <Value>{formatPoint(element.centroid, units)}</Value>
-    </Row>
+    <ReadoutRow label="Position">
+      <CoordinateReadout
+        testId="vertex-position"
+        coordinates={element.centroid}
+        units={units}
+        text={formatPoint(element.centroid, units)}
+      />
+    </ReadoutRow>
   )
 }

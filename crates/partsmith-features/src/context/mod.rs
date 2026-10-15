@@ -1,9 +1,12 @@
 //! The read-only build context and what it is made from (features.md sections 2.6, 3.4 and 3.6 to 3.8).
 
 mod body_state;
+mod references;
+mod regions;
 mod values;
 
 pub use body_state::BodyState;
+pub use references::Usable;
 pub use values::Values;
 
 use std::collections::BTreeMap;
@@ -11,14 +14,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use partsmith_model::{Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, Units};
-use partsmith_naming::{ElementKind, ElementName, ElementSet, Reference, Resolution};
+use partsmith_naming::{
+    ElementInfo, ElementKind, GeometryKind as NameGeometry, Reference, Resolution,
+};
 use partsmith_occt_sys::{Axis, ElementGeometry, GeometryKind, Point, SubShape, Vector};
-use partsmith_sketch::{Geometry, MatchMethod, OriginPlane, Placement, RegionMatch, match_region};
+use partsmith_sketch::{Geometry, OriginPlane, Placement, Succession};
 
 use crate::error::{Bound, FallbackReason, FeatureError, FeatureWarning, FieldRef, Noun};
-use crate::naming::{naming_failed, sub_shape_kind};
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
-use crate::params::{AxisRef, PlaneRef, ProfileRef, point, vector};
+use crate::params::{AxisRef, PlaneRef, point, vector};
 
 /// Largest distance from a whole number that a count may have (section 3.4).
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
@@ -39,6 +43,9 @@ pub struct BuildInputs<'a> {
     pub values: &'a Values,
     /// State of every declared body just before this feature.
     pub bodies: &'a BTreeMap<Id, BodyState>,
+    /// For each declared body, its writer chain: for each earlier active writer that ran, was reused or failed, in
+    /// timeline order, the writer's id and the body's state just before it (recompute.md section 3.5).
+    pub history: &'a BTreeMap<Id, Vec<(Id, BodyState)>>,
     /// Output of every declared feature dependency that built successfully.
     pub upstream: &'a BTreeMap<Id, Arc<FeatureOutput>>,
     /// Bytes of every declared asset (recompute checks they exist before building).
@@ -105,9 +112,16 @@ impl<'a> BuildContext<'a> {
         self.inputs
             .bodies
             .get(body)
-            .ok_or_else(|| FeatureError::UndeclaredDependency {
-                what: format!("body '{body}'"),
-            })
+            .ok_or_else(|| undeclared_body(body))
+    }
+
+    /// The writer chain of a declared body (`BuildInputs::history`), oldest first: each earlier writer with the
+    /// body's state just before it. An undeclared body gives `UndeclaredDependency`.
+    pub fn body_history(&self, body: &Id) -> Result<&'a [(Id, BodyState)], FeatureError> {
+        if !self.inputs.bodies.contains_key(body) {
+            return Err(undeclared_body(body));
+        }
+        Ok(self.inputs.history.get(body).map_or(&[][..], Vec::as_slice))
     }
 
     /// Result of a declared sketch dependency named at `field`. Another kind of output gives `WrongFeatureType`.
@@ -137,94 +151,22 @@ impl<'a> BuildContext<'a> {
             })
     }
 
-    /// Resolves the regions of a profile, with warnings for remapped, ambiguous or missing regions (section 3.7).
-    pub fn profile(
-        &self,
-        field: &str,
-        profile: &ProfileRef,
-    ) -> Result<ResolvedProfile<'a>, FeatureError> {
-        let sketch = self.sketch(&format!("{field}.sketch"), &profile.sketch)?;
-        let entities: Vec<Id> = sketch
-            .solved
-            .entities
-            .iter()
-            .map(|entity| entity.id.clone())
-            .collect();
-        let mut regions = Vec::new();
-        let mut warnings = Vec::new();
-        for (position, region) in profile.regions.iter().enumerate() {
-            let entry = || self.field(&format!("{field}.regions[{position}]"));
-            match match_region(&sketch.profile.regions, &entities, region) {
-                RegionMatch::Resolved {
-                    indices, method, ..
-                } => {
-                    if method != MatchMethod::Key {
-                        warnings.push(FeatureWarning::RegionRemapped {
-                            field: entry(),
-                            position,
-                            sketch: profile.sketch.clone(),
-                            region: region.clone(),
-                        });
-                    }
-                    for index in indices {
-                        if !regions.contains(&index) {
-                            regions.push(index);
-                        }
-                    }
-                }
-                RegionMatch::Ambiguous { .. } => warnings.push(FeatureWarning::RegionAmbiguous {
-                    field: entry(),
-                    position,
-                    sketch: profile.sketch.clone(),
-                    region: region.clone(),
-                }),
-                RegionMatch::Missing { .. } => warnings.push(FeatureWarning::RegionMissing {
-                    field: entry(),
-                    position,
-                    sketch: profile.sketch.clone(),
-                    region: region.clone(),
-                }),
-            }
-        }
-        if regions.is_empty() {
-            return Err(FeatureError::ProfileNotFound {
-                field: self.field(field),
-                sketch: profile.sketch.clone(),
-            });
-        }
-        Ok(ResolvedProfile {
-            sketch,
-            regions,
-            warnings,
-        })
-    }
-
-    /// Resolves one required reference to its elements, in resolver order (section 3.8). Missing
-    /// or ambiguous is `ReferenceNotFound`; an empty body is `BodyEmpty`.
+    /// Resolves one required reference to its elements, in resolver order (section 3.8). Missing or ambiguous is
+    /// `ReferenceNotFound` with its loss; a guess, a widening or a follow adds its warning or notice to the result;
+    /// an empty body is `BodyEmpty`.
     pub fn resolve(
         &self,
         field: &str,
         body: &Id,
         reference: &Reference,
         kind: ElementKind,
-    ) -> Result<Vec<SubShape>, FeatureError> {
-        let state = self.solid_body(body)?;
-        let not_found = |candidates| FeatureError::ReferenceNotFound {
-            field: self.field(field),
-            body: body.clone(),
-            reference: reference.clone(),
-            kind,
-            candidates,
-        };
-        match lookup(state, reference, kind)? {
-            Lookup::Found(found) => Ok(found),
-            Lookup::Ambiguous(candidates) => Err(not_found(candidates)),
-            Lookup::Missing => Err(not_found(Vec::new())),
-        }
+    ) -> Result<Resolved, FeatureError> {
+        self.resolve_usable(field, body, reference, kind, &every_element)
     }
 
-    /// Resolves a list of references (section 3.8). Missing or ambiguous entries become warnings
-    /// and are skipped; a non-empty list that resolves to nothing is `ReferencesNotFound`.
+    /// Resolves a list of references (section 3.8). Missing or ambiguous entries become `ReferenceLost` warnings and
+    /// are skipped; guesses, widenings and follows add their warnings and notices; a non-empty list that resolves to
+    /// nothing is `ReferencesNotFound` with every loss, in reference order.
     pub fn resolve_all(
         &self,
         field: &str,
@@ -232,66 +174,95 @@ impl<'a> BuildContext<'a> {
         references: &[Reference],
         kind: ElementKind,
     ) -> Result<Resolved, FeatureError> {
-        let state = self.solid_body(body)?;
-        let mut resolved = Resolved {
-            elements: Vec::new(),
-            warnings: Vec::new(),
-        };
-        for (position, reference) in references.iter().enumerate() {
-            let entry = || self.field(&format!("{field}[{position}]"));
-            match lookup(state, reference, kind)? {
-                Lookup::Found(found) => {
-                    for element in found {
-                        if !resolved.elements.contains(&element) {
-                            resolved.elements.push(element);
-                        }
-                    }
-                }
-                Lookup::Ambiguous(candidates) => {
-                    resolved.warnings.push(FeatureWarning::ReferenceAmbiguous {
-                        field: entry(),
-                        position,
-                        body: body.clone(),
-                        reference: reference.clone(),
-                        kind,
-                        candidates,
-                    });
-                }
-                Lookup::Missing => resolved.warnings.push(FeatureWarning::ReferenceMissing {
-                    field: entry(),
-                    position,
-                    body: body.clone(),
-                    reference: reference.clone(),
-                    kind,
-                }),
-            }
+        self.resolve_all_usable(field, body, references, kind, &every_element)
+    }
+
+    /// `resolve_all` for a field that cannot use every element: candidates that `usable` rejects are dropped from
+    /// every loss and guess, so a fix is offered only when it works (section 3.8; fillet and chamfer drop smooth
+    /// edges).
+    pub fn resolve_all_usable(
+        &self,
+        field: &str,
+        body: &Id,
+        references: &[Reference],
+        kind: ElementKind,
+        usable: &Usable<'_>,
+    ) -> Result<Resolved, FeatureError> {
+        let resolved = self.resolve_references(field, body, references, kind, true, usable)?;
+        if references.is_empty() || !resolved.elements.is_empty() {
+            return Ok(resolved);
         }
-        if !references.is_empty() && resolved.elements.is_empty() {
-            return Err(FeatureError::ReferencesNotFound {
-                field: self.field(field),
-                count: references.len(),
-                kind,
-            });
+        Err(FeatureError::ReferencesNotFound {
+            field: self.field(field),
+            kind,
+            losses: resolved
+                .warnings
+                .into_iter()
+                .filter_map(|warning| match warning {
+                    FeatureWarning::ReferenceLost { loss, .. } => Some(loss),
+                    _ => None,
+                })
+                .collect(),
+        })
+    }
+
+    /// `resolve` for a field that cannot use every element (section 3.8).
+    fn resolve_usable(
+        &self,
+        field: &str,
+        body: &Id,
+        reference: &Reference,
+        kind: ElementKind,
+        usable: &Usable<'_>,
+    ) -> Result<Resolved, FeatureError> {
+        let mut resolved = self.resolve_references(
+            field,
+            body,
+            std::slice::from_ref(reference),
+            kind,
+            false,
+            usable,
+        )?;
+        let lost = resolved
+            .warnings
+            .iter()
+            .position(|warning| matches!(warning, FeatureWarning::ReferenceLost { .. }));
+        if let Some(position) = lost
+            && let FeatureWarning::ReferenceLost { field, loss } =
+                resolved.warnings.remove(position)
+        {
+            return Err(FeatureError::ReferenceNotFound { field, loss });
         }
         Ok(resolved)
     }
 
-    /// Resolves a plane to a placement (section 3.6). A face uses the face placement rule.
-    pub fn plane(&self, field: &str, plane: &PlaneRef) -> Result<Placement, FeatureError> {
+    /// Resolves a plane to a placement (section 3.6), with the warnings and notices of its face reference. A face
+    /// uses the face placement rule.
+    pub fn plane(
+        &self,
+        field: &str,
+        plane: &PlaneRef,
+    ) -> Result<WithWarnings<Placement>, FeatureError> {
         match plane {
-            PlaneRef::Origin { plane } => Ok(plane.placement()),
+            PlaneRef::Origin { plane } => Ok(WithWarnings::alone(plane.placement())),
             PlaneRef::Datum { feature } => {
                 match self.datum(&format!("{field}.feature"), feature)? {
-                    DatumResult::Plane(placement) => Ok(*placement),
+                    DatumResult::Plane(placement) => Ok(WithWarnings::alone(*placement)),
                 }
             }
             PlaneRef::Face { body, face } => {
                 let face_field = format!("{field}.face");
-                let geometry = self.first_element(&face_field, body, face, ElementKind::Face)?;
-                on_face(&geometry, &OriginPlane::Xy.placement())?.ok_or_else(|| {
-                    FeatureError::NotPlanar {
-                        field: self.field(&face_field),
-                    }
+                let (geometry, warnings) =
+                    self.first_element(&face_field, body, face, ElementKind::Face, &is_flat)?;
+                let placement =
+                    on_face(&geometry, &OriginPlane::Xy.placement())?.ok_or_else(|| {
+                        FeatureError::NotPlanar {
+                            field: self.field(&face_field),
+                        }
+                    })?;
+                Ok(WithWarnings {
+                    value: placement,
+                    warnings,
                 })
             }
         }
@@ -312,41 +283,52 @@ impl<'a> BuildContext<'a> {
         let Some(shape) = state.shape() else {
             return Ok(Err(FallbackReason::Missing));
         };
-        let found = match lookup(state, face, ElementKind::Face)? {
-            Lookup::Found(found) => found,
-            Lookup::Ambiguous(_) => return Ok(Err(FallbackReason::Ambiguous)),
-            Lookup::Missing => return Ok(Err(FallbackReason::Missing)),
+        if face.query.kind() != ElementKind::Face {
+            return Ok(Err(FallbackReason::Missing));
+        }
+        let set = state.element_set()?;
+        let first = match partsmith_naming::resolve(face, &set) {
+            Resolution::Resolved { elements, .. } => elements.into_iter().next(),
+            Resolution::Ambiguous { .. } => return Ok(Err(FallbackReason::Ambiguous)),
+            Resolution::Missing { .. } => return Ok(Err(FallbackReason::Missing)),
         };
-        let first = first(&found)?;
-        let geometry = shape.element(first.kind, first.index)?;
+        let index = first
+            .and_then(|name| state.naming().index(&name))
+            .ok_or_else(|| FeatureError::internal("a resolved face has no index"))?;
+        let geometry = shape.element(partsmith_occt_sys::SubShapeKind::Face, index)?;
         Ok(on_face(&geometry, hint)?.ok_or(FallbackReason::NotPlanar))
     }
 
-    /// Resolves an axis to a unit direction through a point (section 3.6). Edge and face axes are
-    /// canonicalized: the first component above 1e-9 in absolute value is positive, and the origin
-    /// is the point of the line closest to the world origin.
-    pub fn axis(&self, field: &str, axis: &AxisRef) -> Result<Axis, FeatureError> {
+    /// Resolves an axis to a unit direction through a point (section 3.6), with the warnings and notices of its
+    /// edge or face reference. Edge and face axes are canonicalized: the first component above 1e-9 in absolute
+    /// value is positive, and the origin is the point of the line closest to the world origin.
+    pub fn axis(&self, field: &str, axis: &AxisRef) -> Result<WithWarnings<Axis>, FeatureError> {
         match axis {
-            AxisRef::Origin { axis } => Ok(Axis {
+            AxisRef::Origin { axis } => Ok(WithWarnings::alone(Axis {
                 origin: Point::new(0.0, 0.0, 0.0),
                 direction: vector(axis.direction()),
-            }),
-            AxisRef::SketchLine { sketch, line } => self.sketch_line(field, sketch, line),
-            AxisRef::Edge { body, edge } => {
+            })),
+            AxisRef::SketchLine { sketch, line } => {
+                Ok(WithWarnings::alone(self.sketch_line(field, sketch, line)?))
+            }
+            AxisRef::Edge { body, edge, .. } => {
                 let edge_field = format!("{field}.edge");
-                let geometry = self.first_element(&edge_field, body, edge, ElementKind::Edge)?;
-                match (geometry.kind, geometry.direction) {
+                let (geometry, warnings) =
+                    self.first_element(&edge_field, body, edge, ElementKind::Edge, &is_straight)?;
+                let value = match (geometry.kind, geometry.direction) {
                     (GeometryKind::Line, Some(direction)) => {
                         canonical_axis(geometry.centroid, direction)
                     }
                     _ => Err(FeatureError::NotStraight {
                         field: self.field(&edge_field),
                     }),
-                }
+                }?;
+                Ok(WithWarnings { value, warnings })
             }
-            AxisRef::Face { body, face } => {
+            AxisRef::Face { body, face, .. } => {
                 let face_field = format!("{field}.face");
-                let geometry = self.first_element(&face_field, body, face, ElementKind::Face)?;
+                let (geometry, warnings) =
+                    self.first_element(&face_field, body, face, ElementKind::Face, &has_axis)?;
                 let direction = match geometry.kind {
                     GeometryKind::Cylinder | GeometryKind::Cone | GeometryKind::Torus => {
                         geometry.direction
@@ -354,12 +336,13 @@ impl<'a> BuildContext<'a> {
                     GeometryKind::Sphere => Some(Vector::new(0.0, 0.0, 1.0)),
                     _ => None,
                 };
-                match (geometry.location, direction) {
+                let value = match (geometry.location, direction) {
                     (Some(location), Some(direction)) => canonical_axis(location, direction),
                     _ => Err(FeatureError::NoAxis {
                         field: self.field(&face_field),
                     }),
-                }
+                }?;
+                Ok(WithWarnings { value, warnings })
             }
         }
     }
@@ -410,32 +393,30 @@ impl<'a> BuildContext<'a> {
         }
     }
 
-    /// A declared body that holds a solid; an empty one is `BodyEmpty` for a modifying feature.
-    fn solid_body(&self, body: &Id) -> Result<&'a BodyState, FeatureError> {
-        let state = self.body(body)?;
-        if state.is_empty() {
-            return Err(FeatureError::BodyEmpty {
-                body: body.clone(),
-                use_new: false,
-            });
-        }
-        Ok(state)
-    }
-
-    /// The geometry of the first element a required reference resolves to.
+    /// The geometry of the first element a required reference resolves to, with the reference's warnings and
+    /// notices.
     fn first_element(
         &self,
         field: &str,
         body: &Id,
         reference: &Reference,
         kind: ElementKind,
-    ) -> Result<ElementGeometry, FeatureError> {
-        let first = first(&self.resolve(field, body, reference, kind)?)?;
+        usable: &Usable<'_>,
+    ) -> Result<(ElementGeometry, Vec<FeatureWarning>), FeatureError> {
+        let resolved = self.resolve_usable(field, body, reference, kind, usable)?;
+        let first = resolved
+            .elements
+            .first()
+            .copied()
+            .ok_or_else(|| FeatureError::internal("a resolved reference has no element"))?;
         let shape = self
-            .solid_body(body)?
+            .body(body)?
             .shape()
             .ok_or_else(|| FeatureError::internal("a body with a solid has no shape"))?;
-        Ok(shape.element(first.kind, first.index)?)
+        let geometry = shape.element(first.kind, first.index)?;
+        let mut warnings = resolved.warnings;
+        warnings.extend(resolved.notices);
+        Ok((geometry, warnings))
     }
 
     /// The axis of a sketch line: from its solved start to its end, in world space. An unknown
@@ -475,24 +456,54 @@ impl<'a> BuildContext<'a> {
     }
 }
 
-/// Result of resolving a list of references.
+/// Result of resolving one reference or a list of references (section 3.8).
 #[derive(Clone, Debug)]
 pub struct Resolved {
     /// Resolved sub-shapes (kernel indices) in reference order, then resolver order, without duplicates.
     pub elements: Vec<SubShape>,
-    /// One warning per skipped reference.
+    /// For each element, the position in the reference list of the reference it was first resolved from.
+    pub sources: Vec<usize>,
+    /// Warnings of severity `Warning`: one per skipped reference (`ReferenceLost`), guess (`ReferenceGuessed`) or
+    /// widening (`ReferenceWidened`), in reference order.
     pub warnings: Vec<FeatureWarning>,
+    /// Notices of severity `Info` for references that followed a change (`ReferenceFollowed`), in reference order.
+    pub notices: Vec<FeatureWarning>,
 }
 
-/// Result of resolving a profile.
+/// Result of resolving a profile (section 3.7).
 #[derive(Clone, Debug)]
 pub struct ResolvedProfile<'a> {
     /// The sketch result.
     pub sketch: &'a SketchResult,
     /// Indices into the sketch result's regions, in profile order, without duplicates.
     pub regions: Vec<usize>,
-    /// Warnings for remapped, ambiguous or missing regions.
+    /// Successions of the regions matched by boundary (sketch.md section 3.14), sorted by entity, without
+    /// duplicates.
+    pub successions: Vec<Succession>,
+    /// Warnings for resized, remapped, ambiguous or missing regions.
     pub warnings: Vec<FeatureWarning>,
+    /// Notices for regions split by other curves of the sketch (`RegionSplit`).
+    pub notices: Vec<FeatureWarning>,
+}
+
+/// A value resolved through stored references, with the warnings and notices they gave (section 3.8). The caller
+/// adds `warnings` to its output.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WithWarnings<T> {
+    /// The resolved value.
+    pub value: T,
+    /// Warnings and info notices, in the order raised.
+    pub warnings: Vec<FeatureWarning>,
+}
+
+impl<T> WithWarnings<T> {
+    /// A value resolved without references.
+    fn alone(value: T) -> WithWarnings<T> {
+        WithWarnings {
+            value,
+            warnings: Vec::new(),
+        }
+    }
 }
 
 /// Shared cancellation flag for one run. Cloning shares the flag.
@@ -519,62 +530,34 @@ impl CancelToken {
     }
 }
 
-/// What one reference denotes in a body state.
-enum Lookup {
-    /// These elements, in resolver order.
-    Found(Vec<SubShape>),
-    /// Several candidates fit equally well.
-    Ambiguous(Vec<ElementName>),
-    /// Nothing fits, or the reference selects another kind of element.
-    Missing,
-}
-
-/// Resolves one reference of `kind` against a body state's elements.
-fn lookup(
-    state: &BodyState,
-    reference: &Reference,
-    kind: ElementKind,
-) -> Result<Lookup, FeatureError> {
-    let elements = state.elements()?;
-    if reference.query.kind() != kind {
-        return Ok(Lookup::Missing);
-    }
-    let set = ElementSet::new(
-        elements,
-        state.naming().aliases().clone(),
-        state.naming().successions().clone(),
-    )
-    .map_err(naming_failed)?;
-    match partsmith_naming::resolve(reference, &set) {
-        Resolution::Resolved { elements, .. } => elements
-            .iter()
-            .map(|name| {
-                let index = state.naming().index(name).ok_or_else(|| {
-                    FeatureError::internal(format!("the resolved element {name} has no index"))
-                })?;
-                Ok(SubShape {
-                    kind: sub_shape_kind(kind),
-                    index,
-                })
-            })
-            .collect::<Result<_, FeatureError>>()
-            .map(Lookup::Found),
-        Resolution::Ambiguous { candidates } => Ok(Lookup::Ambiguous(
-            candidates
-                .into_iter()
-                .map(|candidate| candidate.name)
-                .collect(),
-        )),
-        Resolution::Missing { .. } => Ok(Lookup::Missing),
+/// `UndeclaredDependency` for a body the feature did not declare.
+fn undeclared_body(body: &Id) -> FeatureError {
+    FeatureError::UndeclaredDependency {
+        what: format!("body '{body}'"),
     }
 }
 
-/// The first element a resolved reference denotes.
-fn first(found: &[SubShape]) -> Result<SubShape, FeatureError> {
-    found
-        .first()
-        .copied()
-        .ok_or_else(|| FeatureError::internal("a resolved reference has no element"))
+/// Every element is usable: the fields of `resolve` and `resolve_all`.
+fn every_element(_info: &ElementInfo) -> Result<bool, FeatureError> {
+    Ok(true)
+}
+
+/// A plane or sketch face can use only flat faces (section 3.8).
+fn is_flat(info: &ElementInfo) -> Result<bool, FeatureError> {
+    Ok(info.fingerprint.kind == NameGeometry::Plane)
+}
+
+/// An edge axis can use only straight edges (section 3.8).
+fn is_straight(info: &ElementInfo) -> Result<bool, FeatureError> {
+    Ok(info.fingerprint.kind == NameGeometry::Line)
+}
+
+/// A face axis can use only faces with an axis (section 3.8).
+fn has_axis(info: &ElementInfo) -> Result<bool, FeatureError> {
+    Ok(matches!(
+        info.fingerprint.kind,
+        NameGeometry::Cylinder | NameGeometry::Cone | NameGeometry::Sphere | NameGeometry::Torus
+    ))
 }
 
 /// Why a value is not a valid count.
@@ -681,7 +664,7 @@ fn canonical_axis(through: Point, direction: Vector) -> Result<Axis, FeatureErro
 
 #[cfg(test)]
 mod tests {
-    use partsmith_naming::Fingerprint;
+    use partsmith_naming::{ElementName, Fingerprint, Motion, Successions};
     use partsmith_occt_sys::{
         Plane as KernelPlane, make_cone, make_cylinder, make_sphere, make_torus,
     };
@@ -689,7 +672,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::params::{OriginAxis, PlacementExt};
+    use crate::params::{OriginAxis, PlacementExt, ProfileRef};
     use crate::test_support::{Fixture, box_body, id, manifest, named_primitive, values};
 
     fn reference(query: &str, fingerprint: &str) -> Reference {
@@ -717,7 +700,14 @@ mod tests {
         let faces = (0..block.naming.count(ElementKind::Face))
             .map(|_| partsmith_naming::FaceSource::New(face.clone()))
             .collect();
-        let named = crate::naming::name_shape(&block.shape, faces, &[]).expect("the box is named");
+        let named = crate::naming::name_shape(
+            &block.shape,
+            faces,
+            &[],
+            &Successions::default(),
+            &Motion::IDENTITY,
+        )
+        .expect("the box is named");
         Fixture::new("f-test1")
             .with_body("b-1", BodyState::new(block.shape, Arc::new(named.naming)))
     }
@@ -756,10 +746,12 @@ mod tests {
         Arc::new(FeatureOutput {
             data: OutputData::Sketch(SketchResult {
                 placement,
+                motion: Motion::IDENTITY,
                 profile: build_profile(&entities),
                 solved: partsmith_sketch::SolveResult { entities, ..solved },
             }),
             warnings: Vec::new(),
+            absent: Vec::new(),
         })
     }
 
@@ -812,13 +804,17 @@ mod tests {
 
     /// The axis of the face `face` of `b-1`.
     fn face_axis(fixture: &Fixture, face: &str, fingerprint: &str) -> Result<Axis, FeatureError> {
-        fixture.context().axis(
-            "axis",
-            &AxisRef::Face {
-                body: id("b-1"),
-                face: reference(face, fingerprint),
-            },
-        )
+        fixture
+            .context()
+            .axis(
+                "axis",
+                &AxisRef::Face {
+                    body: id("b-1"),
+                    face: reference(face, fingerprint),
+                    direction: None,
+                },
+            )
+            .map(|axis| axis.value)
     }
 
     fn assert_axis(axis: &Axis, origin: [f64; 3], direction: [f64; 3]) {
@@ -851,21 +847,16 @@ mod tests {
             )
             .expect_err("six faces match equally");
 
-        let FeatureError::ReferenceNotFound { candidates, .. } = &error else {
+        // features.md section 4.1: an ambiguous reference is a loss whose candidates are the faces it matches.
+        let FeatureError::ReferenceNotFound { loss, .. } = &error else {
             panic!("expected ReferenceNotFound, got {error:?}");
         };
-        assert_eq!(candidates.len(), 6);
+        assert!(loss.ambiguous);
+        assert_eq!(loss.candidates.len(), 6);
         assert!(matches!(
             error.repair(),
-            Some(crate::error::Repair::Element {
-                ambiguous: true,
-                ..
-            })
+            Some(crate::error::Repair::Element { loss, .. }) if loss.ambiguous
         ));
-        assert_eq!(
-            error.to_string(),
-            "The face selected for plane.face now matches 6 faces. Pick the one you mean in the repair panel."
-        );
     }
 
     #[test]
@@ -881,22 +872,16 @@ mod tests {
             .resolve_all("remove_faces", &id("b-1"), &faces, ElementKind::Face)
             .expect("the top resolves");
 
+        // features.md section 3.8: an ambiguous entry is a lost one, whose candidates leave out the face the
+        // second entry resolves to.
         assert_eq!(resolved.elements.len(), 1);
         assert_eq!(codes(&resolved.warnings), ["reference_ambiguous"]);
-        let FeatureWarning::ReferenceAmbiguous {
-            position,
-            candidates,
-            field,
-            ..
-        } = &resolved.warnings[0]
-        else {
-            panic!(
-                "expected ReferenceAmbiguous, got {:?}",
-                resolved.warnings[0]
-            );
+        let FeatureWarning::ReferenceLost { field, loss } = &resolved.warnings[0] else {
+            panic!("expected ReferenceLost, got {:?}", resolved.warnings[0]);
         };
-        assert_eq!(*position, 0);
-        assert_eq!(candidates.len(), 6);
+        assert_eq!(loss.position, 0);
+        assert!(loss.ambiguous);
+        assert_eq!(loss.candidates.len(), 5);
         assert_eq!(field.pointer(), "/remove_faces/0");
     }
 
@@ -983,10 +968,10 @@ mod tests {
             )
             .expect("the top face resolves");
 
-        assert_eq!(found.len(), 1);
+        assert_eq!(found.elements.len(), 1);
         let shape = fixture.bodies[&id("b-1")].shape().expect("a solid");
         let geometry = shape
-            .element(found[0].kind, found[0].index)
+            .element(found.elements[0].kind, found.elements[0].index)
             .expect("geometry");
         assert_eq!(geometry.centroid, Point::new(5.0, 5.0, 10.0));
     }
@@ -1008,16 +993,16 @@ mod tests {
         assert_eq!(error.code(), "reference_not_found");
         assert!(matches!(
             error.repair(),
-            Some(crate::error::Repair::Element { pointer, ambiguous: false, .. }) if pointer == "/plane/face"
+            Some(crate::error::Repair::Element { pointer, loss, .. }) if pointer == "/plane/face" && !loss.ambiguous
         ));
     }
 
     #[test]
     fn resolve_in_an_empty_body_is_body_empty() {
         let fixture = Fixture::new("f-test1").with_body("b-1", BodyState::empty());
+        let context = fixture.context();
 
-        let error = fixture
-            .context()
+        let error = context
             .resolve(
                 "face",
                 &id("b-1"),
@@ -1029,6 +1014,7 @@ mod tests {
         assert_eq!(
             error,
             FeatureError::BodyEmpty {
+                field: context.field("body"),
                 body: id("b-1"),
                 use_new: false
             }
@@ -1078,7 +1064,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            FeatureError::ReferencesNotFound { count: 2, kind: ElementKind::Edge, ref field } if field.path == "edges"
+            FeatureError::ReferencesNotFound { kind: ElementKind::Edge, ref field, ref losses } if field.path == "edges" && losses.len() == 2
         ));
     }
 
@@ -1106,7 +1092,8 @@ mod tests {
         let placement = fixture
             .context()
             .plane("plane", &plane)
-            .expect("the top is flat");
+            .expect("the top is flat")
+            .value;
 
         assert_eq!(placement.origin, [0.0, 0.0, 10.0]);
         assert_eq!(placement.x_axis, [1.0, 0.0, 0.0]);
@@ -1124,7 +1111,8 @@ mod tests {
         let placement = fixture
             .context()
             .plane("plane", &plane)
-            .expect("the front is flat");
+            .expect("the front is flat")
+            .value;
 
         assert_eq!(placement.origin, [0.0, 0.0, 0.0]);
         assert_eq!(placement.x_axis, [1.0, 0.0, 0.0]);
@@ -1224,6 +1212,7 @@ mod tests {
             Arc::new(FeatureOutput {
                 data: OutputData::Datum(DatumResult::Plane(placement)),
                 warnings: Vec::new(),
+                absent: Vec::new(),
             }),
         );
 
@@ -1237,7 +1226,8 @@ mod tests {
             )
             .expect("the datum is declared");
 
-        assert_eq!(resolved, placement);
+        assert_eq!(resolved.value, placement);
+        assert!(resolved.warnings.is_empty());
     }
 
     #[test]
@@ -1272,7 +1262,8 @@ mod tests {
                     axis: OriginAxis::Y,
                 },
             )
-            .expect("origin axes always resolve");
+            .expect("origin axes always resolve")
+            .value;
 
         assert_eq!(axis.origin, Point::new(0.0, 0.0, 0.0));
         assert_eq!(axis.direction, Vector::new(0.0, 1.0, 0.0));
@@ -1284,12 +1275,14 @@ mod tests {
         let axis = AxisRef::Edge {
             body: id("b-1"),
             edge: reference("edge(f-box1/back|f-box1/top)", "line|n=1,0,0"),
+            direction: None,
         };
 
         let resolved = fixture
             .context()
             .axis("axis", &axis)
-            .expect("the edge is straight");
+            .expect("the edge is straight")
+            .value;
 
         assert_eq!(resolved.direction, Vector::new(1.0, 0.0, 0.0));
         assert_eq!(resolved.origin, Point::new(0.0, 10.0, 10.0));
@@ -1301,6 +1294,7 @@ mod tests {
         let axis = AxisRef::Edge {
             body: id("b-1"),
             edge: reference("edge(f-cyl1/side|f-cyl1/top)", "circle|n=0,0,1"),
+            direction: None,
         };
 
         let error = fixture
@@ -1317,12 +1311,14 @@ mod tests {
         let axis = AxisRef::Face {
             body: id("b-1"),
             face: reference("f-cyl1/side", "cylinder|n=0,0,1"),
+            direction: None,
         };
 
         let resolved = fixture
             .context()
             .axis("axis", &axis)
-            .expect("a cylinder has an axis");
+            .expect("a cylinder has an axis")
+            .value;
 
         assert_eq!(resolved.direction, Vector::new(0.0, 0.0, 1.0));
         assert!((resolved.origin.x - 3.0).abs() < 1e-9);
@@ -1336,6 +1332,7 @@ mod tests {
         let axis = AxisRef::Face {
             body: id("b-1"),
             face: reference("f-box1/top", "plane|n=0,0,1"),
+            direction: None,
         };
 
         let error = fixture
@@ -1361,7 +1358,8 @@ mod tests {
         let resolved = fixture
             .context()
             .axis("axis", &axis)
-            .expect("e-9 is a line");
+            .expect("e-9 is a line")
+            .value;
 
         assert_eq!(resolved.origin, Point::new(0.0, 0.0, 0.0));
         assert_eq!(resolved.direction, Vector::new(0.0, 0.0, 1.0));
@@ -1424,7 +1422,7 @@ mod tests {
                 "profile",
                 &profile(json!([
                     {"key": "e-5", "fp": "c=40,25|a=314.159265"},
-                    {"key": "e-1,e-2,e-3,e-4;~e-6", "fp": "c=40,25|a=3685.840735"},
+                    {"key": "e-10,e-6,e-7,e-8;~e-5", "fp": "c=40,25|a=3685.840735"},
                     {"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3685.840735"}
                 ])),
             )
@@ -1458,13 +1456,20 @@ mod tests {
             .expect_err("nothing resolves");
 
         assert_eq!(codes(&partly.warnings), ["region_missing"]);
-        assert_eq!(
-            error,
-            FeatureError::ProfileNotFound {
-                field: FieldRef::new("profile", &manifest(Vec::new())),
-                sketch: id("f-sk1")
-            }
-        );
+        // features.md section 3.7: the error keeps every region it lost.
+        let FeatureError::ProfileNotFound {
+            field,
+            sketch,
+            regions,
+        } = &error
+        else {
+            panic!("expected ProfileNotFound, got {error:?}");
+        };
+        assert_eq!(field, &FieldRef::new("profile", &manifest(Vec::new())));
+        assert_eq!(sketch, &id("f-sk1"));
+        let positions: Vec<usize> = regions.iter().map(|region| region.position).collect();
+        assert_eq!(positions, [0]);
+        assert!(regions[0].loss.is_some());
     }
 
     #[test]

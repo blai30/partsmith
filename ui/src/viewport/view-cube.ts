@@ -1,3 +1,4 @@
+import type { WorldAxis } from '../core/labels'
 import { rotationLookingAlong, standardViewRotation } from './camera'
 import { add, rotateVector, type Quaternion, type Vector3 } from './math'
 
@@ -141,6 +142,22 @@ export const FACE_PLACEMENT_CLASSES: Readonly<Record<CubeFace, string>> = {
   right: '-rotate-x-90 rotate-y-90 translate-x-12',
   top: 'translate-z-12',
   bottom: 'rotate-x-180 -translate-z-12',
+}
+
+/**
+ * The world axes each face's horizontal and vertical sides run along, as the face reads upright from
+ * its standard view (3.14): the sides are drawn in those axes' colors, so every edge of the cube
+ * shows its axis.
+ */
+export const FACE_SIDE_AXES: Readonly<
+  Record<CubeFace, { readonly horizontal: WorldAxis; readonly vertical: WorldAxis }>
+> = {
+  front: { horizontal: 'X', vertical: 'Z' },
+  back: { horizontal: 'X', vertical: 'Z' },
+  left: { horizontal: 'Y', vertical: 'Z' },
+  right: { horizontal: 'Y', vertical: 'Z' },
+  top: { horizontal: 'X', vertical: 'Y' },
+  bottom: { horizontal: 'X', vertical: 'Y' },
 }
 
 /** The shape of a cell of a face's 3 × 3 grid: corner squares, edge bands along the sides and the center. */

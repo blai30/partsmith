@@ -60,9 +60,12 @@ fn t002_op_join_needs_a_solid() {
     let report = harness.run(&document);
 
     assert_eq!(error_code(&report, "f-box1"), "body_empty");
+    // features.md section 6.4 test 2.
     assert_eq!(
         message_texts(&report, "f-box1"),
-        owned(&["Body 'Body 1' is empty at this point. Use op new to start it."])
+        owned(&[
+            "Body 'Body 1' has no solid yet at this point, so there is nothing to add to. Set Operation to New body to start it here."
+        ])
     );
     assert!(final_state(&report, "b-1").is_empty());
 }

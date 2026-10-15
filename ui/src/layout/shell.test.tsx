@@ -123,14 +123,9 @@ describe('dropping a file on the window (3.19)', () => {
   })
 })
 
-/** Answers the lg breakpoint query as a window narrower than 1024 CSS pixels. */
+/** A window 1000 CSS pixels wide at a 16 pixel root font: 62.5rem, narrower than the 65rem where panels dock. */
 function stubNarrowWindow(): void {
-  vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: query.includes('width < 64rem'),
-    media: query,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-  }))
+  vi.stubGlobal('innerWidth', 1000)
 }
 
 function renderWithPanels() {

@@ -6,12 +6,14 @@ use partsmith_model::{
     Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, LINEAR_TOLERANCE, OptionHint,
     SelectionKind,
 };
-use partsmith_naming::{ElementName, FaceSource, Generator, NamingError, Reference, roles};
+use partsmith_naming::{
+    ElementName, FaceSource, Generator, Motion, NamingError, Reference, Successions, roles,
+};
 use partsmith_occt_sys::{
     KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult,
     Vector, compound,
 };
-use partsmith_sketch::RegionRef;
+use partsmith_sketch::{RegionRef, Succession};
 
 use crate::context::{BodyState, BuildContext, ResolvedProfile};
 use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, Noun};
@@ -256,16 +258,18 @@ pub(crate) fn check_canceled(context: &BuildContext<'_>) -> Result<(), FeatureEr
     }
 }
 
-/// The state and shape of a declared body that holds a solid. An empty body is `BodyEmpty` for a
-/// feature that works on an existing solid (`use_new: false`).
+/// The state and shape of a declared body, named at `field`, that holds a solid. An empty body is
+/// `BodyEmpty` for a feature that works on an existing solid (`use_new: false`).
 pub(crate) fn solid_body<'a>(
     context: &BuildContext<'a>,
+    field: &str,
     body: &Id,
 ) -> Result<(&'a BodyState, &'a Shape), FeatureError> {
     let state = context.body(body)?;
     match state.shape() {
         Some(shape) => Ok((state, shape)),
         None => Err(FeatureError::BodyEmpty {
+            field: context.field(field),
             body: body.clone(),
             use_new: false,
         }),
@@ -284,11 +288,12 @@ pub(crate) fn unchanged(body: &Id, state: &BodyState, change: BodyChange) -> Bod
     }
 }
 
-/// A body-updating output.
+/// A body-updating output that records no absent face.
 pub(crate) fn bodies(updates: Vec<BodyUpdate>, warnings: Vec<FeatureWarning>) -> FeatureOutput {
     FeatureOutput {
         data: OutputData::Bodies(updates),
         warnings,
+        absent: Vec::new(),
     }
 }
 
@@ -333,9 +338,13 @@ pub(crate) fn farthest_corner(bounds: &BoundingBox, origin: Point, direction: Ve
     farthest
 }
 
-/// A naming failure, which valid kernel output cannot cause, as an internal error.
+/// A naming failure as a feature error: a name too long to build is `NameTooDeep` (features.md
+/// section 4.1), any other failure, which valid kernel output cannot cause, `Internal`.
 pub(crate) fn naming_failed(error: NamingError) -> FeatureError {
-    FeatureError::internal(format!("naming the result failed: {error}"))
+    match error {
+        NamingError::NameTooLong { length } => FeatureError::NameTooDeep { length },
+        error => FeatureError::internal(format!("naming the result failed: {error}")),
+    }
 }
 
 /// A new face name `<feature>/<role>`, or `<feature>/<role>/<generator>` (naming.md section 3.2).
@@ -367,7 +376,14 @@ pub(crate) fn primitive_tool(feature: &Id, primitive: Primitive) -> Result<Tool,
             face_name(feature, role, None).map(FaceSource::New)
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    let naming = name_shape(&primitive.shape, faces, &[])?.naming;
+    let naming = name_shape(
+        &primitive.shape,
+        faces,
+        &[],
+        &Successions::default(),
+        &Motion::IDENTITY,
+    )?
+    .naming;
     Ok(Tool {
         shape: primitive.shape,
         naming,
@@ -377,8 +393,14 @@ pub(crate) fn primitive_tool(feature: &Id, primitive: Primitive) -> Result<Tool,
 /// The tool of an extrusion or revolution of a profile: lateral faces named
 /// `<feature>/lateral/<entity>` after the sketch entity of their curve tag (tag `i` is
 /// `entities[i]`), caps `<feature>/start-cap` and `<feature>/end-cap` (naming.md sections 3.6.2
-/// and 3.6.3).
-fn sweep_tool(feature: &Id, sweep: SweepResult, entities: &[Id]) -> Result<Tool, FeatureError> {
+/// and 3.6.3), with the lateral successions and the sketch's motion (features.md section 3.9).
+fn sweep_tool(
+    feature: &Id,
+    sweep: SweepResult,
+    entities: &[Id],
+    successions: &Successions,
+    motion: &Motion,
+) -> Result<Tool, FeatureError> {
     let faces = sweep
         .faces
         .iter()
@@ -388,11 +410,7 @@ fn sweep_tool(feature: &Id, sweep: SweepResult, entities: &[Id]) -> Result<Tool,
                     let entity = entities.get(*tag as usize).ok_or_else(|| {
                         FeatureError::internal(format!("the profile has no curve tag {tag}"))
                     })?;
-                    face_name(
-                        feature,
-                        roles::LATERAL,
-                        Some(Generator::Sketch(entity.as_str())),
-                    )
+                    lateral_name(feature, entity)
                 }
                 SweepFace::StartCap => face_name(feature, roles::START_CAP, None),
                 SweepFace::EndCap => face_name(feature, roles::END_CAP, None),
@@ -400,28 +418,72 @@ fn sweep_tool(feature: &Id, sweep: SweepResult, entities: &[Id]) -> Result<Tool,
             Ok(FaceSource::New(name))
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    let naming = name_shape(&sweep.shape, faces, &[])?.naming;
+    let naming = name_shape(&sweep.shape, faces, &[], successions, motion)?.naming;
     Ok(Tool {
         shape: sweep.shape,
         naming,
     })
 }
 
-/// Sweeps the faces of a resolved `profile` with the kernel `sweep`, names the tool by
-/// `sweep_tool` and applies it to `body` with `op`, after the profile's warnings: the shared tail
-/// of extrude and revolve. A canceled run stops before the kernel sweep.
-pub(crate) fn sweep_profile(
+/// The lateral face name `<feature>/lateral/<entity>` (naming.md section 3.6.2).
+fn lateral_name(feature: &Id, entity: &Id) -> Result<ElementName, FeatureError> {
+    face_name(
+        feature,
+        roles::LATERAL,
+        Some(Generator::Sketch(entity.as_str())),
+    )
+}
+
+/// The successions of a profile's boundary matches as successions of the feature's lateral faces:
+/// `<feature>/lateral/<m> -> [<feature>/lateral/<n1>, ...]` in the order of `Succession::now`
+/// (features.md section 3.9). An entity listed twice keeps its first list.
+fn lateral_successions(
+    feature: &Id,
+    successions: &[Succession],
+) -> Result<Successions, FeatureError> {
+    let mut lateral = Successions::default();
+    for succession in successions {
+        let now = succession
+            .now
+            .iter()
+            .map(|entity| lateral_name(feature, entity))
+            .collect::<Result<Vec<_>, FeatureError>>()?;
+        lateral
+            .0
+            .entry(lateral_name(feature, &succession.entity)?)
+            .or_insert(now);
+    }
+    Ok(lateral)
+}
+
+/// Sweeps the faces of a resolved `profile` with the kernel `sweep` and names the tool by
+/// `sweep_tool`, with the profile's successions and its sketch's motion: the shared middle of
+/// extrude and revolve. A canceled run stops before the kernel sweep.
+pub(crate) fn swept_tool(
     context: &BuildContext<'_>,
-    body: &Id,
-    op: BodyOp,
-    profile: ResolvedProfile<'_>,
+    profile: &ResolvedProfile<'_>,
     sweep: impl FnOnce(&PlanarProfile) -> Result<SweepResult, KernelError>,
-) -> Result<FeatureOutput, FeatureError> {
+) -> Result<Tool, FeatureError> {
     let faces = profile.faces()?;
     check_canceled(context)?;
     let swept = sweep(&faces.profile)?;
-    let tool = sweep_tool(context.feature(), swept, &faces.entities)?;
-    apply_tool(context, body, op, tool, profile.warnings)
+    let feature = context.feature();
+    let successions = lateral_successions(feature, &profile.successions)?;
+    sweep_tool(
+        feature,
+        swept,
+        &faces.entities,
+        &successions,
+        &profile.sketch.motion,
+    )
+}
+
+/// The warnings of a resolved profile, then its notices: what a sweep reports first (features.md
+/// section 3.7).
+pub(crate) fn profile_messages(profile: ResolvedProfile<'_>) -> Vec<FeatureWarning> {
+    let mut messages = profile.warnings;
+    messages.extend(profile.notices);
+    messages
 }
 
 /// The snake_case name of a body op, as stored and as Python writes it.
@@ -617,12 +679,14 @@ mod tests {
     #[test]
     fn an_empty_body_has_nothing_to_work_on() {
         let fixture = Fixture::new("f-test1").with_body("b-1", BodyState::empty());
+        let context = fixture.context();
 
-        let result = solid_body(&fixture.context(), &id("b-1"));
+        let result = solid_body(&context, "body", &id("b-1"));
 
         assert_eq!(
             result.map(|_| ()),
             Err(FeatureError::BodyEmpty {
+                field: context.field("body"),
                 body: id("b-1"),
                 use_new: false
             })

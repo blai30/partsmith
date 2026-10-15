@@ -1,9 +1,19 @@
 /// <reference lib="dom" />
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { boxOf, dropFile, openApp, type Box } from './helpers'
+import {
+  boxOf,
+  canvas,
+  dropFile,
+  expectHover,
+  fitView,
+  openApp,
+  runCommand,
+  viewport,
+  type Box,
+} from './helpers'
 
-// Layout (ui.md 6.5 E-105 to E-107): boxes measured in the real browser, because jsdom has no
-// layout. Each test names the section whose layout it holds.
+// Layout (ui.md 6.5 E-105 to E-107 and E-133 to E-138, E-141): boxes measured in the real
+// browser, because jsdom has no layout. Each test names the section whose layout it holds.
 
 /** Sub-pixel rounding of rendered boxes. */
 const TOLERANCE_PIXELS = 0.5
@@ -33,6 +43,47 @@ function expectInside(inner: Box, outer: Box, what: string): void {
   )
   expect(inner.y + inner.height, `${what}: bottom`).toBeLessThanOrEqual(
     outer.y + outer.height + TOLERANCE_PIXELS,
+  )
+}
+
+/** Expects a box to be (x, y, width, height), each within sub-pixel rounding. */
+function expectBox(
+  actual: Box,
+  expected: readonly [number, number, number, number],
+  what: string,
+): void {
+  const [x, y, width, height] = expected
+  expect(Math.abs(actual.x - x), `${what}: x ${String(actual.x)}`).toBeLessThanOrEqual(
+    TOLERANCE_PIXELS,
+  )
+  expect(Math.abs(actual.y - y), `${what}: y ${String(actual.y)}`).toBeLessThanOrEqual(
+    TOLERANCE_PIXELS,
+  )
+  expect(
+    Math.abs(actual.width - width),
+    `${what}: width ${String(actual.width)}`,
+  ).toBeLessThanOrEqual(TOLERANCE_PIXELS)
+  expect(
+    Math.abs(actual.height - height),
+    `${what}: height ${String(actual.height)}`,
+  ).toBeLessThanOrEqual(TOLERANCE_PIXELS)
+}
+
+/** Whether two boxes overlap by more than sub-pixel rounding. */
+function intersects(first: Box, second: Box): boolean {
+  return (
+    first.x + first.width > second.x + TOLERANCE_PIXELS &&
+    second.x + second.width > first.x + TOLERANCE_PIXELS &&
+    first.y + first.height > second.y + TOLERANCE_PIXELS &&
+    second.y + second.height > first.y + TOLERANCE_PIXELS
+  )
+}
+
+/** A computed style property of an element. */
+function computed(locator: Locator, property: string): Promise<string> {
+  return locator.evaluate(
+    (element, name) => getComputedStyle(element).getPropertyValue(name),
+    property,
   )
 }
 
@@ -70,15 +121,32 @@ async function expectChoicesInsideFields(page: Page): Promise<void> {
   )
 }
 
+/** Clicks Sketch in the empty state and expects the plane-picking header clear of the corners. */
+async function expectHeaderClear(page: Page): Promise<Box> {
+  await page.getByTestId('empty-state').getByRole('button', { name: 'Sketch', exact: true }).click()
+  const header = page.getByTestId('sketch-header')
+  await expect(header).toHaveAttribute('data-state', 'picking')
+  const [area, headerBox, controlsBox] = await Promise.all([
+    boxOf(viewport(page)),
+    boxOf(header),
+    boxOf(page.getByTestId('viewport-controls')),
+  ])
+  expectInside(headerBox, area, 'the sketch header')
+  expect(intersects(headerBox, controlsBox), 'the header and the controls').toBe(false)
+  for (const corner of await viewCubeCornerBoxes(page)) {
+    expect(intersects(headerBox, corner), 'the header and a cube corner').toBe(false)
+  }
+  return { ...headerBox, y: headerBox.y - area.y }
+}
+
 test.describe('layout', () => {
   for (const scale of SCALES) {
     test(`E-105 the view cube keeps every corner inside the viewport in the iso view at ${String(scale * 100)}% UI scale (3.14)`, async ({
       page,
     }) => {
       await openAtScale(page, scale)
-      const viewport = page.getByTestId('viewport')
-      await expect(viewport).toHaveAttribute('data-view', 'iso')
-      const bounds = await boxOf(viewport)
+      await expect(viewport(page)).toHaveAttribute('data-view', 'iso')
+      const bounds = await boxOf(viewport(page))
       for (const corner of await viewCubeCornerBoxes(page)) {
         expectInside(corner, bounds, 'a view cube corner')
       }
@@ -131,5 +199,245 @@ test.describe('layout', () => {
         expectInside(await boxOf(button), bounds, `the ${plane} button`)
       }),
     )
+  })
+
+  test('E-133 islands float over a window-filling canvas at 1280 by 720 and 100% (3.2)', async ({
+    page,
+  }) => {
+    await openApp(page)
+    expectBox(await boxOf(viewport(page).locator('canvas')), [0, 0, 1280, 720], 'the canvas')
+    expectBox(await boxOf(viewport(page)), [280, 64, 992, 548], 'the free area')
+    const islands = [
+      ['top-bar', [8, 8, 1264, 48], '12px'],
+      ['browser', [8, 64, 264, 548], '12px'],
+      ['timeline', [8, 620, 1264, 56], '12px'],
+      ['status-bar', [8, 684, 1264, 28], '8px'],
+    ] as const
+    for (const [id, box, radius] of islands) {
+      const island = page.getByTestId(id)
+      // oxlint-disable-next-line no-await-in-loop
+      expectBox(await boxOf(island), box, id)
+      // oxlint-disable-next-line no-await-in-loop
+      expect(await computed(island, 'border-top-left-radius'), `${id} radius`).toBe(radius)
+      // oxlint-disable-next-line no-await-in-loop
+      expect(await computed(island, 'box-shadow'), `${id} shadow`).not.toBe('none')
+    }
+    await runCommand(page, 'Parameters')
+    expectBox(await boxOf(page.getByTestId('side-panel')), [912, 64, 360, 548], 'the side panel')
+    expectBox(await boxOf(viewport(page)), [280, 64, 624, 548], 'the free area beside both')
+    await page.getByRole('button', { name: 'Toggle browser' }).click()
+    expectBox(await boxOf(viewport(page)), [8, 64, 896, 548], 'the free area without the browser')
+    await page.getByRole('button', { name: 'Collapse timeline' }).click()
+    const timeline = page.getByTestId('timeline')
+    expectBox(await boxOf(timeline), [8, 648, 1264, 28], 'the collapsed timeline')
+    expect(await computed(timeline, 'border-top-left-radius')).toBe('8px')
+    expectBox(await boxOf(viewport(page)), [8, 64, 896, 576], 'the free area, timeline collapsed')
+  })
+
+  test('E-134 fit centers the model in the free area, and closing an island moves it to the new center (2.11)', async ({
+    page,
+  }) => {
+    await openApp(page)
+    await dropFile(page, 'cube.ptsm')
+    await fitView(page, 'Front')
+    const before = await canvas(page)
+    await expectHover(page, before.cx, before.cy, 'face')
+    await expectHover(page, before.cx + 0.4 * before.H - 10, before.cy, 'face')
+    await expectHover(page, before.cx + 0.4 * before.H + 12, before.cy, 'none')
+    await page.getByRole('button', { name: 'Toggle browser' }).click()
+    await expect.poll(async () => (await canvas(page)).cx).toBeCloseTo(before.cx - 136, 0)
+    const after = await canvas(page)
+    expect(after.H).toBeCloseTo(before.H, 1)
+    await expectHover(page, after.cx, after.cy, 'face')
+    await expectHover(page, after.cx + 0.4 * after.H - 10, after.cy, 'face')
+    await expectHover(page, after.cx + 0.4 * after.H + 12, after.cy, 'none')
+    await expect(viewport(page)).toHaveAttribute('data-view', 'front')
+    await page.getByRole('button', { name: 'Fit to view', exact: true }).click()
+    await expectHover(page, after.cx, after.cy, 'face')
+    await expectHover(page, after.cx + 0.4 * after.H - 10, after.cy, 'face')
+    await expectHover(page, after.cx + 0.4 * after.H + 12, after.cy, 'none')
+  })
+
+  test('E-135 nothing is picked or zoomed through an island (3.13)', async ({ page }) => {
+    await openApp(page)
+    await dropFile(page, 'cube.ptsm')
+    await fitView(page, 'Front')
+    const { cx, cy } = await canvas(page)
+    await page.mouse.move(cx, cy)
+    for (let i = 0; i < 10; i += 1) {
+      // oxlint-disable-next-line no-await-in-loop
+      await page.mouse.wheel(0, -100)
+    }
+    await expectHover(page, cx, cy, 'face')
+    const browser = await boxOf(page.getByTestId('browser'))
+    const browserRight = browser.x + browser.width
+    await expectHover(page, browserRight - 20, cy, 'none')
+    const target = await viewport(page).getAttribute('data-camera-target')
+    await page.mouse.wheel(0, 100)
+    await expect(viewport(page)).toHaveAttribute('data-camera-target', target ?? '')
+    await expectHover(page, browserRight + 4, cy, 'face')
+    const topBar = await boxOf(page.getByTestId('top-bar'))
+    await expectHover(page, topBar.x + topBar.width / 2, topBar.y + topBar.height - 4, 'none')
+  })
+
+  test('E-136 the view cube and the viewport controls follow the free area corners (3.14)', async ({
+    page,
+  }) => {
+    await openApp(page)
+    await dropFile(page, 'cube.ptsm')
+    const cube = page.getByTestId('view-cube')
+    const controls = page.getByTestId('viewport-controls')
+    async function expectCorners(): Promise<{ cubeRight: number; controlsLeft: number }> {
+      const [area, cubeBox, controlsBox] = await Promise.all([
+        boxOf(viewport(page)),
+        boxOf(cube),
+        boxOf(controls),
+      ])
+      const cubeRight = cubeBox.x + cubeBox.width
+      expect(Math.abs(area.x + area.width - cubeRight - 36)).toBeLessThanOrEqual(TOLERANCE_PIXELS)
+      expect(Math.abs(cubeBox.y - area.y - 44)).toBeLessThanOrEqual(TOLERANCE_PIXELS)
+      expect(Math.abs(controlsBox.x - area.x - 16)).toBeLessThanOrEqual(TOLERANCE_PIXELS)
+      expect(Math.abs(controlsBox.y - area.y - 16)).toBeLessThanOrEqual(TOLERANCE_PIXELS)
+      return { cubeRight, controlsLeft: controlsBox.x }
+    }
+    const docked = await expectCorners()
+    await runCommand(page, 'Parameters')
+    await expect(page.getByTestId('side-panel')).toBeVisible()
+    const withPanel = await expectCorners()
+    expect(Math.abs(docked.cubeRight - withPanel.cubeRight - 368)).toBeLessThanOrEqual(
+      TOLERANCE_PIXELS,
+    )
+    await page.getByRole('button', { name: 'Toggle browser' }).click()
+    await expect(page.getByTestId('browser')).toBeHidden()
+    const withoutBrowser = await expectCorners()
+    expect(
+      Math.abs(withPanel.controlsLeft - withoutBrowser.controlsLeft - 272),
+    ).toBeLessThanOrEqual(TOLERANCE_PIXELS)
+  })
+
+  test('E-137 the top-center slot clears the cube and the controls in a narrow free area (3.2)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1040, height: 720 })
+    await openApp(page)
+    await runCommand(page, 'Parameters')
+    expect((await boxOf(viewport(page))).width).toBeCloseTo(384, 0)
+    const header = await expectHeaderClear(page)
+    expect(header.y).toBeGreaterThanOrEqual(192 - TOLERANCE_PIXELS)
+  })
+
+  test('E-137 the top-center slot clears the cube and the controls in a wide free area (3.2)', async ({
+    page,
+  }) => {
+    await openApp(page)
+    await runCommand(page, 'Parameters')
+    const header = await expectHeaderClear(page)
+    expect(Math.abs(header.y - 16)).toBeLessThanOrEqual(TOLERANCE_PIXELS)
+  })
+
+  test('E-137 the top-center slot clears the cube and the controls at 200% UI scale (3.2)', async ({
+    page,
+  }) => {
+    await openAtScale(page, 2)
+    const header = await expectHeaderClear(page)
+    expect(Math.abs(header.y - 32)).toBeLessThanOrEqual(TOLERANCE_PIXELS)
+  })
+
+  test('E-137 the top-center slot rises in a free area too short for the drop at 200% (3.2)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 2080, height: 720 })
+    await openAtScale(page, 2)
+    await runCommand(page, 'Parameters')
+    await expect(page.getByTestId('browser')).toBeVisible()
+    expectBox(await boxOf(viewport(page)), [560, 128, 768, 376], 'the free area beside both')
+    await page
+      .getByTestId('empty-state')
+      .getByRole('button', { name: 'Sketch', exact: true })
+      .click()
+    const header = page.getByTestId('sketch-header')
+    await expect(header).toHaveAttribute('data-state', 'picking')
+    const area = await boxOf(viewport(page))
+    expectInside(await boxOf(header), area, 'the sketch header')
+    for (const plane of ['Top plane (XY)', 'Front plane (XZ)', 'Right plane (YZ)']) {
+      const button = header.getByRole('button', { name: `Sketch on ${plane}`, exact: true })
+      // oxlint-disable-next-line no-await-in-loop
+      expectInside(await boxOf(button), area, `the ${plane} button`)
+    }
+  })
+
+  test('E-138 at 200% the browser and side panel float over the free area (3.2, 3.24)', async ({
+    page,
+  }) => {
+    await openAtScale(page, 2)
+    const browser = page.getByTestId('browser')
+    await expect(browser).toBeHidden()
+    const area = await boxOf(viewport(page))
+    expectBox(area, [16, 128, 1248, 376], 'the free area')
+    await page.getByRole('button', { name: 'Toggle browser' }).click()
+    await expect(browser).toBeVisible()
+    const browserBox = await boxOf(browser)
+    expect(Math.abs(browserBox.x - area.x)).toBeLessThanOrEqual(TOLERANCE_PIXELS)
+    expectInside(browserBox, area, 'the browser')
+    expectBox(await boxOf(viewport(page)), [16, 128, 1248, 376], 'the free area with the browser')
+    await page.keyboard.press('Escape')
+    await expect(browser).toBeHidden()
+    await runCommand(page, 'Parameters')
+    const side = page.getByTestId('side-panel')
+    await expect(side).toBeVisible()
+    const sideBox = await boxOf(side)
+    expectInside(sideBox, area, 'the side panel')
+    expect(sideBox.width).toBeCloseTo(720, 0)
+    await page.keyboard.press('Escape')
+    await expect(side).toBeHidden()
+    const corners = await viewCubeCornerBoxes(page)
+    for (const corner of corners) {
+      expectInside(corner, area, 'a view cube corner')
+    }
+    expectInside(await boxOf(page.getByRole('button', { name: 'Home view' })), area, 'Home view')
+    const controlButtons = await page.getByTestId('viewport-controls').getByRole('button').all()
+    for (const button of controlButtons) {
+      // oxlint-disable-next-line no-await-in-loop
+      const box = await boxOf(button)
+      expectInside(box, area, 'a viewport control')
+      for (const corner of corners) {
+        expect(intersects(box, corner), 'a control and a cube corner').toBe(false)
+      }
+    }
+    await dropFile(page, 'cube.ptsm')
+    await page
+      .getByRole('radiogroup', { name: 'Context' })
+      .getByRole('radio', { name: 'Print' })
+      .click()
+    await expect(page.getByTestId('health-badge')).toHaveAttribute('data-stale', 'false')
+    const legend = await boxOf(page.getByTestId('overhang-legend'))
+    expectInside(legend, await boxOf(viewport(page)), 'the overhang legend')
+    expect(intersects(legend, await boxOf(page.getByTestId('viewport-controls')))).toBe(false)
+    expect(intersects(legend, await boxOf(page.getByTestId('timeline')))).toBe(false)
+    for (const corner of await viewCubeCornerBoxes(page)) {
+      expect(intersects(legend, corner), 'the legend and a cube corner').toBe(false)
+    }
+  })
+
+  test('E-141 the viewport menu opens at the pointer, in canvas pixels (2.11, 3.13)', async ({
+    page,
+  }) => {
+    await openApp(page)
+    await dropFile(page, 'cube.ptsm')
+    await fitView(page, 'Front')
+    const { cx, cy } = await canvas(page)
+    const target = await viewport(page).getAttribute('data-camera-target')
+    await page.mouse.move(cx + 200, cy)
+    await page.mouse.wheel(0, 100)
+    await expect(viewport(page)).not.toHaveAttribute('data-camera-target', target ?? '')
+    // Beside the model, so the click selects nothing and no inspector opens.
+    await page.mouse.click(cx + 250, cy + 50, { button: 'right' })
+    const menu = page.getByTestId('viewport-menu')
+    await expect(menu).toBeVisible()
+    const box = await boxOf(menu)
+    expect(Math.abs(box.x - (cx + 250))).toBeLessThanOrEqual(4)
+    expect(Math.abs(box.y - (cy + 50))).toBeLessThanOrEqual(4)
+    await menu.getByRole('menuitem', { name: /^Fit to view/ }).click()
+    await expect(viewport(page)).toHaveAttribute('data-camera-target', '0,0,10')
   })
 })

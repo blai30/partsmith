@@ -1,6 +1,7 @@
 //! Python code generation: calls, values and the script names hooks look up (features.md sections 2.10 and 3.11).
 
-use std::fmt::Write as _;
+use std::collections::BTreeMap;
+use std::fmt::{Display, Write as _};
 
 use partsmith_model::canonical::format_number;
 use partsmith_model::{Expr, Id, Units};
@@ -178,27 +179,23 @@ impl PythonValue {
         PythonValue::Name(format!("{}*rad", raw_number(value)))
     }
 
-    /// A stored reference: `Ref("<q>", "<fp>")`, with `part=<part>` when a part variable is given (rule 9).
+    /// A stored reference: `Ref("<q>", "<fp>")`, with `part=<part>` when a part variable is given, then `anchors=`
+    /// and `merged=` when stored (rule 9, section 3.11).
     pub fn reference(reference: &Reference, part: Option<String>) -> PythonValue {
-        let mut call = PythonCall::new("Ref");
-        call.positional = vec![
-            PythonValue::Str(reference.query.to_string()),
-            PythonValue::Str(reference.fingerprint.to_string()),
-        ];
-        if let Some(part) = part {
-            call.keywords
-                .push(("part".to_string(), PythonValue::Name(part)));
-        }
-        PythonValue::Call(Box::new(call))
+        PythonValue::Call(Box::new(reference_call(reference, part)))
     }
 
-    /// A region ref: `Region("<key>", "<fp>")` with the stored texts (rule 9).
+    /// A stored region: `Region("<key>", "<fp>")`, with `outline="<loop>"` when stored (section 3.11).
     pub fn region(region: &RegionRef) -> PythonValue {
         let mut call = PythonCall::new("Region");
         call.positional = vec![
             PythonValue::Str(region.key.to_string()),
             PythonValue::Str(region.fp.to_string()),
         ];
+        if let Some(outline) = &region.outline {
+            call.keywords
+                .push(("outline".to_string(), PythonValue::Str(outline.to_string())));
+        }
         PythonValue::Call(Box::new(call))
     }
 
@@ -220,7 +217,8 @@ impl PythonValue {
         }
     }
 
-    /// An axis (rule 9): `Axis.X`, `Axis.Y`, `Axis.Z`, a sketch line's variable, or `Ref(..., part=...)`. None when a variable is missing.
+    /// An axis (rule 9): `Axis.X`, `Axis.Y`, `Axis.Z`, a sketch line's variable, or `Ref(..., part=..., direction=(x, y, z))`
+    /// with `direction` when stored. None when a variable is missing.
     pub fn axis(axis: &AxisRef, names: &dyn PythonNames) -> Option<PythonValue> {
         match axis {
             AxisRef::Origin { axis } => Some(PythonValue::Name(
@@ -237,13 +235,24 @@ impl PythonValue {
             AxisRef::Edge {
                 body,
                 edge: element,
+                direction,
             }
             | AxisRef::Face {
                 body,
                 face: element,
-            } => names
-                .body(body)
-                .map(|part| PythonValue::reference(element, Some(part))),
+                direction,
+            } => names.body(body).map(|part| {
+                let mut call = reference_call(element, Some(part));
+                if let Some(direction) = direction {
+                    let components = direction
+                        .iter()
+                        .map(|component| PythonValue::Number(raw_number(*component)))
+                        .collect();
+                    call.keywords
+                        .push(("direction".to_string(), PythonValue::Tuple(components)));
+                }
+                PythonValue::Call(Box::new(call))
+            }),
         }
     }
 
@@ -266,6 +275,45 @@ impl PythonValue {
             },
         }
     }
+}
+
+/// The `Ref(...)` call of a stored reference: query and fingerprint, then `part`, `anchors` and `merged` when given,
+/// keys and lists in stored order (rule 9).
+fn reference_call(reference: &Reference, part: Option<String>) -> PythonCall {
+    let mut call = PythonCall::new("Ref");
+    call.positional = vec![
+        PythonValue::Str(reference.query.to_string()),
+        PythonValue::Str(reference.fingerprint.to_string()),
+    ];
+    if let Some(part) = part {
+        call.keywords
+            .push(("part".to_string(), PythonValue::Name(part)));
+    }
+    if !reference.anchors.is_empty() {
+        call.keywords
+            .push(("anchors".to_string(), name_lists(&reference.anchors.0)));
+    }
+    if !reference.merged.is_empty() {
+        call.keywords
+            .push(("merged".to_string(), name_lists(&reference.merged.0)));
+    }
+    call
+}
+
+/// A dict of string lists, from names to the names they list.
+fn name_lists<K: Display, V: Display>(entries: &BTreeMap<K, Vec<V>>) -> PythonValue {
+    PythonValue::Dict(
+        entries
+            .iter()
+            .map(|(key, names)| {
+                let names = names
+                    .iter()
+                    .map(|name| PythonValue::Str(name.to_string()))
+                    .collect();
+                (key.to_string(), PythonValue::List(names))
+            })
+            .collect(),
+    )
 }
 
 /// Script context the engine's script generator gives each `Feature::python` hook (python-api.md section 3.8).
@@ -591,6 +639,7 @@ mod tests {
         let axis = AxisRef::Face {
             body: id("b-2"),
             face: face(),
+            direction: None,
         };
 
         assert_eq!(

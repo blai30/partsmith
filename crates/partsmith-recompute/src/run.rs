@@ -8,15 +8,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use partsmith_features::{
-    BodyState, BuildContext, BuildInputs, CancelToken, DocumentNames, FeatureError, FeatureOutput,
-    FeatureWarning, Link, OutputData, Registry, Values,
+    BodyState, BuildContext, BuildInputs, CancelToken, Diagnosis, DocumentNames, FeatureError,
+    FeatureOutput, FeatureWarning, Link, OutputData, Registry, RenderContext, Values,
 };
 use partsmith_model::{FeatureRecord, Id, Scope};
 
 use crate::cache::{Built, Cache, Outcome};
 use crate::evaluate::{Progress, evaluate};
 use crate::key::CacheKey;
-use crate::report::{BodyReport, FeatureReport, Status, Timing, render_messages};
+use crate::report::{BodyReport, FeatureReport, Message, Status, Timing, render_messages};
 use crate::timeline::{ActiveStep, StepKind, Timeline};
 
 /// What a run produced, besides the parts the caller adds (parameters, messages, time).
@@ -49,10 +49,6 @@ pub(crate) fn run(inputs: &Inputs<'_>, cache: &mut Cache) -> Ran {
     let empty = BodyState::empty();
     let mut runner = Runner {
         inputs,
-        names: DocumentNames {
-            document: inputs.timeline.document,
-            registry: inputs.registry,
-        },
         progress: Progress::with_capacity(steps.len()),
         outputs: Vec::with_capacity(steps.len()),
         bodies: inputs
@@ -90,8 +86,6 @@ pub(crate) fn run(inputs: &Inputs<'_>, cache: &mut Cache) -> Ran {
 struct Runner<'r> {
     /// What the run reads.
     inputs: &'r Inputs<'r>,
-    /// Current names for messages.
-    names: DocumentNames<'r>,
     /// The key and failure of every step so far.
     progress: Progress,
     /// The output of every step so far that built or was reused.
@@ -120,7 +114,7 @@ impl Runner<'_> {
             StepKind::Suppressed => FeatureReport::idle(&step.record.id, Status::Suppressed),
             StepKind::Invalid(error) => FeatureReport {
                 error: Some(FeatureError::clone(error)),
-                messages: render_messages(Some(error), &[], &self.names, self.inputs.scope.units),
+                messages: self.messages(&step.record.id, Some(error), &[], &[]),
                 ..FeatureReport::idle(&step.record.id, Status::Error)
             },
             StepKind::Active(active) => self.active(cache, position, step.record, active),
@@ -242,6 +236,8 @@ impl Runner<'_> {
                 Some((link.id.clone(), output))
             })
             .collect();
+        // The writer chains of features.md section 2.6 come with recompute.md section 3.5's next revision.
+        let history = BTreeMap::new();
         let assets: BTreeMap<String, Arc<[u8]>> = dependencies
             .assets
             .iter()
@@ -256,6 +252,7 @@ impl Runner<'_> {
             units: self.inputs.scope.units,
             values,
             bodies: &bodies,
+            history: &history,
             upstream: &upstream,
             assets: &assets,
             cancel: self.inputs.cancel,
@@ -283,6 +280,33 @@ impl Runner<'_> {
                 Ok(output)
             });
         (result, duration)
+    }
+
+    /// The rendered messages of `feature` with the document's current names and units and the states of its
+    /// declared bodies before it, without a diagnosis (features.md section 4).
+    fn messages(
+        &self,
+        feature: &Id,
+        error: Option<&FeatureError>,
+        warnings: &[FeatureWarning],
+        bodies_before: &[(Id, BodyState)],
+    ) -> Vec<Message> {
+        let outputs = BTreeMap::new();
+        let names = DocumentNames {
+            document: self.inputs.timeline.document,
+            registry: self.inputs.registry,
+            outputs: &outputs,
+        };
+        let bodies: BTreeMap<Id, BodyState> = bodies_before.iter().cloned().collect();
+        let diagnosis = Diagnosis::default();
+        let context = RenderContext {
+            feature,
+            names: &names,
+            units: self.inputs.scope.units,
+            bodies: &bodies,
+            diagnosis: &diagnosis,
+        };
+        render_messages(error, warnings, &context)
     }
 
     /// Makes the step at `position` the provider of every body it declares written, whether it
@@ -320,12 +344,7 @@ impl Runner<'_> {
             (None, false) => Status::Warning,
             (None, true) => Status::Ok,
         };
-        let messages = render_messages(
-            error.as_ref(),
-            &warnings,
-            &self.names,
-            self.inputs.scope.units,
-        );
+        let messages = self.messages(&record.id, error.as_ref(), &warnings, &bodies_before);
         FeatureReport {
             feature: record.id.clone(),
             status,
@@ -427,6 +446,7 @@ mod tests {
                     .collect(),
             ),
             warnings: Vec::new(),
+            absent: Vec::new(),
         }
     }
 
@@ -449,10 +469,12 @@ mod tests {
                 what: "body 'b-2' to update it".to_string()
             }
         );
+        // features.md section 4.1: what was undeclared goes to the detail, never into the text.
         assert_eq!(
             error.to_string(),
-            "This feature read body 'b-2' to update it without declaring it. This is a bug in the feature; please report it."
+            "Partsmith hit a bug in this feature, so it was not built. Suppress it to keep working, and report it with the details."
         );
+        assert_eq!(error.detail().as_deref(), Some("body 'b-2' to update it"));
     }
 
     #[test]
@@ -466,9 +488,14 @@ mod tests {
                 what: "body 'b-1' again to update it a second time".to_string()
             }
         );
+        // features.md section 4.1: what was undeclared goes to the detail, never into the text.
         assert_eq!(
             error.to_string(),
-            "This feature read body 'b-1' again to update it a second time without declaring it. This is a bug in the feature; please report it."
+            "Partsmith hit a bug in this feature, so it was not built. Suppress it to keep working, and report it with the details."
+        );
+        assert_eq!(
+            error.detail().as_deref(),
+            Some("body 'b-1' again to update it a second time")
         );
     }
 
@@ -477,6 +504,7 @@ mod tests {
         let datum = FeatureOutput {
             data: OutputData::Datum(DatumResult::Plane(OriginPlane::Xy.placement())),
             warnings: Vec::new(),
+            absent: Vec::new(),
         };
 
         assert!(check_updates(&datum, &[]).is_ok());

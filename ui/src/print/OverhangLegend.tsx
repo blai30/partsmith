@@ -13,9 +13,10 @@ function degrees(radians: number): string {
 }
 
 /**
- * The legend of the overhang color map (`overhang-legend`, ui.md 3.17), at the viewport's bottom
- * left: the `analysis` ramp from the limit to 90 degrees and what its colors mean. It is not
- * interactive, so presses on it reach the viewport (orbit, pick) wherever it is mounted.
+ * The legend of the overhang color map (`overhang-legend`, ui.md 3.17), a card at the bottom of
+ * the free area's left column (3.14): the `analysis` ramp from the limit to 90 degrees and what its
+ * colors mean. It is not interactive, so presses on it reach the viewport (orbit, pick) wherever it
+ * is mounted.
  */
 export function OverhangLegend({ limit }: OverhangLegendProps) {
   const limitText = degrees(limit)
@@ -23,9 +24,10 @@ export function OverhangLegend({ limit }: OverhangLegendProps) {
     <div
       data-testid="overhang-legend"
       className={clsx(
-        'pointer-events-none absolute bottom-4 left-4 flex w-56 flex-col gap-2 rounded-md border p-3 text-xs',
+        'pointer-events-none mt-auto flex w-56 flex-col gap-2 rounded-xl border p-3 text-xs shadow-md',
         COLOR_CLASSES.surfaceRaised.background,
         COLOR_CLASSES.border.border,
+        COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}
     >

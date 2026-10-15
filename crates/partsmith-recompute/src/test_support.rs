@@ -171,6 +171,7 @@ fn output(data: OutputData) -> FeatureOutput {
     FeatureOutput {
         data,
         warnings: Vec::new(),
+        absent: Vec::new(),
     }
 }
 

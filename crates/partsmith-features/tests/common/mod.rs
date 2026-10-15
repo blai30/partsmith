@@ -1,22 +1,30 @@
-//! Test features, names and context fixtures shared by the acceptance tests of `docs/spec/features.md` sections 6.2 and 6.3.
+//! Test features, names and context fixtures shared by the acceptance tests of `docs/spec/features.md` sections 6.2,
+//! 6.3 and 6.5.
 //!
 //! `Probe` and `Slab` are small features registered only by these tests. They let the registry and
 //! context tests run before the built-in feature types exist: `Probe` is the "test feature registered
-//! for the purpose" of section 6.3, and `Slab` has the same params shape as extrude.
+//! for the purpose" of section 6.3, and `Slab` has the same params shape as extrude. `timeline` runs
+//! built-in feature records in order, `records` writes the records of the specs' shared setups, and
+//! `lint` holds the message lint of the error guidelines.
 
 // Each test binary uses only some of these helpers.
 #![allow(dead_code)]
+
+pub mod lint;
+pub mod records;
+pub mod timeline;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use partsmith_features::{
-    BodyOp, BodyState, BuildContext, BuildInputs, CancelToken, Category, Dependencies, ExprUse,
-    Feature, FeatureError, FeatureManifest, FeatureOutput, FieldHint, FieldRef, FieldUnit, Link,
-    Names, Noun, OptionHint, OutputData, ProfileRef, PythonCall, PythonNames, PythonValue,
-    Registry, SelectionKind, SketchResult, Values,
+    BodyOp, BodyState, BuildContext, BuildInputs, CancelToken, Category, Dependencies, Diagnosis,
+    ExprUse, Feature, FeatureError, FeatureManifest, FeatureOutput, FeatureWarning, FieldHint,
+    FieldRef, FieldUnit, Fix, Link, Names, Noun, OptionHint, OutputData, ProfileRef, PythonCall,
+    PythonNames, PythonValue, Registry, RenderContext, SelectionKind, SketchResult, Values,
 };
 use partsmith_model::{EmptyContext, Expr, FeatureRecord, Id, ParameterValues, Scope, Units};
+use partsmith_naming::Motion;
 use partsmith_sketch::{OriginPlane, RegionRef, SolveResult, build_profile};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -137,11 +145,12 @@ pub fn no_dependencies() -> Dependencies {
     }
 }
 
-/// An output with no data and no warnings.
+/// An output with no data, no warnings and no absent faces.
 pub fn nothing() -> FeatureOutput {
     FeatureOutput {
         data: OutputData::Nothing,
         warnings: Vec::new(),
+        absent: Vec::new(),
     }
 }
 
@@ -166,7 +175,7 @@ pub fn use_triples(uses: &[ExprUse]) -> Vec<(String, String, FieldUnit)> {
         .collect()
 }
 
-/// `Names` that knows no body and no feature, so messages show ids.
+/// `Names` that knows no body and no feature, so messages say they are not in the document.
 pub struct NoNames;
 
 impl Names for NoNames {
@@ -177,6 +186,118 @@ impl Names for NoNames {
     fn feature_label(&self, _feature: &Id) -> Option<String> {
         None
     }
+
+    fn type_label(&self, _feature: &Id) -> Option<String> {
+        None
+    }
+
+    fn feature_record(&self, _feature: &Id) -> Option<&FeatureRecord> {
+        None
+    }
+
+    fn sketch_result(&self, _sketch: &Id) -> Option<&SketchResult> {
+        None
+    }
+}
+
+/// `Names` from fixed tables: body names, and feature labels with the manifest label of their type, for messages
+/// built by hand. It knows no records and no sketch results.
+#[derive(Default)]
+pub struct LabelNames {
+    /// Body id to body name.
+    pub bodies: BTreeMap<Id, String>,
+    /// Feature id to (feature label, type label).
+    pub features: BTreeMap<Id, (String, String)>,
+}
+
+impl LabelNames {
+    /// Names for `bodies` as (id, name) and `features` as (id, label, type label).
+    pub fn new(bodies: &[(&str, &str)], features: &[(&str, &str, &str)]) -> LabelNames {
+        LabelNames {
+            bodies: bodies
+                .iter()
+                .map(|(body, name)| (id(body), name.to_string()))
+                .collect(),
+            features: features
+                .iter()
+                .map(|(feature, label, type_label)| {
+                    (id(feature), (label.to_string(), type_label.to_string()))
+                })
+                .collect(),
+        }
+    }
+}
+
+impl Names for LabelNames {
+    fn body_name(&self, body: &Id) -> Option<String> {
+        self.bodies.get(body).cloned()
+    }
+
+    fn feature_label(&self, feature: &Id) -> Option<String> {
+        self.features.get(feature).map(|(label, _)| label.clone())
+    }
+
+    fn type_label(&self, feature: &Id) -> Option<String> {
+        self.features
+            .get(feature)
+            .map(|(_, type_label)| type_label.clone())
+    }
+
+    fn feature_record(&self, _feature: &Id) -> Option<&FeatureRecord> {
+        None
+    }
+
+    fn sketch_result(&self, _sketch: &Id) -> Option<&SketchResult> {
+        None
+    }
+}
+
+/// A render context for `feature` in a millimeter document, with these names and diagnosis and no body states.
+pub fn render_context<'a>(
+    feature: &'a Id,
+    names: &'a dyn Names,
+    diagnosis: &'a Diagnosis,
+    bodies: &'a BTreeMap<Id, BodyState>,
+) -> RenderContext<'a> {
+    RenderContext {
+        feature,
+        names,
+        units: Units::Mm,
+        bodies,
+        diagnosis,
+    }
+}
+
+/// An error rendered on `feature` with `names`, no body states and no diagnosis, in a millimeter document.
+pub fn render_error(error: &FeatureError, feature: &str, names: &dyn Names) -> String {
+    let feature = id(feature);
+    let bodies = BTreeMap::new();
+    let diagnosis = Diagnosis::default();
+    error.render(&render_context(&feature, names, &diagnosis, &bodies))
+}
+
+/// A warning rendered on `feature` with `names`, no body states and no diagnosis, in a millimeter document.
+pub fn render_warning(warning: &FeatureWarning, feature: &str, names: &dyn Names) -> String {
+    let feature = id(feature);
+    let bodies = BTreeMap::new();
+    let diagnosis = Diagnosis::default();
+    warning.render(&render_context(&feature, names, &diagnosis, &bodies))
+}
+
+/// The fixes of an error on `feature` without names, body states or diagnosis.
+pub fn error_fixes(error: &FeatureError, feature: &str) -> Vec<Fix> {
+    let feature = id(feature);
+    let bodies = BTreeMap::new();
+    let diagnosis = Diagnosis::default();
+    error.fixes(&render_context(&feature, &NoNames, &diagnosis, &bodies))
+}
+
+/// The fixes of a warning on `feature` without names, body states or diagnosis.
+pub fn warning_fixes(warning: &FeatureWarning, feature: &str) -> Vec<Fix> {
+    let feature = id(feature);
+    let bodies = BTreeMap::new();
+    let diagnosis = Diagnosis::default();
+    warning.fixes(&render_context(&feature, &NoNames, &diagnosis, &bodies))
 }
 
 /// The `PythonNames` of features.md section 6.2 test 22: units mm, body `b-1` as `block`,
@@ -481,10 +602,12 @@ pub fn empty_sketch_output() -> FeatureOutput {
     FeatureOutput {
         data: OutputData::Sketch(SketchResult {
             placement: OriginPlane::Xy.placement(),
+            motion: Motion::IDENTITY,
             solved,
             profile: build_profile(&[]),
         }),
         warnings: Vec::new(),
+        absent: Vec::new(),
     }
 }
 
@@ -500,6 +623,8 @@ pub struct ContextFixture {
     pub values: Values,
     /// Declared bodies.
     pub bodies: BTreeMap<Id, BodyState>,
+    /// Writer chains of declared bodies (`BuildInputs::history`).
+    pub history: BTreeMap<Id, Vec<(Id, BodyState)>>,
     /// Outputs of declared features.
     pub upstream: BTreeMap<Id, Arc<FeatureOutput>>,
     /// Bytes of declared assets.
@@ -533,6 +658,7 @@ impl ContextFixture {
             units,
             values,
             bodies: BTreeMap::new(),
+            history: BTreeMap::new(),
             upstream: BTreeMap::new(),
             assets: BTreeMap::new(),
             cancel: CancelToken::new(),
@@ -547,6 +673,7 @@ impl ContextFixture {
             units: self.units,
             values: &self.values,
             bodies: &self.bodies,
+            history: &self.history,
             upstream: &self.upstream,
             assets: &self.assets,
             cancel: &self.cancel,

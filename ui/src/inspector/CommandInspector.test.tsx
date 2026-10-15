@@ -182,6 +182,8 @@ describe('Reverse fixes (4.2, U-107)', () => {
       withStatus('f-ext9', [noEffect]),
     )
     const banner = within(inspector()).getByTestId('inspector-error')
+    // U-188: a status banner inside the card.
+    expect(banner).toHaveClass('rounded-lg')
     await user.click(within(banner).getByRole('button', { name: 'Reverse' }))
     expect(app.store.getState().command?.params['reverse']).toBe(true)
     // Focus on the Distance input, not on Reverse, so the next Enter confirms (3.5).
@@ -263,16 +265,17 @@ describe('More options shows what it hides (3.7, U-117)', () => {
   })
 })
 
+/** The axis letter in the inspector field at a path. */
+function letterOf(path: string): HTMLElement {
+  return within(field(path)).getByTestId('axis-letter')
+}
+
 describe('axis letters in fields (3.7, U-181)', () => {
   const AXIS_FOREGROUNDS = {
     X: COLOR_CLASSES.axisX.foreground,
     Y: COLOR_CLASSES.axisY.foreground,
     Z: COLOR_CLASSES.axisZ.foreground,
   } as const
-
-  function letterOf(path: string): HTMLElement {
-    return within(field(path)).getByTestId('axis-letter')
-  }
 
   it('U-181 draws X, Y and Z inside the Move body fields in the world axes’ colors', () => {
     renderCommand(

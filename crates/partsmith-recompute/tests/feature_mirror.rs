@@ -220,6 +220,12 @@ fn t011_empty_source() {
     let run = Run::records(&BODIES, &[&mirror(YZ, "")]);
 
     run.assert_error("f-mir1", "body_empty");
+    assert_eq!(
+        run.messages("f-mir1"),
+        [
+            "Body 'Body 1' has no solid at this point, so this mirror has nothing to work on. Pick a body that has a solid."
+        ]
+    );
 }
 
 #[test]

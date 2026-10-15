@@ -294,6 +294,8 @@ fn t013_canceled_build_returns_canceled() {
         bodies.keys().any(|body| body.as_str() == "b-1"),
         "the run recorded the state of b-1 before the pattern"
     );
+    // features.md section 2.6: the context also takes the bodies' writer chains, which this build does not read.
+    let history: BTreeMap<Id, Vec<(Id, BodyState)>> = BTreeMap::new();
     let upstream: BTreeMap<Id, Arc<FeatureOutput>> = BTreeMap::new();
     let assets: BTreeMap<String, Arc<[u8]>> = BTreeMap::new();
     let cancel = CancelToken::new();
@@ -304,6 +306,7 @@ fn t013_canceled_build_returns_canceled() {
         units: run.document.units,
         values: &values,
         bodies: &bodies,
+        history: &history,
         upstream: &upstream,
         assets: &assets,
         cancel: &cancel,

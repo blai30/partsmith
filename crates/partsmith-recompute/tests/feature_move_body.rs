@@ -125,6 +125,12 @@ fn t007_empty_body() {
     let run = Run::records(&BODIES, &[&move_body(r#""translation": ["5", "0", "0"]"#)]);
 
     run.assert_error("f-mv1", "body_empty");
+    assert_eq!(
+        run.messages("f-mv1"),
+        [
+            "Body 'Body 1' has no solid at this point, so this move body has nothing to work on. Pick a body that has a solid."
+        ]
+    );
 }
 
 #[test]

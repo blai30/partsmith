@@ -261,7 +261,7 @@ function OpenPalette() {
         aria-label="Command palette"
         data-testid="palette"
         className={clsx(
-          'pointer-events-auto flex w-140 max-w-full flex-col overflow-hidden rounded-md border shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
+          'pointer-events-auto flex w-140 max-w-full flex-col overflow-hidden rounded-xl border shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
           COLOR_CLASSES.text.foreground,
@@ -270,7 +270,7 @@ function OpenPalette() {
         <div
           className={clsx(
             'flex h-12 shrink-0 items-center gap-2 border-b px-3',
-            COLOR_CLASSES.border.border,
+            COLOR_CLASSES.divider.border,
           )}
         >
           <Search
@@ -345,7 +345,7 @@ function OpenPalette() {
           data-testid="palette-footer"
           className={clsx(
             'flex min-h-8 shrink-0 flex-col justify-center border-t px-3 py-2 text-xs',
-            COLOR_CLASSES.border.border,
+            COLOR_CLASSES.divider.border,
             COLOR_CLASSES.textMuted.foreground,
           )}
         >
@@ -396,7 +396,7 @@ function OpenPalette() {
           runItem(item)
         }}
         className={clsx(
-          'flex h-9 cursor-default items-center gap-3 rounded-sm px-2 text-sm',
+          'flex h-9 cursor-default items-center gap-3 rounded-md px-2 text-sm',
           index === active && COLOR_CLASSES.hover.active,
           disabled && COLOR_CLASSES.textDisabled.foreground,
         )}

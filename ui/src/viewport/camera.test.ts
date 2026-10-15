@@ -29,12 +29,18 @@ import {
   wheelZoomFactor,
   withProjection,
   zoomAt,
+  windowAspect,
+  windowCursor,
+  windowPosition,
+  windowProjection,
+  wholeCanvas,
   type Camera,
   type Quaternion,
   type StandardView,
   type Vector3,
+  type ViewWindow,
 } from './camera'
-import { angleBetween, quaternionFromAxisAngle } from './math'
+import { addScaled, angleBetween, quaternionFromAxisAngle } from './math'
 
 type BoundingBox = Parameters<typeof fitBounds>[1]
 
@@ -1016,5 +1022,70 @@ describe('canvas coordinates', () => {
     expect(canvasPosition({ x: -1, y: 1 }, size)).toEqual({ x: 0, y: 0 })
     expect(canvasPosition({ x: 0, y: 0 }, size)).toEqual({ x: 400, y: 300 })
     expect(canvasPosition({ x: 1, y: -1 }, size)).toEqual({ x: 800, y: 600 })
+  })
+})
+
+describe('the view window (U-176)', () => {
+  const view: ViewWindow = {
+    width: 1200,
+    height: 800,
+    free: { x: 280, y: 64, width: 640, height: 600 },
+  }
+  const iso: Camera = {
+    ...DEFAULT_CAMERA,
+    target: [0, 0, 0],
+    distance: 200,
+    rotation: standardViewRotation('iso'),
+  }
+  const cameras: readonly Camera[] = [iso, withProjection(iso, 'orthographic')]
+
+  /** The canvas pixel of a world point through the view and window projection matrices. */
+  function projected(camera: Camera, point: Vector3): [number, number] {
+    const [x, y, z] = transformPoint(viewMatrix(camera), point)
+    const clip = transformPoint(windowProjection(camera, view, 1, 1000), [x, y, z])
+    return [((clip[0] / clip[3] + 1) / 2) * view.width, ((1 - clip[1] / clip[3]) / 2) * view.height]
+  }
+
+  it.each(cameras)('U-176 the target projects to the free area center ($projection)', (camera) => {
+    const [x, y] = projected(camera, camera.target)
+    // The matrices are 32-bit floats, good to about 1e-4 pixel here.
+    expect(x).toBeCloseTo(600, 3)
+    expect(y).toBeCloseTo(364, 3)
+  })
+
+  it.each(cameras)('U-176 the visible height spans the free area ($projection)', (camera) => {
+    const half = visibleHeightAtTarget(camera) / 2
+    const top = projected(camera, addScaled(camera.target, up(camera), half))
+    const side = projected(camera, addScaled(camera.target, right(camera), (half * 640) / 600))
+    expect(top[1]).toBeCloseTo(64, 3)
+    expect(side[0]).toBeCloseTo(920, 3)
+  })
+
+  it('U-176 a canvas point taken to free-area coordinates and back is unchanged', () => {
+    const [x, y] = windowCursor(view, 123.5, 701.25)
+    const back = windowPosition(view, { x, y })
+    expect(back.x).toBeCloseTo(123.5, 9)
+    expect(back.y).toBeCloseTo(701.25, 9)
+  })
+
+  it.each(cameras)(
+    'U-176 a free area of the whole canvas, or one not measured, gives projectionMatrix ($projection)',
+    (camera) => {
+      const expected = Array.from(projectionMatrix(camera, 1.5, 1, 1000))
+      const whole = windowProjection(camera, wholeCanvas({ width: 1200, height: 800 }), 1, 1000)
+      const unmeasured = windowProjection(
+        camera,
+        { width: 1200, height: 800, free: { x: 280, y: 64, width: 0, height: 600 } },
+        1,
+        1000,
+      )
+      expect(Array.from(whole)).toEqual(expected)
+      expect(Array.from(unmeasured)).toEqual(expected)
+    },
+  )
+
+  it('windowAspect is the free area aspect, and the canvas aspect while it is not measured', () => {
+    expect(windowAspect(view)).toBe(640 / 600)
+    expect(windowAspect({ ...view, free: { x: 0, y: 0, width: 0, height: 0 } })).toBe(1.5)
   })
 })

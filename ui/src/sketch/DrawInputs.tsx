@@ -86,7 +86,7 @@ export function DrawInputs({ ref, controller, inputs, focusRequest }: DrawInputs
                 onKeyDown(event, index)
               }}
               className={clsx(
-                'h-6 w-20 rounded-sm border px-1.5 text-xs shadow-sm',
+                'h-6 w-20 rounded-md border px-1.5 text-xs',
                 FONT_CLASSES.values,
                 COLOR_CLASSES.field.background,
                 COLOR_CLASSES.text.foreground,
@@ -106,7 +106,7 @@ export function DrawInputs({ ref, controller, inputs, focusRequest }: DrawInputs
               key={input.name}
               id={`${errorId}-${input.name}`}
               className={clsx(
-                'w-max max-w-64 rounded-sm px-1.5 py-0.5 text-xs shadow-sm',
+                'w-max max-w-64 rounded-sm px-1.5 py-0.5 text-xs',
                 COLOR_CLASSES.errorFill.background,
                 COLOR_CLASSES.errorFill.foreground,
               )}

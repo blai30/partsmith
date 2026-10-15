@@ -1,13 +1,21 @@
 import type { BoundingBox, Placement } from '../generated/protocol'
-import { eye, forward, normalizedPosition, pointAtDepth, type Camera } from '../viewport/camera'
+import {
+  eye,
+  forward,
+  normalizedPosition,
+  pointAtDepth,
+  windowAspect,
+  windowCursor,
+  windowPosition,
+  type Camera,
+  type ViewWindow,
+} from '../viewport/camera'
 import { addScaled, cross, dot, length, subtract, type Vector3 } from '../viewport/math'
 import { distance, type Vector2 } from './geometry'
 
 // Between sketch coordinates, model space and the canvas (ui.md 3.16.3): a sketch's placement maps
-// (u, v) to model space (sketch.md 3.1), and the camera maps model space to CSS pixels.
-
-/** A canvas size in CSS pixels. */
-export type CanvasSize = { readonly width: number; readonly height: number }
+// (u, v) to model space (sketch.md 3.1), and the camera maps model space to canvas CSS pixels
+// through the view window, in the free area's device coordinates (ui.md 2.11).
 
 /** Pointer input is ignored when the view ray is within this of parallel to the sketch plane. */
 const PARALLEL_RAY_TOLERANCE = 1e-6
@@ -56,9 +64,9 @@ export function worldBounds(
   }
 }
 
-/** A canvas pixel (CSS pixels from the top left) in normalized device coordinates. */
-function normalizedDevice(pixel: Vector2, size: CanvasSize): readonly [number, number] {
-  return [(2 * pixel[0]) / size.width - 1, 1 - (2 * pixel[1]) / size.height]
+/** Whether the view window has a canvas to map onto. */
+function hasCanvas(view: ViewWindow): boolean {
+  return view.width > 0 && view.height > 0
 }
 
 /**
@@ -67,15 +75,15 @@ function normalizedDevice(pixel: Vector2, size: CanvasSize): readonly [number, n
  */
 export function pixelToSketch(
   camera: Camera,
-  size: CanvasSize,
+  view: ViewWindow,
   placement: Placement,
   pixel: Vector2,
 ): Vector2 | null {
-  if (!(size.width > 0) || !(size.height > 0)) {
+  if (!hasCanvas(view)) {
     return null
   }
-  const aspect = size.width / size.height
-  const device = normalizedDevice(pixel, size)
+  const aspect = windowAspect(view)
+  const device = windowCursor(view, pixel[0], pixel[1])
   const perspective = camera.projection === 'perspective'
   const origin = perspective ? eye(camera) : pointAtDepth(camera, device, aspect, 0)
   const ray = perspective
@@ -96,22 +104,19 @@ export function pixelToSketch(
 /** The canvas pixel of a sketch point, or null when it is behind a perspective eye. */
 export function sketchToPixel(
   camera: Camera,
-  size: CanvasSize,
+  view: ViewWindow,
   placement: Placement,
   point: Vector2,
 ): Vector2 | null {
-  if (!(size.width > 0) || !(size.height > 0)) {
+  if (!hasCanvas(view)) {
     return null
   }
-  const position = normalizedPosition(
-    camera,
-    sketchToWorld(placement, point),
-    size.width / size.height,
-  )
+  const position = normalizedPosition(camera, sketchToWorld(placement, point), windowAspect(view))
   if (position === null) {
     return null
   }
-  return [((position.x + 1) / 2) * size.width, ((1 - position.y) / 2) * size.height]
+  const pixel = windowPosition(view, position)
+  return [pixel.x, pixel.y]
 }
 
 /**
@@ -120,13 +125,13 @@ export function sketchToPixel(
  */
 export function millimetersPerPixelAt(
   camera: Camera,
-  size: CanvasSize,
+  view: ViewWindow,
   placement: Placement,
   pixel: Vector2,
 ): number | null {
-  const here = pixelToSketch(camera, size, placement, pixel)
-  const right = pixelToSketch(camera, size, placement, [pixel[0] + 1, pixel[1]])
-  const below = pixelToSketch(camera, size, placement, [pixel[0], pixel[1] + 1])
+  const here = pixelToSketch(camera, view, placement, pixel)
+  const right = pixelToSketch(camera, view, placement, [pixel[0] + 1, pixel[1]])
+  const below = pixelToSketch(camera, view, placement, [pixel[0], pixel[1] + 1])
   if (here === null || right === null || below === null) {
     return null
   }

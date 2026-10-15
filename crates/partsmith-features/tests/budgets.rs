@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use common::{ContextFixture, Probe, ScriptNames, Slab, record, slab_record};
 use partsmith_features::{BodyState, Registry, name_shape};
 use partsmith_model::{FieldUnit, Units};
-use partsmith_naming::{ElementName, FaceSource};
+use partsmith_naming::{ElementName, FaceSource, Motion, Successions};
 use partsmith_occt_sys::{Plane, Point, Shape, SubShapeKind, cut, make_box, make_cylinder};
 use serde_json::json;
 
@@ -251,9 +251,15 @@ fn element_infos_of_a_200_face_body_within_10_milliseconds() {
     let face = ElementName::parse("f-plate1/face").expect("a valid name");
     let faces = vec![FaceSource::New(face); 200];
     let naming = std::sync::Arc::new(
-        name_shape(&plate, faces, &[])
-            .expect("the plate is named")
-            .naming,
+        name_shape(
+            &plate,
+            faces,
+            &[],
+            &Successions::default(),
+            &Motion::IDENTITY,
+        )
+        .expect("the plate is named")
+        .naming,
     );
 
     let duration = median(11, || {

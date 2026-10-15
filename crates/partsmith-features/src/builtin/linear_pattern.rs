@@ -15,7 +15,7 @@ use super::common::{
 use super::copy::{self, Source};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
-use crate::error::{Bound, FeatureError};
+use crate::error::{Bound, FeatureError, FeatureWarning};
 use crate::feature::Feature;
 use crate::output::FeatureOutput;
 use crate::params::{AxisRef, CopyOp};
@@ -74,12 +74,13 @@ struct Step {
 
 impl Step {
     /// The direction at `field`: its count (at least 1), its spacing (greater than 0) and its
-    /// resolved axis direction, reversed when asked (linear_pattern.md section 3.3 step 2).
+    /// resolved axis direction, reversed when asked (linear_pattern.md section 3.3 step 2), with
+    /// the warnings and notices of the axis reference.
     fn new(
         context: &BuildContext<'_>,
         field: &str,
         direction: &LinearPatternDirection,
-    ) -> Result<Step, FeatureError> {
+    ) -> Result<(Step, Vec<FeatureWarning>), FeatureError> {
         let count = context.eval_count(&format!("{field}.count"), &direction.count, 1)?;
         let spacing_field = format!("{field}.spacing");
         let spacing = length_in_range(
@@ -90,10 +91,11 @@ impl Step {
         )?;
         let axis = context.axis(&format!("{field}.axis"), &direction.axis)?;
         let signed = if direction.reverse { -spacing } else { spacing };
-        Ok(Step {
+        let step = Step {
             count,
-            offset: axis.direction.scaled(signed),
-        })
+            offset: axis.value.direction.scaled(signed),
+        };
+        Ok((step, axis.warnings))
     }
 
     /// The single instance of a missing second direction.
@@ -184,9 +186,13 @@ impl Feature for LinearPattern {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let source = Source::new(context, &params.body)?;
-        let first = Step::new(context, DIRECTION_FIELDS[0], &params.direction)?;
+        let (first, mut warnings) = Step::new(context, DIRECTION_FIELDS[0], &params.direction)?;
         let second = match &params.second_direction {
-            Some(direction) => Step::new(context, DIRECTION_FIELDS[1], direction)?,
+            Some(direction) => {
+                let (second, second_warnings) = Step::new(context, DIRECTION_FIELDS[1], direction)?;
+                warnings.extend(second_warnings);
+                second
+            }
             None => Step::NONE,
         };
         copy::check_instance_limit(u64::from(first.count) * u64::from(second.count))?;
@@ -211,7 +217,7 @@ impl Feature for LinearPattern {
                 copies.push(source.copy(context, &Transform::translation(offset), instance)?);
             }
         }
-        source.place(context, params.op, params.target.as_ref(), copies)
+        source.place(context, params.op, params.target.as_ref(), copies, warnings)
     }
 
     /// `linear_pattern(direction, count, spacing, second=(axis, count, spacing), into=...)`

@@ -40,18 +40,20 @@ mod search;
 mod test_support;
 
 pub use context::{
-    BodyState, BuildContext, BuildInputs, CancelToken, Resolved, ResolvedProfile, Values,
+    BodyState, BuildContext, BuildInputs, CancelToken, Resolved, ResolvedProfile, Usable, Values,
+    WithWarnings,
 };
 pub use deps::{AssetLink, Dependencies, ExprUse, Link};
 pub use error::{
-    Bound, DocumentNames, FallbackReason, FeatureError, FeatureWarning, FieldRef, IgnoredReason,
-    Names, Noun, Repair, format_value,
+    Because, Bound, Diagnosis, DocumentNames, Explanation, FallbackReason, FeatureError,
+    FeatureWarning, FieldRef, Fix, IgnoredReason, Loss, LossCandidate, Names, Noun, Place,
+    RegionLost, RenderContext, Repair, Severity, describe_elements, format_value,
 };
 pub use feature::{FEATURE_API_VERSION, Feature};
 pub use naming::{Named, modified_sources, name_by_history, name_shape, topology_info};
 pub use output::{
-    BodyChange, BodyUpdate, DatumResult, FeatureOutput, Measurements, OutputData, SketchResult,
-    Tool, VOLUME_TOLERANCE, apply_op, apply_op_result,
+    Absence, AbsentFace, BodyChange, BodyUpdate, DatumResult, FeatureOutput, Measurements,
+    OutputData, SketchResult, Tool, VOLUME_TOLERANCE, apply_op, apply_op_result,
 };
 pub use params::{
     AxisRef, BodyOp, CopyOp, OriginAxis, PlacementExt, PlaneRef, ProfileRef, point, vector,

@@ -154,6 +154,7 @@ fn output(data: OutputData) -> FeatureOutput {
     FeatureOutput {
         data,
         warnings: Vec::new(),
+        absent: Vec::new(),
     }
 }
 
@@ -432,6 +433,7 @@ impl Feature for TestBlock {
             TestBlockOp::Join => {
                 let Some(shape) = before.shape() else {
                     return Err(FeatureError::BodyEmpty {
+                        field: context.field("body"),
                         body: params.body.clone(),
                         use_new: true,
                     });
@@ -480,6 +482,7 @@ impl Feature for TestProbe {
     ) -> Result<FeatureOutput, FeatureError> {
         if context.body(&params.body)?.is_empty() {
             return Err(FeatureError::BodyEmpty {
+                field: context.field("body"),
                 body: params.body.clone(),
                 use_new: false,
             });
@@ -489,6 +492,7 @@ impl Feature for TestProbe {
             warnings: vec![FeatureWarning::NoEffect {
                 body: params.body.clone(),
             }],
+            absent: Vec::new(),
         })
     }
 }

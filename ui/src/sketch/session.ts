@@ -5,6 +5,7 @@ import {
   changeSketchDimension,
   createSketchIds,
   selectInSketch,
+  sketchRecordOf,
   solutionOf,
   storedSketchParams,
 } from '../app/actions/sketch'
@@ -28,9 +29,11 @@ import { hasOpenPopover, isEditable } from '../layout/focus'
 import { MESSAGES } from '../messages'
 import { editingSession, type EditingSession } from '../state/selectors'
 import type { AppState, SelectionItem } from '../state/store'
-import type { Camera } from '../viewport/camera'
+import { framedArea, type Camera, type ViewWindow } from '../viewport/camera'
 import type { ViewportController, ViewportHandle } from '../viewport/controller'
 import { requestFrame } from '../viewport/frames'
+import { sketchWorldAxes } from '../viewport/planes'
+import { sketchAxisSpans } from '../viewport/sketch-drawables'
 import { dimensionLabelText } from './annotations'
 import {
   constraintRequirement,
@@ -77,9 +80,9 @@ import {
 } from './hit'
 import { ownerOf, solvedEntity } from './operands'
 import { EMPTY_PAINT, overlayPaint, type OverlayPaint, type PaintSnapshot } from './overlay-paint'
-import { millimetersPerPixelAt, pixelToSketch, sketchToPixel, type CanvasSize } from './placement'
+import { millimetersPerPixelAt, pixelToSketch, sketchToPixel } from './placement'
 import type { SketchAddition } from './recipes'
-import { entitiesInBox, screenBox, type Projector } from './screen'
+import { entitiesInBox, freeAreaBox, screenBox, type Projector } from './screen'
 import { constraintTool, isDrawingTool } from './tools'
 
 // Sketch mode's session (ui.md 2.14, 3.16): its tools and the changes they commit, the step
@@ -439,26 +442,29 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     return store.getState().settings.uiScale
   }
 
-  function canvasSize(): CanvasSize {
-    return { width: canvas.clientWidth, height: canvas.clientHeight }
-  }
-
   function canvasPixel(event: MouseEvent): Vector2 {
     const rectangle = canvas.getBoundingClientRect()
     return [event.clientX - rectangle.left, event.clientY - rectangle.top]
   }
 
-  /** The camera, canvas size and sketch placement that map between the canvas and the sketch. */
+  /**
+   * The camera, view window and sketch placement that map between the canvas and the sketch, in
+   * the free area's device coordinates (2.11).
+   */
   function view(): {
     readonly camera: Camera
-    readonly size: CanvasSize
+    readonly viewWindow: ViewWindow
     readonly placement: Placement
   } | null {
-    const camera = app.viewport()?.getCamera() ?? null
+    const handle = app.viewport()
     const solved = solution()
-    return camera === null || solved === null
+    return handle === null || solved === null
       ? null
-      : { camera, size: canvasSize(), placement: solved.placement }
+      : {
+          camera: handle.getCamera(),
+          viewWindow: handle.viewWindow(),
+          placement: solved.placement,
+        }
   }
 
   /** The sketch point under a canvas pixel, or null when the view cannot reach the sketch plane. */
@@ -466,34 +472,35 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     const mapping = view()
     return mapping === null
       ? null
-      : pixelToSketch(mapping.camera, mapping.size, mapping.placement, pixel)
+      : pixelToSketch(mapping.camera, mapping.viewWindow, mapping.placement, pixel)
   }
 
   function millimetersPerPixel(pixel: Vector2): number | null {
     const mapping = view()
     return mapping === null
       ? null
-      : millimetersPerPixelAt(mapping.camera, mapping.size, mapping.placement, pixel)
+      : millimetersPerPixelAt(mapping.camera, mapping.viewWindow, mapping.placement, pixel)
   }
 
-  /** Sketch millimeters per CSS pixel at the canvas center, for tessellation and label offsets. */
+  /** Sketch millimeters per CSS pixel at the free area's center, for tessellation and label offsets. */
   function centerPixelSize(): number {
     const mapping = view()
     if (mapping === null) {
       return 1
     }
-    const { camera, size, placement } = mapping
-    const center: Vector2 = [size.width / 2, size.height / 2]
-    return millimetersPerPixelAt(camera, size, placement, center) ?? 1
+    const { camera, viewWindow, placement } = mapping
+    const area = framedArea(viewWindow)
+    const center: Vector2 = [area.x + area.width / 2, area.y + area.height / 2]
+    return millimetersPerPixelAt(camera, viewWindow, placement, center) ?? 1
   }
 
   function projector(): Projector | null {
     const mapping = view()
-    if (mapping === null || !(mapping.size.width > 0) || !(mapping.size.height > 0)) {
+    if (mapping === null || !(mapping.viewWindow.width > 0) || !(mapping.viewWindow.height > 0)) {
       return null
     }
-    const { camera, size, placement } = mapping
-    return (point) => sketchToPixel(camera, size, placement, point)
+    const { camera, viewWindow, placement } = mapping
+    return (point) => sketchToPixel(camera, viewWindow, placement, point)
   }
 
   function documentUnits(): Units {
@@ -685,10 +692,12 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     const session = editingSession(state)
     const solved = solution()
     const project = projector()
-    if (session === null || solved === null || project === null) {
+    const mapping = view()
+    if (session === null || solved === null || project === null || mapping === null) {
       return null
     }
     const pixelSize = centerPixelSize()
+    const record = sketchRecordOf(state, session.sketchId)
     return {
       solution: solved,
       project,
@@ -705,6 +714,9 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       editor: editorSnapshot(solved),
       hovered,
       box,
+      worldAxes: record === null ? null : sketchWorldAxes(record),
+      axisSpans: sketchAxisSpans(mapping.placement, mapping.camera, mapping.viewWindow),
+      freeArea: freeAreaBox(mapping.viewWindow),
     }
   }
 

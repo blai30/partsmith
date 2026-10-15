@@ -104,16 +104,17 @@ describe('the app shell (3.2)', () => {
     }
   })
 
-  it('styles the root with the fixed layout, the interface font and the surface and text roles', () => {
+  it('styles the root with the fixed layout, the interface font and the stage and text roles', () => {
     renderApp()
     const root = screen.getByTestId('app')
     for (const name of [
       'h-dvh',
       'w-dvw',
       'overflow-hidden',
+      'p-2',
       'antialiased',
       ...FONT_CLASSES.interfaceText.split(' '),
-      ...COLOR_CLASSES.surface.background.split(' '),
+      ...COLOR_CLASSES.stage.background.split(' '),
       ...COLOR_CLASSES.text.foreground.split(' '),
     ]) {
       expect(root).toHaveClass(name)

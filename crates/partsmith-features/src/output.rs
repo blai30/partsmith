@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use partsmith_model::Id;
-use partsmith_naming::{NamingMap, TopologyInfo};
+use partsmith_naming::{ElementName, Motion, NamingMap, TopologyInfo};
 use partsmith_occt_sys::{
     InputHistory, KernelError, OpResult, Shape, SubShapeKind, common, cut, fuse,
 };
@@ -27,11 +27,42 @@ type KernelBoolean = fn(&Shape, &[Shape]) -> Result<OpResult, KernelError>;
 pub struct FeatureOutput {
     /// The produced data.
     pub data: OutputData,
-    /// Warnings in the order they were raised.
+    /// Warnings and info notices in the order they were raised.
     pub warnings: Vec<FeatureWarning>,
+    /// Faces its naming rule would make that this build did not make, with why. Recompute's loss diagnosis reads
+    /// them (recompute.md section 3.10). Empty for most features.
+    pub absent: Vec<AbsentFace>,
+}
+
+/// A face a feature's naming rule names that this build did not make.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AbsentFace {
+    /// The face name it would have, for example `f-ext2/end-cap`.
+    pub name: ElementName,
+    /// Why it is absent.
+    pub why: Absence,
+}
+
+/// Why a face is absent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Absence {
+    /// A cut or hole that goes all the way through the body: its end face and its start face (an extrude's start
+    /// cap, a hole's entry) are both not in the result (extrude, hole).
+    Through,
+    /// A cut or hole whose end face is not in the result while its start face is: its end reaches the outside of
+    /// the body, but it does not go all the way through (an extrude that starts inside the body, corpus R30 (a)).
+    EndOutside,
+    /// A revolve of a full turn has no caps.
+    FullTurn,
 }
 
 /// The four kinds of feature output.
+// A sketch result is larger than a list of updates, but an output is built once and shared through an `Arc`, and
+// boxing would change the shape features.md section 2.7 gives.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "OutputData keeps the variants the spec gives; outputs are built once and shared"
+)]
 #[derive(Clone, Debug)]
 pub enum OutputData {
     /// New states of some written bodies, in `bodies_written` order, at most one per body.
@@ -95,6 +126,9 @@ pub enum BodyChange {
 pub struct SketchResult {
     /// Placement of the sketch plane in world space.
     pub placement: Placement,
+    /// The motion of the geometry the sketch is placed on (naming.md section 3.6, `new_motion`), which features
+    /// that build faces from the sketch name them with (features/sketch.md section 3.3).
+    pub motion: Motion,
     /// Solved entity geometry and solver status (sketch.md `SolveResult`).
     pub solved: SolveResult,
     /// Closed regions and profile findings of the solved entities (sketch.md `Profile`).
@@ -175,6 +209,7 @@ pub fn apply_op(
     };
     let Some(target) = state.shape() else {
         return Err(FeatureError::BodyEmpty {
+            field: context.field("body"),
             body: body.clone(),
             use_new: true,
         });
@@ -259,7 +294,7 @@ pub fn apply_op_result(
     }
     let mut inputs: Vec<&NamingMap> = vec![state.naming()];
     inputs.extend(tools.iter().map(|tool| &tool.naming));
-    let named = name_by_history(context.feature(), &result, &inputs)?;
+    let named = name_by_history(context.feature(), &result, &inputs, &Motion::IDENTITY)?;
     let update = BodyUpdate {
         body: body.clone(),
         shape: Some(result.shape),
@@ -298,7 +333,7 @@ fn combine_tools(
     let shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
     let result = fuse(&shapes[0], &shapes[1..])?;
     let inputs: Vec<&NamingMap> = tools.iter().map(|tool| &tool.naming).collect();
-    let named = name_by_history(context.feature(), &result, &inputs)?;
+    let named = name_by_history(context.feature(), &result, &inputs, &Motion::IDENTITY)?;
     Ok((result.shape, named.naming, Some(named.topology)))
 }
 
@@ -309,6 +344,7 @@ mod tests {
 
     use super::*;
     use crate::context::BodyState;
+    use crate::error::FieldRef;
     use crate::naming::topology_info;
     use crate::test_support::{Fixture, box_body, face_names, id, named_box, volume};
 
@@ -383,6 +419,10 @@ mod tests {
         assert_eq!(
             result.map(|_| ()),
             Err(FeatureError::BodyEmpty {
+                field: FieldRef {
+                    path: "body".to_string(),
+                    label: "body".to_string(),
+                },
                 body: id("b-1"),
                 use_new: true
             })
@@ -743,6 +783,7 @@ mod tests {
         .expect("the solve result deserializes");
         let sketch = SketchResult {
             placement: OriginPlane::Xz.placement(),
+            motion: Motion::IDENTITY,
             profile: build_profile(&[]),
             solved: SolveResult { entities, ..solved },
         };

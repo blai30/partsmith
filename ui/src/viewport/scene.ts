@@ -1,5 +1,5 @@
 import type { BodyMeshData, CoreEvent } from '../core/events'
-import { featureLabel } from '../core/labels'
+import { featureLabel, type WorldAxis } from '../core/labels'
 import type { BoundingBox, Body, DocHandle, Placement, SketchSolution } from '../generated/protocol'
 import type { Rectangle } from '../inspector/placement'
 import { originItem } from '../inspector/selection-values'
@@ -10,6 +10,7 @@ import { regionSelectionItem } from '../sketch/hit'
 import type { AppState, HelperSketch, SelectionItem } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
 import {
+  AXIS_ROLES,
   contrastRatio,
   encodedFromHex,
   linearFromHex,
@@ -27,16 +28,18 @@ import {
   type Rgb,
 } from './backend'
 import {
-  aspectOf,
-  canvasPosition,
   depthRange,
   eye,
+  framedArea,
   normalizedPosition,
-  projectionMatrix,
   visibleHeightAtTarget,
   viewMatrix,
+  windowAspect,
+  windowPosition,
+  windowProjection,
   type Camera,
   type Vector3,
+  type ViewWindow,
 } from './camera'
 import {
   drawnGridSpacing,
@@ -47,15 +50,7 @@ import {
   millimetersPerPixelAtTarget,
   type GridSegments,
 } from './grid'
-import {
-  boundsCenter,
-  boundsCorners,
-  boundsDiagonal,
-  dot,
-  extendBounds,
-  subtract,
-  type Bounds,
-} from './math'
+import { boundsCenter, boundsCorners, boundsDiagonal, extendBounds, type Bounds } from './math'
 import type { PickClass, PickResult, SelectionItemKind } from './picking'
 import {
   activeFieldKind,
@@ -64,7 +59,14 @@ import {
   shownSelection,
   type Picking,
 } from './picking-rules'
-import { drawnOriginPlanes, ORIGIN_PLANE_PLACEMENTS, planeExtent, squareCorners } from './planes'
+import {
+  drawnOriginPlanes,
+  ORIGIN_PLANE_NORMAL_AXES,
+  ORIGIN_PLANE_PLACEMENTS,
+  planeExtent,
+  sketchWorldAxes,
+  squareCorners,
+} from './planes'
 import { sectionFrameClip, sectionOffsetMillimeters } from './section'
 import {
   curveLines,
@@ -77,6 +79,7 @@ import {
   segmentsOnPlane,
   sequentialIds,
   sketchBounds,
+  sketchAxisSpans,
   sketchOriginItem,
   yAxisOf,
   type SolvedEntity,
@@ -116,16 +119,17 @@ export type Scene = {
   targetFor(pickId: number): { readonly result: PickResult; readonly pickClass: PickClass } | null
   /** Bounds of visible model geometry, sketches and datum planes; null when nothing is visible. */
   visibleBounds(state: AppState): BoundingBox | null
-  /** Screen rectangle (CSS pixels) covering selection items, or null. */
+  /** Canvas rectangle (CSS pixels) covering selection items, or null. */
   screenRectangle(
     items: readonly SelectionItem[],
     camera: Camera,
-    size: { width: number; height: number },
+    view: ViewWindow,
   ): Rectangle | null
+  /** `frame.projection` is `windowProjection(camera, view, near, far)` (2.11). */
   frame(
     state: AppState,
     camera: Camera,
-    size: { width: number; height: number; pixelRatio: number },
+    view: ViewWindow & { readonly pixelRatio: number },
   ): RenderFrame
   restore(): void
   /** Model elements drawn selected besides selected bodies: resolved selection references and feature highlighting. */
@@ -168,10 +172,8 @@ const PROBLEM_HALO_AMOUNT = 0.3
 const PLANE_FILL_OPACITY = 0.15
 const PLANE_OUTLINE_OPACITY = 0.6
 const NON_PART_OPACITY = 0.4
-/** The length of the sketch axes, as a multiple of the larger visible extent at the target. */
-const SKETCH_AXIS_REACH = 4
 
-const ORIGIN_AXES: readonly { readonly name: 'X' | 'Y' | 'Z'; readonly direction: Vector3 }[] = [
+const ORIGIN_AXES: readonly { readonly name: WorldAxis; readonly direction: Vector3 }[] = [
   { name: 'X', direction: [1, 0, 0] },
   { name: 'Y', direction: [0, 1, 0] },
   { name: 'Z', direction: [0, 0, 1] },
@@ -222,6 +224,11 @@ function bodyMeshKey(documentHandle: DocHandle, body: string): string {
 
 function colorOf(theme: ThemeName, role: ViewportRole): Rgb {
   return linearFromHex(VIEWPORT_COLORS[theme][role])
+}
+
+/** One linear color per element, in the roles of these world axes (3.12, 3.16.2). */
+function axisColors(theme: ThemeName, axes: readonly WorldAxis[]): Float32Array {
+  return new Float32Array(axes.flatMap((axis) => [...colorOf(theme, AXIS_ROLES[axis])]))
 }
 
 /**
@@ -308,6 +315,8 @@ type VisibleSketch = {
   readonly id: string
   readonly solution: SketchSolution
   readonly active: boolean
+  /** The world axes along its x and y axes on an origin plane, else null (3.16.2). */
+  readonly worldAxes: readonly [WorldAxis, WorldAxis] | null
 }
 
 /** A datum plane the scene draws. */
@@ -328,7 +337,7 @@ function visibleSketches(state: AppState): readonly VisibleSketch[] {
     if (solution === undefined || (!active && !isSessionVisible(state, `feature:${feature.id}`))) {
       return []
     }
-    return [{ id: feature.id, solution, active }]
+    return [{ id: feature.id, solution, active, worldAxes: sketchWorldAxes(feature) }]
   })
 }
 
@@ -596,8 +605,10 @@ export function createScene(backend: RenderBackend): Scene {
   function frame(
     state: AppState,
     camera: Camera,
-    size: { width: number; height: number; pixelRatio: number },
+    view: ViewWindow & { readonly pixelRatio: number },
   ): RenderFrame {
+    // Pixel-sized quantities measure the free area, which the camera frames (2.11).
+    const freeHeight = framedArea(view).height
     lastState = state
     const document = state.document
     pruneDocuments(document?.documentHandle ?? null)
@@ -660,7 +671,7 @@ export function createScene(backend: RenderBackend): Scene {
     // The ground or sketch grid (3.12 pass 4), never picked: after the faces, which hide it, and
     // before the edges, so an edge lying on the grid (a part's bottom edges on the ground) is drawn
     // over the grid line it coincides with instead of under it.
-    const gridDraws = drawGrid(state, bounds, camera, size.height, theme, scale)
+    const gridDraws = drawGrid(state, bounds, camera, freeHeight, theme, scale)
     for (const corner of gridDraws.corners) {
       sceneBounds = extendBounds(sceneBounds, [corner])
     }
@@ -686,7 +697,7 @@ export function createScene(backend: RenderBackend): Scene {
           theme,
           scale,
           camera,
-          size,
+          view,
           picking,
           highlight,
         }),
@@ -710,14 +721,13 @@ export function createScene(backend: RenderBackend): Scene {
     }
 
     const draws = assignPickIds(pending)
-    const aspect = aspectOf(size)
     const { near, far } = sceneDepthRange(camera, sceneBounds)
     return {
       view: viewMatrix(camera),
-      projection: projectionMatrix(camera, aspect, near, far),
+      projection: windowProjection(camera, view, near, far),
       eye: eye(camera),
       orthographic: camera.projection === 'orthographic',
-      pixelRatio: size.pixelRatio,
+      pixelRatio: view.pixelRatio,
       uiScale: scale,
       theme: viewportTheme(theme),
       draws,
@@ -785,20 +795,24 @@ export function createScene(backend: RenderBackend): Scene {
   ): { readonly draws: PendingDraw[]; readonly corners: readonly (readonly Vector3[])[] } {
     const document = state.document
     const datumColor = colorOf(theme, 'datum')
+    // Datum planes in `datum`; origin planes in their normal's axis role (3.12).
     const planeKinds: {
       readonly key: string
       readonly item: SelectionItem
       readonly placement: Placement
+      readonly color: Rgb
     }[] = [
       ...datums.map((datum) => ({
         key: `feature:${datum.id}`,
         item: plainItem(`feature:${datum.id}`, 'datum_plane', datum.id, { feature: datum.id }),
         placement: datum.placement,
+        color: datumColor,
       })),
       ...drawnOriginPlanes(state).map((plane) => ({
         key: `origin:${plane}`,
         item: originItem(plane),
         placement: ORIGIN_PLANE_PLACEMENTS[plane],
+        color: colorOf(theme, AXIS_ROLES[ORIGIN_PLANE_NORMAL_AXES[plane]]),
       })),
     ]
     const draws: PendingDraw[] = []
@@ -825,7 +839,7 @@ export function createScene(backend: RenderBackend): Scene {
       const states = itemStates([plane.item], highlight)
       draws.push({
         call: {
-          ...overlayCall(datumColor, 'translucent', PLANE_FILL_OPACITY, 0, false, false),
+          ...overlayCall(plane.color, 'translucent', PLANE_FILL_OPACITY, 0, false, false),
           id: fillId,
           depthTest: true,
         },
@@ -836,7 +850,7 @@ export function createScene(backend: RenderBackend): Scene {
       draws.push({
         call: {
           ...overlayCall(
-            datumColor,
+            plane.color,
             'translucent',
             PLANE_OUTLINE_OPACITY,
             PLANE_OUTLINE_WIDTH * scale,
@@ -1156,6 +1170,7 @@ export function createScene(backend: RenderBackend): Scene {
     const axes = ORIGIN_AXES.filter(
       (axis) => axisFieldActive || isSessionVisible(state, `origin:${axis.name}`),
     )
+    // The origin point in `sketchReference`, each axis in its own role (3.12).
     const color = colorOf(theme, 'sketchReference')
     const draws: PendingDraw[] = []
     if (axes.length === 0) {
@@ -1178,6 +1193,10 @@ export function createScene(backend: RenderBackend): Scene {
       draws.push({
         call: {
           ...overlayCall(color, 'translucent', 1, REFERENCE_CURVE_WIDTH * scale, true, true),
+          elementColors: axisColors(
+            theme,
+            axes.map((axis) => axis.name),
+          ),
           id: 'origin:axes',
           pickSize: SKETCH_CURVE_PICK_WIDTH * scale,
         },
@@ -1214,7 +1233,7 @@ export function createScene(backend: RenderBackend): Scene {
     readonly theme: ThemeName
     readonly scale: number
     readonly camera: Camera
-    readonly size: { readonly width: number; readonly height: number }
+    readonly view: ViewWindow
     readonly picking: Picking
     readonly highlight: Highlight
   }
@@ -1232,17 +1251,11 @@ export function createScene(backend: RenderBackend): Scene {
       remove(originId)
       return []
     }
-    const camera = input.camera
-    const aspect = aspectOf(input.size)
-    const reach = SKETCH_AXIS_REACH * visibleHeightAtTarget(camera) * Math.max(aspect, 1)
-    const yAxis = yAxisOf(solution.placement)
-    const offset = subtract(camera.target, solution.placement.origin)
-    const alongX = dot(offset, solution.placement.x_axis)
-    const alongY = dot(offset, yAxis)
-    // Quantized so the axes are uploaded again only after a large camera change.
-    const quantum = Math.max(reach / 8, 1e-6)
-    const centerX = Math.round(alongX / quantum) * quantum
-    const centerY = Math.round(alongY / quantum) * quantum
+    const {
+      center: [centerX, centerY],
+      reach,
+      quantum,
+    } = sketchAxisSpans(solution.placement, input.camera, input.view)
     const axisSignature = JSON.stringify([
       solution.placement,
       centerX,
@@ -1268,6 +1281,8 @@ export function createScene(backend: RenderBackend): Scene {
       {
         call: {
           ...overlayCall(reference, 'overlay', 1, REFERENCE_CURVE_WIDTH * scale, true, true),
+          // On an origin plane the axes are world axes, in their roles (3.16.2).
+          elementColors: sketch.worldAxes === null ? null : axisColors(theme, sketch.worldAxes),
           id: axesId,
           pickSize: SKETCH_CURVE_PICK_WIDTH * scale,
         },
@@ -1291,7 +1306,7 @@ export function createScene(backend: RenderBackend): Scene {
   function sketchDraws(state: AppState, sketch: VisibleSketch, input: SketchInput): PendingDraw[] {
     const { theme, scale, picking, highlight } = input
     const { solution } = sketch
-    const tolerance = sketchTolerance(input.camera, input.size.height)
+    const tolerance = sketchTolerance(input.camera, framedArea(input.view).height)
     const prefix = `sketch:${sketch.id}`
     const reference = colorOf(theme, 'sketchReference')
     // In sketch mode only the active sketch is pickable; elsewhere visible sketches are (3.6).
@@ -1602,8 +1617,8 @@ export function createScene(backend: RenderBackend): Scene {
 
     visibleBounds,
 
-    screenRectangle(items, camera, size) {
-      const aspect = size.height > 0 ? size.width / size.height : 1
+    screenRectangle(items, camera, view) {
+      const aspect = windowAspect(view)
       let left = Number.POSITIVE_INFINITY
       let top = Number.POSITIVE_INFINITY
       let rightEdge = Number.NEGATIVE_INFINITY
@@ -1614,7 +1629,7 @@ export function createScene(backend: RenderBackend): Scene {
           if (position === null) {
             continue
           }
-          const { x, y } = canvasPosition(position, size)
+          const { x, y } = windowPosition(view, position)
           left = Math.min(left, x)
           rightEdge = Math.max(rightEdge, x)
           top = Math.min(top, y)

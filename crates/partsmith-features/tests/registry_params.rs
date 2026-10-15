@@ -7,8 +7,8 @@ mod common;
 
 use common::{
     NoNames, Probe, Slab, evaluate, extrude_record, id, link_pairs, params_text, record,
-    record_text, rectangle_profile, rectangle_sketch_record, slab_manifest, slab_record,
-    use_triples,
+    record_text, rectangle_profile, rectangle_sketch_record, render_error, slab_manifest,
+    slab_record, use_triples,
 };
 use partsmith_features::{FeatureError, FieldUnit, Registry, Validated};
 use partsmith_model::{
@@ -303,7 +303,7 @@ fn t010_unknown_type_message() {
     };
 
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        render_error(&error, "f-ext1", &NoNames),
         "This document uses a feature type 'gear' that this version of Partsmith does not have. Update Partsmith, or delete the feature."
     );
 }
@@ -378,7 +378,7 @@ fn t012_invalid_params_message() {
     };
 
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        render_error(&error, "f-ext1", &NoNames),
         "This feature's settings are invalid: the setting 'body' is missing. Fix the setting, or delete and recreate the feature."
     );
 }
@@ -404,7 +404,7 @@ fn t013_fillet_without_edges_is_an_empty_selection() {
         Some("edges")
     );
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        render_error(&error, "f-fil1", &NoNames),
         "Select at least one edge for Edges."
     );
 }
@@ -428,7 +428,7 @@ fn t013_validate_rejects_an_empty_selection() {
         Some("profile")
     );
     assert_eq!(
-        error.render(&NoNames, Units::Mm),
+        render_error(&error, "f-ext1", &NoNames),
         "Select at least one region for Profile."
     );
 }

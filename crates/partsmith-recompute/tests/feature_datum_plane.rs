@@ -9,8 +9,12 @@ use std::time::Duration;
 
 use feature_support::{
     AXIS_TOLERANCE, Run, assert_coordinates, assert_element_repair, assert_examples_canonical,
-    assert_median_build_within, assert_placement, datum_placement, link_ids, load_example,
+    assert_median_build_within, assert_messages_pass_lint, assert_placement, datum_placement,
+    link_ids, load_example, message, use_reference,
 };
+use partsmith_features::{Diagnosis, FeatureWarning, Fix};
+use partsmith_model::Id;
+use partsmith_naming::Follow;
 
 /// A box of size 10 at position (3, 4, 0) in `b-1`: x from -2 to 8, y from -1 to 9, z from 0 to 10.
 const BOX_AT_3_4: &str = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "position": ["3", "4", "0"], "op": "new"}"#;
@@ -248,6 +252,22 @@ fn t013_lost_face() {
     run.assert_ok("f-box1");
     let error = run.assert_error("f-dp1", "reference_not_found");
     assert_element_repair(error.repair(), "/base/face", "b-1");
+    let fixes = run.error_fixes("f-dp1", &Diagnosis::default());
+    // The only face of 'Box 1' that faces the way the stored face did comes first.
+    assert_eq!(
+        fixes.first(),
+        Some(&use_reference(
+            "/base/face",
+            run.picked_before("f-dp1", "b-1", "f-box1/top")
+        ))
+    );
+    assert_eq!(
+        fixes.last(),
+        Some(&Fix::Pick {
+            pointer: "/base/face".to_string()
+        })
+    );
+    assert_messages_pass_lint(&run, "f-dp1");
 }
 
 #[test]
@@ -272,4 +292,61 @@ fn t015_xy_offset_builds_within_0_1_ms() {
     let document = load_example("datum_plane/xy-offset.ptsm");
 
     assert_median_build_within(&document, "f-dp1", 21, Duration::from_micros(100));
+}
+
+#[test]
+fn t018_a_shell_inserted_under_the_datums_face_keeps_it_on_the_rim() {
+    // Corpus R58: the shell removes the top, and its rim continues it in the same plane.
+    let top = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4"}"#;
+    let run = Run::records(
+        &["b-1"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["80", "50", "30"], "op": "new"}"#,
+            &format!(
+                r#"{{"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2", "remove_faces": [{top}]}}"#
+            ),
+            &datum_plane(
+                &format!(r#"{{"kind": "face", "body": "b-1", "face": {top}}}"#),
+                r#", "offset": "-2""#,
+            ),
+        ],
+    );
+    // Recompute's diagnosis names the shell whose rim the reference followed (recompute.md section 3.10).
+    let diagnosis = Diagnosis {
+        by: Some(Id::new("f-sh1").expect("a valid id")),
+        ..Diagnosis::default()
+    };
+
+    run.assert_notices("f-dp1", &["reference_followed"]);
+    assert!(matches!(
+        run.warning("f-dp1", "reference_followed"),
+        FeatureWarning::ReferenceFollowed {
+            follow: Follow::Continued,
+            ..
+        }
+    ));
+    assert_eq!(
+        message(&run, "f-dp1", "reference_followed")
+            .pointer
+            .as_deref(),
+        Some("/base/face")
+    );
+    assert_eq!(
+        run.render_warning("f-dp1", "reference_followed", &diagnosis),
+        "The top of 'Box 1' selected for Base plane was removed by 'Shell 1', which left its rim in the same place, so the rim is used."
+    );
+    assert_eq!(
+        run.warning_fixes("f-dp1", "reference_followed", &diagnosis),
+        [
+            Fix::KeepMatch {
+                pointer: "/base/face".to_string()
+            },
+            Fix::Pick {
+                pointer: "/base/face".to_string()
+            },
+        ]
+    );
+    let placement = datum_placement(&run, "f-dp1");
+    assert_coordinates("origin", placement.origin, [0.0, 0.0, 28.0], AXIS_TOLERANCE);
+    assert_coordinates("normal", placement.normal, [0.0, 0.0, 1.0], AXIS_TOLERANCE);
 }

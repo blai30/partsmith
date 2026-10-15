@@ -388,17 +388,18 @@ describe('controls for other schema shapes', () => {
   })
 })
 
+/** The axis of the field at a path for these params. */
+function axisOf(
+  feature: CatalogFeature,
+  params: Readonly<Record<string, unknown>>,
+  path: string,
+): InspectorField['axis'] {
+  return field(buildInspectorModel({ feature, params, errors: {} }), path).axis
+}
+
 describe('axis fields (U-180)', () => {
   const MOVE_BODY = testFeature('move_body')
   const BOX = testFeature('box')
-
-  function axisOf(
-    feature: CatalogFeature,
-    params: Readonly<Record<string, unknown>>,
-    path: string,
-  ): InspectorField['axis'] {
-    return field(buildInspectorModel({ feature, params, errors: {} }), path).axis
-  }
 
   it('U-180 gives Move body’s translation the world axes X, Y and Z', () => {
     const params = { body: 'b-cube', translation: ['0', '0', '0'] }

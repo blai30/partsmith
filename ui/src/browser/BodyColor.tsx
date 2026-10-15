@@ -156,7 +156,7 @@ function ColorPopover({ body, anchor, current, onClose }: ColorPopoverProps) {
               }
             }}
             className={clsx(
-              'h-8 w-full rounded-sm border px-2 text-sm',
+              'h-8 w-full rounded-md border px-2 text-sm',
               FONT_CLASSES.values,
               COLOR_CLASSES.field.background,
               COLOR_CLASSES.text.foreground,

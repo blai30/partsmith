@@ -11,7 +11,7 @@ import { COLOR_CLASSES } from '../theme/roles'
 export type RegionBoundaryProps = {
   /** The region's name, for the console report. */
   readonly region: string
-  /** Layout classes for the fallback, so it keeps the region's place in the window. */
+  /** Layout and shape classes for the fallback, so it keeps the region's place and island shape in the window (3.2). */
   readonly fallbackClassName?: string
   readonly children: ReactNode
 }
@@ -37,8 +37,10 @@ export class RegionBoundary extends Component<RegionBoundaryProps, RegionBoundar
       <div
         role="alert"
         className={clsx(
-          'flex min-h-0 min-w-0 flex-col items-start gap-3 overflow-auto p-4 text-sm',
+          'flex min-h-0 min-w-0 flex-col items-start gap-3 overflow-hidden p-4 text-sm',
           COLOR_CLASSES.surface.background,
+          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
           this.props.fallbackClassName,
         )}

@@ -65,7 +65,7 @@ export function RenameField({ initial, onDone, className }: RenameFieldProps) {
         finish(value)
       }}
       className={clsx(
-        'h-7 rounded-sm border px-2 text-sm',
+        'h-7 rounded-md border px-2 text-sm',
         COLOR_CLASSES.field.background,
         COLOR_CLASSES.accent.border,
         COLOR_CLASSES.text.foreground,

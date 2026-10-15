@@ -7,14 +7,17 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    BOX_BELOW, Run, assert_bounding_box, assert_empty, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
-    assert_face_names, assert_face_normal, assert_has_face, assert_median_build_within,
+    BOX_BELOW, Run, absent_faces, assert_bounding_box, assert_empty, assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_axis_direction,
+    assert_face_axis_through, assert_face_count, assert_face_in_plane, assert_face_names,
+    assert_face_normal, assert_has_face, assert_median_build_within, assert_messages_pass_lint,
     assert_no_face, assert_unchanged, assert_volume, body_update, document_text, element_names,
-    face, load_example, message, parse_document,
+    face, face_names_with_prefix, load_example, message, output_body, parse_document, successions,
+    use_reference,
 };
-use partsmith_features::BodyChange;
-use partsmith_naming::ElementKind;
+use partsmith_features::{BodyChange, Diagnosis, FeatureWarning, Fix};
+use partsmith_model::Id;
+use partsmith_naming::{ElementKind, Follow};
 
 /// `SK-RECT`: `RECT(0, 0, 80, 50)` on XY with id `f-sk1`.
 const RECTANGLE_SKETCH: &str = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}]}"#;
@@ -390,9 +393,12 @@ fn through_all_into_an_empty_body() {
         );
 
         run.assert_error("f-ext1", "body_empty");
+        // features.md section 4.1, `body_empty` with `use_new` and no diagnosis.
         assert_eq!(
             run.messages("f-ext1"),
-            ["Body 'Body 1' is empty at this point. Use op new to start it."],
+            [
+                "Body 'Body 1' has no solid yet at this point, so there is nothing to add to. Set Operation to New body to start it here."
+            ],
             "op {op}",
         );
         assert_empty(&run, "b-1");
@@ -500,7 +506,17 @@ fn t029_join_on_an_empty_body() {
     run.assert_error("f-ext1", "body_empty");
     assert_eq!(
         run.messages("f-ext1"),
-        ["Body 'Body 1' is empty at this point. Use op new to start it."],
+        [
+            "Body 'Body 1' has no solid yet at this point, so there is nothing to add to. Set Operation to New body to start it here."
+        ],
+    );
+    let fixes = run.error_fixes("f-ext1", &Diagnosis::default());
+    assert!(
+        matches!(
+            fixes.as_slice(),
+            [Fix::SetField { feature: None, field, value }] if field.path == "op" && value == "new"
+        ),
+        "{fixes:?}"
     );
 }
 
@@ -515,15 +531,56 @@ fn t030_region_matched_by_fingerprint() {
             .as_deref(),
         Some("/profile/regions/0"),
     );
+    assert_eq!(
+        run.messages("f-ext1"),
+        [
+            "The outline of the region of 'Sketch 1' selected for Profile was drawn again, so the region with the same size and place is used. Check it, then keep it or pick it again."
+        ],
+    );
+    assert_eq!(
+        run.warning_fixes("f-ext1", "region_remapped", &Diagnosis::default()),
+        [
+            Fix::KeepRegions {
+                pointer: "/profile/regions/0".to_string()
+            },
+            Fix::Pick {
+                pointer: "/profile/regions/0".to_string()
+            },
+        ],
+    );
     assert_volume(run.shape("b-1"), 120000.0);
 }
 
 #[test]
-fn t031_region_matched_by_outer_boundary() {
-    let run = Run::example("extrude/region-by-outer-boundary.ptsm");
+fn t031_a_hole_circle_drawn_again() {
+    // The stored hole circle e-6 is gone and e-5 is drawn in its place: e-5 is new geometry, so its disc fills
+    // the hole and the profile is the whole rectangle (features.md open issue 10).
+    let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}, {"id": "e-5", "type": "circle", "center": [40, 25], "radius": 10}]}"#;
+    let profile = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4;~e-6", "fp": "c=40,25|a=3685.840735"}]}"#;
+    let run = Run::records(
+        &["b-1"],
+        &[sketch, &extrude(profile, &distance("10"), "new")],
+    );
 
-    run.assert_warnings("f-ext1", &["region_remapped"]);
-    assert_volume(run.shape("b-1"), 36858.407346);
+    run.assert_notices("f-ext1", &["region_split"]);
+    assert!(
+        matches!(
+            run.warning("f-ext1", "region_split"),
+            FeatureWarning::RegionSplit { count: 2, .. }
+        ),
+        "{:?}",
+        run.feature("f-ext1").warnings
+    );
+    assert_eq!(
+        run.messages("f-ext1"),
+        [
+            "The region of 'Sketch 1' selected for Profile is now split in 2 parts by other curves of the sketch, and all of them are used. Remove a part from the profile to leave it out."
+        ],
+    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 40000.0);
+    assert_face_count(shape, 6);
+    assert_no_face(run.body("b-1"), "f-ext1/lateral/e-5");
 }
 
 #[test]
@@ -534,6 +591,24 @@ fn t032_one_region_missing() {
     assert_eq!(
         message(&run, "f-ext1", "region_missing").pointer.as_deref(),
         Some("/profile/regions/1"),
+    );
+    assert_eq!(
+        run.messages("f-ext1"),
+        [
+            "The region of 'Sketch 1' selected for Profile is gone because its outline was drawn again, so it was skipped."
+        ],
+    );
+    assert_eq!(
+        run.warning_fixes("f-ext1", "region_missing", &Diagnosis::default()),
+        [
+            Fix::Show {
+                feature: Id::new("f-sk1").expect("a valid id"),
+                entity: None,
+            },
+            Fix::Pick {
+                pointer: "/profile/regions/1".to_string()
+            },
+        ],
     );
     assert_volume(run.shape("b-1"), 120000.0);
 }
@@ -555,7 +630,9 @@ fn t033_all_regions_missing() {
     run.assert_error("f-ext1", "profile_not_found");
     assert_eq!(
         run.messages("f-ext1"),
-        ["None of the selected regions of 'Sketch 1' can be found anymore. Re-pick the profile."],
+        [
+            "The region of 'Sketch 1' selected for Profile is gone because its outline was drawn again."
+        ],
     );
 }
 
@@ -805,4 +882,435 @@ fn t046_two_sides_below_the_tolerance() {
 
     run.assert_error("f-ext1", "both_sides_zero");
     assert_empty(&run, "b-1");
+}
+
+// Tests 47 to 57 use `BLOCK`: `SK-RECT` and the extrude of `P-RECT-V2`, the rectangle region as a pick stores it
+// since file format version 2, distance 30, op new (x 0..80, y 0..50, z 0..30). Sketch edits are applied to the
+// document as it stands; the documents below are the documents after the edit.
+
+/// `P-RECT-V2`: the region of `SK-RECT` with its outline.
+const RECTANGLE_PROFILE_V2: &str = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000", "outline": "e-1,e-2,e-3,e-4"}]}"#;
+
+/// The right top edge of `BLOCK`, as stored before the edit (corpus R06).
+const RIGHT_TOP_EDGE: &str = r#"{"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-2)", "fp": "line|n=0,1,0|c=80,25,30|l=50|adj=2,2"}"#;
+
+/// The back top edge of `BLOCK`, as stored before the edit (corpus R07 and R66).
+const BACK_TOP_EDGE: &str = r#"{"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)", "fp": "line|n=1,0,0|c=40,50,30|l=80|adj=2,2"}"#;
+
+/// A line entity.
+fn line(entity: &str, start: [i32; 2], end: [i32; 2]) -> String {
+    format!(
+        r#"{{"id": "{entity}", "type": "line", "start": [{}, {}], "end": [{}, {}]}}"#,
+        start[0], start[1], end[0], end[1]
+    )
+}
+
+/// The lines of `SK-RECT` without `removed`, followed by `added`.
+fn rectangle_lines(removed: &[&str], added: &[String]) -> Vec<String> {
+    [
+        ("e-1", [0, 0], [80, 0]),
+        ("e-2", [80, 0], [80, 50]),
+        ("e-3", [80, 50], [0, 50]),
+        ("e-4", [0, 50], [0, 0]),
+    ]
+    .into_iter()
+    .filter(|(entity, _, _)| !removed.contains(entity))
+    .map(|(entity, start, end)| line(entity, start, end))
+    .chain(added.iter().cloned())
+    .collect()
+}
+
+/// The sketch `f-sk1` on XY with these entities.
+fn rectangle_sketch_with(entities: &[String]) -> String {
+    format!(
+        r#"{{"id": "f-sk1", "type": "sketch", "plane": {{"kind": "origin", "plane": "XY"}}, "entities": [{}]}}"#,
+        entities.join(", ")
+    )
+}
+
+/// `FIL(edge, radius)`: the fillet `f-fil1` of one edge in `b-1`.
+fn fillet(edge: &str, radius: &str) -> String {
+    format!(
+        r#"{{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{edge}], "radius": "{radius}"}}"#
+    )
+}
+
+/// `BLOCK` with the sketch lines `lines` and the extrude distance `distance`, followed by `others`.
+fn block_run(lines: &[String], distance_expr: &str, others: &[&str]) -> Run {
+    let sketch = rectangle_sketch_with(lines);
+    let extrude = extrude(RECTANGLE_PROFILE_V2, &distance(distance_expr), "new");
+    let mut features: Vec<&str> = vec![&sketch, &extrude];
+    features.extend_from_slice(others);
+    Run::records(&["b-1"], &features)
+}
+
+/// A diagnosis that names the sketch a followed or widened reference followed (recompute.md section 3.10).
+fn followed_in_the_sketch() -> Diagnosis {
+    Diagnosis {
+        by: Some(Id::new("f-sk1").expect("a valid id")),
+        ..Diagnosis::default()
+    }
+}
+
+/// `KeepMatch` then `Pick` at `pointer`.
+fn keep_and_pick(pointer: &str) -> [Fix; 2] {
+    [
+        Fix::KeepMatch {
+            pointer: pointer.to_string(),
+        },
+        Fix::Pick {
+            pointer: pointer.to_string(),
+        },
+    ]
+}
+
+/// `BLOCK` after deleting `e-2` and drawing `e-9` in its place (corpus R06a), with the fillet of radius 2 on the right
+/// top edge as stored before the edit, or `stored` in its place.
+fn redrawn_right_side(stored: &str) -> Run {
+    let lines = rectangle_lines(&["e-2"], &[line("e-9", [80, 0], [80, 50])]);
+    block_run(&lines, "30", &[&fillet(stored, "2")])
+}
+
+#[test]
+fn t047_a_side_line_deleted_and_drawn_again_is_followed() {
+    let run = redrawn_right_side(RIGHT_TOP_EDGE);
+
+    run.assert_ok("f-ext1");
+    let after_extrude = output_body(&run, "f-ext1", "b-1");
+    assert_has_face(&after_extrude, "f-ext1/lateral/e-9");
+    assert_eq!(
+        successions(&after_extrude),
+        [(
+            "f-ext1/lateral/e-2".to_string(),
+            vec!["f-ext1/lateral/e-9".to_string()]
+        )],
+    );
+    assert!(
+        after_extrude.naming().aliases().is_empty(),
+        "a succession is never a merge alias"
+    );
+    run.assert_notices("f-fil1", &["reference_followed"]);
+    assert!(matches!(
+        run.warning("f-fil1", "reference_followed"),
+        FeatureWarning::ReferenceFollowed {
+            follow: Follow::Replaced,
+            ..
+        }
+    ));
+    assert_eq!(
+        message(&run, "f-fil1", "reference_followed")
+            .pointer
+            .as_deref(),
+        Some("/edges/0"),
+    );
+    assert_eq!(
+        run.warning_fixes("f-fil1", "reference_followed", &Diagnosis::default()),
+        keep_and_pick("/edges/0"),
+    );
+    assert_messages_pass_lint(&run, "f-fil1");
+}
+
+#[test]
+fn t047_the_fillet_stays_on_the_right_top_edge() {
+    let run = redrawn_right_side(RIGHT_TOP_EDGE);
+
+    let rounded = face(
+        run.body("b-1"),
+        "f-fil1/fillet/edge(f-ext1/end-cap|f-ext1/lateral/e-9)",
+    );
+    assert_face_axis_direction(&rounded, [0.0, 1.0, 0.0]);
+    assert_face_axis_through(&rounded, [78.0, 25.0, 28.0]);
+    assert_volume(run.shape("b-1"), 119957.079633);
+}
+
+#[test]
+fn t047_keeping_the_match_stores_the_new_edge_and_ends_the_notice() {
+    let run = redrawn_right_side(RIGHT_TOP_EDGE);
+    let kept = run.picked_before("f-fil1", "b-1", "edge(f-ext1/end-cap|f-ext1/lateral/e-9)");
+    let kept_json = serde_json::to_string(&kept).expect("references serialize");
+
+    let after = redrawn_right_side(&kept_json);
+
+    assert_eq!(
+        kept.query.to_string(),
+        "edge(f-ext1/end-cap|f-ext1/lateral/e-9)"
+    );
+    after.assert_ok("f-fil1");
+    assert_volume(after.shape("b-1"), 119957.079633);
+}
+
+/// `BLOCK` after deleting `e-3` and drawing `e-9` in its place, at the extrude distance `distance_expr`, with a fillet
+/// of radius 2 on the back top edge as stored before the edit (corpus R07).
+fn redrawn_back_side(distance_expr: &str) -> Run {
+    let lines = rectangle_lines(&["e-3"], &[line("e-9", [80, 50], [0, 50])]);
+    block_run(&lines, distance_expr, &[&fillet(BACK_TOP_EDGE, "2")])
+}
+
+#[test]
+fn t048_the_follow_lasts_through_the_next_edit() {
+    let after_first_edit = redrawn_back_side("30");
+    after_first_edit.assert_notices("f-fil1", &["reference_followed"]);
+
+    let run = redrawn_back_side("80");
+
+    run.assert_ok("f-ext1");
+    run.assert_notices("f-fil1", &["reference_followed"]);
+    assert_eq!(
+        run.messages("f-fil1"),
+        after_first_edit.messages("f-fil1"),
+        "the same notice as after the first edit"
+    );
+    let rounded = face(
+        run.body("b-1"),
+        "f-fil1/fillet/edge(f-ext1/end-cap|f-ext1/lateral/e-9)",
+    );
+    assert_face_axis_direction(&rounded, [1.0, 0.0, 0.0]);
+    assert_face_axis_through(&rounded, [40.0, 48.0, 78.0]);
+    assert_face_area(&rounded, 251.327412);
+    assert_eq!(
+        face_names_with_prefix(run.body("b-1"), "f-fil1/"),
+        ["f-fil1/fillet/edge(f-ext1/end-cap|f-ext1/lateral/e-9)"],
+        "the bottom back edge stays sharp"
+    );
+    assert_volume(run.shape("b-1"), 319931.327412);
+}
+
+/// `BLOCK` with `e-2` ending at (80, 25) and `e-6` continuing it (corpus R49), and a shell of thickness 2 opening
+/// the right side as stored before the edit.
+fn split_right_side() -> Run {
+    let lines = rectangle_lines(
+        &["e-2"],
+        &[
+            line("e-2", [80, 0], [80, 25]),
+            line("e-6", [80, 25], [80, 50]),
+        ],
+    );
+    let shell = r#"{"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2", "remove_faces": [{"q": "f-ext1/lateral/e-2", "fp": "plane|n=1,0,0|c=80,25,15|a=1500|adj=4,4"}]}"#;
+    block_run(&lines, "30", &[shell])
+}
+
+#[test]
+fn t049_a_side_line_split_by_a_collinear_line_keeps_the_whole_opening() {
+    let run = split_right_side();
+
+    run.assert_ok("f-ext1");
+    let after_extrude = output_body(&run, "f-ext1", "b-1");
+    assert_eq!(
+        successions(&after_extrude),
+        [(
+            "f-ext1/lateral/e-2".to_string(),
+            vec![
+                "f-ext1/lateral/e-2".to_string(),
+                "f-ext1/lateral/e-6".to_string()
+            ]
+        )],
+    );
+    assert_face_in_plane(&face(&after_extrude, "f-ext1/lateral/e-2"), 0, 80.0);
+    assert_face_area(&face(&after_extrude, "f-ext1/lateral/e-2"), 750.0);
+    assert_face_area(&face(&after_extrude, "f-ext1/lateral/e-6"), 750.0);
+    run.assert_notices("f-sh1", &["reference_followed"]);
+    assert!(matches!(
+        run.warning("f-sh1", "reference_followed"),
+        FeatureWarning::ReferenceFollowed {
+            follow: Follow::Extended,
+            ..
+        }
+    ));
+    assert_eq!(
+        message(&run, "f-sh1", "reference_followed")
+            .pointer
+            .as_deref(),
+        Some("/remove_faces/0"),
+    );
+    let shelled = run.body("b-1");
+    assert_no_face(shelled, "f-ext1/lateral/e-2");
+    assert_no_face(shelled, "f-ext1/lateral/e-6");
+    assert_volume(run.shape("b-1"), 26712.0);
+    assert_messages_pass_lint(&run, "f-sh1");
+}
+
+/// The lines of the notch of corpus R66, drawn in place of `e-3`.
+fn notch_lines() -> Vec<String> {
+    vec![
+        line("e-9", [80, 50], [50, 50]),
+        line("e-10", [50, 50], [50, 40]),
+        line("e-11", [50, 40], [30, 40]),
+        line("e-12", [30, 40], [30, 50]),
+        line("e-13", [30, 50], [0, 50]),
+    ]
+}
+
+/// `BLOCK` with `e-3` replaced by the notch, and a fillet of radius 1 on the back top edge as stored before the edit.
+fn notched_back() -> Run {
+    block_run(
+        &rectangle_lines(&["e-3"], &notch_lines()),
+        "30",
+        &[&fillet(BACK_TOP_EDGE, "1")],
+    )
+}
+
+#[test]
+fn t050_a_side_line_replaced_by_a_notch_widens_the_edge() {
+    let run = notched_back();
+
+    run.assert_ok("f-ext1");
+    let after_extrude = output_body(&run, "f-ext1", "b-1");
+    assert_eq!(
+        successions(&after_extrude),
+        [(
+            "f-ext1/lateral/e-3".to_string(),
+            ["e-9", "e-10", "e-11", "e-12", "e-13"]
+                .iter()
+                .map(|entity| format!("f-ext1/lateral/{entity}"))
+                .collect::<Vec<_>>()
+        )],
+    );
+    let notched = after_extrude.shape().expect("the block has a solid");
+    assert_volume(notched, 114000.0);
+    assert_face_count(notched, 10);
+    run.assert_warnings("f-fil1", &["reference_widened"]);
+    assert_eq!(
+        message(&run, "f-fil1", "reference_widened")
+            .pointer
+            .as_deref(),
+        Some("/edges/0"),
+    );
+    assert_eq!(
+        face_names_with_prefix(run.body("b-1"), "f-fil1/fillet/").len(),
+        5,
+        "the fillet is built on all five top edges until the user chooses"
+    );
+    assert_messages_pass_lint(&run, "f-fil1");
+}
+
+#[test]
+fn t050_the_widened_edge_says_what_replaced_its_line() {
+    let run = notched_back();
+
+    assert_eq!(
+        run.render_warning("f-fil1", "reference_widened", &followed_in_the_sketch()),
+        "The back top edge of 'Extrude 1' selected for Edges now covers 5 edges, because the line it was made from was replaced by 5 lines in 'Sketch 1'. Keep all of them, or use only one."
+    );
+}
+
+#[test]
+fn t050_without_a_diagnosis_the_widened_edge_names_its_sketch_in_words() {
+    let run = notched_back();
+
+    assert_eq!(
+        run.render_warning("f-fil1", "reference_widened", &Diagnosis::default()),
+        "The back top edge of 'Extrude 1' selected for Edges now covers 5 edges, because the line it was made from was replaced by 5 lines in its sketch. Keep all of them, or use only one."
+    );
+}
+
+#[test]
+fn t050_the_widened_edge_offers_keep_all_use_only_the_first_line_and_pick() {
+    let run = notched_back();
+
+    assert_eq!(
+        run.warning_fixes("f-fil1", "reference_widened", &followed_in_the_sketch()),
+        [
+            Fix::KeepMatch {
+                pointer: "/edges/0".to_string()
+            },
+            use_reference(
+                "/edges/0",
+                run.picked_before("f-fil1", "b-1", "edge(f-ext1/end-cap|f-ext1/lateral/e-9)"),
+            ),
+            Fix::Pick {
+                pointer: "/edges/0".to_string()
+            },
+        ],
+    );
+}
+
+/// `BLOCK`, `f-dp1` datum XY offset 30, `f-sk2` on it with the circle `e-5` center (40, 25) radius 10, and `f-ext2`,
+/// a cut of that circle with `extent` (corpus R12 and R30 (a)).
+fn round_cut(extent: &str) -> Run {
+    let datum = r#"{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "30"}"#;
+    let sketch = r#"{"id": "f-sk2", "type": "sketch", "plane": {"kind": "datum", "feature": "f-dp1"}, "entities": [{"id": "e-5", "type": "circle", "center": [40, 25], "radius": 10}]}"#;
+    let cut = format!(
+        r#"{{"id": "f-ext2", "type": "extrude", "body": "b-1", "profile": {{"sketch": "f-sk2", "regions": [{{"key": "e-5", "fp": "c=40,25|a=314.159265"}}]}}, "extent": {extent}, "op": "cut"}}"#
+    );
+    block_run(&rectangle_lines(&[], &[]), "30", &[datum, sketch, &cut])
+}
+
+/// A reversed distance extent.
+fn reversed_distance(expr: &str) -> String {
+    format!(r#"{{"kind": "distance", "expr": "{expr}"}}, "reverse": true"#)
+}
+
+#[test]
+fn t051_a_cut_that_goes_all_the_way_through_records_its_end_cap_absent() {
+    for depth in ["30", "40"] {
+        let run = round_cut(&reversed_distance(depth));
+
+        run.assert_ok("f-ext2");
+        assert_eq!(
+            absent_faces(&run, "f-ext2"),
+            [("f-ext2/end-cap".to_string(), "Through".to_string())],
+            "distance {depth}"
+        );
+        let shape = run.shape("b-1");
+        assert_volume(shape, 110575.222039);
+        assert_face_count(shape, 7);
+    }
+}
+
+#[test]
+fn t051_a_pocket_records_nothing_absent() {
+    let run = round_cut(&reversed_distance("5"));
+
+    run.assert_ok("f-ext2");
+    assert!(absent_faces(&run, "f-ext2").is_empty());
+    assert_face_in_plane(&face(run.body("b-1"), "f-ext2/end-cap"), 2, 25.0);
+}
+
+#[test]
+fn t056_a_region_whose_lines_survive_matches_by_boundary() {
+    let run = Run::records(
+        &["b-1"],
+        &[
+            RECTANGLE_SKETCH,
+            &extrude(
+                r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-9", "fp": "c=40,25|a=4000"}]}"#,
+                &distance("30"),
+                "new",
+            ),
+        ],
+    );
+
+    run.assert_ok("f-ext1");
+    assert!(run.messages("f-ext1").is_empty());
+    assert_volume(run.shape("b-1"), 120000.0);
+}
+
+#[test]
+fn t057_a_cut_whose_end_reaches_the_outside_records_end_outside() {
+    let run = round_cut(r#"{"kind": "symmetric", "expr": "40"}"#);
+
+    run.assert_ok("f-ext2");
+    assert_face_in_plane(&face(run.body("b-1"), "f-ext2/start-cap"), 2, 10.0);
+    assert_eq!(
+        absent_faces(&run, "f-ext2"),
+        [("f-ext2/end-cap".to_string(), "EndOutside".to_string())],
+    );
+    assert_volume(run.shape("b-1"), 113716.814693);
+}
+
+#[test]
+fn t057_the_same_cut_from_the_top_goes_through() {
+    let run = round_cut(&reversed_distance("30"));
+
+    assert_eq!(
+        absent_faces(&run, "f-ext2"),
+        [("f-ext2/end-cap".to_string(), "Through".to_string())],
+    );
+}
+
+#[test]
+fn a_new_extrude_records_nothing_absent() {
+    let run = run_rectangle(&distance("30"));
+
+    assert!(absent_faces(&run, "f-ext1").is_empty());
 }

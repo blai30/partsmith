@@ -143,8 +143,8 @@ test.describe('sketching', () => {
       timeout: 15_000,
     })
     await bodyRow(page, 'Body 1').click()
-    await expect(page.getByTestId('body-size')).toHaveText('40 × 20 × 10 mm')
-    await expect(page.getByTestId('body-center')).toHaveText('20, 10, 5 mm')
+    await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', '40 × 20 × 10 mm')
+    await expect(page.getByTestId('body-center')).toHaveAttribute('data-value', '20, 10, 5 mm')
   })
 
   test('E-14 the Extrude distance is checked live as a length', async ({ page }) => {
@@ -259,7 +259,8 @@ test.describe('sketching', () => {
     const dimensionsBefore = await sketchDimensions(page).count()
     await page.keyboard.press('d')
     await clickAt(page, offset(box, 0, -10 * scale))
-    await clickAt(page, offset(box, 0, -10 * scale - 30))
+    // Inside the rectangle, clear of the top-center slot's chips above the sketch (3.2).
+    await clickAt(page, offset(box, 0, -10 * scale + 30))
     const editor = page.getByTestId('dimension-editor')
     await expect(editor).toBeVisible()
     await page.keyboard.type('40')
@@ -372,7 +373,8 @@ test.describe('sketch mode for everyone', () => {
   test('E-70 step prompts lead through drawing a line, and Esc names the way out', async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 1024, height: 720 })
+    // The narrowest window where the browser starts open and docked (3.2).
+    await page.setViewportSize({ width: 1040, height: 720 })
     await openApp(page)
     await newSketchOnTopPlane(page)
     await expect(

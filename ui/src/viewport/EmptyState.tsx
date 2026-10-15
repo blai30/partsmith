@@ -7,14 +7,15 @@ import { useCommandViews } from '../layout/use-commands'
 import { selectEmptyState } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
 import { navigationLegend } from './navigation'
+import { TopCenterSlot } from './TopCenterSlot'
 
-// The empty-document first step (ui.md 3.2): a chip in the viewport's top-center slot while the
+// The empty-document first step (ui.md 3.2): a card in the free area's top-center slot while the
 // document has no features. It follows the document only, with no first-run flag and no setting,
 // so it shows in every empty document and nowhere else.
 
 const FIRST_STEPS: readonly string[] = ['feature.sketch', 'feature.box']
 
-/** The first-step chip while `selectEmptyState` holds; nothing otherwise. */
+/** The first-step card while `selectEmptyState` holds; nothing otherwise. */
 export function EmptyState() {
   const app = useApp()
   const shown = useAppState(selectEmptyState)
@@ -25,14 +26,15 @@ export function EmptyState() {
     return null
   }
   return (
-    <div className="pointer-events-none absolute inset-x-32 top-4 z-10 flex flex-col items-center gap-2">
+    <TopCenterSlot>
       <fieldset
         data-testid="empty-state"
         aria-label="First step"
         className={clsx(
-          'flex max-w-140 flex-col gap-2 rounded-sm border p-3',
+          'pointer-events-auto flex max-w-140 flex-col gap-2 rounded-xl border p-3 shadow-md',
           COLOR_CLASSES.surfaceRaised.background,
           COLOR_CLASSES.border.border,
+          COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
         )}
       >
@@ -41,7 +43,6 @@ export function EmptyState() {
           {steps.map((step) => (
             <Button
               key={step.definition.id}
-              className="pointer-events-auto"
               onClick={() => {
                 runCommand(app, step.definition.id, 'toolbar')
               }}
@@ -54,6 +55,6 @@ export function EmptyState() {
           {`${navigationLegend(navigation)} Search every command: ${formatShortcut('Mod+K', app.platform)}.`}
         </p>
       </fieldset>
-    </div>
+    </TopCenterSlot>
   )
 }

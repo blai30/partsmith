@@ -37,6 +37,7 @@ import {
   CUBE_TOP_FRONT_EDGE,
 } from '../test/fakes/documents'
 import { bodyItem, elementItem, featureItem } from '../test/fakes/selection'
+import { stubResizeObserver, type FakeResizeObservers } from '../test/fakes/resize-observer'
 import { settle } from '../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
 import { ELEMENT_STATE } from './backend'
@@ -46,6 +47,7 @@ import {
   forward,
   standardViewRotation,
   up,
+  windowProjection,
   withProjection,
   type Camera,
 } from './camera'
@@ -65,6 +67,10 @@ type Fixture = {
   readonly scene: Scene
   readonly canvas: HTMLCanvasElement
   readonly overlay: HTMLElement
+  /** The free-area element (3.2); unmeasured (an empty box) unless `free` is given. */
+  readonly freeArea: HTMLElement
+  /** Changes the free area's box relative to the canvas; the next measurement reads it. */
+  setFree(next: Box): void
   readonly controller: ViewportController
   readonly frames: FrameQueue
 }
@@ -85,12 +91,34 @@ type SetUpOptions = {
   readonly document?: DocumentState
   readonly reducedMotion?: boolean
   readonly prepare?: (core: FakeCoreApi) => void
+  /** The canvas size in CSS pixels; 800 by 600 by default. */
+  readonly size?: { readonly width: number; readonly height: number }
+  /** The free area's box relative to the canvas at (0, 0); empty, so unmeasured, by default. */
+  readonly free?: Box
+}
+
+type Box = {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** Stubs an element's bounding box, which the test can change through the returned setter. */
+function stubBox(element: Element, initial: Box): (next: Box) => void {
+  let current = initial
+  vi.spyOn(element, 'getBoundingClientRect').mockImplementation(() => DOMRect.fromRect(current))
+  return (next) => {
+    current = next
+  }
 }
 
 function setUp(options: SetUpOptions = {}): Fixture {
   stubMatchMedia({ reducedMotion: options.reducedMotion ?? true })
   const frames = stubAnimationFrames()
-  cleanups.push(stubElementSize(HTMLCanvasElement.prototype, { width: WIDTH, height: HEIGHT }))
+  cleanups.push(
+    stubElementSize(HTMLCanvasElement.prototype, options.size ?? { width: WIDTH, height: HEIGHT }),
+  )
   const { app, core } = createModelApp({
     state: readyState(options.document ?? cubeDocumentState(), options.state),
   })
@@ -99,18 +127,20 @@ function setUp(options: SetUpOptions = {}): Fixture {
   viewport.dataset.testid = 'viewport'
   const canvas = document.createElement('canvas')
   const overlay = document.createElement('div')
-  viewport.append(canvas, overlay)
+  const freeArea = document.createElement('div')
+  viewport.append(canvas, overlay, freeArea)
   document.body.append(viewport)
+  const setFree = stubBox(freeArea, options.free ?? { x: 0, y: 0, width: 0, height: 0 })
   const backend = createFakeBackend()
   const scene = createScene(backend)
   scene.applyEvent(bodyMeshEvent({ body: 'b-cube', meshId: 1, mesh: CUBE_MESH }))
-  const controller = createViewportController({ app, canvas, overlay, backend, scene })
+  const controller = createViewportController({ app, canvas, overlay, freeArea, backend, scene })
   cleanups.push(() => {
     controller.dispose()
     viewport.remove()
   })
   frames.flush()
-  return { app, core, backend, scene, canvas, overlay, controller, frames }
+  return { app, core, backend, scene, canvas, overlay, freeArea, setFree, controller, frames }
 }
 
 /** Answers picks with one element of the cube mesh at distance 0. */
@@ -1359,5 +1389,254 @@ describe('right clicks and the context menu (3.13)', () => {
     fireEvent.pointerUp(fixture.canvas, { ...press, buttons: 0, clientX: 460 })
     await settle()
     expect(requests).toEqual([])
+  })
+})
+
+/** A column-major 4 by 4 matrix times a 4-vector. */
+function apply(matrix: Float32Array, vector: readonly number[]): number[] {
+  return [0, 1, 2, 3].map((row) =>
+    [0, 1, 2, 3].reduce(
+      (sum, column) => sum + (matrix[column * 4 + row] ?? 0) * (vector[column] ?? 0),
+      0,
+    ),
+  )
+}
+
+/** The canvas box a world box is drawn in by the last frame, from its view and projection. */
+function drawnBox(
+  fixture: Fixture,
+  bounds: BoundingBox,
+  size: { readonly width: number; readonly height: number },
+): Box {
+  const frame = fixture.backend.lastFrame()
+  if (frame === null) {
+    throw new Error('Nothing was rendered.')
+  }
+  const xs: number[] = []
+  const ys: number[] = []
+  for (const x of [bounds.min[0], bounds.max[0]]) {
+    for (const y of [bounds.min[1], bounds.max[1]]) {
+      for (const z of [bounds.min[2], bounds.max[2]]) {
+        const clip = apply(frame.projection, apply(frame.view, [x, y, z, 1]))
+        const homogeneous = clip[3] ?? 1
+        xs.push((((clip[0] ?? 0) / homogeneous + 1) / 2) * size.width)
+        ys.push(((1 - (clip[1] ?? 0) / homogeneous) / 2) * size.height)
+      }
+    }
+  }
+  const left = Math.min(...xs)
+  const top = Math.min(...ys)
+  return { x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top }
+}
+
+/** Expects a drawn box to span x from `left` to `right` and y from `top` to `bottom`, within 0.5 pixel. */
+function expectSpan(box: Box, left: number, right: number, top: number, bottom: number): void {
+  expect(Math.abs(box.x - left)).toBeLessThanOrEqual(0.5)
+  expect(Math.abs(box.x + box.width - right)).toBeLessThanOrEqual(0.5)
+  expect(Math.abs(box.y - top)).toBeLessThanOrEqual(0.5)
+  expect(Math.abs(box.y + box.height - bottom)).toBeLessThanOrEqual(0.5)
+}
+
+describe('framing in the free area (U-177)', () => {
+  const CANVAS = { width: 1200, height: 800 }
+  const FREE = { x: 280, y: 64, width: 640, height: 600 }
+  const CUBE: BoundingBox = { min: [-10, -10, 0], max: [10, 10, 20] }
+  const FRONT = withProjection(
+    { ...DEFAULT_CAMERA, rotation: standardViewRotation('front') },
+    'orthographic',
+  )
+
+  function setUpFront(free: Box = FREE): Fixture & { readonly observers: FakeResizeObservers } {
+    const observers = stubResizeObserver()
+    const fixture = setUp({ size: CANVAS, free })
+    fixture.controller.setCamera(FRONT)
+    fixture.frames.flush()
+    return { ...fixture, observers }
+  }
+
+  it('U-177 projects every frame with windowProjection for the view window', () => {
+    const fixture = setUpFront()
+    expect(fixture.controller.viewWindow()).toEqual({ ...CANVAS, free: FREE })
+    fixture.controller.fit(CUBE)
+    fixture.frames.flush()
+    const projection = fixture.backend.lastFrame()?.projection ?? new Float32Array(16)
+    // An orthographic projection holds 2 / (near - far) and (far + near) / (near - far).
+    const depthScale = projection[10] ?? 0
+    const depthShift = projection[14] ?? 0
+    const near = (depthShift + 1) / depthScale
+    const far = (depthShift - 1) / depthScale
+    const expected = windowProjection(
+      fixture.controller.getCamera(),
+      { ...CANVAS, free: FREE },
+      near,
+      far,
+    )
+    expected.forEach((value, index) => {
+      expect(projection[index]).toBeCloseTo(value, 5)
+    })
+  })
+
+  it('U-177 fits the box into 80 percent of the free area height around its center', () => {
+    const fixture = setUpFront()
+    fixture.controller.fit(CUBE)
+    fixture.frames.flush()
+    expectSpan(drawnBox(fixture, CUBE, CANVAS), 360, 840, 124, 604)
+    const viewport = fixture.canvas.closest('[data-testid="viewport"]')
+    expect(viewport).toHaveAttribute('data-camera-target', '0,0,10')
+  })
+
+  it('U-177 moves a fitted model to the new free area center when an island closes or collapses', () => {
+    const fixture = setUpFront()
+    fixture.controller.fit(CUBE)
+    fixture.frames.flush()
+    const fitted = fixture.controller.getCamera()
+    fixture.setFree({ x: 0, y: 64, width: 920, height: 600 })
+    fixture.observers.fire()
+    fixture.frames.flush()
+    expectSpan(drawnBox(fixture, CUBE, CANVAS), 220, 700, 124, 604)
+    expect(cameraDifference(fixture.controller.getCamera(), fitted)).toBeLessThan(1e-9)
+    fixture.setFree({ x: 0, y: 64, width: 920, height: 656 })
+    fixture.observers.fire()
+    fixture.frames.flush()
+    // The taller free area scales the model up around its new center (460, 392).
+    expectSpan(drawnBox(fixture, CUBE, CANVAS), 197.6, 722.4, 129.6, 654.4)
+  })
+
+  it('U-177 pans and spaces the grid by the free area height, and keeps a panned camera when the area changes', () => {
+    const fixture = setUpFront({ x: 0, y: 64, width: 920, height: 656 })
+    fixture.controller.fit(CUBE)
+    fixture.frames.flush()
+    const before = fixture.controller.getCamera()
+    const press = { pointerId: 1, pointerType: 'mouse', button: 1, buttons: 4, clientY: 300 }
+    fireEvent.pointerDown(fixture.canvas, { ...press, clientX: 400 })
+    fireEvent.pointerMove(fixture.canvas, { ...press, clientX: 500 })
+    fireEvent.pointerUp(fixture.canvas, { ...press, buttons: 0, clientX: 500 })
+    fixture.frames.flush()
+    const panned = fixture.controller.getCamera()
+    expect(before.target[0] - panned.target[0]).toBeCloseTo((100 * 25) / 656, 9)
+    expect(fixture.app.store.getState().view.gridSpacing).toBe(
+      drawnGridSpacing(fixture.app.store.getState(), panned, 656),
+    )
+    fixture.setFree(FREE)
+    fixture.observers.fire()
+    fixture.frames.flush()
+    expect(fixture.controller.getCamera()).toBe(panned)
+  })
+
+  it('U-177 frames a fitted wide box again when the free area narrows', () => {
+    const fixture = setUpFront()
+    const wide: BoundingBox = { min: [-100, -10, 0], max: [100, 10, 40] }
+    fixture.controller.fit(wide)
+    fixture.frames.flush()
+    fixture.setFree({ x: 280, y: 64, width: 400, height: 600 })
+    fixture.observers.fire()
+    fixture.frames.flush()
+    const drawn = drawnBox(fixture, wide, CANVAS)
+    expect(Math.abs(drawn.x - 320)).toBeLessThanOrEqual(0.5)
+    expect(Math.abs(drawn.x + drawn.width - 640)).toBeLessThanOrEqual(0.5)
+  })
+
+  it('U-177 fits beside an open inspector, which moves no camera when it moves or closes', () => {
+    const observers = stubResizeObserver()
+    const canvasSize = { width: 1280, height: 720 }
+    const free = { x: 280, y: 64, width: 992, height: 548 }
+    const fixture = setUp({
+      size: canvasSize,
+      free,
+      state: { selection: [bodyItem('b-cube', 'Cube')] },
+    })
+    fixture.controller.setCamera(FRONT)
+    const inspector = document.createElement('div')
+    inspector.dataset['testid'] = 'inspector'
+    fixture.freeArea.append(inspector)
+    const moveInspector = stubBox(inspector, { x: 280 + 74, y: 64 + 16, width: 320, height: 400 })
+    fixture.controller.fit(CUBE)
+    fixture.frames.flush()
+    const drawn = drawnBox(fixture, CUBE, canvasSize)
+    expect(drawn.x + drawn.width / 2).toBeCloseTo(973, 1)
+    expect(drawn.y + drawn.height / 2).toBeCloseTo(338, 1)
+    expect(drawn.height).toBeCloseTo(438.4, 1)
+    const fitted = fixture.controller.getCamera()
+    moveInspector({ x: 900, y: 80, width: 320, height: 400 })
+    observers.fire()
+    fixture.frames.flush()
+    expect(fixture.controller.getCamera()).toBe(fitted)
+    inspector.remove()
+    observers.fire()
+    fixture.frames.flush()
+    expect(fixture.controller.getCamera()).toBe(fitted)
+  })
+})
+
+describe('islands above the canvas (U-178)', () => {
+  it('U-178 ends the hover when the pointer leaves the canvas for an island, which takes no wheel or click', () => {
+    const fixture = setUp()
+    const topBar = document.createElement('header')
+    topBar.dataset['testid'] = 'top-bar'
+    document.body.append(topBar)
+    cleanups.push(() => {
+      topBar.remove()
+    })
+    pickElement(fixture, 'face', 3)
+    const move = { pointerId: 1, pointerType: 'mouse', buttons: 0, clientX: 120, clientY: 80 }
+    fireEvent.pointerMove(fixture.canvas, move)
+    fixture.frames.flush()
+    expect(fixture.app.store.getState().hover).toEqual({ key: 'mesh:1:face:3', kind: 'face' })
+    fireEvent.pointerLeave(fixture.canvas, move)
+    expect(fixture.app.store.getState().hover).toBeNull()
+    const camera = fixture.controller.getCamera()
+    const selection = fixture.app.store.getState().selection
+    fireEvent.wheel(topBar, { deltaY: 100, clientX: 120, clientY: 80 })
+    fireEvent.pointerDown(topBar, { ...move, button: 0, buttons: 1 })
+    fireEvent.pointerUp(topBar, { ...move, button: 0 })
+    fireEvent.click(topBar, { button: 0, clientX: 120, clientY: 80 })
+    fixture.frames.flush()
+    expect(fixture.controller.getCamera()).toBe(camera)
+    expect(fixture.app.store.getState().selection).toBe(selection)
+    expect(fixture.app.store.getState().hover).toBeNull()
+  })
+})
+
+describe('overlay elements in the free area (U-189)', () => {
+  it('U-189 hides an anchored overlay element outside the free area and places one inside it', () => {
+    const fixture = setUp({
+      size: { width: 1200, height: 800 },
+      free: { x: 280, y: 64, width: 640, height: 600 },
+    })
+    const top = withProjection(
+      { ...DEFAULT_CAMERA, rotation: standardViewRotation('top'), target: [0, 0, 0] },
+      'orthographic',
+    )
+    fixture.controller.setCamera({ ...top, orthographicHeight: 600 })
+    // 1 mm per pixel, the target at the free area's center (600, 364).
+    const outside = document.createElement('span')
+    outside.dataset['anchor'] = '-500,0,0'
+    const inside = document.createElement('span')
+    inside.dataset['anchor'] = '0,0,0'
+    fixture.overlay.append(outside, inside)
+    fixture.controller.requestRender()
+    fixture.frames.flush()
+    expect(outside.hidden).toBe(true)
+    expect(inside.hidden).toBe(false)
+    expect(inside.getAttribute('style')).toMatch(/^translate: 600px 364px;?$/)
+  })
+})
+
+describe('framing as the inspector closes (2.11)', () => {
+  it('frames the whole free area once the store closes the inspector, before React removes it', () => {
+    const canvasSize = { width: 1280, height: 720 }
+    const fixture = setUp({ size: canvasSize, free: { x: 280, y: 64, width: 992, height: 548 } })
+    fixture.controller.setCamera(
+      withProjection({ ...DEFAULT_CAMERA, rotation: standardViewRotation('front') }, 'orthographic'),
+    )
+    // The selection inspector of a selection that was just cleared, still in the DOM.
+    const stale = document.createElement('div')
+    stale.dataset['testid'] = 'inspector'
+    fixture.freeArea.append(stale)
+    stubBox(stale, { x: 280 + 74, y: 64 + 16, width: 320, height: 400 })
+    fixture.controller.fit({ min: [-10, -10, 0], max: [10, 10, 20] })
+    fixture.frames.flush()
+    const viewport = fixture.canvas.closest('[data-testid="viewport"]')
+    expect(viewport).toHaveAttribute('data-camera-target', '0,0,10')
   })
 })

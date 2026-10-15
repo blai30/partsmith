@@ -1,13 +1,15 @@
-//! Message building blocks: current names, value formatting, nouns, reasons and repair data (features.md sections 2.8 and 3.12).
+//! Message building blocks: current names, value formatting, nouns and reasons (features.md sections 2.8 and 3.12).
 
+use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 
-use partsmith_model::{Dimension, Document, FieldUnit, Id, Quantity, Units};
-use partsmith_naming::{ElementKind, ElementName, Reference};
-use partsmith_sketch::RegionRef;
+use partsmith_model::{Dimension, Document, FeatureRecord, FieldUnit, Id, Quantity, Units};
+use partsmith_naming::ElementKind;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::output::{FeatureOutput, OutputData, SketchResult};
 use crate::registry::Registry;
 
 /// A limit in a range error.
@@ -93,50 +95,30 @@ pub enum FallbackReason {
     NotPlanar,
 }
 
-/// Data the repair panel needs to show a lost reference and re-pick it.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Repair {
-    /// A face, edge or vertex reference. `pointer` is the JSON Pointer of the reference in the record.
-    Element {
-        /// JSON Pointer of the reference in the feature record, for example "/edges/1".
-        pointer: String,
-        /// The body the reference is resolved in.
-        body: Id,
-        /// The stored reference.
-        reference: Reference,
-        /// True when the reference matches several elements; false when it matches none.
-        ambiguous: bool,
-        /// The elements an ambiguous reference matches, best first.
-        candidates: Vec<ElementName>,
-    },
-    /// A profile region. `pointer` is the JSON Pointer of the region ref in the record.
-    Region {
-        /// JSON Pointer of the region ref in the feature record, for example "/profile/regions/0".
-        pointer: String,
-        /// The sketch the region belongs to.
-        sketch: Id,
-        /// The stored region ref.
-        region: RegionRef,
-        /// True when the region ref matches several regions; false when it matches none.
-        ambiguous: bool,
-    },
-}
-
-/// Looks up current display names for ids in messages.
+/// Looks up what messages need about the document: names, types, records and sketch results (section 3.12).
 pub trait Names {
     /// The body's name, if the body exists.
     fn body_name(&self, body: &Id) -> Option<String>;
     /// The feature's label (section 3.12), if the feature exists.
     fn feature_label(&self, feature: &Id) -> Option<String>;
+    /// The manifest label of the feature's type, for example "Fillet" (the type name for an unknown type), if the
+    /// feature exists. `{this}` uses it (section 3.12).
+    fn type_label(&self, feature: &Id) -> Option<String>;
+    /// The feature's record, for element descriptions and sketch messages (section 3.12).
+    fn feature_record(&self, feature: &Id) -> Option<&FeatureRecord>;
+    /// The sketch's result in the current run, when it built.
+    fn sketch_result(&self, sketch: &Id) -> Option<&SketchResult>;
 }
 
-/// `Names` for a document, using the registry for default feature labels.
+/// `Names` for a document, using the registry for default feature labels and type labels.
 #[derive(Clone, Copy, Debug)]
 pub struct DocumentNames<'a> {
     /// The document.
     pub document: &'a Document,
     /// The registry.
     pub registry: &'a Registry,
+    /// Outputs of the current run by feature id, for sketch results; empty outside a run.
+    pub outputs: &'a BTreeMap<Id, Arc<FeatureOutput>>,
 }
 
 impl Names for DocumentNames<'_> {
@@ -147,17 +129,49 @@ impl Names for DocumentNames<'_> {
     fn feature_label(&self, feature: &Id) -> Option<String> {
         self.registry.label(self.document, feature)
     }
+
+    fn type_label(&self, feature: &Id) -> Option<String> {
+        let record = self.document.feature(feature)?;
+        Some(self.registry.get(&record.kind).map_or_else(
+            || record.kind.clone(),
+            |registered| registered.manifest().label.clone(),
+        ))
+    }
+
+    fn feature_record(&self, feature: &Id) -> Option<&FeatureRecord> {
+        self.document.feature(feature)
+    }
+
+    fn sketch_result(&self, sketch: &Id) -> Option<&SketchResult> {
+        match &self.outputs.get(sketch)?.data {
+            OutputData::Sketch(result) => Some(result),
+            _ => None,
+        }
+    }
 }
 
-/// `Names` that knows no names, so every id renders as itself. Used by `Display`.
+/// `Names` that names every body and feature by its id and knows no types, records or sketch results. `Display`
+/// uses it (section 2.8).
 pub(crate) struct IdNames;
 
 impl Names for IdNames {
-    fn body_name(&self, _body: &Id) -> Option<String> {
+    fn body_name(&self, body: &Id) -> Option<String> {
+        Some(body.to_string())
+    }
+
+    fn feature_label(&self, feature: &Id) -> Option<String> {
+        Some(feature.to_string())
+    }
+
+    fn type_label(&self, _feature: &Id) -> Option<String> {
         None
     }
 
-    fn feature_label(&self, _feature: &Id) -> Option<String> {
+    fn feature_record(&self, _feature: &Id) -> Option<&FeatureRecord> {
+        None
+    }
+
+    fn sketch_result(&self, _sketch: &Id) -> Option<&SketchResult> {
         None
     }
 }
@@ -211,45 +225,6 @@ fn round_down_to_two_digits(value: f64) -> f64 {
     format!("{digits}e{}", exponent - shift)
         .parse()
         .expect("digits followed by an exponent are a number")
-}
-
-/// Renders the parts of messages with current names and document units.
-pub(crate) struct Renderer<'a> {
-    /// Current names.
-    pub(crate) names: &'a dyn Names,
-    /// Document units.
-    pub(crate) units: Units,
-}
-
-impl Renderer<'_> {
-    /// The body's current name, or its id.
-    pub(crate) fn body(&self, body: &Id) -> String {
-        self.names
-            .body_name(body)
-            .unwrap_or_else(|| body.to_string())
-    }
-
-    /// The feature's current label, or its id.
-    pub(crate) fn feature(&self, feature: &Id) -> String {
-        self.names
-            .feature_label(feature)
-            .unwrap_or_else(|| feature.to_string())
-    }
-
-    /// A value in display units.
-    pub(crate) fn value(&self, kind: FieldUnit, value: f64) -> String {
-        format_value(kind, value, self.units)
-    }
-
-    /// A length in display units.
-    pub(crate) fn length(&self, millimeters: f64) -> String {
-        self.value(FieldUnit::Length, millimeters)
-    }
-
-    /// The text of a computed length limit.
-    pub(crate) fn limit(&self, millimeters: f64) -> String {
-        suggested_limit(millimeters, self.units)
-    }
 }
 
 /// The plural of an element kind: faces, edges, vertices.

@@ -27,8 +27,8 @@ type FixtureCheck = {
 async function expectBody(page: Page, name: string, size: string, center: string): Promise<void> {
   await bodyRow(page, name).click()
   await expect(page.getByTestId('selection-title')).toHaveText(name)
-  await expect(page.getByTestId('body-size')).toHaveText(size)
-  await expect(page.getByTestId('body-center')).toHaveText(center)
+  await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', size)
+  await expect(page.getByTestId('body-center')).toHaveAttribute('data-value', center)
 }
 
 /** Edits "Sketch 1" by double-clicking its timeline item and expects its degrees of freedom. */

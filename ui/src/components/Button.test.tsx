@@ -74,10 +74,10 @@ describe('Button', () => {
     )
   })
 
-  it('uses rounded-sm, never a pill shape', () => {
+  it('U-188 is rounded-md, never a pill shape', () => {
     render(<Button variant="primary">OK</Button>)
     const button = screen.getByRole('button', { name: 'OK' })
-    expect(button).toHaveClass('rounded-sm')
+    expect(button).toHaveClass('rounded-md')
     expect(button).not.toHaveClass('rounded-full')
   })
 

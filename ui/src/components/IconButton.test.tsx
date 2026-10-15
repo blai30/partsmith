@@ -61,11 +61,18 @@ describe('IconButton', () => {
     expect(button).not.toHaveClass(COLOR_CLASSES.selection.background)
   })
 
-  it('carries the focus ring and is never pill-shaped', () => {
+  it('U-188 carries the focus ring and is rounded-md, never pill-shaped', () => {
     render(<IconButton label="Fit to view" icon={Maximize} onClick={() => undefined} />)
     const button = screen.getByRole('button', { name: 'Fit to view' })
-    expect(button).toHaveClass(COLOR_CLASSES.focusRing.outline)
+    expect(button).toHaveClass(COLOR_CLASSES.focusRing.outline, 'rounded-md')
     expect(button).not.toHaveClass('rounded-full')
+  })
+
+  it('draws its focus ring inside the button in a slim island (3.23)', () => {
+    render(<IconButton label="Expand timeline" icon={Maximize} focusRing="inset" />)
+    const button = screen.getByRole('button', { name: 'Expand timeline' })
+    expect(button).toHaveClass(COLOR_CLASSES.focusRing.inset)
+    expect(button).not.toHaveClass('focus-visible:outline-offset-2')
   })
 
   it('passes other button attributes through', () => {

@@ -13,12 +13,15 @@ export type Facet =
   | 'placeholder'
   | 'border'
   | 'outline'
+  | 'inset'
   | 'stroke'
   | 'fill'
+  | 'shadow'
 
 /** sRGB '#rrggbb' of every Tailwind 4.3.3 palette step the mapping uses (ui.md 2.16.5). */
 export const PALETTE_HEX = {
   white: '#ffffff',
+  black: '#000000',
   'zinc-50': '#fafafa',
   'zinc-100': '#f4f4f5',
   'zinc-200': '#e4e4e7',
@@ -26,6 +29,7 @@ export const PALETTE_HEX = {
   'zinc-400': '#9f9fa9',
   'zinc-500': '#71717b',
   'zinc-600': '#52525c',
+  'zinc-700': '#3f3f46',
   'zinc-800': '#27272a',
   'zinc-900': '#18181b',
   'zinc-950': '#09090b',
@@ -70,6 +74,7 @@ export type PaletteStep = keyof typeof PALETTE_HEX
 
 /** Interface roles and their facets as literal class strings (ui.md 2.16.3). */
 export const COLOR_CLASSES = {
+  stage: { background: 'bg-white dark:bg-zinc-800' },
   surface: { background: 'bg-zinc-100 dark:bg-zinc-950' },
   surfaceRaised: { background: 'bg-white dark:bg-zinc-900' },
   field: { background: 'bg-white dark:bg-zinc-950' },
@@ -78,7 +83,9 @@ export const COLOR_CLASSES = {
     active: 'bg-zinc-200 dark:bg-zinc-800',
   },
   selection: { background: 'bg-orange-100 dark:bg-orange-950' },
-  border: { border: 'border-zinc-200 dark:border-zinc-800' },
+  border: { border: 'border-zinc-300 dark:border-zinc-700' },
+  divider: { border: 'border-zinc-200 dark:border-zinc-800' },
+  elevation: { shadow: 'shadow-black/10 dark:shadow-black/50' },
   borderControl: { border: 'border-zinc-500' },
   text: { foreground: 'text-zinc-900 dark:text-zinc-100' },
   textMuted: {
@@ -97,6 +104,8 @@ export const COLOR_CLASSES = {
   focusRing: {
     outline:
       'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600 dark:focus-visible:outline-orange-500',
+    inset:
+      'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-orange-600 dark:focus-visible:outline-orange-500',
   },
   errorMark: {
     foreground: 'text-red-700 dark:text-red-500',

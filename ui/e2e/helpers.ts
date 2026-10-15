@@ -260,11 +260,15 @@ export async function boxOf(locator: Locator): Promise<Box> {
   return box
 }
 
-/** The canvas box, its center and height (ui.md 6.3). */
+/**
+ * The view the tests aim at, its center and height (ui.md 6.3): the free area, the `viewport`
+ * element's box. The canvas fills the window under the islands, but fit, the standard views and
+ * zoom center the model in the free area and scale it to the free area's height (2.11).
+ */
 export async function canvas(page: Page): Promise<CanvasBox> {
-  const box = await page.getByTestId('viewport').locator('canvas').boundingBox()
+  const box = await page.getByTestId('viewport').boundingBox()
   if (box === null) {
-    throw new Error('The viewport canvas is not visible.')
+    throw new Error('The viewport is not visible.')
   }
   return { ...box, cx: box.x + box.width / 2, cy: box.y + box.height / 2, H: box.height }
 }

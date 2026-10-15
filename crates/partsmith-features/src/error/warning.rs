@@ -1,49 +1,114 @@
-//! Feature warnings, their messages and repair data (features.md sections 2.8 and 4.2).
+//! Feature warnings and notices, their messages, fixes and repair data (features.md sections 2.8, 3.7, 3.8 and 4.2).
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use partsmith_model::{Id, Units};
-use partsmith_naming::{ElementKind, ElementName, Reference};
-use partsmith_sketch::{RegionRef, SolveIssue};
+use partsmith_naming::{ElementName, Follow, Lost, Reference};
+use partsmith_sketch::{RegionLoss, RegionRef, SolveIssue};
 
+use super::describe::{describe_face, made_from_line, new_faces_are_flat};
 use super::field::FieldRef;
-use super::message::{FallbackReason, IdNames, IgnoredReason, Names, Renderer, Repair, plural};
+use super::fix::Fix;
+use super::loss::{Loss, LossCandidate, Repair, Severity};
+use super::message::{FallbackReason, IdNames, IgnoredReason, plural};
+use super::render::{
+    Diagnosis, RenderContext, Renderer, capitalized, joined, loss_fixes, region_reason,
+};
+use super::{candidate_detail, loss_detail};
 
-/// Something a feature built around: a lost reference, a remapped region, an unchanged body.
-/// Stores ids, never display names, so it renders correctly after a rename. `Display` renders the
-/// message with ids in place of names and values in millimeters.
+/// Something a feature built around: a lost, guessed, followed or widened reference, a region that matched in
+/// another way, an unchanged body. Stores ids, never display names, so it renders correctly after a rename. `Display`
+/// renders the message with ids in place of names, values in millimeters and no diagnosis.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum FeatureWarning {
-    /// A reference of a list matches nothing and was skipped.
-    ReferenceMissing {
+    /// A reference of a list matches nothing, or several elements, and was skipped.
+    ReferenceLost {
         /// The list entry, for example `edges[1]`.
         field: FieldRef,
-        /// The entry's position in the list.
+        /// The loss.
+        loss: Loss,
+    },
+    /// A reference was resolved by a guess: its name has no anchors and a sibling fits its stored shape better, or
+    /// its named piece is gone. The elements are used.
+    ReferenceGuessed {
+        /// The field of the reference, for example `edges[1]`.
+        field: FieldRef,
+        /// The reference's position in its list (0 for a single reference).
         position: usize,
         /// The body it is resolved in.
         body: Id,
         /// The stored reference.
         reference: Reference,
-        /// The kind of element the list selects.
-        kind: ElementKind,
+        /// The elements used, as `Reference::from_element` stores them.
+        elements: Vec<Reference>,
+        /// The other elements that could be meant, in candidate order.
+        alternatives: Vec<LossCandidate>,
     },
-    /// A reference of a list matches several elements and was skipped.
-    ReferenceAmbiguous {
-        /// The list entry, for example `edges[1]`.
+    /// A reference followed a change that keeps its meaning: a replaced or extended sketch entity, merged faces, the
+    /// rim that continues a removed face, or a relative. Severity info.
+    ReferenceFollowed {
+        /// The field of the reference, for example `edges[1]`.
         field: FieldRef,
-        /// The entry's position in the list.
+        /// The reference's position in its list (0 for a single reference).
         position: usize,
         /// The body it is resolved in.
         body: Id,
         /// The stored reference.
         reference: Reference,
-        /// The kind of element the list selects.
-        kind: ElementKind,
-        /// The elements it matches, best first.
-        candidates: Vec<ElementName>,
+        /// The elements it resolves to now, as `Reference::from_element` stores them.
+        elements: Vec<Reference>,
+        /// How it followed.
+        follow: Follow,
+        /// The alias and succession keys the match went through.
+        via: Vec<ElementName>,
     },
-    /// A profile region was found by its outer boundary or fingerprint instead of its key.
+    /// A reference to the face of a sketch entity that was replaced by several entities not on one line or circle
+    /// now covers every element they make. The elements are used, but the user decides.
+    ReferenceWidened {
+        /// The field of the reference, for example `edges[1]`.
+        field: FieldRef,
+        /// The reference's position in its list (0 for a single reference).
+        position: usize,
+        /// The body it is resolved in.
+        body: Id,
+        /// The stored reference.
+        reference: Reference,
+        /// The elements it covers now, as `Reference::from_element` stores them.
+        elements: Vec<Reference>,
+        /// The succession keys the match went through.
+        via: Vec<ElementName>,
+        /// The element made from the first new entity alone, which the "Use only" fix stores (section 3.8).
+        first: Reference,
+    },
+    /// A profile region is now split by other curves of the sketch, and every part is used. Severity info.
+    RegionSplit {
+        /// The region entry, for example `profile.regions[0]`.
+        field: FieldRef,
+        /// The entry's position in the region list.
+        position: usize,
+        /// The sketch.
+        sketch: Id,
+        /// The stored region reference.
+        region: RegionRef,
+        /// The number of regions used for it.
+        count: usize,
+    },
+    /// A profile region is now several parts that reach beyond its stored boundary, and every part is used.
+    RegionResized {
+        /// The region entry, for example `profile.regions[0]`.
+        field: FieldRef,
+        /// The entry's position in the region list.
+        position: usize,
+        /// The sketch.
+        sketch: Id,
+        /// The stored region reference.
+        region: RegionRef,
+        /// The number of regions used for it.
+        count: usize,
+    },
+    /// A profile region's outline was drawn again, and the region with the same size and place is used (a guess).
     RegionRemapped {
         /// The region entry, for example `profile.regions[0]`.
         field: FieldRef,
@@ -51,10 +116,10 @@ pub enum FeatureWarning {
         position: usize,
         /// The sketch.
         sketch: Id,
-        /// The stored region ref.
+        /// The stored region reference.
         region: RegionRef,
     },
-    /// A profile region matches several regions and was skipped.
+    /// A profile region matches several separate sets of regions and was skipped.
     RegionAmbiguous {
         /// The region entry, for example `profile.regions[0]`.
         field: FieldRef,
@@ -62,8 +127,10 @@ pub enum FeatureWarning {
         position: usize,
         /// The sketch.
         sketch: Id,
-        /// The stored region ref.
+        /// The stored region reference.
         region: RegionRef,
+        /// The sets that fit, each as indices into the sketch result's regions.
+        candidates: Vec<Vec<usize>>,
     },
     /// A profile region matches nothing and was skipped.
     RegionMissing {
@@ -73,8 +140,10 @@ pub enum FeatureWarning {
         position: usize,
         /// The sketch.
         sketch: Id,
-        /// The stored region ref.
+        /// The stored region reference.
         region: RegionRef,
+        /// Why no region matched.
+        loss: RegionLoss,
     },
     /// A sketch on a face kept its fallback placement.
     PlaneFallback {
@@ -124,37 +193,111 @@ pub enum FeatureWarning {
 }
 
 impl FeatureWarning {
-    /// The message with current names and units.
-    pub fn render(&self, names: &dyn Names, units: Units) -> String {
-        let renderer = Renderer { names, units };
+    /// The message (section 4.2), with current names and units and the diagnosis.
+    pub fn render(&self, context: &RenderContext<'_>) -> String {
+        self.text(&Renderer::new(context))
+    }
+
+    /// The message rendered by `renderer`.
+    fn text(&self, renderer: &Renderer<'_>) -> String {
         match self {
-            FeatureWarning::ReferenceMissing { field, kind, .. } => format!(
-                "One of the {} selected for {} can no longer be found, so it was skipped. Re-pick it in the repair panel.",
-                plural(*kind),
+            FeatureWarning::ReferenceLost { field, loss } => {
+                let element = renderer.lost_element_selected(loss, &field.label);
+                if loss.ambiguous {
+                    format!(
+                        "{element} {}, so it was skipped. Pick the one you mean.",
+                        renderer.ambiguity(loss)
+                    )
+                } else {
+                    format!(
+                        "{element} {}, so it was skipped.{}",
+                        renderer.reason(loss),
+                        renderer.upstream_ending(loss)
+                    )
+                }
+            }
+            FeatureWarning::ReferenceGuessed {
+                field,
+                body,
+                reference,
+                elements,
+                alternatives,
+                ..
+            } => guessed_text(renderer, &field.label, body, reference, elements, alternatives),
+            FeatureWarning::ReferenceFollowed {
+                field,
+                body,
+                reference,
+                elements,
+                follow,
+                ..
+            } => followed_text(renderer, &field.label, body, reference, elements, *follow),
+            FeatureWarning::ReferenceWidened {
+                field,
+                body,
+                reference,
+                elements,
+                ..
+            } => {
+                let element = described_selected(renderer, &field.label, body, reference, &[]).0;
+                let line = if made_from_line(reference) { "line" } else { "curve" };
+                let lines =
+                    match new_faces_are_flat(reference, elements, renderer.bodies_of(body)) {
+                        Some(true) => "lines",
+                        Some(false) => "curves",
+                        None if made_from_line(reference) => "lines",
+                        None => "curves",
+                    };
+                let count = elements.len();
+                format!(
+                    "{element} now covers {count} {kinds}, because the {line} it was made from was replaced by {count} {lines} in {by}. Keep all of them, or use only one.",
+                    kinds = plural(reference.query.kind()),
+                    by = followed_by(renderer, "its sketch"),
+                )
+            }
+            FeatureWarning::RegionSplit {
+                field,
+                sketch,
+                count,
+                ..
+            } => format!(
+                "The region of {} selected for {} is now split in {count} parts by other curves of the sketch, and all of them are used. Remove a part from the profile to leave it out.",
+                renderer.region_sketch(sketch),
                 field.label
             ),
-            FeatureWarning::ReferenceAmbiguous {
+            FeatureWarning::RegionResized {
                 field,
-                kind,
+                sketch,
+                count,
+                ..
+            } => format!(
+                "The region of {} selected for {} is now {count} parts whose outline runs along other curves of the sketch, so it covers a different area than when it was picked. Check the profile, then keep it or pick it again.",
+                renderer.region_sketch(sketch),
+                field.label
+            ),
+            FeatureWarning::RegionRemapped { field, sketch, .. } => format!(
+                "The outline of the region of {} selected for {} was drawn again, so the region with the same size and place is used. Check it, then keep it or pick it again.",
+                renderer.region_sketch(sketch),
+                field.label
+            ),
+            FeatureWarning::RegionAmbiguous {
+                field,
+                sketch,
                 candidates,
                 ..
             } => format!(
-                "One of the {plural} selected for {} now matches {} {plural}, so it was skipped. Pick the one you mean in the repair panel.",
+                "The region of {} selected for {} now matches {} separate areas, so it was skipped. Pick the one you mean.",
+                renderer.region_sketch(sketch),
                 field.label,
-                candidates.len(),
-                plural = plural(*kind)
+                candidates.len()
             ),
-            FeatureWarning::RegionRemapped { sketch, .. } => format!(
-                "A profile region of '{}' changed, so the closest matching region was used. Check the result, or re-pick the profile.",
-                renderer.feature(sketch)
-            ),
-            FeatureWarning::RegionAmbiguous { sketch, .. } => format!(
-                "A profile region of '{}' now matches several regions, so it was skipped. Re-pick the profile.",
-                renderer.feature(sketch)
-            ),
-            FeatureWarning::RegionMissing { sketch, .. } => format!(
-                "A profile region of '{}' can no longer be found, so it was skipped. Re-pick the profile.",
-                renderer.feature(sketch)
+            FeatureWarning::RegionMissing {
+                field, sketch, loss, ..
+            } => format!(
+                "The region of {} selected for {} is gone because {}, so it was skipped.",
+                renderer.region_sketch(sketch),
+                field.label,
+                region_reason(loss)
             ),
             FeatureWarning::PlaneFallback { reason, .. } => match reason {
                 FallbackReason::Missing => "The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel.",
@@ -203,8 +346,13 @@ impl FeatureWarning {
     /// Stable snake_case code.
     pub fn code(&self) -> &'static str {
         match self {
-            FeatureWarning::ReferenceMissing { .. } => "reference_missing",
-            FeatureWarning::ReferenceAmbiguous { .. } => "reference_ambiguous",
+            FeatureWarning::ReferenceLost { loss, .. } if loss.ambiguous => "reference_ambiguous",
+            FeatureWarning::ReferenceLost { .. } => "reference_missing",
+            FeatureWarning::ReferenceGuessed { .. } => "reference_guessed",
+            FeatureWarning::ReferenceFollowed { .. } => "reference_followed",
+            FeatureWarning::ReferenceWidened { .. } => "reference_widened",
+            FeatureWarning::RegionSplit { .. } => "region_split",
+            FeatureWarning::RegionResized { .. } => "region_resized",
             FeatureWarning::RegionRemapped { .. } => "region_remapped",
             FeatureWarning::RegionAmbiguous { .. } => "region_ambiguous",
             FeatureWarning::RegionMissing { .. } => "region_missing",
@@ -221,8 +369,12 @@ impl FeatureWarning {
     /// The field the warning is about, if any.
     pub fn field(&self) -> Option<&FieldRef> {
         match self {
-            FeatureWarning::ReferenceMissing { field, .. }
-            | FeatureWarning::ReferenceAmbiguous { field, .. }
+            FeatureWarning::ReferenceLost { field, .. }
+            | FeatureWarning::ReferenceGuessed { field, .. }
+            | FeatureWarning::ReferenceFollowed { field, .. }
+            | FeatureWarning::ReferenceWidened { field, .. }
+            | FeatureWarning::RegionSplit { field, .. }
+            | FeatureWarning::RegionResized { field, .. }
             | FeatureWarning::RegionRemapped { field, .. }
             | FeatureWarning::RegionAmbiguous { field, .. }
             | FeatureWarning::RegionMissing { field, .. }
@@ -242,53 +394,165 @@ impl FeatureWarning {
         None
     }
 
-    /// Repair data, if the warning is about a lost reference or region.
-    pub fn repair(&self) -> Option<Repair> {
+    /// The one-click fixes in the order hosts offer them, the diagnosis' fixes merged in (section 4.4).
+    pub fn fixes(&self, context: &RenderContext<'_>) -> Vec<Fix> {
+        let renderer = Renderer::new(context);
+        let pointer = || self.field().map(FieldRef::pointer).unwrap_or_default();
+        let keep = || Fix::KeepMatch { pointer: pointer() };
+        let keep_regions = || Fix::KeepRegions { pointer: pointer() };
         match self {
-            FeatureWarning::ReferenceMissing {
+            FeatureWarning::ReferenceLost { field, loss } => loss_fixes(
+                loss,
+                &field.pointer(),
+                renderer.explanation(loss.position),
+                true,
+            ),
+            FeatureWarning::ReferenceGuessed { alternatives, .. } => {
+                let mut fixes = vec![keep()];
+                fixes.extend(
+                    alternatives
+                        .iter()
+                        .map(|alternative| Fix::use_reference(&pointer(), &alternative.reference)),
+                );
+                fixes.push(Fix::pick(pointer()));
+                fixes
+            }
+            FeatureWarning::ReferenceFollowed { .. } => vec![keep(), Fix::pick(pointer())],
+            FeatureWarning::ReferenceWidened { first, .. } => vec![
+                keep(),
+                Fix::use_reference(&pointer(), first),
+                Fix::pick(pointer()),
+            ],
+            FeatureWarning::RegionSplit { .. }
+            | FeatureWarning::RegionResized { .. }
+            | FeatureWarning::RegionRemapped { .. } => vec![keep_regions(), Fix::pick(pointer())],
+            FeatureWarning::RegionAmbiguous {
+                sketch, candidates, ..
+            } => {
+                let mut fixes = renderer.use_regions(&pointer(), sketch, candidates);
+                fixes.push(Fix::pick(pointer()));
+                fixes
+            }
+            FeatureWarning::RegionMissing { sketch, .. } => {
+                vec![Fix::show(sketch), Fix::pick(pointer())]
+            }
+            FeatureWarning::PlaneFallback { .. } => vec![Fix::pick(pointer())],
+            FeatureWarning::NoEffect { .. }
+            | FeatureWarning::HoleMissesBody { .. }
+            | FeatureWarning::Ignored { .. }
+            | FeatureWarning::UnknownParams { .. }
+            | FeatureWarning::RedundantConstraints { .. }
+            | FeatureWarning::ImportWarning { .. } => Vec::new(),
+        }
+    }
+
+    /// `Severity::Info` for `ReferenceFollowed` and `RegionSplit`, `Severity::Warning` for every other warning.
+    pub fn severity(&self) -> Severity {
+        match self {
+            FeatureWarning::ReferenceFollowed { .. } | FeatureWarning::RegionSplit { .. } => {
+                Severity::Info
+            }
+            _ => Severity::Warning,
+        }
+    }
+
+    /// The technical text a report needs, never shown as the message (section 2.8).
+    pub fn detail(&self) -> Option<String> {
+        match self {
+            FeatureWarning::ReferenceLost { field, loss } => Some(loss_detail(&field.path, loss)),
+            FeatureWarning::ReferenceGuessed {
                 field,
+                reference,
+                alternatives,
+                ..
+            } => {
+                let mut detail = format!("{} q={} resolution=guess", field.path, reference.query);
+                if !alternatives.is_empty() {
+                    detail.push_str(&format!(" candidates={}", candidate_detail(alternatives)));
+                }
+                Some(detail)
+            }
+            _ => None,
+        }
+    }
+
+    /// Repair data, if the warning is about a lost, guessed or widened reference, a region, or a sketch's face.
+    pub fn repair(&self) -> Option<Repair> {
+        let pointer = || self.field().map(FieldRef::pointer).unwrap_or_default();
+        match self {
+            FeatureWarning::ReferenceLost { loss, .. } => Some(Repair::element(pointer(), loss)),
+            FeatureWarning::ReferenceGuessed {
+                position,
                 body,
                 reference,
+                alternatives,
                 ..
-            } => Some(element_repair(field, body, reference, false, &[])),
-            FeatureWarning::ReferenceAmbiguous {
-                field,
+            } => Some(Repair::element(
+                pointer(),
+                &still_used(*position, body, reference, alternatives.clone()),
+            )),
+            FeatureWarning::ReferenceWidened {
+                position,
                 body,
                 reference,
-                candidates,
+                elements,
                 ..
-            } => Some(element_repair(field, body, reference, true, candidates)),
+            } => {
+                let covered = elements
+                    .iter()
+                    .map(|element| LossCandidate {
+                        reference: element.clone(),
+                        meaning: true,
+                        distance: centroid_distance(reference, element),
+                        score: 1.0,
+                    })
+                    .collect();
+                Some(Repair::element(
+                    pointer(),
+                    &still_used(*position, body, reference, covered),
+                ))
+            }
             FeatureWarning::PlaneFallback {
-                field,
                 body,
                 reference,
                 reason,
-            } => Some(element_repair(
-                field,
-                body,
-                reference,
-                *reason == FallbackReason::Ambiguous,
-                &[],
+                ..
+            } => Some(Repair::element(
+                pointer(),
+                &Loss {
+                    position: 0,
+                    body: body.clone(),
+                    reference: reference.clone(),
+                    kind: reference.query.kind(),
+                    ambiguous: *reason == FallbackReason::Ambiguous,
+                    lost: Lost::default(),
+                    candidates: Vec::new(),
+                },
             )),
-            FeatureWarning::RegionRemapped {
-                field,
-                sketch,
-                region,
-                ..
+            FeatureWarning::RegionSplit { sketch, region, .. }
+            | FeatureWarning::RegionResized { sketch, region, .. }
+            | FeatureWarning::RegionRemapped { sketch, region, .. } => {
+                Some(Repair::region_in_use(pointer(), sketch, region, Vec::new()))
             }
-            | FeatureWarning::RegionMissing {
-                field,
-                sketch,
-                region,
-                ..
-            } => Some(region_repair(field, sketch, region, false)),
             FeatureWarning::RegionAmbiguous {
-                field,
                 sketch,
                 region,
+                candidates,
                 ..
-            } => Some(region_repair(field, sketch, region, true)),
-            FeatureWarning::NoEffect { .. }
+            } => Some(Repair::region_in_use(
+                pointer(),
+                sketch,
+                region,
+                candidates.clone(),
+            )),
+            FeatureWarning::RegionMissing {
+                sketch,
+                region,
+                loss,
+                ..
+            } => Some(Repair::region_lost(pointer(), sketch, region, loss)),
+            FeatureWarning::ReferenceFollowed { .. }
+            | FeatureWarning::NoEffect { .. }
             | FeatureWarning::HoleMissesBody { .. }
             | FeatureWarning::Ignored { .. }
             | FeatureWarning::UnknownParams { .. }
@@ -300,42 +564,213 @@ impl FeatureWarning {
 
 impl fmt::Display for FeatureWarning {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.render(&IdNames, Units::Mm))
+        let bodies = BTreeMap::new();
+        let diagnosis = Diagnosis::default();
+        formatter.write_str(&self.text(&Renderer::plain(&IdNames, &bodies, &diagnosis)))
     }
 }
 
-/// Repair data for an element reference at `field`.
-fn element_repair(
-    field: &FieldRef,
+/// The loss repair mode shows for a reference that is still used: ambiguous, with nothing lost and these candidates.
+fn still_used(
+    position: usize,
     body: &Id,
     reference: &Reference,
-    ambiguous: bool,
-    candidates: &[ElementName],
-) -> Repair {
-    Repair::Element {
-        pointer: field.pointer(),
+    candidates: Vec<LossCandidate>,
+) -> Loss {
+    Loss {
+        position,
         body: body.clone(),
         reference: reference.clone(),
-        ambiguous,
-        candidates: candidates.to_vec(),
+        kind: reference.query.kind(),
+        ambiguous: true,
+        lost: Lost::default(),
+        candidates,
     }
 }
 
-/// Repair data for a region ref at `field`.
-fn region_repair(field: &FieldRef, sketch: &Id, region: &RegionRef, ambiguous: bool) -> Repair {
-    Repair::Region {
-        pointer: field.pointer(),
-        sketch: sketch.clone(),
-        region: region.clone(),
-        ambiguous,
+/// The distance between the stored centroids of two references, 0 when either has none.
+fn centroid_distance(first: &Reference, second: &Reference) -> f64 {
+    match (first.fingerprint.centroid, second.fingerprint.centroid) {
+        (Some(a), Some(b)) => (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f64>().sqrt(),
+        _ => 0.0,
     }
+}
+
+/// `{Element}` of a stored reference and the descriptions of `others`, described in one call so that the clash
+/// rule gives elements that read alike their clauses (section 4.2).
+fn described_selected(
+    renderer: &Renderer<'_>,
+    label: &str,
+    body: &Id,
+    reference: &Reference,
+    others: &[&Reference],
+) -> (String, Vec<String>) {
+    let mut elements = vec![(&reference.query, &reference.fingerprint)];
+    elements.extend(
+        others
+            .iter()
+            .map(|other| (&other.query, &other.fingerprint)),
+    );
+    let mut texts = renderer.describe(&elements, body);
+    let element = format!("{} selected for {label}", capitalized(&texts.remove(0)));
+    (element, texts)
+}
+
+/// `'{by}'` of a followed or widened reference, or `default` without a diagnosis.
+fn followed_by(renderer: &Renderer<'_>, default: &str) -> String {
+    renderer
+        .diagnosis()
+        .by
+        .as_ref()
+        .map_or_else(|| default.to_string(), |by| renderer.quoted_feature(by))
+}
+
+/// The text of a guessed reference (section 4.2, `reference_guessed`).
+fn guessed_text(
+    renderer: &Renderer<'_>,
+    label: &str,
+    body: &Id,
+    reference: &Reference,
+    elements: &[Reference],
+    alternatives: &[LossCandidate],
+) -> String {
+    let query = &reference.query;
+    let kept = elements
+        .iter()
+        .all(|element| element.query == *query || element.query.is_split_descendant_of(query));
+    if kept && let Some(alternative) = alternatives.first() {
+        let (element, others) =
+            described_selected(renderer, label, body, reference, &[&alternative.reference]);
+        let face = describe_face(
+            &ordered_part(query),
+            renderer.bodies_of(body),
+            renderer.names(),
+            renderer.units(),
+        );
+        return format!(
+            "{element} was taken by its position among the parts of {face}, but {} now fits its shape better. Check which one you mean.",
+            others[0]
+        );
+    }
+    let used: Vec<&Reference> = elements.iter().collect();
+    let (element, others) = described_selected(renderer, label, body, reference, &used);
+    format!(
+        "{element} no longer exists as named, so the {} that fits its shape best, {}, is used. Check it, then keep it or pick another.",
+        query.kind(),
+        joined(&others)
+    )
+}
+
+/// The query's order-dependent part without its `#n` groups: the first face term with a `#`, or the query itself.
+fn ordered_part(query: &ElementName) -> String {
+    let terms = query.face_terms();
+    let part = terms
+        .iter()
+        .find(|term| term.is_order_dependent())
+        .map_or_else(|| query.as_str().to_string(), ToString::to_string);
+    super::describe::piece_free_text(&part)
+}
+
+/// The text of a followed reference (section 4.2, `reference_followed`).
+fn followed_text(
+    renderer: &Renderer<'_>,
+    label: &str,
+    body: &Id,
+    reference: &Reference,
+    elements: &[Reference],
+    follow: Follow,
+) -> String {
+    let query = &reference.query;
+    let new: Vec<&Reference> = match follow {
+        Follow::Extended => elements
+            .iter()
+            .filter(|element| element.query != *query)
+            .collect(),
+        _ => elements.iter().collect(),
+    };
+    let (element, others) = described_selected(renderer, label, body, reference, &new);
+    let new = joined(&others);
+    let line = if made_from_line(reference) {
+        "line"
+    } else {
+        "curve"
+    };
+    let before = format!("a feature before {}", renderer.this());
+    match follow {
+        Follow::Replaced => format!(
+            "{element} now follows {new}, because its {line} was replaced in {}.",
+            followed_by(renderer, "its sketch")
+        ),
+        Follow::Extended => format!(
+            "{element} now also covers {new}, because its {line} continues in {}.",
+            followed_by(renderer, "its sketch")
+        ),
+        Follow::Merged => format!(
+            "{element} merged with neighboring parts when {} joined them, so all of it is used.",
+            followed_by(renderer, &before)
+        ),
+        Follow::Continued => {
+            let by = followed_by(renderer, &before);
+            match query.kind() {
+                partsmith_naming::ElementKind::Face => format!(
+                    "{element} was removed by {by}, which left its rim in the same place, so the rim is used."
+                ),
+                kind => {
+                    let face = continued_part(query, elements).map_or_else(
+                        || "a face that was removed".to_string(),
+                        |part| {
+                            describe_face(
+                                &part,
+                                renderer.bodies_of(body),
+                                renderer.names(),
+                                renderer.units(),
+                            )
+                        },
+                    );
+                    if kind == partsmith_naming::ElementKind::Edge {
+                        format!(
+                            "{element} now runs along the rim that {by} left in place of {face}, so that edge is used."
+                        )
+                    } else {
+                        format!(
+                            "{element} now lies on the rim that {by} left in place of {face}, so that corner is used."
+                        )
+                    }
+                }
+            }
+        }
+        Follow::Related => format!(
+            "{element} changed when {} changed, so {new} is used.",
+            followed_by(renderer, &before)
+        ),
+    }
+}
+
+/// The face term of `query` that a rim among the faces of `elements` continues: the term whose piece-free name is
+/// the rim's generator's.
+fn continued_part(query: &ElementName, elements: &[Reference]) -> Option<String> {
+    let rims: Vec<String> = elements
+        .iter()
+        .flat_map(|element| element.query.face_terms())
+        .filter_map(|face| super::describe::rim_generator(face.as_str()))
+        .map(|generator| super::describe::piece_free_text(&generator))
+        .collect();
+    query
+        .face_terms()
+        .iter()
+        .map(ToString::to_string)
+        .find(|term| rims.contains(&super::describe::piece_free_text(term)))
 }
 
 #[cfg(test)]
 mod tests {
+    use partsmith_model::FeatureRecord;
+    use partsmith_naming::ElementKind;
     use serde_json::json;
 
     use super::*;
+    use crate::error::Names;
+    use crate::output::SketchResult;
 
     fn id(text: &str) -> Id {
         Id::new(text).expect("test ids are valid")
@@ -358,49 +793,31 @@ mod tests {
             .expect("the region ref is valid")
     }
 
-    #[test]
-    fn missing_reference_renders_and_repairs_at_its_entry() {
-        let warning = FeatureWarning::ReferenceMissing {
-            field: field("edges[1]", "Edges"),
-            position: 1,
+    /// A loss of `reference()` at `position`, ambiguous or not, without candidates.
+    fn loss(position: usize, ambiguous: bool) -> Loss {
+        Loss {
+            position,
             body: id("b-1"),
             reference: reference(),
             kind: ElementKind::Edge,
-        };
-
-        assert_eq!(
-            warning.to_string(),
-            "One of the edges selected for Edges can no longer be found, so it was skipped. Re-pick it in the repair panel."
-        );
-        assert_eq!(warning.code(), "reference_missing");
-        assert!(matches!(
-            warning.repair(),
-            Some(Repair::Element { pointer, ambiguous: false, .. }) if pointer == "/edges/1"
-        ));
+            ambiguous,
+            lost: Lost::default(),
+            candidates: Vec::new(),
+        }
     }
 
     #[test]
-    fn ambiguous_reference_counts_its_candidates() {
-        let candidates = vec![
-            ElementName::parse("f-box1/top#1").expect("valid name"),
-            ElementName::parse("f-box1/top#2").expect("valid name"),
-        ];
-        let warning = FeatureWarning::ReferenceAmbiguous {
-            field: field("faces[0]", "Faces"),
-            position: 0,
-            body: id("b-1"),
-            reference: reference(),
-            kind: ElementKind::Face,
-            candidates: candidates.clone(),
+    fn a_lost_reference_repairs_at_its_entry() {
+        let warning = FeatureWarning::ReferenceLost {
+            field: field("edges[1]", "Edges"),
+            loss: loss(1, false),
         };
 
-        assert_eq!(
-            warning.to_string(),
-            "One of the faces selected for Faces now matches 2 faces, so it was skipped. Pick the one you mean in the repair panel."
-        );
+        assert_eq!(warning.code(), "reference_missing");
+        assert_eq!(warning.severity(), Severity::Warning);
         assert!(matches!(
             warning.repair(),
-            Some(Repair::Element { ambiguous: true, candidates: listed, .. }) if listed == candidates
+            Some(Repair::Element { pointer, loss, .. }) if pointer == "/edges/1" && !loss.ambiguous
         ));
     }
 
@@ -411,15 +828,13 @@ mod tests {
             position: 0,
             sketch: id("f-sk1"),
             region: region(),
+            candidates: vec![vec![0], vec![1]],
         };
 
-        assert_eq!(
-            warning.to_string(),
-            "A profile region of 'f-sk1' now matches several regions, so it was skipped. Re-pick the profile."
-        );
         assert!(matches!(
             warning.repair(),
-            Some(Repair::Region { pointer, ambiguous: true, .. }) if pointer == "/profile/regions/0"
+            Some(Repair::Region { pointer, ambiguous: true, candidates, .. })
+                if pointer == "/profile/regions/0" && candidates == [vec![0], vec![1]]
         ));
     }
 
@@ -438,7 +853,7 @@ mod tests {
         );
         assert!(matches!(
             warning(FallbackReason::Ambiguous).repair(),
-            Some(Repair::Element { ambiguous: true, pointer, .. }) if pointer == "/plane/face"
+            Some(Repair::Element { pointer, loss, .. }) if pointer == "/plane/face" && loss.ambiguous
         ));
     }
 
@@ -498,12 +913,34 @@ mod tests {
             fn feature_label(&self, _feature: &Id) -> Option<String> {
                 None
             }
+
+            fn type_label(&self, _feature: &Id) -> Option<String> {
+                None
+            }
+
+            fn feature_record(&self, _feature: &Id) -> Option<&FeatureRecord> {
+                None
+            }
+
+            fn sketch_result(&self, _sketch: &Id) -> Option<&SketchResult> {
+                None
+            }
         }
 
+        let feature = id("f-ext2");
+        let bodies = BTreeMap::new();
+        let diagnosis = Diagnosis::default();
+        let context = RenderContext {
+            feature: &feature,
+            names: &Bracket,
+            units: Units::Mm,
+            bodies: &bodies,
+            diagnosis: &diagnosis,
+        };
         let warning = FeatureWarning::NoEffect { body: id("b-1") };
 
         assert_eq!(
-            warning.render(&Bracket, Units::Mm),
+            warning.render(&context),
             "This feature does not change body 'Bracket'. Check its position, size and direction."
         );
     }

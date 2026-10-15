@@ -550,9 +550,11 @@ describe('the still-working panel over the model (4.4)', () => {
     const chip = panel.closest('.pointer-events-auto')
     const layer = chip?.parentElement
     expect(layer).toHaveClass('pointer-events-none', 'absolute', 'inset-0', 'z-30')
-    expect(layer?.parentElement).toBe(view)
-    // Above the inspector's z-20, in the viewport's own stacking context.
-    expect(view).toHaveClass('isolate')
+    // In the free-area layer, the viewport's last child, so it centers in the free area (3.2).
+    const freeAreaLayer = view.lastElementChild
+    expect(layer?.parentElement).toBe(freeAreaLayer)
+    // Above the inspector's z-20, in the free-area layer's own stacking context.
+    expect(freeAreaLayer).toHaveClass('isolate')
     // Between the panel and the viewport only the chip takes pointer events.
     const taking: Element[] = []
     for (let element: Element | null = panel; element !== view; element = element.parentElement) {

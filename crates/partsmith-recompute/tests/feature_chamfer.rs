@@ -10,8 +10,8 @@ use feature_support::{
     CUBE20, FRONT_TOP_EDGE, PLATE, PLATE_TOP_EDGES, Run, assert_bounding_box,
     assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_count, assert_face_kind, assert_list_field, assert_median_build_within,
-    assert_unchanged, assert_volume, body_update, document, face, face_names, load_example,
-    suggested_limit,
+    assert_messages_pass_lint, assert_unchanged, assert_volume, body_update, document, face,
+    face_names, load_example, message, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
 use partsmith_model::{Document, Units};
@@ -221,11 +221,12 @@ fn t010_edge_lost() {
     assert_list_field(warning.field(), "edges", 1);
     assert_element_repair(warning.repair(), "/edges/1", "b-1");
     assert_eq!(
-        run.messages("f-cha1"),
-        [
-            "One of the edges selected for Edges can no longer be found, so it was skipped. Re-pick it in the repair panel."
-        ]
+        message(&run, "f-cha1", "reference_missing")
+            .pointer
+            .as_deref(),
+        Some("/edges/1")
     );
+    assert_messages_pass_lint(&run, "f-cha1");
     assert_volume(run.shape("b-1"), 7960.0);
 }
 

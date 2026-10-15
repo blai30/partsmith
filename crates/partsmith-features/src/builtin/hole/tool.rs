@@ -4,7 +4,7 @@
 use std::f64::consts::TAU;
 
 use partsmith_model::Id;
-use partsmith_naming::{FaceSource, Generator, roles};
+use partsmith_naming::{FaceSource, Generator, Motion, Successions, roles};
 use partsmith_occt_sys::{
     Axis, PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, SweepFace, TaggedCurve,
     Vector, make_profile, revolve,
@@ -149,7 +149,14 @@ pub(super) fn hole_tool(
             face_name(feature, word, Some(Generator::Sketch(&point_text))).map(FaceSource::New)
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    let naming = name_shape(&sweep.shape, faces, &[])?.naming;
+    let naming = name_shape(
+        &sweep.shape,
+        faces,
+        &[],
+        &Successions::default(),
+        &Motion::IDENTITY,
+    )?
+    .naming;
     Ok(Tool {
         shape: sweep.shape,
         naming,

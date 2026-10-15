@@ -3,6 +3,7 @@ import type { SketchConstraint } from '../generated/protocol'
 import { circleEntity, lineEntity, pointEntity, solutionFor } from './fixtures.testing'
 import type { Vector2 } from './geometry'
 import {
+  axisLabelPosition,
   arrowheadPath,
   circlePath,
   drawInputsPlacement,
@@ -174,5 +175,49 @@ describe('drawInputsPlacement (3.16.4)', () => {
       left: false,
       above: false,
     })
+  })
+})
+
+/** PROJECT with the sketch moved 10 mm right, so its origin lies right of AREA. */
+const SHIFTED_RIGHT: Projector = (point) => PROJECT([point[0] + 10, point[1]])
+/** PROJECT with the sketch moved 10 mm left, so its origin lies left of AREA. */
+const SHIFTED_LEFT: Projector = (point) => PROJECT([point[0] - 10, point[1]])
+/** PROJECT with the sketch moved 9 mm up, so its x axis passes above AREA. */
+const SHIFTED_UP: Projector = (point) => PROJECT([point[0], point[1] + 9])
+/** PROJECT, with the points past x = 3 behind the eye. */
+const BEHIND_PAST_THREE: Projector = (point) => (point[0] > 3 ? null : PROJECT(point))
+
+describe('axisLabelPosition (3.16.2)', () => {
+  // PROJECT puts the sketch origin at (100, 100), 10 pixels per millimeter, +Y up.
+  const AREA = { left: 20, top: 30, right: 180, bottom: 170 }
+
+  it('puts the label where the positive half leaves the area', () => {
+    expect(axisLabelPosition(PROJECT, [1, 0], [-50, 50], AREA)).toEqual([180, 100])
+    expect(axisLabelPosition(PROJECT, [0, 1], [-50, 50], AREA)).toEqual([100, 30])
+  })
+
+  it('starts the positive half at the origin, whatever the drawn span below it', () => {
+    // The origin lies right of the area: the positive half runs further right and never crosses it.
+    expect(axisLabelPosition(SHIFTED_RIGHT, [1, 0], [-50, 50], AREA)).toBeNull()
+    // The origin lies left of the area: the positive half crosses it and leaves on the right.
+    expect(axisLabelPosition(SHIFTED_LEFT, [1, 0], [-50, 50], AREA)).toEqual([180, 100])
+  })
+
+  it('puts the label at the end of a positive half that ends inside the area', () => {
+    expect(axisLabelPosition(PROJECT, [1, 0], [-50, 3], AREA)).toEqual([130, 100])
+  })
+
+  it('hides the label without a drawn positive half', () => {
+    expect(axisLabelPosition(PROJECT, [1, 0], [-50, -5], AREA)).toBeNull()
+  })
+
+  it('hides the label of a positive half that passes beside the area', () => {
+    expect(axisLabelPosition(SHIFTED_UP, [1, 0], [-50, 50], AREA)).toBeNull()
+  })
+
+  it('uses the part in front of the eye of a half that passes behind it', () => {
+    const position = axisLabelPosition(BEHIND_PAST_THREE, [1, 0], [-50, 50], AREA)
+    expect(position?.[0]).toBeCloseTo(130, 6)
+    expect(position?.[1]).toBe(100)
   })
 })

@@ -20,11 +20,9 @@ const UNIT_VECTORS: Readonly<Record<WorldAxis, Vector3>> = {
   Z: [0, 0, 1],
 }
 
-/** Compares vectors by value, so a -0 from a cross product equals 0. */
-function expectVector(actual: Vector3, expected: Vector3): void {
-  actual.forEach((component, index) => {
-    expect(component).toBeCloseTo(expected[index] ?? Number.NaN, 12)
-  })
+/** Matches a vector by value, so a -0 from a cross product equals 0. */
+function closeTo(vector: Vector3): unknown[] {
+  return vector.map((component) => expect.closeTo(component, 12))
 }
 
 function sketchOn(plane: unknown): FeatureRecord {
@@ -37,8 +35,8 @@ describe('origin plane axes', () => {
     (plane) => {
       const placement = ORIGIN_PLANE_PLACEMENTS[plane]
       const [first, second] = ORIGIN_PLANE_AXES[plane]
-      expectVector(placement.x_axis, UNIT_VECTORS[first])
-      expectVector(placementYAxis(placement), UNIT_VECTORS[second])
+      expect(placement.x_axis).toEqual(closeTo(UNIT_VECTORS[first]))
+      expect(placementYAxis(placement)).toEqual(closeTo(UNIT_VECTORS[second]))
     },
   )
 
@@ -47,8 +45,8 @@ describe('origin plane axes', () => {
   })
 
   it.each(ORIGIN_PLANES)('the %s plane takes the axis along its normal', (plane) => {
-    const [x, y, z] = ORIGIN_PLANE_PLACEMENTS[plane].normal
-    expectVector([Math.abs(x), Math.abs(y), Math.abs(z)], UNIT_VECTORS[ORIGIN_PLANE_NORMAL_AXES[plane]])
+    const normal = ORIGIN_PLANE_PLACEMENTS[plane].normal.map(Math.abs)
+    expect(normal).toEqual(closeTo(UNIT_VECTORS[ORIGIN_PLANE_NORMAL_AXES[plane]]))
   })
 
   it('maps Top to Z, Front to Y and Right to X', () => {

@@ -71,13 +71,14 @@ impl Feature for DatumPlane {
     ) -> Result<FeatureOutput, FeatureError> {
         let base = context.plane("base", &params.base)?;
         let offset = context.eval_length("offset", &params.offset)?;
-        let mut placement = base.offset(offset);
+        let mut placement = base.value.offset(offset);
         if params.flip {
             placement = placement.flipped();
         }
         Ok(FeatureOutput {
             data: OutputData::Datum(DatumResult::Plane(placement)),
-            warnings: Vec::new(),
+            warnings: base.warnings,
+            absent: Vec::new(),
         })
     }
 

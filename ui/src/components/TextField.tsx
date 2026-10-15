@@ -71,7 +71,7 @@ export function TextField({
           onChange(event.currentTarget.value)
         }}
         className={clsx(
-          'h-8 w-full min-w-0 rounded-sm border px-2 text-sm',
+          'h-8 w-full min-w-0 rounded-md border px-2 text-sm',
           COLOR_CLASSES.field.background,
           COLOR_CLASSES.focusRing.outline,
           invalid ? COLOR_CLASSES.errorMark.border : COLOR_CLASSES.borderControl.border,

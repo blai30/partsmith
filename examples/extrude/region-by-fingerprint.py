@@ -13,6 +13,6 @@ with body_1:
     extrude(
         sketch_1,
         30*mm,
-        regions=[Region("e-1,e-2,e-3,e-9", "c=40,25|a=4000")],
+        regions=[Region("e-11,e-12,e-13,e-14", "c=40,25|a=4000")],
         id="f-ext1",
     )

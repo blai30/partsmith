@@ -557,6 +557,7 @@ mod tests {
             Ok(FeatureOutput {
                 data: OutputData::Nothing,
                 warnings: Vec::new(),
+                absent: Vec::new(),
             })
         }
     }

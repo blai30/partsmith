@@ -180,7 +180,7 @@ function TimelineItem({
             onMenu(record.id, event.currentTarget)
           }}
           className={clsx(
-            'relative flex size-10 items-center justify-center rounded-sm transition-colors duration-150 motion-reduce:transition-none',
+            'relative flex size-10 items-center justify-center rounded-md transition-colors duration-150 motion-reduce:transition-none',
             COLOR_CLASSES.focusRing.outline,
             COLOR_CLASSES.accent.outline,
             COLOR_CLASSES.text.foreground,
@@ -237,7 +237,10 @@ function TimelineItem({
       {renaming ? (
         <RenameField
           initial={label}
-          className="absolute top-1/2 left-0 z-10 w-40 -translate-y-1/2 shadow-lg"
+          className={clsx(
+            'absolute top-1/2 left-0 z-10 w-40 -translate-y-1/2 shadow-lg',
+            COLOR_CLASSES.elevation.shadow,
+          )}
           onDone={(name) => {
             onRename(null)
             if (name !== null && name.trim() !== label) {
@@ -299,7 +302,7 @@ function Marker({ position, count, valueText, onPress }: MarkerProps) {
       onKeyDown={onKeyDown}
       onPointerDown={onPress}
       className={clsx(
-        'flex h-10 w-2 shrink-0 cursor-ew-resize touch-none justify-center rounded-sm',
+        'flex h-10 w-2 shrink-0 cursor-ew-resize touch-none justify-center rounded-md',
         COLOR_CLASSES.focusRing.outline,
         COLOR_CLASSES.hover.background,
       )}
@@ -578,9 +581,10 @@ function Strip() {
           ref={ghost}
           aria-hidden="true"
           className={clsx(
-            'pointer-events-none absolute top-2 left-0 flex size-10 items-center justify-center rounded-sm border opacity-80 shadow-lg',
+            'pointer-events-none absolute top-2 left-0 flex size-10 items-center justify-center rounded-md border opacity-80 shadow-lg',
             COLOR_CLASSES.surfaceRaised.background,
             COLOR_CLASSES.accent.border,
+            COLOR_CLASSES.elevation.shadow,
           )}
         />
       )}
@@ -600,7 +604,8 @@ function Strip() {
   )
 }
 
-function ProblemsButton() {
+/** The problems button; in the collapsed timeline, under 2.5rem tall, its focus ring is drawn inside it (3.23). */
+function ProblemsButton({ collapsed }: { readonly collapsed: boolean }) {
   const app = useApp()
   const problems = useAppState(selectProblems)
   const count = problems.length
@@ -622,10 +627,10 @@ function ProblemsButton() {
         openSidePanel(app, 'problems')
       }}
       className={clsx(
-        'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-2 text-xs whitespace-nowrap tabular-nums transition-colors duration-150 motion-reduce:transition-none',
+        'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs whitespace-nowrap tabular-nums transition-colors duration-150 motion-reduce:transition-none',
         COLOR_CLASSES.text.foreground,
         COLOR_CLASSES.hover.background,
-        COLOR_CLASSES.focusRing.outline,
+        collapsed ? COLOR_CLASSES.focusRing.inset : COLOR_CLASSES.focusRing.outline,
         COLOR_CLASSES.accent.outline,
       )}
     >
@@ -659,17 +664,21 @@ export function Timeline() {
     <section
       aria-label="Timeline"
       data-testid="timeline"
+      // A frame island (3.2) that does not clip, so the drag ghost can rise above it; under
+      // 2.5rem tall when collapsed, where it is `rounded-lg`.
       className={clsx(
-        'relative col-span-3 row-start-3 flex min-w-0 items-center gap-2 border-t px-2',
-        collapsed ? 'h-7' : 'h-14',
+        'relative z-10 col-span-3 row-start-3 mt-2 flex min-w-0 items-center gap-2 border px-2 shadow-md',
+        collapsed ? 'h-7 rounded-lg' : 'h-14 rounded-xl',
         COLOR_CLASSES.surface.background,
         COLOR_CLASSES.border.border,
+        COLOR_CLASSES.elevation.shadow,
       )}
     >
       <IconButton
         label={collapsed ? 'Expand timeline' : 'Collapse timeline'}
         icon={collapsed ? ChevronUp : ChevronDown}
         size="compact"
+        focusRing={collapsed ? 'inset' : 'outline'}
         onClick={() => {
           togglePanel(app, 'timelineCollapsed')
         }}
@@ -681,7 +690,7 @@ export function Timeline() {
       ) : (
         <Strip />
       )}
-      <ProblemsButton />
+      <ProblemsButton collapsed={collapsed} />
     </section>
   )
 }

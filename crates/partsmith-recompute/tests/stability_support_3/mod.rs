@@ -499,17 +499,18 @@ pub fn describe_messages(run: &Run, feature: &str) -> String {
     )
 }
 
-/// The candidate element names of every element repair of `feature`, in message order.
+/// The candidate element names of every element repair of `feature`, in message order (features.md section 4.2:
+/// an element repair carries the loss with its candidates).
 pub fn repair_candidates(run: &Run, feature: &str) -> Vec<String> {
     run.feature(feature)
         .messages
         .iter()
         .filter_map(|message| match &message.repair {
-            Some(Repair::Element { candidates, .. }) => Some(candidates),
+            Some(Repair::Element { loss, .. }) => Some(&loss.candidates),
             _ => None,
         })
         .flatten()
-        .map(|name| name.as_str().to_owned())
+        .map(|candidate| candidate.reference.query.as_str().to_owned())
         .collect()
 }
 

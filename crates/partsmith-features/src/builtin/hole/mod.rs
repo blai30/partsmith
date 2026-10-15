@@ -14,6 +14,7 @@ mod tool;
 
 use partsmith_mesh::BoundingBox;
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
+use partsmith_naming::{ElementKind, ElementName, Generator, roles};
 use partsmith_occt_sys::{Point, Vector};
 use partsmith_sketch::{PointRef, PointRole};
 use schemars::JsonSchema;
@@ -23,15 +24,17 @@ use self::overlap::{Candidate, Decision, cut_candidates};
 use self::size::HoleSize;
 use self::tool::{Frame, hole_tool};
 use super::common::{
-    bodies, body_hint, call, check_canceled, essential, farthest_corner, flag, hint, is_false,
-    manifest, one_or_list, options_hint, require_selection, selection_hint, solid_body, unchanged,
-    unit_hint,
+    bodies, body_hint, call, check_canceled, essential, face_name, farthest_corner, flag, hint,
+    is_false, manifest, one_or_list, options_hint, require_selection, selection_hint, solid_body,
+    unchanged, unit_hint,
 };
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning, Noun};
 use crate::feature::Feature;
-use crate::output::{BodyChange, FeatureOutput, SketchResult, Tool, apply_op};
+use crate::output::{
+    Absence, AbsentFace, BodyChange, FeatureOutput, OutputData, SketchResult, Tool, apply_op,
+};
 use crate::params::{BodyOp, PlacementExt};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
@@ -197,7 +200,7 @@ impl Feature for Hole {
         params: &HoleParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let (state, body) = solid_body(context, &params.body)?;
+        let (state, body) = solid_body(context, "body", &params.body)?;
         let mut warnings = Vec::new();
         let size = HoleSize::checked(params, context, &mut warnings)?;
         let sketch = context.sketch("sketch", &params.sketch)?;
@@ -226,14 +229,17 @@ impl Feature for Hole {
                 });
             }
         }
-        finish(
+        let overlaps = decision.overlaps.clone();
+        let mut output = finish(
             context,
             &params.body,
             state,
             drilling.candidates,
             decision,
             warnings,
-        )
+        )?;
+        output.absent = absent_ends(&drilling.ends, &overlaps, &output);
+        Ok(output)
     }
 
     /// `hole(points, diameter, depth, counterbore=(diameter, depth), countersink=(diameter,
@@ -323,6 +329,68 @@ struct Drilling<'a> {
     points: Vec<(&'a PointRef, Option<usize>)>,
     /// The tools whose bounding boxes meet the body's, in point order.
     candidates: Vec<Candidate>,
+    /// The end and entry faces of each candidate's tool, in the same order.
+    ends: Vec<ToolEnds>,
+}
+
+/// The faces of one hole's tool that tell how far it reaches (features/hole.md section 3.3 step 6).
+struct ToolEnds {
+    /// The face where the tool ends: `<feature>/bottom/<point>`, or `<feature>/tip/<point>` with a tip.
+    end: ElementName,
+    /// The face where it starts, `<feature>/entry/<point>`.
+    entry: ElementName,
+}
+
+impl ToolEnds {
+    /// The end and entry of the tool `feature` drills at `point`, whose naming map is `tool`.
+    fn of(feature: &Id, point: &PointRef, tool: &Tool) -> Result<ToolEnds, FeatureError> {
+        let point = point.to_string();
+        let name = |role| face_name(feature, role, Some(Generator::Sketch(&point)));
+        let tip = name(roles::TIP)?;
+        let end = if tool.naming.index(&tip).is_some() {
+            tip
+        } else {
+            name(roles::BOTTOM)?
+        };
+        Ok(ToolEnds {
+            end,
+            entry: name(roles::ENTRY)?,
+        })
+    }
+}
+
+/// The end faces that the result of a hole's cut does not have, for each tool that overlaps the body: `Through`
+/// when its entry is not in the result either, else `EndOutside` (features/hole.md section 3.3 step 6). A hole
+/// without effect records none, since its `NoEffect` warning tells why none of its faces are there.
+fn absent_ends(ends: &[ToolEnds], overlaps: &[bool], output: &FeatureOutput) -> Vec<AbsentFace> {
+    let OutputData::Bodies(updates) = &output.data else {
+        return Vec::new();
+    };
+    let no_effect = output
+        .warnings
+        .iter()
+        .any(|warning| matches!(warning, FeatureWarning::NoEffect { .. }));
+    let Some(update) = updates.first().filter(|_| !no_effect) else {
+        return Vec::new();
+    };
+    let has = |face: &ElementName| {
+        update
+            .naming
+            .names(ElementKind::Face)
+            .any(|(_, name)| name == face || name.is_split_descendant_of(face))
+    };
+    ends.iter()
+        .zip(overlaps)
+        .filter(|(tool, overlaps)| **overlaps && !has(&tool.end))
+        .map(|(tool, _)| AbsentFace {
+            name: tool.end.clone(),
+            why: if has(&tool.entry) {
+                Absence::EndOutside
+            } else {
+                Absence::Through
+            },
+        })
+        .collect()
 }
 
 /// The tool of each point, kept as a candidate when its bounding box meets `body_bounds`
@@ -339,6 +407,7 @@ fn drill_candidates<'a>(
     let mut drilling = Drilling {
         points: Vec::with_capacity(points.len()),
         candidates: Vec::new(),
+        ends: Vec::new(),
     };
     for (point, position) in points {
         check_canceled(context)?;
@@ -356,6 +425,9 @@ fn drill_candidates<'a>(
             let bounds = tool.shape.bounding_box()?;
             if bounds.intersects(body_bounds) {
                 candidate = Some(drilling.candidates.len());
+                drilling
+                    .ends
+                    .push(ToolEnds::of(context.feature(), point, &tool)?);
                 drilling.candidates.push(Candidate { tool, bounds });
             }
         }

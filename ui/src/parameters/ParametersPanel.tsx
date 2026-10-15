@@ -132,7 +132,7 @@ function ParameterRow({
     <li
       data-testid="parameter-row"
       data-id={parameter.id}
-      className={clsx('flex flex-col gap-2 border-b py-3', COLOR_CLASSES.border.border)}
+      className={clsx('flex flex-col gap-2 border-b py-3', COLOR_CLASSES.divider.border)}
     >
       <div className="flex items-start gap-2">
         <TextField
@@ -263,7 +263,7 @@ function DraftRow({ draft, onDone }: { readonly draft: Draft; readonly onDone: (
   return (
     <li
       data-testid="parameter-draft"
-      className={clsx('flex flex-col gap-2 border-b py-3', COLOR_CLASSES.border.border)}
+      className={clsx('flex flex-col gap-2 border-b py-3', COLOR_CLASSES.divider.border)}
     >
       <div className="flex items-start gap-2">
         <TextField

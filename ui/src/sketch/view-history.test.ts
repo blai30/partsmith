@@ -116,16 +116,18 @@ async function enterEmptySketch(): Promise<Fixture> {
   const app = createTestApp({ core, store })
   const canvas = document.createElement('canvas')
   const overlay = document.createElement('div')
-  document.body.append(canvas, overlay)
+  const freeArea = document.createElement('div')
+  document.body.append(canvas, overlay, freeArea)
   const backend = createFakeBackend()
   const controller = createViewportController({
     app,
     canvas,
     overlay,
+    freeArea,
     backend,
     scene: createScene(backend),
   })
-  mounted.push({ controller, elements: [canvas, overlay] })
+  mounted.push({ controller, elements: [canvas, overlay, freeArea] })
   app.attachViewport(controller)
   controller.setCamera(PRE_ENTRY_CAMERA, { animate: false, record: false })
 

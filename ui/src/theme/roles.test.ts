@@ -24,6 +24,7 @@ const THEMES: readonly ThemeName[] = ['light', 'dark']
 // Table of ui.md 2.16.5: step, Tailwind 4.3.3 value, sRGB hex.
 const PALETTE_TABLE: readonly (readonly [step: string, tailwind: string, hex: string])[] = [
   ['white', '#fff', '#ffffff'],
+  ['black', '#000', '#000000'],
   ['zinc-50', 'oklch(98.5% 0 none)', '#fafafa'],
   ['zinc-100', 'oklch(96.7% 0.001 286.375)', '#f4f4f5'],
   ['zinc-200', 'oklch(92% 0.004 286.32)', '#e4e4e7'],
@@ -31,6 +32,7 @@ const PALETTE_TABLE: readonly (readonly [step: string, tailwind: string, hex: st
   ['zinc-400', 'oklch(70.5% 0.015 286.067)', '#9f9fa9'],
   ['zinc-500', 'oklch(55.2% 0.016 285.938)', '#71717b'],
   ['zinc-600', 'oklch(44.2% 0.017 285.786)', '#52525c'],
+  ['zinc-700', 'oklch(37% 0.013 285.805)', '#3f3f46'],
   ['zinc-800', 'oklch(27.4% 0.006 286.033)', '#27272a'],
   ['zinc-900', 'oklch(21% 0.006 285.885)', '#18181b'],
   ['zinc-950', 'oklch(14.1% 0.005 285.823)', '#09090b'],
@@ -72,13 +74,16 @@ const PALETTE_TABLE: readonly (readonly [step: string, tailwind: string, hex: st
 
 // Table of ui.md 2.16.3: role, facet, classes.
 const CLASS_TABLE: readonly (readonly [role: string, facet: string, classes: string])[] = [
+  ['stage', 'background', 'bg-white dark:bg-zinc-800'],
   ['surface', 'background', 'bg-zinc-100 dark:bg-zinc-950'],
   ['surfaceRaised', 'background', 'bg-white dark:bg-zinc-900'],
   ['field', 'background', 'bg-white dark:bg-zinc-950'],
   ['hover', 'background', 'hover:bg-zinc-200 dark:hover:bg-zinc-800'],
   ['hover', 'active', 'bg-zinc-200 dark:bg-zinc-800'],
   ['selection', 'background', 'bg-orange-100 dark:bg-orange-950'],
-  ['border', 'border', 'border-zinc-200 dark:border-zinc-800'],
+  ['border', 'border', 'border-zinc-300 dark:border-zinc-700'],
+  ['divider', 'border', 'border-zinc-200 dark:border-zinc-800'],
+  ['elevation', 'shadow', 'shadow-black/10 dark:shadow-black/50'],
   ['borderControl', 'border', 'border-zinc-500'],
   ['text', 'foreground', 'text-zinc-900 dark:text-zinc-100'],
   ['textMuted', 'foreground', 'text-zinc-600 dark:text-zinc-400'],
@@ -94,6 +99,11 @@ const CLASS_TABLE: readonly (readonly [role: string, facet: string, classes: str
     'focusRing',
     'outline',
     'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600 dark:focus-visible:outline-orange-500',
+  ],
+  [
+    'focusRing',
+    'inset',
+    'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-orange-600 dark:focus-visible:outline-orange-500',
   ],
   ['errorMark', 'foreground', 'text-red-700 dark:text-red-500'],
   ['errorMark', 'border', 'border-red-700 dark:border-red-500'],
@@ -224,6 +234,8 @@ const NON_TEXT_CONTRAST: readonly (readonly [
   ['warningMark', 'surfaceRaised', 19.89, 11.25],
   ['warningMark', 'hover', 15.67, 9.46],
   ['warningMark', 'selection', 17.35, 9.94],
+  ['warningMark border', 'field', 6.84, 14.99],
+  ['warningMark background', 'surface', 6.22, 14.99],
   ['sketchUnder', 'viewportTop', 5.24, 5.64],
   ['sketchUnder', 'viewportBottom', 4.77, 6.71],
   ['sketchFull', 'viewportTop', 17.71, 14.27],
@@ -293,7 +305,7 @@ const COLOR_FAMILIES = Object.entries(colors)
   .filter(([, value]) => typeof value !== 'string')
   .map(([family]) => family)
 const COLOR_UTILITY = new RegExp(
-  `^(?:bg|text|border|outline|stroke|fill|from|via|to)-(white|black|(?:${COLOR_FAMILIES.join('|')})-\\d+)$`,
+  `^(?:bg|text|border|outline|stroke|fill|shadow|from|via|to)-(white|black|(?:${COLOR_FAMILIES.join('|')})-\\d+)(?:/\\d+)?$`,
 )
 
 /** The palette steps a class string names for the light and the dark theme. */
@@ -331,6 +343,9 @@ function stepOfRole(name: string, theme: ThemeName): PaletteStep {
     if (name === 'warningMark') {
       return { light: 'zinc-950', dark: 'yellow-400' }
     }
+    if (name === 'warningMark border' || name === 'warningMark background') {
+      return { light: 'yellow-800', dark: 'yellow-300' }
+    }
     const viewport = VIEWPORT_TABLE.find(([role]) => role === name)
     if (viewport !== undefined) {
       return { light: viewport[1], dark: viewport[2] }
@@ -355,8 +370,8 @@ function truncated(ratio: number): number {
 
 /** CSS Color 4: OKLCH to OKLab to linear sRGB, clipped, sRGB-encoded and rounded to 8 bits. */
 function hexFromTailwind(value: string): string {
-  if (value === '#fff') {
-    return '#ffffff'
+  if (value === '#fff' || value === '#000') {
+    return value === '#fff' ? '#ffffff' : '#000000'
   }
   const match = /^oklch\(([\d.]+)%\s+([\d.]+)\s+([\d.]+|none)\)$/.exec(value)
   if (match === null) {

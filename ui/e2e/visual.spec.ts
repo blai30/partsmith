@@ -2,12 +2,14 @@
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
 import {
+  bodyRow,
   canvas,
   dropFile,
   expectHover,
   fitView,
   inspector,
   openApp,
+  runCommand,
   timelineItem,
   toScreen,
 } from './helpers'
@@ -209,5 +211,91 @@ test.describe('visual @visual', () => {
     await expect(profile).toHaveAttribute('data-count', '0')
     await parkPointer(page)
     await expectWindow(page, 'V-12-extrude-profile-regions-light.png')
+  })
+
+  for (const [id, colorScheme] of [
+    ['V-13', 'light'],
+    ['V-14', 'dark'],
+  ] as const) {
+    test(`${id} both side islands docked and the Extrude inspector card in the free area, ${colorScheme}`, async ({
+      page,
+    }) => {
+      await openInTheme(page, colorScheme)
+      await dropFile(page, 'cube.ptsm')
+      await runCommand(page, 'Parameters')
+      await expect(page.getByTestId('side-panel')).toBeVisible()
+      await timelineItem(page, 'Extrude 1').getByRole('button', { name: 'Extrude 1' }).dblclick()
+      await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
+      await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
+      await parkPointer(page)
+      await expectWindow(page, `${id}-islands-edit-${colorScheme}.png`)
+    })
+  }
+
+  for (const [id, colorScheme] of [
+    ['V-15', 'light'],
+    ['V-16', 'dark'],
+  ] as const) {
+    test(`${id} origin axes and planes in the X, Y and Z colors while a plane is picked, ${colorScheme}`, async ({
+      page,
+    }) => {
+      await openInTheme(page, colorScheme)
+      await page.getByTestId('empty-state').getByRole('button', { name: 'Sketch' }).click()
+      await expect(page.getByTestId('sketch-header')).toHaveAttribute('data-state', 'picking')
+      await expect(page.getByTestId('plane-label')).toHaveCount(3)
+      await expect(page.locator('[data-testid=axis-label]:not([hidden])')).toHaveCount(3)
+      await parkPointer(page)
+      await expectWindow(page, `${id}-origin-axes-planes-${colorScheme}.png`)
+    })
+  }
+
+  test('V-17 a sketch on the Front plane with its axes in the X and Z colors, dark', async ({
+    page,
+  }) => {
+    await openInTheme(page, 'dark')
+    await dropFile(page, 'revolve-sketch.ptsm')
+    // A sketch on the Front plane is edited looking at it from the front (3.16.1).
+    await timelineItem(page, 'Sketch 1').getByRole('button', { name: 'Sketch 1' }).dblclick()
+    await expect(page.getByTestId('viewport')).toHaveAttribute('data-view', 'front')
+    const header = page.getByTestId('sketch-header')
+    await expect(header).toHaveAttribute('data-state', 'full')
+    await expect(header).toHaveAttribute('data-dof', '0')
+    await expect(page.getByTestId('sketch-overlay').getByTestId('axis-label')).toHaveCount(2)
+    await parkPointer(page)
+    await expectWindow(page, 'V-17-sketch-front-axes-dark.png')
+  })
+
+  test('V-18 Size and Center readouts with their axis letters, light', async ({ page }) => {
+    await openInTheme(page, 'light')
+    await dropFile(page, 'cube.ptsm')
+    await bodyRow(page, 'Cube').click()
+    await expect(page.getByTestId('body-center')).toHaveAttribute('data-value', '0, 0, 10 mm')
+    await parkPointer(page)
+    await expectWindow(page, 'V-18-readouts-light.png')
+  })
+
+  test('V-19 the X, Y and Z letters inside the Move body fields, dark', async ({ page }) => {
+    await openInTheme(page, 'dark')
+    await dropFile(page, 'cube.ptsm')
+    await runCommand(page, 'Move body')
+    await expect(inspector(page)).toHaveAccessibleName('Move body')
+    await expect(inspector(page).getByTestId('axis-letter')).toHaveCount(3)
+    await parkPointer(page)
+    await expectWindow(page, 'V-19-move-fields-dark.png')
+  })
+
+  test('V-20 the islands, view cube, controls and slot at 200% UI scale, light', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('partsmith.settings.v1', JSON.stringify({ uiScale: 2 }))
+    })
+    await openInTheme(page, 'light')
+    await expect(page.getByTestId('browser')).toBeHidden()
+    await dropFile(page, 'cube.ptsm')
+    await page.getByRole('button', { name: 'Home view', exact: true }).click()
+    await expect(page.getByTestId('viewport')).toHaveAttribute('data-view', 'iso')
+    await parkPointer(page)
+    await expectWindow(page, 'V-20-cube-home-200-light.png')
   })
 })

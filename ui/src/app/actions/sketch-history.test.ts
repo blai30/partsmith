@@ -22,6 +22,7 @@ import {
   standardViewRotation,
   type Camera,
   type StandardView,
+  wholeCanvas,
 } from '../../viewport/camera'
 import type { Vector3 } from '../../viewport/math'
 import type { App } from '../createApp'
@@ -59,6 +60,7 @@ function recordingViewport(start: Camera): RecordingViewport {
     lookAlong: vi.fn<(normal: Vector3, upHint: Vector3, target: Vector3) => void>(),
     zoomToBounds: vi.fn<(bounds: BoundingBox, margin: number) => void>(),
     screenRectangle: () => null,
+    viewWindow: () => wholeCanvas({ width: 800, height: 600 }),
     requestRender: vi.fn<() => void>(),
   }
 }
