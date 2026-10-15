@@ -19,7 +19,7 @@ Islands (ui.md 3.2, 3.14, 3.23):
 - The free area is the grid cell the islands leave, and it is the `viewport` element. The camera's window is the free area: fit, the standard views, zoom, pan and the grid scale are computed for it, and the projection is shifted and scaled so the rest of the canvas shows the same view around it. The model therefore shows through the gaps between islands and slides under them when panned. Opening or closing a docked island moves the model to the new free area's center, and a camera still as the last fit left it frames the same bounds again, so a fitted model stays whole.
 - The inspector is an island too, but a floating one: it does not change the free area, while Fit to view, Home, Look at and the Show buttons frame into the part of the free area beside it, and opening, moving or closing it moves no camera.
 - Islands sit above the canvas, so no pointer event over an island reaches it, and overlay elements anchored outside the free area are hidden.
-- The view cube stays in the free area's top-right corner, moved to `top-11 right-9` so its turned corners keep about 1rem from the free area's edges at every UI scale, and the viewport controls move to its top-left corner: under the cube they do not fit a free area 11.75rem tall (200 percent UI scale on a 1280 by 720 window). The top-center slot keeps clear of both at every width, which resolves ui.md open issue 16.
+- The view cube stays in the free area's top-right corner, moved to `top-11 right-9` so its turned corners keep 0.7 to 1.2rem from the free area's edges at every UI scale, and the viewport controls move to its top-left corner: under the cube they do not fit a free area 11.75rem tall (200 percent UI scale on a 1280 by 720 window). The top-center slot keeps clear of both at every width, which resolves ui.md open issue 16.
 - The browser and side panel dock while the app root's content box is at least 64rem wide, a container query in rem, so the UI scale counts; the root's 0.5rem gutter makes that a window of at least 65rem (1040 CSS pixels at 100 percent), and the code that closes overlays and the startup rule use the same 65rem. Below it they float over the free area as overlays, as narrow windows did before.
 
 Axes (ui.md 2.16, 3.7, 3.8, 3.10, 3.12, 3.14, 3.16.2):
@@ -34,6 +34,9 @@ Options not chosen:
 - A canvas shrunk to the free area: the model would be cut off at the islands' edges, and the islands would float over empty chrome rather than over the model.
 - Translucent islands with a backdrop blur: blurring the WebGL canvas behind every island costs a full-screen pass per frame, and text contrast would depend on the model behind it.
 - The plain `red-600`, `green-600` and `blue-600` steps: `red-600` lies 0.079 (OKLab) from error red, `blue-600` is sketch blue itself, and `green-600` reaches only 3.21:1 on white, too little for letters.
+- `lime-700` for the light Y and `sky-400` for the dark Z, the first choice: under protanopia `lime-700` lies 0.014 from the accent and under deuteranopia 0.010 from error red, so a hovered Y axis or a Y letter beside an error would not stand out; `sky-400` lies 0.073 from the dark sketch blue, close to dashed under-constrained construction lines on a vertical sketch.
+- Coloring the browser's plane icons by their normal: the name beside the icon ("Top plane (XY)") carries the letters of the plane's own axes, so a Z-blue icon would contradict its letters.
+- A separate border role for the frame islands only: one stronger `border` for every outline, with the old hairline kept as `divider`, needs one role less and lifts cards over the dark viewport as well.
 - Viewport controls at the bottom center, as in Fusion: the fit rule puts the bottom edge of a framed model exactly there, so the controls would cover it.
 - Colored grid lines through the origin: not asked for. The origin axes carry the colors whenever they are shown.
 
@@ -42,4 +45,5 @@ Options not chosen:
 - Every visual baseline changes (V-1 to V-12, none approved yet), and V-13 to V-20 are new; all need a reviewer's approval at the gate.
 - The canvas draws the whole window: at 1280 by 720 with the browser open that is about 1.5 times the pixels of the docked canvas, the extra mostly under opaque islands (ui.md open issue 31). The frame budget P-6 still applies.
 - End-to-end positions are measured in the free area (`canvas(page)` returns the `viewport` box). Tests that state a size or a center compare the readout's `data-value`, since the visible text now carries the axis letters.
-- Red, green and blue gain a second, documented meaning in the interface: the axis hues mark axes only, always with a letter (ui.md 2.16.3).
+- Red, green and blue gain a second, documented meaning in the interface: the axis hues mark axes only, with a letter except on the origin planes and the view cube (ui.md 2.16.3).
+- Every pixel mapping between the canvas and the scene (the scene's frame, screen rectangles, the sketch session's pixel mappings) goes through the free area's view window, and canvas-pixel layers (the overlay, the sketch layer, the viewport menu's anchor) sit outside the free-area layer.
