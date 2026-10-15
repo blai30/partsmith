@@ -111,6 +111,24 @@ fn t019_unknown_stop_point_rebuilds_the_whole_timeline() {
 }
 
 #[test]
+fn document_level_messages_carry_no_repairs_fixes_detail_root_or_reason() {
+    let mut harness = Harness::test_features();
+
+    let report = harness.run_until(&load(&chain_json()), "f-nope");
+
+    // recompute.md section 4: document-level messages have none of these.
+    let [message] = report.messages.as_slice() else {
+        panic!("expected one document-level message: {:?}", report.messages);
+    };
+    assert_eq!(message.code, "unknown_stop");
+    assert!(message.repairs.is_empty());
+    assert!(message.fixes.is_empty());
+    assert_eq!(message.detail, None);
+    assert_eq!(message.root, None);
+    assert_eq!(message.reason, None);
+}
+
+#[test]
 fn t020_a_failing_feature_does_not_stop_the_run() {
     let mut harness = Harness::builtins();
     let top_edge = |q: &str, fp: &str| json!({"q": q, "fp": fp});
