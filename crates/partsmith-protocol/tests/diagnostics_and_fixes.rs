@@ -1,12 +1,13 @@
 //! Acceptance tests for diagnostics, fixes, repairs and `apply_fix` (protocol.md section 6, "Diagnostics, fixes, repairs and the commands of ADR 0024", tests 72 to 79 and 83), plus small unit tests of the same shapes.
+//! Test 80 arrives with `DocumentChanged::bare_numbers` and `SketchSolution::messages` in their own steps (reference stability plan, phase 3); tests 81 and 82 live in `schema.rs` and the UI.
 
 mod common;
 
 use common::examples::{
     APPLY_FIX_REQUEST, APPLY_FIX_RESULT, ERROR_CODES, FEATURE_STATUS_R03, FIX_ACTIONS,
     FRONT_TOP_EDGE_DESCRIPTOR, FULL_REFERENCE, GHOSTS, INTERNAL_ERROR_OUTCOME, LOSS_REASONS,
-    R16_DIAGNOSTIC, REGION_REPAIR, STALE_FIX_MESSAGE, TOP_FACE_DESCRIPTOR,
-    TRANSACTION_OPEN_OUTCOME, UNKNOWN_PRINTER_DIAGNOSTIC,
+    MERGED_REFERENCE, R16_DIAGNOSTIC, REGION_REPAIR, SOLVE_ON_FACE_IN_BODY_FRAME,
+    STALE_FIX_MESSAGE, TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME, UNKNOWN_PRINTER_DIAGNOSTIC,
 };
 use common::{compact, frame_with_messages, header_bytes, id, object_keys, parse_json};
 use partsmith_naming::Reference;
@@ -14,7 +15,7 @@ use partsmith_protocol::{
     Absence, Axis, Buffer, BufferIndex, Cause, Command, CommandResult, CurveKind, Diagnostic,
     DocHandle, ElementDescriptor, ElementKind, ErrorCode, ErrorInfo, Event, FeatureState,
     FeatureStatus, FixAction, FixKind, FixRef, FrameError, Ghost, GhostFrame, GhostKind,
-    InstanceIndex, LossReason, Outcome, Pick, Removal, Repair, RepairCandidate, Response,
+    InstanceIndex, LossReason, Outcome, Pick, Removal, Repair, RepairCandidate, Request, Response,
     ResponseFrame, Severity, Span, decode_request_frame, decode_response_frame,
     encode_response_frame, error_response_frame,
 };
@@ -34,6 +35,9 @@ const APPLY_WITHOUT_FIELD: &str = r#"{"label": "Put it in a new body", "run": {"
 /// The `pick` action of the R16 diagnostic in section 2.4.
 const PICK_ACTION: &str = r#"{"label": "Pick an edge again", "run": {"kind": "pick", "feature": "f-fil1", "path": "/edges/0"}}"#;
 
+/// The fillet of engine.md test 117 after its edge followed a redrawn line: status ok with one info notice, its two actions and its reason, and no repairs.
+const NOTICE_STATUS: &str = r#"{"id":"f-fil1","status":"ok","messages":[{"severity":"info","code":"reference_followed","message":"The right top edge of 'Extrude 1' selected for Edges now follows the right top edge of 'Extrude 1' along the line from (80, 0) to (80, 50) in 'Sketch 1', because its line was replaced in 'Sketch 1'.","field":"/edges/0","actions":[{"label":"Keep this match","run":{"kind":"apply","fix":{"feature":"f-fil1","code":"reference_followed","field":"/edges/0","cause":false,"index":0,"revision":3}}},{"label":"Pick an edge again","run":{"kind":"pick","feature":"f-fil1","path":"/edges/0"}}],"reason":{"kind":"followed","by":"f-sk1"}}],"repairs":[]}"#;
+
 /// The value `text` holds, with the text in the panic message when it does not deserialize.
 fn parse<T: DeserializeOwned>(text: &str) -> T {
     serde_json::from_str(text).unwrap_or_else(|error| panic!("{text} deserializes: {error}"))
@@ -42,6 +46,13 @@ fn parse<T: DeserializeOwned>(text: &str) -> T {
 /// `value` as compact JSON text, with keys in declaration order.
 fn written<T: Serialize>(value: &T) -> String {
     serde_json::to_string(value).expect("a protocol value serializes")
+}
+
+/// Decodes a request frame whose one request carries `command`, a JSON text.
+fn decode_request(command: &str) -> Result<(Request, Vec<Buffer>), FrameError> {
+    decode_request_frame(&frame_with_messages(&format!(
+        r#"[{{"kind":"request","id":5,"command":{command}}}]"#
+    )))
 }
 
 /// A `FixRef` of the R16 diagnostic, for its own actions or for its cause's.
@@ -440,10 +451,7 @@ fn t076_apply_fix_request_and_result_round_trip_and_the_request_is_strict() {
         ),
     ];
     for (case, command) in rejected {
-        let frame = frame_with_messages(&format!(
-            r#"[{{"kind":"request","id":5,"command":{command}}}]"#
-        ));
-        let error = decode_request_frame(&frame).expect_err(case);
+        let error = decode_request(command).expect_err(case);
         assert!(
             matches!(error, FrameError::InvalidMessage { .. }),
             "{case}: got {error:?}"
@@ -514,7 +522,8 @@ fn t077_error_info_writes_detail_and_actions_after_span_only_when_present() {
         r#"{"protocol_version":1,"messages":[{"kind":"response","id":0,"result":{"kind":"error","code":"malformed_frame","message":"The frame does not start with PSM1."}}],"buffers":[]}"#
     );
 
-    // stale_fix is a code of section 4, with its message.
+    // stale_fix is a code of section 4, with its message. The engine writes the message, and its
+    // dispatch tests check the text.
     assert!(ERROR_CODES.contains(&"stale_fix"));
     let stale = ErrorInfo::new(ErrorCode::StaleFix, STALE_FIX_MESSAGE);
     assert_eq!(
@@ -708,15 +717,22 @@ fn t083_loss_reasons_added_by_the_review() {
 }
 
 #[test]
-fn diagnostic_with_every_field_writes_them_in_declaration_order() {
-    let diagnostic = Diagnostic {
+fn diagnostic_with_every_field_round_trips_with_keys_in_declaration_order() {
+    let mut diagnostic = Diagnostic {
         suggestion: Some("2.3 mm".to_string()),
         root: Some(id("f-dp1")),
         ..r16_diagnostic()
     };
+    let cause = diagnostic
+        .cause
+        .as_mut()
+        .expect("the R16 diagnostic has a cause");
+    cause.ghost = Some(parse(GHOSTS[1]));
 
-    let value = serde_json::to_value(&diagnostic).expect("a diagnostic serializes");
+    let text = written(&diagnostic);
 
+    assert_eq!(parse::<Diagnostic>(&text), diagnostic);
+    let value = parse_json(&text);
     assert_eq!(
         object_keys(&value),
         [
@@ -732,18 +748,6 @@ fn diagnostic_with_every_field_writes_them_in_declaration_order() {
             "reason"
         ]
     );
-}
-
-#[test]
-fn diagnostic_reads_null_cause_detail_root_and_reason_as_absent() {
-    let diagnostic: Diagnostic = parse(
-        r#"{"severity":"info","code":"note","message":"Fine.","cause":null,"detail":null,"root":null,"reason":null}"#,
-    );
-
-    assert_eq!(diagnostic.cause, None);
-    assert_eq!(diagnostic.detail, None);
-    assert_eq!(diagnostic.root, None);
-    assert_eq!(diagnostic.reason, None);
 }
 
 #[test]
@@ -796,14 +800,6 @@ fn apply_fix_rejects_an_unknown_top_level_field() {
     );
 
     assert!(result.is_err(), "got {result:?}");
-}
-
-#[test]
-fn error_info_new_has_no_detail_or_actions() {
-    let info = ErrorInfo::new(ErrorCode::StaleFix, STALE_FIX_MESSAGE);
-
-    assert_eq!(info.detail, None);
-    assert!(info.actions.is_empty());
 }
 
 #[test]
@@ -941,4 +937,119 @@ fn pick_with_a_body_still_rejects_unknown_fields() {
     );
 
     assert!(result.is_err(), "got {result:?}");
+}
+
+#[test]
+fn info_notice_travels_in_an_ok_feature_status() {
+    let status: FeatureStatus = parse(NOTICE_STATUS);
+
+    assert_eq!(status.status, FeatureState::Ok);
+    assert_eq!(status.messages.len(), 1);
+    assert_eq!(status.messages[0].severity, Severity::Info);
+    assert_eq!(
+        status.messages[0].reason,
+        Some(LossReason::Followed { by: id("f-sk1") })
+    );
+    assert!(status.repairs.is_empty());
+    assert_eq!(written(&status), NOTICE_STATUS);
+}
+
+#[test]
+fn repair_candidate_carries_the_full_reference_its_use_action_stores() {
+    let candidate = RepairCandidate {
+        reference: parse(FULL_REFERENCE),
+        description: "the front top edge of the right part of the top of 'Extrude 1'".to_string(),
+        relation: "on the top of 'Extrude 1', about 30 mm from where it was".to_string(),
+        meaning: true,
+        distance: 30.0,
+        score: 0.5,
+        element: None,
+    };
+
+    let value = serde_json::to_value(&candidate).expect("a candidate serializes");
+
+    assert_eq!(value["reference"], parse_json(FULL_REFERENCE));
+    let back: RepairCandidate =
+        serde_json::from_value(value).expect("a written candidate deserializes");
+    assert_eq!(back, candidate);
+}
+
+#[test]
+fn element_refs_carry_merged_names_through_requests() {
+    let text = format!(
+        r#"{{"type":"resolve_references","doc":1,"references":[{{"body":"b-1","reference":{}}}]}}"#,
+        compact(MERGED_REFERENCE)
+    );
+
+    let command: Command = parse(&text);
+
+    let Command::ResolveReferences { references, .. } = &command else {
+        panic!("the request is resolve_references, got {command:?}");
+    };
+    assert_eq!(references.len(), 1);
+    assert_eq!(references[0].reference.merged.0.len(), 1, "{references:?}");
+    assert!(
+        references[0].reference.anchors.0.is_empty(),
+        "{references:?}"
+    );
+    assert_eq!(written(&command), text);
+}
+
+#[test]
+fn short_reference_writes_neither_anchors_nor_merged_names() {
+    let short: Reference = parse(
+        r#"{"q":"edge(f-box1/front|f-box1/top)","fp":"line|n=1,0,0|c=0,-15,40|l=20|adj=2,2"}"#,
+    );
+
+    let value = serde_json::to_value(&short).expect("a reference serializes");
+
+    assert_eq!(object_keys(&value), ["q", "fp"]);
+}
+
+#[test]
+fn solve_sketch_candidate_keeps_a_body_fallback_frame() {
+    let command: Command = parse(SOLVE_ON_FACE_IN_BODY_FRAME);
+
+    let value = serde_json::to_value(&command).expect("a command serializes");
+
+    assert_eq!(value["candidate"]["plane"]["fallback_frame"], "body");
+    assert_eq!(written(&command), compact(SOLVE_ON_FACE_IN_BODY_FRAME));
+}
+
+#[test]
+fn solve_sketch_candidate_with_an_unknown_fallback_frame_is_a_malformed_request() {
+    // The same request with the frame `body` decodes, so the frame's value is what fails below.
+    decode_request(SOLVE_ON_FACE_IN_BODY_FRAME).expect("a candidate with a body frame decodes");
+    let command = SOLVE_ON_FACE_IN_BODY_FRAME.replace(
+        r#""fallback_frame": "body""#,
+        r#""fallback_frame": "local""#,
+    );
+
+    let error = decode_request(&command).expect_err("an unknown frame is rejected");
+
+    assert!(
+        matches!(error, FrameError::InvalidMessage { .. }),
+        "got {error:?}"
+    );
+    assert_eq!(error.code(), ErrorCode::MalformedRequest);
+}
+
+#[test]
+fn apply_fix_without_its_fix_is_rejected() {
+    let result = serde_json::from_str::<Command>(r#"{"type":"apply_fix","doc":1}"#);
+
+    assert!(result.is_err(), "got {result:?}");
+}
+
+#[test]
+fn transaction_open_error_with_its_action_travels_in_a_response_frame() {
+    let response = Response {
+        id: 9,
+        result: parse(TRANSACTION_OPEN_OUTCOME),
+    };
+
+    let bytes = encode_response_frame(&[], &response, &[]).expect("the response frame encodes");
+    let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
+
+    assert_eq!(decoded.response, response);
 }

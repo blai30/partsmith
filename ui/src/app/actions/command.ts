@@ -1320,7 +1320,8 @@ async function pickFaceEdges(
   }
   let edges: ReadonlyMap<string, ElementDescriptor> | null
   try {
-    edges = await edgesOf(app, item.body)
+    // The pick waits on the edge list (4.4).
+    edges = await app.waitOn(edgesOf(app, item.body))
   } catch (error) {
     showCoreError(app, error)
     return

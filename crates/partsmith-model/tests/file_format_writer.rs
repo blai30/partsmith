@@ -2,25 +2,16 @@
 
 mod common;
 
-use common::{E1, E2, E3, E4, E5, E6, E7, E8_OUTPUT, e8_input, feature, id};
+use common::{
+    E1, E2, E3, E4, E5, E6, E7, E8_OUTPUT, differing_lines, e8_input, feature, id, load_document,
+    save_text,
+};
 use partsmith_model::canonical::{format_number, format_string, to_string};
 use partsmith_model::{
-    Body, BodyRole, Color, Document, Expr, FeatureRecord, Parameter, Units, load, save,
+    Body, BodyRole, Color, Document, Expr, FeatureRecord, Parameter, Units, load,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Number, Value, json};
-
-/// The document `text` loads to.
-fn load_document(text: &str) -> Document {
-    load(text)
-        .unwrap_or_else(|error| panic!("the text does not load: {error}"))
-        .document
-}
-
-/// The canonical text of `document`.
-fn save_text(document: &Document) -> String {
-    save(document).unwrap_or_else(|error| panic!("the document does not save: {error}"))
-}
 
 /// Keys of a JSON object, in order.
 fn keys(value: &Value) -> Vec<&str> {
@@ -262,13 +253,5 @@ fn t013_one_expression_change_is_a_one_line_diff() {
 
     let changed = save_text(&document);
 
-    let before: Vec<&str> = E2.lines().collect();
-    let after: Vec<&str> = changed.lines().collect();
-    assert_eq!(before.len(), after.len());
-    let differing = before
-        .iter()
-        .zip(&after)
-        .filter(|(old, new)| old != new)
-        .count();
-    assert_eq!(differing, 1);
+    assert_eq!(differing_lines(E2, &changed).len(), 1);
 }

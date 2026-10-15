@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { createWorkerTransport } from '../core/transport'
 import { createMemoryRecentFiles } from '../files/recent'
@@ -12,7 +12,15 @@ import {
   stubElementSize,
   stubMatchMedia,
 } from '../layout/test-app.testing'
-import { currentDocument, LINUX_WEB, startWithDocument, WINDOWS_DESKTOP } from '../test/fakes/app'
+import { createSketchController } from '../sketch/session'
+import { clickAt, fixedViewport, mountView, pointerAt } from '../sketch/view.testing'
+import {
+  currentDocument,
+  filletOnCube,
+  LINUX_WEB,
+  startWithDocument,
+  WINDOWS_DESKTOP,
+} from '../test/fakes/app'
 import { createFakeCoreWorkers, type FakeCoreWorkers } from '../test/fakes/core-worker'
 import { deferred } from '../test/fakes/deferred'
 import {
@@ -29,15 +37,16 @@ import {
   type FakeFileService,
 } from '../test/fakes/files'
 import { editsOf } from '../test/fakes/protocol'
-import { regionItem } from '../test/fakes/selection'
+import { elementItem, regionItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { Viewport } from '../viewport/Viewport'
 import { renameBody, setBodyVisible } from './actions/bodies'
-import { editFeature, startFeatureCommand } from './actions/command'
+import { capturePick, editFeature, startFeatureCommand } from './actions/command'
 import { setContext } from './actions/context'
 import { applyEdits, newDocument, openFile, save, startCore } from './actions/document'
 import { exportModel } from './actions/export'
 import { select } from './actions/selection'
+import { enterSketch, setSketchTool } from './actions/sketch'
 import { BACKGROUND_COMMANDS, createApp, type App } from './createApp'
 
 // A core that has answered nothing for 10 s (ui.md 3.21, 4.4): the still-working state, its
@@ -297,7 +306,6 @@ describe('only waited-on requests count (2.5, 3.21, 4.4)', () => {
       'analyze_print',
       'evaluate',
       'list_elements',
-      'list_uses',
       'measure',
       'resolve_references',
     ])
@@ -431,6 +439,98 @@ describe('only waited-on requests count (2.5, 3.21, 4.4)', () => {
   })
 })
 
+describe('user actions that wait on background requests (2.9, 4.4)', () => {
+  it('U-171 a wait on a stuck background request counts from the start of the wait', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    fake.transport.handle('evaluate', neverAnswer)
+    const { documentHandle } = currentDocument(fake.app)
+    // The evaluation at 0 ms, never answered.
+    const evaluation = requestOf(BACKGROUND_REQUESTS, 'evaluate').send(fake.app, documentHandle)
+    await settle()
+    await advance(5_000)
+    // The wait on it at 5,000 ms.
+    fake.app.waitOn(evaluation).catch(() => undefined)
+    await settle()
+
+    await advance(9_999)
+    expect(stillWorking(fake.app)).toBe(false)
+    await advance(1)
+    expect(stillWorking(fake.app)).toBe(true)
+  })
+
+  it('U-171 a wait that has ended counts no more', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    renderCoreViews(fake.app)
+    const answer = deferred<void>()
+    fake.transport.handle('evaluate', async (command, core) => {
+      await answer.promise
+      return core.reply(command)
+    })
+    const { documentHandle } = currentDocument(fake.app)
+    // The wait at 0 ms, on an evaluation answered at 2,000 ms.
+    const waited = fake.app.waitOn(
+      requestOf(BACKGROUND_REQUESTS, 'evaluate').send(fake.app, documentHandle),
+    )
+    await settle()
+    await advance(2_000)
+    answer.resolve()
+    await act(() => settle())
+    // The wait settles as its work does.
+    await expect(waited).resolves.toMatchObject({ value: 1 })
+
+    await advance(28_000)
+    expectNotStillWorking(fake.app)
+  })
+
+  it('U-171 a face picked as its edges counts its wait on the edge list', async () => {
+    const fake = await filletOnCube()
+    fake.transport.clearRequests()
+    fake.transport.handle('list_elements', neverAnswer)
+    capturePick(fake.app, elementItem(CUBE_TOP_FACE, 'Cube')).catch(() => undefined)
+    await settle()
+    expect(fake.transport.commandTypes()).toEqual(['list_elements'])
+
+    await advance(9_999)
+    expect(stillWorking(fake.app)).toBe(false)
+    await advance(1)
+    expect(stillWorking(fake.app)).toBe(true)
+  })
+
+  it('U-171 Enter in a sketch draw input counts its wait on the typed values from the Enter', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, {
+      core: { solutions: { 'f-sk1': CUBE_SKETCH_SOLUTION } },
+    })
+    fake.app.attachViewport(fixedViewport())
+    await enterSketch(fake.app, 'f-sk1')
+    await settle()
+    setSketchTool(fake.app, 'line')
+    const view = mountView()
+    const sketch = createSketchController({ app: fake.app, canvas: view.canvas })
+    onTestFinished(() => {
+      sketch.dispose()
+      view.remove()
+    })
+    clickAt(view.canvas, [30, 0])
+    pointerAt(view.canvas, 'pointermove', [45, 0])
+    await settle()
+    fake.transport.clearRequests()
+    fake.transport.handle('evaluate', neverAnswer)
+    // The length typed at 0 ms, whose evaluation never ends.
+    sketch.setDrawText('Length', '25')
+    await settle()
+    expect(fake.transport.commandTypes()).toEqual(['evaluate'])
+    await advance(5_000)
+    // Enter at 5,000 ms.
+    sketch.commitDrawInputs().catch(() => undefined)
+    await settle()
+
+    await advance(9_999)
+    expect(stillWorking(fake.app)).toBe(false)
+    await advance(1)
+    expect(stillWorking(fake.app)).toBe(true)
+  })
+})
+
 /** Sets the still-working state as the app does after 10 s without an answer (4.4). */
 function setStillWorking(app: App, working: boolean): void {
   act(() => {
@@ -449,8 +549,10 @@ describe('the still-working panel over the model (4.4)', () => {
     const panel = within(view).getByTestId('core-working')
     const chip = panel.closest('.pointer-events-auto')
     const layer = chip?.parentElement
-    expect(layer).toHaveClass('pointer-events-none', 'absolute', 'inset-0')
+    expect(layer).toHaveClass('pointer-events-none', 'absolute', 'inset-0', 'z-30')
     expect(layer?.parentElement).toBe(view)
+    // Above the inspector's z-20, in the viewport's own stacking context.
+    expect(view).toHaveClass('isolate')
     // Between the panel and the viewport only the chip takes pointer events.
     const taking: Element[] = []
     for (let element: Element | null = panel; element !== view; element = element.parentElement) {
@@ -471,6 +573,7 @@ describe('the still-working panel over the model (4.4)', () => {
     const contexts = screen.getByRole('radiogroup', { name: 'Context' })
     expect(within(contexts).getByRole('radio', { name: 'Print' })).toBeChecked()
 
+    expect(overhangMap).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(overhangMap)
     expect(overhangMap).toHaveAttribute('aria-pressed', 'false')
     await act(async () => {

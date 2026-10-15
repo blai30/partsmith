@@ -134,10 +134,13 @@ function PlaneLabels({ scene }: { readonly scene: Scene }) {
   ))
 }
 
-/** A centered chip over the view on the `surfaceRaised` role (3.24: text over the view sits on a chip). */
+/**
+ * A centered chip over the view on the `surfaceRaised` role (3.24: text over the view sits on a
+ * chip), in a layer above the inspector so the core's panels and their buttons stay uncovered (4.4).
+ */
 function OverlayChip({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-4">
       <div
         className={clsx(
           'pointer-events-auto flex max-w-110 flex-col gap-3 rounded-md border p-4 text-sm shadow-lg',
@@ -464,6 +467,8 @@ export function Viewport({ children }: ViewportProps) {
   }
 
   return (
+    // Isolated, so the core's panels sit above the inspector while the regions drawn over the
+    // viewport (the browser and side panel overlays, the notifications) stay above both (4.4).
     <main
       aria-label="3D view"
       data-testid="viewport"
@@ -475,7 +480,7 @@ export function Viewport({ children }: ViewportProps) {
       data-hover-key={hoverKey ?? undefined}
       data-selection-count={selectionCount}
       data-grid-spacing={gridSpacing}
-      className="relative col-start-2 row-start-2 min-h-0 min-w-0 overflow-hidden"
+      className="relative isolate col-start-2 row-start-2 min-h-0 min-w-0 overflow-hidden"
     >
       {/* The spec makes the view one focusable application that takes the camera keys (3.13). */}
       {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}

@@ -1,9 +1,12 @@
 //! Regression tests for behavior that `docs/spec/engine.md` states in section 3 but section 6
 //! does not number: validation of sketch entity references and reference dimensions (3.19),
 //! the order of print analysis bodies (3.12), printer profile changes (3.7, 3.4), the unknown
-//! printer warning (3.4, 3.13) and picks that come before any listing (3.9).
+//! printer warning (3.4, 3.13), picks that come before any listing (3.9) and fixtures that are
+//! canonical at the current format version (3.20).
 
 mod common;
+
+use std::path::Path;
 
 use common::{
     count, doc_handle, elements, fixture, measure_body, number, open, open_doc, open_text,
@@ -325,4 +328,23 @@ fn element_counts(name: &str, body: &str) -> [(&'static str, usize); 3] {
         ("edge", count(&measured["edge_count"])),
         ("vertex", count(&measured["vertex_count"])),
     ]
+}
+
+#[test]
+fn every_fixture_is_canonical_at_the_current_format_version() {
+    let session = session();
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut names: Vec<String> = std::fs::read_dir(&directory)
+        .expect("the fixture directory is readable")
+        .map(|entry| entry.expect("a fixture entry").file_name())
+        .filter_map(|name| name.into_string().ok())
+        .filter(|name| name.ends_with(".ptsm"))
+        .collect();
+    names.sort();
+
+    assert!(!names.is_empty(), "{} holds fixtures", directory.display());
+    for name in names {
+        let text = fixture(&name);
+        assert_eq!(session.format(&text), Ok(text), "{name}");
+    }
 }

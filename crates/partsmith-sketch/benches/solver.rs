@@ -12,10 +12,13 @@ use std::hint::black_box;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use benchmark::{CHAIN_FREE_END, PLATE_PARAMS_JSON, chain_benchmark, grid_benchmark};
+use benchmark::{
+    CHAIN_FREE_END, PLATE_PARAMS_JSON, chain_benchmark, entity_ids, first_cell, grid_benchmark,
+    split_grid_benchmark,
+};
 use partsmith_sketch::{
-    ConstraintKind, DimensionValues, DragSession, DragTarget, Id, NativeSolver, PointRef,
-    SketchParams, Solver, build_profile,
+    ConstraintKind, DimensionValues, DragSession, DragTarget, Id, NativeSolver, PointRef, Region,
+    RegionRef, SketchParams, Solver, build_profile, match_region,
 };
 
 /// Unmeasured repetitions before each scenario.
@@ -173,6 +176,13 @@ fn main() -> ExitCode {
     .map(|(constraint, value)| (Id::new(constraint).expect("valid id"), value))
     .collect();
     let grid = grid_benchmark();
+    let grid_regions = build_profile(&grid).regions;
+    let grid_ids = entity_ids(&grid);
+    let grid_references: Vec<RegionRef> = grid_regions.iter().map(Region::reference).collect();
+    let split_grid = split_grid_benchmark();
+    let split_regions = build_profile(&split_grid).regions;
+    let split_ids = entity_ids(&split_grid);
+    let first_cell_reference = grid_regions[first_cell(&grid_regions)].reference();
 
     let scenarios = [
         Scenario {
@@ -219,6 +229,22 @@ fn main() -> ExitCode {
             name: "build_profile, plate",
             times: time(|| build_profile(&plate.entities)),
             median_budget: Duration::from_micros(200),
+            maximum_budget: None,
+        },
+        Scenario {
+            name: "match_region, every grid region against its own reference",
+            times: time(|| {
+                for reference in &grid_references {
+                    black_box(match_region(&grid_regions, &grid_ids, reference));
+                }
+            }),
+            median_budget: Duration::from_millis(2),
+            maximum_budget: None,
+        },
+        Scenario {
+            name: "match_region, split grid, the first cell's reference",
+            times: time(|| match_region(&split_regions, &split_ids, &first_cell_reference)),
+            median_budget: Duration::from_micros(500),
             maximum_budget: None,
         },
     ];

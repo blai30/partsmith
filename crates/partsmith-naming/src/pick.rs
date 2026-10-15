@@ -15,7 +15,7 @@ use crate::name_set::share_a_face;
 use crate::reference::{
     ANCHOR_LIMIT, Anchors, Merged, MergedName, Reference, face_names_in, has_own_split,
 };
-use crate::shape::{Shape, pairs_one_to_one};
+use crate::shape::Shape;
 
 impl Reference {
     /// The reference that denotes this element as it is now in `set`, with anchors and merged
@@ -31,55 +31,70 @@ impl Reference {
 }
 
 /// The anchors of every order-dependent part of the element's name that is not a fallback name,
-/// and of the name itself when it has its own `#n`.
+/// and of the name itself when it has its own `#n` and a face term that is no fallback name.
 fn anchors_of(info: &ElementInfo, set: &ElementSet) -> Anchors {
-    let names = set.names();
-    let mut anchors = BTreeMap::new();
     let parts: Vec<ElementName> = match info.kind {
         ElementKind::Face => vec![info.name.clone()],
         ElementKind::Edge | ElementKind::Vertex => info.name.face_terms(),
     };
-    for part in &parts {
-        let shape = Shape::of(Arc::clone(part.shared_text()));
-        if !part.is_order_dependent() || shape.is_fallback() {
-            continue;
-        }
-        let Some(face) = names.face_id(part.as_str()) else {
-            continue;
-        };
-        let family = names.family_of_name(part);
-        let siblings: Vec<Vec<u32>> = family
-            .iter()
-            .filter(|&&member| member != face)
-            .map(|&member| names.touching(member).to_vec())
-            .collect();
-        let left_out: BTreeSet<&str> = family
-            .iter()
-            .map(|&member| names.face_shape(member).piece_free_text().as_ref())
-            .collect();
-        let adjacent = piece_free_neighbors(names, names.touching(face), &left_out);
-        if let Some(kept) = distinguishing(names, &adjacent, &siblings) {
-            anchors.insert(part.clone(), kept);
-        }
-    }
+    let fallback: Vec<bool> = parts
+        .iter()
+        .map(|part| Shape::of(Arc::clone(part.shared_text())).is_fallback())
+        .collect();
+    let mut anchors: BTreeMap<ElementName, Vec<ElementName>> = parts
+        .iter()
+        .zip(&fallback)
+        .filter(|&(part, &fallback)| part.is_order_dependent() && !fallback)
+        .filter_map(|(part, _)| Some((part.clone(), part_anchors(set.names(), part)?)))
+        .collect();
+    let own_is_fallback = fallback.iter().all(|&fallback| fallback);
     if has_own_split(&info.name)
-        && let Some(position) = set.position_of(info.kind, info.name.as_str())
+        && !own_is_fallback
+        && let Some(kept) = own_anchors(info, set, &parts)
     {
-        let siblings: Vec<Vec<u32>> = own_family(set, info.kind, &parts)
-            .into_iter()
-            .filter(|&member| member != position)
-            .map(|member| set.faces_beyond_vertices(member))
-            .collect();
-        let adjacent = piece_free_neighbors(
-            names,
-            &set.faces_beyond_vertices(position),
-            &BTreeSet::new(),
-        );
-        if let Some(kept) = distinguishing(names, &adjacent, &siblings) {
-            anchors.insert(info.name.clone(), kept);
-        }
+        anchors.insert(info.name.clone(), kept);
     }
     Anchors(anchors)
+}
+
+/// The anchors of the face part `part`: the names next to it that tell it apart from the other
+/// members of its family.
+fn part_anchors(names: &NameSet, part: &ElementName) -> Option<Vec<ElementName>> {
+    let face = names.face_id(part.as_str())?;
+    let family = names.family_of_name(part);
+    let siblings: Vec<Vec<u32>> = family
+        .iter()
+        .filter(|&&member| member != face)
+        .map(|&member| names.touching(member).to_vec())
+        .collect();
+    let left_out: BTreeSet<&str> = family
+        .iter()
+        .map(|&member| names.face_shape(member).piece_free_text().as_ref())
+        .collect();
+    let adjacent = piece_free_neighbors(names, names.touching(face), &left_out);
+    distinguishing(names, &adjacent, &siblings)
+}
+
+/// The anchors of the element's own `#n`: the names beyond its vertices that tell it apart from
+/// the other edges or vertices between the faces of its face terms `parts`.
+fn own_anchors(
+    info: &ElementInfo,
+    set: &ElementSet,
+    parts: &[ElementName],
+) -> Option<Vec<ElementName>> {
+    let names = set.names();
+    let position = set.position_of(info.kind, info.name.as_str())?;
+    let siblings: Vec<Vec<u32>> = own_family(set, info.kind, parts)
+        .into_iter()
+        .filter(|&member| member != position)
+        .map(|member| set.faces_beyond_vertices(member))
+        .collect();
+    let adjacent = piece_free_neighbors(
+        names,
+        &set.faces_beyond_vertices(position),
+        &BTreeSet::new(),
+    );
+    distinguishing(names, &adjacent, &siblings)
 }
 
 /// The edges or vertices of `kind` whose faces pair one to one with the families of the face terms
@@ -90,22 +105,8 @@ fn own_family(set: &ElementSet, kind: ElementKind, parts: &[ElementName]) -> Vec
         .iter()
         .map(|part| names.family_of_name(part))
         .collect();
-    let mut members: Vec<usize> = families
-        .first()
-        .into_iter()
-        .flatten()
-        .flat_map(|&face| set.incident(kind, face))
-        .map(|&position| position as usize)
-        .collect();
-    members.sort_unstable();
-    members.dedup();
-    members.retain(|&member| {
-        let adjacent = set.adjacent_faces(member);
-        pairs_one_to_one(adjacent.len(), families.len(), |face, part| {
-            families[part].binary_search(&adjacent[face]).is_ok()
-        })
-    });
-    members
+    let allowed: Vec<&[u32]> = families.iter().map(Vec::as_slice).collect();
+    set.pairing(kind, &allowed)
 }
 
 /// The distinct piece-free names of the faces `faces`, leaving out fallback names and the names in

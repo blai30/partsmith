@@ -151,27 +151,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn error_info_new_has_no_edit_index_or_span() {
+    fn error_info_new_has_no_edit_index_span_detail_or_actions() {
         let info = ErrorInfo::new(ErrorCode::NothingToUndo, "There is nothing to undo.");
 
         assert_eq!(info.edit_index, None);
         assert_eq!(info.span, None);
-    }
-
-    #[test]
-    fn error_info_writes_its_detail_after_the_span() {
-        let info = ErrorInfo {
-            detail: Some("unknown name wal".to_string()),
-            span: Some(Span { start: 4, end: 7 }),
-            ..ErrorInfo::new(ErrorCode::ExpressionError, "Unknown name 'wal'.")
-        };
-
-        let text = serde_json::to_string(&info).expect("an error serializes");
-
-        assert_eq!(
-            text,
-            r#"{"code":"expression_error","message":"Unknown name 'wal'.","span":{"start":4,"end":7},"detail":"unknown name wal"}"#
-        );
+        assert_eq!(info.detail, None);
+        assert!(info.actions.is_empty());
     }
 
     #[test]

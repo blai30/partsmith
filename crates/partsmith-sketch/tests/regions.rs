@@ -4,13 +4,15 @@ mod common;
 
 use std::f64::consts::PI;
 
+use common::benchmark::entity_ids;
+use common::matching::{fingerprint, key, matched, reference, regions_of, resolved};
 use common::{
-    crossing_rectangles, id, line, nested_circles, overlapping_circles, plate_entities,
+    crossing_rectangles, id, ids, line, nested_circles, overlapping_circles, plate_entities,
     rect_entities,
 };
 use partsmith_sketch::{
-    KeyEdge, MatchMethod, ProfileLoop, Region, RegionFingerprint, RegionKey, RegionMatch,
-    RegionRef, SketchEntity, SketchError, build_profile, match_region,
+    KeyEdge, MatchMethod, ProfileLoop, Region, RegionFingerprint, RegionKey, RegionLoss,
+    RegionMatch, RegionRef, SketchEntity, SketchError, match_region,
 };
 
 fn entry(entity: &str, reversed: bool) -> KeyEdge {
@@ -18,27 +20,6 @@ fn entry(entity: &str, reversed: bool) -> KeyEdge {
         entity: id(entity),
         reversed,
     }
-}
-
-fn key(text: &str) -> RegionKey {
-    text.parse()
-        .unwrap_or_else(|error| panic!("{text} is a canonical region key: {error}"))
-}
-
-fn fingerprint(text: &str) -> RegionFingerprint {
-    text.parse()
-        .unwrap_or_else(|error| panic!("{text} is a region fingerprint: {error}"))
-}
-
-fn reference(key_text: &str, fingerprint_text: &str) -> RegionRef {
-    RegionRef {
-        key: key(key_text),
-        fp: fingerprint(fingerprint_text),
-    }
-}
-
-fn regions_of(entities: &[SketchEntity]) -> Vec<Region> {
-    build_profile(entities).regions
 }
 
 /// A rectangle with the given corners and ids, drawn counterclockwise from its lower-left corner.
@@ -164,11 +145,12 @@ fn t178_invalid_fingerprint_text_fails() {
 }
 
 #[test]
-fn t179_region_ref_serializes_as_two_strings() {
+fn t179_region_ref_without_outline_serializes_as_two_strings() {
     let region_ref: RegionRef =
         serde_json::from_str(r#"{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}"#)
             .expect("the region reference deserializes");
 
+    assert_eq!(region_ref.outline, None);
     assert_eq!(
         serde_json::to_string(&region_ref).expect("the region reference serializes"),
         r#"{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000"}"#
@@ -187,89 +169,66 @@ fn t179_region_ref_with_a_non_canonical_key_fails() {
 
 #[test]
 fn t180_key_match() {
-    let regions = regions_of(&rect_entities());
-
-    let found = match_region(&regions, &reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000"));
-
-    assert_eq!(
-        found,
-        RegionMatch::Resolved {
-            index: 0,
-            method: MatchMethod::Key
-        }
+    let found = matched(
+        &rect_entities(),
+        &reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000"),
     );
+
+    assert_eq!(found, resolved(&[0], MatchMethod::Key, Vec::new()));
 }
 
 #[test]
 fn t181_orientation_markers_decide_between_lunes() {
-    let regions = regions_of(&overlapping_circles());
+    let found = matched(&overlapping_circles(), &reference("e-1,~e-2", "c=0,0|a=1"));
 
-    let found = match_region(&regions, &reference("e-1,~e-2", "c=0,0|a=1"));
-
-    assert_eq!(
-        found,
-        RegionMatch::Resolved {
-            index: 1,
-            method: MatchMethod::Key
-        }
-    );
+    assert_eq!(found, resolved(&[1], MatchMethod::Key, Vec::new()));
 }
 
 #[test]
-fn t182_added_hole_matches_by_outer_boundary() {
-    let regions = regions_of(&plate_entities());
-
-    let found = match_region(&regions, &reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000"));
-
-    assert_eq!(
-        found,
-        RegionMatch::Resolved {
-            index: 0,
-            method: MatchMethod::OuterBoundary
-        }
+fn t182_added_hole_keeps_covering_the_same_area() {
+    let found = matched(
+        &plate_entities(),
+        &reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000"),
     );
+
+    assert_eq!(found, resolved(&[0, 1], MatchMethod::Coverage, Vec::new()));
 }
 
 #[test]
-fn t183_removed_hole_matches_by_outer_boundary() {
-    let regions = regions_of(&rect_entities());
-
-    let found = match_region(
-        &regions,
+fn t183_removed_hole_matches_by_boundary() {
+    let found = matched(
+        &rect_entities(),
         &reference("e-1,e-2,e-3,e-4;~e-5", "c=40,25|a=3921.460184"),
     );
 
-    assert_eq!(
-        found,
-        RegionMatch::Resolved {
-            index: 0,
-            method: MatchMethod::OuterBoundary
-        }
-    );
+    assert_eq!(found, resolved(&[0], MatchMethod::Boundary, Vec::new()));
 }
 
 #[test]
 fn t184_redrawn_shape_matches_by_fingerprint() {
-    let regions = regions_of(&rectangle(["e-11", "e-12", "e-13", "e-14"], 80.0, 50.0));
-
-    let found = match_region(&regions, &reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000"));
-
+    let entities = rectangle(["e-11", "e-12", "e-13", "e-14"], 80.0, 50.0);
     assert_eq!(
-        found,
-        RegionMatch::Resolved {
-            index: 0,
-            method: MatchMethod::Fingerprint
-        }
+        entity_ids(&entities),
+        ids(&["e-11", "e-12", "e-13", "e-14"])
     );
+
+    let found = matched(&entities, &reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000"));
+
+    assert_eq!(found, resolved(&[0], MatchMethod::Fingerprint, Vec::new()));
 }
 
 #[test]
-fn t184_redrawn_shape_of_another_size_is_missing() {
-    let regions = regions_of(&rectangle(["e-11", "e-12", "e-13", "e-14"], 88.0, 50.0));
+fn t184_redrawn_shape_of_another_size_is_missing_as_redrawn() {
+    let entities = rectangle(["e-11", "e-12", "e-13", "e-14"], 88.0, 50.0);
 
-    let found = match_region(&regions, &reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000"));
+    let found = matched(&entities, &reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000"));
 
-    assert_eq!(found, RegionMatch::Missing);
+    assert_eq!(
+        found,
+        RegionMatch::Missing {
+            loss: RegionLoss::Redrawn
+        }
+    );
 }
 
 #[test]
@@ -279,38 +238,43 @@ fn t185_score_breaks_key_ties() {
         hand_built_region([10.0, 0.0]),
     ];
 
-    let found = match_region(&regions, &reference("e-1,e-2", "c=9,0|a=100"));
-
-    assert_eq!(
-        found,
-        RegionMatch::Resolved {
-            index: 1,
-            method: MatchMethod::Key
-        }
+    let found = match_region(
+        &regions,
+        &ids(&["e-1", "e-2"]),
+        &reference("e-1,e-2", "c=9,0|a=100"),
     );
+
+    assert_eq!(found, resolved(&[1], MatchMethod::Key, Vec::new()));
 }
 
 #[test]
 fn t186_equal_scores_are_ambiguous() {
     let regions = [hand_built_region([0.0, 0.0]), hand_built_region([0.0, 0.0])];
 
-    let found = match_region(&regions, &reference("e-1,e-2", "c=9,0|a=100"));
+    let found = match_region(
+        &regions,
+        &ids(&["e-1", "e-2"]),
+        &reference("e-1,e-2", "c=9,0|a=100"),
+    );
 
     assert_eq!(
         found,
         RegionMatch::Ambiguous {
-            candidates: vec![0, 1]
+            candidates: vec![vec![0], vec![1]]
         }
     );
 }
 
 #[test]
-fn t187_nothing_similar_is_missing() {
-    let regions = regions_of(&rect_entities());
+fn t187_nothing_similar_is_missing_as_redrawn() {
+    let found = matched(&rect_entities(), &reference("e-77", "c=1000,1000|a=1"));
 
-    let found = match_region(&regions, &reference("e-77", "c=1000,1000|a=1"));
-
-    assert_eq!(found, RegionMatch::Missing);
+    assert_eq!(
+        found,
+        RegionMatch::Missing {
+            loss: RegionLoss::Redrawn
+        }
+    );
 }
 
 #[test]
@@ -322,14 +286,12 @@ fn t188_every_region_finds_itself_by_key() {
         ("test 163", nested_circles()),
     ] {
         let regions = regions_of(&entities);
+        let entity_ids = entity_ids(&entities);
         assert!(!regions.is_empty(), "{name} has regions");
         for (index, region) in regions.iter().enumerate() {
             assert_eq!(
-                match_region(&regions, &region.reference()),
-                RegionMatch::Resolved {
-                    index,
-                    method: MatchMethod::Key
-                },
+                match_region(&regions, &entity_ids, &region.reference()),
+                resolved(&[index], MatchMethod::Key, Vec::new()),
                 "region {index} ({}) of {name}",
                 region.key
             );

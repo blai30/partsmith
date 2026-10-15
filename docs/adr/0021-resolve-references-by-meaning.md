@@ -47,3 +47,14 @@ The resolver uses an element only when recorded history connects it to the refer
 - `NamingMap::build` takes the map index of every source and the motion of the geometry new faces are built on, and records successions apart from aliases; the features spec passes them (naming.md section 3.6).
 - The crate graph gains the edge `partsmith-recompute -> partsmith-naming` (architecture.md, "Crate graph"): the loss diagnosis builds `NameSet` from the naming maps of the writer chains and reports `Instance` in `LossReason::CopyGone` (recompute.md sections 1 and 3.10). Recompute already depended on naming through `partsmith-features`; the edge makes the direct use explicit and is logged here, as ADR 0019 logged its change of the graph.
 - This changes the naming algorithm, so it waits for human review at the next gate (CLAUDE.md). With ADRs 0024 and 0025 it gates all code of the study's plan.
+
+## Amendments (needs human review)
+
+Changes to the naming.md text made while implementing phase 1. Each fixes a contradiction or a gap the code found; none changes the decision above.
+
+| Date | naming.md | Change |
+| --- | --- | --- |
+| 2026-10-13 | Section 3.1, "extends" | `d` extends `t` when `d`'s suffix groups are `t`'s with `#n` groups appended to its runs of `#n` groups, instead of inserted anywhere, which contradicted the definition's own example (`f-a/x#2#1` extends `f-a/x#2`, not `f-a/x#1`). |
+| 2026-10-15 | Section 3.9 step 1, test 142 | A fallback name whose element has the stored fingerprint, when no other member of the family has it, resolves `Exact` before the margin test. Without it the long edges of an unchanged imported 40 x 20 x 5 plate (0.954 against their twins) resolved `Ambiguous` right after the pick, so a fillet or chamfer on an imported part did nothing. |
+| 2026-10-15 | Sections 3.1, 3.9 step 1, 3.11, test 143 | An edge or vertex with its own `#n` whose face terms are all fallback names counts as a fallback name: confirmed by its fingerprint and never anchored. Before, its number went to the guess rule, which resolved it `Exact` against a fingerprint no member fits (the R46a failure of test 110). |
+| 2026-10-15 | Sections 2.7, 3.1 rule 6, 3.9 steps 2 and 5 | Readings the code took, written into the spec: trailing groups after a face-name generator belong to it, after an edge or vertex generator to the outer name; pieces taken through a chased key are the members that extend a chased name; with no part present, a candidate has meaning when it touches a face whose `generators` list a feature the parts' `generators` list; `NameSet::family` of an edge or vertex name is empty. |

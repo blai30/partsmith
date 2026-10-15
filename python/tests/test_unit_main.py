@@ -10,7 +10,7 @@ BOX_SCRIPT = 'from partsmith import *\nDocument()\nwith Part("P"):\n    box(1, 2
 
 
 def test_the_version_names_protocol_and_format():
-    assert VERSION == "partsmith 0.1.0 (protocol 1, format 1)"
+    assert VERSION == "partsmith 0.1.0 (protocol 1, format 2)"
 
 
 def test_build_writes_next_to_the_script_by_default(tmp_path):

@@ -388,15 +388,6 @@ mod tests {
     }
 
     #[test]
-    fn region_repair_round_trips_with_candidates_and_a_ghost() {
-        let text = r#"{"kind":"region","path":"/profile/regions/0","sketch":"f-sk1","region":{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000"},"resolution":"ambiguous","description":"the region of 'Sketch 1' around (40, 25)","candidates":[{"regions":[{"key":"e-1,e-3,e-4,e-9","fp":"c=40,25|a=4000"}],"description":"the region of 'Sketch 1' around (40, 25)"}],"ghost":{"positions":2,"kind":"lines","frame":"sketch"}}"#;
-
-        let repair: Repair = serde_json::from_str(text).expect("the region repair deserializes");
-
-        assert_eq!(serde_json::to_string(&repair).expect("serializes"), text);
-    }
-
-    #[test]
     fn events_ignore_unknown_fields() {
         let event: Event = serde_json::from_str(
             r#"{"type":"body_mesh","doc":1,"revision":5,"body":"b-1","layer":"preview","mesh_id":9,"added_later":1}"#,

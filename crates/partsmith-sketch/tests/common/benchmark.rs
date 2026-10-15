@@ -1,4 +1,5 @@
-//! Benchmark sketches: the plate of spec section 2.9 and the generated sketches of sections 5.2 and 5.3.
+//! Benchmark sketches: the plate of spec section 2.9 and the generated sketches of sections 5.2 and 5.3,
+//! including the split grid and its cells.
 //!
 //! This file depends only on `partsmith_sketch` and `std`, because the bench target
 //! (`benches/solver.rs`) includes it with `#[path]`.
@@ -10,7 +11,7 @@ use std::f64::consts::{FRAC_PI_2, FRAC_PI_6};
 
 use partsmith_sketch::{
     ConstraintKind, DimensionExpr, DimensionValues, DistanceTarget, Expr, Geometry, Id,
-    OriginPlane, PointRef, SketchConstraint, SketchEntity, SketchParams, SketchPlane,
+    OriginPlane, PointRef, Region, SketchConstraint, SketchEntity, SketchParams, SketchPlane,
 };
 
 /// The `PLATE` sketch of spec section 2.9 as `SketchParams` JSON (the feature record without `id`, `type` and `name`).
@@ -353,6 +354,84 @@ pub fn grid_benchmark() -> Vec<SketchEntity> {
         }
     }
     entities
+}
+
+/// Number of cells in each row and column of the grid benchmark.
+pub const GRID_CELLS: usize = 19;
+
+/// Number of first-row cells that the line of the split grid divides (u from 0 to 50).
+pub const SPLIT_CELLS: usize = 10;
+
+/// Id of the line the split grid adds.
+pub const SPLIT_LINE: &str = "e-x";
+
+/// The split grid of spec section 5.3: the grid benchmark plus `line e-x (-3, 1.2)->(50, 1.2)`.
+pub fn split_grid_benchmark() -> Vec<SketchEntity> {
+    let mut entities = grid_benchmark();
+    entities.push(entity(
+        SPLIT_LINE,
+        Geometry::Line {
+            start: [-3.0, 1.2],
+            end: [50.0, 1.2],
+        },
+        false,
+    ));
+    entities
+}
+
+/// The ids of these entities, in their order: the `entities` argument of `match_region`.
+pub fn entity_ids(entities: &[SketchEntity]) -> Vec<Id> {
+    entities.iter().map(|entity| entity.id.clone()).collect()
+}
+
+/// Index of the grid cell in `row` and `column` among regions of the grid benchmark: the region bounded by
+/// `e-h-<row>`, `e-h-<row + 1>`, `e-v-<column>` and `e-v-<column + 1>` with the hole `e-c-<row>-<column>`.
+pub fn cell(regions: &[Region], row: usize, column: usize) -> usize {
+    let mut sides = [
+        format!("e-h-{row}"),
+        format!("e-h-{}", row + 1),
+        format!("e-v-{column}"),
+        format!("e-v-{}", column + 1),
+    ];
+    sides.sort();
+    let sides: Vec<&str> = sides.iter().map(String::as_str).collect();
+    let hole = format!("e-c-{row}-{column}");
+    let found: Vec<usize> = regions
+        .iter()
+        .enumerate()
+        .filter(|(_, region)| {
+            let mut outer: Vec<&str> = region
+                .key
+                .outer()
+                .iter()
+                .map(|entry| entry.entity.as_str())
+                .collect();
+            outer.sort();
+            outer.dedup();
+            let holes: Vec<Vec<&str>> = region
+                .key
+                .holes()
+                .iter()
+                .map(|loop_entries| {
+                    loop_entries
+                        .iter()
+                        .map(|entry| entry.entity.as_str())
+                        .collect()
+                })
+                .collect();
+            outer == sides && holes == [vec![hole.as_str()]]
+        })
+        .map(|(index, _)| index)
+        .collect();
+    match found.as_slice() {
+        [index] => *index,
+        _ => panic!("cell ({row}, {column}) is exactly one region, found {found:?}"),
+    }
+}
+
+/// Index of the first cell (spec section 5.3) among regions of the grid benchmark.
+pub fn first_cell(regions: &[Region]) -> usize {
+    cell(regions, 0, 0)
 }
 
 fn id(text: &str) -> Id {

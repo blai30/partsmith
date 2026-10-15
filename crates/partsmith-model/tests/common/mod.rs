@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use partsmith_model::{
     Body, Document, Expr, ExprError, ExprErrorKind, ExprLink, FORMAT_VERSION, FeatureInspector,
     FeatureLinks, FeatureRecord, Id, Parameter, ParameterValues, Quantity, Scope, Span, Units,
+    load, save,
 };
 use serde_json::{Map, Value};
 
@@ -42,6 +43,36 @@ pub fn with_format_version(text: &str, value: Option<&str>) -> String {
         "the text has no canonical format_version line"
     );
     text.replacen(&current, &value.map_or(String::new(), line), 1)
+}
+
+/// The document `text` loads to.
+pub fn load_document(text: &str) -> Document {
+    load(text)
+        .unwrap_or_else(|error| panic!("the text does not load: {error}"))
+        .document
+}
+
+/// The canonical text of `document`.
+pub fn save_text(document: &Document) -> String {
+    save(document).unwrap_or_else(|error| panic!("the document does not save: {error}"))
+}
+
+/// The 1-based numbers of the lines that differ between two texts with the same number of lines.
+pub fn differing_lines(before: &str, after: &str) -> Vec<usize> {
+    let before: Vec<&str> = before.lines().collect();
+    let after: Vec<&str> = after.lines().collect();
+    assert_eq!(
+        before.len(),
+        after.len(),
+        "the texts have different line counts"
+    );
+    before
+        .iter()
+        .zip(&after)
+        .enumerate()
+        .filter(|(_, (old, new))| old != new)
+        .map(|(index, _)| index + 1)
+        .collect()
 }
 
 /// Lines of the non-canonical E8 input; the file ends every line with CR LF.

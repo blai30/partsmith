@@ -1128,7 +1128,10 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     if (!isDrawingTool(tool) || draw === IDLE) {
       return
     }
-    await Promise.all(Array.from(evaluations.values(), (evaluation) => evaluation.flush()))
+    // The user waits on the typed values (4.4).
+    await app.waitOn(
+      Promise.all(Array.from(evaluations.values(), (evaluation) => evaluation.flush())),
+    )
     const filled = Object.entries(texts).filter(
       ([, text]) => text !== undefined && text.trim() !== '',
     )

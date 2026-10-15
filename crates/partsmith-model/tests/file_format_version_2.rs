@@ -2,46 +2,18 @@
 
 mod common;
 
-use common::{E2, E8_OUTPUT, E10, e8_input, with_format_version};
+use common::{
+    E2, E8_OUTPUT, E10, differing_lines, e8_input, load_document, save_text, with_format_version,
+};
 use partsmith_model::{
     Document, LoadError, SaveError, StructureError, Units, load, load_bytes, migrate_with, save,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-/// The document `text` loads to.
-fn load_document(text: &str) -> Document {
-    load(text)
-        .unwrap_or_else(|error| panic!("the text does not load: {error}"))
-        .document
-}
-
-/// The canonical text of `document`.
-fn save_text(document: &Document) -> String {
-    save(document).unwrap_or_else(|error| panic!("the document does not save: {error}"))
-}
-
 /// A canonical example written at format version 1.
 fn at_version_1(text: &str) -> String {
     with_format_version(text, Some("1"))
-}
-
-/// The 1-based numbers of the lines that differ between two texts with the same number of lines.
-fn differing_lines(before: &str, after: &str) -> Vec<usize> {
-    let before: Vec<&str> = before.lines().collect();
-    let after: Vec<&str> = after.lines().collect();
-    assert_eq!(
-        before.len(),
-        after.len(),
-        "the texts have different line counts"
-    );
-    before
-        .iter()
-        .zip(&after)
-        .enumerate()
-        .filter(|(_, (old, new))| old != new)
-        .map(|(index, _)| index + 1)
-        .collect()
 }
 
 /// The params of the feature with this id, as a JSON object.

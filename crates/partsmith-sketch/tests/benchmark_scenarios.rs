@@ -1,16 +1,25 @@
-//! Correctness of the benchmark scenarios, without timing (spec section 6.14, tests 197 to 200).
+//! Correctness of the benchmark scenarios, without timing (spec section 6.14, tests 197 to 200, and section 6.21,
+//! test 253).
 
 mod common;
 
+use std::collections::BTreeMap;
 use std::f64::consts::PI;
 
-use common::benchmark::{CHAIN_FREE_END, chain_benchmark, grid_benchmark};
+use common::benchmark::{
+    CHAIN_FREE_END, SPLIT_CELLS, SPLIT_LINE, cell, chain_benchmark, entity_ids, grid_benchmark,
+    split_grid_benchmark,
+};
+use common::matching::resolved;
 use common::residuals::assert_constraints_hold;
 use common::{
     Sketch, TOLERANCE, arc_parts, assert_bitwise, assert_relative, drag_point, find, frame, id,
     initial,
 };
-use partsmith_sketch::{Geometry, ProfileFinding, SketchStatus, build_profile};
+use partsmith_sketch::{
+    Geometry, MatchMethod, ProfileFinding, Region, RegionMatch, SketchStatus, build_profile,
+    match_region,
+};
 
 fn chain_sketch() -> Sketch {
     let (params, values) = chain_benchmark();
@@ -130,4 +139,119 @@ fn t200_grid_benchmark_profile() {
             .all(|finding| matches!(finding, ProfileFinding::OpenEndpoint { .. })),
         "every finding is an open endpoint"
     );
+}
+
+/// Indices of the pieces of first-row cell `column` in the split grid: the regions inside the cell that the
+/// split line bounds.
+fn pieces_of_first_row_cell(split: &[Region], column: usize) -> Vec<usize> {
+    let left = 5.0 * column as f64;
+    split
+        .iter()
+        .enumerate()
+        .filter(|(_, region)| {
+            let [centroid_u, centroid_v] = region.centroid;
+            let inside = centroid_u > left
+                && centroid_u < left + 5.0
+                && centroid_v > 0.0
+                && centroid_v < 5.0;
+            let bounded_by_split_line = region
+                .key
+                .outer()
+                .iter()
+                .any(|entry| entry.entity.as_str() == SPLIT_LINE);
+            inside && bounded_by_split_line
+        })
+        .map(|(index, _)| index)
+        .collect()
+}
+
+#[test]
+fn t253_split_grid_profile() {
+    let profile = build_profile(&split_grid_benchmark());
+
+    assert_eq!(profile.regions.len(), 732);
+    assert_eq!(profile.findings.len(), 81);
+    assert!(
+        profile
+            .findings
+            .iter()
+            .all(|finding| matches!(finding, ProfileFinding::OpenEndpoint { .. })),
+        "every finding is an open endpoint"
+    );
+}
+
+#[test]
+fn t253_split_cells_are_ambiguous_with_their_two_pieces_as_one_candidate() {
+    let grid = build_profile(&grid_benchmark()).regions;
+    let split_entities = split_grid_benchmark();
+    let split = build_profile(&split_entities).regions;
+    let split_ids = entity_ids(&split_entities);
+
+    for column in 0..SPLIT_CELLS {
+        let stored = grid[cell(&grid, 0, column)].reference();
+        let pieces = pieces_of_first_row_cell(&split, column);
+        assert_eq!(pieces.len(), 2, "cell {column} is split in two: {pieces:?}");
+
+        let RegionMatch::Ambiguous { candidates } = match_region(&split, &split_ids, &stored)
+        else {
+            panic!("cell {column} ({}) is ambiguous", stored.key)
+        };
+
+        assert!(
+            candidates.contains(&pieces),
+            "cell {column}: its pieces {pieces:?} are one candidate of {candidates:?}"
+        );
+        assert!(candidates.len() >= 2, "cell {column}: {candidates:?}");
+        for candidate in candidates.iter().filter(|candidate| **candidate != pieces) {
+            assert!(
+                candidate.iter().all(|index| !pieces.contains(index)),
+                "cell {column}: no other candidate holds a piece: {candidate:?}"
+            );
+        }
+        for candidate in &candidates {
+            assert!(
+                candidate.windows(2).all(|pair| pair[0] < pair[1]),
+                "cell {column}: indices ascend in {candidate:?}"
+            );
+        }
+        assert!(
+            candidates.windows(2).all(|pair| pair[0][0] < pair[1][0]),
+            "cell {column}: candidates are ordered by their first index: {candidates:?}"
+        );
+    }
+}
+
+#[test]
+fn t253_every_other_region_resolves_by_its_unchanged_key() {
+    let grid = build_profile(&grid_benchmark()).regions;
+    let split_entities = split_grid_benchmark();
+    let split = build_profile(&split_entities).regions;
+    let split_ids = entity_ids(&split_entities);
+    let mut split_by_key: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (index, region) in split.iter().enumerate() {
+        split_by_key
+            .entry(region.key.to_string())
+            .or_default()
+            .push(index);
+    }
+    let split_cells: Vec<usize> = (0..SPLIT_CELLS)
+        .map(|column| cell(&grid, 0, column))
+        .collect();
+
+    for (grid_index, region) in grid.iter().enumerate() {
+        if split_cells.contains(&grid_index) {
+            continue;
+        }
+        let key = region.key.to_string();
+        let same_key = split_by_key.get(&key).cloned().unwrap_or_default();
+        let [index] = same_key.as_slice() else {
+            panic!("one region of the split grid has the key {key}, found {same_key:?}")
+        };
+
+        assert_eq!(
+            match_region(&split, &split_ids, &region.reference()),
+            resolved(&[*index], MatchMethod::Key, Vec::new()),
+            "{key}"
+        );
+    }
 }

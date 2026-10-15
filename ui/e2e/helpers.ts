@@ -243,6 +243,23 @@ export async function dropFile(page: Page, name: string): Promise<void> {
     .toBeGreaterThan(opensBefore)
 }
 
+/** A rectangle on the page, in CSS pixels. */
+export type Box = {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** The page box of a visible element; throws when it is not visible. */
+export async function boxOf(locator: Locator): Promise<Box> {
+  const box = await locator.boundingBox()
+  if (box === null) {
+    throw new Error(`${locator.toString()} is not visible.`)
+  }
+  return box
+}
+
 /** The canvas box, its center and height (ui.md 6.3). */
 export async function canvas(page: Page): Promise<CanvasBox> {
   const box = await page.getByTestId('viewport').locator('canvas').boundingBox()

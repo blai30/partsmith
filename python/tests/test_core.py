@@ -44,7 +44,7 @@ EXPECTED_ALL = [
 def test_t072_version_constants():
     assert _core.PROTOCOL_VERSION == 1
     assert _core.ENGINE_VERSION == "0.1.0"
-    assert _core.FORMAT_VERSION == 1
+    assert _core.FORMAT_VERSION == 2
 
 
 def test_t073_example_a_returns_an_engine_info_response_with_id_1():

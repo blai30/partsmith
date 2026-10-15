@@ -13,7 +13,7 @@ fn t001_version_prints_engine_protocol_format_and_kernel_versions() {
     run.assert_code(0);
     assert_eq!(
         run.stdout,
-        "partsmith 0.1.0 (protocol 1, format 1, OCCT 7.9.3)\n"
+        "partsmith 0.1.0 (protocol 1, format 2, OCCT 7.9.3)\n"
     );
 }
 

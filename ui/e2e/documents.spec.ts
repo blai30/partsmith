@@ -1,8 +1,9 @@
 /// <reference lib="dom" />
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   bodyRow,
   bodyRows,
+  boxOf,
   canvas,
   download,
   dropFile,
@@ -81,6 +82,24 @@ async function sendRename(page: Page, from: string, to: string): Promise<number>
   const sentAt = Date.now()
   await page.keyboard.press('Enter')
   return sentAt
+}
+
+/** Drags the selection inspector by its header label until the label's center is at (x, y). */
+async function dragSelectionInspector(page: Page, x: number, y: number): Promise<void> {
+  const label = await boxOf(inspector(page).getByText('Selection', { exact: true }))
+  await page.mouse.move(label.x + label.width / 2, label.y + label.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(x, y, { steps: 5 })
+  await page.mouse.up()
+}
+
+/** Whether the element hit at the center of `locator` is it or inside it: nothing covers it. */
+async function hitAtCenter(locator: Locator): Promise<boolean> {
+  return locator.evaluate((element) => {
+    const box = element.getBoundingClientRect()
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+    return hit !== null && element.contains(hit)
+  })
 }
 
 /** The data-grid-spacing of the viewport as a number, or NaN when it is not a number. */
@@ -432,6 +451,7 @@ test.describe('A core that is still working, continued', () => {
         .getByRole('radio', { name: 'Print', exact: true }),
     ).toBeChecked()
 
+    await expect(overhangMap).toHaveAttribute('aria-pressed', 'true')
     await overhangMap.click()
     await expect(overhangMap).toHaveAttribute('aria-pressed', 'false')
     // Below the panel, where the overhang legend was.
@@ -443,7 +463,19 @@ test.describe('A core that is still working, continued', () => {
     await expect(page.getByRole('toolbar', { name: 'Model tools' })).toBeVisible()
     await expect(working).toBeVisible()
 
-    await working.getByRole('button', { name: 'Stop and restart core', exact: true }).click()
+    // The selected body's inspector, dragged by its header to just above the panel so that it
+    // reaches over the button, stays under the panel.
+    await expect(inspector(page)).toHaveAttribute('data-mode', 'selection')
+    const stop = working.getByRole('button', { name: 'Stop and restart core', exact: true })
+    const button = await boxOf(stop)
+    const stopX = button.x + button.width / 2
+    const stopY = button.y + button.height / 2
+    await dragSelectionInspector(page, stopX, (await boxOf(working)).y - 40)
+    const covering = await boxOf(inspector(page))
+    expect(covering.x < stopX && stopX < covering.x + covering.width).toBe(true)
+    expect(covering.y < stopY && stopY < covering.y + covering.height).toBe(true)
+    expect(await hitAtCenter(stop)).toBe(true)
+    await stop.click()
     await expect(working).toBeHidden()
     await expectReady(page)
   })

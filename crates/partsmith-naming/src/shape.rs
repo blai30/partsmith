@@ -1,11 +1,10 @@
 //! Face names taken apart for matching (naming.md sections 3.1 and 3.9): piece-free names, the
 //! runs of split numbers, generators, terms, skeletons and relatives.
 //!
-//! Section 3.1 rule 6 leaves open whether trailing suffix groups after a face-name generator belong
-//! to the generator or to the outer name. Here they belong to the generator (the rest of the name
-//! is the generator, as written), so `f-sh1/rim/f-ext1/end-cap#2` has the generator
-//! `f-ext1/end-cap#2`. After an edge or vertex generator they belong to the outer name, so the
-//! `@` groups of `f-c/chamfer/edge(a|b)@f-p:1` are part of its skeleton.
+//! Trailing suffix groups after a face-name generator belong to the generator (section 3.1 rule 6:
+//! the rest of the name is the generator, as written), so `f-sh1/rim/f-ext1/end-cap#2` has the
+//! generator `f-ext1/end-cap#2`. After an edge or vertex generator they belong to the outer name,
+//! so the `@` groups of `f-c/chamfer/edge(a|b)@f-p:1` are part of its skeleton.
 
 use std::ops::Range;
 use std::sync::Arc;

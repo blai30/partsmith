@@ -1,16 +1,9 @@
 /// <reference lib="dom" />
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { dropFile, openApp } from './helpers'
+import { boxOf, dropFile, openApp, type Box } from './helpers'
 
 // Layout (ui.md 6.5 E-105 to E-107): boxes measured in the real browser, because jsdom has no
 // layout. Each test names the section whose layout it holds.
-
-type Box = {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-}
 
 /** Sub-pixel rounding of rendered boxes. */
 const TOLERANCE_PIXELS = 0.5
@@ -29,14 +22,6 @@ async function openAtScale(page: Page, uiScale: number): Promise<void> {
     .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).fontSize))
     .toBe(`${String(16 * uiScale)}px`)
   await page.evaluate(() => document.fonts.ready)
-}
-
-async function boxOf(locator: Locator): Promise<Box> {
-  const box = await locator.boundingBox()
-  if (box === null) {
-    throw new Error(`${locator.toString()} is not visible.`)
-  }
-  return box
 }
 
 /** Expects `inner` to lie within `outer`, up to sub-pixel rounding. */

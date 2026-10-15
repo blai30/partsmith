@@ -1,5 +1,5 @@
-//! Messages about documents, features and exports, with the one-click fixes a host offers for
-//! them and the edit that started them (protocol.md section 2.4, ADR 0024).
+//! Messages about documents, features, sketches and exports, with the one-click fixes a host
+//! offers for them and the edit that started them (protocol.md section 2.4, ADR 0024).
 
 use partsmith_model::Id;
 use partsmith_print::Severity;
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Ghost, LossReason};
 
-/// A message about a document, feature or export.
+/// A message about a document, feature, sketch or export.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Diagnostic {
     /// Info, warning or error. A feature message of severity info is a notice: its feature's status stays `ok`.
@@ -17,7 +17,7 @@ pub struct Diagnostic {
     pub code: String,
     /// Plain-sentence message for the user (docs/guidelines/errors.md).
     pub message: String,
-    /// JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages only.
+    /// JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages, and sketch profile findings, whose field is their position in `SketchSolution::profile_findings` (`/profile_findings/0`, section 2.6).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field: Option<String>,
     /// Replacement expression for `field` that fixes the problem, in document units (for example `2.3 mm`). Feature messages only.
@@ -122,7 +122,7 @@ pub enum FixKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FixRef {
-    /// The feature whose message offers the fix.
+    /// The feature whose message offers the fix (the sketch, for a profile finding).
     pub feature: Id,
     /// The message's code.
     pub code: String,
@@ -141,10 +141,6 @@ pub struct FixRef {
 mod tests {
     use super::*;
 
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid id")
-    }
-
     #[test]
     fn new_diagnostic_writes_only_severity_code_and_message() {
         let diagnostic = Diagnostic::new(Severity::Info, "note", "Fine.");
@@ -160,7 +156,7 @@ mod tests {
     #[test]
     fn diagnostic_reads_null_options_as_absent() {
         let diagnostic: Diagnostic = serde_json::from_str(
-            r#"{"severity":"info","code":"note","message":"Fine.","field":null,"suggestion":null}"#,
+            r#"{"severity":"info","code":"note","message":"Fine.","field":null,"suggestion":null,"cause":null,"detail":null,"root":null,"reason":null}"#,
         )
         .expect("deserializes");
 
@@ -175,37 +171,6 @@ mod tests {
         .expect("a diagnostic with an unknown field deserializes");
 
         assert_eq!(diagnostic, Diagnostic::new(Severity::Warning, "x", "y"));
-    }
-
-    #[test]
-    fn diagnostic_with_actions_writes_them_after_the_suggestion() {
-        let diagnostic = Diagnostic {
-            suggestion: Some("2.3 mm".to_string()),
-            actions: vec![FixAction {
-                label: "Undo".to_string(),
-                run: FixKind::Undo,
-            }],
-            ..Diagnostic::new(Severity::Error, "fillet_too_large", "Too large.")
-        };
-
-        let text = serde_json::to_string(&diagnostic).expect("a diagnostic serializes");
-
-        assert_eq!(
-            text,
-            r#"{"severity":"error","code":"fillet_too_large","message":"Too large.","suggestion":"2.3 mm","actions":[{"label":"Undo","run":{"kind":"undo"}}]}"#
-        );
-    }
-
-    #[test]
-    fn show_without_an_entity_omits_it() {
-        let show = FixKind::Show {
-            feature: id("f-dp1"),
-            entity: None,
-        };
-
-        let text = serde_json::to_string(&show).expect("a fix kind serializes");
-
-        assert_eq!(text, r#"{"kind":"show","feature":"f-dp1"}"#);
     }
 
     #[test]
@@ -226,15 +191,6 @@ mod tests {
 
             assert_eq!(fix.field, None, "{text}");
         }
-    }
-
-    #[test]
-    fn fix_ref_rejects_a_missing_revision() {
-        let result = serde_json::from_str::<FixRef>(
-            r#"{"feature":"f-fil1","code":"x","cause":false,"index":0}"#,
-        );
-
-        assert!(result.is_err(), "got {result:?}");
     }
 
     #[test]

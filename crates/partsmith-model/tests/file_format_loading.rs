@@ -2,9 +2,9 @@
 
 mod common;
 
-use common::{E1, id, with_format_version};
+use common::{E1, id, load_document, save_text, with_format_version};
 use partsmith_model::{
-    Document, Expr, LoadError, NameError, StructureError, Units, load, load_bytes, save,
+    Document, Expr, LoadError, NameError, StructureError, Units, load, load_bytes,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -46,18 +46,6 @@ const SHUFFLED_SAVED: &str = r##"{
   "rollback": "f-1"
 }
 "##;
-
-/// The document `text` loads to.
-fn load_document(text: &str) -> Document {
-    load(text)
-        .unwrap_or_else(|error| panic!("the text does not load: {error}"))
-        .document
-}
-
-/// The canonical text of `document`.
-fn save_text(document: &Document) -> String {
-    save(document).unwrap_or_else(|error| panic!("the document does not save: {error}"))
-}
 
 /// E1 with its `"<name>": []` member replaced by `"<name>": <json>`.
 fn e1_with_list(name: &str, json: &str) -> String {

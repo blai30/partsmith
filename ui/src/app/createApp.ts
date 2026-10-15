@@ -56,6 +56,11 @@ export type App = {
   attachViewport(handle: ViewportHandle | null): void
   /** Restarts the core after a fatal error, or stops and restarts one that is still working, and reopens the settled recipe (4.4). */
   restartCore(): Promise<void>
+  /**
+   * Counts `work`, background requests that a user action waits on before it goes on, as a
+   * waited-on request sent now, for the still-working state (4.4); settles as `work` does.
+   */
+  waitOn<Result>(work: Promise<Result>): Promise<Result>
 }
 
 export type CreateAppOptions = {
@@ -76,21 +81,22 @@ type Reopening = {
   readonly recoveryId: string
 }
 
-/** How long the core may answer nothing while a waited-on request waits before it is still working (4.4). */
+/**
+ * How long the core may answer nothing while a waited-on request waits before it is still working
+ * (4.4).
+ */
 export const STILL_WORKING_SECONDS = 10
 
 /**
  * The commands of background requests: those the UI sends on its own to keep what it shows
- * current, which nobody waits on, so they never make the core still working (4.4). `list_uses`
- * (protocol.md 2.5) joins the generated command types once the protocol schema is regenerated.
+ * current, which nobody waits on, so they never make the core still working (4.4).
  */
-export const BACKGROUND_COMMANDS: ReadonlySet<Command['type'] | 'list_uses'> = new Set([
+export const BACKGROUND_COMMANDS: ReadonlySet<Command['type']> = new Set([
   'analyze_print',
   'list_elements',
   'resolve_references',
   'measure',
   'evaluate',
-  'list_uses',
 ])
 
 /** Whether the user waits on a request: every one but a background request (4.4). */
@@ -101,8 +107,9 @@ function isWaitedOn(command: Command): boolean {
 /** Notes the requests sent to one core and how they end, for the still-working state (4.4). */
 type ResponseWatch = {
   /**
-   * Notes a request sent, which the user waits on unless `waitedOn` is false; the returned
-   * function notes its end, `answered` false when no response came.
+   * Notes a request sent, or a user action's wait on background requests (`App.waitOn`), which
+   * the user waits on unless `waitedOn` is false; the returned function notes its end, `answered`
+   * false when no response came.
    */
   sent(waitedOn: boolean): (answered: boolean) => void
   /** Forgets the requests in flight, whose core is gone, and leaves the still-working state. */
@@ -240,9 +247,9 @@ export function createApp(options: CreateAppOptions): App {
 
   /**
    * Sends a command to the running core and watches for its response: only a waited-on request
-   * left unanswered makes the core still working (4.4). A command that rebuilds a document counts in
-   * `pendingMutations` until it is answered, and its time from sending to the applied response is
-   * the document's rebuild time (3.21) and `ps:rebuild` once the viewport drew it (2.18).
+   * left unanswered makes the core still working (4.4). A command that rebuilds a document counts
+   * in `pendingMutations` until it is answered, and its time from sending to the applied response
+   * is the document's rebuild time (3.21) and `ps:rebuild` once the viewport drew it (2.18).
    */
   async function request(command: Command): Promise<Reply> {
     const ended = responses.sent(isWaitedOn(command))
@@ -383,6 +390,15 @@ export function createApp(options: CreateAppOptions): App {
           code: 'changes_not_applied',
           actions: [],
         })
+      }
+    },
+    async waitOn<Result>(work: Promise<Result>): Promise<Result> {
+      const ended = responses.sent(true)
+      try {
+        return await work
+      } finally {
+        // The requests behind the work noted their own responses.
+        ended(false)
       }
     },
   }

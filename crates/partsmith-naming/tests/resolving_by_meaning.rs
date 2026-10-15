@@ -1,21 +1,22 @@
 //! Acceptance tests for resolving by meaning: anchors, pieces, merged names, successions,
-//! continuations and relatives (spec section 6, tests 91 to 110, 125 to 128, 130 and 132 to 138;
-//! spec sections 3.9 and 3.11).
+//! continuations and relatives (spec section 6, tests 91 to 110, 125 to 128, 130, 132 to 138, 142
+//! and 143; spec sections 3.9 and 3.11).
 
 mod common;
 
 use common::{
     DISTANCE_TOLERANCE, SCORE_TOLERANCE, ScopeElement, TOP_FRONT_EDGE_FINGERPRINT, aliases,
     ambiguous, assert_candidate, assert_candidate_place, assert_close, assert_follow, assert_guess,
-    assert_lost, assert_resolved, assert_via, box_infos_with, box_scope, build_on, candidate_names,
-    element_named, element_set, element_set_of_map, element_set_with, face_row_topology,
-    from_indexed_sources, from_sources, map_with_faces, missing, name, names, names_of,
-    nested_alias_scope, nested_merged, nested_merged_scope, query, reference,
-    renumbered_pieces_infos, resolved, scope_element, successions, with_anchors, with_merged,
+    assert_lost, assert_resolved, assert_via, box_infos_with, box_scope, build, build_on,
+    candidate_names, cuboid_topology, element_named, element_set, element_set_of_map,
+    element_set_with, face_row_topology, from_indexed_sources, from_sources, map_with_faces,
+    missing, name, names, names_of, nested_alias_scope, nested_merged, nested_merged_scope,
+    new_source, query, reference, renumbered_pieces_infos, resolved, scope_element, successions,
+    with_anchors, with_merged,
 };
 use partsmith_naming::{
     Aliases, Anchors, ElementInfo, ElementKind, ElementSet, Follow, MatchMethod, NamingMap,
-    Reference, Resolution, Successions, resolve,
+    Reference, Resolution, Successions, resolve, score,
 };
 
 /// The fingerprint of the front edge of the first top piece in test 91.
@@ -310,6 +311,45 @@ fn second_pass_scope() -> ElementSet {
         scope_element("f-a/x#2").with_fingerprint("plane|n=0,0,1|c=2,0,0|a=1|adj=4,4"),
     ])
 }
+
+/// Test 142's scope: a plain 40 x 20 x 5 plate at the origin, named as an import names it, so its
+/// faces are `f-imp1/face#1` (left), `#2` (front), `#3` (bottom), `#4` (top), `#5` (back) and
+/// `#6` (right).
+fn imported_plate_scope() -> ElementSet {
+    let topology = cuboid_topology([40.0, 20.0, 5.0]);
+    let map = build(vec![new_source("f-imp1/face"); 6], &topology);
+    element_set_of_map(&map, &topology)
+}
+
+/// The top front edge of test 142's plate.
+const PLATE_TOP_FRONT_EDGE: &str = "edge(f-imp1/face#2|f-imp1/face#4)";
+
+/// The bottom front edge of test 142's plate.
+const PLATE_BOTTOM_FRONT_EDGE: &str = "edge(f-imp1/face#2|f-imp1/face#3)";
+
+/// Test 143's scope: an imported D-shaped shaft, whose round side `f-imp1/face#1` meets its flat
+/// `f-imp1/face#2` along two straight edges.
+fn imported_shaft_scope() -> ElementSet {
+    element_set(vec![
+        scope_element("f-imp1/face#1")
+            .with_adjacency(&["f-imp1/face#2"])
+            .with_fingerprint("cylinder|n=1,0,0|c=0,0,-0.6|a=499.6|r=5"),
+        scope_element("f-imp1/face#2")
+            .with_adjacency(&["f-imp1/face#1"])
+            .with_fingerprint("plane|n=0,0,1|c=0,0,4|a=120"),
+        scope_element(SHAFT_FIRST_EDGE).with_fingerprint(SHAFT_FIRST_EDGE_FINGERPRINT),
+        scope_element(SHAFT_SECOND_EDGE).with_fingerprint("line|n=1,0,0|c=0,3,4|l=20|adj=2,2"),
+    ])
+}
+
+/// The first straight edge of test 143's shaft.
+const SHAFT_FIRST_EDGE: &str = "edge(f-imp1/face#1|f-imp1/face#2)#1";
+
+/// The fingerprint of the first straight edge of test 143's shaft.
+const SHAFT_FIRST_EDGE_FINGERPRINT: &str = "line|n=1,0,0|c=0,-3,4|l=20|adj=2,2";
+
+/// The second straight edge of test 143's shaft.
+const SHAFT_SECOND_EDGE: &str = "edge(f-imp1/face#1|f-imp1/face#2)#2";
 
 #[test]
 fn t091_anchored_piece_with_stale_fingerprint_resolves_exactly() {
@@ -1372,6 +1412,111 @@ fn t138_pieces_taken_by_name_are_used_when_they_fit() {
         MatchMethod::History,
         1.0,
     );
+}
+
+#[test]
+fn t142_fallback_name_resolves_exactly_where_it_was_picked() {
+    let scope = imported_plate_scope();
+    let top = element_named(&scope, PLATE_TOP_FRONT_EDGE);
+    let bottom = element_named(&scope, PLATE_BOTTOM_FRONT_EDGE);
+    assert_close(
+        score(&top.fingerprint, &bottom.fingerprint, ElementKind::Edge),
+        0.954304,
+        SCORE_TOLERANCE,
+    );
+
+    for (picked, text) in [
+        (top, PLATE_TOP_FRONT_EDGE),
+        (bottom, PLATE_BOTTOM_FRONT_EDGE),
+    ] {
+        let resolution = resolve(&Reference::from_element(picked, &scope), &scope);
+
+        assert_resolved(&resolution, &[text], MatchMethod::Exact, 1.0);
+    }
+}
+
+#[test]
+fn t142_every_element_resolves_to_itself_where_it_was_picked() {
+    for scope in [
+        imported_plate_scope(),
+        element_set(anchored_pieces_infos()),
+        element_set(renumbered_pieces_infos()),
+        split_edge_with_vertices("edge(f-a/front|f-a/top)#1", "edge(f-a/front|f-a/top)#2"),
+        two_split_faces_scope(),
+        imported_rims_scope(),
+        imported_shaft_scope(),
+    ] {
+        for element in scope.elements() {
+            let resolution = resolve(&Reference::from_element(element, &scope), &scope);
+
+            assert_resolved(
+                &resolution,
+                &[element.name.as_str()],
+                MatchMethod::Exact,
+                1.0,
+            );
+        }
+    }
+}
+
+#[test]
+fn t142_fallback_name_between_two_lookalikes_stays_ambiguous() {
+    let resolution = resolve(
+        &reference(PLATE_TOP_FRONT_EDGE, "line|n=1,0,0|c=20,0,2.5|l=40|adj=2,2"),
+        &imported_plate_scope(),
+    );
+
+    assert_eq!(
+        candidate_names(ambiguous(&resolution)),
+        [PLATE_BOTTOM_FRONT_EDGE, PLATE_TOP_FRONT_EDGE]
+    );
+}
+
+#[test]
+fn t143_numbered_edge_between_fallback_names_below_the_threshold_is_lost() {
+    let resolution = resolve(
+        &reference(SHAFT_SECOND_EDGE, "circle|n=0,0,1|c=0,0,0|l=10|r=3|adj=2,1"),
+        &imported_shaft_scope(),
+    );
+
+    let (lost, _) = missing(&resolution);
+    assert_lost(
+        lost,
+        &[],
+        &["f-imp1/face#1", "f-imp1/face#2", SHAFT_SECOND_EDGE],
+        false,
+    );
+}
+
+#[test]
+fn t143_numbered_edge_between_fallback_names_follows_its_shape() {
+    let resolution = resolve(
+        &reference(SHAFT_SECOND_EDGE, SHAFT_FIRST_EDGE_FINGERPRINT),
+        &imported_shaft_scope(),
+    );
+
+    assert_resolved(&resolution, &[SHAFT_FIRST_EDGE], MatchMethod::History, 1.0);
+}
+
+#[test]
+fn t143_numbered_edge_between_fallback_names_is_never_anchored() {
+    // Only the first edge ends at a face that is no fallback name, which would tell it apart.
+    let end_vertex = "vertex(f-ext1/end-cap|f-imp1/face#1|f-imp1/face#2)";
+    let mut infos = imported_shaft_scope().elements().to_vec();
+    infos.push(scope_element("f-ext1/end-cap"));
+    infos.push(scope_element(end_vertex));
+    let infos = infos
+        .into_iter()
+        .map(|info| match info.name.as_str() {
+            SHAFT_FIRST_EDGE => info.with_vertices(&[end_vertex]),
+            _ => info,
+        })
+        .collect();
+    let scope = element_set(infos);
+
+    let made = Reference::from_element(element_named(&scope, SHAFT_FIRST_EDGE), &scope);
+
+    assert_eq!(made.anchors, Anchors::default());
 }
 
 #[test]

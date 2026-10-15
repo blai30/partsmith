@@ -137,6 +137,41 @@ mod tests {
     }
 
     #[test]
+    fn position_default_is_written_into_the_schema() {
+        let mut schema = Schema::try_from(serde_json::json!({
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3
+        }))
+        .expect("an object is a schema");
+
+        add_position_default(&mut schema);
+
+        assert_eq!(
+            schema.as_value(),
+            &serde_json::json!({
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "default": ["0", "0", "0"]
+            })
+        );
+    }
+
+    #[test]
+    fn position_default_replaces_a_default_already_there() {
+        let mut schema = Schema::try_from(serde_json::json!({"default": ["1", "2", "3"]}))
+            .expect("an object is a schema");
+
+        add_position_default(&mut schema);
+
+        assert_eq!(
+            schema.as_value(),
+            &serde_json::json!({"default": ["0", "0", "0"]})
+        );
+    }
+
+    #[test]
     fn dependencies_are_the_plane_then_the_position() {
         let plane = datum("f-dp1");
         let position = [Expr::new("1"), Expr::new("2"), Expr::new("3")];

@@ -11,6 +11,7 @@ use crate::fast_hash::FastMap;
 use crate::kind::ElementKind;
 use crate::name::ElementName;
 use crate::name_set::{NameSet, ids_by_name};
+use crate::shape::pairs_one_to_one;
 
 /// The resolver's view of one body state: its element infos and their `NameSet` (section 3.9).
 /// Built once per body state and shared (features.md `BodyState::element_set`).
@@ -291,6 +292,23 @@ impl ElementSet {
         }
     }
 
+    /// The positions of the edges or vertices, as `kind` says, whose faces pair one to one with
+    /// `allowed`, one set of ascending face ids per face term. Ascending.
+    pub(crate) fn pairing(&self, kind: ElementKind, allowed: &[&[u32]]) -> Vec<usize> {
+        let Some(smallest) = allowed.iter().min_by_key(|faces| faces.len()) else {
+            return Vec::new();
+        };
+        let mut positions: Vec<usize> = smallest
+            .iter()
+            .flat_map(|&face| self.incident(kind, face))
+            .map(|&position| position as usize)
+            .collect();
+        positions.sort_unstable();
+        positions.dedup();
+        positions.retain(|&position| faces_pair(self.adjacent_faces(position), allowed));
+        positions
+    }
+
     /// The faces containing the named vertices of the edge at `position`, other than its own faces:
     /// what the anchor test of an edge with its own `#n` reads (section 3.9).
     pub(crate) fn faces_beyond_vertices(&self, position: usize) -> Vec<u32> {
@@ -306,6 +324,14 @@ impl ElementSet {
         faces.dedup();
         faces
     }
+}
+
+/// True when the faces `adjacent` pair one to one with `allowed`, each face in its own set of
+/// ascending face ids.
+pub(crate) fn faces_pair(adjacent: &[u32], allowed: &[&[u32]]) -> bool {
+    pairs_one_to_one(adjacent.len(), allowed.len(), |face, part| {
+        allowed[part].binary_search(&adjacent[face]).is_ok()
+    })
 }
 
 /// The infos with the faces first, then the edges, then the vertices, each kind in the given order.
@@ -435,6 +461,43 @@ mod tests {
                 name: "edge(f-a/x)".to_owned()
             })
         );
+    }
+
+    #[test]
+    fn faces_pair_when_each_sits_in_its_own_allowed_set() {
+        assert!(faces_pair(&[1, 4], &[&[4, 5], &[1, 2]]));
+        assert!(!faces_pair(&[1, 2], &[&[1, 2], &[3]]));
+        assert!(!faces_pair(&[1], &[&[1], &[1]]));
+    }
+
+    #[test]
+    fn pairing_finds_the_edges_whose_faces_pair_with_the_sets() {
+        let scope = set(vec![
+            info("f-a/x", &[]),
+            info("f-b/y", &[]),
+            info("f-c/z", &[]),
+            info("edge(f-a/x|f-b/y)", &["f-a/x", "f-b/y"]),
+            info("edge(f-a/x|f-c/z)", &["f-a/x", "f-c/z"]),
+            info("edge(f-b/y|f-c/z)", &["f-b/y", "f-c/z"]),
+            info("vertex(f-a/x|f-b/y|f-c/z)", &["f-a/x", "f-b/y", "f-c/z"]),
+        ]);
+        let face = |text: &str| scope.names().face_id(text).expect("a face");
+        let edge = |text: &str| scope.position_of(ElementKind::Edge, text).expect("an edge");
+        let first = [face("f-a/x")];
+        let second = [face("f-b/y"), face("f-c/z")];
+
+        let edges = scope.pairing(ElementKind::Edge, &[&first, &second]);
+
+        assert_eq!(
+            edges,
+            [edge("edge(f-a/x|f-b/y)"), edge("edge(f-a/x|f-c/z)")]
+        );
+        assert!(
+            scope
+                .pairing(ElementKind::Vertex, &[&first, &second])
+                .is_empty()
+        );
+        assert!(scope.pairing(ElementKind::Edge, &[]).is_empty());
     }
 
     #[test]

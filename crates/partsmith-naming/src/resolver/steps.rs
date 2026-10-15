@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use crate::canon::Via;
 use crate::chase::Links;
-use crate::element_set::ElementSet;
+use crate::element_set::{ElementSet, faces_pair};
 use crate::kind::ElementKind;
 use crate::name::ElementName;
 use crate::name_set::NameSet;
@@ -16,7 +16,6 @@ use crate::resolver::{
     AMBIGUITY_MARGIN, CONFIDENCE_THRESHOLD, Candidate, Follow, Lost, MatchMethod, Resolution,
 };
 use crate::score::score;
-use crate::shape::pairs_one_to_one;
 
 /// The most candidates a loss or a guess by score lists.
 const CANDIDATE_LIMIT: usize = 5;
@@ -115,6 +114,15 @@ impl Selection {
     }
 }
 
+/// What step 1 reads of one order-dependent part.
+#[derive(Debug, Clone, Copy)]
+struct OrderDependent {
+    /// True for a fallback name, and for the query's own `#n` when every face term is one.
+    fallback: bool,
+    /// True when the part has live anchors.
+    live: bool,
+}
+
 impl<'a> Resolver<'a> {
     /// Takes the query apart against the body state.
     pub(crate) fn new(reference: &'a Reference, set: &'a ElementSet) -> Resolver<'a> {
@@ -128,26 +136,18 @@ impl<'a> Resolver<'a> {
             .into_iter()
             .map(|name| FacePart::new(name, reference, names))
             .collect();
-        let mut resolver = Resolver {
+        let own = has_own_split(&reference.query)
+            .then(|| OwnPart::new(reference, set, set.pairing(kind, &families(&faces))));
+        Resolver {
             reference,
             set,
             names,
             kind,
             faces,
-            own: None,
+            own,
             meaningful: OnceCell::new(),
             named: OnceCell::new(),
-        };
-        if has_own_split(&reference.query) {
-            let families: Vec<&[u32]> = resolver
-                .faces
-                .iter()
-                .map(|part| part.family.as_slice())
-                .collect();
-            let family = resolver.pairing(&families);
-            resolver.own = Some(OwnPart::new(reference, set, family));
         }
-        resolver
     }
 
     /// Runs the steps in order; the first that produces a result wins.
@@ -159,9 +159,9 @@ impl<'a> Resolver<'a> {
         };
         let selection = self.select(fallback_lost);
         if !selection.any_lost() {
-            let result = self.combine(&selection.faces, &selection.own);
+            let result = self.combine(&slices(&selection.faces), &selection.own);
             if !result.is_empty() {
-                return self.pieces(result, &selection);
+                return self.pieces(&result, &selection);
             }
         }
         let continuations = self.continuations(&selection);
@@ -189,46 +189,47 @@ impl<'a> Resolver<'a> {
         }
         if !query.is_order_dependent() {
             return match named.or_else(|| self.only_candidate()) {
-                Some(element) if named.is_some() => Exact::Done(resolved(
-                    vec![element_name(self.set, element)],
-                    MatchMethod::Exact,
-                )),
-                Some(element) => Exact::Done(self.history(vec![element])),
+                Some(element) if named.is_some() => Exact::Done(self.exactly(element)),
+                Some(element) => Exact::Done(self.history(&[element])),
                 None => Exact::Pieces,
             };
         }
-        let ordered: Vec<&FacePart> = self
-            .faces
-            .iter()
-            .filter(|part| part.order_dependent)
-            .collect();
-        let own_live = self.own.as_ref().map(|own| own.anchors.is_some());
-        let every_part_live =
-            ordered.iter().all(|part| part.anchors.is_some()) && own_live.unwrap_or(true);
-        if ordered.iter().all(|part| !part.fallback) && every_part_live {
+        let parts = self.order_dependent_parts();
+        if parts.iter().all(|part| !part.fallback && part.live) {
             return match named.filter(|&element| self.covers_live_anchors(element)) {
-                Some(element) => Exact::Done(resolved(
-                    vec![element_name(self.set, element)],
-                    MatchMethod::Exact,
-                )),
+                Some(element) => Exact::Done(self.exactly(element)),
                 None => Exact::Pieces,
             };
         }
-        let only_fallback = self.own.is_none()
-            && ordered
-                .iter()
-                .all(|part| part.fallback && part.anchors.is_none());
-        if only_fallback {
+        if parts.iter().all(|part| part.fallback && !part.live) {
             return self.confirm_fallback(named);
         }
-        let some_part_unanchored =
-            ordered.iter().any(|part| part.anchors.is_none()) || own_live == Some(false);
         match named {
-            Some(element) if some_part_unanchored && self.covers_live_anchors(element) => {
+            Some(element)
+                if parts.iter().any(|part| !part.live) && self.covers_live_anchors(element) =>
+            {
                 Exact::Done(self.guess_rule(element))
             }
             _ => Exact::Pieces,
         }
+    }
+
+    /// The order-dependent parts of the query: its face parts with a `#`, then its own `#n`, which
+    /// counts as a fallback name when every face term is one (section 3.9 step 1).
+    fn order_dependent_parts(&self) -> Vec<OrderDependent> {
+        let faces = self
+            .faces
+            .iter()
+            .filter(|part| part.order_dependent)
+            .map(|part| OrderDependent {
+                fallback: part.fallback,
+                live: part.anchors.is_some(),
+            });
+        let own = self.own.as_ref().map(|own| OrderDependent {
+            fallback: self.faces.iter().all(|part| part.fallback),
+            live: own.anchors.is_some(),
+        });
+        faces.chain(own).collect()
     }
 
     /// Step 1 without a candidate named by the query: the candidate without `#` whose faces are
@@ -246,7 +247,7 @@ impl<'a> Resolver<'a> {
             ElementKind::Face => self.set.face_element(only[0]).into_iter().collect(),
             ElementKind::Edge | ElementKind::Vertex => {
                 let allowed: Vec<&[u32]> = only.iter().map(std::slice::from_ref).collect();
-                self.pairing(&allowed)
+                self.set.pairing(self.kind, &allowed)
             }
         };
         let mut unnumbered = candidates
@@ -267,11 +268,7 @@ impl<'a> Resolver<'a> {
                 .as_ref()
                 .is_none_or(|anchors| anchors.covers(&self.set.faces_beyond_vertices(element)))
         });
-        own_covered && {
-            let allowed = self.covering_sets();
-            let allowed: Vec<&[u32]> = allowed.iter().map(Vec::as_slice).collect();
-            self.element_pairs(element, &allowed)
-        }
+        own_covered && self.element_pairs(element, &slices(&self.covering_sets()))
     }
 
     /// Per face part: the members that cover its live anchors, or its whole family when it has
@@ -298,19 +295,19 @@ impl<'a> Resolver<'a> {
                 .first()
                 .is_some_and(|faces| faces.binary_search(&self.set.face_id_at(element)).is_ok()),
             ElementKind::Edge | ElementKind::Vertex => {
-                pairs(self.set.adjacent_faces(element), allowed)
+                faces_pair(self.set.adjacent_faces(element), allowed)
             }
         }
     }
 
-    /// Step 1, fallback names: confirmed by their score.
+    /// Step 1, fallback names: confirmed where they were picked, else by their score.
     fn confirm_fallback(&self, named: Option<usize>) -> Exact {
-        let families: Vec<&[u32]> = self
-            .faces
-            .iter()
-            .map(|part| part.family.as_slice())
-            .collect();
-        let members = self.members(&families);
+        let members = self.members(&families(&self.faces));
+        if let Some(element) = named
+            && self.only_member_with_the_stored_fingerprint(element, &members)
+        {
+            return Exact::Done(self.exactly(element));
+        }
         let scored = self.scored(&members);
         let (best, second) = top_two(&scored);
         let Some(&(best_score, best_member)) = scored.first() else {
@@ -342,12 +339,26 @@ impl<'a> Resolver<'a> {
         })
     }
 
+    /// The `Exact` result of the element at `element`.
+    fn exactly(&self, element: usize) -> Resolution {
+        resolved_with(element_name(self.set, element), MatchMethod::Exact, 1.0)
+    }
+
+    /// True when `element` has the stored fingerprint and no other of `members` has it: the element
+    /// is where the reference was picked.
+    fn only_member_with_the_stored_fingerprint(&self, element: usize, members: &[usize]) -> bool {
+        let stored =
+            |member: usize| self.set.element(member).fingerprint == self.reference.fingerprint;
+        stored(element)
+            && members
+                .iter()
+                .all(|&member| member == element || !stored(member))
+    }
+
     /// Step 1, a name without anchors: used, but a guess when a sibling fits the stored fingerprint
     /// clearly better.
     fn guess_rule(&self, element: usize) -> Resolution {
-        let allowed = self.covering_sets();
-        let allowed: Vec<&[u32]> = allowed.iter().map(Vec::as_slice).collect();
-        let mut members = self.members(&allowed);
+        let mut members = self.members(&slices(&self.covering_sets()));
         if let Some(anchors) = self.own.as_ref().and_then(|own| own.anchors.as_ref()) {
             members.retain(|&member| anchors.covers(&self.set.faces_beyond_vertices(member)));
         }
@@ -358,75 +369,81 @@ impl<'a> Resolver<'a> {
             .filter(|&member| self.score_of(member) >= element_score + AMBIGUITY_MARGIN);
         let alternatives = self.candidates(better, None);
         if alternatives.is_empty() {
-            return resolved(vec![element_name(self.set, element)], MatchMethod::Exact);
+            return self.exactly(element);
         }
-        Resolution::Resolved {
-            elements: vec![element_name(self.set, element)],
-            method: MatchMethod::Guess,
-            confidence: element_score,
-            follow: None,
-            via: Vec::new(),
-            alternatives,
-        }
+        guessed(element_name(self.set, element), element_score, alternatives)
     }
 
-    /// Step 2: what each part selects of its family.
+    /// Step 2: what each part selects of its family. When step 1 could not confirm the fallback
+    /// names, every order-dependent part is piece-lost.
     fn select(&self, fallback_lost: bool) -> Selection {
         let mut selection = Selection {
             faces: Vec::with_capacity(self.faces.len()),
             own: Vec::new(),
-            lost: vec![false; self.faces.len()],
+            lost: Vec::with_capacity(self.faces.len()),
             own_lost: false,
             by_pieces: false,
         };
-        for (position, part) in self.faces.iter().enumerate() {
-            if fallback_lost && part.order_dependent {
-                selection.lost[position] = true;
-                selection.faces.push(Vec::new());
-                continue;
-            }
-            let selected = match &part.anchors {
-                Some(anchors) => {
-                    let members: Vec<usize> =
-                        part.family.iter().map(|&face| face as usize).collect();
-                    select_anchored(anchors, &members, |member| {
-                        self.names.touching(face_id(member)).to_vec()
-                    })
-                    .map(|members| members.into_iter().map(face_id).collect())
-                }
-                None if !part.order_dependent => Some(part.family.clone()),
-                None => {
-                    let pieces = self.pieces_of(part);
-                    selection.by_pieces |= !pieces.is_empty();
-                    (!pieces.is_empty()).then_some(pieces)
-                }
+        for part in &self.faces {
+            let selected = if fallback_lost && part.order_dependent {
+                None
+            } else {
+                self.select_face(part)
             };
-            selection.lost[position] = selected.is_none();
+            selection.by_pieces |=
+                selected.is_some() && part.order_dependent && part.anchors.is_none();
+            selection.lost.push(selected.is_none());
             selection.faces.push(selected.unwrap_or_default());
         }
-        if let Some(own) = self.own.as_ref().filter(|own| !own.family.is_empty()) {
-            let selected = match &own.anchors {
-                Some(anchors) => select_anchored(anchors, &own.family, |member| {
-                    self.set.faces_beyond_vertices(member)
-                }),
-                None => {
-                    let pieces: Vec<usize> = own
-                        .family
-                        .iter()
-                        .copied()
-                        .filter(|&member| {
-                            let name = element_name(self.set, member);
-                            name == own.name || name.is_split_descendant_of(&own.name)
-                        })
-                        .collect();
-                    selection.by_pieces |= !pieces.is_empty();
-                    (!pieces.is_empty()).then_some(pieces)
-                }
-            };
-            selection.own_lost = selected.is_none();
-            selection.own = selected.unwrap_or_default();
+        if let Some(own) = &self.own {
+            if fallback_lost {
+                selection.own_lost = true;
+            } else if !own.family.is_empty() {
+                let selected = self.select_own(own);
+                selection.by_pieces |= selected.is_some() && own.anchors.is_none();
+                selection.own_lost = selected.is_none();
+                selection.own = selected.unwrap_or_default();
+            }
         }
         selection
+    }
+
+    /// Step 2 for a face part: the member that its live anchors select, its whole family when it
+    /// is not order dependent, else its pieces; `None` when it is piece-lost.
+    fn select_face(&self, part: &FacePart) -> Option<Vec<u32>> {
+        match &part.anchors {
+            Some(anchors) => {
+                let members: Vec<usize> = part.family.iter().map(|&face| face as usize).collect();
+                select_anchored(anchors, &members, |member| {
+                    self.names.touching(face_id(member)).to_vec()
+                })
+                .map(|members| members.into_iter().map(face_id).collect())
+            }
+            None if !part.order_dependent => Some(part.family.clone()),
+            None => Some(self.pieces_of(part)).filter(|pieces| !pieces.is_empty()),
+        }
+    }
+
+    /// Step 2 for the query's own `#n`: the members its live anchors select, else the members
+    /// named by it or split from it; `None` when it is piece-lost.
+    fn select_own(&self, own: &OwnPart) -> Option<Vec<usize>> {
+        match &own.anchors {
+            Some(anchors) => select_anchored(anchors, &own.family, |member| {
+                self.set.faces_beyond_vertices(member)
+            }),
+            None => {
+                let pieces: Vec<usize> = own
+                    .family
+                    .iter()
+                    .copied()
+                    .filter(|&member| {
+                        let name = element_name(self.set, member);
+                        name == own.name || name.is_split_descendant_of(&own.name)
+                    })
+                    .collect();
+                Some(pieces).filter(|pieces| !pieces.is_empty())
+            }
+        }
     }
 
     /// The pieces of an order-dependent part without live anchors: the members that extend it, and
@@ -455,38 +472,27 @@ impl<'a> Resolver<'a> {
             .collect()
     }
 
-    /// The elements the selections give: the selected faces of a face query, or the edges or
-    /// vertices whose faces pair with the selections, among the query's own selection.
-    fn combine(&self, faces: &[Vec<u32>], own: &[usize]) -> Vec<usize> {
-        let allowed: Vec<&[u32]> = faces.iter().map(Vec::as_slice).collect();
-        let mut combined = self.members(&allowed);
-        if self.own.is_some() {
-            combined.retain(|member| own.binary_search(member).is_ok());
-        }
-        combined
-    }
-
     /// Step 2's result, a guess when pieces were taken by name and a sibling fits clearly better.
-    fn pieces(&self, result: Vec<usize>, selection: &Selection) -> Resolution {
-        let resolution = self.history(result.clone());
+    fn pieces(&self, result: &[usize], selection: &Selection) -> Resolution {
+        let resolution = self.history(result);
         if !selection.by_pieces {
             return resolution;
         }
-        let allowed: Vec<Vec<u32>> = self
+        let allowed: Vec<&[u32]> = self
             .faces
             .iter()
             .zip(&selection.faces)
             .map(|(part, selected)| match part.anchors {
-                Some(_) => selected.clone(),
-                None => part.family.clone(),
+                Some(_) => selected.as_slice(),
+                None => part.family.as_slice(),
             })
             .collect();
-        let own = match &self.own {
-            Some(own) if own.anchors.is_some() => selection.own.clone(),
-            Some(own) => own.family.clone(),
-            None => Vec::new(),
+        let own: &[usize] = match &self.own {
+            Some(own) if own.anchors.is_some() => &selection.own,
+            Some(own) => &own.family,
+            None => &[],
         };
-        let family = self.combine(&allowed, &own);
+        let family = self.combine(&allowed, own);
         let best_inside = result
             .iter()
             .map(|&member| self.score_of(member))
@@ -542,7 +548,13 @@ impl<'a> Resolver<'a> {
 
     /// Step 3's result when continuations give one.
     fn continued(&self, selection: &Selection, continuations: &[Vec<u32>]) -> Option<Resolution> {
-        let allowed: Option<Vec<&[u32]>> = selection
+        let continues = continuations
+            .iter()
+            .any(|continuing| !continuing.is_empty());
+        if !continues || (self.own.is_some() && selection.own.is_empty()) {
+            return None;
+        }
+        let allowed: Vec<&[u32]> = selection
             .faces
             .iter()
             .zip(continuations)
@@ -555,20 +567,10 @@ impl<'a> Resolver<'a> {
                     None
                 }
             })
-            .collect();
-        if !continuations
-            .iter()
-            .any(|continuing| !continuing.is_empty())
-        {
-            return None;
-        }
-        let allowed = allowed?;
-        if self.own.is_some() && selection.own.is_empty() {
-            return None;
-        }
-        let elements = self.combine_allowed(&allowed, &selection.own);
+            .collect::<Option<_>>()?;
+        let elements = self.combine(&allowed, &selection.own);
         (!elements.is_empty()).then(|| Resolution::Resolved {
-            elements: sorted_names(self.set, elements),
+            elements: sorted_names(self.set, &elements),
             method: MatchMethod::Continued,
             confidence: 1.0,
             follow: Some(Follow::Continued),
@@ -619,7 +621,7 @@ impl<'a> Resolver<'a> {
             Some(_) => &selection.own,
             None => &[],
         };
-        let members = self.combine_allowed(&allowed, own);
+        let members = self.combine(&allowed, own);
         let scored = self.scored(&members);
         let (best, second) = top_two(&scored);
         let &(_, best_member) = scored.first()?;
@@ -627,14 +629,11 @@ impl<'a> Resolver<'a> {
             return None;
         }
         let others = scored.iter().skip(1).map(|(_, member)| *member);
-        Some(Resolution::Resolved {
-            elements: vec![element_name(self.set, best_member)],
-            method: MatchMethod::Guess,
-            confidence: best,
-            follow: None,
-            via: Vec::new(),
-            alternatives: self.candidates(others, Some(CANDIDATE_LIMIT)),
-        })
+        Some(guessed(
+            element_name(self.set, best_member),
+            best,
+            self.candidates(others, Some(CANDIDATE_LIMIT)),
+        ))
     }
 
     /// Step 4 (edges and vertices): relatives of the same feature and sketch generator.
@@ -648,64 +647,72 @@ impl<'a> Resolver<'a> {
             .filter(|&position| !self.faces[position].is_present())
             .collect();
         match absent.as_slice() {
-            [missing] => {
-                let allowed: Vec<&[u32]> = self
-                    .faces
-                    .iter()
-                    .enumerate()
-                    .map(|(position, part)| {
-                        if position == *missing {
-                            relatives[position].as_slice()
-                        } else {
-                            part.family.as_slice()
-                        }
-                    })
-                    .collect();
-                match self.pairing(&allowed).as_slice() {
-                    [] => None,
-                    [only] => Some(Resolution::Resolved {
-                        elements: vec![element_name(self.set, *only)],
-                        method: MatchMethod::Related,
-                        confidence: 1.0,
-                        follow: Some(Follow::Related),
-                        via: Vec::new(),
-                        alternatives: Vec::new(),
-                    }),
-                    several => Some(Resolution::Ambiguous {
-                        candidates: self
-                            .candidates(several.iter().copied(), None)
-                            .into_iter()
-                            .map(|candidate| Candidate {
-                                meaning: true,
-                                ..candidate
-                            })
-                            .collect(),
-                    }),
-                }
-            }
-            [] => {
-                let every_relative: BTreeSet<u32> = relatives.iter().flatten().copied().collect();
-                let kept: BTreeSet<u32> = self
-                    .faces
-                    .iter()
-                    .flat_map(|part| part.family.iter().copied())
-                    .collect();
-                let mut positions: Vec<usize> = every_relative
-                    .iter()
-                    .flat_map(|&face| self.set.incident(self.kind, face))
-                    .map(|&position| position as usize)
-                    .collect();
-                positions.sort_unstable();
-                positions.dedup();
-                positions.retain(|&position| {
-                    keeps_one_part(self.set.adjacent_faces(position), &kept, &every_relative)
-                });
-                (!positions.is_empty()).then(|| Resolution::Ambiguous {
-                    candidates: self.candidates(positions, None),
-                })
-            }
+            [missing] => self.related_to_absent_part(*missing, &relatives[*missing]),
+            [] => self.ambiguous_by_relatives(&relatives),
             _ => None,
         }
+    }
+
+    /// Step 4 when only the part at `missing` is not present: the candidates that pair with the
+    /// other parts and with one of its `relatives`.
+    fn related_to_absent_part(&self, missing: usize, relatives: &[u32]) -> Option<Resolution> {
+        let allowed: Vec<&[u32]> = self
+            .faces
+            .iter()
+            .enumerate()
+            .map(|(position, part)| {
+                if position == missing {
+                    relatives
+                } else {
+                    part.family.as_slice()
+                }
+            })
+            .collect();
+        match self.set.pairing(self.kind, &allowed).as_slice() {
+            [] => None,
+            [only] => Some(Resolution::Resolved {
+                elements: vec![element_name(self.set, *only)],
+                method: MatchMethod::Related,
+                confidence: 1.0,
+                follow: Some(Follow::Related),
+                via: Vec::new(),
+                alternatives: Vec::new(),
+            }),
+            several => Some(Resolution::Ambiguous {
+                candidates: self
+                    .candidates(several.iter().copied(), None)
+                    .into_iter()
+                    .map(|candidate| Candidate {
+                        meaning: true,
+                        ..candidate
+                    })
+                    .collect(),
+            }),
+        }
+    }
+
+    /// Step 4 when every part is present but no candidate pairs with all of them: the candidates
+    /// that keep one part and whose other faces are relatives, given per part in `relatives`.
+    fn ambiguous_by_relatives(&self, relatives: &[Vec<u32>]) -> Option<Resolution> {
+        let every_relative: BTreeSet<u32> = relatives.iter().flatten().copied().collect();
+        let kept: BTreeSet<u32> = self
+            .faces
+            .iter()
+            .flat_map(|part| part.family.iter().copied())
+            .collect();
+        let mut positions: Vec<usize> = every_relative
+            .iter()
+            .flat_map(|&face| self.set.incident(self.kind, face))
+            .map(|&position| position as usize)
+            .collect();
+        positions.sort_unstable();
+        positions.dedup();
+        positions.retain(|&position| {
+            keeps_one_part(self.set.adjacent_faces(position), &kept, &every_relative)
+        });
+        (!positions.is_empty()).then(|| Resolution::Ambiguous {
+            candidates: self.candidates(positions, None),
+        })
     }
 
     /// The relatives of a part: faces of the same feature with the same sketch generator and `@`
@@ -750,9 +757,9 @@ impl<'a> Resolver<'a> {
     }
 
     /// A `History` result for these elements, with `via` and `follow`.
-    fn history(&self, elements: Vec<usize>) -> Resolution {
+    fn history(&self, elements: &[usize]) -> Resolution {
         let mut via = Via::new();
-        for &element in &elements {
+        for &element in elements {
             match self.kind {
                 ElementKind::Face => {
                     let face = self.set.face_id_at(element);
@@ -830,34 +837,18 @@ impl<'a> Resolver<'a> {
                 .collect::<BTreeSet<usize>>()
                 .into_iter()
                 .collect(),
-            ElementKind::Edge | ElementKind::Vertex => self.pairing(allowed),
+            ElementKind::Edge | ElementKind::Vertex => self.set.pairing(self.kind, allowed),
         }
     }
 
-    /// `members` among the query's own selection `own` when the query has its own `#n`.
-    fn combine_allowed(&self, allowed: &[&[u32]], own: &[usize]) -> Vec<usize> {
+    /// The elements one face set per face part gives (`members`), among the query's own selection
+    /// `own` when the query has its own `#n`.
+    fn combine(&self, allowed: &[&[u32]], own: &[usize]) -> Vec<usize> {
         let mut combined = self.members(allowed);
         if self.own.is_some() {
             combined.retain(|member| own.binary_search(member).is_ok());
         }
         combined
-    }
-
-    /// The edges or vertices of the query's kind whose faces pair one to one with `allowed`, one
-    /// set per face part. Ascending positions.
-    fn pairing(&self, allowed: &[&[u32]]) -> Vec<usize> {
-        let Some(smallest) = allowed.iter().min_by_key(|faces| faces.len()) else {
-            return Vec::new();
-        };
-        let mut positions: Vec<usize> = smallest
-            .iter()
-            .flat_map(|&face| self.set.incident(self.kind, face))
-            .map(|&position| position as usize)
-            .collect();
-        positions.sort_unstable();
-        positions.dedup();
-        positions.retain(|&position| pairs(self.set.adjacent_faces(position), allowed));
-        positions
     }
 
     /// The score of the element at `element` against the stored fingerprint.
@@ -970,11 +961,14 @@ fn select_anchored(
     (!touching.is_empty() && touched_together.iter().all(|&touched| touched)).then_some(touching)
 }
 
-/// True when the faces `adjacent` pair one to one with `allowed`, each face in its set.
-fn pairs(adjacent: &[u32], allowed: &[&[u32]]) -> bool {
-    pairs_one_to_one(adjacent.len(), allowed.len(), |face, part| {
-        allowed[part].binary_search(&adjacent[face]).is_ok()
-    })
+/// The family of each face part.
+fn families(faces: &[FacePart]) -> Vec<&[u32]> {
+    faces.iter().map(|part| part.family.as_slice()).collect()
+}
+
+/// The sets as slices.
+fn slices(sets: &[Vec<u32>]) -> Vec<&[u32]> {
+    sets.iter().map(Vec::as_slice).collect()
 }
 
 /// True when one face of `adjacent` is in `kept` and every other one is a relative.
@@ -1001,29 +995,17 @@ fn element_name(set: &ElementSet, element: usize) -> ElementName {
 }
 
 /// The names of these elements, sorted.
-fn sorted_names(set: &ElementSet, elements: Vec<usize>) -> Vec<ElementName> {
+fn sorted_names(set: &ElementSet, elements: &[usize]) -> Vec<ElementName> {
     let mut names: Vec<ElementName> = elements
-        .into_iter()
-        .map(|element| element_name(set, element))
+        .iter()
+        .map(|&element| element_name(set, element))
         .collect();
     names.sort_unstable();
     names.dedup();
     names
 }
 
-/// A result with confidence 1 and nothing followed.
-fn resolved(elements: Vec<ElementName>, method: MatchMethod) -> Resolution {
-    Resolution::Resolved {
-        elements,
-        method,
-        confidence: 1.0,
-        follow: None,
-        via: Vec::new(),
-        alternatives: Vec::new(),
-    }
-}
-
-/// A result of one element with this confidence.
+/// A result of one element with this confidence and nothing followed.
 fn resolved_with(element: ElementName, method: MatchMethod, confidence: f64) -> Resolution {
     Resolution::Resolved {
         elements: vec![element],
@@ -1032,6 +1014,18 @@ fn resolved_with(element: ElementName, method: MatchMethod, confidence: f64) -> 
         follow: None,
         via: Vec::new(),
         alternatives: Vec::new(),
+    }
+}
+
+/// A guess of one element with this confidence and the members that might be meant instead.
+fn guessed(element: ElementName, confidence: f64, alternatives: Vec<Candidate>) -> Resolution {
+    Resolution::Resolved {
+        elements: vec![element],
+        method: MatchMethod::Guess,
+        confidence,
+        follow: None,
+        via: Vec::new(),
+        alternatives,
     }
 }
 
@@ -1131,13 +1125,6 @@ mod tests {
         });
 
         assert_eq!(selected, None);
-    }
-
-    #[test]
-    fn faces_pair_when_each_sits_in_its_own_allowed_set() {
-        assert!(pairs(&[1, 4], &[&[4, 5], &[1, 2]]));
-        assert!(!pairs(&[1, 2], &[&[1, 2], &[3]]));
-        assert!(!pairs(&[1], &[&[1], &[1]]));
     }
 
     #[test]

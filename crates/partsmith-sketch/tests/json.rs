@@ -1,4 +1,5 @@
-//! Acceptance tests for the JSON form and JSON Schema of sketch params (spec section 6.1, tests 1 to 17).
+//! Acceptance tests for the JSON form and JSON Schema of sketch params (spec section 6.1, tests 1 to 17, and
+//! section 6.16, test 217).
 
 mod common;
 
@@ -8,8 +9,9 @@ use std::fmt::Debug;
 use common::benchmark::PLATE_PARAMS_JSON;
 use common::{FACE_PLANE_JSON, Sketch, id, plate, rect};
 use partsmith_sketch::{
-    DragTarget, Geometry, OriginPlane, PointRef, PointRole, ProfileCurve, ProfileFinding,
-    RegionMatch, RegionRef, SketchConstraint, SketchEntity, SketchError, SketchParams, SketchPlane,
+    DragTarget, Geometry, HintFrame, OriginPlane, PointRef, PointRole, ProfileCurve,
+    ProfileFinding, RegionMatch, RegionRef, SketchConstraint, SketchEntity, SketchError,
+    SketchParams, SketchPlane,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -530,14 +532,26 @@ fn t017_profile_curves_round_trip() {
 #[test]
 fn t017_region_matches_round_trip() {
     assert_round_trip::<RegionMatch>(
-        r#"{"kind": "resolved", "index": 0, "method": "outer_boundary"}"#,
+        r#"{"kind": "resolved", "indices": [0], "method": "boundary", "successions": [{"entity": "e-2", "now": ["e-9"]}]}"#,
     );
-    assert_round_trip::<RegionMatch>(r#"{"kind": "ambiguous", "candidates": [0, 1]}"#);
-    assert_round_trip::<RegionMatch>(r#"{"kind": "missing"}"#);
+    assert_round_trip::<RegionMatch>(
+        r#"{"kind": "resolved", "indices": [0, 1], "method": "coverage", "successions": []}"#,
+    );
+    assert_round_trip::<RegionMatch>(
+        r#"{"kind": "resolved", "indices": [0, 1], "method": "grown", "successions": []}"#,
+    );
+    assert_round_trip::<RegionMatch>(r#"{"kind": "ambiguous", "candidates": [[0], [1]]}"#);
+    assert_round_trip::<RegionMatch>(
+        r#"{"kind": "missing", "loss": {"kind": "deleted", "entities": ["e-2"]}}"#,
+    );
+    assert_round_trip::<RegionMatch>(r#"{"kind": "missing", "loss": {"kind": "redrawn"}}"#);
 }
 
 #[test]
-fn t017_region_ref_round_trips() {
+fn t017_region_refs_round_trip() {
+    assert_round_trip::<RegionRef>(
+        r#"{"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3921.460184", "outline": "e-1,e-2,e-3,e-4"}"#,
+    );
     assert_round_trip::<RegionRef>(
         r#"{"key": "e-1,e-2,e-3,e-4;~e-5", "fp": "c=40,25|a=3921.460184"}"#,
     );
@@ -552,4 +566,176 @@ fn t017_region_fields_are_written_in_declaration_order() {
         keys(&write(region)),
         ["key", "outer", "holes", "area", "centroid"]
     );
+}
+
+/// The second face plane example of spec section 2.2: the first with its fallback in body coordinates.
+fn face_plane_json(fallback_frame: &str) -> String {
+    let marked = FACE_PLANE_JSON.replace(
+        r#""normal": [0, 0, 1]}}"#,
+        &format!(r#""normal": [0, 0, 1]}}, "fallback_frame": "{fallback_frame}"}}"#),
+    );
+    assert_ne!(marked, FACE_PLANE_JSON, "the fixture added the frame");
+    marked
+}
+
+/// The `fallback_frame` of a face plane.
+fn fallback_frame_of(plane: &SketchPlane) -> HintFrame {
+    match plane {
+        SketchPlane::Face { fallback_frame, .. } => *fallback_frame,
+        other => panic!("a face plane, found {other:?}"),
+    }
+}
+
+/// The schema of the `face` variant of `SketchPlane`: the object whose `kind` property is the constant `face`.
+fn face_variant(schema: &Value) -> Option<&Value> {
+    match schema {
+        Value::Object(map) => {
+            let kind = map
+                .get("properties")
+                .and_then(|properties| properties.get("kind"));
+            let is_face = kind.is_some_and(|kind| {
+                kind.get("const").and_then(Value::as_str) == Some("face")
+                    || kind.get("enum") == Some(&serde_json::json!(["face"]))
+            });
+            if is_face {
+                return Some(schema);
+            }
+            map.values().find_map(face_variant)
+        }
+        Value::Array(items) => items.iter().find_map(face_variant),
+        _ => None,
+    }
+}
+
+/// Follows a `$ref` (directly or as the only entry of `allOf`) to its definition in the root schema.
+fn resolved_schema<'a>(root: &'a Value, schema: &'a Value) -> &'a Value {
+    let target = schema.get("$ref").or_else(|| {
+        schema
+            .get("allOf")
+            .and_then(Value::as_array)
+            .and_then(|entries| match entries.as_slice() {
+                [only] => only.get("$ref"),
+                _ => None,
+            })
+    });
+    match target.and_then(Value::as_str) {
+        Some(pointer) => root
+            .pointer(pointer.trim_start_matches('#'))
+            .unwrap_or_else(|| panic!("the schema defines {pointer}")),
+        None => schema,
+    }
+}
+
+/// The string values a schema allows, in declaration order, from `const`, `enum`, `oneOf` and `anyOf`.
+fn allowed_strings(schema: &Value) -> Vec<String> {
+    let mut values = Vec::new();
+    if let Some(constant) = schema.get("const").and_then(Value::as_str) {
+        values.push(constant.to_owned());
+    }
+    for item in schema
+        .get("enum")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(text) = item.as_str() {
+            values.push(text.to_owned());
+        }
+    }
+    for keyword in ["oneOf", "anyOf"] {
+        for entry in schema
+            .get(keyword)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            values.extend(allowed_strings(entry));
+        }
+    }
+    values
+}
+
+#[test]
+fn t217_face_plane_with_a_body_frame_round_trips_with_the_marker() {
+    let plane: SketchPlane = parse(&face_plane_json("body"));
+
+    assert_eq!(fallback_frame_of(&plane), HintFrame::Body);
+    assert_eq!(
+        write(&plane),
+        r#"{"kind":"face","body":"b-1","face":{"q":"f-ext1/end-cap","fp":"plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"},"fallback":{"origin":[0.0,0.0,30.0],"x_axis":[1.0,0.0,0.0],"normal":[0.0,0.0,1.0]},"fallback_frame":"body"}"#
+    );
+}
+
+#[test]
+fn t217_face_plane_with_a_world_frame_is_written_without_the_marker() {
+    let plane: SketchPlane = parse(&face_plane_json("world"));
+
+    assert_eq!(fallback_frame_of(&plane), HintFrame::World);
+    assert_eq!(write(&plane), write(&parse::<SketchPlane>(FACE_PLANE_JSON)));
+    assert_eq!(
+        write(&plane),
+        r#"{"kind":"face","body":"b-1","face":{"q":"f-ext1/end-cap","fp":"plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"},"fallback":{"origin":[0.0,0.0,30.0],"x_axis":[1.0,0.0,0.0],"normal":[0.0,0.0,1.0]}}"#
+    );
+}
+
+#[test]
+fn t217_face_plane_with_an_unknown_frame_fails() {
+    let result = serde_json::from_str::<SketchPlane>(&face_plane_json("local"));
+
+    assert!(
+        result.is_err(),
+        "an unknown fallback frame must not deserialize, got {result:?}"
+    );
+}
+
+#[test]
+fn t217_schema_allows_world_and_body_and_does_not_require_the_frame() {
+    let schema =
+        serde_json::to_value(schemars::schema_for!(SketchParams)).expect("the schema serializes");
+
+    let face = face_variant(&schema).expect("the schema has the face variant");
+    let frame = face
+        .pointer("/properties/fallback_frame")
+        .expect("the face variant has the property fallback_frame");
+    assert_eq!(
+        allowed_strings(resolved_schema(&schema, frame)),
+        ["world", "body"]
+    );
+    let required: Vec<&str> = face
+        .get("required")
+        .and_then(Value::as_array)
+        .expect("the face variant lists its required properties")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(required.contains(&"fallback"), "required: {required:?}");
+    assert!(
+        !required.contains(&"fallback_frame"),
+        "required: {required:?}"
+    );
+}
+
+#[test]
+fn face_plane_without_the_marker_loads_in_world_coordinates() {
+    let plane: SketchPlane = parse(FACE_PLANE_JSON);
+
+    assert_eq!(fallback_frame_of(&plane), HintFrame::World);
+}
+
+#[test]
+fn hint_frame_defaults_to_world() {
+    assert_eq!(HintFrame::default(), HintFrame::World);
+}
+
+#[test]
+fn only_world_is_world() {
+    assert!(HintFrame::World.is_world());
+    assert!(!HintFrame::Body.is_world());
+}
+
+#[test]
+fn hint_frames_are_written_in_snake_case() {
+    assert_eq!(write(&HintFrame::World), r#""world""#);
+    assert_eq!(write(&HintFrame::Body), r#""body""#);
+    assert_eq!(parse::<HintFrame>(r#""body""#), HintFrame::Body);
 }

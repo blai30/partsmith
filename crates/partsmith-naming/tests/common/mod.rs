@@ -384,40 +384,80 @@ pub fn names_of(map: &NamingMap, kind: ElementKind) -> Vec<Option<&str>> {
 
 /// BOX topology: a 10 x 20 x 30 box at the origin (spec section 6).
 pub fn box_topology() -> TopologyInfo {
+    cuboid_topology([10.0, 20.0, 30.0])
+}
+
+/// The topology of a cuboid of `size` with a corner at the origin, indexed as BOX: faces left,
+/// right, front, back, bottom and top; edges along x, then along y, then along z.
+pub fn cuboid_topology(size: [f64; 3]) -> TopologyInfo {
+    // The far corner.
+    let [x, y, z] = size;
+    let (middle_x, middle_y, middle_z) = (x / 2.0, y / 2.0, z / 2.0);
+    let plane = |normal: &str, centroid: [f64; 3], area: f64| {
+        format!("plane|n={normal}|c={}|a={area}", triple(centroid))
+    };
+    let line = |direction: &str, centroid: [f64; 3], length: f64| {
+        format!("line|n={direction}|c={}|l={length}", triple(centroid))
+    };
+    let point = |position: [f64; 3]| format!("point|c={}", triple(position));
     TopologyInfo {
         faces: vec![
-            face_info(&[5, 6, 9, 10], "plane|n=-1,0,0|c=0,10,15|a=600"),
-            face_info(&[7, 8, 11, 12], "plane|n=1,0,0|c=10,10,15|a=600"),
-            face_info(&[1, 2, 9, 11], "plane|n=0,-1,0|c=5,0,15|a=300"),
-            face_info(&[3, 4, 10, 12], "plane|n=0,1,0|c=5,20,15|a=300"),
-            face_info(&[1, 3, 5, 7], "plane|n=0,0,-1|c=5,10,0|a=200"),
-            face_info(&[2, 4, 6, 8], "plane|n=0,0,1|c=5,10,30|a=200"),
+            face_info(
+                &[5, 6, 9, 10],
+                &plane("-1,0,0", [0.0, middle_y, middle_z], y * z),
+            ),
+            face_info(
+                &[7, 8, 11, 12],
+                &plane("1,0,0", [x, middle_y, middle_z], y * z),
+            ),
+            face_info(
+                &[1, 2, 9, 11],
+                &plane("0,-1,0", [middle_x, 0.0, middle_z], x * z),
+            ),
+            face_info(
+                &[3, 4, 10, 12],
+                &plane("0,1,0", [middle_x, y, middle_z], x * z),
+            ),
+            face_info(
+                &[1, 3, 5, 7],
+                &plane("0,0,-1", [middle_x, middle_y, 0.0], x * y),
+            ),
+            face_info(
+                &[2, 4, 6, 8],
+                &plane("0,0,1", [middle_x, middle_y, z], x * y),
+            ),
         ],
         edges: vec![
-            edge_info(&[3, 5], &[1, 5], "line|n=1,0,0|c=5,0,0|l=10"),
-            edge_info(&[3, 6], &[2, 6], "line|n=1,0,0|c=5,0,30|l=10"),
-            edge_info(&[4, 5], &[3, 7], "line|n=1,0,0|c=5,20,0|l=10"),
-            edge_info(&[4, 6], &[4, 8], "line|n=1,0,0|c=5,20,30|l=10"),
-            edge_info(&[1, 5], &[1, 3], "line|n=0,1,0|c=0,10,0|l=20"),
-            edge_info(&[1, 6], &[2, 4], "line|n=0,1,0|c=0,10,30|l=20"),
-            edge_info(&[2, 5], &[5, 7], "line|n=0,1,0|c=10,10,0|l=20"),
-            edge_info(&[2, 6], &[6, 8], "line|n=0,1,0|c=10,10,30|l=20"),
-            edge_info(&[1, 3], &[1, 2], "line|n=0,0,1|c=0,0,15|l=30"),
-            edge_info(&[1, 4], &[3, 4], "line|n=0,0,1|c=0,20,15|l=30"),
-            edge_info(&[2, 3], &[5, 6], "line|n=0,0,1|c=10,0,15|l=30"),
-            edge_info(&[2, 4], &[7, 8], "line|n=0,0,1|c=10,20,15|l=30"),
+            edge_info(&[3, 5], &[1, 5], &line("1,0,0", [middle_x, 0.0, 0.0], x)),
+            edge_info(&[3, 6], &[2, 6], &line("1,0,0", [middle_x, 0.0, z], x)),
+            edge_info(&[4, 5], &[3, 7], &line("1,0,0", [middle_x, y, 0.0], x)),
+            edge_info(&[4, 6], &[4, 8], &line("1,0,0", [middle_x, y, z], x)),
+            edge_info(&[1, 5], &[1, 3], &line("0,1,0", [0.0, middle_y, 0.0], y)),
+            edge_info(&[1, 6], &[2, 4], &line("0,1,0", [0.0, middle_y, z], y)),
+            edge_info(&[2, 5], &[5, 7], &line("0,1,0", [x, middle_y, 0.0], y)),
+            edge_info(&[2, 6], &[6, 8], &line("0,1,0", [x, middle_y, z], y)),
+            edge_info(&[1, 3], &[1, 2], &line("0,0,1", [0.0, 0.0, middle_z], z)),
+            edge_info(&[1, 4], &[3, 4], &line("0,0,1", [0.0, y, middle_z], z)),
+            edge_info(&[2, 3], &[5, 6], &line("0,0,1", [x, 0.0, middle_z], z)),
+            edge_info(&[2, 4], &[7, 8], &line("0,0,1", [x, y, middle_z], z)),
         ],
         vertices: vec![
-            vertex_info(&[1, 5, 9], &[1, 3, 5], "point|c=0,0,0"),
-            vertex_info(&[2, 6, 9], &[1, 3, 6], "point|c=0,0,30"),
-            vertex_info(&[3, 5, 10], &[1, 4, 5], "point|c=0,20,0"),
-            vertex_info(&[4, 6, 10], &[1, 4, 6], "point|c=0,20,30"),
-            vertex_info(&[1, 7, 11], &[2, 3, 5], "point|c=10,0,0"),
-            vertex_info(&[2, 8, 11], &[2, 3, 6], "point|c=10,0,30"),
-            vertex_info(&[3, 7, 12], &[2, 4, 5], "point|c=10,20,0"),
-            vertex_info(&[4, 8, 12], &[2, 4, 6], "point|c=10,20,30"),
+            vertex_info(&[1, 5, 9], &[1, 3, 5], &point([0.0, 0.0, 0.0])),
+            vertex_info(&[2, 6, 9], &[1, 3, 6], &point([0.0, 0.0, z])),
+            vertex_info(&[3, 5, 10], &[1, 4, 5], &point([0.0, y, 0.0])),
+            vertex_info(&[4, 6, 10], &[1, 4, 6], &point([0.0, y, z])),
+            vertex_info(&[1, 7, 11], &[2, 3, 5], &point([x, 0.0, 0.0])),
+            vertex_info(&[2, 8, 11], &[2, 3, 6], &point([x, 0.0, z])),
+            vertex_info(&[3, 7, 12], &[2, 4, 5], &point([x, y, 0.0])),
+            vertex_info(&[4, 8, 12], &[2, 4, 6], &point([x, y, z])),
         ],
     }
+}
+
+/// Three coordinates as fingerprint text, `x,y,z`.
+fn triple(values: [f64; 3]) -> String {
+    let [x, y, z] = values;
+    format!("{x},{y},{z}")
 }
 
 /// BOX sources: `New` names for faces 1 to 6.

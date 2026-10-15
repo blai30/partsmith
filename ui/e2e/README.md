@@ -40,7 +40,7 @@ The Playwright tests in this folder run against the production build of the app 
 
 ## Fixtures
 
-`fixtures/` holds the documents of ui.md 6.2, and `fixtures.spec.ts` (E-108) checks that each opens with its stated result (`cube-features.ptsm` does not yet, a core defect: ui.md open issue 17). Each `.ptsm` is canonical and valid: `partsmith fmt --check` leaves it unchanged, `partsmith validate` is clean, and the core saves it byte for byte. Check a changed fixture with the CLI:
+`fixtures/` holds the documents of ui.md 6.2, and `fixtures.spec.ts` (E-108) checks that each opens with its stated result. Each `.ptsm` is canonical and valid: `partsmith fmt --check` leaves it unchanged, `partsmith validate` is clean, and the core saves it byte for byte. Check a changed fixture with the CLI:
 
 ```sh
 cargo run -p partsmith-cli -- fmt --check ui/e2e/fixtures/*.ptsm

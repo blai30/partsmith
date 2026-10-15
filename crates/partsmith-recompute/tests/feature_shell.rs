@@ -48,6 +48,13 @@ const VERTICAL_ROUNDS: &str = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1
 const ROUNDED_TOP_FACE: &str =
     r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=396.566371"}"#;
 
+/// The cylinder of tests 9 and 16: radius 20 and height 40, spanning [-20,-20,0]-[20,20,40].
+const CYL20: &str = r#"{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "20", "height": "40", "op": "new"}"#;
+
+/// The top face of `CYL20`.
+const CYLINDER_TOP_FACE: &str =
+    r#"{"q": "f-cyl1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=1256.637061"}"#;
+
 /// `SHELL(thickness, faces)`: the shell `f-sh1` of `b-1`, without `remove_faces` when `faces` is
 /// empty.
 fn shell_record(thickness: &str, faces: &[&str]) -> String {
@@ -66,6 +73,14 @@ fn open_top_document(thickness: &str) -> Document {
     document(
         &["b-1"],
         &[BOX805030, &shell_record(thickness, &[TOP_FACE])],
+    )
+}
+
+/// Test 16: `CYL20` shelled with its top removed and a wall of `thickness`.
+fn cylinder_cup_run(thickness: &str) -> Run {
+    Run::records(
+        &["b-1"],
+        &[CYL20, &shell_record(thickness, &[CYLINDER_TOP_FACE])],
     )
 }
 
@@ -493,4 +508,40 @@ fn t020_too_thick_past_the_rounds() {
 
     let rebuilt = rounded_cube_run(&limit);
     rebuilt.assert_all_ok();
+}
+
+/// Test 16, the "too large" search where a limit truly exists: the side of the cup is a convex
+/// round that no other wall closes, so walls at least as thick as its radius still fail (kernel.md
+/// section 3.4.8 item 6) and the search stops just below 20 mm. The `limit`, the message and the
+/// fixes of test 16 come with features.md section 4.3.
+#[test]
+fn t016_cylinder_wall_stops_below_the_radius() {
+    let run = cylinder_cup_run("30");
+
+    run.assert_ok("f-cyl1");
+    let error = run.assert_error("f-sh1", "shell_too_thick");
+    assert_error_field(error, "thickness");
+    let FeatureError::ShellTooThick { thickness, max, .. } = error else {
+        panic!("expected ShellTooThick, got {error:?}");
+    };
+    assert_eq!(*thickness, 30.0, "the requested thickness");
+    let max = max.unwrap_or_else(|| panic!("the search finds a working thickness: {error:?}"));
+    assert!(
+        (15.0..20.0).contains(&max),
+        "the thickest working wall {max} lies in [15, 20), below the cylinder's radius"
+    );
+    let limit = suggested_limit(max);
+    assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
+    assert_unchanged(&run, "f-sh1", "b-1");
+
+    let rebuilt = cylinder_cup_run(&limit);
+    rebuilt.assert_all_ok();
+}
+
+#[test]
+fn cylinder_wall_as_thick_as_the_radius_fails() {
+    let run = cylinder_cup_run("20");
+
+    run.assert_error("f-sh1", "shell_too_thick");
+    assert_unchanged(&run, "f-sh1", "b-1");
 }

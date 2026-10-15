@@ -22,7 +22,7 @@ pub const EXAMPLE_A_HEX: &str = "
 ";
 
 /// The canonical text of an empty millimeter document (file-format.md example E1, 122 bytes).
-pub const EMPTY_DOCUMENT_TEXT: &str = "{\n  \"format\": \"partsmith\",\n  \"format_version\": 1,\n  \"units\": \"mm\",\n  \"parameters\": [],\n  \"bodies\": [],\n  \"features\": []\n}\n";
+pub const EMPTY_DOCUMENT_TEXT: &str = "{\n  \"format\": \"partsmith\",\n  \"format_version\": 2,\n  \"units\": \"mm\",\n  \"parameters\": [],\n  \"bodies\": [],\n  \"features\": []\n}\n";
 
 /// The bytes of example A.
 pub fn example_a() -> Vec<u8> {

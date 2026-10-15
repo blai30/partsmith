@@ -4,7 +4,10 @@ mod common;
 
 use std::path::Path;
 
-use common::examples::{COMMAND_EXAMPLES, MESSAGE_EXAMPLES, RESULT_EXAMPLES, TYPE_EXAMPLES};
+use common::examples::{
+    COMMAND_EXAMPLES, ELEMENT_REPAIR, FULL_REFERENCE, MERGED_REFERENCE, MESSAGE_EXAMPLES,
+    REGION_REPAIR, RESULT_EXAMPLES, SOLVE_ON_FACE_IN_BODY_FRAME, TYPE_EXAMPLES,
+};
 use common::json_schema::validate;
 use common::{
     definition, parse_json, property, schema_json, string_set, string_values, variant, variant_tags,
@@ -279,4 +282,118 @@ fn apply_fix_request_validates_and_rejects_an_unknown_fix_field() {
     let mut with_extra = request;
     with_extra["messages"][0]["command"]["fix"]["extra"] = json!(1);
     assert!(validate(&schema, "", &with_extra).is_err());
+}
+
+#[test]
+fn fix_ref_requires_every_field_but_field() {
+    let schema = schema_json();
+    let fix = json!({"feature": "f-fil1", "code": "x", "field": "/edges/0", "cause": false, "index": 0, "revision": 1});
+    assert_eq!(validate(&schema, "/$defs/FixRef", &fix), Ok(()));
+
+    for name in ["feature", "code", "field", "cause", "index", "revision"] {
+        let mut without = fix.clone();
+        without
+            .as_object_mut()
+            .expect("a fix reference is an object")
+            .remove(name);
+        let result = validate(&schema, "/$defs/FixRef", &without);
+        if name == "field" {
+            assert_eq!(result, Ok(()), "a fix reference without field");
+        } else {
+            assert!(
+                result.is_err(),
+                "a fix reference without {name} is rejected"
+            );
+        }
+    }
+}
+
+#[test]
+fn diagnostic_and_fix_ref_descriptions_name_sketch_profile_findings() {
+    let schema = schema_json();
+    let description = |name: &str, field: Option<&str>| {
+        let entry = definition(&schema, name);
+        let described = match field {
+            Some(field) => {
+                property(&schema, entry, field).unwrap_or_else(|| panic!("{name} declares {field}"))
+            }
+            None => entry,
+        };
+        described["description"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{name} {field:?} has a description"))
+            .to_string()
+    };
+
+    // The texts of section 2.4, which the generated TypeScript types repeat.
+    assert_eq!(
+        description("Diagnostic", None),
+        "A message about a document, feature, sketch or export."
+    );
+    assert_eq!(
+        description("Diagnostic", Some("field")),
+        "JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages, and sketch profile findings, whose field is their position in `SketchSolution::profile_findings` (`/profile_findings/0`, section 2.6)."
+    );
+    assert_eq!(
+        description("FixRef", Some("feature")),
+        "The feature whose message offers the fix (the sketch, for a profile finding)."
+    );
+}
+
+#[test]
+fn both_repair_variants_validate_with_and_without_their_ghost() {
+    let schema = schema_json();
+
+    for text in [ELEMENT_REPAIR, REGION_REPAIR] {
+        let repair = parse_json(text);
+        assert_eq!(
+            validate(&schema, "/$defs/Repair", &repair),
+            Ok(()),
+            "{text}"
+        );
+
+        let mut without_ghost = repair;
+        without_ghost
+            .as_object_mut()
+            .expect("a repair is an object")
+            .remove("ghost");
+        without_ghost["candidates"] = json!([]);
+        assert_eq!(
+            validate(&schema, "/$defs/Repair", &without_ghost),
+            Ok(()),
+            "{without_ghost}"
+        );
+    }
+}
+
+#[test]
+fn references_with_anchors_or_merged_names_validate() {
+    let schema = schema_json();
+
+    for text in [FULL_REFERENCE, MERGED_REFERENCE] {
+        assert_eq!(
+            validate(&schema, "/$defs/Reference", &parse_json(text)),
+            Ok(()),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn hint_frame_allows_exactly_world_and_body() {
+    assert_eq!(
+        string_values(&schema_json(), "HintFrame"),
+        string_set(&["world", "body"])
+    );
+}
+
+#[test]
+fn face_plane_with_a_body_fallback_frame_validates_and_an_unknown_frame_does_not() {
+    let schema = schema_json();
+    let command = parse_json(SOLVE_ON_FACE_IN_BODY_FRAME);
+    assert_eq!(validate(&schema, "/$defs/Command", &command), Ok(()));
+
+    let mut unknown = command;
+    unknown["candidate"]["plane"]["fallback_frame"] = json!("local");
+    assert!(validate(&schema, "/$defs/Command", &unknown).is_err());
 }

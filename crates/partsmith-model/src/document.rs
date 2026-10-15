@@ -409,8 +409,8 @@ mod tests {
         let known = serde_json::from_value::<Document>(value.clone());
         value["extra"] = json!(1);
 
-        let error = serde_json::from_value::<Document>(value)
-            .expect_err("an unknown root key is rejected");
+        let error =
+            serde_json::from_value::<Document>(value).expect_err("an unknown root key is rejected");
 
         assert_eq!(known.ok(), Some(Document::new(Units::Mm)));
         assert!(error.to_string().contains("extra"), "{error}");

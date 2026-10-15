@@ -1,4 +1,5 @@
-//! Property tests (spec section 6.13, tests 189 to 196).
+//! Property tests (spec section 6.13, tests 189 to 196), plus properties of region loops (section 3.13.8) and of
+//! mirrored drawings (section 3.17).
 //!
 //! Cases come from the known-solution generator in `common/generator.rs`; proptest draws its seeds.
 //! The case count follows proptest's configuration (256 by default, `PROPTEST_CASES` in the nightly job).
@@ -14,8 +15,8 @@ use common::residuals::{assert_constraints_hold, assert_measured_match_values};
 use common::{TOLERANCE, assert_bitwise, id, line};
 use partsmith_sketch::{
     DimensionValues, DragSession, DragTarget, Geometry, KeyEdge, NativeSolver, PointRef, PointRole,
-    RegionFingerprint, RegionKey, SketchEntity, SketchParams, SketchStatus, SolveResult, Solver,
-    build_profile,
+    RegionFingerprint, RegionKey, RegionLoop, SketchEntity, SketchParams, SketchStatus,
+    SolveResult, Solver, build_profile,
 };
 use proptest::prelude::*;
 
@@ -366,6 +367,61 @@ proptest! {
         prop_assert_eq!(parsed.area, round(area));
         prop_assert_eq!(parsed.centroid[0], round(centroid_u));
         prop_assert_eq!(parsed.centroid[1], round(centroid_v));
+    }
+}
+
+proptest! {
+    #[test]
+    fn region_loop_text_round_trips(entries in prop::collection::vec(key_edge_strategy(), 1..8)) {
+        let region_loop = RegionLoop::new(entries).expect("entries that are not empty form a loop");
+
+        let parsed: RegionLoop = region_loop
+            .to_string()
+            .parse()
+            .unwrap_or_else(|error| panic!("{region_loop} parses: {error}"));
+
+        prop_assert_eq!(parsed, region_loop);
+    }
+
+    #[test]
+    fn region_loop_does_not_depend_on_the_entry_it_starts_with(
+        entries in prop::collection::vec(key_edge_strategy(), 1..8),
+        shift in 0..8_usize,
+    ) {
+        let mut rotated = entries.clone();
+        let length = rotated.len();
+        rotated.rotate_left(shift % length);
+
+        prop_assert_eq!(
+            RegionLoop::new(rotated).expect("the rotated entries form a loop"),
+            RegionLoop::new(entries).expect("the entries form a loop")
+        );
+    }
+
+    #[test]
+    fn every_constraint_holds_on_the_mirrored_known_solution(seed in any::<u64>()) {
+        let case = case_for(seed)?;
+
+        let mirrored = case.known.mirrored();
+
+        assert_constraints_hold(
+            &mirrored,
+            &mirrored.entities,
+            &mirrored.entities,
+            &case.values,
+            TOLERANCE,
+        );
+    }
+
+    #[test]
+    fn mirrored_known_solution_solves_in_place(seed in any::<u64>()) {
+        let case = case_for(seed)?;
+        let mirrored = case.known.mirrored();
+
+        let result = solve(&mirrored, &case.values);
+
+        prop_assert!(!result.failed, "the mirrored known solution converges");
+        assert_translated(&result.entities, &mirrored.entities, [0.0, 0.0], TOLERANCE);
     }
 }
 

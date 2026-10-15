@@ -26,7 +26,7 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0018](0018-body-updates-carry-measurements.md) | Body updates carry the measurements of their shape | Accepted, needs human review |
 | [0019](0019-hosts-read-profile-and-load-positions-from-the-engine.md) | Hosts read the resolved printer profile and load error positions from the engine; the CLI drops `partsmith-print` | Accepted, needs human review |
 | [0020](0020-dependency-log.md) | Dependency log of the workspace, and removal of four unused workspace dependencies | Accepted, needs human review |
-| [0021](0021-resolve-references-by-meaning.md) | Resolve references by meaning, never by a fingerprint guess: anchors, merged names, canonical names, losses with candidates | Accepted, needs human review |
+| [0021](0021-resolve-references-by-meaning.md) | Resolve references by meaning, never by a fingerprint guess: anchors, merged names, canonical names, losses with candidates | Accepted, needs human review (amended 2026-10-15) |
 | [0022](0022-split-regions-keep-their-area.md) | A profile region follows its boundary and keeps covering its area when split | Accepted, needs human review |
 | [0023](0023-frames-live-on-the-model.md) | Sketch frames, axis directions and chamfer sides live on the model; a turned-over face mirrors the drawing with "Turn the drawing back" | Accepted, needs human review |
 | [0024](0024-diagnostics-with-actions-causes-and-ghosts.md) | Diagnostics carry actions, causes, details, candidates and ghosts (protocol schema) | Accepted, needs human review |
@@ -35,3 +35,4 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0027](0027-dev-only-workspace-crates.md) | Dev-only workspace crates: `partsmith-budgets` for the budget benchmarks and `partsmith-mesh-fixtures` for the mesh.md section 6.1 test fixtures | Accepted, needs human review |
 | [0028](0028-single-license-apache-2.md) | One license, Apache-2.0, for code, specifications, examples and test corpus | Accepted |
 | [0029](0029-z-up-right-handed.md) | Right-handed Z-up coordinates everywhere, with no up-axis option | Accepted |
+| [0030](0030-islands-over-a-full-window-viewport-and-rgb-axes.md) | Floating islands over a full-window viewport, and X, Y, Z in red, green and blue | Accepted, needs human review |

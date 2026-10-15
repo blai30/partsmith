@@ -512,7 +512,7 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
 #[cfg(test)]
 mod tests {
     use partsmith_model::{Edit, Parameter};
-    use partsmith_protocol::FixRef;
+    use partsmith_protocol::{ErrorInfo, FixRef};
 
     use super::*;
     use crate::test_support::{box_session, id};
@@ -524,13 +524,18 @@ mod tests {
         }
     }
 
-    /// The error code of a reply, or `None` when it succeeded.
-    fn error_code(session: &mut Session, command: Command) -> Option<ErrorCode> {
+    /// The error of a reply, or `None` when it succeeded.
+    fn error_info(session: &mut Session, command: Command) -> Option<ErrorInfo> {
         let reply = session.execute(Request { id: 1, command }, Vec::new());
         match reply.response.result {
             Outcome::Ok(_) => None,
-            Outcome::Error(info) => Some(info.code),
+            Outcome::Error(info) => Some(info),
         }
+    }
+
+    /// The error code of a reply, or `None` when it succeeded.
+    fn error_code(session: &mut Session, command: Command) -> Option<ErrorCode> {
+        error_info(session, command).map(|info| info.code)
     }
 
     #[test]
@@ -620,9 +625,13 @@ mod tests {
             revision: session.revision(doc).expect("the document is open"),
         };
 
+        let info = error_info(&mut session, Command::ApplyFix { doc, fix })
+            .expect("a fix no diagnostic offers fails");
+
+        assert_eq!(info.code, ErrorCode::StaleFix);
         assert_eq!(
-            error_code(&mut session, Command::ApplyFix { doc, fix }),
-            Some(ErrorCode::StaleFix)
+            info.message,
+            "This fix no longer applies because the document changed after it was offered. Look at the problem again."
         );
     }
 

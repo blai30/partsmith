@@ -1249,6 +1249,169 @@ fn t131_shell_thicker_than_the_rounds_leaves_its_input_unchanged() {
     });
 }
 
+// Section 3.4.8 item 6 beyond test 131: a wall just past the radius, a round on a circular edge
+// (a torus) and a concave round.
+
+#[test]
+fn wall_just_past_the_rounds_closes_into_sharp_inner_corners() {
+    // The complete intersection fails from a wall equal to the radius up to 2.001 mm (item 6.2),
+    // so this wall takes the cavity of RC without its rounds.
+    let thickness = 2.001;
+    let opening = 20.0 - 2.0 * thickness;
+
+    let (rounded, top, result) = open_rounded_cube_shell(thickness);
+
+    assert_shelled(
+        &result,
+        7680.0 + 80.0 * PI - opening * opening * (20.0 - thickness),
+        15,
+    );
+    assert_planar_walls(&rounded, &result, thickness);
+    assert_rim(&result, top, 384.0 + 4.0 * PI - opening * opening);
+    assert_rounds_vanish(&rounded, &result);
+    assert_sharp_inner_corner(&rounded, &result, thickness);
+}
+
+/// `R` of test 97: a cylinder of radius 10 and height 20 with the circle edge between its side
+/// and its top rounded at radius 2, which makes a `Torus` face of minor radius 2.
+fn cylinder_with_rounded_top() -> Shape {
+    let cylinder = make_cylinder(&Plane::XY, 10.0, 20.0).expect("the cylinder builds");
+    let edge = edge_between(
+        &cylinder.shape,
+        face_with_role(&cylinder, PrimitiveFace::Side),
+        face_with_role(&cylinder, PrimitiveFace::Top),
+    );
+    fillet(&cylinder.shape, &[EdgeRadius { edge, radius: 2.0 }])
+        .expect("the top circle edge rounds")
+        .shape
+}
+
+#[test]
+fn wall_past_a_round_on_a_circular_edge_closes_into_a_sharp_inner_corner() {
+    let rounded = cylinder_with_rounded_top();
+    let bottom = planar_face(
+        &rounded,
+        Vector::new(0.0, 0.0, -1.0),
+        Point::new(0.0, 0.0, 0.0),
+    );
+    let tori = faces_of_kind(&rounded, GeometryKind::Torus);
+    assert_eq!(tori.len(), 1, "one round");
+    let side = faces_of_kind(&rounded, GeometryKind::Cylinder);
+    assert_eq!(side.len(), 1, "one side");
+    let top = planar_face(&rounded, UP, Point::new(0.0, 0.0, 20.0));
+
+    let result = shell(&rounded, &[bottom], 3.0).expect("a 3 mm wall fits past the 2 mm round");
+
+    // The cylinder without its round, 2000 pi, less the round's material by Pappus, 2 pi (100 / 3
+    // - 8 pi), less a cavity of radius 7 and depth 17 with a sharp circular corner, 833 pi.
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(
+        volume(&result.shape),
+        3301.0 * PI / 3.0 + 16.0 * PI * PI,
+        1e-9,
+        "volume",
+    );
+    assert_eq!(result.shape.count(SubShapeKind::Face), 6);
+    assert_bounds(&result.shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0], 1e-6);
+    assert_every_face_comes_from_an_input_face(&result);
+    let round = face_fate(&result, tori[0]);
+    assert_eq!(
+        round.modified.len(),
+        1,
+        "the round keeps its image: {round:?}"
+    );
+    assert!(
+        generated_faces(round).is_empty(),
+        "the round's inner offset vanishes: {round:?}"
+    );
+    let inner_side = geometry(
+        &result.shape,
+        SubShapeKind::Face,
+        single_inner_face(&result, side[0]),
+    );
+    assert_eq!(inner_side.kind, GeometryKind::Cylinder);
+    assert_relative(
+        inner_side.radius.expect("a cylinder has a radius"),
+        7.0,
+        1e-9,
+        "inner side radius",
+    );
+    let inner_top_face = single_inner_face(&result, top);
+    let inner_top = geometry(&result.shape, SubShapeKind::Face, inner_top_face);
+    assert_eq!(inner_top.kind, GeometryKind::Plane);
+    assert_near(inner_top.centroid.z, 17.0, 1e-6, "inner top height");
+    let corner = shared_edges(
+        &result.shape,
+        single_inner_face(&result, side[0]),
+        inner_top_face,
+    );
+    assert_eq!(corner.len(), 1, "the inner side and top share one edge");
+    let edge = geometry(&result.shape, SubShapeKind::Edge, corner[0]);
+    assert_eq!(edge.kind, GeometryKind::Circle, "a sharp circular corner");
+    assert_relative(
+        edge.radius.expect("a circle has a radius"),
+        7.0,
+        1e-9,
+        "corner radius",
+    );
+    assert_point_near(
+        edge.location.expect("a circle has a center"),
+        Point::new(0.0, 0.0, 17.0),
+        1e-6,
+        "corner center",
+    );
+}
+
+#[test]
+fn wall_past_a_concave_round_keeps_a_rounded_inner_wall() {
+    // A concave round grows when offset into the material, so it never vanishes: the L prism's
+    // concave edge rounded at radius 1 gets an inner wall of radius 1 + 2.
+    let (prism, _, concave) = l_prism();
+    let rounded = fillet(
+        &prism,
+        &[EdgeRadius {
+            edge: concave,
+            radius: 1.0,
+        }],
+    )
+    .expect("the concave edge rounds")
+    .shape;
+    let rounds = faces_of_kind(&rounded, GeometryKind::Cylinder);
+    assert_eq!(rounds.len(), 1, "one round");
+    let end_caps: Vec<u32> = faces_of_kind(&rounded, GeometryKind::Plane)
+        .into_iter()
+        .filter(|face| {
+            let element = geometry(&rounded, SubShapeKind::Face, *face);
+            element
+                .direction
+                .is_some_and(|direction| (direction.z - 1.0).abs() <= POINT_TOLERANCE)
+        })
+        .collect();
+    assert_eq!(end_caps.len(), 1, "one face looks up");
+
+    let result = shell(&rounded, &end_caps, 2.0).expect("the rounded L prism is shelled");
+
+    // The prism, 10 (300 + 1 - pi / 4), less an 8 mm deep cavity: the L shrunk by 2 mm, 156,
+    // with the corner square [8, 11] x [8, 11] outside the round's offset of radius 3,
+    // 9 - 9 pi / 4.
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_relative(volume(&result.shape), 1690.0 + 15.5 * PI, 1e-9, "volume");
+    assert_eq!(result.shape.count(SubShapeKind::Face), 17);
+    let inner = geometry(
+        &result.shape,
+        SubShapeKind::Face,
+        single_inner_face(&result, rounds[0]),
+    );
+    assert_eq!(inner.kind, GeometryKind::Cylinder);
+    assert_relative(
+        inner.radius.expect("a cylinder has a radius"),
+        3.0,
+        1e-9,
+        "inner round radius",
+    );
+}
+
 #[test]
 fn fillet_on_a_shape_without_solid_is_rejected() {
     let error = fillet(

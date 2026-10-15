@@ -38,12 +38,13 @@ function hovers(event: PointerEvent): boolean {
 }
 
 /**
- * Describes its trigger with a label and shortcut, and a description on a second line: shown after 500 ms of hover and at once on
- * keyboard focus, except focus that follows an Esc; closed by Esc, by pressing the trigger, and
- * when both the pointer and keyboard focus have left (ui.md 3.24). The tooltip stays in the DOM, referenced by the trigger's
- * aria-describedby. Trigger and tooltip share a `display: contents` wrapper that takes their
- * pointer and focus events, so the trigger lays out as a direct child of its container (use
- * `gap` there rather than `space-*` or `divide-*`, which style the wrapper).
+ * Describes its trigger with a label and shortcut, and a description on a second line: shown
+ * after 500 ms of hover and at once on keyboard focus, except focus that follows an Esc; closed by
+ * Esc, by pressing the trigger, and when both the pointer and keyboard focus have left (ui.md
+ * 3.24). The tooltip stays in the DOM, referenced by the trigger's aria-describedby. Trigger and
+ * tooltip share a `display: contents` wrapper that takes their pointer and focus events, so the
+ * trigger lays out as a direct child of its container (use `gap` there rather than `space-*` or
+ * `divide-*`, which style the wrapper).
  */
 export function Tooltip({ label, shortcut = null, description = null, children }: TooltipProps) {
   const id = useId()

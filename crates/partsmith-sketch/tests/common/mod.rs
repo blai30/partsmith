@@ -5,6 +5,7 @@
 
 pub mod benchmark;
 pub mod generator;
+pub mod matching;
 pub mod plane;
 pub mod random;
 pub mod residuals;
