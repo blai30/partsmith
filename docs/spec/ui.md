@@ -2413,7 +2413,7 @@ Top-center slot: a column at the free area's top that keeps clear of the view cu
 Empty state: while `selectEmptyState(state)` holds (a ready core, a document without features, no feature command, no sketch session and no Lay on face pick, whose print hint takes the slot), the slot shows a card (`data-testid="empty-state"`, `role="group"`, `aria-label="First step"`, `surfaceRaised`, `border`, `rounded-xl`, `shadow-md` with `elevation`, `p-3`, `max-w-140`):
 
 - Line 1 (`text-sm`): "Start with a sketch on a plane, or add a box." followed by the buttons "Sketch" (runs `feature.sketch`) and "Box" (runs `feature.box`; left out when the catalog has no `box`).
-- Line 2 (`text-xs`, `textMuted`): `navigationLegend(settings.navigation)` (2.11), a space, and "Search every command: {formatShortcut('Mod+K')}."
+- Line 2 (`text-xs`, `textMuted`): `navigationLegend(settings.navigation)` (2.11), a space, and "Search every command: {formatShortcut('Mod+K')}." Each hyphenated word of it, a gesture such as "Shift+right-drag", is a `whitespace-nowrap` span, so the line never breaks inside a gesture.
 
 The card follows the document only: it disappears with the first feature, returns whenever the document has no features again (Delete, Undo, New), and has no first-run flag and no setting, so an experienced user sees it only in an empty document, where it costs nothing. In a document without features the origin axes and point are shown too (3.10), and the ground grid gives scale (3.12).
 

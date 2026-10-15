@@ -15,6 +15,22 @@ import { TopCenterSlot } from './TopCenterSlot'
 
 const FIRST_STEPS: readonly string[] = ['feature.sketch', 'feature.box']
 
+/** Text whose hyphenated words, the gestures ("Shift+right-drag"), never break at the hyphen. */
+function KeepGestures({ text }: { readonly text: string }) {
+  // Splitting on a capture group puts each hyphenated word at an odd index.
+  return text
+    .split(/(\S*-\S*)/)
+    .map((part, index) =>
+      index % 2 === 1 ? (
+        <span key={index} className="whitespace-nowrap">
+          {part}
+        </span>
+      ) : (
+        part
+      ),
+    )
+}
+
 /** The first-step card while `selectEmptyState` holds; nothing otherwise. */
 export function EmptyState() {
   const app = useApp()
@@ -52,7 +68,9 @@ export function EmptyState() {
           ))}
         </div>
         <p className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
-          {`${navigationLegend(navigation)} Search every command: ${formatShortcut('Mod+K', app.platform)}.`}
+          <KeepGestures
+            text={`${navigationLegend(navigation)} Search every command: ${formatShortcut('Mod+K', app.platform)}.`}
+          />
         </p>
       </fieldset>
     </TopCenterSlot>
