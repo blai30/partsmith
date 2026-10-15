@@ -679,15 +679,26 @@ fn check_nothing_changes(
     let stored: partsmith_sketch::RegionRef =
         serde_json::from_value(rectangle_region(1, 0.0, 0.0, 80.0, 50.0))
             .expect("a valid region ref");
-    let profile = &sketch_result(&session, "f-sk1").profile;
-    match partsmith_sketch::match_region(&profile.regions, &stored) {
-        partsmith_sketch::RegionMatch::Resolved { index, method } => {
+    let sketch = sketch_result(&session, "f-sk1");
+    let profile = &sketch.profile;
+    let entities: Vec<partsmith_sketch::Id> = sketch
+        .solved
+        .entities
+        .iter()
+        .map(|entity| entity.id.clone())
+        .collect();
+    match partsmith_sketch::match_region(&profile.regions, &entities, &stored) {
+        partsmith_sketch::RegionMatch::Resolved {
+            indices, method, ..
+        } => {
             checks.check(
                 method == partsmith_sketch::MatchMethod::Key,
                 format!("the region matched by {method:?}, not by its key"),
             );
             checks.check(
-                profile.regions[index].fingerprint() == stored.fp,
+                indices
+                    .iter()
+                    .all(|&index| profile.regions[index].fingerprint() == stored.fp),
                 "the region fingerprint changed",
             );
         }

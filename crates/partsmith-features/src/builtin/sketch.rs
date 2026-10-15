@@ -103,6 +103,7 @@ impl Feature for SketchFeature {
                 body,
                 face,
                 fallback,
+                ..
             } => match context.face_placement(body, face, fallback)? {
                 Ok(placement) => placement,
                 Err(reason) => {

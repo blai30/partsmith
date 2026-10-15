@@ -1,7 +1,9 @@
-//! Region keys, fingerprints and stored region references (spec sections 3.13.5 and 3.13.6).
+//! Region keys, fingerprints and stored region references (spec sections 2.7, 3.13.5 and 3.13.6).
 
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 use partsmith_model::Id;
@@ -9,6 +11,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use super::hashing::FastHasher;
+use super::region_loop::RegionLoop;
 use crate::error::SketchError;
 use crate::number::Rounded;
 
@@ -20,10 +24,13 @@ const FINGERPRINT_PATTERN: &str =
     r"^c=-?[0-9]+(\.[0-9]+)?,-?[0-9]+(\.[0-9]+)?\|a=[0-9]+(\.[0-9]+)?$";
 
 /// Canonical region key, written like "e-1,e-2,~e-5;~e-9" (section 3.13.5).
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone)]
 pub struct RegionKey {
     outer: Vec<KeyEdge>,
     holes: Vec<Vec<KeyEdge>>,
+    /// A hash of the entries kept beside them, so that two different keys almost always differ without
+    /// reading their entries: region matching compares a stored key with every region's (section 5.1).
+    digest: u64,
 }
 
 /// One entry of a region key.
@@ -39,9 +46,19 @@ impl RegionKey {
     /// Builds a canonical key: sorts and deduplicates each loop's entries and sorts the holes.
     pub fn new(outer: Vec<KeyEdge>, mut holes: Vec<Vec<KeyEdge>>) -> RegionKey {
         sort_holes(&mut holes, Vec::clone);
+        RegionKey::from_canonical(
+            canonical_loop(outer),
+            holes.into_iter().map(canonical_loop).collect(),
+        )
+    }
+
+    /// The key of loops that are already canonical.
+    fn from_canonical(outer: Vec<KeyEdge>, holes: Vec<Vec<KeyEdge>>) -> RegionKey {
+        let digest = FastHasher::of(&(&outer, &holes));
         RegionKey {
-            outer: canonical_loop(outer),
-            holes: holes.into_iter().map(canonical_loop).collect(),
+            outer,
+            holes,
+            digest,
         }
     }
 
@@ -53,6 +70,42 @@ impl RegionKey {
     /// Entries of each hole loop, holes sorted by text.
     pub fn holes(&self) -> &[Vec<KeyEdge>] {
         &self.holes
+    }
+}
+
+impl PartialEq for RegionKey {
+    fn eq(&self, other: &RegionKey) -> bool {
+        self.digest == other.digest && self.outer == other.outer && self.holes == other.holes
+    }
+}
+
+impl Eq for RegionKey {}
+
+impl PartialOrd for RegionKey {
+    fn partial_cmp(&self, other: &RegionKey) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RegionKey {
+    /// Orders by the outer loop's entries, then the holes'.
+    fn cmp(&self, other: &RegionKey) -> Ordering {
+        (&self.outer, &self.holes).cmp(&(&other.outer, &other.holes))
+    }
+}
+
+impl Hash for RegionKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.digest.hash(state);
+    }
+}
+
+impl fmt::Debug for RegionKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("RegionKey")
+            .field(&self.to_string())
+            .finish()
     }
 }
 
@@ -115,28 +168,30 @@ impl FromStr for RegionKey {
             return Err(invalid());
         }
         let outer = loops.remove(0);
-        Ok(RegionKey {
-            outer,
-            holes: loops,
-        })
+        Ok(RegionKey::from_canonical(outer, loops))
     }
 }
 
-/// One canonical loop: non-empty, valid ids, at most one "~" per entry, entries strictly ascending.
+/// One canonical loop: non-empty, valid entries, entries strictly ascending.
 fn parse_loop(text: &str) -> Option<Vec<KeyEdge>> {
-    let mut entries = Vec::new();
-    for entry in text.split(',') {
-        let (name, reversed) = match entry.strip_prefix('~') {
-            Some(name) => (name, true),
-            None => (entry, false),
-        };
-        let entity = Id::new(name).ok()?;
-        entries.push(KeyEdge { entity, reversed });
-    }
+    let entries = text
+        .split(',')
+        .map(parse_entry)
+        .collect::<Option<Vec<KeyEdge>>>()?;
     entries
         .windows(2)
         .all(|pair| pair[0] < pair[1])
         .then_some(entries)
+}
+
+/// One entry `[~]id`: a valid id with at most one "~" before it.
+pub(super) fn parse_entry(text: &str) -> Option<KeyEdge> {
+    let (name, reversed) = match text.strip_prefix('~') {
+        Some(name) => (name, true),
+        None => (text, false),
+    };
+    let entity = Id::new(name).ok()?;
+    Some(KeyEdge { entity, reversed })
 }
 
 impl Serialize for RegionKey {
@@ -263,6 +318,10 @@ pub struct RegionRef {
     pub key: RegionKey,
     /// The region's fingerprint when the reference was made.
     pub fp: RegionFingerprint,
+    /// The region's outer loop in traversal order when the reference was made (section 3.13.8); `None` in references
+    /// written before file format version 2. Omitted from JSON when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<RegionLoop>,
 }
 
 #[cfg(test)]
@@ -285,6 +344,33 @@ mod tests {
         );
 
         assert_eq!(key.to_string(), "e-9;e-2;~e-1");
+    }
+
+    #[test]
+    fn built_and_parsed_keys_are_equal_and_hash_equally() {
+        let built = RegionKey::new(
+            vec![entry("e-2", false), entry("e-1", true)],
+            vec![vec![entry("e-5", true)]],
+        );
+        let parsed: RegionKey = "~e-1,e-2;~e-5".parse().expect("a canonical key");
+
+        assert_eq!(built, parsed);
+        assert_eq!(FastHasher::of(&built), FastHasher::of(&parsed));
+    }
+
+    #[test]
+    fn keys_order_by_their_entries() {
+        let first: RegionKey = "e-1,e-3".parse().expect("a canonical key");
+        let second: RegionKey = "e-2".parse().expect("a canonical key");
+
+        assert!(first < second);
+    }
+
+    #[test]
+    fn debug_shows_the_key_text() {
+        let key: RegionKey = "e-1;~e-2".parse().expect("a canonical key");
+
+        assert_eq!(format!("{key:?}"), r#"RegionKey("e-1;~e-2")"#);
     }
 
     #[test]

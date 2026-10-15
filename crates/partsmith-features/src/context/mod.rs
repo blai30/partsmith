@@ -144,12 +144,20 @@ impl<'a> BuildContext<'a> {
         profile: &ProfileRef,
     ) -> Result<ResolvedProfile<'a>, FeatureError> {
         let sketch = self.sketch(&format!("{field}.sketch"), &profile.sketch)?;
+        let entities: Vec<Id> = sketch
+            .solved
+            .entities
+            .iter()
+            .map(|entity| entity.id.clone())
+            .collect();
         let mut regions = Vec::new();
         let mut warnings = Vec::new();
         for (position, region) in profile.regions.iter().enumerate() {
             let entry = || self.field(&format!("{field}.regions[{position}]"));
-            match match_region(&sketch.profile.regions, region) {
-                RegionMatch::Resolved { index, method } => {
+            match match_region(&sketch.profile.regions, &entities, region) {
+                RegionMatch::Resolved {
+                    indices, method, ..
+                } => {
                     if method != MatchMethod::Key {
                         warnings.push(FeatureWarning::RegionRemapped {
                             field: entry(),
@@ -158,8 +166,10 @@ impl<'a> BuildContext<'a> {
                             region: region.clone(),
                         });
                     }
-                    if !regions.contains(&index) {
-                        regions.push(index);
+                    for index in indices {
+                        if !regions.contains(&index) {
+                            regions.push(index);
+                        }
                     }
                 }
                 RegionMatch::Ambiguous { .. } => warnings.push(FeatureWarning::RegionAmbiguous {
@@ -168,7 +178,7 @@ impl<'a> BuildContext<'a> {
                     sketch: profile.sketch.clone(),
                     region: region.clone(),
                 }),
-                RegionMatch::Missing => warnings.push(FeatureWarning::RegionMissing {
+                RegionMatch::Missing { .. } => warnings.push(FeatureWarning::RegionMissing {
                     field: entry(),
                     position,
                     sketch: profile.sketch.clone(),

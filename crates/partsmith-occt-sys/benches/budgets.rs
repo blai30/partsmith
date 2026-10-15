@@ -246,6 +246,26 @@ fn l_body() -> (Shape, u32) {
     (body, step)
 }
 
+/// The kernel calls of a feature whose shell of `requested` mm fails, with the "too large" search of
+/// features.md section 4.3: the failing call, then 10 bisections of (0, `requested`). The largest
+/// value that `succeeds`, or nothing.
+fn too_large_search(requested: f64, succeeds: impl Fn(f64) -> bool) -> Option<f64> {
+    assert!(!succeeds(requested), "the requested value fails");
+    let mut low = 0.0;
+    let mut high = requested;
+    let mut largest = None;
+    for _ in 0..10 {
+        let middle = (low + high) / 2.0;
+        if succeeds(middle) {
+            low = middle;
+            largest = Some(middle);
+        } else {
+            high = middle;
+        }
+    }
+    largest
+}
+
 fn main() -> ExitCode {
     let mut report = Report::from_arguments();
 
@@ -399,6 +419,31 @@ fn main() -> ExitCode {
             // A failed shell returns early, so its time would say nothing about the budget.
             shell(&rounded, &[top], 3.0).expect("the rounded cube shells past its rounds");
             median_time_of(RUNS, || shell(&rounded, &[top], 3.0))
+        },
+    );
+    report.measure(
+        "shell, rounded cube with walls as thick as its rounds",
+        milliseconds(200),
+        || {
+            let rounded = rounded_cube();
+            let top = planar_face(&rounded, UP, 20.0);
+            shell(&rounded, &[top], 2.0).expect("the rounded cube shells as thick as its rounds");
+            median_time_of(RUNS, || shell(&rounded, &[top], 2.0))
+        },
+    );
+    report.measure(
+        "shell search, rounded cube at 12 mm",
+        milliseconds(600),
+        || {
+            let rounded = rounded_cube();
+            let top = planar_face(&rounded, UP, 20.0);
+            let succeeds = |thickness| shell(&rounded, &[top], thickness).is_ok();
+            let largest = too_large_search(12.0, succeeds).expect("a thinner wall fits");
+            assert!(
+                (9.0..10.0).contains(&largest),
+                "the walls meet at 10 mm, but the search found {largest} mm"
+            );
+            median_time_of(RUNS, || too_large_search(12.0, succeeds))
         },
     );
 

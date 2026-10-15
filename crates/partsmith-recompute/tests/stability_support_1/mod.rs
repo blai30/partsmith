@@ -33,7 +33,7 @@ use partsmith_model::Document;
 use partsmith_naming::{ElementKind, ElementName, MatchMethod, Resolution, score};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 use partsmith_recompute::{FeatureReport, Message, Report, Severity, Status};
-use partsmith_sketch::{RegionRef, match_region};
+use partsmith_sketch::{Id, RegionRef, match_region};
 use serde_json::{Value, json};
 
 /// Positions and lengths the corpus compares exactly (1e-6 mm), which these scenarios check at
@@ -468,9 +468,15 @@ pub fn diagnose_region(sketch: &SketchResult, region: &Value) -> String {
             )
         })
         .collect();
+    let entities: Vec<Id> = sketch
+        .solved
+        .entities
+        .iter()
+        .map(|entity| entity.id.clone())
+        .collect();
     format!(
         "region {region} matches {:?}; the sketch's regions are {regions:?}",
-        match_region(&sketch.profile.regions, &region_ref)
+        match_region(&sketch.profile.regions, &entities, &region_ref)
     )
 }
 

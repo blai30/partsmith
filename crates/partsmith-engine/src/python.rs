@@ -709,6 +709,7 @@ fn sketch_block(
             body,
             face,
             fallback,
+            ..
         } => {
             call.positional
                 .push(PythonValue::reference(face, names.body(body)));

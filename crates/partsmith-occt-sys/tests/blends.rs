@@ -1,6 +1,6 @@
 //! Acceptance tests for fillet, chamfer and shell (kernel spec sections 2.8, 3.4.6 to 3.4.9, 3.5
-//! and tests 44 to 53, 68, 102, 103, 110, 115 and 131), including the history behavior the spec asks
-//! to verify on the built library (section 7, open issues 3 and 4).
+//! and tests 44 to 53, 68, 102, 103, 110, 115, 131 and 132), including the history behavior the
+//! spec asks to verify on the built library (section 7, open issues 3 and 4).
 
 mod common;
 
@@ -10,9 +10,10 @@ use common::{
     POINT_TOLERANCE, UP, assert_argument_error, assert_bounds, assert_invalid_input,
     assert_leaves_unchanged, assert_near, assert_parallel, assert_point_near, assert_relative,
     assert_vector_near, box_primitive, box_with_displaced_corner, cube_a, cube_at,
-    cylinder_primitive, edge_between, face_direction, face_groups, face_with_role, faces_of_kind,
-    generated_faces, geometry, index_from_position, l_body, line, planar_face, rectangle_profile,
-    region, swept_face, top_front_edge, volume, xy_plane_at, z_axis,
+    cylinder_primitive, edge_at, edge_between, face_direction, face_groups, face_with_role,
+    faces_of_kind, generated_faces, geometry, index_from_position, l_body, l_body_with_round, line,
+    planar_face, rectangle_profile, region, swept_face, top_front_edge, volume, xy_plane_at,
+    z_axis,
 };
 use partsmith_occt_sys::{
     ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
@@ -1249,11 +1250,11 @@ fn t131_shell_thicker_than_the_rounds_leaves_its_input_unchanged() {
     });
 }
 
-// Section 3.4.8 item 6 beyond test 131: a wall just past the radius, a round on a circular edge
-// (a torus) and a concave round.
+// Test 132: a wall just past the radius, a round on a circular edge (a torus) and a concave round
+// (section 3.4.8 item 6).
 
 #[test]
-fn wall_just_past_the_rounds_closes_into_sharp_inner_corners() {
+fn t132_wall_just_past_the_rounds_closes_into_sharp_inner_corners() {
     // The complete intersection fails from a wall equal to the radius up to 2.001 mm (item 6.2),
     // so this wall takes the cavity of RC without its rounds.
     let thickness = 2.001;
@@ -1287,7 +1288,7 @@ fn cylinder_with_rounded_top() -> Shape {
 }
 
 #[test]
-fn wall_past_a_round_on_a_circular_edge_closes_into_a_sharp_inner_corner() {
+fn t132_wall_past_a_round_on_a_circular_edge_closes_into_a_sharp_inner_corner() {
     let rounded = cylinder_with_rounded_top();
     let bottom = planar_face(
         &rounded,
@@ -1364,7 +1365,7 @@ fn wall_past_a_round_on_a_circular_edge_closes_into_a_sharp_inner_corner() {
 }
 
 #[test]
-fn wall_past_a_concave_round_keeps_a_rounded_inner_wall() {
+fn t132_wall_past_a_concave_round_keeps_a_rounded_inner_wall() {
     // A concave round grows when offset into the material, so it never vanishes: the L prism's
     // concave edge rounded at radius 1 gets an inner wall of radius 1 + 2.
     let (prism, _, concave) = l_prism();
@@ -1410,6 +1411,129 @@ fn wall_past_a_concave_round_keeps_a_rounded_inner_wall() {
         1e-9,
         "inner round radius",
     );
+}
+
+// Test 132: a vanishing round elsewhere on the solid keeps the arc joins at concave edges, and an
+// opening tangent to vanishing rounds (section 3.4.8 items 6.2 and 6.3).
+
+/// Asserts the result of `L` with a round, shelled 2 mm with its top at z = 20 removed: valid,
+/// one solid, `volume`, 17 faces, every face with an origin; the round keeps its image and
+/// generates nothing; the concave edge between `STEP` and the taller box generates one face, the
+/// arc join, a `Cylinder` of radius 2.
+fn assert_round_vanishes_beside_an_arc_join(
+    rounded: &Shape,
+    result: &OpResult,
+    expected_volume: f64,
+) {
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(volume(&result.shape), expected_volume, 1e-9, "volume");
+    assert_eq!(result.shape.count(SubShapeKind::Face), 17);
+    assert_every_face_has_an_origin(result);
+    let rounds = faces_of_kind(rounded, GeometryKind::Cylinder);
+    assert_eq!(rounds.len(), 1, "one round");
+    let round = face_fate(result, rounds[0]);
+    assert_eq!(
+        round.modified.len(),
+        1,
+        "the round keeps its image: {round:?}"
+    );
+    assert!(
+        generated_faces(round).is_empty(),
+        "the round's inner offset vanishes: {round:?}"
+    );
+    let concave = edge_at(rounded, Point::new(0.0, 0.0, 10.0));
+    let fate = &result.history.inputs[0].edges[concave as usize - 1];
+    let joins = generated_faces(fate);
+    assert_eq!(
+        joins.len(),
+        1,
+        "the concave edge generates the arc join: {fate:?}"
+    );
+    let join = geometry(&result.shape, SubShapeKind::Face, joins[0]);
+    assert_eq!(join.kind, GeometryKind::Cylinder, "arc join kind");
+    assert_relative(
+        join.radius.expect("a cylinder has a radius"),
+        2.0,
+        1e-9,
+        "arc join radius",
+    );
+}
+
+#[test]
+fn t132_wall_past_a_round_keeps_the_arc_join_at_a_concave_edge() {
+    let (rounded, top, _) = l_body_with_round(1.0);
+
+    let result = shell(&rounded, &[top], 2.0).expect("L with a 1 mm round shells 2 mm thick");
+
+    // L, 12000, less the round's material, 10 (1 - pi / 4), less the cavity with its arc join
+    // of the shell without the round, 6592 - 16 pi.
+    assert_round_vanishes_beside_an_arc_join(&rounded, &result, 5398.0 + 18.5 * PI);
+}
+
+#[test]
+fn t132_wall_as_thick_as_a_round_keeps_the_arc_join_at_a_concave_edge() {
+    let (rounded, top, _) = l_body_with_round(2.0);
+
+    let result = shell(&rounded, &[top], 2.0).expect("L with a 2 mm round shells 2 mm thick");
+
+    // L less the round's material, 10 (4 - pi), less the same cavity, 6592 - 16 pi.
+    assert_round_vanishes_beside_an_arc_join(&rounded, &result, 5368.0 + 26.0 * PI);
+}
+
+#[test]
+fn t132_wall_as_thick_as_a_round_beside_a_removed_concave_edge_cuts_a_sharp_cavity() {
+    let (rounded, _, step) = l_body_with_round(2.0);
+
+    let result = shell(&rounded, &[step], 2.0).expect("L with a 2 mm round shells 2 mm thick");
+
+    // The shell of test 102, 5344, less the round's material, 10 (4 - pi).
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(volume(&result.shape), 5304.0 + 10.0 * PI, 1e-9, "volume");
+    assert_eq!(result.shape.count(SubShapeKind::Face), 17);
+    assert_every_face_comes_from_an_input_face(&result);
+}
+
+#[test]
+fn t132_opening_tangent_to_rounds_thinner_than_the_wall() {
+    // Test 45: every BOX edge rounded at radius 1, so the top meets its rounds tangentially.
+    let rounded = fillet(&box_primitive().shape, &all_edges(1.0))
+        .expect("every edge rounds")
+        .shape;
+    let top = planar_face(&rounded, UP, Point::new(5.0, 10.0, 30.0));
+
+    let result = shell(&rounded, &[top], 2.0).expect("the rounded BOX shells open 2 mm thick");
+
+    // The volume of test 116 less a 6 x 16 x 28 mm cavity open at the top.
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(
+        volume(&result.shape),
+        3088.0 + 54.0 * PI + 4.0 * PI / 3.0,
+        1e-9,
+        "volume",
+    );
+    assert_eq!(result.shape.count(SubShapeKind::Face), 31);
+    assert_bounds(&result.shape, [0.0, 0.0, 0.0], [10.0, 20.0, 30.0], 1e-6);
+    assert_every_face_comes_from_an_input_face(&result);
+    let rim = face_fate(&result, top);
+    assert_eq!(rim.modified.len(), 1, "the top becomes the rim: {rim:?}");
+    assert_relative(
+        geometry(&result.shape, SubShapeKind::Face, rim.modified[0]).measure,
+        48.0,
+        1e-9,
+        "rim area",
+    );
+    for kind in [GeometryKind::Cylinder, GeometryKind::Sphere] {
+        for round in faces_of_kind(&rounded, kind) {
+            let fate = face_fate(&result, round);
+            assert!(
+                generated_faces(fate).is_empty(),
+                "round {round} generates no face: {fate:?}"
+            );
+        }
+    }
 }
 
 #[test]

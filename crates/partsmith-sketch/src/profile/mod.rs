@@ -3,9 +3,11 @@
 mod area;
 mod arrangement;
 mod graph;
+mod hashing;
 mod intersection;
 mod key;
 mod matching;
+mod region_loop;
 
 use std::fmt;
 
@@ -14,7 +16,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use key::{KeyEdge, RegionFingerprint, RegionKey, RegionRef};
-pub use matching::{MatchMethod, RegionMatch, match_region};
+pub use matching::{MatchMethod, RegionLoss, RegionMatch, Succession, match_region};
+pub use region_loop::RegionLoop;
 
 use crate::entity::SketchEntity;
 use crate::number::RoundedPoint;
@@ -57,11 +60,29 @@ impl Region {
         }
     }
 
-    /// A stored reference to this region: its key plus its fingerprint.
+    /// The outer loop's entries in traversal order (section 3.13.8).
+    ///
+    /// # Panics
+    ///
+    /// When the outer loop has no edges, which no region of `build_profile` has.
+    pub fn outline(&self) -> RegionLoop {
+        self.try_outline()
+            .expect("a region's outer loop has at least one edge")
+    }
+
+    /// The outer loop's entries in traversal order, or `None` when the outer loop has no edges (a hand-built
+    /// region).
+    pub(crate) fn try_outline(&self) -> Option<RegionLoop> {
+        RegionLoop::new(self.outer.edges.iter().map(ProfileEdge::key_edge).collect()).ok()
+    }
+
+    /// A stored reference to this region: its key, its fingerprint and its outline (none when the outer loop has
+    /// no edges).
     pub fn reference(&self) -> RegionRef {
         RegionRef {
             key: self.key.clone(),
             fp: self.fingerprint(),
+            outline: self.try_outline(),
         }
     }
 }
@@ -101,6 +122,16 @@ pub struct ProfileEdge {
     pub reversed: bool,
     /// Exact geometry in traversal direction.
     pub curve: ProfileCurve,
+}
+
+impl ProfileEdge {
+    /// The key entry of this edge: its entity and whether traversal runs against the entity's direction.
+    pub(crate) fn key_edge(&self) -> KeyEdge {
+        KeyEdge {
+            entity: self.entity.clone(),
+            reversed: self.reversed,
+        }
+    }
 }
 
 /// Exact 2D curve geometry for kernel profiles.
@@ -229,12 +260,35 @@ mod tests {
     fn reference_carries_the_unrounded_fingerprint() {
         let region = Region {
             key: "e-1".parse().expect("valid key"),
-            outer: ProfileLoop { edges: Vec::new() },
+            outer: ProfileLoop {
+                edges: vec![ProfileEdge {
+                    entity: Id::new("e-1").expect("valid id"),
+                    reversed: false,
+                    curve: ProfileCurve::Circle {
+                        center: [0.0, 0.0],
+                        radius: 1.0,
+                        ccw: true,
+                    },
+                }],
+            },
             holes: Vec::new(),
             area: 1.0 / 3.0,
             centroid: [0.1, 0.2],
         };
 
         assert_eq!(region.reference().fp.area, 1.0 / 3.0);
+    }
+
+    #[test]
+    fn a_region_without_outer_edges_has_a_reference_without_outline() {
+        let region = Region {
+            key: "e-1".parse().expect("valid key"),
+            outer: ProfileLoop { edges: Vec::new() },
+            holes: Vec::new(),
+            area: 1.0,
+            centroid: [0.0, 0.0],
+        };
+
+        assert_eq!(region.reference().outline, None);
     }
 }

@@ -7,10 +7,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use partsmith_mesh::{Mesh, Point3, TessellationTolerance};
 use partsmith_occt_sys::{
-    Axis, ElementFate, ElementGeometry, GeometryKind, KernelError, KernelErrorKind, Operation,
-    PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane, Point, Point2, Primitive,
-    PrimitiveFace, Shape, SubShapeKind, SweepFace, SweepResult, TaggedCurve, Vector, fuse,
-    make_box, make_cylinder, make_profile, make_sphere,
+    Axis, EdgeRadius, ElementFate, ElementGeometry, GeometryKind, KernelError, KernelErrorKind,
+    Operation, PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane, Point, Point2,
+    Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace, SweepResult, TaggedCurve, Vector,
+    fillet, fuse, make_box, make_cylinder, make_profile, make_sphere,
 };
 
 /// Default tolerance for points and vectors: "vectors and points compare within 1e-9" (section 6).
@@ -130,6 +130,45 @@ pub fn face_at(shape: &Shape, centroid: Point) -> u32 {
         "faces with centroid {centroid:?}: {faces:?}"
     );
     faces[0]
+}
+
+/// The single edge of `shape` whose centroid is `centroid`.
+pub fn edge_at(shape: &Shape, centroid: Point) -> u32 {
+    let edges: Vec<u32> = (1..=shape.count(SubShapeKind::Edge))
+        .filter(|edge| {
+            let found = geometry(shape, SubShapeKind::Edge, *edge).centroid;
+            found.distance(centroid) <= POINT_TOLERANCE
+        })
+        .collect();
+    assert_eq!(
+        edges.len(),
+        1,
+        "edges with centroid {centroid:?}: {edges:?}"
+    );
+    edges[0]
+}
+
+/// Test 132: `L` of test 102 with its vertical edge at x = -20, y = -10 (between the low box's
+/// front and left faces) rounded at `radius`, with the indices of its top face at z = 20 and of
+/// `STEP`.
+pub fn l_body_with_round(radius: f64) -> (Shape, u32, u32) {
+    let (body, _) = l_body();
+    let edge = edge_at(&body, Point::new(-20.0, -10.0, 5.0));
+    let rounded = fillet(&body, &[EdgeRadius { edge, radius }])
+        .expect("the vertical edge rounds")
+        .shape;
+    let top = planar_face(&rounded, UP, Point::new(10.0, 0.0, 20.0));
+    let step = faces_of_kind(&rounded, GeometryKind::Plane)
+        .into_iter()
+        .find(|face| {
+            let element = geometry(&rounded, SubShapeKind::Face, *face);
+            element
+                .direction
+                .is_some_and(|direction| (direction.z - 1.0).abs() <= POINT_TOLERANCE)
+                && (element.centroid.z - 10.0).abs() <= POINT_TOLERANCE
+        })
+        .expect("STEP faces up at z = 10");
+    (rounded, top, step)
 }
 
 /// `BOX` read back from its BRep bytes with its corner (10, 20, 30) moved to (10, 20, 30.001),

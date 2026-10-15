@@ -161,6 +161,7 @@ fn placement(plane: &SketchPlane, computed: &Computed, position: usize) -> Place
             body,
             face,
             fallback,
+            ..
         } => {
             let state = state_before(computed, position, body);
             face_placement(&state, face, fallback).unwrap_or(*fallback)

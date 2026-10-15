@@ -562,13 +562,7 @@ impl Chain {
     }
 
     pub(super) fn entries(&self) -> Vec<KeyEdge> {
-        self.edges
-            .iter()
-            .map(|edge| KeyEdge {
-                entity: edge.entity.clone(),
-                reversed: edge.reversed,
-            })
-            .collect()
+        self.edges.iter().map(ProfileEdge::key_edge).collect()
     }
 }
 

@@ -1,13 +1,14 @@
 //! 2D constraint sketcher for Partsmith: entities, constraints, solver, degrees of freedom and profile regions.
 //!
 //! The behavior is specified in `docs/spec/sketch.md`. [`SketchParams`] are the typed params of a
-//! `sketch` feature; [`NativeSolver`] solves and diagnoses them and drags their geometry; and
+//! `sketch` feature; [`NativeSolver`] solves and diagnoses them and drags their geometry;
 //! [`build_profile`] turns solved entities into closed regions that [`match_region`] finds again
-//! after edits.
+//! after edits; and [`SketchParams::mirrored`] gives the drawing mirrored across its x axis.
 
 mod constraint;
 mod entity;
 mod error;
+mod mirror;
 mod number;
 mod params;
 mod plane;
@@ -27,11 +28,12 @@ pub use constraint::{Alignment, ConstraintKind, DimensionExpr, DistanceTarget, S
 pub use entity::{EntityKind, Geometry, SketchEntity};
 pub use error::{PlacementProblem, SketchError};
 pub use params::{DimensionInput, DimensionValues, SketchParams, ValueKind};
-pub use plane::{OriginPlane, Placement, SketchPlane};
+pub use plane::{HintFrame, OriginPlane, Placement, SketchPlane};
 pub use point_ref::{PointRef, PointRole};
 pub use profile::{
     KeyEdge, MatchMethod, Profile, ProfileCurve, ProfileEdge, ProfileFinding, ProfileLoop, Region,
-    RegionFingerprint, RegionKey, RegionMatch, RegionRef, build_profile, match_region,
+    RegionFingerprint, RegionKey, RegionLoop, RegionLoss, RegionMatch, RegionRef, Succession,
+    build_profile, match_region,
 };
 pub use solver::{
     DragSession, DragTarget, EntityState, NativeDragSession, NativeSolver, SketchStatus,

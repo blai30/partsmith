@@ -11,6 +11,7 @@ use partsmith_occt_sys::{
     KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult,
     Vector, compound,
 };
+use partsmith_sketch::RegionRef;
 
 use crate::context::{BodyState, BuildContext, ResolvedProfile};
 use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, Noun};
@@ -499,7 +500,17 @@ pub(crate) fn profile_arguments(
 ) -> Option<(PythonValue, Option<(String, PythonValue)>)> {
     let sketch = PythonValue::Name(names.feature(&profile.sketch)?);
     let solved = names.regions(&profile.sketch)?;
-    let regions = (solved != profile.regions).then(|| {
+    // A Python `Region` carries a key and a fingerprint, so those decide whether the stored regions are
+    // every region of the sketch.
+    let same_region =
+        |stored: &RegionRef, solved: &RegionRef| stored.key == solved.key && stored.fp == solved.fp;
+    let every_region = solved.len() == profile.regions.len()
+        && profile
+            .regions
+            .iter()
+            .zip(&solved)
+            .all(|(stored, solved)| same_region(stored, solved));
+    let regions = (!every_region).then(|| {
         (
             "regions".to_string(),
             PythonValue::List(profile.regions.iter().map(PythonValue::region).collect()),
@@ -525,7 +536,6 @@ pub(crate) fn call(
 #[cfg(test)]
 mod tests {
     use partsmith_occt_sys::{Plane, make_box, make_cylinder};
-    use partsmith_sketch::RegionRef;
 
     use super::*;
     use crate::test_support::{Fixture, ScriptNames, id};
@@ -672,6 +682,28 @@ mod tests {
         let (sketch, regions) = profile_arguments(&profile, &names).expect("the sketch solved");
 
         assert_eq!(sketch.render(), "sketch_1");
+        assert_eq!(regions, None);
+    }
+
+    #[test]
+    fn a_stored_region_without_its_outline_is_still_every_region() {
+        let solved: RegionRef = serde_json::from_value(
+            serde_json::json!({"key": "e-1", "fp": "c=0,0|a=1", "outline": "e-1"}),
+        )
+        .expect("a region ref");
+        let stored = RegionRef {
+            outline: None,
+            ..solved.clone()
+        };
+        let mut names = ScriptNames::default();
+        names.regions.insert(id("f-sk1"), vec![solved]);
+        let profile = ProfileRef {
+            sketch: id("f-sk1"),
+            regions: vec![stored],
+        };
+
+        let (_, regions) = profile_arguments(&profile, &names).expect("the sketch solved");
+
         assert_eq!(regions, None);
     }
 

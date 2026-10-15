@@ -13,7 +13,7 @@ use feature_support::{
     assert_face_normal, assert_face_position, assert_face_radius, assert_has_face,
     assert_list_field, assert_median_build_within, assert_solid_count, assert_unchanged,
     assert_volume, body_update, document, face, face_index, face_names_with_prefix, load_example,
-    suggested_limit,
+    median_failed_build_time, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError};
 use partsmith_model::{Document, Units};
@@ -39,6 +39,13 @@ const L_BODY: [&str; 2] = [
 /// The step face of `L_BODY`, the left half of the lower box's top, which meets the taller box at
 /// a concave edge.
 const STEP_FACE: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=-10,0,10|a=400"}"#;
+
+/// The top of the taller box of `L_BODY`, at z = 20.
+const HIGH_TOP_FACE: &str = r#"{"q": "f-box2/top", "fp": "plane|n=0,0,1|c=10,0,20|a=400"}"#;
+
+/// The rounded join of the inner walls at the concave edge where the step face of `L_BODY` meets
+/// the taller box.
+const ARC_JOIN: &str = "f-sh1/inner/edge(f-box1/top|f-box2/left)";
 
 /// `F-ROUND`: `CUBE20`'s four edges parallel to Z rounded at radius 2 by `f-fil1`, which gives the
 /// body of ui.md's `cube-features.ptsm` (volume 7680 + 80 pi, 10 faces).
@@ -82,6 +89,34 @@ fn cylinder_cup_run(thickness: &str) -> Run {
         &["b-1"],
         &[CYL20, &shell_record(thickness, &[CYLINDER_TOP_FACE])],
     )
+}
+
+/// Test 21: `L_BODY` with its vertical edge between the lower box's front and left faces rounded
+/// by `f-fil1` at `radius` (none when `None`), shelled 2 mm with `HIGH_TOP_FACE` removed.
+fn rounded_l_run(radius: Option<&str>) -> Run {
+    let shell = shell_record("2", &[HIGH_TOP_FACE]);
+    match radius {
+        Some(radius) => {
+            let round = format!(
+                r#"{{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-20,-10,5|l=10"}}], "radius": "{radius}"}}"#
+            );
+            Run::records(&["b-1"], &[L_BODY[0], L_BODY[1], &round, &shell])
+        }
+        None => Run::records(&["b-1"], &[L_BODY[0], L_BODY[1], &shell]),
+    }
+}
+
+/// The checks of test 21: all ok, one solid, the volume and the face count, and the arc join at
+/// the concave edge, a cylinder of radius 2 (the wall).
+fn assert_arc_join_kept(run: &Run, volume: f64, faces: u32) {
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_volume(shape, volume);
+    assert_face_count(shape, faces);
+    assert_solid_count(shape, 1);
+    let join = face(run.body("b-1"), ARC_JOIN);
+    assert_face_kind(&join, GeometryKind::Cylinder);
+    assert_face_radius(&join, 2.0);
 }
 
 /// Tests 19 and 20: `CUBE20` with `VERTICAL_ROUNDS`, shelled with its top removed and a wall of
@@ -401,6 +436,17 @@ fn t012_performance() {
         5,
         Duration::from_millis(50),
     );
+    // Section 5: a failing shell including the search, on test 20.
+    let too_thick = median_failed_build_time(
+        &rounded_cube_run("12").document,
+        "f-sh1",
+        "shell_too_thick",
+        3,
+    );
+    assert!(
+        too_thick < Duration::from_millis(1200),
+        "the failing shell with its search took {too_thick:?}, the budget is 1.2 s"
+    );
 }
 
 #[test]
@@ -544,4 +590,40 @@ fn cylinder_wall_as_thick_as_the_radius_fails() {
 
     run.assert_error("f-sh1", "shell_too_thick");
     assert_unchanged(&run, "f-sh1", "b-1");
+}
+
+#[test]
+fn t021_arc_join_without_a_round() {
+    let run = rounded_l_run(None);
+
+    // L, 12000, less a cavity 18 mm deep with its arc join at the concave edge, 6592 - 16 pi.
+    assert_arc_join_kept(&run, 5408.0 + 16.0 * PI, 16);
+}
+
+#[test]
+fn t021_arc_join_beside_a_round_thicker_than_the_wall() {
+    let run = rounded_l_run(Some("3"));
+
+    // L less the round's material, 10 (9 - 9 pi / 4), less the cavity with its inner corner
+    // rounded at radius 1 over its 6 mm in the lower box, 6592 - 16 pi - 6 (1 - pi / 4).
+    assert_arc_join_kept(&run, 5324.0 + 37.0 * PI, 18);
+}
+
+#[test]
+fn t021_arc_join_beside_a_round_thinner_than_the_wall() {
+    let run = rounded_l_run(Some("1"));
+
+    // The same cavity, less the round's material, 10 (1 - pi / 4): the round's inner offset
+    // vanishes into a sharp corner while the concave edge keeps its arc join.
+    assert_arc_join_kept(&run, 5398.0 + 18.5 * PI, 17);
+    assert_no_inner_rounds(&run);
+}
+
+#[test]
+fn t021_arc_join_beside_a_round_as_thick_as_the_wall() {
+    let run = rounded_l_run(Some("2"));
+
+    // The same cavity, less the round's material, 10 (4 - pi).
+    assert_arc_join_kept(&run, 5368.0 + 26.0 * PI, 17);
+    assert_no_inner_rounds(&run);
 }

@@ -32,7 +32,7 @@ pub enum SketchPlane {
         /// The datum feature.
         feature: Id,
     },
-    /// A planar face of `body`, plus the placement used when the face cannot be resolved.
+    /// A planar face of `body`, plus the placement used when the face cannot be resolved and the coordinates it is in.
     Face {
         /// The body the face reference is resolved in.
         body: Id,
@@ -40,7 +40,28 @@ pub enum SketchPlane {
         face: Reference,
         /// The placement recorded when the sketch was attached.
         fallback: Placement,
+        /// Which coordinates `fallback` is in; omitted from JSON when `World`.
+        #[serde(default, skip_serializing_if = "HintFrame::is_world")]
+        fallback_frame: HintFrame,
     },
+}
+
+/// Which coordinates a face sketch's `fallback` is in (section 3.1, features.md section 3.6).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HintFrame {
+    /// World coordinates: the default, and the meaning of every fallback written before file format version 2.
+    #[default]
+    World,
+    /// The coordinates of the face's own feature, before any later Move body or copy transform.
+    Body,
+}
+
+impl HintFrame {
+    /// True for `World`; used to omit the default when saving.
+    pub fn is_world(&self) -> bool {
+        *self == HintFrame::World
+    }
 }
 
 /// An origin plane, serialized as "XY", "XZ" or "YZ".

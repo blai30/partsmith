@@ -9,8 +9,8 @@ use std::thread;
 
 use common::{
     OPT, UP, box_primitive, box_with_displaced_corner, cube_a, cube_b, cube_c, edge_between,
-    face_with_role, l_body, planar_face, rectangle_profile, rectangle_with_hole_profile,
-    ring_profile, top_front_edge, xy_plane_at, z_axis,
+    face_with_role, l_body, l_body_with_round, planar_face, rectangle_profile,
+    rectangle_with_hole_profile, ring_profile, top_front_edge, xy_plane_at, z_axis,
 };
 use partsmith_mesh::Mesh;
 use partsmith_occt_sys::{
@@ -427,6 +427,18 @@ fn closed_rounded_box_shell_past_its_rounds() -> Outcome {
     )
 }
 
+fn open_rounded_cube_shell_as_thick_as_its_rounds() -> Outcome {
+    let (rounded, top) = rounded_cube();
+    Outcome::of_result(&shell(&rounded, &[top], 2.0).expect("RC shells open at 2 mm"))
+}
+
+// Test 132: a round thinner than the wall beside an arc join.
+
+fn l_shell_past_a_round_with_arc_join() -> Outcome {
+    let (rounded, top, _) = l_body_with_round(1.0);
+    Outcome::of_result(&shell(&rounded, &[top], 2.0).expect("L with a 1 mm round shells at 2 mm"))
+}
+
 // Test 106: every other operation.
 
 fn box_primitive_case() -> Outcome {
@@ -660,6 +672,8 @@ repeatable! {
     t105_shell_fallback_is_repeatable => l_shell_fallback,
     t131_open_shell_past_the_rounds_is_repeatable => open_rounded_cube_shell_past_its_rounds,
     t131_closed_shell_past_the_rounds_is_repeatable => closed_rounded_box_shell_past_its_rounds,
+    t131_open_shell_as_thick_as_the_rounds_is_repeatable => open_rounded_cube_shell_as_thick_as_its_rounds,
+    t132_shell_past_a_round_with_arc_join_is_repeatable => l_shell_past_a_round_with_arc_join,
     t106_box_is_repeatable => box_primitive_case,
     t106_cylinder_is_repeatable => cylinder_primitive_case,
     t106_sphere_is_repeatable => sphere_primitive_case,
@@ -702,7 +716,7 @@ mod other_processes {
     /// One operation of tests 104 to 106: its name and a run of it.
     type Case = (&'static str, fn() -> Outcome);
 
-    /// Every case of tests 104 to 106 and 131.
+    /// Every case of tests 104 to 106, 131 and 132.
     const CASES: &[Case] = &[
         ("closed_box_shell", super::closed_box_shell),
         ("closed_l_shell", super::closed_l_shell),
@@ -722,6 +736,14 @@ mod other_processes {
         (
             "closed_rounded_box_shell_past_its_rounds",
             super::closed_rounded_box_shell_past_its_rounds,
+        ),
+        (
+            "open_rounded_cube_shell_as_thick_as_its_rounds",
+            super::open_rounded_cube_shell_as_thick_as_its_rounds,
+        ),
+        (
+            "l_shell_past_a_round_with_arc_join",
+            super::l_shell_past_a_round_with_arc_join,
         ),
         ("box", super::box_primitive_case),
         ("cylinder", super::cylinder_primitive_case),
