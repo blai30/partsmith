@@ -48,7 +48,7 @@ Cargo.toml                         workspace: members ["crates/*", "desktop/src-
 desktop/
   app-icon.svg                     icon source (2.10)
   src-tauri/
-    CLAUDE.md                      crate notes and commands
+    AGENTS.md                      crate notes and commands
     Cargo.toml                     package partsmith-desktop (2.2)
     build.rs                       tauri-build with the app command manifest (2.2)
     tauri.conf.json                (2.8)
@@ -76,7 +76,7 @@ ui/src/
 
 `/desktop/src-tauri/gen` (generated ACL schemas) is already in `.gitignore`; build output goes to the workspace `target/`.
 
-`desktop/src-tauri/CLAUDE.md` states the crate's purpose, points at this spec, and lists its commands: `cargo test -p partsmith-desktop`, `cargo clippy -p partsmith-desktop --all-targets -- -D warnings` and `cargo bench -p partsmith-desktop --bench budgets` (all three need `OCCT_ROOT` and, on Linux, the WebKitGTK development packages of delivery.md 3.2); `cargo install tauri-cli --version 2.12.2 --locked` once; `pnpm -C ui dev` and then `cargo tauri dev` in `desktop/src-tauri` to run the app against the Vite dev server; `pnpm -C ui build` and then `cargo tauri build` in `desktop/src-tauri` to bundle it.
+`desktop/src-tauri/AGENTS.md` states the crate's purpose, points at this spec, and lists its commands: `cargo test -p partsmith-desktop`, `cargo clippy -p partsmith-desktop --all-targets -- -D warnings` and `cargo bench -p partsmith-desktop --bench budgets` (all three need `OCCT_ROOT` and, on Linux, the WebKitGTK development packages of delivery.md 3.2); `cargo install tauri-cli --version 2.12.2 --locked` once; `pnpm -C ui dev` and then `cargo tauri dev` in `desktop/src-tauri` to run the app against the Vite dev server; `pnpm -C ui build` and then `cargo tauri build` in `desktop/src-tauri` to bundle it.
 
 ### 2.2 Manifest and build script
 
@@ -433,7 +433,7 @@ Rules behind the values:
 - `version` is absent, so the app version is the crate version (the workspace version), one source for every artifact.
 - `mainBinaryName` keeps the desktop executable from colliding with the CLI's `partsmith` binary in `/usr/bin`.
 - `identifier` is permanent once the app ships (it names the app data directory, where the grant store and the webview's IndexedDB live). It uses the reverse-DNS form of the GitHub account the project controls today; section 8 asks for confirmation before the first public release.
-- There is no `beforeDevCommand` or `beforeBuildCommand`: the UI is served or built by its own command first (`pnpm -C ui dev`, then `cargo tauri dev`; `pnpm -C ui build`, then `cargo tauri build`), as the crate's `CLAUDE.md` lists. This keeps the working directory of those commands out of the Tauri configuration, and CI runs the steps explicitly (delivery.md).
+- There is no `beforeDevCommand` or `beforeBuildCommand`: the UI is served or built by its own command first (`pnpm -C ui dev`, then `cargo tauri dev`; `pnpm -C ui build`, then `cargo tauri build`), as the crate's `AGENTS.md` lists. This keeps the working directory of those commands out of the Tauri configuration, and CI runs the steps explicitly (delivery.md).
 - Without the `custom-protocol` feature (plain `cargo build`, `cargo test`, `cargo clippy`), Tauri is in development mode and does not embed `frontendDist`, so workspace builds and tests do not need `ui/dist`. `cargo tauri build` enables the feature and embeds `ui/dist`.
 - `withGlobalTauri` injects `window.__TAURI__`, which the transport (ui.md 2.4) and the desktop file service read, so no `@tauri-apps/api` package is needed.
 - `dragDropEnabled: false` turns off Tauri's native drop handler, which on Windows replaces the webview's own; HTML5 drag and drop then works exactly as on the web (ui.md 3.19, the drop overlay). A dropped file has no handle, so Save asks where to save, as on the web without the File System Access API.
@@ -756,7 +756,7 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 
 ## 8. Needs human review
 
-- **New dependencies** (CLAUDE.md): `tauri` 2.12.3, `tauri-build` 2.7.2 and `tauri-plugin-dialog` 2.8.2, each `Apache-2.0 OR MIT`, recorded in ADR 0014 with their transitive license check; `tauri-plugin-dialog` pulls in `tauri-plugin-fs` as a crate (for its `FilePath` type) without it being registered; `blake3` and `tempfile`, already workspace dependencies, gain the desktop crate as a user (runtime and dev-only respectively); `tauri-cli` 2.12.2 as a build tool (delivery.md).
+- **New dependencies** (AGENTS.md): `tauri` 2.12.3, `tauri-build` 2.7.2 and `tauri-plugin-dialog` 2.8.2, each `Apache-2.0 OR MIT`, recorded in ADR 0014 with their transitive license check; `tauri-plugin-dialog` pulls in `tauri-plugin-fs` as a crate (for its `FilePath` type) without it being registered; `blake3` and `tempfile`, already workspace dependencies, gain the desktop crate as a user (runtime and dev-only respectively); `tauri-cli` 2.12.2 as a build tool (delivery.md).
 - **Bundle identifier** `io.github.blai30.partsmith`: permanent once shipped; confirm, or replace it with a project domain or organization before the first release (technical design section 19, ownership question).
 - **Icon** (2.10): the provisional orange cube mark is a design-system decision.
 - **Window defaults**: 1440 by 900, minimum 960 by 600.

@@ -77,7 +77,7 @@ thiserror-impl 2.0.21, MIT OR Apache-2.0, https://crates.io/crates/thiserror-imp
 typed-path 0.12.3, MIT OR Apache-2.0, https://crates.io/crates/typed-path/0.12.3, texts [20] [12]
 unicode-ident 1.0.26, (MIT OR Apache-2.0) AND Unicode-3.0, https://crates.io/crates/unicode-ident/1.0.26, texts [20] [12] [48]
 unicode-width 0.2.2, MIT OR Apache-2.0, https://crates.io/crates/unicode-width/0.2.2, texts [49] [13] [50]
-zip 9.0.1, MIT, https://crates.io/crates/zip/9.0.1, texts [51]
+zip 9.0.3, MIT, https://crates.io/crates/zip/9.0.3, texts [51]
 zlib-rs 0.6.8, Zlib, https://crates.io/crates/zlib-rs/0.6.8, texts [52]
 zmij 1.0.23, MIT, https://crates.io/crates/zmij/1.0.23, texts [12]
 zopfli 0.8.3, Apache-2.0, https://crates.io/crates/zopfli/0.8.3, texts [53]

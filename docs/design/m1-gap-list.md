@@ -7,7 +7,7 @@ It was produced on 2026-10-13 by comparing the technical design and every spec w
 Legend:
 - **Sizes:** S is one small PR. M is several PRs in one area. L spans hosts or crates and needs a spec round.
 - **Spec first:** the spec text that must merge before any code.
-- **Human gate:** a license, dependency, schema, public API or capability change that waits for review (CLAUDE.md Process).
+- **Human gate:** a license, dependency, schema, public API or capability change that waits for review (AGENTS.md Process).
 
 These claims were spot-checked against the repo while planning, and all hold:
 - The only branch is `claude/tender-sagan-4ek456`.
@@ -37,7 +37,7 @@ These claims were spot-checked against the repo while planning, and all hold:
 | 10 | B-10 | Wheel packaging test 76 is not in CI | ci.yml python job | medium | S |
 | 11 | B-11 | Release-gate perf tests P-1 to P-8 | ui/e2e | medium | M |
 | 12 | B-12 | 250 KB initial JavaScript check (already at 92 percent) | ui/scripts/check-dist.mjs | medium | S |
-| 13 | B-13 | README, install notes, release checklist | README.md, .github/workflows/CLAUDE.md | medium | S |
+| 13 | B-13 | README, install notes, release checklist | README.md, .github/workflows/AGENTS.md | medium | S |
 | 14 | PRINT-1 | Show split-plane and drain-hole suggestions | ui/src/print, ui/src/viewport, python | medium | M |
 | 15 | PRINT-2 | Custom printer profile route, or mark it Later | partsmith-cli, python | low | S or M |
 | 16 | PRINT-3 | Protocol schema of listed printer profiles | partsmith-print, partsmith-protocol, ui | low | M |
@@ -69,7 +69,7 @@ These claims were spot-checked against the repo while planning, and all hold:
 | 42 | SK-2 | Nightly 4096-case property run | .github/workflows | low | S |
 | 43 | CLI-1 | Correct cli.md open issue 1 | docs/spec/cli.md | low | S |
 | 44 | CLI-2 | CLI budgets bench | partsmith-cli | low | M |
-| 45 | PROTO-1 | Stale `Edit` note in the protocol CLAUDE.md, plus a test for it | partsmith-protocol | low | S |
+| 45 | PROTO-1 | Stale `Edit` note in the protocol AGENTS.md, plus a test for it | partsmith-protocol | low | S |
 | 46 | DEL-1 | CC0 legal text and scope | root, README, ADR | low | S |
 | 47 | DEL-2 | npm license check in CI | ui/scripts, ci.yml, ADR | low | S |
 
@@ -81,7 +81,7 @@ These two are gaps in `docs/design/reference-stability-and-errors.md` section 10
 - **Spec:** sketch.md 1.1, 2.2, 3.17, 6.21 (tests 248 to 250).
 - **Spec first:** no spec change, the spec is already written. Plan text only.
 - **Work:**
-  - Add a phase 2 step before 10.4 step 1: `SketchParams::mirrored`, `mirrored_point` and `mirrored_region`, tests in a new `tests/mirrored.rs`, and the interface in the crate's CLAUDE.md.
+  - Add a phase 2 step before 10.4 step 1: `SketchParams::mirrored`, `mirrored_point` and `mirrored_region`, tests in a new `tests/mirrored.rs`, and the interface in the crate's AGENTS.md.
   - Cite that step from 10.4 step 1 (`TurnDrawingBack`, features/sketch.md test 24) and step 3 (engine `apply_fix`, engine.md test 135).
   - Add sketch.md tests 252 and 253 to 10.3 step 2.
   - Give test 251 (NC08 `NotConverged`) to the phase 3 sketch messages step.
@@ -125,7 +125,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - A new delivery.md notices section, with section 6 tests.
   - The desktop.md `bundle` object, plus the exact-object test in `desktop/src-tauri/tests/config.rs`.
   - An ADR for the generator tool, or a row in ADR 0020.
-  - A new ADR that resolves a contradiction: CLAUDE.md and technical design 3 say OCCT is "linked as a separate library", but ADR 0003 links it statically. Either the wording or the linking changes.
+  - A new ADR that resolves a contradiction: AGENTS.md and technical design 3 say OCCT is "linked as a separate library", but ADR 0003 links it statically. Either the wording or the linking changes.
 - **Human gate:** licenses and a new tool.
 - **Work:**
   - Collect the notices:
@@ -140,7 +140,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
     - As a release draft asset next to SHA256SUMS.
 - **Impact:** high. Distributing without these breaks the LGPL. **Size:** M.
 - **Depends on:** the human license gate, and B-1 for the CI checks.
-- **Status (2026-10-16):** code written, not on `main` yet, human gate open. Spec: delivery.md 2.9, 2.6, 2.5, 3.6, 4, 6 (tests 6, 8, 12, 13 and 34 to 42), 7 and 8; desktop.md 2.8, tests 49 and 53; ADRs 0033 and 0034, both Proposed. Code: `ui/scripts/notices.mjs` with `pnpm -C ui notices` and `pnpm -C ui check:notices` (tests 35 to 42); the committed texts under `ui/scripts/notices/` (Apache-2.0 and MPL-2.0 from SPDX License List 3.29.0, ten copies from crate repositories at the commits their packages name, OCCT 7.9.3's license, exception and four bundled notices, Rust 1.97.0's Unicode-3.0 text, Emscripten 4.0.15's six texts and the WebView2 SDK license); both notices files, the desktop one with 362 crates and the web one with 54, each with the 11 npm packages that ship, generated twice byte for byte the same; the notices rule of `check:dist` (test 34); the bundle resource in `tauri.conf.json` (tests 33 and 53 pass); `check:notices` in the `schema` job; the notices check in the `desktop` job's package check (test 12, run against built `.deb` files); and the notices as a `draft` release asset covered by `SHA256SUMS`. Found while implementing: the icon `dist/esm/icons/copyright.mjs` of `lucide-react` matched the nested-file rule, so input 3 now leaves out JavaScript, TypeScript and source map files; the objc2 repository's only license file names MIT without its text or a copyright line; `webview2-com-sys` 0.39.1 ships the loader of SDK 1.0.3800.47, not 1.0.3650.58 as ADR 0033 said (now corrected there, with how it was matched and why the package's `NOTICE.txt`, for its `wv2winrt` tool, is left out). Found in review: `rolldown`'s `THIRD-PARTY-LICENSE`, the MIT notices of rollup and of esbuild, whose runtime helpers start `assets/index-*.js`, matched no prefix of input 3, so input 3 now also takes names starting with `THIRD-PARTY`, `THIRD_PARTY` or `THIRDPARTY` (test 38), and both notices files gained that text on rolldown's entry and changed nowhere else; the schema job now installs the packages before the schema steps and runs `check:notices` only when the install passed (test 50); and a change to the toolkits or options of `scripts/build-occt.sh` or `partsmith-occt-sys/build.rs` now repeats the OCCT notice search (2.9, input 4 and "Kept current"), which no check enforces. `ui/CLAUDE.md` lists `notices`, `check:notices` and `check:dist`. The landing order stands: the web notices and the `check:dist` rule reach `main` no later than the commit that ends reference stability phase 1. Left for the owner: the root instruction file's notices command line of delivery.md 2.9 "Kept current", added when this work merges `main`; the em dash choice of ADR 0033, which now sets out three ways; the Apple SDK caveat of the objc2 crates and whether their four folders get the MIT text (delivery.md 8); and every choice of ADR 0034, which now also weighs a written offer (option D) and asks the lawyer a fourth question.
+- **Status (2026-10-16):** code written, not on `main` yet, human gate open. Spec: delivery.md 2.9, 2.6, 2.5, 3.6, 4, 6 (tests 6, 8, 12, 13 and 34 to 42), 7 and 8; desktop.md 2.8, tests 49 and 53; ADRs 0033 and 0034, both Proposed. Code: `ui/scripts/notices.mjs` with `pnpm -C ui notices` and `pnpm -C ui check:notices` (tests 35 to 42); the committed texts under `ui/scripts/notices/` (Apache-2.0 and MPL-2.0 from SPDX License List 3.29.0, ten copies from crate repositories at the commits their packages name, OCCT 7.9.3's license, exception and four bundled notices, Rust 1.97.0's Unicode-3.0 text, Emscripten 4.0.15's six texts and the WebView2 SDK license); both notices files, the desktop one with 362 crates and the web one with 54, each with the 11 npm packages that ship, generated twice byte for byte the same; the notices rule of `check:dist` (test 34); the bundle resource in `tauri.conf.json` (tests 33 and 53 pass); `check:notices` in the `schema` job; the notices check in the `desktop` job's package check (test 12, run against built `.deb` files); and the notices as a `draft` release asset covered by `SHA256SUMS`. Found while implementing: the icon `dist/esm/icons/copyright.mjs` of `lucide-react` matched the nested-file rule, so input 3 now leaves out JavaScript, TypeScript and source map files; the objc2 repository's only license file names MIT without its text or a copyright line; `webview2-com-sys` 0.39.1 ships the loader of SDK 1.0.3800.47, not 1.0.3650.58 as ADR 0033 said (now corrected there, with how it was matched and why the package's `NOTICE.txt`, for its `wv2winrt` tool, is left out). Found in review: `rolldown`'s `THIRD-PARTY-LICENSE`, the MIT notices of rollup and of esbuild, whose runtime helpers start `assets/index-*.js`, matched no prefix of input 3, so input 3 now also takes names starting with `THIRD-PARTY`, `THIRD_PARTY` or `THIRDPARTY` (test 38), and both notices files gained that text on rolldown's entry and changed nowhere else; the schema job now installs the packages before the schema steps and runs `check:notices` only when the install passed (test 50); and a change to the toolkits or options of `scripts/build-occt.sh` or `partsmith-occt-sys/build.rs` now repeats the OCCT notice search (2.9, input 4 and "Kept current"), which no check enforces. `ui/AGENTS.md` lists `notices`, `check:notices` and `check:dist`. The landing order stands: the web notices and the `check:dist` rule reach `main` no later than the commit that ends reference stability phase 1. Left for the owner: the root instruction file's notices command line of delivery.md 2.9 "Kept current", added when this work merges `main`; the em dash choice of ADR 0033, which now sets out three ways; the Apple SDK caveat of the objc2 crates and whether their four folders get the MIT text (delivery.md 8); and every choice of ADR 0034, which now also weighs a written offer (option D) and asks the lawyer a fourth question.
 
 **B-3. Recovery keeps one slot, so unsaved work is lost** (`ui/src/files/recovery.ts`, `ui/src/app/actions/document.ts`, `ui/src/app/createApp.ts`)
 - **Spec:** ui.md 2.15 (line 1852), 3.19 (lines 3032 and 3043-3044); desktop.md line 590 and open issue 7.
@@ -223,7 +223,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - Publishing wheels stays out of M1.
 - **Impact:** medium. **Size:** S.
 - **Depends on:** B-1.
-- **Status (2026-10-16):** workflow written, not on `main` yet, human gate open (delivery.md 8). Test 76 is `python/tests/test_core.py`, marked `packaging`, which `python/pyproject.toml` leaves out by default, and parametrized over `python3.12` and `python3.13`. CI's `python` job now installs CPython 3.13 and 3.12 (3.12 last, so it is the default `python`), makes its virtual environment with `python3.12` and runs `pytest python/tests -m packaging` after `pytest python/tests`, as delivery.md 2.2, the 2.4 `python` row and test 10 say; `.github/workflows/CLAUDE.md` lists it. Run locally the way the step runs it: 3 passed in 2 min 32 s with the release engine crates already built, giving `partsmith-0.1.0-cp312-abi3-manylinux_2_38_x86_64.whl` (21.7 MB), which installed and imported on 3.12 and 3.13. python-api.md 2.1 now matches `python/`: its layout lists `_files.py`, and its `pyproject.toml` holds the `[tool.ruff]` and `[tool.pytest.ini_options]` tables, the latter leaving the `packaging` marker out by default as test 76 says.
+- **Status (2026-10-16):** workflow written, not on `main` yet, human gate open (delivery.md 8). Test 76 is `python/tests/test_core.py`, marked `packaging`, which `python/pyproject.toml` leaves out by default, and parametrized over `python3.12` and `python3.13`. CI's `python` job now installs CPython 3.13 and 3.12 (3.12 last, so it is the default `python`), makes its virtual environment with `python3.12` and runs `pytest python/tests -m packaging` after `pytest python/tests`, as delivery.md 2.2, the 2.4 `python` row and test 10 say; `.github/workflows/AGENTS.md` lists it. Run locally the way the step runs it: 3 passed in 2 min 32 s with the release engine crates already built, giving `partsmith-0.1.0-cp312-abi3-manylinux_2_38_x86_64.whl` (21.7 MB), which installed and imported on 3.12 and 3.13. python-api.md 2.1 now matches `python/`: its layout lists `_files.py`, and its `pyproject.toml` holds the `[tool.ruff]` and `[tool.pytest.ini_options]` tables, the latter leaving the `packaging` marker out by default as test 76 says.
 
 **B-11. Release-gate perf tests P-1 to P-8** (new `ui/e2e/perf.spec.ts`, `ui/e2e/helpers.ts`)
 - **Spec:** ui.md 5, 6.7; technical design 14 (the web column is a release gate).
@@ -250,7 +250,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
 - **Depends on:** nothing. The CI web job already runs `check:dist`.
 - **Status (2026-10-16):** done. delivery.md 2.6 defines the limit (250,000 bytes, 1 KB being 1,000 bytes), what counts as initial (the scripts and `modulepreload` links of `index.html`, plus the core worker script), and gzip level 9; section 4 has its messages and tests 26 to 33 its cases; ui.md 6.7 points at it. `ui/scripts/check-dist.mjs` implements it with `node:zlib`, and `pnpm test:scripts` passes (37 tests). The headroom is delivery.md open issue 8: 94.1 percent of the limit on 2026-10-13, and 96.8 percent on 2026-10-16 (242,039 bytes gzipped, 7,961 under the limit, `check:dist` on a build of the tree then), against the 92 percent of the index row, which is the gap analysis's figure.
 
-**B-13. README, install notes and release checklist** (README.md, `.github/workflows/CLAUDE.md`)
+**B-13. README, install notes and release checklist** (README.md, `.github/workflows/AGENTS.md`)
 - **Spec:** delivery.md 3.6 (the release notes say nothing is signed); desktop.md 3.8 and line 615.
 - **Spec first:** no. An optional `python/README.md` would need a python-api.md 2.1 amendment.
 - **Work:**
@@ -260,11 +260,11 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - How to run the web app, the desktop app, the CLI (its five subcommands) and Python (`maturin develop`, `python -m partsmith build`).
   - Download and install: the Pages URL, GitHub Releases, unsigned-install steps, glibc 2.39 and WebKitGTK 4.1.
   - A License section linking the notices (B-2) and the CC0 scope (DEL-1).
-  - Contributor pointers to CLAUDE.md, the spec README, the ADR README and the bless command.
+  - Contributor pointers to AGENTS.md, the spec README, the ADR README and the bless command.
   - A release checklist with the exact unsigned-bundle paragraph. `--generate-notes` stays, per delivery.md 2.5.
 - **Impact:** medium. **Size:** S.
 - **Depends on:** B-1 (URLs) and B-2.
-- **Status (2026-10-16):** written, not on `main` yet. `README.md` follows delivery.md 2.12 part by part, and `.github/workflows/CLAUDE.md` holds the release checklist of delivery.md 3.6 word for word, with the unsigned-bundle paragraph (the same in README.md and the spec) and the commands of checklist items 5 to 7; both files become AGENTS.md when this branch merges `main` (5e32ada), where README's link to AGENTS.md resolves. Every command was run here except four that need what this machine lacks or would overwrite another pipeline's files: `cargo test --workspace` (about 170 test binaries that link OCCT, more than the free disk), the two OCCT builds and `scripts/build-wasm.sh` (their usage and precondition messages were checked, and CI's `occt-native`, `occt-wasm` and `core-wasm` jobs run them), `cargo tauri dev` and `cargo tauri build` (`tauri-cli` is not installed; 2.12.2 is on crates.io and its source has both commands), and the bless and generate commands, which write `examples/`, `docs/format` and `ui/src/generated` (their targets exist). Checking the commands changed the spec in three places: pnpm comes from `corepack enable && corepack install -g pnpm@10.28.0`, since corepack alone takes `ui/package.json`'s pnpm only inside `ui/` and from the root picks pnpm 12.11.2, which the corepack of Node 22.22.0 fails to start; the install line gains `python3-venv`, without which Ubuntu's `python3 -m venv` fails; and the web part names `pnpm -C ui build`, which the web notices point at. Review fixes: README.md now says desktop builds appear on GitHub Releases once the first release is published (none is yet, and the repository is private), its install line runs `sudo apt-get update` first, as CI does, and before the OCCT builds it makes `/opt/occt` the user's (`sudo mkdir -p /opt/occt && sudo chown "$USER" /opt/occt`), since the build ends by installing into its prefix; delivery.md 2.12 parts 3 and 4 say the same. Left for the owner: the web app's address. Until the owner confirms the `*.pages.dev` subdomain, which waits for the first production deployment, README.md says the address follows that deployment (delivery.md 2.12 part 3). If ADR 0034 drops the AppImage, README.md's download list and paragraph follow desktop.md 3.8 and delivery.md 3.6.
+- **Status (2026-10-16):** written, not on `main` yet. `README.md` follows delivery.md 2.12 part by part, and `.github/workflows/AGENTS.md` holds the release checklist of delivery.md 3.6 word for word, with the unsigned-bundle paragraph (the same in README.md and the spec) and the commands of checklist items 5 to 7; both files become AGENTS.md when this branch merges `main` (5e32ada), where README's link to AGENTS.md resolves. Every command was run here except four that need what this machine lacks or would overwrite another pipeline's files: `cargo test --workspace` (about 170 test binaries that link OCCT, more than the free disk), the two OCCT builds and `scripts/build-wasm.sh` (their usage and precondition messages were checked, and CI's `occt-native`, `occt-wasm` and `core-wasm` jobs run them), `cargo tauri dev` and `cargo tauri build` (`tauri-cli` is not installed; 2.12.2 is on crates.io and its source has both commands), and the bless and generate commands, which write `examples/`, `docs/format` and `ui/src/generated` (their targets exist). Checking the commands changed the spec in three places: pnpm comes from `corepack enable && corepack install -g pnpm@10.28.0`, since corepack alone takes `ui/package.json`'s pnpm only inside `ui/` and from the root picks pnpm 12.11.2, which the corepack of Node 22.22.0 fails to start; the install line gains `python3-venv`, without which Ubuntu's `python3 -m venv` fails; and the web part names `pnpm -C ui build`, which the web notices point at. Review fixes: README.md now says desktop builds appear on GitHub Releases once the first release is published (none is yet, and the repository is private), its install line runs `sudo apt-get update` first, as CI does, and before the OCCT builds it makes `/opt/occt` the user's (`sudo mkdir -p /opt/occt && sudo chown "$USER" /opt/occt`), since the build ends by installing into its prefix; delivery.md 2.12 parts 3 and 4 say the same. Left for the owner: the web app's address. Until the owner confirms the `*.pages.dev` subdomain, which waits for the first production deployment, README.md says the address follows that deployment (delivery.md 2.12 part 3). If ADR 0034 drops the AppImage, README.md's download list and paragraph follow desktop.md 3.8 and delivery.md 3.6.
 
 ## 2. After the blockers, by owner
 
@@ -481,7 +481,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Spec first:** yes. A new engine.md 6 test next to tests 87 and 88. It says when a regenerated golden is expected (a zip or deflate change, or an OCCT bump) and which target it is pinned on.
 - **Work:**
   - Add `tests/fixtures/box.3mf` and `two-bodies.3mf`, checked in `export_and_import.rs`.
-  - Regeneration is opt-in and refused in CI, like `bless_mode`. Document it in the engine's CLAUDE.md.
+  - Regeneration is opt-in and refused in CI, like `bless_mode`. Document it in the engine's AGENTS.md.
 - **Impact:** low. **Size:** S.
 - **Depends on:** nothing.
 
@@ -556,7 +556,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Work:**
   - `python/benches/budgets.py`, or a `budgets` pytest marker beside `packaging`.
   - It measures: import, per-call overhead, the fifty-features twin, and Selection filtering over 1000 elements.
-  - Run it in the python CI job, and list it in the partsmith-py CLAUDE.md.
+  - Run it in the python CI job, and list it in the partsmith-py AGENTS.md.
 - **Impact:** low. **Size:** M.
 - **Depends on:** B-1 and B-10.
 
@@ -572,12 +572,12 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Depends on:** B-1 and the shared wasm job.
 
 **SK-2. No nightly job runs the property tests at 4096 cases**
-- **Spec:** sketch.md 6.13; crates/partsmith-sketch/CLAUDE.md.
+- **Spec:** sketch.md 6.13; crates/partsmith-sketch/AGENTS.md.
 - **Spec first:** yes. delivery.md 1.1 plus a section 6 test, or a 1.2 deferral.
-- **Work:** a scheduled workflow (cron and `workflow_dispatch`) that runs `PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test properties`. It needs no OCCT cache. List it in `.github/workflows/CLAUDE.md`.
+- **Work:** a scheduled workflow (cron and `workflow_dispatch`) that runs `PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test properties`. It needs no OCCT cache. List it in `.github/workflows/AGENTS.md`.
 - **Impact:** low. **Size:** S.
 - **Depends on:** B-1.
-- **Status (2026-10-16):** workflow written, not on `main` yet. `.github/workflows/nightly.yml` follows delivery.md 1.1 and 2.11 (cron `23 4 * * *` and `workflow_dispatch`; a scheduled run skips when the newest concluded nightly run already tested the head of `main`; `timeout-minutes: 20`, now in 2.11, caps a run that never finishes), with the skip notice of section 4, the budget of 5 and section 8; sketch.md 6.13 points at it, and `.github/workflows/CLAUDE.md` lists it. Changed in review: the skip check counted only runs that passed or failed, so a run stopped by `timeout-minutes`, which does not conclude `failure`, was repeated every night on an unchanged `main`, and a failing `gh` failed the step, recording a run that later nights counted as tested. It now asks for the newest finished run (`gh run list --status completed --limit 1`), whatever its conclusion, and on a `gh` failure warns and tests (2.11, the warning of section 4). Test 51 in `ui/scripts/workflows.test.mjs` runs the step's script with `bash -e` and a stub `gh` (the head tested, another commit, no finished run, `gh` failing); the real `gh` 2.89.0 accepts the same arguments on this repository's `ci.yml` runs, and the 4096-case run passes (15 tests in 3.5 s). Test 48 needs the workflow on `main`: one `workflow_dispatch` run, then a scheduled night with `main` unchanged and one after a new commit. Measured on a 4-core machine: a cold release build of the sketch tests takes 2 min 26 s and the 4096-case run 1.6 s, so a night costs about 3 billed minutes after a change and 1 when skipped.
+- **Status (2026-10-16):** workflow written, not on `main` yet. `.github/workflows/nightly.yml` follows delivery.md 1.1 and 2.11 (cron `23 4 * * *` and `workflow_dispatch`; a scheduled run skips when the newest concluded nightly run already tested the head of `main`; `timeout-minutes: 20`, now in 2.11, caps a run that never finishes), with the skip notice of section 4, the budget of 5 and section 8; sketch.md 6.13 points at it, and `.github/workflows/AGENTS.md` lists it. Changed in review: the skip check counted only runs that passed or failed, so a run stopped by `timeout-minutes`, which does not conclude `failure`, was repeated every night on an unchanged `main`, and a failing `gh` failed the step, recording a run that later nights counted as tested. It now asks for the newest finished run (`gh run list --status completed --limit 1`), whatever its conclusion, and on a `gh` failure warns and tests (2.11, the warning of section 4). Test 51 in `ui/scripts/workflows.test.mjs` runs the step's script with `bash -e` and a stub `gh` (the head tested, another commit, no finished run, `gh` failing); the real `gh` 2.89.0 accepts the same arguments on this repository's `ci.yml` runs, and the 4096-case run passes (15 tests in 3.5 s). Test 48 needs the workflow on `main`: one `workflow_dispatch` run, then a scheduled night with `main` unchanged and one after a new commit. Measured on a 4-core machine: a cold release build of the sketch tests takes 2 min 26 s and the 4096-case run 1.6 s, so a night costs about 3 billed minutes after a change and 1 when skipped.
 
 ### partsmith-cli
 
@@ -595,17 +595,17 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
   - `benches/budgets.rs` on partsmith-budgets, timing the release binary through `std::process::Command`.
   - A 200 KB workload, generated at run time or added as an `examples/bench/<name>`.
   - rebuild and export on fifty-features, at the engine budget plus 100 ms.
-  - Cargo.toml bench wiring, and the command in the crate's CLAUDE.md.
+  - Cargo.toml bench wiring, and the command in the crate's AGENTS.md.
 - **Impact:** low. **Size:** M.
 - **Depends on:** nothing.
 
 ### partsmith-protocol
 
-**PROTO-1. The protocol CLAUDE.md says `Edit` accepts unknown fields**
+**PROTO-1. The protocol AGENTS.md says `Edit` accepts unknown fields**
 - **Spec:** model.md 2.9 (line 568); protocol.md 2.3.
 - **Spec first:** no.
 - **Work:**
-  - Fix line 24 of `crates/partsmith-protocol/CLAUDE.md`: `Edit` rejects unknown fields, while the `FeatureRecord` inside it keeps unknown keys as params.
+  - Fix line 24 of `crates/partsmith-protocol/AGENTS.md`: `Edit` rejects unknown fields, while the `FeatureRecord` inside it keeps unknown keys as params.
   - Add an acceptance test that `apply_edits` rejects an unknown `Edit` field, if none exists.
 - **Impact:** low. **Size:** S.
 - **Depends on:** nothing.
@@ -624,7 +624,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Depends on:** the same license gate as B-2.
 
 **DEL-2. No CI check covers npm licenses**
-- **Spec:** technical design 17; the CLAUDE.md license invariant.
+- **Spec:** technical design 17; the AGENTS.md license invariant.
 - **Spec first:** yes. delivery.md 1.1, 2.4 and 6, using the deny.toml SPDX allow list.
 - **Human gate:** dependencies and licenses.
 - **Work:**

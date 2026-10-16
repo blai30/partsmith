@@ -669,7 +669,7 @@ These guarantees cover params key order as stored. Full canonical form for hand-
 ### 3.9 Versioning and migration
 
 - `format_version` is a non-negative integer. This build reads and writes version 2 (`FORMAT_VERSION`) and can migrate from `OLDEST_FORMAT_VERSION` (1).
-- Any change to the meaning or shape of saved documents that older readers would misread bumps `FORMAT_VERSION` and adds one `MigrationStep` from the old version. Changes need a format ADR and human review (CLAUDE.md).
+- Any change to the meaning or shape of saved documents that older readers would misread bumps `FORMAT_VERSION` and adds one `MigrationStep` from the old version. Changes need a format ADR and human review (AGENTS.md).
 - Migrations work on raw JSON (`serde_json::Value`), before typed deserialization, so old shapes never need Rust types.
 
 | Version | What it adds |

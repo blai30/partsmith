@@ -39,5 +39,5 @@ Test 45 compares `protocol_schema()` with the checked-in `docs/format/protocol.s
 
 ## Rules
 
-- Any breaking change bumps `PROTOCOL_VERSION` and needs human review; any schema change needs human review (CLAUDE.md).
+- Any breaking change bumps `PROTOCOL_VERSION` and needs human review; any schema change needs human review (AGENTS.md).
 - Dependencies: the five core crates it carries types from (`partsmith-model`, `partsmith-mesh`, `partsmith-sketch`, `partsmith-naming`, `partsmith-print`), plus `serde`, `serde_json`, `schemars` and `thiserror`. No `unsafe`, no global state.

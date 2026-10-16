@@ -385,7 +385,7 @@ zerofrom-derive 0.1.8, Unicode-3.0, https://crates.io/crates/zerofrom-derive/0.1
 zerotrie 0.2.5, Unicode-3.0, https://crates.io/crates/zerotrie/0.2.5, texts [100]
 zerovec 0.11.8, Unicode-3.0, https://crates.io/crates/zerovec/0.11.8, texts [100]
 zerovec-derive 0.11.6, Unicode-3.0, https://crates.io/crates/zerovec-derive/0.11.6, texts [100]
-zip 9.0.1, MIT, https://crates.io/crates/zip/9.0.1, texts [176]
+zip 9.0.3, MIT, https://crates.io/crates/zip/9.0.3, texts [176]
 zlib-rs 0.6.8, Zlib, https://crates.io/crates/zlib-rs/0.6.8, texts [203]
 zmij 1.0.23, MIT, https://crates.io/crates/zmij/1.0.23, texts [12]
 zopfli 0.8.3, Apache-2.0, https://crates.io/crates/zopfli/0.8.3, texts [204]

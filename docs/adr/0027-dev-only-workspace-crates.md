@@ -8,7 +8,7 @@ Ten crates check the section 5 budgets of their specs with a `benches/budgets.rs
 
 The tests of `partsmith-mesh`, `partsmith-io` and `partsmith-print` each defined the fixtures of mesh.md section 6.1 (`box`, `cube`, `faceted_box`, `open_box`, `flipped_one`, `inside_out`, `fin`, `sphere` and their helpers) in their `tests/common`, three copies of about 250 lines that must give the same meshes, and print kept a fourth `box_mesh` for its unit tests in `src/test_meshes.rs`. The crates cannot share test code through their libraries without shipping it, and a `#[path]` include across crates ties one crate's tests to another's file layout.
 
-CLAUDE.md asks for less code, no duplication and few dependencies, and every dependency change goes through the ADR log.
+AGENTS.md asks for less code, no duplication and few dependencies, and every dependency change goes through the ADR log.
 
 ## Decision
 
