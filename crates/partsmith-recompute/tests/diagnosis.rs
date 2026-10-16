@@ -2182,6 +2182,77 @@ fn t056_r10a_the_piece_an_edge_was_on_is_gone() {
     assert_no_faces_of(&session, "b-1", "f-fil1");
 }
 
+/// `slotted_block` with the block's top lowered to z = 25 by `f-bool1`, which cuts it with a box in b-2, so the top is
+/// the floor of that cut, and with `f-bool2` joining b-1 into a box in b-3 after the fillet.
+fn slotted_floor(x0: f64, x1: f64) -> Vec<Value> {
+    followed_by(
+        block(),
+        vec![
+            box_record(
+                "f-box2",
+                "b-2",
+                ["100", "70", "10"],
+                Some(["40", "25", "25"]),
+                "new",
+            ),
+            boolean("b-1", &["b-2"], "cut"),
+            datum_offset("f-dp1", "XY", "25"),
+            sketch(
+                "f-sk2",
+                datum_plane("f-dp1"),
+                rectangle(5, x0, -1.0, x1, 51.0),
+            ),
+            reversed(extrude(
+                "f-ext2",
+                "b-1",
+                "f-sk2",
+                vec![rectangle_region(5, x0, -1.0, x1, 51.0)],
+                distance("5"),
+                "cut",
+            )),
+            fillet(
+                "f-fil1",
+                "b-1",
+                vec![reference(
+                    "edge(f-box2/bottom#2|f-ext1/lateral/e-1)",
+                    "line|n=1,0,0|c=65,0,25|l=30|adj=2,2",
+                )],
+                "2",
+            ),
+            box_record(
+                "f-box3",
+                "b-3",
+                ["20", "50", "25"],
+                Some(["90", "25", "0"]),
+                "new",
+            ),
+            json!({"id": "f-bool2", "type": "boolean", "target": "b-3", "tools": ["b-1"], "op": "join"}),
+        ],
+    )
+}
+
+#[test]
+fn t056_the_face_a_lost_piece_was_on_reads_as_it_did_just_before_this_feature() {
+    // Just before the fillet the floor is in b-1, which 'Boolean 2' joins into b-3 only after it.
+    let bodies = ["b-1", "b-2", "b-3"];
+    let mut session = setup(&bodies, &slotted_floor(30.0, 50.0));
+
+    edit(&mut session, &bodies, &slotted_floor(50.0, 81.0));
+
+    let error = error_message(&session, "f-fil1", "references_not_found");
+    assert_eq!(
+        error.reason,
+        Some(LossReason::Removed {
+            by: id("f-ext2"),
+            how: Removal::PieceGone
+        })
+    );
+    assert_eq!(
+        error.text,
+        "The front edge of the cut made by 'Boolean 1' selected for Edges no longer exists: the part of the floor of the cut made by 'Boolean 1' it was on was removed by 'Extrude 2'."
+    );
+}
+
 // Test 57: `NoLongerMade` (corpus R12, R30 (a) and R57, and a face its feature no longer makes).
 
 /// Corpus R12's setup: BLOCK, a pocket `f-ext2` cut `depth` deep from its top, round or square, and a fillet `f-fil1`

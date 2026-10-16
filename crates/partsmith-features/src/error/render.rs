@@ -7,7 +7,7 @@ use partsmith_model::{FieldUnit, Id, Units};
 use partsmith_naming::{ElementName, Fingerprint};
 use partsmith_sketch::RegionLoss;
 
-use super::describe::describe_elements;
+use super::describe::{describe_elements, describe_face};
 use super::field::FieldRef;
 use super::fix::{Fix, Place};
 use super::loss::{Loss, RegionLost};
@@ -129,16 +129,6 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// The document units.
-    pub(crate) fn units(&self) -> Units {
-        self.units
-    }
-
-    /// The names messages read.
-    pub(crate) fn names(&self) -> &'a dyn Names {
-        self.names
-    }
-
     /// Recompute's explanation of the message.
     pub(crate) fn diagnosis(&self) -> &'a Diagnosis {
         self.diagnosis
@@ -211,8 +201,8 @@ impl<'a> Renderer<'a> {
         self.bodies.get(body)
     }
 
-    /// The words for elements of `body`, in one call so that elements that would read the same get their clauses
-    /// (section 3.12).
+    /// The words for elements of `body` just before the feature, in one call so that elements that would read the
+    /// same get their clauses (section 3.12).
     pub(crate) fn describe(
         &self,
         elements: &[(&ElementName, &Fingerprint)],
@@ -222,6 +212,20 @@ impl<'a> Renderer<'a> {
             elements,
             body,
             self.bodies.get(body),
+            self.feature,
+            self.names,
+            self.units,
+        )
+    }
+
+    /// The words for the face of `body` named `name`, given by its name alone, just before the feature (section
+    /// 3.12).
+    pub(crate) fn describe_face(&self, name: &str, body: &Id) -> String {
+        describe_face(
+            name,
+            body,
+            self.bodies.get(body),
+            self.feature,
             self.names,
             self.units,
         )

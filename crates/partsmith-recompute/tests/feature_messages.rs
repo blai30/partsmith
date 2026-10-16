@@ -228,6 +228,7 @@ fn describe(run: &Run, body: &str, pairs: &[(ElementName, Fingerprint)]) -> Vec<
             &borrowed,
             &id(body),
             Some(state),
+            None,
             names,
             run.document.units,
         )
@@ -384,6 +385,7 @@ fn t001_faces_and_edges_named_by_their_sketch_entity() {
                 &[(&info.name, &info.fingerprint)],
                 &id("b-1"),
                 Some(&state_after_extrude),
+                Some(&id("f-fil1")),
                 names,
                 beveled.document.units,
             )
@@ -489,6 +491,7 @@ fn t001_edges_and_floor_of_a_pocket() {
                 &[(&info.name, &info.fingerprint)],
                 &id("b-1"),
                 Some(before_fillet),
+                Some(&id("f-fil1")),
                 names,
                 run.document.units,
             )
@@ -1064,6 +1067,7 @@ fn t002_elements_that_would_read_the_same_get_their_entity_clause() {
             &pairs,
             &id("b-1"),
             Some(&state),
+            None,
             names,
             run.document.units,
         )

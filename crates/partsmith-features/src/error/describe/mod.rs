@@ -26,18 +26,20 @@ pub use maker::sketch_coordinates;
 
 /// The words for the faces, edges or vertices of `body` one message or candidate list names, in order (section
 /// 3.12): "the front top edge of 'Box 1'". Each element is given by its name and fingerprint; `state` is the state of
-/// `body` the elements were resolved in, whose faces give direction words; elements that would read the same get
-/// their entity or position clause.
+/// `body` the elements were resolved in, just before the feature `before` (at the end of the timeline when None),
+/// whose faces give direction words; elements that would read the same get their entity or position clause.
 pub fn describe_elements(
     elements: &[(&ElementName, &Fingerprint)],
     body: &Id,
     state: Option<&BodyState>,
+    before: Option<&Id>,
     names: &dyn Names,
     units: Units,
 ) -> Vec<String> {
     let faces = Faces::of(state);
     let describer = Describer {
         body,
+        before,
         faces: &faces,
         names,
         units,
@@ -90,6 +92,8 @@ fn give_clauses(descriptions: &mut [Description]) {
 struct Describer<'a> {
     /// The body whose state is described.
     body: &'a Id,
+    /// The feature just before which the state is; None for the end of the timeline.
+    before: Option<&'a Id>,
     /// The faces of the state by name.
     faces: &'a Faces,
     /// Names, records and sketch results.
@@ -244,13 +248,15 @@ impl Describer<'_> {
 }
 
 /// The words for one face of `body` given by its name alone (`name` as text), described in `state`, the state of
-/// `body`, as a stored element without a fingerprint: the part of a query a message names (`{face}` of section 4.2),
-/// or a face recompute's loss diagnosis names (recompute.md section 3.10). Text that is no face name reads as a face of
-/// a feature that is not in this document.
+/// `body` just before the feature `before` (at the end of the timeline when None), as a stored element without a
+/// fingerprint: the part of a query a message names (`{face}` of section 4.2), or a face recompute's loss diagnosis
+/// names (recompute.md section 3.10). Text that is no face name reads as a face of a feature that is not in this
+/// document.
 pub fn describe_face(
     name: &str,
     body: &Id,
     state: Option<&BodyState>,
+    before: Option<&Id>,
     names: &dyn Names,
     units: Units,
 ) -> String {
@@ -260,6 +266,7 @@ pub fn describe_face(
     let faces = Faces::of(state);
     let describer = Describer {
         body,
+        before,
         faces: &faces,
         names,
         units,
@@ -537,11 +544,11 @@ mod tests {
         let body = Id::new("b-1").expect("a valid id");
 
         assert_eq!(
-            describe_face("f-c/top", &body, None, &names, Units::Mm),
+            describe_face("f-c/top", &body, None, None, &names, Units::Mm),
             "the top of 'Copies 1'"
         );
         assert_eq!(
-            describe_face("f-gone/top", &body, None, &names, Units::Mm),
+            describe_face("f-gone/top", &body, None, None, &names, Units::Mm),
             "a face of a feature that is not in this document"
         );
     }
@@ -553,7 +560,7 @@ mod tests {
         let body = Id::new("b-1").expect("a valid id");
 
         assert_eq!(
-            describe_face("f-c/top", &body, Some(&state), &names, Units::Mm),
+            describe_face("f-c/top", &body, Some(&state), None, &names, Units::Mm),
             "the top of 'Copies 1'"
         );
     }

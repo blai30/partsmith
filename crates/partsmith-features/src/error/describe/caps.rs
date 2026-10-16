@@ -3,14 +3,14 @@
 
 use partsmith_model::{Expr, FieldUnit, LINEAR_TOLERANCE};
 use partsmith_naming::GeometryKind;
-use partsmith_sketch::Geometry;
+use partsmith_sketch::{Geometry, RegionFingerprint};
 use serde_json::Value;
 
 use super::maker::{Maker, entity_geometry};
 use super::{cross, dot};
 use crate::error::message::Names;
 use crate::output::SketchResult;
-use crate::params::{AxisRef, ProfileRef};
+use crate::params::AxisRef;
 
 /// The outward normal of the cap with `role` (`start-cap` or `end-cap`) as `maker` makes it in this run, also when
 /// it is suppressed or failed, as long as its sketch has a result. None for other faces and features, and when the
@@ -33,38 +33,48 @@ pub(super) fn cap_direction(names: &dyn Names, maker: &Maker<'_>, role: &str) ->
 /// extent, features/extrude.md section 3.4), its start cap against it.
 fn extrude_cap(maker: &Maker<'_>, sketch: &SketchResult, start: bool) -> [f64; 3] {
     let symmetric = maker.param(&["extent", "kind"]).and_then(Value::as_str) == Some("symmetric");
-    let along = if reversed(maker) && !symmetric { -1.0 } else { 1.0 };
+    let along = if reversed(maker) && !symmetric {
+        -1.0
+    } else {
+        1.0
+    };
     let sign = if start { -along } else { along };
     sketch.placement.normal.map(|component| component * sign)
 }
 
 /// A revolve's start cap faces against the turning direction at the sketch plane, its end cap along the turning
-/// direction after the turn by its angle (features/revolve.md section 3.3). The axis lies in the sketch plane, so the
-/// profile turns along the sketch normal, times the side of the axis it lies on, measured along the normal crossed
-/// with the axis, and times the sense of the turn.
+/// direction after the turn by its angle (features/revolve.md section 3.3); a full turn has no angle, so it gives its
+/// end cap no direction. The axis lies in the sketch plane, so the profile turns along the sketch normal, times the
+/// side of the axis it lies on, measured along the normal crossed with the axis, and times the sense of the turn.
 fn revolve_cap(
     names: &dyn Names,
     maker: &Maker<'_>,
     sketch: &SketchResult,
     start: bool,
 ) -> Option<[f64; 3]> {
+    let full = maker.param(&["extent", "kind"]).and_then(Value::as_str) == Some("full");
+    if full && !start {
+        return None;
+    }
     let (origin, axis) = revolve_axis(names, maker)?;
-    let profile: ProfileRef = serde_json::from_value(maker.param(&["profile"])?.clone()).ok()?;
-    let inside = sketch.to_world(profile.regions.first()?.fp.centroid);
+    let region: RegionFingerprint = maker
+        .param(&["profile", "regions"])?
+        .get(0)?
+        .get("fp")?
+        .as_str()?
+        .parse()
+        .ok()?;
+    let inside = sketch.to_world(region.centroid);
     let normal = sketch.placement.normal;
     let offset = [0, 1, 2].map(|i| inside[i] - origin[i]);
     let side = dot(offset, cross(normal, axis));
     if side.abs() <= LINEAR_TOLERANCE {
         return None;
     }
-    let full = maker.param(&["extent", "kind"]).and_then(Value::as_str) == Some("full");
     let sense = if reversed(maker) && !full { -1.0 } else { 1.0 };
     let turning = normal.map(|component| component * side.signum() * sense);
     if start {
         return Some(turning.map(|component| -component));
-    }
-    if full {
-        return Some(turning);
     }
     let angle = Expr::new(maker.param(&["extent", "expr"])?.as_str()?);
     let turn = names.value(&angle, FieldUnit::Angle)? * sense;
@@ -91,8 +101,7 @@ fn revolve_axis(names: &dyn Names, maker: &Maker<'_>) -> Option<([f64; 3], [f64;
             let to = placed.to_world(end);
             let along = [0, 1, 2].map(|i| to[i] - from[i]);
             let length = dot(along, along).sqrt();
-            (length > LINEAR_TOLERANCE)
-                .then(|| (from, along.map(|component| component / length)))
+            (length > LINEAR_TOLERANCE).then(|| (from, along.map(|component| component / length)))
         }
         AxisRef::Edge { edge, .. } => {
             let fingerprint = &edge.fingerprint;

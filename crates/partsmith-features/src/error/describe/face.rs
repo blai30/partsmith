@@ -75,6 +75,11 @@ impl Faces {
     pub(super) fn fingerprint_of(&self, name: &str) -> Option<&Fingerprint> {
         self.by_name.get(name)
     }
+
+    /// True when the state has the face named `name`, a piece of it, or the whole face it is a piece of.
+    fn has_any_piece_of(&self, name: &str) -> bool {
+        self.by_piece_free.contains_key(&piece_free(name))
+    }
 }
 
 /// The sketch entity a lateral face was made from.
@@ -129,6 +134,7 @@ impl FaceFacts {
         let reader = FaceReader {
             element,
             body: describer.body,
+            before: describer.before,
             faces: describer.faces,
             names: describer.names,
             units: describer.units,
@@ -176,6 +182,8 @@ struct FaceReader<'r, 'e> {
     element: &'r Element<'e>,
     /// The body whose state is described.
     body: &'r Id,
+    /// The feature just before which the state is; None for the end of the timeline.
+    before: Option<&'r Id>,
     /// The faces of the state.
     faces: &'r Faces,
     /// Names, records and sketch results.
@@ -306,12 +314,27 @@ impl FaceReader<'_, '_> {
     /// `the cut made by 'Boolean 1'` when the faces of `feature` in the element read as faces a cut leaves (section
     /// 3.12): the tool faces of a cut boolean in the body described, else the faces of a cutting `maker`.
     fn cut(&self, maker: &Maker<'_>, feature: &str) -> Option<String> {
-        let cutter = match cut_boolean(self.names, feature, self.body) {
+        let boolean = if self.all_in_state(feature) {
+            cut_boolean(self.names, feature, self.body, self.before)
+        } else {
+            None
+        };
+        let cutter = match boolean {
             Some(boolean) => Maker::of(self.names, boolean.as_str()).quoted(),
             None if self.leaves_cut(maker, feature) => maker.quoted(),
             None => return None,
         };
         Some(format!("the cut made by {cutter}"))
+    }
+
+    /// True when the state has every face of `feature` the element names, whole or in pieces. A tool face of a cut
+    /// boolean that the state does not have never was a face the cut leaves, so it, and an edge or vertex with it as a
+    /// face term, reads as the tool's own (section 3.12, corpus R30 (b)).
+    fn all_in_state(&self, feature: &str) -> bool {
+        self.element_faces().iter().all(|face| {
+            FaceName::parse(face.as_str()).is_none_or(|name| name.feature != feature)
+                || self.faces.has_any_piece_of(face.as_str())
+        })
     }
 
     /// True when the faces of `feature` in the element read as faces its cut leaves (section 3.12): `maker` is a cut,
@@ -325,17 +348,21 @@ impl FaceReader<'_, '_> {
             return true;
         };
         let absent = self.names.absent_faces(&feature);
-        let faces = match self.element.name.kind() {
-            ElementKind::Face => vec![self.element.name.clone()],
-            ElementKind::Edge | ElementKind::Vertex => self.element.name.face_terms(),
-        };
-        !faces.iter().any(|face| {
+        !self.element_faces().iter().any(|face| {
             let whole = face.piece_free();
             absent.iter().any(|entry| {
                 entry.why == Absence::EndOutside
                     && (entry.name == *face || whole.as_ref() == Some(&entry.name))
             })
         })
+    }
+
+    /// The faces the element names: itself for a face, else its face terms.
+    fn element_faces(&self) -> Vec<ElementName> {
+        match self.element.name.kind() {
+            ElementKind::Face => vec![self.element.name.clone()],
+            ElementKind::Edge | ElementKind::Vertex => self.element.name.face_terms(),
+        }
     }
 
     /// For a cap of an extrude or revolve that is not in the state, the direction it faces in this run (section 3.12).

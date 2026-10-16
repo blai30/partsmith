@@ -683,10 +683,19 @@ impl ContextFixture {
 
 /// Evaluates `uses` in a document with `units`, no parameters and no printer values.
 pub fn evaluate(uses: &[ExprUse], units: Units, manifest: &FeatureManifest) -> Values {
-    let parameters = ParameterValues::default();
+    evaluate_with(uses, units, &ParameterValues::default(), manifest)
+}
+
+/// Evaluates `uses` in a document with `units` and `parameters`, without printer values.
+pub fn evaluate_with(
+    uses: &[ExprUse],
+    units: Units,
+    parameters: &ParameterValues,
+    manifest: &FeatureManifest,
+) -> Values {
     let scope = Scope {
         units,
-        parameters: &parameters,
+        parameters,
         context: &EmptyContext,
     };
     Values::evaluate(uses, &scope, manifest)

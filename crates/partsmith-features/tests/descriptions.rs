@@ -7,11 +7,11 @@ mod common;
 
 use std::f64::consts::FRAC_PI_2;
 
+use common::id;
 use common::records::{
     arc, block, box_below, box_record, circle, cube20, distance, extrude, fillet, line, point,
     reference, shell, sketch, slot, xy,
 };
-use common::id;
 use common::timeline::Timeline;
 use partsmith_features::describe_elements;
 use partsmith_model::Units;
@@ -34,7 +34,7 @@ fn describe(timeline: &Timeline, body: &str, pairs: &[(ElementName, Fingerprint)
     let borrowed: Vec<(&ElementName, &Fingerprint)> =
         pairs.iter().map(|(name, print)| (name, print)).collect();
     timeline.with_names(|names| {
-        describe_elements(&borrowed, &id(body), Some(&state), names, Units::Mm)
+        describe_elements(&borrowed, &id(body), Some(&state), None, names, Units::Mm)
     })
 }
 
@@ -82,6 +82,7 @@ fn describe_before(timeline: &Timeline, feature: &str, body: &str, element: &str
             &[(&info.name, &info.fingerprint)],
             &id(body),
             Some(state),
+            Some(&id(feature)),
             names,
             Units::Mm,
         )
@@ -256,6 +257,25 @@ fn a_cap_of_a_full_turn_takes_the_word_of_the_turning_direction() {
     );
 }
 
+#[test]
+fn the_end_cap_of_a_full_turn_has_no_word() {
+    // Corpus R57: a full turn has no angle to end its turn by, so the stored end cap, which a partial turn left
+    // elsewhere, gets no word.
+    let timeline = ring_revolve(json!({"kind": "full"}));
+
+    assert_eq!(
+        describe(
+            &timeline,
+            "b-1",
+            &[top_edge_of(
+                "end-cap",
+                "line|n=0,1,0|c=0,-15,30|l=10|adj=2,2"
+            )]
+        ),
+        ["the edge between the end face of 'Revolve 1' and the top of 'Revolve 1'"]
+    );
+}
+
 /// The stored edge between the top of the ring's revolve and `cap`, which runs along a radius of the ring at the cap.
 fn top_edge_of(cap: &str, fingerprint: &str) -> (ElementName, Fingerprint) {
     let mut faces = ["f-rev1/lateral/e-3".to_string(), format!("f-rev1/{cap}")];
@@ -279,9 +299,82 @@ fn the_end_cap_of_a_suppressed_partial_turn_takes_the_word_of_the_turn() {
         describe(
             &timeline,
             "b-1",
-            &[top_edge_of("end-cap", "line|n=0,1,0|c=0,15,30|l=10|adj=2,2")]
+            &[top_edge_of(
+                "end-cap",
+                "line|n=0,1,0|c=0,15,30|l=10|adj=2,2"
+            )]
         ),
         ["the left edge of 'Revolve 1' along the line from (20, 30) to (10, 30) in 'Sketch 1'"]
+    );
+}
+
+#[test]
+fn the_end_cap_of_a_partial_turn_whose_angle_does_not_evaluate_has_no_word() {
+    let records = changed_revolve(angle("missing"), |revolve| {
+        revolve["suppressed"] = json!(true);
+    });
+    let timeline = Timeline::run(&["b-1"], &records);
+
+    assert_eq!(
+        describe(
+            &timeline,
+            "b-1",
+            &[top_edge_of(
+                "end-cap",
+                "line|n=0,1,0|c=0,15,30|l=10|adj=2,2"
+            )]
+        ),
+        [
+            "the edge between the end face of 'Revolve 1' and the side of 'Revolve 1' made from the line from (20, 30) to (10, 30) in 'Sketch 1'"
+        ]
+    );
+}
+
+#[test]
+fn the_end_cap_of_a_partial_turn_turns_by_the_angle_the_document_parameters_give() {
+    let records = changed_revolve(angle("quarter"), |revolve| {
+        revolve["suppressed"] = json!(true);
+    });
+    let timeline = Timeline::run_with_parameters(&["b-1"], &[("quarter", "90 deg")], &records);
+
+    assert_eq!(
+        describe(
+            &timeline,
+            "b-1",
+            &[top_edge_of(
+                "end-cap",
+                "line|n=0,1,0|c=0,15,30|l=10|adj=2,2"
+            )]
+        ),
+        ["the left edge of 'Revolve 1' along the line from (20, 30) to (10, 30) in 'Sketch 1'"]
+    );
+}
+
+#[test]
+fn a_cap_of_a_turn_about_the_axis_of_a_face_has_no_word() {
+    // The side of a cylinder in b-2 has the Z axis, but its stored fingerprint gives no point on it.
+    let mut records = vec![
+        json!({"id": "f-cyl2", "type": "cylinder", "body": "b-2", "radius": "5", "height": "30", "op": "new"}),
+    ];
+    records.extend(changed_revolve(json!({"kind": "full"}), |revolve| {
+        revolve["axis"] = json!({
+            "kind": "face",
+            "body": "b-2",
+            "face": reference("f-cyl2/side", "cylinder|n=0,0,1|c=0,0,15|a=942.477796|r=5")
+        });
+    }));
+    let timeline = Timeline::run(&["b-1", "b-2"], &records);
+
+    assert_eq!(
+        describe(
+            &timeline,
+            "b-1",
+            &[top_edge_of(
+                "start-cap",
+                "line|n=1,0,0|c=15,0,30|l=10|adj=2,2"
+            )]
+        ),
+        ["the edge between the top of 'Revolve 1' and the start face of 'Revolve 1'"]
     );
 }
 
@@ -329,7 +422,10 @@ fn a_full_turn_about_a_sketch_line_turns_the_way_the_line_points() {
         describe(
             &timeline,
             "b-1",
-            &[top_edge_of("start-cap", "line|n=1,0,0|c=15,0,30|l=10|adj=2,2")]
+            &[top_edge_of(
+                "start-cap",
+                "line|n=1,0,0|c=15,0,30|l=10|adj=2,2"
+            )]
         ),
         ["the back top edge of 'Revolve 1'"]
     );
@@ -338,7 +434,9 @@ fn a_full_turn_about_a_sketch_line_turns_the_way_the_line_points() {
 #[test]
 fn a_full_turn_about_a_straight_edge_turns_about_the_stored_edge() {
     // The front left edge of a box in b-2 lies on the Z axis, so the turn is the one about origin Z.
-    let mut records = vec![json!({"id": "f-box2", "type": "box", "body": "b-2", "size": ["10", "10", "30"], "position": ["5", "5", "0"], "op": "new"})];
+    let mut records = vec![
+        json!({"id": "f-box2", "type": "box", "body": "b-2", "size": ["10", "10", "30"], "position": ["5", "5", "0"], "op": "new"}),
+    ];
     records.extend(changed_revolve(json!({"kind": "full"}), |revolve| {
         revolve["axis"] = json!({
             "kind": "edge",
@@ -352,7 +450,10 @@ fn a_full_turn_about_a_straight_edge_turns_about_the_stored_edge() {
         describe(
             &timeline,
             "b-1",
-            &[top_edge_of("start-cap", "line|n=1,0,0|c=15,0,30|l=10|adj=2,2")]
+            &[top_edge_of(
+                "start-cap",
+                "line|n=1,0,0|c=15,0,30|l=10|adj=2,2"
+            )]
         ),
         ["the front top edge of 'Revolve 1'"]
     );
@@ -492,6 +593,22 @@ fn an_edge_between_a_cut_boolean_wall_and_the_body_reads_as_an_edge_of_its_cut()
 }
 
 #[test]
+fn an_edge_on_a_tool_face_the_cut_does_not_leave_reads_as_the_tool_s_own() {
+    // Corpus R30 (b): the top of Box 2 lies above CUBE20, so the cut never left it.
+    let timeline = boolean_pocket();
+
+    assert_eq!(
+        describe_stored(
+            &timeline,
+            "b-1",
+            "edge(f-box2/front|f-box2/top)",
+            "line|n=1,0,0|c=0,-5,25|l=10|adj=2,2"
+        ),
+        "the front top edge of 'Box 2'"
+    );
+}
+
+#[test]
 fn the_tool_faces_read_as_their_own_in_the_tool_body_before_the_cut() {
     let timeline = boolean_pocket();
 
@@ -507,7 +624,9 @@ fn a_kept_tool_reads_as_its_own_while_each_target_reads_as_its_cut() {
     let mut records = boolean_pocket_records();
     records[2]["keep_tools"] = json!(true);
     records.push(json!({"id": "f-box3", "type": "box", "body": "b-3", "size": ["20", "20", "20"], "op": "new"}));
-    records.push(json!({"id": "f-bool2", "type": "boolean", "target": "b-3", "tools": ["b-2"], "op": "cut"}));
+    records.push(
+        json!({"id": "f-bool2", "type": "boolean", "target": "b-3", "tools": ["b-2"], "op": "cut"}),
+    );
     let timeline = Timeline::run(&["b-1", "b-2", "b-3"], &records);
 
     assert_eq!(
@@ -548,6 +667,66 @@ fn a_cut_joined_into_another_body_still_reads_as_the_cut() {
 }
 
 #[test]
+fn a_cut_reads_as_the_cut_before_its_body_is_joined_into_another() {
+    // 'Boolean 2' joins b-1 into b-3 only after 'Fillet 1', so just before 'Fillet 1' the pocket is in b-1.
+    let mut records = boolean_pocket_records();
+    records.push(fillet(
+        vec![reference(
+            "edge(f-box1/front|f-box1/top)",
+            "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2",
+        )],
+        "1",
+    ));
+    records.push(json!({"id": "f-box3", "type": "box", "body": "b-3", "size": ["20", "20", "20"], "position": ["20", "0", "0"], "op": "new"}));
+    records.push(
+        json!({"id": "f-bool2", "type": "boolean", "target": "b-3", "tools": ["b-1"], "op": "join"}),
+    );
+    let timeline = Timeline::run(&["b-1", "b-2", "b-3"], &records);
+
+    assert_eq!(
+        describe_before(&timeline, "f-fil1", "b-1", "f-box2/bottom"),
+        "the floor of the cut made by 'Boolean 1'"
+    );
+    assert_eq!(
+        describe_before(&timeline, "f-fil1", "b-1", "edge(f-box1/top|f-box2/left)"),
+        "the top edge of the cut made by 'Boolean 1'"
+    );
+}
+
+#[test]
+fn a_failed_boolean_leaves_its_tools_to_the_next_boolean() {
+    // 'Boolean 1' fails, since its target b-3 is empty, so Box 2 stays in b-2 for 'Boolean 2' to cut b-1 with.
+    let mut records = boolean_pocket_records();
+    records[2] = json!({"id": "f-bool1", "type": "boolean", "target": "b-3", "tools": ["b-2"], "op": "join"});
+    records.push(
+        json!({"id": "f-bool2", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": "cut"}),
+    );
+    let timeline = Timeline::run(&["b-1", "b-2", "b-3"], &records);
+    timeline.error("f-bool1");
+
+    assert_eq!(
+        describe_one(&timeline, "b-1", "f-box2/bottom"),
+        "the floor of the cut made by 'Boolean 2'"
+    );
+}
+
+#[test]
+fn an_edge_on_a_piece_of_a_tool_face_reads_as_an_edge_of_its_cut() {
+    // The stored edge names a piece of the pocket's front wall, which the state has whole.
+    let timeline = boolean_pocket();
+
+    assert_eq!(
+        describe_stored(
+            &timeline,
+            "b-1",
+            "edge(f-box1/top|f-box2/front#1)",
+            "line|n=1,0,0|c=0,-5,20|l=10|adj=2,2"
+        ),
+        "the top edge of the cut made by 'Boolean 1'"
+    );
+}
+
+#[test]
 fn a_mirror_image_of_a_cut_reads_as_the_cut_in_the_body_it_goes_to() {
     let mut records = boolean_pocket_records();
     records.push(json!({"id": "f-mir1", "type": "mirror", "body": "b-1", "plane": {"kind": "origin", "plane": "YZ"}, "op": "new", "target": "b-3"}));
@@ -565,7 +744,9 @@ fn a_suppressed_boolean_leaves_its_tools_to_the_next_boolean() {
     let mut records = boolean_pocket_records();
     records[2]["suppressed"] = json!(true);
     records.push(json!({"id": "f-box3", "type": "box", "body": "b-3", "size": ["20", "20", "20"], "op": "new"}));
-    records.push(json!({"id": "f-bool2", "type": "boolean", "target": "b-3", "tools": ["b-2"], "op": "cut"}));
+    records.push(
+        json!({"id": "f-bool2", "type": "boolean", "target": "b-3", "tools": ["b-2"], "op": "cut"}),
+    );
     let timeline = Timeline::run(&["b-1", "b-2", "b-3"], &records);
 
     assert_eq!(

@@ -124,8 +124,16 @@ pub trait Names {
         &[]
     }
 
+    /// True when the feature has an output in the current run, for element descriptions that follow faces from body
+    /// to body (section 3.12); false outside a run.
+    fn built(&self, feature: &Id) -> bool {
+        let _ = feature;
+        false
+    }
+
     /// The value of a record's expression in internal units, evaluated as a field of `unit` with the document's
-    /// parameters, for element descriptions (section 3.12); None when it does not evaluate, and outside a document.
+    /// parameters (dotted names do not resolve), for element descriptions (section 3.12); None when it does not
+    /// evaluate, and outside a document.
     fn value(&self, expr: &Expr, unit: FieldUnit) -> Option<f64> {
         let _ = (expr, unit);
         None
@@ -179,6 +187,10 @@ impl Names for DocumentNames<'_> {
 
     fn records(&self) -> &[FeatureRecord] {
         &self.document.features
+    }
+
+    fn built(&self, feature: &Id) -> bool {
+        self.outputs.contains_key(feature)
     }
 
     fn value(&self, expr: &Expr, unit: FieldUnit) -> Option<f64> {
@@ -418,8 +430,33 @@ mod tests {
     }
 
     #[test]
-    fn names_outside_a_document_know_no_records_and_no_values() {
+    fn document_names_tell_the_features_with_an_output_in_the_run() {
+        let document = Document::new(Units::Mm);
+        let registry = Registry::new();
+        let built = Id::new("f-built").expect("a valid id");
+        let failed = Id::new("f-failed").expect("a valid id");
+        let output = FeatureOutput {
+            data: OutputData::Bodies(Vec::new()),
+            warnings: Vec::new(),
+            absent: Vec::new(),
+        };
+        let outputs = BTreeMap::from([(built.clone(), Arc::new(output))]);
+        let names = DocumentNames {
+            document: &document,
+            registry: &registry,
+            outputs: &outputs,
+        };
+
+        assert!(names.built(&built));
+        assert!(!names.built(&failed));
+    }
+
+    #[test]
+    fn names_outside_a_document_know_no_records_no_outputs_and_no_values() {
+        let feature = Id::new("f-1").expect("a valid id");
+
         assert!(IdNames.records().is_empty());
+        assert!(!IdNames.built(&feature));
         assert_eq!(IdNames.value(&Expr::new("90 deg"), FieldUnit::Angle), None);
     }
 

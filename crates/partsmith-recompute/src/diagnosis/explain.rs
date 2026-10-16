@@ -359,7 +359,14 @@ impl Explainer<'_> {
             .view
             .state_before(&loss.body, self.explained)
             .map(|(state, _)| state);
-        describe_face(face.as_str(), &loss.body, state, self.names, self.units)
+        describe_face(
+            face.as_str(),
+            &loss.body,
+            state,
+            Some(self.view.id(self.explained)),
+            self.names,
+            self.units,
+        )
     }
 
     /// `{this}`: `this` and the feature's type label in lowercase.

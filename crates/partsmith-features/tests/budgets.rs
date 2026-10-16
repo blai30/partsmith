@@ -291,7 +291,9 @@ fn describe_elements_of_five_elements_within_200_microseconds() {
     features.extend((0..100).map(|index| {
         json!({"id": format!("f-plane{index}"), "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": index.to_string()})
     }));
-    features.push(json!({"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": "cut"}));
+    features.push(
+        json!({"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": "cut"}),
+    );
     let timeline = Timeline::run(&["b-1", "b-2"], &features);
     let state = timeline.state("b-1");
     let infos = state.elements().expect("the element infos");
@@ -310,6 +312,7 @@ fn describe_elements_of_five_elements_within_200_microseconds() {
                 &elements,
                 &body,
                 Some(&state),
+                None,
                 names,
                 Units::Mm,
             ));
@@ -319,6 +322,6 @@ fn describe_elements_of_five_elements_within_200_microseconds() {
     assert_within(
         "describe_elements of 5 elements",
         duration,
-        Duration::from_micros(1),
+        Duration::from_micros(200),
     );
 }

@@ -11,12 +11,12 @@ use partsmith_features::{
     BodyState, BuildContext, BuildInputs, CancelToken, Diagnosis, DocumentNames, FeatureError,
     FeatureOutput, FeatureWarning, Fix, Names, OutputData, Registry, RenderContext, SketchResult,
 };
-use partsmith_model::{Document, Id, Units};
+use partsmith_model::{Document, EmptyContext, Id, Units};
 use partsmith_naming::{ElementKind, ElementName, ElementSet, Reference};
 use partsmith_occt_sys::{SubShape, SubShapeKind};
 use serde_json::{Value, json};
 
-use super::{ContextFixture, evaluate, id};
+use super::{ContextFixture, evaluate_with, id};
 
 /// The outcome of building feature records in timeline order.
 pub struct Timeline {
@@ -35,6 +35,22 @@ impl Timeline {
     /// Builds `features` (record JSON) in a millimeter document with the bodies `b-<n>` named `Body <n>`. Suppressed
     /// records are skipped; a record that fails keeps its error and changes no body.
     pub fn run(bodies: &[&str], features: &[Value]) -> Timeline {
+        Timeline::run_with_parameters(bodies, &[], features)
+    }
+
+    /// `run` in a document with `parameters`, each a name and its expression, which records and messages read.
+    pub fn run_with_parameters(
+        bodies: &[&str],
+        parameters: &[(&str, &str)],
+        features: &[Value],
+    ) -> Timeline {
+        let parameters: Vec<Value> = parameters
+            .iter()
+            .enumerate()
+            .map(|(index, (name, expr))| {
+                json!({"id": format!("p-{}", index + 1), "name": name, "expr": expr})
+            })
+            .collect();
         let bodies: Vec<Value> = bodies
             .iter()
             .map(|body| {
@@ -48,7 +64,7 @@ impl Timeline {
             "format": "partsmith",
             "format_version": 2,
             "units": "mm",
-            "parameters": [],
+            "parameters": parameters,
             "bodies": bodies,
             "features": features,
         })
@@ -92,7 +108,8 @@ impl Timeline {
             .expect("the type is built in")
             .manifest()
             .clone();
-        let values = evaluate(&dependencies.expressions, Units::Mm, &manifest);
+        let parameters = self.document.evaluate_parameters(&EmptyContext);
+        let values = evaluate_with(&dependencies.expressions, Units::Mm, &parameters, &manifest);
         let declared: Vec<Id> = dependencies
             .bodies_read
             .iter()
@@ -295,8 +312,8 @@ impl Timeline {
     }
 
     /// Calls `use_context` with the render context of `feature` over the states at the end of the timeline: for a
-    /// feature that did not run (one that is suppressed, so that its label and type are known), whose warnings a test
-    /// resolves through `fixture`.
+    /// feature that did not run (one that is suppressed, so that its label and type are known, and last, since
+    /// descriptions read the records before it), whose warnings a test resolves through `fixture`.
     pub fn with_end_context<T>(
         &self,
         feature: &str,

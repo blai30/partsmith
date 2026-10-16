@@ -7,9 +7,7 @@ use partsmith_model::{Id, Units};
 use partsmith_naming::{ElementKind, ElementName, Follow, Lost, Reference};
 use partsmith_sketch::{RegionLoss, RegionRef, SolveIssue};
 
-use super::describe::{
-    describe_face, made_from_line, new_faces_are_flat, piece_free_text, rim_generator,
-};
+use super::describe::{made_from_line, new_faces_are_flat, piece_free_text, rim_generator};
 use super::field::FieldRef;
 use super::fix::Fix;
 use super::loss::{Loss, LossCandidate, Repair, Severity};
@@ -659,13 +657,7 @@ fn guessed_text(
             .map(|alternative| &alternative.reference)
             .collect();
         let (element, others) = described_selected(renderer, label, body, reference, &alternative);
-        let face = describe_face(
-            &ordered_part(query),
-            body,
-            renderer.bodies_of(body),
-            renderer.names(),
-            renderer.units(),
-        );
+        let face = renderer.describe_face(&ordered_part(query), body);
         let better = others.first().map_or("another part", String::as_str);
         return format!(
             "{element} was taken by its position among the parts of {face}, but {better} now fits its shape better. Check which one you mean."
@@ -729,15 +721,7 @@ fn followed_text(
             let face = || {
                 continued_part(query, elements).map_or_else(
                     || "a face that was removed".to_string(),
-                    |part| {
-                        describe_face(
-                            &part,
-                            body,
-                            renderer.bodies_of(body),
-                            renderer.names(),
-                            renderer.units(),
-                        )
-                    },
+                    |part| renderer.describe_face(&part, body),
                 )
             };
             match query.kind() {
