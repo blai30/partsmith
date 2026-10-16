@@ -4,12 +4,14 @@
 use std::fmt::Display;
 use std::io::{self, Write};
 
-use partsmith_engine::ValidationDiagnostic;
+use partsmith_engine::{FeatureMessage, ValidationDiagnostic};
+use partsmith_model::Id;
 use partsmith_protocol::Severity;
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::error::CliError;
+use crate::messages::MessageMembers;
 
 /// Where a command writes: requested output to standard output, problems to standard error.
 pub struct Output<'a> {
@@ -110,7 +112,8 @@ pub fn diagnostic_line(path: &str, diagnostic: &ValidationDiagnostic) -> String 
 }
 
 /// A diagnostic in JSON reports: `severity`, `code`, `message`, then `line`, `column` and `path`
-/// (a JSON Pointer) when known.
+/// (a JSON Pointer) when known, and for a feature message its `feature` and the members of the
+/// message (cli.md section 3.1).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct JsonDiagnostic {
     /// Error, warning or info.
@@ -128,10 +131,28 @@ pub struct JsonDiagnostic {
     /// JSON Pointer into the document.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// The feature of a feature message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feature: Option<Id>,
+    /// What a feature message adds: its field, suggestion, actions, candidates, reason, root and
+    /// detail.
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub members: Option<MessageMembers>,
 }
 
 impl From<ValidationDiagnostic> for JsonDiagnostic {
     fn from(diagnostic: ValidationDiagnostic) -> JsonDiagnostic {
+        let (feature, members) = match diagnostic.feature.map(|message| *message) {
+            Some(FeatureMessage {
+                feature,
+                diagnostic: projected,
+                candidates,
+            }) => (
+                Some(feature),
+                Some(MessageMembers::new(projected, candidates)),
+            ),
+            None => (None, None),
+        };
         JsonDiagnostic {
             severity: diagnostic.severity,
             code: diagnostic.code,
@@ -139,6 +160,8 @@ impl From<ValidationDiagnostic> for JsonDiagnostic {
             line: diagnostic.line,
             column: diagnostic.column,
             path: diagnostic.path,
+            feature,
+            members,
         }
     }
 }

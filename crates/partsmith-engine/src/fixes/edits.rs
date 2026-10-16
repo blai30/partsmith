@@ -10,10 +10,9 @@ use partsmith_recompute::Status;
 use partsmith_sketch::{MatchMethod, RegionMatch, RegionRef, match_region};
 use serde_json::Value;
 
-use super::params::{
-    is_list_entry, parent, remove, replace, replace_each, set, stored_references,
-};
+use super::params::{is_list_entry, parent, remove, replace, replace_each, set, stored_references};
 use crate::diagnostics::{FeatureView, RunView};
+use crate::elements::full_reference;
 use crate::error::EngineError;
 
 impl FeatureView<'_> {
@@ -121,8 +120,28 @@ impl FeatureView<'_> {
     /// of a later feature whose resolution in `later` went through a succession the old regions
     /// produced stores the elements it resolves to now, all in one batch.
     fn kept_regions(&self, pointer: &str, later: &RunView<'_>) -> Result<Vec<Edit>, EngineError> {
-        let missing = || EngineError::internal("kept regions name no resolved profile");
         let list = parent(pointer);
+        let (regions, successions) = self.regions_now(list)?;
+        let regions = Value::Array(region_entries(&regions)?);
+        let mut edits = vec![updated(self.record, |params| set(params, list, regions))?];
+        if !successions.is_empty() {
+            for position in self.position + 1..later.report.features.len() {
+                if let Some(feature) = later.feature_at(position) {
+                    edits.extend(feature.references_following(&successions)?);
+                }
+            }
+        }
+        Ok(edits)
+    }
+
+    /// The regions the profile whose region list is at `list` uses now, as `Region::reference()`
+    /// gives them in the sketch's region order, and the lateral faces whose succession keys the
+    /// successions of its boundary matches produce.
+    fn regions_now(
+        &self,
+        list: &str,
+    ) -> Result<(Vec<RegionRef>, BTreeSet<ElementName>), EngineError> {
+        let missing = || EngineError::internal("kept regions name no resolved profile");
         let profile = parent(list);
         let sketch: Id = self
             .record_value(&format!("{profile}/sketch"))
@@ -157,21 +176,12 @@ impl FeatureView<'_> {
                 }
             }
         }
-        let regions: Vec<RegionRef> = used
+        let regions = used
             .iter()
             .filter_map(|&index| result.profile.regions.get(index))
             .map(|region| region.reference())
             .collect();
-        let regions = Value::Array(region_entries(&regions)?);
-        let mut edits = vec![updated(self.record, |params| set(params, list, regions))?];
-        if !successions.is_empty() {
-            for position in self.position + 1..later.report.features.len() {
-                if let Some(feature) = later.feature_at(position) {
-                    edits.extend(feature.references_following(&successions)?);
-                }
-            }
-        }
-        Ok(edits)
+        Ok((regions, successions))
     }
 
     /// The lateral face `<feature>/lateral/<entity>` this feature names after a sketch entity,
@@ -197,7 +207,8 @@ impl FeatureView<'_> {
                 continue;
             };
             if let Some(elements) = self.resolved_through(body, &stored.reference, successions)? {
-                let entries = reference_entries(stored_at(self.record, &stored.pointer, &elements))?;
+                let entries =
+                    reference_entries(stored_at(self.record, &stored.pointer, &elements))?;
                 rewrites.push((stored.pointer, entries));
             }
         }
@@ -229,8 +240,7 @@ impl FeatureView<'_> {
         }
         let picked = elements
             .iter()
-            .filter_map(|name| set.elements().iter().find(|info| info.name == *name))
-            .map(|info| Reference::from_element(info, &set))
+            .filter_map(|name| full_reference(&set, name))
             .collect();
         Ok(Some(picked))
     }
@@ -295,11 +305,15 @@ fn updated(
 /// What a fix stores at `pointer` of `record` for a reference that resolves to `elements`: every
 /// element in a list entry, and in a field that holds one reference the first, in the resolver's
 /// order, which is the element the feature uses (section 3.22).
-fn stored_at<'e>(record: &FeatureRecord, pointer: &str, elements: &'e [Reference]) -> &'e [Reference] {
+fn stored_at<'e>(
+    record: &FeatureRecord,
+    pointer: &str,
+    elements: &'e [Reference],
+) -> &'e [Reference] {
     if is_list_entry(&record.params, pointer) {
         elements
     } else {
-        &elements[..elements.len().min(1)]
+        elements.get(..1).unwrap_or_default()
     }
 }
 

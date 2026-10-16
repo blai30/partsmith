@@ -47,4 +47,5 @@ cargo run -p partsmith-cli -- schema --write       # regenerate docs/format/*.sc
 ## Rules
 
 - Acceptance tests in `tests/` come from the spec; do not weaken them. `tests/regressions.rs` holds end-to-end tests for spec behavior that section 6 does not test.
+- `tests/feature_messages.rs` (tests 55 to 62) runs documents of the reference stability corpus after their edits, which `tests/corpus` (a directory, so Cargo builds no test target of its own) writes with the engine: each setup's references picked in a headless session as the corpus's "Picked references" rule says, then the edit applied as one `apply_edits`.
 - Hosts contain no modeling logic: anything a model needs belongs in the engine.

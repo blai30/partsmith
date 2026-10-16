@@ -13,6 +13,8 @@ pnpm lint                # oxlint, then oxfmt --check
 pnpm format              # oxfmt
 pnpm typecheck
 pnpm test                # Vitest
+pnpm test:scripts        # node:test tests of scripts/
+pnpm check:licenses      # the npm packages that ship against the allow list of deny.toml (docs/spec/delivery.md 2.10)
 pnpm e2e                 # Playwright against the production build and the core in public/core (e2e/README.md); locally set PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
 ```
 

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "flex, in OCCT's STEP reader (FlexLexer.h and the generated scanner)",
+    "license": null,
+    "path": "src/FlexLexer/FlexLexer.h",
+    "text": "FlexLexer.txt"
+  },
+  {
+    "name": "DELABELLA, in OCCT's mesher",
+    "license": "MIT",
+    "path": "src/BRepMesh/delabella.cpp",
+    "text": "delabella.txt"
+  },
+  {
+    "name": "strtod of David M. Gay, in OCCT's number parsing",
+    "license": null,
+    "path": "src/Standard/Standard_Strtod.cxx",
+    "text": "strtod.txt"
+  },
+  {
+    "name": "ConvertUTF of Unicode, Inc., in OCCT's UTF iterator",
+    "license": null,
+    "path": "src/NCollection/NCollection_UtfIterator.lxx",
+    "text": "ConvertUTF.txt"
+  }
+]

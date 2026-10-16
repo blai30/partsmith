@@ -13,7 +13,7 @@ use partsmith_occt_sys::{
     KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult,
     Vector, compound,
 };
-use partsmith_sketch::{RegionRef, Succession};
+use partsmith_sketch::Succession;
 
 use crate::context::{BodyState, BuildContext, ResolvedProfile};
 use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, Noun};
@@ -554,25 +554,18 @@ pub(crate) fn into_keyword(
 }
 
 /// The Python form of a profile (features.md section 3.11): the sketch's variable, and the
-/// keyword `regions=[Region(...), ...]` only when the stored regions are not every region of the
-/// sketch in solved order. None when the sketch has no variable or did not solve.
+/// keyword `regions=[Region(...), ...]` only when the stored regions differ from the references of
+/// every region of the sketch in solved order, outlines included. None when the sketch has no
+/// variable or did not solve.
 pub(crate) fn profile_arguments(
     profile: &ProfileRef,
     names: &dyn PythonNames,
 ) -> Option<(PythonValue, Option<(String, PythonValue)>)> {
     let sketch = PythonValue::Name(names.feature(&profile.sketch)?);
     let solved = names.regions(&profile.sketch)?;
-    // A Python `Region` carries a key and a fingerprint, so those decide whether the stored regions are
-    // every region of the sketch.
-    let same_region =
-        |stored: &RegionRef, solved: &RegionRef| stored.key == solved.key && stored.fp == solved.fp;
-    let every_region = solved.len() == profile.regions.len()
-        && profile
-            .regions
-            .iter()
-            .zip(&solved)
-            .all(|(stored, solved)| same_region(stored, solved));
-    let regions = (!every_region).then(|| {
+    // A script without `regions=` stores the solved references, so a stored region without the
+    // outline its solved region has (written before format version 2) is written out.
+    let regions = (profile.regions != solved).then(|| {
         (
             "regions".to_string(),
             PythonValue::List(profile.regions.iter().map(PythonValue::region).collect()),
@@ -598,6 +591,7 @@ pub(crate) fn call(
 #[cfg(test)]
 mod tests {
     use partsmith_occt_sys::{Plane, make_box, make_cylinder};
+    use partsmith_sketch::RegionRef;
 
     use super::*;
     use crate::test_support::{Fixture, ScriptNames, id};
@@ -750,7 +744,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stored_region_without_its_outline_is_still_every_region() {
+    fn a_stored_region_without_its_outline_is_written() {
         let solved: RegionRef = serde_json::from_value(
             serde_json::json!({"key": "e-1", "fp": "c=0,0|a=1", "outline": "e-1"}),
         )
@@ -768,7 +762,9 @@ mod tests {
 
         let (_, regions) = profile_arguments(&profile, &names).expect("the sketch solved");
 
-        assert_eq!(regions, None);
+        let (keyword, value) = regions.expect("the stored regions differ from the solved ones");
+        assert_eq!(keyword, "regions");
+        assert_eq!(value.render(), r#"[Region("e-1", "c=0,0|a=1")]"#);
     }
 
     #[test]

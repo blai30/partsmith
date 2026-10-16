@@ -4,13 +4,13 @@ use partsmith_features::{FeatureError, Registry};
 use partsmith_model::{Document, Edit, Id, RecordKind, Step, Transaction};
 use partsmith_protocol::DocHandle;
 
+use crate::counts::saturating_u32;
 use crate::document::OpenTransaction;
 use crate::error::EngineError;
 use crate::session::Session;
 use crate::state::{feature_label, is_active};
 use crate::status::render_feature_error;
 use crate::types::{Committed, Stepped};
-use crate::wire::saturating_u32;
 
 impl Session {
     /// Applies edits atomically; returns the new revision.

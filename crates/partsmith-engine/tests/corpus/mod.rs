@@ -495,6 +495,14 @@ impl Scenario {
     }
 }
 
+/// BLOCK followed by `more`, then BLOCK's outline changed to `outline`.
+pub fn block_edited(more: Vec<Value>, outline: Vec<Value>) -> Scenario {
+    Scenario::new(
+        &document(&["b-1"], &block_then(more)),
+        vec![Change::Entities("f-sk1", outline)],
+    )
+}
+
 /// Corpus R03: a corner bevel removed from the outline. Expressions carry `mm`, so the same text in inches keeps every
 /// size (test 153).
 pub fn r03() -> Scenario {
@@ -544,45 +552,43 @@ pub fn r03() -> Scenario {
 /// Corpus R06 (a): BLOCK, a fillet on the right top edge, a face sketch on the right side with a pocket; `e-2` deleted
 /// and `e-9` drawn in its place.
 pub fn r06a() -> Scenario {
-    let features = block_then(vec![
-        fillet("f-fil1", "b-1", vec![block_right_top()], "2"),
-        sketch(
-            "f-sk2",
-            face_plane(
-                "b-1",
-                block_right_side(),
-                [80.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [1.0, 0.0, 0.0],
-            ),
-            vec![circle("e-5", [25.0, 15.0], 4.0)],
-        ),
-        with(
-            extrude(
-                "f-ext2",
-                "b-1",
+    block_edited(
+        vec![
+            fillet("f-fil1", "b-1", vec![block_right_top()], "2"),
+            sketch(
                 "f-sk2",
-                vec![circle_region("e-5", [25.0, 15.0], 4.0)],
-                distance("5"),
-                "cut",
+                face_plane(
+                    "b-1",
+                    block_right_side(),
+                    [80.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                ),
+                vec![circle("e-5", [25.0, 15.0], 4.0)],
             ),
-            "reverse",
-            json!(true),
-        ),
-    ]);
-    Scenario::new(
-        &document(&["b-1"], &features),
-        vec![Change::Entities("f-sk1", right_side_redrawn())],
+            with(
+                extrude(
+                    "f-ext2",
+                    "b-1",
+                    "f-sk2",
+                    vec![circle_region("e-5", [25.0, 15.0], 4.0)],
+                    distance("5"),
+                    "cut",
+                ),
+                "reverse",
+                json!(true),
+            ),
+        ],
+        right_side_redrawn(),
     )
 }
 
 /// Corpus R06 (a) without its face sketch and pocket (engine.md test 117): BLOCK and a fillet of 2 on the right top
 /// edge, then `e-2` deleted and `e-9` drawn in its place.
 pub fn r06a_fillet_only() -> Scenario {
-    let features = block_then(vec![fillet("f-fil1", "b-1", vec![block_right_top()], "2")]);
-    Scenario::new(
-        &document(&["b-1"], &features),
-        vec![Change::Entities("f-sk1", right_side_redrawn())],
+    block_edited(
+        vec![fillet("f-fil1", "b-1", vec![block_right_top()], "2")],
+        right_side_redrawn(),
     )
 }
 
@@ -800,10 +806,7 @@ pub fn r41() -> Scenario {
 pub fn r50() -> Scenario {
     let mut outline = block_outline();
     outline.push(circle("e-5", [40.0, 25.0], 10.0));
-    Scenario::new(
-        &document(&["b-1"], &block()),
-        vec![Change::Entities("f-sk1", outline)],
-    )
+    block_edited(Vec::new(), outline)
 }
 
 /// Corpus R54: a boss under a datum, with the boss's sketch and extrude deleted.
@@ -922,14 +925,6 @@ pub fn r66() -> Scenario {
     )
 }
 
-/// BLOCK followed by `more`, then BLOCK's outline changed to `outline`.
-pub fn block_edited(more: Vec<Value>, outline: Vec<Value>) -> Scenario {
-    Scenario::new(
-        &document(&["b-1"], &block_then(more)),
-        vec![Change::Entities("f-sk1", outline)],
-    )
-}
-
 /// A datum plane `f-dp1` offset 5 from BLOCK's right side (engine.md section 3.22, `KeepMatch` of a field that holds
 /// one reference), then corpus R49's edit, so the face it is on follows to both halves of the side.
 pub fn datum_on_a_split_side() -> Scenario {
@@ -941,15 +936,14 @@ pub fn datum_on_a_split_side() -> Scenario {
 
 /// Newcomer error NC11: BLOCK, a fillet of 2 on the back top edge, then the back line `e-3` deleted.
 pub fn nc11() -> Scenario {
-    let features = block_then(vec![fillet("f-fil1", "b-1", vec![block_back_top()], "2")]);
     let without_back_line = vec![
         line("e-1", [0.0, 0.0], [80.0, 0.0]),
         line("e-2", [80.0, 0.0], [80.0, 50.0]),
         line("e-4", [0.0, 50.0], [0.0, 0.0]),
     ];
-    Scenario::new(
-        &document(&["b-1"], &features),
-        vec![Change::Entities("f-sk1", without_back_line)],
+    block_edited(
+        vec![fillet("f-fil1", "b-1", vec![block_back_top()], "2")],
+        without_back_line,
     )
 }
 
@@ -965,10 +959,7 @@ pub fn two_areas() -> Scenario {
         line("e-6", [200.0, 20.0], [150.0, 20.0]),
         line("e-7", [150.0, 20.0], [150.0, 0.0]),
     ];
-    Scenario::new(
-        &document(&["b-1"], &block()),
-        vec![Change::Entities("f-sk1", lines)],
-    )
+    block_edited(Vec::new(), lines)
 }
 
 /// Corpus R06 (a) on a profile of two regions (the re-anchoring of `KeepRegions`, engine.md section 3.22): BLOCK and a

@@ -11,6 +11,7 @@
 
 mod analysis;
 mod assets;
+mod counts;
 mod diagnostics;
 mod dispatch;
 mod display;
@@ -35,7 +36,6 @@ mod test_support;
 mod triangulate;
 mod types;
 mod validate;
-mod wire;
 
 pub use error::EngineError;
 pub use options::{DEFAULT_CACHE_BUDGET, SessionOptions};
@@ -46,6 +46,7 @@ pub use types::{
     Opened, PrintAnalysis, PrintRequest, Reply, Saved, Stepped, ValidateOptions,
     ValidationDiagnostic, ValidationReport,
 };
+pub use validate::message_candidates;
 
 /// The engine version, equal to the crate version.
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");

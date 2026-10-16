@@ -132,6 +132,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm test:scripts
+      - run: pnpm check:licenses
 
   schema:
     name: Generated files
@@ -167,6 +168,10 @@ jobs:
             git diff -- docs/format ui/src/generated
             exit 1
           fi
+      # Runs after a drift failure too, so that one does not hide a notices failure.
+      - name: Check that the third-party notices are up to date
+        if: ${{ !cancelled() }}
+        run: pnpm -C ui check:notices
 
   core-wasm:
     name: Web core (WebAssembly)
@@ -284,19 +289,25 @@ jobs:
           fail-on-cache-miss: true
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2.9.2
+      # Both interpreters go on PATH for the wheel test; the last one listed, 3.12, is the default python.
       - uses: actions/setup-python@v7.0.0
         with:
-          python-version: "3.12"
+          python-version: |
+            3.13
+            3.12
       # maturin develop installs into the active virtual environment, so later steps activate it.
       - name: Create a virtual environment
         run: |
-          python -m venv .venv
+          python3.12 -m venv .venv
           echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
       - run: pip install maturin==1.15.0 pytest==9.1.1
       - run: maturin develop --release
         working-directory: python
       - run: pytest python/tests
+      # Test 76: builds the release wheel and installs it with python3.12 and python3.13 (delivery.md test 10).
+      - name: Build and install the wheel
+        run: pytest python/tests -m packaging
 
   desktop:
     name: Desktop (Linux)
@@ -341,18 +352,30 @@ jobs:
             echo "::error::Expected exactly one .deb under target/release/bundle/deb/, found ${#packages[@]}."
             exit 1
           fi
+          deb="${packages[0]}"
+          members="$(dpkg-deb --fsys-tarfile "$deb" | tar -t)"
           # Tauri's bundler writes entries without the leading ./ that dpkg-deb --build writes; accept both.
-          paths="$(dpkg-deb --fsys-tarfile "${packages[0]}" | tar -t | sed 's|^\./||')"
+          paths="$(sed 's|^\./||' <<<"$members")"
           if ! grep -qx 'usr/bin/partsmith-desktop' <<<"$paths"; then
-            echo "::error::${packages[0]} does not contain usr/bin/partsmith-desktop."
+            echo "::error::$deb does not contain usr/bin/partsmith-desktop."
             exit 1
           fi
           launchers="$(grep -c '^usr/share/applications/[^/]*\.desktop$' <<<"$paths" || true)"
           if [ "$launchers" -ne 1 ]; then
-            echo "::error::${packages[0]} has $launchers .desktop files under usr/share/applications/, expected exactly one."
+            echo "::error::$deb has $launchers .desktop files under usr/share/applications/, expected exactly one."
             exit 1
           fi
-          echo "${packages[0]} contains usr/bin/partsmith-desktop and one .desktop file."
+          # The notices resource (desktop.md 2.8), extracted by its member name as the list writes it.
+          member="$(grep -xE '(\./)?usr/lib/Partsmith/THIRD-PARTY-NOTICES\.txt' <<<"$members" || true)"
+          if [ -z "$member" ]; then
+            echo "::error::$deb does not contain usr/lib/Partsmith/THIRD-PARTY-NOTICES.txt."
+            exit 1
+          fi
+          if ! dpkg-deb --fsys-tarfile "$deb" | tar -xO "$member" | cmp - THIRD-PARTY-NOTICES.txt; then
+            echo "::error::usr/lib/Partsmith/THIRD-PARTY-NOTICES.txt in $deb differs from THIRD-PARTY-NOTICES.txt."
+            exit 1
+          fi
+          echo "$deb contains usr/bin/partsmith-desktop, one .desktop file and THIRD-PARTY-NOTICES.txt."
 
   deploy:
     name: Deploy to Cloudflare Pages

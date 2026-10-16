@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use partsmith_features::BodyState;
 use partsmith_model::Id;
-use partsmith_naming::{ElementKind, ElementName, Reference};
+use partsmith_naming::{ElementKind, ElementName, ElementSet, Reference};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, SubShapeKind};
 use partsmith_protocol::{Axis, CurveKind, ElementDescriptor, SurfaceKind, Vec3};
 use partsmith_sketch::{OriginPlane, Placement};
@@ -196,6 +196,16 @@ pub(crate) fn describe_element(
         .element(sub_shape_kind(kind), entry.index)
         .map_err(EngineError::unexpected)?;
     Describer::for_one_element(table, body, timeline).descriptor(kind, entry, &geometry)
+}
+
+/// The full reference a pick of the element named `name` stores: `Reference::from_element`
+/// against the element set of its state, with anchors and merged names (section 3.9). `None`
+/// when the set has no such element.
+pub(crate) fn full_reference(set: &ElementSet, name: &ElementName) -> Option<Reference> {
+    set.elements()
+        .iter()
+        .find(|element| element.name == *name)
+        .map(|info| Reference::from_element(info, set))
 }
 
 /// The shape of a body state that has an element table.

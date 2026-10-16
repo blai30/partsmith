@@ -3,20 +3,25 @@
 use std::collections::BTreeMap;
 use std::io;
 
-use partsmith_engine::{EngineError, PrintRequest, Session};
+use partsmith_engine::{EngineError, PrintRequest, Session, message_candidates};
 use partsmith_model::{Body, Dimension, Document, Id};
 use partsmith_protocol::{
     BoundingBox, Diagnostic, DocHandle, FeatureState, FeatureStatus, MeasureTarget, Measurement,
-    Orientation, ParameterValue, PrintReport, Vec3,
+    Orientation, ParameterValue, PrintReport, Repair, Severity, Vec3,
 };
 use serde::Serialize;
 
 use super::{open, usage_error};
 use crate::arguments::RebuildArguments;
 use crate::error::CliError;
+use crate::messages::MessageMembers;
 use crate::output::{JsonDiagnostic, Output, count, human_number, wire_name};
 use crate::rotation;
 use crate::status::Status;
+
+/// How far the action and candidate lines of a message are indented: two spaces more than the
+/// message line.
+const FOLLOW_UP_INDENT: usize = 6;
 
 /// The report of one rebuild, printed as text or as the JSON document of section 3.3.
 #[derive(Debug, Serialize)]
@@ -46,8 +51,26 @@ struct FeatureReport {
     kind: String,
     /// Its status at the model state.
     status: FeatureState,
-    /// Its error first, then its warnings.
-    messages: Vec<Diagnostic>,
+    /// Its error first, then its warnings, then its info notices.
+    messages: Vec<MessageReport>,
+}
+
+/// One message of a feature (cli.md section 2.2).
+#[derive(Debug, Serialize)]
+struct MessageReport {
+    /// Error, warning or info.
+    severity: Severity,
+    /// Stable snake_case code.
+    code: String,
+    /// The rendered text.
+    message: String,
+    /// Where it is in the document: `/features/<index>` followed by the message's field. Text
+    /// reports print it; in JSON the field alone says it.
+    #[serde(skip)]
+    location: String,
+    /// Its field, suggestion, actions, candidates, reason, root and detail.
+    #[serde(flatten)]
+    members: MessageMembers,
 }
 
 /// The value of one parameter, or why it has none.
@@ -188,30 +211,53 @@ fn rebuild(
     })
 }
 
-/// Pairs each feature status with the feature's type. The engine reports the status of every
-/// feature of the document (engine.md section 2), so a status without a record is an internal
-/// error.
+/// Pairs each feature status with the feature's type, and each of its messages with its location
+/// and candidates. The engine reports the status of every feature of the document (engine.md
+/// section 2), so a status without a record is an internal error.
 fn feature_reports(
     document: &Document,
     statuses: Vec<FeatureStatus>,
 ) -> Result<Vec<FeatureReport>, CliError> {
-    let kinds: BTreeMap<&Id, &str> = document
+    let records: BTreeMap<&Id, (usize, &str)> = document
         .features
         .iter()
-        .map(|record| (&record.id, record.kind.as_str()))
+        .enumerate()
+        .map(|(index, record)| (&record.id, (index, record.kind.as_str())))
         .collect();
     statuses
         .into_iter()
         .map(|status| {
-            let kind = recorded_text(&kinds, &status.id, "the status of feature")?;
+            let (index, kind) = recorded(&records, &status.id, "the status of feature")?;
+            let messages = status
+                .messages
+                .into_iter()
+                .map(|message| message_report(message, &status.repairs, index))
+                .collect();
             Ok(FeatureReport {
                 kind: kind.to_owned(),
                 id: status.id,
                 status: status.status,
-                messages: status.messages,
+                messages,
             })
         })
         .collect()
+}
+
+/// A message of the feature at `index` in the timeline, with the candidates of its `repairs` for
+/// its field.
+fn message_report(message: Diagnostic, repairs: &[Repair], index: usize) -> MessageReport {
+    let field = message.field.as_deref();
+    let location = format!("/features/{index}{}", field.unwrap_or_default());
+    let candidates = field
+        .map(|field| message_candidates(repairs, field))
+        .unwrap_or_default();
+    MessageReport {
+        severity: message.severity,
+        code: message.code.clone(),
+        message: message.message.clone(),
+        location,
+        members: MessageMembers::new(message, candidates),
+    }
 }
 
 /// Pairs each parameter value with the parameter's name. The engine reports the value of every
@@ -229,7 +275,7 @@ fn parameter_reports(
     values
         .into_iter()
         .map(|value| {
-            let name = recorded_text(&names, &value.id, "the value of parameter")?;
+            let name = recorded(&names, &value.id, "the value of parameter")?;
             Ok(ParameterReport {
                 name: name.to_owned(),
                 id: value.id,
@@ -241,14 +287,10 @@ fn parameter_reports(
         .collect()
 }
 
-/// The text the document records for `id` in `records`, such as a parameter's name or a feature's
-/// type. The engine reports only records of the document, so a missing one is an internal error
-/// naming what was `reported`, for example "the status of feature".
-fn recorded_text<'a>(
-    records: &BTreeMap<&Id, &'a str>,
-    id: &Id,
-    reported: &str,
-) -> Result<&'a str, CliError> {
+/// What the document records for `id` in `records`, such as a parameter's name or a feature's
+/// position and type. The engine reports only records of the document, so a missing one is an
+/// internal error naming what was `reported`, for example "the status of feature".
+fn recorded<T: Copy>(records: &BTreeMap<&Id, T>, id: &Id, reported: &str) -> Result<T, CliError> {
     records.get(id).copied().ok_or_else(|| CliError::Internal {
         detail: format!("the engine reported {reported} {id}, which the document does not have"),
     })
@@ -320,11 +362,13 @@ impl Report {
             ))?;
             for message in &feature.messages {
                 output.line(format_args!(
-                    "    {}[{}]: {}",
+                    "    {}[{}] at {}: {}",
                     wire_name(&message.severity),
                     message.code,
+                    message.location,
                     message.message
                 ))?;
+                message.members.write_lines(output, FOLLOW_UP_INDENT)?;
             }
         }
         for body in &self.bodies {
@@ -382,7 +426,8 @@ fn human_point(point: Vec3) -> String {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_protocol::Severity;
+    use partsmith_protocol::{FixAction, FixKind};
+    use serde_json::json;
 
     use super::*;
     use crate::commands::test_support::id;
@@ -410,7 +455,50 @@ mod tests {
             id: id("f-box1"),
             kind: "box".to_owned(),
             status,
-            messages,
+            messages: messages
+                .into_iter()
+                .map(|message| message_report(message, &[], 0))
+                .collect(),
+        }
+    }
+
+    /// A repair of the reference at `path` with one candidate of this query.
+    fn element_repair(path: &str, query: &str) -> Repair {
+        serde_json::from_value(json!({
+            "kind": "element",
+            "path": path,
+            "body": "b-1",
+            "reference": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-15,40|l=20"},
+            "resolution": "missing",
+            "description": "the front top edge of 'Box 1'",
+            "candidates": [{
+                "reference": {"q": query, "fp": "line|n=1,0,0|c=0,-10,15|l=20|adj=2,2"},
+                "description": "the front edge of the cut made by 'Extrude 1'",
+                "relation": "on the front side of 'Box 1', 5 mm from where it was",
+                "meaning": true,
+                "distance": 5.0,
+                "score": 0.9
+            }]
+        }))
+        .expect("a valid element repair")
+    }
+
+    /// The `references_not_found` error of a fillet's `/edges`, with one pick action.
+    fn lost_edges() -> Diagnostic {
+        Diagnostic {
+            field: Some("/edges".to_owned()),
+            actions: vec![FixAction {
+                label: "Pick an edge again".to_owned(),
+                run: FixKind::Pick {
+                    feature: id("f-fil1"),
+                    path: "/edges/0".to_owned(),
+                },
+            }],
+            ..Diagnostic::new(
+                Severity::Error,
+                "references_not_found",
+                "The front top edge of 'Box 1' selected for Edges was cut away.",
+            )
         }
     }
 
@@ -516,7 +604,75 @@ mod tests {
 
         assert_eq!(
             text,
-            "box.ptsm\n  f-box1 box error\n    error[feature_error]: The box is too small.\n  b-1 \"Block\": volume 24000 mm^3, area 5200 mm^2, bounding box (-10, -15, 0) to (10, 15, 40) mm, 6 faces, 12 edges, 8 vertices\n"
+            "box.ptsm\n  f-box1 box error\n    error[feature_error] at /features/0: The box is too small.\n  b-1 \"Block\": volume 24000 mm^3, area 5200 mm^2, bounding box (-10, -15, 0) to (10, 15, 40) mm, 6 faces, 12 edges, 8 vertices\n"
+        );
+    }
+
+    #[test]
+    fn a_message_is_located_by_its_feature_position_and_field() {
+        let message = message_report(lost_edges(), &[], 3);
+
+        assert_eq!(message.location, "/features/3/edges");
+    }
+
+    #[test]
+    fn a_message_takes_the_candidates_of_the_repairs_under_its_field() {
+        let repairs = [
+            element_repair("/edges/0", "edge(f-box1/front|f-ext2/lateral/e-1)"),
+            element_repair("/radius", "edge(f-box1/back|f-box1/top)"),
+        ];
+
+        let message = message_report(lost_edges(), &repairs, 3);
+
+        let queries: Vec<String> = message
+            .members
+            .candidates
+            .iter()
+            .map(|candidate| candidate.reference.query.to_string())
+            .collect();
+        assert_eq!(queries, ["edge(f-box1/front|f-ext2/lateral/e-1)"]);
+    }
+
+    #[test]
+    fn a_message_without_a_field_has_no_candidates() {
+        let message = message_report(
+            Diagnostic::new(
+                Severity::Error,
+                "upstream_failed",
+                "Fix 'Datum plane 1' first.",
+            ),
+            &[element_repair("/edges/0", "edge(f-box1/back|f-box1/top)")],
+            4,
+        );
+
+        assert_eq!(message.location, "/features/4");
+        assert!(message.members.candidates.is_empty());
+    }
+
+    #[test]
+    fn messages_print_their_actions_and_candidates_under_them() {
+        let repairs = [element_repair(
+            "/edges/0",
+            "edge(f-box1/front|f-ext2/lateral/e-1)",
+        )];
+        let mut fillet = feature(FeatureState::Error, Vec::new());
+        fillet.messages = vec![message_report(lost_edges(), &repairs, 1)];
+
+        let text = human(&report(vec![fillet], Vec::new()));
+
+        assert_eq!(
+            text,
+            "box.ptsm\n  f-box1 box error\n    error[references_not_found] at /features/1/edges: The front top edge of 'Box 1' selected for Edges was cut away.\n      suggested: Pick an edge again\n      candidate: edge(f-box1/front|f-ext2/lateral/e-1), on the front side of 'Box 1', 5 mm from where it was\n"
+        );
+    }
+
+    #[test]
+    fn messages_serialize_their_members_after_their_text() {
+        let message = message_report(lost_edges(), &[], 1);
+
+        assert_eq!(
+            serde_json::to_string(&message).expect("messages serialize"),
+            r#"{"severity":"error","code":"references_not_found","message":"The front top edge of 'Box 1' selected for Edges was cut away.","field":"/edges","actions":[{"label":"Pick an edge again","kind":"pick"}]}"#
         );
     }
 

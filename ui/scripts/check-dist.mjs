@@ -1,11 +1,13 @@
-// Checks that a web build can deploy to Cloudflare Pages and keeps its initial JavaScript within the limit of
-// docs/spec/ui.md section 5 (docs/spec/delivery.md section 2.6).
+// Checks that a web build can deploy to Cloudflare Pages, holds the web app's third-party notices and keeps its
+// initial JavaScript within the limit of docs/spec/ui.md section 5 (docs/spec/delivery.md section 2.6).
 // Usage: node scripts/check-dist.mjs [directory]
 import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
+
+import { WEB_NOTICES_HEADING } from './notices.mjs'
 
 /** Cloudflare Pages' per-file limit: 25 MiB. */
 export const PAGES_FILE_LIMIT = 26_214_400
@@ -17,7 +19,13 @@ export const INITIAL_JAVASCRIPT_LIMIT = 250_000
 export const EXPECTED_HEADERS =
   '/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: require-corp\n'
 
+/** The first line of the web app's notices (2.9), defined once in the generator. */
+export { WEB_NOTICES_HEADING }
+
 const USAGE = 'usage: node scripts/check-dist.mjs [directory]'
+
+// The web app's notices, which Vite copies from ui/public into the build (2.9).
+const NOTICES_FILE = 'THIRD-PARTY-NOTICES.txt'
 
 // The attributes of a start tag as Vite writes them: lowercase names, values in double quotes.
 const ATTRIBUTES = String.raw`((?:\s+[a-z][a-z0-9-]*(?:="[^"]*")?)*)\s*\/?`
@@ -103,6 +111,26 @@ async function headersProblems(directory, files) {
   if ((await readFile(join(directory, '_headers'), 'utf8')) !== EXPECTED_HEADERS) {
     return [
       `${directory}/_headers does not match the cross-origin isolation headers of docs/spec/delivery.md section 2.7.`,
+    ]
+  }
+  return []
+}
+
+/**
+ * The problem with `{directory}/THIRD-PARTY-NOTICES.txt`, if it has one: it must be a regular file whose first line,
+ * the text before the first LF, is the web app's heading. Whether the rest is current is the job of check:notices.
+ */
+async function noticesProblems(directory, files) {
+  if (!files.some((file) => file.path === NOTICES_FILE)) {
+    return [
+      `${directory}/${NOTICES_FILE} is missing. Keep ui/public/${NOTICES_FILE}, which pnpm notices writes (docs/spec/delivery.md section 2.9).`,
+    ]
+  }
+  const notices = await readFile(join(directory, NOTICES_FILE), 'utf8')
+  const lineEnd = notices.indexOf('\n')
+  if ((lineEnd === -1 ? notices : notices.slice(0, lineEnd)) !== WEB_NOTICES_HEADING) {
+    return [
+      `${directory}/${NOTICES_FILE} does not start with "${WEB_NOTICES_HEADING}" (docs/spec/delivery.md section 2.9).`,
     ]
   }
   return []
@@ -236,6 +264,7 @@ async function inspect(directory) {
     problems: [
       ...oversized,
       ...(await headersProblems(directory, files)),
+      ...(await noticesProblems(directory, files)),
       ...initialJavaScriptMessages(directory, initial, INITIAL_JAVASCRIPT_LIMIT),
     ],
   }
@@ -243,8 +272,8 @@ async function inspect(directory) {
 
 /**
  * Every problem that keeps `directory` from deploying, as messages (section 4): oversized files by path, then
- * `_headers`, then the initial JavaScript problems; only the missing-directory message when `directory` does not
- * exist; empty when it is ready.
+ * `_headers`, then the notices, then `initialJavaScriptProblems(directory)`; only the missing-directory message when
+ * `directory` does not exist; empty when it is ready.
  */
 export async function checkDist(directory) {
   return (await inspect(directory)).problems

@@ -19,13 +19,15 @@ mod corpus;
 
 use common::{
     GEOMETRY_TOLERANCE, Sent, apply, assert_relative, doc_handle, get_document, measure_body,
-    number, open_text, revision, saved_text, send, session,
+    number, open_text, revision, saved_text, send, session, set_rollback,
 };
 use corpus::{
-    EDIT_LABEL, action, actions, after_edit, apply_fix, box_record, cube10, datum_offset, document,
-    document_with, edited_text, faces_of, features, fix_ref, labels, linear_pattern, message,
-    messages, nc11, parameter, picked_before, r03, r06a, r16, r23a, r28, r50, r56b, r66, record,
-    redrawn_beside_a_split, repairs, send_fix, statuses, two_areas, volume, without_keys,
+    EDIT_LABEL, action, actions, after_edit, apply_fix, back_line_notched, block_back_side,
+    block_edited, block_right_side, box_record, cube10, datum_offset, datum_on_a_split_side,
+    datum_on_face, document, document_with, edited_text, faces_of, features, fix_ref, labels,
+    linear_pattern, message, messages, nc11, parameter, picked_before, r03, r06a, r16, r23a, r28,
+    r50, r56b, r66, record, redrawn_beside_a_split, redrawn_beside_a_split_with_a_face_sketch,
+    repairs, right_side_redrawn_in_two, send_fix, statuses, two_areas, volume, without_keys,
 };
 use partsmith_engine::Session;
 use pretty_assertions::assert_eq;
@@ -166,6 +168,27 @@ fn t126_r06a_a_followed_reference_offers_keep_this_match_and_pick() {
 
     let notice = message(&edited, "f-fil1", "reference_followed");
     assert_eq!(labels(&notice), ["Keep this match", "Pick an edge again"]);
+}
+
+#[test]
+fn t126_a_widened_face_of_a_datum_offers_use_only_and_pick_but_not_keep_all() {
+    let mut session = session();
+    let scenario = block_edited(
+        vec![datum_on_face("f-dp1", "b-1", block_back_side(), "5")],
+        back_line_notched(),
+    );
+
+    let (_, edited) = after_edit(&mut session, &scenario);
+
+    let warning = message(&edited, "f-dp1", "reference_widened");
+    assert_eq!(warning["field"], "/base/face");
+    assert_eq!(
+        labels(&warning),
+        [
+            "Use only the back side of 'Extrude 1' made from the line from (80, 50) to (50, 50) in 'Sketch 1'",
+            "Pick a face again"
+        ]
+    );
 }
 
 #[test]
@@ -564,6 +587,50 @@ fn t128_r66_use_only_stores_the_first_edge() {
     assert_undo_restores(&mut session, doc, &use_only["label"], &before);
 }
 
+#[test]
+fn t128_keep_this_match_of_a_face_replaced_by_two_stores_the_one_the_datum_uses() {
+    let mut session = session();
+    let scenario = block_edited(
+        vec![datum_on_face("f-dp1", "b-1", block_right_side(), "5")],
+        right_side_redrawn_in_two(),
+    );
+    let (doc, edited) = after_edit(&mut session, &scenario);
+    let before = saved_text(&mut session, doc);
+    let notice = message(&edited, "f-dp1", "reference_followed");
+    assert_eq!(notice["field"], "/base/face");
+    assert_eq!(labels(&notice), ["Keep this match", "Pick a face again"]);
+    let expected = picked_before(&before, "f-dp1", "b-1", &["f-ext1/lateral/e-10"]);
+
+    let applied = apply_as_one_entry(&mut session, doc, &action(&notice, "Keep this match"));
+
+    assert_eq!(
+        record(&mut session, doc, "f-dp1")["base"]["face"],
+        expected[0]
+    );
+    assert_eq!(applied.feature_status("f-dp1")["status"], "ok");
+    assert_eq!(messages(&applied, "f-dp1"), Vec::<Value>::new());
+    assert_undo_restores(&mut session, doc, &json!("Keep this match"), &before);
+}
+
+#[test]
+fn t128_keep_this_match_of_a_datum_on_a_split_side_stores_the_first_half() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &datum_on_a_split_side());
+    let before = saved_text(&mut session, doc);
+    let notice = message(&edited, "f-dp1", "reference_followed");
+    assert_eq!(notice["field"], "/base/face");
+    let expected = picked_before(&before, "f-dp1", "b-1", &["f-ext1/lateral/e-2"]);
+
+    let applied = apply_as_one_entry(&mut session, doc, &action(&notice, "Keep this match"));
+
+    assert_eq!(
+        record(&mut session, doc, "f-dp1")["base"]["face"],
+        expected[0]
+    );
+    assert_eq!(applied.feature_status("f-dp1")["status"], "ok");
+    assert_undo_restores(&mut session, doc, &json!("Keep this match"), &before);
+}
+
 // Test 129: keeping regions.
 
 #[test]
@@ -644,6 +711,113 @@ fn t129_keep_these_regions_rewrites_the_references_that_followed_a_replaced_line
     }
     assert_eq!(measured_after["face_count"], measured_before["face_count"]);
     assert_undo_restores(&mut session, doc, &json!("Keep these regions"), &before);
+}
+
+/// The full reference of the front right vertical edge after `redrawn_beside_a_split`'s edit, picked just before the
+/// fillet in the document `text`.
+fn followed_front_right_edge(text: &str) -> Value {
+    picked_before(
+        text,
+        "f-fil1",
+        "b-1",
+        &["edge(f-ext1/lateral/e-1|f-ext1/lateral/e-9)"],
+    )
+    .remove(0)
+}
+
+/// Applies `Keep these regions` of `f-ext1`'s `region_split` notice in `sent`, then checks that the fillet stores
+/// the edge it followed and, once every feature runs, that it is ok with no message.
+fn assert_kept_with_the_fillet_edge(session: &mut Session, doc: u64, sent: &Sent, before: &str) {
+    let keep = action(
+        &message(sent, "f-ext1", "region_split"),
+        "Keep these regions",
+    );
+
+    apply_fix(session, doc, &keep).ok();
+
+    assert_eq!(
+        record(session, doc, "f-fil1")["edges"],
+        json!([followed_front_right_edge(before)])
+    );
+}
+
+#[test]
+fn t129_keep_these_regions_rewrites_the_references_of_features_after_the_focus() {
+    let mut session = session();
+    let (doc, _) = after_edit(&mut session, &redrawn_beside_a_split());
+    let before = saved_text(&mut session, doc);
+    send(
+        &mut session,
+        json!({"type": "begin_transaction", "doc": doc, "label": "Regions"}),
+    )
+    .ok();
+    let focused = send(
+        &mut session,
+        json!({"type": "set_focus", "doc": doc, "feature": "f-ext1"}),
+    );
+    assert_eq!(focused.feature_status("f-fil1")["status"], "rolled_back");
+
+    assert_kept_with_the_fillet_edge(&mut session, doc, &focused, &before);
+
+    let committed = send(
+        &mut session,
+        json!({"type": "commit_transaction", "doc": doc}),
+    );
+    assert_eq!(committed.feature_status("f-fil1")["status"], "ok");
+    assert_eq!(messages(&committed, "f-fil1"), Vec::<Value>::new());
+}
+
+#[test]
+fn t129_keep_these_regions_rewrites_the_references_of_features_after_the_rollback_marker() {
+    let mut session = session();
+    let (doc, _) = after_edit(&mut session, &redrawn_beside_a_split());
+    let before = saved_text(&mut session, doc);
+    let rolled_back = apply(
+        &mut session,
+        doc,
+        Some("Roll back"),
+        json!([set_rollback(Some("f-fil1"))]),
+    );
+    assert_eq!(
+        rolled_back.feature_status("f-fil1")["status"],
+        "rolled_back"
+    );
+
+    assert_kept_with_the_fillet_edge(&mut session, doc, &rolled_back, &before);
+
+    let rolled_forward = apply(
+        &mut session,
+        doc,
+        Some("Roll forward"),
+        json!([set_rollback(None)]),
+    );
+    assert_eq!(rolled_forward.feature_status("f-fil1")["status"], "ok");
+    assert_eq!(messages(&rolled_forward, "f-fil1"), Vec::<Value>::new());
+}
+
+#[test]
+fn t129_keep_these_regions_rewrites_a_face_sketch_that_followed_a_replaced_line_silently() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &redrawn_beside_a_split_with_a_face_sketch());
+    let before = saved_text(&mut session, doc);
+    assert_eq!(messages(&edited, "f-sk2"), Vec::<Value>::new());
+    let followed_side = picked_before(&before, "f-sk2", "b-1", &["f-ext1/lateral/e-9"]);
+    let keep = action(
+        &message(&edited, "f-ext1", "region_split"),
+        "Keep these regions",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &keep);
+
+    assert_eq!(
+        record(&mut session, doc, "f-sk2")["plane"]["face"],
+        followed_side[0]
+    );
+    for feature in ["f-ext1", "f-fil1", "f-sk2"] {
+        assert_eq!(applied.feature_status(feature)["status"], "ok");
+        assert_eq!(messages(&applied, feature), Vec::<Value>::new());
+    }
+    assert_undo_restores(&mut session, doc, &keep["label"], &before);
 }
 
 // Test 130: timeline fixes.

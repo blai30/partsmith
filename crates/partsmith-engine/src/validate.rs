@@ -17,6 +17,7 @@ use partsmith_sketch::{NativeSolver, PointRef, SketchParams, SolveIssue, Solver}
 use serde_json::Value;
 
 use crate::assets::asset_matches;
+use crate::counts::saturating_u32;
 use crate::diagnostics::RunView;
 use crate::document::{canonical_text, canonicalize_params};
 use crate::error::EngineError;
@@ -26,7 +27,6 @@ use crate::status::render_feature_error;
 use crate::types::{
     Asset, FeatureMessage, ValidateOptions, ValidationDiagnostic, ValidationReport,
 };
-use crate::wire::saturating_u32;
 
 /// The type name of the hole feature, whose `points` name sketch points (features/hole.md).
 const HOLE_TYPE: &str = "hole";
@@ -151,7 +151,7 @@ fn feature_messages(
             }
             let (diagnostic, repairs) = feature.project(message, VALIDATED_REVISION, None);
             let candidates = field
-                .map(|field| repair_candidates(&repairs, field))
+                .map(|field| message_candidates(&repairs, field))
                 .unwrap_or_default();
             diagnostics.push(ValidationDiagnostic {
                 severity: diagnostic.severity,
@@ -171,9 +171,11 @@ fn feature_messages(
     diagnostics
 }
 
-/// The candidates of the element repairs whose path is `field` or lies under it (`/edges/0`
-/// under `/edges`), in repair order, then candidate order.
-fn repair_candidates(repairs: &[Repair], field: &str) -> Vec<RepairCandidate> {
+/// The candidates of a feature message whose field is `field` (cli.md section 2.2): those of the
+/// element repairs among a feature's `repairs` whose path is `field` or lies under it (`/edges/0`
+/// under `/edges`), in repair order, then candidate order. `validate` reports them with each
+/// message, and hosts that read statuses pick them out of `FeatureStatus::repairs` with it.
+pub fn message_candidates(repairs: &[Repair], field: &str) -> Vec<RepairCandidate> {
     repairs
         .iter()
         .filter_map(|repair| match repair {
@@ -709,6 +711,81 @@ mod tests {
             expression_code(&ExprErrorKind::DivisionByZero),
             "division_by_zero"
         );
+    }
+
+    /// A repair of the element reference at `path` whose candidates have these queries.
+    fn element_repair(path: &str, queries: &[&str]) -> Repair {
+        let candidates: Vec<serde_json::Value> = queries
+            .iter()
+            .map(|query| {
+                serde_json::json!({
+                    "reference": {"q": query, "fp": "line|n=1,0,0|c=0,0,0|l=1"},
+                    "description": "an edge",
+                    "relation": "where it was",
+                    "meaning": true,
+                    "distance": 0.0,
+                    "score": 1.0
+                })
+            })
+            .collect();
+        serde_json::from_value(serde_json::json!({
+            "kind": "element",
+            "path": path,
+            "body": "b-1",
+            "reference": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,0,0|l=1"},
+            "resolution": "missing",
+            "description": "the front top edge of 'Box 1'",
+            "candidates": candidates
+        }))
+        .expect("a valid element repair")
+    }
+
+    /// The queries of candidates, in order.
+    fn queries(candidates: Vec<RepairCandidate>) -> Vec<String> {
+        candidates
+            .into_iter()
+            .map(|candidate| candidate.reference.query.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn message_candidates_are_those_of_repairs_at_or_under_the_field() {
+        let region: Repair = serde_json::from_value(serde_json::json!({
+            "kind": "region",
+            "path": "/edges/2",
+            "sketch": "f-sk1",
+            "region": {"key": "e-1", "fp": "c=0,0|a=1"},
+            "resolution": "missing",
+            "description": "the region of 'Sketch 1' around (0, 0)",
+            "candidates": []
+        }))
+        .expect("a valid region repair");
+        let repairs = [
+            element_repair(
+                "/edges/0",
+                &[
+                    "edge(f-box1/front|f-ext1/lateral/e-1)",
+                    "edge(f-box1/top|f-ext1/lateral/e-2)",
+                ],
+            ),
+            element_repair("/edges10", &["edge(f-box1/left|f-box1/top)"]),
+            region,
+            element_repair("/edges/1", &["edge(f-box1/back|f-box1/top)"]),
+        ];
+
+        assert_eq!(
+            queries(message_candidates(&repairs, "/edges")),
+            [
+                "edge(f-box1/front|f-ext1/lateral/e-1)",
+                "edge(f-box1/top|f-ext1/lateral/e-2)",
+                "edge(f-box1/back|f-box1/top)"
+            ]
+        );
+        assert_eq!(
+            queries(message_candidates(&repairs, "/edges/1")),
+            ["edge(f-box1/back|f-box1/top)"]
+        );
+        assert!(message_candidates(&repairs, "/radius").is_empty());
     }
 
     fn record(json: serde_json::Value) -> FeatureRecord {

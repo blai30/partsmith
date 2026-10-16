@@ -4,7 +4,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use partsmith_features::BodyState;
 use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName, Reference, Resolution as Resolved, resolve};
 use partsmith_protocol::{
@@ -14,7 +13,7 @@ use partsmith_protocol::{
 
 use crate::display::ElementTable;
 use crate::document::OpenDocument;
-use crate::elements::{describe, describe_element, element_fields, sub_shape_kind};
+use crate::elements::{describe, describe_element, element_fields, full_reference, sub_shape_kind};
 use crate::error::EngineError;
 use crate::session::Session;
 use crate::state::{BodyView, display_body};
@@ -78,7 +77,10 @@ impl Session {
             pick.kind,
             pick.index,
         )?;
-        descriptor.reference = full_reference(&view.state, &descriptor.reference.query)?;
+        descriptor.reference = full_reference(table.element_set(), &descriptor.reference.query)
+            .ok_or_else(|| {
+                EngineError::internal("a displayed element is not in its element set")
+            })?;
         Ok(descriptor)
     }
 
@@ -225,18 +227,6 @@ fn displayed_body(open: &OpenDocument, pick: &Pick) -> Result<Id, EngineError> {
         return Err(EngineError::StalePick);
     }
     Ok(body.clone())
-}
-
-/// The full reference of the element named `name` of a body state: `Reference::from_element`
-/// against the state's element set, with anchors and merged names (section 3.9).
-fn full_reference(state: &BodyState, name: &ElementName) -> Result<Reference, EngineError> {
-    let set = state.element_set().map_err(EngineError::unexpected)?;
-    let info = set
-        .elements()
-        .iter()
-        .find(|element| element.name == *name)
-        .ok_or_else(|| EngineError::internal("a displayed element is not in its element set"))?;
-    Ok(Reference::from_element(info, &set))
 }
 
 /// The display state of a body with geometry: `unknown_body` or `body_empty` otherwise.

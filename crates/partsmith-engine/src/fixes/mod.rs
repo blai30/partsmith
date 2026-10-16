@@ -94,6 +94,7 @@ impl Session {
     /// `stale_fix` when the document's revision is not `fix.revision`, or its latest statuses no
     /// longer offer that `apply` action. Returns the new revision.
     pub fn apply_fix(&mut self, doc: DocHandle, fix: &FixRef) -> Result<u64, EngineError> {
+        // Borrowed by field, so that `whole_run` can still use the recompute.
         let open = self
             .documents
             .get(&doc)

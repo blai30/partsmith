@@ -2,7 +2,7 @@
 // ps_alloc, ps_call and ps_free, following the calling sequence of ui/src/core/bridge.ts
 // (protocol.md section 2.10).
 //
-// Usage: node engine_info_round_trip.mjs <partsmith_core.mjs> <partsmith_core.wasm> <engine version>
+// Usage: node engine_info_round_trip.mjs <partsmith_core.mjs> <partsmith_core.wasm> <engine version> <format version>
 //
 // Prints the response frame header and exits with status 0 when the round trip matches the spec;
 // otherwise an assertion fails and Node exits with a nonzero status.
@@ -11,10 +11,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
-const [modulePath, wasmPath, expectedEngineVersion] = process.argv.slice(2)
+const [modulePath, wasmPath, expectedEngineVersion, expectedFormatVersion] = process.argv.slice(2)
 assert.ok(
-  modulePath && wasmPath && expectedEngineVersion,
-  'usage: node engine_info_round_trip.mjs <partsmith_core.mjs> <partsmith_core.wasm> <engine version>',
+  modulePath && wasmPath && expectedEngineVersion && expectedFormatVersion,
+  'usage: node engine_info_round_trip.mjs <partsmith_core.mjs> <partsmith_core.wasm> <engine version> <format version>',
 )
 
 // Example A of protocol.md section 2.2: request id 1, engine_info, no buffers, 120 bytes.
@@ -88,7 +88,7 @@ assert.equal(response.result.kind, 'ok')
 assert.equal(response.result.type, 'engine_info')
 assert.equal(response.result.protocol_version, 1)
 assert.equal(response.result.engine_version, expectedEngineVersion)
-assert.equal(response.result.format_version, 1)
+assert.equal(response.result.format_version, Number(expectedFormatVersion))
 assert.match(response.result.kernel, /^OCCT \d+\.\d+\.\d+$/)
 
 console.log(JSON.stringify(header))

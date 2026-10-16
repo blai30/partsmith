@@ -10,6 +10,7 @@ mod arguments;
 mod commands;
 mod error;
 mod files;
+mod messages;
 mod output;
 mod rotation;
 mod status;

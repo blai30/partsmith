@@ -166,11 +166,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The tagged commit, for its THIRD-PARTY-NOTICES.txt; checkout empties the workspace, so it comes first.
+      - uses: actions/checkout@v7.0.1
       - uses: actions/download-artifact@v8.0.2
         with:
           pattern: bundle-*
           path: release
           merge-multiple: true
+      # The desktop app's notices are a release asset, which SHA256SUMS covers too (delivery.md 2.9).
+      - name: Add the third-party notices
+        run: cp THIRD-PARTY-NOTICES.txt release/
       - name: Write SHA256SUMS
         working-directory: release
         run: |

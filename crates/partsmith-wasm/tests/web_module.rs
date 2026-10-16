@@ -1,4 +1,4 @@
-//! Runs the built web core module under Node (protocol.md section 2.10): `tests/node/engine_info_round_trip.mjs` loads `ui/public/core/partsmith_core.mjs` with its `.wasm`, round-trips an `engine_info` request through `ps_alloc`, `ps_call` and `ps_free`, and checks the response.
+//! Runs the built web core module under Node (protocol.md section 2.10): `tests/node/engine_info_round_trip.mjs` loads `ui/public/core/partsmith_core.mjs` with its `.wasm`, round-trips an `engine_info` request through `ps_alloc`, `ps_call` and `ps_free`, and checks the response against this build's engine and format versions (test 48), so a module built before a version change fails.
 //!
 //! Build the module with `scripts/build-wasm.sh` first. The test is skipped, with a message saying why, when Node or the built module is missing, unless `PARTSMITH_REQUIRE_WEB_MODULE` is `1`: then it fails instead, so the CI job that builds the module cannot pass without running the round trip (delivery.md section 6, test 7). Set `NODE` to use a Node other than the one on `PATH`.
 
@@ -6,6 +6,8 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use partsmith_model::FORMAT_VERSION;
 
 /// The environment variable that turns a skip into a failure when it is `1`.
 const REQUIRE_VARIABLE: &str = "PARTSMITH_REQUIRE_WEB_MODULE";
@@ -72,6 +74,7 @@ fn built_module_round_trips_an_engine_info_request_under_node() {
         .arg(&module)
         .arg(&wasm)
         .arg(env!("CARGO_PKG_VERSION"))
+        .arg(FORMAT_VERSION.to_string())
         .output()
         .expect("Node ran a moment ago, so it starts again");
 

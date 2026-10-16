@@ -86,9 +86,13 @@ def test_t055_missing_reference_warns_and_keeps_the_feature():
     with Part("P"):
         box(20, 30, 40)
         missing = Ref("edge(f-nope/x|f-nope/y)", "line|n=1,0,0|c=999,0,0|l=1")
-        with pytest.warns(PartsmithWarning):
+        with pytest.warns(PartsmithWarning) as record:
             fillet_feature = fillet([edges().top()[0], missing], 1)
 
+    codes = [warning.message.code for warning in record]
+    assert codes[0] == "selection_index"
+    [missing_warning] = [warning.message for warning in record if warning.message.code == "reference_missing"]
+    assert missing_warning.field == "/edges/1"
     assert fillet_feature.status == "warning"
     assert [feature.id for feature in document.features][-1] == fillet_feature.id
 

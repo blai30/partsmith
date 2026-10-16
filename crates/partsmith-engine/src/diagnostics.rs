@@ -21,9 +21,9 @@ use partsmith_recompute::{
 };
 use partsmith_sketch::RegionRef;
 
+use crate::counts::saturating_u32;
 use crate::fixes::{offers, value_at};
 use crate::state::state_before;
-use crate::wire::saturating_u32;
 
 /// Finds a named element in the current model-layer mesh of a body (display sessions only), for
 /// the `element` of candidates.
@@ -239,18 +239,15 @@ impl<'v> FeatureView<'v> {
             .zip(words.candidates)
             .map(|((candidate, kept), description)| {
                 let query = &candidate.reference.query;
-                let distance = distance_words(candidate.distance, units);
-                let relation = match kept.as_ref().and_then(|face| words.kept.get(face)) {
-                    Some(face) if query.kind() == ElementKind::Face => {
-                        format!("next to {face}, {distance}")
-                    }
-                    Some(face) => format!("on {face}, {distance}"),
-                    None => distance,
-                };
+                let kept = kept.as_ref().and_then(|face| words.kept.get(face));
                 RepairCandidate {
                     reference: candidate.reference.clone(),
                     description,
-                    relation,
+                    relation: relation(
+                        query.kind(),
+                        kept,
+                        distance_words(candidate.distance, units),
+                    ),
                     meaning: candidate.meaning,
                     distance: candidate.distance,
                     score: candidate.score,
@@ -388,23 +385,44 @@ pub(crate) fn region_words(
         .map(|region| sketch_coordinates(region.fp.centroid, units))
         .collect();
     match centroids.as_slice() {
-        [one] => format!("the region of '{sketch}' around {one}"),
-        [earlier @ .., second_to_last, last] => {
-            let mut listed: Vec<&str> = earlier.iter().map(String::as_str).collect();
-            listed.push(second_to_last);
-            let leading = listed.join(", ");
-            format!(
-                "the {} regions of '{sketch}' around {leading} and {last}",
-                centroids.len()
-            )
-        }
         [] => format!("a region of '{sketch}'"),
+        [one] => format!("the region of '{sketch}' around {one}"),
+        several => format!(
+            "the {} regions of '{sketch}' around {}",
+            several.len(),
+            and_list(several)
+        ),
     }
 }
 
+/// Words joined by `, ` and a final ` and `.
+pub(crate) fn and_list(words: &[String]) -> String {
+    match words {
+        [] => String::new(),
+        [one] => one.clone(),
+        [leading @ .., last] => format!("{} and {last}", leading.join(", ")),
+    }
+}
+
+/// How a candidate of `kind` relates to the lost element (section 3.4): `next to {kept}` for a
+/// face and `on {kept}` for an edge or vertex that keeps a face of it, then `distance`.
+fn relation(kind: ElementKind, kept: Option<&String>, distance: String) -> String {
+    match kept {
+        Some(face) if kind == ElementKind::Face => format!("next to {face}, {distance}"),
+        Some(face) => format!("on {face}, {distance}"),
+        None => distance,
+    }
+}
+
+/// The relative difference up to which a rounded distance still equals the distance: the 1e-6
+/// precision of fingerprint numbers (naming.md section 3.7.3), so the float noise of centroid
+/// differences (15.3 - 15 is 0.3000000000000007) is no rounding.
+const ROUNDING_TOLERANCE: f64 = 1e-6;
+
 /// How far a candidate is from where the lost element was (section 3.4): the distance in the
-/// document units rounded to 2 significant digits, preceded by `about` when rounding changed it,
-/// then `from where it was`; `where it was` below `LINEAR_TOLERANCE`.
+/// document units rounded to 2 significant digits, preceded by `about` when rounding changed it
+/// by more than `ROUNDING_TOLERANCE`, then `from where it was`; `where it was` below
+/// `LINEAR_TOLERANCE`.
 fn distance_words(millimeters: f64, units: partsmith_model::Units) -> String {
     if millimeters < LINEAR_TOLERANCE {
         return "where it was".to_string();
@@ -413,7 +431,7 @@ fn distance_words(millimeters: f64, units: partsmith_model::Units) -> String {
     let shown = millimeters / factor;
     let rounded = round_to_two_digits(shown);
     let text = format_value(FieldUnit::Length, rounded * factor, units);
-    if rounded == shown {
+    if (rounded - shown).abs() <= ROUNDING_TOLERANCE * shown {
         format!("{text} from where it was")
     } else {
         format!("about {text} from where it was")
@@ -604,6 +622,49 @@ mod tests {
         assert_eq!(
             distance_words(20.615528, Units::In),
             "about 0.81 in from where it was"
+        );
+    }
+
+    #[test]
+    fn candidates_relate_by_the_face_they_keep_then_their_distance() {
+        let top = "the top of 'Box 1'".to_string();
+        let distance = || "5 mm from where it was".to_string();
+
+        assert_eq!(
+            relation(ElementKind::Face, Some(&top), distance()),
+            "next to the top of 'Box 1', 5 mm from where it was"
+        );
+        assert_eq!(
+            relation(ElementKind::Edge, Some(&top), distance()),
+            "on the top of 'Box 1', 5 mm from where it was"
+        );
+        assert_eq!(
+            relation(ElementKind::Vertex, None, distance()),
+            "5 mm from where it was"
+        );
+    }
+
+    #[test]
+    fn words_are_listed_with_a_final_and() {
+        let words = ["a".to_string(), "b".to_string(), "c".to_string()];
+
+        assert_eq!(and_list(&words[..1]), "a");
+        assert_eq!(and_list(&words[..2]), "a and b");
+        assert_eq!(and_list(&words), "a, b and c");
+    }
+
+    #[test]
+    fn float_noise_of_a_decimal_centroid_is_no_rounding() {
+        let distance = 15.3 - 15.0;
+        assert_ne!(distance, 0.3);
+
+        assert_eq!(
+            distance_words(distance, Units::Mm),
+            "0.3 mm from where it was"
+        );
+        assert_eq!(
+            distance_words(0.3 + 2e-6, Units::Mm),
+            "about 0.3 mm from where it was"
         );
     }
 

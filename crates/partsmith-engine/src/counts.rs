@@ -1,5 +1,6 @@
-//! Counts and positions as the 32-bit numbers the protocol and the typed API carry: buffer and
-//! triangle indices, element counts, edit indices, and lines and columns of a text.
+//! The engine's `usize` counts and positions as the 32-bit numbers the protocol and the typed API
+//! carry: buffer and triangle indices, element counts, edit and action indices, and lines and
+//! columns of a text.
 
 /// A count or position as a protocol `u32`; values above `u32::MAX` saturate.
 pub(crate) fn saturating_u32(value: usize) -> u32 {

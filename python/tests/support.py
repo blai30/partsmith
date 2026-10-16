@@ -4,7 +4,7 @@ import json
 import math
 from pathlib import Path
 
-from partsmith import Document, EngineError, Part, run_code
+from partsmith import Document, EngineError, Part, Ref, run_code
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 """The repository root (python/tests/support.py is two levels below it)."""
@@ -58,6 +58,16 @@ def stored_feature(document: Document, feature_id: str) -> dict:
         if record["id"] == feature_id:
             return record
     raise AssertionError(f"the document has no feature {feature_id}")
+
+
+def reference_json(reference: Ref) -> dict:
+    """The stored JSON of a reference (naming.md section 2.4): `q`, `fp`, then `nb` and `merged` when it has them."""
+    stored = {"q": reference.q, "fp": reference.fp}
+    if reference.anchors:
+        stored["nb"] = reference.anchors
+    if reference.merged:
+        stored["merged"] = reference.merged
+    return stored
 
 
 def code_lines(code: str) -> list[str]:
@@ -177,6 +187,16 @@ def request_frame(request_id: int, command: dict) -> bytes:
     ).encode("utf-8")
     padding = (8 - len(header) % 8) % 8
     return b"PSM1" + len(header).to_bytes(4, "little") + header + bytes(padding)
+
+
+def request_command(frame: bytes) -> dict:
+    """The command of a request frame with one request (protocol.md section 2.2)."""
+    assert frame[:4] == b"PSM1"
+    header_length = int.from_bytes(frame[4:8], "little")
+    header = json.loads(frame[8 : 8 + header_length].decode("utf-8"))
+    [message] = header["messages"]
+    assert message["kind"] == "request"
+    return message["command"]
 
 
 def response_message(frame: bytes) -> dict:

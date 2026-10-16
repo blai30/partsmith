@@ -1,4 +1,4 @@
-//! Acceptance tests for the checked-in configuration (desktop.md section 6, tests 33 to 35): `tauri.conf.json`, the capability file and the icons.
+//! Acceptance tests for the checked-in configuration (desktop.md section 6, tests 33 to 35 and 53): `tauri.conf.json`, the capability file, the icons and the third-party notices the bundles ship.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -10,6 +10,14 @@ use serde_json::{Value, json};
 /// The crate folder, `desktop/src-tauri`.
 fn crate_folder() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
+}
+
+/// The repository root, two folders above the crate folder.
+fn repository_root() -> &'static Path {
+    crate_folder()
+        .parent()
+        .and_then(Path::parent)
+        .expect("desktop/src-tauri is two folders below the repository root")
 }
 
 /// Parses a JSON file of the crate folder.
@@ -101,6 +109,9 @@ fn expected_configuration() -> Value {
                 "icons/icon.icns",
                 "icons/icon.ico"
             ],
+            "resources": {
+                "../../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
+            },
             "category": "GraphicsAndDesign",
             "shortDescription": "Parametric CAD for 3D printing",
             "longDescription": "Partsmith is an open-source parametric CAD application for designing parts for 3D printing.",
@@ -207,4 +218,52 @@ fn t035_the_icon_folder_holds_only_the_bundle_icons() {
         .collect();
 
     assert_eq!(file_names("icons"), listed);
+}
+
+#[test]
+fn t053_the_bundle_ships_the_notices_as_its_one_resource_without_a_license_to_accept() {
+    let bundle = &json_file("tauri.conf.json")["bundle"];
+
+    assert_eq!(
+        bundle["resources"],
+        json!({ "../../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt" })
+    );
+    assert!(
+        bundle.get("licenseFile").is_none(),
+        "bundle.licenseFile would make the notices a license the user must accept"
+    );
+}
+
+#[test]
+fn t053_the_resource_is_the_desktop_notices_of_the_repository_root() {
+    let resources = json_file("tauri.conf.json")["bundle"]["resources"].clone();
+    let sources: Vec<&String> = resources
+        .as_object()
+        .expect("bundle.resources is an object")
+        .keys()
+        .collect();
+    let [source] = sources.as_slice() else {
+        panic!("bundle.resources has exactly one source, found {sources:?}");
+    };
+    let resource = crate_folder().join(source);
+    let notices = repository_root().join("THIRD-PARTY-NOTICES.txt");
+
+    let canonical = |path: &Path| {
+        fs::canonicalize(path)
+            .unwrap_or_else(|error| panic!("resolving {} failed: {error}", path.display()))
+    };
+    assert_eq!(canonical(&resource), canonical(&notices));
+    let metadata = fs::symlink_metadata(&resource)
+        .unwrap_or_else(|error| panic!("reading {} failed: {error}", resource.display()));
+    assert!(
+        metadata.is_file(),
+        "{} is a regular file",
+        resource.display()
+    );
+    let text = fs::read_to_string(&resource)
+        .unwrap_or_else(|error| panic!("reading {} failed: {error}", resource.display()));
+    assert_eq!(
+        text.split('\n').next(),
+        Some("Third-party notices for the Partsmith desktop app")
+    );
 }

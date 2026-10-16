@@ -8,13 +8,15 @@ use partsmith_features::BodyState;
 use partsmith_mesh::{
     BoundingBox, EdgePolyline, Mesh, RenderBuffers, TessellationTolerance, VertexMarker,
 };
-use partsmith_naming::{EdgeInfo, ElementKind, ElementName, FaceInfo, TopologyInfo, VertexInfo};
+use partsmith_naming::{
+    EdgeInfo, ElementInfo, ElementKind, ElementName, ElementSet, FaceInfo, TopologyInfo, VertexInfo,
+};
 use partsmith_occt_sys::{Shape, SubShapeKind};
 use partsmith_protocol::ElementDescriptor;
 
+use crate::counts::saturating_u32;
 use crate::error::EngineError;
 use crate::state::StateKey;
-use crate::wire::saturating_u32;
 
 /// One displayed element: its name and its 1-based kernel index.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +31,9 @@ pub(crate) struct TableEntry {
 /// vertices of those edges, each sorted by name, repeated names by kernel index. An element's
 /// display id is its position. The table shares the body state's topology, which the feature that
 /// built the state usually carried (features.md section 2.7), so building a table queries no
-/// kernel topology.
+/// kernel topology, and its element set, which the table builds, so whatever builds the table
+/// (the first mesh of the state, or the first query of a headless session) pays for it and every
+/// pick of the state finds it built (engine.md open issue 11).
 #[derive(Debug)]
 pub(crate) struct ElementTable {
     /// Displayed faces.
@@ -47,6 +51,9 @@ pub(crate) struct ElementTable {
     /// The topology and fingerprints of the shape, shared with its body state; descriptors read
     /// their adjacent elements and references from it.
     topology: Arc<TopologyInfo>,
+    /// The resolver's view of the state, shared with its body state; picks make their full
+    /// references against it.
+    element_set: Arc<ElementSet>,
     /// Descriptors in table order, computed on first use.
     descriptors: OnceLock<Result<Arc<[ElementDescriptor]>, EngineError>>,
 }
@@ -58,6 +65,7 @@ impl ElementTable {
             return Err(EngineError::internal("an element table needs a shape"));
         }
         let topology = state.topology().map_err(EngineError::unexpected)?;
+        let element_set = state.element_set().map_err(EngineError::unexpected)?;
         let naming = state.naming();
         let consistent = [
             (ElementKind::Face, topology.faces.len()),
@@ -110,6 +118,7 @@ impl ElementTable {
             edges,
             vertices,
             topology,
+            element_set,
             descriptors: OnceLock::new(),
         })
     }
@@ -117,6 +126,11 @@ impl ElementTable {
     /// The topology and fingerprints of the shape the table was built from.
     pub(crate) fn topology(&self) -> &TopologyInfo {
         &self.topology
+    }
+
+    /// The resolver's view of the body state the table was built from.
+    pub(crate) fn element_set(&self) -> &ElementSet {
+        &self.element_set
     }
 
     /// The displayed elements of `kind` in display id order.
@@ -191,7 +205,18 @@ impl ElementTable {
         let elements = topology.faces.len() * size_of::<FaceInfo>()
             + topology.edges.len() * size_of::<EdgeInfo>()
             + topology.vertices.len() * size_of::<VertexInfo>();
-        names + ids * size_of::<Option<u32>>() + indices * size_of::<u32>() + elements
+        // Element infos share their names' text with the naming map; their name lists, and the
+        // set's indexes by name, cost about one name handle per entry.
+        let infos: usize = self
+            .element_set
+            .elements()
+            .iter()
+            .map(|info| {
+                size_of::<ElementInfo>()
+                    + (1 + info.adjacency.len() + info.vertices.len()) * size_of::<ElementName>()
+            })
+            .sum();
+        names + ids * size_of::<Option<u32>>() + indices * size_of::<u32>() + elements + infos
     }
 }
 
@@ -550,6 +575,9 @@ mod tests {
                 edges: Vec::new(),
                 vertices: Vec::new(),
             }),
+            element_set: BodyState::empty()
+                .element_set()
+                .expect("an empty body has an element set"),
             descriptors: OnceLock::new(),
         }
     }

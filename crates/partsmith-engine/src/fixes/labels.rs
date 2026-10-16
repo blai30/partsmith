@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use super::params::{field_path, is_list_entry};
 use super::{Offer, OfferRun};
-use crate::diagnostics::{FeatureView, region_words};
+use crate::diagnostics::{FeatureView, and_list, region_words};
 
 /// The code of the warning whose reference now covers every element its replacement makes
 /// (features.md section 3.8), whose keep and use fixes read `Keep all` and `Use only`.
@@ -343,15 +343,6 @@ fn selection_noun(selection: SelectionKind) -> &'static str {
     }
 }
 
-/// Words joined by `, ` and a final ` and `.
-fn and_list(words: &[String]) -> String {
-    match words {
-        [] => String::new(),
-        [one] => one.clone(),
-        [leading @ .., last] => format!("{} and {last}", leading.join(", ")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,14 +363,5 @@ mod tests {
         assert_eq!(element_noun(ElementKind::Edge), "an edge");
         assert_eq!(selection_noun(SelectionKind::SketchRegion), "a region");
         assert_eq!(selection_noun(SelectionKind::Axis), "an axis");
-    }
-
-    #[test]
-    fn words_are_listed_with_a_final_and() {
-        let words = ["a".to_string(), "b".to_string(), "c".to_string()];
-
-        assert_eq!(and_list(&words[..1]), "a");
-        assert_eq!(and_list(&words[..2]), "a and b");
-        assert_eq!(and_list(&words), "a, b and c");
     }
 }

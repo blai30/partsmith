@@ -2,15 +2,33 @@
 
 use std::io;
 
-use partsmith_engine::{Session, ValidateOptions, ValidationReport};
+use partsmith_engine::{Session, ValidateOptions, ValidationDiagnostic, ValidationReport};
+use partsmith_protocol::Severity;
 use serde::Serialize;
 
 use super::usage_error;
 use crate::arguments::ValidateArguments;
 use crate::error::CliError;
 use crate::files::Input;
+use crate::messages::MessageMembers;
 use crate::output::{JsonDiagnostic, Output, diagnostic_line};
 use crate::status::Status;
+
+/// The codes of the warnings that a stored reference no longer means what it meant: a lost,
+/// ambiguous or guessed reference, its region forms, and a sketch whose face is lost or no longer
+/// usable. The document rebuilds, but the file fails (cli.md section 3.1 step 3).
+const LOST_REFERENCE_CODES: [&str; 7] = [
+    "reference_missing",
+    "reference_ambiguous",
+    "reference_guessed",
+    "region_missing",
+    "region_ambiguous",
+    "region_remapped",
+    "plane_fallback",
+];
+
+/// How far the action and candidate lines of a feature message are indented under its line.
+const FOLLOW_UP_INDENT: usize = 2;
 
 /// The JSON report of `validate --json`.
 #[derive(Debug, Serialize)]
@@ -57,7 +75,7 @@ pub fn run(
         if arguments.json {
             files.push(file_report(name, checked, file_status));
         } else {
-            write_human(&name, &checked, output)?;
+            write_human(&name, checked, output)?;
         }
     }
     if arguments.json {
@@ -86,12 +104,28 @@ fn check(
     Ok(session.validate(&text, &assets, options))
 }
 
-/// A file fails with an error diagnostic, or a warning when warnings are denied.
+/// A file fails with an error diagnostic, a warning of a lost, ambiguous or guessed reference, or
+/// any warning when warnings are denied; info notices never fail it.
 fn report_status(report: &ValidationReport, deny_warnings: bool) -> Status {
-    if report.has_errors() || (deny_warnings && report.has_warnings()) {
+    if report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| fails(diagnostic, deny_warnings))
+    {
         Status::Problems
     } else {
         Status::Success
+    }
+}
+
+/// Whether one diagnostic fails its file.
+fn fails(diagnostic: &ValidationDiagnostic, deny_warnings: bool) -> bool {
+    match diagnostic.severity {
+        Severity::Error => true,
+        Severity::Warning => {
+            deny_warnings || LOST_REFERENCE_CODES.contains(&diagnostic.code.as_str())
+        }
+        Severity::Info => false,
     }
 }
 
@@ -116,21 +150,26 @@ fn file_report(
     }
 }
 
-/// Prints every diagnostic of one input, `<path>: ok` when it has none, or the error that
-/// stopped it.
+/// Prints every diagnostic of one input, each feature message followed by its actions and
+/// candidates, `<path>: ok` when it has none, or the error that stopped it.
 fn write_human(
     name: &str,
-    checked: &Result<ValidationReport, CliError>,
+    checked: Result<ValidationReport, CliError>,
     output: &mut Output<'_>,
 ) -> io::Result<()> {
     match checked {
         Ok(report) if report.diagnostics.is_empty() => output.line(format_args!("{name}: ok")),
-        Ok(report) => report
-            .diagnostics
-            .iter()
-            .try_for_each(|diagnostic| output.line(diagnostic_line(name, diagnostic))),
+        Ok(report) => report.diagnostics.into_iter().try_for_each(|diagnostic| {
+            output.line(diagnostic_line(name, &diagnostic))?;
+            match diagnostic.feature {
+                Some(message) => {
+                    MessageMembers::from(*message).write_lines(output, FOLLOW_UP_INDENT)
+                }
+                None => Ok(()),
+            }
+        }),
         Err(error) => {
-            output.error(error);
+            output.error(&error);
             Ok(())
         }
     }
@@ -138,31 +177,61 @@ fn write_human(
 
 #[cfg(test)]
 mod tests {
-    use partsmith_engine::ValidationDiagnostic;
-    use partsmith_protocol::Severity;
+    use partsmith_engine::FeatureMessage;
+    use partsmith_protocol::{Diagnostic, FixAction, FixKind};
 
     use super::*;
-    use crate::commands::test_support::session;
+    use crate::commands::test_support::{id, session};
     use crate::output::capture;
+
+    fn diagnostic(severity: Severity, code: &str) -> ValidationDiagnostic {
+        ValidationDiagnostic {
+            severity,
+            code: code.to_owned(),
+            message: "Message.".to_owned(),
+            line: None,
+            column: None,
+            path: None,
+            feature: None,
+        }
+    }
 
     fn report(severities: &[Severity]) -> ValidationReport {
         ValidationReport {
             diagnostics: severities
                 .iter()
-                .map(|severity| ValidationDiagnostic {
-                    severity: *severity,
-                    code: "code".to_owned(),
-                    message: "Message.".to_owned(),
-                    line: None,
-                    column: None,
-                    path: None,
-                    feature: None,
-                })
+                .map(|severity| diagnostic(*severity, "code"))
                 .collect(),
         }
     }
 
-    fn human(checked: &Result<ValidationReport, CliError>) -> (String, String) {
+    /// The `reference_missing` warning of a fillet at `/features/2/edges/0` with one action.
+    fn lost_edge() -> ValidationDiagnostic {
+        let projected = Diagnostic {
+            field: Some("/edges/0".to_owned()),
+            actions: vec![FixAction {
+                label: "Pick an edge again".to_owned(),
+                run: FixKind::Pick {
+                    feature: id("f-fil1"),
+                    path: "/edges/0".to_owned(),
+                },
+            }],
+            detail: Some("edges[0] resolution=missing".to_owned()),
+            ..Diagnostic::new(Severity::Warning, "reference_missing", "The edge is gone.")
+        };
+        ValidationDiagnostic {
+            path: Some("/features/2/edges/0".to_owned()),
+            feature: Some(Box::new(FeatureMessage {
+                feature: id("f-fil1"),
+                diagnostic: projected,
+                candidates: Vec::new(),
+            })),
+            message: "The edge is gone.".to_owned(),
+            ..diagnostic(Severity::Warning, "reference_missing")
+        }
+    }
+
+    fn human(checked: Result<ValidationReport, CliError>) -> (String, String) {
         let ((), stdout, stderr) = capture(|output| write_human("box.ptsm", checked, output));
         (stdout, stderr)
     }
@@ -184,6 +253,65 @@ mod tests {
     }
 
     #[test]
+    fn warnings_of_references_that_no_longer_mean_what_they_meant_fail_a_file() {
+        for code in LOST_REFERENCE_CODES {
+            let warned = ValidationReport {
+                diagnostics: vec![diagnostic(Severity::Warning, code)],
+            };
+
+            assert_eq!(report_status(&warned, false), Status::Problems, "{code}");
+        }
+    }
+
+    #[test]
+    fn a_widened_reference_fails_a_file_only_when_warnings_are_denied() {
+        let widened = ValidationReport {
+            diagnostics: vec![diagnostic(Severity::Warning, "reference_widened")],
+        };
+
+        assert_eq!(report_status(&widened, false), Status::Success);
+        assert_eq!(report_status(&widened, true), Status::Problems);
+    }
+
+    #[test]
+    fn a_followed_reference_notice_never_fails_a_file() {
+        let followed = ValidationReport {
+            diagnostics: vec![diagnostic(Severity::Info, "reference_followed")],
+        };
+
+        assert_eq!(report_status(&followed, true), Status::Success);
+    }
+
+    #[test]
+    fn feature_messages_print_their_actions_under_their_line() {
+        let report = ValidationReport {
+            diagnostics: vec![lost_edge(), diagnostic(Severity::Error, "code")],
+        };
+
+        let (stdout, stderr) = human(Ok(report));
+
+        assert_eq!(
+            stdout,
+            "box.ptsm: warning[reference_missing] at /features/2/edges/0: The edge is gone.\n  suggested: Pick an edge again\nbox.ptsm: error[code]: Message.\n"
+        );
+        assert_eq!(stderr, "");
+    }
+
+    #[test]
+    fn json_entries_of_feature_messages_name_their_feature_and_members() {
+        let report = ValidationReport {
+            diagnostics: vec![lost_edge()],
+        };
+
+        let entry = file_report("box.ptsm".to_owned(), Ok(report), Status::Problems);
+
+        assert_eq!(
+            serde_json::to_string(&entry.diagnostics[0]).expect("diagnostics serialize"),
+            r#"{"severity":"warning","code":"reference_missing","message":"The edge is gone.","path":"/features/2/edges/0","feature":"f-fil1","field":"/edges/0","actions":[{"label":"Pick an edge again","kind":"pick"}],"detail":"edges[0] resolution=missing"}"#
+        );
+    }
+
+    #[test]
     fn infos_never_fail_a_file() {
         assert_eq!(
             report_status(&report(&[Severity::Info]), true),
@@ -194,14 +322,14 @@ mod tests {
     #[test]
     fn a_clean_file_prints_ok() {
         assert_eq!(
-            human(&Ok(report(&[]))),
+            human(Ok(report(&[]))),
             ("box.ptsm: ok\n".to_owned(), String::new())
         );
     }
 
     #[test]
     fn diagnostics_print_one_line_each() {
-        let (stdout, stderr) = human(&Ok(report(&[Severity::Warning, Severity::Error])));
+        let (stdout, stderr) = human(Ok(report(&[Severity::Warning, Severity::Error])));
 
         assert_eq!(
             stdout,
@@ -217,7 +345,7 @@ mod tests {
             source: io::Error::new(io::ErrorKind::NotFound, "gone"),
         };
 
-        let (stdout, stderr) = human(&Err(error));
+        let (stdout, stderr) = human(Err(error));
 
         assert_eq!(stdout, "");
         assert_eq!(stderr, "error: cannot read \"box.ptsm\": gone\n");

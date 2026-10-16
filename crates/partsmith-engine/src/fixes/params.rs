@@ -89,7 +89,12 @@ fn collect_references(
 }
 
 /// Adds the references of `value` at `pointer` (section 3.24's rule).
-fn collect_value(value: &Value, pointer: &str, body: Option<&Id>, found: &mut Vec<StoredReference>) {
+fn collect_value(
+    value: &Value,
+    pointer: &str,
+    body: Option<&Id>,
+    found: &mut Vec<StoredReference>,
+) {
     match value {
         Value::Object(members) if members.contains_key("q") => {
             if let Ok(reference) = serde_json::from_value(value.clone()) {
@@ -314,7 +319,11 @@ mod tests {
             .collect();
 
         let named = |pointer: &str, body: &str, query: &str| {
-            (pointer.to_string(), Some(body.to_string()), query.to_string())
+            (
+                pointer.to_string(),
+                Some(body.to_string()),
+                query.to_string(),
+            )
         };
         assert_eq!(
             found,

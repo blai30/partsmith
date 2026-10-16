@@ -1,0 +1,52 @@
+name: Nightly
+
+on:
+  schedule:
+    # 04:23 UTC, off the hour, when scheduled runs are delayed least (delivery.md 2.11).
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  properties:
+    name: Sketch property tests (4096 cases)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # Only a run that passed or failed tested its commit; this run and canceled runs do not count.
+      - name: Skip when the last nightly run tested the head of main
+        id: skip
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tested="$(gh run list --workflow nightly.yml --branch main --limit 20 --json headSha,conclusion \
+            --jq 'map(select(.conclusion == "success" or .conclusion == "failure")) | first | .headSha // ""')"
+          if [ "$tested" = "$GITHUB_SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Nightly skipped::The last nightly run already tested $GITHUB_SHA, the head of main, so the property tests did not run."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.skip.outputs.skip != 'true'
+        uses: actions/checkout@v7.0.1
+      - if: steps.skip.outputs.skip != 'true'
+        run: rustup show active-toolchain || rustup toolchain install
+      - if: steps.skip.outputs.skip != 'true'
+        uses: Swatinem/rust-cache@v2.9.2
+      # Sixteen times the 256 cases of every pull request (sketch.md 6.13, tests 189 to 196).
+      - if: steps.skip.outputs.skip != 'true'
+        run: cargo test -p partsmith-sketch --release --test properties
+        env:
+          PROPTEST_CASES: "4096"

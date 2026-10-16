@@ -14,6 +14,7 @@ use partsmith_protocol::{
 use partsmith_recompute::Status;
 use partsmith_sketch::Placement;
 
+use crate::counts::saturating_u32;
 use crate::display::{DisplayCache, DisplayMesh, MeshKey};
 use crate::document::OpenDocument;
 use crate::error::EngineError;
@@ -23,7 +24,6 @@ use crate::sketching::{datum_placement, solve_in};
 use crate::state::{BodyView, built_output, display_bodies, preview_bodies};
 use crate::status::{DisplayFailure, document_diagnostics, feature_statuses, parameter_values};
 use crate::triangulate::fill_regions;
-use crate::wire::saturating_u32;
 
 /// Events and the buffers they reference, collected for one reply.
 #[derive(Debug, Default)]
@@ -141,7 +141,10 @@ impl Session {
             .get_mut(&doc)
             .ok_or(EngineError::UnknownDocument { doc })?;
         let revision = open.revision;
-        // Meshes are built and given their ids first, so the statuses of `recomputed` can report
+        // The one step that can fail comes before anything is recorded as emitted, so a failed
+        // pass leaves every layer as the host last saw it.
+        document_changed(open, doc, output)?;
+        // Meshes are built and given their ids before the statuses, so `recomputed` can report
         // the bodies that could not be displayed and name the mesh elements of candidates.
         let meshes = display.then(|| {
             let (model, preview) = mesh_changes(open, cache);
@@ -149,7 +152,6 @@ impl Session {
             let preview = record_layer(&mut open.emitted.preview, preview, next_mesh_id);
             (model, preview)
         });
-        document_changed(open, doc, output)?;
         if open.computed.run != open.emitted.run {
             open.emitted.run = open.computed.run;
             let shown = &open.emitted.model.shown;
@@ -701,6 +703,26 @@ mod tests {
 
         assert_eq!(box_status(&repaired).status, FeatureState::Ok);
         assert_eq!(model_meshes(&repaired), [("b-1".to_string(), true)]);
+    }
+
+    #[test]
+    fn a_failed_pass_sends_its_meshes_with_the_next_one() {
+        let (mut session, doc) = box_session(true);
+        let open = session.open_mut(doc).expect("open");
+        let readable = Arc::clone(&open.document);
+        let mut unsaveable = Document::clone(&readable);
+        unsaveable.bodies.push(unsaveable.bodies[0].clone());
+        open.change(unsaveable);
+        let mut output = Output::default();
+        assert!(session.collect_events(doc, &mut output).is_err());
+
+        session
+            .open_mut(doc)
+            .expect("open")
+            .change(Document::clone(&readable));
+        let next = events(&mut session, doc);
+
+        assert_eq!(model_meshes(&next), [("b-1".to_string(), true)]);
     }
 
     #[test]

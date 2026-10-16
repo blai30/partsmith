@@ -5,6 +5,7 @@ from partsmith import (
     Axis,
     Document,
     Part,
+    PartsmithWarning,
     SelectionError,
     box,
     cylinder,
@@ -13,7 +14,7 @@ from partsmith import (
     fillet,
     vertices,
 )
-from support import ABSOLUTE_TOLERANCE, RELATIVE_TOLERANCE, stored_feature
+from support import ABSOLUTE_TOLERANCE, RELATIVE_TOLERANCE, reference_json, stored_feature
 
 
 def near(point: tuple[float, ...]) -> object:
@@ -97,12 +98,14 @@ def test_t044_max_along_x_and_sort_by_z():
     with Part("P"):
         box(20, 30, 40)
         maximum = faces().max(Axis.X)
-        lowest = faces().sort_by(Axis.Z)[0]
+        with pytest.warns(PartsmithWarning) as record:
+            lowest = faces().sort_by(Axis.Z)[0]
         bottom = faces().bottom()[0]
 
     assert len(maximum) == 1
     assert maximum[0].normal == near((1, 0, 0))
     assert lowest.name == bottom.name
+    assert [warning.message.code for warning in record] == ["selection_index"]
 
 
 def test_t045_adjacent_elements_of_selections():
@@ -150,7 +153,7 @@ def test_t048_refs_equal_the_element_references():
         references = top.refs()
 
     assert len(references) == 1
-    assert (references[0].q, references[0].fp) == (top[0].reference.q, top[0].reference.fp)
+    assert reference_json(references[0]) == reference_json(top[0].reference)
 
 
 def test_t048_fillet_stores_the_selection_references_in_order():
@@ -161,8 +164,7 @@ def test_t048_fillet_stores_the_selection_references_in_order():
         fillet_feature = fillet(selection, 1)
 
     stored_edges = stored_feature(document, fillet_feature.id)["edges"]
-    expected = [{"q": element.reference.q, "fp": element.reference.fp} for element in selection]
-    assert stored_edges == expected
+    assert stored_edges == [reference_json(element.reference) for element in selection]
 
 
 def test_t049_feature_faces_and_edges():

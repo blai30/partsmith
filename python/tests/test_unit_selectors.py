@@ -1,11 +1,13 @@
-"""Unit tests of axes, references, element tables, selection filters and rotation matrices in
-partsmith.selectors, on hand-made element descriptors."""
+"""Unit tests of axes, references, element tables, selection filters, the selection index warning and rotation
+matrices in partsmith.selectors, on hand-made element descriptors."""
 
 import math
+import warnings
+from collections.abc import Callable
 
 import pytest
 
-from partsmith import Axis, Document, Part, Ref, Selection, SelectionError, rad
+from partsmith import Axis, Document, Part, PartsmithWarning, Ref, Selection, SelectionError, box, chamfer, edges, rad
 from partsmith.selectors import _ElementTable, element_references, rotation_rows, single_element
 
 
@@ -186,14 +188,124 @@ def test_the_elements_of_their_own_kind_are_themselves(table):
     assert names(select(table, "edge").edges()) == ["e-arc", "e-x", "e-y"]
 
 
+def partsmith_warnings(action: Callable[[], object]) -> list[warnings.WarningMessage]:
+    """The PartsmithWarnings that `action()` emits."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        action()
+    return [warning for warning in caught if issubclass(warning.category, PartsmithWarning)]
+
+
 def test_indexing_returns_elements_and_slicing_returns_selections(table):
     faces = select(table, "face")
 
-    assert faces[-1].name == "top"
+    with pytest.warns(PartsmithWarning):
+        assert faces[-1].name == "top"
     assert isinstance(faces[1:], Selection)
     assert names(faces[1:]) == ["side", "top"]
     with pytest.raises(IndexError):
         faces[3]
+
+
+@pytest.mark.parametrize(
+    ("kind", "index", "message"),
+    [
+        (
+            "edge",
+            1,
+            (
+                "edges()[1] picks an edge by its position in the list, which can change when anything before it "
+                "changes. Select it by what it is, for example edges().top().parallel_to(Axis.X)."
+            ),
+        ),
+        (
+            "face",
+            -1,
+            (
+                "faces()[-1] picks a face by its position in the list, which can change when anything before it "
+                "changes. Select it by what it is, for example faces().top()."
+            ),
+        ),
+        (
+            "vertex",
+            0,
+            (
+                "vertices()[0] picks a vertex by its position in the list, which can change when anything before it "
+                "changes. Select it by what it is, for example vertices().top().min(Axis.X)."
+            ),
+        ),
+    ],
+)
+def test_indexing_a_selection_of_several_elements_warns_by_its_kind(table, kind, index, message):
+    selection = select(table, kind)
+
+    [warning] = partsmith_warnings(lambda: selection[index])
+
+    assert str(warning.message) == message
+    assert warning.message.code == "selection_index"
+
+
+def test_the_selection_index_warning_points_at_the_line_that_indexes(table):
+    edges = select(table, "edge")
+
+    [warning] = partsmith_warnings(lambda: edges[0])
+
+    assert warning.filename == __file__
+
+
+def test_the_selection_index_warning_carries_no_feature_diagnostic(table):
+    edges = select(table, "edge")
+
+    [warning] = partsmith_warnings(lambda: edges[0])
+
+    message = warning.message
+    assert (message.feature, message.field, message.suggestion, message.cause, message.detail) == (None,) * 5
+    assert (message.actions, message.candidates) == ([], [])
+
+
+def test_indexing_a_selection_of_one_element_does_not_warn(table):
+    top = select(table, "face").max(Axis.Z)
+
+    assert partsmith_warnings(lambda: top[0]) == []
+
+
+def test_iterating_slicing_and_counting_a_selection_do_not_warn(table):
+    edges = select(table, "edge")
+
+    assert partsmith_warnings(lambda: list(edges)) == []
+    assert partsmith_warnings(lambda: edges[1:3]) == []
+    assert partsmith_warnings(lambda: len(edges)) == []
+
+
+def test_a_ref_keeps_its_anchors_merged_names_and_direction():
+    anchors = {"f-ext1/end-cap#2": ("f-ext1/lateral/e-2", "f-ext2/lateral/e-6")}
+    merged = {"f-box1/top": ("f-box1/top@f-lp1:*",)}
+
+    reference = Ref("edge(a|b)", "line|n=0,1,0", anchors=anchors, merged=merged, direction=(0, 1, 0))
+
+    assert reference.anchors == {"f-ext1/end-cap#2": ["f-ext1/lateral/e-2", "f-ext2/lateral/e-6"]}
+    assert reference.merged == {"f-box1/top": ["f-box1/top@f-lp1:*"]}
+    assert reference.direction == (0, 1, 0)
+
+
+def test_a_ref_without_keywords_has_no_anchors_merged_names_direction_or_words():
+    reference = Ref("edge(a|b)", "line|n=0,1,0")
+
+    assert (reference.anchors, reference.merged, reference.direction) == (None, None, None)
+    assert (reference.description, reference.relation) == (None, None)
+
+
+def test_the_reference_of_an_element_that_is_gone_is_the_one_it_was_listed_with():
+    Document()
+    with Part("P"):
+        box(20, 30, 40)
+        [front_top] = edges().top().min(Axis.Y)
+        chamfer(edges().top().min(Axis.Y), 1)
+
+    reference = front_top.reference
+
+    assert (reference.q, reference.anchors, reference.merged) == (front_top.name, None, None)
+    assert reference.fp.startswith("line|n=1,0,0|c=0,-15,40|")
 
 
 def test_refs_are_the_element_references_in_order(table):

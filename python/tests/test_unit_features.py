@@ -381,6 +381,36 @@ def test_a_ref_axis_is_a_face_when_its_fingerprint_is_a_surface():
     assert axis_reference("revolve", Ref("edge(a|b)", "line|n=0,0,1", part=part))["kind"] == "edge"
 
 
+def test_a_ref_axis_stores_its_direction():
+    Document()
+    part = Part("P")
+
+    assert axis_reference("revolve", Ref("edge(a|b)", "line|n=0,0,1", part=part, direction=(0, 0, 1))) == {
+        "kind": "edge",
+        "body": part.id,
+        "edge": {"q": "edge(a|b)", "fp": "line|n=0,0,1"},
+        "direction": [0, 0, 1],
+    }
+
+
+def test_a_ref_axis_without_a_direction_stores_none():
+    Document()
+    part = Part("P")
+
+    assert "direction" not in axis_reference("revolve", Ref("edge(a|b)", "line|n=0,0,1", part=part))
+
+
+def test_a_ref_with_anchors_and_merged_names_stores_them():
+    Document()
+    part = Part("P")
+    anchors = {"f-ext1/end-cap#2": ["f-ext1/lateral/e-2"]}
+    merged = {"f-ext1/end-cap#2": ["f-ext1/end-cap@f-lp1:*"]}
+
+    axis = axis_reference("revolve", Ref("edge(f-ext1/end-cap#2|b)", "line", part=part, anchors=anchors, merged=merged))
+
+    assert axis["edge"] == {"q": "edge(f-ext1/end-cap#2|b)", "fp": "line", "nb": anchors, "merged": merged}
+
+
 def test_a_ref_axis_needs_its_part():
     with pytest.raises(ValueError, match="needs part="):
         axis_reference("revolve", Ref("edge(a|b)", "line"))

@@ -301,6 +301,37 @@ def test_a_fallback_origin_is_in_document_units():
     assert stored_feature(document, sketch.id)["plane"]["fallback"]["origin"] == [0, 0, 40]
 
 
+def face_sketch_plane(**options: object) -> dict:
+    """The stored plane of a sketch on the top of a box, given as a `Ref` with the fallback (0, 0, 40) and `options`."""
+    document = Document()
+    with Part("P") as part:
+        box(20, 30, 40)
+    top = faces(part).top()[0]
+    placement = Placement((0, 0, 40), (1, 0, 0), (0, 0, 1))
+
+    with Sketch(Ref(top.reference.q, top.reference.fp, part=part), fallback=placement, **options) as sketch:
+        Point(0, 0)
+
+    return stored_feature(document, sketch.id)["plane"]
+
+
+def test_a_body_fallback_frame_is_stored():
+    assert face_sketch_plane(fallback_frame="body")["fallback_frame"] == "body"
+
+
+def test_a_world_fallback_frame_is_not_stored():
+    assert "fallback_frame" not in face_sketch_plane(fallback_frame="world")
+
+
+def test_a_fallback_without_a_frame_stores_none():
+    assert "fallback_frame" not in face_sketch_plane()
+
+
+def test_another_fallback_frame_is_refused():
+    with pytest.raises(ValueError):
+        face_sketch_plane(fallback_frame="sideways")
+
+
 def test_a_sketch_on_a_round_face_raises():
     Document()
     with Part("P") as part:

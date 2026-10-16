@@ -8,7 +8,7 @@ use partsmith_model::{EditError, Id, LoadError, Span};
 use partsmith_naming::ElementKind;
 use partsmith_protocol::{DocHandle, ErrorCode, ErrorInfo, FixAction, FixKind};
 
-use crate::wire::saturating_u32;
+use crate::counts::saturating_u32;
 
 /// The command an internal error names when no protocol command is known: a typed method
 /// reports it as is, and `execute` names its request's command instead (section 4).
