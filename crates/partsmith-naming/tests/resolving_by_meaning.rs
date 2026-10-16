@@ -1563,3 +1563,61 @@ fn guess_alternatives_are_candidates_of_the_set() {
         assert!(alternative.meaning, "{alternative:?}");
     }
 }
+
+#[test]
+fn lost_lists_both_parts_of_a_hole_edge_whose_type_changed() {
+    // A counterbore hole changed to a simple hole: both faces of the counterbore floor's edge are
+    // gone, and their relatives (the bore and the bottom) resolve nothing (section 3.9 step 5).
+    let scope = element_set(vec![
+        scope_element("f-box1/top"),
+        scope_element("f-hole1/bore/e-p1"),
+        scope_element("f-hole1/bottom/e-p1"),
+        scope_element("edge(f-box1/top|f-hole1/bore/e-p1)"),
+        scope_element("edge(f-hole1/bore/e-p1|f-hole1/bottom/e-p1)"),
+    ]);
+
+    let resolution = resolve(
+        &query("edge(f-hole1/counterbore-floor/e-p1|f-hole1/counterbore/e-p1)"),
+        &scope,
+    );
+
+    let (lost, _) = missing(&resolution);
+    assert_lost(
+        lost,
+        &["f-hole1/counterbore-floor/e-p1", "f-hole1/counterbore/e-p1"],
+        &[],
+        false,
+    );
+}
+
+#[test]
+fn lost_lists_a_gone_part_whose_relative_no_longer_meets_the_other_part() {
+    let scope = element_set(vec![
+        scope_element("f-box1/top"),
+        scope_element("f-box1/front"),
+        scope_element("f-hole1/bore/e-p1"),
+        scope_element("edge(f-box1/front|f-hole1/bore/e-p1)"),
+    ]);
+
+    let resolution = resolve(&query("edge(f-box1/top|f-hole1/counterbore/e-p1)"), &scope);
+
+    let (lost, _) = missing(&resolution);
+    assert_lost(lost, &["f-hole1/counterbore/e-p1"], &[], false);
+}
+
+#[test]
+fn lost_lists_a_gone_face_of_a_numbered_edge_that_a_rim_continues() {
+    // The rim continues the end cap, but the edge's own `#2` cannot be carried over to the edges
+    // the rim makes, so the reference is lost through its gone face.
+    let scope = element_set(vec![
+        scope_element("f-ext1/lateral/e-1"),
+        scope_element("f-sh1/rim/f-ext1/end-cap"),
+        scope_element("edge(f-ext1/lateral/e-1|f-sh1/rim/f-ext1/end-cap)#1"),
+        scope_element("edge(f-ext1/lateral/e-1|f-sh1/rim/f-ext1/end-cap)#2"),
+    ]);
+
+    let resolution = resolve(&query("edge(f-ext1/end-cap|f-ext1/lateral/e-1)#2"), &scope);
+
+    let (lost, _) = missing(&resolution);
+    assert_lost(lost, &["f-ext1/end-cap"], &[], false);
+}
