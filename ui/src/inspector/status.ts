@@ -13,17 +13,31 @@ export function fieldPointer(path: string): string {
   return `/${segments.join('/')}`
 }
 
+/** Whether a JSON pointer is `container` or lies inside it, by whole segments (`/edges/1` in `/edges`). */
+export function pointsInto(pointer: string, container: string): boolean {
+  return pointer === container || pointer.startsWith(`${container}/`)
+}
+
 /** The path of the field a pointer maps to, or null when none does. */
 export function fieldForPointer(paths: readonly string[], pointer: string): string | null {
   let best: { readonly path: string; readonly length: number } | null = null
   for (const path of paths) {
     const candidate = fieldPointer(path)
-    const matches = pointer === candidate || pointer.startsWith(`${candidate}/`)
-    if (matches && (best === null || candidate.length > best.length)) {
+    if (pointsInto(pointer, candidate) && (best === null || candidate.length > best.length)) {
       best = { path, length: candidate.length }
     }
   }
   return best?.path ?? null
+}
+
+/** The selection field a JSON pointer maps to (3.7), such as `/edges/0` to Edges, or null. */
+export function selectionFieldFor(fields: readonly FieldHint[], pointer: string): FieldHint | null {
+  const selectionFields = fields.filter((field) => (field.selection ?? null) !== null)
+  const path = fieldForPointer(
+    selectionFields.map((field) => field.path),
+    pointer,
+  )
+  return selectionFields.find((field) => field.path === path) ?? null
 }
 
 /**
@@ -35,15 +49,7 @@ export function repairField(
   status: FeatureStatus | undefined,
 ): FieldHint | null {
   const [repair] = status?.repairs ?? []
-  if (repair === undefined) {
-    return null
-  }
-  const selectionFields = fields.filter((field) => (field.selection ?? null) !== null)
-  const path = fieldForPointer(
-    selectionFields.map((field) => field.path),
-    repair.path,
-  )
-  return selectionFields.find((field) => field.path === path) ?? null
+  return repair === undefined ? null : selectionFieldFor(fields, repair.path)
 }
 
 /** The first message for each field a status message maps to. */

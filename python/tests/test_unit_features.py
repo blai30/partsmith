@@ -128,7 +128,19 @@ def test_extrude_takes_regions_by_key(document, plate_sketch):
 
     stored = params(document, extrude(plate_sketch, 5, regions=[Region(region.key)]))
 
-    assert stored["profile"]["regions"] == [{"key": region.key, "fp": region.fp}]
+    # A region without a fingerprint takes the fingerprint and outline of the current solve (python-api.md 2.6).
+    assert stored["profile"]["regions"] == [{"key": region.key, "fp": region.fp, "outline": region.outline}]
+
+
+def test_extrude_stores_a_region_with_its_outline_only_when_it_has_one(document, plate_sketch):
+    [region] = plate_sketch.regions()
+
+    with_outline = params(document, extrude(plate_sketch, 5, regions=[region]))
+    without_outline = params(document, extrude(plate_sketch, 5, regions=[Region(region.key, region.fp)]))
+
+    assert region.outline is not None
+    assert with_outline["profile"]["regions"] == [{"key": region.key, "fp": region.fp, "outline": region.outline}]
+    assert without_outline["profile"]["regions"] == [{"key": region.key, "fp": region.fp}]
 
 
 def test_extrude_refuses_an_unknown_region_key(document, plate_sketch):

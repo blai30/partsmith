@@ -1,0 +1,243 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "warning",
+      "messages": [
+        {
+          "severity": "warning",
+          "code": "reference_widened",
+          "message": "The back top edge of 'Extrude 1' selected for Edges now covers 5 edges, because the line it was made from was replaced by 5 lines in 'Sketch 1'. Keep all of them, or use only one.",
+          "field": "/edges/0",
+          "actions": [
+            {
+              "label": "Keep all 5",
+              "kind": "apply"
+            },
+            {
+              "label": "Use only the back top edge of 'Extrude 1' along the line from (80, 50) to (50, 50) in 'Sketch 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Pick an edge again",
+              "kind": "pick"
+            }
+          ],
+          "candidates": [
+            {
+              "reference": {
+                "q": "edge(f-ext1/end-cap|f-ext1/lateral/e-10)",
+                "fp": "line|n=0,1,0|c=50,45,30|l=10|adj=2,2"
+              },
+              "description": "the left top edge of 'Extrude 1'",
+              "relation": "on the top of 'Extrude 1', about 11 mm from where it was",
+              "meaning": true,
+              "distance": 11.180339887498949,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "edge(f-ext1/end-cap|f-ext1/lateral/e-11)",
+                "fp": "line|n=1,0,0|c=40,40,30|l=20|adj=2,2"
+              },
+              "description": "the back top edge of 'Extrude 1' along the line from (50, 40) to (30, 40) in 'Sketch 1'",
+              "relation": "on the top of 'Extrude 1', 10 mm from where it was",
+              "meaning": true,
+              "distance": 10.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "edge(f-ext1/end-cap|f-ext1/lateral/e-12)",
+                "fp": "line|n=0,1,0|c=30,45,30|l=10|adj=2,2"
+              },
+              "description": "the right top edge of 'Extrude 1'",
+              "relation": "on the top of 'Extrude 1', about 11 mm from where it was",
+              "meaning": true,
+              "distance": 11.180339887498949,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "edge(f-ext1/end-cap|f-ext1/lateral/e-13)",
+                "fp": "line|n=1,0,0|c=15,50,30|l=30|adj=2,2"
+              },
+              "description": "the back top edge of 'Extrude 1' along the line from (30, 50) to (0, 50) in 'Sketch 1'",
+              "relation": "on the top of 'Extrude 1', 25 mm from where it was",
+              "meaning": true,
+              "distance": 25.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "edge(f-ext1/end-cap|f-ext1/lateral/e-9)",
+                "fp": "line|n=1,0,0|c=65,50,30|l=30|adj=2,2"
+              },
+              "description": "the back top edge of 'Extrude 1' along the line from (80, 50) to (50, 50) in 'Sketch 1'",
+              "relation": "on the top of 'Extrude 1', 25 mm from where it was",
+              "meaning": true,
+              "distance": 25.0,
+              "score": 1.0
+            }
+          ],
+          "reason": {
+            "kind": "followed",
+            "by": "f-sk1"
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 113978.53981633627,
+      "area": 15956.650429006288,
+      "center_of_mass": [
+        39.99999999999999,
+        23.94307847762953,
+        14.99721781627962
+      ],
+      "bounding_box": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          80.0,
+          50.0,
+          30.0
+        ]
+      },
+      "faces": 15,
+      "edges": 35,
+      "vertices": 22
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          88.0,
+          103.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

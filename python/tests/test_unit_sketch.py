@@ -32,6 +32,7 @@ from partsmith import (
     Radius,
     Rectangle,
     Ref,
+    Region,
     SelectionError,
     Sketch,
     Symmetric,
@@ -425,3 +426,47 @@ def test_reserved_references_are_not_circles_or_points():
 
 def test_reserved_references_keep_their_stored_names():
     assert (Sketch.ORIGIN.id, Sketch.X_AXIS.id, Sketch.Y_AXIS.id) == ("origin", "x_axis", "y_axis")
+
+
+def test_a_region_keeps_its_outline():
+    region = Region("e-1,e-2,e-3,e-4", "c=40,25|a=4000", outline="e-1,e-2,e-3,e-4")
+
+    assert region._json() == {"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000", "outline": "e-1,e-2,e-3,e-4"}
+    assert repr(region) == "Region('e-1,e-2,e-3,e-4', 'c=40,25|a=4000', outline='e-1,e-2,e-3,e-4')"
+
+
+def test_a_region_without_an_outline_stores_none():
+    region = Region("e-1,e-2,e-3,e-4", "c=40,25|a=4000")
+
+    assert region._json() == {"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}
+    assert repr(region) == "Region('e-1,e-2,e-3,e-4', 'c=40,25|a=4000')"
+
+
+def test_a_region_outline_is_text():
+    with pytest.raises(TypeError):
+        Region("e-1", "c=0,0|a=1", outline=["e-1"])
+
+
+def test_solved_regions_carry_their_outline():
+    Document()
+    with Sketch(Plane.XY) as sketch:
+        Rectangle(10, 10)
+
+    [region] = sketch.regions()
+
+    assert region.outline is not None
+    assert set(region.outline.split(",")) == set(region.key.split(","))
+
+
+def test_a_fallback_frame_needs_a_fallback():
+    Document()
+    with Part("P") as part:
+        box(20, 30, 40)
+
+    with pytest.raises(ValueError, match="pass both"):
+        Sketch(faces(part).top(), fallback_frame="body")
+
+
+def test_a_fallback_frame_applies_only_to_a_face():
+    with pytest.raises(ValueError, match="only to sketches on a face"):
+        Sketch(Plane.XY, fallback_frame="world")

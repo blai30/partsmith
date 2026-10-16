@@ -1,3 +1,4 @@
+import { lossKeys } from '../../problems/problems'
 import type { AppStore, Notification, PickHint } from '../../state/store'
 import { nowOf } from '../connection'
 import type { App } from '../createApp'
@@ -150,17 +151,23 @@ export function dismiss(app: App, id: string): void {
 
 /**
  * Dismisses each failure notification once none of the features it names is in error anymore,
- * after an undo, a fix or a deletion (3.22, 4.2). Returns the function that stops it.
+ * and each loss notification once, besides, none of its losses remains, after an undo, a fix or a
+ * deletion (3.22, 4.2). Returns the function that stops it.
  */
 export function installFailureDismissal(app: App): () => void {
   return app.store.subscribe((state, previous) => {
-    const statuses = state.document?.featureStatus
+    const statuses = state.document?.featureStatus ?? {}
     if (statuses === previous.document?.featureStatus) {
       return
     }
+    const losses = lossKeys(statuses)
     for (const notification of state.notifications) {
       const features = notification.features
-      if (features !== undefined && features.every((id) => statuses?.[id]?.status !== 'error')) {
+      if (
+        features !== undefined &&
+        features.every((id) => statuses[id]?.status !== 'error') &&
+        (notification.problems ?? []).every((key) => !losses.has(key))
+      ) {
         removeNotification(app.store, notification.id)
       }
     }

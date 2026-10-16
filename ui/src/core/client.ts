@@ -5,6 +5,7 @@ import {
   type ErrorCode,
   type ErrorInfo,
   type Event,
+  type FixAction,
   type Message,
 } from '../generated/protocol'
 import { decodeEvent, type CoreEvent } from './events'
@@ -28,6 +29,10 @@ export class CoreError extends Error {
   readonly editIndex: number | null
   /** UTF-8 byte offsets of an `expression_error`'s span when the core reports one (2.13, open issue 9), else null. */
   readonly span: { readonly start: number; readonly end: number } | null
+  /** Technical text for reports (a panic message, a parser's text), never shown as the message (4.1); null without one. */
+  readonly detail: string | null
+  /** The core's one-click ways out, in the order to offer them (4.2); empty without any. */
+  readonly actions: readonly FixAction[]
 
   constructor(info: ErrorInfo) {
     super(info.message)
@@ -37,6 +42,8 @@ export class CoreError extends Error {
       info.span === null || info.span === undefined
         ? null
         : { start: info.span.start, end: info.span.end }
+    this.detail = info.detail ?? null
+    this.actions = info.actions ?? []
   }
 }
 

@@ -15,8 +15,18 @@
         {
           "severity": "warning",
           "code": "region_missing",
-          "message": "A profile region of 'Sketch 1' can no longer be found, so it was skipped. Re-pick the profile.",
-          "field": "/profile/regions/1"
+          "message": "The region of 'Sketch 1' selected for Profile is gone because its outline was drawn again, so it was skipped.",
+          "field": "/profile/regions/1",
+          "actions": [
+            {
+              "label": "Show 'Sketch 1'",
+              "kind": "show"
+            },
+            {
+              "label": "Pick a region again",
+              "kind": "pick"
+            }
+          ]
         }
       ]
     }
@@ -27,7 +37,7 @@
       "id": "b-1",
       "name": "Body 1",
       "volume": 120000.0,
-      "area": 15799.999999999996,
+      "area": 15800.0,
       "center_of_mass": [
         40.0,
         25.0,

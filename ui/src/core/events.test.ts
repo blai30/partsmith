@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { BoundingBox, Event as ProtocolEvent, MeshBuffers } from '../generated/protocol'
+import type { BoundingBox, Cause, Event as ProtocolEvent, MeshBuffers } from '../generated/protocol'
 import { emptyDocument, RECT_SKETCH_SOLUTION } from '../test/fakes/documents'
 import { meshParts, readResponse, responseFrame } from '../test/fakes/protocol'
+import { R16_REPAIR } from '../test/fakes/repairs'
 import { decodeEvent } from './events'
 import type { BufferView } from './frame'
 import { CoreFatalError } from './transport'
@@ -159,6 +160,73 @@ describe('decodeEvent', () => {
       features: [{ id: 'f-box1', status: 'ok', messages: [], repairs: [] }],
       parameters: [{ id: 'p-h', value: 50, dimension: { length: 1, angle: 0 } }],
       diagnostics: [],
+      ghosts: {},
+    })
+  })
+
+  describe('ghosts of a recomputed (2.7, U-147)', () => {
+    const CAUSE: Cause = {
+      text: "This started after you deleted the line from (80, 40) to (70, 50) in 'Sketch 1'.",
+      actions: [],
+      ghost: { positions: 1, kind: 'lines', frame: 'sketch' },
+    }
+
+    function withGhosts(): ProtocolEvent {
+      return {
+        type: 'recomputed',
+        doc: 1,
+        revision: 3,
+        features: [
+          {
+            id: 'f-fil1',
+            status: 'warning',
+            messages: [
+              {
+                severity: 'warning',
+                code: 'reference_missing',
+                message: 'The edge is gone.',
+                field: '/edges/0',
+                cause: CAUSE,
+              },
+            ],
+            repairs: [{ ...R16_REPAIR, ghost: { positions: 0, kind: 'lines', frame: 'world' } }],
+          },
+        ],
+        parameters: [],
+        diagnostics: [],
+      }
+    }
+
+    it("U-147 maps a repair's ghost and a cause's ghost to Float32Array views of the frame", () => {
+      const ghostBuffers: BufferView[] = [
+        Float32Array.of(-10, -10, 20, 10, -10, 20),
+        Float32Array.of(80, 40, 70, 50),
+      ]
+      const { event, buffers, frame } = received(withGhosts(), ghostBuffers)
+      const decoded = decodeEvent(event, buffers)
+      expect(decoded?.type).toBe('recomputed')
+      if (decoded?.type !== 'recomputed') {
+        return
+      }
+      expect(Object.keys(decoded.ghosts).toSorted()).toEqual(['0', '1'])
+      expect(decoded.ghosts[0]).toBeInstanceOf(Float32Array)
+      expect(decoded.ghosts[0]?.buffer).toBe(frame)
+      expect(Array.from(decoded.ghosts[0] ?? [])).toEqual([-10, -10, 20, 10, -10, 20])
+      expect(Array.from(decoded.ghosts[1] ?? [])).toEqual([80, 40, 70, 50])
+      expect(decoded.features[0]?.repairs[0]).toMatchObject({ ghost: { positions: 0 } })
+    })
+
+    it('U-147 a ghost index naming a u32 buffer throws CoreFatalError', () => {
+      const { event, buffers } = received(withGhosts(), [
+        Float32Array.of(-10, -10, 20, 10, -10, 20),
+        Uint32Array.of(1, 2, 3, 4),
+      ])
+      expect(() => decodeEvent(event, buffers)).toThrow(CoreFatalError)
+    })
+
+    it('a ghost index out of range throws CoreFatalError', () => {
+      const { event, buffers } = received(withGhosts(), [Float32Array.of(0, 0, 0)])
+      expect(() => decodeEvent(event, buffers)).toThrow(CoreFatalError)
     })
   })
 

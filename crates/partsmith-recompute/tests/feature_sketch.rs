@@ -12,8 +12,11 @@ use feature_support::{
     assert_median_build_within, assert_placement, assert_relative, document_text, expression_uses,
     link_ids, load_example, message, parse_document, sketch_result,
 };
-use partsmith_features::{FallbackReason, FeatureError, FeatureWarning, Registry, Repair};
+use partsmith_features::{
+    FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
+};
 use partsmith_model::{FeatureInspector, FieldUnit};
+use partsmith_naming::Motion;
 use partsmith_occt_sys::{Plane, StepBody, make_box, write_step};
 use partsmith_sketch::{Placement, PointRef, SketchError};
 
@@ -23,14 +26,19 @@ const RECTANGLE_ENTITIES: &str = r#"[{"id": "e-1", "type": "line", "start": [0, 
 /// The parameter `width = 100 mm` of tests 7, 9, 10 and 18.
 const WIDTH_PARAMETER: &str = r#"{"id": "p-w", "name": "width", "expr": "100 mm"}"#;
 
-/// The message of a `plane_fallback` warning with reason `missing` (spec section 3.5).
-const FACE_MISSING_TEXT: &str = "The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel.";
+/// The message of test 5's `plane_fallback` warning, cause `missing` with a loss (spec section 3.5): the box makes no
+/// face named `nothing`, which recompute's diagnosis explains as no longer made by the box.
+const FACE_MISSING_TEXT: &str = "The face this sketch is on, a face of 'Box 1', is no longer made by 'Box 1', so the sketch uses the position saved with it.";
 
-/// The message of a `plane_fallback` warning with reason `ambiguous` (spec section 3.5).
-const FACE_AMBIGUOUS_TEXT: &str = "The face this sketch is on now matches several faces, so the sketch stays at its last position. Pick the face in the repair panel.";
+/// The message of the `plane_fallback` warning of an imported face that now matches the six faces of a cube, cause
+/// `ambiguous` (spec section 3.5).
+const FACE_AMBIGUOUS_TEXT: &str = "The face this sketch is on, a face of 'Import 1', now matches 6 faces, so the sketch uses the position saved with it. Pick the one you mean.";
 
-/// The message of a `plane_fallback` warning with reason `not_planar` (spec section 3.5).
-const FACE_NOT_FLAT_TEXT: &str = "The face this sketch is on is no longer flat, so the sketch stays at its last position. Attach it to a flat face.";
+/// The message of test 6's `plane_fallback` warning, cause `not_planar` (spec section 3.5).
+const FACE_NOT_FLAT_TEXT: &str = "The face this sketch is on, the side of 'Cylinder 1', is no longer flat, so the sketch uses the position saved with it.";
+
+/// The message of test 19's `plane_fallback` warning, cause `missing` without a loss (spec section 3.5).
+const FACE_ON_EMPTY_BODY_TEXT: &str = "The face this sketch is on, a face of a feature that is not in this document, is gone because body 'Body 1' is empty here, so the sketch uses the position saved with it.";
 
 /// `SK-RECT` (spec section 2) with id `f-sk1` on the XY plane.
 fn rectangle_sketch() -> String {
@@ -87,14 +95,34 @@ fn fallback(origin: [f64; 3]) -> Placement {
     }
 }
 
-/// Asserts that the only warning of `f-sk1` is a `plane_fallback`, and returns its reason.
-fn plane_fallback_reason(run: &Run) -> &FallbackReason {
+/// Asserts that the only warning of `f-sk1` is a `plane_fallback` placed at its saved position, and returns its
+/// cause and whether it carries a loss.
+fn plane_fallback_cause(run: &Run) -> (FallbackCause, bool) {
     run.assert_warnings("f-sk1", &["plane_fallback"]);
     let warning = &run.feature("f-sk1").warnings[0];
-    let FeatureWarning::PlaneFallback { reason, .. } = warning else {
+    let FeatureWarning::PlaneFallback {
+        cause,
+        loss,
+        placed,
+        ..
+    } = warning
+    else {
         panic!("expected a plane fallback warning, got {warning:?}");
     };
-    reason
+    assert_eq!(*placed, Placed::Saved, "where the sketch was placed");
+    (*cause, loss.is_some())
+}
+
+/// The fixes of the `plane_fallback` message of `f-sk1`.
+fn plane_fallback_fixes(run: &Run) -> &[Fix] {
+    &message(run, "f-sk1", "plane_fallback").fixes
+}
+
+/// `Pick` of the face of the sketch plane.
+fn pick_face() -> Fix {
+    Fix::Pick {
+        pointer: "/plane/face".to_owned(),
+    }
 }
 
 #[test]
@@ -184,11 +212,7 @@ fn t005_face_lost() {
     let run = Run::example("sketch/face-lost.ptsm");
 
     run.assert_ok("f-box1");
-    let reason = plane_fallback_reason(&run);
-    assert!(
-        matches!(reason, FallbackReason::Missing),
-        "fallback reason {reason:?}"
-    );
+    assert_eq!(plane_fallback_cause(&run), (FallbackCause::Missing, true));
     assert_eq!(
         message(&run, "f-sk1", "plane_fallback").pointer.as_deref(),
         Some("/plane/face"),
@@ -198,6 +222,23 @@ fn t005_face_lost() {
         sketch_result(&run, "f-sk1").placement,
         fallback([3.0, 4.0, 0.0])
     );
+    // The top, the only candidate that faces the way the stored face did, comes first, then the four other faces.
+    let fixes = plane_fallback_fixes(&run);
+    let attached: Vec<&str> = fixes
+        .iter()
+        .filter_map(|fix| match fix {
+            Fix::Attach { sketch, body, face }
+                if sketch.as_str() == "f-sk1" && body.as_str() == "b-1" =>
+            {
+                Some(face.query.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(attached.len(), 5, "{fixes:?}");
+    assert_eq!(attached[0], "f-box1/top", "{fixes:?}");
+    assert_eq!(fixes.len(), 6, "{fixes:?}");
+    assert_eq!(fixes[5], pick_face());
 }
 
 /// The name of the STEP asset of `face_ambiguous`.
@@ -234,11 +275,7 @@ fn face_ambiguous() {
     let run = Run::with_assets(document, &cube_step());
 
     run.assert_ok("f-imp1");
-    let reason = plane_fallback_reason(&run);
-    assert!(
-        matches!(reason, FallbackReason::Ambiguous),
-        "fallback reason {reason:?}"
-    );
+    assert_eq!(plane_fallback_cause(&run), (FallbackCause::Ambiguous, true));
     assert_eq!(run.messages("f-sk1"), [FACE_AMBIGUOUS_TEXT]);
     // features.md section 4.2: an element repair carries the loss, ambiguous when several faces fit.
     let repair = run.feature("f-sk1").warnings[0].repair();
@@ -257,12 +294,12 @@ fn t006_face_not_flat() {
     let run = Run::example("sketch/face-not-flat.ptsm");
 
     run.assert_ok("f-cyl1");
-    let reason = plane_fallback_reason(&run);
-    assert!(
-        matches!(reason, FallbackReason::NotPlanar),
-        "fallback reason {reason:?}"
+    assert_eq!(
+        plane_fallback_cause(&run),
+        (FallbackCause::NotPlanar, false)
     );
     assert_eq!(run.messages("f-sk1"), [FACE_NOT_FLAT_TEXT]);
+    assert_eq!(plane_fallback_fixes(&run), [pick_face()]);
     assert_eq!(
         sketch_result(&run, "f-sk1").placement,
         fallback([0.0, 0.0, 0.0])
@@ -488,13 +525,10 @@ fn t018_reference_dimension() {
 fn t019_empty_body_under_a_face_plane() {
     let run = Run::example("sketch/face-plane-empty-body.ptsm");
 
-    let reason = plane_fallback_reason(&run);
-    assert!(
-        matches!(reason, FallbackReason::Missing),
-        "fallback reason {reason:?}"
-    );
-    assert_eq!(
-        sketch_result(&run, "f-sk1").placement,
-        fallback([3.0, 4.0, 0.0])
-    );
+    assert_eq!(plane_fallback_cause(&run), (FallbackCause::Missing, false));
+    assert_eq!(run.messages("f-sk1"), [FACE_ON_EMPTY_BODY_TEXT]);
+    assert_eq!(plane_fallback_fixes(&run), [pick_face()]);
+    let sketch = sketch_result(&run, "f-sk1");
+    assert_eq!(sketch.placement, fallback([3.0, 4.0, 0.0]));
+    assert_eq!(sketch.motion, Motion::IDENTITY);
 }

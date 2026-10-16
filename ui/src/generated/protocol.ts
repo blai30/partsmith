@@ -113,6 +113,16 @@ type: "rename_parameter"
  */
 doc: DocHandle
 /**
+ * The action's fix, as the diagnostic offered it.
+ */
+fix: FixRef
+type: "apply_fix"
+} | {
+/**
+ * The document.
+ */
+doc: DocHandle
+/**
  * Undo label of the transaction.
  */
 label: string
@@ -559,6 +569,10 @@ face: Reference
  * The placement recorded when the sketch was attached.
  */
 fallback: Placement
+/**
+ * Which coordinates `fallback` is in; omitted from JSON when `World`.
+ */
+fallback_frame?: HintFrame
 kind: "face"
 })
 /**
@@ -578,6 +592,18 @@ export type ElementName = string
  * via the `definition` "Fingerprint".
  */
 export type Fingerprint = string
+/**
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "MergedName".
+ */
+export type MergedName = string
+/**
+ * Which coordinates a face sketch's `fallback` is in (section 3.1, features.md section 3.6).
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "HintFrame".
+ */
+export type HintFrame = ("world" | "body")
 /**
  * The JSON record of an entity, with the `type` tag and the geometry fields at one level.
  * 
@@ -1060,6 +1086,12 @@ type: "apply_edits"
 revision: number
 type: "rename_parameter"
 } | {
+/**
+ * The revision after the fix.
+ */
+revision: number
+type: "apply_fix"
+} | {
 type: "begin_transaction"
 } | {
 type: "set_focus"
@@ -1141,7 +1173,7 @@ elements: ElementDescriptor[]
 type: "list_elements"
 } | {
 /**
- * The picked element.
+ * The picked element, with its full reference.
  */
 element: ElementDescriptor
 type: "pick_reference"
@@ -1343,6 +1375,11 @@ export type RegionKey = string
  */
 export type RegionFingerprint = string
 /**
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "RegionLoop".
+ */
+export type RegionLoop = string
+/**
  * A profile check finding. `Display` gives the message of section 4.3.
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
@@ -1408,6 +1445,227 @@ entity: Id
 type: "zero_length"
 })
 /**
+ * How serious a finding is.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "Severity".
+ */
+export type Severity = ("info" | "warning" | "error")
+/**
+ * What a fix button does. A value enum, so it is tagged `kind`.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "FixKind".
+ */
+export type FixKind = ({
+/**
+ * The fix to name in `apply_fix`.
+ */
+fix: FixRef
+kind: "apply"
+} | {
+/**
+ * The feature to edit.
+ */
+feature: Id
+/**
+ * JSON Pointer of the field to activate, relative to the feature record.
+ */
+path: string
+kind: "pick"
+} | {
+/**
+ * The feature to show.
+ */
+feature: Id
+/**
+ * The sketch entity to highlight.
+ */
+entity?: (Id | null)
+kind: "show"
+} | {
+kind: "undo"
+} | {
+kind: "finish_transaction"
+})
+/**
+ * How the points of a ghost are joined.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "GhostKind".
+ */
+export type GhostKind = ("lines" | "triangles" | "points")
+/**
+ * The coordinates of a ghost.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "GhostFrame".
+ */
+export type GhostFrame = ("world" | "sketch")
+/**
+ * Why a reference was lost, or which feature a followed or widened reference followed: the wire form of recompute.md's `LossReason` (section 3.10), with ids as strings. A value enum, so it is tagged `kind`.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "LossReason".
+ */
+export type LossReason = ({
+kind: "unknown"
+} | {
+/**
+ * The feature named by the reference.
+ */
+feature: Id
+kind: "not_in_document"
+} | {
+/**
+ * The suppressed feature.
+ */
+feature: Id
+kind: "suppressed"
+} | {
+/**
+ * The later feature.
+ */
+feature: Id
+kind: "comes_later"
+} | {
+/**
+ * The rolled-back feature.
+ */
+feature: Id
+kind: "rolled_back"
+} | {
+/**
+ * The failed feature that made it.
+ */
+feature: Id
+/**
+ * The first feature of the chain whose error is its own.
+ */
+root: Id
+kind: "upstream_failed"
+} | {
+/**
+ * The body it is in, or that the feature that made it now writes.
+ */
+body: Id
+/**
+ * The feature that moved it there, when known.
+ */
+by?: (Id | null)
+/**
+ * Whether `by` is suppressed.
+ */
+by_suppressed: boolean
+/**
+ * Whether the element is in `body`.
+ */
+present: boolean
+kind: "other_body"
+} | {
+/**
+ * The feature that removed it.
+ */
+by: Id
+/**
+ * How it was removed.
+ */
+how: Removal
+kind: "removed"
+} | {
+/**
+ * The feature that made the face from the entity.
+ */
+feature: Id
+/**
+ * The sketch the entity was in.
+ */
+sketch: Id
+/**
+ * The deleted entity.
+ */
+entity: Id
+kind: "entity_deleted"
+} | {
+/**
+ * The hole.
+ */
+feature: Id
+/**
+ * The sketch the point was in.
+ */
+sketch: Id
+/**
+ * The point, for example `e-3.center`.
+ */
+point: string
+/**
+ * Whether the sketch no longer has the point.
+ */
+deleted: boolean
+kind: "point_gone"
+} | {
+/**
+ * The pattern or mirror.
+ */
+feature: Id
+/**
+ * The copy it no longer makes.
+ */
+instance: InstanceIndex
+kind: "copy_gone"
+} | {
+/**
+ * The import feature.
+ */
+feature: Id
+kind: "not_in_file"
+} | {
+/**
+ * The feature whose change it followed.
+ */
+by: Id
+kind: "followed"
+})
+/**
+ * How a feature removed an element (recompute.md `Removal`). A value enum, so it is tagged `kind`.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "Removal".
+ */
+export type Removal = ({
+kind: "cut_away"
+} | {
+kind: "covered"
+} | {
+kind: "rounded"
+} | {
+kind: "beveled"
+} | {
+kind: "hollowed"
+} | {
+kind: "piece_gone"
+} | {
+/**
+ * Why the feature no longer makes it, when the feature recorded it.
+ */
+absence?: (Absence | null)
+kind: "no_longer_made"
+} | {
+/**
+ * The name of a face that now lies between its faces.
+ */
+between?: (string | null)
+kind: "no_longer_meet"
+})
+/**
+ * Why a feature does not make a face its naming rule would make (features.md `FeatureOutput::absent`).
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "Absence".
+ */
+export type Absence = ("through" | "end_outside" | "full_turn")
+/**
  * Surface type of a face.
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
@@ -1436,19 +1694,12 @@ export type ResolutionStatus = ("resolved" | "ambiguous" | "missing")
  */
 export type Health = ("ok" | "warning" | "error")
 /**
- * How serious a finding is.
- * 
- * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
- * via the `definition` "Severity".
- */
-export type Severity = ("info" | "warning" | "error")
-/**
  * Stable code of a failed request (protocol.md section 4).
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
  * via the `definition` "ErrorCode".
  */
-export type ErrorCode = ("malformed_frame" | "malformed_request" | "protocol_version_mismatch" | "superseded" | "internal_error" | "unknown_document" | "document_poisoned" | "parse_error" | "unsupported_format_version" | "asset_mismatch" | "transaction_open" | "no_transaction" | "label_required" | "label_not_allowed" | "edit_rejected" | "invalid_params" | "nothing_to_undo" | "nothing_to_redo" | "unknown_feature" | "focus_inactive" | "not_a_sketch" | "unknown_point" | "no_drag" | "stale_pick" | "preview_not_pickable" | "invalid_pick" | "unknown_body" | "body_empty" | "reference_unresolved" | "invalid_measure" | "expression_error" | "unknown_printer_profile" | "profile_id_reserved" | "invalid_profile" | "invalid_orientation" | "nothing_to_export" | "export_failed" | "import_failed" | "invalid_tolerance")
+export type ErrorCode = ("malformed_frame" | "malformed_request" | "protocol_version_mismatch" | "superseded" | "internal_error" | "unknown_document" | "document_poisoned" | "parse_error" | "unsupported_format_version" | "asset_mismatch" | "transaction_open" | "no_transaction" | "label_required" | "label_not_allowed" | "edit_rejected" | "invalid_params" | "nothing_to_undo" | "nothing_to_redo" | "unknown_feature" | "focus_inactive" | "not_a_sketch" | "unknown_point" | "no_drag" | "stale_pick" | "preview_not_pickable" | "invalid_pick" | "unknown_body" | "body_empty" | "reference_unresolved" | "invalid_measure" | "expression_error" | "unknown_printer_profile" | "profile_id_reserved" | "invalid_profile" | "invalid_orientation" | "nothing_to_export" | "export_failed" | "import_failed" | "invalid_tolerance" | "stale_fix")
 /**
  * A state change caused by the request answered in the same frame. Tagged by `type`; every event carries `doc` and the document `revision` it describes.
  * 
@@ -1596,7 +1847,7 @@ type: "print_health"
  */
 export type FeatureState = ("ok" | "warning" | "error" | "suppressed" | "rolled_back")
 /**
- * A reference or region that did not resolve uniquely: the engine's projection of features.md `Repair` (engine.md 3.4).
+ * A reference or region that did not resolve to what it meant: the engine's projection of features.md `Repair` (engine.md 3.4).
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
  * via the `definition` "Repair".
@@ -1619,12 +1870,24 @@ reference: Reference
  */
 resolution: ResolutionStatus
 /**
- * Centroid from the stored fingerprint, for drawing a ghost marker.
+ * Centroid from the stored fingerprint, for a marker where the element was when there is no ghost.
  * 
  * @minItems 3
  * @maxItems 3
  */
 centroid?: ([number, number, number] | null)
+/**
+ * The element in words, for example "the front top edge of 'Box 1'".
+ */
+description: string
+/**
+ * Possible replacements in candidate order; each is also an action of the message.
+ */
+candidates: RepairCandidate[]
+/**
+ * Where the element was in its last build, for a dashed outline in the viewport (engine.md section 3.23).
+ */
+ghost?: (Ghost | null)
 kind: "element"
 } | {
 /**
@@ -1643,6 +1906,18 @@ region: RegionRef
  * `missing` or `ambiguous`.
  */
 resolution: ResolutionStatus
+/**
+ * The region in words, for example "the region of 'Sketch 1' around (40, 25)".
+ */
+description: string
+/**
+ * Sets of regions that could be meant; each is also an action of the message.
+ */
+candidates: RegionCandidate[]
+/**
+ * The stored outline as it was, in sketch coordinates, for the sketch overlay (engine.md section 3.23).
+ */
+ghost?: (Ghost | null)
 kind: "region"
 })
 /**
@@ -1938,6 +2213,38 @@ suppressed?: boolean
 [k: string]: unknown | undefined
 }
 /**
+ * Names one fix of one message at one revision; the engine builds the edits when it is applied (engine.md section 3.22).
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "FixRef".
+ */
+export interface FixRef {
+/**
+ * The feature whose message offers the fix (the sketch, for a profile finding).
+ */
+feature: Id
+/**
+ * The message's code.
+ */
+code: string
+/**
+ * The message's field; absent when the message has none.
+ */
+field?: (string | null)
+/**
+ * True for an action of the message's cause line.
+ */
+cause: boolean
+/**
+ * Position of the action in the message's `actions`, or in its cause's `actions` when `cause` is true.
+ */
+index: number
+/**
+ * The document revision the fix was offered at.
+ */
+revision: number
+}
+/**
  * Params of a `sketch` feature; flattened into its feature record after the record's own fields (`id`, `type`, `name`, `suppressed`).
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
@@ -1958,7 +2265,9 @@ entities?: SketchEntity[]
 constraints?: SketchConstraint[]
 }
 /**
- * A stored reference to a face, edge or vertex: a name query plus the fingerprint it had when picked.
+ * A stored reference to a face, edge or vertex: a name query, the fingerprint it had when picked,
+ * what tells its order-dependent parts apart from their siblings, and the former names merged into
+ * its faces (section 3.11).
  * 
  * A reference carries no body: it always sits next to a `body` field of its containing struct that
  * names the body it is resolved in.
@@ -1975,6 +2284,40 @@ q: ElementName
  * The element's fingerprint when the reference was made.
  */
 fp: Fingerprint
+/**
+ * For each order-dependent part of the query, the faces it touched that its siblings did not.
+ */
+nb?: Anchors
+/**
+ * For each face name in the query, the former names merged into that face.
+ */
+merged?: Merged
+}
+/**
+ * Part name to the sorted, distinct piece-free names of at most `ANCHOR_LIMIT` faces.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "Anchors".
+ */
+export interface Anchors {
+/**
+ * This interface was referenced by `Anchors`'s JSON-Schema definition
+ * via the `patternProperty` "^[A-Za-z0-9_./()|#@:-]+$".
+ */
+[k: string]: ElementName[] | undefined
+}
+/**
+ * Face name occurring in the query to the sorted, distinct former names merged into it.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "Merged".
+ */
+export interface Merged {
+/**
+ * This interface was referenced by `Merged`'s JSON-Schema definition
+ * via the `patternProperty` "^[A-Za-z0-9_./()|#@:-]+$".
+ */
+[k: string]: MergedName[] | undefined
 }
 /**
  * A right-handed frame that places sketch coordinates in model space.
@@ -2006,14 +2349,14 @@ x_axis: [number, number, number]
 normal: [number, number, number]
 }
 /**
- * A pixel pick in a displayed mesh.
+ * A pixel pick in a displayed mesh. In a headless session, which has no meshes, `mesh_id` is 0, `body` names the body and `index` is the element's position among the elements of its kind in `list_elements` order (engine.md section 3.9); in a display session `body` is absent or the mesh's body.
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
  * via the `definition` "Pick".
  */
 export interface Pick {
 /**
- * The displayed mesh.
+ * The displayed mesh; 0 in a headless session.
  */
 mesh_id: number
 /**
@@ -2021,9 +2364,13 @@ mesh_id: number
  */
 kind: ElementKind
 /**
- * Display id of the element within the mesh.
+ * Display id of the element within the mesh; in a headless session, its position among the body's elements of its kind.
  */
 index: number
+/**
+ * The body of a headless pick; absent, or the mesh's body, in a display session.
+ */
+body?: (Id | null)
 }
 /**
  * A face, edge or vertex reference with the body it is resolved in.
@@ -2313,6 +2660,10 @@ regions: RegionInfo[]
  */
 profile_findings: ProfileFinding[]
 /**
+ * The solve issues, then one message per entry of `profile_findings` in its order, rendered by the sketch crate in the document units; findings of the stored sketch carry their fixes as actions (engine.md section 3.6).
+ */
+messages: Diagnostic[]
+/**
  * Display buffers; absent when the session has display off.
  */
 display?: (SketchDisplay | null)
@@ -2364,7 +2715,7 @@ value?: (number | null)
  */
 export interface RegionInfo {
 /**
- * The region key and fingerprint.
+ * The reference a profile param stores, as `Region::reference()` writes it: key, fingerprint and outline.
  */
 reference: RegionRef
 /**
@@ -2394,6 +2745,135 @@ key: RegionKey
  * The region's fingerprint when the reference was made.
  */
 fp: RegionFingerprint
+/**
+ * The region's outer loop in traversal order when the reference was made (section 3.13.8); `None` in references
+ * written before file format version 2. Omitted from JSON when `None`.
+ */
+outline?: (RegionLoop | null)
+}
+/**
+ * A message about a document, feature, sketch or export.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "Diagnostic".
+ */
+export interface Diagnostic {
+/**
+ * Info, warning or error. A feature message of severity info is a notice: its feature's status stays `ok`.
+ */
+severity: Severity
+/**
+ * Stable snake_case code from the crate that produced it.
+ */
+code: string
+/**
+ * Plain-sentence message for the user (docs/guidelines/errors.md).
+ */
+message: string
+/**
+ * JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages, and sketch profile findings, whose field is their position in `SketchSolution::profile_findings` (`/profile_findings/0`, section 2.6).
+ */
+field?: (string | null)
+/**
+ * Replacement expression for `field` that fixes the problem, in document units (for example `2.3 mm`). Feature messages only.
+ */
+suggestion?: (string | null)
+/**
+ * One-click fixes computed from the document alone, in the order to offer them (engine.md section 3.22). Omitted when empty.
+ */
+actions?: FixAction[]
+/**
+ * The edit that started the problem, with its own actions (engine.md section 3.21). Session data: absent when the session never saw the feature build without this message, for example in a document opened fresh.
+ */
+cause?: (Cause | null)
+/**
+ * Technical text for reports (the kernel's text, the stored reference and the resolver result, a parser's or a panic's text), never shown as the message.
+ */
+detail?: (string | null)
+/**
+ * The root cause a host groups this message under (recompute.md section 3.10, `Message::root`): the first failing feature of an `upstream_failed` chain, of a loss whose reason is `upstream_failed`, or of the feature a `body_empty` or `tool_empty` names as failed; or the sketch that lost its face, or whose face turned over, under a `no_effect`, `hole_misses_body` or `separate_solid`.
+ */
+root?: (Id | null)
+/**
+ * Why the reference the message names was lost, or which feature a followed or widened reference followed (recompute.md section 3.10, `Message::reason`).
+ */
+reason?: (LossReason | null)
+}
+/**
+ * A fix a host offers as one button.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "FixAction".
+ */
+export interface FixAction {
+/**
+ * Button label starting with a verb, for example "Set Count of 'Linear pattern 1' back to 3".
+ */
+label: string
+/**
+ * What the button does.
+ */
+run: FixKind
+}
+/**
+ * The edit that started a problem (engine.md section 3.21).
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "Cause".
+ */
+export interface Cause {
+/**
+ * Plain sentence, for example "This started after you changed Distance of 'Extrude 2' from 5 mm to 30 mm."
+ */
+text: string
+/**
+ * The feature the edit changed, when it changed one (deleted features included).
+ */
+feature?: (Id | null)
+/**
+ * Actions that depend on the session, in order: reverts, Keep the sketch where it was, Undo, Show.
+ */
+actions: FixAction[]
+/**
+ * For a sketch entity edit in a display session: the entity as it was before the edit, in the sketch's coordinates. Absent for an added entity, which the sketch itself shows.
+ */
+ghost?: (Ghost | null)
+}
+/**
+ * Geometry drawn where something was: a lost element in its last build, a lost region's outline, or a sketch entity before an edit. Positions travel as a binary buffer of the same frame (section 3.4).
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "Ghost".
+ */
+export interface Ghost {
+/**
+ * `f32` positions in mm: 3 per point in `world`, 2 per point (u, v) in `sketch`.
+ */
+positions: BufferIndex
+/**
+ * How the points are joined.
+ */
+kind: GhostKind
+/**
+ * The coordinates of `positions`.
+ */
+frame: GhostFrame
+}
+/**
+ * The instance of a pattern or mirror copy (naming.md `Instance`).
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "InstanceIndex".
+ */
+export interface InstanceIndex {
+/**
+ * Index along the first pattern direction, or the only one.
+ */
+first: number
+/**
+ * Index along the second direction; 0 for one-direction patterns, circular patterns and mirrors.
+ */
+second: number
 }
 /**
  * Buffer indices of the sketch region fills (all coordinates are sketch 2D, mm).
@@ -2455,7 +2935,7 @@ body: Id
  */
 feature: Id
 /**
- * The stored reference a feature param uses for this element.
+ * The reference a feature param stores for this element: the short form (query and fingerprint) in `list_elements`, the full form with anchors and merged names in `pick_reference` (engine.md section 3.9).
  */
 reference: Reference
 /**
@@ -2507,6 +2987,17 @@ radius?: (number | null)
  * Sketch placement a sketch on this face receives (planar faces only).
  */
 placement?: (Placement | null)
+/**
+ * `placement` in body coordinates, which hosts store as a face sketch's fallback with `fallback_frame: body` (planar faces only, engine.md section 3.9).
+ */
+fallback?: (Placement | null)
+/**
+ * Unit axis direction in body coordinates, which hosts store as `direction` when the element is picked for an axis (line edges; cylinder, cone and torus faces; engine.md section 3.9).
+ * 
+ * @minItems 3
+ * @maxItems 3
+ */
+axis_direction?: ([number, number, number] | null)
 /**
  * Names of adjacent elements: a face's edges; an edge's faces then vertices; a vertex's edges. Each group sorted by name.
  */
@@ -2697,34 +3188,6 @@ media_type: string
 data: BufferIndex
 }
 /**
- * A message about a document, feature or export.
- * 
- * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
- * via the `definition` "Diagnostic".
- */
-export interface Diagnostic {
-/**
- * Info, warning or error.
- */
-severity: Severity
-/**
- * Stable snake_case code from the crate that produced it.
- */
-code: string
-/**
- * Plain-sentence message for the user.
- */
-message: string
-/**
- * JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages only.
- */
-field?: (string | null)
-/**
- * Replacement expression for `field` that fixes the problem, in document units (for example `2.3 mm`). Feature messages only.
- */
-suggestion?: (string | null)
-}
-/**
  * A failed request.
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
@@ -2747,6 +3210,14 @@ edit_index?: (number | null)
  * For `expression_error`: the UTF-8 byte range of the problem in the expression text (expressions.md spans). The UI converts it to string indices.
  */
 span?: (Span | null)
+/**
+ * Technical text for reports (a panic message, a parser's text), never shown as the message.
+ */
+detail?: (string | null)
+/**
+ * One-click ways out, in the order to offer them (section 4, for example "Finish \"Fillet\" and save" for `transaction_open`). Omitted when empty.
+ */
+actions?: FixAction[]
 }
 /**
  * A half-open UTF-8 byte range `[start, end)` into an expression's source text.
@@ -2776,17 +3247,69 @@ export interface FeatureStatus {
  */
 id: Id
 /**
- * `ok`, `warning`, `error`, `suppressed` or `rolled_back`.
+ * `ok`, `warning`, `error`, `suppressed` or `rolled_back`. A feature with info notices only is `ok`.
  */
 status: FeatureState
 /**
- * The error first, then warnings, each with `field` and `suggestion` when the feature reported them.
+ * The error first, then warnings, then info notices, as engine.md section 3.4 projects them.
  */
 messages: Diagnostic[]
 /**
- * Lost references and profile regions the repair panel offers to re-pick.
+ * Repair data of lost, ambiguous, guessed and widened references and regions, one per repair of each message, in message order: what repair mode shows and replaces (ui.md section 3.7).
  */
 repairs: Repair[]
+}
+/**
+ * A possible replacement for a lost, ambiguous, guessed or widened reference.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "RepairCandidate".
+ */
+export interface RepairCandidate {
+/**
+ * The reference the "Use" action stores (the full form, with anchors and merged names).
+ */
+reference: Reference
+/**
+ * The candidate in words, for example "the top edge of the cut made by 'Extrude 1'".
+ */
+description: string
+/**
+ * What it keeps and how far it is, for example "on the top of 'Box 1', 5 mm from where it was".
+ */
+relation: string
+/**
+ * True when it keeps a face the lost element touched.
+ */
+meaning: boolean
+/**
+ * Distance in mm from where the lost element was.
+ */
+distance: number
+/**
+ * Fingerprint score in [0, 1], for reports; hosts never show it.
+ */
+score: number
+/**
+ * The candidate in the body's current model-layer mesh, for highlighting; absent in headless sessions and when that mesh does not have it.
+ */
+element?: (MeshElement | null)
+}
+/**
+ * A set of regions that a lost or ambiguous region reference could mean.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "RegionCandidate".
+ */
+export interface RegionCandidate {
+/**
+ * The references the "Use" action stores, in the sketch's region order.
+ */
+regions: RegionRef[]
+/**
+ * The regions in words, for example "the region of 'Sketch 1' around (175, 10)".
+ */
+description: string
 }
 /**
  * The evaluated value of one parameter.

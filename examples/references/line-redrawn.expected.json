@@ -1,0 +1,240 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok",
+      "messages": [
+        {
+          "severity": "info",
+          "code": "reference_followed",
+          "message": "The right top edge of 'Extrude 1' near (80, 25, 30) selected for Edges now follows the right top edge of 'Extrude 1' along the line from (80, 0) to (80, 50) in 'Sketch 1', because its line was replaced in 'Sketch 1'.",
+          "field": "/edges/0",
+          "actions": [
+            {
+              "label": "Keep this match",
+              "kind": "apply"
+            },
+            {
+              "label": "Pick an edge again",
+              "kind": "pick"
+            }
+          ],
+          "reason": {
+            "kind": "followed",
+            "by": "f-sk1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "ok",
+      "messages": [
+        {
+          "severity": "info",
+          "code": "reference_followed",
+          "message": "The right side of 'Extrude 1' near (80, 25, 14) selected for Plane now follows the right side of 'Extrude 1' made from the line from (80, 0) to (80, 50) in 'Sketch 1', because its line was replaced in 'Sketch 1'.",
+          "field": "/plane/face",
+          "actions": [
+            {
+              "label": "Keep this match",
+              "kind": "apply"
+            },
+            {
+              "label": "Pick a face again",
+              "kind": "pick"
+            }
+          ],
+          "reason": {
+            "kind": "followed",
+            "by": "f-sk1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 119705.75222039231,
+      "area": 15881.026524130262,
+      "center_of_mass": [
+        39.9070853456972,
+        24.999999999999996,
+        14.994781942970597
+      ],
+      "bounding_box": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          80.0,
+          50.0,
+          30.0
+        ]
+      },
+      "faces": 9,
+      "edges": 17,
+      "vertices": 12
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 1,
+      "infos": 0,
+      "label": "1 warning"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          88.0,
+          103.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 31.4 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      75.0,
+                      22.171572875253815,
+                      17.828427124746188
+                    ],
+                    "max": [
+                      80.0,
+                      27.82842712474619,
+                      19.0
+                    ]
+                  },
+                  "value": 1.5489797111449743,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    7
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

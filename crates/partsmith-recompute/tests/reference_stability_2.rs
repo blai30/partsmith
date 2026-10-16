@@ -3,8 +3,9 @@
 //! records, runs it with `Registry::with_builtins()` with its references picked as the corpus's
 //! "Picked references" rule says (`run`, through `run_picked`), applies the edit (which keeps those
 //! picks, `with_picks`), runs again and checks the corpus's "Expect" by geometry (names of
-//! generated faces, centroids, axes, volumes, bounding boxes) and by the rendered messages. A
-//! scenario with variants is one test per variant.
+//! generated faces, centroids, axes, volumes, bounding boxes) and by the rendered messages, with
+//! their fixes and roots where the corpus states them exactly. A scenario with variants is one
+//! test per variant.
 //!
 //! Failing checks are collected, so a failure lists every difference together with what the
 //! resolver did with the reference under test (method, picked elements and the best fingerprint
@@ -16,13 +17,36 @@ mod stability_support_2;
 
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
+use partsmith_features::Fix;
+use partsmith_model::{Document, Id};
 use partsmith_naming::MatchMethod;
+use partsmith_sketch::{HintFrame, Placement, SketchParams, SketchPlane};
 use serde_json::{Value, json};
-use stability_support_2::feature_support::{Run, datum_placement};
+use stability_support_2::feature_support::{Assets, Run, datum_placement, sketch_result};
 use stability_support_2::*;
 
 /// The fingerprint of BLOCK's top as stored when the user picked it.
 const BLOCK_TOP_FINGERPRINT: &str = "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4";
+
+/// An id written in a test.
+fn id(text: &str) -> Id {
+    Id::new(text).expect("ids written in tests are valid")
+}
+
+/// `Pick` of the reference at `pointer`.
+fn pick(pointer: &str) -> Fix {
+    Fix::Pick {
+        pointer: pointer.to_owned(),
+    }
+}
+
+/// `Show` of the whole feature `feature`.
+fn show(feature: &str) -> Fix {
+    Fix::Show {
+        feature: id(feature),
+        entity: None,
+    }
+}
 
 /// The top of BLOCK as a stored reference.
 fn block_top() -> Value {
@@ -364,6 +388,8 @@ fn r26_deleting_and_recreating_the_base_extrude() {
     );
     checks.top_z(&session, "b-1", 90.0);
 
+    // Edit (2) is two edits: the delete, then the add at the same timeline position.
+    edit(&mut session, &["b-1"], &without(&taller, &["f-ext1"]));
     let recreated = edited(&taller, "f-ext1", |_| {
         extrude(
             "f-ext3",
@@ -376,23 +402,56 @@ fn r26_deleting_and_recreating_the_base_extrude() {
     });
     edit(&mut session, &["b-1"], &recreated);
     checks.note(diagnose(&session, "f-sk2", "b-1", &block_top()));
-    checks.built(&session, "f-sk2");
-    checks.status(&session, "f-ext2", "ok");
+    // The run alone cannot tell that 'Extrude 1' (f-ext3) replaces the deleted extrude, so nothing
+    // moves without the user: the sketch uses the position saved with it (amended by decision D3).
+    // "Deleted" and Keep the sketch where it was are the engine twin's cause line.
+    checks.status(&session, "f-sk2", "warning");
     checks.sketch_placement(
         &session,
         "f-sk2",
-        [0.0, 0.0, 80.0],
+        [0.0, 0.0, 30.0],
         [1.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         1e-9,
     );
-    checks.solids(&session, "b-1", 1);
-    checks.volume(&session, "b-1", 320000.0 + PI * 100.0 * 10.0);
-    checks.top_z(&session, "b-1", 90.0);
-    if status(&session, "f-sk2") == "warning" {
-        checks.message_names(&session, "f-sk2", &["deleted"]);
-        checks.plain_words(&session, "f-sk2");
-    }
+    // The top of the new extrude faces the way the stored face did, so it is offered first, then
+    // the other faces in naming's candidate order (naming.md test 133).
+    let attach = |face: &str| Fix::Attach {
+        sketch: id("f-sk2"),
+        body: id("b-1"),
+        face: session.picked_before("f-sk2", "b-1", face),
+    };
+    checks.only_message(
+        &session,
+        "f-sk2",
+        ExactMessage {
+            code: "plane_fallback",
+            text: "The face this sketch is on, a face of a feature that is not in this document, is gone, so the sketch uses the position saved with it.",
+            fixes: vec![
+                attach("f-ext3/end-cap"),
+                attach("f-ext3/lateral/e-1"),
+                attach("f-ext3/lateral/e-3"),
+                attach("f-ext3/start-cap"),
+                attach("f-ext3/lateral/e-2"),
+                pick("/plane/face"),
+            ],
+            root: None,
+        },
+    );
+    checks.plain_words(&session, "f-sk2");
+    checks.status(&session, "f-ext2", "warning");
+    checks.only_message(
+        &session,
+        "f-ext2",
+        ExactMessage {
+            code: "no_effect",
+            text: "This extrude adds nothing to body 'Body 1' because 'Sketch 2' lost the face it was on. Fix 'Sketch 2' first.",
+            fixes: vec![show("f-sk2")],
+            root: Some("f-sk2"),
+        },
+    );
+    checks.volume(&session, "b-1", 320000.0);
+    checks.top_z(&session, "b-1", 80.0);
     checks.finish();
 }
 
@@ -919,8 +978,52 @@ fn r32b_a_sketch_keeps_its_place_on_a_face_that_turns_over() {
         POSITION_TOLERANCE,
     );
 
-    let after = run_edited(&before, &["b-1"], &block_with_hole_on_end_cap(true));
+    let mut after = run_edited(&before, &["b-1"], &block_with_hole_on_end_cap(true));
     checks.note(diagnose(&after, "f-sk2", "b-1", &block_top()));
+    // Amended by decision D3: the placement stays right-handed, so the drawing lies mirrored on the
+    // face that turned over.
+    checks.status(&after, "f-sk2", "warning");
+    checks.sketch_placement(
+        &after,
+        "f-sk2",
+        [0.0, 0.0, -30.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0],
+        1e-9,
+    );
+    checks.only_message(
+        &after,
+        "f-sk2",
+        ExactMessage {
+            code: "sketch_turned_over",
+            text: "The face this sketch is on, the top of 'Extrude 1', now faces the other way, so the drawing is mirrored on it.",
+            fixes: vec![
+                Fix::TurnDrawingBack {
+                    sketch: id("f-sk2"),
+                },
+                pick("/plane/face"),
+            ],
+            root: None,
+        },
+    );
+    // Until the drawing is turned back, e-p1 lies at world (20, -10, -30), off the face.
+    checks.status(&after, "f-hole1", "warning");
+    checks.only_message(
+        &after,
+        "f-hole1",
+        ExactMessage {
+            code: "hole_misses_body",
+            text: "The hole at (20, 10) in 'Sketch 2' does not touch body 'Body 1' because the drawing of 'Sketch 2' lies mirrored on its face. Fix 'Sketch 2' first.",
+            fixes: vec![show("f-sk2")],
+            root: Some("f-sk2"),
+        },
+    );
+    checks.volume(&after, "b-1", 120000.0);
+
+    // Turn the drawing back: the point is drilled where the user drew it.
+    let turned_over = sketch_result(&after, "f-sk2").placement;
+    after.document = turned_drawing_back(&after.document, "f-sk2", turned_over);
+    after.rerun(&Assets::new());
     checks.all_ok(&after);
     let body = final_state(&after, "b-1");
     checks.axis_through(
@@ -937,6 +1040,41 @@ fn r32b_a_sketch_keeps_its_place_on_a_face_that_turns_over() {
     );
     checks.volume(&after, "b-1", 120000.0 - PI * 6.25 * 10.0);
     checks.finish();
+}
+
+/// `document` after Turn the drawing back on the face sketch `sketch` (`Fix::TurnDrawingBack`,
+/// features/sketch.md section 3.5): its drawing mirrored across its x axis
+/// (`SketchParams::mirrored`, sketch.md section 3.17) and `placement`, where the sketch lies now,
+/// stored as its fallback in body coordinates. No Move body or copy comes before the sketch in
+/// the corpus, so body coordinates are world coordinates. Point references stored outside the
+/// sketch name point entities, which mirroring leaves unchanged (`mirrored_point`).
+fn turned_drawing_back(document: &Document, sketch: &str, placement: Placement) -> Document {
+    let mut turned = document.clone();
+    let record = turned
+        .features
+        .iter_mut()
+        .find(|record| record.id.as_str() == sketch)
+        .unwrap_or_else(|| panic!("no feature {sketch}"));
+    let params: SketchParams = serde_json::from_value(Value::Object(record.params.clone()))
+        .unwrap_or_else(|error| panic!("{sketch} does not hold sketch params: {error}"));
+    let mut mirrored = params.mirrored();
+    let SketchPlane::Face {
+        fallback,
+        fallback_frame,
+        ..
+    } = &mut mirrored.plane
+    else {
+        panic!("{sketch} is not on a face");
+    };
+    *fallback = placement;
+    *fallback_frame = HintFrame::Body;
+    let Value::Object(params) =
+        serde_json::to_value(mirrored).expect("sketch params serialize to JSON")
+    else {
+        panic!("sketch params serialize to a JSON object");
+    };
+    record.params = params;
+    turned
 }
 
 /// R33: the top of the box as picked when it was 10 tall.

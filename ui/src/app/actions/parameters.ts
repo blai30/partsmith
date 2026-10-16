@@ -6,8 +6,7 @@ import { runInCommand } from './command'
 import {
   commitBuiltEdits,
   documentOf,
-  mutate,
-  reportNewFailures,
+  runChange,
   type EditsBuilder,
   type RefusalOptions,
 } from './edits'
@@ -99,17 +98,15 @@ export async function renameParameter(
       options.onRefused,
     )
   }
-  const before = documentOf(app)?.featureStatus ?? {}
-  const revision = await mutate(
+  const { sent } = await runChange(
     app,
-    (document) => app.core.renameParameter(document.documentHandle, id, name),
+    async (document) => {
+      await app.core.renameParameter(document.documentHandle, id, name)
+      return true
+    },
     options,
   )
-  if (revision === null) {
-    return false
-  }
-  reportNewFailures(app, before)
-  return true
+  return sent
 }
 
 /** Changes a parameter's expression ("Change {name}") or comment ("Change comment of {name}"; empty removes it). */

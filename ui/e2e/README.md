@@ -48,7 +48,7 @@ cargo run -p partsmith-cli -- validate ui/e2e/fixtures/*.ptsm
 cargo run -p partsmith-cli -- rebuild --checks ui/e2e/fixtures/cube.ptsm
 ```
 
-References to faces and edges (`cube-features.ptsm`, `fillet-error.ptsm`, `hole-cube.ptsm`) hold the names and fingerprints the core reports for the cube. `part-50.ptsm` is a copy of `examples/bench/fifty-features/model.ptsm`; keep the two identical. `dense.ptsm` (a 15 by 15 pattern of spheres, about 2.4 million display triangles) takes about 25 seconds to open.
+References to faces and edges (`cube-features.ptsm`, `fillet-error.ptsm`, `hole-cube.ptsm`) hold the names and fingerprints the core reports for the cube. The fixtures of the reference stability corpus (`bevel-corner.ptsm`, `rabbet.ptsm`, `pattern-fillet.ptsm`, `boss-fillet.ptsm`, `side-line.ptsm`) store every reference as a pick stores it: the full reference `pick_reference` gives with each feature focused, and each profile region as `solve_sketch` gives it, with its outline (ui.md 6.2). Their scenarios are in `repairs.spec.ts` (E-109, E-123 to E-126). `part-50.ptsm` is a copy of `examples/bench/fifty-features/model.ptsm`; keep the two identical. `dense.ptsm` (a 15 by 15 pattern of spheres, about 2.4 million display triangles) takes about 25 seconds to open.
 
 ## Results
 

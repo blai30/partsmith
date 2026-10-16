@@ -13,7 +13,7 @@ use partsmith_occt_sys::{
     KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult,
     Vector, compound,
 };
-use partsmith_sketch::Succession;
+use partsmith_sketch::{RegionRef, Succession};
 
 use crate::context::{BodyState, BuildContext, ResolvedProfile};
 use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, Noun};
@@ -565,13 +565,26 @@ pub(crate) fn profile_arguments(
     let solved = names.regions(&profile.sketch)?;
     // A script without `regions=` stores the solved references, so a stored region without the
     // outline its solved region has (written before format version 2) is written out.
-    let regions = (profile.regions != solved).then(|| {
+    let regions = (!stores_the_same(&profile.regions, &solved)).then(|| {
         (
             "regions".to_string(),
             PythonValue::List(profile.regions.iter().map(PythonValue::region).collect()),
         )
     });
     Some((sketch, regions))
+}
+
+/// Whether two lists of region references store the same text: keys, outlines and the
+/// fingerprints' text. A solved region's fingerprint is exact, while a stored one holds the rounded
+/// text (sketch.md section 3.13.6), so comparing the values would tell a reference from the region
+/// it was picked from whenever its area or centroid is not a round number.
+fn stores_the_same(stored: &[RegionRef], solved: &[RegionRef]) -> bool {
+    stored.len() == solved.len()
+        && stored.iter().zip(solved).all(|(stored, solved)| {
+            stored.key == solved.key
+                && stored.outline == solved.outline
+                && stored.fp.to_string() == solved.fp.to_string()
+        })
 }
 
 /// A call of `function` with these positional and keyword arguments.
@@ -591,7 +604,7 @@ pub(crate) fn call(
 #[cfg(test)]
 mod tests {
     use partsmith_occt_sys::{Plane, make_box, make_cylinder};
-    use partsmith_sketch::RegionRef;
+    use partsmith_sketch::RegionFingerprint;
 
     use super::*;
     use crate::test_support::{Fixture, ScriptNames, id};
@@ -740,6 +753,32 @@ mod tests {
         let (sketch, regions) = profile_arguments(&profile, &names).expect("the sketch solved");
 
         assert_eq!(sketch.render(), "sketch_1");
+        assert_eq!(regions, None);
+    }
+
+    #[test]
+    fn every_region_whose_fingerprint_is_not_round_is_not_written() {
+        // A circle of radius 10: the solved fingerprint is exact, the stored one rounded.
+        let solved = RegionRef {
+            key: "e-5".parse().expect("a region key"),
+            fp: RegionFingerprint {
+                area: std::f64::consts::PI * 100.0,
+                centroid: [1e-17, -1e-17],
+            },
+            outline: Some("e-5".parse().expect("a region loop")),
+        };
+        let stored: RegionRef =
+            serde_json::from_value(serde_json::to_value(&solved).expect("JSON"))
+                .expect("a region ref");
+        let mut names = ScriptNames::default();
+        names.regions.insert(id("f-sk1"), vec![solved]);
+        let profile = ProfileRef {
+            sketch: id("f-sk1"),
+            regions: vec![stored],
+        };
+
+        let (_, regions) = profile_arguments(&profile, &names).expect("the sketch solved");
+
         assert_eq!(regions, None);
     }
 

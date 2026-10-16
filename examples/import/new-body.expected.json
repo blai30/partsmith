@@ -10,7 +10,8 @@
           "severity": "error",
           "code": "asset_missing",
           "message": "The imported file assets/0000000000000000000000000000000000000000000000000000000000000000.step is missing. Put it next to the document in the assets folder.",
-          "field": "/asset"
+          "field": "/asset",
+          "detail": "0000000000000000000000000000000000000000000000000000000000000000.step"
         }
       ]
     }

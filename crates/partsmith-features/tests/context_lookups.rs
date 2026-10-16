@@ -12,9 +12,12 @@ mod common;
 use std::sync::Arc;
 
 use common::{ContextFixture, assert_vector_close, built_body, empty_sketch_output, id};
-use partsmith_features::{BodyState, FallbackReason, FeatureError, Noun, PlacementExt, PlaneRef};
+use partsmith_features::{
+    BodyState, FaceFallback, FallbackCause, FeatureError, Noun, PlacementExt, PlaneRef,
+    WithWarnings,
+};
 use partsmith_model::Units;
-use partsmith_naming::Reference;
+use partsmith_naming::{ElementName, Reference};
 use partsmith_sketch::{OriginPlane, Placement};
 use serde_json::json;
 
@@ -259,60 +262,80 @@ fn reference(query: &str, fingerprint: &str) -> Reference {
         .expect("references written in tests are valid")
 }
 
-/// `face_placement` of `face` in `b-1` holding `state`, with the tilted hint.
+/// `face_placement` of `face` as the face of a sketch plane in `b-1` holding `state`, with the tilted hint.
 fn face_placement(
     state: BodyState,
     face: &Reference,
-) -> Result<Result<Placement, FallbackReason>, FeatureError> {
+) -> Result<Result<WithWarnings<Placement>, FaceFallback>, FeatureError> {
     let mut fixture = ContextFixture::new(Units::Mm, &[]);
     fixture.bodies.insert(id("b-1"), state);
     fixture
         .context()
-        .face_placement(&id("b-1"), face, &tilted_hint())
+        .face_placement("plane.face", &id("b-1"), face, &tilted_hint())
 }
 
 #[test]
 fn t022_flat_face_projects_the_hint_onto_its_plane() {
-    let placement = face_placement(
+    let placed = face_placement(
         box_test_1(),
         &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
     )
     .expect("nothing fails")
     .expect("the top face is flat");
 
-    assert_vector_close(placement.origin, [1.0, 2.0, 30.0], "origin");
-    assert_vector_close(placement.x_axis, [1.0, 0.0, 0.0], "x axis");
-    assert_vector_close(placement.normal, [0.0, 0.0, 1.0], "normal");
+    assert_vector_close(placed.value.origin, [1.0, 2.0, 30.0], "origin");
+    assert_vector_close(placed.value.x_axis, [1.0, 0.0, 0.0], "x axis");
+    assert_vector_close(placed.value.normal, [0.0, 0.0, 1.0], "normal");
+    assert!(
+        placed.warnings.is_empty(),
+        "an exact match has no warning or notice: {:?}",
+        placed.warnings
+    );
+}
+
+/// The fallback of a face placement that could not use its face.
+fn fallback(
+    result: Result<Result<WithWarnings<Placement>, FaceFallback>, FeatureError>,
+) -> FaceFallback {
+    match result {
+        Ok(Err(fallback)) => fallback,
+        other => panic!("expected a fallback, got {other:?}"),
+    }
 }
 
 #[test]
-fn t022_missing_reference_is_missing() {
-    let result = face_placement(
+fn t022_missing_reference_is_missing_with_its_loss() {
+    let fallback = fallback(face_placement(
         box_test_1(),
         &reference("f-box9/top", "plane|n=0,0,1|c=500,500,500|a=1"),
-    );
+    ));
 
-    assert_eq!(result, Ok(Err(FallbackReason::Missing)));
+    assert_eq!(fallback.cause, FallbackCause::Missing);
+    let loss = fallback.loss.expect("a lost reference carries its loss");
+    let lost: Vec<&str> = loss.lost.parts.iter().map(ElementName::as_str).collect();
+    assert_eq!(lost, ["f-box9/top"]);
 }
 
 #[test]
-fn t022_any_reference_in_an_empty_body_is_missing() {
-    let result = face_placement(
+fn t022_any_reference_in_an_empty_body_is_missing_without_a_loss() {
+    let fallback = fallback(face_placement(
         BodyState::empty(),
         &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
-    );
+    ));
 
-    assert_eq!(result, Ok(Err(FallbackReason::Missing)));
+    assert_eq!(fallback.cause, FallbackCause::Missing);
+    assert_eq!(fallback.loss, None);
 }
 
 #[test]
-fn t022_cylinder_side_is_not_planar() {
-    let result = face_placement(
+fn t022_cylinder_side_is_not_planar_without_a_loss() {
+    let fallback = fallback(face_placement(
         cylinder_test_1(),
         &reference("f-cyl1/side", "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5"),
-    );
+    ));
 
-    assert_eq!(result, Ok(Err(FallbackReason::NotPlanar)));
+    assert_eq!(fallback.cause, FallbackCause::NotPlanar);
+    assert_eq!(fallback.loss, None);
 }
 
 #[test]
@@ -320,6 +343,7 @@ fn t022_undeclared_body_is_undeclared() {
     let fixture = ContextFixture::new(Units::Mm, &[]);
 
     let result = fixture.context().face_placement(
+        "plane.face",
         &id("b-9"),
         &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
         &tilted_hint(),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Diagnostic, Edit, Repair } from '../../generated/protocol'
+import type { Diagnostic, Edit } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import {
   actionLabels,
@@ -11,6 +11,7 @@ import {
 import { CUBE_FEATURES_DOCUMENT, CUBE_TOP_FRONT_EDGE, featuresOf } from '../../test/fakes/documents'
 import { elementItem } from '../../test/fakes/selection'
 import type { FakeFeatureStatus } from '../../test/fakes/core'
+import { lostEdgeRepair } from '../../test/fakes/repairs'
 import { settle } from '../../test/fakes/settle'
 import { capturePick, editFeature, undoCommandChange } from './command'
 import { applyEdits, undo } from './document'
@@ -50,14 +51,7 @@ async function cubeWithStatuses(): Promise<{
 const FAILED: FakeFeatureStatus = { status: 'error', messages: [TOO_LARGE] }
 
 /** The first edge of Fillet 1, which no longer resolves. */
-const LOST_EDGE: Repair = {
-  kind: 'element',
-  path: '/edges/0',
-  body: 'b-cube',
-  reference: { q: 'edge(top,front)', fp: 'fp-edge' },
-  resolution: 'missing',
-  centroid: [0, 0, 20],
-}
+const LOST_EDGE = lostEdgeRepair()
 
 const RENAME_BODY: readonly Edit[] = [{ type: 'update_body', body: { id: 'b-cube', name: 'Box' } }]
 
@@ -79,7 +73,7 @@ describe('failure notifications', () => {
     expect(fake.transport.commandTypes()).toContain('undo')
   })
 
-  it('U-110 a feature with a lost reference offers "Re-pick Edges", which edits it with Edges active', async () => {
+  it('U-110 a failed feature with a lost reference offers "Edit", which edits it with Edges active, and no "Re-pick"', async () => {
     const { fake, statuses } = await cubeWithStatuses()
     statuses['f-fil1'] = { ...FAILED, repairs: [LOST_EDGE] }
     await applyEdits(fake.app, 'Change Fillet 1', RADIUS_15)
@@ -88,8 +82,8 @@ describe('failure notifications', () => {
       fake.app,
       MESSAGES.feature_failed('Fillet 1', TOO_LARGE.message),
     )
-    expect(actionLabels(notification)).toEqual(['Re-pick Edges', 'Undo'])
-    runAction(notification, 'Re-pick Edges')
+    expect(actionLabels(notification)).toEqual(['Edit', 'Undo'])
+    runAction(notification, 'Edit')
     await settle()
     expect(fake.app.store.getState().command).toMatchObject({
       featureId: 'f-fil1',
@@ -181,7 +175,7 @@ function edges(fake: FakeApp): unknown {
   return fake.app.store.getState().command?.params['edges']
 }
 
-describe('Re-pick (3.7, 4.2)', () => {
+describe('picking a lost reference again (3.7, 4.2)', () => {
   it("U-110 the next pick in Edges takes the lost edge's place instead of adding to the list", async () => {
     const fake = await editingLostEdge()
     await capturePick(fake.app, elementItem(CUBE_TOP_FRONT_EDGE, 'Cube'))
@@ -195,7 +189,7 @@ describe('Re-pick (3.7, 4.2)', () => {
     expect(edges(fake)).toEqual(STORED_EDGES.slice(1))
   })
 
-  it('U-110 undoing the re-pick brings the lost edge back, and the next pick replaces it again', async () => {
+  it('U-110 undoing the pick brings the lost edge back, and the next pick replaces it again', async () => {
     const fake = await editingLostEdge()
     await capturePick(fake.app, elementItem(CUBE_TOP_FRONT_EDGE, 'Cube'))
     await undoCommandChange(fake.app)

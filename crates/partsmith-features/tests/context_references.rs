@@ -1,5 +1,6 @@
-//! Build context tests for references (features.md sections 3.8 and 6.3): what `resolve_all`, `resolve` and `plane`
-//! report for each kind of follow, a guess, an ambiguous or missing reference and a list that resolves to nothing.
+//! Build context tests for references (features.md sections 3.8 and 6.3): what `resolve_all`, `resolve`, `plane` and
+//! `face_placement` report for each kind of follow, a guess, an ambiguous or missing reference and a list that resolves
+//! to nothing.
 //! The body states come from built-in features run in order (`common::timeline`), as the reference stability corpus
 //! builds them; `t031` is section 6.3 test 31, the other tests check one rule of section 3.8 each.
 
@@ -21,10 +22,11 @@ use common::records::{
 use common::timeline::{Timeline, stored, sub_shape_names};
 use common::{assert_vector_close, id, warning_fixes};
 use partsmith_features::{
-    BodyState, FeatureError, FeatureWarning, FieldRef, Fix, Loss, PlaneRef, Repair, Resolved,
-    Severity,
+    BodyState, FaceFallback, FeatureError, FeatureWarning, FieldRef, Fix, Loss, PlaneRef, Repair,
+    Resolved, Severity, WithWarnings,
 };
 use partsmith_naming::{ElementKind, Follow, Lost, Reference, Resolution};
+use partsmith_sketch::Placement;
 use serde_json::{Value, json};
 
 /// The back top edge of `BLOCK`, as the corpus stores it (R07, R66).
@@ -1080,4 +1082,80 @@ fn t031_a_plane_on_a_removed_face_follows_its_rim() {
         warning_fixes(notice, "f-box9"),
         keep_and_pick("/plane/face")
     );
+}
+
+/// The fallback a sketch on the right side of `BLOCK` stores (corpus R06): origin (80, 0, 0), x axis +Y, normal +X.
+fn right_side_hint() -> Placement {
+    Placement {
+        origin: [80.0, 0.0, 0.0],
+        x_axis: [0.0, 1.0, 0.0],
+        normal: [1.0, 0.0, 0.0],
+    }
+}
+
+/// `face_placement` of `face` as the face of the plane of a sketch `f-sk9` on `b-1` at the end of `timeline`.
+fn place_sketch(
+    timeline: &Timeline,
+    face: &Reference,
+    hint: &Placement,
+) -> Result<Result<WithWarnings<Placement>, FaceFallback>, FeatureError> {
+    let fixture = timeline.fixture("f-sk9", "sketch");
+    fixture
+        .context()
+        .face_placement("plane.face", &id("b-1"), face, hint)
+}
+
+#[test]
+fn a_face_placement_that_followed_a_change_carries_its_notice() {
+    // Corpus R06a: e-2 deleted and drawn again in its place as e-9, under a sketch on the right side.
+    let timeline = edited_block(&["e-2"], vec![line("e-9", [80.0, 0.0], [80.0, 50.0])]);
+
+    let placed = place_sketch(&timeline, &stored_pair(RIGHT_SIDE), &right_side_hint())
+        .expect("nothing fails")
+        .expect("the redrawn side places the sketch");
+
+    assert_vector_close(placed.value.origin, [80.0, 0.0, 0.0], "origin");
+    assert_vector_close(placed.value.x_axis, [0.0, 1.0, 0.0], "x axis");
+    assert_vector_close(placed.value.normal, [1.0, 0.0, 0.0], "normal");
+    let [notice] = placed.warnings.as_slice() else {
+        panic!("expected one notice, got {:?}", placed.warnings);
+    };
+    assert_eq!(notice.code(), "reference_followed");
+    assert_eq!(notice.severity(), Severity::Info);
+    assert!(
+        matches!(
+            notice,
+            FeatureWarning::ReferenceFollowed {
+                follow: Follow::Replaced,
+                elements,
+                ..
+            } if queries(elements) == ["f-ext1/lateral/e-9"]
+        ),
+        "expected a replacement by the redrawn side, got {notice:?}"
+    );
+    assert_eq!(pointer(notice).as_deref(), Some("/plane/face"));
+    assert_eq!(warning_fixes(notice, "f-sk9"), keep_and_pick("/plane/face"));
+}
+
+#[test]
+fn a_face_placement_on_a_guessed_face_carries_its_warning() {
+    let timeline = slotted_block();
+    let hint = Placement {
+        origin: [0.0, 0.0, 30.0],
+        x_axis: [1.0, 0.0, 0.0],
+        normal: [0.0, 0.0, 1.0],
+    };
+
+    let placed = place_sketch(&timeline, &guessed_top(), &hint)
+        .expect("nothing fails")
+        .expect("a guess places the sketch");
+
+    assert_vector_close(placed.value.origin, [0.0, 0.0, 30.0], "origin");
+    assert_vector_close(placed.value.normal, [0.0, 0.0, 1.0], "normal");
+    let [warning] = placed.warnings.as_slice() else {
+        panic!("expected one warning, got {:?}", placed.warnings);
+    };
+    assert_eq!(warning.code(), "reference_guessed");
+    assert_eq!(warning.severity(), Severity::Warning);
+    assert_eq!(pointer(warning).as_deref(), Some("/plane/face"));
 }

@@ -2,8 +2,10 @@ import { act, cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import type { Notification } from '../state/store'
-import { cubeDocumentState, readyState } from './fixtures.testing'
+import { MESSAGES } from '../messages'
+import type { ActiveCommand, Notification } from '../state/store'
+import { COLOR_CLASSES } from '../theme/roles'
+import { cubeDocumentState, FILLET_EDGES_COMMAND, readyState } from './fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
 
 beforeEach(installPopoverPolyfill)
@@ -26,8 +28,10 @@ function notification(
   return { id, severity, message, actions, createdAt: 0 }
 }
 
-function renderWith(notifications: readonly Notification[]) {
-  const test = createModelApp({ state: readyState(cubeDocumentState(), { notifications }) })
+function renderWith(notifications: readonly Notification[], command: ActiveCommand | null = null) {
+  const test = createModelApp({
+    state: readyState(cubeDocumentState(), { notifications, command }),
+  })
   renderWithApp(test.app)
   return { ...test, user: userEvent.setup() }
 }
@@ -149,6 +153,30 @@ describe('notifications (3.22)', () => {
     expect(app.store.getState().notifications).toEqual([])
   })
 
+  it("waits during a feature command with a message's apply action: aria-disabled, it says why and runs nothing (3.7)", async () => {
+    const run = vi.fn<() => void>()
+    const revert = "Set Count of 'Linear pattern 1' back to 3"
+    const { app, user } = renderWith(
+      [
+        notification('n-1', 'warning', "'Fillet 1' lost the right top edge of 'Box 1'.", [
+          { label: revert, run, editsDocument: true },
+          { label: 'Undo', run: vi.fn<() => void>() },
+        ]),
+      ],
+      FILLET_EDGES_COMMAND,
+    )
+    const card = screen.getByTestId('notification')
+    const button = within(card).getByRole('button', { name: revert })
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    expect(within(card).getByRole('button', { name: 'Undo' })).not.toHaveAttribute('aria-disabled')
+    await user.click(button)
+    expect(run).not.toHaveBeenCalled()
+    expect(app.store.getState().notifications.map((shown) => shown.message)).toEqual([
+      "'Fillet 1' lost the right top edge of 'Box 1'.",
+      MESSAGES.finish_command_first('Fillet'),
+    ])
+  })
+
   it('shows a severity icon in each notification', () => {
     renderWith([
       notification('n-1', 'info', 'Info.'),
@@ -161,5 +189,43 @@ describe('notifications (3.22)', () => {
     expect(icons[0]).toContain('lucide-info')
     expect(icons[1]).toContain('lucide-circle-check')
     expect(icons[2]).toContain('lucide-triangle-alert')
+  })
+})
+
+describe('cause lines in notifications (3.22, U-132)', () => {
+  const LOST = "'Fillet 1' lost the top edge of 'Extrude 1' along a line of 'Sketch 1'."
+  const CAUSE = "This started after you deleted the line from (80, 40) to (70, 50) in 'Sketch 1'."
+
+  it('U-132 shows the cause under the message, in textMuted, above the action buttons', () => {
+    renderWith([
+      {
+        ...notification('n-1', 'warning', LOST, [
+          { label: "Show what 'Fillet 1' lost", run: () => undefined },
+          { label: 'Undo', run: () => undefined },
+        ]),
+        code: 'feature_lost',
+        cause: CAUSE,
+      },
+    ])
+    const shown = screen.getByTestId('notification')
+    const cause = within(shown).getByTestId('cause-line')
+    expect(cause).toHaveTextContent(CAUSE)
+    const muted = COLOR_CLASSES.textMuted.foreground.split(' ')
+    expect(
+      [cause, ...cause.querySelectorAll('*')].some((element) =>
+        muted.every((name) => element.classList.contains(name)),
+      ),
+    ).toBe(true)
+    const message = within(shown).getByText(LOST)
+    expect(message.compareDocumentPosition(cause) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const [show] = within(shown).getAllByRole('button', { name: "Show what 'Fillet 1' lost" })
+    expect(
+      cause.compareDocumentPosition(show ?? cause) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('U-132 shows no cause line for a notification without a cause', () => {
+    renderWith([notification('n-1', 'warning', LOST)])
+    expect(screen.queryByTestId('cause-line')).toBeNull()
   })
 })

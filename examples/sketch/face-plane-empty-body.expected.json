@@ -9,8 +9,14 @@
         {
           "severity": "warning",
           "code": "plane_fallback",
-          "message": "The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel.",
-          "field": "/plane/face"
+          "message": "The face this sketch is on, a face of a feature that is not in this document, is gone because body 'Body 1' is empty here, so the sketch uses the position saved with it.",
+          "field": "/plane/face",
+          "actions": [
+            {
+              "label": "Pick a face again",
+              "kind": "pick"
+            }
+          ]
         }
       ]
     }

@@ -10,6 +10,7 @@ import type {
   ElementDescriptor,
   FeatureRecord,
   FeatureStatus,
+  FixRef,
   SelectionKind,
   SketchEntity,
 } from '../../generated/protocol'
@@ -26,7 +27,7 @@ import {
   type InspectorField,
   type InspectorModel,
 } from '../../inspector/model'
-import { repairField } from '../../inspector/status'
+import { fieldForPointer, repairField, selectionFieldFor } from '../../inspector/status'
 import { MESSAGES } from '../../messages'
 import { TIMING_NAMES } from '../../performance/marks'
 import { memoized } from '../../state/selectors'
@@ -54,7 +55,8 @@ import {
   type RepairSlot,
 } from './command-repairs'
 import { sameValue, siblingPath, toggledValue, type Params } from './command-values'
-import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
+import { commitEdits, documentOf, reportChange, showCoreError } from './edits'
+import { listedElements } from './element-lists'
 import { helperFor, helperOnFace, holeCenter } from './hole-placement'
 import { notify, showPickHint } from './notifications'
 import {
@@ -519,9 +521,10 @@ function refreshPreview(app: App): void {
 function endSession(app: App): void {
   sessions.get(app.store)?.preview.cancel()
   sessions.delete(app.store)
-  // A hint under a field of this command goes with it.
+  // A hint under a field of this command, and its repair mode, go with it (3.7).
   app.store.setState((state) => ({
     command: null,
+    repair: null,
     pickHint: state.pickHint?.field === null ? state.pickHint : null,
   }))
 }
@@ -555,9 +558,12 @@ function recordedChange(
   return { history: [...command.history, stepOf(command, label)], future: [], changedPaths }
 }
 
-/** Options for reopening a command the user can restore (3.7 implicit cancel). */
-type RestoreOptions = {
+/** How a command opens: reopening one the user restores (3.7 implicit cancel), or for a `pick` action (4.2). */
+type OpenOptions = {
+  /** The command to reopen with its params, helper sketch and active field. */
   readonly restore?: SavedCommand
+  /** A JSON pointer into the edited record whose selection field takes the picks (a `pick` action, 4.2). */
+  readonly field?: string
 }
 
 /** A command ended implicitly, kept so Restore can reopen it. */
@@ -629,7 +635,7 @@ function alreadyOpen(app: App, featureType: string, editedFeature: string | null
 export function startFeatureCommand(
   app: App,
   featureType: string,
-  options: RestoreOptions = {},
+  options: OpenOptions = {},
 ): Promise<void> {
   if (featureType === 'sketch') {
     return startNewSketch(app)
@@ -640,7 +646,7 @@ export function startFeatureCommand(
 async function openFeatureCommand(
   app: App,
   featureType: string,
-  options: RestoreOptions,
+  options: OpenOptions,
 ): Promise<void> {
   if (options.restore === undefined && alreadyOpen(app, featureType, null)) {
     return
@@ -786,19 +792,11 @@ function focusFix(
 }
 
 /** Opens the inspector on an existing feature inside a transaction focused on it (3.7). */
-export function editFeature(
-  app: App,
-  featureId: string,
-  options: RestoreOptions = {},
-): Promise<void> {
+export function editFeature(app: App, featureId: string, options: OpenOptions = {}): Promise<void> {
   return oneStartAtATime(app, () => openFeatureEdit(app, featureId, options))
 }
 
-async function openFeatureEdit(
-  app: App,
-  featureId: string,
-  options: RestoreOptions,
-): Promise<void> {
+async function openFeatureEdit(app: App, featureId: string, options: OpenOptions): Promise<void> {
   const document = documentOf(app)
   const record = document?.recipe.features?.find((feature) => feature.id === featureId)
   if (document === null || record === undefined) {
@@ -876,6 +874,9 @@ async function openFeatureEdit(
   session.repairs = repairSlots(feature, params, document.featureStatus[featureId])
   const saved = options.restore ?? null
   const restored = saved === null ? null : restoredOpening(app, session, saved)
+  const status = document.featureStatus[featureId]
+  const activeField =
+    saved === null ? openingEditField(feature, status, options.field) : saved.activeField
   app.store.setState({
     context: 'model',
     command: openedCommand({
@@ -884,11 +885,7 @@ async function openFeatureEdit(
       editing: true,
       title: label,
       params: restored?.params ?? params,
-      // A lost reference is picked again in its field (4.2), so that field takes the picks.
-      activeField:
-        saved === null
-          ? (repairField(feature.manifest.fields, document.featureStatus[featureId])?.path ?? null)
-          : saved.activeField,
+      activeField,
       applied: true,
       newBody: restored?.newBody ?? null,
       helper: saved === null ? null : unappliedHelper(saved.helper),
@@ -898,6 +895,21 @@ async function openFeatureEdit(
   if (saved !== null) {
     refreshPreview(app)
   }
+}
+
+/**
+ * The field an edit opens with as the active field (3.7): the selection field a `pick` action's
+ * pointer maps to, else the field of the first repair, so the next pick replaces the lost
+ * reference (4.2); else none.
+ */
+function openingEditField(
+  feature: CatalogFeature,
+  status: FeatureStatus | undefined,
+  pointer: string | undefined,
+): string | null {
+  const fields = feature.manifest.fields
+  const picked = pointer === undefined ? null : selectionFieldFor(fields, pointer)
+  return (picked ?? repairField(fields, status))?.path ?? null
 }
 
 /** Clears a body field that the first pick of a face or edge field filled once that field is empty (2.12). */
@@ -1096,7 +1108,10 @@ export function setFieldStatus(
   refreshPreview(app)
 }
 
-/** Makes a selection field receive picks, or none. */
+/**
+ * Makes a selection field receive picks, or none. In repair mode, a field that holds a repair
+ * makes that one the current repair (3.7, `selectRepairMode`).
+ */
 export function setActiveField(app: App, path: string | null): void {
   updateCommand(app, () => ({ activeField: path }))
 }
@@ -1273,35 +1288,17 @@ function placeHoleOnFace(
   commitPick(app, session, command, field, params, helper)
 }
 
-/** Edge lists by body for faces picked as their edges, kept per model-layer mesh id (3.7, 3.6). */
-const edgeLists = new WeakMap<
-  AppStore,
-  Map<string, { readonly meshId: number; readonly edges: ReadonlyMap<string, ElementDescriptor> }>
->()
-
-/** The edges of a body by name, listed once per model-layer mesh. */
+/** The edges of a body by name, listed once per model-layer mesh (3.7, 3.6). */
 async function edgesOf(
   app: App,
   body: string,
 ): Promise<ReadonlyMap<string, ElementDescriptor> | null> {
-  const document = documentOf(app)
-  const meshId = document?.meshes[body]?.meshId
-  if (document === null || meshId === undefined) {
+  const meshId = documentOf(app)?.meshes[body]?.meshId
+  const listed = meshId === undefined ? null : listedElements(app, body, 'edge', meshId)
+  if (listed === null) {
     return null
   }
-  let lists = edgeLists.get(app.store)
-  if (lists === undefined) {
-    lists = new Map()
-    edgeLists.set(app.store, lists)
-  }
-  const cached = lists.get(body)
-  if (cached?.meshId === meshId) {
-    return cached.edges
-  }
-  const listed = await app.core.listElements(document.documentHandle, body, 'edge')
-  const edges = new Map(listed.map((edge) => [edge.name, edge]))
-  lists.set(body, { meshId, edges })
-  return edges
+  return new Map((await listed).map((edge) => [edge.name, edge]))
 }
 
 /**
@@ -1446,7 +1443,7 @@ export async function confirmCommand(app: App): Promise<void> {
   for (const sketch of new Set(referencedSketches(params))) {
     setSessionVisible(app, `feature:${sketch}`, false)
   }
-  reportNewFailures(app, session.statusesBefore)
+  reportChange(app, session.statusesBefore)
 }
 
 /** Whether the active feature command can be confirmed: every required field set, no field error. */
@@ -1673,5 +1670,63 @@ export async function runInCommand(
         ? 'none'
         : previewStateAfter(app, current.featureId),
   }))
+  return true
+}
+
+/** The paths of the command's fields whose values differ between two params, in display order. */
+function changedFields(session: CommandSession, before: Params, after: Params): string[] {
+  const model = buildInspectorModel({ feature: session.feature, params: after, errors: {} })
+  return fieldsOf(model)
+    .map((field) => field.path)
+    .filter((path) => !sameValue(getParam(before, path), getParam(after, path)))
+}
+
+/**
+ * An `apply` action of the command's own banner (3.7): `apply_fix` joins the transaction, with the
+ * preview pending until its events arrive, then the command takes the feature's record from the
+ * new recipe as its params (the helper sketch and the active field stay) as one history step named
+ * after the field the message is about. Edits the fix made to other records are not history steps:
+ * OK records them and Cancel reverts them. Nothing is sent while a preview is pending, because the
+ * statuses that offered the fix are about to be replaced. Resolves whether the fix was applied.
+ */
+export async function applyFixInCommand(app: App, fix: FixRef): Promise<boolean> {
+  const session = sessionOf(app)
+  const command = commandOf(app)
+  if (session === null || command === null || command.preview === 'pending') {
+    return false
+  }
+  if (!(await runInCommand(app, (documentHandle) => app.core.applyFix(documentHandle, fix)))) {
+    return false
+  }
+  const document = documentOf(app)
+  const record = document?.recipe.features?.find((feature) => feature.id === session.featureId)
+  if (record === undefined || commandOf(app) === null || sessionOf(app) !== session) {
+    return true
+  }
+  const { params } = splitRecord(record)
+  const pointer = fix.field ?? null
+  const messageField =
+    pointer === null
+      ? null
+      : fieldForPointer(
+          session.feature.manifest.fields.map((hint) => hint.path),
+          pointer,
+        )
+  // The record is what the transaction holds now.
+  session.submitted = params
+  updateCommand(app, (current) => {
+    const changed = changedFields(session, current.params, params)
+    const named = messageField ?? changed[0] ?? null
+    return {
+      params,
+      history: [
+        ...current.history,
+        stepOf(current, named === null ? current.title : fieldLabel(session, named)),
+      ],
+      future: [],
+      changedPaths: [...current.changedPaths.filter((path) => !changed.includes(path)), ...changed],
+    }
+  })
+  refreshPreview(app)
   return true
 }

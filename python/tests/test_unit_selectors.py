@@ -2,10 +2,9 @@
 matrices in partsmith.selectors, on hand-made element descriptors."""
 
 import math
-import warnings
-from collections.abc import Callable
 
 import pytest
+from support import partsmith_warnings
 
 from partsmith import Axis, Document, Part, PartsmithWarning, Ref, Selection, SelectionError, box, chamfer, edges, rad
 from partsmith.selectors import _ElementTable, element_references, rotation_rows, single_element
@@ -28,7 +27,11 @@ def descriptor(name: str, kind: str, centroid=(0.0, 0.0, 0.0), adjacent=(), **fi
 @pytest.fixture
 def table():
     """A square face `top` at z 10 with two edges and three vertices, a side face, and a
-    cylindrical face."""
+    cylindrical face.
+
+    The table is listed at revision 0, before the part was added, so reading a reference lists the part again; the
+    part has no geometry, so each element keeps the reference it was listed with (python-api.md section 3.6).
+    """
     Document()
     part = Part("P")
     return _ElementTable(
@@ -48,6 +51,7 @@ def table():
             descriptor("v-2", "vertex", (5, 5, 10), ["e-x", "e-y"]),
             descriptor("v-3", "vertex", (5, -5, 10), ["e-arc", "e-y"]),
         ],
+        revision=0,
     )
 
 
@@ -188,14 +192,6 @@ def test_the_elements_of_their_own_kind_are_themselves(table):
     assert names(select(table, "edge").edges()) == ["e-arc", "e-x", "e-y"]
 
 
-def partsmith_warnings(action: Callable[[], object]) -> list[warnings.WarningMessage]:
-    """The PartsmithWarnings that `action()` emits."""
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        action()
-    return [warning for warning in caught if issubclass(warning.category, PartsmithWarning)]
-
-
 def test_indexing_returns_elements_and_slicing_returns_selections(table):
     faces = select(table, "face")
 
@@ -277,6 +273,29 @@ def test_iterating_slicing_and_counting_a_selection_do_not_warn(table):
     assert partsmith_warnings(lambda: len(edges)) == []
 
 
+def test_reversing_a_selection_and_finding_an_element_in_it_do_not_warn(table):
+    edges = select(table, "edge")
+    [first, second, third] = list(edges)
+
+    assert partsmith_warnings(lambda: list(reversed(edges))) == []
+    assert list(reversed(edges)) == [third, second, first]
+    assert partsmith_warnings(lambda: edges.index(third)) == []
+    assert edges.index(third) == 2
+    assert third in edges
+    with pytest.raises(ValueError):
+        edges.index(third, 0, 2)
+
+
+def test_finding_an_element_counts_a_negative_start_from_the_end_of_the_selection(table):
+    edges = select(table, "edge")
+    [first, second, third] = edges
+
+    assert edges.index(second, -2, 2) == tuple(edges).index(second, -2, 2) == 1
+    assert edges.index(third, -1) == 2
+    with pytest.raises(ValueError):
+        edges.index(first, -2, 2)
+
+
 def test_a_ref_keeps_its_anchors_merged_names_and_direction():
     anchors = {"f-ext1/end-cap#2": ("f-ext1/lateral/e-2", "f-ext2/lateral/e-6")}
     merged = {"f-box1/top": ("f-box1/top@f-lp1:*",)}
@@ -314,9 +333,10 @@ def test_refs_are_the_element_references_in_order(table):
 
 def test_element_references_flatten_dedupe_and_keep_order(table):
     edges = select(table, "edge")
+    [*_, last] = edges
     extra = Ref("q", "fp")
 
-    references = element_references("fillet", [edges[2], edges, extra, edges[2].reference], "edge")
+    references = element_references("fillet", [last, edges, extra, last.reference], "edge")
 
     assert references == [
         {"q": "e-y", "fp": "fp-e-y"},
@@ -349,8 +369,10 @@ def test_single_element_needs_exactly_one(table):
 
 
 def test_single_element_needs_the_kind(table):
+    [first_edge, *_] = select(table, "edge")
+
     with pytest.raises(SelectionError, match=r"^A sketch takes a face, got an edge\.$"):
-        single_element("A sketch", select(table, "edge")[0], "face")
+        single_element("A sketch", first_edge, "face")
 
 
 def test_no_rotation_is_the_identity():
@@ -379,3 +401,32 @@ def test_rotation_angles_accept_quantities():
     rows = rotation_rows([(Axis.Z, math.pi * rad)], Document(), "rotate")
 
     assert flat(rows) == pytest.approx([-1, 0, 0, 0, -1, 0, 0, 0, 1], abs=1e-15)
+
+
+def test_a_ref_writes_its_anchors_and_merged_names():
+    reference = Ref("edge(a|b#2)", "line", anchors={"b#2": ["c"]}, merged={"a": ["a@f-lp1:*"]})
+
+    assert reference._json() == {"q": "edge(a|b#2)", "fp": "line", "nb": {"b#2": ["c"]}, "merged": {"a": ["a@f-lp1:*"]}}
+
+
+def test_a_ref_without_anchors_or_merged_names_writes_its_query_and_fingerprint():
+    assert Ref("edge(a|b)", "line", anchors={}, merged={})._json() == {"q": "edge(a|b)", "fp": "line"}
+
+
+def test_a_ref_refuses_anchors_that_are_not_lists_of_names():
+    with pytest.raises(TypeError):
+        Ref("edge(a|b)", "line", anchors={"b": "c"})
+    with pytest.raises(TypeError):
+        Ref("edge(a|b)", "line", merged={"b": [1]})
+
+
+def test_the_words_of_a_candidate_take_no_part_in_comparisons():
+    Document()
+    part = Part("P")
+    candidate = Ref._candidate(
+        {"reference": {"q": "edge(a|b)", "fp": "line"}, "description": "the top edge", "relation": "near"}, part
+    )
+
+    assert candidate == Ref("edge(a|b)", "line", part=part)
+    assert hash(candidate) == hash(Ref("edge(a|b)", "line", part=part))
+    assert (candidate.description, candidate.relation) == ("the top edge", "near")

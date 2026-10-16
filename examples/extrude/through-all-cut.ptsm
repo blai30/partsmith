@@ -31,7 +31,7 @@
       "profile": {
         "sketch": "f-sk1",
         "regions": [
-          {"key": "e-5", "fp": "c=0,0|a=78.539816"}
+          {"key": "e-5", "fp": "c=0,0|a=78.539816", "outline": "e-5"}
         ]
       },
       "extent": {"kind": "through_all"},

@@ -16,7 +16,8 @@
           "severity": "error",
           "code": "asset_missing",
           "message": "The imported file assets/0000000000000000000000000000000000000000000000000000000000000000.step is missing. Put it next to the document in the assets folder.",
-          "field": "/asset"
+          "field": "/asset",
+          "detail": "0000000000000000000000000000000000000000000000000000000000000000.step"
         }
       ]
     }
@@ -26,8 +27,8 @@
     {
       "id": "b-1",
       "name": "Body 1",
-      "volume": 999.9999999999998,
-      "area": 599.9999999999999,
+      "volume": 999.9999999999999,
+      "area": 600.0,
       "center_of_mass": [
         6.1062266354383625e-18,
         8.881784197001254e-18,

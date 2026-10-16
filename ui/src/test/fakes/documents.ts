@@ -276,6 +276,7 @@ function rectangleSolution(
     constraints: constraintIds.map(satisfied),
     regions: [region],
     profile_findings: [],
+    messages: [],
   }
 }
 

@@ -75,6 +75,7 @@ function dragAnswer(id: number): ArrayBuffer {
         constraints: [],
         regions: [],
         profile_findings: [],
+        messages: [],
       },
     },
   })

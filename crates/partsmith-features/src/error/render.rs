@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use partsmith_model::{FieldUnit, Id, Units};
-use partsmith_naming::{ElementName, Fingerprint};
+use partsmith_naming::{ElementName, Fingerprint, Reference};
 use partsmith_sketch::RegionLoss;
 
 use super::describe::{describe_elements, describe_face};
@@ -383,22 +383,9 @@ pub(crate) fn loss_fixes(
     explanation: Option<&Explanation>,
     removable: bool,
 ) -> Vec<Fix> {
-    let keeping_meaning = |meaning: bool| !loss.every_part_lost() && meaning;
-    let mut fixes: Vec<Fix> = loss
-        .candidates
-        .iter()
-        .filter(|candidate| keeping_meaning(candidate.meaning))
-        .map(|candidate| Fix::use_reference(pointer, &candidate.reference))
-        .collect();
-    if let Some(explanation) = explanation {
-        fixes.extend(explanation.fixes.iter().cloned());
-    }
-    fixes.extend(
-        loss.candidates
-            .iter()
-            .filter(|candidate| !keeping_meaning(candidate.meaning))
-            .map(|candidate| Fix::use_reference(pointer, &candidate.reference)),
-    );
+    let mut fixes = candidate_fixes(loss, explanation, |reference| {
+        Fix::use_reference(pointer, reference)
+    });
     if removable {
         fixes.push(Fix::RemoveEntry {
             pointer: pointer.to_string(),
@@ -407,6 +394,32 @@ pub(crate) fn loss_fixes(
     if !explanation.is_some_and(|explanation| explanation.upstream) {
         fixes.push(Fix::pick(pointer));
     }
+    fixes
+}
+
+/// The fix `use_candidate` makes of each candidate of a loss, around the reason's fixes, in the order of section 4.4:
+/// the candidates that keep a face of the lost element first, then the reason's fixes, then the other candidates.
+pub(crate) fn candidate_fixes(
+    loss: &Loss,
+    explanation: Option<&Explanation>,
+    use_candidate: impl Fn(&Reference) -> Fix,
+) -> Vec<Fix> {
+    let keeping_meaning = |meaning: bool| !loss.every_part_lost() && meaning;
+    let mut fixes: Vec<Fix> = loss
+        .candidates
+        .iter()
+        .filter(|candidate| keeping_meaning(candidate.meaning))
+        .map(|candidate| use_candidate(&candidate.reference))
+        .collect();
+    if let Some(explanation) = explanation {
+        fixes.extend(explanation.fixes.iter().cloned());
+    }
+    fixes.extend(
+        loss.candidates
+            .iter()
+            .filter(|candidate| !keeping_meaning(candidate.meaning))
+            .map(|candidate| use_candidate(&candidate.reference)),
+    );
     fixes
 }
 

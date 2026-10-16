@@ -7,6 +7,7 @@ import {
   type Edit,
   type ErrorCode,
   type Event as ProtocolEvent,
+  type FixAction,
   type MeshBuffers,
   type Message,
   type Request,
@@ -21,6 +22,8 @@ export type ErrorReply = {
   readonly message: string
   readonly edit_index?: number
   readonly span?: { readonly start: number; readonly end: number }
+  readonly detail?: string
+  readonly actions?: FixAction[]
 }
 
 /** A response message as `decodeFrame` returns it. */

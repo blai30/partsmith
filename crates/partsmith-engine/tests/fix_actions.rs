@@ -796,11 +796,14 @@ fn t129_keep_these_regions_rewrites_the_references_of_features_after_the_rollbac
 }
 
 #[test]
-fn t129_keep_these_regions_rewrites_a_face_sketch_that_followed_a_replaced_line_silently() {
+fn t129_keep_these_regions_rewrites_a_face_sketch_that_followed_a_replaced_line() {
     let mut session = session();
     let (doc, edited) = after_edit(&mut session, &redrawn_beside_a_split_with_a_face_sketch());
     let before = saved_text(&mut session, doc);
-    assert_eq!(messages(&edited, "f-sk2"), Vec::<Value>::new());
+    assert_eq!(
+        message(&edited, "f-sk2", "reference_followed")["field"],
+        "/plane/face"
+    );
     let followed_side = picked_before(&before, "f-sk2", "b-1", &["f-ext1/lateral/e-9"]);
     let keep = action(
         &message(&edited, "f-ext1", "region_split"),

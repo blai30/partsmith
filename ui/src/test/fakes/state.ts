@@ -74,6 +74,7 @@ export function documentStateFor(
     datums: {},
     meshes: {},
     lastRebuildMilliseconds: null,
+    ghosts: {},
     ...overrides,
   }
 }

@@ -8,6 +8,7 @@ use common::{
     EMPTY_DOCUMENT_TEXT, error_info, error_of, example_a, frame_from_header, new_document,
     ok_result, request_frame, response_frame, send_for_document,
 };
+use partsmith_engine::ENGINE_VERSION;
 use partsmith_model::FORMAT_VERSION;
 use partsmith_protocol::{ErrorCode, Event, FrameError, MAX_SAFE_INTEGER};
 use partsmith_wasm::{call, initialize_session};
@@ -40,7 +41,7 @@ fn t048_engine_info_through_call_reports_the_protocol_engine_and_format_versions
     assert_eq!(frame.response.id, 1);
     let result = ok_result(&frame, "engine_info");
     assert_eq!(result["protocol_version"], 1);
-    assert_eq!(result["engine_version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(result["engine_version"], ENGINE_VERSION);
     assert_eq!(result["format_version"], FORMAT_VERSION);
 }
 

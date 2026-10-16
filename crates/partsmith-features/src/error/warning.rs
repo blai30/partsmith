@@ -11,9 +11,10 @@ use super::describe::{made_from_line, new_faces_are_flat, piece_free_text, rim_g
 use super::field::FieldRef;
 use super::fix::Fix;
 use super::loss::{Loss, LossCandidate, Repair, Severity};
-use super::message::{FallbackReason, IdNames, IgnoredReason, plural};
+use super::message::{FallbackCause, IdNames, IgnoredReason, Placed, plural};
 use super::render::{
-    Diagnosis, RenderContext, Renderer, capitalized, joined, loss_fixes, region_reason,
+    Diagnosis, RenderContext, Renderer, candidate_fixes, capitalized, joined, loss_fixes,
+    region_reason,
 };
 use super::{candidate_detail, loss_detail};
 
@@ -147,7 +148,7 @@ pub enum FeatureWarning {
         /// Why no region matched.
         loss: RegionLoss,
     },
-    /// A sketch on a face kept its fallback placement.
+    /// A sketch on a face could not be placed on it and was placed elsewhere (features/sketch.md section 3.5).
     PlaneFallback {
         /// The face field, for example `plane.face`.
         field: FieldRef,
@@ -155,8 +156,12 @@ pub enum FeatureWarning {
         body: Id,
         /// The stored face reference.
         reference: Reference,
+        /// The loss behind it: none for an empty body or a face that is not flat.
+        loss: Option<Loss>,
         /// Why the face was not used.
-        reason: FallbackReason,
+        cause: FallbackCause,
+        /// Where the sketch was placed instead.
+        placed: Placed,
     },
     /// The feature left the body's volume unchanged.
     NoEffect {
@@ -225,7 +230,14 @@ impl FeatureWarning {
                 elements,
                 alternatives,
                 ..
-            } => guessed_text(renderer, &field.label, body, reference, elements, alternatives),
+            } => guessed_text(
+                renderer,
+                &field.label,
+                body,
+                reference,
+                elements,
+                alternatives,
+            ),
             FeatureWarning::ReferenceFollowed {
                 field,
                 body,
@@ -290,19 +302,24 @@ impl FeatureWarning {
                 candidates.len()
             ),
             FeatureWarning::RegionMissing {
-                field, sketch, loss, ..
+                field,
+                sketch,
+                loss,
+                ..
             } => format!(
                 "The region of {} selected for {} is gone because {}, so it was skipped.",
                 renderer.region_sketch(sketch),
                 field.label,
                 region_reason(loss)
             ),
-            FeatureWarning::PlaneFallback { reason, .. } => match reason {
-                FallbackReason::Missing => "The face this sketch is on can no longer be found, so the sketch stays at its last position. Re-attach it in the repair panel.",
-                FallbackReason::Ambiguous => "The face this sketch is on now matches several faces, so the sketch stays at its last position. Pick the face in the repair panel.",
-                FallbackReason::NotPlanar => "The face this sketch is on is no longer flat, so the sketch stays at its last position. Attach it to a flat face.",
-            }
-            .to_string(),
+            FeatureWarning::PlaneFallback {
+                body,
+                reference,
+                loss,
+                cause,
+                placed,
+                ..
+            } => plane_fallback_text(renderer, body, reference, loss.as_ref(), *cause, placed),
             FeatureWarning::NoEffect { body } => format!(
                 "This feature does not change body '{}'. Check its position, size and direction.",
                 renderer.body(body)
@@ -434,7 +451,22 @@ impl FeatureWarning {
             FeatureWarning::RegionMissing { sketch, .. } => {
                 vec![Fix::show(sketch), Fix::pick(pointer())]
             }
-            FeatureWarning::PlaneFallback { .. } => vec![Fix::pick(pointer())],
+            FeatureWarning::PlaneFallback { body, loss, .. } => {
+                let explanation = loss
+                    .as_ref()
+                    .and_then(|loss| renderer.explanation(loss.position));
+                let mut fixes = loss.as_ref().map_or_else(Vec::new, |loss| {
+                    candidate_fixes(loss, explanation, |face| Fix::Attach {
+                        sketch: context.feature.clone(),
+                        body: body.clone(),
+                        face: face.clone(),
+                    })
+                });
+                if !explanation.is_some_and(|explanation| explanation.upstream) {
+                    fixes.push(Fix::pick(pointer()));
+                }
+                fixes
+            }
             FeatureWarning::NoEffect { .. }
             | FeatureWarning::HoleMissesBody { .. }
             | FeatureWarning::Ignored { .. }
@@ -457,7 +489,12 @@ impl FeatureWarning {
     /// The technical text a report needs, never shown as the message (section 2.8).
     pub fn detail(&self) -> Option<String> {
         match self {
-            FeatureWarning::ReferenceLost { field, loss } => Some(loss_detail(&field.path, loss)),
+            FeatureWarning::ReferenceLost { field, loss }
+            | FeatureWarning::PlaneFallback {
+                field,
+                loss: Some(loss),
+                ..
+            } => Some(loss_detail(&field.path, loss)),
             FeatureWarning::ReferenceGuessed {
                 field,
                 reference,
@@ -511,24 +548,9 @@ impl FeatureWarning {
                     &still_used(*position, body, reference, covered),
                 ))
             }
-            FeatureWarning::PlaneFallback {
-                body,
-                reference,
-                reason,
-                ..
-            } => Some(Repair::element(
-                pointer(),
-                &Loss {
-                    position: 0,
-                    body: body.clone(),
-                    reference: reference.clone(),
-                    kind: reference.query.kind(),
-                    ambiguous: *reason == FallbackReason::Ambiguous,
-                    lost: Lost::default(),
-                    candidates: Vec::new(),
-                    matches: 0,
-                },
-            )),
+            FeatureWarning::PlaneFallback { loss, .. } => {
+                loss.as_ref().map(|loss| Repair::element(pointer(), loss))
+            }
             FeatureWarning::RegionSplit { sketch, region, .. }
             | FeatureWarning::RegionResized { sketch, region, .. }
             | FeatureWarning::RegionRemapped { sketch, region, .. } => {
@@ -568,6 +590,49 @@ impl fmt::Display for FeatureWarning {
         let diagnosis = Diagnosis::default();
         formatter.write_str(&self.text(&Renderer::plain(&IdNames, &bodies, &diagnosis)))
     }
+}
+
+/// The message of a sketch that could not be placed on its face (features/sketch.md section 3.5): `{element}` the
+/// stored face, then what became of it (`{reason}` of recompute's diagnosis for a loss), then where the sketch is.
+fn plane_fallback_text(
+    renderer: &Renderer<'_>,
+    body: &Id,
+    reference: &Reference,
+    loss: Option<&Loss>,
+    cause: FallbackCause,
+    placed: &Placed,
+) -> String {
+    let element = renderer
+        .describe(&[(&reference.query, &reference.fingerprint)], body)
+        .remove(0);
+    let what = match (cause, loss) {
+        (FallbackCause::Missing, Some(loss)) => renderer.reason(loss),
+        (FallbackCause::Missing, None) => format!(
+            "is gone because body '{}' is empty here",
+            renderer.body(body)
+        ),
+        (FallbackCause::NotPlanar, _) => "is no longer flat".to_string(),
+        (FallbackCause::Ambiguous, Some(loss)) => renderer.ambiguity(loss),
+        (FallbackCause::Ambiguous, None) => "now matches several faces".to_string(),
+        (FallbackCause::NotCoplanar, loss) => {
+            let count = loss.map_or(0, |loss| loss.matches.max(loss.candidates.len()));
+            let faces = if count < 2 {
+                "several faces".to_string()
+            } else {
+                format!("{count} faces")
+            };
+            format!("now matches {faces} that do not lie in one plane")
+        }
+    };
+    let position = match placed {
+        Placed::BeforeRemoval { .. } => "stays where that face was",
+        Placed::Saved => "uses the position saved with it",
+    };
+    let pick = match cause {
+        FallbackCause::Ambiguous | FallbackCause::NotCoplanar => " Pick the one you mean.",
+        FallbackCause::Missing | FallbackCause::NotPlanar => "",
+    };
+    format!("The face this sketch is on, {element}, {what}, so the sketch {position}.{pick}")
 }
 
 /// The loss repair mode shows for a reference that is still used: ambiguous, with nothing lost and these candidates,
@@ -767,7 +832,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::error::Names;
+    use crate::error::{Explanation, Names};
     use crate::output::SketchResult;
 
     fn id(text: &str) -> Id {
@@ -837,23 +902,239 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn plane_fallback_messages_per_reason() {
-        let warning = |reason| FeatureWarning::PlaneFallback {
+    /// The stored face of the sketch plane fallback tests.
+    fn top_face() -> Reference {
+        serde_json::from_value(json!({"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=100"}))
+            .expect("the reference is valid")
+    }
+
+    /// A face reference as `Reference::from_element` stores a candidate.
+    fn face(query: &str) -> Reference {
+        serde_json::from_value(json!({"q": query, "fp": "plane|n=0,0,1|c=0,0,20|a=100"}))
+            .expect("the reference is valid")
+    }
+
+    /// A loss of `top_face()`, ambiguous or not, with these candidates (each with its `meaning`) and nothing lost.
+    fn face_loss(ambiguous: bool, candidates: &[(&str, bool)]) -> Loss {
+        Loss {
+            position: 0,
+            body: id("b-1"),
+            reference: top_face(),
+            kind: ElementKind::Face,
+            ambiguous,
+            lost: Lost::default(),
+            candidates: candidates
+                .iter()
+                .map(|(query, meaning)| LossCandidate {
+                    reference: face(query),
+                    meaning: *meaning,
+                    distance: 10.0,
+                    score: 0.5,
+                })
+                .collect(),
+            matches: candidates.len(),
+        }
+    }
+
+    /// A `PlaneFallback` of `top_face()` in `b-1`.
+    fn plane_fallback(loss: Option<Loss>, cause: FallbackCause, placed: Placed) -> FeatureWarning {
+        FeatureWarning::PlaneFallback {
             field: field("plane.face", "Plane"),
             body: id("b-1"),
-            reference: reference(),
-            reason,
+            reference: top_face(),
+            loss,
+            cause,
+            placed,
+        }
+    }
+
+    /// The fixes of `warning` on the sketch `f-sk2`, with `explanation` for its loss.
+    fn sketch_fixes(warning: &FeatureWarning, explanation: Option<Explanation>) -> Vec<Fix> {
+        let feature = id("f-sk2");
+        let bodies = BTreeMap::new();
+        let diagnosis = Diagnosis {
+            losses: explanation.into_iter().map(|text| (0, text)).collect(),
+            ..Diagnosis::default()
+        };
+        let context = RenderContext {
+            feature: &feature,
+            names: &IdNames,
+            units: Units::Mm,
+            bodies: &bodies,
+            diagnosis: &diagnosis,
+        };
+        warning.fixes(&context)
+    }
+
+    fn attach(query: &str) -> Fix {
+        Fix::Attach {
+            sketch: id("f-sk2"),
+            body: id("b-1"),
+            face: face(query),
+        }
+    }
+
+    #[test]
+    fn plane_fallback_texts_say_what_became_of_the_face_and_where_the_sketch_is() {
+        let text = |loss, cause, placed| plane_fallback(loss, cause, placed).to_string();
+
+        assert_eq!(
+            text(
+                Some(face_loss(false, &[])),
+                FallbackCause::Missing,
+                Placed::Saved
+            ),
+            "The face this sketch is on, a face of 'f-box1', can no longer be found, and Partsmith could not tell why, so the sketch uses the position saved with it."
+        );
+        assert_eq!(
+            text(None, FallbackCause::Missing, Placed::Saved),
+            "The face this sketch is on, a face of 'f-box1', is gone because body 'b-1' is empty here, so the sketch uses the position saved with it."
+        );
+        assert_eq!(
+            text(None, FallbackCause::NotPlanar, Placed::Saved),
+            "The face this sketch is on, a face of 'f-box1', is no longer flat, so the sketch uses the position saved with it."
+        );
+        assert_eq!(
+            text(
+                Some(face_loss(
+                    true,
+                    &[("f-box1/top#1", true), ("f-box1/top#2", true)]
+                )),
+                FallbackCause::Ambiguous,
+                Placed::Saved
+            ),
+            "The face this sketch is on, a face of 'f-box1', now matches 2 faces, so the sketch uses the position saved with it. Pick the one you mean."
+        );
+        assert_eq!(
+            text(
+                Some(face_loss(
+                    true,
+                    &[("f-box1/top", true), ("f-box2/top", true)]
+                )),
+                FallbackCause::NotCoplanar,
+                Placed::Saved
+            ),
+            "The face this sketch is on, a face of 'f-box1', now matches 2 faces that do not lie in one plane, so the sketch uses the position saved with it. Pick the one you mean."
+        );
+        assert_eq!(
+            text(
+                Some(face_loss(false, &[])),
+                FallbackCause::Missing,
+                Placed::BeforeRemoval { by: id("f-ext3") }
+            ),
+            "The face this sketch is on, a face of 'f-box1', can no longer be found, and Partsmith could not tell why, so the sketch stays where that face was."
+        );
+    }
+
+    #[test]
+    fn a_plane_fallback_renders_the_reason_of_its_loss() {
+        let warning = plane_fallback(
+            Some(face_loss(false, &[])),
+            FallbackCause::Missing,
+            Placed::Saved,
+        );
+        let feature = id("f-sk2");
+        let bodies = BTreeMap::new();
+        let diagnosis = Diagnosis {
+            losses: BTreeMap::from([(
+                0,
+                Explanation {
+                    text: "is no longer made by 'f-rev1', which turns all the way round"
+                        .to_string(),
+                    after: None,
+                    fixes: Vec::new(),
+                    upstream: false,
+                },
+            )]),
+            ..Diagnosis::default()
+        };
+        let context = RenderContext {
+            feature: &feature,
+            names: &IdNames,
+            units: Units::Mm,
+            bodies: &bodies,
+            diagnosis: &diagnosis,
         };
 
         assert_eq!(
-            warning(FallbackReason::NotPlanar).to_string(),
-            "The face this sketch is on is no longer flat, so the sketch stays at its last position. Attach it to a flat face."
+            warning.render(&context),
+            "The face this sketch is on, a face of 'f-box1', is no longer made by 'f-rev1', which turns all the way round, so the sketch uses the position saved with it."
         );
+    }
+
+    #[test]
+    fn plane_fallback_fixes_attach_to_candidates_around_the_reason_fixes_then_pick() {
+        let warning = plane_fallback(
+            Some(face_loss(
+                false,
+                &[("f-box1/top#2", false), ("f-box1/top#1", true)],
+            )),
+            FallbackCause::Missing,
+            Placed::Saved,
+        );
+        let unsuppress = Fix::Unsuppress {
+            feature: id("f-box1"),
+        };
+        let explanation = Explanation {
+            text: "belongs to 'f-box1', which is suppressed".to_string(),
+            after: None,
+            fixes: vec![unsuppress.clone()],
+            upstream: false,
+        };
+
+        assert_eq!(
+            sketch_fixes(&warning, Some(explanation)),
+            [
+                attach("f-box1/top#1"),
+                unsuppress,
+                attach("f-box1/top#2"),
+                Fix::pick("/plane/face")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_plane_fallback_upstream_of_a_failed_feature_offers_no_pick() {
+        let warning = plane_fallback(
+            Some(face_loss(false, &[])),
+            FallbackCause::Missing,
+            Placed::Saved,
+        );
+        let show = Fix::show(&id("f-box1"));
+        let explanation = Explanation {
+            text: "is missing because 'f-box1' failed".to_string(),
+            after: None,
+            fixes: vec![show.clone()],
+            upstream: true,
+        };
+
+        assert_eq!(sketch_fixes(&warning, Some(explanation)), [show]);
+    }
+
+    #[test]
+    fn a_plane_fallback_without_a_loss_offers_only_pick_and_has_no_repair_or_detail() {
+        let warning = plane_fallback(None, FallbackCause::NotPlanar, Placed::Saved);
+
+        assert_eq!(sketch_fixes(&warning, None), [Fix::pick("/plane/face")]);
+        assert_eq!(warning.repair(), None);
+        assert_eq!(warning.detail(), None);
+    }
+
+    #[test]
+    fn a_plane_fallback_with_a_loss_repairs_and_details_it() {
+        let lost = face_loss(true, &[("f-box1/top#1", true)]);
+        let warning = plane_fallback(Some(lost.clone()), FallbackCause::Ambiguous, Placed::Saved);
+
+        assert_eq!(warning.code(), "plane_fallback");
+        assert_eq!(warning.severity(), Severity::Warning);
         assert!(matches!(
-            warning(FallbackReason::Ambiguous).repair(),
-            Some(Repair::Element { pointer, loss, .. }) if pointer == "/plane/face" && loss.ambiguous
+            warning.repair(),
+            Some(Repair::Element { pointer, loss, .. }) if pointer == "/plane/face" && loss == lost
         ));
+        assert_eq!(
+            warning.detail().as_deref(),
+            Some("plane.face q=f-box1/top resolution=ambiguous candidates=f-box1/top#1:0.500000")
+        );
     }
 
     #[test]

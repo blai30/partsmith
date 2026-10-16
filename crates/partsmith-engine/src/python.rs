@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use partsmith_features::{BodyOp, PythonCall, PythonNames, PythonValue, Registry};
 use partsmith_model::{BodyRole, Document, FeatureRecord, Id, Units};
 use partsmith_sketch::{
-    Alignment, ConstraintKind, DistanceTarget, Geometry, ORIGIN, PointRef, PointRole, RegionRef,
-    SketchConstraint, SketchEntity, SketchParams, SketchPlane, X_AXIS, Y_AXIS,
+    Alignment, ConstraintKind, DistanceTarget, Geometry, HintFrame, ORIGIN, PointRef, PointRole,
+    RegionRef, SketchConstraint, SketchEntity, SketchParams, SketchPlane, X_AXIS, Y_AXIS,
 };
 use serde_json::Value;
 
@@ -709,7 +709,7 @@ fn sketch_block(
             body,
             face,
             fallback,
-            ..
+            fallback_frame,
         } => {
             call.positional
                 .push(PythonValue::reference(face, names.body(body)));
@@ -729,6 +729,14 @@ fn sketch_block(
                 "fallback".to_string(),
                 PythonValue::Call(Box::new(placement)),
             ));
+            // A fallback in world coordinates, the default, is written without its frame, as
+            // before file format version 2 (python-api.md section 3.8 rule 9).
+            if *fallback_frame == HintFrame::Body {
+                call.keywords.push((
+                    "fallback_frame".to_string(),
+                    PythonValue::Str("body".to_string()),
+                ));
+            }
         }
     }
     record_keywords(record, &mut call.keywords);

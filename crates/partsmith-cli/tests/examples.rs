@@ -31,6 +31,10 @@ const BLESS_IN_CI: &str =
 /// (delivery spec section 2.8).
 const TOLERANCE: f64 = 1e-6;
 
+/// The folder of the examples that are scenarios of the reference stability corpus, which span
+/// several feature types (delivery spec section 2.8).
+const REFERENCES_FOLDER: &str = "references";
+
 /// The repository root, the working directory of every `partsmith` run.
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -151,15 +155,16 @@ fn split_file_name(file: &str) -> Option<(&str, Role)> {
 }
 
 /// Classifies `relative`, a path under `examples/` with `/` separators. Allowed example folders are
-/// `<type>` for a registered feature type and `bench/<name>`, whose only example is `model`.
+/// `<type>` for a registered feature type, `references` for scenarios of the reference stability
+/// corpus, and `bench/<name>`, whose only example is `model`.
 fn placement(relative: &str, types: &BTreeSet<String>) -> Placement {
     let parts: Vec<&str> = relative.split('/').collect();
     let (folder, rest, benchmark) = match parts.as_slice() {
         ["bench", name, rest @ ..] if is_example_name(name) => {
             (format!("bench/{name}"), rest, true)
         }
-        [feature_type, rest @ ..] if types.contains(*feature_type) => {
-            ((*feature_type).to_owned(), rest, false)
+        [folder, rest @ ..] if *folder == REFERENCES_FOLDER || types.contains(*folder) => {
+            ((*folder).to_owned(), rest, false)
         }
         _ => return Placement::NotAllowed,
     };
@@ -1164,10 +1169,47 @@ fn layout_allows_the_benchmark_model_only() {
 }
 
 #[test]
+fn layout_allows_the_three_files_of_a_reference_stability_example() {
+    let types = test_types();
+
+    assert_eq!(
+        placement("references/line-redrawn.ptsm", &types),
+        example_file("references/line-redrawn", Role::Model)
+    );
+    assert_eq!(
+        placement("references/line-redrawn.expected.json", &types),
+        example_file("references/line-redrawn", Role::Expected)
+    );
+    assert_eq!(
+        placement("references/line-redrawn.py", &types),
+        example_file("references/line-redrawn", Role::Twin)
+    );
+}
+
+#[test]
+fn layout_rejects_reference_stability_examples_with_other_names_or_folders() {
+    let types = test_types();
+
+    for path in [
+        "references/Line-redrawn.ptsm",
+        "references/line--redrawn.ptsm",
+        "references/r06/line-redrawn.ptsm",
+        "references/line-redrawn.json",
+        "reference/line-redrawn.ptsm",
+    ] {
+        assert_eq!(placement(path, &types), Placement::NotAllowed, "{path}");
+    }
+}
+
+#[test]
 fn layout_leaves_assets_of_example_folders_alone() {
     let types = test_types();
 
     assert_eq!(placement("hole/assets/0a1b.step", &types), Placement::Asset);
+    assert_eq!(
+        placement("references/assets/0a1b.step", &types),
+        Placement::Asset
+    );
     assert_eq!(
         placement("bench/fifty-features/assets/0a1b.step", &types),
         Placement::Asset

@@ -15,8 +15,79 @@
         {
           "severity": "warning",
           "code": "plane_fallback",
-          "message": "The face this sketch is on now matches several faces, so the sketch stays at its last position. Pick the face in the repair panel.",
-          "field": "/plane/face"
+          "message": "The face this sketch is on, a face of 'Box 1', is no longer made by 'Box 1', so the sketch uses the position saved with it.",
+          "field": "/plane/face",
+          "actions": [
+            {
+              "label": "Pick a face again",
+              "kind": "pick"
+            }
+          ],
+          "candidates": [
+            {
+              "reference": {
+                "q": "f-box1/back",
+                "fp": "plane|n=0,1,0|c=0,5,5|a=100|adj=4,4"
+              },
+              "description": "the back side of 'Box 1'",
+              "relation": "where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "f-box1/bottom",
+                "fp": "plane|n=0,0,-1|c=0,0,0|a=100|adj=4,4"
+              },
+              "description": "the bottom of 'Box 1'",
+              "relation": "where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "f-box1/front",
+                "fp": "plane|n=0,-1,0|c=0,-5,5|a=100|adj=4,4"
+              },
+              "description": "the front side of 'Box 1'",
+              "relation": "where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "f-box1/left",
+                "fp": "plane|n=-1,0,0|c=-5,0,5|a=100|adj=4,4"
+              },
+              "description": "the left side of 'Box 1'",
+              "relation": "where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "f-box1/right",
+                "fp": "plane|n=1,0,0|c=5,0,5|a=100|adj=4,4"
+              },
+              "description": "the right side of 'Box 1'",
+              "relation": "where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            }
+          ],
+          "reason": {
+            "kind": "removed",
+            "by": "f-box1",
+            "how": {
+              "kind": "no_longer_made"
+            }
+          },
+          "detail": "plane.face q=f-box1/nothing resolution=missing lost.parts=f-box1/nothing candidates=f-box1/back:1.000000,f-box1/bottom:1.000000,f-box1/front:1.000000,f-box1/left:1.000000,f-box1/right:1.000000"
         }
       ]
     }
@@ -26,8 +97,8 @@
     {
       "id": "b-1",
       "name": "Body 1",
-      "volume": 999.9999999999998,
-      "area": 599.9999999999999,
+      "volume": 999.9999999999999,
+      "area": 600.0,
       "center_of_mass": [
         6.1062266354383625e-18,
         8.881784197001254e-18,

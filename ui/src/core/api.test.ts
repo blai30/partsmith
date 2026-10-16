@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Command, Edit } from '../generated/protocol'
+import type { Command, Edit, FixRef } from '../generated/protocol'
 import {
   CUBE_DOCUMENT,
   CUBE_TOP_FACE,
@@ -98,6 +98,50 @@ describe('createCoreApi', () => {
     expect(lastCommand(transport)).toEqual({ type: 'begin_transaction', doc: 1, label: 'Edit' })
     await api.applyEdits(documentHandle, null, RENAME_EDITS)
     expect(lastCommand(transport)).toEqual({ type: 'apply_edits', doc: 1, edits: RENAME_EDITS })
+  })
+
+  it('applyFix sends apply_fix with its FixRef and resolves the revision (2.6)', async () => {
+    const fix: FixRef = {
+      feature: 'f-ext1',
+      code: 'out_of_range',
+      field: '/extent/expr',
+      cause: false,
+      index: 0,
+      revision: 0,
+    }
+    const transport = createFakeTransport({
+      fixes: [
+        {
+          feature: 'f-ext1',
+          code: 'out_of_range',
+          field: '/extent/expr',
+          index: 0,
+          label: 'Use 20 mm',
+          edits: RENAME_EDITS,
+        },
+      ],
+    })
+    await transport.start()
+    const api = createCoreApi(createCoreClient(transport))
+    const { documentHandle } = await api.openDocument(documentText(CUBE_DOCUMENT))
+    await expect(api.applyFix(documentHandle, fix)).resolves.toBe(1)
+    expect(lastCommand(transport)).toEqual({ type: 'apply_fix', doc: 1, fix })
+  })
+
+  it('applyFix rejects a fix the core no longer offers with its stale_fix CoreError', async () => {
+    const { api } = await setUp()
+    const { documentHandle } = await api.openDocument(documentText(CUBE_DOCUMENT))
+    const refused = await api
+      .applyFix(documentHandle, {
+        feature: 'f-ext1',
+        code: 'no_effect',
+        cause: false,
+        index: 0,
+        revision: 0,
+      })
+      .catch((error: unknown) => error)
+    expect(refused).toBeInstanceOf(CoreError)
+    expect(refused).toMatchObject({ code: 'stale_fix' })
   })
 
   it('maps the transaction commands', async () => {
@@ -337,9 +381,14 @@ describe('createCoreApi', () => {
 })
 
 describe('rebuildsDocument and rebuiltDocument', () => {
-  it('count edits, transactions, undo and opening as rebuilds, but not saving, exporting or queries', () => {
+  it('count edits, fixes, transactions, undo and opening as rebuilds, but not saving, exporting or queries', () => {
     const rebuilding: readonly Command[] = [
       { type: 'apply_edits', doc: 1, label: 'Rename', edits: [...RENAME_EDITS] },
+      {
+        type: 'apply_fix',
+        doc: 1,
+        fix: { feature: 'f-ext1', code: 'no_effect', cause: false, index: 0, revision: 1 },
+      },
       { type: 'commit_transaction', doc: 1 },
       { type: 'undo', doc: 1 },
       { type: 'open_document', text: '{}' },
@@ -351,7 +400,7 @@ describe('rebuildsDocument and rebuiltDocument', () => {
       { type: 'export', doc: 1, format: { kind: 'step' } },
       { type: 'engine_info' },
     ]
-    expect(rebuilding.map(rebuildsDocument)).toEqual([true, true, true, true])
+    expect(rebuilding.map(rebuildsDocument)).toEqual([true, true, true, true, true])
     expect(quiet.map(rebuildsDocument)).toEqual([false, false, false, false, false])
   })
 

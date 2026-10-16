@@ -135,6 +135,7 @@ export function solutionFor(
     constraints: [],
     regions: [],
     profile_findings: [],
+    messages: [],
     display: null,
     ...fields,
   }
@@ -198,6 +199,7 @@ export function documentState(options: {
     datums: {},
     meshes: {},
     lastRebuildMilliseconds: null,
+    ghosts: {},
   }
 }
 
@@ -271,6 +273,7 @@ export function createFakeCore(methods: Partial<CoreApi>): CoreApi {
     markSaved: unexpected('markSaved'),
     closeDocument: unexpected('closeDocument'),
     applyEdits: unexpected('applyEdits'),
+    applyFix: unexpected('applyFix'),
     renameParameter: unexpected('renameParameter'),
     beginTransaction: unexpected('beginTransaction'),
     setFocus: unexpected('setFocus'),

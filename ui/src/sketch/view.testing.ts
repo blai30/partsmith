@@ -94,6 +94,7 @@ export function fixedViewport(camera: Camera = TOP_CAMERA): ViewportHandle {
     toggleProjection: vi.fn<ViewportHandle['toggleProjection']>(),
     lookAlong: vi.fn<ViewportHandle['lookAlong']>(),
     zoomToBounds: vi.fn<ViewportHandle['zoomToBounds']>(),
+    itemBounds: () => null,
     screenRectangle: () => null,
     viewWindow: () => wholeCanvas({ width: VIEW_PIXELS, height: VIEW_PIXELS }),
     requestRender: vi.fn<ViewportHandle['requestRender']>(),

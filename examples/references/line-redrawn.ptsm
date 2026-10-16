@@ -1,0 +1,74 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
+        {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
+        {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]},
+        {"id": "e-9", "type": "line", "start": [80, 0], "end": [80, 50]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000", "outline": "e-1,e-2,e-3,e-4"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "30"},
+      "op": "new"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-2)", "fp": "line|n=0,1,0|c=80,25,30|l=50|adj=2,2"}
+      ],
+      "radius": "2"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext1/lateral/e-2", "fp": "plane|n=1,0,0|c=80,25,14|a=1400|adj=4,4"},
+        "fallback": {"origin": [80, 0, 0], "x_axis": [0, 1, 0], "normal": [1, 0, 0]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5", "type": "circle", "center": [25, 15], "radius": 4}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk2",
+        "regions": [
+          {"key": "e-5", "fp": "c=25,15|a=50.265482", "outline": "e-5"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "5"},
+      "reverse": true,
+      "op": "cut"
+    }
+  ]
+}

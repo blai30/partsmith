@@ -27,6 +27,7 @@ import {
   RECT_SKETCH_SOLUTION,
   TWO_BODIES_DOCUMENT,
 } from '../test/fakes/documents'
+import { SPLIT_DISPLAY, SPLIT_REPAIR, SPLIT_SOLUTION, SPLIT_STATUS } from '../test/fakes/repairs'
 import { elementItem } from '../test/fakes/selection'
 import { acceptsTarget } from '../inspector/selection-values'
 import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
@@ -606,6 +607,74 @@ describe('screenRectangle', () => {
   })
 })
 
+describe('worldPoints', () => {
+  it('covers a selected flat face with the corners of the face, not its centroid (4.2 show)', () => {
+    const fixture = cubeScene()
+    render(fixture, cubeState())
+    const points = fixture.scene.worldPoints([elementItem(CUBE_FRONT_FACE, 'Cube')])
+    const xs = points.map((point) => point[0])
+    const zs = points.map((point) => point[2])
+    expect(Math.min(...xs)).toBeCloseTo(-10, 6)
+    expect(Math.max(...xs)).toBeCloseTo(10, 6)
+    expect(Math.min(...zs)).toBeCloseTo(0, 6)
+    expect(Math.max(...zs)).toBeCloseTo(20, 6)
+  })
+
+  it("gives a datum plane's square as drawn, not only its origin", () => {
+    const scene = createScene(createFakeBackend())
+    const document: Document = {
+      ...CUBE_DOCUMENT,
+      bodies: [],
+      features: [
+        {
+          id: 'f-dp1',
+          type: 'datum_plane',
+          base: { kind: 'origin', plane: 'XY' },
+          offset: '10 mm',
+        },
+      ],
+    }
+    const state = stateOf(
+      documentState(document, {
+        datums: { 'f-dp1': { origin: [0, 0, 10], x_axis: [1, 0, 0], normal: [0, 0, 1] } },
+      }),
+    )
+    scene.frame(state, DEFAULT_CAMERA, SIZE)
+    const points = scene.worldPoints([
+      {
+        key: 'feature:f-dp1',
+        kind: 'datum_plane',
+        label: 'Datum plane 1',
+        body: null,
+        feature: 'f-dp1',
+        element: null,
+        sketchItem: null,
+        origin: null,
+      },
+    ])
+    expect(points).toHaveLength(4)
+    expect(points.every((point) => point[2] === 10)).toBe(true)
+    const xs = points.map((point) => point[0])
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(0)
+  })
+
+  it('is empty for no items', () => {
+    expect(cubeScene().scene.worldPoints([])).toEqual([])
+  })
+})
+
+/** A frame of the cube with its sketch split in two and the extrude's region lost, with `status` and `repair`. */
+function lostProfileFrame(repair: AppState['repair'], status = SPLIT_STATUS) {
+  const backend = createFakeBackend()
+  const scene = createScene(backend)
+  const document = cubeDocumentState({
+    sketches: { 'f-sk1': { solution: SPLIT_SOLUTION, display: SPLIT_DISPLAY } },
+    featureStatus: { 'f-ext1': status },
+  })
+  const frame = scene.frame(stateOf(document, { repair }), DEFAULT_CAMERA, SIZE)
+  return { backend, frame }
+}
+
 describe('sketches and datum planes', () => {
   it('draws a visible sketch in the Model context as reference lines 1.25 pixels wide, without region fill', () => {
     const fixture = cubeScene()
@@ -672,6 +741,31 @@ describe('sketches and datum planes', () => {
 
     it('leaves them unfilled while the active field takes something else', () => {
       expect(regionOpacity({ ...EXTRUDE_PROFILE_COMMAND, activeField: null })).toBe(0)
+    })
+  })
+
+  describe("repair mode's region candidates (3.7)", () => {
+    it("fills only the current repair's candidate regions, in the hover state at no base opacity, while the sketch is hidden", () => {
+      const [first] = SPLIT_REPAIR.candidates
+      const { backend, frame } = lostProfileFrame(
+        { feature: 'f-ext1' },
+        {
+          ...SPLIT_STATUS,
+          repairs: [{ ...SPLIT_REPAIR, candidates: first === undefined ? [] : [first] }],
+        },
+      )
+      const draw = frame.draws.find((candidate) => candidate.id === 'repair:regions')
+      expect(draw).toMatchObject({ layer: 'overlay', opacity: 0, pickBase: null })
+      expect(backend.geometries.get('repair:regions')?.kind).toBe('fill')
+      expect(backend.elementStates.get('repair:regions')).toEqual(
+        new Uint8Array([0, ELEMENT_STATE.hover]),
+      )
+      expect(frame.draws.some((candidate) => candidate.id === 'sketch:f-sk1:regions')).toBe(false)
+    })
+
+    it('draws no candidate regions without repair mode', () => {
+      const { frame } = lostProfileFrame(null)
+      expect(frame.draws.some((candidate) => candidate.id === 'repair:regions')).toBe(false)
     })
   })
 

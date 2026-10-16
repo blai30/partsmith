@@ -36,6 +36,7 @@ function resultFor(request: Request, protocolVersion: number): CommandResult {
           constraints: [],
           regions: [],
           profile_findings: [],
+          messages: [],
         },
       }
     case 'analyze_print':

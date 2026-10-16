@@ -2,7 +2,7 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import type { Diagnostic, FeatureStatus } from '../generated/protocol'
+import type { Diagnostic, FeatureStatus, FixAction, FixRef } from '../generated/protocol'
 import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import type { ActiveCommand, AppState, DocumentState } from '../state/store'
@@ -119,6 +119,23 @@ describe('the inline Reverse (2.12, 3.7)', () => {
   })
 })
 
+/** The FixRef of a "Turn on Reverse" action of the extrude command's message `code`. */
+function reverseFix(code: string): FixRef {
+  return { feature: 'f-ext9', code, cause: false, index: 0, revision: 1 }
+}
+
+function turnOnReverse(code: string): FixAction {
+  return { label: 'Turn on Reverse', run: { kind: 'apply', fix: reverseFix(code) } }
+}
+
+/** The banner's buttons named like a Reverse fix. */
+function reverseButtons(): string[] {
+  return within(within(inspector()).getByTestId('inspector-error'))
+    .queryAllByRole('button')
+    .map((button) => button.textContent ?? '')
+    .filter((name) => /Reverse/.test(name))
+}
+
 describe('Reverse fixes (4.2, U-107)', () => {
   it('U-107 offers "Reverse and use 5 mm" for a negative distance out of range', async () => {
     const { app, user } = renderCommand(command({}), withStatus('f-ext9', [OUT_OF_RANGE]))
@@ -165,30 +182,66 @@ describe('Reverse fixes (4.2, U-107)', () => {
     expect(within(inspector()).queryByRole('button', { name: /^Reverse and use/ })).toBeNull()
   })
 
-  it('U-107 offers "Reverse" for a cut that does nothing', async () => {
-    const noEffect: Diagnostic = {
-      severity: 'warning',
-      code: 'no_effect',
-      message: 'Extrude 2 does not change Cube.',
-    }
-    const { app, user } = renderCommand(
-      command({
-        params: {
-          profile: PROFILE,
-          extent: { kind: 'distance', expr: '5 mm' },
-          op: 'cut',
-          body: 'b-cube',
-        },
-      }),
-      withStatus('f-ext9', [noEffect]),
-    )
+  const CUT = command({
+    params: {
+      profile: PROFILE,
+      extent: { kind: 'distance', expr: '5 mm' },
+      op: 'cut',
+      body: 'b-cube',
+    },
+  })
+
+  const NO_EFFECT: Diagnostic = {
+    severity: 'warning',
+    code: 'no_effect',
+    message: "This cut does not touch body 'Cube', so nothing was removed.",
+  }
+
+  const THROUGH_ALL_MISSES: Diagnostic = {
+    severity: 'error',
+    code: 'through_all_misses',
+    message: "This cut through everything does not reach body 'Cube'.",
+  }
+
+  it('U-141 offers no Reverse of its own for a cut that does nothing', () => {
+    renderCommand(CUT, withStatus('f-ext9', [NO_EFFECT]))
     const banner = within(inspector()).getByTestId('inspector-error')
     // U-188: a status banner inside the card.
     expect(banner).toHaveClass('rounded-lg')
-    await user.click(within(banner).getByRole('button', { name: 'Reverse' }))
-    expect(app.store.getState().command?.params['reverse']).toBe(true)
-    // Focus on the Distance input, not on Reverse, so the next Enter confirms (3.5).
-    expect(within(field('extent.expr')).getByRole('combobox')).toHaveFocus()
+    expect(reverseButtons()).toEqual([])
+  })
+
+  it('U-141 offers no Reverse of its own for a through-all cut that misses', () => {
+    renderCommand(CUT, withStatus('f-ext9', [THROUGH_ALL_MISSES]))
+    expect(reverseButtons()).toEqual([])
+  })
+
+  it(`U-141 shows exactly the core's "Turn on Reverse" when the message offers it`, () => {
+    renderCommand(
+      CUT,
+      withStatus('f-ext9', [{ ...NO_EFFECT, actions: [turnOnReverse('no_effect')] }]),
+    )
+    expect(reverseButtons()).toEqual(['Turn on Reverse'])
+  })
+
+  it('U-141 shows exactly "Turn on Reverse" for a through-all miss that offers it', () => {
+    renderCommand(
+      CUT,
+      withStatus('f-ext9', [
+        { ...THROUGH_ALL_MISSES, actions: [turnOnReverse('through_all_misses')] },
+      ]),
+    )
+    expect(reverseButtons()).toEqual(['Turn on Reverse'])
+  })
+
+  it('U-107 "Turn on Reverse" calls applyFix with its FixRef', async () => {
+    const { core, user } = renderCommand(
+      CUT,
+      withStatus('f-ext9', [{ ...NO_EFFECT, actions: [turnOnReverse('no_effect')] }]),
+    )
+    await user.click(within(inspector()).getByRole('button', { name: 'Turn on Reverse' }))
+    await settle()
+    expect(core.callsTo('applyFix')).toEqual([[1, reverseFix('no_effect')]])
   })
 })
 

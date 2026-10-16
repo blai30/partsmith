@@ -398,6 +398,16 @@ describe('the camera handle (2.11, 3.14)', () => {
     ).toBeLessThan(1e-6)
   })
 
+  it('itemBounds is the world box of items as drawn, and null for items that are not (4.2)', () => {
+    const fixture = setUp()
+    fixture.frames.flush()
+    expect(fixture.controller.itemBounds([bodyItem('b-cube', 'Cube')])).toEqual({
+      min: [-10, -10, 0],
+      max: [10, 10, 20],
+    })
+    expect(fixture.controller.itemBounds([featureItem('f-ext1', 'Extrude 1')])).toBeNull()
+  })
+
   it('lookAlong puts the eye on the normal side looking along -normal, with the up hint', () => {
     const fixture = setUp()
     fixture.controller.lookAlong([0, 0, 1], [0, 1, 0], [0, 0, 20])

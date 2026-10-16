@@ -1002,8 +1002,8 @@ fn redrawn_beside_a_split_then(more: Vec<Value>) -> Scenario {
 }
 
 /// [`redrawn_beside_a_split`] with a face sketch `f-sk2` on BLOCK's right side after the fillet, a circle `e-1` at
-/// (25, 15) of radius 4 on it. After the edit the sketch follows the replaced line to `f-ext1/lateral/e-9` without a
-/// message (features.md section 3.6).
+/// (25, 15) of radius 4 on it. After the edit the sketch follows the replaced line to `f-ext1/lateral/e-9` with a
+/// `reference_followed` notice at `/plane/face` (features.md section 3.6, features/sketch.md section 4).
 pub fn redrawn_beside_a_split_with_a_face_sketch() -> Scenario {
     redrawn_beside_a_split_then(vec![sketch(
         "f-sk2",

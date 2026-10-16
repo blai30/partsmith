@@ -1,5 +1,6 @@
 import { Shapes } from 'lucide-react'
 import { editFeature } from '../../app/actions/command'
+import { showLost } from '../../app/actions/fixes'
 import { setSuppressed } from '../../app/actions/timeline'
 import { useApp } from '../../app/AppProvider'
 import { reportFailure } from '../../app/report'
@@ -8,13 +9,13 @@ import { Button } from '../../components/Button'
 import { Tooltip } from '../../components/Tooltip'
 import { featureLabel } from '../../core/labels'
 import { MESSAGES } from '../../messages'
-import { selectEditLabel } from '../../state/selectors'
+import { MessageActions } from '../../repair/MessageActions'
 import type { AppState, DocumentState, SelectionItem } from '../../state/store'
 import { COLOR_CLASSES } from '../../theme/roles'
-import { UseSuggestion } from '../UseSuggestion'
 import { Row, Suggestions, Title } from './parts'
 
-// The selection inspector of one feature (ui.md 3.8): its type, its problems, Edit and Suppress.
+// The selection inspector of one feature (ui.md 3.8): its type, its problems with the core's fixes
+// (4.2), Show what it lost, Edit and Suppress.
 
 /** The section of one selected feature or datum plane. */
 export function FeatureSection({
@@ -58,7 +59,7 @@ export function FeatureSection({
               // Messages carry no id; their order is the core's.
               // oxlint-disable-next-line react/no-array-index-key
               key={index}
-              className="flex flex-col gap-1"
+              className="flex flex-col gap-2"
             >
               <span
                 className={
@@ -69,12 +70,21 @@ export function FeatureSection({
               >
                 {message.message}
               </span>
-              <UseSuggestion record={record} message={message} />
+              <MessageActions message={message} place="panel" />
             </li>
           ))}
         </ul>
       )}
       <div className="flex flex-wrap gap-2">
+        {(status?.repairs ?? []).length === 0 ? null : (
+          <Button
+            onClick={() => {
+              showLost(app, featureId).catch(reportFailure('Showing what was lost'))
+            }}
+          >
+            {MESSAGES.show_lost(label)}
+          </Button>
+        )}
         {importFeature ? (
           <Tooltip label={MESSAGES.import_not_editable()}>
             <Button aria-disabled="true">Edit</Button>
@@ -85,7 +95,7 @@ export function FeatureSection({
               editFeature(app, featureId).catch(reportFailure('Editing the feature'))
             }}
           >
-            {selectEditLabel(state, featureId)}
+            Edit
           </Button>
         )}
         <Button

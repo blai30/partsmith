@@ -309,6 +309,19 @@ impl FeatureMessages<'_> {
                     findings,
                 ),
             Problem::Warning(
+                warning @ FeatureWarning::PlaneFallback {
+                    field,
+                    loss: Some(loss),
+                    ..
+                },
+            ) => self.losses(
+                warning.code(),
+                field,
+                std::slice::from_ref(loss),
+                true,
+                findings,
+            ),
+            Problem::Warning(
                 warning @ FeatureWarning::ReferenceFollowed {
                     field,
                     position,

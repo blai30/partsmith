@@ -1,10 +1,10 @@
 import { featureLabel } from '../core/labels'
 import { activeFeatures } from '../core/recipe'
-import type { Diagnostic } from '../generated/protocol'
-import { fieldForPointer, repairField } from '../inspector/status'
+import type { FixAction } from '../generated/protocol'
 import { MESSAGES } from '../messages'
 import { isCheckHidden } from '../print/checks'
 import { sameOrientation } from '../print/orientation'
+import { groupedRows, type ProblemRows } from '../problems/problems'
 import type { AppState, DocumentState, SelectionItem, SketchSession } from './store'
 
 // Derived views of the state (ui.md 2.8). Selectors that build new values remember their last
@@ -38,17 +38,6 @@ export function memoized<Inputs extends unknown[], Result>(
 /** The display label of a feature (features.md 3.12), or its id when there is no document. */
 export function selectFeatureLabel(state: AppState, id: string): string {
   return state.document === null ? id : featureLabel(state.document.recipe, id, state.catalog)
-}
-
-/**
- * The label of the action that opens a feature for editing (4.2): "Re-pick {field label}" when its
- * status has a repair, naming the field the repair's reference is picked again in, else "Edit".
- */
-export function selectEditLabel(state: AppState, id: string): string {
-  const type = state.document?.recipe.features?.find((feature) => feature.id === id)?.type
-  const fields = (type === undefined ? undefined : state.catalog?.byType[type])?.manifest.fields
-  const field = repairField(fields ?? [], state.document?.featureStatus[id])
-  return field === null ? 'Edit' : `Re-pick ${field.label}`
 }
 
 /** Whether the document has changes that are not in its file (core dirty or locally unsaved). */
@@ -289,56 +278,22 @@ export const selectHealthBadge: (state: AppState) => HealthBadge = memoized(
   },
 )
 
-/** One row of the Problems panel (3.9). */
-export type Problem =
-  | {
-      readonly kind: 'feature'
-      readonly featureId: string
-      readonly label: string
-      readonly status: 'warning' | 'error'
-      readonly messages: readonly Diagnostic[]
-    }
-  | { readonly kind: 'document'; readonly diagnostic: Diagnostic }
-
 /**
- * Features with warnings or errors in timeline order, then the document diagnostics. It depends on
- * the recipe, the statuses and the diagnostics only, so meshes and rebuild times arriving while the
- * user types in the inspector give the same list back.
+ * The rows of the Problems panel, grouped by root cause, and the notes (3.9). It depends on the
+ * recipe, the statuses and the diagnostics only, so meshes and rebuild times arriving while the
+ * user types in the inspector give the same rows back.
  */
-export const selectProblems: (state: AppState) => readonly Problem[] = memoized(
+export const selectProblems: (state: AppState) => ProblemRows = memoized(
   (state) =>
-    [
-      state.document?.recipe,
-      state.document?.featureStatus,
-      state.document?.diagnostics,
-      state.catalog,
-    ] as const,
-  (recipe, featureStatus, diagnostics, catalog): readonly Problem[] => {
-    if (recipe === undefined || featureStatus === undefined || diagnostics === undefined) {
-      return []
-    }
-    const features: Problem[] = (recipe.features ?? []).flatMap((feature) => {
-      const status = featureStatus[feature.id]
-      if (status === undefined || (status.status !== 'warning' && status.status !== 'error')) {
-        return []
-      }
-      return [
-        {
-          kind: 'feature',
-          featureId: feature.id,
-          label: featureLabel(recipe, feature.id, catalog),
-          status: status.status,
-          messages: status.messages,
-        },
-      ]
-    })
-    const documentProblems: Problem[] = diagnostics.map((diagnostic) => ({
-      kind: 'document',
-      diagnostic,
-    }))
-    return [...features, ...documentProblems]
-  },
+    [state.document?.recipe, state.document?.featureStatus, state.document?.diagnostics] as const,
+  (recipe, featureStatus, diagnostics) =>
+    groupedRows(recipe, featureStatus ?? {}, diagnostics ?? []),
 )
+
+/** The number of problems (3.9): one per top-level row, so per root and per document diagnostic; nested rows and notes are not counted. */
+export function selectProblemCount(state: AppState): number {
+  return selectProblems(state).rows.length
+}
 
 /**
  * Why document edits other than the active command's are disabled: `finish_command_first` while a
@@ -348,35 +303,26 @@ export function selectCommandBlock(state: AppState): string | null {
   return state.command === null ? null : MESSAGES.finish_command_first(state.command.title)
 }
 
-/** Where a lost element was, for the dashed ring the edited feature shows there (3.7, 4.2). */
-export type RepairMarker = {
-  readonly at: readonly [number, number, number]
-  /** What was lost, from the selection kind of the field the repair maps to. */
-  readonly noun: 'face' | 'edge'
-}
+/**
+ * Where a message's action is offered: the banner of the feature command it belongs to (with the
+ * candidate markers of its repair mode), whose `apply` actions join the command's transaction
+ * (3.7), or a panel (Problems, the selection inspector) or a notification, whose `apply` actions
+ * are document edits that wait during a feature command.
+ */
+export type FixPlace = 'banner' | 'panel' | 'notification'
 
-/** The repair markers of the feature being edited: one per repair with a centroid, until the command ends. */
-export const selectRepairMarkers: (state: AppState) => readonly RepairMarker[] = memoized(
-  (state: AppState) =>
-    [
-      state.command?.editing === true ? state.command.featureId : null,
-      state.command === null ? undefined : state.catalog?.byType[state.command.featureType],
-      state.document?.featureStatus,
-    ] as const,
-  (featureId, feature, statuses) => {
-    if (featureId === null || feature === undefined) {
-      return []
-    }
-    const fields = feature.manifest.fields.filter((hint) => (hint.selection ?? null) !== null)
-    const paths = fields.map((hint) => hint.path)
-    return (statuses?.[featureId]?.repairs ?? []).flatMap((repair): RepairMarker[] => {
-      const centroid = repair.kind === 'element' ? (repair.centroid ?? null) : null
-      if (centroid === null) {
-        return []
-      }
-      const path = fieldForPointer(paths, repair.path)
-      const kind = fields.find((hint) => hint.path === path)?.selection
-      return [{ at: centroid, noun: kind === 'edge' || kind === 'axis' ? 'edge' : 'face' }]
-    })
-  },
-)
+/**
+ * Why an action cannot run now (3.7): an `apply` action of the banner while the preview is pending,
+ * since the statuses that carry it are about to be replaced, and one offered anywhere else during a
+ * feature command; null when it can.
+ */
+export function selectFixBlock(state: AppState, action: FixAction, place: FixPlace): string | null {
+  const command = state.command
+  if (action.run.kind !== 'apply' || command === null) {
+    return null
+  }
+  if (place === 'banner') {
+    return command.preview === 'pending' ? MESSAGES.preview_pending() : null
+  }
+  return MESSAGES.finish_command_first(command.title)
+}

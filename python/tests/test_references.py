@@ -10,7 +10,6 @@ with phase 4, when the engine fills `cause`.
 
 import inspect
 import json
-import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar
@@ -25,7 +24,6 @@ from partsmith import (
     FeatureError,
     Line,
     Part,
-    PartsmithWarning,
     Placement,
     Plane,
     Point,
@@ -48,6 +46,7 @@ from support import (
     assert_round_trip,
     fixture_text,
     open_text,
+    partsmith_warnings,
     reference_json,
     request_command,
     response_message,
@@ -228,14 +227,6 @@ def python_of(source: Callable[[Path], str | Path], directory: Path) -> str:
 # Warnings.
 
 
-def partsmith_warnings(action: Callable[[], object]) -> list[warnings.WarningMessage]:
-    """The PartsmithWarnings that `action()` emits."""
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        action()
-    return [warning for warning in caught if issubclass(warning.category, PartsmithWarning)]
-
-
 # Requests.
 
 
@@ -365,12 +356,15 @@ def test_t089_selections_store_full_references():
         box(w, 50, 30, position=(w / 2, 25, 0), id="f-box1")
         box(20, 60, 5, position=(w / 2, 25, 25), op="cut", id="f-box2")
         selection = edges().top().min(Axis.Y).max(Axis.X)
+        # Read before the fillet is added, as test 89 says: the fillet rounds the edge away, so a read after it gives
+        # the short reference the edge was listed with (section 3.6).
+        picked = selection[0].reference
         fillet_feature = fillet(selection, 2, id="f-fil1")
 
     [stored_reference] = stored_feature(document, "f-fil1")["edges"]
     assert stored_reference["q"] == "edge(f-box1/front|f-box1/top#2)"
     assert "f-box1/right" in stored_reference["nb"]["f-box1/top#2"]
-    assert stored_reference == reference_json(selection[0].reference)
+    assert stored_reference == reference_json(picked)
 
     assert partsmith_warnings(lambda: w.set(200 * mm)) == []
     assert fillet_feature.status == "ok"
@@ -432,12 +426,23 @@ def test_t092_a_feature_error_carries_its_diagnostic():
     assert error.code == "fillet_too_large"
     assert error.field == "/radius"
     assert error.suggestion is not None
-    assert error.actions[0] == f"Use {error.suggestion}"
-    assert error.detail is not None
+    # A limit was found, so there is no kernel detail (features.md section 2.8).
+    assert error.detail is None
     assert error.cause is None
     assert error.feature_type == "fillet"
     assert str(error).startswith("fillet(): Fillet radius 30 mm is too large for the selected edges")
     assert f"Called at {__file__}, line {line}." in error.__notes__
+
+
+def test_t092_a_feature_error_offers_its_suggestion_as_an_action():
+    Document()
+    with Part("P"):
+        box(20, 30, 40, id="f-box1")
+        with pytest.raises(FeatureError) as raised:
+            fillet(edges().top(), 30)
+
+    error = raised.value
+    assert error.actions[:1] == [f"Use {error.suggestion}"]
 
 
 def test_t092_a_lost_reference_offers_its_candidates():

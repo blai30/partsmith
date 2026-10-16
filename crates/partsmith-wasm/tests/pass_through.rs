@@ -1,8 +1,10 @@
 //! The protocol passes through `ps_call` unchanged (protocol.md section 2.10; the reference stability plan, section 10.3 item 9). The bridge answers the diagnostics, fixes and errors of ADR 0024 and the documents of format version 2 (ADR 0025) with the response frame that `Session::call` gives a session of the module's options (display on, random ids): nothing is added, dropped or reordered on the way through.
 //!
-//! Each test sends its requests through `ps_call` (the `Block` helper) and to a reference `Session`, and compares the decoded frames. Document handles and mesh ids count per session, and on the Emscripten target every test shares the module's one session, so the comparison leaves those two numbers out; everything else, buffers included, must be equal. Each test also checks the new shape it is about in the bridge's frame, so an empty answer on both sides cannot pass.
+//! Each test sends its requests through `ps_call` (the `Block` helper) and to a reference `Session`, and compares the decoded frames. Document handles and mesh ids count per session, and on the Emscripten target every test shares the module's one session, so the comparison leaves those two numbers out, and a command that names a document or a mesh, such as a pick, names each side's own; everything else, buffers included, must be equal. Each test also checks the new shape it is about in the bridge's frame, so an empty answer on both sides cannot pass.
 
 mod common;
+
+use std::collections::BTreeMap;
 
 use common::block::Block;
 use common::{error_info, ok_result, outcome_json, request_frame, response_frame};
@@ -80,15 +82,98 @@ const TWO_AREAS_TEXT: &str = r#"{
 }
 "#;
 
+/// Corpus R16 after its edit (engine.md test 115): CUBE20 with a 5 x 5 rabbet ('Sketch 1' and 'Extrude 1') inserted before the fillet of its front top edge, so `f-fil1` fails with `references_not_found` and an element repair whose candidates are the rabbet's edges.
+const CUT_AWAY_EDGE_TEXT: &str = r#"{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"},
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "YZ"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [-11, 15], "end": [-5, 15]},
+        {"id": "e-2", "type": "line", "start": [-5, 15], "end": [-5, 21]},
+        {"id": "e-3", "type": "line", "start": [-5, 21], "end": [-11, 21]},
+        {"id": "e-4", "type": "line", "start": [-11, 21], "end": [-11, 15]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {"sketch": "f-sk2", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=-8,18|a=36"}]},
+      "extent": {"kind": "symmetric", "expr": "30"},
+      "op": "cut"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2"}],
+      "radius": "2"
+    }
+  ]
+}
+"#;
+
+/// The edge of E10's fillet: the front edge of the right part of the block's top, which the slot splits (engine.md test 122).
+const SPLIT_TOP_FRONT_EDGE: &str = "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)";
+
 /// The keys whose values count per session, so a fresh session and the module's shared one give them different values.
 const SESSION_NUMBERS: [&str; 2] = ["doc", "mesh_id"];
+
+/// The document one side opened last, with what that side's frames said about it.
+struct Side {
+    /// The document's handle in that side's session.
+    doc: Value,
+    /// The mesh id of each body's model layer in the latest `body_mesh` event of that body.
+    model_meshes: BTreeMap<String, Value>,
+}
+
+impl Side {
+    /// The document `frame`, a successful `open_document` response, opened.
+    fn opened(frame: &ResponseFrame) -> Side {
+        let mut side = Side {
+            doc: handle(frame),
+            model_meshes: BTreeMap::new(),
+        };
+        side.record_meshes(frame);
+        side
+    }
+
+    /// Keeps the model mesh ids of the `body_mesh` events in `frame`.
+    fn record_meshes(&mut self, frame: &ResponseFrame) {
+        for mesh in events_of(frame, "body_mesh") {
+            if mesh["layer"] == "model" {
+                let body = mesh["body"].as_str().expect("meshes name their body");
+                self.model_meshes
+                    .insert(body.to_owned(), mesh["mesh_id"].clone());
+            }
+        }
+    }
+
+    /// The mesh id of `body`'s model layer as this side displays it now.
+    fn model_mesh(&self, body: &str) -> &Value {
+        self.model_meshes
+            .get(body)
+            .unwrap_or_else(|| panic!("{body} has a model mesh"))
+    }
+}
 
 /// The bridge and a reference session with the module's session options, sent the same requests.
 struct SideBySide {
     /// The session the bridge's answers are compared with.
     reference: Session,
-    /// The handles of the document each side opened last: the bridge's, then the reference session's.
-    handles: Option<(Value, Value)>,
+    /// The document each side opened last: the bridge's, then the reference session's.
+    documents: Option<(Side, Side)>,
 }
 
 impl SideBySide {
@@ -99,11 +184,11 @@ impl SideBySide {
                 display: true,
                 ..SessionOptions::default()
             }),
-            handles: None,
+            documents: None,
         }
     }
 
-    /// Opens `text` on both sides with request `id`, keeps both handles when it opens, and returns the bridge's frame.
+    /// Opens `text` on both sides with request `id`, keeps both documents when it opens, and returns the bridge's frame.
     fn open(&mut self, id: u64, text: &str) -> ResponseFrame {
         let request = request_frame(
             id,
@@ -113,23 +198,26 @@ impl SideBySide {
         let (bridge, reference) = self.exchange(&request, &request);
 
         if outcome_json(&bridge)["kind"] == "ok" {
-            self.handles = Some((handle(&bridge), handle(&reference)));
+            self.documents = Some((Side::opened(&bridge), Side::opened(&reference)));
         }
         bridge
     }
 
-    /// Sends request `id` with the command `command` builds for each side's document handle, and returns the bridge's frame.
-    fn send(&mut self, id: u64, command: impl Fn(&Value) -> Value) -> ResponseFrame {
-        let (bridge_doc, reference_doc) = self
-            .handles
-            .clone()
+    /// Sends request `id` with the command `command` builds for each side's document, and returns the bridge's frame.
+    fn send(&mut self, id: u64, command: impl Fn(&Side) -> Value) -> ResponseFrame {
+        let (bridge_side, reference_side) = self
+            .documents
+            .as_ref()
             .expect("a document is open on both sides");
+        let bridge_request = request_frame(id, &command(bridge_side).to_string());
+        let reference_request = request_frame(id, &command(reference_side).to_string());
 
-        let (bridge, _) = self.exchange(
-            &request_frame(id, &command(&bridge_doc).to_string()),
-            &request_frame(id, &command(&reference_doc).to_string()),
-        );
+        let (bridge, reference) = self.exchange(&bridge_request, &reference_request);
 
+        if let Some((bridge_side, reference_side)) = &mut self.documents {
+            bridge_side.record_meshes(&bridge);
+            reference_side.record_meshes(&reference);
+        }
         bridge
     }
 
@@ -194,14 +282,20 @@ fn forget_session_numbers(value: &mut Value) {
     }
 }
 
+/// The frame's events of type `event_type`, as JSON.
+fn events_of(frame: &ResponseFrame, event_type: &str) -> Vec<Value> {
+    frame
+        .events
+        .iter()
+        .map(|event| serde_json::to_value(event).expect("events always serialize"))
+        .filter(|event| event["type"] == event_type)
+        .collect()
+}
+
 /// The status of `feature` in the frame's `recomputed` event.
 fn feature_status(frame: &ResponseFrame, feature: &str) -> Value {
-    let events = serde_json::to_value(&frame.events).expect("events always serialize");
-    events
-        .as_array()
-        .expect("events serialize as a list")
+    events_of(frame, "recomputed")
         .iter()
-        .filter(|event| event["type"] == "recomputed")
         .flat_map(|event| {
             event["features"]
                 .as_array()
@@ -212,16 +306,26 @@ fn feature_status(frame: &ResponseFrame, feature: &str) -> Value {
         .clone()
 }
 
+/// The first entry of the list `list` of `feature`'s status in the frame's `recomputed` event whose `key` is `value`.
+fn status_entry(frame: &ResponseFrame, feature: &str, list: &str, key: &str, value: &str) -> Value {
+    let status = feature_status(frame, feature);
+    status[list]
+        .as_array()
+        .unwrap_or_else(|| panic!("statuses list their {list}: {status}"))
+        .iter()
+        .find(|entry| entry[key] == value)
+        .unwrap_or_else(|| panic!("{feature} has none of its {list} with {key} {value}: {status}"))
+        .clone()
+}
+
 /// The message with `code` among the messages of `feature` in the frame's `recomputed` event.
 fn feature_message(frame: &ResponseFrame, feature: &str, code: &str) -> Value {
-    let status = feature_status(frame, feature);
-    status["messages"]
-        .as_array()
-        .expect("statuses list their messages")
-        .iter()
-        .find(|message| message["code"] == code)
-        .unwrap_or_else(|| panic!("{feature} has no {code} message: {status}"))
-        .clone()
+    status_entry(frame, feature, "messages", "code", code)
+}
+
+/// The repair at `path` among the repairs of `feature` in the frame's `recomputed` event.
+fn feature_repair(frame: &ResponseFrame, feature: &str, path: &str) -> Value {
+    status_entry(frame, feature, "repairs", "path", path)
 }
 
 /// The labels of a message's actions, in order.
@@ -239,9 +343,31 @@ fn labels(message: &Value) -> Vec<String> {
         .collect()
 }
 
-/// The `apply_fix` command for the `fix` reference of an `apply` action.
-fn apply_fix(doc: &Value, fix: &Value) -> Value {
-    json!({"type": "apply_fix", "doc": doc, "fix": fix})
+/// The candidates of a repair.
+fn candidates(repair: &Value) -> &[Value] {
+    repair["candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the repair lists its candidates: {repair}"))
+}
+
+/// The `apply_fix` command for the `fix` reference of an `apply` action, for the side's document.
+fn apply_fix(side: &Side, fix: &Value) -> Value {
+    json!({"type": "apply_fix", "doc": side.doc, "fix": fix})
+}
+
+/// The `save_document` command for the side's document.
+fn save_document(side: &Side) -> Value {
+    json!({"type": "save_document", "doc": side.doc})
+}
+
+/// The `begin_transaction` command labeled `label` for the side's document.
+fn begin_transaction(side: &Side, label: &str) -> Value {
+    json!({"type": "begin_transaction", "doc": side.doc, "label": label})
+}
+
+/// The `list_elements` command for the edges of `b-1` of the side's document.
+fn list_edges(side: &Side) -> Value {
+    json!({"type": "list_elements", "doc": side.doc, "body": "b-1", "kind": "edge"})
 }
 
 /// The `fix` reference of `Use 3`, the second action of the fractional pattern's message, offered at revision 0.
@@ -286,15 +412,13 @@ fn a_region_repair_with_its_candidates_passes_through_unchanged() {
     let opened = sides.open(1, TWO_AREAS_TEXT);
 
     feature_message(&opened, "f-ext1", "profile_not_found");
-    let repairs = feature_status(&opened, "f-ext1")["repairs"].clone();
-    assert_eq!(repairs[0]["kind"], "region", "{repairs}");
+    let repair = feature_repair(&opened, "f-ext1", "/profile/regions/0");
+    assert_eq!(repair["kind"], "region", "{repair}");
     assert_eq!(
-        repairs[0]["description"],
+        repair["description"],
         "the region of 'Sketch 1' around (40, 25)"
     );
-    let descriptions: Vec<&Value> = repairs[0]["candidates"]
-        .as_array()
-        .expect("region repairs list their candidates")
+    let descriptions: Vec<&Value> = candidates(&repair)
         .iter()
         .map(|candidate| &candidate["description"])
         .collect();
@@ -308,11 +432,67 @@ fn a_region_repair_with_its_candidates_passes_through_unchanged() {
 }
 
 #[test]
+fn an_element_repair_with_its_candidates_and_relations_passes_through_unchanged() {
+    let mut sides = SideBySide::new();
+
+    let opened = sides.open(1, CUT_AWAY_EDGE_TEXT);
+
+    feature_message(&opened, "f-fil1", "references_not_found");
+    let repair = feature_repair(&opened, "f-fil1", "/edges/0");
+    assert_eq!(repair["kind"], "element", "{repair}");
+    assert_eq!(repair["description"], "the front top edge of 'Box 1'");
+    let first = &candidates(&repair)[0];
+    assert_eq!(
+        first["reference"],
+        json!({"q": "edge(f-box1/front|f-ext2/lateral/e-1)", "fp": "line|n=1,0,0|c=0,-10,15|l=20|adj=2,2"})
+    );
+    assert_eq!(
+        first["relation"],
+        "on the front side of 'Box 1', 5 mm from where it was"
+    );
+}
+
+#[test]
+fn a_pick_with_its_full_reference_passes_through_unchanged() {
+    let mut sides = SideBySide::new();
+    sides.open(1, E10_TEXT);
+    sides.send(2, |side| begin_transaction(side, "Edit Fillet 1"));
+    sides.send(
+        3,
+        |side| json!({"type": "set_focus", "doc": side.doc, "feature": "f-fil1"}),
+    );
+    let listed = sides.send(4, list_edges);
+    let index = ok_result(&listed, "list_elements")["elements"]
+        .as_array()
+        .expect("list_elements lists elements")
+        .iter()
+        .position(|edge| edge["name"] == SPLIT_TOP_FRONT_EDGE)
+        .unwrap_or_else(|| panic!("the state before the fillet has {SPLIT_TOP_FRONT_EDGE}"));
+
+    let picked = sides.send(5, |side| {
+        json!({
+            "type": "pick_reference",
+            "doc": side.doc,
+            "pick": {"mesh_id": side.model_mesh("b-1"), "kind": "edge", "index": index}
+        })
+    });
+
+    assert_eq!(
+        ok_result(&picked, "pick_reference")["element"]["reference"],
+        json!({
+            "q": SPLIT_TOP_FRONT_EDGE,
+            "fp": "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
+            "nb": {"f-ext1/end-cap#2": ["f-ext1/lateral/e-2", "f-ext2/lateral/e-6"]}
+        })
+    );
+}
+
+#[test]
 fn apply_fix_passes_through_unchanged() {
     let mut sides = SideBySide::new();
     sides.open(1, FRACTIONAL_PATTERN_TEXT);
 
-    let applied = sides.send(2, |doc| apply_fix(doc, &use_three()));
+    let applied = sides.send(2, |side| apply_fix(side, &use_three()));
 
     assert_eq!(ok_result(&applied, "apply_fix")["revision"], 1);
     assert_eq!(feature_status(&applied, "f-lp1")["status"], "ok");
@@ -322,9 +502,9 @@ fn apply_fix_passes_through_unchanged() {
 fn a_stale_fix_passes_through_unchanged() {
     let mut sides = SideBySide::new();
     sides.open(1, FRACTIONAL_PATTERN_TEXT);
-    sides.send(2, |doc| apply_fix(doc, &use_three()));
+    sides.send(2, |side| apply_fix(side, &use_three()));
 
-    let stale = sides.send(3, |doc| apply_fix(doc, &use_three()));
+    let stale = sides.send(3, |side| apply_fix(side, &use_three()));
 
     assert_eq!(stale.response.id, 3);
     assert_eq!(error_info(&stale).code, ErrorCode::StaleFix);
@@ -342,7 +522,7 @@ fn a_fix_reference_with_an_unknown_field_passes_through_as_malformed_request() {
     let mut fix = use_three();
     fix["extra"] = json!(1);
 
-    let rejected = sides.send(2, |doc| apply_fix(doc, &fix));
+    let rejected = sides.send(2, |side| apply_fix(side, &fix));
 
     assert_eq!(rejected.response.id, 2);
     assert_eq!(error_info(&rejected).code, ErrorCode::MalformedRequest);
@@ -353,7 +533,7 @@ fn a_version_2_document_with_every_new_field_passes_through_byte_for_byte() {
     let mut sides = SideBySide::new();
     sides.open(1, E10_TEXT);
 
-    let saved = sides.send(2, |doc| json!({"type": "save_document", "doc": doc}));
+    let saved = sides.send(2, save_document);
 
     assert_eq!(ok_result(&saved, "save_document")["text"], E10_TEXT);
 }
@@ -363,7 +543,7 @@ fn a_version_1_document_passes_through_saved_at_version_2() {
     let mut sides = SideBySide::new();
     sides.open(1, &e10_at_version(1));
 
-    let saved = sides.send(2, |doc| json!({"type": "save_document", "doc": doc}));
+    let saved = sides.send(2, save_document);
 
     assert_eq!(ok_result(&saved, "save_document")["text"], E10_TEXT);
 }
@@ -392,10 +572,7 @@ fn short_references_in_element_lists_pass_through_unchanged() {
     let mut sides = SideBySide::new();
     sides.open(1, E10_TEXT);
 
-    let listed = sides.send(
-        2,
-        |doc| json!({"type": "list_elements", "doc": doc, "body": "b-1", "kind": "edge"}),
-    );
+    let listed = sides.send(2, list_edges);
 
     let result = ok_result(&listed, "list_elements");
     let elements = result["elements"]
@@ -438,12 +615,9 @@ fn an_error_with_a_detail_passes_through_unchanged() {
 fn an_error_with_an_action_passes_through_unchanged() {
     let mut sides = SideBySide::new();
     sides.open(1, FRACTIONAL_PATTERN_TEXT);
-    sides.send(
-        2,
-        |doc| json!({"type": "begin_transaction", "doc": doc, "label": "Resize"}),
-    );
+    sides.send(2, |side| begin_transaction(side, "Resize"));
 
-    let refused = sides.send(3, |doc| json!({"type": "save_document", "doc": doc}));
+    let refused = sides.send(3, save_document);
 
     assert_eq!(error_info(&refused).code, ErrorCode::TransactionOpen);
     assert_eq!(

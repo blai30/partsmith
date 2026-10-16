@@ -7,7 +7,7 @@ use std::f64::consts::{FRAC_PI_4, TAU};
 
 use common::{NoNames, field, hint, id, manifest};
 use partsmith_features::{
-    Bound, Diagnosis, DocumentNames, FeatureError, FieldRef, FieldUnit, Names, Registry,
+    Bound, Diagnosis, DocumentNames, FeatureError, FieldRef, FieldUnit, Fix, Names, Registry,
     RenderContext, format_value,
 };
 use partsmith_model::{Body, Document, Units};
@@ -58,6 +58,29 @@ fn chamfer_too_large(path: &str) -> FeatureError {
             operation: Operation::Chamfer,
             ..fillet_failure()
         },
+    }
+}
+
+/// The fixes of `error` on `f-test1` in a document of `units`, without body states or a diagnosis.
+fn fixes(error: &FeatureError, units: Units) -> Vec<Fix> {
+    let feature = id("f-test1");
+    let bodies = BTreeMap::new();
+    let diagnosis = Diagnosis::default();
+    error.fixes(&RenderContext {
+        feature: &feature,
+        names: &NoNames,
+        units,
+        bodies: &bodies,
+        diagnosis: &diagnosis,
+    })
+}
+
+/// "Use {value}": the fix that sets this feature's `path` to `value`.
+fn use_value(path: &str, label: &str, value: &str) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field: field(path, label),
+        value: serde_json::Value::String(value.to_string()),
     }
 }
 
@@ -293,6 +316,62 @@ fn t015_equal_distance_chamfer_suggests_the_limit() {
             .as_deref(),
         Some("2.3 mm")
     );
+}
+
+#[test]
+fn t015_fillet_too_large_offers_the_limit_as_its_fix() {
+    assert_eq!(
+        fixes(&fillet_too_large(), Units::Mm),
+        vec![use_value("radius", "Radius", "2.3 mm")]
+    );
+    assert_eq!(
+        fixes(&fillet_too_large(), Units::In),
+        vec![use_value("radius", "Radius", "0.094 in")]
+    );
+}
+
+#[test]
+fn t015_equal_distance_chamfer_offers_the_limit_as_its_fix() {
+    assert_eq!(
+        fixes(&chamfer_too_large("distance.expr"), Units::Mm),
+        vec![use_value("distance.expr", "Distance", "2.3 mm")]
+    );
+}
+
+#[test]
+fn t015_two_distance_chamfer_offers_no_limit_fix() {
+    assert_eq!(fixes(&chamfer_too_large("distance"), Units::Mm), vec![]);
+}
+
+#[test]
+fn t015_shell_too_thick_offers_the_limit_as_its_fix() {
+    let error = FeatureError::ShellTooThick {
+        field: field("thickness", "Thickness"),
+        body: id("b-1"),
+        thickness: 30.0,
+        max: Some(19.4),
+        cause: KernelError {
+            operation: Operation::Shell,
+            ..fillet_failure()
+        },
+    };
+
+    assert_eq!(
+        fixes(&error, Units::Mm),
+        vec![use_value("thickness", "Thickness", "19 mm")]
+    );
+}
+
+#[test]
+fn t015_too_large_without_a_working_value_offers_no_limit_fix() {
+    let error = FeatureError::FilletTooLarge {
+        field: field("radius", "Radius"),
+        radius: 3.0,
+        max: None,
+        cause: fillet_failure(),
+    };
+
+    assert_eq!(fixes(&error, Units::Mm), vec![]);
 }
 
 #[test]

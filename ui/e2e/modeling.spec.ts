@@ -21,10 +21,12 @@ import {
 } from './helpers'
 import {
   chooseOption,
+  dragTo,
   expectPreviewShown,
   fillInspector,
   runFromGroup,
   selectionField,
+  timelineGap,
   timelineLabels,
 } from './support/modeling'
 
@@ -161,41 +163,6 @@ async function expectEveryItem(
   await expect(
     page.locator(`[data-testid=timeline-item]:not([${attribute}="${value}"])`),
   ).toHaveCount(0)
-}
-
-/** The position of the gap before timeline item `index` (the end when it equals the count). */
-async function timelineGap(page: Page, index: number): Promise<{ x: number; y: number }> {
-  const items = page.getByTestId('timeline-item')
-  const count = await items.count()
-  const box = async (position: number) => {
-    const bounds = await items.nth(position).boundingBox()
-    if (bounds === null) {
-      throw new Error(`Timeline item ${String(position)} is not visible.`)
-    }
-    return bounds
-  }
-  if (index === 0) {
-    const first = await box(0)
-    return { x: first.x - 2, y: first.y + first.height / 2 }
-  }
-  const before = await box(index - 1)
-  if (index === count) {
-    return { x: before.x + before.width + 2, y: before.y + before.height / 2 }
-  }
-  const after = await box(index)
-  return { x: (before.x + before.width + after.x) / 2, y: before.y + before.height / 2 }
-}
-
-/** Drags from an element's center to a page position in small steps. */
-async function dragTo(page: Page, from: Locator, to: { x: number; y: number }): Promise<void> {
-  const bounds = await from.boundingBox()
-  if (bounds === null) {
-    throw new Error('The dragged element is not visible.')
-  }
-  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(to.x, to.y, { steps: 12 })
-  await page.mouse.up()
 }
 
 test.describe('palette and shortcuts', () => {

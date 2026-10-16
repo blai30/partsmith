@@ -36,9 +36,9 @@ cargo test -p partsmith-wasm --test web_module
 OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=/opt/occt/7.9.3/wasm cargo test -p partsmith-wasm --target wasm32-unknown-emscripten
 ```
 
-`tests/web_module.rs` runs `tests/node/engine_info_round_trip.mjs` against the built module in `ui/public/core/`, passing this build's engine version and `FORMAT_VERSION`, so a module built before a version change fails; it skips with a message when Node or the module is missing, and fails instead when `PARTSMITH_REQUIRE_WEB_MODULE=1` (for the CI job that builds the module).
+`tests/web_module.rs` runs `tests/node/engine_info_round_trip.mjs` against the built module in `ui/public/core/`, passing this build's `partsmith_engine::ENGINE_VERSION` and `FORMAT_VERSION`, so a module built before a version change fails; it skips with a message when Node or the module is missing, and fails instead when `PARTSMITH_REQUIRE_WEB_MODULE=1` (for the CI job that builds the module).
 
-`tests/pass_through.rs` checks that the protocol passes through `ps_call` unchanged (the reference stability plan, section 10.3 item 9): it sends fix actions, `apply_fix`, `stale_fix`, region repairs, short references, error details and actions, and format version 2 documents through `ps_call` and to a reference `Session` with the module's options, and compares the frames without document handles and mesh ids, which count per session.
+`tests/pass_through.rs` checks that the protocol passes through `ps_call` unchanged (the reference stability plan, section 10.3 item 9): it sends fix actions, `apply_fix`, `stale_fix`, region repairs, element repairs with their candidates' relations, short references, a pick's full reference with anchors (the state before E10's fillet, under focus), error details and actions, and format version 2 documents through `ps_call` and to a reference `Session` with the module's options, and compares the frames without document handles and mesh ids, which count per session (a pick names each side's own mesh id, from that side's latest `body_mesh` event).
 
 ## Rules
 

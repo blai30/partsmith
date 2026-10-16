@@ -1,12 +1,15 @@
 import { clsx } from 'clsx/lite'
 import { CircleCheck, X } from 'lucide-react'
 import { useRef } from 'react'
+import { refusedDuringCommand } from '../app/actions/edits'
 import { dismiss, pauseNotification, resumeNotification } from '../app/actions/notifications'
 import { useApp, useAppState } from '../app/AppProvider'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
+import { Tooltip } from '../components/Tooltip'
 import { SeverityIcon } from '../print/SeverityIcon'
-import type { Notification } from '../state/store'
+import { selectCommandBlock } from '../state/selectors'
+import type { Notification, NotificationAction } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 
 // Notifications (ui.md 3.22): a stack at the viewport's bottom-right, newest at the bottom. The
@@ -27,6 +30,39 @@ function NotificationIcon({ severity }: { readonly severity: Notification['sever
     )
   }
   return <SeverityIcon severity={severity} />
+}
+
+/**
+ * One action of a notification, which dismisses it and runs; a document edit waits during a feature
+ * command, `aria-disabled` with the reason as tooltip, and a click says why (3.7).
+ */
+function NotificationButton({
+  notification,
+  action,
+}: {
+  readonly notification: Notification
+  readonly action: NotificationAction
+}) {
+  const app = useApp()
+  const commandBlock = useAppState(selectCommandBlock)
+  const blocked = action.editsDocument === true ? commandBlock : null
+  return (
+    <Tooltip label={blocked}>
+      <Button
+        aria-disabled={blocked === null ? undefined : true}
+        onClick={() => {
+          if (blocked !== null) {
+            refusedDuringCommand(app)
+            return
+          }
+          dismiss(app, notification.id)
+          action.run()
+        }}
+      >
+        {action.label}
+      </Button>
+    </Tooltip>
+  )
 }
 
 function NotificationCard({ notification }: { readonly notification: Notification }) {
@@ -81,18 +117,19 @@ function NotificationCard({ notification }: { readonly notification: Notificatio
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <p className="text-left break-words">{notification.message}</p>
+        {notification.cause === undefined ? null : (
+          // The edit that started it, under the message and above its actions (3.22).
+          <p
+            data-testid="cause-line"
+            className={clsx('text-left break-words', COLOR_CLASSES.textMuted.foreground)}
+          >
+            {notification.cause}
+          </p>
+        )}
         {notification.actions.length === 0 ? null : (
           <div className="flex flex-wrap gap-2">
             {notification.actions.map((action) => (
-              <Button
-                key={action.label}
-                onClick={() => {
-                  dismiss(app, notification.id)
-                  action.run()
-                }}
-              >
-                {action.label}
-              </Button>
+              <NotificationButton key={action.label} notification={notification} action={action} />
             ))}
           </div>
         )}

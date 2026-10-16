@@ -354,6 +354,49 @@ fn python_api_t014_a_trailing_sketch_on_a_face_is_a_top_level_block() {
 }
 
 #[test]
+fn python_api_t086_a_fallback_in_body_coordinates_is_written_with_its_frame() {
+    let sketch = json!({
+        "id": "f-sk2",
+        "type": "sketch",
+        "plane": {
+            "kind": "face",
+            "body": "b-1",
+            "face": {"q": "f-box1/top", "fp": TOP_FINGERPRINT},
+            "fallback": {"origin": [0, 0, 40], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+            "fallback_frame": "body"
+        },
+        "entities": [{"id": "e-p1", "type": "point", "position": [0, 0]}],
+        "constraints": []
+    });
+    let text = document_text(
+        "mm",
+        json!([]),
+        json!([{"id": "b-1", "name": "Block"}]),
+        json!([
+            {"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "40 mm"], "op": "new"},
+            sketch
+        ]),
+    );
+
+    let script = script_of(&text);
+
+    let ending = format!(
+        r#"with Sketch(
+    Ref("f-box1/top", "{TOP_FINGERPRINT}", part=block),
+    fallback=Placement((0, 0, 40), (1, 0, 0), (0, 0, 1)),
+    fallback_frame="body",
+    id="f-sk2",
+):
+    Point(0, 0, id="e-p1")
+"#
+    );
+    assert!(
+        script.ends_with(&ending),
+        "the script ends with:\n{ending}\ngot:\n{script}"
+    );
+}
+
+#[test]
 fn python_api_t015_raw_lengths_carry_mm_in_inch_documents() {
     let text = replace_once(
         &fixture("drag.ptsm"),

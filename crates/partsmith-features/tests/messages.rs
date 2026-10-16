@@ -13,8 +13,8 @@ use common::records::{block, cube20, fillet, reference, shell, slot};
 use common::timeline::{Timeline, stored};
 use common::{LabelNames, field, id, render_context};
 use partsmith_features::{
-    Because, BodyState, Diagnosis, Explanation, FeatureError, FeatureWarning, FieldRef, Fix, Loss,
-    LossCandidate, Place, RegionLost, Severity,
+    Because, BodyState, Diagnosis, Explanation, FallbackCause, FeatureError, FeatureWarning,
+    FieldRef, Fix, Loss, LossCandidate, Place, Placed, RegionLost, Severity,
 };
 use partsmith_naming::{ElementKind, ElementName, Follow, Lost, Reference};
 use partsmith_sketch::{RegionLoss, RegionRef};
@@ -1298,6 +1298,46 @@ fn sample_warnings() -> Vec<(FeatureWarning, &'static str)> {
         samples.push((followed(follow, &reference), "f-fil1"));
     }
     samples.push((followed(Follow::Continued, &top), "f-fil1"));
+    let lost_top = |ambiguous: bool| Loss {
+        position: 0,
+        body: id("b-1"),
+        reference: top.clone(),
+        kind: ElementKind::Face,
+        ambiguous,
+        lost: Lost::default(),
+        candidates: Vec::new(),
+        matches: 2,
+    };
+    for (loss, cause, placed) in [
+        (Some(lost_top(false)), FallbackCause::Missing, Placed::Saved),
+        (
+            Some(lost_top(false)),
+            FallbackCause::Missing,
+            Placed::BeforeRemoval { by: id("f-ext3") },
+        ),
+        (None, FallbackCause::Missing, Placed::Saved),
+        (None, FallbackCause::NotPlanar, Placed::Saved),
+        (
+            Some(lost_top(true)),
+            FallbackCause::Ambiguous,
+            Placed::Saved,
+        ),
+        (
+            Some(lost_top(true)),
+            FallbackCause::NotCoplanar,
+            Placed::Saved,
+        ),
+    ] {
+        let warning = FeatureWarning::PlaneFallback {
+            field: field("plane.face", "Plane"),
+            body: id("b-1"),
+            reference: top.clone(),
+            loss,
+            cause,
+            placed,
+        };
+        samples.push((warning, "f-sk2"));
+    }
     samples.push((followed(Follow::Continued, &vertex), "f-fil1"));
     for matches in [0, 1] {
         samples.push((

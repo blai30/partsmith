@@ -10,13 +10,23 @@
     {
       "id": "f-ext1",
       "type": "extrude",
-      "status": "warning",
+      "status": "ok",
       "messages": [
         {
-          "severity": "warning",
-          "code": "region_remapped",
-          "message": "A profile region of 'Sketch 1' changed, so the closest matching region was used. Check the result, or re-pick the profile.",
-          "field": "/profile/regions/0"
+          "severity": "info",
+          "code": "region_split",
+          "message": "The region of 'Sketch 1' selected for Profile is now split in 2 parts by other curves of the sketch, and all of them are used. Remove a part from the profile to leave it out.",
+          "field": "/profile/regions/0",
+          "actions": [
+            {
+              "label": "Keep these regions",
+              "kind": "apply"
+            },
+            {
+              "label": "Pick a region again",
+              "kind": "pick"
+            }
+          ]
         }
       ]
     }
@@ -26,12 +36,12 @@
     {
       "id": "b-1",
       "name": "Body 1",
-      "volume": 36858.407346410204,
-      "area": 10599.999999999998,
+      "volume": 40000.0,
+      "area": 10600.0,
       "center_of_mass": [
         39.99999999999999,
         25.0,
-        4.999999999999999
+        5.000000000000001
       ],
       "bounding_box": {
         "min": [
@@ -45,9 +55,9 @@
           10.0
         ]
       },
-      "faces": 7,
-      "edges": 14,
-      "vertices": 10
+      "faces": 6,
+      "edges": 12,
+      "vertices": 8
     }
   ],
   "checks": {

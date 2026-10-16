@@ -6,7 +6,8 @@ import type { App } from './createApp'
 
 // Keeps the selection valid across rebuilds (ui.md 3.6): items whose feature, body, parameter or
 // sketch item is gone leave the selection, and selected faces, edges and vertices are resolved again
-// whenever a body gets a new model mesh.
+// whenever a body gets a new model mesh. What a `show` action selected stops being shown once the
+// selection changes (4.2).
 
 /** Whether an item still names something in the document. */
 function exists(document: DocumentState, item: SelectionItem): boolean {
@@ -116,6 +117,13 @@ export function installSelectionUpkeep(app: App): () => void {
   }
 
   return app.store.subscribe((state, previous) => {
+    if (
+      state.shown !== null &&
+      state.shown === previous.shown &&
+      state.selection !== previous.selection
+    ) {
+      app.store.setState({ shown: null })
+    }
     const document = state.document
     if (document === null || document === previous.document) {
       return

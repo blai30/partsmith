@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { showPickHint } from '../app/actions/notifications'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import type { BoundingBox, Diagnostic, FeatureStatus } from '../generated/protocol'
+import type { BoundingBox, Diagnostic, FeatureStatus, FixRef } from '../generated/protocol'
 import {
   CYLINDRICAL_FACE,
   cubeDocumentState,
@@ -41,6 +41,7 @@ import {
 import { stubResizeObserver } from '../test/fakes/resize-observer'
 import { settle } from '../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
+import { lostEdgeRepair } from '../test/fakes/repairs'
 import { createFakeViewport } from '../test/fakes/viewport'
 import { hasTabularFigures, isCode } from '../test/type-roles'
 import { COLOR_CLASSES } from '../theme/roles'
@@ -147,6 +148,15 @@ function status(
   return { id: 'f-fil1', status: state, messages: [...messages], repairs: [] }
 }
 
+const SMALLER_FIX: FixRef = {
+  feature: 'f-fil1',
+  code: 'fillet_too_large',
+  field: '/radius',
+  cause: false,
+  index: 0,
+  revision: 1,
+}
+
 const TOO_LARGE: Diagnostic = {
   severity: 'error',
   code: 'fillet_too_large',
@@ -154,6 +164,7 @@ const TOO_LARGE: Diagnostic = {
     'Fillet radius 15 mm is too large for the selected edges. The largest radius that works is about 2.3 mm.',
   field: '/radius',
   suggestion: '2.3 mm',
+  actions: [{ label: 'Use 2.3 mm', run: { kind: 'apply', fix: SMALLER_FIX } }],
 }
 
 describe('the command inspector (3.7)', () => {
@@ -472,14 +483,23 @@ describe('feature status in the inspector (3.7, 4.2)', () => {
     })
   })
 
-  it('U-87 its action "Use 2.3 mm" sets radius to 2.3 mm and focuses the radius input', async () => {
-    const { app, user } = renderInspector(filletDocument(status([TOO_LARGE])), {
+  it('U-87 its action "Use 2.3 mm" calls applyFix with its FixRef', async () => {
+    const { core, user } = renderInspector(filletDocument(status([TOO_LARGE])), {
       command: { ...EDIT_FILLET, preview: 'failed' },
     })
     const [use] = within(inspector()).getAllByRole('button', { name: 'Use 2.3 mm' })
     await user.click(use ?? inspector())
-    expect(app.store.getState().command?.params.radius).toBe('2.3 mm')
-    expect(within(field('radius')).getByRole('combobox')).toHaveFocus()
+    await waitFor(() => {
+      expect(core.callsTo('applyFix')).toEqual([[1, SMALLER_FIX]])
+    })
+    expect(core.callsTo('applyEdits')).toEqual([])
+  })
+
+  it('U-87 offers no "Use" of its own for a suggestion without an action (open issue 26)', () => {
+    renderInspector(filletDocument(status([{ ...TOO_LARGE, actions: [] }])), {
+      command: { ...EDIT_FILLET, preview: 'failed' },
+    })
+    expect(within(inspector()).queryByRole('button', { name: /^Use / })).toBeNull()
   })
 
   it('U-211 draws the fix "Use 2.3 mm" on the banner as a banner button', () => {
@@ -492,6 +512,39 @@ describe('feature status in the inspector (3.7, 4.2)', () => {
     expect(fix).toHaveClass(COLOR_CLASSES.tonal.banner)
     expect(fix).toHaveClass(COLOR_CLASSES.hover.banner)
     expect(fix).not.toHaveClass(COLOR_CLASSES.tonal.background)
+  })
+
+  it('shows an info notice alone on a neutral banner, with its actions and no field error (3.7)', () => {
+    const followed: Diagnostic = {
+      severity: 'info',
+      code: 'reference_followed',
+      message:
+        "The right top edge of 'Extrude 1' selected for Edges now follows the edge that replaced it.",
+      field: '/edges/0',
+      actions: [
+        {
+          label: 'Keep this match',
+          run: {
+            kind: 'apply',
+            fix: {
+              feature: 'f-fil1',
+              code: 'reference_followed',
+              field: '/edges/0',
+              cause: false,
+              index: 0,
+              revision: 1,
+            },
+          },
+        },
+      ],
+    }
+    renderInspector(filletDocument(status([followed], 'ok')), { command: EDIT_FILLET })
+    const banner = within(inspector()).getByTestId('inspector-error')
+    expect(banner).toHaveAttribute('data-severity', 'info')
+    expect(banner).toHaveTextContent(followed.message)
+    expect(within(banner).getByRole('button', { name: 'Keep this match' })).toBeInTheDocument()
+    // The field's error is a live region that stays mounted (see the pick hint test above): empty.
+    expect(within(field('edges')).getByTestId('field-error')).toHaveTextContent('')
   })
 
   it('U-87 maps a message with field /edges/1 to the edges field', () => {
@@ -668,20 +721,8 @@ describe('the selection inspector (3.8)', () => {
     })
   })
 
-  it('U-110 offers "Re-pick Edges" for a feature with a lost edge, which edits it with Edges active', async () => {
-    const lost: FeatureStatus = {
-      ...status([TOO_LARGE]),
-      repairs: [
-        {
-          kind: 'element',
-          path: '/edges/0',
-          body: 'b-cube',
-          reference: { q: 'edge(top,front)', fp: 'fp-edge' },
-          resolution: 'missing',
-          centroid: [0, 0, 20],
-        },
-      ],
-    }
+  it(`U-110 offers "Show what 'Fillet 1' lost" and "Edit" for a feature with a lost edge, and no "Re-pick"`, async () => {
+    const lost: FeatureStatus = { ...status([TOO_LARGE]), repairs: [lostEdgeRepair()] }
     const document = documentState(CUBE_FEATURES_DOCUMENT, {
       meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },
       featureStatus: { ...documentState(CUBE_FEATURES_DOCUMENT).featureStatus, 'f-fil1': lost },
@@ -690,14 +731,15 @@ describe('the selection inspector (3.8)', () => {
       selection: [featureItem('f-fil1', 'Fillet 1')],
     })
     const panel = inspector()
-    expect(within(panel).queryByRole('button', { name: 'Edit' })).toBeNull()
-    await user.click(within(panel).getByRole('button', { name: 'Re-pick Edges' }))
+    expect(within(panel).getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(within(panel).queryByRole('button', { name: /^Re-pick/ })).toBeNull()
+    await user.click(within(panel).getByRole('button', { name: "Show what 'Fillet 1' lost" }))
     await waitFor(() => {
       expect(app.store.getState().command?.activeField).toBe('edges')
     })
   })
 
-  it('offers "Use {suggestion}" for a feature message at rest, labeled "Change {label}"', async () => {
+  it("runs a feature message's apply action at rest through applyFix (4.2)", async () => {
     const document = documentState(CUBE_FEATURES_DOCUMENT, {
       meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },
     })
@@ -711,19 +753,9 @@ describe('the selection inspector (3.8)', () => {
     expect(inspector()).toHaveTextContent(TOO_LARGE.message)
     await user.click(within(inspector()).getByRole('button', { name: 'Use 2.3 mm' }))
     await waitFor(() => {
-      expect(core.callsTo('applyEdits')).toEqual([
-        [
-          1,
-          'Change Fillet 1',
-          [
-            {
-              type: 'update_feature',
-              feature: { ...featuresOf(CUBE_FEATURES_DOCUMENT)[2], radius: '2.3 mm' },
-            },
-          ],
-        ],
-      ])
+      expect(core.callsTo('applyFix')).toEqual([[1, SMALLER_FIX]])
     })
+    expect(core.callsTo('beginTransaction')).toEqual([])
   })
 
   it('shows one flat face with its surface and area, and suggests Sketch, Hole and Shell', () => {

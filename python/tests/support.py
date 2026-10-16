@@ -2,9 +2,11 @@
 
 import json
 import math
+import warnings
+from collections.abc import Callable
 from pathlib import Path
 
-from partsmith import Document, EngineError, Part, Ref, run_code
+from partsmith import Document, EngineError, Part, PartsmithWarning, Ref, run_code
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 """The repository root (python/tests/support.py is two levels below it)."""
@@ -68,6 +70,14 @@ def reference_json(reference: Ref) -> dict:
     if reference.merged:
         stored["merged"] = reference.merged
     return stored
+
+
+def partsmith_warnings(action: Callable[[], object]) -> list[warnings.WarningMessage]:
+    """The PartsmithWarnings that `action()` emits."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        action()
+    return [warning for warning in caught if issubclass(warning.category, PartsmithWarning)]
 
 
 def code_lines(code: str) -> list[str]:

@@ -155,9 +155,19 @@ describe('applyCoreEvent', () => {
       features: [{ id: 'f-ext1', status: 'warning', messages: [], repairs: [] }],
       parameters: [{ id: 'p-h', value: 40, dimension: { length: 1, angle: 0 } }],
       diagnostics: [],
+      ghosts: {},
     })
     expect(store.getState().document?.featureStatus['f-ext1']?.status).toBe('warning')
     expect(store.getState().document?.parameterValues['p-h']?.value).toBe(40)
+  })
+
+  it('replaces the ghost buffers with those of each recompute (2.8)', () => {
+    const store = shownCube()
+    const ghost = Float32Array.of(-10, -10, 20, 10, -10, 20)
+    applyCoreEvent(store, { ...recomputed(3), ghosts: { 0: ghost } })
+    expect(store.getState().document?.ghosts).toEqual({ 0: ghost })
+    applyCoreEvent(store, recomputed(4))
+    expect(store.getState().document?.ghosts).toEqual({})
   })
 
   it('stores a print report with the revision it describes', () => {
@@ -194,7 +204,7 @@ function applyMeasures(): PerformanceEntryList {
   return performance.getEntriesByName(APPLY_EVENTS, 'measure')
 }
 
-function recomputed(revision: number, handle = 1): CoreEvent {
+function recomputed(revision: number, handle = 1): Extract<CoreEvent, { type: 'recomputed' }> {
   return {
     type: 'recomputed',
     documentHandle: handle,
@@ -202,6 +212,7 @@ function recomputed(revision: number, handle = 1): CoreEvent {
     features: [{ id: 'f-ext1', status: 'ok', messages: [], repairs: [] }],
     parameters: [],
     diagnostics: [],
+    ghosts: {},
   }
 }
 

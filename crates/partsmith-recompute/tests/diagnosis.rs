@@ -9,12 +9,12 @@
 //! features.md section 6.5 test 15 tests.
 //!
 //! Left for the phases that build what they need: test 42 (a sketch placed where its face was just before its removal,
-//! phase 2; the writer chains it reads are tested in `timeline.rs`), the `plane_fallback` reason of test 57's R57
-//! (losses carried by `plane_fallback`, phase 2), test 60 (b) (a hole that skips a deleted point, phase 3), test 66
-//! (the `no_effect` and `separate_solid` texts of phase 3 and the placements of phase 2; the root of a `no_effect`
-//! under a lost face is tested here), test 72 (a drawing turned over, phase 2) and test 73 (losses carried by
-//! `plane_fallback`, phase 2; its rule for moves that keep every use is tested here with datum planes). Test 69 is the
-//! corpus (`reference_stability_{1,2,3}.rs`) and test 70 the newcomer error corpus (phase 3).
+//! phase 2; the writer chains it reads are tested in `timeline.rs`), test 60 (b) (a hole that skips a deleted point,
+//! phase 3), the `no_effect` and `separate_solid` texts of test 66 (phase 3) and its sketch placed where the cut face
+//! was (corpus R33, phase 2), and test 72 (a drawing turned over, phase 2). Test 69 is the corpus
+//! (`reference_stability_{1,2,3}.rs`) and test 70 the newcomer error corpus (phase 3). A sketch whose face is lost
+//! carries the loss in its `plane_fallback` warning (features/sketch.md section 3.5), so tests 57 (R57), 66 (R26) and 73
+//! (R55) check its reason here; its `Attach` fixes are in `Message::fixes`, which the engine offers from phase 2.
 
 mod feature_support;
 #[path = "stability_common/mod.rs"]
@@ -2488,6 +2488,28 @@ fn t057_r57_a_revolve_that_turns_all_the_way_round_no_longer_makes_its_caps() {
         &error.text,
         "is no longer made by 'Revolve 1', which turns all the way round.",
     );
+    // features/sketch.md test 29: the sketch on the start face has the same reason and keeps its saved position.
+    let fallback = message(&session, "f-sk2", "plane_fallback");
+    assert_eq!(fallback.reason, error.reason);
+    assert_eq!(
+        fallback.text,
+        "The face this sketch is on, the front side of 'Revolve 1', is no longer made by 'Revolve 1', which turns all the way round, so the sketch uses the position saved with it."
+    );
+    // The round faces come first among the candidates but cannot hold a sketch, so they give no `Attach`.
+    let attach = |face: &str| Fix::Attach {
+        sketch: id("f-sk2"),
+        body: id("b-1"),
+        face: session.picked_before("f-sk2", "b-1", face),
+    };
+    assert_eq!(
+        fallback.fixes,
+        [
+            attach("f-rev1/lateral/e-1"),
+            attach("f-rev1/lateral/e-3"),
+            pick("/plane/face")
+        ]
+    );
+    session.assert_ok("f-ext2");
 
     edit(
         &mut session,
@@ -3493,8 +3515,73 @@ fn t068_a_message_keeps_every_loss_and_its_fixes_in_loss_order() {
     );
 }
 
-// The fixes of `ComesLater` never leave a record above a feature it uses (section 3.10, `fixes`; the rule of test 73,
-// whose `plane_fallback` carries its loss from phase 2).
+// Test 73: the fixes of `ComesLater` never leave a record above a feature it uses (section 3.10, `fixes`), with corpus
+// R55 and with datum planes.
+
+/// Corpus R55's setup: a box `f-box1` 40 x 40 x 10, a boss `f-ext1` of radius 8 from 10 to 20 on a datum, a sketch
+/// `f-sk2` on the boss top and a hole `f-hole1` of 4 mm, 15 deep, at its point.
+fn hole_in_boss_top() -> Vec<Value> {
+    vec![
+        box_record("f-box1", "b-1", ["40", "40", "10"], None, "new"),
+        datum_offset("f-dp1", "XY", "10"),
+        sketch(
+            "f-sk1",
+            datum_plane("f-dp1"),
+            vec![circle("e-5", [0.0, 0.0], 8.0)],
+        ),
+        extrude(
+            "f-ext1",
+            "b-1",
+            "f-sk1",
+            vec![circle_region("e-5", [0.0, 0.0], 8.0)],
+            distance("10"),
+            "join",
+        ),
+        sketch(
+            "f-sk2",
+            top_face_plane(
+                "b-1",
+                reference(
+                    "f-ext1/end-cap",
+                    "plane|n=0,0,1|c=0,0,20|a=201.06193|adj=1,1",
+                ),
+                20.0,
+            ),
+            vec![point("e-p1", [0.0, 0.0])],
+        ),
+        hole("f-hole1", "b-1", "f-sk2", &["e-p1"], "4", distance("15")),
+    ]
+}
+
+#[test]
+fn t073_r55_a_boss_dragged_below_the_hole_moves_back_above_the_sketch() {
+    let mut session = setup(&["b-1"], &hole_in_boss_top());
+    let original = saved(&session.document);
+    let after_edit = dragged_to_end(&hole_in_boss_top(), &["f-ext1"]);
+
+    edit(&mut session, &["b-1"], &after_edit);
+
+    session.assert_warnings("f-sk2", &["plane_fallback"]);
+    let fallback = message(&session, "f-sk2", "plane_fallback");
+    assert_eq!(
+        fallback.reason,
+        Some(LossReason::ComesLater {
+            feature: id("f-ext1")
+        })
+    );
+    // 'Hole 1', between the sketch and the boss, uses the sketch, so the boss moves back above the sketch.
+    let moves: Vec<&Fix> = fallback.fixes.iter().filter(|fix| is_move(fix)).collect();
+    assert_eq!(moves, [&move_above("f-ext1", "f-sk2")]);
+
+    edit(
+        &mut session,
+        &["b-1"],
+        &dragged(&after_edit, &["f-ext1"], "f-sk2"),
+    );
+
+    session.assert_all_ok();
+    assert_eq!(saved(&session.document), original);
+}
 
 /// CUBE20, a box `f-box2` joined on its top, a datum `f-dp1` on that box's top and a sketch `f-sk1` on the datum.
 fn sketch_on_box_top() -> Vec<Value> {
@@ -3640,7 +3727,17 @@ fn a_no_effect_under_a_sketch_that_lost_its_face_has_that_sketch_as_root() {
         ],
     ));
 
-    message(&run, "f-sk2", "plane_fallback");
+    let fallback = message(&run, "f-sk2", "plane_fallback");
+    assert_eq!(
+        fallback.reason,
+        Some(LossReason::NotInDocument {
+            feature: id("f-ext1")
+        })
+    );
+    assert_eq!(
+        fallback.text,
+        "The face this sketch is on, a face of a feature that is not in this document, is gone, so the sketch uses the position saved with it."
+    );
     assert_eq!(message(&run, "f-ext2", "no_effect").root, Some(id("f-sk2")));
 }
 

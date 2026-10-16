@@ -1,0 +1,35 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-imp1",
+      "type": "import",
+      "body": "b-1",
+      "asset": "c4c0fd87f2ee8d1542836ba5287b3c20e5ca292fba1210975b920312eebc4692.step",
+      "op": "new"
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-imp1/face#9", "fp": "plane|a=100"},
+        "fallback": {"origin": [3, 4, 0], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}
+      },
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
+        {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
+        {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
+        {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}
+      ],
+      "constraints": []
+    }
+  ]
+}

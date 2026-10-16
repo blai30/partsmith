@@ -7,12 +7,13 @@ at the document's current state, and every filter works on that list in Python.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Iterable, Iterator, Sequence
-from dataclasses import KW_ONLY, dataclass
+import sys
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from dataclasses import KW_ONLY, dataclass, field
 from typing import TYPE_CHECKING, ClassVar, overload
 
-from .document import Document, Part, current_part
-from .errors import SelectionError
+from .document import Document, Part, current_part, warn
+from .errors import EngineError, PartsmithWarning, SelectionError
 from .expressions import items_of, raw_angle, raw_number, triple
 from .reports import Point3, point
 from .sketch import Placement
@@ -28,6 +29,19 @@ DIRECTION_TOLERANCE = 1e-9
 
 ELEMENT_KINDS = ("face", "edge", "vertex")
 """The element kinds, in element-table order."""
+
+BODY_EMPTY = "body_empty"
+"""The error code of listing the elements of a part without geometry."""
+
+SELECTION_INDEX = "selection_index"
+"""The code of the warning for indexing a selection of several elements by position (section 3.6)."""
+
+SELECTION_EXAMPLES = {
+    "face": "faces().top()",
+    "edge": "edges().top().parallel_to(Axis.X)",
+    "vertex": "vertices().top().min(Axis.X)",
+}
+"""For each element kind, a selection by what the element is, which the index warning suggests."""
 
 
 def _vector(values: object, name: str) -> Point3:
@@ -71,22 +85,79 @@ ORIGIN_AXES = {Axis.X: "X", Axis.Y: "Y", Axis.Z: "Z"}
 @dataclass(frozen=True)
 class Ref:
     """A stored reference literal; `part` names the body it lies on when a param needs one (axes
-    and planes)."""
+    and planes).
+
+    `anchors` and `merged` are the reference's `nb` and `merged` (naming.md section 2.4), lists in
+    stored order; `direction` is the picked direction of an edge or face axis, in body
+    coordinates. A repair candidate also has `description` and `relation`, its words; they are
+    None otherwise and take no part in comparisons.
+    """
 
     q: str
     fp: str
     _: KW_ONLY
     part: Part | None = None
+    anchors: Mapping[str, Sequence[str]] | None = None
+    merged: Mapping[str, Sequence[str]] | None = None
+    direction: Point3 | None = None
+    description: str | None = field(default=None, init=False, compare=False)
+    relation: str | None = field(default=None, init=False, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.q, str) or not isinstance(self.fp, str):
             raise TypeError("Ref() takes the reference's query and fingerprint as text.")
         if self.part is not None and not isinstance(self.part, Part):
             raise TypeError(f"Ref() part must be a Part, not {type(self.part).__name__}.")
+        object.__setattr__(self, "anchors", _name_lists(self.anchors, "anchors"))
+        object.__setattr__(self, "merged", _name_lists(self.merged, "merged"))
+        if self.direction is not None:
+            object.__setattr__(self, "direction", _vector(self.direction, "Ref() direction"))
+
+    def __hash__(self) -> int:
+        # Anchors and merged names are dicts, so the hash uses what every equal reference shares.
+        return hash((self.q, self.fp))
+
+    @classmethod
+    def _from_protocol(cls, reference: dict, part: Part | None) -> Ref:
+        """A protocol `Reference` object on `part`."""
+        return cls(
+            reference["q"], reference["fp"], part=part, anchors=reference.get("nb"), merged=reference.get("merged")
+        )
+
+    @classmethod
+    def _candidate(cls, candidate: dict, part: Part) -> Ref:
+        """The reference of a repair candidate (protocol `RepairCandidate`) on `part`, with its
+        words."""
+        reference = cls._from_protocol(candidate["reference"], part)
+        object.__setattr__(reference, "description", candidate["description"])
+        object.__setattr__(reference, "relation", candidate["relation"])
+        return reference
 
     def _json(self) -> dict:
-        """The protocol `Reference` object."""
-        return {"q": self.q, "fp": self.fp}
+        """The protocol `Reference` object: `q` and `fp`, then `nb` and `merged` when it has them."""
+        stored: dict = {"q": self.q, "fp": self.fp}
+        if self.anchors is not None:
+            stored["nb"] = self.anchors
+        if self.merged is not None:
+            stored["merged"] = self.merged
+        return stored
+
+
+def _name_lists(value: Mapping[str, Sequence[str]] | None, name: str) -> dict[str, list[str]] | None:
+    """A mapping of element names to lists of element names as a dict of lists, None when empty."""
+    if value is None:
+        return None
+    message = f"Ref() {name} must map element names to lists of element names."
+    if not isinstance(value, Mapping):
+        raise TypeError(message)
+    lists: dict[str, list[str]] = {}
+    for key, names in value.items():
+        if not isinstance(key, str) or isinstance(names, str) or not isinstance(names, Sequence):
+            raise TypeError(message)
+        if not all(isinstance(item, str) for item in names):
+            raise TypeError(message)
+        lists[key] = list(names)
+    return lists or None
 
 
 class Element:
@@ -94,6 +165,9 @@ class Element:
 
     __slots__ = (
         "_adjacent",
+        "_listed",
+        "_picked",
+        "_position",
         "_table",
         "area",
         "axis",
@@ -107,16 +181,16 @@ class Element:
         "part",
         "placement",
         "radius",
-        "reference",
         "surface",
     )
 
-    def __init__(self, descriptor: dict, part: Part, table: _ElementTable) -> None:
+    def __init__(self, descriptor: dict, part: Part, table: _ElementTable, position: int) -> None:
         self.name: str = descriptor["name"]
         self.kind: str = descriptor["kind"]
         self.part = part
-        reference = descriptor["reference"]
-        self.reference = Ref(reference["q"], reference["fp"], part=part)
+        self._listed = Ref._from_protocol(descriptor["reference"], part)
+        self._picked: tuple[int, Ref] | None = None
+        self._position = position
         self.centroid = point(descriptor["centroid"])
         self.surface: str | None = descriptor.get("surface")
         self.curve: str | None = descriptor.get("curve")
@@ -135,6 +209,26 @@ class Element:
     def __repr__(self) -> str:
         return f"<Element {self.kind} {self.name}>"
 
+    @property
+    def reference(self) -> Ref:
+        """The full reference a pick of this element stores, with anchors and merged names
+        (section 3.6), picked once per document revision; the short reference it was listed with
+        when its name is no longer in its body."""
+        revision = self.part.document._client.state.revision
+        if self._picked is None or self._picked[0] != revision:
+            self._picked = (revision, self._pick(revision))
+        return self._picked[1]
+
+    def _pick(self, revision: int) -> Ref:
+        """The reference of a headless pick of this element at `revision`: `mesh_id` 0, its part's
+        body, and its position among the elements of its kind of that body."""
+        current = self._table.at(revision).by_kind[self.kind].get(self.name)
+        if current is None:
+            return self._listed
+        pick = {"mesh_id": 0, "kind": self.kind, "index": current._position, "body": self.part.id}
+        reply = self.part.document._client.command("pick_reference", pick=pick)
+        return Ref._from_protocol(reply.result["element"]["reference"], self.part)
+
     def _neighbors(self, kind: str) -> list[Element]:
         """The adjacent elements of `kind`; faces and vertices meet through their edges, and an
         element is its own neighbor of its kind."""
@@ -147,12 +241,31 @@ class Element:
 
 
 class _ElementTable:
-    """Every displayed element of one part at one state, by kind and name, in table order."""
+    """Every displayed element of one part at one document revision, by kind and name, in table
+    order."""
 
-    def __init__(self, part: Part, descriptors: list[dict]) -> None:
+    def __init__(self, part: Part, descriptors: list[dict], revision: int) -> None:
+        self.part = part
+        self.revision = revision
+        self._later: _ElementTable | None = None
         self.by_kind: dict[str, dict[str, Element]] = {kind: {} for kind in ELEMENT_KINDS}
         for descriptor in descriptors:
-            self.by_kind[descriptor["kind"]][descriptor["name"]] = Element(descriptor, part, self)
+            elements = self.by_kind[descriptor["kind"]]
+            elements[descriptor["name"]] = Element(descriptor, part, self, len(elements))
+
+    def at(self, revision: int) -> _ElementTable:
+        """The table of the part at `revision`, the current one: this one, or the part's elements
+        listed again, once per revision; a part without geometry then has no elements."""
+        if revision == self.revision:
+            return self
+        if self._later is None or self._later.revision != revision:
+            try:
+                self._later = _table(self.part)
+            except EngineError as error:
+                if error.code != BODY_EMPTY:
+                    raise
+                self._later = _ElementTable(self.part, [], revision)
+        return self._later
 
 
 class Selection(Sequence[Element]):
@@ -172,13 +285,25 @@ class Selection(Sequence[Element]):
     def __getitem__(self, index: int | slice) -> Element | Selection:
         if isinstance(index, slice):
             return Selection(self._elements[index])
-        return self._elements[index]
+        element = self._elements[index]
+        if len(self._elements) > 1:
+            warn(PartsmithWarning(_index_warning(element.kind, index), code=SELECTION_INDEX))
+        return element
 
     def __len__(self) -> int:
         return len(self._elements)
 
     def __iter__(self) -> Iterator[Element]:
         return iter(self._elements)
+
+    # The `Sequence` versions of these two index the selection, which warns; they read the tuple instead.
+
+    def __reversed__(self) -> Iterator[Element]:
+        return reversed(self._elements)
+
+    def index(self, value: object, start: int = 0, stop: int | None = None) -> int:
+        """The position of `value` in the selection, between `start` and `stop`."""
+        return self._elements.index(value, start, sys.maxsize if stop is None else stop)
 
     def __repr__(self) -> str:
         return f"<Selection of {len(self)} {_plural(self.kind or 'element')}>"
@@ -409,8 +534,17 @@ def _select(function: str, kind: str, of: object) -> Selection:
 
 def _table(part: Part) -> _ElementTable:
     """Every displayed element of a part at the document's current state."""
-    reply = part.document._client.command("list_elements", body=part.id)
-    return _ElementTable(part, reply.result["elements"])
+    client = part.document._client
+    reply = client.command("list_elements", body=part.id)
+    return _ElementTable(part, reply.result["elements"], client.state.revision)
+
+
+def _index_warning(kind: str, index: int) -> str:
+    """The `selection_index` warning of indexing a selection of `kind` elements by `index`."""
+    return (
+        f"{_plural(kind)}()[{index}] picks {_article(kind)} by its position in the list, which can change when "
+        f"anything before it changes. Select it by what it is, for example {SELECTION_EXAMPLES[kind]}."
+    )
 
 
 def _rotation(axis: str, angle: float) -> list[list[float]]:

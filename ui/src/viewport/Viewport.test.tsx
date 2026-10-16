@@ -21,6 +21,7 @@ import type { FakeBackend } from '../test/fakes/backend'
 import { bodyItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { CUBE_FEATURES_DOCUMENT } from '../test/fakes/documents'
+import { lostEdgeRepair } from '../test/fakes/repairs'
 import { checkResult, finding, printReport } from '../test/fakes/state'
 import { COLOR_CLASSES } from '../theme/roles'
 import { DEFAULT_CAMERA, forward, visibleHeightAtTarget, type Camera } from './camera'
@@ -530,16 +531,7 @@ describe('repair markers (3.7, U-110)', () => {
           id: 'f-fil1',
           status: 'error',
           messages: [],
-          repairs: [
-            {
-              kind: 'element',
-              path: '/edges/0',
-              body: 'b-cube',
-              reference: { q: 'edge(top,front)', fp: 'fp-edge' },
-              resolution: 'missing',
-              centroid: [0, 0, 20],
-            },
-          ],
+          repairs: [lostEdgeRepair()],
         },
       },
     })
@@ -557,7 +549,9 @@ describe('repair markers (3.7, U-110)', () => {
     expect(marker).toHaveAttribute('r', '8')
     expect(marker).toHaveAttribute('stroke-dasharray', '4 3')
     expect(marker).toHaveClass(COLOR_CLASSES.errorMark.stroke)
-    expect(marker?.querySelector('title')).toHaveTextContent('Where the missing edge was')
+    expect(marker?.querySelector('title')).toHaveTextContent(
+      "The front top edge of 'Extrude 1' (missing)",
+    )
     expect(marker).not.toHaveAttribute('display')
     await act(async () => {
       await cancelCommand(app)

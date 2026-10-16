@@ -1,4 +1,4 @@
-import type { BodyMeshData, CoreEvent } from '../core/events'
+import type { BodyMeshData, CoreEvent, SketchDisplayData } from '../core/events'
 import { featureLabel, type WorldAxis } from '../core/labels'
 import type { BoundingBox, Body, DocHandle, Placement, SketchSolution } from '../generated/protocol'
 import type { Rectangle } from '../inspector/placement'
@@ -6,6 +6,7 @@ import { originItem } from '../inspector/selection-values'
 import { resolvedTheme } from '../layout/color-scheme'
 import { bedOutline } from '../print/bed'
 import { overhangAnalysis, overhangFields } from '../print/overhang'
+import { selectRegionCandidates } from '../repair/repair'
 import { regionSelectionItem } from '../sketch/hit'
 import type { AppState, HelperSketch, SelectionItem } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
@@ -120,6 +121,8 @@ export type Scene = {
   targetFor(pickId: number): { readonly result: PickResult; readonly pickClass: PickClass } | null
   /** Bounds of visible model geometry, sketches and datum planes; null when nothing is visible. */
   visibleBounds(state: AppState): BoundingBox | null
+  /** World points that cover selection items as drawn (3.6), a datum plane's square included: what framing them shows; none for items not drawn. */
+  worldPoints(items: readonly SelectionItem[]): Vector3[]
   /** Canvas rectangle (CSS pixels) covering selection items, or null. */
   screenRectangle(
     items: readonly SelectionItem[],
@@ -166,6 +169,8 @@ const SKETCH_TOLERANCE_PIXELS = 0.25
 const RETESSELLATION_FACTOR = 1.5
 
 const REGION_OPACITY = 0.12
+/** The draw of repair mode's region candidates (3.7). */
+const REPAIR_REGIONS_ID = 'repair:regions'
 /** Profile problem halos reach this many CSS pixels (times the UI scale) beyond each side of a curve (3.16.2). */
 const PROBLEM_HALO_PIXELS = 4
 /** How much of `problem` a halo mixes over the viewport background (3.16.2). */
@@ -458,6 +463,8 @@ export function createScene(backend: RenderBackend): Scene {
   const sectionOffsets = new Map<string, number>()
   let ranges: readonly PickRange[] = []
   let lastState: AppState | null = null
+  /** The side and center of the planes the last frame drew (3.12), whose squares framing shows. */
+  let lastPlanes: { readonly side: number; readonly center: Vector3 } | null = null
   // Solutions are replaced, never changed, so their bounds and identities can be kept by object.
   const sketchBoxes = new WeakMap<SketchSolution, Bounds | null>()
   const solutionNumbers = new WeakMap<SketchSolution, number>()
@@ -680,6 +687,7 @@ export function createScene(backend: RenderBackend): Scene {
 
     // Datum and origin planes, origin axes (3.12 pass 6).
     const planes = planeExtent(bounds)
+    lastPlanes = planes
     const drawnPlanes = planeDraws(state, datums, planes, theme, scale, picking, highlight)
     for (const corners of drawnPlanes.corners) {
       sceneBounds = extendBounds(sceneBounds, corners)
@@ -703,6 +711,13 @@ export function createScene(backend: RenderBackend): Scene {
           highlight,
         }),
       )
+    }
+
+    const candidateRegions = repairRegionsDraw(state, theme)
+    if (candidateRegions === null) {
+      remove(REPAIR_REGIONS_ID)
+    } else {
+      pending.push(candidateRegions)
     }
 
     // The hole centers a command placed on a face, drawn from the command before any preview (3.7).
@@ -1304,6 +1319,70 @@ export function createScene(backend: RenderBackend): Scene {
     ]
   }
 
+  /** Uploads a solution's region fills on its placement under `id` when they or the placement changed. */
+  function uploadRegionFills(
+    id: string,
+    display: SketchDisplayData,
+    solution: SketchSolution,
+  ): void {
+    const placement = solution.placement
+    const signature = JSON.stringify(placement)
+    const current = uploaded.get(id)
+    if (
+      current !== undefined &&
+      signatures.get(id) === signature &&
+      current.elementIds === display.regionIds
+    ) {
+      return
+    }
+    const yAxis = yAxisOf(placement)
+    const positions = new Float32Array((display.regionPositions.length / 2) * 3)
+    for (let i = 0; 2 * i + 1 < display.regionPositions.length; i++) {
+      const point = onPlane(placement, yAxis, [
+        display.regionPositions[2 * i] ?? 0,
+        display.regionPositions[2 * i + 1] ?? 0,
+      ])
+      positions.set(point, 3 * i)
+    }
+    upload(id, {
+      kind: 'fill',
+      positions,
+      indices: display.regionIndices,
+      elementIds: display.regionIds,
+      elementCount: solution.regions.length,
+    })
+    signatures.set(id, signature)
+  }
+
+  /**
+   * Repair mode's region candidates (3.7): their regions drawn in the hover state, which fills a
+   * region in highlight at 20 percent (3.12 pass 7), and every other region not at all, whether or
+   * not the sketch is shown. Null while repair mode shows no region repair.
+   */
+  function repairRegionsDraw(state: AppState, theme: ThemeName): PendingDraw | null {
+    const places = selectRegionCandidates(state)
+    const sketch = places === null ? undefined : state.document?.sketches[places.sketch]
+    const display = sketch?.display ?? null
+    if (places === null || sketch === undefined || display === null) {
+      return null
+    }
+    const count = sketch.solution.regions.length
+    uploadRegionFills(REPAIR_REGIONS_ID, display, sketch.solution)
+    const states = new Uint8Array(count)
+    for (const index of places.regions.flat()) {
+      states[index] = ELEMENT_STATE.hover
+    }
+    return {
+      call: {
+        ...overlayCall(colorOf(theme, 'highlight'), 'overlay', 0, 0, false, false),
+        id: REPAIR_REGIONS_ID,
+      },
+      elementCount: count,
+      target: null,
+      states,
+    }
+  }
+
   function sketchDraws(state: AppState, sketch: VisibleSketch, input: SketchInput): PendingDraw[] {
     const { theme, scale, picking, highlight } = input
     const { solution } = sketch
@@ -1324,32 +1403,7 @@ export function createScene(backend: RenderBackend): Scene {
     if (display === null || solution.regions.length === 0) {
       remove(regionsId)
     } else {
-      const placement = solution.placement
-      const yAxis = yAxisOf(placement)
-      const signature = JSON.stringify(placement)
-      const current = uploaded.get(regionsId)
-      if (
-        current === undefined ||
-        signatures.get(regionsId) !== signature ||
-        current.elementIds !== display.regionIds
-      ) {
-        const positions = new Float32Array((display.regionPositions.length / 2) * 3)
-        for (let i = 0; 2 * i + 1 < display.regionPositions.length; i++) {
-          const point = onPlane(placement, yAxis, [
-            display.regionPositions[2 * i] ?? 0,
-            display.regionPositions[2 * i + 1] ?? 0,
-          ])
-          positions.set(point, 3 * i)
-        }
-        upload(regionsId, {
-          kind: 'fill',
-          positions,
-          indices: display.regionIndices,
-          elementIds: display.regionIds,
-          elementCount: solution.regions.length,
-        })
-        signatures.set(regionsId, signature)
-      }
+      uploadRegionFills(regionsId, display, solution)
       const items = solution.regions.map((region, index) =>
         regionSelectionItem(sketch.id, region, `Region ${String(index + 1)}`),
       )
@@ -1553,6 +1607,17 @@ export function createScene(backend: RenderBackend): Scene {
     }
   }
 
+  /** The corners of a datum plane's square as the last frame drew it, or null for another item. */
+  function datumSquare(item: SelectionItem): Vector3[] | null {
+    const placement =
+      item.kind === 'datum_plane' && item.feature !== null
+        ? (lastState?.document?.datums[item.feature] ?? null)
+        : null
+    return placement === null || lastPlanes === null
+      ? null
+      : squareCorners(placement, lastPlanes.side, lastPlanes.center)
+  }
+
   /** World points that stand for a selection item, for its screen rectangle. */
   function itemPoints(item: SelectionItem): Vector3[] {
     const state = lastState
@@ -1619,6 +1684,10 @@ export function createScene(backend: RenderBackend): Scene {
     },
 
     visibleBounds,
+
+    worldPoints(items) {
+      return items.flatMap((item) => datumSquare(item) ?? itemPoints(item))
+    },
 
     screenRectangle(items, camera, view) {
       const aspect = windowAspect(view)

@@ -73,6 +73,7 @@ function newDocumentState(
     datums: {},
     meshes: {},
     lastRebuildMilliseconds: null,
+    ghosts: {},
   }
 }
 
@@ -118,6 +119,7 @@ function applied(document: DocumentState, event: CoreEvent): DocumentState | nul
         featureStatus: Object.fromEntries(event.features.map((status) => [status.id, status])),
         parameterValues: Object.fromEntries(event.parameters.map((value) => [value.id, value])),
         diagnostics: event.diagnostics,
+        ghosts: event.ghosts,
       }
     case 'sketch_solved':
       return {

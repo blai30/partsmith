@@ -101,29 +101,46 @@ class Placement:
 
 
 class Region:
-    """A closed sketch region, stored as a sketch.md RegionRef."""
+    """A closed sketch region, stored as a sketch.md RegionRef.
 
-    __slots__ = ("area", "centroid", "fp", "key")
+    `outline` is the region's loop in traversal order (sketch.md section 3.13.8), which references
+    written before format version 2 do not have. A region without `fp` takes its fingerprint and
+    outline from the current solve when a feature uses it.
+    """
 
-    def __init__(self, key: str, fp: str | None = None) -> None:
+    __slots__ = ("area", "centroid", "fp", "key", "outline")
+
+    def __init__(self, key: str, fp: str | None = None, *, outline: str | None = None) -> None:
         if not isinstance(key, str) or not (fp is None or isinstance(fp, str)):
             raise TypeError("Region() takes the region key and fingerprint as text.")
+        if not (outline is None or isinstance(outline, str)):
+            raise TypeError("Region() outline must be text, the region's loop such as 'e-1,e-2,e-3,e-4'.")
         self.key = key
         self.fp = fp
+        self.outline = outline
         self.area: float | None = None
         self.centroid: tuple[float, float] | None = None
 
     @classmethod
     def _solved(cls, info: dict) -> Region:
-        """A region of a sketch solution, with its area and centroid."""
-        region = cls(info["reference"]["key"], info["reference"]["fp"])
+        """A region of a sketch solution, with its outline, area and centroid."""
+        reference = info["reference"]
+        region = cls(reference["key"], reference["fp"], outline=reference.get("outline"))
         region.area = info["area"]
         x, y = info["centroid"]
         region.centroid = (x, y)
         return region
 
     def __repr__(self) -> str:
-        return f"Region({self.key!r}, {self.fp!r})"
+        outline = "" if self.outline is None else f", outline={self.outline!r}"
+        return f"Region({self.key!r}, {self.fp!r}{outline})"
+
+    def _json(self) -> dict:
+        """The stored `RegionRef`: `key` and `fp`, then `outline` when the region has one."""
+        stored = {"key": self.key, "fp": self.fp}
+        if self.outline is not None:
+            stored["outline"] = self.outline
+        return stored
 
 
 class SketchOrigin:
@@ -174,6 +191,7 @@ class Sketch:
         plane: PlaneLike,
         *,
         fallback: Placement | None = None,
+        fallback_frame: str | None = None,
         name: str | None = None,
         suppressed: bool = False,
         id: str | None = None,
@@ -182,7 +200,7 @@ class Sketch:
         # Imported here: features imports this module.
         from .features import sketch_plane
 
-        plane_document, self._plane = sketch_plane(plane, fallback)
+        plane_document, self._plane = sketch_plane(plane, fallback, fallback_frame)
         self.document = plane_document or current_document()
         self.id = self.document._new_id(FEATURE_PREFIX) if id is None else id
         self.name = name

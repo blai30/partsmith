@@ -1089,7 +1089,7 @@ Fixes added by reason: `Suppressed` gives `Unsuppress`; `ComesLater` gives `Move
 | R52 (a, b) | other parts dropped | Merged names resolve every former part | 1 |
 | R53a, R53b (t=5, 10) | covered face replaced, or generic | `Covered` by 'Box 2' with Use the top of 'Box 2' for every t; root 'Datum plane 1' for (b) | 1 |
 | R54 | generic message | `NotInDocument` (the cause line says it was deleted); root 'Datum plane 1'; block top offered, not applied | 1 |
-| R55 | void, generic message | `ComesLater` with Move 'Sketch 2' below 'Extrude 1' (phase 1); `closed_void` on the boss (phase 3) | 3 |
+| R55 | void, generic message | `ComesLater` with Move 'Extrude 1' above 'Sketch 2', since 'Hole 1' between them uses the sketch (phase 1, recompute.md test 73); `closed_void` on the boss (phase 3) | 3 |
 | R56 (a, b, c) | generic or no cause | `OtherBody` with Unsuppress 'Boolean 1'; `BodyEmpty` because 'Boolean 1' uses it as a tool, with Use body 'Body 2'; `OtherBody` because 'Extrude 1' makes 'Body 2' | 1 |
 | R57 | generic messages | `NoLongerMade` by 'Revolve 1', "which turns all the way round", for the chamfer and the sketch | 1 |
 | R58 | datum fails | Continuation to the rim, notice naming 'Shell 1' | 1 |
@@ -1846,7 +1846,7 @@ Each is one change to one spec (or a small group), merged before any code that i
     - Tests: U-127 to U-130, U-132 to U-134, U-141; E-123, E-125 and E-126, and E-124 and E-109 for their message and actions (their cause lines are checked in phase 4).
 11. **examples.** Add `examples/references/line-redrawn` (R06a), `examples/references/slot-inserted` (R17) and `examples/references/notch-replaces-line` (R66), each with its Python twin and expected results; re-bless the examples whose expected messages changed, with the sign-off of technical design section 16.
 
-Exit: corpus 112 of 123 with the amended setups; silent wrong results 4 (R22 a and b, R38, R32a rotated); built correctly before, fails after: 0 over the at-risk list of section 3.9; every budget, old and new, of naming, sketch, recompute and engine; `pnpm -C ui lint && pnpm -C ui typecheck && pnpm -C ui test` and `pnpm -C ui e2e` green.
+Exit: corpus 112 of 123 with the amended setups, which is 113 of 124 with R66, the scenario section 3.10 adds and phase 1 passes; silent wrong results 4 (R22 a and b, R38, R32a rotated); built correctly before, fails after: 0 over the at-risk list of section 3.9; every budget, old and new, of naming, sketch, recompute and engine; `pnpm -C ui lint && pnpm -C ui typecheck && pnpm -C ui test` and `pnpm -C ui e2e` green.
 
 ### 10.4 Phase 2: frames on the model
 
@@ -1891,7 +1891,9 @@ Exit: corpus 123 of 123 with the D6 amendments; every engine twin; every budget;
 
 | Phase | Corpus passing | Silent wrong left | Built correctly before, fails after | Newcomer corpus | Other gates |
 | --- | --- | --- | --- | --- | --- |
-| 1 | 112 | 4 | 0 | | naming, sketch, recompute and engine budgets; schemas regenerated; examples re-blessed |
+| 1 | 112 (113 of 124 with R66) | 4 | 0 | | naming, sketch, recompute and engine budgets; schemas regenerated; examples re-blessed |
 | 2 | 119 | 0 | 0 | | version 1 documents rebuild identically |
 | 3 | 122 | 0 | 0 | 12 of 12 without cause lines | kernel budgets; lint over every template |
 | 4 | 123 | 0 | 0 | 12 of 12 | engine twins; corpus in the normal suite |
+
+Corpus counts are of the 123 original tests. R66 passes from phase 1, so with it each phase passes one more of 124: 113, 120, 123 and 124.

@@ -2,12 +2,20 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import type { FeatureStatus } from '../generated/protocol'
+import type { Diagnostic, Document, FeatureStatus, FixAction, FixRef } from '../generated/protocol'
 import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
 import { INITIAL_STATE, type ActiveCommand, type DocumentState } from '../state/store'
-import { CUBE_FEATURES_DOCUMENT, featuresOf } from '../test/fakes/documents'
+import { coreErrorFor } from '../test/fakes/core-api'
+import { CUBE_FEATURES_DOCUMENT } from '../test/fakes/documents'
+import {
+  lostEdgeRepair,
+  R16_DOCUMENT,
+  R16_STATUS,
+  R16_USE_FRONT,
+  r16Fix,
+} from '../test/fakes/repairs'
 
 beforeEach(installPopoverPolyfill)
 
@@ -20,18 +28,31 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+const SMALLER_FIX: FixRef = {
+  feature: 'f-fil1',
+  code: 'fillet_too_large',
+  field: '/radius',
+  cause: false,
+  index: 0,
+  revision: 4,
+}
+
+/** "Use 2.3 mm" of the fillet message, as the core offers it (engine.md 3.22). */
+const USE_SMALLER: FixAction = { label: 'Use 2.3 mm', run: { kind: 'apply', fix: SMALLER_FIX } }
+
+const TOO_LARGE_MESSAGE: Diagnostic = {
+  severity: 'error',
+  code: 'fillet_too_large',
+  message: 'Fillet radius 15 mm is too large for the selected edges. Try 2.3 mm or less.',
+  field: '/radius',
+  suggestion: '2.3 mm',
+  actions: [USE_SMALLER],
+}
+
 const FILLET_TOO_LARGE: FeatureStatus = {
   id: 'f-fil1',
   status: 'error',
-  messages: [
-    {
-      severity: 'error',
-      code: 'fillet_too_large',
-      message: 'Fillet radius 15 mm is too large for the selected edges. Try 2.3 mm or less.',
-      field: '/radius',
-      suggestion: '2.3 mm',
-    },
-  ],
+  messages: [TOO_LARGE_MESSAGE],
   repairs: [],
 }
 
@@ -146,48 +167,33 @@ describe('the Problems panel (3.9)', () => {
     })
   })
 
-  it('U-110 reads "Re-pick Edges" for a lost edge and edits the feature with Edges active (4.2)', async () => {
-    const lost: FeatureStatus = {
-      ...FILLET_TOO_LARGE,
-      repairs: [
-        {
-          kind: 'element',
-          path: '/edges/0',
-          body: 'b-cube',
-          reference: { q: 'edge(top,front)', fp: 'fp-edge' },
-          resolution: 'missing',
-          centroid: [0, 0, 20],
-        },
-      ],
-    }
+  it(`U-110 offers "Show what 'Fillet 1' lost" and "Edit" for a lost edge, and no "Re-pick" (4.2)`, async () => {
+    const lost: FeatureStatus = { ...FILLET_TOO_LARGE, repairs: [lostEdgeRepair()] }
     const { app, user, panel } = renderPanel(withProblems([lost]))
-    expect(within(panel).queryByRole('button', { name: 'Edit' })).toBeNull()
-    await user.click(within(panel).getByRole('button', { name: 'Re-pick Edges' }))
+    expect(within(panel).getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(within(panel).queryByRole('button', { name: /^Re-pick/ })).toBeNull()
+    await user.click(within(panel).getByRole('button', { name: "Show what 'Fillet 1' lost" }))
     await waitFor(() => {
       expect(app.store.getState().command?.activeField).toBe('edges')
     })
   })
 
-  it('offers "Use {suggestion}", which changes the value at the message field at rest', async () => {
+  it('offers no "Show what … lost" for a feature without repairs', () => {
+    const { panel } = renderPanel(withProblems([FILLET_TOO_LARGE]))
+    expect(within(panel).queryByRole('button', { name: /^Show what/ })).toBeNull()
+  })
+
+  it("runs a message's apply action through applyFix at rest, outside a transaction (4.2)", async () => {
     const { core, user, panel } = renderPanel(withProblems([FILLET_TOO_LARGE]))
     await user.click(within(panel).getByRole('button', { name: 'Use 2.3 mm' }))
     await waitFor(() => {
-      expect(core.callsTo('applyEdits')).toHaveLength(1)
+      expect(core.callsTo('applyFix')).toEqual([[1, SMALLER_FIX]])
     })
-    const [[documentHandle, label, edits]] = core.callsTo('applyEdits') as [
-      [number, string, readonly unknown[]],
-    ]
-    expect(documentHandle).toBe(1)
-    expect(label).toBe('Change Fillet 1')
-    expect(edits).toEqual([
-      {
-        type: 'update_feature',
-        feature: { ...featuresOf(CUBE_FEATURES_DOCUMENT)[2], radius: '2.3 mm' },
-      },
-    ])
+    expect(core.callsTo('beginTransaction')).toEqual([])
+    expect(core.callsTo('applyEdits')).toEqual([])
   })
 
-  it('during a feature command, "Use {suggestion}" waits: aria-disabled, it says why and sends nothing (3.7)', async () => {
+  it('during a feature command, an apply action waits: aria-disabled, it says why and sends nothing (3.7)', async () => {
     const { app, core, user, panel } = renderPanel(
       withProblems([FILLET_TOO_LARGE]),
       EXTRUDE_COMMAND,
@@ -195,7 +201,7 @@ describe('the Problems panel (3.9)', () => {
     const use = within(panel).getByRole('button', { name: 'Use 2.3 mm' })
     expect(use).toHaveAttribute('aria-disabled', 'true')
     await user.click(use)
-    expect(core.callsTo('applyEdits')).toEqual([])
+    expect(core.callsTo('applyFix')).toEqual([])
     expect(app.store.getState().notifications).toMatchObject([
       {
         severity: 'info',
@@ -205,8 +211,12 @@ describe('the Problems panel (3.9)', () => {
     ])
   })
 
-  it('offers no suggestion for a message without one', () => {
-    const { panel } = renderPanel(withProblems([SHELL_WARNING]))
+  it('makes no fix of its own from a suggestion: a message without actions has no Use button (open issue 26)', () => {
+    const withoutActions: FeatureStatus = {
+      ...FILLET_TOO_LARGE,
+      messages: [{ ...TOO_LARGE_MESSAGE, actions: [] }],
+    }
+    const { panel } = renderPanel(withProblems([withoutActions, SHELL_WARNING]))
     expect(within(panel).queryByRole('button', { name: /^Use / })).toBeNull()
   })
 
@@ -219,5 +229,299 @@ describe('the Problems panel (3.9)', () => {
     )
     expect(within(panel).getByLabelText('Info')).toHaveClass('lucide-info')
     expect(panel.querySelector('.lucide-triangle-alert')).toBeNull()
+  })
+})
+
+/** A datum plane, a sketch on it and its extrude, a shell and a chamfer, for grouping by root (U-129). */
+const GROUPED_DOCUMENT: Document = {
+  format: 'partsmith',
+  format_version: 2,
+  units: 'mm',
+  parameters: [],
+  bodies: [{ id: 'b-1', name: 'Body 1' }],
+  features: [
+    { id: 'f-dp1', type: 'datum_plane', base: { kind: 'origin', plane: 'XY' }, offset: '10 mm' },
+    {
+      id: 'f-sk3',
+      type: 'sketch',
+      plane: { kind: 'datum', feature: 'f-dp1' },
+      entities: [],
+      constraints: [],
+    },
+    {
+      id: 'f-ext3',
+      type: 'extrude',
+      body: 'b-1',
+      profile: { sketch: 'f-sk3', regions: [] },
+      extent: { kind: 'distance', expr: '5 mm' },
+      op: 'new',
+    },
+    { id: 'f-sh1', type: 'shell', body: 'b-1', remove_faces: [], thickness: '2 mm' },
+    {
+      id: 'f-cha1',
+      type: 'chamfer',
+      body: 'b-1',
+      edges: [],
+      distance: { kind: 'equal', expr: '1 mm' },
+    },
+  ],
+}
+
+function errorStatus(id: string, message: Diagnostic): FeatureStatus {
+  return { id, status: 'error', messages: [message], repairs: [] }
+}
+
+const DATUM_LOST = errorStatus('f-dp1', {
+  severity: 'error',
+  code: 'reference_not_found',
+  message: "The top of 'Box 1' selected for Base plane was cut away by 'Extrude 1'.",
+  field: '/base/face',
+})
+
+function upstreamFailed(id: string): FeatureStatus {
+  return errorStatus(id, {
+    severity: 'error',
+    code: 'upstream_failed',
+    message: "This feature uses 'Datum plane 1', which failed.",
+    root: 'f-dp1',
+  })
+}
+
+const SHELL_UNKNOWN: FeatureStatus = {
+  id: 'f-sh1',
+  status: 'warning',
+  messages: [
+    {
+      severity: 'warning',
+      code: 'unknown_params',
+      message: "Shell 1 has a setting this version does not know, 'thikness', so it was ignored.",
+    },
+  ],
+  repairs: [],
+}
+
+const FOLLOWED: Diagnostic = {
+  severity: 'info',
+  code: 'reference_followed',
+  message:
+    "The front top edge of 'Extrude 1' selected for Edges now follows the edge that replaced it.",
+  field: '/edges/0',
+  actions: [
+    {
+      label: 'Keep this match',
+      run: {
+        kind: 'apply',
+        fix: {
+          feature: 'f-cha1',
+          code: 'reference_followed',
+          field: '/edges/0',
+          cause: false,
+          index: 0,
+          revision: 1,
+        },
+      },
+    },
+    { label: 'Pick an edge again', run: { kind: 'pick', feature: 'f-cha1', path: '/edges/0' } },
+  ],
+}
+
+const CHAMFER_NOTE: FeatureStatus = {
+  id: 'f-cha1',
+  status: 'ok',
+  messages: [FOLLOWED],
+  repairs: [],
+}
+
+function groupedDocument(statuses: readonly FeatureStatus[]): DocumentState {
+  const document = documentState(GROUPED_DOCUMENT)
+  return {
+    ...document,
+    featureStatus: {
+      ...document.featureStatus,
+      ...Object.fromEntries(statuses.map((status) => [status.id, status])),
+    },
+  }
+}
+
+function problemRowsIn(panel: HTMLElement): HTMLElement[] {
+  return within(panel).getAllByTestId('problem-row')
+}
+
+describe('Problems grouped by root (3.9, U-129)', () => {
+  const ALL = [
+    DATUM_LOST,
+    upstreamFailed('f-sk3'),
+    upstreamFailed('f-ext3'),
+    SHELL_UNKNOWN,
+    CHAMFER_NOTE,
+  ]
+
+  it('U-129 nests the features that failed because of a root under its row', () => {
+    const { panel } = renderPanel(groupedDocument(ALL))
+    const rows = problemRowsIn(panel)
+    const topLevel = rows.filter((row) => !row.hasAttribute('data-nested'))
+    const nested = rows.filter((row) => row.getAttribute('data-nested') === 'true')
+    expect(topLevel.map((row) => row.getAttribute('data-feature-id'))).toEqual(['f-dp1', 'f-sh1'])
+    expect(nested.map((row) => row.getAttribute('data-feature-id'))).toEqual(['f-sk3', 'f-ext3'])
+    const [first, second] = topLevel
+    if (first === undefined || second === undefined) {
+      throw new Error('The panel lacks a top-level row.')
+    }
+    for (const row of nested) {
+      expect(first.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(row.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+  })
+
+  it('U-129 gives each nested row its message and the single action "Show \'Datum plane 1\'"', () => {
+    const { panel } = renderPanel(groupedDocument(ALL))
+    const nested = problemRowsIn(panel).filter((row) => row.getAttribute('data-nested') === 'true')
+    const labels: Record<string, string> = { 'f-sk3': 'Sketch 1', 'f-ext3': 'Extrude 1' }
+    for (const row of nested) {
+      expect(row).toHaveTextContent("This feature uses 'Datum plane 1', which failed.")
+      const label = labels[row.getAttribute('data-feature-id') ?? ''] ?? ''
+      const actions = within(row)
+        .getAllByRole('button')
+        .map((button) => button.textContent ?? '')
+        .filter((name) => name !== label)
+      expect(actions).toEqual(["Show 'Datum plane 1'"])
+    }
+  })
+
+  it('U-129 "Show \'Datum plane 1\'" selects the root', async () => {
+    const { app, user, panel } = renderPanel(groupedDocument(ALL))
+    const nested = problemRowsIn(panel).find((row) => row.getAttribute('data-nested') === 'true')
+    await user.click(within(nested ?? panel).getByRole('button', { name: "Show 'Datum plane 1'" }))
+    expect(app.store.getState().selection.map((item) => item.key)).toEqual(['feature:f-dp1'])
+  })
+
+  it('U-129 counts one problem per root: the problems button reads "2 problems"', () => {
+    renderPanel(groupedDocument(ALL))
+    expect(screen.getByTestId('timeline-problems')).toHaveTextContent('2 problems')
+  })
+
+  it('U-129 lists notes under a collapsed "Notes" disclosure with their count and actions', async () => {
+    const { user, panel } = renderPanel(groupedDocument(ALL))
+    const notes = within(panel).getByTestId('problems-notes')
+    expect(notes).toHaveTextContent(/^Notes\s*1$/)
+    expect(notes).toHaveAttribute('aria-expanded', 'false')
+    expect(within(panel).queryByText(FOLLOWED.message)).toBeNull()
+    await user.click(notes)
+    expect(notes).toHaveAttribute('aria-expanded', 'true')
+    expect(panel).toHaveTextContent(FOLLOWED.message)
+    expect(within(panel).getByRole('button', { name: 'Keep this match' })).toBeInTheDocument()
+  })
+
+  it('U-129 "Keep this match" of a note runs through applyFix', async () => {
+    const { core, user, panel } = renderPanel(groupedDocument(ALL))
+    await user.click(within(panel).getByTestId('problems-notes'))
+    await user.click(within(panel).getByRole('button', { name: 'Keep this match' }))
+    await waitFor(() => {
+      expect(core.callsTo('applyFix')).toEqual([
+        [
+          1,
+          {
+            feature: 'f-cha1',
+            code: 'reference_followed',
+            field: '/edges/0',
+            cause: false,
+            index: 0,
+            revision: 1,
+          },
+        ],
+      ])
+    })
+  })
+
+  it('U-129 a feature with only a note stays ok in the timeline with the info mark', () => {
+    renderPanel(groupedDocument(ALL))
+    const item = screen
+      .getAllByTestId('timeline-item')
+      .find((element) => element.getAttribute('data-feature-id') === 'f-cha1')
+    expect(item).toHaveAttribute('data-status', 'ok')
+    expect(item).toHaveAttribute('data-notes', '1')
+    expect(item?.querySelector('.lucide-info')).not.toBeNull()
+  })
+
+  it('U-129 with only a note: "No problems.", the Notes, and no problems button', () => {
+    const { panel } = renderPanel(groupedDocument([CHAMFER_NOTE]))
+    expect(panel).toHaveTextContent('No problems.')
+    expect(within(panel).getByTestId('problems-notes')).toBeInTheDocument()
+    expect(screen.queryByTestId('timeline-problems')).toBeNull()
+  })
+
+  it('U-129 a feature without notes has data-notes 0', () => {
+    renderPanel(groupedDocument(ALL))
+    const item = screen
+      .getAllByTestId('timeline-item')
+      .find((element) => element.getAttribute('data-feature-id') === 'f-sh1')
+    expect(item).toHaveAttribute('data-notes', '0')
+  })
+})
+
+describe('a candidate at rest (4.2, U-128)', () => {
+  it('U-128 clicking A0 in the Problems panel calls applyFix with its FixRef outside a transaction', async () => {
+    const document = documentState(R16_DOCUMENT)
+    const { core, user, panel } = renderPanel({
+      ...document,
+      featureStatus: { ...document.featureStatus, 'f-fil1': R16_STATUS },
+    })
+    await user.click(within(panel).getByRole('button', { name: R16_USE_FRONT.label }))
+    await waitFor(() => {
+      expect(core.callsTo('applyFix')).toEqual([[1, r16Fix(0)]])
+    })
+    expect(core.callsTo('beginTransaction')).toEqual([])
+  })
+})
+
+describe('fixes that no longer apply (4.2, U-128)', () => {
+  const STALE =
+    'This fix no longer applies because the document changed after it was offered. Look at the problem again.'
+
+  it('U-128 a stale_fix error shows the core message with "Show problems" and nothing else', async () => {
+    const { app, core, user, panel } = renderPanel(withProblems([FILLET_TOO_LARGE]))
+    const stale = await coreErrorFor({ code: 'stale_fix', message: STALE })
+    core.stub('applyFix', () => Promise.reject(stale))
+    await user.click(within(panel).getByRole('button', { name: 'Use 2.3 mm' }))
+    await waitFor(() => {
+      expect(app.store.getState().notifications).toHaveLength(1)
+    })
+    const [notification] = app.store.getState().notifications
+    expect(notification).toMatchObject({ severity: 'error', message: STALE, code: 'stale_fix' })
+    expect(notification?.actions.map((action) => action.label)).toEqual(['Show problems'])
+  })
+})
+
+describe('Copy details in the Problems panel (4.1, U-130)', () => {
+  it('U-130 is the last button of a message with a detail', () => {
+    const detailed: FeatureStatus = {
+      ...FILLET_TOO_LARGE,
+      messages: [{ ...TOO_LARGE_MESSAGE, detail: 'fillet: StdFail_NotDone' }],
+    }
+    const { panel } = renderPanel(withProblems([detailed]))
+    const [row] = problemRowsIn(panel)
+    const names = within(row ?? panel)
+      .getAllByRole('button')
+      .map((button) => button.textContent ?? '')
+    expect(names.indexOf('Copy details')).toBeGreaterThan(names.indexOf('Use 2.3 mm'))
+    expect(names.indexOf('Copy details')).toBeLessThan(names.indexOf('Edit'))
+  })
+
+  it('U-130 a message without a detail has no Copy details button', () => {
+    const { panel } = renderPanel(withProblems([FILLET_TOO_LARGE]))
+    expect(within(panel).queryByRole('button', { name: 'Copy details' })).toBeNull()
+  })
+})
+
+describe('repair mode from a Problems row (3.7, 3.9)', () => {
+  const LOST: FeatureStatus = { ...FILLET_TOO_LARGE, repairs: [lostEdgeRepair()] }
+
+  it('shows repair mode while focus is inside the row of a feature with repairs, and ends it when focus leaves', async () => {
+    const { app, user, panel } = renderPanel(withProblems([LOST, SHELL_WARNING]))
+    const [filletRow, shellRow] = problemRowsIn(panel)
+    await user.click(within(filletRow ?? panel).getByRole('button', { name: 'Fillet 1' }))
+    expect(app.store.getState().repair).toEqual({ feature: 'f-fil1' })
+    await user.click(within(shellRow ?? panel).getByRole('button', { name: 'Shell 1' }))
+    expect(app.store.getState().repair).toBeNull()
   })
 })

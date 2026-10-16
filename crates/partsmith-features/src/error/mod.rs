@@ -22,7 +22,9 @@ pub use describe::{
 pub use field::FieldRef;
 pub use fix::{Fix, Place};
 pub use loss::{Loss, LossCandidate, RegionLost, Repair, Severity};
-pub use message::{Bound, DocumentNames, FallbackReason, IgnoredReason, Names, Noun, format_value};
+pub use message::{
+    Bound, DocumentNames, FallbackCause, IgnoredReason, Names, Noun, Placed, format_value,
+};
 pub use render::{Because, Diagnosis, Explanation, RenderContext};
 pub use warning::FeatureWarning;
 
@@ -815,7 +817,12 @@ impl FeatureError {
             | FeatureError::NoAxis { field }
             | FeatureError::UnknownEntity { field, .. }
             | FeatureError::NotALine { field, .. } => vec![Fix::pick(field.pointer())],
-            FeatureError::OutOfRange { field, .. } => self
+            // A "too large" error with a `max` offers it (section 4.3); its other fixes come with the
+            // limit search of phase 3.
+            FeatureError::OutOfRange { field, .. }
+            | FeatureError::FilletTooLarge { field, .. }
+            | FeatureError::ChamferTooLarge { field, .. }
+            | FeatureError::ShellTooThick { field, .. } => self
                 .suggestion(context.units)
                 .map(|value| Fix::SetField {
                     feature: None,

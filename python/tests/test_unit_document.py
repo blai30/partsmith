@@ -1,26 +1,35 @@
 """Unit tests of documents, parts, parameters, ids and the current context in partsmith.document,
 and of atomic writes."""
 
+import inspect
 import os
+import warnings
 
 import pytest
-from support import stored
+from support import partsmith_warnings, stored
 
 from partsmith import (
     Document,
     ExpressionError,
+    FeatureError,
     Part,
     PartsmithError,
+    PartsmithWarning,
     Plane,
     Point,
     Sketch,
     box,
     current_document,
+    datum_plane,
+    edges,
+    fillet,
     mm,
     param,
+    printer,
     rollback,
 )
 from partsmith._files import write_atomic
+from partsmith.document import with_caller_note
 
 
 def test_with_document_restores_the_document_current_before_it():
@@ -198,3 +207,139 @@ def test_a_failed_atomic_write_leaves_no_temporary_file(tmp_path):
         write_atomic(tmp_path / "missing" / "file.bin", b"data")
 
     assert os.listdir(tmp_path) == []
+
+
+# Feature messages (python-api.md section 4).
+
+
+def element_repair(path: str, *queries: str) -> dict:
+    """A protocol element repair at `path` on body b-1 whose candidates have these queries."""
+    return {
+        "kind": "element",
+        "path": path,
+        "body": "b-1",
+        "candidates": [
+            {"reference": {"q": query, "fp": "line"}, "description": f"the edge {query}", "relation": "near it"}
+            for query in queries
+        ],
+    }
+
+
+def test_the_candidates_of_a_message_are_those_of_repairs_at_or_under_its_field():
+    document = Document()
+    status = {
+        "repairs": [
+            element_repair("/edges/0", "edge(a|b)", "edge(a|c)"),
+            element_repair("/edges10", "edge(x|y)"),
+            {"kind": "region", "path": "/edges/2", "candidates": []},
+            element_repair("/edges/1", "edge(b|c)"),
+        ]
+    }
+
+    candidates = document._candidates(status, "/edges")
+
+    assert [candidate.q for candidate in candidates] == ["edge(a|b)", "edge(a|c)", "edge(b|c)"]
+    assert [candidate.part.id for candidate in candidates] == ["b-1"] * 3
+    assert (candidates[0].description, candidates[0].relation) == ("the edge edge(a|b)", "near it")
+    assert [candidate.q for candidate in document._candidates(status, "/edges/1")] == ["edge(b|c)"]
+    assert document._candidates(status, None) == []
+
+
+def test_a_feature_message_starts_with_the_call_and_carries_its_diagnostic():
+    document = Document()
+    message = {
+        "severity": "warning",
+        "code": "reference_missing",
+        "message": "The edge is gone, so it was skipped.",
+        "field": "/edges/0",
+        "actions": [{"label": "Pick an edge again", "run": {"kind": "pick", "feature": "f-fil1", "path": "/edges/0"}}],
+        "cause": {"text": "This started after you changed parameter 'd'.", "actions": []},
+        "detail": "edges[0] resolution=missing",
+    }
+    status = {"repairs": [element_repair("/edges/0", "edge(a|b)")]}
+
+    warning = document._feature_message(PartsmithWarning, "Param.set()", "f-fil1", message, status)
+
+    assert str(warning) == "Param.set(): The edge is gone, so it was skipped."
+    assert (warning.code, warning.feature, warning.field, warning.suggestion) == (
+        "reference_missing",
+        "f-fil1",
+        "/edges/0",
+        None,
+    )
+    assert warning.actions == ["Pick an edge again"]
+    assert [candidate.q for candidate in warning.candidates] == ["edge(a|b)"]
+    assert warning.cause == "This started after you changed parameter 'd'."
+    assert warning.detail == "edges[0] resolution=missing"
+
+
+def test_a_feature_error_keeps_its_feature_type():
+    document = Document()
+    message = {"severity": "error", "code": "fillet_too_large", "message": "Too large.", "suggestion": "2 mm"}
+
+    error = document._feature_message(FeatureError, "fillet()", "f-fil1", message, {}, feature_type="fillet")
+
+    assert (error.feature_type, error.code, error.suggestion, error.cause) == (
+        "fillet",
+        "fillet_too_large",
+        "2 mm",
+        None,
+    )
+    assert (error.actions, error.candidates) == ([], [])
+
+
+def test_the_caller_note_names_the_line_outside_the_package():
+    line = inspect.currentframe().f_lineno + 1
+    error = with_caller_note(FeatureError("fillet(): Too large.", feature_type="fillet", feature="f-1", code="x"))
+
+    assert error.__notes__ == [f"Called at {__file__}, line {line}."]
+
+
+def test_setting_the_printer_and_clearing_the_rollback_warn_about_nothing_when_no_feature_changes():
+    document = Document()
+    with Part("P"):
+        box(20, 30, 40)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PartsmithWarning)
+        document.printer = "generic-fdm"
+        rollback(None)
+
+
+def test_rollback_warns_about_each_problem_it_starts():
+    Document()
+    with Part("P"):
+        box(20, 30, 40, id="f-box1")
+        datum_plane(Plane.XY, offset=30, id="f-dp1")
+        rollback("f-dp1")
+        rounded = fillet(edges().top(), 30)
+    assert rounded.status == "rolled_back"
+
+    [warning] = partsmith_warnings(lambda: rollback(None))
+
+    assert warning.message.code == "fillet_too_large"
+    assert warning.message.feature == rounded.id
+    assert str(warning.message).startswith("rollback(): Fillet radius 30 mm is too large for the selected edges")
+    assert warning.filename == __file__
+    assert rounded.status == "error"
+    assert "rollback" not in stored(rounded.document)
+
+
+def test_setting_the_printer_warns_about_each_problem_it_starts():
+    document = Document(printer="generic-resin")
+    with Part("P"):
+        box(20, 30, 40)
+        radius = param("radius", printer.fit.loose * 30)
+        rounded = fillet(edges().top(), radius)
+    assert rounded.status == "ok"
+
+    def use_fdm() -> None:
+        document.printer = "generic-fdm"
+
+    [warning] = partsmith_warnings(use_fdm)
+
+    assert warning.message.code == "fillet_too_large"
+    assert str(warning.message).startswith("Document.printer: Fillet radius 12 mm is too large for the selected edges")
+    assert warning.filename == __file__
+    assert document.printer == "generic-fdm"
+    assert rounded.status == "error"

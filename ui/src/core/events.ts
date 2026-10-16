@@ -38,6 +38,8 @@ export type CoreEvent =
       readonly features: readonly FeatureStatus[]
       readonly parameters: readonly ParameterValue[]
       readonly diagnostics: readonly Diagnostic[]
+      /** The `f32` buffer of every ghost the statuses carry, by buffer index (protocol.md 3.4). */
+      readonly ghosts: Readonly<Record<number, Float32Array>>
     }
   | {
       readonly type: 'sketch_solved'
@@ -164,6 +166,29 @@ function meshData(mesh: MeshBuffers, buffers: readonly BufferView[]): BodyMeshDa
   }
 }
 
+/**
+ * The ghost buffers of a recompute's statuses, by buffer index: each repair's `ghost` and each
+ * message's `cause.ghost` (2.7), so the statuses keep their generated types.
+ */
+function ghostBuffers(
+  features: readonly FeatureStatus[],
+  buffers: readonly BufferView[],
+): Readonly<Record<number, Float32Array>> {
+  const ghosts: Record<number, Float32Array> = {}
+  for (const status of features) {
+    const shapes = [
+      ...status.repairs.map((repair) => repair.ghost),
+      ...status.messages.map((message) => message.cause?.ghost),
+    ]
+    for (const ghost of shapes) {
+      if (ghost !== null && ghost !== undefined) {
+        ghosts[ghost.positions] = floatBuffer(buffers, ghost.positions)
+      }
+    }
+  }
+  return ghosts
+}
+
 function overhangMaps(
   report: PrintReport,
   buffers: readonly BufferView[],
@@ -202,6 +227,7 @@ export function decodeEvent(event: Event, buffers: readonly BufferView[]): CoreE
         features: event.features,
         parameters: event.parameters,
         diagnostics: event.diagnostics,
+        ghosts: ghostBuffers(event.features, buffers),
       }
     case 'sketch_solved':
       return {

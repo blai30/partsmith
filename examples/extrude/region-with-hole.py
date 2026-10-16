@@ -14,6 +14,6 @@ with body_1:
     extrude(
         sketch_1,
         10,
-        regions=[Region("e-1,e-2,e-3,e-4;~e-5", "c=40,25|a=3685.840735")],
+        regions=[Region("e-1,e-2,e-3,e-4;~e-5", "c=40,25|a=3685.840735", outline="e-1,e-2,e-3,e-4")],
         id="f-ext1",
     )

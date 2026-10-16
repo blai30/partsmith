@@ -10,6 +10,13 @@
 //! The web column is measured by the Playwright benchmark of the WebAssembly build. Resident
 //! memory is read from `/proc/self/status`, so it is measured on Linux only, and first, before
 //! the other operations grow the process.
+//!
+//! Phase 1 of the reference stability plan adds two rows (test 152): `apply_fix` of the
+//! `SetField` the lid fillet's "too large" error offers, and a parameter change that loses five
+//! references, measured on the reference part with its lid pattern's count made a parameter and a
+//! fillet added on five edges of the pattern's third copy. Its loss row covers the diagnosis,
+//! descriptions and candidates; causes and ghosts come with phase 4, and so do the rows of
+//! `list_uses` and ghost capture, while `set_document_units` and `bare_numbers` come with phase 3.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -35,6 +42,21 @@ const REFERENCE_PART: &str = concat!(
 
 /// The parameter of the reference part that drives its last five features.
 const LAST_FIVE_PARAMETER: &str = "lid_width";
+
+/// The fillet of the reference part's lids, among its last five features.
+const LID_FILLET: &str = "f-fil8";
+
+/// The pattern of the reference part's lids, its last feature.
+const LID_PATTERN: &str = "f-lp4";
+
+/// The body of the reference part's lids.
+const LIDS: &str = "b-4";
+
+/// The fillet the loss row adds on edges of the lid pattern's third copy.
+const THIRD_LID_FILLET: &str = "f-fil9";
+
+/// The number of references the loss row loses.
+const LOST_REFERENCES: usize = 5;
 
 /// Rectangles of the drag sketch; each has 4 lines and 8 constraints, 504 constraints in all.
 const DRAG_RECTANGLES: usize = 63;
@@ -135,6 +157,113 @@ fn last_five_edit(text: &str, expr: &str) -> Value {
         .unwrap_or_else(|| panic!("the reference part has no parameter {LAST_FIVE_PARAMETER}"));
     parameter["expr"] = json!(expr);
     json!({"type": "update_parameter", "parameter": parameter})
+}
+
+/// The record of `feature` in the reference part.
+fn reference_record(text: &str, feature: &str) -> Value {
+    let document: Value = serde_json::from_str(text).expect("the reference part is JSON");
+    document["features"]
+        .as_array()
+        .and_then(|features| features.iter().find(|record| record["id"] == feature))
+        .cloned()
+        .unwrap_or_else(|| panic!("the reference part has no feature {feature}"))
+}
+
+/// The edits that make the lid fillet too large for lids `width` wide: the lid width and a fillet
+/// radius 1 mm more than half of it.
+fn too_large_lid_fillet(text: &str, width: f64) -> Value {
+    let mut fillet = reference_record(text, LID_FILLET);
+    fillet["radius"] = json!(format!("{} mm", width / 2.0 + 1.0));
+    json!([
+        last_five_edit(text, &format!("{width} mm")),
+        {"type": "update_feature", "feature": fillet}
+    ])
+}
+
+/// The `FixRef` of the `SetField` action the lid fillet's `fillet_too_large` message offers in
+/// `answer`.
+fn largest_radius_fix(answer: &Answer) -> Value {
+    let status = answer.0.feature_status(LID_FILLET);
+    status["messages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|message| message["code"] == "fillet_too_large")
+        .flat_map(|message| message["actions"].as_array().into_iter().flatten())
+        .find(|action| action["run"]["kind"] == "apply")
+        .map(|action| action["run"]["fix"].clone())
+        .unwrap_or_else(|| panic!("the lid fillet offers no fix: {status}"))
+}
+
+/// The `update_parameter` edit that gives the lid count parameter the loss row adds `expr`.
+fn lid_count_edit(expr: &str) -> Value {
+    json!({
+        "type": "update_parameter",
+        "parameter": {"id": "p-lid-count", "name": "lid_count", "expr": expr}
+    })
+}
+
+/// Makes the count of the reference part's lid pattern the parameter `lid_count` (3) and adds a
+/// fillet of 0.2 mm on the first `LOST_REFERENCES` sharp outer edges of the pattern's third copy,
+/// in name order (its four top edges and one bottom edge), as their short references; returns the
+/// answer of the last edit.
+fn add_third_lid_fillet(driver: &mut Driver, doc: u64, text: &str) -> Answer {
+    let mut pattern = reference_record(text, LID_PATTERN);
+    pattern["direction"]["count"] = json!("lid_count");
+    driver
+        .send(json!({
+            "type": "apply_edits", "doc": doc,
+            "edits": [
+                {"type": "add_parameter", "index": 2, "parameter": {"id": "p-lid-count", "name": "lid_count", "expr": "3"}},
+                {"type": "update_feature", "feature": pattern}
+            ]
+        }))
+        .ok();
+    let listed =
+        driver.send(json!({"type": "list_elements", "doc": doc, "body": LIDS, "kind": "edge"}));
+    let edges: Vec<Value> = listed.ok()["elements"]
+        .as_array()
+        .expect("list_elements lists elements")
+        .iter()
+        .filter(|element| {
+            let name = element["name"].as_str().unwrap_or_default();
+            let fingerprint = element["reference"]["fp"].as_str().unwrap_or_default();
+            // Edges between the lid's flat outer faces, so neither is tangent to a round face.
+            name.starts_with("edge(f-ext10/")
+                && name.contains("@f-lp4:2")
+                && !name.contains("/fillet/")
+                && fingerprint.starts_with("line|")
+        })
+        .take(LOST_REFERENCES)
+        .map(|element| element["reference"].clone())
+        .collect();
+    assert_eq!(
+        edges.len(),
+        LOST_REFERENCES,
+        "straight edges of the third lid"
+    );
+    let features =
+        serde_json::from_str::<Value>(text).expect("the reference part is JSON")["features"]
+            .as_array()
+            .map_or(0, Vec::len);
+    let added = driver.send(json!({
+        "type": "apply_edits", "doc": doc,
+        "edits": [{"type": "add_feature", "index": features, "feature": {
+            "id": THIRD_LID_FILLET, "type": "fillet", "body": LIDS, "edges": edges, "radius": "0.2 mm"
+        }}]
+    }));
+    added.ok();
+    added
+}
+
+/// The codes of the messages of `feature` in `answer`, in order.
+fn message_codes(answer: &Answer, feature: &str) -> Vec<String> {
+    answer.0.feature_status(feature)["messages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|message| message["code"].as_str().map(str::to_owned))
+        .collect()
 }
 
 /// A one-body document whose body is a box sized by the parameter `size` (10 mm), repeated
@@ -283,6 +412,8 @@ fn main() -> ExitCode {
         "close_document then open_document of the same text in the same session",
         "export of the reference part to binary STL at standard quality",
         "export_python of the reference part",
+        "apply_fix of a SetField of one of the last 5 features of the reference part, inside a transaction",
+        "apply_edits inside a transaction of a parameter change that loses 5 references of the last features of the reference part",
     ];
     let selected: Vec<&str> = reference_operations
         .into_iter()
@@ -352,6 +483,62 @@ fn main() -> ExitCode {
                 median(RUNS, |_| {
                     let (time, answer) = driver.timed(json!({"type": "export_python", "doc": doc}));
                     answer.ok();
+                    time
+                })
+            });
+            report.measure(reference_operations[5], Duration::from_millis(100), || {
+                let mut driver = Driver::new();
+                let doc = driver.open(&text).doc();
+                driver
+                    .send(json!({"type": "begin_transaction", "doc": doc, "label": "Lid"}))
+                    .ok();
+                median(RUNS, |sample| {
+                    // A new lid width per sample, so the fixed fillet is never a cached result.
+                    let width = 24.5 + 0.5 * sample as f64;
+                    let broken = driver.send(json!({
+                        "type": "apply_edits", "doc": doc, "edits": too_large_lid_fillet(&text, width)
+                    }));
+                    let fix = largest_radius_fix(&broken);
+                    let (time, answer) =
+                        driver.timed(json!({"type": "apply_fix", "doc": doc, "fix": fix}));
+                    answer.ok();
+                    assert!(
+                        message_codes(&answer, LID_FILLET).is_empty(),
+                        "the largest radius builds"
+                    );
+                    time
+                })
+            });
+            report.measure(reference_operations[6], Duration::from_millis(100), || {
+                let mut driver = Driver::new();
+                let doc = driver.open(&text).doc();
+                driver
+                    .send(json!({"type": "begin_transaction", "doc": doc, "label": "Lids"}))
+                    .ok();
+                let added = add_third_lid_fillet(&mut driver, doc, &text);
+                assert!(
+                    message_codes(&added, THIRD_LID_FILLET).is_empty(),
+                    "the fillet on the third lid builds: {}",
+                    added.0.feature_status(THIRD_LID_FILLET)
+                );
+                median(RUNS, |sample| {
+                    // A new lid width per sample, so neither the pattern nor the losses are cached.
+                    let width = format!("{} mm", 24.5 + 0.5 * sample as f64);
+                    driver
+                        .send(json!({
+                            "type": "apply_edits", "doc": doc,
+                            "edits": [last_five_edit(&text, &width), lid_count_edit("3")]
+                        }))
+                        .ok();
+                    let (time, answer) = driver.timed(json!({
+                        "type": "apply_edits", "doc": doc, "edits": [lid_count_edit("2")]
+                    }));
+                    answer.ok();
+                    assert_eq!(
+                        message_codes(&answer, THIRD_LID_FILLET),
+                        ["references_not_found"],
+                        "the third lid's edges are lost"
+                    );
                     time
                 })
             });

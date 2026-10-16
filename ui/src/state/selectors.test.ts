@@ -11,12 +11,12 @@ import { checkResult, finding, printReport, stateWithDocument } from '../test/fa
 import {
   editingSession,
   selectActiveFeatureIds,
-  selectEditLabel,
   selectEditedSketch,
   selectEmptyState,
   selectFeatureLabel,
   selectHealthBadge,
   selectOriginVisible,
+  selectProblemCount,
   selectProblems,
   selectUnsaved,
 } from './selectors'
@@ -124,40 +124,6 @@ describe('selectFeatureLabel', () => {
   it('shows a record name', () => {
     const state = stateWithDocument(withFeatureChanges(CUBE_DOCUMENT, 'f-ext1', { name: 'Base' }))
     expect(selectFeatureLabel(state, 'f-ext1')).toBe('Base')
-  })
-})
-
-describe('selectEditLabel (4.2)', () => {
-  it('is "Edit" for a feature without repairs', () => {
-    expect(selectEditLabel(stateWithDocument(CUBE_FEATURES_DOCUMENT), 'f-fil1')).toBe('Edit')
-  })
-
-  it('U-110 is "Re-pick Edges" when the first repair is under the Edges field', () => {
-    const state = stateWithDocument(CUBE_FEATURES_DOCUMENT)
-    const document = state.document
-    if (document === null) {
-      throw new Error('The state has no document.')
-    }
-    const lost: FeatureStatus = {
-      id: 'f-fil1',
-      status: 'error',
-      messages: [],
-      repairs: [
-        {
-          kind: 'element',
-          path: '/edges/0',
-          body: 'b-cube',
-          reference: { q: 'edge(top,front)', fp: 'fp-edge' },
-          resolution: 'missing',
-          centroid: [0, 0, 20],
-        },
-      ],
-    }
-    const withRepair: AppState = {
-      ...state,
-      document: { ...document, featureStatus: { ...document.featureStatus, 'f-fil1': lost } },
-    }
-    expect(selectEditLabel(withRepair, 'f-fil1')).toBe('Re-pick Edges')
   })
 })
 
@@ -391,24 +357,15 @@ describe('selectProblems', () => {
     )
   }
 
-  it('lists failing and warning features in timeline order, then the document diagnostics', () => {
-    expect(selectProblems(withProblems())).toEqual([
-      {
-        kind: 'feature',
-        featureId: 'f-fil1',
-        label: 'Fillet 1',
-        status: 'error',
-        messages: FILLET_ERROR.messages,
-      },
-      {
-        kind: 'feature',
-        featureId: 'f-sh1',
-        label: 'Shell 1',
-        status: 'warning',
-        messages: SHELL_WARNING.messages,
-      },
-      { kind: 'document', diagnostic: UNUSED },
-    ])
+  it('lists failing and warning features in timeline order, then the document diagnostics (3.9)', () => {
+    expect(selectProblems(withProblems())).toEqual({
+      rows: [
+        { feature: 'f-fil1', messages: FILLET_ERROR.messages, nested: [] },
+        { feature: 'f-sh1', messages: SHELL_WARNING.messages, nested: [] },
+        { feature: null, messages: [UNUSED], nested: [] },
+      ],
+      notes: [],
+    })
   })
 
   it('gives the same list back when only meshes or the rebuild time changed', () => {
@@ -422,10 +379,58 @@ describe('selectProblems', () => {
     const problems = selectProblems(state)
     const fixed = withProblems({ featureStatus: {}, diagnostics: [] })
     expect(selectProblems(fixed)).not.toBe(problems)
-    expect(selectProblems(fixed)).toEqual([])
+    expect(selectProblems(fixed)).toEqual({ rows: [], notes: [] })
   })
 
   it('is empty without a document', () => {
-    expect(selectProblems({ ...withProblems(), document: null })).toEqual([])
+    expect(selectProblems({ ...withProblems(), document: null })).toEqual({ rows: [], notes: [] })
+  })
+})
+
+/** cube-features.ptsm with only these statuses and diagnostics. */
+function withStatuses(statuses: readonly FeatureStatus[], diagnostics: readonly Diagnostic[] = []) {
+  return stateWithDocument(
+    CUBE_FEATURES_DOCUMENT,
+    {},
+    {
+      featureStatus: Object.fromEntries(statuses.map((status) => [status.id, status])),
+      diagnostics: [...diagnostics],
+    },
+  )
+}
+
+describe('selectProblemCount (3.9)', () => {
+  const ROOT_ERROR: FeatureStatus = {
+    id: 'f-ext1',
+    status: 'error',
+    messages: [{ severity: 'error', code: 'profile_not_found', message: 'The region is gone.' }],
+    repairs: [],
+  }
+  const FAILED_AFTER_ROOT: FeatureStatus = {
+    id: 'f-fil1',
+    status: 'error',
+    messages: [
+      { severity: 'error', code: 'body_empty', message: 'The body is empty.', root: 'f-ext1' },
+    ],
+    repairs: [],
+  }
+  const NOTE: FeatureStatus = {
+    id: 'f-sh1',
+    status: 'ok',
+    messages: [{ severity: 'info', code: 'reference_followed', message: 'It follows the face.' }],
+    repairs: [],
+  }
+
+  it('counts one problem per root, not its nested features', () => {
+    expect(selectProblemCount(withStatuses([ROOT_ERROR, FAILED_AFTER_ROOT]))).toBe(1)
+  })
+
+  it('counts each document diagnostic', () => {
+    const unused: Diagnostic = { severity: 'warning', code: 'unused_parameter', message: 'Unused.' }
+    expect(selectProblemCount(withStatuses([ROOT_ERROR], [unused, unused]))).toBe(3)
+  })
+
+  it('does not count notes', () => {
+    expect(selectProblemCount(withStatuses([NOTE]))).toBe(0)
   })
 })

@@ -43,7 +43,7 @@ import {
   type ViewWindow,
 } from './camera'
 import { drawnGridSpacing } from './grid'
-import { dot, normalize, scale, subtract } from './math'
+import { dot, extendBounds, normalize, scale, subtract } from './math'
 import {
   gestureFor,
   GESTURE_THRESHOLD_PIXELS,
@@ -80,6 +80,8 @@ export type ViewportHandle = {
   /** Puts the eye on the `normal` side of `target`, looking along -normal, with up from `upHint`. */
   lookAlong(normal: Vector3, upHint: Vector3, target: Vector3): void
   zoomToBounds(bounds: BoundingBox, margin: number): void
+  /** The world box of selection items as drawn (3.6): faces, edges and vertices from their meshes, sketch items and bodies; null when none is drawn. */
+  itemBounds(items: readonly SelectionItem[]): BoundingBox | null
   screenRectangle(items: readonly SelectionItem[]): Rectangle | null
   /** The canvas size and the free area last measured (3.2). */
   viewWindow(): ViewWindow
@@ -1248,6 +1250,10 @@ export function createViewportController(options: {
       moveCamera(centeredIn(framingPart(), { ...goal, target, rotation }))
     },
     zoomToBounds: frameBounds,
+    itemBounds(items) {
+      const bounds = extendBounds(null, scene.worldPoints(items))
+      return bounds === null ? null : { min: [...bounds.min], max: [...bounds.max] }
+    },
     screenRectangle(items) {
       return scene.screenRectangle(items, camera, viewWindow())
     },

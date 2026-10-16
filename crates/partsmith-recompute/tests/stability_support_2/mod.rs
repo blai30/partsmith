@@ -21,8 +21,8 @@ mod stability_common;
 pub use stability_common::*;
 
 use feature_support::{Assets, Run, body_before, element_names, sketch_result};
-use partsmith_features::BodyState;
-use partsmith_model::Document;
+use partsmith_features::{BodyState, Fix};
+use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, score};
 use serde_json::{Value, json};
 
@@ -210,7 +210,62 @@ pub fn diagnose(run: &Run, feature: &str, body: &str, reference: &Value) -> Stri
 
 // Collected checks.
 
+/// A message as a scenario states it exactly: its code, rendered text, one-click fixes in the order
+/// hosts offer them, and the feature it names as its root cause.
+pub struct ExactMessage<'a> {
+    /// The message code.
+    pub code: &'a str,
+    /// The rendered text.
+    pub text: &'a str,
+    /// The fixes, in order.
+    pub fixes: Vec<Fix>,
+    /// The id of the root cause's feature, if the message has one.
+    pub root: Option<&'a str>,
+}
+
 impl Checks {
+    /// Checks that `feature` has exactly one message and that it is `expected`.
+    pub fn only_message(&mut self, run: &Run, feature: &str, expected: ExactMessage<'_>) {
+        let messages = &run.feature(feature).messages;
+        self.check(
+            messages.len() == 1,
+            format!(
+                "{feature} should have exactly one message, {}: {:?}",
+                expected.code,
+                run.messages(feature)
+            ),
+        );
+        let Some(message) = messages
+            .iter()
+            .find(|message| message.code == expected.code)
+        else {
+            self.check(false, format!("{feature} has no {} message", expected.code));
+            return;
+        };
+        self.check(
+            message.text == expected.text,
+            format!(
+                "{feature}'s {} reads {:?}, expected {:?}",
+                expected.code, message.text, expected.text
+            ),
+        );
+        self.check(
+            message.fixes == expected.fixes,
+            format!(
+                "{feature}'s {} offers {:?}, expected {:?}",
+                expected.code, message.fixes, expected.fixes
+            ),
+        );
+        let root = message.root.as_ref().map(Id::as_str);
+        self.check(
+            root == expected.root,
+            format!(
+                "{feature}'s {} has root {root:?}, expected {:?}",
+                expected.code, expected.root
+            ),
+        );
+    }
+
     /// Checks the centroid x of every face whose name starts with `prefix`, in increasing x.
     pub fn faces_along_x(
         &mut self,

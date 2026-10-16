@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import warnings
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,14 +25,20 @@ from .reports import BoundingBox, PrintReport, bounding_box, point, print_report
 
 if TYPE_CHECKING:
     from .features import Feature
-    from .selectors import Axis, Element, Selection
+    from .selectors import Axis, Element, Ref, Selection
     from .sketch import Sketch
 
 ASSET_NAME = re.compile(r"[0-9a-f]{64}\.[a-z0-9]+")
 """The file names `Document.open` reads from the `assets/` folder."""
 
 PACKAGE_DIRECTORY = str(Path(__file__).resolve().parent)
-"""Warnings point at the first frame outside this directory."""
+"""Warnings and the notes of feature errors point at the first frame outside this directory."""
+
+PROBLEM_SEVERITIES = ("warning", "error")
+"""The severities of the feature messages a script is told about; info notices never are."""
+
+type ProblemKey = tuple[str, str, str | None]
+"""What identifies a problem across edits: the feature, the message's code and its field."""
 
 PARAMETER_PREFIX = "p-"
 """The id prefix of parameters."""
@@ -125,7 +132,7 @@ class Document:
 
     @printer.setter
     def printer(self, profile: str | None) -> None:
-        self._apply("printer", [{"type": "set_printer", "printer": profile}])
+        self._apply_and_warn("Document.printer", "printer", [{"type": "set_printer", "printer": profile}])
 
     @property
     def parameters(self) -> list[Param]:
@@ -214,12 +221,38 @@ class Document:
         """Applies edits as one undo entry."""
         return self._client.command("apply_edits", label=label, edits=edits)
 
+    def _apply_and_warn(self, function: str, label: str, edits: list[dict]) -> None:
+        """Applies edits as one undo entry and warns about the problems they start (section 3.2)."""
+        before = self._problems()
+        self._apply(label, edits)
+        self._warn_new_problems(function, before)
+
+    def _problem_messages(self) -> Iterator[tuple[ProblemKey, dict, dict]]:
+        """Every warning and error of the latest statuses, with its key and its feature's status."""
+        for feature_id, status in self._client.state.features.items():
+            for message in status["messages"]:
+                if message["severity"] in PROBLEM_SEVERITIES:
+                    yield (feature_id, message["code"], message.get("field")), message, status
+
+    def _problems(self) -> set[ProblemKey]:
+        """The keys of every warning and error of the latest statuses."""
+        return {key for key, _, _ in self._problem_messages()}
+
+    def _warn_new_problems(self, function: str, before: set[ProblemKey]) -> None:
+        """Emits a PartsmithWarning for each warning and error of the latest statuses whose key is
+        not in `before`, the problems before an edit that `function` made."""
+        for key, message, status in self._problem_messages():
+            if key not in before:
+                warn(self._feature_message(PartsmithWarning, function, status["id"], message, status))
+
     def _add_feature(self, label: str, record: dict, edits_before: Sequence[dict] = ()) -> None:
         """Adds a feature at the end of the timeline, after `edits_before`, in one undo entry.
 
-        A feature that builds with status error is undone and raises FeatureError with its first
-        message; each warning of a feature that builds with warnings becomes a PartsmithWarning.
+        `label` is the name of the function that adds it. A feature that builds with status error
+        is undone and raises FeatureError with its error message; each warning of a feature that
+        builds with warnings becomes a PartsmithWarning.
         """
+        function = f"{label}()"
         index = len(self._recipe["features"])
         edits = [*edits_before, {"type": "add_feature", "index": index, "feature": record}]
         try:
@@ -229,15 +262,63 @@ class Document:
             # feature exists (engine.md section 3.3). An opened document reports both as the
             # feature's error status, so a script reports them like a feature that fails.
             if error.code == "invalid_params":
-                raise FeatureError(str(error), feature_type=record["type"], code=error.code) from error
+                rejected = FeatureError(
+                    f"{function}: {error}", feature_type=record["type"], feature=record["id"], code=error.code
+                )
+                raise with_caller_note(rejected) from error
             raise
         status = self._client.state.features[record["id"]]
         if status["status"] == "error":
             self._client.command("undo")
-            raise FeatureError(status["messages"][0]["message"], feature_type=record["type"])
+            error = self._feature_message(
+                FeatureError, function, record["id"], status["messages"][0], status, feature_type=record["type"]
+            )
+            raise with_caller_note(error)
         for message in status["messages"]:
             if message["severity"] == "warning":
-                warn(message["message"])
+                warn(self._feature_message(PartsmithWarning, function, record["id"], message, status))
+
+    def _feature_message[Reported: (FeatureError, PartsmithWarning)](
+        self,
+        kind: type[Reported],
+        function: str,
+        feature_id: str,
+        message: dict,
+        status: dict,
+        **extra: str,
+    ) -> Reported:
+        """The FeatureError or PartsmithWarning of a feature message, with the diagnostic's
+        attributes and `extra` (section 4); its text starts with the call that failed, `function`."""
+        field = message.get("field")
+        cause = message.get("cause")
+        return kind(
+            f"{function}: {message['message']}",
+            code=message["code"],
+            feature=feature_id,
+            field=field,
+            suggestion=message.get("suggestion"),
+            actions=[action["label"] for action in message.get("actions", [])],
+            candidates=self._candidates(status, field),
+            cause=None if cause is None else cause["text"],
+            detail=message.get("detail"),
+            **extra,
+        )
+
+    def _candidates(self, status: dict, field: str | None) -> list[Ref]:
+        """The candidates of a message whose field is `field`: those of the feature's element
+        repairs whose path is `field` or lies under it, in repair order, then candidate order, each
+        a Ref on the repair's body with its description and relation."""
+        if field is None:
+            return []
+        # Imported here: selectors imports this module.
+        from .selectors import Ref
+
+        return [
+            Ref._candidate(candidate, self._part(repair["body"]))
+            for repair in status.get("repairs", [])
+            if repair["kind"] == "element" and (repair["path"] == field or repair["path"].startswith(f"{field}/"))
+            for candidate in repair["candidates"]
+        ]
 
     def _check_parameter(self, parameter_id: str) -> None:
         """Undoes the last edit and raises ExpressionError when the parameter does not evaluate."""
@@ -495,11 +576,13 @@ class Param(Expr):
 
     def set(self, value: Expr | str | float) -> None:
         """Changes the parameter's expression; an expression that does not evaluate is undone and
-        raises ExpressionError."""
+        raises ExpressionError. Each problem the change starts in a feature is a PartsmithWarning."""
         parameter = dict(self.document._parameter_record(self.id))
         parameter["expr"] = render_value(value, "Param.set() value")
+        before = self.document._problems()
         self.document._apply("set", [{"type": "update_parameter", "parameter": parameter}])
         self.document._check_parameter(self.id)
+        self.document._warn_new_problems("Param.set()", before)
 
 
 def current_document() -> Document:
@@ -526,9 +609,19 @@ def check_no_sketch(function: str) -> None:
         raise PartsmithError(f"Finish the sketch before calling {function}().")
 
 
-def warn(message: str) -> None:
+def warn(warning: PartsmithWarning) -> None:
     """Issues a PartsmithWarning pointing at the first frame outside this package."""
-    warnings.warn(message, PartsmithWarning, skip_file_prefixes=(PACKAGE_DIRECTORY,))
+    warnings.warn(warning, skip_file_prefixes=(PACKAGE_DIRECTORY,))
+
+
+def with_caller_note(error: FeatureError) -> FeatureError:
+    """`error` with the note `Called at <file>, line <n>.` naming the first frame outside this
+    package, so Python points at the user's line (section 4)."""
+    frame = sys._getframe(1)
+    while frame.f_back is not None and frame.f_code.co_filename.startswith(PACKAGE_DIRECTORY):
+        frame = frame.f_back
+    error.add_note(f"Called at {frame.f_code.co_filename}, line {frame.f_lineno}.")
+    return error
 
 
 def param(name: str, value: Expr | str | float, *, comment: str | None = None, id: str | None = None) -> Param:
@@ -564,4 +657,4 @@ def rollback(feature: Feature | Sketch | str | None) -> None:
             raise TypeError(
                 f"rollback() takes a feature, a sketch, a feature id or None, not {type(feature).__name__}."
             )
-    document._apply("rollback", [{"type": "set_rollback", "rollback": feature_id}])
+    document._apply_and_warn("rollback()", "rollback", [{"type": "set_rollback", "rollback": feature_id}])

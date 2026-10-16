@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import { ChevronDown, ChevronUp, CircleX, Shapes, TriangleAlert } from 'lucide-react'
+import { ChevronDown, ChevronUp, CircleX, Info, Shapes, TriangleAlert } from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -37,7 +37,7 @@ import { useUiRequest } from '../layout/requests'
 import { arrowTarget, rovingTabStop } from '../layout/roving'
 import { keepInViewHorizontally } from '../layout/scroll'
 import { counted } from '../messages'
-import { selectCommandBlock, selectProblems } from '../state/selectors'
+import { selectCommandBlock, selectProblemCount, selectProblems } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
 import { itemStatus, markerText, statusText } from './strip'
 import { useStripDrag } from './use-strip-drag'
@@ -112,6 +112,8 @@ function TimelineItem({
   const Icon = iconName === undefined ? Shapes : (FEATURE_ICONS[iconName] ?? Shapes)
   const state = status?.status
   const messages = status?.messages.map((message) => message.message) ?? []
+  // Info notices leave the status ok and show a small mark (3.9).
+  const notes = status?.messages.filter((message) => message.severity === 'info').length ?? 0
   // On Linux and macOS the browser fires `contextmenu` on the right button's press. A menu opened
   // then would be light-dismissed by the release, so it opens on the release instead (3.13).
   const menuOnRelease = useRef(false)
@@ -140,6 +142,7 @@ function TimelineItem({
       data-testid="timeline-item"
       data-feature-id={record.id}
       data-status={itemStatus(status)}
+      data-notes={notes}
       data-suppressed={suppressed ? 'true' : 'false'}
       data-rolled-back={rolledBack ? 'true' : 'false'}
       onPointerDown={(event) => {
@@ -226,6 +229,16 @@ function TimelineItem({
                 'absolute right-0 bottom-0 size-3.5',
                 COLOR_CLASSES.warningMark.fill,
                 COLOR_CLASSES.warningMark.foreground,
+              )}
+            />
+          ) : state === 'ok' && notes > 0 ? (
+            <Info
+              aria-hidden="true"
+              strokeWidth={1.75}
+              className={clsx(
+                'absolute right-0 bottom-0 size-3.5 rounded-full',
+                COLOR_CLASSES.surface.background,
+                COLOR_CLASSES.textMuted.foreground,
               )}
             />
           ) : null}
@@ -609,17 +622,20 @@ function Strip() {
 /** The problems button; in the collapsed timeline, under 2.5rem tall, its focus ring is drawn inside it (3.23). */
 function ProblemsButton({ collapsed }: { readonly collapsed: boolean }) {
   const app = useApp()
-  const problems = useAppState(selectProblems)
-  const count = problems.length
+  const count = useAppState(selectProblemCount)
+  // The icon names the worst problem, as status icons do everywhere (3.24).
+  const error = useAppState((state) =>
+    selectProblems(state).rows.some(
+      (row) =>
+        (row.feature !== null && state.document?.featureStatus[row.feature]?.status === 'error') ||
+        [row, ...row.nested].some((problem) =>
+          problem.messages.some((message) => message.severity === 'error'),
+        ),
+    ),
+  )
   if (count === 0) {
     return null
   }
-  // The icon names the worst problem, as status icons do everywhere (3.24).
-  const error = problems.some((problem) =>
-    problem.kind === 'feature'
-      ? problem.status === 'error'
-      : problem.diagnostic.severity === 'error',
-  )
   return (
     <button
       type="button"

@@ -104,6 +104,8 @@ describe('repairField (4.2)', () => {
     body: 'b-cube',
     reference: { q: 'edge(top,front)', fp: 'fp-edge' },
     resolution: 'missing',
+    description: "the front top edge of 'Extrude 1'",
+    candidates: [],
   }
 
   it('U-110 maps the first repair to the selection field its path is under', () => {
@@ -117,6 +119,8 @@ describe('repairField (4.2)', () => {
       sketch: 'f-sk1',
       region: { key: 'e-1', fp: 'fp-region' },
       resolution: 'ambiguous',
+      description: "the region of 'Sketch 1' around (0, 0)",
+      candidates: [],
     }
     const profile: FieldHint = { path: 'profile', label: 'Profile', selection: 'sketch_region' }
     expect(repairField([profile], statusWith([region]))?.path).toBe('profile')

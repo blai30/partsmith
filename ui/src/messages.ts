@@ -137,6 +137,19 @@ export const MESSAGES = {
   print_pick_face: () => 'Pick the face that should touch the bed.',
   orientation_set: (body: string) => `Printing with the picked face of ${body} on the bed.`,
   region_crashed: () => 'This part of the window hit a problem. Reload to restore it.',
+  feature_lost: (label: string, description: string) => `'${label}' lost ${description}.`,
+  features_lost: (label: string, description: string, failed: number) =>
+    `'${label}' lost ${description}, so ${counted(failed, 'feature')} after it failed too.`,
+  feature_check: (label: string) => `'${label}' needs a check after this change.`,
+  show_lost: (label: string) => `Show what '${label}' lost`,
+  check_feature: (label: string) => `Check '${label}'`,
+  repair_missing: (description: string) => `${description} (missing)`,
+  repair_check: (description: string) => `${description} (check it)`,
+  cause_ghost: () => 'Before this change',
+  preview_pending: () => 'Wait for the preview to update.',
+  details_copied: () => 'Details copied.',
+  details_not_copied: () =>
+    'The details could not be copied, because the browser did not allow access to the clipboard.',
 } as const
 
 /** The id of a UI-owned message, such as 'not_ptsm'. */

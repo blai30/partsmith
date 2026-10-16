@@ -41,6 +41,23 @@ export function placeElement(
   positionElement(element, position.x, position.y)
 }
 
+/**
+ * Moves an SVG circle's center to (x, y) CSS pixels, or hides it with `display="none"` when its
+ * point has no position (behind the camera or outside the free area, 3.12).
+ */
+export function placeCircle(
+  circle: SVGCircleElement,
+  position: { readonly x: number; readonly y: number } | null,
+): void {
+  if (position === null) {
+    circle.setAttribute('display', 'none')
+    return
+  }
+  circle.setAttribute('cx', String(position.x))
+  circle.setAttribute('cy', String(position.y))
+  circle.removeAttribute('display')
+}
+
 /** Whether two boxes overlap by more than an edge. */
 function overlaps(first: DOMRectReadOnly, second: DOMRectReadOnly): boolean {
   return (

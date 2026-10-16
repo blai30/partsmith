@@ -19,7 +19,7 @@ use feature_support::{
     median_failed_build_time, parse_document, suggested_limit,
 };
 use feature_support::{assert_messages_pass_lint, message};
-use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, Fix};
+use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, FieldRef, Fix};
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::{GeometryKind, SubShapeKind};
 
@@ -214,9 +214,9 @@ fn assert_all_ok_without_messages(run: &Run) {
 
 /// Asserts that `f-sh1` of `run` fails with `shell_too_thick` on `thickness` for the wall
 /// `requested`, with the thickest working wall in `max_range` and `b-1` unchanged, and returns its
-/// limit `{s}`, rounded down to 2 significant digits. The message, its fixes and the suggestion
-/// `{s} mm` are those of this phase: features.md section 4.3 brings the spec's text and its
-/// `SetField` fix (Use {s} mm) with phase 3 of the reference stability plan.
+/// limit `{s}`, rounded down to 2 significant digits. The message and the suggestion `{s} mm` are
+/// those of this phase, with the `SetField` fix (Use {s} mm) of features.md section 4.3; the spec's
+/// text and its round-face fixes come with phase 3 of the reference stability plan.
 fn assert_too_thick(run: &Run, requested: f64, max_range: Range<f64>) -> String {
     let error = run.assert_error("f-sh1", "shell_too_thick");
     assert_error_field(error, "thickness");
@@ -236,8 +236,15 @@ fn assert_too_thick(run: &Run, requested: f64, max_range: Range<f64>) -> String 
     assert_eq!(run.messages("f-sh1"), [expected.as_str()]);
     assert_eq!(
         message(run, "f-sh1", "shell_too_thick").fixes,
-        Vec::<Fix>::new(),
-        "shell_too_thick offers no fix before phase 3"
+        vec![Fix::SetField {
+            feature: None,
+            field: FieldRef {
+                path: "thickness".to_string(),
+                label: "Thickness".to_string(),
+            },
+            value: serde_json::Value::String(format!("{limit} mm")),
+        }],
+        "shell_too_thick offers its limit"
     );
     assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
     assert_unchanged(run, "f-sh1", "b-1");

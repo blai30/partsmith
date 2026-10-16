@@ -43,7 +43,7 @@ import { addScaled, cross } from '../../viewport/math'
 import type { App } from '../createApp'
 import { cancelCommandImplicitly } from './command'
 import { coreRedo, coreUndo } from './document'
-import { commitEdits, documentOf, reportNewFailures, showCoreError } from './edits'
+import { commitEdits, documentOf, reportChange, showCoreError } from './edits'
 import { dismiss, notify, showPickHint } from './notifications'
 import { select, toggledByKey } from './selection'
 import { commitSketchChange } from './sketch-commit'
@@ -62,7 +62,7 @@ type HistoryEntry =
 type SketchModeRecord = {
   readonly undo: HistoryEntry[]
   readonly redo: HistoryEntry[]
-  /** Feature statuses when the session started; failures since then are reported on finishing (4.2). */
+  /** Feature statuses when the session started; losses and failures since then are reported on finishing (4.2). */
   readonly statusesBefore: Readonly<Record<string, FeatureStatus>>
 }
 
@@ -469,7 +469,7 @@ export async function finishSketch(app: App, options: FinishSketchOptions = {}):
     return
   }
   if (statusesBefore !== null) {
-    reportNewFailures(app, statusesBefore)
+    reportChange(app, statusesBefore)
   }
   const solution = document.sketches[sketchId]?.solution ?? null
   if (solution !== null) {

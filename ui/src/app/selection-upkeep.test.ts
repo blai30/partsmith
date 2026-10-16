@@ -11,6 +11,7 @@ import {
 import { bodyItem, elementItem, featureItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { applyEdits } from './actions/document'
+import { runFixAction } from './actions/fixes'
 import { select } from './actions/selection'
 
 const RENAME: readonly Edit[] = [{ type: 'update_body', body: { id: 'b-cube', name: 'Box' } }]
@@ -106,5 +107,25 @@ describe('selection after rebuilds (3.6)', () => {
     await applyEdits(fake.app, 'Delete Shell 1', [{ type: 'remove_feature', id: 'f-sh1' }])
     await settle()
     expect(selectedKeys(fake)).toEqual(['feature:f-fil1'])
+  })
+})
+
+describe('what a show action selected (4.2)', () => {
+  it('stays shown while the selection stays, and goes when the selection changes', async () => {
+    const fake = await startWithDocument('cube-features.ptsm', CUBE_FEATURES_DOCUMENT)
+    await runFixAction(
+      fake.app,
+      {
+        label: "Show 'Sketch 1'",
+        run: { kind: 'show', feature: 'f-sk1' },
+      },
+      'panel',
+    )
+    expect(fake.app.store.getState().shown).toEqual({ feature: 'f-sk1', entity: null, ghost: null })
+    await applyEdits(fake.app, 'Rename', RENAME)
+    await settle()
+    expect(fake.app.store.getState().shown).not.toBeNull()
+    select(fake.app, [featureItem('f-ext1', 'Extrude 1')], 'replace')
+    expect(fake.app.store.getState().shown).toBeNull()
   })
 })

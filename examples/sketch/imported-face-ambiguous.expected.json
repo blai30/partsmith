@@ -1,0 +1,237 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-imp1",
+      "type": "import",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "warning",
+      "messages": [
+        {
+          "severity": "warning",
+          "code": "plane_fallback",
+          "message": "The face this sketch is on, a face of 'Import 1', now matches 6 faces, so the sketch uses the position saved with it. Pick the one you mean.",
+          "field": "/plane/face",
+          "actions": [
+            {
+              "label": "Pick a face again",
+              "kind": "pick"
+            }
+          ],
+          "candidates": [
+            {
+              "reference": {
+                "q": "f-imp1/face#1",
+                "fp": "plane|n=-1,0,0|c=-5,0,5|a=100|adj=4,4"
+              },
+              "description": "a face of 'Import 1' near (-5, 0, 5)",
+              "relation": "next to a face of 'Import 1' near (0, -5, 5), where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "f-imp1/face#2",
+                "fp": "plane|n=0,-1,0|c=0,-5,5|a=100|adj=4,4"
+              },
+              "description": "a face of 'Import 1' near (0, -5, 5)",
+              "relation": "next to a face of 'Import 1' near (-5, 0, 5), where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "f-imp1/face#3",
+                "fp": "plane|n=0,0,-1|c=0,0,0|a=100|adj=4,4"
+              },
+              "description": "a face of 'Import 1' near (0, 0, 0)",
+              "relation": "next to a face of 'Import 1' near (-5, 0, 5), where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "f-imp1/face#4",
+                "fp": "plane|n=0,0,1|c=0,0,10|a=100|adj=4,4"
+              },
+              "description": "a face of 'Import 1' near (0, 0, 10)",
+              "relation": "next to a face of 'Import 1' near (-5, 0, 5), where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "f-imp1/face#5",
+                "fp": "plane|n=0,1,0|c=0,5,5|a=100|adj=4,4"
+              },
+              "description": "a face of 'Import 1' near (0, 5, 5)",
+              "relation": "next to a face of 'Import 1' near (-5, 0, 5), where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            },
+            {
+              "reference": {
+                "q": "f-imp1/face#6",
+                "fp": "plane|n=1,0,0|c=5,0,5|a=100|adj=4,4"
+              },
+              "description": "a face of 'Import 1' near (5, 0, 5)",
+              "relation": "next to a face of 'Import 1' near (0, -5, 5), where it was",
+              "meaning": true,
+              "distance": 0.0,
+              "score": 1.0
+            }
+          ],
+          "detail": "plane.face q=f-imp1/face#9 resolution=ambiguous candidates=f-imp1/face#1:1.000000,f-imp1/face#2:1.000000,f-imp1/face#3:1.000000,f-imp1/face#4:1.000000,f-imp1/face#5:1.000000,f-imp1/face#6:1.000000"
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 999.9999999999999,
+      "area": 600.0,
+      "center_of_mass": [
+        6.1062266354383625e-18,
+        8.881784197001254e-18,
+        5.0
+      ],
+      "bounding_box": {
+        "min": [
+          -5.0,
+          -5.0,
+          0.0
+        ],
+        "max": [
+          5.0,
+          5.0,
+          10.0
+        ]
+      },
+      "faces": 6,
+      "edges": 12,
+      "vertices": 8
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

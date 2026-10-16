@@ -15,8 +15,14 @@
         {
           "severity": "warning",
           "code": "plane_fallback",
-          "message": "The face this sketch is on is no longer flat, so the sketch stays at its last position. Attach it to a flat face.",
-          "field": "/plane/face"
+          "message": "The face this sketch is on, the side of 'Cylinder 1', is no longer flat, so the sketch uses the position saved with it.",
+          "field": "/plane/face",
+          "actions": [
+            {
+              "label": "Pick a face again",
+              "kind": "pick"
+            }
+          ]
         }
       ]
     }

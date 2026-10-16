@@ -343,6 +343,41 @@ const CASES: readonly Case[] = [
     () => MESSAGES.region_crashed(),
     'This part of the window hit a problem. Reload to restore it.',
   ],
+  [
+    'feature_lost',
+    () => MESSAGES.feature_lost('Fillet 1', "the front top edge of 'Box 1'"),
+    "'Fillet 1' lost the front top edge of 'Box 1'.",
+  ],
+  [
+    'features_lost',
+    () => MESSAGES.features_lost('Extrude 1', "the region of 'Sketch 1' around (40, 25)", 2),
+    "'Extrude 1' lost the region of 'Sketch 1' around (40, 25), so 2 features after it failed too.",
+  ],
+  [
+    'feature_check',
+    () => MESSAGES.feature_check('Fillet 1'),
+    "'Fillet 1' needs a check after this change.",
+  ],
+  ['show_lost', () => MESSAGES.show_lost('Fillet 1'), "Show what 'Fillet 1' lost"],
+  ['check_feature', () => MESSAGES.check_feature('Fillet 1'), "Check 'Fillet 1'"],
+  [
+    'repair_missing',
+    () => MESSAGES.repair_missing("The front top edge of 'Box 1'"),
+    "The front top edge of 'Box 1' (missing)",
+  ],
+  [
+    'repair_check',
+    () => MESSAGES.repair_check("The back top edge of 'Extrude 1'"),
+    "The back top edge of 'Extrude 1' (check it)",
+  ],
+  ['cause_ghost', () => MESSAGES.cause_ghost(), 'Before this change'],
+  ['preview_pending', () => MESSAGES.preview_pending(), 'Wait for the preview to update.'],
+  ['details_copied', () => MESSAGES.details_copied(), 'Details copied.'],
+  [
+    'details_not_copied',
+    () => MESSAGES.details_not_copied(),
+    'The details could not be copied, because the browser did not allow access to the clipboard.',
+  ],
 ]
 
 describe('MESSAGES', () => {
@@ -352,12 +387,18 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(86)
+    expect(CASES).toHaveLength(97)
   })
 
   it('U-73 recovered_more counts one other document in the singular', () => {
     expect(MESSAGES.recovered_more('bracket', '14:32', 1)).toBe(
       'Partsmith kept unsaved changes to bracket from 14:32, and to 1 other document.',
+    )
+  })
+
+  it('features_lost counts one feature in the singular', () => {
+    expect(MESSAGES.features_lost('Extrude 1', "the region of 'Sketch 1' around (40, 25)", 1)).toBe(
+      "'Extrude 1' lost the region of 'Sketch 1' around (40, 25), so 1 feature after it failed too.",
     )
   })
 

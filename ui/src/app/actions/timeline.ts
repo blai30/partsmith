@@ -8,6 +8,7 @@ import { coreUndo } from './document'
 import {
   commitBuiltEdits,
   commitEdits,
+  commitReportedEdits,
   documentOf,
   refusedDuringCommand,
   showCoreError,
@@ -171,7 +172,8 @@ export async function setSuppressed(
 
 /**
  * Deletes features in one edit. When the rollback feature goes, the marker first moves to the
- * nearest later feature that stays, or to the end; "Deleted {label}." then offers Undo.
+ * nearest later feature that stays, or to the end; "Deleted {label}." then offers Undo, unless the
+ * delete raised a loss or failure notification, which offers Undo itself.
  */
 export async function deleteFeatures(app: App, featureIds: readonly string[]): Promise<void> {
   const document = documentOf(app)
@@ -201,7 +203,12 @@ export async function deleteFeatures(app: App, featureIds: readonly string[]): P
     deleted.length === 1
       ? selectFeatureLabel(app.store.getState(), first.id)
       : `${String(deleted.length)} features`
-  if (!(await commitEdits(app, `Delete ${subject}`, edits))) {
+  const { sent, reported } = await commitReportedEdits(app, () => ({
+    label: `Delete ${subject}`,
+    edits,
+  }))
+  // A delete that broke something says so itself, with its own Undo (3.9, 4.2).
+  if (!sent || reported) {
     return
   }
   notify(app, {

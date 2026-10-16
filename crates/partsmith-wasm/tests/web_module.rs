@@ -7,6 +7,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use partsmith_engine::ENGINE_VERSION;
 use partsmith_model::FORMAT_VERSION;
 
 /// The environment variable that turns a skip into a failure when it is `1`.
@@ -73,7 +74,7 @@ fn built_module_round_trips_an_engine_info_request_under_node() {
         .arg(&script)
         .arg(&module)
         .arg(&wasm)
-        .arg(env!("CARGO_PKG_VERSION"))
+        .arg(ENGINE_VERSION)
         .arg(FORMAT_VERSION.to_string())
         .output()
         .expect("Node ran a moment ago, so it starts again");

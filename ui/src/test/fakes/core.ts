@@ -63,8 +63,25 @@ export function replyFrame(id: number, reply: FakeReply): ArrayBuffer {
 export type FakeFeatureStatus = {
   readonly status: FeatureState
   readonly messages: readonly Diagnostic[]
-  /** References that did not resolve; none when absent. */
+  /**
+   * Repair data; none when absent. A candidate's `element` is reported in its body's current
+   * model-layer mesh, as the engine reports it, whatever `mesh_id` it is given here.
+   */
   readonly repairs?: readonly Repair[]
+}
+
+/** What `apply_fix` does for the fix it names (engine.md 3.22): the message and action, the undo label and the edits. */
+export type FakeFix = {
+  readonly feature: string
+  readonly code: string
+  /** The message's field; absent or null for a message without one. */
+  readonly field?: string | null
+  /** True for an action of the message's cause line; default false. */
+  readonly cause?: boolean
+  readonly index: number
+  /** The undo label outside a transaction: the action's label. */
+  readonly label: string
+  readonly edits: readonly Edit[]
 }
 
 export type FakeCoreOptions = {
@@ -84,6 +101,13 @@ export type FakeCoreOptions = {
   readonly bounds?: Readonly<Record<string, BoundingBox>>
   /** `list_elements` answers by body id. */
   readonly elements?: Readonly<Record<string, readonly ElementDescriptor[]>>
+  /** The fixes `apply_fix` applies; any other fix is refused with `stale_fix`. */
+  readonly fixes?: readonly FakeFix[]
+  /**
+   * `f32` ghost positions that every recompute frame carries first, so a status's ghost names
+   * buffer 0 for the first, 1 for the second (protocol.md 3.4).
+   */
+  readonly ghosts?: readonly (readonly number[])[]
 }
 
 /** The state of one open document in the fake core. */
@@ -390,6 +414,7 @@ function defaultSolution(feature: FeatureRecord): SketchSolution {
     constraints: [],
     regions: [],
     profile_findings: [],
+    messages: [],
   }
 }
 
@@ -456,6 +481,27 @@ function featureLabel(entry: DocumentEntry, id: string): string {
   return feature?.name ?? id
 }
 
+/** The repairs with each candidate's element in its body's current model-layer mesh. */
+function inCurrentMeshes(
+  repairs: readonly Repair[],
+  meshIds: Readonly<Record<string, number>>,
+): Repair[] {
+  return repairs.map((repair) =>
+    repair.kind !== 'element'
+      ? repair
+      : {
+          ...repair,
+          candidates: repair.candidates.map((candidate) => {
+            const element = candidate.element ?? null
+            const meshId = element === null ? undefined : meshIds[element.body]
+            return element === null || meshId === undefined
+              ? candidate
+              : { ...candidate, element: { ...element, mesh_id: meshId } }
+          }),
+        },
+  )
+}
+
 /** Creates a fake core with its own documents; `options` apply to every answer. */
 export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   const documents = new Map<number, DocumentEntry>()
@@ -470,7 +516,10 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return entry
   }
 
-  function featureStatuses(recipe: Document): FeatureStatus[] {
+  function featureStatuses(
+    recipe: Document,
+    meshIds: Readonly<Record<string, number>>,
+  ): FeatureStatus[] {
     const end = rollbackIndex(recipe)
     return featuresOf(recipe).map((feature, index) => {
       let status: FeatureState = 'ok'
@@ -488,7 +537,12 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
           repairs = override.repairs ?? []
         }
       }
-      return { id: feature.id, status, messages: [...messages], repairs: [...repairs] }
+      return {
+        id: feature.id,
+        status,
+        messages: [...messages],
+        repairs: inCurrentMeshes(repairs, meshIds),
+      }
     })
   }
 
@@ -502,12 +556,24 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     buffers: BufferView[]
   } {
     const events: ProtocolEvent[] = [documentChanged(entry)]
-    const buffers: BufferView[] = []
+    const buffers: BufferView[] = (options.ghosts ?? []).map((points) => Float32Array.from(points))
+    const withGeometry = new Set(modelFeatures(entry).map(bodyOf))
+    // Mesh ids are assigned before the statuses, which report candidates in the current meshes.
+    const bodyMeshes = bodiesOf(entry.recipe).map((body) => ({
+      body: body.id,
+      meshId: nextMeshId++,
+    }))
+    const meshIds: Record<string, number> = {}
+    for (const { body, meshId } of bodyMeshes) {
+      if (withGeometry.has(body)) {
+        meshIds[body] = meshId
+      }
+    }
     events.push({
       type: 'recomputed',
       doc: entry.handle,
       revision: entry.revision,
-      features: featureStatuses(entry.recipe),
+      features: featureStatuses(entry.recipe, meshIds),
       parameters: parameterValues(entry.recipe),
       diagnostics: [],
     })
@@ -521,29 +587,25 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         })
       }
     }
-    const withGeometry = new Set(modelFeatures(entry).map(bodyOf))
-    const meshIds: Record<string, number> = {}
-    for (const body of bodiesOf(entry.recipe)) {
-      if (!withGeometry.has(body.id)) {
+    for (const { body, meshId } of bodyMeshes) {
+      if (!withGeometry.has(body)) {
         events.push({
           type: 'body_mesh',
           doc: entry.handle,
           revision: entry.revision,
-          body: body.id,
+          body,
           layer: 'model',
-          mesh_id: nextMeshId++,
+          mesh_id: meshId,
         })
         continue
       }
-      const meshId = nextMeshId++
-      meshIds[body.id] = meshId
-      const parts = meshParts(options.bounds?.[body.id] ?? DEFAULT_BOUNDS, buffers.length)
+      const parts = meshParts(options.bounds?.[body] ?? DEFAULT_BOUNDS, buffers.length)
       buffers.push(...parts.buffers)
       events.push({
         type: 'body_mesh',
         doc: entry.handle,
         revision: entry.revision,
-        body: body.id,
+        body,
         layer: 'model',
         mesh_id: meshId,
         mesh: parts.mesh,
@@ -604,6 +666,28 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     }
     commitChange(entry, label, applyAll(entry.recipe, command.edits ?? []))
     return changed(entry, { type: 'apply_edits', revision: entry.revision })
+  }
+
+  function applyFix(command: CommandOfType<'apply_fix'>): FakeReply {
+    const entry = entryFor(command.doc)
+    const { fix } = command
+    const found = (options.fixes ?? []).find(
+      (candidate) =>
+        candidate.feature === fix.feature &&
+        candidate.code === fix.code &&
+        (candidate.field ?? null) === (fix.field ?? null) &&
+        (candidate.cause ?? false) === fix.cause &&
+        candidate.index === fix.index,
+    )
+    if (found === undefined) {
+      reject(
+        'stale_fix',
+        'This fix no longer applies because the document changed after it was offered. Look at the problem again.',
+      )
+    }
+    const label = entry.transaction === null ? found.label : null
+    commitChange(entry, label, applyAll(entry.recipe, found.edits))
+    return changed(entry, { type: 'apply_fix', revision: entry.revision })
   }
 
   function renameParameter(command: CommandOfType<'rename_parameter'>): FakeReply {
@@ -745,6 +829,8 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       }
       case 'apply_edits':
         return applyEdits(command)
+      case 'apply_fix':
+        return applyFix(command)
       case 'rename_parameter':
         return renameParameter(command)
       case 'begin_transaction': {

@@ -15,8 +15,85 @@
         {
           "severity": "warning",
           "code": "reference_missing",
-          "message": "One of the faces selected for Faces to remove can no longer be found, so it was skipped. Re-pick it in the repair panel.",
-          "field": "/remove_faces/1"
+          "message": "A face of a feature that is not in this document selected for Faces to remove is gone, so it was skipped.",
+          "field": "/remove_faces/1",
+          "actions": [
+            {
+              "label": "Use the right side of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Use the back side of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Use the bottom of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Use the front side of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Remove from Faces to remove",
+              "kind": "apply"
+            },
+            {
+              "label": "Pick a face again",
+              "kind": "pick"
+            }
+          ],
+          "candidates": [
+            {
+              "reference": {
+                "q": "f-box1/right",
+                "fp": "plane|n=1,0,0|c=40,0,15|a=1500|adj=4,4"
+              },
+              "description": "the right side of 'Box 1'",
+              "relation": "about 830 mm from where it was",
+              "meaning": false,
+              "distance": 834.7604446785916,
+              "score": 0.00016666666666666666
+            },
+            {
+              "reference": {
+                "q": "f-box1/back",
+                "fp": "plane|n=0,1,0|c=0,25,15|a=2400|adj=4,4"
+              },
+              "description": "the back side of 'Box 1'",
+              "relation": "about 840 mm from where it was",
+              "meaning": false,
+              "distance": 843.1192086532011,
+              "score": 0.00010416666666666667
+            },
+            {
+              "reference": {
+                "q": "f-box1/bottom",
+                "fp": "plane|n=0,0,-1|c=0,0,0|a=4000|adj=4,4"
+              },
+              "description": "the bottom of 'Box 1'",
+              "relation": "about 870 mm from where it was",
+              "meaning": false,
+              "distance": 866.0254037844386,
+              "score": 0.0000625
+            },
+            {
+              "reference": {
+                "q": "f-box1/front",
+                "fp": "plane|n=0,-1,0|c=0,-25,15|a=2400|adj=4,4"
+              },
+              "description": "the front side of 'Box 1'",
+              "relation": "about 870 mm from where it was",
+              "meaning": false,
+              "distance": 872.2671609088583,
+              "score": 0.00010416666666666667
+            }
+          ],
+          "reason": {
+            "kind": "not_in_document",
+            "feature": "f-box9"
+          },
+          "detail": "remove_faces[1] q=f-box9/top resolution=missing lost.parts=f-box9/top candidates=f-box1/right:0.000167,f-box1/back:0.000104,f-box1/bottom:0.000063,f-box1/front:0.000104"
         }
       ]
     }
@@ -26,12 +103,12 @@
     {
       "id": "b-1",
       "name": "Body 1",
-      "volume": 22112.0,
+      "volume": 22112.000000000007,
       "area": 22632.0,
       "center_of_mass": [
-        4.2737963031880106e-17,
-        0.0,
-        10.573082489146163
+        -7.207612863196023e-16,
+        6.589037082471443e-16,
+        10.573082489146172
       ],
       "bounding_box": {
         "min": [

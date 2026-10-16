@@ -11,7 +11,6 @@ import {
 } from '../app/actions/command'
 import { updateSettings } from '../app/actions/settings'
 import { useApp, useAppState } from '../app/AppProvider'
-import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { formatShortcut } from '../commands/shortcuts'
 import { Button } from '../components/Button'
@@ -19,9 +18,13 @@ import { IconButton } from '../components/IconButton'
 import { useOverflowEdges } from '../components/overflow-edges'
 import { Tooltip } from '../components/Tooltip'
 import { isPlainNumber } from '../expression/step'
-import type { Diagnostic } from '../generated/protocol'
+import type { Diagnostic, FixAction, Severity } from '../generated/protocol'
 import { MESSAGES } from '../messages'
 import { SeverityIcon } from '../print/SeverityIcon'
+import { MessageActions } from '../repair/MessageActions'
+import { selectRepairMode, type RepairView } from '../repair/repair'
+import { RepairCandidates } from '../repair/RepairCandidates'
+import { sameValue } from '../app/actions/command-values'
 import type { ActiveCommand, CatalogFeature } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { ChoiceField } from './fields/ChoiceField'
@@ -29,8 +32,8 @@ import { ExpressionField } from './fields/ExpressionField'
 import { fieldInputId, focusFieldInput } from './fields/field-id'
 import { SelectionField } from './fields/SelectionField'
 import { NumberField, SwitchField, TextValueField, UnsupportedField } from './fields/ValueFields'
-import { buildInspectorModel, fieldsOf, siblingsOf, type InspectorField } from './model'
-import { messagesByField } from './status'
+import { buildInspectorModel, fieldsOf, getParam, siblingsOf, type InspectorField } from './model'
+import { messagesByField, pointsInto } from './status'
 
 // The inspector of a feature command (ui.md 3.7): the status banner, the essential fields, the
 // rest behind "More options", and Cancel and OK.
@@ -110,114 +113,144 @@ function FieldControl({
   }
 }
 
-/** A fix action of a status message (4.2), and the field whose input gets focus after it (3.7). */
-type Fix = { readonly label: string; readonly focusPath: string; readonly run: () => void }
-
 /**
- * The Reverse fixes of a feature with an inline Reverse (4.2): a negative plain number out of range
- * in the field Reverse sits on is used positive with Reverse toggled; a cut or intersect that does
- * nothing, and a through-all extent that misses, offer Reverse.
+ * The text of the UI's own fix of a feature with an inline Reverse (4.2), which is exact: a negative
+ * plain number out of range in the field Reverse is attached to is used positive with Reverse
+ * toggled, "Reverse and use {text}". Null when the message does not call for it; every other fix is
+ * the core's.
  */
-function reverseFixes(
-  app: App,
+function reversedText(
   message: Diagnostic,
   field: InspectorField | null,
   toggle: InspectorField | null,
-  params: Readonly<Record<string, unknown>>,
-): readonly Fix[] {
-  if (toggle === null) {
-    return []
-  }
-  const reverse: Fix = {
-    label: 'Reverse',
-    // Focus on the Reverse button itself would make the next Enter toggle it back (3.5).
-    focusPath: toggle.attachedTo ?? toggle.path,
-    run: () => {
-      setCommandField(app, toggle.path, toggle.value !== true)
-    },
-  }
+): string | null {
   const text = typeof field?.value === 'string' ? field.value.trim() : ''
-  if (
-    message.code === 'out_of_range' &&
+  const applies =
+    toggle !== null &&
     field !== null &&
+    message.code === 'out_of_range' &&
     field.path === toggle.attachedTo &&
     isPlainNumber(text) &&
     text.startsWith('-')
-  ) {
-    const positive = text.slice(1)
-    return [
-      {
-        label: `Reverse and use ${positive}`,
-        focusPath: field.path,
-        run: () => {
-          reverseAndUse(app, field.path, positive)
-        },
-      },
-    ]
-  }
-  const operation = params['op']
-  if (
-    (message.code === 'no_effect' && (operation === 'cut' || operation === 'intersect')) ||
-    message.code === 'through_all_misses'
-  ) {
-    return [reverse]
-  }
-  return []
+  return applies ? text.slice(1) : null
 }
 
-/** The status banner: errors in an alert, else warnings, each with its fixes (3.7, 4.2). */
+/** The banner's look per severity (3.7): errors on `errorSubtle`, warnings on `warningSubtle`, notices on `surface`. */
+const BANNER_BACKGROUNDS: Readonly<Record<Severity, string>> = {
+  error: COLOR_CLASSES.errorSubtle.background,
+  warning: COLOR_CLASSES.warningSubtle.background,
+  info: COLOR_CLASSES.surface.background,
+}
+
+const BANNER_TEXT: Readonly<Record<Severity, string>> = {
+  error: COLOR_CLASSES.errorText.foreground,
+  warning: COLOR_CLASSES.text.foreground,
+  info: COLOR_CLASSES.text.foreground,
+}
+
+/**
+ * The message of the shown ones that carries the current repair: the one with a candidate's
+ * action, else the one about its field; none when the banner does not show it, such as a warning
+ * under an error, so its candidates are never listed under another problem (3.7).
+ */
+function repairMessageOf(
+  shown: readonly Diagnostic[],
+  view: RepairView,
+  candidateActions: ReadonlySet<FixAction>,
+): Diagnostic | undefined {
+  const path = view.repair.path
+  return (
+    shown.find((message) =>
+      (message.actions ?? []).some((action) => candidateActions.has(action)),
+    ) ??
+    shown.find((message) => {
+      const field = message.field ?? null
+      return field !== null && pointsInto(path, field)
+    })
+  )
+}
+
+/**
+ * The status banner (3.7): errors in an alert, else warnings, else info notices, each followed by
+ * its actions, its cause line with the cause's actions and Copy details; in repair mode the current
+ * repair's candidates replace the actions that store them.
+ */
 function StatusBanner({
+  featureId,
   messages,
   fieldOf,
+  fields,
   toggle,
   params,
 }: {
+  readonly featureId: string
   readonly messages: readonly Diagnostic[]
   readonly fieldOf: (message: Diagnostic) => InspectorField | null
+  /** The command's fields in display order, for where focus goes after an action. */
+  readonly fields: readonly InspectorField[]
   /** The inline Reverse toggle, or null. */
   readonly toggle: InspectorField | null
   readonly params: Readonly<Record<string, unknown>>
 }) {
   const app = useApp()
-  const errors = messages.filter((message) => message.severity === 'error')
-  const shown =
-    errors.length > 0 ? errors : messages.filter((message) => message.severity === 'warning')
-  if (shown.length === 0) {
+  const mode = useAppState(selectRepairMode)
+  const view = mode?.feature === featureId ? mode.view : null
+  const bySeverity = (severity: Severity) =>
+    messages.filter((message) => message.severity === severity)
+  const errors = bySeverity('error')
+  const warnings = bySeverity('warning')
+  const shown = errors.length > 0 ? errors : warnings.length > 0 ? warnings : bySeverity('info')
+  const [first] = shown
+  if (first === undefined) {
     return null
   }
-  const error = errors.length > 0
-  const textClass = error ? COLOR_CLASSES.errorText.foreground : COLOR_CLASSES.text.foreground
+  const severity = first.severity
+  const candidateActions: ReadonlySet<FixAction> = new Set(
+    (view?.candidates ?? []).flatMap((candidate) =>
+      candidate.action === null ? [] : [candidate.action],
+    ),
+  )
+  const repairMessage = view === null ? undefined : repairMessageOf(shown, view, candidateActions)
+
+  /**
+   * After an action, focus goes to the first field, in display order, whose value it changed (for
+   * a toggle, the field it is attached to, so the next Enter confirms instead of toggling it back),
+   * else to the field the message is about (3.7).
+   */
+  function focusAfter(message: Diagnostic): () => void {
+    return () => {
+      const after = app.store.getState().command?.params ?? params
+      const changed = fields.find(
+        (field) => !sameValue(getParam(params, field.path), getParam(after, field.path)),
+      )
+      const path =
+        changed === undefined
+          ? (fieldOf(message)?.path ?? null)
+          : changed.control.type === 'toggle'
+            ? (changed.attachedTo ?? changed.path)
+            : changed.path
+      if (path !== null) {
+        focusFieldInput(document.getElementById(fieldInputId(path)))
+      }
+    }
+  }
+
   return (
     <div
       data-testid="inspector-error"
-      role={error ? 'alert' : undefined}
-      className={clsx(
-        'flex flex-col gap-2 rounded-lg p-3 text-sm',
-        error ? COLOR_CLASSES.errorSubtle.background : COLOR_CLASSES.warningSubtle.background,
-      )}
+      data-severity={severity}
+      role={severity === 'error' ? 'alert' : undefined}
+      className={clsx('flex flex-col gap-3 rounded-lg p-3 text-sm', BANNER_BACKGROUNDS[severity])}
     >
       {shown.map((message, index) => {
         const field = fieldOf(message)
-        const suggestion = message.suggestion ?? null
-        const fixes: readonly Fix[] = [
-          ...(field === null || suggestion === null
-            ? []
-            : [
-                {
-                  label: `Use ${suggestion}`,
-                  focusPath: field.path,
-                  run: () => {
-                    setCommandField(app, field.path, suggestion)
-                  },
-                },
-              ]),
-          ...reverseFixes(app, message, field, toggle, params),
-        ]
+        const positive = reversedText(message, field, toggle)
+        const textClass = BANNER_TEXT[severity]
         return (
           // Messages carry no id; their order is the core's.
           // oxlint-disable-next-line react/no-array-index-key
           <div key={index} className="flex items-start gap-2">
-            <SeverityIcon severity={error ? 'error' : 'warning'} className="mt-0.5" />
+            <SeverityIcon severity={severity} className="mt-0.5" />
             <div className="flex min-w-0 flex-col gap-2">
               {field === null ? (
                 <p className={textClass}>{message.message}</p>
@@ -240,21 +273,29 @@ function StatusBanner({
                   {message.message}
                 </button>
               )}
-              {fixes.map((fix) => (
-                <Button
-                  key={fix.label}
-                  variant="banner"
-                  className="self-start"
-                  onClick={() => {
-                    fix.run()
-                    // The banner goes when the fix clears its message, so focus stays in the
-                    // inspector, where Enter confirms (3.5, 3.7).
-                    focusFieldInput(document.getElementById(fieldInputId(fix.focusPath)))
-                  }}
-                >
-                  {fix.label}
-                </Button>
-              ))}
+              {view !== null && message === repairMessage ? (
+                <RepairCandidates candidates={view.candidates} onRan={focusAfter(message)} />
+              ) : null}
+              <MessageActions
+                message={message}
+                place="banner"
+                omitted={candidateActions}
+                own={
+                  field === null || positive === null ? null : (
+                    <Button
+                      variant="banner"
+                      onClick={() => {
+                        reverseAndUse(app, field.path, positive)
+                        // Focus on the field, not on Reverse, so the next Enter confirms (3.5, 3.7).
+                        focusFieldInput(document.getElementById(fieldInputId(field.path)))
+                      }}
+                    >
+                      {`Reverse and use ${positive}`}
+                    </Button>
+                  )
+                }
+                onRan={focusAfter(message)}
+              />
             </div>
           </div>
         )
@@ -288,9 +329,10 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
   const fields = fieldsOf(model)
   const toggles = fields.filter((field) => field.control.type === 'toggle')
   const messages = status?.messages ?? []
+  // An info notice is not shown as its field's error (3.7).
   const byField = messagesByField(
     fields.map((field) => field.path),
-    messages,
+    messages.filter((message) => message.severity !== 'info'),
   )
   const fieldOf = (message: Diagnostic): InspectorField | null => {
     for (const [path, mapped] of byField) {
@@ -348,8 +390,10 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
         )}
       >
         <StatusBanner
+          featureId={command.featureId}
           messages={messages}
           fieldOf={fieldOf}
+          fields={fields}
           toggle={toggles[0] ?? null}
           params={command.params}
         />

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ._files import write_atomic
 from .document import Document, Part, warn
+from .errors import PartsmithWarning
 from .expressions import DEGREE, raw_number
 from .selectors import Axis, rotation_rows
 
@@ -85,7 +86,7 @@ def _export(
         "export", format=file_format, bodies=bodies, tolerance=tolerance, orientation=orientation
     )
     for warning in reply.result["warnings"]:
-        warn(warning["message"])
+        warn(PartsmithWarning(warning["message"], code=warning["code"]))
     files = reply.result["files"]
     target = Path(path)
     if into_directory:

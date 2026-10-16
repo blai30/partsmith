@@ -11,7 +11,7 @@ use partsmith_sketch::{
 use super::common::{essential, hint, manifest, selection_hint};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FeatureWarning};
+use crate::error::{FeatureError, FeatureWarning, Placed};
 use crate::feature::Feature;
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 
@@ -105,14 +105,19 @@ impl Feature for SketchFeature {
                 face,
                 fallback,
                 ..
-            } => match context.face_placement(body, face, fallback)? {
-                Ok(placement) => placement,
-                Err(reason) => {
+            } => match context.face_placement(FACE_FIELD, body, face, fallback)? {
+                Ok(placed) => {
+                    warnings.extend(placed.warnings);
+                    placed.value
+                }
+                Err(face_fallback) => {
                     warnings.push(FeatureWarning::PlaneFallback {
                         field: context.field(FACE_FIELD),
                         body: body.clone(),
                         reference: face.clone(),
-                        reason,
+                        loss: face_fallback.loss,
+                        cause: face_fallback.cause,
+                        placed: Placed::Saved,
                     });
                     *fallback
                 }

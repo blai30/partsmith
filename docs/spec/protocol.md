@@ -1666,7 +1666,7 @@ Rust tests live in `crates/partsmith-protocol/tests/` and `crates/partsmith-wasm
 **WebAssembly bridge (native tests of `partsmith-wasm`)**
 
 47. `ps_alloc(16)` returns a non-null pointer whose address is a multiple of 8; `ps_free` of it with length 16 succeeds; `ps_alloc(0)` returns null and `ps_free(null, 0)` does nothing.
-48. `call(example A)` returns a response frame that `decode_response_frame` accepts, with no events, response id 1, and result `engine_info` with `protocol_version` 1, `engine_version` equal to `CARGO_PKG_VERSION`, `format_version` 2 (`FORMAT_VERSION`, file-format.md section 3.9).
+48. `call(example A)` returns a response frame that `decode_response_frame` accepts, with no events, response id 1, and result `engine_info` with `protocol_version` 1, `engine_version` equal to `partsmith_engine::ENGINE_VERSION` (the engine crate's `CARGO_PKG_VERSION`), `format_version` 2 (`FORMAT_VERSION`, file-format.md section 3.9).
 49. `ps_call` on example A writes the same length that `call` returns into `*response_length` and returns bytes equal to `call(example A)`.
 50. `call(b"hello")` returns an error response with id 0 and code `malformed_frame`.
 51. `call` of example A re-encoded with `protocol_version` 2 returns an error response with id 1 and code `protocol_version_mismatch`.

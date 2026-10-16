@@ -10,6 +10,7 @@ import type {
   ElementKind,
   ElementRef,
   ExportFormat,
+  FixRef,
   Health,
   MeasureTarget,
   Measurement,
@@ -62,6 +63,8 @@ export type CoreApi = {
     label: string | null,
     edits: readonly Edit[],
   ): Promise<number>
+  /** `apply_fix`: applies one fix a diagnostic offered (engine.md 3.22); resolves with the new revision. */
+  applyFix(documentHandle: DocHandle, fix: FixRef): Promise<number>
   renameParameter(documentHandle: DocHandle, parameter: string, name: string): Promise<number>
   beginTransaction(documentHandle: DocHandle, label: string): Promise<void>
   setFocus(documentHandle: DocHandle, feature: string | null): Promise<void>
@@ -118,6 +121,7 @@ export type CoreApi = {
 const REBUILDING_COMMANDS: ReadonlySet<Command['type']> = new Set([
   'open_document',
   'apply_edits',
+  'apply_fix',
   'rename_parameter',
   'set_focus',
   'commit_transaction',
@@ -241,6 +245,9 @@ export function createCoreApi(client: CoreClient): CoreApi {
         edits: [...edits],
       }
       return (await call(command)).result.revision
+    },
+    async applyFix(documentHandle, fix) {
+      return (await call({ type: 'apply_fix', doc: documentHandle, fix })).result.revision
     },
     async renameParameter(documentHandle, parameter, name) {
       const { result } = await call({

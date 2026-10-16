@@ -40,13 +40,13 @@ mod search;
 mod test_support;
 
 pub use context::{
-    BodyState, BuildContext, BuildInputs, CancelToken, Resolved, ResolvedProfile, Usable, Values,
-    WithWarnings,
+    BodyState, BuildContext, BuildInputs, CancelToken, FaceFallback, Resolved, ResolvedProfile,
+    Usable, Values, WithWarnings,
 };
 pub use deps::{AssetLink, Dependencies, ExprUse, Link};
 pub use error::{
-    Because, Bound, Diagnosis, DocumentNames, Explanation, FallbackReason, FeatureError,
-    FeatureWarning, FieldRef, Fix, IgnoredReason, Loss, LossCandidate, Names, Noun, Place,
+    Because, Bound, Diagnosis, DocumentNames, Explanation, FallbackCause, FeatureError,
+    FeatureWarning, FieldRef, Fix, IgnoredReason, Loss, LossCandidate, Names, Noun, Place, Placed,
     RegionLost, RenderContext, Repair, Severity, describe_copy, describe_elements, describe_face,
     format_value, made_from_line, sketch_coordinates,
 };

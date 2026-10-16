@@ -17,6 +17,7 @@ export function createFakeViewport(): FakeViewport {
     toggleProjection: vi.fn<ViewportHandle['toggleProjection']>(),
     lookAlong: vi.fn<ViewportHandle['lookAlong']>(),
     zoomToBounds: vi.fn<ViewportHandle['zoomToBounds']>(),
+    itemBounds: vi.fn<ViewportHandle['itemBounds']>(() => null),
     screenRectangle: vi.fn<ViewportHandle['screenRectangle']>(() => null),
     viewWindow: vi.fn<ViewportHandle['viewWindow']>(() => wholeCanvas({ width: 0, height: 0 })),
     requestRender: vi.fn<ViewportHandle['requestRender']>(),

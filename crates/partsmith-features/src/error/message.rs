@@ -86,16 +86,30 @@ pub enum IgnoredReason {
     TipAngleThroughAll,
 }
 
-/// Why a sketch on a face used its fallback placement.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum FallbackReason {
-    /// The face can no longer be found, or its body is empty.
+/// Why a sketch on a face could not be placed on it (section 3.6, features/sketch.md section 3.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FallbackCause {
+    /// The body is empty or the face reference is lost.
     Missing,
-    /// The face reference matches several faces.
+    /// Several faces fit the reference.
     Ambiguous,
-    /// The face is no longer flat.
+    /// A resolved face is not flat.
     NotPlanar,
+    /// The resolved faces do not lie in one plane. Phase 2's coplanar check reports it.
+    NotCoplanar,
+}
+
+/// Where a sketch that could not be placed on its face was placed instead (features/sketch.md section 3.3).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Placed {
+    /// On the face as it was just before `by`, the earlier writer of the body that removed it, moved with the body
+    /// since. Phase 2's placement before removal places a sketch there.
+    BeforeRemoval {
+        /// The writer that removed the face.
+        by: Id,
+    },
+    /// At the position saved with the sketch (`fallback`).
+    Saved,
 }
 
 /// Looks up what messages need about the document: names, types, records and sketch results (section 3.12).
@@ -312,10 +326,6 @@ mod tests {
 
     #[test]
     fn reasons_serialize_snake_case() {
-        assert_eq!(
-            serde_json::to_value(FallbackReason::NotPlanar).expect("serializes"),
-            "not_planar"
-        );
         assert_eq!(
             serde_json::to_value(IgnoredReason::TipAngleThroughAll).expect("serializes"),
             "tip_angle_through_all"

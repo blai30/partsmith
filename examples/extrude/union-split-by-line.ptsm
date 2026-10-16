@@ -27,8 +27,8 @@
       "profile": {
         "sketch": "f-sk1",
         "regions": [
-          {"key": "e-1,e-2,e-3,~e-5", "fp": "c=60,25|a=2000"},
-          {"key": "e-1,e-3,e-4,e-5", "fp": "c=20,25|a=2000"}
+          {"key": "e-1,e-2,e-3,~e-5", "fp": "c=60,25|a=2000", "outline": "e-1,e-2,e-3,~e-5"},
+          {"key": "e-1,e-3,e-4,e-5", "fp": "c=20,25|a=2000", "outline": "e-1,e-5,e-3,e-4"}
         ]
       },
       "extent": {"kind": "distance", "expr": "10"},

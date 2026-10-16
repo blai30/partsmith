@@ -15,7 +15,6 @@ import { MESSAGES } from '../messages'
 import { requestUi } from '../layout/requests'
 import { markTiming, TIMING_NAMES } from '../performance/marks'
 import { focusedFindingPoint } from '../print/health'
-import { selectRepairMarkers } from '../state/selectors'
 import type { AppState, SectionState, ViewState } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
 import { AXIS_ROLES, COLOR_CLASSES } from '../theme/roles'
@@ -23,7 +22,7 @@ import { createWebGl2Backend } from './backend'
 import { framedArea, orbit, type Vector3 } from './camera'
 import { createViewportController, type RenderedFrame, type ViewportController } from './controller'
 import { keyNavigation } from './navigation'
-import { orientElement, visiblePosition } from './overlay'
+import { orientElement, placeCircle, visiblePosition } from './overlay'
 import { drawnOriginPlanes, originPlaneLabelAnchor, planeExtent } from './planes'
 import { createScene, type Scene } from './scene'
 import { defaultSectionOffset, type SectionPlane } from './section'
@@ -33,6 +32,8 @@ import { ViewportControls, type SelectionFilterKind } from './ViewportControls'
 import { ViewportMenu } from './ViewportMenu'
 import { CanvasLayerContext } from './canvas-layer'
 import { VIEW_ID } from '../layout/focus'
+import { paintRepairOverlay } from '../repair/paint'
+import { RepairOverlay } from '../repair/RepairOverlay'
 
 // The 3D view (ui.md 3.2, 3.12 to 3.15): the canvas and its controller under the islands, the
 // overlay layer, and the free-area layer with the view cube, the viewport controls and legend, the
@@ -308,20 +309,6 @@ function SectionOffset({ scene }: { readonly scene: Scene }) {
 /** The finding marker's radius in CSS pixels: a ring 16 pixels across (3.17). */
 const FINDING_MARKER_RADIUS = 8
 
-/** Moves each repair marker over its point, or hides it behind the eye or outside the free area (3.7). */
-function placeRepairMarkers(overlay: HTMLElement | null, frame: RenderedFrame): void {
-  for (const marker of overlay?.querySelectorAll<SVGCircleElement>(
-    '[data-testid="repair-marker"]',
-  ) ?? []) {
-    const point: Vector3 = [
-      Number(marker.dataset['x']),
-      Number(marker.dataset['y']),
-      Number(marker.dataset['z']),
-    ]
-    placeFindingMarker(marker, point, frame)
-  }
-}
-
 /** Apps whose first usable frame has been marked as `ps:usable`. */
 const usableMarked = new WeakSet<App>()
 
@@ -334,17 +321,10 @@ function placeFindingMarker(
   if (marker === null) {
     return
   }
-  const position = visiblePosition(
-    point === null ? null : frame.project(point),
-    framedArea(frame.view),
+  placeCircle(
+    marker,
+    visiblePosition(point === null ? null : frame.project(point), framedArea(frame.view)),
   )
-  if (position === null) {
-    marker.setAttribute('display', 'none')
-    return
-  }
-  marker.setAttribute('cx', String(position.x))
-  marker.setAttribute('cy', String(position.y))
-  marker.removeAttribute('display')
 }
 
 export function Viewport({ legend = null, children }: ViewportProps) {
@@ -370,7 +350,6 @@ export function Viewport({ legend = null, children }: ViewportProps) {
   const selectionCount = useAppState((state) => state.selection.length)
   const gridSpacing = useAppState(gridSpacingText)
   const findingPoint = useAppState(focusedFindingPoint)
-  const repairMarkers = useAppState(selectRepairMarkers)
   // The controller draws a frame when the print state changes, which places the marker (3.17).
   const findingMarker = useRef<SVGCircleElement>(null)
   const platform = app.platform
@@ -408,7 +387,7 @@ export function Viewport({ legend = null, children }: ViewportProps) {
       }
       const state = app.store.getState()
       placeFindingMarker(findingMarker.current, focusedFindingPoint(state), frame)
-      placeRepairMarkers(overlayElement, frame)
+      paintRepairOverlay(overlayElement, frame, state)
       // The first frame with the startup document makes the app usable (3.1).
       if (!usableMarked.has(app) && state.core.status === 'ready' && state.document !== null) {
         usableMarked.add(app)
@@ -430,13 +409,6 @@ export function Viewport({ legend = null, children }: ViewportProps) {
       backend.dispose()
     }
   }, [app])
-
-  // New repair markers are placed by the next frame.
-  useEffect(() => {
-    if (repairMarkers.length > 0) {
-      app.viewport()?.requestRender()
-    }
-  }, [app, repairMarkers])
 
   // A section turned on without an offset starts at the visible center (3.15).
   useEffect(() => {
@@ -535,22 +507,8 @@ export function Viewport({ legend = null, children }: ViewportProps) {
               className={clsx('fill-none stroke-2', COLOR_CLASSES.errorMark.stroke)}
             />
           )}
-          {repairMarkers.map((marker) => (
-            <circle
-              key={marker.at.join(',')}
-              data-testid="repair-marker"
-              data-x={marker.at[0]}
-              data-y={marker.at[1]}
-              data-z={marker.at[2]}
-              r={FINDING_MARKER_RADIUS}
-              display="none"
-              strokeDasharray="4 3"
-              className={clsx('fill-none stroke-2', COLOR_CLASSES.errorMark.stroke)}
-            >
-              <title>{`Where the missing ${marker.noun} was`}</title>
-            </circle>
-          ))}
         </svg>
+        <RepairOverlay />
         {scene === null ? null : <AxisLabels scene={scene} />}
         {scene === null ? null : <PlaneLabels scene={scene} />}
       </div>

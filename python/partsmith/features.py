@@ -56,6 +56,9 @@ AXIS_MESSAGE = "Only Axis.X, Axis.Y, Axis.Z, sketch lines, straight edges and ro
 ORIGIN_POSITION = ["0", "0", "0"]
 """The default `position` and `translation` of the feature specs."""
 
+FALLBACK_FRAMES = ("world", "body")
+"""The frames a sketch's fallback placement can be given in (features/sketch.md section 2)."""
+
 
 class Feature:
     """A feature of a document's timeline."""
@@ -608,26 +611,39 @@ def axis_reference(function: str, value: object) -> dict:
         if value.part is None:
             raise ValueError(f"{function}() needs part= on a Ref used as an axis.")
         kind = "face" if value.fp.split("|", 1)[0] in SURFACE_TOKENS else "edge"
-        return {"kind": kind, "body": value.part.id, kind: value._json()}
+        axis = {"kind": kind, "body": value.part.id, kind: value._json()}
+        if value.direction is not None:
+            axis["direction"] = list(value.direction)
+        return axis
     raise TypeError(
         f"{function}() axis must be an Axis, a sketch Line, an edge, a face or a Ref, not {type(value).__name__}."
     )
 
 
-def sketch_plane(plane: object, fallback: Placement | None) -> tuple[Document | None, dict]:
-    """The document a sketch plane belongs to (None for origin planes) and its `SketchPlane`."""
+def sketch_plane(plane: object, fallback: Placement | None, fallback_frame: str | None) -> tuple[Document | None, dict]:
+    """The document a sketch plane belongs to (None for origin planes) and its `SketchPlane`.
+
+    A given fallback is stored in the frame `fallback_frame` names: "body" is written as is, while
+    "world" and None write no frame, which means world coordinates (python-api.md section 3.4).
+    """
+    if fallback_frame is not None and fallback_frame not in FALLBACK_FRAMES:
+        raise ValueError(f"Sketch() fallback_frame must be 'world' or 'body', not {fallback_frame!r}.")
     if isinstance(plane, (Element, Selection, Ref)):
         part, face, placement = _face("A sketch", plane)
         if fallback is None:
+            if fallback_frame is not None:
+                raise ValueError("Sketch() fallback_frame names the frame of fallback=; pass both.")
             if placement is None:
                 raise ValueError("A sketch on a Ref needs fallback=, the placement it keeps when the face is missing.")
             fallback = placement
         elif not isinstance(fallback, Placement):
             raise TypeError(f"Sketch() fallback must be a Placement, not {type(fallback).__name__}.")
         sketch_face = {"kind": "face", "body": part.id, "face": face, "fallback": fallback._json(part.document)}
+        if fallback_frame == "body":
+            sketch_face["fallback_frame"] = fallback_frame
         return part.document, sketch_face
-    if fallback is not None:
-        raise ValueError("Sketch() fallback applies only to sketches on a face.")
+    if fallback is not None or fallback_frame is not None:
+        raise ValueError("Sketch() fallback and fallback_frame apply only to sketches on a face.")
     if isinstance(plane, Feature) and plane.type == "datum_plane":
         return plane.document, {"kind": "datum", "feature": plane.id}
     if isinstance(plane, Plane):
@@ -742,7 +758,7 @@ def _profile(function: str, profile: object, regions: Sequence[Region] | None, d
         if not isinstance(region, Region):
             raise TypeError(f"{function}() regions must be Region objects, not {type(region).__name__}.")
         if region.fp is not None:
-            references.append({"key": region.key, "fp": region.fp})
+            references.append(region._json())
             continue
         match = next((reference for reference in solved if reference["key"] == region.key), None)
         if match is None:
@@ -819,7 +835,8 @@ def _document_of(value: object) -> Document | None:
     if isinstance(value, Element):
         return value.part.document
     if isinstance(value, Selection) and len(value) > 0:
-        return value[0].part.document
+        # Iterated, not indexed: indexing a selection warns about the user's line (section 3.6).
+        return next(iter(value)).part.document
     if isinstance(value, Ref) and value.part is not None:
         return value.part.document
     return None

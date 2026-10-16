@@ -9,6 +9,7 @@ import type {
   ElementDescriptor,
   FeatureManifest,
   FeatureStatus,
+  Ghost,
   Orientation,
   OriginPlane,
   ParameterValue,
@@ -52,6 +53,20 @@ export type AppState = {
   readonly pickHint: PickHint | null
   /** The feature type of the last feature command started in this session, which Repeat starts again (3.5); null before any. */
   readonly lastFeatureType: string | null
+  /** The feature whose Problems row shows repair mode at rest (3.7, 3.9), or null; during a feature command repair mode follows the command. */
+  readonly repair: RepairFocus | null
+  /** What the last `show` action selected, with the cause's ghost it draws (4.2), or null; cleared when the selection changes. */
+  readonly shown: ShownCause | null
+}
+
+/** The feature whose repairs repair mode shows (3.7); its current repair follows the active field. */
+export type RepairFocus = { readonly feature: string }
+
+/** A `show` action's feature and entity, and the ghost of the cause line it came from (null for a message action, 4.2). */
+export type ShownCause = {
+  readonly feature: string
+  readonly entity: string | null
+  readonly ghost: Ghost | null
 }
 
 export type CoreState = {
@@ -100,6 +115,8 @@ export type DocumentState = {
   /** Model-layer mesh metadata by body id; buffers live in the scene, not the store. */
   readonly meshes: Readonly<Record<string, MeshSummary>>
   readonly lastRebuildMilliseconds: number | null
+  /** The ghost buffers of the latest `recomputed` (2.7), by buffer index. */
+  readonly ghosts: Readonly<Record<number, Float32Array>>
 }
 
 export type MeshSummary = {
@@ -269,16 +286,28 @@ export type PanelsState = {
   readonly inspectorPosition: { readonly x: number; readonly y: number } | null
 }
 
+/** A button of a notification. */
+export type NotificationAction = {
+  readonly label: string
+  readonly run: () => void
+  /** True for a message's `apply` action, a document edit that waits during a feature command (3.7). */
+  readonly editsDocument?: boolean
+}
+
 export type Notification = {
   readonly id: string
   readonly severity: 'info' | 'success' | 'warning' | 'error'
   readonly message: string
-  readonly actions: readonly { readonly label: string; readonly run: () => void }[]
+  readonly actions: readonly NotificationAction[]
   readonly createdAt: number
   /** The core's error or diagnostic code, or the id of a UI-owned message (4.3), shown as `data-code` (4.1). */
   readonly code?: string
-  /** Feature ids a failure notification names; it is dismissed once none of them is in error (4.2). Absent for other notifications. */
+  /** Feature ids a failure or loss notification names; it is dismissed once none of them is in error and none of its `problems` remains (4.2). Absent for other notifications. */
   readonly features?: readonly string[]
+  /** The cause line shown under the message, in `textMuted` (3.22); absent when there is none. */
+  readonly cause?: string
+  /** Keys `{feature} {code} {field}` of the new losses a loss notification reports (4.2); absent for other notifications. */
+  readonly problems?: readonly string[]
 }
 
 /** A live region message; `id` changes with every announcement, so a repeated text is read again. */
@@ -350,6 +379,8 @@ export const INITIAL_STATE: AppState = {
   announcement: null,
   pickHint: null,
   lastFeatureType: null,
+  repair: null,
+  shown: null,
 }
 
 /**

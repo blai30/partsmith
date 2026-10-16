@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Command, Event as ProtocolEvent, Request } from '../generated/protocol'
+import type { Command, Event as ProtocolEvent, FixAction, Request } from '../generated/protocol'
 import { emptyDocument } from '../test/fakes/documents'
 import { readRequest, responseFrame, type ResponseBody } from '../test/fakes/protocol'
 import { CoreError, createCoreClient } from './client'
@@ -183,6 +183,31 @@ describe('createCoreClient', () => {
     expect(error.message).toBe('There is no feature with id f-x.')
     expect(error.editIndex).toBe(1)
     expect(error.span).toBeNull()
+    expect(error.detail).toBeNull()
+    expect(error.actions).toEqual([])
+  })
+
+  it('U-147 an error with a detail and actions rejects with a CoreError carrying both', async () => {
+    const finish: FixAction = {
+      label: 'Finish "Fillet" and save',
+      run: { kind: 'finish_transaction' },
+    }
+    const transport = scriptedTransport(() => ({
+      error: {
+        code: 'transaction_open',
+        message: 'Finish or cancel "Fillet" first.',
+        detail: 'boom',
+        actions: [finish],
+      },
+    }))
+    const client = createCoreClient(transport)
+    const error = await rejectionOf(client.request(UNDO))
+    expect(error).toBeInstanceOf(CoreError)
+    if (!(error instanceof CoreError)) {
+      return
+    }
+    expect(error.detail).toBe('boom')
+    expect(error.actions).toEqual([finish])
   })
 
   it('a CoreError without an edit index has editIndex null, and carries an expression error span', async () => {

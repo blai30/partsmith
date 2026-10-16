@@ -15,13 +15,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use partsmith_model::{Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE, Units};
-use partsmith_naming::{
-    ElementInfo, ElementKind, GeometryKind as NameGeometry, Reference, Resolution,
-};
+use partsmith_naming::{ElementInfo, ElementKind, GeometryKind as NameGeometry, Reference};
 use partsmith_occt_sys::{Axis, ElementGeometry, GeometryKind, Point, SubShape, Vector};
 use partsmith_sketch::{Geometry, OriginPlane, Placement, Succession};
 
-use crate::error::{Bound, FallbackReason, FeatureError, FeatureWarning, FieldRef, Noun};
+use crate::error::{Bound, FallbackCause, FeatureError, FeatureWarning, FieldRef, Loss, Noun};
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 use crate::params::{AxisRef, PlaneRef, point, vector};
 
@@ -270,34 +268,48 @@ impl<'a> BuildContext<'a> {
     }
 
     /// Places a plane on a flat face of a declared body with `hint` as the reference placement
-    /// (section 3.6): the face placement rule with `hint` in place of the XY placement. The inner
-    /// `Err` is the reason the face cannot place it (empty body or missing reference, ambiguous
-    /// reference, face not flat), so the caller can fall back; the outer `Err` is for failures no
-    /// fallback fixes, such as an undeclared body or a kernel error while reading the face.
+    /// (section 3.6): the face placement rule with `hint` in place of the XY placement, with the
+    /// warnings and notices of the face reference at `field` (a guess, a follow, section 3.8). The
+    /// inner `Err` says why the face cannot place it (an empty body, a missing or ambiguous
+    /// reference with its loss, a face that is not flat), so the caller can fall back; the outer
+    /// `Err` is for failures no fallback fixes, such as an undeclared body or a kernel error while
+    /// reading the face.
     pub fn face_placement(
         &self,
+        field: &str,
         body: &Id,
         face: &Reference,
         hint: &Placement,
-    ) -> Result<Result<Placement, FallbackReason>, FeatureError> {
+    ) -> Result<Result<WithWarnings<Placement>, FaceFallback>, FeatureError> {
         let state = self.body(body)?;
         let Some(shape) = state.shape() else {
-            return Ok(Err(FallbackReason::Missing));
+            return Ok(Err(FaceFallback::without_loss(FallbackCause::Missing)));
         };
-        if face.query.kind() != ElementKind::Face {
-            return Ok(Err(FallbackReason::Missing));
+        let resolved = self.resolve_references(
+            field,
+            body,
+            std::slice::from_ref(face),
+            ElementKind::Face,
+            false,
+            &is_flat,
+        )?;
+        if let Some(fallback) = resolved.warnings.iter().find_map(lost_face) {
+            return Ok(Err(fallback));
         }
-        let set = state.element_set()?;
-        let first = match partsmith_naming::resolve(face, &set) {
-            Resolution::Resolved { elements, .. } => elements.into_iter().next(),
-            Resolution::Ambiguous { .. } => return Ok(Err(FallbackReason::Ambiguous)),
-            Resolution::Missing { .. } => return Ok(Err(FallbackReason::Missing)),
+        let first = resolved
+            .elements
+            .first()
+            .ok_or_else(|| FeatureError::internal("a resolved face has no element"))?;
+        let geometry = shape.element(first.kind, first.index)?;
+        let Some(placement) = on_face(&geometry, hint)? else {
+            return Ok(Err(FaceFallback::without_loss(FallbackCause::NotPlanar)));
         };
-        let index = first
-            .and_then(|name| state.naming().index(&name))
-            .ok_or_else(|| FeatureError::internal("a resolved face has no index"))?;
-        let geometry = shape.element(partsmith_occt_sys::SubShapeKind::Face, index)?;
-        Ok(on_face(&geometry, hint)?.ok_or(FallbackReason::NotPlanar))
+        let mut warnings = resolved.warnings;
+        warnings.extend(resolved.notices);
+        Ok(Ok(WithWarnings {
+            value: placement,
+            warnings,
+        }))
     }
 
     /// Resolves an axis to a unit direction through a point (section 3.6), with the warnings and notices of its
@@ -507,6 +519,23 @@ impl<T> WithWarnings<T> {
     }
 }
 
+/// Why a face cannot place a plane (section 3.6).
+#[derive(Clone, Debug, PartialEq)]
+pub struct FaceFallback {
+    /// The reason.
+    pub cause: FallbackCause,
+    /// The loss behind it: the resolver's loss for `Missing` and `Ambiguous` (none for an empty body), and for
+    /// `NotCoplanar` an ambiguous loss whose candidates are the resolved faces; none for `NotPlanar`.
+    pub loss: Option<Loss>,
+}
+
+impl FaceFallback {
+    /// A fallback with no loss behind it: an empty body, or a face that is not flat.
+    fn without_loss(cause: FallbackCause) -> FaceFallback {
+        FaceFallback { cause, loss: None }
+    }
+}
+
 /// Shared cancellation flag for one run. Cloning shares the flag.
 #[derive(Clone, Debug, Default)]
 pub struct CancelToken {
@@ -546,6 +575,21 @@ fn every_element(_info: &ElementInfo) -> Result<bool, FeatureError> {
 /// A plane or sketch face can use only flat faces (section 3.8).
 fn is_flat(info: &ElementInfo) -> Result<bool, FeatureError> {
     Ok(info.fingerprint.kind == NameGeometry::Plane)
+}
+
+/// Why a face reference cannot place a plane, with its loss, for a warning that reports it lost (section 3.6).
+fn lost_face(warning: &FeatureWarning) -> Option<FaceFallback> {
+    match warning {
+        FeatureWarning::ReferenceLost { loss, .. } => Some(FaceFallback {
+            cause: if loss.ambiguous {
+                FallbackCause::Ambiguous
+            } else {
+                FallbackCause::Missing
+            },
+            loss: Some(loss.clone()),
+        }),
+        _ => None,
+    }
 }
 
 /// An edge axis can use only straight edges (section 3.8).
@@ -1158,17 +1202,21 @@ mod tests {
         fixture: &Fixture,
         query: &str,
         fingerprint: &str,
-    ) -> Result<Result<Placement, FallbackReason>, FeatureError> {
-        fixture
-            .context()
-            .face_placement(&id("b-1"), &reference(query, fingerprint), &tilted_hint())
+    ) -> Result<Result<WithWarnings<Placement>, FaceFallback>, FeatureError> {
+        fixture.context().face_placement(
+            "plane.face",
+            &id("b-1"),
+            &reference(query, fingerprint),
+            &tilted_hint(),
+        )
     }
 
     #[test]
     fn face_placement_projects_the_hint_onto_a_flat_face() {
-        let placement = face_placement_of(&box_fixture(), "f-box1/top", "plane|n=0,0,1")
+        let placed = face_placement_of(&box_fixture(), "f-box1/top", "plane|n=0,0,1")
             .expect("nothing fails")
             .expect("the top is flat");
+        let placement = placed.value;
 
         let close = |actual: [f64; 3], expected: [f64; 3]| {
             actual
@@ -1179,38 +1227,66 @@ mod tests {
         assert!(close(placement.origin, [1.0, 2.0, 10.0]), "{placement:?}");
         assert!(close(placement.x_axis, [1.0, 0.0, 0.0]), "{placement:?}");
         assert!(close(placement.normal, [0.0, 0.0, 1.0]), "{placement:?}");
+        assert!(placed.warnings.is_empty(), "{:?}", placed.warnings);
+    }
+
+    /// The fallback of a face placement that could not use its face.
+    fn fallback(
+        result: Result<Result<WithWarnings<Placement>, FaceFallback>, FeatureError>,
+    ) -> FaceFallback {
+        match result {
+            Ok(Err(fallback)) => fallback,
+            other => panic!("expected a fallback, got {other:?}"),
+        }
     }
 
     #[test]
-    fn face_placement_of_a_lost_face_is_missing() {
-        let result = face_placement_of(&box_fixture(), "f-box9/top", LOST_FACE);
+    fn face_placement_of_a_lost_face_is_missing_with_its_loss() {
+        let fallback = fallback(face_placement_of(&box_fixture(), "f-box9/top", LOST_FACE));
 
-        assert_eq!(result, Ok(Err(FallbackReason::Missing)));
+        assert_eq!(fallback.cause, FallbackCause::Missing);
+        let loss = fallback.loss.expect("a lost reference has a loss");
+        assert!(!loss.ambiguous);
+        assert_eq!(loss.position, 0);
+        assert_eq!(loss.reference.query.as_str(), "f-box9/top");
     }
 
     #[test]
     fn face_placement_of_an_edge_reference_is_missing() {
-        let result = face_placement_of(
+        let fallback = fallback(face_placement_of(
             &box_fixture(),
             "edge(f-box1/front|f-box1/top)",
             "line|n=1,0,0",
+        ));
+
+        assert_eq!(fallback.cause, FallbackCause::Missing);
+        assert!(fallback.loss.is_some_and(|loss| !loss.ambiguous));
+    }
+
+    #[test]
+    fn face_placement_of_an_ambiguous_face_is_ambiguous_with_its_loss() {
+        let fallback = fallback(face_placement_of(
+            &imported_box_fixture(),
+            GONE_IMPORTED_FACE,
+            ANY_BOX_FACE,
+        ));
+
+        assert_eq!(fallback.cause, FallbackCause::Ambiguous);
+        assert!(fallback.loss.is_some_and(|loss| loss.ambiguous));
+    }
+
+    #[test]
+    fn face_placement_of_a_round_face_is_not_planar_without_a_loss() {
+        let fallback = fallback(face_placement_of(
+            &cylinder_fixture(),
+            "f-cyl1/side",
+            "cylinder|n=0,0,1",
+        ));
+
+        assert_eq!(
+            fallback,
+            FaceFallback::without_loss(FallbackCause::NotPlanar)
         );
-
-        assert_eq!(result, Ok(Err(FallbackReason::Missing)));
-    }
-
-    #[test]
-    fn face_placement_of_an_ambiguous_face_is_ambiguous() {
-        let result = face_placement_of(&imported_box_fixture(), GONE_IMPORTED_FACE, ANY_BOX_FACE);
-
-        assert_eq!(result, Ok(Err(FallbackReason::Ambiguous)));
-    }
-
-    #[test]
-    fn face_placement_of_a_round_face_is_not_planar() {
-        let result = face_placement_of(&cylinder_fixture(), "f-cyl1/side", "cylinder|n=0,0,1");
-
-        assert_eq!(result, Ok(Err(FallbackReason::NotPlanar)));
     }
 
     #[test]

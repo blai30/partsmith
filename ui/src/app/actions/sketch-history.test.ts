@@ -29,6 +29,7 @@ import {
 import type { Vector3 } from '../../viewport/math'
 import type { App } from '../createApp'
 import { redo, undo } from './document'
+import { runFixAction } from './fixes'
 import {
   enterSketch,
   finishSketch,
@@ -61,6 +62,7 @@ function recordingViewport(start: Camera): RecordingViewport {
     toggleProjection: vi.fn<() => void>(),
     lookAlong: vi.fn<(normal: Vector3, upHint: Vector3, target: Vector3) => void>(),
     zoomToBounds: vi.fn<(bounds: BoundingBox, margin: number) => void>(),
+    itemBounds: () => null,
     screenRectangle: () => null,
     viewWindow: () => wholeCanvas({ width: 800, height: 600 }),
     requestRender: vi.fn<() => void>(),
@@ -168,6 +170,27 @@ describe('sketch view history (3.20)', () => {
     expect(core.callsTo('redo')).toHaveLength(1)
     await redo(app)
     expect(viewport.getCamera()).toBe(LATER)
+  })
+
+  it("U-145 a fix applied in a sketch session is a document entry, so the next Mod+Z calls the core's undo", async () => {
+    const { app, core } = sketchApp()
+    await enterSketch(app, 'f-sk1')
+    const fix = {
+      feature: 'f-sk1',
+      code: 'open_end',
+      field: '/profile_findings/0',
+      cause: false,
+      index: 0,
+      revision: 1,
+    }
+    await runFixAction(
+      app,
+      { label: 'Connect the ends (0.3 mm apart)', run: { kind: 'apply', fix } },
+      'panel',
+    )
+    expect(core.callsTo('applyFix')).toEqual([[1, fix]])
+    await undo(app)
+    expect(core.callsTo('undo')).toHaveLength(1)
   })
 
   it('a refused solve shows the core message, and the history still starts with the camera from before', async () => {

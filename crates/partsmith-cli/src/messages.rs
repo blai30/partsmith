@@ -27,8 +27,8 @@ pub struct MessageMembers {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<Action>,
     /// The possible replacements of the reference the message is about, in repair order, then
-    /// candidate order. A headless session gives them no mesh element, so they serialize with
-    /// exactly the members of section 3.3.
+    /// candidate order, without their mesh element, so they serialize with exactly the members of
+    /// section 3.3.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<RepairCandidate>,
     /// Why the reference was lost, or which feature a followed or widened reference followed.
