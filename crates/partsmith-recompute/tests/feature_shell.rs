@@ -21,7 +21,7 @@ use feature_support::{
 use feature_support::{assert_messages_pass_lint, message};
 use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, Fix};
 use partsmith_model::{Document, Units};
-use partsmith_occt_sys::GeometryKind;
+use partsmith_occt_sys::{GeometryKind, SubShapeKind};
 
 /// `BOX805030`: an 80 x 50 x 30 mm box in `b-1` spanning [-40,-25,0]-[40,25,30], volume 120000.
 const BOX805030: &str =
@@ -556,6 +556,34 @@ fn t013_thickness_below_the_tolerance() {
     assert_unchanged(&run, "f-sh1", "b-1");
 }
 
+/// The wall end of test 14 along the front edge of the top of `examples/fillet/every-edge`, where
+/// the top met its front round tangentially (kernel.md section 3.4.8 item 7).
+const FRONT_WALL_END: &str =
+    "f-sh1/inner/edge(f-box1/top|f-fil1/fillet/edge(f-box1/front|f-box1/top))";
+
+/// Asserts that the top of test 14's cube, centered at x = `center_x`, is open: no planar face is
+/// left at z = 20 facing up or down, and the wall along its front edge ends in a 16 x 1 mm face
+/// normal to it at y = -8, 1 mm under the top.
+fn assert_top_open(run: &Run, center_x: f64) {
+    let shape = run.shape("b-1");
+    let faces = shape.elements(SubShapeKind::Face).expect("faces");
+    let left = faces.iter().filter(|element| {
+        element.kind == GeometryKind::Plane
+            && (element.centroid.z - 20.0).abs() <= 1e-6
+            && element
+                .direction
+                .is_some_and(|direction| (direction.z.abs() - 1.0).abs() <= 1e-9)
+    });
+    assert_eq!(left.count(), 0, "no face is left where the top was");
+    let end = face(run.body("b-1"), FRONT_WALL_END);
+    assert_face_kind(&end, GeometryKind::Plane);
+    assert_face_area(&end, 16.0);
+    assert_face_normal(&end, [0.0, 1.0, 0.0]);
+    assert_face_position(&end, 0, center_x);
+    assert_face_position(&end, 1, -8.0);
+    assert_face_position(&end, 2, 19.5);
+}
+
 #[test]
 fn t014_moved_body() {
     let every_edge = load_example("fillet/every-edge.ptsm");
@@ -580,14 +608,17 @@ fn t014_moved_body() {
 
     moved.assert_all_ok();
     unmoved.assert_all_ok();
-    let shape = moved.shape("b-1");
+    // The cube less the cavity of its closed hollow (an 18 mm cube with rounds of radius 1) and
+    // the 16 x 16 x 1 mm opening above it.
     let expected = unmoved.shape("b-1");
+    assert_volume(expected, 1280.0 + 460.0 * PI / 3.0);
+    assert_face_count(expected, 54);
+    let shape = moved.shape("b-1");
     assert_volume(shape, expected.volume().expect("a volume"));
-    assert_eq!(
-        shape.count(partsmith_occt_sys::SubShapeKind::Face),
-        expected.count(partsmith_occt_sys::SubShapeKind::Face)
-    );
+    assert_face_count(shape, 54);
     assert_bounding_box(shape, [40.0, -10.0, 0.0], [60.0, 10.0, 20.0]);
+    assert_top_open(&unmoved, 0.0);
+    assert_top_open(&moved, 50.0);
 }
 
 #[test]

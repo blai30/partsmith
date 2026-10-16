@@ -1,5 +1,5 @@
 //! Benchmark sketches: the plate of spec section 2.9 and the generated sketches of sections 5.2 and 5.3,
-//! including the split grid and its cells.
+//! including the split grid and its cells, and the long outline.
 //!
 //! This file depends only on `partsmith_sketch` and `std`, because the bench target
 //! (`benches/solver.rs`) includes it with `#[path]`.
@@ -7,7 +7,7 @@
 // The bench target and each test binary use only some of these functions.
 #![allow(dead_code)]
 
-use std::f64::consts::{FRAC_PI_2, FRAC_PI_6};
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_6, TAU};
 
 use partsmith_sketch::{
     ConstraintKind, DimensionExpr, DimensionValues, DistanceTarget, Expr, Geometry, Id,
@@ -376,6 +376,44 @@ pub fn split_grid_benchmark() -> Vec<SketchEntity> {
         },
         false,
     ));
+    entities
+}
+
+/// Number of lines of the long outline.
+pub const LONG_OUTLINE_LINES: usize = 1000;
+
+/// Id of the line the redrawn long outline draws in place of `e-p-0`.
+pub const REDRAWN_LINE: &str = "e-q";
+
+/// The long outline of spec section 5.3: a closed polygon of 1000 lines `e-p-<i>` with corners on a circle of
+/// radius 100.
+pub fn long_outline_benchmark() -> Vec<SketchEntity> {
+    let corners: Vec<[f64; 2]> = (0..LONG_OUTLINE_LINES)
+        .map(|i| {
+            let angle = TAU * i as f64 / LONG_OUTLINE_LINES as f64;
+            [100.0 * angle.cos(), 100.0 * angle.sin()]
+        })
+        .collect();
+    (0..LONG_OUTLINE_LINES)
+        .map(|i| {
+            entity(
+                &format!("e-p-{i}"),
+                Geometry::Line {
+                    start: corners[i],
+                    end: corners[(i + 1) % LONG_OUTLINE_LINES],
+                },
+                false,
+            )
+        })
+        .collect()
+}
+
+/// The redrawn long outline of spec section 5.3: `e-p-0` deleted, and `e-q` drawn between the same points after
+/// the other lines.
+pub fn redrawn_long_outline_benchmark() -> Vec<SketchEntity> {
+    let mut entities = long_outline_benchmark();
+    let deleted = entities.remove(0);
+    entities.push(entity(REDRAWN_LINE, deleted.geometry, false));
     entities
 }
 

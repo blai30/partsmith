@@ -2,8 +2,9 @@ import { clsx } from 'clsx/lite'
 import { CircleCheck, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
+import { useOverflowEdges } from '../components/overflow-edges'
 import { MESSAGES } from '../messages'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import type { FindingKey } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { SEVERITY_NAMES, type HealthRow, type MissingReport } from './health'
@@ -120,7 +121,7 @@ export function HealthList({
   const notice = noticeFor(hasGeometry, missingReport, rows.length, profileName)
   return (
     <div data-testid="health-list" className="flex h-full min-h-0 flex-col">
-      <div className={clsx('flex flex-col gap-3 border-b p-4', COLOR_CLASSES.divider.border)}>
+      <div className="flex flex-col gap-3 p-4">
         <div className="flex min-h-6 items-start justify-between gap-2">
           <h2 id={headingId} className="min-w-0 text-base font-semibold break-words">
             Print check: {profileName}
@@ -143,63 +144,91 @@ export function HealthList({
         )}
       </div>
       {notice ?? (
-        <ul
-          aria-label="Findings"
-          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2"
-        >
-          {rows.map((row) => {
-            const focused = sameFinding(row.key, focusedFinding)
-            // The finding text is the button that focuses the finding, so the row's other button
-            // never nests in it.
-            const layOnFace =
-              onLayOnFace !== undefined && LAY_ON_FACE_CHECKS.has(row.key.check)
-                ? onLayOnFace
-                : null
-            return (
-              <li
-                key={`${row.key.body}:${row.key.check}:${String(row.key.index)}`}
-                className="flex items-start gap-1"
-              >
-                <button
-                  type="button"
-                  data-testid="health-item"
-                  data-check={row.key.check}
-                  data-severity={row.severity}
-                  aria-current={focused ? 'true' : undefined}
-                  aria-label={`${SEVERITY_NAMES[row.severity]}: ${row.message} ${row.bodyName}`}
-                  onClick={() => {
-                    onFocusFinding(row.key)
-                  }}
-                  className={clsx(
-                    'flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors duration-150 motion-reduce:transition-none',
-                    COLOR_CLASSES.text.foreground,
-                    COLOR_CLASSES.focusRing.outline,
-                    // A resting outline color equal to the ring's, so transition-colors does not
-                    // fade the ring in from the text color.
-                    COLOR_CLASSES.accent.outline,
-                    focused ? COLOR_CLASSES.selection.background : COLOR_CLASSES.hover.background,
-                  )}
-                >
-                  <span className="flex h-5 shrink-0 items-center">
-                    <SeverityIcon severity={row.severity} />
-                  </span>
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span>{row.message}</span>
-                    <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
-                      {row.bodyName}
-                    </span>
-                  </span>
-                </button>
-                {layOnFace === null ? null : (
-                  <Button className="mt-1" onClick={layOnFace}>
-                    Lay on a face
-                  </Button>
-                )}
-              </li>
-            )
-          })}
-        </ul>
+        <FindingsList
+          rows={rows}
+          focusedFinding={focusedFinding}
+          onFocusFinding={onFocusFinding}
+          onLayOnFace={onLayOnFace}
+        />
       )}
     </div>
+  )
+}
+
+type FindingsListProps = {
+  readonly rows: readonly HealthRow[]
+  readonly focusedFinding: FindingKey | null
+  readonly onFocusFinding: (finding: FindingKey) => void
+  /** Starts the Lay on face pick; undefined offers no "Lay on a face". */
+  readonly onLayOnFace: (() => void) | undefined
+}
+
+/** The findings, one row each, scrolling under the panel's header block (3.17). */
+function FindingsList({ rows, focusedFinding, onFocusFinding, onLayOnFace }: FindingsListProps) {
+  const list = useRef<HTMLUListElement>(null)
+  useOverflowEdges(list)
+  return (
+    <ul
+      ref={list}
+      aria-label="Findings"
+      // Its rule shows while findings are scrolled under the header block (3.2).
+      className={clsx(
+        'flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto border-t p-2',
+        COLOR_CLASSES.forcedEdge.border,
+        COLOR_CLASSES.divider.overflowTop,
+      )}
+    >
+      {rows.map((row) => {
+        const focused = sameFinding(row.key, focusedFinding)
+        // The finding text is the button that focuses the finding, so the row's other button
+        // never nests in it.
+        const layOnFace =
+          onLayOnFace !== undefined && LAY_ON_FACE_CHECKS.has(row.key.check) ? onLayOnFace : null
+        return (
+          <li
+            key={`${row.key.body}:${row.key.check}:${String(row.key.index)}`}
+            className="flex items-start gap-1"
+          >
+            <button
+              type="button"
+              data-testid="health-item"
+              data-check={row.key.check}
+              data-severity={row.severity}
+              aria-current={focused ? 'true' : undefined}
+              aria-label={`${SEVERITY_NAMES[row.severity]}: ${row.message} ${row.bodyName}`}
+              onClick={() => {
+                onFocusFinding(row.key)
+              }}
+              className={clsx(
+                'flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors duration-150 motion-reduce:transition-none',
+                COLOR_CLASSES.text.foreground,
+                COLOR_CLASSES.focusRing.outline,
+                // The transparent state outline, at rest too, so transition-colors never fades a
+                // colored outline in or out; forced colors draw it on the focused finding (3.23).
+                COLOR_CLASSES.forcedEdge.outline,
+                focused && 'outline -outline-offset-1',
+                focused ? COLOR_CLASSES.selection.background : COLOR_CLASSES.hover.background,
+              )}
+            >
+              <span className="flex h-5 shrink-0 items-center">
+                <SeverityIcon severity={row.severity} />
+              </span>
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span>{row.message}</span>
+                <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
+                  {row.bodyName}
+                </span>
+              </span>
+            </button>
+            {layOnFace === null ? null : (
+              // 1rem from the panel's edge, in line with the header's close button.
+              <Button className="mt-1 mr-2" onClick={layOnFace}>
+                Lay on a face
+              </Button>
+            )}
+          </li>
+        )
+      })}
+    </ul>
   )
 }

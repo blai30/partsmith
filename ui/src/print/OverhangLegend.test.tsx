@@ -48,8 +48,19 @@ describe('OverhangLegend', () => {
     expect(legend).not.toHaveClass('pointer-events-auto')
   })
 
-  it('sits on a surfaceRaised chip over the viewport', () => {
+  it('sits on a surface card over the viewport, with a forcedEdge border', () => {
     const legend = renderLegend(Math.PI / 4)
-    expect(legend).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
+    expect(legend).toHaveClass(COLOR_CLASSES.surface.background)
+    expect(legend).toHaveClass('border', COLOR_CLASSES.forcedEdge.border)
+  })
+
+  it('U-211 keeps the ramp bar boundary and its own colors in forced colors', () => {
+    const legend = renderLegend(Math.PI / 6)
+    const gradient = COLOR_CLASSES.analysis.background.split(' ')
+    const bar = Array.from(legend.querySelectorAll('*')).find((element) =>
+      gradient.every((name) => element.classList.contains(name)),
+    )
+    expect(bar).toHaveClass('border', COLOR_CLASSES.borderControl.border)
+    expect(bar).toHaveClass('forced-color-adjust-none')
   })
 })

@@ -21,7 +21,7 @@ import { useResolvedTheme } from '../layout/use-resolved-theme'
 import { selectEditedSketch } from '../state/selectors'
 import { AXIS_ROLES, COLOR_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 import { useCanvasLayer } from '../viewport/canvas-layer'
-import { positionElement } from '../viewport/overlay'
+import { hideLabelsUnderCards, positionElement } from '../viewport/overlay'
 import { sketchWorldAxes } from '../viewport/planes'
 import { hasGlyph } from './annotations'
 import {
@@ -72,6 +72,8 @@ type OverlayElements = {
   readonly editor: HTMLDivElement | null
   readonly placing: HTMLDivElement | null
   readonly axisLabels: ReadonlyMap<WorldAxis, HTMLElement>
+  /** The viewport's free area, whose cards hide the axis labels under them (3.12). */
+  readonly freeArea: Element | null
 }
 
 /**
@@ -177,6 +179,7 @@ function paintOverlay(paint: OverlayPaint, elements: OverlayElements): void {
   for (const [axis, element] of elements.axisLabels) {
     placeAt(element, paint.axisLabels.get(axis) ?? null)
   }
+  hideLabelsUnderCards(elements.axisLabels.values(), elements.freeArea)
   // Empty draw inputs show the rubber band's measured values, written here and never by React.
   for (const input of elements.drawInputs?.querySelectorAll('input') ?? []) {
     const name = input.dataset['field']
@@ -346,6 +349,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
         editor: editor.current,
         placing: placing.current,
         axisLabels: axisLabelElements.current,
+        freeArea: layer.current?.closest('[data-testid="viewport"]') ?? null,
       })
     })
     return () => {
@@ -461,7 +465,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
             <span
               className={clsx(
                 'block -translate-x-1/2 -translate-y-1/2 rounded-sm px-1 text-xs whitespace-nowrap tabular-nums opacity-90',
-                COLOR_CLASSES.surfaceRaised.background,
+                COLOR_CLASSES.surface.background,
                 COLOR_CLASSES.text.foreground,
               )}
             >
@@ -497,7 +501,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
 }
 
 /**
- * The letter of the world axis a sketch axis lies on, on a raised chip in its axis role (3.16.2),
+ * The letter of the world axis a sketch axis lies on, on a surface chip in its axis role (3.16.2),
  * centered on the position the painter gives its wrapper.
  */
 function SketchAxisLabel({
@@ -514,7 +518,7 @@ function SketchAxisLabel({
         data-axis={axis}
         className={clsx(
           'block -translate-x-1/2 -translate-y-1/2 rounded-sm px-1 text-xs font-semibold',
-          COLOR_CLASSES.surfaceRaised.background,
+          COLOR_CLASSES.surface.background,
           COLOR_CLASSES[AXIS_ROLES[axis]].foreground,
         )}
       >
@@ -532,8 +536,8 @@ function InferenceGlyph({ type }: { readonly type: ConstraintType }) {
       data-type={type}
       className={clsx(
         'flex size-4.5 items-center justify-center rounded-sm border opacity-90',
-        COLOR_CLASSES.surfaceRaised.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.surface.background,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.text.foreground,
       )}
     >
@@ -617,9 +621,9 @@ const ConstraintGlyph = memo(function ConstraintGlyph({
         className={clsx(
           'pointer-events-auto flex size-4.5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-sm border',
           COLOR_CLASSES.focusRing.outline,
-          selected ? COLOR_CLASSES.accent.border : COLOR_CLASSES.border.border,
+          selected ? COLOR_CLASSES.accent.border : COLOR_CLASSES.forcedEdge.border,
           muted && 'opacity-90',
-          muted && COLOR_CLASSES.surfaceRaised.background,
+          muted && COLOR_CLASSES.surface.background,
           muted && COLOR_CLASSES.textMuted.foreground,
           solveStateClasses(state),
         )}
@@ -683,9 +687,9 @@ const DimensionLabel = memo(function DimensionLabel({
         className={clsx(
           'pointer-events-auto block -translate-x-1/2 -translate-y-1/2 rounded-sm border px-1 text-xs whitespace-nowrap tabular-nums',
           COLOR_CLASSES.focusRing.outline,
-          selected ? COLOR_CLASSES.accent.border : 'border-transparent',
+          selected ? COLOR_CLASSES.accent.border : COLOR_CLASSES.forcedEdge.border,
           plain && 'opacity-90',
-          plain && COLOR_CLASSES.surfaceRaised.background,
+          plain && COLOR_CLASSES.surface.background,
           plain && COLOR_CLASSES.text.foreground,
           solveStateClasses(state),
         )}

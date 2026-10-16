@@ -3,6 +3,7 @@
 
 use partsmith_model::Id;
 
+use super::super::hashing::{FastMap, FastSet};
 use super::super::{ProfileEdge, Region, RegionLoop};
 use super::{Stored, Succession, lies_on};
 
@@ -13,14 +14,14 @@ pub(super) fn successions(region: &Region, stored: &Stored<'_>) -> Vec<Successio
     let Some(outline) = region.try_outline() else {
         return Vec::new();
     };
-    let current = entities_of(&outline);
+    let current = Sequence::of(&outline);
     let mut found = match &stored.reference.outline {
-        Some(previous) => replacements(&current, &entities_of(previous), stored),
+        Some(previous) => replacements(&current, &Sequence::of(previous), stored),
         // The stored key does not say where a removed entity was, so nothing tells a replacement from a
         // deletion plus an unrelated addition.
         None => Vec::new(),
     };
-    let replacing: Vec<&Id> = found
+    let replacing: FastSet<&Id> = found
         .iter()
         .flat_map(|succession| &succession.now)
         .collect();
@@ -31,40 +32,34 @@ pub(super) fn successions(region: &Region, stored: &Stored<'_>) -> Vec<Successio
 }
 
 /// Each removed entity that is the only entry between two consecutive surviving entities of the stored outline,
-/// where the current loop has only new entities between them. The runs that replace the pieces of one removed
-/// entity (a line another curve interrupted) form its one succession, in the order of the current loop.
-fn replacements(current: &[&Id], previous: &[&Id], stored: &Stored<'_>) -> Vec<Succession> {
-    let survivors: Vec<usize> = (0..current.len())
-        .filter(|&position| !stored.is_added(current[position]))
+/// where the current loop has new entities between them. The runs that replace the pieces of one removed entity
+/// (a line another curve interrupted) form its one succession, in the order of the current loop.
+fn replacements(
+    current: &Sequence<'_>,
+    previous: &Sequence<'_>,
+    stored: &Stored<'_>,
+) -> Vec<Succession> {
+    let survivors: Vec<usize> = (0..current.entities.len())
+        .filter(|&position| !stored.is_added(current.entities[position]))
         .collect();
-    // An entity that occurs twice, such as a line another curve interrupts, leaves the runs undetermined.
-    let once = |sequence: &[&Id], entity: &Id| occurrences(sequence, entity).count() == 1;
     let mut found: Vec<(&Id, Vec<&Id>)> = Vec::new();
+    let mut found_index: FastMap<&Id, usize> = FastMap::default();
     for (rank, &position) in survivors.iter().enumerate() {
         let next = survivors[(rank + 1) % survivors.len()];
-        let (first, second) = (current[position], current[next]);
-        if !(once(current, first) && once(current, second))
-            || !(once(previous, first) && once(previous, second))
-        {
+        // Every entry between two consecutive survivors is new.
+        let new_run: Vec<&Id> = run_between(&current.entities, position, next).collect();
+        if new_run.is_empty() {
             continue;
         }
-        let new_run = run_between(current, position, next);
-        let old_run = run_between(
-            previous,
-            position_of(previous, first),
-            position_of(previous, second),
-        );
-        let [removed] = old_run.as_slice() else {
+        let Some(removed) = removed_between(current, previous, position, next) else {
             continue;
         };
-        let is_removed = !current.contains(removed);
-        let all_new = !new_run.is_empty() && new_run.iter().all(|entity| stored.is_added(entity));
-        if !(is_removed && all_new) {
-            continue;
-        }
-        match found.iter_mut().find(|(entity, _)| entity == removed) {
-            Some((_, now)) => now.extend(new_run),
-            None => found.push((*removed, new_run)),
+        match found_index.get(removed) {
+            Some(&index) => found[index].1.extend(new_run),
+            None => {
+                found_index.insert(removed, found.len());
+                found.push((removed, new_run));
+            }
         }
     }
     found
@@ -76,104 +71,172 @@ fn replacements(current: &[&Id], previous: &[&Id], stored: &Stored<'_>) -> Vec<S
         .collect()
 }
 
+/// The removed entity that was the only entry of the stored outline between the survivors at positions `from`
+/// and `to` of the current loop. `None` when either survivor occurs more than once in either loop (a line another
+/// curve interrupts), which leaves the runs undetermined.
+fn removed_between<'a>(
+    current: &Sequence<'_>,
+    previous: &Sequence<'a>,
+    from: usize,
+    to: usize,
+) -> Option<&'a Id> {
+    let (first, second) = (current.entities[from], current.entities[to]);
+    current.only_position(first)?;
+    current.only_position(second)?;
+    let mut old_run = run_between(
+        &previous.entities,
+        previous.only_position(first)?,
+        previous.only_position(second)?,
+    );
+    match (old_run.next(), old_run.next()) {
+        (Some(removed), None) if current.positions_of(removed).is_empty() => Some(removed),
+        _ => None,
+    }
+}
+
 /// Each surviving entity that new entities next to it continue on its line or circle, with those entities in
 /// traversal order starting after it.
 fn extensions(
     region: &Region,
-    current: &[&Id],
+    current: &Sequence<'_>,
     stored: &Stored<'_>,
-    replacing: &[&Id],
+    replacing: &FastSet<&Id>,
 ) -> Vec<Succession> {
-    let count = current.len();
+    let edges = outer_edges_by_entity(region);
+    let edges_of = |entity: &Id| edges.get(entity).map_or(&[][..], Vec::as_slice);
+    let mut marked = vec![false; current.entities.len()];
     let mut found = Vec::new();
-    let mut seen: Vec<&Id> = Vec::new();
-    for (first_position, &survivor) in current.iter().enumerate() {
-        if stored.is_added(survivor) || seen.contains(&survivor) {
+    for (first_position, &survivor) in current.entities.iter().enumerate() {
+        let positions = current.positions_of(survivor);
+        // One succession per survivor, found at its first occurrence.
+        if stored.is_added(survivor) || positions.first() != Some(&first_position) {
             continue;
         }
-        seen.push(survivor);
-        let Some(carrier) = edges_of(region, survivor).next() else {
+        let Some(carrier) = edges_of(survivor).first() else {
             continue;
         };
         let continues = |entity: &Id| {
             stored.is_added(entity)
-                && !replacing.contains(&entity)
-                && edges_of(region, entity).all(|edge| lies_on(&edge.curve, &carrier.curve))
+                && !replacing.contains(entity)
+                && edges_of(entity)
+                    .iter()
+                    .all(|edge| lies_on(&edge.curve, &carrier.curve))
         };
-        let mut chained: Vec<usize> = Vec::new();
-        for position in occurrences(current, survivor) {
-            for step in [1, count - 1] {
-                let mut next = (position + step) % count;
-                while next != position && continues(current[next]) && !chained.contains(&next) {
-                    chained.push(next);
-                    next = (next + step) % count;
-                }
-            }
-        }
+        let chained = continuing_positions(&current.entities, positions, continues, &mut marked);
         if chained.is_empty() {
             continue;
         }
-        chained.sort_by_key(|&position| (position + count - first_position) % count);
-        let mut now = vec![survivor];
-        now.extend(chained.into_iter().map(|position| current[position]));
+        let now = chained
+            .into_iter()
+            .map(|position| current.entities[position]);
         found.push(Succession {
             entity: survivor.clone(),
-            now: distinct(now),
+            now: distinct(std::iter::once(survivor).chain(now)),
         });
     }
     found
 }
 
-/// The entities of a loop's entries, in its order.
-fn entities_of(region_loop: &RegionLoop) -> Vec<&Id> {
-    region_loop
-        .entries()
-        .iter()
-        .map(|entry| &entry.entity)
-        .collect()
+/// The positions of the entities that `continues` accepts in a row next to any of `positions` (the occurrences
+/// of one entity), in traversal order starting after the first occurrence. `marked` holds one `false` per entry
+/// before and after the call.
+fn continuing_positions(
+    entities: &[&Id],
+    positions: &[usize],
+    continues: impl Fn(&Id) -> bool,
+    marked: &mut [bool],
+) -> Vec<usize> {
+    let count = entities.len();
+    let mut chained: Vec<usize> = Vec::new();
+    for &position in positions {
+        for step in [1, count - 1] {
+            let mut next = (position + step) % count;
+            while next != position && !marked[next] && continues(entities[next]) {
+                marked[next] = true;
+                chained.push(next);
+                next = (next + step) % count;
+            }
+        }
+    }
+    for &position in &chained {
+        marked[position] = false;
+    }
+    if let Some(&first) = positions.first() {
+        chained.sort_by_key(|&position| (position + count - first) % count);
+    }
+    chained
+}
+
+/// A loop's entities as a cyclic sequence, with the positions of each entity, so every lookup is one step.
+struct Sequence<'a> {
+    /// The entities of the loop's entries, in its order.
+    entities: Vec<&'a Id>,
+    /// The positions of each entity in `entities`, ascending.
+    positions: FastMap<&'a Id, Vec<usize>>,
+}
+
+impl<'a> Sequence<'a> {
+    fn of(region_loop: &'a RegionLoop) -> Sequence<'a> {
+        let entities: Vec<&Id> = region_loop
+            .entries()
+            .iter()
+            .map(|entry| &entry.entity)
+            .collect();
+        let mut positions: FastMap<&Id, Vec<usize>> = FastMap::default();
+        for (position, &entity) in entities.iter().enumerate() {
+            positions.entry(entity).or_default().push(position);
+        }
+        Sequence {
+            entities,
+            positions,
+        }
+    }
+
+    /// The positions where `entity` occurs, ascending; empty when it does not occur.
+    fn positions_of(&self, entity: &Id) -> &[usize] {
+        self.positions.get(entity).map_or(&[], Vec::as_slice)
+    }
+
+    /// The position of an entity that occurs exactly once, or `None`.
+    fn only_position(&self, entity: &Id) -> Option<usize> {
+        match *self.positions_of(entity) {
+            [position] => Some(position),
+            _ => None,
+        }
+    }
 }
 
 /// The entries strictly between positions `from` and `to` of a cyclic sequence; every other entry when they are
 /// the same position.
-fn run_between<'a>(sequence: &[&'a Id], from: usize, to: usize) -> Vec<&'a Id> {
+fn run_between<'a, 'b>(
+    sequence: &'b [&'a Id],
+    from: usize,
+    to: usize,
+) -> impl Iterator<Item = &'a Id> + 'b {
     let count = sequence.len();
     (1..count)
-        .map(|offset| (from + offset) % count)
-        .take_while(|&position| position != to)
-        .map(|position| sequence[position])
-        .collect()
+        .map(move |offset| (from + offset) % count)
+        .take_while(move |&position| position != to)
+        .map(move |position| sequence[position])
 }
 
-/// The positions where `entity` occurs in `sequence`.
-fn occurrences<'a>(sequence: &'a [&Id], entity: &'a Id) -> impl Iterator<Item = usize> + 'a {
-    (0..sequence.len()).filter(move |&position| sequence[position] == entity)
-}
-
-/// The position of an entity that occurs in `sequence`.
-fn position_of(sequence: &[&Id], entity: &Id) -> usize {
-    occurrences(sequence, entity)
-        .next()
-        .expect("the entity occurs in the sequence")
-}
-
-/// The edges of an entity in the region's outer loop.
-fn edges_of<'a>(region: &'a Region, entity: &'a Id) -> impl Iterator<Item = &'a ProfileEdge> {
-    region
-        .outer
-        .edges
-        .iter()
-        .filter(move |edge| &edge.entity == entity)
+/// The edges of each entity in the region's outer loop, in traversal order.
+fn outer_edges_by_entity(region: &Region) -> FastMap<&Id, Vec<&ProfileEdge>> {
+    let mut edges: FastMap<&Id, Vec<&ProfileEdge>> = FastMap::default();
+    for edge in &region.outer.edges {
+        edges.entry(&edge.entity).or_default().push(edge);
+    }
+    edges
 }
 
 /// The entities in order, each once, as owned ids.
-fn distinct(entities: Vec<&Id>) -> Vec<Id> {
-    let mut unique: Vec<Id> = Vec::with_capacity(entities.len());
-    for entity in entities {
-        if !unique.contains(entity) {
-            unique.push(entity.clone());
-        }
-    }
-    unique
+fn distinct<'a>(entities: impl IntoIterator<Item = &'a Id>) -> Vec<Id> {
+    let mut seen: FastSet<&Id> = FastSet::default();
+    entities
+        .into_iter()
+        .filter(|&entity| seen.insert(entity))
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
@@ -342,7 +405,10 @@ mod tests {
         let names = [id("e-1"), id("e-2"), id("e-3"), id("e-4")];
         let sequence: Vec<&Id> = names.iter().collect();
 
-        assert_eq!(run_between(&sequence, 2, 1), [&names[3], &names[0]]);
+        assert_eq!(
+            run_between(&sequence, 2, 1).collect::<Vec<_>>(),
+            [&names[3], &names[0]]
+        );
     }
 
     #[test]
@@ -350,7 +416,10 @@ mod tests {
         let names = [id("e-1"), id("e-2"), id("e-3")];
         let sequence: Vec<&Id> = names.iter().collect();
 
-        assert_eq!(run_between(&sequence, 1, 1), [&names[2], &names[0]]);
+        assert_eq!(
+            run_between(&sequence, 1, 1).collect::<Vec<_>>(),
+            [&names[2], &names[0]]
+        );
     }
 
     #[test]
@@ -358,7 +427,7 @@ mod tests {
         let names = [id("e-2"), id("e-1")];
 
         assert_eq!(
-            distinct(vec![&names[0], &names[1], &names[0]]),
+            distinct([&names[0], &names[1], &names[0]]),
             [id("e-2"), id("e-1")]
         );
     }

@@ -35,6 +35,7 @@ function BrowserToggle() {
         label="Toggle browser"
         icon={PanelLeft}
         pressed={open}
+        pressedFill="neutral"
         aria-controls={BROWSER_PANEL_ID}
         onClick={() => {
           runCommand(app, 'view.browser', 'toolbar')
@@ -119,9 +120,7 @@ function PaletteButton() {
           setPaletteOpen(app, true)
         }}
         className={clsx(
-          'inline-flex h-8 shrink-0 items-center gap-2 rounded-md border px-2 text-sm transition-colors duration-150 motion-reduce:transition-none',
-          COLOR_CLASSES.field.background,
-          COLOR_CLASSES.border.border,
+          'inline-flex h-8 shrink-0 items-center gap-2 rounded-md px-2 text-sm transition-colors duration-150 motion-reduce:transition-none',
           COLOR_CLASSES.textMuted.foreground,
           COLOR_CLASSES.hover.background,
           COLOR_CLASSES.focusRing.outline,
@@ -166,8 +165,7 @@ function ExportButton() {
             }
           }}
           className={clsx(
-            'inline-flex h-8 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 @max-3xl:px-2 motion-reduce:transition-none',
-            COLOR_CLASSES.border.border,
+            'inline-flex h-8 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 @max-3xl:px-2 motion-reduce:transition-none',
             COLOR_CLASSES.focusRing.outline,
             COLOR_CLASSES.accent.outline,
             reason === null && COLOR_CLASSES.text.foreground,
@@ -197,6 +195,7 @@ function ThemeToggle() {
         label="Dark theme"
         icon={Moon}
         pressed={theme === 'dark'}
+        pressedFill="neutral"
         onClick={() => {
           // The toggle stores an explicit choice, the opposite of what is shown (2.16.8).
           updateSettings(app, { theme: toggledTheme(theme) })
@@ -215,7 +214,7 @@ export function TopBar() {
       className={clsx(
         '@container relative z-10 col-span-3 row-start-1 mb-2 flex h-12 min-w-0 items-center gap-2 rounded-xl border px-2 shadow-md',
         COLOR_CLASSES.surface.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
       )}
     >

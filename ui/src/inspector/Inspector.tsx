@@ -9,6 +9,7 @@ import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { FEATURE_ICONS } from '../commands/icons'
 import { IconButton } from '../components/IconButton'
+import { useOverflowEdges } from '../components/overflow-edges'
 import { Tooltip } from '../components/Tooltip'
 import { selectInspectedItems } from '../state/selectors'
 import type { AppState, SelectionItem } from '../state/store'
@@ -270,13 +271,15 @@ function Panel({
       aria-label={name === null ? 'Selection' : undefined}
       data-testid="inspector"
       data-inspector=""
+      // A card of the free area: labels under it are hidden (3.12).
+      data-card=""
       data-mode={mode}
       data-preview={preview}
       // The card never scrolls as a whole: its content's body does, under the header (3.2).
       className={clsx(
         'pointer-events-auto absolute top-0 left-0 z-20 flex max-h-[calc(100%-2rem)] w-80 flex-col overflow-hidden rounded-xl border text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
-        COLOR_CLASSES.surfaceRaised.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.surface.background,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}
@@ -392,9 +395,25 @@ export function Inspector() {
         clearSelection(app)
       }}
     >
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-4">
-        <SelectionInspector items={items} />
-      </div>
+      <SelectionBody items={items} />
     </Panel>
+  )
+}
+
+/** The selection inspector's body, which scrolls under the header with its rule (3.2, 3.8). */
+function SelectionBody({ items }: { readonly items: readonly SelectionItem[] }) {
+  const body = useRef<HTMLDivElement>(null)
+  useOverflowEdges(body)
+  return (
+    <div
+      ref={body}
+      className={clsx(
+        'flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto border-t px-4 pt-3 pb-4',
+        COLOR_CLASSES.forcedEdge.border,
+        COLOR_CLASSES.divider.overflowTop,
+      )}
+    >
+      <SelectionInspector items={items} />
+    </div>
   )
 }

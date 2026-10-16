@@ -123,8 +123,9 @@ function ColorPopover({ body, anchor, current, onClose }: ColorPopoverProps) {
               onClick={() => {
                 choose(swatch.hex)
               }}
+              // A swatch is content: forced colors keep its color, as the 3D view keeps it (3.24).
               className={clsx(
-                'size-6 rounded-sm border',
+                'size-6 rounded-sm border forced-color-adjust-none',
                 swatch.background,
                 COLOR_CLASSES.borderControl.border,
                 COLOR_CLASSES.focusRing.outline,

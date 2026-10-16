@@ -279,7 +279,7 @@ describe('rendering on demand (3.12)', () => {
     fixture.app.store.setState({ settings: { ...DEFAULT_SETTINGS, theme: 'dark' } })
     fixture.frames.flush()
     const frame = fixture.backend.lastFrame()
-    expect(frame?.theme.backgroundTop).not.toEqual(fixture.backend.frames[0]?.theme.backgroundTop)
+    expect(frame?.theme.background).not.toEqual(fixture.backend.frames[0]?.theme.background)
   })
 })
 

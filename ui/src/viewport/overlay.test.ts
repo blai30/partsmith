@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { orientElement, placeElement, positionElement, visiblePosition } from './overlay'
+import {
+  hideLabelsUnderCards,
+  orientElement,
+  placeElement,
+  positionElement,
+  visiblePosition,
+} from './overlay'
 
 // The declarations of the element's style attribute, read through the attribute so this file has no style property access.
 function declarations(element: HTMLElement): string[] {
@@ -92,5 +98,57 @@ describe('visiblePosition', () => {
     expect(visiblePosition({ x: 279.5, y: 300 }, area)).toBeNull()
     expect(visiblePosition({ x: 600, y: 664.5 }, area)).toBeNull()
     expect(visiblePosition({ x: Number.NaN, y: 300 }, area)).toBeNull()
+  })
+})
+
+function withBounds(element: Element, x: number, y: number, width: number, height: number): void {
+  element.getBoundingClientRect = () => DOMRect.fromRect({ x, y, width, height })
+}
+
+/** A free area with one card at (100, 100, 200, 80). */
+function freeAreaWithCard(): HTMLElement {
+  const area = document.createElement('main')
+  const card = document.createElement('div')
+  card.setAttribute('data-card', '')
+  withBounds(card, 100, 100, 200, 80)
+  area.append(card)
+  return area
+}
+
+/** A 16 by 16 label at (x, y). */
+function label(x: number, y: number): HTMLElement {
+  const element = document.createElement('span')
+  withBounds(element, x, y, 16, 16)
+  return element
+}
+
+describe('hideLabelsUnderCards', () => {
+  it('U-214 hides a shown label whose box meets a card of the free area and keeps the others (3.12)', () => {
+    const under = label(290, 170)
+    const beside = label(300, 100)
+    const clear = label(20, 20)
+    hideLabelsUnderCards([under, beside, clear], freeAreaWithCard())
+    expect(under.hidden).toBe(true)
+    // Touching an edge is not meeting.
+    expect(beside.hidden).toBe(false)
+    expect(clear.hidden).toBe(false)
+  })
+
+  it('U-214 measures the chip of a wrapper centered on its anchor', () => {
+    const wrapper = document.createElement('div')
+    withBounds(wrapper, 20, 20, 16, 16)
+    const chip = document.createElement('span')
+    withBounds(chip, 120, 120, 16, 16)
+    wrapper.append(chip)
+    hideLabelsUnderCards([wrapper], freeAreaWithCard())
+    expect(wrapper.hidden).toBe(true)
+  })
+
+  it('U-214 leaves labels alone without a free area or a card', () => {
+    const under = label(150, 150)
+    hideLabelsUnderCards([under], null)
+    expect(under.hidden).toBe(false)
+    hideLabelsUnderCards([under], document.createElement('main'))
+    expect(under.hidden).toBe(false)
   })
 })

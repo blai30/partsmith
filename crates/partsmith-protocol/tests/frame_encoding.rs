@@ -2,7 +2,10 @@
 
 mod common;
 
-use common::examples::{ERROR_OUTCOMES, MESSAGE_EXAMPLES, all_commands, all_results};
+use common::examples::{
+    ERROR_OUTCOMES, FEATURE_STATUS_R03, MESSAGE_EXAMPLES, R16_DIAGNOSTIC, REGION_REPAIR,
+    all_commands, all_results,
+};
 use common::{
     EXAMPLE_B_BUFFER, buffer_start, example_a, example_b, header_json, message, parse_json,
 };
@@ -21,7 +24,7 @@ fn frame_of_buffers(buffers: Vec<Buffer>) -> Frame {
     }
 }
 
-/// One message of every kind the spec shows: a request per command example, an `ok` response per result example, the error responses, and every event example.
+/// One message of every kind the spec shows: a request per command example, an `ok` response per result example, the error responses, every event example, and the diagnostic events.
 fn message_pool() -> Vec<Message> {
     let requests = all_commands().into_iter().map(|text| {
         let command: Command = serde_json::from_str(text)
@@ -46,7 +49,20 @@ fn message_pool() -> Vec<Message> {
         .chain(ok_responses)
         .chain(error_responses)
         .chain(examples)
+        .chain(diagnostic_events())
         .collect()
+}
+
+/// `recomputed` events with the diagnostics and repairs of ADR 0024: the R03 fillet with its cause and element repair beside an extrude with the region repair of test 68, and the R16 fillet with its actions, cause and reason.
+fn diagnostic_events() -> [Message; 2] {
+    [
+        message(&format!(
+            r#"{{"kind": "event", "type": "recomputed", "doc": 1, "revision": 2, "features": [{FEATURE_STATUS_R03}, {{"id": "f-ext1", "status": "warning", "messages": [], "repairs": [{REGION_REPAIR}]}}], "parameters": [], "diagnostics": []}}"#
+        )),
+        message(&format!(
+            r#"{{"kind": "event", "type": "recomputed", "doc": 1, "revision": 7, "features": [{{"id": "f-fil1", "status": "error", "messages": [{R16_DIAGNOSTIC}], "repairs": []}}], "parameters": [], "diagnostics": []}}"#
+        )),
+    ]
 }
 
 /// Any message of the pool, with a random request or response id.

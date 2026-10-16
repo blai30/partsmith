@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use partsmith_features::{
     BodyState, BuildContext, BuildInputs, CancelToken, Diagnosis, DocumentNames, FeatureError,
-    FeatureOutput, FeatureWarning, Fix, OutputData, Registry, RenderContext, SketchResult,
+    FeatureOutput, FeatureWarning, Fix, Names, OutputData, Registry, RenderContext, SketchResult,
 };
 use partsmith_model::{Document, Id, Units};
 use partsmith_naming::{ElementKind, ElementName, ElementSet, Reference};
@@ -281,6 +281,39 @@ impl Timeline {
             names: &names,
             units: Units::Mm,
             bodies,
+            diagnosis,
+        })
+    }
+
+    /// Calls `use_names` with the document's names and the outputs of this timeline, as messages read them.
+    pub fn with_names<T>(&self, use_names: impl FnOnce(&dyn Names) -> T) -> T {
+        use_names(&DocumentNames {
+            document: &self.document,
+            registry: &self.registry,
+            outputs: &self.outputs,
+        })
+    }
+
+    /// Calls `use_context` with the render context of `feature` over the states at the end of the timeline: for a
+    /// feature that did not run (one that is suppressed, so that its label and type are known), whose warnings a test
+    /// resolves through `fixture`.
+    pub fn with_end_context<T>(
+        &self,
+        feature: &str,
+        diagnosis: &Diagnosis,
+        use_context: impl FnOnce(&RenderContext<'_>) -> T,
+    ) -> T {
+        let feature = id(feature);
+        let names = DocumentNames {
+            document: &self.document,
+            registry: &self.registry,
+            outputs: &self.outputs,
+        };
+        use_context(&RenderContext {
+            feature: &feature,
+            names: &names,
+            units: Units::Mm,
+            bodies: &self.states,
             diagnosis,
         })
     }

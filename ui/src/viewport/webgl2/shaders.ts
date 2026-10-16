@@ -6,7 +6,7 @@ import {
   SURFACE_ATTRIBUTES,
 } from './layout'
 
-/** The programs of the backend: the background gradient and one per geometry kind. */
+/** The programs of the backend: the flat background and one per geometry kind. */
 export type ProgramKind = 'background' | 'triangles' | 'fill' | 'lines' | 'points'
 /** The color pass draws to the canvas; the ID pass writes pick ids and view depths (3.6). */
 export type Pass = 'color' | 'id'
@@ -393,25 +393,20 @@ void main() {
 }
 `
 
-// A full-screen triangle with the vertical background gradient (3.12 pass 1).
+// A full-screen triangle in the viewport's one flat color, written sRGB-encoded (3.12 pass 1).
 const BACKGROUND_VERTEX = `
-out float v_height;
-
 void main() {
   vec2 corner = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
-  v_height = corner.y;
   gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
 }
 `
 
 const BACKGROUND_FRAGMENT = `
-uniform vec3 u_backgroundTop;
-uniform vec3 u_backgroundBottom;
-in float v_height;
+uniform vec3 u_background;
 layout(location = 0) out vec4 o_color;
 
 void main() {
-  o_color = vec4(encodeSrgb(mix(u_backgroundBottom, u_backgroundTop, clamp(v_height, 0.0, 1.0))), 1.0);
+  o_color = vec4(encodeSrgb(u_background), 1.0);
 }
 `
 

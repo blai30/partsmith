@@ -27,12 +27,14 @@ export function PrintHint() {
     <TopCenterSlot>
       <output
         data-testid="print-hint"
+        // A chip of the free area while shown: labels under it are hidden (3.12).
+        data-card={picking ? '' : undefined}
         className={clsx(
           !picking && 'sr-only',
           picking &&
             'max-w-full rounded-lg border px-3 py-1 text-center text-xs text-pretty shadow-md',
-          picking && COLOR_CLASSES.surfaceRaised.background,
-          picking && COLOR_CLASSES.border.border,
+          picking && COLOR_CLASSES.surface.background,
+          picking && COLOR_CLASSES.forcedEdge.border,
           picking && COLOR_CLASSES.elevation.shadow,
           picking && refusal === null && COLOR_CLASSES.textMuted.foreground,
           picking && refusal !== null && COLOR_CLASSES.text.foreground,

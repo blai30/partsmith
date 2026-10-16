@@ -305,7 +305,7 @@ function MenuList({
       className={clsx(
         'pointer-events-auto fixed top-0 left-0 m-0 hidden max-h-dvh min-w-48 max-w-80 flex-col open:flex overflow-y-auto rounded-lg border p-1 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}
@@ -439,11 +439,12 @@ function MenuItem({
       className={clsx(
         'flex h-8 w-full shrink-0 items-center gap-2 rounded-md px-2 text-left whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
         COLOR_CLASSES.focusRing.outline,
-        // A resting outline color equal to the ring's, so transition-colors does not fade the
-        // ring in from the text color.
-        COLOR_CLASSES.accent.outline,
+        // The transparent state outline, at rest too, so transition-colors never fades a colored
+        // outline in or out; forced colors draw it on the active item (3.23).
+        COLOR_CLASSES.forcedEdge.outline,
         disabled && COLOR_CLASSES.textDisabled.foreground,
         disabled && 'cursor-not-allowed',
+        !disabled && active && 'outline -outline-offset-1',
         !disabled && active && COLOR_CLASSES.hover.active,
         !disabled && !active && COLOR_CLASSES.hover.background,
       )}

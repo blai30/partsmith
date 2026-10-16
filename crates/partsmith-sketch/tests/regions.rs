@@ -1,5 +1,5 @@
 //! Acceptance tests for region keys, fingerprints and matching (spec section 6.12, tests 174 to 188), plus the
-//! rules of steps 3 and 4 of section 3.14 that those leave out.
+//! rules of steps 1, 3 and 4 of section 3.14 that those leave out.
 
 mod common;
 
@@ -35,11 +35,16 @@ fn rectangle(ids: [&str; 4], width: f64, height: f64) -> Vec<SketchEntity> {
 
 /// A hand-built region with this key, area 100 and empty loops (tests 185 and 186, and the fingerprint matches).
 fn hand_built_region(key_text: &str, centroid: [f64; 2]) -> Region {
+    hand_built_region_of_area(key_text, 100.0, centroid)
+}
+
+/// A hand-built region with this key, area and centroid, and empty loops.
+fn hand_built_region_of_area(key_text: &str, area: f64, centroid: [f64; 2]) -> Region {
     Region {
         key: key(key_text),
         outer: ProfileLoop { edges: Vec::new() },
         holes: Vec::new(),
-        area: 100.0,
+        area,
         centroid,
     }
 }
@@ -270,6 +275,45 @@ fn t186_equal_scores_are_ambiguous() {
 }
 
 #[test]
+fn only_the_regions_tied_at_the_lowest_score_are_candidates() {
+    let regions = [
+        hand_built_region("e-1,e-2", [0.0, 0.0]),
+        hand_built_region("e-1,e-2", [10.0, 0.0]),
+        hand_built_region("e-1,e-2", [0.0, 0.0]),
+    ];
+
+    let found = match_region(
+        &regions,
+        &ids(&["e-1", "e-2"]),
+        &reference("e-1,e-2", "c=0,0|a=100"),
+    );
+
+    assert_eq!(
+        found,
+        RegionMatch::Ambiguous {
+            candidates: vec![vec![0], vec![2]]
+        }
+    );
+}
+
+#[test]
+fn key_ties_with_a_zero_stored_area_score_plain_differences() {
+    // Scores `norm(c - c0) + abs(A - A0)`: 0 + 5 for the first region, 3 + 1 for the second.
+    let regions = [
+        hand_built_region_of_area("e-1,e-2", 5.0, [0.0, 0.0]),
+        hand_built_region_of_area("e-1,e-2", 1.0, [3.0, 0.0]),
+    ];
+
+    let found = match_region(
+        &regions,
+        &ids(&["e-1", "e-2"]),
+        &reference("e-1,e-2", "c=0,0|a=0"),
+    );
+
+    assert_eq!(found, resolved(&[1], MatchMethod::Key, Vec::new()));
+}
+
+#[test]
 fn t187_nothing_similar_is_missing_as_redrawn() {
     let found = matched(&rect_entities(), &reference("e-77", "c=1000,1000|a=1"));
 
@@ -310,6 +354,30 @@ fn fingerprint_match_with_equal_scores_is_ambiguous() {
         match_among_redrawn_regions([0.005, 0.0], [-0.005, 0.0]),
         RegionMatch::Ambiguous {
             candidates: vec![vec![0], vec![1]]
+        }
+    );
+}
+
+#[test]
+fn redrawn_shape_within_a_tenth_of_a_percent_matches_by_fingerprint() {
+    // Area 4002 (0.05 percent more) and centroid (40.02, 25), within 1e-3 * sqrt(4000) of (40, 25).
+    let entities = rectangle(["e-11", "e-12", "e-13", "e-14"], 80.04, 50.0);
+
+    let found = matched(&entities, &reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000"));
+
+    assert_eq!(found, resolved(&[0], MatchMethod::Fingerprint, Vec::new()));
+}
+
+#[test]
+fn deleted_entities_are_listed_once_whatever_their_flags() {
+    let found = match_region(&[], &ids(&["e-2"]), &reference("e-1,~e-1,e-2", "c=0,0|a=1"));
+
+    assert_eq!(
+        found,
+        RegionMatch::Missing {
+            loss: RegionLoss::Deleted {
+                entities: ids(&["e-1"]),
+            }
         }
     );
 }

@@ -4,11 +4,14 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use partsmith_model::{Dimension, Document, FeatureRecord, FieldUnit, Id, Quantity, Units};
+use partsmith_model::{
+    Dimension, Document, EmptyContext, Expr, FeatureRecord, FieldUnit, Id, Quantity, Scope, Units,
+};
 use partsmith_naming::ElementKind;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::context::expected_dimension;
 use crate::output::{AbsentFace, FeatureOutput, OutputData, SketchResult};
 use crate::registry::Registry;
 
@@ -114,6 +117,19 @@ pub trait Names {
         let _ = feature;
         &[]
     }
+
+    /// The document's feature records in timeline order, for element descriptions that follow faces from body to
+    /// body (section 3.12); none outside a document.
+    fn records(&self) -> &[FeatureRecord] {
+        &[]
+    }
+
+    /// The value of a record's expression in internal units, evaluated as a field of `unit` with the document's
+    /// parameters, for element descriptions (section 3.12); None when it does not evaluate, and outside a document.
+    fn value(&self, expr: &Expr, unit: FieldUnit) -> Option<f64> {
+        let _ = (expr, unit);
+        None
+    }
 }
 
 /// `Names` for a document, using the registry for default feature labels and type labels.
@@ -159,6 +175,22 @@ impl Names for DocumentNames<'_> {
         self.outputs
             .get(feature)
             .map_or(&[], |output| output.absent.as_slice())
+    }
+
+    fn records(&self) -> &[FeatureRecord] {
+        &self.document.features
+    }
+
+    fn value(&self, expr: &Expr, unit: FieldUnit) -> Option<f64> {
+        let parameters = self.document.evaluate_parameters(&EmptyContext);
+        let scope = Scope {
+            units: self.document.units,
+            parameters: &parameters,
+            context: &EmptyContext,
+        };
+        expr.evaluate(&scope, Some(expected_dimension(unit)))
+            .ok()
+            .map(|quantity| quantity.value)
     }
 }
 
@@ -336,6 +368,59 @@ mod tests {
     #[test]
     fn zero_limit_renders_zero() {
         assert_eq!(suggested_limit(0.0, Units::Mm), "0 mm");
+    }
+
+    #[test]
+    fn document_names_give_the_records_in_order_and_values_with_the_parameters() {
+        let mut document = Document::new(Units::Mm);
+        document.parameters.push(partsmith_model::Parameter {
+            id: Id::new("p-1").expect("a valid id"),
+            name: "quarter".to_string(),
+            expr: Expr::new("90 deg"),
+            comment: None,
+        });
+        for (id, offset) in [("f-dp2", "5"), ("f-dp1", "quarter / 1 deg")] {
+            document.features.push(FeatureRecord {
+                id: Id::new(id).expect("a valid id"),
+                kind: "datum_plane".to_string(),
+                name: None,
+                suppressed: false,
+                params: serde_json::Map::from_iter([(
+                    "offset".to_string(),
+                    serde_json::json!(offset),
+                )]),
+            });
+        }
+        let registry = Registry::new();
+        let outputs = BTreeMap::new();
+        let names = DocumentNames {
+            document: &document,
+            registry: &registry,
+            outputs: &outputs,
+        };
+
+        let order: Vec<&str> = names
+            .records()
+            .iter()
+            .map(|record| record.id.as_str())
+            .collect();
+        assert_eq!(order, ["f-dp2", "f-dp1"]);
+        assert_eq!(
+            names.value(&Expr::new("quarter * 2"), FieldUnit::Angle),
+            Some(PI)
+        );
+        assert_eq!(
+            names.value(&Expr::new("quarter / 1 deg"), FieldUnit::Length),
+            Some(90.0)
+        );
+        assert_eq!(names.value(&Expr::new("unknown"), FieldUnit::Angle), None);
+        assert_eq!(names.value(&Expr::new("5 mm"), FieldUnit::Angle), None);
+    }
+
+    #[test]
+    fn names_outside_a_document_know_no_records_and_no_values() {
+        assert!(IdNames.records().is_empty());
+        assert_eq!(IdNames.value(&Expr::new("90 deg"), FieldUnit::Angle), None);
     }
 
     #[test]

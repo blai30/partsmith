@@ -74,12 +74,14 @@ export function usePopoverVisibility(
 /**
  * The box a floating element is placed against: its anchor's, spanning the whole height of the
  * one-row island (`data-bar`: top bar, timeline, status bar) the anchor sits in, so a menu or
- * tooltip of a bar's control keeps the gap from the island's outline instead of touching it (3.2).
+ * tooltip of a bar's control keeps the gap from the island's edge instead of touching it (3.2).
+ * An anchor inside a popup opened from a bar, such as a submenu's item in the Document menu, is
+ * not a control of the bar and keeps its own box.
  */
 function anchorBox(anchor: Element): DOMRect {
   const box = anchor.getBoundingClientRect()
-  const bar = anchor.closest('[data-bar]')
-  if (bar === null) {
+  const bar = anchor.closest('[data-bar], [popover]')
+  if (bar === null || !bar.hasAttribute('data-bar')) {
     return box
   }
   const island = bar.getBoundingClientRect()

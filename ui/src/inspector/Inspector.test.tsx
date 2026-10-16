@@ -482,6 +482,18 @@ describe('feature status in the inspector (3.7, 4.2)', () => {
     expect(within(field('radius')).getByRole('combobox')).toHaveFocus()
   })
 
+  it('U-211 draws the fix "Use 2.3 mm" on the banner as a banner button', () => {
+    renderInspector(filletDocument(status([TOO_LARGE])), {
+      command: { ...EDIT_FILLET, preview: 'failed' },
+    })
+    const fix = within(screen.getByTestId('inspector-error')).getByRole('button', {
+      name: 'Use 2.3 mm',
+    })
+    expect(fix).toHaveClass(COLOR_CLASSES.tonal.banner)
+    expect(fix).toHaveClass(COLOR_CLASSES.hover.banner)
+    expect(fix).not.toHaveClass(COLOR_CLASSES.tonal.background)
+  })
+
   it('U-87 maps a message with field /edges/1 to the edges field', () => {
     const lost: Diagnostic = {
       severity: 'warning',

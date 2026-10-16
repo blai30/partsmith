@@ -12,10 +12,12 @@ use std::f64::consts::PI;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use common::{ContextFixture, Probe, ScriptNames, Slab, record, slab_record};
-use partsmith_features::{BodyState, Registry, name_shape};
+use common::records::{block, slot};
+use common::timeline::Timeline;
+use common::{ContextFixture, Probe, ScriptNames, Slab, id, record, slab_record};
+use partsmith_features::{BodyState, Registry, describe_elements, name_shape};
 use partsmith_model::{FieldUnit, Units};
-use partsmith_naming::{ElementName, FaceSource, Motion, Successions};
+use partsmith_naming::{ElementKind, ElementName, FaceSource, Fingerprint, Motion, Successions};
 use partsmith_occt_sys::{Plane, Point, Shape, SubShapeKind, cut, make_box, make_cylinder};
 use serde_json::json;
 
@@ -272,5 +274,51 @@ fn element_infos_of_a_200_face_body_within_10_milliseconds() {
         "BodyState::elements of a 200-face body",
         duration,
         Duration::from_millis(10),
+    );
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
+fn describe_elements_of_five_elements_within_200_microseconds() {
+    // BLOCK with a slot, 100 datum planes, and a pocket a boolean cuts with a box: the five edges of the pocket read
+    // records, sketch results and the state's faces, and follow the box's faces through every later record.
+    let mut features = block();
+    features.extend(slot(30.0, 50.0));
+    features.push(json!({"id": "f-box2", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "position": ["10", "25", "25"], "op": "new"}));
+    features.extend((0..100).map(|index| {
+        json!({"id": format!("f-plane{index}"), "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": index.to_string()})
+    }));
+    features.push(json!({"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": "cut"}));
+    let timeline = Timeline::run(&["b-1", "b-2"], &features);
+    let state = timeline.state("b-1");
+    let infos = state.elements().expect("the element infos");
+    let elements: Vec<(&ElementName, &Fingerprint)> = infos
+        .iter()
+        .filter(|info| info.kind == ElementKind::Edge && info.name.as_str().contains("f-box2"))
+        .take(5)
+        .map(|info| (&info.name, &info.fingerprint))
+        .collect();
+    assert_eq!(elements.len(), 5, "the pocket has five edges to describe");
+    let body = id("b-1");
+
+    let duration = timeline.with_names(|names| {
+        median(101, || {
+            black_box(describe_elements(
+                &elements,
+                &body,
+                Some(&state),
+                names,
+                Units::Mm,
+            ));
+        })
+    });
+
+    assert_within(
+        "describe_elements of 5 elements",
+        duration,
+        Duration::from_micros(200),
     );
 }

@@ -1,16 +1,17 @@
-//! Acceptance tests for diagnostics, fixes, repairs and `apply_fix` (protocol.md section 6, "Diagnostics, fixes, repairs and the commands of ADR 0024", tests 72 to 79 and 83), plus small unit tests of the same shapes.
-//! Test 80 arrives with `DocumentChanged::bare_numbers` and `SketchSolution::messages` in their own steps (reference stability plan, phase 3); tests 81 and 82 live in `schema.rs` and the UI.
+//! Acceptance tests for diagnostics, fixes, repairs and `apply_fix` (protocol.md section 6, "Diagnostics, fixes, repairs and the commands of ADR 0024", tests 72 to 80 and 83), plus small unit tests of the same shapes.
+//! Test 80 checks `SketchSolution::messages`; its `DocumentChanged::bare_numbers` half arrives with that field (reference stability plan, phase 3). Tests 81 and 82 live in `schema.rs` and the UI.
 
 mod common;
 
 use common::examples::{
-    APPLY_FIX_REQUEST, APPLY_FIX_RESULT, ERROR_CODES, FEATURE_STATUS_R03, FIX_ACTIONS,
-    FRONT_TOP_EDGE_DESCRIPTOR, FULL_REFERENCE, GHOSTS, INTERNAL_ERROR_OUTCOME, LOSS_REASONS,
-    MERGED_REFERENCE, R16_DIAGNOSTIC, REGION_REPAIR, SOLVE_ON_FACE_IN_BODY_FRAME,
-    STALE_FIX_MESSAGE, TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME, UNKNOWN_PRINTER_DIAGNOSTIC,
+    APPLY_FIX_REQUEST, APPLY_FIX_RESULT, ELEMENT_REPAIR, ERROR_CODES, FEATURE_STATUS_R03,
+    FIX_ACTIONS, FRONT_TOP_EDGE_DESCRIPTOR, FULL_REFERENCE, GHOSTS, INTERNAL_ERROR_OUTCOME,
+    LOSS_REASONS, MERGED_REFERENCE, R16_DIAGNOSTIC, REGION_REPAIR, SKETCH_SOLVED_EVENT,
+    SOLVE_ON_FACE_IN_BODY_FRAME, STALE_FIX_MESSAGE, TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME,
+    UNKNOWN_PRINTER_DIAGNOSTIC,
 };
 use common::{
-    compact, frame_with_messages, header_bytes, id, object_keys, parse_json, schema_json,
+    compact, frame_with_messages, header_bytes, id, message, object_keys, parse_json, schema_json,
     variant_tags,
 };
 use partsmith_naming::Reference;
@@ -18,13 +19,13 @@ use partsmith_protocol::{
     Absence, Axis, Buffer, BufferIndex, Cause, Command, CommandResult, CurveKind, Diagnostic,
     DocHandle, ElementDescriptor, ElementKind, ErrorCode, ErrorInfo, Event, FeatureState,
     FeatureStatus, FixAction, FixKind, FixRef, FrameError, Ghost, GhostFrame, GhostKind,
-    InstanceIndex, LossReason, Outcome, Pick, Removal, Repair, RepairCandidate, Request, Response,
-    ResponseFrame, Severity, Span, decode_request_frame, decode_response_frame,
-    encode_response_frame, error_response_frame,
+    InstanceIndex, LossReason, Message, Outcome, Pick, RegionCandidate, Removal, Repair,
+    RepairCandidate, Request, Response, ResponseFrame, Severity, Span, decode_request_frame,
+    decode_response_frame, encode_response_frame, error_response_frame,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
 /// The message of the R16 diagnostic in section 2.4.
@@ -42,6 +43,9 @@ const PICK_ACTION: &str = r#"{"label": "Pick an edge again", "run": {"kind": "pi
 /// The fillet of engine.md test 117 after its edge followed a redrawn line: status ok with one info notice, its two actions and its reason, and no repairs.
 const NOTICE_STATUS: &str = r#"{"id":"f-fil1","status":"ok","messages":[{"severity":"info","code":"reference_followed","message":"The right top edge of 'Extrude 1' selected for Edges now follows the right top edge of 'Extrude 1' along the line from (80, 0) to (80, 50) in 'Sketch 1', because its line was replaced in 'Sketch 1'.","field":"/edges/0","actions":[{"label":"Keep this match","run":{"kind":"apply","fix":{"feature":"f-fil1","code":"reference_followed","field":"/edges/0","cause":false,"index":0,"revision":3}}},{"label":"Pick an edge again","run":{"kind":"pick","feature":"f-fil1","path":"/edges/0"}}],"reason":{"kind":"followed","by":"f-sk1"}}],"repairs":[]}"#;
 
+/// A `pick_reference` result for the front top edge of the right piece of a top split by a slot (corpus setup BLOCK with SLOT(30,50)), with the full reference of section 2.4.
+const SLOT_EDGE_PICK_RESULT: &str = r#"{"type":"pick_reference","element":{"name":"edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)","kind":"edge","body":"b-1","feature":"f-ext1","reference":{"q":"edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)","fp":"line|n=1,0,0|c=65,0,30|l=30|adj=2,2","nb":{"f-ext1/end-cap#2":["f-ext1/lateral/e-2","f-ext2/lateral/e-6"]}},"curve":"line","centroid":[65.0,0.0,30.0],"length":30.0,"direction":[1.0,0.0,0.0],"axis_direction":[1.0,0.0,0.0],"adjacent":["f-ext1/end-cap#2","f-ext1/lateral/e-1","vertex(f-ext1/end-cap#2|f-ext1/lateral/e-1|f-ext1/lateral/e-2)","vertex(f-ext1/end-cap#2|f-ext1/lateral/e-1|f-ext2/lateral/e-6)"]}}"#;
+
 /// The value `text` holds, with the text in the panic message when it does not deserialize.
 fn parse<T: DeserializeOwned>(text: &str) -> T {
     serde_json::from_str(text).unwrap_or_else(|error| panic!("{text} deserializes: {error}"))
@@ -57,6 +61,24 @@ fn decode_request(command: &str) -> Result<(Request, Vec<Buffer>), FrameError> {
     decode_request_frame(&frame_with_messages(&format!(
         r#"[{{"kind":"request","id":5,"command":{command}}}]"#
     )))
+}
+
+/// Checks that a request frame whose one request carries `command` fails as `InvalidMessage`, which hosts answer with `malformed_request`.
+fn assert_malformed_request(command: &str) {
+    let error = decode_request(command).expect_err(command);
+
+    assert!(
+        matches!(error, FrameError::InvalidMessage { .. }),
+        "{command}: got {error:?}"
+    );
+    assert_eq!(error.code(), ErrorCode::MalformedRequest, "{command}");
+}
+
+/// A `resolve_references` request for one reference of `b-1`, given as JSON text.
+fn resolve_references_command(reference: &str) -> String {
+    format!(
+        r#"{{"type":"resolve_references","doc":1,"references":[{{"body":"b-1","reference":{reference}}}]}}"#
+    )
 }
 
 /// A `FixRef` of the R16 diagnostic, for its own actions or for its cause's.
@@ -458,24 +480,13 @@ fn t076_apply_fix_request_and_result_round_trip_and_the_request_is_strict() {
     assert_eq!(request.command, command);
     assert!(buffers.is_empty());
 
-    let rejected = [
-        (
-            "an unknown field inside fix",
-            r#"{"type":"apply_fix","doc":1,"fix":{"feature":"f-fil1","code":"x","cause":false,"index":0,"revision":1,"extra":1}}"#,
-        ),
-        (
-            "a fix without revision",
-            r#"{"type":"apply_fix","doc":1,"fix":{"feature":"f-fil1","code":"x","cause":false,"index":0}}"#,
-        ),
-    ];
-    for (case, command) in rejected {
-        let error = decode_request(command).expect_err(case);
-        assert!(
-            matches!(error, FrameError::InvalidMessage { .. }),
-            "{case}: got {error:?}"
-        );
-        assert_eq!(error.code(), ErrorCode::MalformedRequest, "{case}");
-    }
+    // An unknown field inside fix, then a fix without revision.
+    assert_malformed_request(
+        r#"{"type":"apply_fix","doc":1,"fix":{"feature":"f-fil1","code":"x","cause":false,"index":0,"revision":1,"extra":1}}"#,
+    );
+    assert_malformed_request(
+        r#"{"type":"apply_fix","doc":1,"fix":{"feature":"f-fil1","code":"x","cause":false,"index":0}}"#,
+    );
 }
 
 #[test]
@@ -698,6 +709,46 @@ fn t079_descriptors_carry_fallback_and_axis_direction_and_picks_may_name_their_b
     let display: Pick = parse(display_example);
     assert_eq!(display.body, None);
     assert_eq!(written(&display), compact(display_example));
+}
+
+#[test]
+fn t080_sketch_solution_writes_its_messages_after_profile_findings() {
+    // The `DocumentChanged::bare_numbers` half of test 80 joins with that field (reference stability plan, phase 3).
+    let event = message(SKETCH_SOLVED_EVENT);
+    let Message::Event(Event::SketchSolved { solution, .. }) = &event else {
+        panic!("the example is a sketch_solved event, got {event:?}");
+    };
+    let fields: Vec<Option<&str>> = solution
+        .messages
+        .iter()
+        .map(|finding| finding.field.as_deref())
+        .collect();
+    assert_eq!(
+        fields,
+        [Some("/profile_findings/0"), Some("/profile_findings/1")]
+    );
+
+    let text = written(&event);
+    assert_eq!(text, compact(SKETCH_SOLVED_EVENT));
+    let value = parse_json(&text);
+    let keys = object_keys(&value["solution"]);
+    assert_eq!(
+        keys[keys.len() - 3..],
+        ["profile_findings", "messages", "display"]
+    );
+}
+
+#[test]
+fn sketch_solution_writes_empty_messages() {
+    let Message::Event(Event::SketchSolved { mut solution, .. }) = message(SKETCH_SOLVED_EVENT)
+    else {
+        panic!("the example is a sketch_solved event");
+    };
+    solution.messages.clear();
+
+    let value = serde_json::to_value(&solution).expect("a sketch solution serializes");
+
+    assert_eq!(value["messages"], json!([]));
 }
 
 #[test]
@@ -1043,13 +1094,7 @@ fn solve_sketch_candidate_with_an_unknown_fallback_frame_is_a_malformed_request(
         r#""fallback_frame": "local""#,
     );
 
-    let error = decode_request(&command).expect_err("an unknown frame is rejected");
-
-    assert!(
-        matches!(error, FrameError::InvalidMessage { .. }),
-        "got {error:?}"
-    );
-    assert_eq!(error.code(), ErrorCode::MalformedRequest);
+    assert_malformed_request(&command);
 }
 
 #[test]
@@ -1135,4 +1180,268 @@ fn descriptor_reads_null_fallback_and_axis_direction_as_absent() {
     let value = serde_json::to_value(&descriptor).expect("a descriptor serializes");
     assert!(value.get("fallback").is_none(), "{value}");
     assert!(value.get("axis_direction").is_none(), "{value}");
+}
+
+#[test]
+fn apply_fix_without_any_required_part_of_its_fix_is_a_malformed_request() {
+    // Test 76 covers a missing revision; every other part but `field` is required as well.
+    let fix = parse_json(
+        r#"{"feature":"f-fil1","code":"references_not_found","field":"/edges","cause":false,"index":0,"revision":7}"#,
+    );
+
+    for name in ["feature", "code", "cause", "index"] {
+        let mut without = fix.clone();
+        without
+            .as_object_mut()
+            .expect("a fix reference is an object")
+            .remove(name);
+
+        assert_malformed_request(
+            &json!({"type": "apply_fix", "doc": 1, "fix": without}).to_string(),
+        );
+    }
+}
+
+#[test]
+fn apply_action_ignores_unknown_fields_beside_its_fix_but_not_inside_it() {
+    // Actions travel in results and events, which accept unknown fields; the `FixRef` inside goes back in `apply_fix` and does not.
+    let beside: FixAction = parse(
+        r#"{"label":"Use 2.3 mm","run":{"kind":"apply","fix":{"feature":"f-fil1","code":"fillet_too_large","field":"/radius","cause":false,"index":0,"revision":3},"added_later":1}}"#,
+    );
+    assert_eq!(beside, parse::<FixAction>(FIX_ACTIONS[0]));
+
+    let inside = serde_json::from_str::<FixAction>(
+        r#"{"label":"Use 2.3 mm","run":{"kind":"apply","fix":{"feature":"f-fil1","code":"fillet_too_large","field":"/radius","cause":false,"index":0,"revision":3,"added_later":1}}}"#,
+    );
+    assert!(inside.is_err(), "got {inside:?}");
+}
+
+#[test]
+fn pick_and_show_actions_ignore_unknown_fields() {
+    let pick: FixAction = parse(
+        r#"{"label":"Pick an edge again","run":{"kind":"pick","feature":"f-fil1","path":"/edges/0","added_later":1},"added_later":2}"#,
+    );
+    let show: FixAction = parse(
+        r#"{"label":"Show the line","run":{"kind":"show","feature":"f-sk1","entity":"e-5","added_later":1}}"#,
+    );
+
+    assert_eq!(pick, parse::<FixAction>(PICK_ACTION));
+    assert_eq!(show, parse::<FixAction>(FIX_ACTIONS[2]));
+}
+
+#[test]
+fn cause_reads_a_null_feature_and_ghost_as_absent() {
+    let cause: Cause = parse(
+        r#"{"text":"This started after you changed the document units from mm to in.","feature":null,"actions":[],"ghost":null}"#,
+    );
+
+    assert_eq!(
+        cause,
+        Cause {
+            text: "This started after you changed the document units from mm to in.".to_string(),
+            feature: None,
+            actions: Vec::new(),
+            ghost: None,
+        }
+    );
+}
+
+#[test]
+fn repair_candidate_reads_a_null_element_as_absent() {
+    let mut candidate = parse_json(ELEMENT_REPAIR)["candidates"][0].clone();
+    candidate["element"] = Value::Null;
+
+    let read: RepairCandidate =
+        serde_json::from_value(candidate).expect("a candidate with a null element deserializes");
+
+    assert_eq!(read.element, None);
+    let value = serde_json::to_value(&read).expect("a candidate serializes");
+    assert!(value.get("element").is_none(), "{value}");
+}
+
+#[test]
+fn repair_candidate_rejects_a_null_distance_or_score() {
+    for name in ["distance", "score"] {
+        let mut candidate = parse_json(ELEMENT_REPAIR)["candidates"][0].clone();
+        candidate[name] = Value::Null;
+
+        let result = serde_json::from_value::<RepairCandidate>(candidate);
+
+        assert!(result.is_err(), "a null {name} is rejected, got {result:?}");
+    }
+}
+
+#[test]
+fn optional_parts_of_loss_reasons_read_null_as_absent() {
+    let cases = [
+        (
+            r#"{"kind":"other_body","body":"b-2","by":null,"by_suppressed":false,"present":false}"#,
+            LossReason::OtherBody {
+                body: id("b-2"),
+                by: None,
+                by_suppressed: false,
+                present: false,
+            },
+        ),
+        (
+            r#"{"kind":"removed","by":"f-ext2","how":{"kind":"no_longer_made","absence":null}}"#,
+            LossReason::Removed {
+                by: id("f-ext2"),
+                how: Removal::NoLongerMade { absence: None },
+            },
+        ),
+        (
+            r#"{"kind":"removed","by":"f-fil1","how":{"kind":"no_longer_meet","between":null}}"#,
+            LossReason::Removed {
+                by: id("f-fil1"),
+                how: Removal::NoLongerMeet { between: None },
+            },
+        ),
+    ];
+
+    for (text, expected) in cases {
+        assert_eq!(parse::<LossReason>(text), expected, "{text}");
+    }
+}
+
+#[test]
+fn error_info_reads_a_null_detail_as_absent() {
+    let error: ErrorInfo = parse(r#"{"code":"stale_fix","message":"Look again.","detail":null}"#);
+
+    assert_eq!(error, ErrorInfo::new(ErrorCode::StaleFix, "Look again."));
+    assert_eq!(
+        written(&error),
+        r#"{"code":"stale_fix","message":"Look again."}"#
+    );
+}
+
+#[test]
+fn error_info_with_detail_and_actions_round_trips() {
+    let error = ErrorInfo {
+        code: ErrorCode::TransactionOpen,
+        message: "Finish or cancel \"Fillet\" first.".to_string(),
+        edit_index: None,
+        span: None,
+        detail: Some("transaction Fillet is open since revision 6".to_string()),
+        actions: vec![FixAction {
+            label: "Finish \"Fillet\" and undo".to_string(),
+            run: FixKind::FinishTransaction,
+        }],
+    };
+
+    let text = written(&error);
+
+    assert_eq!(parse::<ErrorInfo>(&text), error);
+}
+
+#[test]
+fn pick_reads_a_null_body_as_absent() {
+    let pick: Pick = parse(r#"{"mesh_id":12,"kind":"face","index":3,"body":null}"#);
+
+    assert_eq!(pick.body, None);
+    assert_eq!(written(&pick), r#"{"mesh_id":12,"kind":"face","index":3}"#);
+}
+
+#[test]
+fn region_candidate_always_writes_its_regions() {
+    let candidate = RegionCandidate {
+        regions: Vec::new(),
+        description: "the region of 'Sketch 1' around (40, 25)".to_string(),
+    };
+
+    assert_eq!(
+        written(&candidate),
+        r#"{"regions":[],"description":"the region of 'Sketch 1' around (40, 25)"}"#
+    );
+}
+
+#[test]
+fn repairs_and_their_candidates_ignore_unknown_fields() {
+    for text in [ELEMENT_REPAIR, REGION_REPAIR] {
+        let mut value = parse_json(text);
+        value["added_later"] = json!(1);
+        value["candidates"][0]["added_later"] = json!(2);
+
+        let repair: Repair = serde_json::from_value(value)
+            .unwrap_or_else(|error| panic!("{text} with unknown fields deserializes: {error}"));
+
+        assert_eq!(repair, parse::<Repair>(text), "{text}");
+    }
+}
+
+#[test]
+fn headless_pick_reference_decodes_from_a_request_frame() {
+    let (request, buffers) = decode_request(
+        r#"{"type":"pick_reference","doc":1,"pick":{"mesh_id":0,"kind":"edge","index":4,"body":"b-1"}}"#,
+    )
+    .expect("a headless pick decodes from a request frame");
+
+    assert_eq!(
+        request.command,
+        Command::PickReference {
+            doc: DocHandle(1),
+            pick: Pick {
+                mesh_id: 0,
+                kind: ElementKind::Edge,
+                index: 4,
+                body: Some(id("b-1")),
+            },
+        }
+    );
+    assert!(buffers.is_empty());
+}
+
+#[test]
+fn pick_reference_result_carries_the_full_reference_with_its_anchors() {
+    let result: CommandResult = parse(SLOT_EDGE_PICK_RESULT);
+
+    let CommandResult::PickReference { element } = &result else {
+        panic!("the result is pick_reference, got {result:?}");
+    };
+    assert_eq!(element.reference, parse::<Reference>(FULL_REFERENCE));
+    assert_eq!(written(&result), SLOT_EDGE_PICK_RESULT);
+}
+
+#[test]
+fn edge_descriptors_list_their_two_faces_then_their_two_vertices() {
+    let CommandResult::PickReference { element: slot_edge } = parse(SLOT_EDGE_PICK_RESULT) else {
+        panic!("the result is pick_reference");
+    };
+
+    for descriptor in [parse(FRONT_TOP_EDGE_DESCRIPTOR), slot_edge] {
+        let (faces, vertices) = descriptor.adjacent.split_at(2);
+        assert!(
+            faces.iter().all(|name| !name.starts_with("vertex(")) && faces.is_sorted(),
+            "{descriptor:?}"
+        );
+        assert!(
+            vertices.len() == 2
+                && vertices.iter().all(|name| name.starts_with("vertex("))
+                && vertices.is_sorted(),
+            "{descriptor:?}"
+        );
+    }
+}
+
+#[test]
+fn resolve_references_with_a_full_reference_decodes_from_a_request_frame() {
+    let command = resolve_references_command(&compact(FULL_REFERENCE));
+
+    let (request, _) = decode_request(&command).expect("a full reference decodes from a frame");
+
+    let Command::ResolveReferences { references, .. } = &request.command else {
+        panic!(
+            "the request is resolve_references, got {:?}",
+            request.command
+        );
+    };
+    assert_eq!(references.len(), 1);
+    assert_eq!(references[0].reference, parse::<Reference>(FULL_REFERENCE));
+}
+
+#[test]
+fn reference_with_an_unknown_field_in_a_request_is_malformed() {
+    let reference = compact(FULL_REFERENCE).replace(r#""nb":"#, r#""extra":1,"nb":"#);
+
+    assert_malformed_request(&resolve_references_command(&reference));
 }

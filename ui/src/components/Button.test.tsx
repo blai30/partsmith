@@ -118,3 +118,81 @@ describe('Button with aria-disabled', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 })
+
+/** The classes of a role facet, one by one. */
+function classesOf(classes: string): string[] {
+  return classes.split(' ')
+}
+
+/** Whether an element has every class of a role facet. */
+function hasFacet(element: HTMLElement, classes: string): boolean {
+  return classesOf(classes).every((name) => element.classList.contains(name))
+}
+
+describe('flat buttons (U-211)', () => {
+  it('U-211 the default variant is tonal, with the hover fill, text and a forcedEdge border', () => {
+    render(<Button>Cancel</Button>)
+    const button = screen.getByRole('button', { name: 'Cancel' })
+    expect(button).toHaveClass('border')
+    for (const facet of [
+      COLOR_CLASSES.forcedEdge.border,
+      COLOR_CLASSES.tonal.background,
+      COLOR_CLASSES.hover.background,
+      COLOR_CLASSES.text.foreground,
+    ]) {
+      expect(button).toHaveClass(...classesOf(facet))
+    }
+  })
+
+  it('U-211 an aria-disabled default button keeps tonal in textDisabled, without the hover', () => {
+    render(<Button aria-disabled="true">Cancel</Button>)
+    const button = screen.getByRole('button', { name: 'Cancel' })
+    expect(button).toHaveClass(...classesOf(COLOR_CLASSES.tonal.background))
+    expect(button).toHaveClass(...classesOf(COLOR_CLASSES.textDisabled.foreground))
+    expect(hasFacet(button, COLOR_CLASSES.hover.background)).toBe(false)
+  })
+
+  it('U-211 a toggle rests with the transparent outline and takes selection and the state outline while pressed', () => {
+    const { rerender } = render(<Button aria-pressed={false}>Reference</Button>)
+    const button = screen.getByRole('button', { name: 'Reference' })
+    expect(button).toHaveClass(...classesOf(COLOR_CLASSES.forcedEdge.outline))
+    expect(hasFacet(button, COLOR_CLASSES.accent.outline)).toBe(false)
+    expect(button).not.toHaveClass('outline')
+    rerender(<Button aria-pressed>Reference</Button>)
+    expect(button).toHaveClass('outline', '-outline-offset-1')
+    for (const facet of [
+      COLOR_CLASSES.forcedEdge.outline,
+      COLOR_CLASSES.selection.background,
+      COLOR_CLASSES.text.foreground,
+    ]) {
+      expect(button).toHaveClass(...classesOf(facet))
+    }
+    expect(hasFacet(button, COLOR_CLASSES.accent.outline)).toBe(false)
+    expect(hasFacet(button, COLOR_CLASSES.tonal.background)).toBe(false)
+    expect(hasFacet(button, COLOR_CLASSES.hover.background)).toBe(false)
+  })
+
+  it('U-211 the banner variant takes the banner facets of tonal and hover', () => {
+    render(<Button variant="banner">Use 2.3 mm</Button>)
+    const button = screen.getByRole('button', { name: 'Use 2.3 mm' })
+    expect(button).toHaveClass(...classesOf(COLOR_CLASSES.tonal.banner))
+    expect(button).toHaveClass(...classesOf(COLOR_CLASSES.hover.banner))
+    expect(hasFacet(button, COLOR_CLASSES.tonal.background)).toBe(false)
+    expect(hasFacet(button, COLOR_CLASSES.hover.background)).toBe(false)
+  })
+
+  it('U-211 the primary variant is the accent with a border in its fill color and no tonal class', () => {
+    render(<Button variant="primary">OK</Button>)
+    const button = screen.getByRole('button', { name: 'OK' })
+    for (const facet of [
+      COLOR_CLASSES.accent.border,
+      COLOR_CLASSES.accent.background,
+      COLOR_CLASSES.accent.foreground,
+      COLOR_CLASSES.accentHover.background,
+    ]) {
+      expect(button).toHaveClass(...classesOf(facet))
+    }
+    expect(hasFacet(button, COLOR_CLASSES.tonal.background)).toBe(false)
+    expect(hasFacet(button, COLOR_CLASSES.tonal.banner)).toBe(false)
+  })
+})

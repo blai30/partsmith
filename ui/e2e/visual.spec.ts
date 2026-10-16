@@ -313,4 +313,52 @@ test.describe('visual @visual', () => {
     await parkPointer(page)
     await expectWindow(page, 'V-21-parameters-code-light.png')
   })
+
+  test('V-22 the islands and the inspector card edged by the system in forced colors, light', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: 'active' })
+    await openInTheme(page, 'light')
+    await dropFile(page, 'cube.ptsm')
+    await runCommand(page, 'Parameters')
+    await expect(page.getByTestId('side-panel')).toBeVisible()
+    await timelineItem(page, 'Extrude 1').getByRole('button', { name: 'Extrude 1' }).dblclick()
+    await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
+    await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
+    await parkPointer(page)
+    await expectWindow(page, 'V-22-islands-forced-colors-light.png')
+  })
+
+  for (const [id, colorScheme] of [
+    ['V-23', 'light'],
+    ['V-24', 'dark'],
+  ] as const) {
+    test(`${id} the Document menu over the browser, ${colorScheme}`, async ({ page }) => {
+      await openInTheme(page, colorScheme)
+      await dropFile(page, 'cube.ptsm')
+      await page.getByRole('button', { name: 'Home view', exact: true }).click()
+      await expect(page.getByTestId('viewport')).toHaveAttribute('data-view', 'iso')
+      await page.getByTestId('document-name').click()
+      await expect(page.getByTestId('document-menu')).toBeVisible()
+      // The pointer rests on the status bar, so no menu item is hovered or shows a tooltip.
+      await parkPointer(page)
+      await expectWindow(page, `${id}-document-menu-${colorScheme}.png`)
+    })
+  }
+
+  test('V-25 the browser opened over the inspector at 200% UI scale, dark', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('partsmith.settings.v1', JSON.stringify({ uiScale: 2 }))
+    })
+    await openInTheme(page, 'dark')
+    await expect(page.getByTestId('browser')).toBeHidden()
+    await dropFile(page, 'cube.ptsm')
+    await timelineItem(page, 'Extrude 1').getByRole('button', { name: 'Extrude 1' }).dblclick()
+    await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
+    await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
+    await page.getByRole('button', { name: 'Toggle browser', exact: true }).click()
+    await expect(page.getByTestId('browser')).toBeVisible()
+    await parkPointer(page)
+    await expectWindow(page, 'V-25-browser-over-inspector-200-dark.png')
+  })
 })

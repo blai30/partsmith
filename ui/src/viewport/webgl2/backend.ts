@@ -566,8 +566,7 @@ export function createWebGl2Backend(canvas: HTMLCanvasElement): RenderBackend | 
       return
     }
     const uniform = activate(program)
-    setRgb(uniform('u_backgroundTop'), frame.theme.backgroundTop)
-    setRgb(uniform('u_backgroundBottom'), frame.theme.backgroundBottom)
+    setRgb(uniform('u_background'), frame.theme.background)
     gl.disable(gl.DEPTH_TEST)
     gl.disable(gl.BLEND)
     gl.disable(gl.CULL_FACE)

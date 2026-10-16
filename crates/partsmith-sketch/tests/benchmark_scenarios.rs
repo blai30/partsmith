@@ -1,5 +1,5 @@
-//! Correctness of the benchmark scenarios, without timing (spec section 6.14, tests 197 to 200, and section 6.21,
-//! test 253).
+//! Correctness of the benchmark scenarios, without timing (spec section 6.14, tests 197 to 200 and 254, and
+//! section 6.21, test 253).
 
 mod common;
 
@@ -7,10 +7,11 @@ use std::collections::BTreeMap;
 use std::f64::consts::PI;
 
 use common::benchmark::{
-    CHAIN_FREE_END, SPLIT_CELLS, SPLIT_LINE, cell, chain_benchmark, entity_ids, grid_benchmark,
-    split_grid_benchmark,
+    CHAIN_FREE_END, LONG_OUTLINE_LINES, REDRAWN_LINE, SPLIT_CELLS, SPLIT_LINE, cell,
+    chain_benchmark, entity_ids, grid_benchmark, long_outline_benchmark,
+    redrawn_long_outline_benchmark, split_grid_benchmark,
 };
-use common::matching::resolved;
+use common::matching::{resolved, succession};
 use common::residuals::assert_constraints_hold;
 use common::{
     Sketch, TOLERANCE, arc_parts, assert_bitwise, assert_relative, drag_point, find, frame, id,
@@ -138,6 +139,35 @@ fn t200_grid_benchmark_profile() {
             .iter()
             .all(|finding| matches!(finding, ProfileFinding::OpenEndpoint { .. })),
         "every finding is an open endpoint"
+    );
+}
+
+#[test]
+fn t254_long_outline_profile_and_its_redrawn_line() {
+    let entities = long_outline_benchmark();
+    let profile = build_profile(&entities);
+    let lines: Vec<String> = (0..LONG_OUTLINE_LINES)
+        .map(|i| format!("e-p-{i}"))
+        .collect();
+
+    assert_eq!(profile.regions.len(), 1);
+    assert!(profile.findings.is_empty(), "{:?}", profile.findings);
+    assert_eq!(profile.regions[0].outline().to_string(), lines.join(","));
+
+    let redrawn = redrawn_long_outline_benchmark();
+    let found = match_region(
+        &build_profile(&redrawn).regions,
+        &entity_ids(&redrawn),
+        &profile.regions[0].reference(),
+    );
+
+    assert_eq!(
+        found,
+        resolved(
+            &[0],
+            MatchMethod::Boundary,
+            vec![succession("e-p-0", &[REDRAWN_LINE])]
+        )
     );
 }
 

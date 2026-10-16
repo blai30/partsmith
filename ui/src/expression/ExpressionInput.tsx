@@ -469,7 +469,7 @@ export function ExpressionInput({
               className={clsx(
                 'pointer-events-auto fixed top-0 left-0 m-0 hidden w-max min-w-48 max-w-80 flex-col open:flex rounded-lg border py-1 shadow-lg',
                 COLOR_CLASSES.surfaceRaised.background,
-                COLOR_CLASSES.border.border,
+                COLOR_CLASSES.forcedEdge.border,
                 COLOR_CLASSES.elevation.shadow,
               )}
             >
@@ -493,6 +493,9 @@ export function ExpressionInput({
                     'cursor-pointer truncate px-2 py-1 text-sm',
                     code ? 'font-mono' : 'tabular-nums',
                     COLOR_CLASSES.text.foreground,
+                    // The state outline that forced colors draw on the active option (3.23).
+                    COLOR_CLASSES.forcedEdge.outline,
+                    suggestions.active === index && 'outline -outline-offset-1',
                     suggestions.active === index
                       ? COLOR_CLASSES.hover.active
                       : COLOR_CLASSES.hover.background,

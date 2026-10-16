@@ -94,7 +94,7 @@ export function Popover({ label, open, anchor, onOpenChange, children, className
       className={clsx(
         'pointer-events-auto fixed top-0 left-0 m-0 rounded-lg border p-4 text-sm shadow-lg transition-opacity duration-150 ease-out starting:open:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}

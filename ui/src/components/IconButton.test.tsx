@@ -47,18 +47,48 @@ describe('IconButton', () => {
     )
   })
 
-  it('uses the selection background when pressed, which does not change on hover', () => {
+  it('U-213 uses the selection background and the state outline when pressed, which do not change on hover', () => {
     render(<IconButton label="Dark theme" icon={Moon} pressed onClick={() => undefined} />)
     const button = screen.getByRole('button', { name: 'Dark theme' })
     expect(button).toHaveClass(COLOR_CLASSES.selection.background)
+    expect(button).toHaveClass('outline', '-outline-offset-1', COLOR_CLASSES.forcedEdge.outline)
+    expect(button).not.toHaveClass(COLOR_CLASSES.hover.background)
+    expect(button).not.toHaveClass(COLOR_CLASSES.accent.outline)
+  })
+
+  it('U-213 uses the neutral active fill when pressed with pressedFill neutral, a toggle of what the window shows', () => {
+    render(
+      <IconButton
+        label="Toggle browser"
+        icon={Maximize}
+        pressed
+        pressedFill="neutral"
+        onClick={() => undefined}
+      />,
+    )
+    const button = screen.getByRole('button', { name: 'Toggle browser' })
+    expect(button).toHaveClass(...COLOR_CLASSES.hover.active.split(' '))
+    expect(button).toHaveClass(...COLOR_CLASSES.text.foreground.split(' '))
+    expect(button).toHaveClass('outline', '-outline-offset-1', COLOR_CLASSES.forcedEdge.outline)
+    expect(button).not.toHaveClass(COLOR_CLASSES.selection.background)
     expect(button).not.toHaveClass(COLOR_CLASSES.hover.background)
   })
 
-  it('uses the hover background when not pressed', () => {
+  it('U-213 uses the hover background when not pressed, resting with the transparent outline', () => {
     render(<IconButton label="Dark theme" icon={Moon} pressed={false} onClick={() => undefined} />)
     const button = screen.getByRole('button', { name: 'Dark theme' })
     expect(button).toHaveClass(COLOR_CLASSES.hover.background)
+    expect(button).toHaveClass(COLOR_CLASSES.forcedEdge.outline)
+    expect(button).not.toHaveClass('outline')
+    expect(button).not.toHaveClass(COLOR_CLASSES.accent.outline)
     expect(button).not.toHaveClass(COLOR_CLASSES.selection.background)
+  })
+
+  it('a plain icon button rests with the accent outline color of its focus ring', () => {
+    render(<IconButton label="Fit to view" icon={Maximize} onClick={() => undefined} />)
+    const button = screen.getByRole('button', { name: 'Fit to view' })
+    expect(button).toHaveClass(COLOR_CLASSES.accent.outline)
+    expect(button).not.toHaveClass(COLOR_CLASSES.forcedEdge.outline)
   })
 
   it('U-188 carries the focus ring and is rounded-md, never pill-shaped', () => {

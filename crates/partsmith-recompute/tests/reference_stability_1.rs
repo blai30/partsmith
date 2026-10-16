@@ -635,11 +635,11 @@ fn r05_edge() -> Value {
     )
 }
 
-/// R05: rectangles A (x 0..30) and B (x `b_left`..`b_left` + 30) extruded 10 with both regions as
+/// R05: rectangles A (x 0..30) and B (x `b_left`..`b_right`) extruded 10 with both regions as
 /// stored at setup, and a fillet on B's right top edge.
-fn r05_model(b_left: f64) -> Document {
+fn r05_model(b_left: f64, b_right: f64) -> Document {
     let mut entities = rectangle(1, 0.0, 0.0, 30.0, 50.0);
-    entities.extend(rectangle(5, b_left, 0.0, b_left + 30.0, 50.0));
+    entities.extend(rectangle(5, b_left, 0.0, b_right, 50.0));
     document(
         &["b-1"],
         vec![
@@ -662,8 +662,8 @@ fn r05_model(b_left: f64) -> Document {
 
 #[test]
 fn r05_overlapping_profile_rectangles_extrude_their_union() {
-    let before = setup(r05_model(50.0));
-    let run = edit(before, r05_model(20.0));
+    let before = setup(r05_model(50.0, 80.0));
+    let run = edit(before, r05_model(20.0, 70.0));
     let mut checks = checks_for(&run);
     checks.note(region_diagnosis(
         &run,

@@ -6,6 +6,7 @@ import {
   expectReady,
   inspector,
   inspectorField,
+  inspectorInput,
   openApp,
   runCommand,
   timelineItem,
@@ -13,8 +14,8 @@ import {
 import { chooseContext } from './support/print'
 import { editSketchFromTimeline } from './support/sketch'
 
-// Themes, inline styles and fonts (ui.md 2.16, 3.12, 6.5 E-56, E-60 to E-62, E-143 and E-144)
-// against the production build.
+// Themes, inline styles, fonts and flat islands (ui.md 2.16, 3.2, 3.12, 3.23, 3.24, 6.5 E-56,
+// E-60 to E-62, E-143 to E-146, E-148 and E-149) against the production build.
 
 /** The key the settings are stored under in localStorage (ui.md 2.15). */
 const SETTINGS_KEY = 'partsmith.settings.v1'
@@ -425,5 +426,308 @@ test.describe('fonts', () => {
       ['fonts.googleapis.com', 'fonts.gstatic.com'].includes(request.url.hostname),
     )
     expect(googleFonts.map((request) => request.url.href)).toEqual([])
+  })
+})
+
+/** The computed values of several CSS properties of the first element `locator` matches. */
+function computedStyle(
+  locator: Locator,
+  properties: readonly string[],
+): Promise<Readonly<Record<string, string>>> {
+  return locator.evaluate(
+    (element, names) =>
+      Object.fromEntries(
+        names.map((name) => [name, getComputedStyle(element).getPropertyValue(name)]),
+      ),
+    properties,
+  )
+}
+
+const TRANSPARENT = 'rgba(0, 0, 0, 0)'
+const SURFACE_IDS = [
+  'top-bar',
+  'browser',
+  'side-panel',
+  'timeline',
+  'status-bar',
+  'inspector',
+  'viewport-controls',
+  'document-menu',
+] as const
+
+/**
+ * E-145 and E-146's setup: `cube.ptsm` with the Parameters panel open, the body row "Cube"
+ * selected (the selection inspector opens) and the Document menu open.
+ */
+async function openFlatIslands(page: Page): Promise<void> {
+  await openApp(page)
+  await dropFile(page, 'cube.ptsm')
+  await runCommand(page, 'Parameters')
+  await expect(page.getByTestId('side-panel')).toBeVisible()
+  await bodyRow(page, 'Cube').click()
+  await expect(inspector(page)).toBeVisible()
+  await page.getByTestId('document-name').click()
+  await expect(page.getByTestId('document-menu')).toBeVisible()
+}
+
+/** The labels around the context switcher's radios, by option. */
+function switcherLabel(page: Page, name: 'Model' | 'Sketch' | 'Print'): Locator {
+  return page
+    .getByRole('radiogroup', { name: 'Context' })
+    .locator('label')
+    .filter({ has: page.getByRole('radio', { name, exact: true }) })
+}
+
+// The body swatches of the color popover and the '#rrggbb' of their steps (2.16.5).
+const SWATCH_HEX: Readonly<Record<string, string>> = {
+  Default: '#9f9fa9',
+  White: '#f4f4f5',
+  Black: '#27272a',
+  Gray: '#71717b',
+  Red: '#e7000b',
+  Orange: '#ff6900',
+  Yellow: '#fdc700',
+  Green: '#00a63e',
+  Teal: '#009689',
+  Blue: '#155dfc',
+  Purple: '#9810fa',
+  Pink: '#e60076',
+  Brown: '#973c00',
+}
+
+/** A CSS color as '#rrggbb', drawn on a canvas in sRGB, as the page renders it. */
+function hexOf(page: Page, color: string): Promise<string> {
+  return page.evaluate((value) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 1
+    canvas.height = 1
+    const context = canvas.getContext('2d')
+    if (context === null) {
+      throw new Error('The test page cannot create a 2D context.')
+    }
+    context.fillStyle = value
+    context.fillRect(0, 0, 1, 1)
+    const [red = 0, green = 0, blue = 0] = context.getImageData(0, 0, 1, 1).data
+    return `#${[red, green, blue].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`
+  }, color)
+}
+
+test.describe('flat islands', () => {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test(`E-145 islands, cards and popups have no outline, only a step and a shadow (${colorScheme})`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ colorScheme })
+      await openFlatIslands(page)
+      const styles = await Promise.all(
+        SURFACE_IDS.map((id) =>
+          computedStyle(page.getByTestId(id), [
+            'border-top-width',
+            'border-top-color',
+            'box-shadow',
+            'background-color',
+          ]),
+        ),
+      )
+      for (const [index, style] of styles.entries()) {
+        const name = SURFACE_IDS[index]
+        expect([name, style['border-top-width']]).toEqual([name, '1px'])
+        expect([name, style['border-top-color']]).toEqual([name, TRANSPARENT])
+      }
+      // Search is a ghost button, with no border to draw (3.23).
+      expect(await computed(page.getByTestId('palette-button'), 'border-top-width')).toBe('0px')
+      for (const [index, style] of styles.entries()) {
+        expect([SURFACE_IDS[index], style['box-shadow']]).not.toEqual([SURFACE_IDS[index], 'none'])
+      }
+      const app = await computed(page.getByTestId('app'), 'background-color')
+      const surfaces = styles.slice(0, -1).map((style) => style['background-color'])
+      const menu = styles.at(-1)?.['background-color']
+      expect(new Set(surfaces).size).toBe(1)
+      expect(surfaces[0]).not.toBe(app)
+      if (colorScheme === 'light') {
+        expect(menu).toBe(surfaces[0])
+      } else {
+        expect(menu).not.toBe(surfaces[0])
+        expect(menu).not.toBe(app)
+      }
+
+      const track = await computed(
+        page.getByRole('radiogroup', { name: 'Context' }),
+        'background-color',
+      )
+      const model = await computedStyle(switcherLabel(page, 'Model'), [
+        'outline-style',
+        'outline-color',
+        'background-color',
+      ])
+      expect(model['outline-style']).toBe('solid')
+      expect(model['outline-color']).toBe(TRANSPARENT)
+      expect(model['background-color']).not.toBe(track)
+      const unchecked = await Promise.all(
+        (['Sketch', 'Print'] as const).map((name) =>
+          computedStyle(switcherLabel(page, name), [
+            'outline-style',
+            'outline-color',
+            'background-color',
+          ]),
+        ),
+      )
+      for (const style of unchecked) {
+        expect(style).toEqual({
+          'outline-style': 'none',
+          'outline-color': TRANSPARENT,
+          'background-color': TRANSPARENT,
+        })
+      }
+      expect(
+        await computedStyle(bodyRow(page, 'Cube'), ['outline-style', 'outline-color']),
+      ).toEqual({ 'outline-style': 'solid', 'outline-color': TRANSPARENT })
+    })
+
+    test(`E-146 every island, card, popup and state keeps a visible edge in forced colors (${colorScheme})`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ forcedColors: 'active', colorScheme })
+      await openFlatIslands(page)
+      const ids = SURFACE_IDS
+      const edges = await Promise.all(
+        ids.map((id) =>
+          computedStyle(page.getByTestId(id), [
+            'box-shadow',
+            'border-top-style',
+            'border-top-width',
+            'border-top-color',
+            'color',
+            'background-color',
+          ]),
+        ),
+      )
+      for (const [index, style] of edges.entries()) {
+        const id = ids[index]
+        expect([id, style['box-shadow']]).toEqual([id, 'none'])
+        expect([id, style['border-top-style'], style['border-top-width']]).toEqual([
+          id,
+          'solid',
+          '1px',
+        ])
+        expect([id, style['border-top-color']]).not.toEqual([id, TRANSPARENT])
+        expect([id, style['border-top-color']]).toEqual([id, style['color']])
+        expect([id, style['border-top-color']]).not.toEqual([id, style['background-color']])
+      }
+      // Ghost buttons draw no edge in forced colors either, as at rest (3.24).
+      expect(await computed(page.getByTestId('palette-button'), 'border-top-width')).toBe('0px')
+
+      const model = await computedStyle(switcherLabel(page, 'Model'), [
+        'outline-style',
+        'outline-width',
+        'outline-color',
+        'color',
+      ])
+      expect(model['outline-style']).toBe('solid')
+      expect(model['outline-width']).toBe('1px')
+      expect(model['outline-color']).toBe(model['color'])
+      const uncheckedOutlines = await Promise.all(
+        (['Sketch', 'Print'] as const).map((name) =>
+          computed(switcherLabel(page, name), 'outline-style'),
+        ),
+      )
+      expect(uncheckedOutlines).toEqual(['none', 'none'])
+      const row = await computedStyle(bodyRow(page, 'Cube'), [
+        'outline-style',
+        'outline-color',
+        'color',
+      ])
+      expect(row['outline-style']).toBe('solid')
+      expect(row['outline-color']).toBe(row['color'])
+
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('document-menu')).toBeHidden()
+      const section = page
+        .getByTestId('viewport-controls')
+        .getByRole('button', { name: 'Section view' })
+      await section.click()
+      await expect(section).toHaveAttribute('aria-pressed', 'true')
+      const pressed = await computedStyle(section, ['outline-style', 'outline-color', 'color'])
+      expect(pressed['outline-style']).toBe('solid')
+      expect(pressed['outline-color']).toBe(pressed['color'])
+      const thumb = page.getByRole('switch', { name: 'Flip' }).locator('span')
+      const thumbStyle = await computedStyle(thumb, [
+        'border-top-width',
+        'border-top-color',
+        'color',
+      ])
+      expect(thumbStyle['border-top-width']).toBe('1px')
+      expect(thumbStyle['border-top-color']).toBe(thumbStyle['color'])
+
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: 'Color of Cube', exact: true }).first().click()
+      const popover = page.getByTestId('color-popover')
+      await expect(popover).toBeVisible()
+      const swatches = await Promise.all(
+        Object.keys(SWATCH_HEX).map(async (name) => {
+          const swatch = popover.getByRole('button', { name, exact: true })
+          return [name, await hexOf(page, await computed(swatch, 'background-color'))]
+        }),
+      )
+      expect(Object.fromEntries(swatches)).toEqual(SWATCH_HEX)
+
+      await page.keyboard.press('Escape')
+      await expect(popover).toBeHidden()
+      await page.keyboard.press('e')
+      const distance = inspectorInput(page, 'Distance')
+      await expect(distance).toBeVisible()
+      const input = await computedStyle(distance, ['border-top-width', 'border-top-color', 'color'])
+      expect(input['border-top-width']).toBe('1px')
+      expect(input['border-top-color']).toBe(input['color'])
+    })
+  }
+
+  test('E-148 the browser floating over the free area is raised over its cards in the dark theme', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: 'dark' })
+    // Stored before the first load only, so the reload below keeps the scale it stores.
+    await page.addInitScript((key) => {
+      if (localStorage.getItem(key) === null) {
+        localStorage.setItem(key, JSON.stringify({ uiScale: 2 }))
+      }
+    }, SETTINGS_KEY)
+    await openApp(page)
+    const browser = page.getByTestId('browser')
+    await expect(browser).toBeHidden()
+    await page.getByRole('button', { name: 'Toggle browser', exact: true }).click()
+    await expect(browser).toBeVisible()
+    // An overlay island on surfaceRaised (zinc-800) over the cards on surface (zinc-900), 3.2.
+    expect(await hexOf(page, await computed(browser, 'background-color'))).toBe('#27272a')
+    const card = await computed(page.getByTestId('viewport-controls'), 'background-color')
+    expect(await hexOf(page, card)).toBe('#18181b')
+    // Docked, at 100 percent, it is a frame island on surface like the others.
+    await page.evaluate((key) => {
+      localStorage.setItem(key, JSON.stringify({ uiScale: 1 }))
+    }, SETTINGS_KEY)
+    await page.reload()
+    await expectReady(page)
+    await expect(browser).toBeVisible()
+    expect(await hexOf(page, await computed(browser, 'background-color'))).toBe('#18181b')
+  })
+
+  test('E-149 a submenu of the Document menu opens beside its item, not at the top bar', async ({
+    page,
+  }) => {
+    await openApp(page)
+    await page.getByTestId('document-name').click()
+    const menu = page.getByTestId('document-menu')
+    await expect(menu).toBeVisible()
+    const item = menu.getByRole('menuitem', { name: 'Theme' })
+    await item.click()
+    await expect(item).toHaveAttribute('aria-expanded', 'true')
+    const submenu = page.getByRole('menu', { name: 'Theme' })
+    await expect(submenu).toBeVisible()
+    const [itemBox, submenuBox] = await Promise.all([item.boundingBox(), submenu.boundingBox()])
+    if (itemBox === null || submenuBox === null) {
+      throw new Error('The Theme item and its submenu need boxes.')
+    }
+    expect(Math.abs(submenuBox.y - itemBox.y)).toBeLessThanOrEqual(0.5)
+    expect(submenuBox.x).toBeGreaterThanOrEqual(itemBox.x + itemBox.width)
   })
 })

@@ -23,10 +23,12 @@ export function OverhangLegend({ limit }: OverhangLegendProps) {
   return (
     <div
       data-testid="overhang-legend"
+      // A card of the free area: labels under it are hidden (3.12).
+      data-card=""
       className={clsx(
         'pointer-events-none mt-auto flex w-56 flex-col gap-2 rounded-xl border p-3 text-xs shadow-md',
-        COLOR_CLASSES.surfaceRaised.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.surface.background,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}
@@ -35,8 +37,9 @@ export function OverhangLegend({ limit }: OverhangLegendProps) {
       <div className="flex flex-col gap-1">
         <div
           aria-hidden="true"
+          // The ramp is content: forced colors keep its colors, as the 3D view keeps them (3.24).
           className={clsx(
-            'h-2 rounded-xs border',
+            'h-2 rounded-xs border forced-color-adjust-none',
             COLOR_CLASSES.analysis.background,
             COLOR_CLASSES.borderControl.border,
           )}

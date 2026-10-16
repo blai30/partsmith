@@ -54,7 +54,7 @@ import {
   type Gesture,
   type KeyNavigation,
 } from './navigation'
-import { placeElement, visiblePosition } from './overlay'
+import { hideLabelsUnderCards, placeElement, visiblePosition } from './overlay'
 import {
   candidateKind,
   choosePick,
@@ -373,17 +373,19 @@ export function createViewportController(options: {
   }
 
   /**
-   * Moves the overlay's anchored elements (`data-anchor="x,y,z"`) to their projections, hiding
-   * those whose anchor is behind the eye or outside the free area (3.12).
+   * Moves the overlay's anchored labels (`data-anchor="x,y,z"`) to their projections, hiding those
+   * whose anchor is behind the eye or outside the free area, or whose box meets a card there (3.12).
    */
   function positionAnchors(): void {
     const area = framedArea(viewWindow())
-    for (const element of overlay.querySelectorAll<HTMLElement>('[data-anchor]')) {
+    const labels = [...overlay.querySelectorAll<HTMLElement>('[data-anchor]')]
+    for (const element of labels) {
       const coordinates = (element.dataset['anchor'] ?? '').split(',').map(Number)
       const [x = Number.NaN, y = Number.NaN, z = Number.NaN] = coordinates
       const position = Number.isFinite(x + y + z) ? project([x, y, z]) : null
       placeElement(element, visiblePosition(position, area))
     }
+    hideLabelsUnderCards(labels, freeArea)
   }
 
   function viewportElement(): HTMLElement | null {

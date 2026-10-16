@@ -6,12 +6,14 @@ use std::collections::HashMap;
 use partsmith_model::{Id, Units};
 use partsmith_naming::{ElementKind, ElementName, Fingerprint, GeometryKind};
 
-use super::Word;
+use super::caps::cap_direction;
+use super::cuts::cut_boolean;
 use super::maker::{
     Maker, NOT_IN_DOCUMENT, entity_geometry, entity_words, is_round, sketch_coordinates,
     sketch_point, world_coordinates,
 };
 use super::name::{FaceName, GeneratorText, piece_free};
+use super::{Describer, Word, cross, dot};
 use crate::context::BodyState;
 use crate::error::message::Names;
 use crate::output::Absence;
@@ -121,19 +123,15 @@ pub(super) struct FaceFacts {
 }
 
 impl FaceFacts {
-    /// The facts of the face named `face`, which is `element` or one of its face terms.
-    pub(super) fn of(
-        element: &Element<'_>,
-        face: &str,
-        faces: &Faces,
-        names: &dyn Names,
-        units: Units,
-    ) -> FaceFacts {
+    /// The facts of the face named `face`, which is `element` or one of its face terms, in the state `describer`
+    /// describes.
+    pub(super) fn of(element: &Element<'_>, face: &str, describer: &Describer<'_>) -> FaceFacts {
         let reader = FaceReader {
             element,
-            faces,
-            names,
-            units,
+            body: describer.body,
+            faces: describer.faces,
+            names: describer.names,
+            units: describer.units,
         };
         reader.facts(face)
     }
@@ -176,6 +174,8 @@ impl FaceFacts {
 struct FaceReader<'r, 'e> {
     /// The element described.
     element: &'r Element<'e>,
+    /// The body whose state is described.
+    body: &'r Id,
     /// The faces of the state.
     faces: &'r Faces,
     /// Names, records and sketch results.
@@ -201,9 +201,7 @@ impl FaceReader<'_, '_> {
             owner: maker.quoted(),
             copies,
             feature_key: format!("{}{}", name.feature, name.copy_text()),
-            cut: self
-                .leaves_cut(&maker, name.feature)
-                .then(|| format!("the cut made by {}", maker.quoted())),
+            cut: self.cut(&maker, name.feature),
             entity: None,
             round: false,
             rim_owner: None,
@@ -305,6 +303,17 @@ impl FaceReader<'_, '_> {
         Some(crossed.map(|component| component * sign))
     }
 
+    /// `the cut made by 'Boolean 1'` when the faces of `feature` in the element read as faces a cut leaves (section
+    /// 3.12): the tool faces of a cut boolean in the body described, else the faces of a cutting `maker`.
+    fn cut(&self, maker: &Maker<'_>, feature: &str) -> Option<String> {
+        let cutter = match cut_boolean(self.names, feature, self.body) {
+            Some(boolean) => Maker::of(self.names, boolean.as_str()).quoted(),
+            None if self.leaves_cut(maker, feature) => maker.quoted(),
+            None => return None,
+        };
+        Some(format!("the cut made by {cutter}"))
+    }
+
     /// True when the faces of `feature` in the element read as faces its cut leaves (section 3.12): `maker` is a cut,
     /// and the element has no cap of it that it records absent with `EndOutside`. Such a cap never was a face the cut
     /// leaves, so it, and an edge or vertex with it as a face term, reads as the tool's own.
@@ -329,30 +338,18 @@ impl FaceReader<'_, '_> {
         })
     }
 
-    /// For an extrude cap that is not in the state, the direction it faces in this run (section 3.12): an end cap
-    /// along the extrude's direction (the sketch normal, reversed by Reverse except for a symmetric extent), a start
-    /// cap against it. A cut leaves the other side of its tool's cap (`cut`), so its result normal is reversed.
+    /// For a cap of an extrude or revolve that is not in the state, the direction it faces in this run (section 3.12).
+    /// A cut leaves the other side of its tool's cap (`cut`), so its result normal is reversed.
     fn cap_normal(&self, maker: &Maker<'_>, name: &FaceName<'_>, cut: bool) -> Option<[f64; 3]> {
-        if !maker.is("extrude") || self.faces.fingerprint_of(name.text).is_some() {
+        if self.faces.fingerprint_of(name.text).is_some() {
             return None;
         }
-        let sign = match name.role {
-            "end-cap" => 1.0,
-            "start-cap" => -1.0,
-            _ => return None,
-        };
-        let sketch = self.names.sketch_result(&maker.sketch()?)?;
-        let reverse = maker
-            .param(&["reverse"])
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let symmetric = maker
-            .param(&["extent", "kind"])
-            .and_then(serde_json::Value::as_str)
-            == Some("symmetric");
-        let along = if reverse && !symmetric { -sign } else { sign };
-        let side = if cut { -along } else { along };
-        Some(sketch.placement.normal.map(|component| component * side))
+        let made = cap_direction(self.names, maker, name.role)?;
+        Some(if cut {
+            made.map(|component| -component)
+        } else {
+            made
+        })
     }
 
     /// True when the face is round for the rim rule (section 3.12): in the state, a cylinder, cone, sphere or torus;
@@ -688,20 +685,6 @@ fn ordinal(number: u64) -> String {
         _ => "th",
     };
     format!("{number}{suffix}")
-}
-
-/// The cross product.
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-/// The dot product.
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 #[cfg(test)]

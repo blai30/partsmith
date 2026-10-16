@@ -115,12 +115,6 @@ describe('SegmentedControl', () => {
     }
   })
 
-  it('shows the checked segment with the selection background', () => {
-    const { radio } = setUp('print')
-    expect(segment(radio('Print'))).toHaveClass(COLOR_CLASSES.selection.background)
-    expect(segment(radio('Model'))).not.toHaveClass(COLOR_CLASSES.selection.background)
-  })
-
   it('follows the value prop', () => {
     const { rerender } = render(
       <SegmentedControl label="Plane" options={PLANES} value="XY" onChange={() => undefined} />,
@@ -211,5 +205,110 @@ describe('SegmentedControl option tooltips', () => {
     expect(screen.getByRole('radio', { name: 'Sketch' })).toHaveFocus()
     await user.keyboard('{ArrowRight}')
     expect(screen.getByRole('radio', { name: 'Print' })).toHaveFocus()
+  })
+})
+
+const LETTERS: readonly { readonly value: 'A' | 'B' | 'C'; readonly label: string }[] = [
+  { value: 'A', label: 'A' },
+  { value: 'B', label: 'B' },
+  { value: 'C', label: 'C' },
+]
+
+/** The classes of a role facet, one by one. */
+function classesOf(classes: string): string[] {
+  return classes.split(' ')
+}
+
+/** Whether an element has every class of a role facet. */
+function hasFacet(element: HTMLElement, classes: string): boolean {
+  return classesOf(classes).every((name) => element.classList.contains(name))
+}
+
+/** The label of the segment named `name`. */
+function label(name: string): HTMLElement {
+  return segment(screen.getByRole('radio', { name }))
+}
+
+/** The thumb's classes a label lacks, and `selection` when it has it (3.23). */
+function thumbDefects(element: HTMLElement): string[] {
+  const required = [
+    'rounded-sm',
+    'shadow-xs',
+    'font-semibold',
+    'outline',
+    '-outline-offset-1',
+    ...classesOf(COLOR_CLASSES.thumb.background),
+    ...classesOf(COLOR_CLASSES.elevation.shadow),
+    ...classesOf(COLOR_CLASSES.forcedEdge.outline),
+  ]
+  const missing = required.filter((name) => !element.classList.contains(name))
+  return hasFacet(element, COLOR_CLASSES.selection.background) ? [...missing, 'selection'] : missing
+}
+
+/** The unchecked classes a label lacks, and the outline, fill and shadow classes it has. */
+function uncheckedDefects(element: HTMLElement): string[] {
+  const required = [
+    ...classesOf(COLOR_CLASSES.forcedEdge.outline),
+    ...classesOf(COLOR_CLASSES.textMuted.foreground),
+    ...classesOf(COLOR_CLASSES.hover.foreground),
+  ]
+  const missing = required.filter((name) => !element.classList.contains(name))
+  const unexpected = [...element.classList].filter(
+    (name) =>
+      name === 'outline' ||
+      name === '-outline-offset-1' ||
+      name.includes('bg-') ||
+      name.includes('shadow-'),
+  )
+  return [...missing, ...unexpected]
+}
+
+describe('segmented control as a tonal track with a raised thumb (U-210)', () => {
+  it('U-210 draws the track in tonal with a forcedEdge border, not on field', () => {
+    render(<SegmentedControl label="Letter" options={LETTERS} value="B" onChange={() => {}} />)
+    const group = screen.getByRole('radiogroup', { name: 'Letter' })
+    expect(group).toHaveClass('h-8', 'rounded-md', 'border', 'p-0.5')
+    expect(group).toHaveClass(...classesOf(COLOR_CLASSES.tonal.background))
+    expect(group).toHaveClass(...classesOf(COLOR_CLASSES.forcedEdge.border))
+    expect(hasFacet(group, COLOR_CLASSES.field.background)).toBe(false)
+  })
+
+  it('U-210 raises the checked segment as the thumb, semibold in text, with the state outline', () => {
+    render(<SegmentedControl label="Letter" options={LETTERS} value="B" onChange={() => {}} />)
+    expect(thumbDefects(label('B'))).toEqual([])
+    expect(label('B')).toHaveClass(...classesOf(COLOR_CLASSES.text.foreground))
+    expect(uncheckedDefects(label('A'))).toEqual([])
+    expect(uncheckedDefects(label('C'))).toEqual([])
+  })
+
+  it('U-210 choosing C moves the thumb to C and gives B the unchecked classes', () => {
+    const { rerender } = render(
+      <SegmentedControl label="Letter" options={LETTERS} value="B" onChange={() => {}} />,
+    )
+    rerender(<SegmentedControl label="Letter" options={LETTERS} value="C" onChange={() => {}} />)
+    expect(thumbDefects(label('C'))).toEqual([])
+    expect(uncheckedDefects(label('B'))).toEqual([])
+    expect(uncheckedDefects(label('A'))).toEqual([])
+  })
+
+  it('U-210 keeps the focus ring on every radio', () => {
+    render(<SegmentedControl label="Letter" options={LETTERS} value="B" onChange={() => {}} />)
+    for (const radio of screen.getAllByRole('radio')) {
+      expect(radio).toHaveClass(...classesOf(COLOR_CLASSES.focusRing.outline))
+    }
+  })
+
+  it('U-210 a disabled control keeps the thumb and its semibold label in textMuted, the others in textDisabled, with no hover', () => {
+    render(
+      <SegmentedControl disabled label="Letter" options={LETTERS} value="B" onChange={() => {}} />,
+    )
+    expect(thumbDefects(label('B'))).toEqual([])
+    expect(label('B')).toHaveClass(...classesOf(COLOR_CLASSES.textMuted.foreground))
+    for (const name of ['A', 'C']) {
+      expect(label(name)).toHaveClass(...classesOf(COLOR_CLASSES.textDisabled.foreground))
+    }
+    for (const name of ['A', 'B', 'C']) {
+      expect(hasFacet(label(name), COLOR_CLASSES.hover.foreground)).toBe(false)
+    }
   })
 })

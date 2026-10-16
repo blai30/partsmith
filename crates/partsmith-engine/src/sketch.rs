@@ -206,6 +206,8 @@ fn project(
             constraints,
             regions,
             profile_findings: profile.findings,
+            // The sketch crate renders these from phase 3 of the reference stability plan (engine.md section 3.6).
+            messages: Vec::new(),
             display: None,
         },
         regions: profile.regions,

@@ -250,7 +250,9 @@ function Row({
       className={clsx(
         'flex h-8 cursor-default items-center gap-2 rounded-md pr-1 pl-7 text-sm',
         COLOR_CLASSES.focusRing.outline,
-        COLOR_CLASSES.accent.outline,
+        // The transparent state outline, which forced colors draw on a selected row (3.23).
+        COLOR_CLASSES.forcedEdge.outline,
+        selected && 'outline -outline-offset-1',
         selected ? COLOR_CLASSES.selection.background : COLOR_CLASSES.hover.background,
       )}
     >
@@ -662,11 +664,12 @@ export function Browser() {
       aria-label="Browser"
       data-testid="browser"
       // A frame island (3.2), docked in the first column from 65rem and floating over the free
-      // area's cell below it; its tree scrolls inside it.
+      // area's cell below it, a step raised over the cards there; its tree scrolls inside it.
       className={clsx(
         'relative z-10 col-start-1 row-start-2 mr-2 flex min-h-0 w-66 max-w-full flex-col overflow-hidden rounded-xl border shadow-md @max-5xl/app:absolute @max-5xl/app:inset-y-0 @max-5xl/app:left-0 @max-5xl/app:z-20 @max-5xl/app:col-start-2 @max-5xl/app:col-end-3 @max-5xl/app:row-end-3 @max-5xl/app:shadow-lg',
         COLOR_CLASSES.surface.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.surfaceRaised.overlay,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}

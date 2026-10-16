@@ -218,6 +218,33 @@ fn t003_an_upstream_reason_offers_no_pick() {
 }
 
 #[test]
+fn an_upstream_loss_ends_by_naming_the_root_to_fix_first() {
+    // Section 4: the reference may still be right, so the way out is to fix the root that the reason's Show names
+    // (corpus R47), in the warning and in the error alike.
+    let timeline = cube_with_fillet();
+    let diagnosis = explained(
+        "is missing because 'Box 1' cannot be built",
+        None,
+        vec![show("f-box1")],
+        true,
+    );
+    let error = FeatureError::ReferencesNotFound {
+        field: field("edges", "Edges"),
+        kind: ElementKind::Edge,
+        losses: vec![front_top_loss(&timeline, false)],
+    };
+
+    assert_eq!(
+        render_on_fillet(&timeline, &front_top_lost(&timeline, false), &diagnosis),
+        "The front top edge of 'Box 1' selected for Edges is missing because 'Box 1' cannot be built, so it was skipped. Fix 'Box 1' first."
+    );
+    assert_eq!(
+        timeline.with_context("f-fil1", &diagnosis, |context| error.render(context)),
+        "The front top edge of 'Box 1' selected for Edges is missing because 'Box 1' cannot be built. Fix 'Box 1' first."
+    );
+}
+
+#[test]
 fn t003_without_a_diagnosis_the_reason_says_partsmith_could_not_tell_why() {
     let timeline = cube_with_fillet();
     let warning = front_top_lost(&timeline, false);

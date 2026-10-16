@@ -72,18 +72,37 @@ const PALETTE_TABLE: readonly (readonly [step: string, tailwind: string, hex: st
   ['amber-800', 'oklch(47.3% 0.137 46.201)', '#973c00'],
 ]
 
-// Table of ui.md 2.16.3: role, facet, classes.
+// Table of ui.md 2.16.3: role, facet, classes. The `warningMark` border and background facets,
+// which the drop warning and the upper limit of a field bring (3.7, 3.9), are not in roles.ts yet.
 const CLASS_TABLE: readonly (readonly [role: string, facet: string, classes: string])[] = [
-  ['stage', 'background', 'bg-white dark:bg-zinc-800'],
-  ['surface', 'background', 'bg-zinc-100 dark:bg-zinc-950'],
-  ['surfaceRaised', 'background', 'bg-white dark:bg-zinc-900'],
+  ['stage', 'background', 'bg-zinc-100 dark:bg-zinc-950'],
+  ['surface', 'background', 'bg-white dark:bg-zinc-900'],
+  ['surfaceRaised', 'background', 'bg-white dark:bg-zinc-800'],
+  ['surfaceRaised', 'overlay', '@max-5xl/app:bg-white @max-5xl/app:dark:bg-zinc-800'],
   ['field', 'background', 'bg-white dark:bg-zinc-950'],
-  ['hover', 'background', 'hover:bg-zinc-200 dark:hover:bg-zinc-800'],
-  ['hover', 'active', 'bg-zinc-200 dark:bg-zinc-800'],
+  ['hover', 'background', 'hover:bg-zinc-200 dark:hover:bg-zinc-700/60'],
+  ['hover', 'active', 'bg-zinc-200 dark:bg-zinc-700/60'],
+  ['hover', 'foreground', 'hover:text-zinc-900 dark:hover:text-zinc-100'],
+  ['hover', 'banner', 'hover:bg-zinc-950/10 dark:hover:bg-white/15'],
+  ['hover', 'opaque', 'hover:bg-zinc-200 dark:hover:bg-zinc-800'],
+  ['tonal', 'background', 'bg-zinc-100 dark:bg-zinc-700/40'],
+  ['tonal', 'banner', 'bg-zinc-950/5 dark:bg-white/10'],
+  ['thumb', 'background', 'bg-white dark:bg-zinc-700'],
   ['selection', 'background', 'bg-orange-100 dark:bg-orange-950'],
-  ['border', 'border', 'border-zinc-300 dark:border-zinc-700'],
-  ['divider', 'border', 'border-zinc-200 dark:border-zinc-800'],
-  ['elevation', 'shadow', 'shadow-black/10 dark:shadow-black/50'],
+  ['forcedEdge', 'border', 'border-transparent'],
+  ['forcedEdge', 'outline', 'outline-transparent'],
+  ['divider', 'border', 'border-zinc-200 dark:border-white/10'],
+  [
+    'divider',
+    'overflowTop',
+    'data-overflow-top:border-t-zinc-200 dark:data-overflow-top:border-t-white/10',
+  ],
+  [
+    'divider',
+    'overflowBottom',
+    'data-overflow-bottom:border-b-zinc-200 dark:data-overflow-bottom:border-b-white/10',
+  ],
+  ['elevation', 'shadow', 'shadow-black/10 dark:shadow-black/20'],
   ['borderControl', 'border', 'border-zinc-500'],
   ['text', 'foreground', 'text-zinc-900 dark:text-zinc-100'],
   ['textMuted', 'foreground', 'text-zinc-600 dark:text-zinc-400'],
@@ -136,8 +155,7 @@ const VIEWPORT_TABLE: readonly (readonly [
   lightHex: string,
   darkHex: string,
 ])[] = [
-  ['viewportTop', 'white', 'zinc-800', '#ffffff', '#27272a'],
-  ['viewportBottom', 'zinc-100', 'zinc-900', '#f4f4f5', '#18181b'],
+  ['viewport', 'zinc-100', 'zinc-950', '#f4f4f5', '#09090b'],
   ['body', 'zinc-400', 'zinc-400', '#9f9fa9', '#9f9fa9'],
   ['edgeDark', 'zinc-900', 'zinc-900', '#18181b', '#18181b'],
   ['edgeLight', 'zinc-200', 'zinc-200', '#e4e4e7', '#e4e4e7'],
@@ -151,7 +169,7 @@ const VIEWPORT_TABLE: readonly (readonly [
   ['sketchReference', 'zinc-500', 'zinc-400', '#71717b', '#9f9fa9'],
   ['datum', 'zinc-400', 'zinc-500', '#9f9fa9', '#71717b'],
   ['bed', 'zinc-500', 'zinc-400', '#71717b', '#9f9fa9'],
-  ['grid', 'zinc-300', 'zinc-600', '#d4d4d8', '#52525c'],
+  ['grid', 'zinc-300', 'zinc-700', '#d4d4d8', '#3f3f46'],
   ['analysisLow', 'sky-200', 'sky-200', '#b8e6fe', '#b8e6fe'],
   ['analysisHigh', 'violet-700', 'violet-700', '#7008e7', '#7008e7'],
   ['axisX', 'rose-600', 'rose-400', '#ec003f', '#ff637e'],
@@ -176,102 +194,165 @@ const SWATCH_TABLE: readonly (readonly [name: string, step: PaletteStep, hex: st
   ['Brown', 'amber-800', '#973c00'],
 ]
 
-// Text table of ui.md 2.16.6: text role, background role, light ratio, dark ratio.
-const TEXT_CONTRAST: readonly (readonly [text: string, on: string, light: number, dark: number])[] =
-  [
-    ['text', 'surface', 16.11, 18.1],
-    ['text', 'surfaceRaised', 17.71, 16.11],
-    ['text', 'field', 17.71, 18.1],
-    ['text', 'hover', 13.96, 13.55],
-    ['text', 'selection', 15.45, 14.24],
-    ['text', 'errorSubtle', 16.19, 14.7],
-    ['text', 'warningSubtle', 17.12, 13.2],
-    ['textMuted', 'surface', 7.02, 7.58],
-    ['textMuted', 'surfaceRaised', 7.71, 6.75],
-    ['textMuted', 'field', 7.71, 7.58],
-    ['textMuted', 'hover', 6.08, 5.67],
-    ['textMuted', 'selection', 6.73, 5.96],
-    ['errorText', 'surface', 5.84, 10.36],
-    ['errorText', 'surfaceRaised', 6.42, 9.23],
-    ['errorText', 'errorSubtle', 5.86, 8.42],
-    ['warningText', 'surface', 6.22, 14.99],
-    ['warningText', 'surfaceRaised', 6.84, 13.35],
-    ['warningText', 'warningSubtle', 6.61, 10.93],
-    ['onAccent', 'accent', 5.52, 6.89],
-    ['onAccent', 'accentHover', 6.89, 8.36],
-    ['onWarningFill', 'warningFill', 12.64, 12.64],
-    ['onErrorFill', 'errorFill', 4.76, 4.76],
-    ['axisX', 'field', 4.52, 6.95],
-    ['axisX', 'surfaceRaised', 4.52, 6.19],
-    ['axisY', 'field', 5.36, 12.97],
-    ['axisY', 'surfaceRaised', 5.36, 11.55],
-    ['axisZ', 'field', 5.85, 11.94],
-    ['axisZ', 'surfaceRaised', 5.85, 10.63],
-  ]
+/** A row of the contrast tables of ui.md 2.16.6. */
+type ContrastRow = readonly [color: string, background: string, light: number, dark: number]
 
-// Non-text table of ui.md 2.16.6: mark role, background role, light ratio, dark ratio.
-const NON_TEXT_CONTRAST: readonly (readonly [
-  mark: string,
-  against: string,
-  light: number,
-  dark: number,
-])[] = [
-  ['borderControl', 'surface', 4.39, 4.12],
-  ['borderControl', 'surfaceRaised', 4.82, 3.67],
+// Text table of ui.md 2.16.6: text role, background, light ratio, dark ratio. A name with
+// "over" composites the role with an opacity over the one after it (2.16.6).
+const TEXT_CONTRAST: readonly ContrastRow[] = [
+  ['text', 'surface', 17.71, 16.11],
+  ['text', 'surfaceRaised', 17.71, 13.55],
+  ['text', 'field', 17.71, 18.1],
+  ['text', 'hover over surface', 13.96, 12.1],
+  ['text', 'hover over surfaceRaised', 13.96, 11.08],
+  ['text', 'hover opaque', 13.96, 13.55],
+  ['text', 'tonal over surface', 16.11, 13.35],
+  ['text', 'tonal over surfaceRaised', 16.11, 11.78],
+  ['text', 'thumb', 17.71, 9.5],
+  ['text', 'selection', 15.45, 14.24],
+  ['text', 'errorSubtle', 16.19, 14.7],
+  ['text', 'warningSubtle', 17.12, 13.2],
+  ['text', 'tonal banner over errorSubtle', 14.54, 11.47],
+  ['text', 'tonal banner over warningSubtle', 15.42, 9.84],
+  ['text', 'hover banner over errorSubtle', 13.09, 9.87],
+  ['text', 'hover banner over warningSubtle', 13.82, 8.39],
+  ['textMuted', 'surface', 7.71, 6.75],
+  ['textMuted', 'surfaceRaised', 7.71, 5.67],
+  ['textMuted', 'field', 7.71, 7.58],
+  ['textMuted', 'hover over surface', 6.08, 5.07],
+  ['textMuted', 'hover over surfaceRaised', 6.08, 4.64],
+  ['textMuted', 'hover opaque', 6.08, 5.67],
+  ['textMuted', 'tonal over surface', 7.02, 5.59],
+  ['textMuted', 'tonal over surfaceRaised', 7.02, 4.93],
+  ['textMuted', 'selection', 6.73, 5.96],
+  ['errorText', 'surface', 6.42, 9.23],
+  ['errorText', 'surfaceRaised', 6.42, 7.76],
+  ['errorText', 'errorSubtle', 5.86, 8.42],
+  ['warningText', 'surface', 6.84, 13.35],
+  ['warningText', 'surfaceRaised', 6.84, 11.22],
+  ['warningText', 'warningSubtle', 6.61, 10.93],
+  ['onAccent', 'accent', 5.52, 6.89],
+  ['onAccent', 'accentHover', 6.89, 8.36],
+  ['onWarningFill', 'warningFill', 12.64, 12.64],
+  ['onErrorFill', 'errorFill', 4.76, 4.76],
+  ['axisX', 'field', 4.52, 6.95],
+  ['axisX', 'surface', 4.52, 6.19],
+  ['axisY', 'field', 5.36, 12.97],
+  ['axisY', 'surface', 5.36, 11.55],
+  ['axisZ', 'field', 5.85, 11.94],
+  ['axisZ', 'surface', 5.85, 10.63],
+]
+
+// Non-text table of ui.md 2.16.6: mark role, background, light ratio, dark ratio.
+const NON_TEXT_CONTRAST: readonly ContrastRow[] = [
+  ['borderControl', 'surface', 4.82, 3.67],
+  ['borderControl', 'surfaceRaised', 4.82, 3.08],
   ['borderControl', 'field', 4.82, 4.12],
-  ['accent', 'surface', 3.27, 6.89],
-  ['accent', 'surfaceRaised', 3.59, 6.13],
+  ['accent', 'surface', 3.59, 6.13],
+  ['accent', 'surfaceRaised', 3.59, 5.15],
   ['accent', 'selection', 3.13, 5.42],
-  ['accent', 'viewportTop', 3.59, 5.15],
-  ['accent', 'viewportBottom', 3.27, 6.13],
-  ['errorMark', 'surface', 5.84, 5.22],
-  ['errorMark', 'surfaceRaised', 6.42, 4.65],
-  ['errorMark', 'viewportTop', 6.42, 3.91],
-  ['errorMark', 'viewportBottom', 5.84, 4.65],
-  ['successMark', 'surface', 4.49, 11.18],
-  ['successMark', 'surfaceRaised', 4.94, 9.95],
-  ['warningMark', 'surface', 18.1, 12.64],
-  ['warningMark', 'surfaceRaised', 19.89, 11.25],
-  ['warningMark', 'hover', 15.67, 9.46],
+  ['accent', 'tonal over surface', 3.27, 5.08],
+  ['accent', 'tonal over surfaceRaised', 3.27, 4.48],
+  ['accent', 'thumb', 3.59, 3.61],
+  ['accent', 'errorSubtle', 3.28, 5.59],
+  ['accent', 'warningSubtle', 3.47, 5.02],
+  ['accent', 'viewport', 3.27, 6.89],
+  ['errorMark', 'surface', 6.42, 4.65],
+  ['errorMark', 'surfaceRaised', 6.42, 3.91],
+  ['errorMark', 'viewport', 5.84, 5.22],
+  ['errorMark', 'hover over surface', 5.06, 3.49],
+  ['errorMark', 'hover over surfaceRaised', 5.06, 3.19],
+  ['successMark', 'surface', 4.94, 9.95],
+  ['successMark', 'surfaceRaised', 4.94, 8.37],
+  ['warningMark', 'surface', 19.89, 11.25],
+  ['warningMark', 'surfaceRaised', 19.89, 9.46],
+  ['warningMark', 'hover over surface', 15.67, 8.45],
+  ['warningMark', 'hover over surfaceRaised', 15.67, 7.74],
   ['warningMark', 'selection', 17.35, 9.94],
   ['warningMark border', 'field', 6.84, 14.99],
-  ['warningMark background', 'surface', 6.22, 14.99],
-  ['sketchUnder', 'viewportTop', 5.24, 5.64],
-  ['sketchUnder', 'viewportBottom', 4.77, 6.71],
-  ['sketchFull', 'viewportTop', 17.71, 14.27],
-  ['sketchFull', 'viewportBottom', 16.11, 16.97],
-  ['sketchOver', 'viewportTop', 6.42, 3.91],
-  ['sketchOver', 'viewportBottom', 5.84, 4.65],
-  ['sketchConstruction', 'viewportTop', 7.71, 10.07],
-  ['sketchConstruction', 'viewportBottom', 7.02, 11.98],
-  ['sketchReference', 'viewportTop', 4.82, 5.67],
-  ['sketchReference', 'viewportBottom', 4.39, 6.75],
-  ['bed', 'viewportTop', 4.82, 5.67],
-  ['bed', 'viewportBottom', 4.39, 6.75],
-  ['axisX', 'viewportTop', 4.52, 5.2],
-  ['axisX', 'viewportBottom', 4.11, 6.19],
-  ['axisX', 'surface', 4.11, 6.95],
-  ['axisX', 'hover', 3.56, 5.2],
+  ['warningMark background', 'surface', 6.84, 13.35],
+  ['sketchUnder', 'viewport', 4.77, 7.54],
+  ['sketchFull', 'viewport', 16.11, 19.06],
+  ['sketchOver', 'viewport', 5.84, 5.22],
+  ['sketchConstruction', 'viewport', 7.02, 13.46],
+  ['sketchReference', 'viewport', 4.39, 7.58],
+  ['bed', 'viewport', 4.39, 7.58],
+  ['axisX', 'viewport', 4.11, 6.95],
+  ['axisX', 'surface', 4.52, 6.19],
+  ['axisX', 'hover over surface', 3.56, 4.64],
+  ['axisX', 'surfaceRaised', 4.52, 5.2],
+  ['axisX', 'hover over surfaceRaised', 3.56, 4.25],
   ['axisX', 'selection', 3.94, 5.46],
-  ['axisY', 'viewportTop', 5.36, 9.71],
-  ['axisY', 'viewportBottom', 4.88, 11.55],
-  ['axisY', 'surface', 4.88, 12.97],
-  ['axisY', 'hover', 4.22, 9.71],
+  ['axisY', 'viewport', 4.88, 12.97],
+  ['axisY', 'surface', 5.36, 11.55],
+  ['axisY', 'hover over surface', 4.22, 8.67],
+  ['axisY', 'surfaceRaised', 5.36, 9.71],
+  ['axisY', 'hover over surfaceRaised', 4.22, 7.94],
   ['axisY', 'selection', 4.67, 10.2],
-  ['axisZ', 'viewportTop', 5.85, 8.93],
-  ['axisZ', 'viewportBottom', 5.32, 10.63],
-  ['axisZ', 'surface', 5.32, 11.94],
-  ['axisZ', 'hover', 4.61, 8.93],
+  ['axisZ', 'viewport', 5.32, 11.94],
+  ['axisZ', 'surface', 5.85, 10.63],
+  ['axisZ', 'hover over surface', 4.61, 7.98],
+  ['axisZ', 'surfaceRaised', 5.85, 8.93],
+  ['axisZ', 'hover over surfaceRaised', 4.61, 7.31],
   ['axisZ', 'selection', 5.1, 9.39],
+]
+
+// Measured table of ui.md 2.16.6: color, background, light ratio, dark ratio, with no threshold. A
+// percentage composites the color over the background, and "(highlight at 20 percent)" mixes
+// highlight into the color before it.
+const MEASURED_CONTRAST: readonly ContrastRow[] = [
+  ['surface', 'viewport', 1.09, 1.12],
+  ['surfaceRaised', 'surface', 1, 1.18],
+  ['surfaceRaised', 'viewport', 1.09, 1.33],
+  ['hover over surface', 'surface', 1.26, 1.33],
+  ['hover over surfaceRaised', 'surfaceRaised', 1.26, 1.22],
+  ['tonal over surface', 'surface', 1.09, 1.2],
+  ['tonal over surfaceRaised', 'surfaceRaised', 1.09, 1.14],
+  ['hover over surface', 'tonal over surface', 1.15, 1.1],
+  ['hover over surfaceRaised', 'tonal over surfaceRaised', 1.15, 1.06],
+  ['selection', 'tonal over surface', 1.04, 1.06],
+  ['thumb', 'tonal over surface', 1.09, 1.4],
+  ['thumb', 'tonal over surfaceRaised', 1.09, 1.24],
+  ['textMuted', 'thumb', 7.71, 3.98],
+  ['field', 'surface', 1, 1.12],
+  ['field', 'surfaceRaised', 1, 1.33],
+  ['divider over surface', 'surface', 1.26, 1.32],
+  ['divider over surfaceRaised', 'surfaceRaised', 1.26, 1.37],
+  ['tonal banner over errorSubtle', 'errorSubtle', 1.11, 1.28],
+  ['tonal banner over warningSubtle', 'warningSubtle', 1.11, 1.34],
+  ['hover banner over errorSubtle', 'errorSubtle', 1.23, 1.48],
+  ['hover banner over warningSubtle', 'warningSubtle', 1.23, 1.57],
+  ['body', 'viewport', 2.38, 7.58],
+  ['body hovered (highlight at 20 percent)', 'viewport', 2.7, 7.08],
+  ['body selected (highlight at 35 percent)', 'viewport', 2.92, 6.86],
+  ['edgeDark', 'body', 6.75, 6.75],
+  ['edgeDark', 'viewport', 16.11, 1.12],
+  ['edgeLight', 'viewport', 1.15, 15.67],
+  ['grid minor (35 percent)', 'viewport', 1.1, 1.17],
+  ['grid major (70 percent)', 'viewport', 1.22, 1.49],
+  ['datum outline (60 percent)', 'viewport', 1.63, 2.15],
+  ['axisX plane outline (60 percent)', 'viewport', 2.82, 3.08],
+  ['axisY plane outline (60 percent)', 'viewport', 2.45, 5.08],
+  ['axisZ plane outline (60 percent)', 'viewport', 2.56, 4.75],
+  ['sketchRegion (12 percent)', 'viewport', 1.14, 1.14],
+  ['analysisLow', 'viewport', 1.21, 14.95],
+  ['analysisHigh', 'viewport', 6.63, 2.72],
 ]
 
 // Contrast-table names that are a facet of a 2.16.3 role, as role and facet.
 const ROLE_FACETS: Readonly<Record<string, readonly [role: string, facet: string]>> = {
+  stage: ['stage', 'background'],
   surface: ['surface', 'background'],
   surfaceRaised: ['surfaceRaised', 'background'],
   field: ['field', 'background'],
   hover: ['hover', 'background'],
+  'hover opaque': ['hover', 'opaque'],
+  'hover banner': ['hover', 'banner'],
+  tonal: ['tonal', 'background'],
+  'tonal banner': ['tonal', 'banner'],
+  thumb: ['thumb', 'background'],
   selection: ['selection', 'background'],
+  divider: ['divider', 'border'],
   errorSubtle: ['errorSubtle', 'background'],
   warningSubtle: ['warningSubtle', 'background'],
   text: ['text', 'foreground'],
@@ -304,22 +385,27 @@ for (const [family, value] of Object.entries(colors)) {
 const COLOR_FAMILIES = Object.entries(colors)
   .filter(([, value]) => typeof value !== 'string')
   .map(([family]) => family)
+// A color utility: its step, and its opacity modifier when it has one.
 const COLOR_UTILITY = new RegExp(
-  `^(?:bg|text|border|outline|stroke|fill|shadow|from|via|to)-(white|black|(?:${COLOR_FAMILIES.join('|')})-\\d+)(?:/\\d+)?$`,
+  `^(?:bg|text|border(?:-[trblxy])?|outline|stroke|fill|shadow|from|via|to)-(white|black|(?:${COLOR_FAMILIES.join('|')})-\\d+)(?:/(\\d+))?$`,
 )
 
-/** The palette steps a class string names for the light and the dark theme. */
-function stepsOf(classes: string): { readonly light: string; readonly dark: string } {
-  let light: string | null = null
-  let dark: string | null = null
+/** A palette step with an opacity from 0 to 1. */
+type Layer = { readonly step: string; readonly opacity: number }
+
+/** The layers a class string names for the light and the dark theme. */
+function layersOf(classes: string): Readonly<Record<ThemeName, Layer>> {
+  let light: Layer | null = null
+  let dark: Layer | null = null
   for (const token of classes.split(' ')) {
     const parts = token.split(':')
     const match = COLOR_UTILITY.exec(parts.at(-1) ?? '')
     if (match?.[1] !== undefined) {
+      const layer = { step: match[1], opacity: match[2] === undefined ? 1 : Number(match[2]) / 100 }
       if (parts.includes('dark')) {
-        dark = match[1]
+        dark = layer
       } else {
-        light = match[1]
+        light = layer
       }
     }
   }
@@ -327,6 +413,12 @@ function stepsOf(classes: string): { readonly light: string; readonly dark: stri
     throw new Error(`No light color step in "${classes}".`)
   }
   return { light, dark: dark ?? light }
+}
+
+/** The palette steps a class string names for the light and the dark theme. */
+function stepsOf(classes: string): { readonly light: string; readonly dark: string } {
+  const layers = layersOf(classes)
+  return { light: layers.light.step, dark: layers.dark.step }
 }
 
 function tableClasses(role: string, facet: string): string {
@@ -337,31 +429,79 @@ function tableClasses(role: string, facet: string): string {
   return row[2]
 }
 
-/** The 2.16.5 step of a contrast-table role in a theme, from the tables of 2.16.3 and 2.16.4. */
-function stepOfRole(name: string, theme: ThemeName): PaletteStep {
-  const steps = (() => {
-    if (name === 'warningMark') {
-      return { light: 'zinc-950', dark: 'yellow-400' }
-    }
-    if (name === 'warningMark border' || name === 'warningMark background') {
-      return { light: 'yellow-800', dark: 'yellow-300' }
-    }
-    const viewport = VIEWPORT_TABLE.find(([role]) => role === name)
-    if (viewport !== undefined) {
-      return { light: viewport[1], dark: viewport[2] }
-    }
-    const facet = ROLE_FACETS[name]
-    if (facet === undefined) {
-      throw new Error(`Unknown role ${name}.`)
-    }
-    return stepsOf(tableClasses(facet[0], facet[1]))
-  })()
-  const step = theme === 'light' ? steps.light : steps.dark
-  const known: readonly string[] = Object.keys(PALETTE_HEX)
-  if (!known.includes(step)) {
+function paletteHex(step: string): string {
+  if (!(step in PALETTE_HEX)) {
     throw new Error(`PALETTE_HEX has no step ${step}.`)
   }
-  return step as PaletteStep
+  return PALETTE_HEX[step as PaletteStep]
+}
+
+/** The layer of a contrast-table role in a theme, from the tables of 2.16.3 and 2.16.4. */
+function layerOfRole(name: string, theme: ThemeName): Layer {
+  if (name === 'warningMark') {
+    return { step: theme === 'light' ? 'zinc-950' : 'yellow-400', opacity: 1 }
+  }
+  if (name === 'warningMark border' || name === 'warningMark background') {
+    return { step: theme === 'light' ? 'yellow-800' : 'yellow-300', opacity: 1 }
+  }
+  const viewport = VIEWPORT_TABLE.find(([role]) => role === name)
+  if (viewport !== undefined) {
+    return { step: theme === 'light' ? viewport[1] : viewport[2], opacity: 1 }
+  }
+  const facet = ROLE_FACETS[name]
+  if (facet === undefined) {
+    throw new Error(`Unknown role ${name}.`)
+  }
+  return layersOf(tableClasses(facet[0], facet[1]))[theme]
+}
+
+/** A layer composited over a '#rrggbb' color per sRGB-encoded channel, rounded to 8 bits. */
+function composite(layer: Layer, under: string): string {
+  const top = encodedFromHex(paletteHex(layer.step))
+  const bottom = encodedFromHex(under)
+  const channels = top.map((channel, index) =>
+    Math.round(255 * (channel * layer.opacity + (bottom[index] ?? 0) * (1 - layer.opacity)))
+      .toString(16)
+      .padStart(2, '0'),
+  )
+  return `#${channels.join('')}`
+}
+
+/**
+ * The '#rrggbb' of a contrast-table color in a theme (2.16.6): a role, "{role} over {role}", a
+ * role with a percentage over `background`, or a role mixed with "({role} at {n} percent)".
+ */
+function colorOf(name: string, theme: ThemeName, background?: string): string {
+  const mixed = /^(\w+) \w+ \((\w+) at (\d+) percent\)$/.exec(name)
+  if (mixed !== null) {
+    const [, base = '', tint = '', percent = ''] = mixed
+    const layer = layerOfRole(tint, theme)
+    return composite({ ...layer, opacity: Number(percent) / 100 }, colorOf(base, theme))
+  }
+  const translucent = /^(\w+)(?: [a-z ]+)? \((\d+) percent\)$/.exec(name)
+  if (translucent !== null) {
+    const [, role = '', percent = ''] = translucent
+    if (background === undefined) {
+      throw new Error(`"${name}" needs the color it lies on.`)
+    }
+    const layer = layerOfRole(role, theme)
+    return composite({ ...layer, opacity: Number(percent) / 100 }, colorOf(background, theme))
+  }
+  const over = /^(.+) over (\w+)$/.exec(name)
+  if (over !== null) {
+    const [, role = '', under = ''] = over
+    return composite(layerOfRole(role, theme), colorOf(under, theme))
+  }
+  const layer = layerOfRole(name, theme)
+  if (layer.opacity !== 1) {
+    throw new Error(`"${name}" has an opacity and needs "over".`)
+  }
+  return paletteHex(layer.step)
+}
+
+/** The contrast ratio of a table row in a theme, truncated to two decimals. */
+function rowRatio(color: string, background: string, theme: ThemeName): number {
+  return truncated(contrastRatio(colorOf(color, theme, background), colorOf(background, theme)))
 }
 
 function truncated(ratio: number): number {
@@ -433,28 +573,33 @@ describe('contrast (U-70)', () => {
     it.each(TEXT_CONTRAST)(
       'U-70 text %s on %s matches the table and is at least 4.5',
       (text, on, light, dark) => {
-        const expected = theme === 'light' ? light : dark
-        const ratio = contrastRatio(
-          PALETTE_HEX[stepOfRole(text, theme)],
-          PALETTE_HEX[stepOfRole(on, theme)],
-        )
-        expect(truncated(ratio)).toBe(expected)
-        expect(truncated(ratio)).toBeGreaterThanOrEqual(4.5)
+        const ratio = rowRatio(text, on, theme)
+        expect(ratio).toBe(theme === 'light' ? light : dark)
+        expect(ratio).toBeGreaterThanOrEqual(4.5)
       },
     )
 
     it.each(NON_TEXT_CONTRAST)(
       'U-70 non-text %s against %s matches the table and is at least 3',
       (mark, against, light, dark) => {
-        const expected = theme === 'light' ? light : dark
-        const ratio = contrastRatio(
-          PALETTE_HEX[stepOfRole(mark, theme)],
-          PALETTE_HEX[stepOfRole(against, theme)],
-        )
-        expect(truncated(ratio)).toBe(expected)
-        expect(truncated(ratio)).toBeGreaterThanOrEqual(3)
+        const ratio = rowRatio(mark, against, theme)
+        expect(ratio).toBe(theme === 'light' ? light : dark)
+        expect(ratio).toBeGreaterThanOrEqual(3)
       },
     )
+
+    it.each(MEASURED_CONTRAST)(
+      'U-70 measured %s against %s matches the table',
+      (color, against, light, dark) => {
+        expect(rowRatio(color, against, theme)).toBe(theme === 'light' ? light : dark)
+      },
+    )
+  })
+
+  it('U-70 composites a translucent role per sRGB-encoded channel, rounded to 8 bits', () => {
+    // zinc-700 (63, 63, 70) at 60 percent over zinc-900 (24, 24, 27): 47.4, 47.4 and 52.8.
+    expect(colorOf('hover over surface', 'dark')).toBe('#2f2f35')
+    expect(colorOf('hover over surface', 'light')).toBe(PALETTE_HEX['zinc-200'])
   })
 })
 
@@ -504,6 +649,13 @@ describe('mapping tables (U-90)', () => {
     expect(Object.keys(PALETTE_HEX)).toEqual(expect.arrayContaining(steps))
   })
 
+  it('U-90 only forcedEdge names the transparent color', () => {
+    const roles = Object.entries(COLOR_CLASSES)
+      .filter(([, facets]) => Object.values(facets).join(' ').includes('transparent'))
+      .map(([role]) => role)
+    expect(roles).toEqual(['forcedEdge'])
+  })
+
   it('U-90 VIEWPORT_STEPS equals the table of 2.16.4', () => {
     expect(VIEWPORT_STEPS).toEqual(
       Object.fromEntries(VIEWPORT_TABLE.map(([role, light, dark]) => [role, { light, dark }])),
@@ -527,6 +679,10 @@ describe('mapping tables (U-90)', () => {
     expect(Object.keys(VIEWPORT_COLORS).toSorted()).toEqual(['dark', 'light'])
     expect(Object.keys(VIEWPORT_COLORS.light).toSorted()).toEqual(roles)
     expect(Object.keys(VIEWPORT_COLORS.dark).toSorted()).toEqual(roles)
+  })
+
+  it('U-90 viewport has the steps of the stage background', () => {
+    expect(VIEWPORT_STEPS.viewport).toEqual(stepsOf(COLOR_CLASSES.stage.background))
   })
 
   it('U-90 highlight has the steps of the accent background', () => {
@@ -569,6 +725,12 @@ describe('mapping tables (U-90)', () => {
   it('U-90 viewportTheme(dark).highlight equals linearFromHex(#ff6900) within 1e-12', () => {
     expect(
       maximumDifference(viewportTheme('dark').highlight, linearFromHex('#ff6900')),
+    ).toBeLessThan(1e-12)
+  })
+
+  it('U-90 viewportTheme(light).background equals linearFromHex(#f4f4f5) within 1e-12', () => {
+    expect(
+      maximumDifference(viewportTheme('light').background, linearFromHex('#f4f4f5')),
     ).toBeLessThan(1e-12)
   })
 
@@ -650,26 +812,26 @@ describe('color conversions', () => {
     ).toBeLessThan(1e-12)
   })
 
-  it.each(THEMES)('viewportTheme(%s) linearizes the six backend roles', (theme) => {
+  it.each(THEMES)('viewportTheme(%s) linearizes the five backend roles', (theme) => {
     const backend = viewportTheme(theme)
     const colorsOfTheme = VIEWPORT_COLORS[theme]
-    expect(
-      maximumDifference(backend.backgroundTop, linearFromHex(colorsOfTheme.viewportTop)),
-    ).toBeLessThan(1e-12)
-    expect(
-      maximumDifference(backend.backgroundBottom, linearFromHex(colorsOfTheme.viewportBottom)),
-    ).toBeLessThan(1e-12)
-    expect(
-      maximumDifference(backend.highlight, linearFromHex(colorsOfTheme.highlight)),
-    ).toBeLessThan(1e-12)
-    expect(maximumDifference(backend.problem, linearFromHex(colorsOfTheme.problem))).toBeLessThan(
-      1e-12,
-    )
-    expect(maximumDifference(backend.edgeDark, linearFromHex(colorsOfTheme.edgeDark))).toBeLessThan(
-      1e-12,
-    )
-    expect(
-      maximumDifference(backend.edgeLight, linearFromHex(colorsOfTheme.edgeLight)),
-    ).toBeLessThan(1e-12)
+    expect(Object.keys(backend).toSorted()).toEqual([
+      'background',
+      'edgeDark',
+      'edgeLight',
+      'highlight',
+      'problem',
+    ])
+    for (const [backendRole, role] of [
+      ['background', 'viewport'],
+      ['highlight', 'highlight'],
+      ['problem', 'problem'],
+      ['edgeDark', 'edgeDark'],
+      ['edgeLight', 'edgeLight'],
+    ] as const) {
+      expect(
+        maximumDifference(backend[backendRole], linearFromHex(colorsOfTheme[role])),
+      ).toBeLessThan(1e-12)
+    }
   })
 })

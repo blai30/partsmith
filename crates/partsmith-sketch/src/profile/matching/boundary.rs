@@ -62,8 +62,9 @@ fn grow(
 }
 
 /// Adds the regions drawn inside a hole of new geometry: those whose outer loop runs along the hole the other
-/// way, and the regions joined to them through outer boundary pieces of added entities. Each region added is
-/// pushed to `pending`, so the holes it has are filled in turn.
+/// way, and every region whose outer loop runs the other way along a piece of an added entity in a loop (outer
+/// or hole) of a region added this way. Each region added is pushed to `pending`, so the holes it has are filled
+/// in turn.
 fn fill(
     regions: &[Region],
     edges: &EdgeIndex<'_>,
@@ -85,10 +86,7 @@ fn fill(
         }
         members[region] = true;
         pending.push(region);
-        let neighbors = regions[region]
-            .outer
-            .edges
-            .iter()
+        let neighbors = loop_edges(&regions[region])
             .filter(|edge| stored.is_added(&edge.entity))
             .filter_map(|edge| edges.twin(edge))
             .filter(|place| place.outer && !members[place.region]);

@@ -448,13 +448,13 @@ describe('overlays', () => {
     ])
     for (const label of labels) {
       expect(label).toHaveClass('pointer-events-none', 'text-xs')
-      expect(label).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
+      expect(label).toHaveClass(COLOR_CLASSES.surface.background)
       expect(label).toHaveAttribute('data-positioned')
       expect(label).not.toHaveAttribute('hidden')
     }
   })
 
-  it('U-183 labels the shown origin axes with their letters in their axis roles on a raised chip (3.12)', () => {
+  it('U-183 labels the shown origin axes with their letters in their axis roles on a surface chip (3.12)', () => {
     setUp({
       view: {
         ...INITIAL_STATE.view,
@@ -474,7 +474,7 @@ describe('overlays', () => {
       expect(label).toHaveClass(
         'font-semibold',
         foregrounds[index] ?? '',
-        COLOR_CLASSES.surfaceRaised.background,
+        COLOR_CLASSES.surface.background,
       )
       expect(label).toHaveAttribute('data-positioned')
     }

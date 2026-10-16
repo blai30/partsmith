@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import { useId, type ReactNode } from 'react'
+import { useId, useRef, type ReactNode } from 'react'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import {
@@ -11,6 +11,7 @@ import {
 } from '../commands/component-keys'
 import { runCommand } from '../commands/registry'
 import { formatShortcut } from '../commands/shortcuts'
+import { useOverflowEdges } from '../components/overflow-edges'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { PanelHeader } from '../layout/PanelHeader'
 import { COLOR_CLASSES } from '../theme/roles'
@@ -59,10 +60,8 @@ function KeyRows({
 function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) {
   const headingId = useId()
   return (
-    <section
-      aria-labelledby={headingId}
-      className={clsx('flex flex-col gap-3 border-t pt-4', COLOR_CLASSES.divider.border)}
-    >
+    // Its semibold heading and the padding above it set a section apart, with no rule (3.2).
+    <section aria-labelledby={headingId} className="flex flex-col gap-3 pt-4">
       <h3 id={headingId} className="text-sm font-semibold">
         {title}
       </h3>
@@ -83,6 +82,8 @@ function platformRows(rows: readonly ComponentKey[], app: App) {
 export function KeysPanel() {
   const app = useApp()
   const titleId = useId()
+  const body = useRef<HTMLDivElement>(null)
+  useOverflowEdges(body)
   const navigation = useAppState((state) => state.settings.navigation)
   const preset = NAVIGATION_PRESETS.find((entry) => entry.id === navigation)
   const mouseRows = (preset?.rows ?? []).map((row) => ({ key: row.action, effect: row.gesture }))
@@ -93,7 +94,15 @@ export function KeysPanel() {
       className="flex min-h-0 flex-1 flex-col"
     >
       <PanelHeader title="Keyboard and mouse" titleId={titleId} />
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
+      {/* Its rule shows while sections are scrolled under the header (3.2). */}
+      <div
+        ref={body}
+        className={clsx(
+          'flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto border-t px-4 pb-4',
+          COLOR_CLASSES.forcedEdge.border,
+          COLOR_CLASSES.divider.overflowTop,
+        )}
+      >
         <Section title="Mouse">
           <SegmentedControl<NavigationPreset>
             label="Navigation"

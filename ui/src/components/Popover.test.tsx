@@ -110,7 +110,7 @@ describe('Popover', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Section view' }))
     const dialog = screen.getByRole('dialog', { name: 'Section' })
     expect(dialog).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
-    expect(dialog).toHaveClass(COLOR_CLASSES.border.border)
+    expect(dialog).toHaveClass(COLOR_CLASSES.forcedEdge.border)
     expect(dialog).toHaveClass(COLOR_CLASSES.elevation.shadow)
     expect(dialog).toHaveClass('pointer-events-auto', 'border', 'rounded-lg', 'shadow-lg')
   })

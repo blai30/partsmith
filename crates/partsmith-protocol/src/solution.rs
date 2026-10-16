@@ -7,7 +7,7 @@ use partsmith_sketch::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{BufferIndex, Vec2};
+use crate::{BufferIndex, Diagnostic, Vec2};
 
 /// Solved state of one sketch.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -36,6 +36,8 @@ pub struct SketchSolution {
     pub regions: Vec<RegionInfo>,
     /// Open endpoints, overlaps, self-intersections and zero-length curves.
     pub profile_findings: Vec<ProfileFinding>,
+    /// The solve issues, then one message per entry of `profile_findings` in its order, rendered by the sketch crate in the document units; findings of the stored sketch carry their fixes as actions (engine.md section 3.6).
+    pub messages: Vec<Diagnostic>,
     /// Display buffers; absent when the session has display off.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display: Option<SketchDisplay>,
@@ -89,7 +91,7 @@ pub enum ConstraintSolveState {
 /// A closed region: the reference a profile param stores, plus its area and centroid.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RegionInfo {
-    /// The region key and fingerprint.
+    /// The reference a profile param stores, as `Region::reference()` writes it: key, fingerprint and outline.
     pub reference: RegionRef,
     /// Area in mm².
     pub area: f64,
@@ -161,6 +163,17 @@ mod tests {
         let region: RegionInfo = serde_json::from_str(text).expect("deserializes");
 
         assert_eq!(region.area, 4000.0);
+        assert_eq!(serde_json::to_string(&region).expect("serializes"), text);
+    }
+
+    #[test]
+    fn region_info_keeps_the_outline_of_its_reference() {
+        // The region of the plate fixture in protocol.md section 2.6.
+        let text = r#"{"reference":{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000","outline":"e-1,e-2,e-3,e-4"},"area":4000.0,"centroid":[40.0,25.0]}"#;
+
+        let region: RegionInfo = serde_json::from_str(text).expect("deserializes");
+
+        assert!(region.reference.outline.is_some(), "{region:?}");
         assert_eq!(serde_json::to_string(&region).expect("serializes"), text);
     }
 }

@@ -3,11 +3,14 @@
 //! The hashed data comes from the sketch itself and lives only in memory, so a hash without protection against
 //! chosen collisions is safe, and its values never reach a document.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hash, Hasher};
 
 /// A hash map with the fast hash.
 pub(super) type FastMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
+
+/// A hash set with the fast hash.
+pub(super) type FastSet<T> = HashSet<T, BuildHasherDefault<FastHasher>>;
 
 /// The multiplier of the Fx hash.
 const MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;

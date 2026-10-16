@@ -40,3 +40,41 @@ export function placeElement(
   element.hidden = false
   positionElement(element, position.x, position.y)
 }
+
+/** Whether two boxes overlap by more than an edge. */
+function overlaps(first: DOMRectReadOnly, second: DOMRectReadOnly): boolean {
+  return (
+    first.left < second.right &&
+    second.left < first.right &&
+    first.top < second.bottom &&
+    second.top < first.bottom
+  )
+}
+
+/**
+ * Hides each shown label whose box meets a card or chip of the free area (`data-card`, 3.12): half
+ * under a card of its own tone, a label would read as part of it. A label centered on its anchor
+ * is a wrapper around its chip, whose box is the one measured. Every box is read before any label
+ * is hidden, so the layout is computed once.
+ */
+export function hideLabelsUnderCards(
+  labels: Iterable<HTMLElement>,
+  freeArea: Element | null,
+): void {
+  if (freeArea === null) {
+    return
+  }
+  const cards = Array.from(freeArea.querySelectorAll('[data-card]'), (card) =>
+    card.getBoundingClientRect(),
+  )
+  const covered = Array.from(labels).filter((label) => {
+    if (label.hidden) {
+      return false
+    }
+    const box = (label.firstElementChild ?? label).getBoundingClientRect()
+    return cards.some((card) => overlaps(box, card))
+  })
+  for (const label of covered) {
+    label.hidden = true
+  }
+}

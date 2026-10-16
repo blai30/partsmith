@@ -1,6 +1,6 @@
 import { clsx } from 'clsx/lite'
 import { ArrowUpDown, ChevronDown, ChevronRight } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import {
   cancelCommand,
   commandStartParams,
@@ -16,6 +16,7 @@ import { reportFailure } from '../app/report'
 import { formatShortcut } from '../commands/shortcuts'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
+import { useOverflowEdges } from '../components/overflow-edges'
 import { Tooltip } from '../components/Tooltip'
 import { isPlainNumber } from '../expression/step'
 import type { Diagnostic } from '../generated/protocol'
@@ -242,6 +243,7 @@ function StatusBanner({
               {fixes.map((fix) => (
                 <Button
                   key={fix.label}
+                  variant="banner"
                   className="self-start"
                   onClick={() => {
                     fix.run()
@@ -272,6 +274,8 @@ export type CommandInspectorProps = {
  */
 export function CommandInspector({ command, feature }: CommandInspectorProps) {
   const app = useApp()
+  const body = useRef<HTMLDivElement>(null)
+  useOverflowEdges(body)
   const status = useAppState((state) => state.document?.featureStatus[command.featureId])
   const expanded = useAppState((state) => state.settings.moreExpanded[command.featureType] === true)
   const startParams = useAppState(commandStartParams)
@@ -333,7 +337,16 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-4">
+      {/* The body's rules show while fields run under the header or the footer (3.2). */}
+      <div
+        ref={body}
+        className={clsx(
+          'flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto border-y px-4 pt-3 pb-4',
+          COLOR_CLASSES.forcedEdge.border,
+          COLOR_CLASSES.divider.overflowTop,
+          COLOR_CLASSES.divider.overflowBottom,
+        )}
+      >
         <StatusBanner
           messages={messages}
           fieldOf={fieldOf}
@@ -374,12 +387,7 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
           </div>
         )}
       </div>
-      <div
-        className={clsx(
-          'flex shrink-0 justify-end gap-2 border-t px-4 py-3',
-          COLOR_CLASSES.divider.border,
-        )}
-      >
+      <div className="flex shrink-0 justify-end gap-2 px-4 py-3">
         <Tooltip label="Cancel" shortcut={formatShortcut('Escape', app.platform)}>
           <Button
             onClick={() => {

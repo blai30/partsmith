@@ -223,7 +223,15 @@ fn describe(run: &Run, body: &str, pairs: &[(ElementName, Fingerprint)]) -> Vec<
     let state = run.body(body);
     let borrowed: Vec<(&ElementName, &Fingerprint)> =
         pairs.iter().map(|(name, print)| (name, print)).collect();
-    run.with_names(|names| describe_elements(&borrowed, Some(state), names, run.document.units))
+    run.with_names(|names| {
+        describe_elements(
+            &borrowed,
+            &id(body),
+            Some(state),
+            names,
+            run.document.units,
+        )
+    })
 }
 
 /// A diagnosis with one explanation at the loss position `position`.
@@ -374,6 +382,7 @@ fn t001_faces_and_edges_named_by_their_sketch_entity() {
         beveled.with_names(|names| {
             describe_elements(
                 &[(&info.name, &info.fingerprint)],
+                &id("b-1"),
                 Some(&state_after_extrude),
                 names,
                 beveled.document.units,
@@ -478,6 +487,7 @@ fn t001_edges_and_floor_of_a_pocket() {
         run.with_names(|names| {
             describe_elements(
                 &[(&info.name, &info.fingerprint)],
+                &id("b-1"),
                 Some(before_fillet),
                 names,
                 run.document.units,
@@ -1049,8 +1059,15 @@ fn t002_elements_that_would_read_the_same_get_their_entity_clause() {
         })
         .collect();
 
-    let texts =
-        run.with_names(|names| describe_elements(&pairs, Some(&state), names, run.document.units));
+    let texts = run.with_names(|names| {
+        describe_elements(
+            &pairs,
+            &id("b-1"),
+            Some(&state),
+            names,
+            run.document.units,
+        )
+    });
 
     assert_eq!(
         texts[0],

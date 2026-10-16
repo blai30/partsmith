@@ -46,7 +46,7 @@ export class RegionBoundary extends Component<RegionBoundaryProps, RegionBoundar
         className={clsx(
           'flex min-h-0 min-w-0 flex-col overflow-hidden',
           COLOR_CLASSES.surface.background,
-          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.forcedEdge.border,
           COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
           this.props.fallbackClassName,

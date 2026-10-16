@@ -218,7 +218,13 @@ impl<'a> Renderer<'a> {
         elements: &[(&ElementName, &Fingerprint)],
         body: &Id,
     ) -> Vec<String> {
-        describe_elements(elements, self.bodies.get(body), self.names, self.units)
+        describe_elements(
+            elements,
+            body,
+            self.bodies.get(body),
+            self.names,
+            self.units,
+        )
     }
 
     /// The description of the element a loss stores.

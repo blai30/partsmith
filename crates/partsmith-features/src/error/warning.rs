@@ -661,6 +661,7 @@ fn guessed_text(
         let (element, others) = described_selected(renderer, label, body, reference, &alternative);
         let face = describe_face(
             &ordered_part(query),
+            body,
             renderer.bodies_of(body),
             renderer.names(),
             renderer.units(),
@@ -731,6 +732,7 @@ fn followed_text(
                     |part| {
                         describe_face(
                             &part,
+                            body,
                             renderer.bodies_of(body),
                             renderer.names(),
                             renderer.units(),

@@ -50,11 +50,13 @@ export function EmptyState() {
     <TopCenterSlot>
       <fieldset
         data-testid="empty-state"
+        // A card of the free area: labels under it are hidden (3.12).
+        data-card=""
         aria-label="First step"
         className={clsx(
           'pointer-events-auto flex max-w-140 flex-col gap-2 rounded-xl border p-3 shadow-md',
-          COLOR_CLASSES.surfaceRaised.background,
-          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.surface.background,
+          COLOR_CLASSES.forcedEdge.border,
           COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
         )}

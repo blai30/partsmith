@@ -158,6 +158,10 @@ describe('HealthList details', () => {
     renderList({ focusedFinding: { body: 'b-mushroom', check: 'overhangs', index: 1 } })
     expect(items().map((row) => row.getAttribute('aria-current'))).toEqual([null, 'true', null])
     expect(item(1)).toHaveClass(COLOR_CLASSES.selection.background)
+    // The state outline that forced colors draw (3.23).
+    expect(item(1)).toHaveClass('outline', '-outline-offset-1', COLOR_CLASSES.forcedEdge.outline)
+    expect(item(0)).toHaveClass(COLOR_CLASSES.forcedEdge.outline)
+    expect(item(0)).not.toHaveClass('outline')
   })
 
   it('marks no row without a focused finding', () => {
@@ -219,6 +223,15 @@ describe('HealthList and Lay on face (3.17)', () => {
     await userEvent.click(buttons[0] ?? document.body)
     expect(onLayOnFace).toHaveBeenCalledTimes(1)
     expect(onFocusFinding).not.toHaveBeenCalled()
+  })
+
+  it('ends "Lay on a face" 1rem from the panel edge, in line with the header (3.17)', () => {
+    renderList({ onLayOnFace: vi.fn<() => void>() })
+    const button = screen.getByRole('button', { name: 'Lay on a face' })
+    // The list's p-2 and the button's mr-2 make the header block's p-4.
+    expect(button).toHaveClass('mr-2')
+    expect(screen.getByRole('list', { name: 'Findings' })).toHaveClass('p-2')
+    expect(screen.getByTestId('health-list').firstElementChild).toHaveClass('p-4')
   })
 
   it('offers no "Lay on a face" without the handler', () => {

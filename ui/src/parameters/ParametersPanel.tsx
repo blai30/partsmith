@@ -11,6 +11,7 @@ import { useApp, useAppState } from '../app/AppProvider'
 import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
+import { useOverflowEdges } from '../components/overflow-edges'
 import { TextField } from '../components/TextField'
 import { PARAMETER_NAME } from '../expression/completion'
 import { formatParameterValue } from '../expression/evaluate'
@@ -128,7 +129,8 @@ function ParameterRow({
     <li
       data-testid="parameter-row"
       data-id={parameter.id}
-      className={clsx('flex flex-col gap-2 border-b py-3', COLOR_CLASSES.divider.border)}
+      // Spacing sets the rows apart: 1.5rem between rows against 0.5rem inside one (3.2).
+      className="flex flex-col gap-2 py-3"
     >
       <div className="flex items-start gap-2">
         <TextField
@@ -259,10 +261,7 @@ function DraftRow({ draft, onDone }: { readonly draft: Draft; readonly onDone: (
   }
 
   return (
-    <li
-      data-testid="parameter-draft"
-      className={clsx('flex flex-col gap-2 border-b py-3', COLOR_CLASSES.divider.border)}
-    >
+    <li data-testid="parameter-draft" className="flex flex-col gap-2 py-3">
       <div className="flex items-start gap-2">
         <TextField
           ref={nameInput}
@@ -338,6 +337,8 @@ export function ParametersPanel() {
   const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
   const commandTitle = useAppState((state) => state.command?.title ?? null)
   const [draft, setDraft] = useState<Draft | null>(null)
+  const body = useRef<HTMLDivElement>(null)
+  useOverflowEdges(body)
 
   // The palette's parameter items focus their row's expression (3.4).
   useUiRequest(app, 'parameter', (request) => {
@@ -373,7 +374,15 @@ export function ParametersPanel() {
           Changes are part of {commandTitle} until you press OK.
         </p>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+      {/* Its rule shows while rows are scrolled under the header (3.2). */}
+      <div
+        ref={body}
+        className={clsx(
+          'min-h-0 flex-1 overflow-y-auto border-t px-4 pb-4',
+          COLOR_CLASSES.forcedEdge.border,
+          COLOR_CLASSES.divider.overflowTop,
+        )}
+      >
         <ul className="flex flex-col">
           {(parameters ?? []).map((parameter) => (
             <ParameterRow

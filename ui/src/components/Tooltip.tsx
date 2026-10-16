@@ -160,9 +160,9 @@ export function Tooltip({ label, shortcut = null, description = null, children }
           popover="manual"
           // `hidden open:flex`: a display class would override the browser's hiding of a closed popover.
           className={clsx(
-            'fixed top-0 left-0 m-0 hidden max-w-80 flex-col gap-0.5 open:flex rounded-lg border px-2 py-1 text-xs shadow-md transition-opacity duration-150 ease-out starting:open:opacity-0 motion-reduce:transition-none',
+            'fixed top-0 left-0 m-0 hidden max-w-80 flex-col gap-0.5 open:flex rounded-lg border px-2 py-1 text-xs shadow-lg transition-opacity duration-150 ease-out starting:open:opacity-0 motion-reduce:transition-none',
             COLOR_CLASSES.surfaceRaised.background,
-            COLOR_CLASSES.border.border,
+            COLOR_CLASSES.forcedEdge.border,
             COLOR_CLASSES.elevation.shadow,
             COLOR_CLASSES.text.foreground,
           )}

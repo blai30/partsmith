@@ -12,6 +12,7 @@ import { coreErrorFor, type FakeCoreApi } from '../test/fakes/core-api'
 import { deferred, type Deferred } from '../test/fakes/deferred'
 import { settle } from '../test/fakes/settle'
 import { hasTabularFigures, isCode, NO_CONTEXTUAL_LIGATURES } from '../test/type-roles'
+import { COLOR_CLASSES } from '../theme/roles'
 import { ExpressionInput, type ExpressionInputProps, type ExpressionState } from './ExpressionInput'
 import { useExpression } from './useExpression'
 
@@ -432,11 +433,10 @@ describe('parameter name completion (2.13, U-118)', () => {
     await user.type(input, 'si')
     expect(options()[0]).toBe('size = 20 mm')
     // U-188: the list is a popup.
-    expect(screen.getByTestId('expression-suggestions')).toHaveClass(
-      'rounded-lg',
-      'border',
-      'shadow-lg',
-    )
+    const suggestions = screen.getByTestId('expression-suggestions')
+    expect(suggestions).toHaveClass('rounded-lg', 'border', 'shadow-lg')
+    expect(suggestions).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
+    expect(suggestions).toHaveClass(COLOR_CLASSES.forcedEdge.border)
     expect(input).toHaveAttribute('aria-expanded', 'true')
     expect(input).not.toHaveAttribute('aria-activedescendant')
     await user.keyboard('{Tab}')
@@ -460,7 +460,11 @@ describe('parameter name completion (2.13, U-118)', () => {
     const { input, user, onCommit } = setUpNames()
     await user.type(input, 'si')
     await user.keyboard('{ArrowDown}')
-    expect(input.getAttribute('aria-activedescendant')).not.toBeNull()
+    const activeId = input.getAttribute('aria-activedescendant')
+    expect(activeId).not.toBeNull()
+    // U-213: the keyboard-active option keeps a state outline for forced colors.
+    const active = document.getElementById(activeId ?? '')
+    expect(active).toHaveClass('outline', '-outline-offset-1', COLOR_CLASSES.forcedEdge.outline)
     await user.keyboard('{Enter}')
     expect(input).toHaveValue('size')
     await settle()

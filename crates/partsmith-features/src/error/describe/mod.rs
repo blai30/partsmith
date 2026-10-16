@@ -5,6 +5,8 @@
 //! and the copy of a pattern. An edge or vertex reads by its faces, with the first of the edge rules that applies.
 //! Elements that would read the same in one call get their entity or position clause.
 
+mod caps;
+mod cuts;
 mod face;
 mod maker;
 mod name;
@@ -22,18 +24,20 @@ use name::{FaceName, GeneratorText};
 
 pub use maker::sketch_coordinates;
 
-/// The words for the faces, edges or vertices one message or candidate list names, in order (section 3.12): "the
-/// front top edge of 'Box 1'". Each element is given by its name and fingerprint; `state` is the body state the
-/// elements were resolved in, whose faces give direction words; elements that would read the same get their entity
-/// or position clause.
+/// The words for the faces, edges or vertices of `body` one message or candidate list names, in order (section
+/// 3.12): "the front top edge of 'Box 1'". Each element is given by its name and fingerprint; `state` is the state of
+/// `body` the elements were resolved in, whose faces give direction words; elements that would read the same get
+/// their entity or position clause.
 pub fn describe_elements(
     elements: &[(&ElementName, &Fingerprint)],
+    body: &Id,
     state: Option<&BodyState>,
     names: &dyn Names,
     units: Units,
 ) -> Vec<String> {
     let faces = Faces::of(state);
     let describer = Describer {
+        body,
         faces: &faces,
         names,
         units,
@@ -84,6 +88,8 @@ fn give_clauses(descriptions: &mut [Description]) {
 
 /// Describes elements of one body state with the document's names.
 struct Describer<'a> {
+    /// The body whose state is described.
+    body: &'a Id,
     /// The faces of the state by name.
     faces: &'a Faces,
     /// Names, records and sketch results.
@@ -130,7 +136,7 @@ impl Describer<'_> {
 
     /// The facts of a face of `element` (the element itself, or one of its face terms).
     fn face(&self, element: &Element<'_>, face: &str) -> FaceFacts {
-        FaceFacts::of(element, face, self.faces, self.names, self.units)
+        FaceFacts::of(element, face, self)
     }
 
     /// An edge by the first rule of section 3.12 that applies.
@@ -193,12 +199,13 @@ impl Describer<'_> {
         format!("the edge between {} and {}", first.text, second.text)
     }
 
-    /// A vertex: its three faces' words when they belong to one feature, else the faces that meet there.
+    /// A vertex: its three faces' words when they belong to one feature, else the faces that meet there; a vertex on
+    /// one face, such as the pole of a sphere, by its position.
     fn vertex(&self, element: &Element<'_>, terms: &[FaceFacts]) -> String {
         if terms.iter().any(|term| term.missing) {
             return "a corner of a feature that is not in this document".to_string();
         }
-        if terms.iter().any(|term| term.fallback) {
+        if terms.len() < 2 || terms.iter().any(|term| term.fallback) {
             return self.near(element, terms, "corner");
         }
         let one_feature = terms
@@ -236,12 +243,13 @@ impl Describer<'_> {
     }
 }
 
-/// The words for one face given by its name alone (`name` as text), described in `state` as a stored element without
-/// a fingerprint: the part of a query a message names (`{face}` of section 4.2), or a face recompute's loss diagnosis
-/// names (recompute.md section 3.10). Text that is no face name reads as a face of a feature that is not in this
-/// document.
+/// The words for one face of `body` given by its name alone (`name` as text), described in `state`, the state of
+/// `body`, as a stored element without a fingerprint: the part of a query a message names (`{face}` of section 4.2),
+/// or a face recompute's loss diagnosis names (recompute.md section 3.10). Text that is no face name reads as a face of
+/// a feature that is not in this document.
 pub fn describe_face(
     name: &str,
+    body: &Id,
     state: Option<&BodyState>,
     names: &dyn Names,
     units: Units,
@@ -251,6 +259,7 @@ pub fn describe_face(
     };
     let faces = Faces::of(state);
     let describer = Describer {
+        body,
         faces: &faces,
         names,
         units,
@@ -442,6 +451,20 @@ fn words_text(mut words: Vec<Word>) -> Option<String> {
     })
 }
 
+/// The cross product.
+fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+/// The dot product.
+fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
 #[cfg(test)]
 mod tests {
     use partsmith_model::FeatureRecord;
@@ -511,12 +534,14 @@ mod tests {
     fn a_face_given_by_name_alone_reads_by_its_feature() {
         let names = OneRecord::of("box");
 
+        let body = Id::new("b-1").expect("a valid id");
+
         assert_eq!(
-            describe_face("f-c/top", None, &names, Units::Mm),
+            describe_face("f-c/top", &body, None, &names, Units::Mm),
             "the top of 'Copies 1'"
         );
         assert_eq!(
-            describe_face("f-gone/top", None, &names, Units::Mm),
+            describe_face("f-gone/top", &body, None, &names, Units::Mm),
             "a face of a feature that is not in this document"
         );
     }
@@ -525,9 +550,10 @@ mod tests {
     fn a_face_given_by_name_alone_reads_by_the_face_of_that_name_in_the_state() {
         let names = OneRecord::of("extrude");
         let state = crate::test_support::box_body("f-c", [0.0, 0.0, 0.0], 10.0);
+        let body = Id::new("b-1").expect("a valid id");
 
         assert_eq!(
-            describe_face("f-c/top", Some(&state), &names, Units::Mm),
+            describe_face("f-c/top", &body, Some(&state), &names, Units::Mm),
             "the top of 'Copies 1'"
         );
     }

@@ -71,6 +71,12 @@ describe('Switch', () => {
     const bordered = container.getElementsByClassName(COLOR_CLASSES.borderControl.border)
     expect(bordered.length).toBeGreaterThan(0)
   })
+
+  it('U-211 edges its thumb with a forcedEdge border, which forced colors draw', () => {
+    render(<Switch label="Flip" checked={false} onChange={() => undefined} />)
+    const thumb = screen.getByRole('switch', { name: 'Flip' }).querySelector('span')
+    expect(thumb).toHaveClass('border', COLOR_CLASSES.forcedEdge.border)
+  })
 })
 
 describe('Switch label', () => {

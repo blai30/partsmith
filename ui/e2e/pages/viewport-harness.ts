@@ -21,10 +21,11 @@ import {
   type Vector3,
 } from '../../src/viewport/camera'
 
+export { viewportTheme } from '../../src/theme/roles'
+
 /** Linear colors: a white background and a saturated highlight, so blends are easy to read back. */
 export const THEME: ViewportTheme = {
-  backgroundTop: [1, 1, 1],
-  backgroundBottom: [1, 1, 1],
+  background: [1, 1, 1],
   highlight: [1, 0, 0],
   problem: [0.53, 0, 0],
   edgeDark: [0.01, 0.01, 0.01],

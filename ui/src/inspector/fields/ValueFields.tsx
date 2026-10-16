@@ -117,8 +117,8 @@ export function UnsupportedField({ field }: { readonly field: InspectorField }) 
         className={clsx(
           'block overflow-x-auto rounded-md border px-2 py-1 font-mono text-xs whitespace-pre',
           COLOR_CLASSES.focusRing.outline,
-          COLOR_CLASSES.field.background,
-          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.tonal.background,
+          COLOR_CLASSES.forcedEdge.border,
           COLOR_CLASSES.text.foreground,
         )}
       >

@@ -46,20 +46,24 @@ impl Values {
     }
 }
 
+/// The dimension an expression in a field of `unit` evaluates to (section 3.4).
+pub(crate) fn expected_dimension(unit: FieldUnit) -> Dimension {
+    match unit {
+        FieldUnit::Length => Dimension::LENGTH,
+        FieldUnit::Angle => Dimension::ANGLE,
+        FieldUnit::Scalar | FieldUnit::Count => Dimension::NONE,
+    }
+}
+
 /// Evaluates one declared use and converts it (section 3.4).
 fn evaluate_use(
     declared: &ExprUse,
     scope: &Scope<'_>,
     manifest: &FeatureManifest,
 ) -> Result<f64, FeatureError> {
-    let expected = match declared.kind {
-        FieldUnit::Length => Dimension::LENGTH,
-        FieldUnit::Angle => Dimension::ANGLE,
-        FieldUnit::Scalar | FieldUnit::Count => Dimension::NONE,
-    };
     declared
         .expr
-        .evaluate(scope, Some(expected))
+        .evaluate(scope, Some(expected_dimension(declared.kind)))
         .map(|quantity| quantity.value)
         .map_err(|error| FeatureError::Expression {
             field: FieldRef::new(&declared.field, manifest),

@@ -107,6 +107,8 @@ function PlanePicking() {
   return (
     <fieldset
       data-testid="sketch-header"
+      // A chip of the free area: labels under it are hidden (3.12).
+      data-card=""
       data-state="picking"
       data-dof="0"
       data-outline="0"
@@ -114,8 +116,8 @@ function PlanePicking() {
       // instead of pushing them out of the viewport.
       className={clsx(
         'pointer-events-auto flex min-h-10 max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border py-1 pr-1 pl-3 text-sm shadow-md',
-        COLOR_CLASSES.surfaceRaised.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.surface.background,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}
@@ -173,6 +175,8 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
         ref={anchor}
         type="button"
         data-testid="sketch-header"
+        // A chip of the free area: labels under it are hidden (3.12).
+        data-card=""
         data-state={dof?.state}
         data-dof={dof === null ? undefined : String(dof.dof)}
         data-outline={String(outlineCount)}
@@ -184,11 +188,12 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
         }}
         className={clsx(
           'pointer-events-auto flex h-8 max-w-full items-center gap-3 rounded-lg border pr-2 pl-3 text-sm whitespace-nowrap shadow-md transition-colors duration-150 motion-reduce:transition-none',
-          COLOR_CLASSES.surfaceRaised.background,
-          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.surface.background,
+          COLOR_CLASSES.forcedEdge.border,
           COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
-          COLOR_CLASSES.hover.background,
+          // Opaque, so the canvas never shows through the hovered chip (2.16.3).
+          COLOR_CLASSES.hover.opaque,
           COLOR_CLASSES.focusRing.outline,
           COLOR_CLASSES.accent.outline,
         )}
@@ -199,9 +204,9 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
           <>
             <span className="sr-only">, </span>
             <span
+              // The gap and the muted color set the status apart from the name, without a rule.
               className={clsx(
-                'min-w-0 truncate border-l pl-3',
-                COLOR_CLASSES.divider.border,
+                'min-w-0 truncate',
                 status.error
                   ? COLOR_CLASSES.errorText.foreground
                   : COLOR_CLASSES.textMuted.foreground,
@@ -267,12 +272,14 @@ function SketchHint({ sketchId, active, hint, freePlacement }: SketchHintProps) 
   return (
     <output
       data-testid="sketch-hint"
+      // A chip of the free area while shown: labels under it are hidden (3.12).
+      data-card={text === null ? undefined : ''}
       className={clsx(
         text === null
           ? 'sr-only'
           : 'max-w-full rounded-lg border px-3 py-1 text-center text-xs text-pretty shadow-md',
-        text !== null && COLOR_CLASSES.surfaceRaised.background,
-        text !== null && COLOR_CLASSES.border.border,
+        text !== null && COLOR_CLASSES.surface.background,
+        text !== null && COLOR_CLASSES.forcedEdge.border,
         text !== null && COLOR_CLASSES.elevation.shadow,
         text !== null && warning && COLOR_CLASSES.text.foreground,
         text !== null && !warning && COLOR_CLASSES.textMuted.foreground,

@@ -124,6 +124,26 @@ describe('placeNextTo', () => {
     expect(declarations(element)).toEqual(['translate: 100px 500px'])
   })
 
+  it('U-197 places a submenu beside its item inside a menu of a bar, not at the bar (3.2)', () => {
+    setWindowSize(800, 600)
+    const bar = document.createElement('header')
+    bar.dataset['bar'] = ''
+    const menu = document.createElement('div')
+    menu.setAttribute('popover', 'auto')
+    const item = document.createElement('button')
+    menu.append(item)
+    bar.append(menu)
+    document.body.append(bar)
+    const element = document.createElement('div')
+    withBounds(bar, 8, 8, 784, 48)
+    withBounds(menu, 100, 60, 200, 300)
+    withBounds(item, 104, 260, 192, 32)
+    withBounds(element, 0, 0, 120, 60)
+    placeNextTo(element, item, 'right')
+    // 0.25rem right of the item and level with its top, not with the bar's at 8.
+    expect(declarations(element)).toEqual(['translate: 300px 260px'])
+  })
+
   it('centers the element in the window without an anchor', () => {
     setWindowSize(800, 600)
     const element = document.createElement('div')

@@ -45,8 +45,8 @@ export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
       aria-busy={editor.busy}
       className={clsx(
         'pointer-events-auto flex w-64 -translate-x-1/2 -translate-y-1/2 flex-col gap-2 rounded-lg border p-2 shadow-lg',
-        COLOR_CLASSES.surfaceRaised.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.surface.background,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}
@@ -90,7 +90,6 @@ export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
           onClick={() => {
             controller.setEditorReference(!editor.reference)
           }}
-          className={clsx(editor.reference && COLOR_CLASSES.selection.background)}
         >
           Reference
         </Button>

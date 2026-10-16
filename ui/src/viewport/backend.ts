@@ -84,8 +84,8 @@ export type RenderFrame = {
 
 /** The theme colors the backend itself uses, linearized from the viewport roles of 2.16.4 by `viewportTheme`. */
 export type ViewportTheme = {
-  readonly backgroundTop: Rgb
-  readonly backgroundBottom: Rgb
+  /** The viewport's one flat background color (3.12 pass 1). */
+  readonly background: Rgb
   /** Hover and selection tint. */
   readonly highlight: Rgb
   readonly problem: Rgb

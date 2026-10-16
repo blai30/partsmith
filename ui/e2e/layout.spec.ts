@@ -139,6 +139,15 @@ async function expectHeaderClear(page: Page): Promise<Box> {
   }
   const home = await boxOf(page.getByRole('button', { name: 'Home view', exact: true }))
   expect(intersects(headerBox, home), 'the header and Home view').toBe(false)
+  // Level with Home view, the header keeps 0.5rem from it, so the two chips never touch (3.2).
+  if (headerBox.y < home.y + home.height) {
+    const rem = await page.evaluate(() =>
+      Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
+    )
+    expect(home.x - (headerBox.x + headerBox.width), 'the gap to Home view').toBeGreaterThanOrEqual(
+      0.5 * rem - TOLERANCE_PIXELS,
+    )
+  }
   return { ...headerBox, y: headerBox.y - area.y }
 }
 

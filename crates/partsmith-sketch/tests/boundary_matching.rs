@@ -1,5 +1,6 @@
 //! Acceptance tests for region matching by boundary, coverage, successions and losses (spec section 6.18,
-//! tests 221 to 236, and test 252 of section 6.21), plus one test per rule of section 3.14 that those leave out.
+//! tests 221 to 236, and test 252 of section 6.21), plus one test per rule of sections 2.7 and 3.14 that those
+//! leave out.
 
 mod common;
 
@@ -736,6 +737,126 @@ fn loss_names_only_entities_of_the_stored_outer_boundary() {
 }
 
 #[test]
+fn region_beyond_a_stored_line_is_not_a_seed() {
+    // The rectangle no longer closes, and the only region lies on the other side of `e-2`.
+    let entities = rect_edit(
+        &[],
+        vec![line("e-2", [80.0, 1.0], [80.0, 50.0])],
+        vec![
+            line("e-5", [80.0, 10.0], [100.0, 10.0]),
+            line("e-6", [100.0, 10.0], [100.0, 40.0]),
+            line("e-7", [100.0, 40.0], [80.0, 40.0]),
+        ],
+    );
+    assert_eq!(key_texts(&regions_of(&entities)), ["~e-2,e-5,e-6,e-7"]);
+
+    assert_eq!(matched(&entities, &r0()), missing(RegionLoss::Open));
+    assert_eq!(
+        matched(&entities, &r0_without_outline()),
+        missing(RegionLoss::Open)
+    );
+}
+
+#[test]
+fn hole_that_a_stored_entity_bounds_is_never_filled() {
+    // The new circle `e-7` overlaps the stored hole `e-5`, so the ring's hole now runs along both circles.
+    let stored = regions_of(&plate_entities())[0].reference();
+    assert_eq!(stored.key.to_string(), "e-1,e-2,e-3,e-4;~e-5");
+    let mut entities = plate_entities();
+    entities.push(circle("e-7", [45.0, 25.0], 5.0));
+    assert_eq!(
+        key_texts(&regions_of(&entities)),
+        [
+            "e-1,e-2,e-3,e-4;~e-5,~e-7",
+            "e-5,e-7",
+            "e-5,~e-7",
+            "~e-5,e-7"
+        ]
+    );
+
+    assert_eq!(
+        matched(&entities, &stored),
+        resolved(&[0], MatchMethod::Boundary, Vec::new())
+    );
+}
+
+#[test]
+fn region_along_a_hole_of_a_filled_region_fills_too() {
+    // The ring inside the new circle `e-7` has a hole along `e-5` and the new circle `e-8`; the crescent of `e-8`
+    // outside `e-5` runs along that hole, so it is drawn inside the stored region too.
+    let stored = regions_of(&plate_entities())[0].reference();
+    let mut entities = plate_entities();
+    entities.push(circle("e-7", [40.0, 25.0], 15.0));
+    entities.push(circle("e-8", [45.0, 25.0], 5.0));
+    let regions = regions_of(&entities);
+    assert_eq!(
+        key_texts(&regions),
+        [
+            "e-1,e-2,e-3,e-4;~e-7",
+            "e-5,e-8",
+            "e-5,~e-8",
+            "e-7;~e-5,~e-8",
+            "~e-5,e-8"
+        ]
+    );
+    let stored_area = 4000.0 - 25.0 * PI;
+    assert_relative(
+        regions[0].area + regions[3].area + regions[4].area,
+        stored_area,
+        1e-9,
+        "the plate, the ring and the crescent",
+    );
+
+    assert_eq!(
+        matched(&entities, &stored),
+        resolved(&[0, 3, 4], MatchMethod::Coverage, Vec::new())
+    );
+}
+
+#[test]
+fn redrawn_stored_hole_is_filled_until_the_decision() {
+    // Open issue 20 of the spec: the new circle `e-9` takes the place of the deleted hole `e-5`, but its entities
+    // are all added, so the plate is matched with the disc and the hole is lost.
+    let stored = regions_of(&plate_entities())[0].reference();
+    let mut entities: Vec<SketchEntity> = plate_entities()
+        .into_iter()
+        .filter(|entity| entity.id.as_str() != "e-5")
+        .collect();
+    entities.push(circle("e-9", [40.0, 25.0], 5.0));
+    assert_eq!(
+        key_texts(&regions_of(&entities)),
+        ["e-1,e-2,e-3,e-4;~e-9", "e-9"]
+    );
+
+    assert_eq!(
+        matched(&entities, &stored),
+        resolved(&[0, 1], MatchMethod::Coverage, Vec::new())
+    );
+}
+
+#[test]
+fn entities_listed_twice_change_nothing() {
+    let redrawn = rect_edit(
+        &["e-2"],
+        Vec::new(),
+        vec![line("e-9", [80.0, 0.0], [80.0, 50.0])],
+    );
+    let opened = rect_edit(&["e-2"], Vec::new(), Vec::new());
+
+    for entities in [redrawn, opened] {
+        let mut twice = entity_ids(&entities);
+        twice.extend(entity_ids(&entities));
+
+        assert_eq!(
+            match_region(&regions_of(&entities), &twice, &r0()),
+            matched(&entities, &r0()),
+            "{:?}",
+            entity_ids(&entities)
+        );
+    }
+}
+
+#[test]
 fn match_results_write_every_field() {
     let cases = [
         (
@@ -780,6 +901,71 @@ fn match_results_write_every_field() {
         assert_eq!(
             serde_json::to_string(&result).expect("the match result serializes"),
             expected
+        );
+    }
+}
+
+#[test]
+fn match_results_read_the_json_examples_of_section_2_7() {
+    let cases = [
+        (
+            r#"{"kind": "resolved", "indices": [0], "method": "boundary", "successions": [{"entity": "e-2", "now": ["e-9"]}]}"#,
+            resolved(
+                &[0],
+                MatchMethod::Boundary,
+                vec![succession("e-2", &["e-9"])],
+            ),
+        ),
+        (
+            r#"{"kind": "resolved", "indices": [0, 1], "method": "coverage", "successions": []}"#,
+            resolved(&[0, 1], MatchMethod::Coverage, Vec::new()),
+        ),
+        (
+            r#"{"kind": "resolved", "indices": [0, 1], "method": "grown", "successions": []}"#,
+            resolved(&[0, 1], MatchMethod::Grown, Vec::new()),
+        ),
+        (
+            r#"{"kind": "ambiguous", "candidates": [[0], [1]]}"#,
+            RegionMatch::Ambiguous {
+                candidates: vec![vec![0], vec![1]],
+            },
+        ),
+        (
+            r#"{"kind": "missing", "loss": {"kind": "deleted", "entities": ["e-2"]}}"#,
+            missing(RegionLoss::Deleted {
+                entities: ids(&["e-2"]),
+            }),
+        ),
+        (
+            r#"{"kind": "missing", "loss": {"kind": "redrawn"}}"#,
+            missing(RegionLoss::Redrawn),
+        ),
+    ];
+
+    for (text, expected) in cases {
+        let read: RegionMatch = serde_json::from_str(text).expect("the example deserializes");
+
+        assert_eq!(read, expected, "{text}");
+        assert_eq!(
+            serde_json::to_value(&read).expect("the match result serializes"),
+            serde_json::from_str::<serde_json::Value>(text).expect("the example is JSON"),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn match_methods_are_written_in_snake_case() {
+    for (method, name) in [
+        (MatchMethod::Key, "key"),
+        (MatchMethod::Boundary, "boundary"),
+        (MatchMethod::Coverage, "coverage"),
+        (MatchMethod::Grown, "grown"),
+        (MatchMethod::Fingerprint, "fingerprint"),
+    ] {
+        assert_eq!(
+            serde_json::to_value(method).expect("the method serializes"),
+            serde_json::Value::from(name)
         );
     }
 }

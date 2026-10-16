@@ -67,6 +67,15 @@ describe('SketchHeader', () => {
     expect(status).toHaveClass('min-w-0', 'truncate')
   })
 
+  it('U-209 is a surface chip with the opaque hover and no rule between its name and status', () => {
+    const header = renderHeader([LINE], solutionFor([LINE], { dof: 3 }))
+    expect(header).toHaveClass(COLOR_CLASSES.surface.background)
+    expect(header).toHaveClass(COLOR_CLASSES.hover.opaque)
+    expect(header).toHaveClass('border', COLOR_CLASSES.forcedEdge.border)
+    const status = within(header).getByText('Not fully constrained · 3 DOF').parentElement
+    expect(status).not.toHaveClass('border-l')
+  })
+
   it('U-63 fully_constrained is full, "Fully constrained"', () => {
     const header = renderHeader(
       [LINE],
@@ -323,7 +332,7 @@ describe('top-center slot (3.2)', () => {
       'flex-col',
       'items-center',
       'gap-2',
-      '@xl/slot:mx-36',
+      '@xl/slot:mx-38',
     )
     expect(column).toContainElement(screen.getByTestId('sketch-hint'))
     const slot = column?.parentElement
@@ -345,6 +354,8 @@ describe('top-center slot (3.2)', () => {
     for (const chip of [screen.getByTestId('sketch-header'), screen.getByTestId('sketch-hint')]) {
       expect(chip).toHaveClass('rounded-lg', 'border', 'shadow-md')
       expect(chip).toHaveClass(COLOR_CLASSES.elevation.shadow)
+      expect(chip).toHaveClass(COLOR_CLASSES.surface.background)
+      expect(chip).toHaveClass(COLOR_CLASSES.forcedEdge.border)
     }
   })
 

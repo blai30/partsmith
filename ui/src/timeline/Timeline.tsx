@@ -181,9 +181,12 @@ function TimelineItem({
           className={clsx(
             'relative flex size-10 items-center justify-center rounded-md transition-colors duration-150 motion-reduce:transition-none',
             COLOR_CLASSES.focusRing.outline,
-            COLOR_CLASSES.accent.outline,
             COLOR_CLASSES.text.foreground,
+            // The item being edited keeps its accent outline; the others rest with the
+            // transparent state outline, which forced colors draw on a selected one (3.23).
             outlined && 'outline-2 -outline-offset-2',
+            outlined ? COLOR_CLASSES.accent.outline : COLOR_CLASSES.forcedEdge.outline,
+            !outlined && selected && 'outline -outline-offset-1',
             selected
               ? COLOR_CLASSES.selection.background
               : hovered
@@ -211,7 +214,7 @@ function TimelineItem({
               strokeWidth={1.75}
               className={clsx(
                 'absolute right-0 bottom-0 size-3.5 rounded-full',
-                COLOR_CLASSES.surfaceRaised.background,
+                COLOR_CLASSES.surface.background,
                 COLOR_CLASSES.errorMark.foreground,
               )}
             />
@@ -581,7 +584,7 @@ function Strip() {
           aria-hidden="true"
           className={clsx(
             'pointer-events-none absolute top-2 left-0 flex size-10 items-center justify-center rounded-md border opacity-80 shadow-lg',
-            COLOR_CLASSES.surfaceRaised.background,
+            COLOR_CLASSES.surface.background,
             COLOR_CLASSES.accent.border,
             COLOR_CLASSES.elevation.shadow,
           )}
@@ -671,7 +674,7 @@ export function Timeline() {
         'relative z-10 col-span-3 row-start-3 mt-2 flex min-w-0 items-center gap-2 border px-2 shadow-md',
         collapsed ? 'h-7 rounded-lg' : 'h-14 rounded-xl',
         COLOR_CLASSES.surface.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
       )}
     >

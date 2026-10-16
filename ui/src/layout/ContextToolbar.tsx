@@ -113,7 +113,14 @@ function ToolbarButton({
           'inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
           showLabel ? 'h-9 px-3' : 'h-9 min-w-9 px-2',
           COLOR_CLASSES.focusRing.outline,
-          COLOR_CLASSES.accent.outline,
+          // A toggle rests with the transparent state outline, which forced colors draw while it
+          // is pressed; other buttons rest with the ring's color (3.23).
+          pressed === undefined ? COLOR_CLASSES.accent.outline : COLOR_CLASSES.forcedEdge.outline,
+          selected && 'outline -outline-offset-1',
+          // A primary button's border in its fill's color is its edge in forced colors (3.24); a
+          // disabled one keeps it, transparent, so its size and the toolbar's fit never change.
+          primary && 'border',
+          primary && (accent ? COLOR_CLASSES.accent.border : COLOR_CLASSES.forcedEdge.border),
           accent && COLOR_CLASSES.accent.background,
           accent && COLOR_CLASSES.accent.foreground,
           accent && COLOR_CLASSES.accentHover.background,
@@ -704,11 +711,8 @@ export function ContextToolbar() {
   const controls = items.map((item) => {
     if (item.kind === 'separator') {
       return (
-        <hr
-          key={item.key}
-          aria-orientation="vertical"
-          className={clsx('mx-1 h-6 w-0 shrink-0 border-0 border-l', COLOR_CLASSES.divider.border)}
-        />
+        // A gap between groups, without a line (3.2).
+        <hr key={item.key} aria-orientation="vertical" className="mx-1 h-6 w-0 shrink-0 border-0" />
       )
     }
     const placement: Placement = {

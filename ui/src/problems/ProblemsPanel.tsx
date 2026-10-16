@@ -1,10 +1,11 @@
 import { clsx } from 'clsx/lite'
-import { useId } from 'react'
+import { useId, useRef } from 'react'
 import { editFeature } from '../app/actions/command'
 import { select } from '../app/actions/selection'
 import { useApp, useAppState } from '../app/AppProvider'
 import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
+import { useOverflowEdges } from '../components/overflow-edges'
 import type { Severity } from '../generated/protocol'
 import { featureSelectionItem } from '../inspector/selection-values'
 import { UseSuggestion } from '../inspector/UseSuggestion'
@@ -29,6 +30,8 @@ function EditLabel({ featureId }: { readonly featureId: string }) {
 export function ProblemsPanel() {
   const app = useApp()
   const titleId = useId()
+  const body = useRef<HTMLDivElement>(null)
+  useOverflowEdges(body)
   const problems = useAppState(selectProblems)
   const records = useAppState((state) => state.document?.recipe.features)
   return (
@@ -38,7 +41,15 @@ export function ProblemsPanel() {
       className="flex min-h-0 flex-1 flex-col"
     >
       <PanelHeader title="Problems" titleId={titleId} />
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      {/* Its rule shows while problems are scrolled under the header (3.2). */}
+      <div
+        ref={body}
+        className={clsx(
+          'min-h-0 flex-1 overflow-y-auto border-t p-4',
+          COLOR_CLASSES.forcedEdge.border,
+          COLOR_CLASSES.divider.overflowTop,
+        )}
+      >
         {problems.length === 0 ? (
           <p className={clsx('text-sm', COLOR_CLASSES.textMuted.foreground)}>No problems.</p>
         ) : (

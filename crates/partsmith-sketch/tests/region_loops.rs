@@ -82,6 +82,20 @@ fn t218_outline_writes_two_edges_of_one_line_once() {
 }
 
 #[test]
+fn outline_merges_the_last_and_the_first_pieces_of_one_line() {
+    // The spur comes first, so its vertex on `e-1` is created first and the loop starts in the middle of `e-1`.
+    let mut spur_first = vec![line("e-5", [40.0, 0.0], [40.0, 20.0])];
+    spur_first.extend(rect_entities());
+    let regions = regions_of(&spur_first);
+    let edges = &regions[0].outer.edges;
+    assert_eq!(edges.len(), 5);
+    assert_eq!(edges[0].entity.as_str(), "e-1");
+    assert_eq!(edges[4].entity.as_str(), "e-1");
+
+    assert_eq!(regions[0].outline().to_string(), "e-1,e-2,e-3,e-4");
+}
+
+#[test]
 fn t218_outlines_of_a_rectangle_split_by_its_diagonal() {
     let split = rect_with(line("e-5", [0.0, 0.0], [80.0, 50.0]));
 
@@ -172,6 +186,34 @@ fn t220_region_ref_with_an_empty_outline_fails() {
     assert!(
         result.is_err(),
         "an empty outline must not deserialize, got {result:?}"
+    );
+}
+
+#[test]
+fn region_ref_with_a_malformed_outline_fails() {
+    for outline in ["e-1;e-2", "~~e-1", "e-1,", "e 1"] {
+        let text =
+            format!(r#"{{"key": "e-1,e-2", "fp": "c=40,25|a=4000", "outline": "{outline}"}}"#);
+
+        let result = serde_json::from_str::<RegionRef>(&text);
+
+        assert!(
+            result.is_err(),
+            "the outline {outline:?} must not deserialize, got {result:?}"
+        );
+    }
+}
+
+#[test]
+fn region_loop_serializes_as_its_canonical_text() {
+    assert_eq!(
+        serde_json::to_string(&region_loop("e-3,~e-5,e-3,e-4,e-1,e-2"))
+            .expect("the loop serializes"),
+        r#""e-1,e-2,e-3,~e-5,e-3,e-4""#
+    );
+    assert_eq!(
+        serde_json::from_str::<RegionLoop>(r#""e-2,e-3,e-1""#).expect("the loop deserializes"),
+        region_loop("e-1,e-2,e-3")
     );
 }
 

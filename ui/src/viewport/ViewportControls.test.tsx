@@ -62,7 +62,8 @@ describe('ViewportControls layout', () => {
       'p-1',
       'shadow-md',
     )
-    expect(controls).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
+    expect(controls).toHaveClass(COLOR_CLASSES.surface.background)
+    expect(controls).toHaveClass(COLOR_CLASSES.forcedEdge.border)
     expect(controls).toHaveClass(COLOR_CLASSES.elevation.shadow)
     for (const element of within(controls).getAllByRole('button')) {
       expect(element).toHaveClass('rounded-md')
@@ -119,6 +120,11 @@ describe('ViewportControls', () => {
     rerender({ orthographic: true })
     expect(button('Orthographic')).toHaveAttribute('aria-pressed', 'true')
     expect(button('Orthographic')).toHaveClass(COLOR_CLASSES.selection.background)
+    expect(button('Orthographic')).toHaveClass(
+      'outline',
+      '-outline-offset-1',
+      COLOR_CLASSES.forcedEdge.outline,
+    )
   })
 
   it('Section view is pressed while the section is on and toggles it', async () => {

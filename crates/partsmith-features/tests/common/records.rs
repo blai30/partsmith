@@ -13,6 +13,11 @@ pub fn circle(entity: &str, center: [f64; 2], radius: f64) -> Value {
     json!({"id": entity, "type": "circle", "center": center, "radius": radius})
 }
 
+/// An arc entity, counterclockwise from `start_angle` to `end_angle` (radians).
+pub fn arc(entity: &str, center: [f64; 2], radius: f64, start_angle: f64, end_angle: f64) -> Value {
+    json!({"id": entity, "type": "arc", "center": center, "radius": radius, "start_angle": start_angle, "end_angle": end_angle})
+}
+
 /// A point entity.
 pub fn point(entity: &str, position: [f64; 2]) -> Value {
     json!({"id": entity, "type": "point", "position": position})

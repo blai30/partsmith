@@ -77,10 +77,12 @@ export function Switch({
             disabled && 'cursor-not-allowed',
           )}
         >
+          {/* Its transparent border is its edge in forced colors, where its fill turns Canvas. */}
           <span
             aria-hidden="true"
             className={clsx(
-              'size-4 rounded-sm bg-current',
+              'size-4 rounded-sm border bg-current',
+              COLOR_CLASSES.forcedEdge.border,
               disabled && COLOR_CLASSES.textDisabled.foreground,
               !disabled && checked && COLOR_CLASSES.accent.foreground,
               !disabled && !checked && COLOR_CLASSES.textMuted.foreground,

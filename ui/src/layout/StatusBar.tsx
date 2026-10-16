@@ -315,7 +315,7 @@ export function StatusBar() {
       className={clsx(
         'relative z-10 col-span-3 row-start-4 mt-2 flex h-7 min-w-0 items-center gap-3 overflow-x-auto rounded-lg border px-2 text-xs shadow-md',
         COLOR_CLASSES.surface.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.textMuted.foreground,
       )}

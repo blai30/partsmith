@@ -120,6 +120,37 @@ describe('SketchOverlay annotations (3.16.2)', () => {
     expect(glyph).toBeVisible()
   })
 
+  it('U-209 edges a glyph that is not selected with a forcedEdge border and a selected one in the accent', async () => {
+    const harness = sketchHarness({
+      entities: [BASE],
+      constraints: [HORIZONTAL],
+      solution: solutionFor([BASE], { constraints: [{ id: 'c-1', state: 'satisfied' }] }),
+    })
+    renderOverlay(harness)
+    const glyph = screen.getByTestId('constraint-glyph')
+    expect(glyph).toHaveClass('border', COLOR_CLASSES.forcedEdge.border)
+    expect(glyph).toHaveClass(COLOR_CLASSES.surface.background)
+    expect(glyph).not.toHaveClass(COLOR_CLASSES.accent.border)
+    await userEvent.click(glyph)
+    expect(glyph).toHaveClass('border', COLOR_CLASSES.accent.border)
+    expect(glyph).not.toHaveClass(COLOR_CLASSES.forcedEdge.border)
+  })
+
+  it('U-209 edges a dimension label that is not selected with a forcedEdge border and a selected one in the accent', async () => {
+    const harness = sketchHarness({
+      entities: [BASE],
+      constraints: [LENGTH],
+      solution: solutionFor([BASE], { constraints: [{ id: 'c-2', state: 'satisfied' }] }),
+    })
+    renderOverlay(harness)
+    const label = screen.getByTestId('sketch-dimension')
+    expect(label).toHaveClass('border', COLOR_CLASSES.forcedEdge.border)
+    expect(label).not.toHaveClass(COLOR_CLASSES.accent.border)
+    await userEvent.click(label)
+    expect(label).toHaveClass('border', COLOR_CLASSES.accent.border)
+    expect(label).not.toHaveClass(COLOR_CLASSES.forcedEdge.border)
+  })
+
   it('hides glyphs while "Show constraints" is off', () => {
     const harness = sketchHarness({ entities: [BASE], constraints: [HORIZONTAL] })
     harness.app.store.setState((state) =>
@@ -305,7 +336,7 @@ function translateOf(label: HTMLElement | undefined): string | null | undefined 
 describe('SketchOverlay axis labels (3.16.2, U-183)', () => {
   const FRONT_CAMERA: Camera = { ...TOP_CAMERA, rotation: standardViewRotation('front') }
 
-  it('labels the axes of a sketch on the Top plane X and Y in their axis roles on a raised chip', () => {
+  it('labels the axes of a sketch on the Top plane X and Y in their axis roles on a surface chip', () => {
     const harness = sketchHarness({ entities: [BASE] })
     renderOverlay(harness)
     const [x, y] = labels()
@@ -314,7 +345,7 @@ describe('SketchOverlay axis labels (3.16.2, U-183)', () => {
     expect(x).toHaveClass(
       'font-semibold',
       COLOR_CLASSES.axisX.foreground,
-      COLOR_CLASSES.surfaceRaised.background,
+      COLOR_CLASSES.surface.background,
     )
     expect(y).toHaveClass(COLOR_CLASSES.axisY.foreground)
   })

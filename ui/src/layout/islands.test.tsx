@@ -39,7 +39,7 @@ function classesOf(classes: string): string[] {
   return classes.split(' ')
 }
 
-/** The classes of a frame island an element lacks: its shape, the surface, its outline and its shadow color. */
+/** The classes of a frame island an element lacks: its shape, the surface, its forced-colors edge and its shadow color. */
 function missingIslandClasses(element: HTMLElement, corner: 'rounded-xl' | 'rounded-lg'): string[] {
   return [
     'relative',
@@ -48,7 +48,7 @@ function missingIslandClasses(element: HTMLElement, corner: 'rounded-xl' | 'roun
     'border',
     'shadow-md',
     ...classesOf(COLOR_CLASSES.surface.background),
-    ...classesOf(COLOR_CLASSES.border.border),
+    ...classesOf(COLOR_CLASSES.forcedEdge.border),
     ...classesOf(COLOR_CLASSES.elevation.shadow),
   ].filter((name) => !element.classList.contains(name))
 }
@@ -100,14 +100,17 @@ describe('islands (U-174)', () => {
     expect(missingIslandClasses(screen.getByTestId('status-bar'), 'rounded-lg')).toEqual([])
   })
 
-  it('U-174 rules a side panel header off its body with a divider hairline', () => {
+  it('U-196 sets a side panel header off its body by weight and padding, without a rule', () => {
     renderIslands()
     const title = within(screen.getByTestId('side-panel')).getByRole('heading', {
       name: 'Parameters',
     })
     const header = title.parentElement
-    expect(header).toHaveClass('h-12', 'px-4', 'border-b')
-    expect(header).toHaveClass(...classesOf(COLOR_CLASSES.divider.border))
+    expect(header).toHaveClass('h-12', 'px-4')
+    expect(header).not.toHaveClass('border-b')
+    expect(
+      classesOf(COLOR_CLASSES.divider.border).every((name) => header?.classList.contains(name)),
+    ).toBe(false)
   })
 
   it('U-174 marks the top bar, the timeline and the status bar as one-row bars', () => {
@@ -308,6 +311,28 @@ describe('corners and slot (U-186)', () => {
     expect(legend).toHaveClass('mt-auto', 'rounded-xl', 'border', 'shadow-md')
   })
 
+  it('U-186 draws the viewport controls as a card on surface with a forcedEdge border', () => {
+    renderModelApp()
+    const controls = screen.getByTestId('viewport-controls')
+    expect(controls).toHaveClass(
+      'pointer-events-auto',
+      'flex',
+      'flex-col',
+      'gap-1',
+      'rounded-xl',
+      'border',
+      'p-1',
+      'shadow-md',
+    )
+    for (const name of [
+      ...classesOf(COLOR_CLASSES.surface.background),
+      ...classesOf(COLOR_CLASSES.forcedEdge.border),
+      ...classesOf(COLOR_CLASSES.elevation.shadow),
+    ]) {
+      expect(controls).toHaveClass(name)
+    }
+  })
+
   it('U-186 shows the empty state as a card in the top-center slot', () => {
     renderModelApp({
       document: cubeDocumentState({
@@ -319,7 +344,8 @@ describe('corners and slot (U-186)', () => {
     expect(card).toHaveAccessibleName('First step')
     expect(card).toHaveClass('pointer-events-auto', 'rounded-xl', 'border', 'shadow-md', 'p-3')
     for (const name of [
-      ...classesOf(COLOR_CLASSES.surfaceRaised.background),
+      ...classesOf(COLOR_CLASSES.surface.background),
+      ...classesOf(COLOR_CLASSES.forcedEdge.border),
       ...classesOf(COLOR_CLASSES.elevation.shadow),
     ]) {
       expect(card).toHaveClass(name)
@@ -347,6 +373,7 @@ const SOURCES = import.meta.glob<string>(['/src/**/*.{ts,tsx}', '!/src/generated
   eager: true,
 })
 const SMALL_SHADOW = ['shadow', 'sm'].join('-')
+const EXTRA_SMALL_SHADOW = ['shadow', 'xs'].join('-')
 
 describe('shapes of the shell (U-188)', () => {
   it('U-188 gives the inspector and a notification the card shape', () => {
@@ -359,23 +386,39 @@ describe('shapes of the shell (U-188)', () => {
     expect(inspector).toHaveClass('flex', 'flex-col', 'overflow-hidden')
     expect(inspector.lastElementChild).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto')
     expect(inspector.lastElementChild).toContainElement(screen.getByTestId('selection-title'))
-    for (const card of [inspector, screen.getByTestId('notification')]) {
+    const notification = screen.getByTestId('notification')
+    for (const card of [inspector, notification]) {
       expect(card).toHaveClass('rounded-xl', 'border', 'shadow-lg')
-      for (const name of classesOf(COLOR_CLASSES.elevation.shadow)) {
+      for (const name of [
+        ...classesOf(COLOR_CLASSES.forcedEdge.border),
+        ...classesOf(COLOR_CLASSES.elevation.shadow),
+      ]) {
         expect(card).toHaveClass(name)
       }
     }
+    expect(inspector).toHaveClass(...classesOf(COLOR_CLASSES.surface.background))
+    expect(notification).toHaveClass(...classesOf(COLOR_CLASSES.surfaceRaised.background))
   })
 
   it('U-188 keeps the command footer in view under the scrolling body of the inspector (3.7)', () => {
     renderModelApp({ state: { command: FILLET_EDGES_COMMAND } })
     const inspector = screen.getByTestId('inspector')
-    const footer = screen.getByTestId('inspector-ok').closest('div.border-t')
-    expect(footer?.parentElement).toBe(inspector)
-    expect(footer).toBe(inspector.lastElementChild)
-    expect(footer).toHaveClass('shrink-0', ...classesOf(COLOR_CLASSES.divider.border))
+    const footer = inspector.lastElementChild
+    expect(footer).toContainElement(screen.getByTestId('inspector-ok'))
+    expect(footer).toHaveClass('shrink-0')
+    expect(footer).not.toHaveClass('border-t')
+    expect(
+      classesOf(COLOR_CLASSES.divider.border).every((name) => footer?.classList.contains(name)),
+    ).toBe(false)
     const body = footer?.previousElementSibling
-    expect(body).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto')
+    expect(body).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'border-y')
+    for (const name of [
+      ...classesOf(COLOR_CLASSES.forcedEdge.border),
+      ...classesOf(COLOR_CLASSES.divider.overflowTop),
+      ...classesOf(COLOR_CLASSES.divider.overflowBottom),
+    ]) {
+      expect(body).toHaveClass(name)
+    }
     expect(body).toContainElement(screen.getAllByTestId('inspector-field')[0] ?? null)
   })
 
@@ -383,7 +426,16 @@ describe('shapes of the shell (U-188)', () => {
     renderModelApp({ state: { panels: { ...INITIAL_STATE.panels, paletteOpen: true } } })
     const palette = screen.getByTestId('palette')
     expect(palette).toHaveClass('rounded-xl', 'border', 'shadow-lg')
-    expect(palette).toHaveClass(...classesOf(COLOR_CLASSES.elevation.shadow))
+    for (const name of [
+      ...classesOf(COLOR_CLASSES.surfaceRaised.background),
+      ...classesOf(COLOR_CLASSES.forcedEdge.border),
+      ...classesOf(COLOR_CLASSES.elevation.shadow),
+    ]) {
+      expect(palette).toHaveClass(name)
+    }
+    const header = screen.getByTestId('palette-input').parentElement
+    expect(header).toHaveClass('border-b', ...classesOf(COLOR_CLASSES.divider.border))
+    expect(screen.getByTestId('palette-footer')).not.toHaveClass('border-t')
   })
 
   it('U-188 gives every rendered shadow the elevation role, so it shows in the dark theme too', () => {
@@ -397,10 +449,14 @@ describe('shapes of the shell (U-188)', () => {
       notify(app, { severity: 'info', message: 'Saved.', actions: [] })
     })
     const shadowed = Array.from(
-      document.querySelectorAll('[class*="shadow-md"], [class*="shadow-lg"]'),
+      document.querySelectorAll(
+        `[class*="${EXTRA_SMALL_SHADOW}"], [class*="shadow-md"], [class*="shadow-lg"]`,
+      ),
     )
-    // The frame islands, the inspector, the notification, the palette and the viewport controls.
-    expect(shadowed.length).toBeGreaterThanOrEqual(8)
+    // The frame islands, the inspector, the notification, the palette, the viewport controls and
+    // the checked segment of the context switcher.
+    expect(shadowed.length).toBeGreaterThanOrEqual(9)
+    expect(shadowed.some((element) => element.closest('[role="radiogroup"]') !== null)).toBe(true)
     for (const element of shadowed) {
       expect(element).toHaveClass(...classesOf(COLOR_CLASSES.elevation.shadow))
     }
@@ -423,10 +479,15 @@ describe('shapes of the shell (U-188)', () => {
     }
   })
 
-  it('U-188 uses the smallest Tailwind shadow class nowhere', () => {
+  it('U-188 uses the small Tailwind shadow nowhere, and the extra-small one only under a segment', () => {
     const offenders = Object.entries(SOURCES)
       .filter(([, text]) => text.includes(SMALL_SHADOW))
       .map(([path]) => path)
     expect(offenders).toEqual([])
+    const extraSmall = Object.entries(SOURCES)
+      .filter(([path]) => !/\.test(ing)?\.tsx?$/.test(path))
+      .filter(([, text]) => text.includes(EXTRA_SMALL_SHADOW))
+      .map(([path]) => path)
+    expect(extraSmall).toEqual(['/src/components/SegmentedControl.tsx'])
   })
 })

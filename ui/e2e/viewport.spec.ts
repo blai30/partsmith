@@ -335,3 +335,55 @@ test('an edge left out of the ID pass no longer hides the face next to it', asyn
   expect(distinctIds(result.withEdge)).toEqual([20])
   expect(distinctIds(result.withoutEdge)).toEqual([1])
 })
+
+test('E-147 the backend clears to the viewport color of each theme, written as sRGB', async ({
+  page,
+}) => {
+  await openHarness(page)
+  const result = await page.evaluate(
+    ({ width, height, pixelRatio }) => {
+      const harness = (window as unknown as { partsmithViewport: HarnessModule }).partsmithViewport
+      const { backend, drawingBuffer, frame, renderPixels } = harness.createHarness(
+        width,
+        height,
+        pixelRatio,
+      )
+      const last = { x: drawingBuffer.width - 1, y: drawingBuffer.height - 1 }
+      const points = [
+        [drawingBuffer.width / 2, drawingBuffer.height / 2],
+        [0, 0],
+        [last.x, 0],
+        [0, last.y],
+        [last.x, last.y],
+      ] as const
+      const colors = (['light', 'dark'] as const).map((theme) => {
+        const pixels = renderPixels({
+          ...frame(harness.cameraFor('front'), [], 10),
+          theme: harness.viewportTheme(theme),
+        })
+        return points.map(([x, y]) =>
+          Array.from(
+            pixels.slice((y * drawingBuffer.width + x) * 4, (y * drawingBuffer.width + x + 1) * 4),
+          ),
+        )
+      })
+      backend.dispose()
+      return colors
+    },
+    { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, pixelRatio: PIXEL_RATIO },
+  )
+
+  // zinc-100 (244, 244, 245) and zinc-950 (9, 9, 11), the viewport role of each theme (2.16.4).
+  const expected = [
+    [244, 244, 245, 255],
+    [9, 9, 11, 255],
+  ]
+  for (const [index, colors] of result.entries()) {
+    for (const color of colors) {
+      expect(color).toHaveLength(4)
+      for (const [channel, value] of color.entries()) {
+        expect(Math.abs(value - (expected[index]?.[channel] ?? Number.NaN))).toBeLessThanOrEqual(1)
+      }
+    }
+  }
+})

@@ -60,12 +60,12 @@ describe('Tooltip', () => {
     expect(shownTooltip()).toBeNull()
   })
 
-  it('U-188 has the tooltip shape: rounded-lg, an outline and a shadow-md in the elevation color', async () => {
+  it('U-188 has the popup shape: rounded-lg, a forcedEdge border and a shadow-lg in the elevation color', async () => {
     const { user, trigger } = setUp()
     await user.hover(trigger)
     advance(500)
     const tooltip = shownTooltip()
-    expect(tooltip).toHaveClass('rounded-lg', 'border', 'shadow-md')
+    expect(tooltip).toHaveClass('rounded-lg', 'border', 'shadow-lg')
     expect(tooltip).toHaveClass(COLOR_CLASSES.elevation.shadow)
   })
 
@@ -152,7 +152,7 @@ describe('Tooltip', () => {
     advance(500)
     const tooltip = shownTooltip()
     expect(tooltip).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
-    expect(tooltip).toHaveClass(COLOR_CLASSES.border.border)
+    expect(tooltip).toHaveClass(COLOR_CLASSES.forcedEdge.border)
   })
 })
 

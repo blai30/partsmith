@@ -138,6 +138,8 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
   return (
     <fieldset
       data-testid="view-cube"
+      // A card of the free area: labels under it are hidden (3.12).
+      data-card=""
       aria-label="View cube"
       className="pointer-events-auto absolute top-11 right-9 size-24 touch-none select-none"
       onPointerDown={handlePointerDown}
@@ -156,9 +158,11 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
           {FACES_WITH_CELLS.map(({ face, cells }) => (
             <div
               key={face}
+              // The face carries the surface; a hovered target's cells lay the active fill over it.
               className={clsx(
                 'absolute inset-0 grid grid-cols-8 grid-rows-8 backface-hidden',
                 FACE_PLACEMENT_CLASSES[face],
+                COLOR_CLASSES.surface.background,
               )}
             >
               {cells.map(({ part: cubePart, shape, primary }) => {
@@ -168,9 +172,7 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
                   shape === 'horizontal' && 'col-span-4 row-span-2',
                   shape === 'vertical' && 'col-span-2 row-span-4',
                   shape === 'center' && 'col-span-4 row-span-4',
-                  hovered === cubePart.id
-                    ? COLOR_CLASSES.hover.active
-                    : COLOR_CLASSES.surfaceRaised.background,
+                  hovered === cubePart.id && COLOR_CLASSES.hover.active,
                 )
                 return primary ? (
                   <button
@@ -225,12 +227,15 @@ export function ViewCube({ rotorRef, onChooseView, onHome, onOrbit }: ViewCubePr
         type="button"
         tabIndex={-1}
         aria-label="Home view"
+        data-card=""
         className={clsx(
-          'absolute -top-7 -left-7 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md border transition-colors duration-150 motion-reduce:transition-none',
-          COLOR_CLASSES.surfaceRaised.background,
-          COLOR_CLASSES.border.border,
+          'absolute -top-7 -left-7 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md border shadow-md transition-colors duration-150 motion-reduce:transition-none',
+          COLOR_CLASSES.surface.background,
+          COLOR_CLASSES.forcedEdge.border,
+          COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.textMuted.foreground,
-          COLOR_CLASSES.hover.background,
+          // Opaque, so the canvas never shows through the hovered chip (2.16.3).
+          COLOR_CLASSES.hover.opaque,
           COLOR_CLASSES.focusRing.outline,
         )}
         onClick={() => {

@@ -17,6 +17,11 @@ export type Facet =
   | 'stroke'
   | 'fill'
   | 'shadow'
+  | 'banner'
+  | 'opaque'
+  | 'overflowTop'
+  | 'overflowBottom'
+  | 'overlay'
 
 /** sRGB '#rrggbb' of every Tailwind 4.3.3 palette step the mapping uses (ui.md 2.16.5). */
 export const PALETTE_HEX = {
@@ -74,18 +79,34 @@ export type PaletteStep = keyof typeof PALETTE_HEX
 
 /** Interface roles and their facets as literal class strings (ui.md 2.16.3). */
 export const COLOR_CLASSES = {
-  stage: { background: 'bg-white dark:bg-zinc-800' },
-  surface: { background: 'bg-zinc-100 dark:bg-zinc-950' },
-  surfaceRaised: { background: 'bg-white dark:bg-zinc-900' },
+  stage: { background: 'bg-zinc-100 dark:bg-zinc-950' },
+  surface: { background: 'bg-white dark:bg-zinc-900' },
+  surfaceRaised: {
+    background: 'bg-white dark:bg-zinc-800',
+    overlay: '@max-5xl/app:bg-white @max-5xl/app:dark:bg-zinc-800',
+  },
   field: { background: 'bg-white dark:bg-zinc-950' },
   hover: {
-    background: 'hover:bg-zinc-200 dark:hover:bg-zinc-800',
-    active: 'bg-zinc-200 dark:bg-zinc-800',
+    background: 'hover:bg-zinc-200 dark:hover:bg-zinc-700/60',
+    active: 'bg-zinc-200 dark:bg-zinc-700/60',
+    foreground: 'hover:text-zinc-900 dark:hover:text-zinc-100',
+    banner: 'hover:bg-zinc-950/10 dark:hover:bg-white/15',
+    opaque: 'hover:bg-zinc-200 dark:hover:bg-zinc-800',
   },
+  tonal: {
+    background: 'bg-zinc-100 dark:bg-zinc-700/40',
+    banner: 'bg-zinc-950/5 dark:bg-white/10',
+  },
+  thumb: { background: 'bg-white dark:bg-zinc-700' },
   selection: { background: 'bg-orange-100 dark:bg-orange-950' },
-  border: { border: 'border-zinc-300 dark:border-zinc-700' },
-  divider: { border: 'border-zinc-200 dark:border-zinc-800' },
-  elevation: { shadow: 'shadow-black/10 dark:shadow-black/50' },
+  forcedEdge: { border: 'border-transparent', outline: 'outline-transparent' },
+  divider: {
+    border: 'border-zinc-200 dark:border-white/10',
+    overflowTop: 'data-overflow-top:border-t-zinc-200 dark:data-overflow-top:border-t-white/10',
+    overflowBottom:
+      'data-overflow-bottom:border-b-zinc-200 dark:data-overflow-bottom:border-b-white/10',
+  },
+  elevation: { shadow: 'shadow-black/10 dark:shadow-black/20' },
   borderControl: { border: 'border-zinc-500' },
   text: { foreground: 'text-zinc-900 dark:text-zinc-100' },
   textMuted: {
@@ -145,8 +166,7 @@ export const AXIS_ROLES = {
 } as const satisfies Readonly<Record<WorldAxis, ColorRole>>
 
 export type ViewportRole =
-  | 'viewportTop'
-  | 'viewportBottom'
+  | 'viewport'
   | 'body'
   | 'edgeDark'
   | 'edgeLight'
@@ -171,8 +191,7 @@ export type ViewportRole =
 export const VIEWPORT_STEPS: Readonly<
   Record<ViewportRole, Readonly<Record<ThemeName, PaletteStep>>>
 > = {
-  viewportTop: { light: 'white', dark: 'zinc-800' },
-  viewportBottom: { light: 'zinc-100', dark: 'zinc-900' },
+  viewport: { light: 'zinc-100', dark: 'zinc-950' },
   body: { light: 'zinc-400', dark: 'zinc-400' },
   edgeDark: { light: 'zinc-900', dark: 'zinc-900' },
   edgeLight: { light: 'zinc-200', dark: 'zinc-200' },
@@ -186,7 +205,7 @@ export const VIEWPORT_STEPS: Readonly<
   sketchReference: { light: 'zinc-500', dark: 'zinc-400' },
   datum: { light: 'zinc-400', dark: 'zinc-500' },
   bed: { light: 'zinc-500', dark: 'zinc-400' },
-  grid: { light: 'zinc-300', dark: 'zinc-600' },
+  grid: { light: 'zinc-300', dark: 'zinc-700' },
   analysisLow: { light: 'sky-200', dark: 'sky-200' },
   analysisHigh: { light: 'violet-700', dark: 'violet-700' },
   axisX: { light: 'rose-600', dark: 'rose-400' },
@@ -295,8 +314,7 @@ export function contrastRatio(first: string, second: string): number {
 function viewportThemeOf(theme: ThemeName): ViewportTheme {
   const colors = VIEWPORT_COLORS[theme]
   return Object.freeze({
-    backgroundTop: linearFromHex(colors.viewportTop),
-    backgroundBottom: linearFromHex(colors.viewportBottom),
+    background: linearFromHex(colors.viewport),
     highlight: linearFromHex(colors.highlight),
     problem: linearFromHex(colors.problem),
     edgeDark: linearFromHex(colors.edgeDark),

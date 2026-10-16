@@ -70,6 +70,10 @@ function ControlButton({
       className={clsx(
         'inline-flex size-8 items-center justify-center rounded-md transition-colors duration-150 motion-reduce:transition-none',
         COLOR_CLASSES.focusRing.outline,
+        // A toggle rests with the transparent state outline, which forced colors draw while it is
+        // pressed (3.23).
+        pressed !== undefined && COLOR_CLASSES.forcedEdge.outline,
+        selected && 'outline -outline-offset-1',
         selected && COLOR_CLASSES.selection.background,
         selected && COLOR_CLASSES.text.foreground,
         !selected && COLOR_CLASSES.hover.background,
@@ -131,10 +135,12 @@ export function ViewportControls({
       <fieldset
         aria-label="View controls"
         data-testid="viewport-controls"
+        // A card of the free area: labels under it are hidden (3.12).
+        data-card=""
         className={clsx(
           'pointer-events-auto flex flex-col gap-1 rounded-xl border p-1 shadow-md',
-          COLOR_CLASSES.surfaceRaised.background,
-          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.surface.background,
+          COLOR_CLASSES.forcedEdge.border,
           COLOR_CLASSES.elevation.shadow,
         )}
       >

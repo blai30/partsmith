@@ -108,11 +108,12 @@ function OpenSidePanel({ side }: { readonly side: NonNullable<PanelsState['side'
       data-testid="side-panel"
       aria-label={SIDE_PANEL_NAMES[side]}
       // A frame island (3.2), docked in the last column from 65rem and floating over the free
-      // area's cell below it; each panel scrolls its own body.
+      // area's cell below it, a step raised over the cards there; each panel scrolls its own body.
       className={clsx(
         'relative z-10 col-start-3 row-start-2 ml-2 flex min-h-0 w-90 max-w-full flex-col overflow-hidden rounded-xl border shadow-md @max-5xl/app:absolute @max-5xl/app:inset-y-0 @max-5xl/app:right-0 @max-5xl/app:z-20 @max-5xl/app:col-start-2 @max-5xl/app:col-end-3 @max-5xl/app:row-end-3 @max-5xl/app:shadow-lg',
         COLOR_CLASSES.surface.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.surfaceRaised.overlay,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
       )}
     >

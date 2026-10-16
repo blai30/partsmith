@@ -330,16 +330,30 @@ fn main() -> ExitCode {
     let block = make_box(&Plane::XY, 10.0, 20.0, 30.0)
         .expect("the box builds")
         .shape;
+    // Every edge of the box rounded at radius 1 (kernel spec test 45).
+    let every_edge: Vec<EdgeRadius> = (1..=12)
+        .map(|edge| EdgeRadius { edge, radius: 1.0 })
+        .collect();
     report.measure("fillet, 12 edges of a box", milliseconds(40), || {
-        let edges: Vec<EdgeRadius> = (1..=12)
-            .map(|edge| EdgeRadius { edge, radius: 1.0 })
-            .collect();
-        median_time_of(RUNS, || fillet(&block, &edges))
+        median_time_of(RUNS, || fillet(&block, &every_edge))
     });
     report.measure("shell, box", milliseconds(20), || {
         let top = planar_face(&block, UP, 30.0);
         median_time_of(RUNS, || shell(&block, &[top], 1.0))
     });
+    report.measure(
+        "shell, rounded box with an opening tangent to its rounds",
+        milliseconds(60),
+        || {
+            let rounded = fillet(&block, &every_edge)
+                .expect("every edge rounds")
+                .shape;
+            let top = planar_face(&rounded, UP, 30.0);
+            // A failed shell returns early, so its time would say nothing about the budget.
+            shell(&rounded, &[top], 0.5).expect("the rounded box shells open");
+            median_time_of(RUNS, || shell(&rounded, &[top], 0.5))
+        },
+    );
     report.measure("transform, rigid", Duration::from_micros(100), || {
         let axis = Axis {
             origin: Point::new(0.0, 0.0, 0.0),

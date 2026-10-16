@@ -105,15 +105,43 @@ describe('ViewCube', () => {
       ]
       expect(horizontalSides).toHaveClass(horizontal)
       expect(verticalSides).toHaveClass(vertical)
-      expect(face).not.toHaveClass(COLOR_CLASSES.border.border)
+      expect(face).not.toHaveClass(COLOR_CLASSES.forcedEdge.border)
       expect(face).not.toHaveClass('border')
+      expect(
+        [...face.classList].filter((className) => className.startsWith('border-zinc-')),
+      ).toEqual([])
     }
     expect(seen.toSorted()).toEqual(['Back', 'Bottom', 'Front', 'Left', 'Right', 'Top'])
   })
 
-  it('U-184 keeps a rounded-md Home view button', () => {
+  it('U-184 draws the Home view button as a chip on surface with a forcedEdge border, a shadow and the opaque hover', () => {
     setUp()
-    expect(screen.getByRole('button', { name: 'Home view' })).toHaveClass('rounded-md')
+    const home = screen.getByRole('button', { name: 'Home view' })
+    expect(home).toHaveClass('rounded-md', 'border', 'shadow-md')
+    for (const facet of [
+      COLOR_CLASSES.surface.background,
+      COLOR_CLASSES.forcedEdge.border,
+      COLOR_CLASSES.elevation.shadow,
+      COLOR_CLASSES.hover.opaque,
+      COLOR_CLASSES.textMuted.foreground,
+    ]) {
+      expect(home).toHaveClass(facet)
+    }
+    expect(home).not.toHaveClass(COLOR_CLASSES.hover.background)
+  })
+
+  it('U-184 lays each face on surface, under cells without a fill while nothing is hovered', () => {
+    const { rotorRef } = setUp()
+    const faces = [...(rotorRef.current?.children ?? [])]
+    expect(faces).toHaveLength(6)
+    for (const face of faces) {
+      expect(face).toHaveClass(COLOR_CLASSES.surface.background)
+      const cells = face.querySelectorAll('[data-view-cube-part]')
+      expect(cells.length).toBeGreaterThan(0)
+      for (const cell of cells) {
+        expect([...cell.classList].filter((name) => name.includes('bg-'))).toEqual([])
+      }
+    }
   })
 
   it('places the Home view button outside the cube, above and left of its box (3.14)', () => {
@@ -263,13 +291,12 @@ describe('ViewCube', () => {
     fireEvent.pointerOver(screen.getByRole('button', { name: 'Front right top corner view' }))
     for (const copy of corner) {
       expect(copy).toHaveClass(COLOR_CLASSES.hover.active)
-      expect(copy).not.toHaveClass(COLOR_CLASSES.surfaceRaised.background)
     }
     const front = screen.getByRole('button', { name: 'Front view' })
-    expect(front).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
+    expect(front).not.toHaveClass(COLOR_CLASSES.hover.active)
     fireEvent.pointerLeave(cube)
     for (const copy of corner) {
-      expect(copy).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
+      expect(copy).not.toHaveClass(COLOR_CLASSES.hover.active)
     }
   })
 

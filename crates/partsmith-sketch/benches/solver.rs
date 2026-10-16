@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use benchmark::{
     CHAIN_FREE_END, PLATE_PARAMS_JSON, chain_benchmark, entity_ids, first_cell, grid_benchmark,
-    split_grid_benchmark,
+    long_outline_benchmark, redrawn_long_outline_benchmark, split_grid_benchmark,
 };
 use partsmith_sketch::{
     ConstraintKind, DimensionValues, DragSession, DragTarget, Id, NativeSolver, PointRef, Region,
@@ -183,6 +183,10 @@ fn main() -> ExitCode {
     let split_regions = build_profile(&split_grid).regions;
     let split_ids = entity_ids(&split_grid);
     let first_cell_reference = grid_regions[first_cell(&grid_regions)].reference();
+    let long_outline_reference = build_profile(&long_outline_benchmark()).regions[0].reference();
+    let redrawn = redrawn_long_outline_benchmark();
+    let redrawn_regions = build_profile(&redrawn).regions;
+    let redrawn_ids = entity_ids(&redrawn);
 
     let scenarios = [
         Scenario {
@@ -245,6 +249,12 @@ fn main() -> ExitCode {
             name: "match_region, split grid, the first cell's reference",
             times: time(|| match_region(&split_regions, &split_ids, &first_cell_reference)),
             median_budget: Duration::from_micros(500),
+            maximum_budget: None,
+        },
+        Scenario {
+            name: "match_region, redrawn long outline, the reference before",
+            times: time(|| match_region(&redrawn_regions, &redrawn_ids, &long_outline_reference)),
+            median_budget: Duration::from_millis(2),
             maximum_budget: None,
         },
     ];

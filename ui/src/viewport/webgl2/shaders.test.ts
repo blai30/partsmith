@@ -178,9 +178,9 @@ describe('shaderSources', () => {
     )
   })
 
-  it('writes the background gradient from bottom to top', () => {
-    expect(shaderSources('background', 'color').fragment).toContain(
-      'mix(u_backgroundBottom, u_backgroundTop, clamp(v_height, 0.0, 1.0))',
-    )
+  it('writes the one flat background color, sRGB-encoded (3.12 pass 1)', () => {
+    const { vertex, fragment } = shaderSources('background', 'color')
+    expect(fragment).toContain('o_color = vec4(encodeSrgb(u_background), 1.0);')
+    expect(`${vertex}${fragment}`).not.toContain('v_height')
   })
 })

@@ -54,8 +54,7 @@ function frame(draws: readonly DrawCall[]): RenderFrame {
     pixelRatio: 1,
     uiScale: 1,
     theme: {
-      backgroundTop: [1, 1, 1],
-      backgroundBottom: [0.9, 0.9, 0.9],
+      background: [0.9, 0.9, 0.9],
       highlight: [0.9, 0.1, 0],
       problem: [0.5, 0, 0],
       edgeDark: [0, 0, 0],

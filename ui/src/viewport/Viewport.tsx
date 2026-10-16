@@ -103,7 +103,7 @@ function AxisLabels({ scene }: { readonly scene: Scene }) {
         hidden
         className={clsx(
           'pointer-events-none absolute top-0 left-0 rounded-sm px-1 text-xs font-semibold',
-          COLOR_CLASSES.surfaceRaised.background,
+          COLOR_CLASSES.surface.background,
           COLOR_CLASSES[AXIS_ROLES[axis]].foreground,
         )}
       >
@@ -134,7 +134,7 @@ function PlaneLabels({ scene }: { readonly scene: Scene }) {
       hidden
       className={clsx(
         'pointer-events-none absolute top-0 left-0 rounded-sm px-1 text-xs whitespace-nowrap',
-        COLOR_CLASSES.surfaceRaised.background,
+        COLOR_CLASSES.surface.background,
         COLOR_CLASSES.text.foreground,
       )}
     >
@@ -144,17 +144,19 @@ function PlaneLabels({ scene }: { readonly scene: Scene }) {
 }
 
 /**
- * A card centered in the free area on the `surfaceRaised` role (3.24: text over the view sits on a
+ * A card centered in the free area on the `surface` role (3.24: text over the view sits on a
  * card), in a layer above the inspector so the core's panels and their buttons stay uncovered (4.4).
  */
 function OverlayCard({ children }: { readonly children: ReactNode }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-4">
       <div
+        // A card of the free area: labels under it are hidden (3.12).
+        data-card=""
         className={clsx(
           'pointer-events-auto flex max-w-110 flex-col gap-3 rounded-xl border p-4 text-sm shadow-lg',
-          COLOR_CLASSES.surfaceRaised.background,
-          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.surface.background,
+          COLOR_CLASSES.forcedEdge.border,
           COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
         )}

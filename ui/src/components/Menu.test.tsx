@@ -266,7 +266,7 @@ describe('Menu', () => {
   it('U-188 is a raised floating panel with the popup shape', async () => {
     const { menu } = await openMenu(documentEntries(handlers()))
     expect(menu).toHaveClass(COLOR_CLASSES.surfaceRaised.background)
-    expect(menu).toHaveClass(COLOR_CLASSES.border.border)
+    expect(menu).toHaveClass(COLOR_CLASSES.forcedEdge.border)
     expect(menu).toHaveClass(COLOR_CLASSES.elevation.shadow)
     expect(menu).toHaveClass('pointer-events-auto', 'border', 'rounded-lg', 'shadow-lg')
   })
@@ -360,5 +360,15 @@ describe('Menu keys and pointer details', () => {
     await user.keyboard('{ArrowDown}')
     expect(item('Save')).toHaveClass(COLOR_CLASSES.hover.active)
     expect(item(/^New/)).not.toHaveClass(COLOR_CLASSES.hover.active)
+  })
+
+  it('U-213 outlines the keyboard-active item for forced colors and rests the others transparent', async () => {
+    const { user } = await openMenu(documentEntries(handlers()))
+    await user.keyboard('{ArrowDown}')
+    expect(item('Save')).toHaveClass('outline', '-outline-offset-1')
+    expect(item('Save')).toHaveClass(COLOR_CLASSES.forcedEdge.outline)
+    expect(item(/^New/)).toHaveClass(COLOR_CLASSES.forcedEdge.outline)
+    expect(item(/^New/)).not.toHaveClass('outline')
+    expect(item(/^New/)).not.toHaveClass(COLOR_CLASSES.accent.outline)
   })
 })

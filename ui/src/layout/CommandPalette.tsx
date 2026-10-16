@@ -18,6 +18,7 @@ import { rankPaletteItems, recentItems, type PaletteItem } from '../commands/fuz
 import { featureIcon } from '../commands/icons'
 import { formatShortcut } from '../commands/shortcuts'
 import { paletteItems } from '../commands/palette'
+import { useOverflowEdges } from '../components/overflow-edges'
 import { parseSelectionKey } from '../inspector/selection-values'
 import { measureTiming, TIMING_NAMES } from '../performance/marks'
 import type { AppContext } from '../state/store'
@@ -129,6 +130,7 @@ function OpenPalette() {
   const palette = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
+  useOverflowEdges(list)
   const descriptionId = useId()
   const recentIds = useAppState((state) => state.settings.paletteRecent)
   const context = useAppState((state) => state.context)
@@ -269,7 +271,7 @@ function OpenPalette() {
         className={clsx(
           'pointer-events-auto flex max-h-full w-140 max-w-full flex-col overflow-hidden rounded-xl border shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
           COLOR_CLASSES.surfaceRaised.background,
-          COLOR_CLASSES.border.border,
+          COLOR_CLASSES.forcedEdge.border,
           COLOR_CLASSES.elevation.shadow,
           COLOR_CLASSES.text.foreground,
         )}
@@ -301,7 +303,12 @@ function OpenPalette() {
             value={query}
             onChange={onChange}
             onKeyDown={onKeyDown}
-            className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none"
+            // The open palette's one input needs no boundary: its icon, placeholder and caret
+            // identify it (3.24).
+            className={clsx(
+              'h-full min-w-0 flex-1 bg-transparent text-sm outline-none',
+              COLOR_CLASSES.textMuted.placeholder,
+            )}
           />
         </div>
         <ul
@@ -311,7 +318,12 @@ function OpenPalette() {
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-to-interactive-role
           role="listbox"
           aria-label="Results"
-          className="relative max-h-96 min-h-0 flex-1 overflow-y-auto p-1"
+          // Its rule shows while options continue under the footer (3.2).
+          className={clsx(
+            'relative max-h-96 min-h-0 flex-1 overflow-y-auto border-b p-1',
+            COLOR_CLASSES.forcedEdge.border,
+            COLOR_CLASSES.divider.overflowBottom,
+          )}
         >
           {ranked.length === 0 && query.trim() !== '' ? (
             // The one row of an empty result is not an option (3.4).
@@ -351,8 +363,7 @@ function OpenPalette() {
         <div
           data-testid="palette-footer"
           className={clsx(
-            'flex min-h-8 shrink-0 flex-col justify-center border-t px-3 py-2 text-xs',
-            COLOR_CLASSES.divider.border,
+            'flex min-h-8 shrink-0 flex-col justify-center px-3 py-2 text-xs',
             COLOR_CLASSES.textMuted.foreground,
           )}
         >
@@ -407,6 +418,9 @@ function OpenPalette() {
         }}
         className={clsx(
           'flex h-9 cursor-default items-center gap-3 rounded-md px-2 text-sm',
+          // The state outline that forced colors draw on the active option (3.23).
+          COLOR_CLASSES.forcedEdge.outline,
+          index === active && 'outline -outline-offset-1',
           index === active && COLOR_CLASSES.hover.active,
           disabled && COLOR_CLASSES.textDisabled.foreground,
         )}

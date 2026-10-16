@@ -327,7 +327,10 @@ describe('body rows (3.10)', () => {
     )
     const popover = screen.getByTestId('color-popover')
     for (const swatch of BODY_SWATCHES) {
-      expect(within(popover).getByRole('button', { name: swatch.name })).toBeInTheDocument()
+      const button = within(popover).getByRole('button', { name: swatch.name })
+      // U-211: a boundary of at least 3:1, and its own color in forced colors.
+      expect(button).toHaveClass('border', COLOR_CLASSES.borderControl.border)
+      expect(button).toHaveClass('forced-color-adjust-none')
     }
     await user.click(within(popover).getByRole('button', { name: 'Red' }))
     await settle()

@@ -8,6 +8,7 @@ mod values;
 pub use body_state::BodyState;
 pub use references::Usable;
 pub use values::Values;
+pub(crate) use values::expected_dimension;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

@@ -12,9 +12,11 @@
 
 mod common;
 
+use std::f64::consts::FRAC_PI_2;
+
 use common::records::{
-    block, block_with, box_below, box_record, cube10, cube20, edited, line, linear_pattern, point,
-    rectangle, reference, shell, sketch, slot, xy,
+    arc, block, block_with, box_below, box_record, cube10, cube20, distance, edited, extrude, line,
+    linear_pattern, point, rectangle, reference, shell, sketch, slot, xy,
 };
 use common::timeline::{Timeline, stored, sub_shape_names};
 use common::{assert_vector_close, id, warning_fixes};
@@ -434,6 +436,104 @@ fn an_edge_of_a_removed_face_follows_its_rim_with_a_notice() {
         ["edge(f-ext1/lateral/e-1|f-sh1/rim/f-ext1/end-cap)"]
     );
     assert_one_follow(&resolved, Follow::Continued, "/edges/0", "f-fil1");
+}
+
+/// The angle of (78, 46) seen from (70, 40), where the arcs of `rounded_corner_split` meet.
+fn split_angle() -> f64 {
+    6.0_f64.atan2(8.0)
+}
+
+/// `BLOCK`'s rectangle with its back right corner rounded: `e-5` from (80, 40) to (70, 50), center (70, 40), radius
+/// 10, as `arcs` give it, and the extrude of its region as a pick stored it before any edit.
+fn rounded_corner_block(arcs: Vec<Value>) -> Timeline {
+    let mut entities = vec![
+        line("e-1", [0.0, 0.0], [80.0, 0.0]),
+        line("e-2", [80.0, 0.0], [80.0, 40.0]),
+    ];
+    entities.extend(arcs);
+    entities.push(line("e-3", [70.0, 50.0], [0.0, 50.0]));
+    entities.push(line("e-4", [0.0, 50.0], [0.0, 0.0]));
+    Timeline::run(
+        &["b-1"],
+        &[
+            sketch("f-sk1", xy(), entities),
+            extrude(
+                "f-ext1",
+                "f-sk1",
+                vec![
+                    json!({"key": "e-1,e-2,e-3,e-4,e-5", "fp": "c=39.796289,24.877199|a=3978.539816", "outline": "e-1,e-2,e-5,e-3,e-4"}),
+                ],
+                distance("30"),
+                "new",
+            ),
+        ],
+    )
+}
+
+/// The rounded corner drawn again as two arcs of its circle, `e-6` to (78, 46) and `e-7` from there.
+fn rounded_corner_split() -> Timeline {
+    rounded_corner_block(vec![
+        arc("e-6", [70.0, 40.0], 10.0, 0.0, split_angle()),
+        arc("e-7", [70.0, 40.0], 10.0, split_angle(), FRAC_PI_2),
+    ])
+}
+
+#[test]
+fn an_arc_replaced_by_arcs_on_its_circle_is_followed_with_a_notice() {
+    // The two top edges along the new arcs are circles with one axis, center and radius: one carrier.
+    let timeline = rounded_corner_split();
+    let top_rim = stored(
+        "edge(f-ext1/end-cap|f-ext1/lateral/e-5)",
+        "circle|n=0,0,1|c=76.366198,46.366198,30|l=15.707963|r=10|adj=2,2",
+    );
+
+    let resolved = resolve_edges(&timeline, &[top_rim]).expect("it resolves");
+
+    assert_eq!(
+        resolved_names(&timeline, &resolved),
+        [
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-6)",
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-7)",
+        ]
+    );
+    assert_one_follow(&resolved, Follow::Replaced, "/edges/0", "f-fil1");
+}
+
+#[test]
+fn a_round_side_replaced_by_sides_on_its_cylinder_is_followed_with_a_notice() {
+    // The two sides made from the new arcs are cylinders with one axis and radius: one carrier.
+    let timeline = rounded_corner_split();
+    let round_side = stored(
+        "f-ext1/lateral/e-5",
+        "cylinder|n=0,0,1|c=76.366198,46.366198,15|a=471.238898|r=10|adj=4,4",
+    );
+
+    let resolved = resolve_faces(&timeline, &[round_side]).expect("it resolves");
+
+    assert_eq!(
+        resolved_names(&timeline, &resolved),
+        ["f-ext1/lateral/e-6", "f-ext1/lateral/e-7"]
+    );
+    assert_one_follow(&resolved, Follow::Replaced, "/remove_faces/0", "f-sh1");
+}
+
+#[test]
+fn an_arc_replaced_by_an_arc_of_another_circle_and_a_line_widens_with_a_warning() {
+    // The corner drawn again as a smaller arc and a line: the top edges lie on no one carrier.
+    let timeline = rounded_corner_block(vec![
+        arc("e-6", [75.0, 40.0], 5.0, 0.0, FRAC_PI_2),
+        line("e-7", [75.0, 45.0], [70.0, 50.0]),
+    ]);
+    let top_rim = stored(
+        "edge(f-ext1/end-cap|f-ext1/lateral/e-5)",
+        "circle|n=0,0,1|c=76.366198,46.366198,30|l=15.707963|r=10|adj=2,2",
+    );
+
+    let resolved = resolve_edges(&timeline, &[top_rim]).expect("it resolves");
+
+    assert!(resolved.notices.is_empty(), "{:?}", resolved.notices);
+    let codes: Vec<&str> = resolved.warnings.iter().map(FeatureWarning::code).collect();
+    assert_eq!(codes, ["reference_widened"]);
 }
 
 /// `BOX-BELOW`, `f-sk1` with the given points and the hole `f-hole1` at `points` with the given extra params.

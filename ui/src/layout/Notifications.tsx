@@ -71,7 +71,7 @@ function NotificationCard({ notification }: { readonly notification: Notificatio
       className={clsx(
         'pointer-events-auto flex w-90 max-w-full items-start gap-3 rounded-xl border p-3 text-sm shadow-lg transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none',
         COLOR_CLASSES.surfaceRaised.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.forcedEdge.border,
         COLOR_CLASSES.elevation.shadow,
         COLOR_CLASSES.text.foreground,
       )}

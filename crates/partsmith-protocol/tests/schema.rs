@@ -5,8 +5,9 @@ mod common;
 use std::path::Path;
 
 use common::examples::{
-    COMMAND_EXAMPLES, ELEMENT_REPAIR, FULL_REFERENCE, MERGED_REFERENCE, MESSAGE_EXAMPLES,
-    REGION_REPAIR, RESULT_EXAMPLES, SOLVE_ON_FACE_IN_BODY_FRAME, TYPE_EXAMPLES,
+    COMMAND_EXAMPLES, ELEMENT_REPAIR, ERROR_OUTCOMES, FULL_REFERENCE, MERGED_REFERENCE,
+    MESSAGE_EXAMPLES, R16_DIAGNOSTIC, REGION_REPAIR, RESULT_EXAMPLES, SOLVE_ON_FACE_IN_BODY_FRAME,
+    STALE_FIX_MESSAGE, TYPE_EXAMPLES,
 };
 use common::json_schema::validate;
 use common::{
@@ -396,4 +397,83 @@ fn face_plane_with_a_body_fallback_frame_validates_and_an_unknown_frame_does_not
     let mut unknown = command;
     unknown["candidate"]["plane"]["fallback_frame"] = json!("local");
     assert!(validate(&schema, "/$defs/Command", &unknown).is_err());
+}
+
+#[test]
+fn error_outcomes_of_section_2_8_validate_in_responses() {
+    let schema = schema_json();
+    let stale_fix = json!({"kind": "error", "code": "stale_fix", "message": STALE_FIX_MESSAGE});
+    let outcomes = ERROR_OUTCOMES
+        .into_iter()
+        .map(parse_json)
+        .chain([stale_fix]);
+
+    for outcome in outcomes {
+        let header = json!({
+            "protocol_version": 1,
+            "messages": [{"kind": "response", "id": 8, "result": outcome}],
+            "buffers": []
+        });
+        assert_eq!(validate(&schema, "", &header), Ok(()), "{outcome}");
+    }
+}
+
+#[test]
+fn loss_reasons_added_by_the_review_validate_and_other_body_requires_present() {
+    let schema = schema_json();
+    let end_outside = json!({"kind": "removed", "by": "f-ext2", "how": {"kind": "no_longer_made", "absence": "end_outside"}});
+    let left_the_body = json!({"kind": "other_body", "body": "b-2", "by": "f-ext1", "by_suppressed": false, "present": false});
+
+    assert_eq!(validate(&schema, "/$defs/LossReason", &end_outside), Ok(()));
+    assert_eq!(
+        validate(&schema, "/$defs/LossReason", &left_the_body),
+        Ok(())
+    );
+    let mut without_present = left_the_body;
+    without_present
+        .as_object_mut()
+        .expect("a loss reason is an object")
+        .remove("present");
+    assert!(validate(&schema, "/$defs/LossReason", &without_present).is_err());
+}
+
+#[test]
+fn headless_pick_reference_request_validates_and_its_pick_stays_closed() {
+    let schema = schema_json();
+    let command = json!({"type": "pick_reference", "doc": 1, "pick": {"mesh_id": 0, "kind": "edge", "index": 4, "body": "b-1"}});
+    assert_eq!(validate(&schema, "/$defs/Command", &command), Ok(()));
+
+    let mut with_extra = command;
+    with_extra["pick"]["feature"] = json!("f-box1");
+    assert!(validate(&schema, "/$defs/Command", &with_extra).is_err());
+}
+
+#[test]
+fn region_references_with_and_without_an_outline_validate() {
+    let schema = schema_json();
+    let with_outline = json!({"reference": {"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000", "outline": "e-1,e-2,e-3,e-4"}, "area": 4000.0, "centroid": [40.0, 25.0]});
+    let mut without_outline = with_outline.clone();
+    without_outline["reference"]
+        .as_object_mut()
+        .expect("a region reference is an object")
+        .remove("outline");
+
+    assert_eq!(
+        validate(&schema, "/$defs/RegionInfo", &with_outline),
+        Ok(())
+    );
+    assert_eq!(
+        validate(&schema, "/$defs/RegionInfo", &without_outline),
+        Ok(())
+    );
+}
+
+#[test]
+fn diagnostic_with_a_suggestion_and_a_root_validates() {
+    let schema = schema_json();
+    let mut diagnostic = parse_json(R16_DIAGNOSTIC);
+    diagnostic["suggestion"] = json!("2.3 mm");
+    diagnostic["root"] = json!("f-dp1");
+
+    assert_eq!(validate(&schema, "/$defs/Diagnostic", &diagnostic), Ok(()));
 }

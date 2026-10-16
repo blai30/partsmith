@@ -86,8 +86,8 @@ export function SegmentedControl<Value extends string>({
       className={clsx(
         'h-8 items-stretch gap-0.5 rounded-md border p-0.5',
         stretch ? 'flex flex-1' : 'inline-flex shrink-0',
-        COLOR_CLASSES.field.background,
-        COLOR_CLASSES.border.border,
+        COLOR_CLASSES.tonal.background,
+        COLOR_CLASSES.forcedEdge.border,
         className,
       )}
     >
@@ -138,7 +138,11 @@ type SegmentProps<Value extends string> = {
   readonly 'aria-describedby'?: string | undefined
 }
 
-/** One option: a transparent native radio over its label. */
+/**
+ * One option: a transparent native radio over its label. The checked one is the thumb, raised over
+ * the tonal track and named by its semibold label; its state outline is drawn in forced colors
+ * only (3.23, 3.24).
+ */
 function Segment<Value extends string>({
   option,
   name,
@@ -158,12 +162,15 @@ function Segment<Value extends string>({
         'relative flex items-center gap-2 rounded-sm text-sm whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none',
         // Shared segments keep room to spare, so a bold checked label never overflows the row.
         stretch ? 'flex-1 justify-center px-2' : 'px-3',
-        disabled && COLOR_CLASSES.textDisabled.foreground,
-        !disabled && checked && COLOR_CLASSES.selection.background,
-        !disabled && checked && COLOR_CLASSES.text.foreground,
-        !disabled && checked && 'font-semibold',
-        !disabled && !checked && COLOR_CLASSES.textMuted.foreground,
-        !disabled && !checked && COLOR_CLASSES.hover.background,
+        // Every label rests with the transparent outline, so the checked one's never fades in.
+        COLOR_CLASSES.forcedEdge.outline,
+        checked && 'font-semibold shadow-xs outline -outline-offset-1',
+        checked && COLOR_CLASSES.thumb.background,
+        checked && COLOR_CLASSES.elevation.shadow,
+        checked && (disabled ? COLOR_CLASSES.textMuted.foreground : COLOR_CLASSES.text.foreground),
+        !checked &&
+          (disabled ? COLOR_CLASSES.textDisabled.foreground : COLOR_CLASSES.textMuted.foreground),
+        !checked && !disabled && COLOR_CLASSES.hover.foreground,
       )}
     >
       {/* The transparent radio covers its segment, so the focus ring outlines the segment. */}

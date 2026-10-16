@@ -1,5 +1,5 @@
 //! Acceptance tests for fillet, chamfer and shell (kernel spec sections 2.8, 3.4.6 to 3.4.9, 3.5
-//! and tests 44 to 53, 68, 102, 103, 110, 115, 131 and 132), including the history behavior the
+//! and tests 44 to 53, 68, 102, 103, 110, 115 and 131 to 133), including the history behavior the
 //! spec asks to verify on the built library (section 7, open issues 3 and 4).
 
 mod common;
@@ -18,7 +18,7 @@ use common::{
 use partsmith_occt_sys::{
     ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
     OpResult, Operation, Plane, Point, Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace,
-    Transform, Vector, chamfer, extrude, fillet, fuse, make_box, make_cylinder, make_profile,
+    Transform, Vector, chamfer, cut, extrude, fillet, fuse, make_box, make_cylinder, make_profile,
     shell, transform,
 };
 
@@ -1205,10 +1205,8 @@ fn t131_closed_hollow_thicker_than_the_rounds_has_a_sharp_cavity() {
 
 #[test]
 fn t131_closed_hollow_of_a_box_with_every_edge_rounded() {
-    // Test 45: every BOX edge rounded at radius 1, with spherical corners.
-    let rounded = fillet(&box_primitive().shape, &all_edges(1.0))
-        .expect("every edge rounds")
-        .shape;
+    // Test 45's spherical corners vanish too.
+    let (rounded, _) = fully_rounded_box();
 
     let result = shell(&rounded, &[], 2.0).expect("the rounded BOX is hollowed with a 2 mm wall");
 
@@ -1535,17 +1533,39 @@ fn t132_wall_as_thick_as_a_round_beside_a_removed_concave_edge_cuts_a_sharp_cavi
     assert_every_face_comes_from_an_input_face(&result);
 }
 
-#[test]
-fn t132_opening_tangent_to_rounds_thinner_than_the_wall() {
-    // Test 45: every BOX edge rounded at radius 1, so the top meets its rounds tangentially.
+/// Test 45: every BOX edge rounded at radius 1 (rounds meeting in spherical corners), and the
+/// index of its top, the `Plane` face with direction (0,0,1) at z = 30.
+fn fully_rounded_box() -> (Shape, u32) {
     let rounded = fillet(&box_primitive().shape, &all_edges(1.0))
         .expect("every edge rounds")
         .shape;
     let top = planar_face(&rounded, UP, Point::new(5.0, 10.0, 30.0));
+    (rounded, top)
+}
+
+/// Asserts that no `Cylinder` or `Sphere` face of `rounded` lists anything in `generated`: their
+/// inner offsets vanish.
+fn assert_rounds_generate_nothing(rounded: &Shape, result: &OpResult) {
+    for kind in [GeometryKind::Cylinder, GeometryKind::Sphere] {
+        for round in faces_of_kind(rounded, kind) {
+            let fate = face_fate(result, round);
+            assert!(
+                generated_faces(fate).is_empty(),
+                "round {round} generates no face: {fate:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn t132_opening_tangent_to_rounds_thinner_than_the_wall() {
+    // The top meets its rounds tangentially.
+    let (rounded, top) = fully_rounded_box();
 
     let result = shell(&rounded, &[top], 2.0).expect("the rounded BOX shells open 2 mm thick");
 
-    // The volume of test 116 less a 6 x 16 x 28 mm cavity open at the top.
+    // The volume of test 116 less a 6 x 16 x 28 mm cavity open at the top. The rim is 1 mm wide,
+    // the wall less the rounds' radius.
     assert!(result.shape.is_valid().expect("validity check"));
     assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
     assert_relative(
@@ -1565,15 +1585,243 @@ fn t132_opening_tangent_to_rounds_thinner_than_the_wall() {
         1e-9,
         "rim area",
     );
-    for kind in [GeometryKind::Cylinder, GeometryKind::Sphere] {
-        for round in faces_of_kind(&rounded, kind) {
-            let fate = face_fate(&result, round);
-            assert!(
-                generated_faces(fate).is_empty(),
-                "round {round} generates no face: {fate:?}"
+    assert_rounds_generate_nothing(&rounded, &result);
+}
+
+#[test]
+fn t132_opening_tangent_to_rounds_as_thick_as_the_wall() {
+    let (rounded, top) = fully_rounded_box();
+
+    let result = shell(&rounded, &[top], 1.0).expect("the rounded BOX shells open 1 mm thick");
+
+    // The volume of test 116 less a 8 x 18 x 29 mm cavity open at the top: the cavity reaches the
+    // edges where the top met its rounds, so no rim is left.
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(
+        volume(&result.shape),
+        1600.0 + 54.0 * PI + 4.0 * PI / 3.0,
+        1e-9,
+        "volume",
+    );
+    assert_eq!(result.shape.count(SubShapeKind::Face), 30);
+    assert_every_face_comes_from_an_input_face(&result);
+    let fate = face_fate(&result, top);
+    assert!(fate.modified.is_empty(), "no rim is left: {fate:?}");
+    assert!(generated_faces(fate).is_empty(), "{fate:?}");
+    assert_rounds_generate_nothing(&rounded, &result);
+}
+
+// Test 133: openings that meet kept faces only tangentially (section 3.4.8 item 7).
+
+/// Asserts that no planar face of `result` lies at z = `height` facing up or down: the removed face
+/// there was opened, not kept with a reversed copy.
+fn assert_no_face_left_at(result: &OpResult, height: f64) {
+    for face in faces_of_kind(&result.shape, GeometryKind::Plane) {
+        let element = geometry(&result.shape, SubShapeKind::Face, face);
+        let horizontal = element
+            .direction
+            .is_some_and(|direction| (direction.z.abs() - 1.0).abs() <= POINT_TOLERANCE);
+        assert!(
+            !(horizontal && (element.centroid.z - height).abs() <= 1e-6),
+            "face {face} is left where the opening is: {element:?}"
+        );
+    }
+}
+
+/// Asserts that each edge of `face` of `body` lists one face in `generated`, the end of the wall
+/// along it: a `Plane` normal to the removed face, as long as the edge and `thickness` deep, whose
+/// centroid lies `thickness / 2` below the edge's middle.
+fn assert_wall_ends(body: &Shape, face: u32, result: &OpResult, thickness: f64) {
+    let topology = body.topology().expect("topology");
+    let edges = &topology.faces[face as usize - 1].edges;
+    for &edge in edges {
+        let fate = &result.history.inputs[0].edges[edge as usize - 1];
+        let ends = generated_faces(fate);
+        assert_eq!(ends.len(), 1, "edge {edge} ends the wall: {fate:?}");
+        let end = geometry(&result.shape, SubShapeKind::Face, ends[0]);
+        assert_eq!(end.kind, GeometryKind::Plane, "edge {edge} wall end");
+        let direction = end.direction.expect("a plane has a direction");
+        assert_near(direction.z, 0.0, POINT_TOLERANCE, "wall end normal");
+        let along = geometry(body, SubShapeKind::Edge, edge);
+        assert_relative(
+            end.measure,
+            along.measure * thickness,
+            1e-9,
+            "wall end area",
+        );
+        assert_point_near(
+            end.centroid,
+            Point::new(
+                along.centroid.x,
+                along.centroid.y,
+                along.centroid.z - thickness / 2.0,
+            ),
+            1e-6,
+            "wall end centroid",
+        );
+    }
+}
+
+#[test]
+fn t133_opening_tangent_to_rounds_thicker_than_the_wall() {
+    let (rounded, top) = fully_rounded_box();
+
+    let result = shell(&rounded, &[top], 0.5).expect("the rounded BOX shells open 0.5 mm thick");
+
+    // Test 116's volume less the closed hollow's cavity (8 x 18 x 28 mm with rounds of radius
+    // 0.5) and the 8 x 18 x 0.5 mm opening above it.
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(
+        volume(&result.shape),
+        800.0 + 125.0 * PI / 3.0,
+        1e-9,
+        "volume",
+    );
+    assert_eq!(result.shape.count(SubShapeKind::Face), 54);
+    assert_eq!(
+        face_groups(&result.shape),
+        1,
+        "the walls meet at the opening"
+    );
+    assert_bounds(&result.shape, [0.0, 0.0, 0.0], [10.0, 20.0, 30.0], 1e-6);
+    assert_every_face_has_an_origin(&result);
+    let fate = face_fate(&result, top);
+    assert!(fate.modified.is_empty(), "no rim is left: {fate:?}");
+    assert!(generated_faces(fate).is_empty(), "{fate:?}");
+    assert_no_face_left_at(&result, 30.0);
+    assert_wall_ends(&rounded, top, &result, 0.5);
+    for (kind, count) in [(GeometryKind::Cylinder, 12), (GeometryKind::Sphere, 8)] {
+        let rounds = faces_of_kind(&rounded, kind);
+        assert_eq!(rounds.len(), count);
+        for round in rounds {
+            let inner = geometry(
+                &result.shape,
+                SubShapeKind::Face,
+                single_inner_face(&result, round),
+            );
+            assert_eq!(inner.kind, kind, "round {round} inner face");
+            assert_relative(
+                inner.radius.expect("a round has a radius"),
+                0.5,
+                1e-9,
+                "inner round radius",
             );
         }
     }
+}
+
+#[test]
+fn t133_opening_tangent_to_rounds_beside_a_vanishing_round() {
+    // The 20 mm cube with its top edges rounded at radius 3, meeting in mitred corners, and its
+    // bottom front edge at radius 1, which vanishes in a 2 mm wall (section 3.4.8 item 6.2).
+    let cube = cube_20();
+    let top_edges = [
+        PrimitiveFace::Front,
+        PrimitiveFace::Back,
+        PrimitiveFace::Left,
+        PrimitiveFace::Right,
+    ]
+    .map(|side| EdgeRadius {
+        edge: cube_edge(&cube, PrimitiveFace::Top, side),
+        radius: 3.0,
+    });
+    let rounded = fillet(&cube.shape, &top_edges)
+        .expect("the top edges round")
+        .shape;
+    let bottom_front = edge_at(&rounded, Point::new(0.0, -10.0, 0.0));
+    let body = fillet(
+        &rounded,
+        &[EdgeRadius {
+            edge: bottom_front,
+            radius: 1.0,
+        }],
+    )
+    .expect("the bottom front edge rounds")
+    .shape;
+    let top = planar_face(&body, UP, Point::new(0.0, 0.0, 20.0));
+    let vanishing = faces_of_kind(&body, GeometryKind::Cylinder)
+        .into_iter()
+        .filter(|face| {
+            geometry(&body, SubShapeKind::Face, *face)
+                .radius
+                .is_some_and(|radius| (radius - 1.0).abs() <= 1e-9)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(vanishing.len(), 1, "one round of radius 1");
+
+    let result = shell(&body, &[top], 2.0).expect("the body shells open 2 mm thick");
+
+    // The body, 7440 + 131 pi, less the cavity of the body without the small round (a 16 mm
+    // square prism from z = 2 to 17, then rounds of radius 1 up to the 14 mm square at z = 18)
+    // and the 14 x 14 x 2 mm opening above it.
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(
+        volume(&result.shape),
+        9028.0 / 3.0 + 117.0 * PI,
+        1e-9,
+        "volume",
+    );
+    assert_eq!(result.shape.count(SubShapeKind::Face), 23);
+    assert_eq!(
+        face_groups(&result.shape),
+        1,
+        "the walls meet at the opening"
+    );
+    assert_every_face_has_an_origin(&result);
+    assert_no_face_left_at(&result, 20.0);
+    assert_wall_ends(&body, top, &result, 2.0);
+    let fate = face_fate(&result, vanishing[0]);
+    assert!(
+        generated_faces(fate).is_empty(),
+        "the small round's inner offset vanishes: {fate:?}"
+    );
+}
+
+#[test]
+fn t133_opening_tangent_to_concave_rounds() {
+    // A 40 x 40 x 20 mm block with a 20 x 20 x 10 mm pocket in its top, the pocket's floor edges
+    // rounded at radius 2, so the floor meets concave rounds tangentially all around.
+    let block = make_box(&xy_plane_at(-20.0, -20.0, 0.0), 40.0, 40.0, 20.0)
+        .expect("the block builds")
+        .shape;
+    let pocket = make_box(&xy_plane_at(-10.0, -10.0, 10.0), 20.0, 20.0, 20.0)
+        .expect("the pocket builds")
+        .shape;
+    let pocketed = cut(&block, &[pocket]).expect("the pocket cuts").shape;
+    let sharp_floor = planar_face(&pocketed, UP, Point::new(0.0, 0.0, 10.0));
+    let floor_edges: Vec<EdgeRadius> = pocketed.topology().expect("topology").faces
+        [sharp_floor as usize - 1]
+        .edges
+        .iter()
+        .map(|&edge| EdgeRadius { edge, radius: 2.0 })
+        .collect();
+    let body = fillet(&pocketed, &floor_edges)
+        .expect("the floor edges round")
+        .shape;
+    let floor = planar_face(&body, UP, Point::new(0.0, 0.0, 10.0));
+    let closed = shell(&body, &[], 1.0).expect("the body is hollowed 1 mm thick");
+
+    let result = shell(&body, &[floor], 1.0).expect("the body shells open 1 mm thick");
+
+    // The closed hollow less the 16 x 16 x 1 mm slab between the floor and its inner face.
+    assert!(result.shape.is_valid().expect("validity check"));
+    assert_eq!(result.shape.count(SubShapeKind::Solid), 1);
+    assert_relative(
+        volume(&result.shape),
+        volume(&closed.shape) - 256.0,
+        1e-9,
+        "volume",
+    );
+    assert_eq!(
+        face_groups(&result.shape),
+        1,
+        "the walls meet at the opening"
+    );
+    assert_every_face_has_an_origin(&result);
+    assert_wall_ends(&body, floor, &result, 1.0);
 }
 
 #[test]
@@ -1707,15 +1955,8 @@ fn t110_fillet_next_to_an_invalid_corner_is_repaired() {
 
 #[test]
 fn t115_shell_of_a_moved_body_matches_the_unmoved_one() {
-    // Test 45: every BOX edge rounded at radius 1, so the shell offsets located blend surfaces.
-    let rounded = fillet(&box_primitive().shape, &all_edges(1.0))
-        .expect("every edge rounds")
-        .shape;
-    let top = planar_face(
-        &rounded,
-        Vector::new(0.0, 0.0, 1.0),
-        Point::new(5.0, 10.0, 30.0),
-    );
+    // Test 45's rounds make the shell offset located blend surfaces.
+    let (rounded, top) = fully_rounded_box();
     let shift = Vector::new(50.0, 0.0, 0.0);
     let motions = [
         Transform::translation(shift),
@@ -1756,9 +1997,7 @@ fn t115_shell_of_a_moved_body_matches_the_unmoved_one() {
 
 #[test]
 fn t115_shell_of_a_moved_and_fused_body_matches_the_unmoved_one() {
-    let rounded = fillet(&box_primitive().shape, &all_edges(1.0))
-        .expect("every edge rounds")
-        .shape;
+    let (rounded, _) = fully_rounded_box();
     let moved = transform(
         &rounded,
         &Transform::translation(Vector::new(50.0, 0.0, 0.0)),

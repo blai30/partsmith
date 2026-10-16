@@ -233,12 +233,12 @@ function axisColors(theme: ThemeName, axes: readonly WorldAxis[]): Float32Array 
 }
 
 /**
- * A profile problem halo's color: `problem` at 30 percent over the viewport's bottom color, mixed
+ * A profile problem halo's color: `problem` at 30 percent over the viewport's color, mixed
  * sRGB-encoded as blending would mix it, then drawn opaque, so the overlapping segment quads of a
  * tessellated curve do not darken it in beads (3.16.2).
  */
 function problemHaloColor(theme: ThemeName): Rgb {
-  const background = encodedFromHex(VIEWPORT_COLORS[theme].viewportBottom)
+  const background = encodedFromHex(VIEWPORT_COLORS[theme].viewport)
   const problem = encodedFromHex(VIEWPORT_COLORS[theme].problem)
   const channels = background.map((channel, index) => {
     const mixed = channel + ((problem[index] ?? channel) - channel) * PROBLEM_HALO_AMOUNT

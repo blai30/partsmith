@@ -20,6 +20,7 @@
 #include <BRepOffset_Analyse.hxx>
 #include <BRepOffset_Interval.hxx>
 #include <BRepOffset_MakeOffset.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_CurveOn2Surfaces.hxx>
@@ -38,7 +39,9 @@
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Solid.hxx>
 #include <gp.hxx>
+#include <gp_Pln.hxx>
 #include <gp_Torus.hxx>
+#include <gp_Vec.hxx>
 
 #include "partsmith-occt-sys/cpp/internal.h"
 
@@ -430,15 +433,14 @@ Handle(Geom_Surface) untrimmed_surface(const TopoDS_Face &face) {
   return surface;
 }
 
-// Raises StdFail_NotDone unless every face of `result` generated from a kept face of `copy`
-// lies at distance `thickness` from that face's surface, measured at the middle of its
-// parameter bounds (kernel spec section 3.4.8, item 4). OCCT turns the offset of a convex face
-// inside out when the wall is thicker than its radius and returns a wrong solid.
+// Raises StdFail_NotDone unless every face of the result, whose faces `result_faces` holds,
+// generated from a kept face of `copy` lies at distance `thickness` from that face's surface,
+// measured at the middle of its parameter bounds (kernel spec section 3.4.8, item 4). OCCT turns
+// the offset of a convex face inside out when the wall is thicker than its radius and returns a
+// wrong solid.
 void require_wall_thickness(const Shape &copy, const std::vector<bool> &removed,
-                            const TopoDS_Shape &result,
+                            const TopTools_IndexedMapOfShape &result_faces,
                             const Handle(BRepTools_History) &history, double thickness) {
-  TopTools_IndexedMapOfShape result_faces;
-  TopExp::MapShapes(result, TopAbs_FACE, result_faces);
   const double tolerance = 1e-4 * std::max(1.0, thickness);
   for (int index = 1; index <= copy.faces().Extent(); ++index) {
     if (removed[static_cast<std::size_t>(index)]) {
@@ -465,6 +467,35 @@ void require_wall_thickness(const Shape &copy, const std::vector<bool> &removed,
   }
 }
 
+// The area of a face, also of one whose wires run the wrong way, as in the reversed copy OCCT's
+// thick solid leaves of a removed face it could not open.
+double face_area(const TopoDS_Face &face) {
+  return std::abs(face_mass(face, BRepAdaptor_Surface(face, Standard_False)).area);
+}
+
+// Raises StdFail_NotDone unless each face of `copy` flagged in `removed` lost area in the result,
+// whose faces `result_faces` holds: none of its images there, itself included, is as large as it
+// (kernel spec section 3.4.8, item 4). Where a removed face meets kept faces tangentially, OCCT's
+// thick solid keeps that face and a reversed copy of it, closing the wall instead of opening it.
+void require_openings(const Shape &copy, const std::vector<bool> &removed,
+                      const TopTools_IndexedMapOfShape &result_faces,
+                      const Handle(BRepTools_History) &history) {
+  for (int index = 1; index <= copy.faces().Extent(); ++index) {
+    if (!removed[static_cast<std::size_t>(index)]) {
+      continue;
+    }
+    const TopoDS_Face &face = TopoDS::Face(copy.faces()(index));
+    const double area = face_area(face);
+    TopTools_ListOfShape images = history->Modified(face);
+    images.Append(face);
+    for (const TopoDS_Shape &image : images) {
+      if (result_faces.Contains(image) && face_area(TopoDS::Face(image)) >= area * (1.0 - 1e-9)) {
+        raise_not_done("the shell did not open face " + std::to_string(index));
+      }
+    }
+  }
+}
+
 // One way of shelling: its result and the history relating the copy to it.
 struct ShellAttempt {
   TopoDS_Shape shape;
@@ -483,7 +514,10 @@ OpResultData checked_shell(const Shape &copy, CheckInputs &inputs, const ShellAt
       copy, finish_solid(attempt.shape, attempt.history, inputs, attempt.algorithm),
       attempt.history);
   require_material_removed(copy.solids()(1), result);
-  require_wall_thickness(copy, removed, result, attempt.history, thickness);
+  TopTools_IndexedMapOfShape result_faces;
+  TopExp::MapShapes(result, TopAbs_FACE, result_faces);
+  require_openings(copy, removed, result_faces, attempt.history);
+  require_wall_thickness(copy, removed, result_faces, attempt.history, thickness);
   // Every edge of the result belongs to the copy or was built by the attempt.
   order_curve_representations(result);
   return op_result(result, attempt.history, {copy.get()});
@@ -500,38 +534,74 @@ double offset_angle(double thickness) {
 // reads the shape.
 class EdgeConcavity {
  public:
-  EdgeConcavity(const Shape &shape, double thickness)
-      : shape_(shape), analyse_(shape.solids()(1), offset_angle(thickness)) {
-    TopExp::MapShapesAndUniqueAncestors(shape.solids()(1), TopAbs_EDGE, TopAbs_FACE,
-                                        edge_faces_);
+  // The edges of `solid`, whose faces `faces` indexes for the flags the queries take.
+  EdgeConcavity(const TopoDS_Shape &solid, const TopTools_IndexedMapOfShape &faces,
+                double thickness)
+      : faces_(faces), analyse_(solid, offset_angle(thickness)) {
+    TopExp::MapShapesAndUniqueAncestors(solid, TopAbs_EDGE, TopAbs_FACE, edge_faces_);
   }
+
+  // The edges of the solid of `shape`, flagged by its face indices.
+  EdgeConcavity(const Shape &shape, double thickness)
+      : EdgeConcavity(shape.solids()(1), shape.faces(), thickness) {}
 
   // True when an edge of the concavity `type` lies between a face flagged in `first` and another
   // face flagged in `second` (flags indexed by face index).
   bool between(const std::vector<bool> &first, const std::vector<bool> &second,
                ChFiDS_TypeOfConcavity type) const {
-    for (int index = 1; index <= edge_faces_.Extent(); ++index) {
-      const TopTools_ListOfShape &faces = edge_faces_(index);
-      if (faces.Extent() != 2) {
-        continue;
+    bool found = false;
+    for_each_edge_between(first, second, [&](const BRepOffset_ListOfInterval &intervals) {
+      found = found || has_interval(intervals, type);
+    });
+    return found;
+  }
+
+  // True when edges lie between faces flagged in `first` and other faces flagged in `second`,
+  // and each of them is of the concavity `type` along its whole length.
+  bool only_between(const std::vector<bool> &first, const std::vector<bool> &second,
+                    ChFiDS_TypeOfConcavity type) const {
+    bool any = false;
+    bool only = true;
+    for_each_edge_between(first, second, [&](const BRepOffset_ListOfInterval &intervals) {
+      any = true;
+      for (const BRepOffset_Interval &interval : intervals) {
+        only = only && interval.Type() == type;
       }
-      const auto one = static_cast<std::size_t>(shape_.faces().FindIndex(faces.First()));
-      const auto other = static_cast<std::size_t>(shape_.faces().FindIndex(faces.Last()));
-      if (!((first[one] && second[other]) || (first[other] && second[one]))) {
-        continue;
-      }
-      for (const BRepOffset_Interval &interval :
-           analyse_.Type(TopoDS::Edge(edge_faces_.FindKey(index)))) {
-        if (interval.Type() == type) {
-          return true;
-        }
+    });
+    return any && only;
+  }
+
+ private:
+  // True when one of `intervals` is of the concavity `type`.
+  static bool has_interval(const BRepOffset_ListOfInterval &intervals,
+                           ChFiDS_TypeOfConcavity type) {
+    for (const BRepOffset_Interval &interval : intervals) {
+      if (interval.Type() == type) {
+        return true;
       }
     }
     return false;
   }
 
- private:
-  const Shape &shape_;
+  // Calls `visit` with the concavity intervals of each edge between a face flagged in `first`
+  // and another face flagged in `second`.
+  template <class Visit>
+  void for_each_edge_between(const std::vector<bool> &first, const std::vector<bool> &second,
+                             Visit visit) const {
+    for (int index = 1; index <= edge_faces_.Extent(); ++index) {
+      const TopTools_ListOfShape &faces = edge_faces_(index);
+      if (faces.Extent() != 2) {
+        continue;
+      }
+      const auto one = static_cast<std::size_t>(faces_.FindIndex(faces.First()));
+      const auto other = static_cast<std::size_t>(faces_.FindIndex(faces.Last()));
+      if ((first[one] && second[other]) || (first[other] && second[one])) {
+        visit(analyse_.Type(TopoDS::Edge(edge_faces_.FindKey(index))));
+      }
+    }
+  }
+
+  const TopTools_IndexedMapOfShape &faces_;
   BRepOffset_Analyse analyse_;
   TopTools_IndexedDataMapOfShapeListOfShape edge_faces_;
 };
@@ -649,7 +719,7 @@ enum class VanishingPath {
 
 // The path a shell takes past the faces flagged in `vanishing`: without them at a wall within
 // kVanishingMargin of the radius of one of them, at a sphere among them and at a removed face that
-// meets one of them tangentially, where the complete intersection fails; with arc joins at a
+// meets a kept face tangentially, where the complete intersection fails; with arc joins at a
 // concave edge between kept faces; else the complete intersection. Only reads `shape`.
 VanishingPath vanishing_path(const Shape &shape, const std::vector<bool> &removed,
                              const std::vector<bool> &vanishing, double thickness) {
@@ -665,10 +735,10 @@ VanishingPath vanishing_path(const Shape &shape, const std::vector<bool> &remove
     }
   }
   const EdgeConcavity concavity(shape, thickness);
-  if (concavity.between(removed, vanishing, ChFiDS_Tangential)) {
+  const std::vector<bool> kept = kept_flags(removed);
+  if (concavity.between(removed, kept, ChFiDS_Tangential)) {
     return VanishingPath::WithoutThem;
   }
-  const std::vector<bool> kept = kept_flags(removed);
   return concavity.between(kept, kept, ChFiDS_Concave) ? VanishingPath::ArcJoins
                                                        : VanishingPath::CompleteIntersection;
 }
@@ -745,10 +815,25 @@ TopTools_ListOfShape removed_images(const Shape &copy, const std::vector<bool> &
   return images;
 }
 
-// A closed hollow (kernel spec section 3.4.8, items 1 and 6.2): the solid of `copy` with the
-// reversed inner shell of the arc-join offset of `source`, which then faces the cavity. OCCT
-// offsets a closed solid into the inner solid alone.
-ShellAttempt closed_hollow(const Shape &copy, const CavitySource &source, double thickness) {
+// True when the faces `openings` of the solid of `source` meet its other faces at edges, and only
+// tangentially (kernel spec section 3.4.8, item 7), where OCCT's thick solid keeps those faces and
+// a reversed copy of each instead of opening them. Only reads that solid.
+bool opens_tangentially(const CavitySource &source, const TopTools_ListOfShape &openings,
+                        double thickness) {
+  TopTools_IndexedMapOfShape faces;
+  TopExp::MapShapes(source.solid, TopAbs_FACE, faces);
+  std::vector<bool> opening(static_cast<std::size_t>(faces.Extent()) + 1, false);
+  for (const TopoDS_Shape &face : openings) {
+    opening[static_cast<std::size_t>(faces.FindIndex(face))] = true;
+  }
+  return EdgeConcavity(source.solid, faces, thickness)
+      .only_between(opening, kept_flags(opening), ChFiDS_Tangential);
+}
+
+// The inner offset of the solid of `source` by `thickness` with arc joins, the shell bounding the
+// cavity of a closed hollow (kernel spec section 3.4.8, items 1, 6.2 and 7). OCCT offsets a closed
+// solid into the inner solid alone. Merges the offset's history into the source's.
+TopoDS_Shape inner_offset(const CavitySource &source, double thickness) {
   BRepOffsetAPI_MakeOffsetShape offset;
   offset.PerformByJoin(source.solid, -thickness, kLinear, BRepOffset_Skin, Standard_False,
                        Standard_False, GeomAbs_Arc);
@@ -757,8 +842,14 @@ ShellAttempt closed_hollow(const Shape &copy, const CavitySource &source, double
                    offset_error_name(offset.MakeOffset().Error()));
   }
   merge_history(source.history, history_of(source.solid, offset));
-  return ShellAttempt{hollow_solid(copy.solids()(1), offset.Shape()), source.history,
-                      "BRepOffsetAPI_MakeOffsetShape"};
+  return offset.Shape();
+}
+
+// A closed hollow (kernel spec section 3.4.8, items 1 and 6.2): the solid of `copy` with the
+// reversed inner shell of the inner offset of `source`, which then faces the cavity.
+ShellAttempt closed_hollow(const Shape &copy, const CavitySource &source, double thickness) {
+  return ShellAttempt{hollow_solid(copy.solids()(1), inner_offset(source, thickness)),
+                      source.history, "BRepOffsetAPI_MakeOffsetShape"};
 }
 
 // OCCT's thick solid of `source` with arc joins and the faces of `openings` as closing faces
@@ -787,16 +878,150 @@ ShellAttempt cut_cavity(const Shape &copy, const TopoDS_Shape &cavity,
                       "BRepAlgoAPI_Cut"};
 }
 
-// A shell by the join offset of `source` with arc joins (kernel spec section 3.4.8, items 1, 2 and
-// 6.2): a closed hollow without removed faces; else OCCT's thick solid, which is the shell itself
-// when `source` is the solid of `copy`. When `source` is that solid without its vanishing faces,
-// the thick solid cut from the source solid leaves the cavity, which is then cut from the solid of
-// `copy` (`cut_cavity`), so concave edges keep their arc joins.
+// The outward normal of a planar face. Raises StdFail_NotDone for any other face: a shell opens a
+// face that meets kept faces tangentially only when it is planar (kernel spec section 3.4.8,
+// item 7).
+gp_Dir planar_normal(const TopoDS_Face &face) {
+  const BRepAdaptor_Surface surface(face, Standard_False);
+  if (surface.GetType() != GeomAbs_Plane) {
+    raise_not_done("the shell cannot open a curved face that meets kept faces tangentially");
+  }
+  const gp_Pln plane = surface.Plane();
+  gp_Dir normal = plane.Axis().Direction();
+  // The surface normal of a plane with an indirect frame points against its axis.
+  if (!plane.Position().Direct()) {
+    normal.Reverse();
+  }
+  if (face.Orientation() == TopAbs_REVERSED) {
+    normal.Reverse();
+  }
+  return normal;
+}
+
+// The face other than `face` in `faces`, the faces of an edge, or a null shape when there is none.
+TopoDS_Shape other_face(const TopTools_ListOfShape &faces, const TopoDS_Shape &face) {
+  for (const TopoDS_Shape &candidate : faces) {
+    if (!candidate.IsSame(face)) {
+      return candidate;
+    }
+  }
+  return TopoDS_Shape();
+}
+
+// The input elements that generate the faces ending the wall of a tangent opening (kernel spec
+// section 3.4.9, item 3): the edge of `copy` between the removed face and the kept face whose inner
+// face borders the wall end's edge in the inner offset, or the removed face itself when they share
+// no single edge.
+class WallEndOrigins {
+ public:
+  WallEndOrigins(const Shape &copy, const std::vector<bool> &removed, const TopoDS_Shape &inner,
+                 const Handle(BRepTools_History) &history)
+      : copy_(copy), removed_(removed), history_(history) {
+    TopExp::MapShapesAndUniqueAncestors(inner, TopAbs_EDGE, TopAbs_FACE, inner_edge_faces_);
+    TopExp::MapShapesAndUniqueAncestors(copy.solids()(1), TopAbs_EDGE, TopAbs_FACE,
+                                        copy_edge_faces_);
+  }
+
+  // The element that generates the wall end over `edge` of `inner_face`, the face the removed face
+  // `face` generated in the inner offset.
+  TopoDS_Shape of(const TopoDS_Shape &face, const TopoDS_Shape &inner_face,
+                  const TopoDS_Shape &edge) const {
+    const TopoDS_Shape kept =
+        kept_origin(other_face(inner_edge_faces_.FindFromKey(edge), inner_face));
+    const TopoDS_Shape along = kept.IsNull() ? TopoDS_Shape() : shared_edge(face, kept);
+    return along.IsNull() ? face : along;
+  }
+
+ private:
+  // The kept face of the copy that generated `inner_face`, or a null shape.
+  TopoDS_Shape kept_origin(const TopoDS_Shape &inner_face) const {
+    for (int index = 1; index <= copy_.faces().Extent(); ++index) {
+      if (removed_[static_cast<std::size_t>(index)]) {
+        continue;
+      }
+      for (const TopoDS_Shape &generated : history_->Generated(copy_.faces()(index))) {
+        if (generated.IsSame(inner_face)) {
+          return copy_.faces()(index);
+        }
+      }
+    }
+    return TopoDS_Shape();
+  }
+
+  // The single edge of the copy that faces `first` and `second` share, or a null shape when they
+  // share none or several.
+  TopoDS_Shape shared_edge(const TopoDS_Shape &first, const TopoDS_Shape &second) const {
+    TopTools_IndexedMapOfShape shared;
+    for (TopExp_Explorer edge(first, TopAbs_EDGE); edge.More(); edge.Next()) {
+      if (other_face(copy_edge_faces_.FindFromKey(edge.Current()), first).IsSame(second)) {
+        shared.Add(edge.Current());
+      }
+    }
+    return shared.Extent() == 1 ? shared(1) : TopoDS_Shape();
+  }
+
+  const Shape &copy_;
+  const std::vector<bool> &removed_;
+  Handle(BRepTools_History) history_;
+  TopTools_IndexedDataMapOfShapeListOfShape inner_edge_faces_;
+  TopTools_IndexedDataMapOfShapeListOfShape copy_edge_faces_;
+};
+
+// An open shell whose removed faces meet the kept faces only tangentially (kernel spec section
+// 3.4.8, item 7): the closed hollow of `copy` with the inner offset of `source` (item 1 or 6.2)
+// minus, for each removed face, the prism that sweeps each face it generated in that offset back
+// to it along its normal. The wall then ends in a face normal to the removed face along each edge
+// where it met a kept face: the prism side over each edge of the inner face, generated by the input
+// element `WallEndOrigins` names.
+ShellAttempt tangent_opening_shell(const Shape &copy, const std::vector<bool> &removed,
+                                   const CavitySource &source, double thickness) {
+  const TopoDS_Shape inner = inner_offset(source, thickness);
+  const WallEndOrigins origins(copy, removed, inner, source.history);
+  TopTools_ListOfShape openings;
+  for (int index = 1; index <= copy.faces().Extent(); ++index) {
+    if (!removed[static_cast<std::size_t>(index)]) {
+      continue;
+    }
+    const TopoDS_Shape &face = copy.faces()(index);
+    const gp_Vec sweep = gp_Vec(planar_normal(TopoDS::Face(face))) * thickness;
+    // A copy: recording the wall ends adds to the history's maps.
+    const TopTools_ListOfShape generated = source.history->Generated(face);
+    for (const TopoDS_Shape &inner_face : generated) {
+      if (inner_face.ShapeType() != TopAbs_FACE) {
+        continue;
+      }
+      BRepPrimAPI_MakePrism prism(inner_face, sweep);
+      if (!prism.IsDone()) {
+        raise_not_done("BRepPrimAPI_MakePrism could not sweep an opening");
+      }
+      for (TopExp_Explorer edge(inner_face, TopAbs_EDGE); edge.More(); edge.Next()) {
+        const TopoDS_Shape origin = origins.of(face, inner_face, edge.Current());
+        for (const TopoDS_Shape &end : prism.Generated(edge.Current())) {
+          source.history->AddGenerated(origin, end);
+        }
+      }
+      openings.Append(prism.Shape());
+    }
+  }
+  return ShellAttempt{run_boolean(BOPAlgo_CUT, hollow_solid(copy.solids()(1), inner), openings,
+                                  false, source.history),
+                      source.history, "BRepAlgoAPI_Cut"};
+}
+
+// A shell by the join offset of `source` with arc joins (kernel spec section 3.4.8, items 1, 2,
+// 6.2 and 7): a closed hollow without removed faces; the closed hollow's cavity opened by prisms
+// where the removed faces meet the kept faces only tangentially; else OCCT's thick solid, which is
+// the shell itself when `source` is the solid of `copy`. When `source` is that solid without its
+// vanishing faces, the thick solid cut from the source solid leaves the cavity, which is then cut
+// from the solid of `copy` (`cut_cavity`), so concave edges keep their arc joins.
 ShellAttempt join_offset_shell(const Shape &copy, const std::vector<bool> &removed,
                                const CavitySource &source, double thickness) {
   const TopTools_ListOfShape openings = removed_images(copy, removed, source);
   if (openings.IsEmpty()) {
     return closed_hollow(copy, source, thickness);
+  }
+  if (opens_tangentially(source, openings, thickness)) {
+    return tangent_opening_shell(copy, removed, source, thickness);
   }
   TopTools_ListOfShape wall;
   wall.Append(thick_solid(source, openings, thickness));
