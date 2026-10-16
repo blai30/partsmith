@@ -10,12 +10,11 @@ use crate::element_info::ElementInfo;
 use crate::element_set::ElementSet;
 use crate::kind::ElementKind;
 use crate::name::ElementName;
-use crate::name_set::NameSet;
-use crate::name_set::share_a_face;
+use crate::name_set::{NameSet, share_a_face};
 use crate::reference::{
-    ANCHOR_LIMIT, Anchors, Merged, MergedName, Reference, face_names_in, has_own_split,
+    ANCHOR_LIMIT, Anchors, Merged, MergedName, Reference, face_names_in, face_parts, has_own_split,
 };
-use crate::shape::Shape;
+use crate::shape::{InstanceName, Shape};
 
 impl Reference {
     /// The reference that denotes this element as it is now in `set`, with anchors and merged
@@ -33,10 +32,7 @@ impl Reference {
 /// The anchors of every order-dependent part of the element's name that is not a fallback name,
 /// and of the name itself when it has its own `#n` and a face term that is no fallback name.
 fn anchors_of(info: &ElementInfo, set: &ElementSet) -> Anchors {
-    let parts: Vec<ElementName> = match info.kind {
-        ElementKind::Face => vec![info.name.clone()],
-        ElementKind::Edge | ElementKind::Vertex => info.name.face_terms(),
-    };
+    let parts = face_parts(&info.name);
     let fallback: Vec<bool> = parts
         .iter()
         .map(|part| Shape::of(Arc::clone(part.shared_text())).is_fallback())
@@ -211,38 +207,20 @@ fn with_copies_written_once(keys: Vec<ElementName>, names: &NameSet) -> Vec<Merg
 
 /// The source and feature of an instance name `<source>@<feature>:<instance>`.
 fn copy_of(name: &ElementName) -> Option<(ElementName, Id)> {
-    let (source, group) = name.as_str().rsplit_once('@')?;
-    let (feature, instance) = group.split_once(':')?;
-    let is_instance = !instance.is_empty()
-        && instance
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || byte == b'.');
-    if !is_instance {
-        return None;
-    }
-    let source = ElementName::parse(source).ok()?;
+    let copy = InstanceName::of(name.as_str())?;
+    let source = ElementName::parse(copy.source).ok()?;
     (source.kind() == ElementKind::Face).then_some(())?;
-    Some((source, Id::new(feature).ok()?))
+    Some((source, Id::new(copy.feature).ok()?))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::name_set::testing::{name, set_of};
+    use crate::name_set::testing::{ids, name, set_of};
 
     /// The element names `texts`.
     fn names(texts: &[&str]) -> Vec<ElementName> {
         texts.iter().map(|text| name(text)).collect()
-    }
-
-    /// The face ids of the names `texts` in `set`.
-    fn ids(set: &NameSet, texts: &[&str]) -> Vec<u32> {
-        let mut ids: Vec<u32> = texts
-            .iter()
-            .map(|text| set.face_id(text).expect("the face is in the set"))
-            .collect();
-        ids.sort_unstable();
-        ids
     }
 
     #[test]

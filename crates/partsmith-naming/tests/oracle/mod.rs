@@ -2,9 +2,11 @@
 //! fitting, meeting and families) and of "extends" in section 3.1, and random scopes to compare
 //! the crate's name indexes with it (spec tests 118 and 140). It follows the spec text, not speed.
 //!
-//! The random names avoid the cases section 3.1 rule 6 leaves open: a trailing `#n` right after a
-//! nested `edge(...)` generator, and suffixes after a face-name generator. Merged names are given
-//! for the part only, never for its nested terms (tests 105 and 140 cover those).
+//! The random names cover flat names, names after one face (a shell's inner face or rim, whose
+//! suffix groups all belong to the face they were named after, section 3.1 rule 6) and names after
+//! the faces of an edge (whose groups after `)` belong to the outer name), and merged names for a
+//! part and for the face names nested in it. Nested names are one level deep: the faces a name was
+//! named after are flat (a name nested twice has its own test in `name_sets.rs`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -145,11 +147,17 @@ impl Flat {
 pub enum Face {
     /// A name without an element generator.
     Flat(Flat),
-    /// `f-s/inner/<term>`, a face named after one face; neither has suffix groups.
-    Inner(Flat),
+    /// `f-s/<role>/<generator>`, a face named after one face: a shell's `inner` face or `rim`.
+    /// Every suffix group belongs to the generator (section 3.1 rule 6).
+    Shell {
+        /// `inner` or `rim`.
+        role: &'static str,
+        /// The face it was named after.
+        generator: Flat,
+    },
     /// `f-c/chamfer/edge(<terms>)<groups>`, a face named after the faces of an edge. The terms
-    /// are sorted by text and distinct; the groups are none, `@f-p:1` or `@f-p:1#1`, so they
-    /// always belong to this name, never to the edge.
+    /// are sorted by text and distinct; the groups after `)` belong to this name, never to the
+    /// edge (section 3.1 rule 6).
     Chamfer {
         /// The faces of the edge.
         terms: Vec<Flat>,
@@ -170,7 +178,7 @@ impl Face {
     pub fn text(&self) -> String {
         match self {
             Face::Flat(flat) => flat.text(),
-            Face::Inner(term) => format!("f-s/inner/{}", term.text()),
+            Face::Shell { role, generator } => format!("f-s/{role}/{}", generator.text()),
             Face::Chamfer { terms, groups } => {
                 let term_texts: Vec<String> = terms.iter().map(Flat::text).collect();
                 format!(
@@ -191,7 +199,10 @@ impl Face {
     fn piece_free(&self) -> Face {
         match self {
             Face::Flat(flat) => Face::Flat(flat.piece_free()),
-            Face::Inner(term) => Face::Inner(term.piece_free()),
+            Face::Shell { role, generator } => Face::Shell {
+                role,
+                generator: generator.piece_free(),
+            },
             Face::Chamfer { terms, groups } => Face::Chamfer {
                 terms: terms.iter().map(Flat::piece_free).collect(),
                 groups: without_splits(groups),
@@ -203,7 +214,7 @@ impl Face {
     fn terms(&self) -> Option<Vec<Face>> {
         match self {
             Face::Flat(_) => None,
-            Face::Inner(term) => Some(vec![Face::Flat(term.clone())]),
+            Face::Shell { generator, .. } => Some(vec![Face::Flat(generator.clone())]),
             Face::Chamfer { terms, .. } => Some(terms.iter().cloned().map(Face::Flat).collect()),
         }
     }
@@ -213,7 +224,7 @@ impl Face {
     fn skeleton(&self) -> Option<String> {
         match self {
             Face::Flat(_) => None,
-            Face::Inner(_) => Some("f-s/inner/<face>".to_owned()),
+            Face::Shell { role, .. } => Some(format!("f-s/{role}/<face>")),
             Face::Chamfer { groups, .. } => Some(format!(
                 "f-c/chamfer/edge(<faces>){}",
                 groups_text(&without_splits(groups))
@@ -239,7 +250,14 @@ fn extends(longer: &Face, shorter: &Face) -> bool {
     }
     match (longer, shorter) {
         (Face::Flat(longer), Face::Flat(shorter)) => longer.extends(shorter),
-        (Face::Inner(longer), Face::Inner(shorter)) => longer.extends(shorter),
+        (
+            Face::Shell {
+                generator: longer, ..
+            },
+            Face::Shell {
+                generator: shorter, ..
+            },
+        ) => longer.extends(shorter),
         (
             Face::Chamfer {
                 terms: longer_terms,
@@ -283,6 +301,10 @@ impl MergedChoice {
             .unwrap_or_else(|error| panic!("{} is a valid merged name, got {error}", self.text()))
     }
 }
+
+/// The merged names a reference records, by the face name they are recorded for: the part or a
+/// face name nested in it. Each list is sorted and distinct.
+pub type MergedChoices = BTreeMap<Face, Vec<MergedChoice>>;
 
 /// A pattern: a skeleton with one set of forms (names only, here) per term.
 #[derive(Debug, Clone)]
@@ -400,8 +422,26 @@ impl World {
             .collect()
     }
 
-    /// The canonical set `canon(part)`, with the merged names recorded for the part.
-    fn canonical(&self, part: &Face, merged: &[MergedChoice]) -> Forms {
+    /// The forms of the merged names `merged` records for `face`, each taken as written; a
+    /// `Copies` entry stands for every instance the set knows.
+    fn recorded_forms(&self, face: &Face, merged: &MergedChoices) -> BTreeSet<Face> {
+        let mut forms = BTreeSet::new();
+        for choice in merged.get(face).into_iter().flatten() {
+            match choice {
+                MergedChoice::Face(name) => forms.extend(self.merged_forms(name)),
+                MergedChoice::Copies(source) => {
+                    for copy in self.known_copies(source) {
+                        forms.extend(self.merged_forms(&copy));
+                    }
+                }
+            }
+        }
+        forms
+    }
+
+    /// The canonical set `canon(part)`, with the merged names `merged` records for the part and
+    /// for the face names nested in it.
+    fn canonical(&self, part: &Face, merged: &MergedChoices) -> Forms {
         let mut forms = match part.terms() {
             None => Forms {
                 names: self.canonical_flat(part),
@@ -410,7 +450,14 @@ impl World {
             Some(terms) => {
                 let pattern = Pattern {
                     skeleton: part.skeleton().expect("a name with terms has a skeleton"),
-                    terms: terms.iter().map(|term| self.canonical_flat(term)).collect(),
+                    terms: terms
+                        .iter()
+                        .map(|term| {
+                            let mut term_forms = self.canonical_flat(term);
+                            term_forms.extend(self.recorded_forms(term, merged));
+                            term_forms
+                        })
+                        .collect(),
                 };
                 let names = self
                     .keys()
@@ -423,16 +470,7 @@ impl World {
                 }
             }
         };
-        for choice in merged {
-            match choice {
-                MergedChoice::Face(name) => forms.names.extend(self.merged_forms(name)),
-                MergedChoice::Copies(source) => {
-                    for copy in self.known_copies(source) {
-                        forms.names.extend(self.merged_forms(&copy));
-                    }
-                }
-            }
-        }
+        forms.names.extend(self.recorded_forms(part, merged));
         forms
     }
 
@@ -516,7 +554,7 @@ impl World {
 
     /// The family of a part: the face names of the set whose forms meet `canon(part)`, as text in
     /// byte order.
-    pub fn family(&self, part: &Face, merged: &[MergedChoice]) -> Vec<String> {
+    pub fn family(&self, part: &Face, merged: &MergedChoices) -> Vec<String> {
         let canonical = self.canonical(part, merged);
         let members: BTreeSet<String> = self
             .faces
@@ -543,9 +581,13 @@ pub struct Scenario {
     alias_entries: Vec<(Face, Vec<Face>)>,
     /// Succession entries in generation order, for insertion in either order.
     succession_entries: Vec<(Face, Vec<Face>)>,
-    /// Parts to look up, each with its merged names (sorted and distinct) and a centroid choice.
-    queries: Vec<(Face, Vec<MergedChoice>, u8)>,
+    /// Parts to look up, each with its merged names and a centroid choice.
+    queries: Vec<(Face, MergedChoices, u8)>,
 }
+
+/// A raw merged name: which face name of the part it is recorded for (the part, then its terms,
+/// picked modulo their count) and the name.
+type RawMergedChoice = (usize, MergedChoice);
 
 /// Raw random values of a scenario before the rules of section 2.6 are applied.
 type RawScenario = (
@@ -553,7 +595,7 @@ type RawScenario = (
     Vec<(usize, usize)>,
     Vec<(Face, Vec<Face>)>,
     Vec<(Face, Vec<Face>)>,
-    Vec<(Face, Vec<MergedChoice>, u8)>,
+    Vec<(Face, Vec<RawMergedChoice>, u8)>,
     Vec<u8>,
 );
 
@@ -561,7 +603,8 @@ impl Scenario {
     /// Applies the rules of a real body state to raw random values: distinct faces; keys that are
     /// no faces and belong to one map; targets of the key's own sort (names with or without
     /// terms), never a key generated at the same place or earlier, so chains never loop; sorted
-    /// alias targets; merged names of the part's sort, in `MergedName` order.
+    /// alias targets; merged names of the sort of the face name they are recorded for, in
+    /// `MergedName` order.
     fn new(
         (raw_faces, raw_touching, raw_aliases, raw_successions, raw_queries, raw_centroids): RawScenario,
     ) -> Scenario {
@@ -617,16 +660,8 @@ impl Scenario {
         let queries = raw_queries
             .into_iter()
             .map(|(part, choices, centroid)| {
-                let mut kept: Vec<MergedChoice> = choices
-                    .into_iter()
-                    .filter(|choice| match choice {
-                        MergedChoice::Face(face) => face.is_flat() == part.is_flat(),
-                        MergedChoice::Copies(_) => part.is_flat(),
-                    })
-                    .collect();
-                kept.sort_by_key(MergedChoice::merged_name);
-                kept.dedup();
-                (part, kept, centroid)
+                let merged = Scenario::merged_choices(&part, choices);
+                (part, merged, centroid)
             })
             .collect();
         let world = World {
@@ -647,9 +682,32 @@ impl Scenario {
         }
     }
 
+    /// The merged names of `part`: each raw choice recorded for the face name it picks, kept when
+    /// it has that name's sort (a `Copies` entry only for a flat name), sorted and distinct.
+    fn merged_choices(part: &Face, choices: Vec<RawMergedChoice>) -> MergedChoices {
+        let mut recorded_for = vec![part.clone()];
+        recorded_for.extend(part.terms().unwrap_or_default());
+        let mut merged = MergedChoices::new();
+        for (pick, choice) in choices {
+            let face = &recorded_for[pick % recorded_for.len()];
+            let same_sort = match &choice {
+                MergedChoice::Face(name) => name.is_flat() == face.is_flat(),
+                MergedChoice::Copies(_) => face.is_flat(),
+            };
+            if same_sort {
+                merged.entry(face.clone()).or_default().push(choice);
+            }
+        }
+        for list in merged.values_mut() {
+            list.sort_by_key(MergedChoice::merged_name);
+            list.dedup();
+        }
+        merged
+    }
+
     /// Every part to compare families for: the queries with their merged names, then every face
     /// and key without merged names.
-    pub fn parts(&self) -> Vec<(Face, Vec<MergedChoice>)> {
+    pub fn parts(&self) -> Vec<(Face, MergedChoices)> {
         self.queries
             .iter()
             .map(|(part, merged, _)| (part.clone(), merged.clone()))
@@ -658,20 +716,24 @@ impl Scenario {
                     .faces
                     .iter()
                     .chain(self.world.keys())
-                    .map(|face| (face.clone(), Vec::new())),
+                    .map(|face| (face.clone(), MergedChoices::new())),
             )
             .collect()
     }
 
-    /// The crate's merged names for `part`.
-    pub fn merged(part: &Face, choices: &[MergedChoice]) -> Merged {
-        if choices.is_empty() {
-            return Merged::default();
-        }
-        Merged(BTreeMap::from([(
-            element_name(&part.text()),
-            choices.iter().map(MergedChoice::merged_name).collect(),
-        )]))
+    /// The crate's merged names.
+    pub fn merged(choices: &MergedChoices) -> Merged {
+        Merged(
+            choices
+                .iter()
+                .map(|(face, list)| {
+                    (
+                        element_name(&face.text()),
+                        list.iter().map(MergedChoice::merged_name).collect(),
+                    )
+                })
+                .collect(),
+        )
     }
 
     /// The element infos: faces with their touching faces, then one edge per touching pair.
@@ -768,8 +830,8 @@ impl Scenario {
                 fingerprint(&format!("plane|n=0,0,1|c={centroid},0,0|a=1|adj=4,4")),
             )
             .expect("a face query with a face fingerprint");
-            reference.merged = Scenario::merged(part, merged);
-            if part.text().contains('#') && part.is_flat() && !anchor_names.is_empty() {
+            reference.merged = Scenario::merged(merged);
+            if part.text().contains('#') && !anchor_names.is_empty() {
                 reference.anchors = Anchors(BTreeMap::from([(
                     element_name(&part.text()),
                     anchor_names.clone(),
@@ -836,22 +898,15 @@ fn flat(groups: std::ops::RangeInclusive<usize>) -> impl Strategy<Value = Flat> 
         .prop_map(|(head, groups)| Flat { head, groups })
 }
 
-/// A random face name: mostly flat, sometimes named after one or two faces.
+/// A random face name: mostly flat, sometimes named after one face or after the faces of an edge.
 pub fn face() -> impl Strategy<Value = Face> {
-    let chamfer_groups = vec![
-        Vec::new(),
-        vec![Group::Instance(1)],
-        vec![Group::Instance(1), Group::Split(1)],
-    ];
     prop_oneof![
         4 => flat(0..=2).prop_map(Face::Flat),
-        1 => prop::sample::select(HEADS.to_vec()).prop_map(|head| Face::Inner(Flat {
-            head,
-            groups: Vec::new(),
-        })),
+        2 => (prop::sample::select(vec!["inner", "rim"]), flat(0..=2))
+            .prop_map(|(role, generator)| Face::Shell { role, generator }),
         2 => (
             prop::collection::vec(flat(0..=1), 1..=2),
-            prop::sample::select(chamfer_groups),
+            prop::collection::vec(group(), 0..=2),
         )
             .prop_map(|(terms, groups)| Face::chamfer(terms, groups)),
     ]
@@ -882,7 +937,7 @@ pub fn scenario() -> impl Strategy<Value = Scenario> {
         prop::collection::vec(
             (
                 face(),
-                prop::collection::vec(merged_choice(), 0..=3),
+                prop::collection::vec((0..3_usize, merged_choice()), 0..=3),
                 prop::sample::select(CENTROIDS.to_vec()),
             ),
             1..=6,

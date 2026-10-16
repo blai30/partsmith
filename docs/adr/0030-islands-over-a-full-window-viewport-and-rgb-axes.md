@@ -1,6 +1,6 @@
 # 0030: Floating islands over a full-window viewport, and X, Y, Z in red, green and blue
 
-Status: Accepted (decided by the project owner, 2026-10-13); the visual values need human review at the next gate (ui.md open issue 13)
+Status: Accepted (decided by the project owner, 2026-10-13); the visual values need human review at the next gate (ui.md open issue 13). The outlines, the `border` role and the island and viewport surfaces are amended by [ADR 0032](0032-flat-islands-without-outlines.md).
 
 ## Context
 

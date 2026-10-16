@@ -227,6 +227,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::{FORMAT, FORMAT_VERSION};
 
     fn error_at(value: Value) -> (String, String) {
         match document(value) {
@@ -236,7 +237,7 @@ mod tests {
     }
 
     fn minimal() -> Value {
-        json!({"format": "partsmith", "format_version": 2, "units": "mm"})
+        json!({"format": FORMAT, "format_version": FORMAT_VERSION, "units": "mm"})
     }
 
     fn with(key: &str, value: Value) -> Value {

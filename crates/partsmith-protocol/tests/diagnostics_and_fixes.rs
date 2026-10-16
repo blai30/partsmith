@@ -9,7 +9,10 @@ use common::examples::{
     MERGED_REFERENCE, R16_DIAGNOSTIC, REGION_REPAIR, SOLVE_ON_FACE_IN_BODY_FRAME,
     STALE_FIX_MESSAGE, TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME, UNKNOWN_PRINTER_DIAGNOSTIC,
 };
-use common::{compact, frame_with_messages, header_bytes, id, object_keys, parse_json};
+use common::{
+    compact, frame_with_messages, header_bytes, id, object_keys, parse_json, schema_json,
+    variant_tags,
+};
 use partsmith_naming::Reference;
 use partsmith_protocol::{
     Absence, Axis, Buffer, BufferIndex, Cause, Command, CommandResult, CurveKind, Diagnostic,
@@ -22,6 +25,7 @@ use partsmith_protocol::{
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::collections::BTreeSet;
 
 /// The message of the R16 diagnostic in section 2.4.
 const R16_MESSAGE: &str = "The front top edge of 'Box 1' selected for Edges was cut away by 'Extrude 1', which comes before this fillet.";
@@ -360,11 +364,19 @@ fn t074_every_fix_kind_round_trips_and_apply_needs_its_fix() {
 
 #[test]
 fn t075_every_loss_reason_round_trips_and_the_examples_read_as_specified() {
+    let mut kinds = BTreeSet::new();
     for reason in one_reason_of_each_kind() {
         let text = written(&reason);
         let back: LossReason = parse(&text);
         assert_eq!(back, reason, "{text}");
+        let kind = parse_json(&text)["kind"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{text} has a kind"))
+            .to_string();
+        kinds.insert(kind);
     }
+    // The round trips above cover every variant the schema declares.
+    assert_eq!(kinds, variant_tags(&schema_json(), "LossReason", "kind"));
 
     let expected = [
         LossReason::Removed {
@@ -439,6 +451,12 @@ fn t076_apply_fix_request_and_result_round_trip_and_the_request_is_strict() {
     let result: CommandResult = parse(APPLY_FIX_RESULT);
     assert_eq!(result, CommandResult::ApplyFix { revision: 8 });
     assert_eq!(written(&result), compact(APPLY_FIX_RESULT));
+
+    // The example decodes from a request frame, so only the changes below make the requests fail.
+    let (request, buffers) =
+        decode_request(APPLY_FIX_REQUEST).expect("the apply_fix example decodes from a frame");
+    assert_eq!(request.command, command);
+    assert!(buffers.is_empty());
 
     let rejected = [
         (
@@ -1052,4 +1070,69 @@ fn transaction_open_error_with_its_action_travels_in_a_response_frame() {
     let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
 
     assert_eq!(decoded.response, response);
+}
+
+#[test]
+fn stale_fix_error_travels_in_an_error_response_frame() {
+    let bytes = error_response_frame(5, ErrorCode::StaleFix, STALE_FIX_MESSAGE);
+
+    let decoded = decode_response_frame(&bytes).expect("the error response frame decodes");
+
+    assert!(decoded.events.is_empty());
+    assert_eq!(
+        decoded.response,
+        Response {
+            id: 5,
+            result: Outcome::Error(ErrorInfo::new(ErrorCode::StaleFix, STALE_FIX_MESSAGE)),
+        }
+    );
+    assert_eq!(
+        std::str::from_utf8(header_bytes(&bytes)).expect("the header is UTF-8"),
+        format!(
+            r#"{{"protocol_version":1,"messages":[{{"kind":"response","id":5,"result":{{"kind":"error","code":"stale_fix","message":"{STALE_FIX_MESSAGE}"}}}}],"buffers":[]}}"#
+        )
+    );
+}
+
+#[test]
+fn show_reads_a_null_entity_as_absent() {
+    let action: FixAction = parse(
+        r#"{"label":"Show 'Datum plane 1'","run":{"kind":"show","feature":"f-dp1","entity":null}}"#,
+    );
+
+    assert_eq!(action, parse::<FixAction>(FIX_ACTIONS[1]));
+    assert_eq!(written(&action), compact(FIX_ACTIONS[1]));
+}
+
+#[test]
+fn region_repair_reads_a_null_ghost_as_absent() {
+    let text = REGION_REPAIR.replace(
+        r#""ghost":{"positions":2,"kind":"lines","frame":"sketch"}"#,
+        r#""ghost":null"#,
+    );
+
+    let repair: Repair = parse(&text);
+
+    let Repair::Region { ghost, .. } = &repair else {
+        panic!("the repair of test 68 is a region repair, got {repair:?}");
+    };
+    assert_eq!(ghost, &None);
+    let value = serde_json::to_value(&repair).expect("a repair serializes");
+    assert!(value.get("ghost").is_none(), "{value}");
+}
+
+#[test]
+fn descriptor_reads_null_fallback_and_axis_direction_as_absent() {
+    let text = FRONT_TOP_EDGE_DESCRIPTOR.replace(
+        r#""axis_direction": [1.0, 0.0, 0.0]"#,
+        r#""fallback": null, "axis_direction": null"#,
+    );
+
+    let descriptor: ElementDescriptor = parse(&text);
+
+    assert_eq!(descriptor.fallback, None);
+    assert_eq!(descriptor.axis_direction, None);
+    let value = serde_json::to_value(&descriptor).expect("a descriptor serializes");
+    assert!(value.get("fallback").is_none(), "{value}");
+    assert!(value.get("axis_direction").is_none(), "{value}");
 }

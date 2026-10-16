@@ -1,4 +1,5 @@
-//! Acceptance tests for region keys, fingerprints and matching (spec section 6.12, tests 174 to 188).
+//! Acceptance tests for region keys, fingerprints and matching (spec section 6.12, tests 174 to 188), plus the
+//! rules of steps 3 and 4 of section 3.14 that those leave out.
 
 mod common;
 
@@ -32,10 +33,10 @@ fn rectangle(ids: [&str; 4], width: f64, height: f64) -> Vec<SketchEntity> {
     ]
 }
 
-/// A hand-built region with key `e-1,e-2`, area 100 and empty loops (tests 185 and 186).
-fn hand_built_region(centroid: [f64; 2]) -> Region {
+/// A hand-built region with this key, area 100 and empty loops (tests 185 and 186, and the fingerprint matches).
+fn hand_built_region(key_text: &str, centroid: [f64; 2]) -> Region {
     Region {
-        key: key("e-1,e-2"),
+        key: key(key_text),
         outer: ProfileLoop { edges: Vec::new() },
         holes: Vec::new(),
         area: 100.0,
@@ -234,8 +235,8 @@ fn t184_redrawn_shape_of_another_size_is_missing_as_redrawn() {
 #[test]
 fn t185_score_breaks_key_ties() {
     let regions = [
-        hand_built_region([0.0, 0.0]),
-        hand_built_region([10.0, 0.0]),
+        hand_built_region("e-1,e-2", [0.0, 0.0]),
+        hand_built_region("e-1,e-2", [10.0, 0.0]),
     ];
 
     let found = match_region(
@@ -249,7 +250,10 @@ fn t185_score_breaks_key_ties() {
 
 #[test]
 fn t186_equal_scores_are_ambiguous() {
-    let regions = [hand_built_region([0.0, 0.0]), hand_built_region([0.0, 0.0])];
+    let regions = [
+        hand_built_region("e-1,e-2", [0.0, 0.0]),
+        hand_built_region("e-1,e-2", [0.0, 0.0]),
+    ];
 
     let found = match_region(
         &regions,
@@ -268,6 +272,59 @@ fn t186_equal_scores_are_ambiguous() {
 #[test]
 fn t187_nothing_similar_is_missing_as_redrawn() {
     let found = matched(&rect_entities(), &reference("e-77", "c=1000,1000|a=1"));
+
+    assert_eq!(
+        found,
+        RegionMatch::Missing {
+            loss: RegionLoss::Redrawn
+        }
+    );
+}
+
+/// The match of `{key: e-1,e-2, fp: c=0,0|a=100}` among two hand-built regions of other entities, `e-11,e-12` and
+/// `e-21,e-22`, with these centroids: neither keeps `e-1` or `e-2`, so only their fingerprints can match.
+fn match_among_redrawn_regions(first: [f64; 2], second: [f64; 2]) -> RegionMatch {
+    let regions = [
+        hand_built_region("e-11,e-12", first),
+        hand_built_region("e-21,e-22", second),
+    ];
+    match_region(
+        &regions,
+        &ids(&["e-11", "e-12", "e-21", "e-22"]),
+        &reference("e-1,e-2", "c=0,0|a=100"),
+    )
+}
+
+#[test]
+fn fingerprint_match_takes_the_region_with_the_lowest_score() {
+    // Both centroids lie within the fingerprint tolerance (0.01 mm for 100 mm^2).
+    assert_eq!(
+        match_among_redrawn_regions([0.008, 0.0], [0.0, 0.002]),
+        resolved(&[1], MatchMethod::Fingerprint, Vec::new())
+    );
+}
+
+#[test]
+fn fingerprint_match_with_equal_scores_is_ambiguous() {
+    assert_eq!(
+        match_among_redrawn_regions([0.005, 0.0], [-0.005, 0.0]),
+        RegionMatch::Ambiguous {
+            candidates: vec![vec![0], vec![1]]
+        }
+    );
+}
+
+#[test]
+fn redrawn_shape_in_another_place_is_missing_as_redrawn() {
+    // The size of test 184 one millimeter to the right: the centroid is 1 mm off, beyond 1e-3 * sqrt(4000).
+    let entities = vec![
+        line("e-11", [1.0, 0.0], [81.0, 0.0]),
+        line("e-12", [81.0, 0.0], [81.0, 50.0]),
+        line("e-13", [81.0, 50.0], [1.0, 50.0]),
+        line("e-14", [1.0, 50.0], [1.0, 0.0]),
+    ];
+
+    let found = matched(&entities, &reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000"));
 
     assert_eq!(
         found,

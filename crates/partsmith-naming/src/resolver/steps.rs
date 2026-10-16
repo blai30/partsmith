@@ -9,13 +9,14 @@ use crate::element_set::{ElementSet, faces_pair};
 use crate::kind::ElementKind;
 use crate::name::ElementName;
 use crate::name_set::NameSet;
-use crate::reference::{MergedName, Reference, has_own_split};
+use crate::reference::{MergedName, Reference, face_parts, has_own_split};
 use crate::resolver::candidates::{Ranked, in_candidate_order};
 use crate::resolver::parts::{FacePart, LiveAnchors, OwnPart, face_id};
 use crate::resolver::{
     AMBIGUITY_MARGIN, CONFIDENCE_THRESHOLD, Candidate, Follow, Lost, MatchMethod, Resolution,
 };
 use crate::score::score;
+use crate::shape::InstanceName;
 
 /// The most candidates a loss or a guess by score lists.
 const CANDIDATE_LIMIT: usize = 5;
@@ -44,8 +45,8 @@ pub(crate) struct Resolver<'a> {
 struct QueryNames {
     /// Face parts and merged face names.
     faces: BTreeSet<String>,
-    /// `<source>@<feature>:` of every merged `Copies` entry.
-    copies: Vec<String>,
+    /// The source and feature of every merged `Copies` entry.
+    copies: Vec<(String, String)>,
 }
 
 impl QueryNames {
@@ -61,7 +62,7 @@ impl QueryNames {
                     named.faces.insert(face.to_string());
                 }
                 MergedName::Copies { source, feature } => {
-                    named.copies.push(format!("{source}@{feature}:"));
+                    named.copies.push((source.to_string(), feature.to_string()));
                 }
             }
         }
@@ -71,13 +72,10 @@ impl QueryNames {
     /// True when `text` is one of the names, or an instance name of a `Copies` entry.
     fn holds(&self, text: &str) -> bool {
         self.faces.contains(text)
-            || self.copies.iter().any(|prefix| {
-                text.strip_prefix(prefix.as_str()).is_some_and(|instance| {
-                    !instance.is_empty()
-                        && instance
-                            .bytes()
-                            .all(|byte| byte.is_ascii_digit() || byte == b'.')
-                })
+            || InstanceName::of(text).is_some_and(|copy| {
+                self.copies
+                    .iter()
+                    .any(|(source, feature)| copy.source == source && copy.feature == feature)
             })
     }
 }
@@ -128,11 +126,7 @@ impl<'a> Resolver<'a> {
     pub(crate) fn new(reference: &'a Reference, set: &'a ElementSet) -> Resolver<'a> {
         let names = set.names();
         let kind = reference.query.kind();
-        let part_names = match kind {
-            ElementKind::Face => vec![reference.query.clone()],
-            ElementKind::Edge | ElementKind::Vertex => reference.query.face_terms(),
-        };
-        let faces: Vec<FacePart> = part_names
+        let faces: Vec<FacePart> = face_parts(&reference.query)
             .into_iter()
             .map(|name| FacePart::new(name, reference, names))
             .collect();
@@ -177,7 +171,7 @@ impl<'a> Resolver<'a> {
         {
             return resolution;
         }
-        self.missing(&selection, &continuations)
+        self.missing(&selection)
     }
 
     /// Step 1: the exact name, confirmed by anchors or against its siblings.
@@ -569,13 +563,12 @@ impl<'a> Resolver<'a> {
             })
             .collect::<Option<_>>()?;
         let elements = self.combine(&allowed, &selection.own);
-        (!elements.is_empty()).then(|| Resolution::Resolved {
-            elements: sorted_names(self.set, &elements),
-            method: MatchMethod::Continued,
-            confidence: 1.0,
-            follow: Some(Follow::Continued),
-            via: Vec::new(),
-            alternatives: Vec::new(),
+        (!elements.is_empty()).then(|| {
+            followed(
+                sorted_names(self.set, &elements),
+                MatchMethod::Continued,
+                Follow::Continued,
+            )
         })
     }
 
@@ -670,14 +663,11 @@ impl<'a> Resolver<'a> {
             .collect();
         match self.set.pairing(self.kind, &allowed).as_slice() {
             [] => None,
-            [only] => Some(Resolution::Resolved {
-                elements: vec![element_name(self.set, *only)],
-                method: MatchMethod::Related,
-                confidence: 1.0,
-                follow: Some(Follow::Related),
-                via: Vec::new(),
-                alternatives: Vec::new(),
-            }),
+            [only] => Some(followed(
+                vec![element_name(self.set, *only)],
+                MatchMethod::Related,
+                Follow::Related,
+            )),
             several => Some(Resolution::Ambiguous {
                 candidates: self
                     .candidates(several.iter().copied(), None)
@@ -729,15 +719,12 @@ impl<'a> Resolver<'a> {
             .collect()
     }
 
-    /// Step 5: what is gone, and the candidates.
-    fn missing(&self, selection: &Selection, continuations: &[Vec<u32>]) -> Resolution {
+    /// Step 5: what is gone, and the candidates. Every face part that is not present is lost, since
+    /// no continuation or relative resolved the query; the query's own `#n` is lost only as a piece.
+    fn missing(&self, selection: &Selection) -> Resolution {
         let mut lost = Lost::default();
-        for ((part, &piece_lost), continuing) in
-            self.faces.iter().zip(&selection.lost).zip(continuations)
-        {
-            let gone =
-                !part.is_present() && continuing.is_empty() && self.relatives_of(part).is_empty();
-            if gone {
+        for (part, &piece_lost) in self.faces.iter().zip(&selection.lost) {
+            if !part.is_present() {
                 lost.parts.push(part.name.clone());
             } else if piece_lost {
                 lost.pieces.push(part.name.clone());
@@ -1017,6 +1004,18 @@ fn resolved_with(element: ElementName, method: MatchMethod, confidence: f64) -> 
     }
 }
 
+/// A result of these elements, found by `method` with confidence 1, that followed a change.
+fn followed(elements: Vec<ElementName>, method: MatchMethod, follow: Follow) -> Resolution {
+    Resolution::Resolved {
+        elements,
+        method,
+        confidence: 1.0,
+        follow: Some(follow),
+        via: Vec::new(),
+        alternatives: Vec::new(),
+    }
+}
+
 /// A guess of one element with this confidence and the members that might be meant instead.
 fn guessed(element: ElementName, confidence: f64, alternatives: Vec<Candidate>) -> Resolution {
     Resolution::Resolved {
@@ -1039,18 +1038,8 @@ mod tests {
     use crate::aliases::{Aliases, Successions};
     use crate::element_info::ElementInfo;
     use crate::fingerprint::Fingerprint;
-    use crate::name_set::testing::{name, set_of};
+    use crate::name_set::testing::{ids, name, set_of};
     use crate::reference::Merged;
-
-    /// The ids of the faces `texts` of `set`, ascending.
-    fn ids(set: &NameSet, texts: &[&str]) -> Vec<u32> {
-        let mut ids: Vec<u32> = texts
-            .iter()
-            .map(|text| set.face_id(text).expect("the face is in the set"))
-            .collect();
-        ids.sort_unstable();
-        ids
-    }
 
     /// The top split in three pieces: `#1` touches the front, `#2` the back, `#3` nothing.
     fn split_top() -> NameSet {

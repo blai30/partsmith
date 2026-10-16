@@ -12,7 +12,7 @@ use crate::map::NamingMap;
 use crate::name::ElementName;
 use crate::reference::Merged;
 use crate::roles;
-use crate::shape::Shape;
+use crate::shape::{InstanceName, Shape};
 
 /// The names-only view of one body state: its face names, aliases and successions, which faces
 /// touch, and the indexes the resolver matches names with (section 3.9). It reads no fingerprints,
@@ -497,24 +497,11 @@ impl NameSet {
             .chain(self.keys.chases.values().map(|entry| &entry.shape));
         let mut copies: FastMap<String, BTreeSet<String>> = FastMap::default();
         for shape in names {
-            let piece_free = shape.piece_free_text();
-            let Some((prefix, instance)) = piece_free.rsplit_once(':') else {
-                continue;
-            };
-            let is_copy = prefix.rsplit_once('@').is_some_and(|(_, feature)| {
-                !feature.is_empty()
-                    && feature
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-            }) && !instance.is_empty()
-                && instance
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || byte == b'.');
-            if is_copy {
+            if let Some(copy) = InstanceName::of(shape.piece_free_text()) {
                 copies
-                    .entry(prefix.to_owned())
+                    .entry(format!("{}@{}", copy.source, copy.feature))
                     .or_default()
-                    .insert(instance.to_owned());
+                    .insert(copy.instance.to_owned());
             }
         }
         self.copies = copies;
@@ -673,6 +660,16 @@ pub(crate) mod testing {
             Aliases(lists(aliases)),
             Successions(lists(successions)),
         )
+    }
+
+    /// The ids of the faces `texts` of `set`, ascending.
+    pub(crate) fn ids(set: &NameSet, texts: &[&str]) -> Vec<u32> {
+        let mut ids: Vec<u32> = texts
+            .iter()
+            .map(|text| set.face_id(text).expect("the face is in the set"))
+            .collect();
+        ids.sort_unstable();
+        ids
     }
 
     /// The names of the face ids `faces` of `set`.

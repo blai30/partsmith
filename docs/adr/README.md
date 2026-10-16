@@ -35,5 +35,6 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0027](0027-dev-only-workspace-crates.md) | Dev-only workspace crates: `partsmith-budgets` for the budget benchmarks and `partsmith-mesh-fixtures` for the mesh.md section 6.1 test fixtures | Accepted, needs human review |
 | [0028](0028-single-license-apache-2.md) | One license, Apache-2.0, for code, specifications, examples and test corpus | Accepted |
 | [0029](0029-z-up-right-handed.md) | Right-handed Z-up coordinates everywhere, with no up-axis option | Accepted |
-| [0030](0030-islands-over-a-full-window-viewport-and-rgb-axes.md) | Floating islands over a full-window viewport, and X, Y, Z in red, green and blue | Accepted, needs human review |
+| [0030](0030-islands-over-a-full-window-viewport-and-rgb-axes.md) | Floating islands over a full-window viewport, and X, Y, Z in red, green and blue | Accepted, needs human review; outlines and surfaces amended by 0032 |
 | [0031](0031-self-hosted-geist-and-jetbrains-mono-for-code.md) | Geist with a serifed I and tabular figures for interface text and numbers, JetBrains Mono for code only, both self-hosted | Accepted, needs human review |
+| [0032](0032-flat-islands-without-outlines.md) | Flat islands: no outlines, surfaces a step lighter than one flat viewport, and edges drawn only in forced colors | Accepted, needs human review |

@@ -161,18 +161,8 @@ pub(super) fn face_id(member: usize) -> u32 {
 mod tests {
     use super::*;
     use crate::fingerprint::Fingerprint;
-    use crate::name_set::testing::{name, set_of};
+    use crate::name_set::testing::{ids, name, set_of};
     use crate::reference::Anchors;
-
-    /// The ids of the faces `texts` of `set`, ascending.
-    fn ids(set: &NameSet, texts: &[&str]) -> Vec<u32> {
-        let mut ids: Vec<u32> = texts
-            .iter()
-            .map(|text| set.face_id(text).expect("the face is in the set"))
-            .collect();
-        ids.sort_unstable();
-        ids
-    }
 
     /// A box top split in two pieces: `#1` touches the front and the left, `#2` the back.
     fn split_top() -> NameSet {

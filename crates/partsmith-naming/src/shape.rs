@@ -35,6 +35,36 @@ pub(crate) struct Shape {
     skeleton: Option<Arc<str>>,
 }
 
+/// A name that ends in an instance group, `<source>@<feature>:<instance>` (section 3.5.1), taken
+/// apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct InstanceName<'a> {
+    /// The name the copy was made of.
+    pub(crate) source: &'a str,
+    /// The pattern or mirror feature that made the copy.
+    pub(crate) feature: &'a str,
+    /// The instance number, such as `2` or `1.3`.
+    pub(crate) instance: &'a str,
+}
+
+impl<'a> InstanceName<'a> {
+    /// `text` taken apart when its last group is an instance group with nothing after it (no `#n`
+    /// follows); `None` otherwise.
+    pub(crate) fn of(text: &'a str) -> Option<InstanceName<'a>> {
+        let at = text.rfind('@')?;
+        let group = &text[at..];
+        if !grammar::is_instance(group) {
+            return None;
+        }
+        let (feature, instance) = group[1..].split_once(':')?;
+        Some(InstanceName {
+            source: &text[..at],
+            feature,
+            instance,
+        })
+    }
+}
+
 /// What a face was made from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Source {
@@ -477,6 +507,24 @@ mod tests {
                 ("f-box1", None)
             ]
         );
+    }
+
+    #[test]
+    fn an_instance_name_splits_at_its_last_group() {
+        assert_eq!(
+            InstanceName::of("f-a/x#1@f-m:1@f-lp1:0.3"),
+            Some(InstanceName {
+                source: "f-a/x#1@f-m:1",
+                feature: "f-lp1",
+                instance: "0.3",
+            })
+        );
+        assert_eq!(InstanceName::of("f-a/x@f-lp1:2#1"), None);
+        assert_eq!(
+            InstanceName::of("f-c/chamfer/edge(f-a/x@f-lp1:2|f-b/y)"),
+            None
+        );
+        assert_eq!(InstanceName::of("f-a/x"), None);
     }
 
     #[test]

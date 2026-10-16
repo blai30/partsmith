@@ -79,7 +79,8 @@ pub struct Candidate {
 /// What the resolver found gone.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Lost {
-    /// Parts of the query with no face, continuation or relative in the body.
+    /// Parts of the query that are not present: no face in the body, and no continuation or relative
+    /// resolved the query. Never the query's own `#n` (section 3.9 step 5).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub parts: Vec<ElementName>,
     /// Order-dependent parts whose piece no longer exists, or, for fallback names, can no longer be

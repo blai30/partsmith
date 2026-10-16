@@ -168,6 +168,12 @@ pub(crate) fn is_sketch_reference(text: &str) -> bool {
     parser.sketch_reference().is_ok() && parser.at_end()
 }
 
+/// True when `text` matches `instance`: `@`, a feature id, `:` and an instance number.
+pub(crate) fn is_instance(text: &str) -> bool {
+    let mut parser = Parser::new(text);
+    parser.instance().is_ok() && parser.at_end()
+}
+
 /// The kind and prefix of the edge or vertex name `text` starts with; `None` for a face name.
 pub(crate) fn leading_list_prefix(text: &[u8]) -> Option<(ElementKind, &'static str)> {
     LIST_PREFIXES
@@ -699,6 +705,18 @@ mod tests {
         assert!(!is_sketch_reference("e 1"));
         assert!(!is_sketch_reference("e-1."));
         assert!(!is_sketch_reference(""));
+    }
+
+    #[test]
+    fn instance_accepts_one_whole_instance_group() {
+        assert!(is_instance("@f-lp1:2"));
+        assert!(is_instance("@f-lp1:1.3"));
+        assert!(is_instance("@f-lp1:0.3"));
+        assert!(!is_instance("@f-lp1:"));
+        assert!(!is_instance("@f-lp1:0"));
+        assert!(!is_instance("@f-lp1:2#1"));
+        assert!(!is_instance("@:2"));
+        assert!(!is_instance("f-lp1:2"));
     }
 
     #[test]

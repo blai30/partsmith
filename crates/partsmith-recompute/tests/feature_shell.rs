@@ -6,6 +6,8 @@ mod feature_support;
 
 use std::collections::BTreeMap;
 use std::f64::consts::PI;
+use std::ops::Range;
+use std::path::Path;
 use std::time::Duration;
 
 use feature_support::{
@@ -14,7 +16,7 @@ use feature_support::{
     assert_face_normal, assert_face_position, assert_face_radius, assert_has_face,
     assert_list_field, assert_median_build_within, assert_solid_count, assert_unchanged,
     assert_volume, body_update, document, face, face_index, face_names_with_prefix, load_example,
-    median_failed_build_time, suggested_limit,
+    median_failed_build_time, parse_document, suggested_limit,
 };
 use feature_support::{assert_messages_pass_lint, message};
 use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, Fix};
@@ -56,6 +58,30 @@ const VERTICAL_ROUNDS: &str = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1
 /// The top face of `CUBE20` after `VERTICAL_ROUNDS`: a 20 mm square with corners of radius 2.
 const ROUNDED_TOP_FACE: &str =
     r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=396.566371"}"#;
+
+/// The box of test 15 (newcomer error corpus NC06): 40 x 40 x 20 mm, spanning
+/// [-20,-20,0]-[20,20,20].
+const BOX404020: &str =
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "20"], "op": "new"}"#;
+
+/// The top face of `BOX404020` as test 15 stores it.
+const BOX404020_TOP_FACE: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=1600"}"#;
+
+/// Test 15: `BOX404020` with its four edges parallel to Z rounded by `f-fil1` at `radius`, shelled
+/// 2 mm with its top removed.
+fn nc06_run(radius: &str) -> Run {
+    let rounds = format!(
+        r#"{{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-20,-20,10|l=20"}}, {{"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=20,-20,10|l=20"}}, {{"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-20,20,10|l=20"}}, {{"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=20,20,10|l=20"}}], "radius": "{radius}"}}"#
+    );
+    Run::records(
+        &["b-1"],
+        &[
+            BOX404020,
+            &rounds,
+            &shell_record("2", &[BOX404020_TOP_FACE]),
+        ],
+    )
+}
 
 /// The cylinder of tests 9 and 16: radius 20 and height 40, spanning [-20,-20,0]-[20,20,40].
 const CYL20: &str = r#"{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "20", "height": "40", "op": "new"}"#;
@@ -121,17 +147,19 @@ fn assert_arc_join_kept(run: &Run, volume: f64, faces: u32) {
     assert_face_radius(&join, 2.0);
 }
 
-/// Tests 19 and 20: `CUBE20` with `VERTICAL_ROUNDS`, shelled with its top removed and a wall of
+/// Tests 12, 19, 20 and 22: `CUBE20` with `VERTICAL_ROUNDS`, shelled with a wall of `thickness`
+/// and `faces` removed (a closed hollow when empty).
+fn rounded_cube_document(thickness: &str, faces: &[&str]) -> Document {
+    document(
+        &["b-1"],
+        &[CUBE20, VERTICAL_ROUNDS, &shell_record(thickness, faces)],
+    )
+}
+
+/// Tests 19, 20 and 22: `CUBE20` with `VERTICAL_ROUNDS`, shelled with its top removed and a wall of
 /// `thickness`.
 fn rounded_cube_run(thickness: &str) -> Run {
-    Run::records(
-        &["b-1"],
-        &[
-            CUBE20,
-            VERTICAL_ROUNDS,
-            &shell_record(thickness, &[ROUNDED_TOP_FACE]),
-        ],
-    )
+    Run::new(rounded_cube_document(thickness, &[ROUNDED_TOP_FACE]))
 }
 
 /// The checks of test 19 for every thickness: all ok, one solid, the volume, the face count and
@@ -169,6 +197,51 @@ fn assert_no_inner_rounds(run: &Run) {
         Vec::<String>::new(),
         "the rounds' inner offsets vanish"
     );
+}
+
+/// Asserts that every feature of `run` has status ok and no message at all.
+fn assert_all_ok_without_messages(run: &Run) {
+    run.assert_all_ok();
+    for report in &run.report.features {
+        let feature = report.feature.as_str();
+        assert_eq!(
+            run.messages(feature),
+            Vec::<&str>::new(),
+            "{feature} has no message"
+        );
+    }
+}
+
+/// Asserts that `f-sh1` of `run` fails with `shell_too_thick` on `thickness` for the wall
+/// `requested`, with the thickest working wall in `max_range` and `b-1` unchanged, and returns its
+/// limit `{s}`, rounded down to 2 significant digits. The message, its fixes and the suggestion
+/// `{s} mm` are those of this phase: features.md section 4.3 brings the spec's text and its
+/// `SetField` fix (Use {s} mm) with phase 3 of the reference stability plan.
+fn assert_too_thick(run: &Run, requested: f64, max_range: Range<f64>) -> String {
+    let error = run.assert_error("f-sh1", "shell_too_thick");
+    assert_error_field(error, "thickness");
+    let FeatureError::ShellTooThick { thickness, max, .. } = error else {
+        panic!("expected ShellTooThick, got {error:?}");
+    };
+    assert_eq!(*thickness, requested, "the requested thickness");
+    let max = max.unwrap_or_else(|| panic!("the search finds a working thickness: {error:?}"));
+    assert!(
+        max_range.contains(&max),
+        "the thickest working wall {max} lies in {max_range:?}"
+    );
+    let limit = suggested_limit(max);
+    let expected = format!(
+        "Shell thickness {requested} mm is too thick for body 'Body 1'. The thickest wall that works is about {limit} mm. Try {limit} mm or less."
+    );
+    assert_eq!(run.messages("f-sh1"), [expected.as_str()]);
+    assert_eq!(
+        message(run, "f-sh1", "shell_too_thick").fixes,
+        Vec::<Fix>::new(),
+        "shell_too_thick offers no fix before phase 3"
+    );
+    assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
+    assert_unchanged(run, "f-sh1", "b-1");
+    limit
 }
 
 /// The geometry and names of test 1: `BOX805030` shelled 2 mm with the top removed.
@@ -273,24 +346,7 @@ fn t005_too_thick() {
     let run = Run::new(open_top_document("30"));
 
     run.assert_ok("f-box1");
-    let error = run.assert_error("f-sh1", "shell_too_thick");
-    assert_error_field(error, "thickness");
-    let FeatureError::ShellTooThick { thickness, max, .. } = error else {
-        panic!("expected ShellTooThick, got {error:?}");
-    };
-    assert_eq!(*thickness, 30.0, "the requested thickness");
-    let max = max.unwrap_or_else(|| panic!("the search finds a working thickness: {error:?}"));
-    assert!(
-        (22.5..25.0).contains(&max),
-        "the thickest working wall {max} lies in [22.5, 25)"
-    );
-    let limit = suggested_limit(max);
-    let expected = format!(
-        "Shell thickness 30 mm is too thick for body 'Body 1'. The thickest wall that works is about {limit} mm. Try {limit} mm or less."
-    );
-    assert_eq!(run.messages("f-sh1"), [expected.as_str()]);
-    assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
-    assert_unchanged(&run, "f-sh1", "b-1");
+    let limit = assert_too_thick(&run, 30.0, 22.5..25.0);
 
     let rebuilt = Run::new(open_top_document(&limit));
     rebuilt.assert_all_ok();
@@ -467,9 +523,16 @@ fn t012_performance() {
         5,
         Duration::from_millis(50),
     );
+    // Section 5: a wall within 0.01 mm of the radius of the rounds, on test 19 at 2 mm.
+    assert_median_build_within(
+        &rounded_cube_document("2", &[ROUNDED_TOP_FACE]),
+        "f-sh1",
+        5,
+        Duration::from_millis(250),
+    );
     // Section 5: a failing shell including the search, on test 20.
     let too_thick = median_failed_build_time(
-        &rounded_cube_run("12").document,
+        &rounded_cube_document("12", &[ROUNDED_TOP_FACE]),
         "f-sh1",
         "shell_too_thick",
         3,
@@ -528,6 +591,60 @@ fn t014_moved_body() {
 }
 
 #[test]
+fn t015_walls_thicker_than_the_fillets_rounds() {
+    let run = nc06_run("1");
+
+    // The 40 mm prism with 1 mm rounds minus an 18 mm deep cavity with a sharp 36 mm square
+    // section.
+    assert_all_ok_without_messages(&run);
+    let shape = run.shape("b-1");
+    assert_volume(shape, 8592.0 + 20.0 * PI);
+    assert_face_count(shape, 15);
+    assert_no_inner_rounds(&run);
+}
+
+#[test]
+fn t015_rounds_thicker_than_the_wall() {
+    let run = nc06_run("3 mm");
+
+    // The 40 mm prism with 3 mm rounds minus an 18 mm deep cavity: a 36 mm square with corners of
+    // radius 1.
+    run.assert_all_ok();
+    assert_volume(run.shape("b-1"), 8024.0 + 162.0 * PI);
+    let body = run.body("b-1");
+    let inner_rounds = face_names_with_prefix(body, "f-sh1/inner/f-fil1/");
+    assert_eq!(inner_rounds.len(), 4, "each round has an inner face");
+    for name in &inner_rounds {
+        let inner_round = face(body, name);
+        assert_face_kind(&inner_round, GeometryKind::Cylinder);
+        assert_face_radius(&inner_round, 1.0);
+    }
+}
+
+/// Test 16, the "too large" search where a limit truly exists: the side of the cup is a convex
+/// round that no other wall closes, so walls at least as thick as its radius still fail (kernel.md
+/// section 3.4.8 item 6) and the search stops just below 20 mm. The `limit`, the round-face
+/// sentence and the fixes of test 16 come with features.md section 4.3.
+#[test]
+fn t016_cylinder_wall_stops_below_the_radius() {
+    let run = cylinder_cup_run("30");
+
+    run.assert_ok("f-cyl1");
+    let limit = assert_too_thick(&run, 30.0, 15.0..20.0);
+
+    let rebuilt = cylinder_cup_run(&limit);
+    rebuilt.assert_all_ok();
+}
+
+#[test]
+fn cylinder_wall_as_thick_as_the_radius_fails() {
+    let run = cylinder_cup_run("20");
+
+    run.assert_error("f-sh1", "shell_too_thick");
+    assert_unchanged(&run, "f-sh1", "b-1");
+}
+
+#[test]
 fn t019_wall_thinner_than_the_rounds() {
     let run = rounded_cube_run("1");
 
@@ -568,59 +685,11 @@ fn t020_too_thick_past_the_rounds() {
     let run = rounded_cube_run("12");
 
     run.assert_ok("f-fil1");
-    let error = run.assert_error("f-sh1", "shell_too_thick");
-    assert_error_field(error, "thickness");
-    let FeatureError::ShellTooThick { thickness, max, .. } = error else {
-        panic!("expected ShellTooThick, got {error:?}");
-    };
-    assert_eq!(*thickness, 12.0, "the requested thickness");
-    let max = max.unwrap_or_else(|| panic!("the search finds a working thickness: {error:?}"));
-    assert!(
-        (9.0..10.0).contains(&max),
-        "the thickest working wall {max} lies in [9, 10), where the walls meet in the middle"
-    );
-    let limit = suggested_limit(max);
-    assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
-    assert_unchanged(&run, "f-sh1", "b-1");
+    // The walls meet in the middle of the cube.
+    let limit = assert_too_thick(&run, 12.0, 9.0..10.0);
 
     let rebuilt = rounded_cube_run(&limit);
     rebuilt.assert_all_ok();
-}
-
-/// Test 16, the "too large" search where a limit truly exists: the side of the cup is a convex
-/// round that no other wall closes, so walls at least as thick as its radius still fail (kernel.md
-/// section 3.4.8 item 6) and the search stops just below 20 mm. The `limit`, the message and the
-/// fixes of test 16 come with features.md section 4.3.
-#[test]
-fn t016_cylinder_wall_stops_below_the_radius() {
-    let run = cylinder_cup_run("30");
-
-    run.assert_ok("f-cyl1");
-    let error = run.assert_error("f-sh1", "shell_too_thick");
-    assert_error_field(error, "thickness");
-    let FeatureError::ShellTooThick { thickness, max, .. } = error else {
-        panic!("expected ShellTooThick, got {error:?}");
-    };
-    assert_eq!(*thickness, 30.0, "the requested thickness");
-    let max = max.unwrap_or_else(|| panic!("the search finds a working thickness: {error:?}"));
-    assert!(
-        (15.0..20.0).contains(&max),
-        "the thickest working wall {max} lies in [15, 20), below the cylinder's radius"
-    );
-    let limit = suggested_limit(max);
-    assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
-    assert_unchanged(&run, "f-sh1", "b-1");
-
-    let rebuilt = cylinder_cup_run(&limit);
-    rebuilt.assert_all_ok();
-}
-
-#[test]
-fn cylinder_wall_as_thick_as_the_radius_fails() {
-    let run = cylinder_cup_run("20");
-
-    run.assert_error("f-sh1", "shell_too_thick");
-    assert_unchanged(&run, "f-sh1", "b-1");
 }
 
 #[test]
@@ -657,4 +726,61 @@ fn t021_arc_join_beside_a_round_as_thick_as_the_wall() {
     // The same cavity, less the round's material, 10 (4 - pi).
     assert_arc_join_kept(&run, 5368.0 + 26.0 * PI, 17);
     assert_no_inner_rounds(&run);
+}
+
+#[test]
+fn t022_wall_just_under_the_rounds() {
+    let run = rounded_cube_run("1.9995");
+
+    // The rounds' offsets would be 0.0005 mm thin, so they vanish: the 20 mm prism minus an
+    // 18.0005 mm deep cavity with a sharp 16.001 mm square section.
+    assert_rounded_cube_shell(
+        &run,
+        1.9995,
+        7680.0 + 80.0 * PI - 16.001 * 16.001 * 18.0005,
+        15,
+        16.001 * 18.0005,
+    );
+    assert_no_inner_rounds(&run);
+    assert_face_area(
+        &face(run.body("b-1"), "f-sh1/rim/f-box1/top"),
+        384.0 + 4.0 * PI - 16.001 * 16.001,
+    );
+}
+
+#[test]
+fn t022_closed_hollow_just_under_the_rounds() {
+    let run = Run::new(rounded_cube_document("1.9995", &[]));
+
+    // The cube with its rounds minus a sharp cube cavity of side 16.001 mm.
+    assert_rounded_cube_shell(
+        &run,
+        1.9995,
+        7680.0 + 80.0 * PI - 16.001 * 16.001 * 16.001,
+        16,
+        16.001 * 16.001,
+    );
+    assert_no_inner_rounds(&run);
+    assert_has_face(run.body("b-1"), "f-box1/top");
+}
+
+/// Test 23: the Playwright fixture `cube-features.ptsm` of ui.md section 6.2 opens with its stated
+/// result in the native core (ui.md open issue 17, E-108). It reads the fixture as committed, so
+/// a change to it that breaks the shell after the fillet fails here before Playwright runs.
+#[test]
+fn t023_ui_fixture_with_a_shell_after_a_fillet() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/e2e/fixtures/cube-features.ptsm");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("cannot read fixture {}: {error}", path.display()));
+
+    let run = Run::new(parse_document(&text));
+
+    assert_eq!(run.report.features.len(), 4, "the fixture has 4 features");
+    assert_all_ok_without_messages(&run);
+    let shape = run.shape("b-cube");
+    assert_volume(shape, 3072.0 + 80.0 * PI);
+    assert_face_count(shape, 15);
+    assert_solid_count(shape, 1);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
 }

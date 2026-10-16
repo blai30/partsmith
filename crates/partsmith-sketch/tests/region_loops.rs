@@ -1,4 +1,5 @@
-//! Acceptance tests for region loops and references with outlines (spec section 6.17, tests 218 to 220).
+//! Acceptance tests for region loops and references with outlines (spec section 6.17, tests 218 to 220), plus the
+//! rules of sections 2.7 and 3.13.8 that those leave out.
 
 mod common;
 
@@ -182,6 +183,30 @@ fn t220_reference_of_a_region_writes_its_outline() {
         serde_json::to_string(&regions[0].reference()).expect("the reference serializes"),
         r#"{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000","outline":"e-1,e-2,e-3,e-4"}"#
     );
+}
+
+#[test]
+fn region_ref_schema_does_not_require_the_outline() {
+    let schema =
+        serde_json::to_value(schemars::schema_for!(RegionRef)).expect("the schema serializes");
+
+    let mut properties: Vec<&str> = schema["properties"]
+        .as_object()
+        .expect("a region reference has properties")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    properties.sort_unstable();
+    let mut required: Vec<&str> = schema["required"]
+        .as_array()
+        .expect("a region reference requires fields")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    required.sort_unstable();
+
+    assert_eq!(properties, ["fp", "key", "outline"]);
+    assert_eq!(required, ["fp", "key"]);
 }
 
 #[test]

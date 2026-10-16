@@ -6,12 +6,13 @@ mod oracle;
 
 use common::{
     BOX_FACE_NAMES, ScopeElement, box_infos, box_map, build_with, edge_info, element_set,
-    element_set_of_map, face_info, map_with_faces, merged, name, nested_alias_scope, nested_merged,
-    nested_merged_scope, new_source, renumbered_pieces_infos, scope_element,
+    element_set_of_map, element_set_with, face_info, map_with_faces, merged, name,
+    nested_alias_scope, nested_merged, nested_merged_scope, new_source, renumbered_pieces_infos,
+    scope_element,
 };
-use oracle::{Face, Flat, MergedChoice, World, element_name, face, scenario};
+use oracle::{Face, Flat, MergedChoice, MergedChoices, World, element_name, face, scenario};
 use partsmith_naming::{
-    ElementKind, ElementName, FaceSource, Merged, Motion, NameSet, NamingMap, Successions,
+    Aliases, ElementKind, ElementName, FaceSource, Merged, Motion, NameSet, NamingMap, Successions,
     TopologyInfo, resolve,
 };
 use proptest::prelude::*;
@@ -22,15 +23,67 @@ fn texts(family: Vec<&ElementName>) -> Vec<&str> {
     family.into_iter().map(ElementName::as_str).collect()
 }
 
-/// A flat oracle name with a head and split numbers.
-fn flat(head: &'static str, splits: &[u32]) -> Face {
-    Face::Flat(Flat {
+/// The oracle's flat name with a head and split numbers.
+fn flat_name(head: &'static str, splits: &[u32]) -> Flat {
+    Flat {
         head,
         groups: splits
             .iter()
             .map(|split| oracle::Group::Split(*split))
             .collect(),
-    })
+    }
+}
+
+/// A flat oracle name with a head and split numbers.
+fn flat(head: &'static str, splits: &[u32]) -> Face {
+    Face::Flat(flat_name(head, splits))
+}
+
+/// An oracle chamfer face named after the faces `first` and `second`, without suffix groups.
+fn chamfer(first: &'static str, second: &'static str) -> Face {
+    Face::Chamfer {
+        terms: vec![flat_name(first, &[]), flat_name(second, &[])],
+        groups: Vec::new(),
+    }
+}
+
+/// An oracle shell rim named after the face `head` with split numbers.
+fn rim(head: &'static str, splits: &[u32]) -> Face {
+    Face::Shell {
+        role: "rim",
+        generator: flat_name(head, splits),
+    }
+}
+
+/// The family the crate gives for `part` in an element set of the faces, aliases and successions
+/// of `world`.
+fn crate_family(world: &World, part: &Face, choices: &MergedChoices) -> Vec<String> {
+    let infos = world
+        .faces
+        .iter()
+        .map(|face| scope_element(&face.text()))
+        .collect();
+    let lists = |entries: &BTreeMap<Face, Vec<Face>>| -> BTreeMap<ElementName, Vec<ElementName>> {
+        entries
+            .iter()
+            .map(|(key, targets)| {
+                let names = targets.iter().map(|target| element_name(&target.text()));
+                (element_name(&key.text()), names.collect())
+            })
+            .collect()
+    };
+    let scope = element_set_with(
+        infos,
+        Aliases(lists(&world.aliases)),
+        Successions(lists(&world.successions)),
+    );
+    let merged_names = oracle::Scenario::merged(choices);
+    scope
+        .names()
+        .family(&element_name(&part.text()), &merged_names)
+        .into_iter()
+        .map(ToString::to_string)
+        .collect()
 }
 
 #[test]
@@ -228,6 +281,27 @@ fn t140_piece_of_a_copy_extends_the_copy() {
 }
 
 #[test]
+fn family_of_a_name_nested_twice_uses_merged_names_of_its_inner_faces() {
+    // The oracle generates names nested once; here the merged names of the faces a chamfer was
+    // named after stand in for them inside the edge a fillet was named after.
+    let scope = element_set(vec![
+        scope_element("f-fil1/fillet/edge(f-b/y|f-cha1/chamfer/edge(f-box1/front|f-box1/top))"),
+        scope_element("f-fil1/fillet/edge(f-b/y|f-cha1/chamfer/edge(f-box1/back|f-box1/top))"),
+    ]);
+    let part = name("f-fil1/fillet/edge(f-b/y|f-cha1/chamfer/edge(f-a1/front|f-a1/top))");
+    let recorded = merged(&[
+        ("f-a1/front", &["f-box1/front"]),
+        ("f-a1/top", &["f-box1/top"]),
+    ]);
+
+    assert_eq!(
+        texts(scope.names().family(&part, &recorded)),
+        ["f-fil1/fillet/edge(f-b/y|f-cha1/chamfer/edge(f-box1/front|f-box1/top))"]
+    );
+    assert!(scope.names().family(&part, &Merged::default()).is_empty());
+}
+
+#[test]
 fn oracle_agrees_with_the_renumbered_piece_family() {
     let world = World {
         faces: [
@@ -241,7 +315,7 @@ fn oracle_agrees_with_the_renumbered_piece_family() {
     };
 
     assert_eq!(
-        world.family(&flat("f-b/top", &[2]), &[]),
+        world.family(&flat("f-b/top", &[2]), &MergedChoices::new()),
         ["f-b/top#1", "f-b/top#2#1", "f-b/top#2#2"]
     );
 }
@@ -256,7 +330,10 @@ fn oracle_agrees_with_merged_pieces() {
     assert_eq!(
         world.family(
             &flat("f-q/q", &[]),
-            &[MergedChoice::Face(flat("f-a/x", &[2]))]
+            &MergedChoices::from([(
+                flat("f-q/q", &[]),
+                vec![MergedChoice::Face(flat("f-a/x", &[2]))]
+            )])
         ),
         ["f-a/x#2#1"]
     );
@@ -271,11 +348,11 @@ fn oracle_agrees_with_a_kept_piece_alias() {
     };
 
     assert_eq!(
-        world.family(&flat("f-ext1/end-cap", &[]), &[]),
+        world.family(&flat("f-ext1/end-cap", &[]), &MergedChoices::new()),
         ["f-box2/top", "f-ext1/end-cap#1"]
     );
     assert_eq!(
-        world.family(&flat("f-ext1/end-cap", &[2]), &[]),
+        world.family(&flat("f-ext1/end-cap", &[2]), &MergedChoices::new()),
         ["f-box2/top"]
     );
 }
@@ -296,10 +373,13 @@ fn oracle_agrees_with_copies() {
     assert_eq!(
         world.family(
             &flat("f-box1/top", &[]),
-            &[MergedChoice::Copies(Flat {
-                head: "f-box1/top",
-                groups: Vec::new(),
-            })]
+            &MergedChoices::from([(
+                flat("f-box1/top", &[]),
+                vec![MergedChoice::Copies(Flat {
+                    head: "f-box1/top",
+                    groups: Vec::new(),
+                })]
+            )])
         ),
         ["f-box1/top", "f-box1/top@f-p:1", "f-box1/top@f-p:2"]
     );
@@ -307,19 +387,6 @@ fn oracle_agrees_with_copies() {
 
 #[test]
 fn oracle_agrees_with_nested_aliases() {
-    let chamfer = |first: &'static str, second: &'static str| Face::Chamfer {
-        terms: vec![
-            Flat {
-                head: first,
-                groups: Vec::new(),
-            },
-            Flat {
-                head: second,
-                groups: Vec::new(),
-            },
-        ],
-        groups: Vec::new(),
-    };
     let world = World {
         faces: [chamfer("f-z/front", "f-z/top")].into(),
         aliases: BTreeMap::from([
@@ -330,9 +397,59 @@ fn oracle_agrees_with_nested_aliases() {
     };
 
     assert_eq!(
-        world.family(&chamfer("f-a/front", "f-a/top"), &[]),
+        world.family(&chamfer("f-a/front", "f-a/top"), &MergedChoices::new()),
         ["f-c/chamfer/edge(f-z/front|f-z/top)"]
     );
+}
+
+#[test]
+fn oracle_and_crate_agree_with_nested_merged_names() {
+    // Test 105: the merged names of the nested faces stand in for them inside the edge.
+    let world = World {
+        faces: [chamfer("f-box1/front", "f-box1/top")].into(),
+        ..World::default()
+    };
+    let part = chamfer("f-a1/front", "f-a1/top");
+    let choices = MergedChoices::from([
+        (
+            flat("f-a1/front", &[]),
+            vec![MergedChoice::Face(flat("f-box1/front", &[]))],
+        ),
+        (
+            flat("f-a1/top", &[]),
+            vec![MergedChoice::Face(flat("f-box1/top", &[]))],
+        ),
+    ]);
+    let expected = ["f-c/chamfer/edge(f-box1/front|f-box1/top)"];
+
+    assert_eq!(world.family(&part, &choices), expected);
+    assert_eq!(crate_family(&world, &part, &choices), expected);
+    assert!(world.family(&part, &MergedChoices::new()).is_empty());
+    assert!(crate_family(&world, &part, &MergedChoices::new()).is_empty());
+}
+
+#[test]
+fn oracle_and_crate_agree_that_rims_of_pieces_are_siblings() {
+    // The groups after a face-name generator belong to it (section 3.1 rule 6), so the rims of
+    // two pieces of one face are pieces of one rim, and an inner face is never in their family.
+    let world = World {
+        faces: [
+            rim("f-a/x", &[1]),
+            rim("f-a/x", &[2]),
+            Face::Shell {
+                role: "inner",
+                generator: flat_name("f-a/x", &[1]),
+            },
+        ]
+        .into(),
+        ..World::default()
+    };
+    let expected = ["f-s/rim/f-a/x#1", "f-s/rim/f-a/x#2"];
+
+    for part in [rim("f-a/x", &[2]), rim("f-a/x", &[])] {
+        assert_eq!(world.family(&part, &MergedChoices::new()), expected);
+        assert_eq!(crate_family(&world, &part, &MergedChoices::new()), expected);
+    }
 }
 
 /// One output face of a random map: new, or from inherited faces picked modulo their count.
@@ -492,7 +609,7 @@ proptest! {
 
         for (part, choices) in scenario.parts() {
             let expected = scenario.world.family(&part, &choices);
-            let merged_names = oracle::Scenario::merged(&part, &choices);
+            let merged_names = oracle::Scenario::merged(&choices);
 
             let family = set.names().family(&element_name(&part.text()), &merged_names);
 

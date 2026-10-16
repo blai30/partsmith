@@ -185,14 +185,20 @@ fn is_sorted_list<T: Ord>(items: &[T]) -> bool {
 /// The parts of a query (section 3.1): its face terms for an edge or vertex name, the name itself
 /// for a face name, and an edge or vertex name with its own `#n` itself.
 pub(crate) fn query_parts(query: &ElementName) -> Vec<ElementName> {
-    if query.kind() == ElementKind::Face {
-        return vec![query.clone()];
-    }
-    let mut parts = query.face_terms();
+    let mut parts = face_parts(query);
     if has_own_split(query) {
         parts.push(query.clone());
     }
     parts
+}
+
+/// The face parts of a query: the name itself for a face name, its face terms for an edge or
+/// vertex name.
+pub(crate) fn face_parts(query: &ElementName) -> Vec<ElementName> {
+    match query.kind() {
+        ElementKind::Face => vec![query.clone()],
+        ElementKind::Edge | ElementKind::Vertex => query.face_terms(),
+    }
 }
 
 /// True for an edge or vertex name with its own trailing `#n`.

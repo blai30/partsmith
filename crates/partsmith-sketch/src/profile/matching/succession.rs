@@ -185,20 +185,29 @@ mod tests {
     };
     use crate::test_support::{circle, id, line};
 
-    /// The successions of the rectangle `e-1` to `e-4` (80 x 50) matched among the regions of `entities`.
-    fn successions_of(entities: &[SketchEntity]) -> Vec<Succession> {
-        let rectangle = [
+    /// The rectangle `e-1` to `e-4` (80 x 50), drawn counterclockwise.
+    fn rectangle() -> Vec<SketchEntity> {
+        vec![
             line("e-1", [0.0, 0.0], [80.0, 0.0]),
             line("e-2", [80.0, 0.0], [80.0, 50.0]),
             line("e-3", [80.0, 50.0], [0.0, 50.0]),
             line("e-4", [0.0, 50.0], [0.0, 0.0]),
-        ];
-        let reference = build_profile(&rectangle).regions[0].reference();
+        ]
+    }
+
+    /// The successions of the first region of `stored` matched among the regions of `entities`.
+    fn successions_after(stored: &[SketchEntity], entities: &[SketchEntity]) -> Vec<Succession> {
+        let reference = build_profile(stored).regions[0].reference();
         let ids: Vec<Id> = entities.iter().map(|entity| entity.id.clone()).collect();
         match match_region(&build_profile(entities).regions, &ids, &reference) {
             RegionMatch::Resolved { successions, .. } => successions,
-            other => panic!("the rectangle resolves, found {other:?}"),
+            other => panic!("the region resolves, found {other:?}"),
         }
+    }
+
+    /// The successions of the rectangle matched among the regions of `entities`.
+    fn successions_of(entities: &[SketchEntity]) -> Vec<Succession> {
+        successions_after(&rectangle(), entities)
     }
 
     #[test]
@@ -260,41 +269,45 @@ mod tests {
         );
     }
 
+    /// The successions of the rectangle with a circle `e-5` across its top line `e-3`, after the right piece of
+    /// `e-3` is redrawn as `right` and the left piece as `left`.
+    fn successions_of_redrawn_pieces(right: &str, left: &str) -> Vec<Succession> {
+        let bite = circle("e-5", [40.0, 50.0], 10.0);
+        let mut stored = rectangle();
+        stored.push(bite.clone());
+        assert_eq!(
+            build_profile(&stored).regions[0].outline().to_string(),
+            "e-1,e-2,e-3,~e-5,e-3,e-4"
+        );
+        let mut entities = rectangle();
+        entities.retain(|entity| entity.id.as_str() != "e-3");
+        entities.extend([
+            bite,
+            line(right, [80.0, 50.0], [50.0, 50.0]),
+            line(left, [30.0, 50.0], [0.0, 50.0]),
+        ]);
+
+        successions_after(&stored, &entities)
+    }
+
     #[test]
     fn the_replaced_pieces_of_an_interrupted_line_form_one_succession() {
-        let stored = [
-            line("e-1", [0.0, 0.0], [80.0, 0.0]),
-            line("e-2", [80.0, 0.0], [80.0, 50.0]),
-            line("e-3", [80.0, 50.0], [0.0, 50.0]),
-            line("e-4", [0.0, 50.0], [0.0, 0.0]),
-            circle("e-5", [40.0, 50.0], 10.0),
-        ];
-        let reference = build_profile(&stored).regions[0].reference();
         assert_eq!(
-            reference.outline,
-            Some("e-1,e-2,e-3,~e-5,e-3,e-4".parse().expect("valid loop"))
-        );
-        let entities = [
-            line("e-1", [0.0, 0.0], [80.0, 0.0]),
-            line("e-2", [80.0, 0.0], [80.0, 50.0]),
-            line("e-4", [0.0, 50.0], [0.0, 0.0]),
-            circle("e-5", [40.0, 50.0], 10.0),
-            line("e-8", [80.0, 50.0], [50.0, 50.0]),
-            line("e-9", [30.0, 50.0], [0.0, 50.0]),
-        ];
-        let regions = build_profile(&entities).regions;
-        let ids: Vec<Id> = entities.iter().map(|entity| entity.id.clone()).collect();
-
-        let RegionMatch::Resolved { successions, .. } = match_region(&regions, &ids, &reference)
-        else {
-            panic!("the region resolves");
-        };
-
-        assert_eq!(
-            successions,
+            successions_of_redrawn_pieces("e-8", "e-9"),
             [Succession {
                 entity: id("e-3"),
                 now: vec![id("e-8"), id("e-9")],
+            }]
+        );
+    }
+
+    #[test]
+    fn the_replaced_pieces_follow_the_loop_rather_than_their_ids() {
+        assert_eq!(
+            successions_of_redrawn_pieces("e-9", "e-8"),
+            [Succession {
+                entity: id("e-3"),
+                now: vec![id("e-9"), id("e-8")],
             }]
         );
     }

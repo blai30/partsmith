@@ -121,6 +121,10 @@ impl ElementName {
     pub fn is_order_dependent(&self) -> bool;
     /// The name with every trailing split suffix (`#n`) removed.
     pub fn split_base(&self) -> ElementName;
+    /// The piece-free name (section 3.1): the name with every `#n` group removed, wherever it stands; `None` when that
+    /// text is no valid name (removing numbers can unsort the face terms of a nested name). Recompute's loss diagnosis
+    /// describes a lost piece's whole face by it (recompute.md section 3.10).
+    pub fn piece_free(&self) -> Option<ElementName>;
     /// True when `self` is `ancestor` followed by one or more split suffixes.
     pub fn is_split_descendant_of(&self, ancestor: &ElementName) -> bool;
     /// For an edge or vertex name, its face names in written (sorted) order; empty for a face name.
@@ -637,7 +641,8 @@ pub struct Candidate {
 /// What the resolver found gone.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Lost {
-    /// Parts of the query with no face, continuation or relative in the body.
+    /// Parts of the query that are not present: no face in the body, and no continuation or relative resolved the
+    /// query. Never the query's own `#n` (section 3.9 step 5).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub parts: Vec<ElementName>,
     /// Order-dependent parts whose piece no longer exists, or, for fallback names, can no longer be confirmed by its
@@ -1054,7 +1059,7 @@ A piece-lost part without live anchors that no rim continues is decided by the s
 - If exactly one part is not present and the others are: the candidates that pair with the present parts and a relative of the missing part. One: `Resolved { [it], Related, 1, Related }`. Several: `Ambiguous` with them, each with `meaning: true`.
 - If every part is present but no candidate pairs with all of them: the candidates that keep one part and whose other face is a relative of another part or a relative of the kept part (a part without a sketch generator has no relatives, so for it this gives nothing). One or more: `Ambiguous` with them (the change is ambiguous by meaning: a hole whose bore now ends at a counterbore has a new mouth and a new bore edge, and either may be what the user meant).
 
-**Step 5: lost.** `Missing { lost, candidates }`. `lost.parts` lists the parts that are not present, continued or related; `lost.pieces` the piece-lost parts; `lost.unmet` is true when every part is present and none is piece-lost (an edge or vertex whose faces all exist but no longer meet). `candidates` are at most five elements of the query's kind in candidate order: `meaning` is true for an element that touches a face in the family of a present part (or, when no part is present, a face whose own `ElementName::generators` list a feature that the `generators` of a part list), and `distance` is the distance between its fingerprint centroid and `fp`'s. Each carries its score (section 3.9.1). No candidate is ever returned as resolved.
+**Step 5: lost.** `Missing { lost, candidates }`. `lost.parts` lists the parts that are not present (step 5 runs only when no continuation or relative resolved the query, so a part that has one is listed too); `lost.pieces` the piece-lost parts; `lost.unmet` is true when every part is present and none is piece-lost (an edge or vertex whose faces all exist but no longer meet). The query's own `#n` is listed in `lost.pieces` when it is piece-lost, never in `lost.parts`, and its presence does not enter `lost.unmet`: an empty family of its own only means that one of its faces is gone or that they no longer meet. `candidates` are at most five elements of the query's kind in candidate order: `meaning` is true for an element that touches a face in the family of a present part (or, when no part is present, a face whose own `ElementName::generators` list a feature that the `generators` of a part list), and `distance` is the distance between its fingerprint centroid and `fp`'s. Each carries its score (section 3.9.1). No candidate is ever returned as resolved.
 
 **Follow.** A result of step 1 or 2 carries in `via` the keys whose `chase` gave a form it was matched by, sorted, and in `follow`: `Replaced` when a replacement was used; else `Extended` when an extension was; else `Merged` when a merge alias was used and an element of the result *grew*, that is a face that is the target of a merge alias and stands for names that are neither parts of `q` nor its merged names, or an edge or vertex all of whose adjacent faces grew (an edge whose other face did not grow did not grow either); else none.
 
@@ -1118,7 +1123,7 @@ Anchors use piece-free names so that further splits of a neighbor do not change 
 | `TopologyMismatch` | `The topology does not match the naming map's element counts.` |
 | `DuplicateName { name: String }` | `The naming map lists "{name}" more than once.` |
 
-`reason` texts used by `InvalidName`: `it is empty`, `it is longer than 16384 bytes`, `it nests more than 32 levels`, `unexpected character '{c}' at byte {i}`, `a feature id must be 1 to 64 letters, digits, '_' or '-'`, `a role must start with a lowercase letter`, `split numbers start at 1`, `a number is too large`, `edge and vertex face lists must be sorted and distinct`, `unbalanced parentheses`, `a merged name is a face name, or a face name followed by @<feature>:*`. `reason` texts used by `InvalidReference` (`name` is the query): `anchors are listed for "{part}", which is not an order-dependent part of the query`, `the anchors of "{part}" must be 1 to 6 sorted, distinct, piece-free face names`, `merged names are listed for "{face}", which is not a face name in the query`, `the merged names of "{face}" must be a non-empty, sorted and distinct list`. `reason` texts used by `InvalidFingerprint`: `unknown kind "{kind}"`, `unknown field "{field}"`, `field "{field}" is repeated or out of order`, `field "{field}" does not apply to {kind}`, `"{value}" is not a number`, `the direction is not a unit vector`, `a size or radius cannot be negative`. `ElementKind` displays as `face`, `edge`, `vertex`; `GeometryKind` as its token.
+`reason` texts used by `InvalidName`: `it is empty`, `it is longer than 16384 bytes`, `it nests more than 32 levels`, `unexpected character '{c}' at byte {i}`, `it ends too early`, `a feature id must be 1 to 64 letters, digits, '_' or '-'`, `a role must start with a lowercase letter`, `split numbers start at 1`, `instance numbers are n, n.m or 0.m, with n and m of 1 or more and no leading zeros`, `a number is too large`, `edge and vertex face lists must be sorted and distinct`, `unbalanced parentheses`, `a merged name is a face name, or a face name followed by @<feature>:*`, and, for a valid name of another kind where a naming map needs one kind, `it is not a face name`, `it is not an edge name`, `it is not a vertex name`. `reason` texts used by `InvalidReference` (`name` is the query): `anchors are listed for "{part}", which is not an order-dependent part of the query`, `the anchors of "{part}" must be 1 to 6 sorted, distinct, piece-free face names`, `merged names are listed for "{face}", which is not a face name in the query`, `the merged names of "{face}" must be a non-empty, sorted and distinct list`. `reason` texts used by `InvalidFingerprint`: `unknown kind "{kind}"`, `unknown field "{field}"`, `field "{field}" is repeated or out of order`, `field "{field}" does not apply to {kind}`, `field "{field}" is required for {kind}` (`Fingerprint::new` without a field its kind needs), `field "{field}" needs {count} values`, `"{value}" is not a number`, `the direction is not a unit vector`, `a size or radius cannot be negative`. `ElementKind` displays as `face`, `edge`, `vertex`; `GeometryKind` as its token.
 
 These errors indicate a programming error in a feature or a corrupt document; the feature or loader that receives one reports it as its own error.
 
@@ -1202,7 +1207,7 @@ Naming maps:
 36. SPHERE gives edges `[None, edge(f-sph1/surface), None]` and vertices `vertex(f-sph1/surface)#2` (vertex 1, z = 10) and `vertex(f-sph1/surface)#1` (vertex 2, z = -10).
 37. Split numbering: a topology with two faces both `From([f-ext1/end-cap])`, face 1 centroid (65,25,30) and face 2 centroid (15,25,30), names face 2 `f-ext1/end-cap#1` and face 1 `f-ext1/end-cap#2`.
 38. Ordering ties: two faces from `[X]` with equal centroid (0,0,0) and areas 10 and 5 are numbered `#1` for area 5 and `#2` for area 10; with equal centroid and area, by index.
-39. Quantization: centroids x = 1.0000004 and x = 1.0000001 (other coordinates equal, sizes 2 and 1) quantize equal in x, so the size decides (size 1 is `#1`).
+39. Quantization: centroids x = 1.0000004 with size 1 and x = 1.0000001 with size 2 (other coordinates equal) quantize equal in x, so the size decides: size 1 is `#1`, although its x is larger.
 40. Inherited suffix kept: a single face `From([f-ext1/end-cap#2])` is named `f-ext1/end-cap#2`.
 41. Second-pass collision: three faces, face 1 `From([X#1])`, faces 2 and 3 `New(X)` (with `X` = `f-a/x`), centroids x = 0, 1, 2: faces 2 and 3 first become `X#1` and `X#2`, then `X#1` collides with face 1, so the final names are face 1 `X#1#1`, face 2 `X#1#2`, face 3 `X#2`.
 42. Merge: one face `From([f-ext2/end-cap, f-ext1/end-cap])` is named `f-ext1/end-cap` and the map's aliases are `{f-ext2/end-cap: [f-ext1/end-cap]}`.

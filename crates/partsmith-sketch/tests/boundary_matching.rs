@@ -1,5 +1,5 @@
 //! Acceptance tests for region matching by boundary, coverage, successions and losses (spec section 6.18,
-//! tests 221 to 236, and test 252 of section 6.21).
+//! tests 221 to 236, and test 252 of section 6.21), plus one test per rule of section 3.14 that those leave out.
 
 mod common;
 
@@ -7,7 +7,8 @@ use std::f64::consts::{FRAC_PI_2, PI};
 
 use common::benchmark::entity_ids;
 use common::matching::{
-    key_texts, matched, reference_with_outline, regions_of, resolved, succession, without_outline,
+    key_texts, matched, reference_with_outline, region_ref_texts, regions_of, resolved, succession,
+    without_outline,
 };
 use common::random::Rng;
 use common::{
@@ -46,6 +47,25 @@ fn rect_edit(
         .collect();
     entities.extend(added);
     entities
+}
+
+/// The circle across the top line `e-3` of `RECT'` (corpus R04).
+fn bite() -> SketchEntity {
+    circle("e-5", [40.0, 50.0], 10.0)
+}
+
+/// The reference to the region of `RECT'` that `bite()` cuts into, as Keep these regions stores it after corpus
+/// R04: its outline holds `e-3` twice.
+fn bitten_region() -> RegionRef {
+    let stored = regions_of(&rect_edit(&[], Vec::new(), vec![bite()]))[0].reference();
+    assert_eq!(
+        region_ref_texts(&stored),
+        (
+            "e-1,e-2,e-3,e-4,~e-5".to_owned(),
+            Some("e-1,e-2,e-3,~e-5,e-3,e-4".to_owned())
+        )
+    );
+    stored
 }
 
 /// `Missing { loss }`.
@@ -296,7 +316,7 @@ fn t227_arc_continued_on_its_circle_is_an_extension() {
 
 #[test]
 fn t228_circle_across_a_side_covers_with_the_inner_half_disc_only() {
-    let entities = rect_edit(&[], Vec::new(), vec![circle("e-5", [40.0, 50.0], 10.0)]);
+    let entities = rect_edit(&[], Vec::new(), vec![bite()]);
     let regions = regions_of(&entities);
 
     assert_eq!(
@@ -583,6 +603,135 @@ fn moving_the_geometry_keeps_the_key_match() {
     assert_eq!(
         matched(&entities, &r0()),
         resolved(&[0], MatchMethod::Key, Vec::new())
+    );
+}
+
+#[test]
+fn successions_are_sorted_by_entity_whichever_rule_found_them() {
+    // `e-4` is redrawn as `e-9` (a replacement) and `e-2` is continued by `e-6` (an extension).
+    let entities = rect_edit(
+        &["e-4"],
+        vec![line("e-2", [80.0, 0.0], [80.0, 25.0])],
+        vec![
+            line("e-6", [80.0, 25.0], [80.0, 50.0]),
+            line("e-9", [0.0, 50.0], [0.0, 0.0]),
+        ],
+    );
+
+    assert_eq!(
+        matched(&entities, &r0()),
+        resolved(
+            &[0],
+            MatchMethod::Boundary,
+            vec![
+                succession("e-2", &["e-2", "e-6"]),
+                succession("e-4", &["e-9"])
+            ]
+        )
+    );
+    assert_eq!(
+        matched(&entities, &r0_without_outline()),
+        resolved(
+            &[0],
+            MatchMethod::Boundary,
+            vec![succession("e-2", &["e-2", "e-6"])]
+        )
+    );
+}
+
+#[test]
+fn no_replacement_is_inferred_next_to_a_line_that_occurs_twice() {
+    // The edit deletes the bite and redraws `e-2` as `e-9`. The first `e-3` of the stored outline would give the
+    // old run `[e-2]` between `e-1` and `e-3`, and so the replacement `e-2 -> [e-9]`.
+    let entities = rect_edit(
+        &["e-2"],
+        Vec::new(),
+        vec![line("e-9", [80.0, 0.0], [80.0, 50.0])],
+    );
+    assert_eq!(key_texts(&regions_of(&entities)), ["e-1,e-3,e-4,e-9"]);
+
+    assert_eq!(
+        matched(&entities, &bitten_region()),
+        resolved(&[0], MatchMethod::Boundary, Vec::new())
+    );
+}
+
+#[test]
+fn region_with_a_bite_in_a_stored_line_is_ambiguous_after_its_key_changes() {
+    // Corpus R01's 5 mm corner chamfer line, drawn after Keep these regions stored the bitten region.
+    let entities = rect_edit(
+        &[],
+        vec![
+            line("e-1", [0.0, 0.0], [75.0, 0.0]),
+            line("e-2", [80.0, 5.0], [80.0, 50.0]),
+        ],
+        vec![bite(), line("e-6", [75.0, 0.0], [80.0, 5.0])],
+    );
+    assert_eq!(
+        key_texts(&regions_of(&entities)),
+        ["e-1,e-2,e-3,e-4,~e-5,e-6", "e-3,e-5", "~e-3,e-5"]
+    );
+
+    // The lower half disc keeps `e-3` on the same side, so it seeds a second component: the circle it shares
+    // with the region is stored, not added (spec open issue 17, pending the review of ADR 0022).
+    assert_eq!(
+        matched(&entities, &bitten_region()),
+        RegionMatch::Ambiguous {
+            candidates: vec![vec![0], vec![1]]
+        }
+    );
+}
+
+#[test]
+fn arc_on_the_stored_circle_keeps_the_stored_boundary() {
+    let stored = regions_of(&[circle("e-5", [0.0, 0.0], 10.0)])[0].reference();
+    // Where the new arc `e-1` lies on the circle, the piece of `e-1`, the smaller id, is kept (section 3.13.2).
+    let entities = vec![
+        arc("e-1", [0.0, 0.0], 10.0, 0.0, FRAC_PI_2),
+        line("e-2", [-10.0, 0.0], [10.0, 0.0]),
+        circle("e-5", [0.0, 0.0], 10.0),
+    ];
+
+    assert_eq!(
+        key_texts(&regions_of(&entities)),
+        ["e-1,e-2,e-5", "~e-2,e-5"]
+    );
+    assert_eq!(
+        matched(&entities, &stored),
+        resolved(&[0, 1], MatchMethod::Coverage, Vec::new())
+    );
+}
+
+#[test]
+fn disc_split_by_a_line_is_covered_by_both_halves() {
+    let stored = regions_of(&[circle("e-1", [0.0, 0.0], 10.0)])[0].reference();
+    let entities = vec![
+        circle("e-1", [0.0, 0.0], 10.0),
+        line("e-2", [-10.0, 0.0], [10.0, 0.0]),
+    ];
+
+    assert_eq!(key_texts(&regions_of(&entities)), ["e-1,e-2", "e-1,~e-2"]);
+    assert_eq!(
+        matched(&entities, &stored),
+        resolved(&[0, 1], MatchMethod::Coverage, Vec::new())
+    );
+}
+
+#[test]
+fn loss_names_only_entities_of_the_stored_outer_boundary() {
+    let stored = regions_of(&plate_entities())[0].reference();
+    assert_eq!(stored.key.to_string(), "e-1,e-2,e-3,e-4;~e-5");
+    let entities: Vec<SketchEntity> = plate_entities()
+        .into_iter()
+        .filter(|entity| !["e-2", "e-5"].contains(&entity.id.as_str()))
+        .collect();
+    assert!(regions_of(&entities).is_empty(), "no region is left");
+
+    assert_eq!(
+        matched(&entities, &stored),
+        missing(RegionLoss::Deleted {
+            entities: ids(&["e-2"]),
+        })
     );
 }
 

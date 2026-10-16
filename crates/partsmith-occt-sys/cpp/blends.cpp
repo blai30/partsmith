@@ -609,10 +609,17 @@ std::optional<double> convex_radius(const TopoDS_Face &face) {
   return radius;
 }
 
+// How close a wall may come to the radius of a convex face, on either side, before OCCT's offset
+// of that face fails (kernel spec section 3.4.8, item 6), measured for radii from 0.5 mm to 10 mm.
+// Just under the radius, the join offset fails on closed hollows once the offset face is thinner
+// than about 0.0007 mm, and merges that face's vertices on open shells. Just over it, the
+// complete intersection fails while the offset radius lies within about 0.002 mm of zero. A sharp
+// inner corner where a round thinner than this belongs is below what any printer resolves.
+constexpr double kVanishingMargin = 0.01;
+
 // Flags indexed by face index (entry 0 unused): true for the kept faces whose inner offset
-// vanishes at `thickness`, convex faces with a radius of at most the wall (kernel spec section
-// 3.4.8, item 6). A radius above the wall by less than the modeling tolerance counts too, since
-// its offset would be thinner than the tolerance.
+// vanishes at `thickness` or would be thinner than kVanishingMargin, convex faces with a radius
+// below the wall plus that margin (kernel spec section 3.4.8, item 6).
 std::vector<bool> vanishing_flags(const Shape &copy, const std::vector<bool> &removed,
                                   double thickness) {
   std::vector<bool> vanishing(removed.size(), false);
@@ -622,16 +629,10 @@ std::vector<bool> vanishing_flags(const Shape &copy, const std::vector<bool> &re
       continue;
     }
     const std::optional<double> radius = convex_radius(TopoDS::Face(copy.faces()(index)));
-    vanishing[position] = radius && *radius - thickness < kLinear;
+    vanishing[position] = radius && *radius - thickness < kVanishingMargin;
   }
   return vanishing;
 }
-
-// How much a wall must exceed the radius of a vanishing face for OCCT's complete intersection to
-// drop the face (kernel spec section 3.4.8, item 6.2). Its offset fails while the offset radius
-// lies within about 0.002 mm of zero, measured for radii from 0.5 mm to 10 mm; five times that
-// keeps a margin.
-constexpr double kVanishingMargin = 0.01;
 
 // How a shell takes out its cavity past the kept faces whose inner offset vanishes (kernel spec
 // section 3.4.8, item 6).
@@ -646,11 +647,10 @@ enum class VanishingPath {
   WithoutThem,
 };
 
-// The path a shell takes past the faces flagged in `vanishing`: without them at a wall that
-// exceeds the radius of one of them by less than kVanishingMargin, at a sphere among them and at a
-// removed face that meets one of them tangentially, where the complete intersection fails; with
-// arc joins at a concave edge between kept faces; else the complete intersection. Only reads
-// `shape`.
+// The path a shell takes past the faces flagged in `vanishing`: without them at a wall within
+// kVanishingMargin of the radius of one of them, at a sphere among them and at a removed face that
+// meets one of them tangentially, where the complete intersection fails; with arc joins at a
+// concave edge between kept faces; else the complete intersection. Only reads `shape`.
 VanishingPath vanishing_path(const Shape &shape, const std::vector<bool> &removed,
                              const std::vector<bool> &vanishing, double thickness) {
   for (int index = 1; index <= shape.faces().Extent(); ++index) {
@@ -660,7 +660,7 @@ VanishingPath vanishing_path(const Shape &shape, const std::vector<bool> &remove
     const TopoDS_Face &face = TopoDS::Face(shape.faces()(index));
     const std::optional<double> radius = convex_radius(face);
     if (BRepAdaptor_Surface(face, Standard_False).GetType() == GeomAbs_Sphere ||
-        (radius && thickness - *radius < kVanishingMargin)) {
+        (radius && std::abs(thickness - *radius) < kVanishingMargin)) {
       return VanishingPath::WithoutThem;
     }
   }
@@ -942,8 +942,8 @@ OpResultData shell(const Shape &shape, rust::Slice<const std::uint32_t> remove_f
   const std::vector<bool> removed = removed_flags(copy, remove_faces);
   const std::vector<bool> vanishing = vanishing_flags(copy, removed, thickness);
   const bool any_vanishing = std::find(vanishing.begin(), vanishing.end(), true) != vanishing.end();
-  // OCCT's join offset cannot take a convex face to radius zero or below (section 3.4.8, item 6).
-  // BRepOffset_Analyse only reads, so it runs on the input.
+  // OCCT's join offset cannot take a convex face to radius zero, below it or close to it (section
+  // 3.4.8, item 6). BRepOffset_Analyse only reads, so it runs on the input.
   if (any_vanishing) {
     switch (vanishing_path(shape, removed, vanishing, thickness)) {
       case VanishingPath::CompleteIntersection:
