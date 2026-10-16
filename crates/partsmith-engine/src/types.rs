@@ -243,12 +243,3 @@ mod tests {
         assert!(report.has_warnings());
     }
 }
-#[cfg(test)]
-mod size_probe {
-    #[test]
-    fn print_sizes() {
-        println!("EngineError {}", std::mem::size_of::<crate::EngineError>());
-        println!("ValidationDiagnostic {}", std::mem::size_of::<crate::ValidationDiagnostic>());
-        println!("Id {}", std::mem::size_of::<partsmith_model::Id>());
-    }
-}
