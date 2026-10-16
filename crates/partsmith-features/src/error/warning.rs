@@ -4,10 +4,10 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use partsmith_model::{Id, Units};
-use partsmith_naming::{ElementKind, ElementName, Follow, Lost, Reference};
+use partsmith_naming::{ElementKind, ElementName, Follow, Lost, Reference, piece_free_text};
 use partsmith_sketch::{RegionLoss, RegionRef, SolveIssue};
 
-use super::describe::{made_from_line, new_faces_are_flat, piece_free_text, rim_generator};
+use super::describe::{made_from_line, new_faces_are_flat, rim_generator};
 use super::field::FieldRef;
 use super::fix::Fix;
 use super::loss::{Loss, LossCandidate, Repair, Severity};
@@ -816,8 +816,7 @@ fn continued_part(query: &ElementName, elements: &[Reference]) -> Option<String>
     let rims: Vec<String> = elements
         .iter()
         .flat_map(|element| element.query.face_terms())
-        .filter_map(|face| rim_generator(face.as_str()))
-        .map(|generator| piece_free_text(&generator))
+        .filter_map(|face| rim_generator(&face).map(piece_free_text))
         .collect();
     query
         .face_terms()

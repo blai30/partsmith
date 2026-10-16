@@ -9,18 +9,18 @@ mod caps;
 mod cuts;
 mod face;
 mod maker;
-mod name;
 
 use std::collections::HashMap;
 
 use partsmith_model::{Id, Units};
-use partsmith_naming::{ElementKind, ElementName, Fingerprint, GeometryKind, Instance, Reference};
+use partsmith_naming::{
+    ElementKind, ElementName, FaceGenerator, FaceName, Fingerprint, GeometryKind, Instance, Reference,
+};
 
 use super::message::Names;
 use crate::context::BodyState;
 use face::{Element, FaceFacts, Faces, copy_noun};
 use maker::{Maker, NOT_IN_DOCUMENT, world_coordinates};
-use name::{FaceName, GeneratorText};
 
 pub use maker::sketch_coordinates;
 
@@ -111,7 +111,7 @@ impl Describer<'_> {
             .map(|centroid| format!(" near {}", world_coordinates(centroid, self.units)));
         match name.kind() {
             ElementKind::Face => {
-                let facts = self.face(&element, name.as_str());
+                let facts = self.face(&element, name);
                 Description {
                     text: facts.text.clone(),
                     entity: facts.entity_clause("made from"),
@@ -122,7 +122,7 @@ impl Describer<'_> {
                 let terms: Vec<FaceFacts> = name
                     .face_terms()
                     .iter()
-                    .map(|term| self.face(&element, term.as_str()))
+                    .map(|term| self.face(&element, term))
                     .collect();
                 let text = if name.kind() == ElementKind::Edge {
                     self.edge(&element, &terms)
@@ -139,7 +139,7 @@ impl Describer<'_> {
     }
 
     /// The facts of a face of `element` (the element itself, or one of its face terms).
-    fn face(&self, element: &Element<'_>, face: &str) -> FaceFacts {
+    fn face(&self, element: &Element<'_>, face: &ElementName) -> FaceFacts {
         FaceFacts::of(element, face, self)
     }
 
@@ -283,22 +283,21 @@ pub fn made_from_line(reference: &Reference) -> bool {
     match query.kind() {
         ElementKind::Face => {
             kind == GeometryKind::Plane
-                && FaceName::parse(query.as_str()).is_some_and(|face| face.role == "lateral")
+                && query
+                    .face_name()
+                    .is_some_and(|face| face.role() == "lateral")
         }
         ElementKind::Edge => {
             let terms = query.face_terms();
-            let faces: Vec<FaceName<'_>> = terms
-                .iter()
-                .filter_map(|term| FaceName::parse(term.as_str()))
-                .collect();
+            let faces: Vec<FaceName<'_>> = terms.iter().filter_map(ElementName::face_name).collect();
             let [first, second] = faces.as_slice() else {
                 return false;
             };
             let side_and_cap = |side: &FaceName<'_>, cap: &FaceName<'_>| {
-                side.role == "lateral"
-                    && matches!(cap.role, "start-cap" | "end-cap")
-                    && side.feature == cap.feature
-                    && side.copy_text() == cap.copy_text()
+                side.role() == "lateral"
+                    && matches!(cap.role(), "start-cap" | "end-cap")
+                    && side.feature() == cap.feature()
+                    && side.copies() == cap.copies()
             };
             kind == GeometryKind::Line
                 && (side_and_cap(first, second) || side_and_cap(second, first))
@@ -348,17 +347,14 @@ pub(crate) fn new_faces_are_flat(
 }
 
 /// The name a shell rim continues: the generator of `<feature>/rim/<face>`, else None.
-pub(crate) fn rim_generator(face: &str) -> Option<String> {
-    let face = FaceName::parse(face)?;
-    match (face.role, face.generator) {
-        ("rim", Some(GeneratorText::Element(generator))) => Some(generator.to_string()),
+pub(crate) fn rim_generator(face: &ElementName) -> Option<&str> {
+    let face = face.face_name()?;
+    match (face.role(), face.generator()) {
+        ("rim", Some(FaceGenerator::Face(generator) | FaceGenerator::List(generator))) => {
+            Some(generator)
+        }
         _ => None,
     }
-}
-
-/// The name with every `#n` group removed, wherever it stands.
-pub(crate) fn piece_free_text(name: &str) -> String {
-    name::piece_free(name)
 }
 
 /// A direction word of a flat face along a world axis.

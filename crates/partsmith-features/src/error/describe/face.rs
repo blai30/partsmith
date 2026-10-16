@@ -4,7 +4,9 @@
 use std::collections::HashMap;
 
 use partsmith_model::{Id, Units};
-use partsmith_naming::{ElementKind, ElementName, Fingerprint, GeometryKind};
+use partsmith_naming::{
+    ElementKind, ElementName, FaceGenerator, FaceName, Fingerprint, GeometryKind, piece_free_text,
+};
 
 use super::caps::cap_direction;
 use super::cuts::cut_boolean;
@@ -12,7 +14,6 @@ use super::maker::{
     Maker, NOT_IN_DOCUMENT, entity_geometry, entity_words, is_round, sketch_coordinates,
     sketch_point, world_coordinates,
 };
-use super::name::{FaceName, GeneratorText, piece_free};
 use super::{Describer, Word, cross, dot};
 use crate::context::BodyState;
 use crate::error::message::Names;
@@ -63,7 +64,7 @@ impl Faces {
             let name = info.name.to_string();
             faces
                 .by_piece_free
-                .entry(piece_free(&name))
+                .entry(piece_free_text(&name))
                 .or_default()
                 .push(name.clone());
             faces.by_name.insert(name, info.fingerprint.clone());
@@ -78,7 +79,7 @@ impl Faces {
 
     /// True when the state has the face named `name`, a piece of it, or the whole face it is a piece of.
     fn has_any_piece_of(&self, name: &str) -> bool {
-        self.by_piece_free.contains_key(&piece_free(name))
+        self.by_piece_free.contains_key(&piece_free_text(name))
     }
 }
 
@@ -130,7 +131,11 @@ pub(super) struct FaceFacts {
 impl FaceFacts {
     /// The facts of the face named `face`, which is `element` or one of its face terms, in the state `describer`
     /// describes.
-    pub(super) fn of(element: &Element<'_>, face: &str, describer: &Describer<'_>) -> FaceFacts {
+    pub(super) fn of(
+        element: &Element<'_>,
+        face: &ElementName,
+        describer: &Describer<'_>,
+    ) -> FaceFacts {
         let reader = FaceReader {
             element,
             body: describer.body,
@@ -193,23 +198,24 @@ struct FaceReader<'r, 'e> {
 }
 
 impl FaceReader<'_, '_> {
-    /// The facts of the face named `face`.
-    fn facts(&self, face: &str) -> FaceFacts {
-        let Some(name) = FaceName::parse(face) else {
-            return self.unknown(face);
+    /// The facts of the face `face`.
+    fn facts(&self, face: &ElementName) -> FaceFacts {
+        let Some(name) = face.face_name() else {
+            return self.unknown(face.as_str());
         };
-        let maker = Maker::of(self.names, name.feature);
+        let maker = Maker::of(self.names, name.feature());
         let copies = self.copy_clause(&name);
+        let copy_groups: String = name.copies().iter().map(|copy| copy.text).collect();
         let mut facts = FaceFacts {
             text: String::new(),
             word: None,
             normal: None,
             missing: !maker.exists(),
-            fallback: name.role == "face",
+            fallback: name.role() == "face",
             owner: maker.quoted(),
             copies,
-            feature_key: format!("{}{}", name.feature, name.copy_text()),
-            cut: self.cut(&maker, name.feature),
+            feature_key: format!("{}{copy_groups}", name.feature()),
+            cut: self.cut(&maker, name.feature()),
             entity: None,
             round: false,
             rim_owner: None,
@@ -222,14 +228,14 @@ impl FaceReader<'_, '_> {
             facts.text = format!("a face of {}{}", facts.owner, facts.copies);
             return facts;
         }
-        let fingerprint = self.fingerprint(face);
+        let fingerprint = self.fingerprint(face.as_str());
         facts.normal = fingerprint
             .filter(|fingerprint| fingerprint.kind == GeometryKind::Plane)
             .and_then(|fingerprint| fingerprint.direction)
-            .or_else(|| self.estimated_normal(face))
-            .or_else(|| self.cap_normal(&maker, &name, facts.cut.is_some()));
+            .or_else(|| self.estimated_normal(face.as_str()))
+            .or_else(|| self.cap_normal(&maker, face, name.role(), facts.cut.is_some()));
         facts.word = if maker.is_primitive() {
-            Word::of_role(name.role)
+            Word::of_role(name.role())
         } else {
             facts.normal.and_then(Word::of)
         };
@@ -239,7 +245,7 @@ impl FaceReader<'_, '_> {
         let base = self.base_text(&maker, &name, &facts, fingerprint);
         facts.text = format!(
             "{}{base}{}",
-            self.piece_prefix(&name, fingerprint),
+            self.piece_prefix(face, &name, fingerprint),
             facts.copies
         );
         facts
@@ -332,7 +338,8 @@ impl FaceReader<'_, '_> {
     /// face term, reads as the tool's own (section 3.12, corpus R30 (b)).
     fn all_in_state(&self, feature: &str) -> bool {
         self.element_faces().iter().all(|face| {
-            FaceName::parse(face.as_str()).is_none_or(|name| name.feature != feature)
+            face.face_name()
+                .is_none_or(|name| name.feature() != feature)
                 || self.faces.has_any_piece_of(face.as_str())
         })
     }
@@ -367,11 +374,17 @@ impl FaceReader<'_, '_> {
 
     /// For a cap of an extrude or revolve that is not in the state, the direction it faces in this run (section 3.12).
     /// A cut leaves the other side of its tool's cap (`cut`), so its result normal is reversed.
-    fn cap_normal(&self, maker: &Maker<'_>, name: &FaceName<'_>, cut: bool) -> Option<[f64; 3]> {
-        if self.faces.fingerprint_of(name.text).is_some() {
+    fn cap_normal(
+        &self,
+        maker: &Maker<'_>,
+        face: &ElementName,
+        role: &str,
+        cut: bool,
+    ) -> Option<[f64; 3]> {
+        if self.faces.fingerprint_of(face.as_str()).is_some() {
             return None;
         }
-        let made = cap_direction(self.names, maker, name.role)?;
+        let made = cap_direction(self.names, maker, role)?;
         Some(if cut {
             made.map(|component| -component)
         } else {
@@ -398,10 +411,10 @@ impl FaceReader<'_, '_> {
             );
         }
         if maker.is("hole") {
-            return matches!(name.role, "bore" | "counterbore" | "countersink");
+            return matches!(name.role(), "bore" | "counterbore" | "countersink");
         }
-        match (maker.is_sweep(), name.role, name.generator, maker.sketch()) {
-            (true, "lateral", Some(GeneratorText::Sketch(entity)), Some(sketch)) => {
+        match (maker.is_sweep(), name.role(), name.generator(), maker.sketch()) {
+            (true, "lateral", Some(FaceGenerator::Sketch(entity)), Some(sketch)) => {
                 entity_geometry(self.names, &sketch, entity)
                     .is_some_and(|geometry| is_round(&geometry))
             }
@@ -411,8 +424,8 @@ impl FaceReader<'_, '_> {
 
     /// The entity a side of an extrude or revolve was made from.
     fn entity(&self, maker: &Maker<'_>, name: &FaceName<'_>) -> Option<Entity> {
-        let (true, "lateral", Some(GeneratorText::Sketch(entity))) =
-            (maker.is_sweep(), name.role, name.generator)
+        let (true, "lateral", Some(FaceGenerator::Sketch(entity))) =
+            (maker.is_sweep(), name.role(), name.generator())
         else {
             return None;
         };
@@ -431,7 +444,7 @@ impl FaceReader<'_, '_> {
     fn rim_owner(&self, maker: &Maker<'_>, name: &FaceName<'_>, facts: &FaceFacts) -> String {
         if maker.is("hole") {
             let hole = self.hole(maker, name);
-            return match name.role {
+            return match name.role() {
                 "counterbore" => format!("the counterbore of {hole}"),
                 "countersink" => format!("the countersink of {hole}"),
                 _ => hole,
@@ -443,8 +456,8 @@ impl FaceReader<'_, '_> {
     /// The hole a face of a hole feature belongs to: `the hole at (7, 0)`, or `a hole of 'Hole 1' near (7, 0, 0)` when
     /// the sketch no longer has its point, with the stored centroid of the element described.
     fn hole(&self, maker: &Maker<'_>, name: &FaceName<'_>) -> String {
-        let point = match (name.generator, maker.sketch()) {
-            (Some(GeneratorText::Sketch(point)), Some(sketch)) => {
+        let point = match (name.generator(), maker.sketch()) {
+            (Some(FaceGenerator::Sketch(point)), Some(sketch)) => {
                 sketch_point(self.names, &sketch, point)
             }
             _ => None,
@@ -472,31 +485,32 @@ impl FaceReader<'_, '_> {
         if let Some(cut) = &facts.cut {
             return self.cut_face_text(cut, name, facts);
         }
+        let role = name.role();
         match maker.kind() {
-            Some("box") => match name.role {
-                "front" | "back" | "left" | "right" => format!("the {} side of {owner}", name.role),
-                "top" | "bottom" => format!("the {} of {owner}", name.role),
+            Some("box") => match role {
+                "front" | "back" | "left" | "right" => format!("the {role} side of {owner}"),
+                "top" | "bottom" => format!("the {role} of {owner}"),
                 _ => format!("a face of {owner}"),
             },
-            Some("cylinder" | "cone") if matches!(name.role, "top" | "bottom" | "side") => {
-                format!("the {} of {owner}", name.role)
+            Some("cylinder" | "cone") if matches!(role, "top" | "bottom" | "side") => {
+                format!("the {role} of {owner}")
             }
-            Some("sphere" | "torus") if name.role == "surface" => {
+            Some("sphere" | "torus") if role == "surface" => {
                 format!("the surface of {owner}")
             }
             Some("extrude" | "revolve") => self.sweep_face_text(name, facts, fingerprint),
-            Some("fillet") => match name.role {
+            Some("fillet") => match role {
                 "fillet" => format!("the rounded face of {owner}"),
                 _ => format!("a corner face of {owner}"),
             },
-            Some("chamfer") => match name.role {
+            Some("chamfer") => match role {
                 "chamfer" => format!("the beveled face of {owner}"),
                 _ => format!("a corner face of {owner}"),
             },
             Some("shell") => self.shell_face_text(name, facts),
             Some("hole") => {
                 let hole = self.hole(maker, name);
-                match name.role {
+                match role {
                     "bore" => format!("the wall of {hole}"),
                     "counterbore" => format!("the counterbore of {hole}"),
                     "countersink" => format!("the countersink of {hole}"),
@@ -522,7 +536,7 @@ impl FaceReader<'_, '_> {
         if let Some(word) = facts.word {
             return worded_text(word, owner);
         }
-        match (name.role, &facts.entity) {
+        match (name.role(), &facts.entity) {
             ("end-cap", _) => format!("the end face of {owner}"),
             ("start-cap", _) => format!("the start face of {owner}"),
             (_, Some(Entity::Known { words, sketch })) => {
@@ -541,7 +555,7 @@ impl FaceReader<'_, '_> {
     /// A face a cut left: the floor (a cap, or any face whose result normal is +Z), the wall along its entity, or a
     /// wall.
     fn cut_face_text(&self, cut: &str, name: &FaceName<'_>, facts: &FaceFacts) -> String {
-        let floor = matches!(name.role, "start-cap" | "end-cap")
+        let floor = matches!(name.role(), "start-cap" | "end-cap")
             || facts.normal.and_then(Word::of) == Some(Word::Top);
         if floor {
             return format!("the floor of {cut}");
@@ -555,11 +569,13 @@ impl FaceReader<'_, '_> {
     /// A face of a shell: an inside face by the word of the face it was offset from, or the rim.
     fn shell_face_text(&self, name: &FaceName<'_>, facts: &FaceFacts) -> String {
         let owner = &facts.owner;
-        match name.role {
+        match name.role() {
             "rim" => format!("the rim of {owner}"),
             "inner" => {
-                let generator = match name.generator {
-                    Some(GeneratorText::Element(generator)) => self.faces.fingerprint_of(generator),
+                let generator = match name.generator() {
+                    Some(FaceGenerator::Face(generator) | FaceGenerator::List(generator)) => {
+                        self.faces.fingerprint_of(generator)
+                    }
                     _ => None,
                 };
                 let word = generator
@@ -586,19 +602,24 @@ impl FaceReader<'_, '_> {
     /// nothing for a whole face. The axis is the one along which the two pieces' centroids differ most, and the side
     /// that of the described centroid against their middle, so a stored shape that now fits the sibling reads as the
     /// sibling's side.
-    fn piece_prefix(&self, name: &FaceName<'_>, fingerprint: Option<&Fingerprint>) -> &'static str {
-        if !name.piece {
+    fn piece_prefix(
+        &self,
+        face: &ElementName,
+        name: &FaceName<'_>,
+        fingerprint: Option<&Fingerprint>,
+    ) -> &'static str {
+        if !name.has_own_pieces() {
             return "";
         }
         let siblings = self
             .faces
             .by_piece_free
-            .get(&piece_free(name.text))
+            .get(&piece_free_text(face.as_str()))
             .map_or(&[][..], Vec::as_slice);
         let [first, second] = siblings else {
             return "a part of ";
         };
-        if first != name.text && second != name.text {
+        if first != face.as_str() && second != face.as_str() {
             return "a part of ";
         }
         let centroid = |name: &str| {
@@ -633,13 +654,14 @@ impl FaceReader<'_, '_> {
 
     /// The copy clause of a face of a pattern or mirror copy.
     fn copy_clause(&self, name: &FaceName<'_>) -> String {
-        name.copies
+        name.copies()
             .iter()
             .map(|copy| {
                 let maker = Maker::of(self.names, copy.feature);
                 let owner = maker.quoted();
                 let mirror = maker.is("mirror");
-                let noun = copy_noun(mirror, copy.first, copy.second);
+                let second = (copy.instance.second != 0).then_some(copy.instance.second);
+                let noun = copy_noun(mirror, copy.instance.first, second);
                 if mirror {
                     format!(" of the {noun} made by {owner}")
                 } else {

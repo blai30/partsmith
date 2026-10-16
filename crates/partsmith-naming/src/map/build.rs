@@ -13,7 +13,7 @@ use crate::map::NamingMap;
 use crate::map::motions::Motions;
 use crate::motion::Motion;
 use crate::name::ElementName;
-use crate::shape::{Shape, piece_free_text};
+use crate::shape::{Shape, shared_piece_free};
 use crate::topology::{FaceSource, TopologyInfo, element_count, index_of, indices};
 
 /// Grid steps per millimeter of the order key: the inverse of `partsmith_model::LINEAR_TOLERANCE`.
@@ -173,7 +173,7 @@ fn face_base(source: FaceSource, index: u32, map_count: usize) -> Result<FaceBas
 
 /// The piece-free text of a name.
 fn piece_free(name: &ElementName) -> Arc<str> {
-    piece_free_text(name.shared_text())
+    shared_piece_free(name.shared_text())
 }
 
 /// The aliases of the output (section 3.3, step 6): the union of every inherited list and the

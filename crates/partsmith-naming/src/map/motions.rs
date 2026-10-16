@@ -42,7 +42,7 @@ impl Motions {
     pub(crate) fn canonical(base: Motion, named: BTreeMap<ElementName, Motion>) -> Motions {
         let mut by_piece_free: BTreeMap<String, Vec<(ElementName, Motion)>> = BTreeMap::new();
         for (name, motion) in named {
-            let piece_free = piece_free_text(name.shared_text()).to_string();
+            let piece_free = piece_free_text(name.as_str());
             by_piece_free
                 .entry(piece_free)
                 .or_default()

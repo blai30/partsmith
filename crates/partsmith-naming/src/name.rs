@@ -11,6 +11,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::error::NamingError;
+use crate::face_name::FaceName;
 use crate::grammar::{self, NameDefect};
 use crate::kind::ElementKind;
 use crate::shape::{Shape, piece_free_text};
@@ -184,6 +185,12 @@ impl ElementName {
             return Some(self.clone());
         }
         ElementName::parse(&piece_free_text(&self.0)).ok()
+    }
+
+    /// The parts of a face name (section 3.1), borrowed from it: its feature, role, generator and
+    /// own suffix groups; `None` for an edge or vertex name.
+    pub fn face_name(&self) -> Option<FaceName<'_>> {
+        (self.kind() == ElementKind::Face).then(|| FaceName::of(&self.0))
     }
 
     /// The text of the name, shared.

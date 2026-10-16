@@ -15,6 +15,7 @@ mod chase;
 mod element_info;
 mod element_set;
 mod error;
+mod face_name;
 mod fast_hash;
 mod fingerprint;
 mod grammar;
@@ -35,6 +36,7 @@ pub use aliases::{Aliases, Successions};
 pub use element_info::ElementInfo;
 pub use element_set::ElementSet;
 pub use error::NamingError;
+pub use face_name::{CopyGroup, FaceGenerator, FaceName};
 pub use fingerprint::Fingerprint;
 pub use kind::{ElementKind, GeometryKind};
 pub use map::NamingMap;
@@ -47,4 +49,5 @@ pub use resolver::{
     resolve,
 };
 pub use score::score;
+pub use shape::piece_free_text;
 pub use topology::{EdgeInfo, FaceInfo, FaceSource, TopologyInfo, VertexInfo};

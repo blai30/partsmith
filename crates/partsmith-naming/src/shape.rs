@@ -1,5 +1,6 @@
-//! Face names taken apart for matching (naming.md sections 3.1 and 3.9): piece-free names, the
-//! runs of split numbers, generators, terms, skeletons and relatives.
+//! Face names taken apart for matching (naming.md sections 3.1 and 3.9): the one scanner of a face
+//! name (`FaceParts`, which the public `FaceName` view reads with too), piece-free names, the runs
+//! of split numbers, generators, terms, skeletons and relatives.
 //!
 //! Trailing suffix groups after a face-name generator belong to the generator (section 3.1 rule 6:
 //! the rest of the name is the generator, as written), so `f-sh1/rim/f-ext1/end-cap#2` has the
@@ -78,9 +79,41 @@ enum Source {
     List(Vec<Shape>),
 }
 
-impl Shape {
-    /// Takes apart the face name `text`.
-    pub(crate) fn of(text: Arc<str>) -> Shape {
+/// A face name read once (section 3.1): where its feature, role, generator and own suffix groups
+/// are. `Shape::of` and the public `FaceName` view both read names through it.
+pub(crate) struct FaceParts<'t> {
+    /// Byte offset of the `/` after the feature id.
+    pub(crate) feature_end: usize,
+    /// Byte range of the role.
+    pub(crate) role: Range<usize>,
+    /// What the face was made from, as written after the role's `/`.
+    pub(crate) generator: GeneratorParts<'t>,
+    /// Byte offset where the name's own suffix groups start: the end of the name after a face-name
+    /// generator, whose suffix groups belong to it (rule 6).
+    pub(crate) groups_start: usize,
+}
+
+/// The generator of a face name as written: it starts after the role's `/` and ends where the
+/// name's own suffix groups start.
+pub(crate) enum GeneratorParts<'t> {
+    /// None: `<feature>/<role>`.
+    Nothing,
+    /// A sketch reference.
+    Sketch,
+    /// A face name, which runs to the end of the name.
+    Face,
+    /// An edge or vertex name.
+    List {
+        /// `edge(` or `vertex(`.
+        prefix: &'static str,
+        /// Its face terms in written order.
+        terms: Vec<&'t str>,
+    },
+}
+
+impl FaceParts<'_> {
+    /// Reads the face name `text`.
+    pub(crate) fn of(text: &str) -> FaceParts<'_> {
         let bytes = text.as_bytes();
         let feature_end = text.find('/').unwrap_or(text.len());
         let role_start = (feature_end + 1).min(text.len());
@@ -89,65 +122,88 @@ impl Shape {
                 .iter()
                 .take_while(|byte| !matches!(byte, b'/' | b'#' | b'@'))
                 .count();
-        let (source, groups_start, list_prefix) = if bytes.get(role_end) == Some(&b'/') {
-            Shape::source_after(&text, role_end + 1)
+        let (generator, groups_start) = if bytes.get(role_end) == Some(&b'/') {
+            generator_after(text, role_end + 1)
         } else {
-            (Source::Nothing, role_end, None)
+            (GeneratorParts::Nothing, role_end)
         };
+        FaceParts {
+            feature_end,
+            role: role_start..role_end,
+            generator,
+            groups_start,
+        }
+    }
+}
+
+/// The generator starting at byte `start` of the face name `text`, and the byte offset where the
+/// name's own suffix groups start.
+fn generator_after(text: &str, start: usize) -> (GeneratorParts<'_>, usize) {
+    let rest = &text[start..];
+    if let Some((_, prefix)) = grammar::leading_list_prefix(rest.as_bytes()) {
+        let (terms, length) = list_terms(&rest[prefix.len()..]);
+        let groups_start = start + prefix.len() + length + 1;
+        return (GeneratorParts::List { prefix, terms }, groups_start);
+    }
+    let id_length = rest
+        .bytes()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        .count();
+    if rest.as_bytes().get(id_length) == Some(&b'/') {
+        return (GeneratorParts::Face, text.len());
+    }
+    let mut end = start + id_length;
+    if text.as_bytes().get(end) == Some(&b'.') {
+        end += 1 + text[end + 1..]
+            .bytes()
+            .take_while(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
+            .count();
+    }
+    (GeneratorParts::Sketch, end)
+}
+
+impl Shape {
+    /// Takes apart the face name `text`.
+    pub(crate) fn of(text: Arc<str>) -> Shape {
+        let parts = FaceParts::of(&text);
+        let generator_start = parts.role.end + 1;
+        let (source, list_prefix) = match parts.generator {
+            GeneratorParts::Nothing => (Source::Nothing, None),
+            GeneratorParts::Sketch => (Source::Sketch(generator_start..parts.groups_start), None),
+            GeneratorParts::Face => {
+                let generator = Shape::of(Arc::from(&text[generator_start..]));
+                (Source::Face(Box::new(generator)), None)
+            }
+            GeneratorParts::List { prefix, terms } => {
+                let terms = terms
+                    .into_iter()
+                    .map(|term| Shape::of(Arc::from(term)))
+                    .collect();
+                (Source::List(terms), Some(prefix))
+            }
+        };
+        let groups_start = parts.groups_start;
         let splits = splits_of(&text[groups_start..]);
         let skeleton = match (&source, list_prefix) {
-            (Source::Face(_), _) => Some(format!("{}<face>", &text[..=role_end])),
+            (Source::Face(_), _) => Some(format!("{}<face>", &text[..generator_start])),
             (Source::List(_), Some(prefix)) => Some(format!(
                 "{}{prefix}*){}",
-                &text[..=role_end],
-                without_splits(&text[groups_start..])
+                &text[..generator_start],
+                piece_free_text(&text[groups_start..])
             )),
             _ => None,
         }
         .map(Arc::from);
         Shape {
-            piece_free: piece_free_text(&text),
+            piece_free: shared_piece_free(&text),
+            feature_end: parts.feature_end,
+            role: parts.role,
             text,
-            feature_end,
-            role: role_start..role_end,
             source,
             groups_start,
             splits,
             skeleton,
         }
-    }
-
-    /// The generator starting at byte `start`, where the name's own suffix groups start, and the
-    /// prefix of a list generator.
-    fn source_after(text: &Arc<str>, start: usize) -> (Source, usize, Option<&'static str>) {
-        let rest = &text[start..];
-        if let Some((_, prefix)) = grammar::leading_list_prefix(rest.as_bytes()) {
-            let (terms, length) = list_terms(&rest[prefix.len()..]);
-            let terms = terms
-                .into_iter()
-                .map(|term| Shape::of(Arc::from(term)))
-                .collect();
-            let groups_start = start + prefix.len() + length + 1;
-            return (Source::List(terms), groups_start, Some(prefix));
-        }
-        let id_length = rest
-            .bytes()
-            .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-            .count();
-        if rest.as_bytes().get(id_length) == Some(&b'/') {
-            let generator = Shape::of(Arc::from(rest));
-            return (Source::Face(Box::new(generator)), text.len(), None);
-        }
-        let mut end = start + id_length;
-        if text.as_bytes().get(end) == Some(&b'.') {
-            end += 1 + text[end + 1..]
-                .bytes()
-                .take_while(|byte| {
-                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-'
-                })
-                .count();
-        }
-        (Source::Sketch(start..end), end, None)
     }
 
     /// The name as written.
@@ -212,14 +268,6 @@ impl Shape {
         self.skeleton.as_ref()
     }
 
-    /// The `@<feature>:<instance>` groups of the name itself, in order.
-    fn instance_groups(&self) -> impl Iterator<Item = &str> {
-        self.text[self.groups_start..]
-            .split('@')
-            .skip(1)
-            .map(|group| group.split('#').next().unwrap_or_default())
-    }
-
     /// The key relatives share (section 3.9 step 4): feature, sketch generator and `@` groups,
     /// without the role. `None` for names that have no relatives.
     pub(crate) fn relative_key(&self) -> Option<String> {
@@ -267,8 +315,8 @@ impl Shape {
     pub(crate) fn generators(&self) -> Vec<(&str, Option<&str>)> {
         let mut found = vec![(self.feature(), self.sketch())];
         found.extend(
-            self.instance_groups()
-                .map(|group| (group.split(':').next().unwrap_or_default(), None)),
+            instance_groups(&self.text[self.groups_start..])
+                .map(|group| (group[1..].split(':').next().unwrap_or_default(), None)),
         );
         for term in self.terms() {
             found.extend(term.generators());
@@ -302,17 +350,30 @@ fn list_terms(text: &str) -> (Vec<&str>, usize) {
     (terms, text.len())
 }
 
+/// The `@<feature>:<instance>` groups of a run of suffix groups, in order, each as written from its
+/// `@`.
+pub(crate) fn instance_groups(groups: &str) -> impl Iterator<Item = &str> {
+    groups.match_indices('@').map(|(start, _)| {
+        let group = &groups[start..];
+        let end = group[1..]
+            .find(['#', '@'])
+            .map_or(group.len(), |end| end + 1);
+        &group[..end]
+    })
+}
+
 /// `text` with every `#n` group removed; shares `text` when it has none.
-pub(crate) fn piece_free_text(text: &Arc<str>) -> Arc<str> {
+pub(crate) fn shared_piece_free(text: &Arc<str>) -> Arc<str> {
     if text.contains('#') {
-        Arc::from(without_splits(text))
+        Arc::from(piece_free_text(text))
     } else {
         Arc::clone(text)
     }
 }
 
-/// `text` with every `#n` group removed.
-fn without_splits(text: &str) -> String {
+/// The piece-free text of a name (section 3.1): `text` with every `#n` group removed, wherever it
+/// stands.
+pub fn piece_free_text(text: &str) -> String {
     let mut kept = String::with_capacity(text.len());
     let mut in_split = false;
     for character in text.chars() {
@@ -525,6 +586,15 @@ mod tests {
             None
         );
         assert_eq!(InstanceName::of("f-a/x"), None);
+    }
+
+    #[test]
+    fn piece_free_names_drop_every_number() {
+        assert_eq!(
+            piece_free_text("f-ext1/end-cap#1@f-lp1:1#2"),
+            "f-ext1/end-cap@f-lp1:1"
+        );
+        assert_eq!(piece_free_text("f-box1/top"), "f-box1/top");
     }
 
     #[test]
