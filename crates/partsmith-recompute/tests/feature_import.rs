@@ -216,7 +216,7 @@ fn t005_invalid_asset_name() {
         .registry()
         .validate_and_canonicalize(run.record("f-imp1"))
         .expect_err("box.step is not an asset name");
-    let FeatureError::InvalidParams { detail } = &error else {
+    let FeatureError::InvalidParams { detail, .. } = &error else {
         panic!("expected InvalidParams, got {error:?}");
     };
     assert_eq!(

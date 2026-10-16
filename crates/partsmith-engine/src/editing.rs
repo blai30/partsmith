@@ -1,15 +1,16 @@
 //! Edits, transactions, coalescing, undo and redo, and parameter renames (engine.md section 3.3).
 
-use partsmith_features::Registry;
+use partsmith_features::{FeatureError, Registry};
 use partsmith_model::{Document, Edit, Id, RecordKind, Step, Transaction};
 use partsmith_protocol::DocHandle;
 
 use crate::document::OpenTransaction;
-use crate::error::{EngineError, saturating_u32};
+use crate::error::EngineError;
 use crate::session::Session;
 use crate::state::{feature_label, is_active};
 use crate::status::render_feature_error;
 use crate::types::{Committed, Stepped};
+use crate::wire::saturating_u32;
 
 impl Session {
     /// Applies edits atomically; returns the new revision.
@@ -59,7 +60,7 @@ impl Session {
     /// Opens a transaction.
     pub fn begin_transaction(&mut self, doc: DocHandle, label: &str) -> Result<(), EngineError> {
         let open = self.open_mut(doc)?;
-        open.require_no_transaction()?;
+        open.require_no_transaction(&format!("start \"{label}\""))?;
         open.transaction = Some(OpenTransaction {
             label: label.to_string(),
             steps: Vec::new(),
@@ -164,7 +165,7 @@ impl Session {
     /// Undoes (`backward`) or redoes one undo entry.
     fn step(&mut self, doc: DocHandle, backward: bool) -> Result<Stepped, EngineError> {
         let open = self.open_mut(doc)?;
-        open.require_no_transaction()?;
+        open.require_no_transaction(if backward { "undo" } else { "redo" })?;
         let mut document = Document::clone(&open.document);
         let stepped = if backward {
             open.undo.undo(&mut document)
@@ -248,12 +249,7 @@ fn canonical_edit(
     };
     let validated = registry
         .validate_and_canonicalize(feature)
-        .map_err(|error| EngineError::InvalidParams {
-            index: edit_index,
-            feature: feature.id.clone(),
-            feature_type: feature.kind.clone(),
-            message: render_feature_error(&error, document, registry, &feature.id),
-        })?;
+        .map_err(|error| invalid_params(registry, document, &edit, &error, edit_index))?;
     Ok(match edit {
         Edit::AddFeature { index, .. } => Edit::AddFeature {
             index,
@@ -263,6 +259,55 @@ fn canonical_edit(
             feature: validated.record,
         },
     })
+}
+
+/// The `invalid_params` error of a feature edit the registry rejects (section 4): the registry's
+/// error worded for an edit that was not applied, naming the feature by its label in the working
+/// copy with the edit applied, and the feature type, its id and the parser's text as the detail.
+fn invalid_params(
+    registry: &Registry,
+    document: &Document,
+    edit: &Edit,
+    error: &FeatureError,
+    edit_index: u32,
+) -> EngineError {
+    let (Edit::AddFeature { feature, .. } | Edit::UpdateFeature { feature }) = edit else {
+        return EngineError::internal("only feature edits have params");
+    };
+    let mut edited = document.clone();
+    if edited.apply(edit.clone()).is_err() {
+        edited = document.clone();
+    }
+    let label = || feature_label(registry, &edited, &feature.id);
+    let message = match error {
+        FeatureError::InvalidParams {
+            field: Some(field), ..
+        } => format!(
+            "{field_label} of '{feature_label}' cannot be read, so this change was not applied. Set {field_label} again.",
+            field_label = field.label,
+            feature_label = label(),
+        ),
+        FeatureError::InvalidParams { field: None, .. } => format!(
+            "The settings of '{}' cannot be read, so this change was not applied.",
+            label()
+        ),
+        FeatureError::UnknownType { type_name } => format!(
+            "This version of Partsmith has no feature of type '{type_name}', so this change was not applied."
+        ),
+        other => render_feature_error(other, &edited, registry, &feature.id),
+    };
+    EngineError::InvalidParams {
+        index: edit_index,
+        feature: feature.id.clone(),
+        feature_type: feature.kind.clone(),
+        message,
+        detail: format!(
+            "{} {}: {}",
+            feature.kind,
+            feature.id,
+            error.detail().unwrap_or_else(|| error.to_string())
+        ),
+    }
 }
 
 /// Appends a step to a transaction, merging it with the previous one when both update the same
@@ -290,7 +335,7 @@ fn updated(edit: &Edit) -> Option<(RecordKind, &Id)> {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::{Body, Parameter, Units};
+    use partsmith_model::{Body, FeatureRecord, Parameter, Units};
 
     use super::*;
     use crate::test_support::id;
@@ -348,19 +393,55 @@ mod tests {
         assert_eq!(steps.len(), 2);
     }
 
+    /// A box record of 10 mm in `b-1`, with or without its body.
+    fn box_record(feature: &str, with_body: bool) -> FeatureRecord {
+        let mut record = serde_json::json!({
+            "id": feature, "type": "box", "size": ["10", "10", "10"], "op": "new"
+        });
+        if with_body {
+            record["body"] = serde_json::json!("b-1");
+        }
+        serde_json::from_value(record).expect("a well-formed record")
+    }
+
     #[test]
     fn unknown_feature_types_are_invalid_params() {
         let registry = Registry::new();
         let document = Document::new(Units::Mm);
         let edit = Edit::AddFeature {
             index: 0,
-            feature: partsmith_model::FeatureRecord::new(id("f-1"), "wedge"),
+            feature: FeatureRecord::new(id("f-1"), "wedge"),
         };
 
         let error = canonical_edit(&registry, &document, edit, 3).expect_err("wedge is unknown");
 
         assert_eq!(error.edit_index(), Some(3));
-        assert!(error.to_string().starts_with("wedge f-1: "), "{error}");
+        assert_eq!(
+            error.to_string(),
+            "This version of Partsmith has no feature of type 'wedge', so this change was not applied."
+        );
+        let detail = error.detail().expect("the error has a detail");
+        assert!(detail.starts_with("wedge f-1: "), "{detail}");
+    }
+
+    #[test]
+    fn invalid_params_name_the_field_and_the_feature_label_of_the_edited_document() {
+        let registry = Registry::with_builtins();
+        let mut document = Document::new(Units::Mm);
+        document.features.push(box_record("f-box1", true));
+        let edit = Edit::AddFeature {
+            index: 1,
+            feature: box_record("f-box2", false),
+        };
+
+        let error = canonical_edit(&registry, &document, edit, 0).expect_err("the box has no body");
+
+        assert_eq!(
+            error.to_string(),
+            "Body of 'Box 2' cannot be read, so this change was not applied. Set Body again."
+        );
+        let detail = error.detail().expect("the error has a detail");
+        assert!(detail.starts_with("box f-box2: "), "{detail}");
     }
 
     #[test]

@@ -15,7 +15,7 @@ use serde_json::Value;
 const NOT_UTF8: &[u8] = b"\xff\xfe{}";
 
 /// The load diagnostic of [`NOT_UTF8`] after `<path>: `.
-const NOT_UTF8_DIAGNOSTIC: &str = "error[parse_error]: The file is not a valid Partsmith document: The file is not valid UTF-8 text (the first bad byte is at offset 0). Save it as UTF-8.";
+const NOT_UTF8_DIAGNOSTIC: &str = "error[parse_error]: The file is not valid UTF-8 text (the first bad byte is at offset 0). Save it as UTF-8.";
 
 /// `box.ptsm` with the body id `b 1`, which the file format rejects at `/bodies/0/id`.
 fn box_with_invalid_body_id() -> String {

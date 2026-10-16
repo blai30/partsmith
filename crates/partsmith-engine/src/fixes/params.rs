@@ -1,0 +1,283 @@
+//! Feature params addressed by JSON Pointer (RFC 6901), as messages and fixes name their fields:
+//! the field path of a pointer, and the changes fixes make at a pointer.
+
+use std::cmp::Ordering;
+
+use serde_json::{Map, Value};
+
+/// The field path of a JSON Pointer into a feature record (features.md section 3.2): `/edges/1`
+/// is `edges[1]` and `/extent/expr` is `extent.expr`.
+pub(crate) fn field_path(pointer: &str) -> String {
+    let mut path = String::with_capacity(pointer.len());
+    for token in tokens(pointer) {
+        match token {
+            Token::Index(index) => path.push_str(&format!("[{index}]")),
+            Token::Key(key) => {
+                if !path.is_empty() {
+                    path.push('.');
+                }
+                path.push_str(&key);
+            }
+        }
+    }
+    path
+}
+
+/// The value at `pointer` of a record's params.
+pub(crate) fn value_at<'p>(params: &'p Map<String, Value>, pointer: &str) -> Option<&'p Value> {
+    let (first, rest) = match pointer.strip_prefix('/')?.split_once('/') {
+        Some((first, rest)) => (first, Some(rest)),
+        None => (pointer.strip_prefix('/')?, None),
+    };
+    let value = params.get(&first.replace("~1", "/").replace("~0", "~"))?;
+    match rest {
+        Some(rest) => value.pointer(&format!("/{rest}")),
+        None => Some(value),
+    }
+}
+
+/// The pointer of the value that holds the value at `pointer`: `/profile/regions/0` gives
+/// `/profile/regions`. The root holds itself.
+pub(crate) fn parent(pointer: &str) -> &str {
+    pointer.rsplit_once('/').map_or("", |(parent, _)| parent)
+}
+
+/// Replaces the value at `pointer` of `params` with `values`: spliced in, one entry each, when it
+/// is a list entry, else set to the only value. False when `pointer` names no value, or names
+/// one that is not a list entry while `values` is not one value.
+pub(crate) fn replace(params: &mut Value, pointer: &str, values: Vec<Value>) -> bool {
+    let Some((holder, last)) = holder_mut(params, pointer) else {
+        return false;
+    };
+    match (holder, last) {
+        (Value::Array(items), Token::Index(index)) if index < items.len() => {
+            items.splice(index..=index, values);
+            true
+        }
+        (Value::Object(members), Token::Key(key)) if members.contains_key(&key) => {
+            let Ok([value]) = <[Value; 1]>::try_from(values) else {
+                return false;
+            };
+            members.insert(key, value);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Replaces each pointer's value as `replace` does, in an order that keeps the other pointers
+/// valid: later list entries first. False when one of them fails, and then `params` may be
+/// partly changed.
+pub(crate) fn replace_each(
+    params: &mut Value,
+    mut replacements: Vec<(String, Vec<Value>)>,
+) -> bool {
+    replacements.sort_by(|(first, _), (second, _)| later_first(first, second));
+    replacements
+        .into_iter()
+        .all(|(pointer, values)| replace(params, &pointer, values))
+}
+
+/// Sets the value at `pointer`, adding its key to the object that holds it. False when no object
+/// holds it.
+pub(crate) fn set(params: &mut Value, pointer: &str, value: Value) -> bool {
+    match holder_mut(params, pointer) {
+        Some((Value::Object(members), Token::Key(key))) => {
+            members.insert(key, value);
+            true
+        }
+        Some((Value::Array(items), Token::Index(index))) if index < items.len() => {
+            items[index] = value;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Removes the value at `pointer`: a list entry, or an object's key. False when it names no
+/// value.
+pub(crate) fn remove(params: &mut Value, pointer: &str) -> bool {
+    match holder_mut(params, pointer) {
+        Some((Value::Object(members), Token::Key(key))) => members.remove(&key).is_some(),
+        Some((Value::Array(items), Token::Index(index))) if index < items.len() => {
+            items.remove(index);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// One reference token of a pointer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Token {
+    /// A position in a list.
+    Index(usize),
+    /// A key of an object.
+    Key(String),
+}
+
+/// The unescaped reference tokens of a pointer; a token of digits only is an index.
+fn tokens(pointer: &str) -> Vec<Token> {
+    pointer
+        .split('/')
+        .skip(1)
+        .map(|token| {
+            let key = token.replace("~1", "/").replace("~0", "~");
+            match key.parse() {
+                Ok(index) if key.bytes().all(|byte| byte.is_ascii_digit()) => Token::Index(index),
+                _ => Token::Key(key),
+            }
+        })
+        .collect()
+}
+
+/// The value that holds the value at `pointer`, and the token that names it there.
+fn holder_mut<'v>(params: &'v mut Value, pointer: &str) -> Option<(&'v mut Value, Token)> {
+    let mut tokens = tokens(pointer);
+    let last = tokens.pop()?;
+    let mut holder = params;
+    for token in tokens {
+        holder = match (holder, token) {
+            (Value::Array(items), Token::Index(index)) => items.get_mut(index)?,
+            (Value::Object(members), Token::Key(key)) => members.get_mut(&key)?,
+            (Value::Object(members), Token::Index(index)) => members.get_mut(&index.to_string())?,
+            _ => return None,
+        };
+    }
+    let last = match (&holder, last) {
+        (Value::Object(_), Token::Index(index)) => Token::Key(index.to_string()),
+        (_, last) => last,
+    };
+    Some((holder, last))
+}
+
+/// Orders pointers so that, of two entries of one list, the later one comes first.
+fn later_first(first: &str, second: &str) -> Ordering {
+    let (first, second) = (tokens(first), tokens(second));
+    for (left, right) in first.iter().zip(&second) {
+        let order = match (left, right) {
+            (Token::Index(left), Token::Index(right)) => right.cmp(left),
+            (Token::Key(left), Token::Key(right)) => left.cmp(right),
+            (Token::Index(_), Token::Key(_)) => Ordering::Less,
+            (Token::Key(_), Token::Index(_)) => Ordering::Greater,
+        };
+        if order != Ordering::Equal {
+            return order;
+        }
+    }
+    second.len().cmp(&first.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn pointers_become_field_paths() {
+        assert_eq!(field_path("/edges/1"), "edges[1]");
+        assert_eq!(field_path("/extent/expr"), "extent.expr");
+        assert_eq!(field_path("/profile/regions/0"), "profile.regions[0]");
+        assert_eq!(field_path("/a~1b/c~0d"), "a/b.c~d");
+    }
+
+    #[test]
+    fn values_are_read_at_a_pointer() {
+        let Value::Object(params) = json!({"profile": {"regions": [{"key": "e-1"}]}, "a/b": 1})
+        else {
+            panic!("params are an object");
+        };
+
+        assert_eq!(
+            value_at(&params, "/profile/regions/0/key"),
+            Some(&json!("e-1"))
+        );
+        assert_eq!(value_at(&params, "/a~1b"), Some(&json!(1)));
+        assert_eq!(value_at(&params, "/profile/sketch"), None);
+        assert_eq!(value_at(&params, ""), None);
+    }
+
+    #[test]
+    fn the_parent_of_a_pointer_holds_its_value() {
+        assert_eq!(parent("/profile/regions/0"), "/profile/regions");
+        assert_eq!(parent("/edges"), "");
+    }
+
+    #[test]
+    fn list_entries_are_replaced_by_every_value() {
+        let mut params = json!({"edges": ["a", "b", "c"]});
+
+        let replaced = replace(&mut params, "/edges/1", vec![json!("x"), json!("y")]);
+
+        assert!(replaced);
+        assert_eq!(params, json!({"edges": ["a", "x", "y", "c"]}));
+    }
+
+    #[test]
+    fn a_member_is_replaced_by_one_value_only() {
+        let mut params = json!({"base": {"face": "a"}});
+
+        assert!(!replace(
+            &mut params,
+            "/base/face",
+            vec![json!(1), json!(2)]
+        ));
+        assert!(replace(&mut params, "/base/face", vec![json!("b")]));
+        assert_eq!(params, json!({"base": {"face": "b"}}));
+    }
+
+    #[test]
+    fn missing_values_are_not_replaced() {
+        let mut params = json!({"edges": ["a"]});
+
+        assert!(!replace(&mut params, "/edges/3", vec![json!("x")]));
+        assert!(!replace(&mut params, "/faces/0", vec![json!("x")]));
+        assert_eq!(params, json!({"edges": ["a"]}));
+    }
+
+    #[test]
+    fn several_replacements_keep_their_positions() {
+        let mut params = json!({"edges": ["a", "b", "c"]});
+
+        let replaced = replace_each(
+            &mut params,
+            vec![
+                ("/edges/0".to_string(), vec![json!("x"), json!("y")]),
+                ("/edges/2".to_string(), vec![json!("z")]),
+            ],
+        );
+
+        assert!(replaced);
+        assert_eq!(params, json!({"edges": ["x", "y", "b", "z"]}));
+    }
+
+    #[test]
+    fn later_entries_of_one_list_come_first() {
+        assert_eq!(later_first("/edges/10", "/edges/2"), Ordering::Less);
+        assert_eq!(later_first("/edges/2", "/edges/10"), Ordering::Greater);
+    }
+
+    #[test]
+    fn values_are_set_with_their_key_and_removed() {
+        let mut params = json!({"direction": {"count": "2.5"}, "edges": ["a", "b"]});
+
+        assert!(set(&mut params, "/direction/count", json!("3")));
+        assert!(set(&mut params, "/reverse", json!(true)));
+        assert!(remove(&mut params, "/edges/0"));
+        assert!(!remove(&mut params, "/edges/5"));
+
+        assert_eq!(
+            params,
+            json!({"direction": {"count": "3"}, "edges": ["b"], "reverse": true})
+        );
+    }
+
+    #[test]
+    fn numeric_keys_of_objects_stay_keys() {
+        let mut params = json!({"map": {"7": "a"}});
+
+        assert!(set(&mut params, "/map/7", json!("b")));
+        assert_eq!(params, json!({"map": {"7": "b"}}));
+    }
+}

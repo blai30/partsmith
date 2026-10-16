@@ -63,6 +63,7 @@ impl Feature for Import {
             Ok(())
         } else {
             Err(FeatureError::InvalidParams {
+                field: None,
                 detail:
                     "'asset' must name a file in the assets folder, such as <64 hex digits>.step"
                         .to_string(),
@@ -219,6 +220,7 @@ mod tests {
         assert_eq!(
             error,
             FeatureError::InvalidParams {
+                field: None,
                 detail:
                     "'asset' must name a file in the assets folder, such as <64 hex digits>.step"
                         .to_string()

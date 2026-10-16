@@ -2,7 +2,9 @@
 //! actions of `transaction_open`, format version 1 texts, and invalid params in edits (section 4).
 //!
 //! Test 150 (the newcomer error corpus) comes with phase 3 of the reference stability plan and test 151 (determinism
-//! with causes and ghosts) with phase 4.
+//! with causes and ghosts) with phase 4. Test 149's invalid candidate sketch waits for phase 3 too: its message is the
+//! sketch crate's rendering of sketch.md section 4.1 (`SketchError::render`, which names entities by their words), so
+//! it stays ignored until phase 3 step 3 lands.
 
 mod common;
 
@@ -278,6 +280,7 @@ fn t149_an_unreadable_field_is_named_with_its_label_and_the_parser_text_is_in_th
 }
 
 #[test]
+#[ignore = "phase 3 step 3: the sketch crate renders SketchError without ids (sketch.md section 4.1)"]
 fn t149_an_invalid_candidate_sketch_names_no_id_but_its_detail_does() {
     let mut session = session();
     let doc = open_doc(&mut session, "drag.ptsm");

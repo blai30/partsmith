@@ -7,7 +7,7 @@ use std::f64::consts::TAU;
 
 use partsmith_sketch::{ProfileCurve, ProfileLoop, Region};
 
-use crate::error::saturating_u32;
+use crate::wire::saturating_u32;
 
 /// Segments of a full turn of a circle.
 const SEGMENTS_PER_TURN: f64 = 72.0;

@@ -3,16 +3,13 @@
 
 use std::collections::BTreeMap;
 
-use partsmith_features::{
-    Diagnosis, DocumentNames, FeatureError, Registry, RenderContext, Repair as FeatureRepair,
-};
+use partsmith_features::{Diagnosis, DocumentNames, FeatureError, Registry, RenderContext};
 use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName};
-use partsmith_protocol::{
-    Diagnostic, FeatureState, FeatureStatus, ParameterValue, Repair, ResolutionStatus, Severity,
-};
-use partsmith_recompute::{Message, Severity as MessageSeverity, Status};
+use partsmith_protocol::{Diagnostic, FeatureState, FeatureStatus, ParameterValue, Severity};
+use partsmith_recompute::Status;
 
+use crate::diagnostics::{ElementLookup, RunView};
 use crate::state::{BodyView, Computed, display_bodies};
 
 /// A body whose display mesh could not be built (section 3.8): the error is reported on the
@@ -26,26 +23,39 @@ pub(crate) struct DisplayFailure {
 }
 
 /// The status of every feature in timeline order, with the display failures of its document.
+/// Actions carry `revision`; `elements` gives candidates their mesh element in display sessions.
 pub(crate) fn feature_statuses(
     document: &Document,
+    registry: &Registry,
     computed: &Computed,
     failures: &[DisplayFailure],
+    revision: u64,
+    elements: Option<ElementLookup<'_>>,
 ) -> Vec<FeatureStatus> {
     let duplicated: Vec<BodyView> = display_bodies(document, computed)
         .into_iter()
         .filter(|view| view.has_geometry() && has_duplicate_names(view))
         .collect();
+    let run = RunView::new(document, registry, &computed.report);
     computed
         .report
         .features
         .iter()
-        .map(|report| {
+        .enumerate()
+        .map(|(position, report)| {
             let mut status = FeatureStatus {
                 id: report.feature.clone(),
                 status: state(report.status),
-                messages: report.messages.iter().map(message_diagnostic).collect(),
-                repairs: report.messages.iter().filter_map(repair).collect(),
+                messages: Vec::with_capacity(report.messages.len()),
+                repairs: Vec::new(),
             };
+            if let Some(feature) = run.feature_at(position) {
+                for message in &report.messages {
+                    let (diagnostic, repairs) = feature.project(message, revision, elements);
+                    status.messages.push(diagnostic);
+                    status.repairs.extend(repairs);
+                }
+            }
             for view in &duplicated {
                 if view.provider.as_ref() == Some(&report.feature) {
                     status.status = FeatureState::Error;
@@ -89,62 +99,6 @@ fn state(status: Status) -> FeatureState {
 /// A diagnostic about no field, with no suggestion.
 pub(crate) fn diagnostic(severity: Severity, code: &str, message: String) -> Diagnostic {
     Diagnostic::new(severity, code, message)
-}
-
-/// A rendered feature message as a protocol diagnostic.
-fn message_diagnostic(message: &Message) -> Diagnostic {
-    let severity = match message.severity {
-        MessageSeverity::Error => Severity::Error,
-        MessageSeverity::Warning => Severity::Warning,
-        MessageSeverity::Info => Severity::Info,
-    };
-    Diagnostic {
-        field: message.pointer.clone(),
-        suggestion: message.suggestion.clone(),
-        ..Diagnostic::new(severity, message.code, message.text.clone())
-    }
-}
-
-/// The repair entry of a message with repair data: its first repair.
-fn repair(message: &Message) -> Option<Repair> {
-    let resolution = |ambiguous: bool| {
-        if ambiguous {
-            ResolutionStatus::Ambiguous
-        } else {
-            ResolutionStatus::Missing
-        }
-    };
-    Some(match message.repairs.first()? {
-        FeatureRepair::Element {
-            pointer,
-            body,
-            loss,
-        } => Repair::Element {
-            path: pointer.clone(),
-            body: body.clone(),
-            reference: loss.reference.clone(),
-            resolution: resolution(loss.ambiguous),
-            centroid: loss.reference.fingerprint.centroid,
-            description: String::new(),
-            candidates: Vec::new(),
-            ghost: None,
-        },
-        FeatureRepair::Region {
-            pointer,
-            sketch,
-            region,
-            ambiguous,
-            ..
-        } => Repair::Region {
-            path: pointer.clone(),
-            sketch: sketch.clone(),
-            region: region.clone(),
-            resolution: resolution(*ambiguous),
-            description: String::new(),
-            candidates: Vec::new(),
-            ghost: None,
-        },
-    })
 }
 
 /// A feature error of `feature` rendered with the document's current names and units, without body states or a
@@ -214,34 +168,7 @@ pub(crate) fn document_diagnostics(computed: &Computed) -> Vec<Diagnostic> {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_features::Loss;
-    use partsmith_naming::{Lost, Reference};
-
     use super::*;
-    use crate::test_support::id;
-
-    fn message(repair: Option<FeatureRepair>) -> Message {
-        Message {
-            severity: MessageSeverity::Warning,
-            code: "reference_missing",
-            pointer: Some("/edges/0".to_string()),
-            text: "The edge is gone.".to_string(),
-            suggestion: None,
-            repairs: repair.into_iter().collect(),
-            fixes: Vec::new(),
-            detail: None,
-            root: None,
-            reason: None,
-        }
-    }
-
-    fn reference() -> Reference {
-        serde_json::from_value(serde_json::json!({
-            "q": "edge(f-box1/front|f-box1/left)",
-            "fp": "line|n=0,0,1|c=-10,-15,20|l=40|adj=2,2"
-        }))
-        .expect("a valid reference")
-    }
 
     #[test]
     fn statuses_map_one_to_one() {
@@ -250,55 +177,5 @@ mod tests {
         assert_eq!(state(Status::Error), FeatureState::Error);
         assert_eq!(state(Status::Suppressed), FeatureState::Suppressed);
         assert_eq!(state(Status::RolledBack), FeatureState::RolledBack);
-    }
-
-    #[test]
-    fn messages_keep_their_field_and_suggestion() {
-        let mut rendered = message(None);
-        rendered.suggestion = Some("2.3 mm".to_string());
-
-        let diagnostic = message_diagnostic(&rendered);
-
-        assert_eq!(diagnostic.severity, Severity::Warning);
-        assert_eq!(diagnostic.code, "reference_missing");
-        assert_eq!(diagnostic.field.as_deref(), Some("/edges/0"));
-        assert_eq!(diagnostic.suggestion.as_deref(), Some("2.3 mm"));
-    }
-
-    #[test]
-    fn element_repairs_carry_the_fingerprint_centroid() {
-        let rendered = message(Some(FeatureRepair::Element {
-            pointer: "/edges/0".to_string(),
-            body: id("b-1"),
-            loss: Loss {
-                position: 0,
-                body: id("b-1"),
-                reference: reference(),
-                kind: ElementKind::Edge,
-                ambiguous: false,
-                lost: Lost::default(),
-                candidates: Vec::new(),
-                matches: 0,
-            },
-        }));
-
-        let Some(Repair::Element {
-            path,
-            resolution,
-            centroid,
-            ..
-        }) = repair(&rendered)
-        else {
-            panic!("an element repair");
-        };
-
-        assert_eq!(path, "/edges/0");
-        assert_eq!(resolution, ResolutionStatus::Missing);
-        assert_eq!(centroid, Some([-10.0, -15.0, 20.0]));
-    }
-
-    #[test]
-    fn messages_without_repair_data_have_no_repair() {
-        assert_eq!(repair(&message(None)), None);
     }
 }

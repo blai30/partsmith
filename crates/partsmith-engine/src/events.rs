@@ -6,22 +6,24 @@ use std::sync::Arc;
 
 use partsmith_features::{OutputData, Registry};
 use partsmith_model::{Document, Id};
-use partsmith_naming::ElementKind;
+use partsmith_naming::{ElementKind, ElementName};
 use partsmith_protocol::{
-    Buffer, BufferIndex, DocHandle, Event, Layer, MeshBuffers, SketchDisplay, SketchSolution,
+    Buffer, BufferIndex, DocHandle, Event, Layer, MeshBuffers, MeshElement, SketchDisplay,
+    SketchSolution,
 };
 use partsmith_recompute::Status;
 use partsmith_sketch::Placement;
 
 use crate::display::{DisplayCache, DisplayMesh, MeshKey};
 use crate::document::OpenDocument;
-use crate::error::{EngineError, saturating_u32};
+use crate::error::EngineError;
 use crate::session::Session;
 use crate::sketch::{DATUM_PLANE_TYPE, SKETCH_TYPE, Solved, built, sketch_params};
 use crate::sketching::{datum_placement, solve_in};
 use crate::state::{BodyView, built_output, display_bodies, preview_bodies};
 use crate::status::{DisplayFailure, document_diagnostics, feature_statuses, parameter_values};
 use crate::triangulate::fill_regions;
+use crate::wire::saturating_u32;
 
 /// Events and the buffers they reference, collected for one reply.
 #[derive(Debug, Default)]
@@ -139,40 +141,48 @@ impl Session {
             .get_mut(&doc)
             .ok_or(EngineError::UnknownDocument { doc })?;
         let revision = open.revision;
-        // Meshes are built first, so the statuses of `recomputed` can report the bodies that
-        // could not be displayed.
-        let changes = display.then(|| mesh_changes(open, cache));
+        // Meshes are built and given their ids first, so the statuses of `recomputed` can report
+        // the bodies that could not be displayed and name the mesh elements of candidates.
+        let meshes = display.then(|| {
+            let (model, preview) = mesh_changes(open, cache);
+            let model = record_layer(&mut open.emitted.model, model, next_mesh_id);
+            let preview = record_layer(&mut open.emitted.preview, preview, next_mesh_id);
+            (model, preview)
+        });
         document_changed(open, doc, output)?;
         if open.computed.run != open.emitted.run {
             open.emitted.run = open.computed.run;
+            let shown = &open.emitted.model.shown;
+            let element = |body: &Id, name: &ElementName| {
+                let shown = shown.get(body)?;
+                Some(MeshElement {
+                    body: body.clone(),
+                    mesh_id: shown.mesh_id,
+                    kind: name.kind(),
+                    index: shown.mesh.table.find(name)?,
+                })
+            };
+            let features = feature_statuses(
+                &open.document,
+                registry,
+                &open.computed,
+                &open.emitted.display_failures(),
+                revision,
+                display.then_some(&element),
+            );
             output.events.push(Event::Recomputed {
                 doc,
                 revision,
-                features: feature_statuses(
-                    &open.document,
-                    &open.computed,
-                    &open.emitted.display_failures(),
-                ),
+                features,
                 parameters: parameter_values(&open.computed),
                 diagnostics: document_diagnostics(&open.computed),
             });
         }
         sketch_events(registry, open, doc, *display, output);
         datum_events(open, doc, output);
-        if let Some((model, preview)) = changes {
-            let mut meshes = Meshes {
-                next_mesh_id,
-                doc,
-                revision,
-                output,
-            };
-            emit_layer(&mut open.emitted.model, Layer::Model, model, &mut meshes);
-            emit_layer(
-                &mut open.emitted.preview,
-                Layer::Preview,
-                preview,
-                &mut meshes,
-            );
+        if let Some((model, preview)) = meshes {
+            emit_layer(Layer::Model, model, doc, revision, output);
+            emit_layer(Layer::Preview, preview, doc, revision, output);
         }
         Ok(())
     }
@@ -333,18 +343,6 @@ fn datum_events(open: &mut OpenDocument, doc: DocHandle, output: &mut Output) {
     open.emitted.datums.retain(|id, _| present.contains(id));
 }
 
-/// What mesh emission writes to besides the document.
-struct Meshes<'a> {
-    /// The session's mesh id counter.
-    next_mesh_id: &'a mut u64,
-    /// The document.
-    doc: DocHandle,
-    /// Its revision.
-    revision: u64,
-    /// The reply.
-    output: &'a mut Output,
-}
-
 /// One `body_mesh` event to emit: the body and its new mesh with its key, or no mesh.
 struct MeshChange {
     /// The body.
@@ -468,7 +466,7 @@ fn display_failure(document: &Document, view: &BodyView, error: &EngineError) ->
         .body(&view.body)
         .map_or_else(|| view.body.to_string(), |body| body.name.clone());
     let detail = match error {
-        EngineError::Internal { detail } => detail.clone(),
+        EngineError::Internal { detail, .. } => detail.clone(),
         other => other.to_string(),
     };
     DisplayFailure {
@@ -479,34 +477,66 @@ fn display_failure(document: &Document, view: &BodyView, error: &EngineError) ->
     }
 }
 
-/// Emits the `body_mesh` events of one layer's changes and records what the layer shows.
-fn emit_layer(
+/// One `body_mesh` event to emit: the body, the id of its event and its mesh, if it has one.
+struct Recorded {
+    /// The body.
+    body: Id,
+    /// The id of the event.
+    mesh_id: u64,
+    /// The mesh; absent when the body shows none.
+    mesh: Option<Arc<DisplayMesh>>,
+}
+
+/// Gives each of one layer's changes the next mesh id and records what the layer shows.
+fn record_layer(
     state: &mut LayerState,
-    layer: Layer,
     changes: Vec<MeshChange>,
-    meshes: &mut Meshes<'_>,
+    next_mesh_id: &mut u64,
+) -> Vec<Recorded> {
+    changes
+        .into_iter()
+        .map(|change| {
+            let mesh_id = next_id(next_mesh_id);
+            let mesh = match change.mesh {
+                Some((key, mesh)) => {
+                    let shown = Shown {
+                        mesh_id,
+                        key,
+                        mesh: Arc::clone(&mesh),
+                    };
+                    state.shown.insert(change.body.clone(), shown);
+                    Some(mesh)
+                }
+                None => {
+                    state.shown.remove(&change.body);
+                    None
+                }
+            };
+            Recorded {
+                body: change.body,
+                mesh_id,
+                mesh,
+            }
+        })
+        .collect()
+}
+
+/// Emits the `body_mesh` events of one layer's recorded changes.
+fn emit_layer(
+    layer: Layer,
+    recorded: Vec<Recorded>,
+    doc: DocHandle,
+    revision: u64,
+    output: &mut Output,
 ) {
-    for change in changes {
-        let mesh_id = next_id(meshes.next_mesh_id);
-        let mesh = match change.mesh {
-            Some((key, mesh)) => {
-                let buffers = mesh_buffers(&mesh, meshes.output);
-                state
-                    .shown
-                    .insert(change.body.clone(), Shown { mesh_id, key, mesh });
-                Some(buffers)
-            }
-            None => {
-                state.shown.remove(&change.body);
-                None
-            }
-        };
-        meshes.output.events.push(Event::BodyMesh {
-            doc: meshes.doc,
-            revision: meshes.revision,
+    for change in recorded {
+        let mesh = change.mesh.map(|mesh| mesh_buffers(&mesh, output));
+        output.events.push(Event::BodyMesh {
+            doc,
+            revision,
             body: change.body,
             layer,
-            mesh_id,
+            mesh_id: change.mesh_id,
             mesh,
         });
     }

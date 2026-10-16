@@ -4,7 +4,8 @@ use partsmith_mesh::TessellationTolerance;
 use partsmith_model::Id;
 use partsmith_print::Severity;
 use partsmith_protocol::{
-    Buffer, Diagnostic, DocHandle, Event, ExportFormat, Orientation, PrintReport, Response,
+    Buffer, Diagnostic, DocHandle, Event, ExportFormat, Orientation, PrintReport, RepairCandidate,
+    Response,
 };
 
 /// A file the document references, stored under its content-hash name.
@@ -150,7 +151,7 @@ pub struct ValidateOptions {
 }
 
 /// Findings of `validate`, in check order then document order.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ValidationReport {
     /// The findings.
     pub diagnostics: Vec<ValidationDiagnostic>,
@@ -176,7 +177,7 @@ impl ValidationReport {
 }
 
 /// One validation finding.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ValidationDiagnostic {
     /// Error or warning.
     pub severity: Severity,
@@ -190,6 +191,22 @@ pub struct ValidationDiagnostic {
     pub column: Option<u32>,
     /// JSON Pointer into the document, when known (for example `/features/2/radius`).
     pub path: Option<String>,
+    /// For a feature message of the rebuild step (section 3.19 step 8): the feature, the message
+    /// and its candidates. Boxed, since most diagnostics have none and the message is large.
+    pub feature: Option<Box<FeatureMessage>>,
+}
+
+/// A feature message as `validate` reports it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FeatureMessage {
+    /// The feature.
+    pub feature: Id,
+    /// The message as section 3.4 projects it, never with a `cause` (validate opens the text
+    /// fresh).
+    pub diagnostic: Diagnostic,
+    /// The candidates of the feature's element repairs whose `path` is the message's `field` or
+    /// lies under it, in repair order, then candidate order.
+    pub candidates: Vec<RepairCandidate>,
 }
 
 #[cfg(test)]
@@ -204,6 +221,7 @@ mod tests {
             line: None,
             column: None,
             path: None,
+            feature: None,
         }
     }
 
@@ -223,5 +241,14 @@ mod tests {
 
         assert!(!report.has_errors());
         assert!(report.has_warnings());
+    }
+}
+#[cfg(test)]
+mod size_probe {
+    #[test]
+    fn print_sizes() {
+        println!("EngineError {}", std::mem::size_of::<crate::EngineError>());
+        println!("ValidationDiagnostic {}", std::mem::size_of::<crate::ValidationDiagnostic>());
+        println!("Id {}", std::mem::size_of::<partsmith_model::Id>());
     }
 }

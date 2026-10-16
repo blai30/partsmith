@@ -192,8 +192,8 @@ pub(crate) fn display_bodies(document: &Document, computed: &Computed) -> Vec<Bo
 
 /// The state of `body` just before the feature at timeline position `position`: the state the
 /// feature read when it ran, else the output of the last earlier feature that changed the body.
-pub(crate) fn state_before(computed: &Computed, position: usize, body: &Id) -> BodyState {
-    let features = &computed.report.features;
+pub(crate) fn state_before(report: &Report, position: usize, body: &Id) -> BodyState {
+    let features = &report.features;
     if let Some(state) = features
         .get(position)
         .and_then(|feature| body_before(feature, body))

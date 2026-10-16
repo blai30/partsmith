@@ -19,7 +19,7 @@ use partsmith_recompute::Recompute;
 use crate::ENGINE_VERSION;
 use crate::assets::{referenced_assets, stored_assets};
 use crate::display::DisplayCache;
-use crate::document::{OpenDocument, SavedText, canonical_text, canonicalize_params, load_error};
+use crate::document::{OpenDocument, SavedText, canonical_text, canonicalize_params};
 use crate::error::EngineError;
 use crate::options::SessionOptions;
 use crate::profiles::{Profiles, tolerance};
@@ -171,7 +171,7 @@ impl Session {
 
     /// Parses, migrates and recomputes a `.ptsm` text.
     pub fn open_document(&mut self, text: &str, assets: Vec<Asset>) -> Result<Opened, EngineError> {
-        let loaded = load(text).map_err(load_error)?;
+        let loaded = load(text).map_err(EngineError::from_load)?;
         let mut document = loaded.document;
         canonicalize_params(&self.registry, &mut document);
         let stored = referenced_assets(&self.registry, &document, assets)?;
@@ -205,7 +205,7 @@ impl Session {
         let (text, recipe) = match &open.poisoned {
             Some(rescued) => (canonical_text(rescued)?, Arc::clone(rescued)),
             None => {
-                open.require_no_transaction()?;
+                open.require_no_transaction("save")?;
                 (open.text()?.to_string(), Arc::clone(&open.document))
             }
         };
@@ -257,8 +257,11 @@ impl Session {
         let open = self.open(doc)?;
         Ok(feature_statuses(
             &open.document,
+            &self.registry,
             &open.computed,
             &open.emitted.display_failures(),
+            open.revision,
+            None,
         ))
     }
 

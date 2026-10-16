@@ -898,7 +898,7 @@ fn a_load_error_with_several_problems_is_one_canonical_problem() {
     assert_eq!(
         canonical_problem(&model, &output),
         Some(format!(
-            "{model}: error[parse_error]: The file is not a valid Partsmith document: This document has 2 problems:\n\
+            "{model}: error[parse_error]: This document has 2 problems:\n\
              - Parameter p-1: 'pi' is a reserved word. Pick another name, such as pi_1.\n\
              - The rollback marker points at f-9, which is not a feature in this document. Move the marker to an existing feature or to the end."
         ))

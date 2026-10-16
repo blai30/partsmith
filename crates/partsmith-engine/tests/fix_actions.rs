@@ -854,11 +854,17 @@ fn t134_actions_and_repairs_are_equal_in_a_fresh_session() {
 
     let session_data = ["revision", "mesh_id", "ghost", "cause"];
     let fresh = Value::Array(statuses(&reopened));
-    assert_eq!(
-        without_keys(&fresh, &["cause"]),
-        fresh,
-        "a fresh document has no cause"
-    );
+    for status in statuses(&reopened) {
+        for message in status["messages"]
+            .as_array()
+            .expect("statuses list messages")
+        {
+            assert!(
+                message.get("cause").is_none(),
+                "a fresh document has no cause: {message}"
+            );
+        }
+    }
     assert_eq!(
         without_keys(&Value::Array(statuses(&edited)), &session_data),
         without_keys(&fresh, &session_data)

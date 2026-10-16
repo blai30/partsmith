@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use partsmith_features::{BodyState, DatumResult, OutputData, Registry};
 use partsmith_model::{Document, Edit, FeatureRecord, Id, canonical};
-use partsmith_naming::{ElementSet, Reference, Resolution, resolve};
+use partsmith_naming::{Reference, Resolution, resolve};
 use partsmith_occt_sys::{GeometryKind, SubShapeKind};
 use partsmith_protocol::{DocHandle, SketchSolution};
 use partsmith_sketch::{
@@ -163,7 +163,7 @@ fn placement(plane: &SketchPlane, computed: &Computed, position: usize) -> Place
             fallback,
             ..
         } => {
-            let state = state_before(computed, position, body);
+            let state = state_before(&computed.report, position, body);
             face_placement(&state, face, fallback).unwrap_or(*fallback)
         }
     }
@@ -182,14 +182,7 @@ pub(crate) fn datum_placement(computed: &Computed, feature: &Id) -> Option<Place
 /// its first face is flat.
 fn face_placement(state: &BodyState, face: &Reference, fallback: &Placement) -> Option<Placement> {
     let shape = state.shape()?;
-    let elements = state.elements().ok()?;
-    let naming = state.naming();
-    let set = ElementSet::new(
-        elements,
-        naming.aliases().clone(),
-        naming.successions().clone(),
-    )
-    .ok()?;
+    let set = state.element_set().ok()?;
     let Resolution::Resolved {
         elements: names, ..
     } = resolve(face, &set)

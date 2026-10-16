@@ -11,6 +11,7 @@
 
 mod analysis;
 mod assets;
+mod diagnostics;
 mod dispatch;
 mod display;
 mod document;
@@ -19,6 +20,7 @@ mod elements;
 mod error;
 mod events;
 mod exchange;
+mod fixes;
 mod inspect;
 mod options;
 mod profiles;
@@ -33,15 +35,16 @@ mod test_support;
 mod triangulate;
 mod types;
 mod validate;
+mod wire;
 
 pub use error::EngineError;
 pub use options::{DEFAULT_CACHE_BUDGET, SessionOptions};
 pub use partsmith_model::SequentialIds;
 pub use session::Session;
 pub use types::{
-    Asset, Committed, EngineInfo, ExportRequest, Exported, ExportedFile, Imported, Opened,
-    PrintAnalysis, PrintRequest, Reply, Saved, Stepped, ValidateOptions, ValidationDiagnostic,
-    ValidationReport,
+    Asset, Committed, EngineInfo, ExportRequest, Exported, ExportedFile, FeatureMessage, Imported,
+    Opened, PrintAnalysis, PrintRequest, Reply, Saved, Stepped, ValidateOptions,
+    ValidationDiagnostic, ValidationReport,
 };
 
 /// The engine version, equal to the crate version.

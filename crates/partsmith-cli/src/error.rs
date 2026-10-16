@@ -123,6 +123,7 @@ impl CliError {
             line,
             column,
             path: pointer,
+            feature: None,
         };
         CliError::Load { path, diagnostic }
     }
@@ -167,6 +168,7 @@ impl CliError {
                 line: None,
                 column: None,
                 path: None,
+                feature: None,
             },
         }
     }
@@ -190,7 +192,10 @@ mod tests {
         CliError::load(
             "bad.ptsm".to_owned(),
             &EngineError::Parse {
-                detail: "EOF while parsing an object at line 1 column 23.".to_owned(),
+                message: "The file is not valid JSON at line 1, column 23.".to_owned(),
+                detail:
+                    "The file is not valid JSON at line 1, column 23: EOF while parsing an object."
+                        .to_owned(),
                 line: Some(1),
                 column: Some(23),
                 path: None,
@@ -236,7 +241,7 @@ mod tests {
     fn load_errors_are_reported_as_diagnostics_with_line_and_column() {
         assert_eq!(
             parse_error().report_line(),
-            "bad.ptsm:1:23: error[parse_error]: The file is not a valid Partsmith document: EOF while parsing an object at line 1 column 23."
+            "bad.ptsm:1:23: error[parse_error]: The file is not valid JSON at line 1, column 23."
         );
         assert_eq!(parse_error().status(), Status::Problems);
     }
@@ -245,12 +250,16 @@ mod tests {
     fn load_errors_without_a_line_have_no_position() {
         let error = CliError::load(
             "new.ptsm".to_owned(),
-            &EngineError::UnsupportedFormatVersion { found: 2 },
+            &EngineError::UnsupportedFormatVersion {
+                found: 3,
+                message: "This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it."
+                    .to_owned(),
+            },
         );
 
         assert_eq!(
             error.report_line(),
-            "new.ptsm: error[unsupported_format_version]: This file needs a newer Partsmith (format version 2; this version reads up to 1)."
+            "new.ptsm: error[unsupported_format_version]: This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it."
         );
     }
 
@@ -268,6 +277,7 @@ mod tests {
         let error = CliError::load(
             "badid.ptsm".to_owned(),
             &EngineError::Parse {
+                message: "Bad id.".to_owned(),
                 detail: "Bad id.".to_owned(),
                 line: None,
                 column: None,
@@ -290,6 +300,7 @@ mod tests {
                 line: None,
                 column: None,
                 path: Some("/bodies/0/id".to_owned()),
+                feature: None,
             },
         };
 

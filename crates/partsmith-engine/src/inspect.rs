@@ -4,10 +4,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use partsmith_features::BodyState;
 use partsmith_model::{Document, Id};
-use partsmith_naming::{
-    ElementKind, ElementName, ElementSet, Reference, Resolution as Resolved, resolve,
-};
+use partsmith_naming::{ElementKind, ElementName, Reference, Resolution as Resolved, resolve};
 use partsmith_protocol::{
     DocHandle, ElementDescriptor, ElementRef, MeasureTarget, Measurement, MeshElement, Pick,
     Resolution, ResolutionStatus,
@@ -19,6 +18,9 @@ use crate::elements::{describe, describe_element, element_fields, sub_shape_kind
 use crate::error::EngineError;
 use crate::session::Session;
 use crate::state::{BodyView, display_body};
+
+/// The `mesh_id` of a headless pick, which names its element by body and position (section 3.9).
+const HEADLESS_MESH_ID: u64 = 0;
 
 impl Session {
     /// Elements of a body at the display state.
@@ -41,47 +43,43 @@ impl Session {
             .collect())
     }
 
-    /// Converts a pick in a current model-layer mesh into an element descriptor.
+    /// Converts a pick in a current model-layer mesh into an element descriptor: the entry of
+    /// `list_elements` with the full reference (section 3.9). A headless pick names the element by
+    /// `mesh_id` 0, its body, and its position among the elements of its kind in `list_elements`
+    /// order.
     pub fn pick_reference(
         &mut self,
         doc: DocHandle,
         pick: Pick,
     ) -> Result<ElementDescriptor, EngineError> {
-        let open = self.open(doc)?;
-        let Some((body, shown)) = open
-            .emitted
-            .model
-            .shown
-            .iter()
-            .find(|(_, shown)| shown.mesh_id == pick.mesh_id)
-        else {
-            let preview = open
-                .emitted
-                .preview
-                .shown
-                .values()
-                .any(|shown| shown.mesh_id == pick.mesh_id);
-            return Err(if preview {
-                EngineError::PreviewNotPickable
+        let (view, timeline) = {
+            let open = self.open(doc)?;
+            let body = if self.display {
+                displayed_body(open, &pick)?
             } else {
-                EngineError::StalePick
-            });
+                match &pick.body {
+                    Some(body) if pick.mesh_id == HEADLESS_MESH_ID => body.clone(),
+                    _ => return Err(EngineError::StalePick),
+                }
+            };
+            (body_with_geometry(open, &body)?, timeline(&open.document))
         };
-        let table = &shown.mesh.table;
+        let table = self.table_of(&view)?;
         if pick.index >= table.count(pick.kind) {
             return Err(EngineError::InvalidPick { kind: pick.kind });
         }
-        let view = body_with_geometry(open, body)?;
         // Only the picked element is described, so a pick in a new body state does not query
         // the geometry of every element (section 5).
-        describe_element(
-            table,
+        let mut descriptor = describe_element(
+            &table,
             &view.state,
             &view.body,
-            &timeline(&open.document),
+            &timeline,
             pick.kind,
             pick.index,
-        )
+        )?;
+        descriptor.reference = full_reference(&view.state, &descriptor.reference.query)?;
+        Ok(descriptor)
     }
 
     /// Resolves references, each within its body, against the display state.
@@ -200,6 +198,47 @@ impl Session {
     }
 }
 
+/// The body of the model-layer mesh a display session's pick names: `preview_not_pickable` for
+/// a preview mesh, `stale_pick` for a mesh that is not the latest model-layer mesh of its body or
+/// a `body` other than the mesh's.
+fn displayed_body(open: &OpenDocument, pick: &Pick) -> Result<Id, EngineError> {
+    let Some((body, _)) = open
+        .emitted
+        .model
+        .shown
+        .iter()
+        .find(|(_, shown)| shown.mesh_id == pick.mesh_id)
+    else {
+        let preview = open
+            .emitted
+            .preview
+            .shown
+            .values()
+            .any(|shown| shown.mesh_id == pick.mesh_id);
+        return Err(if preview {
+            EngineError::PreviewNotPickable
+        } else {
+            EngineError::StalePick
+        });
+    };
+    if pick.body.as_ref().is_some_and(|picked| picked != body) {
+        return Err(EngineError::StalePick);
+    }
+    Ok(body.clone())
+}
+
+/// The full reference of the element named `name` of a body state: `Reference::from_element`
+/// against the state's element set, with anchors and merged names (section 3.9).
+fn full_reference(state: &BodyState, name: &ElementName) -> Result<Reference, EngineError> {
+    let set = state.element_set().map_err(EngineError::unexpected)?;
+    let info = set
+        .elements()
+        .iter()
+        .find(|element| element.name == *name)
+        .ok_or_else(|| EngineError::internal("a displayed element is not in its element set"))?;
+    Ok(Reference::from_element(info, &set))
+}
+
 /// The display state of a body with geometry: `unknown_body` or `body_empty` otherwise.
 pub(crate) fn body_with_geometry(open: &OpenDocument, body: &Id) -> Result<BodyView, EngineError> {
     let record = open
@@ -237,14 +276,7 @@ fn resolve_in(
     view: &BodyView,
     reference: &Reference,
 ) -> Result<(ResolutionStatus, Vec<ElementName>), EngineError> {
-    let elements = view.state.elements().map_err(EngineError::unexpected)?;
-    let naming = view.state.naming();
-    let set = ElementSet::new(
-        elements,
-        naming.aliases().clone(),
-        naming.successions().clone(),
-    )
-    .map_err(EngineError::unexpected)?;
+    let set = view.state.element_set().map_err(EngineError::unexpected)?;
     Ok(match resolve(reference, &set) {
         Resolved::Resolved { elements, .. } => (ResolutionStatus::Resolved, elements),
         Resolved::Ambiguous { candidates } => (

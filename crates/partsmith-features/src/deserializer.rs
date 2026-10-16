@@ -8,6 +8,7 @@
 
 use std::fmt;
 
+use partsmith_model::FeatureManifest;
 use serde::de::value::BorrowedStrDeserializer;
 use serde::de::{
     self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, MapAccess, SeqAccess,
@@ -16,16 +17,12 @@ use serde::de::{
 use serde::forward_to_deserialize_any;
 use serde_json::{Map, Number, Value};
 
-use crate::error::FeatureError;
+use crate::error::{FeatureError, FieldRef};
 
-/// Deserializes typed params from their JSON map. A failure is `InvalidParams` whose `detail`
-/// says what is wrong and where (section 3.2).
-pub(crate) fn from_params<T: DeserializeOwned>(
-    params: &Map<String, Value>,
-) -> Result<T, FeatureError> {
-    T::deserialize(Root(params)).map_err(|problem| FeatureError::InvalidParams {
-        detail: problem.detail(),
-    })
+/// Deserializes typed params from their JSON map. A failure is the problem with what is wrong and
+/// where (section 3.2), which `Problem::into_error` turns into `InvalidParams`.
+pub(crate) fn from_params<T: DeserializeOwned>(params: &Map<String, Value>) -> Result<T, Problem> {
+    T::deserialize(Root(params))
 }
 
 /// Where a value is inside the params: a borrowed chain from the value up to the root.
@@ -78,6 +75,25 @@ impl Problem {
             self.path = Some(path.to_string());
         }
         self
+    }
+
+    /// `InvalidParams` with the field the problem is about, labeled from `manifest`, and its detail
+    /// (section 3.2).
+    pub(crate) fn into_error(self, manifest: &FeatureManifest) -> FeatureError {
+        FeatureError::InvalidParams {
+            field: self.field_path().map(|path| FieldRef::new(&path, manifest)),
+            detail: self.detail(),
+        }
+    }
+
+    /// The path of the field the problem is about: the path serde reports, or the missing
+    /// top-level key when it reports none; None when no key is known (section 3.2).
+    fn field_path(&self) -> Option<String> {
+        match (&self.path, &self.kind) {
+            (Some(path), _) => Some(path.clone()),
+            (None, ProblemKind::MissingField(field)) => Some(field.clone()),
+            (None, ProblemKind::UnknownVariant(_) | ProblemKind::Other(_)) => None,
+        }
     }
 
     /// The `InvalidParams` detail (section 3.2).
@@ -456,7 +472,9 @@ fn unexpected(value: &Value) -> Unexpected<'_> {
 
 #[cfg(test)]
 mod tests {
+    use partsmith_model::{Category, FieldHint};
     use serde::Deserialize;
+    use serde::de::Error;
     use serde_json::json;
 
     use super::*;
@@ -492,10 +510,7 @@ mod tests {
         let Value::Object(map) = value else {
             panic!("params are objects")
         };
-        from_params::<Params>(&map).map_err(|error| match error {
-            FeatureError::InvalidParams { detail } => detail,
-            other => panic!("expected InvalidParams, got {other:?}"),
-        })
+        from_params::<Params>(&map).map_err(|problem| problem.to_string())
     }
 
     #[test]
@@ -593,6 +608,71 @@ mod tests {
             detail.starts_with("'shape.pair' has the wrong form (invalid length 3"),
             "got {detail}"
         );
+    }
+
+    /// The field of the `InvalidParams` a failing parse becomes, with labels from a manifest that
+    /// labels `body` and `size[*]`.
+    fn failed_field(value: Value) -> Option<FieldRef> {
+        let Value::Object(map) = value else {
+            panic!("params are objects")
+        };
+        let problem = from_params::<Params>(&map).expect_err("the params are invalid");
+        let manifest = FeatureManifest {
+            label: "Test".to_string(),
+            category: Category::Create,
+            icon: "test".to_string(),
+            version: 1,
+            fields: vec![
+                FieldHint {
+                    path: "body".to_string(),
+                    label: "Body".to_string(),
+                    essential: true,
+                    unit: None,
+                    selection: None,
+                    options: Vec::new(),
+                },
+                FieldHint {
+                    path: "size[*]".to_string(),
+                    label: "Size".to_string(),
+                    essential: false,
+                    unit: None,
+                    selection: None,
+                    options: Vec::new(),
+                },
+            ],
+        };
+        match problem.into_error(&manifest) {
+            FeatureError::InvalidParams { field, .. } => field,
+            other => panic!("expected InvalidParams, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_missing_top_level_key_is_the_field() {
+        let field = failed_field(json!({})).expect("the missing key is known");
+
+        assert_eq!(
+            (field.path.as_str(), field.label.as_str()),
+            ("body", "Body")
+        );
+    }
+
+    #[test]
+    fn the_deepest_path_is_the_field() {
+        let field = failed_field(json!({"body": "b-1", "size": [1, "two"]}))
+            .expect("the wrong value has a path");
+
+        assert_eq!(
+            (field.path.as_str(), field.label.as_str()),
+            ("size[1]", "Size")
+        );
+    }
+
+    #[test]
+    fn params_that_are_not_an_object_name_no_field() {
+        let problem = Problem::custom("the params are a list");
+
+        assert_eq!(problem.field_path(), None);
     }
 
     #[test]

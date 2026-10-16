@@ -415,7 +415,7 @@ impl<F: Feature> Typed<F> {
 
     /// Deserializes and validates params.
     fn parse(&self, params: &Map<String, Value>) -> Result<F::Params, FeatureError> {
-        let typed = from_params(params)?;
+        let typed = from_params(params).map_err(|problem| problem.into_error(&self.manifest))?;
         F::validate(&typed)?;
         Ok(typed)
     }

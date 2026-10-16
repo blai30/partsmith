@@ -1,10 +1,34 @@
-//! Every failure of a session command and its protocol code (engine.md section 4).
+//! Every failure of a session command, its protocol code, its technical detail and its ways out
+//! (engine.md section 4), and the engine error of a model load error.
 
 use std::fmt;
 
-use partsmith_model::{EditError, Id, Span};
+use partsmith_features::FieldRef;
+use partsmith_model::{EditError, Id, LoadError, Span};
 use partsmith_naming::ElementKind;
-use partsmith_protocol::{DocHandle, ErrorCode, ErrorInfo};
+use partsmith_protocol::{DocHandle, ErrorCode, ErrorInfo, FixAction, FixKind};
+
+use crate::wire::saturating_u32;
+
+/// The command an internal error names when no protocol command is known: a typed method
+/// reports it as is, and `execute` names its request's command instead (section 4).
+const THIS_COMMAND: &str = "this command";
+
+/// The message of an `Invalid` load error whose text is a deserializer's description of a value of
+/// the wrong form (file-format.md section 4.1), which says nothing a user can act on.
+const WRONG_FORM: &str = "A value in this file has the wrong form, so it cannot be opened.";
+
+/// How serde's own descriptions of a value of the wrong form start (the provided methods of
+/// `serde::de::Error`). Every other `Invalid` message is an id, color or units message.
+const DESERIALIZER_DESCRIPTIONS: [&str; 7] = [
+    "invalid type: ",
+    "invalid value: ",
+    "invalid length ",
+    "unknown variant ",
+    "unknown field ",
+    "missing field ",
+    "duplicate field ",
+];
 
 /// Every failure of a session command. Messages are the protocol messages of protocol.md section 4.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -28,10 +52,12 @@ pub enum EngineError {
         doc: DocHandle,
     },
     /// The text is not a valid document. The position fields are those `validate` reports for the
-    /// same text.
-    #[error("The file is not a valid Partsmith document: {detail}")]
+    /// same text; they do not travel on the wire.
+    #[error("{message}")]
     Parse {
-        /// The model's message.
+        /// The load message without a parser's own text.
+        message: String,
+        /// The full load message.
         detail: String,
         /// 1-based line of a JSON problem.
         line: Option<u32>,
@@ -40,13 +66,13 @@ pub enum EngineError {
         /// JSON Pointer of the field a structure problem names, for example `/bodies/0/id`.
         path: Option<String>,
     },
-    /// The text needs a newer format version than this engine reads.
-    #[error(
-        "This file needs a newer Partsmith (format version {found}; this version reads up to 1)."
-    )]
+    /// The text has a format version newer than this engine reads, or older than it migrates.
+    #[error("{message}")]
     UnsupportedFormatVersion {
         /// The version of the text.
-        found: u32,
+        found: u64,
+        /// The model's message.
+        message: String,
     },
     /// A referenced asset's bytes do not hash to its name.
     #[error("Asset {name} does not match its content hash.")]
@@ -59,6 +85,9 @@ pub enum EngineError {
     TransactionOpen {
         /// Label of the open transaction.
         label: String,
+        /// What the failed request did, for its action: `save`, `undo`, `redo` or
+        /// `start "{label}"`.
+        then: String,
     },
     /// The command needs an open transaction.
     #[error("There is no edit in progress.")]
@@ -82,7 +111,7 @@ pub enum EngineError {
         source: EditError,
     },
     /// The registry rejected the params of an added or updated feature.
-    #[error("{feature_type} {feature}: {message}")]
+    #[error("{message}")]
     InvalidParams {
         /// Position of the edit in its batch.
         index: u32,
@@ -90,15 +119,20 @@ pub enum EngineError {
         feature: Id,
         /// Its type name.
         feature_type: String,
-        /// The registry's message.
+        /// The registry's error, worded for an edit that was not applied and naming the feature by
+        /// its label.
         message: String,
+        /// The feature type, its id and the parser's text.
+        detail: String,
     },
-    /// Sketch params given to a sketch command fail sketch validation or the solver rejects them;
-    /// code `invalid_params` with the sketch crate's message (protocol.md section 4).
+    /// Sketch params given to a sketch command fail validation or the solver rejects them; code
+    /// `invalid_params` with the sketch crate's or the registry's message (protocol.md section 4).
     #[error("{message}")]
     InvalidSketch {
-        /// The sketch crate's message.
+        /// The sketch crate's or the registry's message.
         message: String,
+        /// The error's technical text.
+        detail: String,
     },
     /// The undo stack is empty.
     #[error("There is nothing to undo.")]
@@ -143,12 +177,6 @@ pub enum EngineError {
     /// The picked mesh is no longer displayed.
     #[error("The picked geometry changed since it was displayed. Pick again.")]
     StalePick,
-    /// `apply_fix` names a revision other than the document's, or a message or action its feature
-    /// no longer has.
-    #[error(
-        "This fix no longer applies because the document changed after it was offered. Look at the problem again."
-    )]
-    StaleFix,
     /// The picked mesh is a preview.
     #[error("Preview geometry cannot be picked. Pick the model instead.")]
     PreviewNotPickable,
@@ -232,15 +260,78 @@ pub enum EngineError {
     },
     /// A panic or an engine invariant failure.
     #[error(
-        "Something went wrong inside Partsmith ({detail}). Save your work and reload. Please report this."
+        "Partsmith hit a bug while running {command}. Your document is unchanged. Save a copy, and report this with the details."
     )]
     Internal {
-        /// What went wrong.
+        /// The command's type in words, for example `apply edits`.
+        command: String,
+        /// The panic message or the broken invariant.
         detail: String,
     },
+    /// `apply_fix` names a revision other than the document's, a message or action its feature
+    /// no longer has, or an action that is not `apply`.
+    #[error(
+        "This fix no longer applies because the document changed after it was offered. Look at the problem again."
+    )]
+    StaleFix,
 }
 
 impl EngineError {
+    /// The engine error of a model load error (section 4): `unsupported_format_version` for a
+    /// version newer than this engine reads or older than it migrates, `parse_error` for every
+    /// other, with the line and column of JSON problems and the JSON Pointer of the field a
+    /// structure problem names. A parser's own text goes to the detail only.
+    pub fn from_load(error: LoadError) -> EngineError {
+        let full = error.to_string();
+        match error {
+            LoadError::NewerFormatVersion { found, .. }
+            | LoadError::UnsupportedFormatVersion { found, .. } => {
+                EngineError::UnsupportedFormatVersion {
+                    found,
+                    message: full,
+                }
+            }
+            LoadError::Syntax { line, column, .. } => EngineError::Parse {
+                message: format!("The file is not valid JSON at line {line}, column {column}."),
+                detail: full,
+                line: Some(saturating_u32(line)),
+                column: Some(saturating_u32(column)),
+                path: None,
+            },
+            LoadError::DuplicateKey { line, column, .. } => EngineError::Parse {
+                message: full.clone(),
+                detail: full,
+                line: Some(saturating_u32(line)),
+                column: Some(saturating_u32(column)),
+                path: None,
+            },
+            LoadError::Invalid { path, message } => EngineError::Parse {
+                message: if is_deserializer_description(&message) {
+                    WRONG_FORM.to_string()
+                } else {
+                    full.clone()
+                },
+                detail: full,
+                line: None,
+                column: None,
+                path: (!path.is_empty()).then(|| {
+                    FieldRef {
+                        path,
+                        label: String::new(),
+                    }
+                    .pointer()
+                }),
+            },
+            _ => EngineError::Parse {
+                message: full.clone(),
+                detail: full,
+                line: None,
+                column: None,
+                path: None,
+            },
+        }
+    }
+
     /// The protocol error code.
     pub fn code(&self) -> ErrorCode {
         match self {
@@ -266,7 +357,6 @@ impl EngineError {
             EngineError::UnknownPoint { .. } => ErrorCode::UnknownPoint,
             EngineError::NoDrag { .. } => ErrorCode::NoDrag,
             EngineError::StalePick => ErrorCode::StalePick,
-            EngineError::StaleFix => ErrorCode::StaleFix,
             EngineError::PreviewNotPickable => ErrorCode::PreviewNotPickable,
             EngineError::InvalidPick { .. } => ErrorCode::InvalidPick,
             EngineError::UnknownBody { .. } => ErrorCode::UnknownBody,
@@ -283,6 +373,7 @@ impl EngineError {
             EngineError::ExportFailed { .. } => ErrorCode::ExportFailed,
             EngineError::ImportFailed { .. } => ErrorCode::ImportFailed,
             EngineError::Internal { .. } => ErrorCode::InternalError,
+            EngineError::StaleFix => ErrorCode::StaleFix,
         }
     }
 
@@ -295,7 +386,33 @@ impl EngineError {
         }
     }
 
-    /// The error as it travels on the wire: code, message, edit index and expression span.
+    /// Technical text for reports: the full load message of `Parse`, the feature and parser text
+    /// of `InvalidParams`, the sketch crate's detail of `InvalidSketch`, the panic message of
+    /// `Internal`; None for the others.
+    pub fn detail(&self) -> Option<String> {
+        match self {
+            EngineError::Parse { detail, .. }
+            | EngineError::InvalidParams { detail, .. }
+            | EngineError::InvalidSketch { detail, .. }
+            | EngineError::Internal { detail, .. } => Some(detail.clone()),
+            _ => None,
+        }
+    }
+
+    /// The ways out a host offers as buttons: `Finish "{label}" and {then}`
+    /// (`finish_transaction`) for `TransactionOpen`; empty for the others.
+    pub fn actions(&self) -> Vec<FixAction> {
+        match self {
+            EngineError::TransactionOpen { label, then } => vec![FixAction {
+                label: format!("Finish \"{label}\" and {then}"),
+                run: FixKind::FinishTransaction,
+            }],
+            _ => Vec::new(),
+        }
+    }
+
+    /// The error as it travels on the wire: code, message, edit index, expression span, detail
+    /// and actions.
     pub fn to_info(&self) -> ErrorInfo {
         let span = match self {
             EngineError::Expression {
@@ -306,13 +423,17 @@ impl EngineError {
         ErrorInfo {
             edit_index: self.edit_index(),
             span,
+            detail: self.detail(),
+            actions: self.actions(),
             ..ErrorInfo::new(self.code(), self.to_string())
         }
     }
 
-    /// An internal error describing `detail`.
+    /// An internal error describing `detail`. It names the command as `this command` until
+    /// `execute` names its request's command (`in_command`).
     pub(crate) fn internal(detail: impl Into<String>) -> EngineError {
         EngineError::Internal {
+            command: THIS_COMMAND.to_string(),
             detail: detail.into(),
         }
     }
@@ -322,17 +443,35 @@ impl EngineError {
         EngineError::internal(error.to_string())
     }
 
-    /// The `invalid_params` error for sketch params that the solver rejects.
+    /// The `invalid_params` error for sketch params that the solver rejects: the sketch crate's
+    /// message, and its `Display` as the detail.
     pub(crate) fn invalid_sketch(error: impl fmt::Display) -> EngineError {
+        let text = error.to_string();
         EngineError::InvalidSketch {
-            message: error.to_string(),
+            message: text.clone(),
+            detail: text,
+        }
+    }
+
+    /// The error with an internal error naming the protocol command `command` (its type, for
+    /// example `apply_edits`) in words; other errors unchanged.
+    pub(crate) fn in_command(self, command: &str) -> EngineError {
+        match self {
+            EngineError::Internal { detail, .. } => EngineError::Internal {
+                command: command.replace('_', " "),
+                detail,
+            },
+            other => other,
         }
     }
 }
 
-/// A count or position as a protocol `u32`; values above `u32::MAX` saturate.
-pub(crate) fn saturating_u32(value: usize) -> u32 {
-    u32::try_from(value).unwrap_or(u32::MAX)
+/// True when an `Invalid` load message is a deserializer's description of a value of the wrong
+/// form, not an id, color or units message (file-format.md section 4.1).
+fn is_deserializer_description(message: &str) -> bool {
+    DESERIALIZER_DESCRIPTIONS
+        .iter()
+        .any(|opening| message.starts_with(opening))
 }
 
 #[cfg(test)]
@@ -637,8 +776,81 @@ mod tests {
     }
 
     #[test]
-    fn u32_conversions_saturate() {
-        assert_eq!(saturating_u32(3), 3);
-        assert_eq!(saturating_u32(usize::MAX), u32::MAX);
+    fn values_of_the_wrong_form_hide_the_deserializer_text() {
+        let load = LoadError::Invalid {
+            path: "bodies[0].name".to_string(),
+            message: "invalid type: integer `5`, expected a string".to_string(),
+        };
+        let full = load.to_string();
+
+        let error = EngineError::from_load(load);
+
+        assert_eq!(
+            error,
+            EngineError::Parse {
+                message: "A value in this file has the wrong form, so it cannot be opened."
+                    .to_string(),
+                detail: full,
+                line: None,
+                column: None,
+                path: Some("/bodies/0/name".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn id_problems_read_their_own_message() {
+        let load = LoadError::Invalid {
+            path: "bodies[0].id".to_string(),
+            message: "The id 'b 1' contains ' '. Ids use only letters A to Z and a to z, digits, - and _."
+                .to_string(),
+        };
+        let full = load.to_string();
+
+        let error = EngineError::from_load(load);
+
+        assert_eq!(error.to_string(), full);
+    }
+
+    #[test]
+    fn other_load_errors_read_their_own_message_and_keep_it_as_the_detail() {
+        let load = LoadError::NotPartsmith;
+        let full = load.to_string();
+
+        let error = EngineError::from_load(load);
+
+        assert_eq!(error.to_string(), full);
+        assert_eq!(error.detail(), Some(full));
+    }
+
+    #[test]
+    fn serde_descriptions_are_told_apart_from_value_messages() {
+        assert!(is_deserializer_description("missing field `units`"));
+        assert!(is_deserializer_description(
+            "unknown variant `cm2`, expected one of `mm`, `cm`"
+        ));
+        assert!(!is_deserializer_description(
+            "The id 'b 1' contains ' '. Ids use only letters A to Z and a to z, digits, - and _."
+        ));
+    }
+
+    #[test]
+    fn internal_errors_name_this_command_until_the_request_names_its_own() {
+        let error = EngineError::internal("a body with geometry has no shape");
+
+        let named = error.clone().in_command("apply_edits");
+
+        assert!(error.to_string().contains("while running this command."));
+        assert_eq!(
+            named,
+            EngineError::Internal {
+                command: "apply edits".to_string(),
+                detail: "a body with geometry has no shape".to_string(),
+            }
+        );
+        assert_eq!(
+            EngineError::NothingToUndo.in_command("undo"),
+            EngineError::NothingToUndo
+        );
     }
 }

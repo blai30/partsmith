@@ -12,8 +12,9 @@ use partsmith_naming::{EdgeInfo, ElementKind, ElementName, FaceInfo, TopologyInf
 use partsmith_occt_sys::{Shape, SubShapeKind};
 use partsmith_protocol::ElementDescriptor;
 
-use crate::error::{EngineError, saturating_u32};
+use crate::error::EngineError;
 use crate::state::StateKey;
+use crate::wire::saturating_u32;
 
 /// One displayed element: its name and its 1-based kernel index.
 #[derive(Debug, Clone, PartialEq, Eq)]

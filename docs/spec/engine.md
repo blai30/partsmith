@@ -239,8 +239,9 @@ pub struct ValidationDiagnostic {
     pub column: Option<u32>,
     /// JSON Pointer into the document, when known (for example `/features/2/radius`).
     pub path: Option<String>,
-    /// For a feature message of the rebuild step (section 3.19 step 8): the feature, the message and its candidates.
-    pub feature: Option<FeatureMessage>,
+    /// For a feature message of the rebuild step (section 3.19 step 8): the feature, the message and its candidates;
+    /// boxed, since most diagnostics have none and a message with its actions and reason is large.
+    pub feature: Option<Box<FeatureMessage>>,
 }
 /// A feature message as `validate` reports it.
 pub struct FeatureMessage {

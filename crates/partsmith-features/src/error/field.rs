@@ -1,6 +1,6 @@
 //! Field paths inside params and the fields named in messages (features.md section 3.2).
 
-use partsmith_model::FeatureManifest;
+use partsmith_model::{FeatureManifest, FieldHint};
 
 /// A params field named in a message: its path and its manifest label.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,13 +16,23 @@ impl FieldRef {
     /// path, else the hint with this path with every index written `[*]`, else the longest hint
     /// whose path is a prefix of this one followed by `.` or `[`, else the path itself.
     pub fn new(path: &str, manifest: &FeatureManifest) -> FieldRef {
+        let label = FieldRef::hint(path, manifest).map_or(path, |hint| hint.label.as_str());
+        FieldRef {
+            path: path.to_string(),
+            label: label.to_string(),
+        }
+    }
+
+    /// The manifest hint of the field at `path` (section 3.2), whose label `new` gives it: the
+    /// hint with this exact path, else the hint with this path with every index written `[*]`,
+    /// else the longest hint whose path is a prefix of this one followed by `.` or `[`.
+    pub fn hint<'m>(path: &str, manifest: &'m FeatureManifest) -> Option<&'m FieldHint> {
         let any_index = with_any_index(path);
-        let exact = manifest
+        manifest
             .fields
             .iter()
             .find(|hint| hint.path == path)
-            .or_else(|| manifest.fields.iter().find(|hint| hint.path == any_index));
-        let label = exact
+            .or_else(|| manifest.fields.iter().find(|hint| hint.path == any_index))
             .or_else(|| {
                 manifest
                     .fields
@@ -32,11 +42,6 @@ impl FieldRef {
                     })
                     .max_by_key(|hint| hint.path.len())
             })
-            .map_or(path, |hint| hint.label.as_str());
-        FieldRef {
-            path: path.to_string(),
-            label: label.to_string(),
-        }
     }
 
     /// The path as a JSON Pointer into the feature record, for example "edges[1]" gives "/edges/1".
@@ -133,7 +138,7 @@ fn is_parent_path(parent: &str, path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::{Category, FieldHint};
+    use partsmith_model::Category;
 
     use super::*;
 
@@ -204,6 +209,19 @@ mod tests {
     fn any_index_replaces_only_numeric_indices() {
         assert_eq!(with_any_index("a[12].b[3]"), "a[*].b[*]");
         assert_eq!(with_any_index("a[x]"), "a[x]");
+    }
+
+    #[test]
+    fn the_hint_of_a_list_entry_is_the_hint_of_any_index() {
+        let manifest = manifest(&[
+            ("profile.sketch", "Sketch"),
+            ("profile.regions[*]", "Profile"),
+        ]);
+
+        let hint = FieldRef::hint("profile.regions[1]", &manifest).expect("the entry has a hint");
+
+        assert_eq!(hint.path, "profile.regions[*]");
+        assert_eq!(FieldRef::hint("op", &manifest), None);
     }
 
     #[test]

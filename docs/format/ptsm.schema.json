@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Partsmith document",
-  "description": "A Partsmith .ptsm document, format version 1.",
+  "description": "A Partsmith .ptsm document, format version 2.",
   "type": "object",
   "properties": {
     "format": {"const": "partsmith"},
-    "format_version": {"const": 1},
+    "format_version": {"const": 2},
     "units": {"$ref": "#/$defs/Units"},
     "printer": {"type": "string"},
     "parameters": {"type": "array", "items": {"$ref": "#/$defs/Parameter"}},
@@ -16,6 +16,12 @@
   "required": ["format", "format_version", "units"],
   "additionalProperties": false,
   "$defs": {
+    "Anchors": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {"^[A-Za-z0-9_./()|#@:-]+$": {"type": "array", "items": {"$ref": "#/$defs/ElementName"}}},
+      "description": "Part name to the sorted, distinct piece-free names of at most `ANCHOR_LIMIT` faces."
+    },
     "AxisRef": {
       "oneOf": [
         {
@@ -45,6 +51,13 @@
           "properties": {
             "body": {"$ref": "#/$defs/Id", "description": "The body the edge is resolved in."},
             "edge": {"$ref": "#/$defs/Reference", "description": "The edge."},
+            "direction": {
+              "type": ["array", "null"],
+              "items": {"type": "number", "format": "double"},
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "The axis direction the user picked, a unit vector in body coordinates (section 3.6).\nOmitted when None."
+            },
             "kind": {"type": "string", "const": "edge"}
           },
           "required": ["kind", "body", "edge"],
@@ -56,6 +69,13 @@
           "properties": {
             "body": {"$ref": "#/$defs/Id", "description": "The body the face is resolved in."},
             "face": {"$ref": "#/$defs/Reference", "description": "The face."},
+            "direction": {
+              "type": ["array", "null"],
+              "items": {"type": "number", "format": "double"},
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "The axis direction the user picked, as for `Edge`. Omitted when None."
+            },
             "kind": {"type": "string", "const": "face"}
           },
           "required": ["kind", "body", "face"],
@@ -285,6 +305,21 @@
       "type": "string",
       "pattern": "^(plane|cylinder|cone|sphere|torus|revolution|extrusion|bspline_surface|bezier_surface|offset_surface|other_surface|line|circle|ellipse|hyperbola|parabola|bspline_curve|bezier_curve|offset_curve|other_curve|point)(\\|[a-z]+=[-0-9.,]+)*$"
     },
+    "HintFrame": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "world",
+          "description": "World coordinates: the default, and the meaning of every fallback written before file format version 2."
+        },
+        {
+          "type": "string",
+          "const": "body",
+          "description": "The coordinates of the face's own feature, before any later Move body or copy transform."
+        }
+      ],
+      "description": "Which coordinates a face sketch's `fallback` is in (section 3.1, features.md section 3.6)."
+    },
     "HoleExtent": {
       "oneOf": [
         {
@@ -363,6 +398,13 @@
       "required": ["axis", "count", "spacing"],
       "description": "One direction of a linear pattern. Named with the feature prefix so its schema definition is\nunique (features.md section 2.2)."
     },
+    "Merged": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {"^[A-Za-z0-9_./()|#@:-]+$": {"type": "array", "items": {"$ref": "#/$defs/MergedName"}}},
+      "description": "Face name occurring in the query to the sorted, distinct former names merged into it."
+    },
+    "MergedName": {"type": "string", "minLength": 3, "maxLength": 16451, "pattern": "^[A-Za-z0-9_./()|#@:*-]+$"},
     "MoveBodyRotation": {
       "type": "object",
       "additionalProperties": false,
@@ -488,10 +530,20 @@
       "additionalProperties": false,
       "properties": {
         "q": {"$ref": "#/$defs/ElementName", "description": "The element name the reference was made with."},
-        "fp": {"$ref": "#/$defs/Fingerprint", "description": "The element's fingerprint when the reference was made."}
+        "fp": {"$ref": "#/$defs/Fingerprint", "description": "The element's fingerprint when the reference was made."},
+        "nb": {
+          "$ref": "#/$defs/Anchors",
+          "description": "For each order-dependent part of the query, the faces it touched that its siblings did not.",
+          "default": {}
+        },
+        "merged": {
+          "$ref": "#/$defs/Merged",
+          "description": "For each face name in the query, the former names merged into that face.",
+          "default": {}
+        }
       },
       "required": ["q", "fp"],
-      "description": "A stored reference to a face, edge or vertex: a name query plus the fingerprint it had when picked.\n\nA reference carries no body: it always sits next to a `body` field of its containing struct that\nnames the body it is resolved in."
+      "description": "A stored reference to a face, edge or vertex: a name query, the fingerprint it had when picked,\nwhat tells its order-dependent parts apart from their siblings, and the former names merged into\nits faces (section 3.11).\n\nA reference carries no body: it always sits next to a `body` field of its containing struct that\nnames the body it is resolved in."
     },
     "RegionFingerprint": {
       "type": "string",
@@ -501,6 +553,7 @@
       "type": "string",
       "pattern": "^~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*(;~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*)*$"
     },
+    "RegionLoop": {"type": "string", "pattern": "^~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*$"},
     "RegionRef": {
       "type": "object",
       "additionalProperties": false,
@@ -509,6 +562,13 @@
         "fp": {
           "$ref": "#/$defs/RegionFingerprint",
           "description": "The region's fingerprint when the reference was made."
+        },
+        "outline": {
+          "anyOf": [
+            {"$ref": "#/$defs/RegionLoop"},
+            {"type": "null"}
+          ],
+          "description": "The region's outer loop in traversal order when the reference was made (section 3.13.8); `None` in references\nwritten before file format version 2. Omitted from JSON when `None`."
         }
       },
       "required": ["key", "fp"],
@@ -950,10 +1010,14 @@
               "$ref": "#/$defs/Placement",
               "description": "The placement recorded when the sketch was attached."
             },
+            "fallback_frame": {
+              "$ref": "#/$defs/HintFrame",
+              "description": "Which coordinates `fallback` is in; omitted from JSON when `World`."
+            },
             "kind": {"type": "string", "const": "face"}
           },
           "required": ["kind", "body", "face", "fallback"],
-          "description": "A planar face of `body`, plus the placement used when the face cannot be resolved."
+          "description": "A planar face of `body`, plus the placement used when the face cannot be resolved and the coordinates it is in."
         }
       ],
       "description": "Where a sketch lies."

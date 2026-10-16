@@ -42,6 +42,7 @@ pub(crate) fn sketch_params(
         .validate_and_canonicalize(record)
         .map_err(|error| EngineError::InvalidSketch {
             message: render_feature_error(&error, document, registry, &record.id),
+            detail: error.detail().unwrap_or_else(|| error.to_string()),
         })?;
     serde_json::from_value(serde_json::Value::Object(validated.record.params))
         .map_err(EngineError::unexpected)

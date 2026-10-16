@@ -1,17 +1,17 @@
 //! The state of one open document: recipe, revision, undo log, transaction, drags, dirty
 //! baseline, assets, display quality, the latest recompute and what was last emitted (engine.md
-//! sections 3.2 to 3.6); and how a loaded text becomes a recipe: its load errors and canonical
-//! params.
+//! sections 3.2 to 3.6); and the canonical forms of a recipe: its text, and its params as the
+//! registry writes them.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use partsmith_features::{FieldRef, Registry};
+use partsmith_features::Registry;
 use partsmith_mesh::TessellationTolerance;
-use partsmith_model::{Document, Id, LoadError, Step, UndoLog, canonical, save};
+use partsmith_model::{Document, Id, Step, UndoLog, canonical, save};
 use partsmith_protocol::TessellationQuality;
 
-use crate::error::{EngineError, saturating_u32};
+use crate::error::EngineError;
 use crate::events::Emitted;
 use crate::profiles::tolerance;
 use crate::sketch::Drag;
@@ -131,11 +131,13 @@ impl OpenDocument {
             .and_then(|transaction| transaction.focus.as_ref())
     }
 
-    /// Fails with `transaction_open` while a transaction is open.
-    pub(crate) fn require_no_transaction(&self) -> Result<(), EngineError> {
+    /// Fails with `transaction_open` while a transaction is open; `then` says what the failed
+    /// request does, for the error's action (section 4).
+    pub(crate) fn require_no_transaction(&self, then: &str) -> Result<(), EngineError> {
         match &self.transaction {
             Some(transaction) => Err(EngineError::TransactionOpen {
                 label: transaction.label.clone(),
+                then: then.to_string(),
             }),
             None => Ok(()),
         }
@@ -152,42 +154,6 @@ impl OpenDocument {
 /// The canonical `.ptsm` text of a recipe the engine holds (always structurally valid).
 pub(crate) fn canonical_text(document: &Document) -> Result<String, EngineError> {
     save(document).map_err(EngineError::unexpected)
-}
-
-/// The engine error of a model load error: `unsupported_format_version` for a newer format,
-/// `parse_error` for everything else, with the line and column of JSON problems and the JSON
-/// Pointer of the field a structure problem names (section 4).
-pub(crate) fn load_error(error: LoadError) -> EngineError {
-    let detail = error.to_string();
-    let position =
-        |line: usize, column: usize| (Some(saturating_u32(line)), Some(saturating_u32(column)));
-    let (line, column) = match &error {
-        LoadError::NewerFormatVersion { found, .. } => {
-            return EngineError::UnsupportedFormatVersion {
-                found: u32::try_from(*found).unwrap_or(u32::MAX),
-            };
-        }
-        LoadError::Syntax { line, column, .. } | LoadError::DuplicateKey { line, column, .. } => {
-            position(*line, *column)
-        }
-        _ => (None, None),
-    };
-    let path = match error {
-        LoadError::Invalid { path, .. } if !path.is_empty() => Some(
-            FieldRef {
-                path,
-                label: String::new(),
-            }
-            .pointer(),
-        ),
-        _ => None,
-    };
-    EngineError::Parse {
-        detail,
-        line,
-        column,
-        path,
-    }
 }
 
 /// Replaces the params of every record the registry accepts by its canonical params; records it

@@ -156,6 +156,7 @@ mod tests {
                     line: None,
                     column: None,
                     path: None,
+                    feature: None,
                 })
                 .collect(),
         }

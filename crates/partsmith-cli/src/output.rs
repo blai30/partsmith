@@ -182,6 +182,7 @@ mod tests {
             line,
             column,
             path: path.map(str::to_owned),
+            feature: None,
         }
     }
 

@@ -89,13 +89,7 @@ fn decode(name: String, bytes: Vec<u8>) -> Result<String, CliError> {
         let not_utf8 = LoadError::NotUtf8 {
             offset: error.utf8_error().valid_up_to(),
         };
-        let error = EngineError::Parse {
-            detail: not_utf8.to_string(),
-            line: None,
-            column: None,
-            path: None,
-        };
-        CliError::load(name, &error)
+        CliError::load(name, &EngineError::from_load(not_utf8))
     })
 }
 
@@ -348,7 +342,7 @@ mod tests {
         assert_eq!(error.status(), Status::Problems);
         assert_eq!(
             error.report_line(),
-            "x.ptsm: error[parse_error]: The file is not a valid Partsmith document: The file is not valid UTF-8 text (the first bad byte is at offset 1). Save it as UTF-8."
+            "x.ptsm: error[parse_error]: The file is not valid UTF-8 text (the first bad byte is at offset 1). Save it as UTF-8."
         );
     }
 

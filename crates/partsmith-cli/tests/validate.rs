@@ -288,10 +288,9 @@ fn t018_validate_rebuild_reports_feature_errors() {
 
     rebuilt.assert_code(1);
     assert!(
-        rebuilt
-            .stdout_lines()
-            .iter()
-            .any(|line| line.contains("error[feature_error]") && line.contains("f-box1")),
+        rebuilt.stdout_lines().iter().any(|line| line.starts_with(
+            "box.ptsm: error[out_of_range] at /features/0/size/0: Length must be greater than 0 mm"
+        )),
         "{:?}",
         rebuilt.stdout
     );

@@ -52,10 +52,13 @@ impl Session {
                 );
             }
         };
+        let command = command_type(&request.command);
         let reply = self.execute(request, buffers);
         encode_response_frame(&reply.events, &reply.response, &reply.buffers).unwrap_or_else(
             |error| {
-                let message = EngineError::unexpected(error).to_string();
+                let message = EngineError::unexpected(error)
+                    .in_command(command)
+                    .to_string();
                 error_response_frame(reply.response.id, ErrorCode::InternalError, &message)
             },
         )
@@ -94,7 +97,11 @@ impl Session {
                 Some(_) => {}
             }
         }
-        match self.contained(doc, |session| session.run(request.command, &buffers)) {
+        let command = command_type(&request.command);
+        match self
+            .contained(doc, |session| session.run(request.command, &buffers))
+            .map_err(|error| error.in_command(command))
+        {
             Ok((result, output)) => Reply {
                 events: output.events,
                 response: Response {
@@ -233,9 +240,11 @@ impl Session {
                 self.events(doc, &mut output)?;
                 CommandResult::RenameParameter { revision }
             }
-            // No diagnostic offers an `apply` action yet, so every fix names an action its
-            // feature does not have (section 3.22).
-            Command::ApplyFix { .. } => return Err(EngineError::StaleFix.into()),
+            Command::ApplyFix { doc, fix } => {
+                let revision = self.apply_fix(doc, &fix)?;
+                self.events(doc, &mut output)?;
+                CommandResult::ApplyFix { revision }
+            }
             Command::BeginTransaction { doc, label } => {
                 self.begin_transaction(doc, &label)?;
                 self.events(doc, &mut output)?;
@@ -492,6 +501,45 @@ fn document_of(command: &Command) -> Option<DocHandle> {
     }
 }
 
+/// The type of a command as protocol.md writes it, for example `apply_edits`, which internal
+/// errors name in words (section 4).
+fn command_type(command: &Command) -> &'static str {
+    match command {
+        Command::EngineInfo => "engine_info",
+        Command::FeatureCatalog => "feature_catalog",
+        Command::ListPrinterProfiles => "list_printer_profiles",
+        Command::PutPrinterProfile { .. } => "put_printer_profile",
+        Command::NewDocument { .. } => "new_document",
+        Command::OpenDocument { .. } => "open_document",
+        Command::SaveDocument { .. } => "save_document",
+        Command::CloseDocument { .. } => "close_document",
+        Command::GetDocument { .. } => "get_document",
+        Command::MarkSaved { .. } => "mark_saved",
+        Command::ApplyEdits { .. } => "apply_edits",
+        Command::RenameParameter { .. } => "rename_parameter",
+        Command::ApplyFix { .. } => "apply_fix",
+        Command::BeginTransaction { .. } => "begin_transaction",
+        Command::SetFocus { .. } => "set_focus",
+        Command::CommitTransaction { .. } => "commit_transaction",
+        Command::CancelTransaction { .. } => "cancel_transaction",
+        Command::Undo { .. } => "undo",
+        Command::Redo { .. } => "redo",
+        Command::SolveSketch { .. } => "solve_sketch",
+        Command::DragSketch { .. } => "drag_sketch",
+        Command::EndSketchDrag { .. } => "end_sketch_drag",
+        Command::SetTessellation { .. } => "set_tessellation",
+        Command::Evaluate { .. } => "evaluate",
+        Command::ListElements { .. } => "list_elements",
+        Command::PickReference { .. } => "pick_reference",
+        Command::ResolveReferences { .. } => "resolve_references",
+        Command::Measure { .. } => "measure",
+        Command::AnalyzePrint { .. } => "analyze_print",
+        Command::Export { .. } => "export",
+        Command::ImportStep { .. } => "import_step",
+        Command::ExportPython { .. } => "export_python",
+    }
+}
+
 /// True for the commands a poisoned document still accepts (section 3.15).
 fn rescues(command: &Command) -> bool {
     matches!(
@@ -549,6 +597,7 @@ mod tests {
             result,
             Err(EngineError::internal("the kernel fell over".to_string()))
         );
+
         assert_eq!(
             error_code(&mut session, Command::Undo { doc }),
             Some(ErrorCode::DocumentPoisoned)
@@ -599,6 +648,23 @@ mod tests {
     }
 
     #[test]
+    fn internal_errors_name_the_type_of_their_command_in_words() {
+        let command = Command::ApplyEdits {
+            doc: DocHandle(1),
+            label: None,
+            edits: Vec::new(),
+        };
+
+        let error = EngineError::internal("boom").in_command(command_type(&command));
+
+        assert_eq!(
+            error.to_string(),
+            "Partsmith hit a bug while running apply edits. Your document is unchanged. Save a copy, and report this with the details."
+        );
+        assert_eq!(error.detail().as_deref(), Some("boom"));
+    }
+
+    #[test]
     fn a_failure_after_the_document_changed_poisons_it() {
         let (mut session, doc) = box_session(false);
 
@@ -614,7 +680,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_fix_is_stale_while_no_diagnostic_offers_an_apply_action() {
+    fn apply_fix_of_a_message_the_feature_does_not_have_is_stale() {
         let (mut session, doc) = box_session(false);
         let fix = FixRef {
             feature: id("f-box1"),

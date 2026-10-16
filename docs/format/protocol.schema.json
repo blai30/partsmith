@@ -355,6 +355,30 @@
           ]
         },
         {
+          "description": "Applies one `apply` action of a diagnostic, with its edits built from the current records (engine.md section 3.22).",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "fix": {
+              "description": "The action's fix, as the diagnostic offered it.",
+              "$ref": "#/$defs/FixRef"
+            },
+            "type": {
+              "type": "string",
+              "const": "apply_fix"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "fix"
+          ]
+        },
+        {
           "description": "Opens a transaction; later `apply_edits` join it and are previewed.",
           "type": "object",
           "properties": {
@@ -1650,6 +1674,51 @@
       ],
       "additionalProperties": true
     },
+    "FixRef": {
+      "description": "Names one fix of one message at one revision; the engine builds the edits when it is applied (engine.md section 3.22).",
+      "type": "object",
+      "properties": {
+        "feature": {
+          "description": "The feature whose message offers the fix (the sketch, for a profile finding).",
+          "$ref": "#/$defs/Id"
+        },
+        "code": {
+          "description": "The message's code.",
+          "type": "string"
+        },
+        "field": {
+          "description": "The message's field; absent when the message has none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cause": {
+          "description": "True for an action of the message's cause line.",
+          "type": "boolean"
+        },
+        "index": {
+          "description": "Position of the action in the message's `actions`, or in its cause's `actions` when `cause` is true.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "revision": {
+          "description": "The document revision the fix was offered at.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "feature",
+        "code",
+        "cause",
+        "index",
+        "revision"
+      ]
+    },
     "SketchParams": {
       "description": "Params of a `sketch` feature; flattened into its feature record after the record's own fields (`id`, `type`, `name`, `suppressed`).",
       "type": "object",
@@ -1721,7 +1790,7 @@
           ]
         },
         {
-          "description": "A planar face of `body`, plus the placement used when the face cannot be resolved.",
+          "description": "A planar face of `body`, plus the placement used when the face cannot be resolved and the coordinates it is in.",
           "type": "object",
           "properties": {
             "body": {
@@ -1735,6 +1804,10 @@
             "fallback": {
               "description": "The placement recorded when the sketch was attached.",
               "$ref": "#/$defs/Placement"
+            },
+            "fallback_frame": {
+              "description": "Which coordinates `fallback` is in; omitted from JSON when `World`.",
+              "$ref": "#/$defs/HintFrame"
             },
             "kind": {
               "type": "string",
@@ -1772,7 +1845,7 @@
       ]
     },
     "Reference": {
-      "description": "A stored reference to a face, edge or vertex: a name query plus the fingerprint it had when picked.\n\nA reference carries no body: it always sits next to a `body` field of its containing struct that\nnames the body it is resolved in.",
+      "description": "A stored reference to a face, edge or vertex: a name query, the fingerprint it had when picked,\nwhat tells its order-dependent parts apart from their siblings, and the former names merged into\nits faces (section 3.11).\n\nA reference carries no body: it always sits next to a `body` field of its containing struct that\nnames the body it is resolved in.",
       "type": "object",
       "properties": {
         "q": {
@@ -1782,6 +1855,16 @@
         "fp": {
           "description": "The element's fingerprint when the reference was made.",
           "$ref": "#/$defs/Fingerprint"
+        },
+        "nb": {
+          "description": "For each order-dependent part of the query, the faces it touched that its siblings did not.",
+          "$ref": "#/$defs/Anchors",
+          "default": {}
+        },
+        "merged": {
+          "description": "For each face name in the query, the former names merged into that face.",
+          "$ref": "#/$defs/Merged",
+          "default": {}
         }
       },
       "additionalProperties": false,
@@ -1799,6 +1882,38 @@
     "Fingerprint": {
       "type": "string",
       "pattern": "^(plane|cylinder|cone|sphere|torus|revolution|extrusion|bspline_surface|bezier_surface|offset_surface|other_surface|line|circle|ellipse|hyperbola|parabola|bspline_curve|bezier_curve|offset_curve|other_curve|point)(\\|[a-z]+=[-0-9.,]+)*$"
+    },
+    "Anchors": {
+      "description": "Part name to the sorted, distinct piece-free names of at most `ANCHOR_LIMIT` faces.",
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Za-z0-9_./()|#@:-]+$": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ElementName"
+          }
+        }
+      }
+    },
+    "Merged": {
+      "description": "Face name occurring in the query to the sorted, distinct former names merged into it.",
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Za-z0-9_./()|#@:-]+$": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MergedName"
+          }
+        }
+      }
+    },
+    "MergedName": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 16451,
+      "pattern": "^[A-Za-z0-9_./()|#@:*-]+$"
     },
     "Placement": {
       "description": "A right-handed frame that places sketch coordinates in model space.",
@@ -1840,6 +1955,21 @@
         "origin",
         "x_axis",
         "normal"
+      ]
+    },
+    "HintFrame": {
+      "description": "Which coordinates a face sketch's `fallback` is in (section 3.1, features.md section 3.6).",
+      "oneOf": [
+        {
+          "description": "World coordinates: the default, and the meaning of every fallback written before file format version 2.",
+          "type": "string",
+          "const": "world"
+        },
+        {
+          "description": "The coordinates of the face's own feature, before any later Move body or copy transform.",
+          "type": "string",
+          "const": "body"
+        }
       ]
     },
     "SketchEntity": {
@@ -2762,11 +2892,11 @@
       ]
     },
     "Pick": {
-      "description": "A pixel pick in a displayed mesh.",
+      "description": "A pixel pick in a displayed mesh. In a headless session, which has no meshes, `mesh_id` is 0, `body` names the body and `index` is the element's position among the elements of its kind in `list_elements` order (engine.md section 3.9); in a display session `body` is absent or the mesh's body.",
       "type": "object",
       "properties": {
         "mesh_id": {
-          "description": "The displayed mesh.",
+          "description": "The displayed mesh; 0 in a headless session.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0,
@@ -2777,10 +2907,21 @@
           "$ref": "#/$defs/ElementKind"
         },
         "index": {
-          "description": "Display id of the element within the mesh.",
+          "description": "Display id of the element within the mesh; in a headless session, its position among the body's elements of its kind.",
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "body": {
+          "description": "The body of a headless pick; absent, or the mesh's body, in a display session.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false,
@@ -3522,6 +3663,13 @@
             "$ref": "#/$defs/ProfileFinding"
           }
         },
+        "messages": {
+          "description": "The solve issues, then one message per entry of `profile_findings` in its order, rendered by the sketch crate in the document units; findings of the stored sketch carry their fixes as actions (engine.md section 3.6).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          }
+        },
         "display": {
           "description": "Display buffers; absent when the session has display off.",
           "anyOf": [
@@ -3546,7 +3694,8 @@
         "points",
         "constraints",
         "regions",
-        "profile_findings"
+        "profile_findings",
+        "messages"
       ]
     },
     "SketchStatus": {
@@ -3860,7 +4009,7 @@
       "type": "object",
       "properties": {
         "reference": {
-          "description": "The region key and fingerprint.",
+          "description": "The reference a profile param stores, as `Region::reference()` writes it: key, fingerprint and outline.",
           "$ref": "#/$defs/RegionRef"
         },
         "area": {
@@ -3896,6 +4045,17 @@
         "fp": {
           "description": "The region's fingerprint when the reference was made.",
           "$ref": "#/$defs/RegionFingerprint"
+        },
+        "outline": {
+          "description": "The region's outer loop in traversal order when the reference was made (section 3.13.8); `None` in references\nwritten before file format version 2. Omitted from JSON when `None`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegionLoop"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false,
@@ -3911,6 +4071,10 @@
     "RegionFingerprint": {
       "type": "string",
       "pattern": "^c=-?[0-9]+(\\.[0-9]+)?,-?[0-9]+(\\.[0-9]+)?\\|a=[0-9]+(\\.[0-9]+)?$"
+    },
+    "RegionLoop": {
+      "type": "string",
+      "pattern": "^~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*$"
     },
     "ProfileFinding": {
       "description": "A profile check finding. `Display` gives the message of section 4.3.",
@@ -4043,6 +4207,794 @@
         }
       ]
     },
+    "Diagnostic": {
+      "description": "A message about a document, feature, sketch or export.",
+      "type": "object",
+      "properties": {
+        "severity": {
+          "description": "Info, warning or error. A feature message of severity info is a notice: its feature's status stays `ok`.",
+          "$ref": "#/$defs/Severity"
+        },
+        "code": {
+          "description": "Stable snake_case code from the crate that produced it.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Plain-sentence message for the user (docs/guidelines/errors.md).",
+          "type": "string"
+        },
+        "field": {
+          "description": "JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages, and sketch profile findings, whose field is their position in `SketchSolution::profile_findings` (`/profile_findings/0`, section 2.6).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "suggestion": {
+          "description": "Replacement expression for `field` that fixes the problem, in document units (for example `2.3 mm`). Feature messages only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "actions": {
+          "description": "One-click fixes computed from the document alone, in the order to offer them (engine.md section 3.22). Omitted when empty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FixAction"
+          }
+        },
+        "cause": {
+          "description": "The edit that started the problem, with its own actions (engine.md section 3.21). Session data: absent when the session never saw the feature build without this message, for example in a document opened fresh.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cause"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detail": {
+          "description": "Technical text for reports (the kernel's text, the stored reference and the resolver result, a parser's or a panic's text), never shown as the message.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "description": "The root cause a host groups this message under (recompute.md section 3.10, `Message::root`): the first failing feature of an `upstream_failed` chain, of a loss whose reason is `upstream_failed`, or of the feature a `body_empty` or `tool_empty` names as failed; or the sketch that lost its face, or whose face turned over, under a `no_effect`, `hole_misses_body` or `separate_solid`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "description": "Why the reference the message names was lost, or which feature a followed or widened reference followed (recompute.md section 3.10, `Message::reason`).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LossReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ]
+    },
+    "Severity": {
+      "description": "How serious a finding is.",
+      "oneOf": [
+        {
+          "description": "Worth knowing; does not lower print health.",
+          "type": "string",
+          "const": "info"
+        },
+        {
+          "description": "The part may print badly.",
+          "type": "string",
+          "const": "warning"
+        },
+        {
+          "description": "The part will not print or export correctly.",
+          "type": "string",
+          "const": "error"
+        }
+      ]
+    },
+    "FixAction": {
+      "description": "A fix a host offers as one button.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "description": "Button label starting with a verb, for example \"Set Count of 'Linear pattern 1' back to 3\".",
+          "type": "string"
+        },
+        "run": {
+          "description": "What the button does.",
+          "$ref": "#/$defs/FixKind"
+        }
+      },
+      "required": [
+        "label",
+        "run"
+      ]
+    },
+    "FixKind": {
+      "description": "What a fix button does. A value enum, so it is tagged `kind`.",
+      "oneOf": [
+        {
+          "description": "Run `apply_fix` with this reference.",
+          "type": "object",
+          "properties": {
+            "fix": {
+              "description": "The fix to name in `apply_fix`.",
+              "$ref": "#/$defs/FixRef"
+            },
+            "kind": {
+              "type": "string",
+              "const": "apply"
+            }
+          },
+          "required": [
+            "kind",
+            "fix"
+          ]
+        },
+        {
+          "description": "Edit the feature with the field at `path` active, so the next pick replaces the reference.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The feature to edit.",
+              "$ref": "#/$defs/Id"
+            },
+            "path": {
+              "description": "JSON Pointer of the field to activate, relative to the feature record.",
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "pick"
+            }
+          },
+          "required": [
+            "kind",
+            "feature",
+            "path"
+          ]
+        },
+        {
+          "description": "Select and frame the feature, and highlight one of its sketch entities when `entity` is set.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The feature to show.",
+              "$ref": "#/$defs/Id"
+            },
+            "entity": {
+              "description": "The sketch entity to highlight.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "show"
+            }
+          },
+          "required": [
+            "kind",
+            "feature"
+          ]
+        },
+        {
+          "description": "Undo the newest undo entry.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "undo"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Commit the open transaction with `commit_transaction`, then do again what the failed request did (an action of a `transaction_open` error, section 4).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "finish_transaction"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "Cause": {
+      "description": "The edit that started a problem (engine.md section 3.21).",
+      "type": "object",
+      "properties": {
+        "text": {
+          "description": "Plain sentence, for example \"This started after you changed Distance of 'Extrude 2' from 5 mm to 30 mm.\"",
+          "type": "string"
+        },
+        "feature": {
+          "description": "The feature the edit changed, when it changed one (deleted features included).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "actions": {
+          "description": "Actions that depend on the session, in order: reverts, Keep the sketch where it was, Undo, Show.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FixAction"
+          }
+        },
+        "ghost": {
+          "description": "For a sketch entity edit in a display session: the entity as it was before the edit, in the sketch's coordinates. Absent for an added entity, which the sketch itself shows.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ghost"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "actions"
+      ]
+    },
+    "Ghost": {
+      "description": "Geometry drawn where something was: a lost element in its last build, a lost region's outline, or a sketch entity before an edit. Positions travel as a binary buffer of the same frame (section 3.4).",
+      "type": "object",
+      "properties": {
+        "positions": {
+          "description": "`f32` positions in mm: 3 per point in `world`, 2 per point (u, v) in `sketch`.",
+          "$ref": "#/$defs/BufferIndex"
+        },
+        "kind": {
+          "description": "How the points are joined.",
+          "$ref": "#/$defs/GhostKind"
+        },
+        "frame": {
+          "description": "The coordinates of `positions`.",
+          "$ref": "#/$defs/GhostFrame"
+        }
+      },
+      "required": [
+        "positions",
+        "kind",
+        "frame"
+      ]
+    },
+    "GhostKind": {
+      "description": "How the points of a ghost are joined.",
+      "oneOf": [
+        {
+          "description": "Line segments, 2 points each (an edge, a region outline, a sketch curve).",
+          "type": "string",
+          "const": "lines"
+        },
+        {
+          "description": "Triangles, 3 points each, counterclockwise seen from outside (a face).",
+          "type": "string",
+          "const": "triangles"
+        },
+        {
+          "description": "Separate points (a vertex, a sketch point).",
+          "type": "string",
+          "const": "points"
+        }
+      ]
+    },
+    "GhostFrame": {
+      "description": "The coordinates of a ghost.",
+      "oneOf": [
+        {
+          "description": "Model coordinates.",
+          "type": "string",
+          "const": "world"
+        },
+        {
+          "description": "The coordinates of the sketch the ghost belongs to: a region repair's `sketch`, or a cause's `feature`.",
+          "type": "string",
+          "const": "sketch"
+        }
+      ]
+    },
+    "LossReason": {
+      "description": "Why a reference was lost, or which feature a followed or widened reference followed: the wire form of recompute.md's `LossReason` (section 3.10), with ids as strings. A value enum, so it is tagged `kind`.",
+      "oneOf": [
+        {
+          "description": "Not diagnosed.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "The feature that made it is not in the document.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The feature named by the reference.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "type": "string",
+              "const": "not_in_document"
+            }
+          },
+          "required": [
+            "kind",
+            "feature"
+          ]
+        },
+        {
+          "description": "The feature that made it is suppressed.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The suppressed feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "type": "string",
+              "const": "suppressed"
+            }
+          },
+          "required": [
+            "kind",
+            "feature"
+          ]
+        },
+        {
+          "description": "The feature that made it comes after this one in the timeline.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The later feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "type": "string",
+              "const": "comes_later"
+            }
+          },
+          "required": [
+            "kind",
+            "feature"
+          ]
+        },
+        {
+          "description": "The feature that made it is at or after the rollback marker.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The rolled-back feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "type": "string",
+              "const": "rolled_back"
+            }
+          },
+          "required": [
+            "kind",
+            "feature"
+          ]
+        },
+        {
+          "description": "The feature that made it failed; `root` is the first feature of the chain whose error is its own.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The failed feature that made it.",
+              "$ref": "#/$defs/Id"
+            },
+            "root": {
+              "description": "The first feature of the chain whose error is its own.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "type": "string",
+              "const": "upstream_failed"
+            }
+          },
+          "required": [
+            "kind",
+            "feature",
+            "root"
+          ]
+        },
+        {
+          "description": "It is in another body, put there by `by` when known (`present`), or the feature that made it now writes another body, so it is no longer in this one (not `present`).",
+          "type": "object",
+          "properties": {
+            "body": {
+              "description": "The body it is in, or that the feature that made it now writes.",
+              "$ref": "#/$defs/Id"
+            },
+            "by": {
+              "description": "The feature that moved it there, when known.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "by_suppressed": {
+              "description": "Whether `by` is suppressed.",
+              "type": "boolean"
+            },
+            "present": {
+              "description": "Whether the element is in `body`.",
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "const": "other_body"
+            }
+          },
+          "required": [
+            "kind",
+            "body",
+            "by_suppressed",
+            "present"
+          ]
+        },
+        {
+          "description": "A feature between the one that made it and this one removed it.",
+          "type": "object",
+          "properties": {
+            "by": {
+              "description": "The feature that removed it.",
+              "$ref": "#/$defs/Id"
+            },
+            "how": {
+              "description": "How it was removed.",
+              "$ref": "#/$defs/Removal"
+            },
+            "kind": {
+              "type": "string",
+              "const": "removed"
+            }
+          },
+          "required": [
+            "kind",
+            "by",
+            "how"
+          ]
+        },
+        {
+          "description": "The sketch entity that made its face was deleted.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The feature that made the face from the entity.",
+              "$ref": "#/$defs/Id"
+            },
+            "sketch": {
+              "description": "The sketch the entity was in.",
+              "$ref": "#/$defs/Id"
+            },
+            "entity": {
+              "description": "The deleted entity.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "type": "string",
+              "const": "entity_deleted"
+            }
+          },
+          "required": [
+            "kind",
+            "feature",
+            "sketch",
+            "entity"
+          ]
+        },
+        {
+          "description": "A hole no longer uses the point that made it; `deleted` when the sketch no longer has the point.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The hole.",
+              "$ref": "#/$defs/Id"
+            },
+            "sketch": {
+              "description": "The sketch the point was in.",
+              "$ref": "#/$defs/Id"
+            },
+            "point": {
+              "description": "The point, for example `e-3.center`.",
+              "type": "string"
+            },
+            "deleted": {
+              "description": "Whether the sketch no longer has the point.",
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "const": "point_gone"
+            }
+          },
+          "required": [
+            "kind",
+            "feature",
+            "sketch",
+            "point",
+            "deleted"
+          ]
+        },
+        {
+          "description": "A pattern or mirror no longer makes the copy it was on.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The pattern or mirror.",
+              "$ref": "#/$defs/Id"
+            },
+            "instance": {
+              "description": "The copy it no longer makes.",
+              "$ref": "#/$defs/InstanceIndex"
+            },
+            "kind": {
+              "type": "string",
+              "const": "copy_gone"
+            }
+          },
+          "required": [
+            "kind",
+            "feature",
+            "instance"
+          ]
+        },
+        {
+          "description": "An imported file no longer has it.",
+          "type": "object",
+          "properties": {
+            "feature": {
+              "description": "The import feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "type": "string",
+              "const": "not_in_file"
+            }
+          },
+          "required": [
+            "kind",
+            "feature"
+          ]
+        },
+        {
+          "description": "For a followed or widened reference: the feature whose change it followed.",
+          "type": "object",
+          "properties": {
+            "by": {
+              "description": "The feature whose change it followed.",
+              "$ref": "#/$defs/Id"
+            },
+            "kind": {
+              "type": "string",
+              "const": "followed"
+            }
+          },
+          "required": [
+            "kind",
+            "by"
+          ]
+        }
+      ]
+    },
+    "Removal": {
+      "description": "How a feature removed an element (recompute.md `Removal`). A value enum, so it is tagged `kind`.",
+      "oneOf": [
+        {
+          "description": "A cut, an intersect or a split took it away.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "cut_away"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A join covered it, so it is inside the part.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "covered"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A fillet rounded it.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "rounded"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A chamfer beveled it.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "beveled"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A shell removed it.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "hollowed"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "The piece of a split face it was on is gone.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "piece_gone"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "The feature that made it no longer makes it, and why when the feature recorded it.",
+          "type": "object",
+          "properties": {
+            "absence": {
+              "description": "Why the feature no longer makes it, when the feature recorded it.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Absence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "no_longer_made"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Its faces no longer meet; `between` is the name of a face that now lies between them.",
+          "type": "object",
+          "properties": {
+            "between": {
+              "description": "The name of a face that now lies between its faces.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "no_longer_meet"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "Absence": {
+      "description": "Why a feature does not make a face its naming rule would make (features.md `FeatureOutput::absent`).",
+      "oneOf": [
+        {
+          "description": "A cut or hole that goes all the way through the body.",
+          "type": "string",
+          "const": "through"
+        },
+        {
+          "description": "A cut or hole whose end reaches the outside of the body while its start lies inside it.",
+          "type": "string",
+          "const": "end_outside"
+        },
+        {
+          "description": "A revolve of a full turn has no caps.",
+          "type": "string",
+          "const": "full_turn"
+        }
+      ]
+    },
+    "InstanceIndex": {
+      "description": "The instance of a pattern or mirror copy (naming.md `Instance`).",
+      "type": "object",
+      "properties": {
+        "first": {
+          "description": "Index along the first pattern direction, or the only one.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "second": {
+          "description": "Index along the second direction; 0 for one-direction patterns, circular patterns and mirrors.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "first",
+        "second"
+      ]
+    },
     "SketchDisplay": {
       "description": "Buffer indices of the sketch region fills (all coordinates are sketch 2D, mm).",
       "type": "object",
@@ -4111,7 +5063,7 @@
           "$ref": "#/$defs/Id"
         },
         "reference": {
-          "description": "The stored reference a feature param uses for this element.",
+          "description": "The reference a feature param stores for this element: the short form (query and fingerprint) in `list_elements`, the full form with anchors and merged names in `pick_reference` (engine.md section 3.9).",
           "$ref": "#/$defs/Reference"
         },
         "surface": {
@@ -4217,6 +5169,30 @@
               "type": "null"
             }
           ]
+        },
+        "fallback": {
+          "description": "`placement` in body coordinates, which hosts store as a face sketch's fallback with `fallback_frame: body` (planar faces only, engine.md section 3.9).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "axis_direction": {
+          "description": "Unit axis direction in body coordinates, which hosts store as `direction` when the element is picked for an axis (line edges; cylinder, cone and torus faces; engine.md section 3.9).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "minItems": 3,
+          "maxItems": 3
         },
         "adjacent": {
           "description": "Names of adjacent elements: a face's edges; an edge's faces then vertices; a vertex's edges. Each group sorted by name.",
@@ -4644,63 +5620,6 @@
         "data"
       ]
     },
-    "Diagnostic": {
-      "description": "A message about a document, feature or export.",
-      "type": "object",
-      "properties": {
-        "severity": {
-          "description": "Info, warning or error.",
-          "$ref": "#/$defs/Severity"
-        },
-        "code": {
-          "description": "Stable snake_case code from the crate that produced it.",
-          "type": "string"
-        },
-        "message": {
-          "description": "Plain-sentence message for the user.",
-          "type": "string"
-        },
-        "field": {
-          "description": "JSON Pointer of the feature param the message is about, relative to the feature record (for example `/radius`). Feature messages only.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "suggestion": {
-          "description": "Replacement expression for `field` that fixes the problem, in document units (for example `2.3 mm`). Feature messages only.",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "severity",
-        "code",
-        "message"
-      ]
-    },
-    "Severity": {
-      "description": "How serious a finding is.",
-      "oneOf": [
-        {
-          "description": "Worth knowing; does not lower print health.",
-          "type": "string",
-          "const": "info"
-        },
-        {
-          "description": "The part may print badly.",
-          "type": "string",
-          "const": "warning"
-        },
-        {
-          "description": "The part will not print or export correctly.",
-          "type": "string",
-          "const": "error"
-        }
-      ]
-    },
     "CommandResult": {
       "description": "The success value of every command; its `type` equals the command's `type`.",
       "oneOf": [
@@ -4966,6 +5885,26 @@
           ]
         },
         {
+          "description": "Result of `apply_fix`.",
+          "type": "object",
+          "properties": {
+            "revision": {
+              "description": "The revision after the fix.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "apply_fix"
+            }
+          },
+          "required": [
+            "type",
+            "revision"
+          ]
+        },
+        {
           "description": "Result of `begin_transaction`.",
           "type": "object",
           "properties": {
@@ -5210,7 +6149,7 @@
           "type": "object",
           "properties": {
             "element": {
-              "description": "The picked element.",
+              "description": "The picked element, with its full reference.",
               "$ref": "#/$defs/ElementDescriptor"
             },
             "type": {
@@ -5545,6 +6484,11 @@
           "description": "A tessellation tolerance is out of range.",
           "type": "string",
           "const": "invalid_tolerance"
+        },
+        {
+          "description": "`apply_fix` names a revision other than the document's, or a message or action the feature no longer has, or an action that is not `apply`.",
+          "type": "string",
+          "const": "stale_fix"
         }
       ]
     },
@@ -5601,6 +6545,20 @@
               "type": "null"
             }
           ]
+        },
+        "detail": {
+          "description": "Technical text for reports (a panic message, a parser's text), never shown as the message.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "actions": {
+          "description": "One-click ways out, in the order to offer them (section 4, for example \"Finish \\\"Fillet\\\" and save\" for `transaction_open`). Omitted when empty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FixAction"
+          }
         }
       },
       "required": [
@@ -5638,18 +6596,18 @@
           "$ref": "#/$defs/Id"
         },
         "status": {
-          "description": "`ok`, `warning`, `error`, `suppressed` or `rolled_back`.",
+          "description": "`ok`, `warning`, `error`, `suppressed` or `rolled_back`. A feature with info notices only is `ok`.",
           "$ref": "#/$defs/FeatureState"
         },
         "messages": {
-          "description": "The error first, then warnings, each with `field` and `suggestion` when the feature reported them.",
+          "description": "The error first, then warnings, then info notices, as engine.md section 3.4 projects them.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Diagnostic"
           }
         },
         "repairs": {
-          "description": "Lost references and profile regions the repair panel offers to re-pick.",
+          "description": "Repair data of lost, ambiguous, guessed and widened references and regions, one per repair of each message, in message order: what repair mode shows and replaces (ui.md section 3.7).",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Repair"
@@ -5667,7 +6625,7 @@
       "description": "Outcome of one feature in the last recompute.",
       "oneOf": [
         {
-          "description": "Built without problems.",
+          "description": "Built without problems, or with info notices only.",
           "type": "string",
           "const": "ok"
         },
@@ -5694,7 +6652,7 @@
       ]
     },
     "Repair": {
-      "description": "A reference or region that did not resolve uniquely: the engine's projection of features.md `Repair` (engine.md 3.4).",
+      "description": "A reference or region that did not resolve to what it meant: the engine's projection of features.md `Repair` (engine.md 3.4).",
       "oneOf": [
         {
           "description": "A face, edge or vertex reference.",
@@ -5717,7 +6675,7 @@
               "$ref": "#/$defs/ResolutionStatus"
             },
             "centroid": {
-              "description": "Centroid from the stored fingerprint, for drawing a ghost marker.",
+              "description": "Centroid from the stored fingerprint, for a marker where the element was when there is no ghost.",
               "type": [
                 "array",
                 "null"
@@ -5729,6 +6687,28 @@
               "minItems": 3,
               "maxItems": 3
             },
+            "description": {
+              "description": "The element in words, for example \"the front top edge of 'Box 1'\".",
+              "type": "string"
+            },
+            "candidates": {
+              "description": "Possible replacements in candidate order; each is also an action of the message.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RepairCandidate"
+              }
+            },
+            "ghost": {
+              "description": "Where the element was in its last build, for a dashed outline in the viewport (engine.md section 3.23).",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ghost"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "kind": {
               "type": "string",
               "const": "element"
@@ -5739,7 +6719,9 @@
             "path",
             "body",
             "reference",
-            "resolution"
+            "resolution",
+            "description",
+            "candidates"
           ]
         },
         {
@@ -5762,6 +6744,28 @@
               "description": "`missing` or `ambiguous`.",
               "$ref": "#/$defs/ResolutionStatus"
             },
+            "description": {
+              "description": "The region in words, for example \"the region of 'Sketch 1' around (40, 25)\".",
+              "type": "string"
+            },
+            "candidates": {
+              "description": "Sets of regions that could be meant; each is also an action of the message.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RegionCandidate"
+              }
+            },
+            "ghost": {
+              "description": "The stored outline as it was, in sketch coordinates, for the sketch overlay (engine.md section 3.23).",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ghost"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "kind": {
               "type": "string",
               "const": "region"
@@ -5772,9 +6776,83 @@
             "path",
             "sketch",
             "region",
-            "resolution"
+            "resolution",
+            "description",
+            "candidates"
           ]
         }
+      ]
+    },
+    "RepairCandidate": {
+      "description": "A possible replacement for a lost, ambiguous, guessed or widened reference.",
+      "type": "object",
+      "properties": {
+        "reference": {
+          "description": "The reference the \"Use\" action stores (the full form, with anchors and merged names).",
+          "$ref": "#/$defs/Reference"
+        },
+        "description": {
+          "description": "The candidate in words, for example \"the top edge of the cut made by 'Extrude 1'\".",
+          "type": "string"
+        },
+        "relation": {
+          "description": "What it keeps and how far it is, for example \"on the top of 'Box 1', 5 mm from where it was\".",
+          "type": "string"
+        },
+        "meaning": {
+          "description": "True when it keeps a face the lost element touched.",
+          "type": "boolean"
+        },
+        "distance": {
+          "description": "Distance in mm from where the lost element was.",
+          "type": "number",
+          "format": "double"
+        },
+        "score": {
+          "description": "Fingerprint score in [0, 1], for reports; hosts never show it.",
+          "type": "number",
+          "format": "double"
+        },
+        "element": {
+          "description": "The candidate in the body's current model-layer mesh, for highlighting; absent in headless sessions and when that mesh does not have it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MeshElement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "reference",
+        "description",
+        "relation",
+        "meaning",
+        "distance",
+        "score"
+      ]
+    },
+    "RegionCandidate": {
+      "description": "A set of regions that a lost or ambiguous region reference could mean.",
+      "type": "object",
+      "properties": {
+        "regions": {
+          "description": "The references the \"Use\" action stores, in the sketch's region order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RegionRef"
+          }
+        },
+        "description": {
+          "description": "The regions in words, for example \"the region of 'Sketch 1' around (175, 10)\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "regions",
+        "description"
       ]
     },
     "ParameterValue": {

@@ -46,6 +46,9 @@ pub enum FeatureError {
     },
     /// The params do not deserialize into the typed params.
     InvalidParams {
+        /// The field the parser reports, or the missing top-level key; None when no key is known
+        /// (section 3.2).
+        field: Option<FieldRef>,
         /// What is wrong, built from the deserialization error (section 3.2).
         detail: String,
     },
@@ -464,7 +467,7 @@ impl FeatureError {
             FeatureError::UnknownType { type_name } => format!(
                 "This document uses a feature type '{type_name}' that this version of Partsmith does not have. Update Partsmith, or delete the feature."
             ),
-            FeatureError::InvalidParams { detail } => format!(
+            FeatureError::InvalidParams { detail, .. } => format!(
                 "This feature's settings are invalid: {detail}. Fix the setting, or delete and recreate the feature."
             ),
             FeatureError::EmptySelection { field, noun } => {
@@ -748,8 +751,8 @@ impl FeatureError {
             | FeatureError::FilletTooLarge { field, .. }
             | FeatureError::ChamferTooLarge { field, .. }
             | FeatureError::ShellTooThick { field, .. } => Some(field),
+            FeatureError::InvalidParams { field, .. } => field.as_ref(),
             FeatureError::UnknownType { .. }
-            | FeatureError::InvalidParams { .. }
             | FeatureError::UndeclaredDependency { .. }
             | FeatureError::UpstreamFailed { .. }
             | FeatureError::UpstreamSuppressed { .. }
@@ -942,7 +945,7 @@ impl FeatureError {
                 ..
             } => Some(error.to_string()),
             FeatureError::Internal { message } => Some(message.clone()),
-            FeatureError::InvalidParams { detail } => Some(detail.clone()),
+            FeatureError::InvalidParams { detail, .. } => Some(detail.clone()),
             FeatureError::UndeclaredDependency { what } => Some(what.clone()),
             FeatureError::AssetMissing { asset, .. } => Some(asset.clone()),
             FeatureError::UnknownEntity { entity, .. } => Some(entity.clone()),

@@ -11,23 +11,32 @@ use partsmith_model::{
     Document, ExprErrorKind, FeatureManifest, FeatureRecord, Id, LoadError, Scope, load,
 };
 use partsmith_print::{PrinterValues, Severity};
-use partsmith_recompute::{Input, Severity as MessageSeverity};
+use partsmith_protocol::{Repair, RepairCandidate};
+use partsmith_recompute::Input;
 use partsmith_sketch::{NativeSolver, PointRef, SketchParams, SolveIssue, Solver};
 use serde_json::Value;
 
 use crate::assets::asset_matches;
-use crate::document::{canonical_text, canonicalize_params, load_error};
-use crate::error::{EngineError, saturating_u32};
+use crate::diagnostics::RunView;
+use crate::document::{canonical_text, canonicalize_params};
+use crate::error::EngineError;
 use crate::session::Session;
 use crate::sketch::{SKETCH_TYPE, dimension_values};
 use crate::status::render_feature_error;
-use crate::types::{Asset, ValidateOptions, ValidationDiagnostic, ValidationReport};
+use crate::types::{
+    Asset, FeatureMessage, ValidateOptions, ValidationDiagnostic, ValidationReport,
+};
+use crate::wire::saturating_u32;
 
 /// The type name of the hole feature, whose `points` name sketch points (features/hole.md).
 const HOLE_TYPE: &str = "hole";
 
 /// The `kind` of an axis that is a sketch line (features.md `AxisRef::SketchLine`).
 const SKETCH_LINE_KIND: &str = "sketch_line";
+
+/// The revision of the temporary document `validate` loads, which the actions of its feature
+/// messages carry (section 3.19 step 8).
+const VALIDATED_REVISION: u64 = 0;
 
 impl Session {
     /// Validates a `.ptsm` text without opening it.
@@ -82,21 +91,9 @@ impl Session {
                 assets: &stored,
             };
             let rebuilt = self.recompute.run(&input, &CancelToken::new());
-            for (position, feature) in rebuilt.features.iter().enumerate() {
-                for message in &feature.messages {
-                    let (severity, code) = match message.severity {
-                        MessageSeverity::Error => (Severity::Error, "feature_error"),
-                        MessageSeverity::Warning => (Severity::Warning, "feature_warning"),
-                        MessageSeverity::Info => (Severity::Info, "feature_warning"),
-                    };
-                    checks.push(
-                        severity,
-                        code,
-                        format!("{}: {}", feature.feature, message.text),
-                        Some(format!("/features/{position}")),
-                    );
-                }
-            }
+            let run = RunView::new(&document, &registry, &rebuilt);
+            let messages = feature_messages(&run, &report.diagnostics);
+            report.diagnostics.extend(messages);
         }
         if options.canonical
             && let Ok(canonical) = canonical_text(&document)
@@ -112,6 +109,7 @@ impl Session {
                 line: Some(line),
                 column: None,
                 path: None,
+                feature: None,
             });
         }
         report
@@ -120,10 +118,78 @@ impl Session {
     /// Loads a .ptsm text and returns its canonical text (params canonicalized by the registry),
     /// without recompute.
     pub fn format(&self, text: &str) -> Result<String, EngineError> {
-        let mut document = load(text).map_err(load_error)?.document;
+        let mut document = load(text).map_err(EngineError::from_load)?.document;
         canonicalize_params(&self.registry, &mut document);
         canonical_text(&document)
     }
+}
+
+/// Step 8: every feature message of the rebuild, features in timeline order and each feature's
+/// messages in their order, with its feature, its projection (actions at revision 0) and the
+/// candidates of its repairs, except those the steps before already reported: one at the path of
+/// an earlier error, or with the code and path of an earlier warning.
+fn feature_messages(
+    run: &RunView<'_>,
+    earlier: &[ValidationDiagnostic],
+) -> Vec<ValidationDiagnostic> {
+    let reported = |code: &str, path: &str| {
+        earlier.iter().any(|diagnostic| {
+            diagnostic.path.as_deref() == Some(path)
+                && (diagnostic.severity == Severity::Error || diagnostic.code == code)
+        })
+    };
+    let mut diagnostics = Vec::new();
+    for position in 0..run.report.features.len() {
+        let Some(feature) = run.feature_at(position) else {
+            continue;
+        };
+        for message in &feature.report.messages {
+            let field = message.pointer.as_deref();
+            let path = format!("/features/{position}{}", field.unwrap_or_default());
+            if reported(message.code, &path) {
+                continue;
+            }
+            let (diagnostic, repairs) = feature.project(message, VALIDATED_REVISION, None);
+            let candidates = field
+                .map(|field| repair_candidates(&repairs, field))
+                .unwrap_or_default();
+            diagnostics.push(ValidationDiagnostic {
+                severity: diagnostic.severity,
+                code: diagnostic.code.clone(),
+                message: diagnostic.message.clone(),
+                line: None,
+                column: None,
+                path: Some(path),
+                feature: Some(Box::new(FeatureMessage {
+                    feature: feature.id().clone(),
+                    diagnostic,
+                    candidates,
+                })),
+            });
+        }
+    }
+    diagnostics
+}
+
+/// The candidates of the element repairs whose path is `field` or lies under it (`/edges/0`
+/// under `/edges`), in repair order, then candidate order.
+fn repair_candidates(repairs: &[Repair], field: &str) -> Vec<RepairCandidate> {
+    repairs
+        .iter()
+        .filter_map(|repair| match repair {
+            Repair::Element {
+                path, candidates, ..
+            } if path == field
+                || path
+                    .strip_prefix(field)
+                    .is_some_and(|rest| rest.starts_with('/')) =>
+            {
+                Some(candidates.iter().cloned())
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect()
 }
 
 /// What step 2 finds out about a valid record, for the later steps.
@@ -156,6 +222,7 @@ impl<'a> Checks<'a> {
             line: None,
             column: None,
             path,
+            feature: None,
         });
     }
 
@@ -514,7 +581,7 @@ fn feature_path(position: usize, field: Option<&FieldRef>) -> String {
 /// The diagnostic of a document that does not load (step 1): the load error's code, message and
 /// position.
 fn load_diagnostic(error: LoadError) -> ValidationDiagnostic {
-    let engine_error = load_error(error);
+    let engine_error = EngineError::from_load(error);
     let (line, column, path) = match &engine_error {
         EngineError::Parse {
             line, column, path, ..
@@ -532,6 +599,7 @@ fn load_diagnostic(error: LoadError) -> ValidationDiagnostic {
         line,
         column,
         path,
+        feature: None,
     }
 }
 

@@ -39,7 +39,7 @@ fn canonical(registry: &Registry, record: &FeatureRecord) -> Validated {
 /// The `detail` of an `InvalidParams` error, or a panic naming what was returned instead.
 fn invalid_params_detail(result: Result<Validated, FeatureError>) -> String {
     match result {
-        Err(FeatureError::InvalidParams { detail }) => detail,
+        Err(FeatureError::InvalidParams { detail, .. }) => detail,
         Err(other) => panic!("expected InvalidParams, got {other:?}"),
         Ok(validated) => panic!(
             "expected InvalidParams, got valid params {}",
@@ -320,6 +320,32 @@ fn t011_extrude_without_body_names_the_missing_setting() {
     );
 }
 
+/// The path and label of the field of an `InvalidParams` error, or a panic naming what was returned instead.
+fn invalid_params_field(result: Result<Validated, FeatureError>) -> Option<(String, String)> {
+    match result {
+        Err(FeatureError::InvalidParams { field, .. }) => {
+            field.map(|field| (field.path, field.label))
+        }
+        Err(other) => panic!("expected InvalidParams, got {other:?}"),
+        Ok(validated) => panic!(
+            "expected InvalidParams, got valid params {}",
+            params_text(&validated.record)
+        ),
+    }
+}
+
+#[test]
+fn t011_extrude_without_body_is_about_its_body_field() {
+    let registry = Registry::with_builtins();
+
+    let result = registry.validate_and_canonicalize(&without_param(extrude_record(), "body"));
+
+    assert_eq!(
+        invalid_params_field(result),
+        Some(("body".to_owned(), "Body".to_owned()))
+    );
+}
+
 #[test]
 fn t011_missing_field_names_the_missing_setting() {
     let registry = test_registry();
@@ -342,6 +368,19 @@ fn t012_extrude_with_unknown_op_names_the_invalid_choice() {
     assert_eq!(
         invalid_params_detail(result),
         "'merge' is not a valid choice for 'op'"
+    );
+}
+
+#[test]
+fn t012_extrude_with_unknown_op_is_about_its_operation_field() {
+    let registry = Registry::with_builtins();
+
+    let result =
+        registry.validate_and_canonicalize(&with_param(extrude_record(), "op", json!("merge")));
+
+    assert_eq!(
+        invalid_params_field(result),
+        Some(("op".to_owned(), "Operation".to_owned()))
     );
 }
 
@@ -374,6 +413,7 @@ fn t012_value_of_the_wrong_type_names_the_field() {
 #[test]
 fn t012_invalid_params_message() {
     let error = FeatureError::InvalidParams {
+        field: None,
         detail: "the setting 'body' is missing".to_string(),
     };
 
