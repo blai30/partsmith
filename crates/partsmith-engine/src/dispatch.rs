@@ -52,7 +52,7 @@ impl Session {
                 );
             }
         };
-        let command = command_type(&request.command);
+        let command = request.command.type_name();
         let reply = self.execute(request, buffers);
         encode_response_frame(&reply.events, &reply.response, &reply.buffers).unwrap_or_else(
             |error| {
@@ -97,7 +97,7 @@ impl Session {
                 Some(_) => {}
             }
         }
-        let command = command_type(&request.command);
+        let command = request.command.type_name();
         match self
             .contained(doc, |session| session.run(request.command, &buffers))
             .map_err(|error| error.in_command(command))
@@ -501,45 +501,6 @@ fn document_of(command: &Command) -> Option<DocHandle> {
     }
 }
 
-/// The type of a command as protocol.md writes it, for example `apply_edits`, which internal
-/// errors name in words (section 4).
-fn command_type(command: &Command) -> &'static str {
-    match command {
-        Command::EngineInfo => "engine_info",
-        Command::FeatureCatalog => "feature_catalog",
-        Command::ListPrinterProfiles => "list_printer_profiles",
-        Command::PutPrinterProfile { .. } => "put_printer_profile",
-        Command::NewDocument { .. } => "new_document",
-        Command::OpenDocument { .. } => "open_document",
-        Command::SaveDocument { .. } => "save_document",
-        Command::CloseDocument { .. } => "close_document",
-        Command::GetDocument { .. } => "get_document",
-        Command::MarkSaved { .. } => "mark_saved",
-        Command::ApplyEdits { .. } => "apply_edits",
-        Command::RenameParameter { .. } => "rename_parameter",
-        Command::ApplyFix { .. } => "apply_fix",
-        Command::BeginTransaction { .. } => "begin_transaction",
-        Command::SetFocus { .. } => "set_focus",
-        Command::CommitTransaction { .. } => "commit_transaction",
-        Command::CancelTransaction { .. } => "cancel_transaction",
-        Command::Undo { .. } => "undo",
-        Command::Redo { .. } => "redo",
-        Command::SolveSketch { .. } => "solve_sketch",
-        Command::DragSketch { .. } => "drag_sketch",
-        Command::EndSketchDrag { .. } => "end_sketch_drag",
-        Command::SetTessellation { .. } => "set_tessellation",
-        Command::Evaluate { .. } => "evaluate",
-        Command::ListElements { .. } => "list_elements",
-        Command::PickReference { .. } => "pick_reference",
-        Command::ResolveReferences { .. } => "resolve_references",
-        Command::Measure { .. } => "measure",
-        Command::AnalyzePrint { .. } => "analyze_print",
-        Command::Export { .. } => "export",
-        Command::ImportStep { .. } => "import_step",
-        Command::ExportPython { .. } => "export_python",
-    }
-}
-
 /// True for the commands a poisoned document still accepts (section 3.15).
 fn rescues(command: &Command) -> bool {
     matches!(
@@ -655,7 +616,7 @@ mod tests {
             edits: Vec::new(),
         };
 
-        let error = EngineError::internal("boom").in_command(command_type(&command));
+        let error = EngineError::internal("boom").in_command(command.type_name());
 
         assert_eq!(
             error.to_string(),

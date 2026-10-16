@@ -24,8 +24,10 @@ mod exchange;
 mod fixes;
 mod inspect;
 mod options;
+mod params;
 mod profiles;
 mod python;
+mod run;
 mod session;
 mod sketch;
 mod sketching;
@@ -36,6 +38,7 @@ mod test_support;
 mod triangulate;
 mod types;
 mod validate;
+mod words;
 
 pub use error::EngineError;
 pub use options::{DEFAULT_CACHE_BUDGET, SessionOptions};
@@ -46,7 +49,7 @@ pub use types::{
     Opened, PrintAnalysis, PrintRequest, Reply, Saved, Stepped, ValidateOptions,
     ValidationDiagnostic, ValidationReport,
 };
-pub use validate::message_candidates;
+pub use validate::{message_candidates, message_location};
 
 /// The engine version, equal to the crate version.
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");

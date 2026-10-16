@@ -15,12 +15,12 @@ use std::collections::HashMap;
 use partsmith_model::{Id, Units};
 use partsmith_naming::{
     ElementKind, ElementName, FaceGenerator, FaceName, Fingerprint, GeometryKind, Instance,
-    Reference,
+    Reference, roles,
 };
 
 use super::message::Names;
 use crate::context::BodyState;
-use face::{Element, FaceFacts, Faces, copy_noun};
+use face::{Element, FaceFacts, FaceReader, Faces, copy_noun};
 use maker::{Maker, NOT_IN_DOCUMENT, world_coordinates};
 
 pub use maker::sketch_coordinates;
@@ -141,7 +141,11 @@ impl Describer<'_> {
 
     /// The facts of a face of `element` (the element itself, or one of its face terms).
     fn face(&self, element: &Element<'_>, face: &ElementName) -> FaceFacts {
-        FaceFacts::of(element, face, self)
+        FaceReader {
+            element,
+            describer: self,
+        }
+        .facts(face)
     }
 
     /// An edge by the first rule of section 3.12 that applies.
@@ -286,7 +290,7 @@ pub fn made_from_line(reference: &Reference) -> bool {
             kind == GeometryKind::Plane
                 && query
                     .face_name()
-                    .is_some_and(|face| face.role() == "lateral")
+                    .is_some_and(|face| face.role() == roles::LATERAL)
         }
         ElementKind::Edge => {
             let terms = query.face_terms();
@@ -296,8 +300,8 @@ pub fn made_from_line(reference: &Reference) -> bool {
                 return false;
             };
             let side_and_cap = |side: &FaceName<'_>, cap: &FaceName<'_>| {
-                side.role() == "lateral"
-                    && matches!(cap.role(), "start-cap" | "end-cap")
+                side.role() == roles::LATERAL
+                    && matches!(cap.role(), roles::START_CAP | roles::END_CAP)
                     && side.feature() == cap.feature()
                     && side.copies() == cap.copies()
             };
@@ -348,7 +352,7 @@ pub(crate) fn new_faces_are_flat(
 pub(crate) fn rim_generator(face: &ElementName) -> Option<&str> {
     let face = face.face_name()?;
     match (face.role(), face.generator()) {
-        ("rim", Some(FaceGenerator::Face(generator) | FaceGenerator::List(generator))) => {
+        (roles::RIM, Some(FaceGenerator::Face(generator) | FaceGenerator::List(generator))) => {
             Some(generator)
         }
         _ => None,
@@ -398,12 +402,12 @@ impl Word {
     /// The word of a primitive face's role.
     fn of_role(role: &str) -> Option<Word> {
         match role {
-            "front" => Some(Word::Front),
-            "back" => Some(Word::Back),
-            "left" => Some(Word::Left),
-            "right" => Some(Word::Right),
-            "top" => Some(Word::Top),
-            "bottom" => Some(Word::Bottom),
+            roles::FRONT => Some(Word::Front),
+            roles::BACK => Some(Word::Back),
+            roles::LEFT => Some(Word::Left),
+            roles::RIGHT => Some(Word::Right),
+            roles::TOP => Some(Word::Top),
+            roles::BOTTOM => Some(Word::Bottom),
             _ => None,
         }
     }
@@ -453,17 +457,17 @@ fn words_text(mut words: Vec<Word>) -> Option<String> {
 }
 
 /// The cross product.
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+fn cross(first: [f64; 3], second: [f64; 3]) -> [f64; 3] {
     [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
+        first[1] * second[2] - first[2] * second[1],
+        first[2] * second[0] - first[0] * second[2],
+        first[0] * second[1] - first[1] * second[0],
     ]
 }
 
 /// The dot product.
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+fn dot(first: [f64; 3], second: [f64; 3]) -> f64 {
+    first[0] * second[0] + first[1] * second[1] + first[2] * second[2]
 }
 
 #[cfg(test)]

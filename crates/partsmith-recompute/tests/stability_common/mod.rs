@@ -1,9 +1,11 @@
 //! Helpers shared by the three thirds of the reference stability corpus (`stability_support_1`,
 //! `stability_support_2` and `stability_support_3`, R01 to R66 of
 //! docs/design/reference-stability-corpus.md) and by the loss diagnosis tests (`diagnosis.rs`,
-//! recompute.md section 6), which run the corpus's scenarios: the record builders, the picks of
-//! the corpus's "Picked references" rule, run readers and checks that are the same in all of them.
-//! Each includes it with `#[path]` beside its own `feature_support`; the corpus thirds re-export it.
+//! recompute.md section 6), which run the corpus's scenarios: the feature records (`records.rs`,
+//! with the shared setups and their picked references), documents, runs and edits, fixes, the
+//! picks of the corpus's "Picked references" rule, run readers, resolver diagnostics and checks
+//! that are the same in all of them. Each includes it with `#[path]` beside its own
+//! `feature_support`; the corpus thirds re-export it.
 //! The first third checks against body states with its own `Expectations` at the corpus's exact
 //! 1e-6 mm instead of `Checks`, which reads the run.
 //!
@@ -14,19 +16,23 @@
 // Each test binary uses only some of these helpers.
 #![allow(dead_code)]
 
+mod records;
+
+pub use records::*;
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use partsmith_features::{BodyState, OutputData, Repair};
-use partsmith_model::Document;
+use partsmith_features::{BodyState, Fix, OutputData, Repair};
+use partsmith_model::{Document, Id};
 use partsmith_naming::{
-    ElementKind, ElementName, ElementSet, MatchMethod, Reference, Resolution, resolve,
+    ElementKind, ElementName, MatchMethod, Reference, Resolution, resolve, score,
 };
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, Plane, Point, Shape, SubShapeKind};
 use partsmith_recompute::Status;
 use serde_json::{Map, Value, json};
 
-use super::feature_support::{Assets, Run, face_names, parse_document};
+use super::feature_support::{Assets, Run, document_text, face_names, parse_document};
 
 /// Tolerance in millimeters for exact positions (the corpus gives 1e-6 mm; the kernel's own
 /// measurements carry a little more noise, so 1e-5 mm as in features.md section 6.1).
@@ -38,30 +44,7 @@ pub const ABOUT_TOLERANCE: f64 = 0.05;
 /// Relative tolerance for volumes and areas.
 pub const VOLUME_TOLERANCE: f64 = 1e-6;
 
-// Numbers and references.
-
-/// A number in fingerprint text form (naming.md section 3.7.3): six decimals, trailing zeros and
-/// a trailing point removed, `-0` written as `0`.
-pub fn fingerprint_number(value: f64) -> String {
-    let mut text = format!("{value:.6}");
-    if text.contains('.') {
-        while text.ends_with('0') {
-            text.pop();
-        }
-        if text.ends_with('.') {
-            text.pop();
-        }
-    }
-    if text == "-0" {
-        text = "0".to_owned();
-    }
-    text
-}
-
-/// A stored reference `{q, fp}`.
-pub fn reference(query: &str, fingerprint: &str) -> Value {
-    json!({"q": query, "fp": fingerprint})
-}
+// References, ids and fixes.
 
 /// The parsed form of a stored reference.
 pub fn parsed_reference(value: &Value) -> Reference {
@@ -69,206 +52,38 @@ pub fn parsed_reference(value: &Value) -> Reference {
         .unwrap_or_else(|error| panic!("{value} is not a valid reference: {error}"))
 }
 
-// Sketch entities.
-
-/// A line entity.
-pub fn line(entity: &str, start: [f64; 2], end: [f64; 2]) -> Value {
-    json!({"id": entity, "type": "line", "start": start, "end": end})
+/// An id written in a test.
+pub fn id(text: &str) -> Id {
+    Id::new(text).expect("ids written in tests are valid")
 }
 
-/// A circle entity.
-pub fn circle(entity: &str, center: [f64; 2], radius: f64) -> Value {
-    json!({"id": entity, "type": "circle", "center": center, "radius": radius})
-}
-
-/// A point entity.
-pub fn point(entity: &str, position: [f64; 2]) -> Value {
-    json!({"id": entity, "type": "point", "position": position})
-}
-
-/// Four lines `e-<first>` to `e-<first + 3>` drawn counterclockwise from (x0, y0), as features.md
-/// section 6.1 `RECT` draws them.
-pub fn rectangle(first: usize, x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Value> {
-    let corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-    (0..4)
-        .map(|i| {
-            line(
-                &format!("e-{}", first + i),
-                corners[i],
-                corners[(i + 1) % 4],
-            )
-        })
-        .collect()
-}
-
-// Planes, sketches and datum planes.
-
-/// An origin plane `{"kind": "origin", "plane": <name>}`.
-pub fn origin_plane(name: &str) -> Value {
-    json!({"kind": "origin", "plane": name})
-}
-
-/// A datum plane reference `{"kind": "datum", "feature": <id>}`.
-pub fn datum_plane(feature: &str) -> Value {
-    json!({"kind": "datum", "feature": feature})
-}
-
-/// A face plane of a sketch, with its fallback placement written after the reference.
-pub fn face_plane(
-    body: &str,
-    face: Value,
-    origin: [f64; 3],
-    x_axis: [f64; 3],
-    normal: [f64; 3],
-) -> Value {
-    json!({
-        "kind": "face",
-        "body": body,
-        "face": face,
-        "fallback": {"origin": origin, "x_axis": x_axis, "normal": normal}
-    })
-}
-
-/// A face plane of a sketch whose fallback is the XY frame at height `z`.
-pub fn top_face_plane(body: &str, face: Value, z: f64) -> Value {
-    face_plane(body, face, [0.0, 0.0, z], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0])
-}
-
-/// A sketch record without constraints.
-pub fn sketch(feature: &str, plane: Value, entities: Vec<Value>) -> Value {
-    json!({"id": feature, "type": "sketch", "plane": plane, "entities": entities})
-}
-
-/// A datum plane record offset from an origin plane.
-pub fn datum_offset(feature: &str, plane: &str, offset: &str) -> Value {
-    json!({"id": feature, "type": "datum_plane", "base": origin_plane(plane), "offset": offset})
-}
-
-/// A datum plane record on a face of a body.
-pub fn datum_on_face(feature: &str, body: &str, face: Value, offset: &str) -> Value {
-    json!({
-        "id": feature,
-        "type": "datum_plane",
-        "base": {"kind": "face", "body": body, "face": face},
-        "offset": offset
-    })
-}
-
-// Solid features.
-
-/// A distance extent.
-pub fn distance(expr: &str) -> Value {
-    json!({"kind": "distance", "expr": expr})
-}
-
-/// An extrude record into `body`.
-pub fn extrude(
-    feature: &str,
-    body: &str,
-    sketch: &str,
-    regions: Vec<Value>,
-    extent: Value,
-    op: &str,
-) -> Value {
-    json!({
-        "id": feature, "type": "extrude", "body": body,
-        "profile": {"sketch": sketch, "regions": regions},
-        "extent": extent, "op": op
-    })
-}
-
-/// The same record with `key` set to `value`.
-pub fn with(mut record: Value, key: &str, value: Value) -> Value {
-    record[key] = value;
-    record
-}
-
-/// The same record with `"suppressed": true`.
-pub fn suppressed(record: Value) -> Value {
-    with(record, "suppressed", json!(true))
-}
-
-/// The same record without its `suppressed` key (unsuppressed, as the host writes it).
-pub fn unsuppressed(mut record: Value) -> Value {
-    if let Some(object) = record.as_object_mut() {
-        object.remove("suppressed");
+/// `Pick` of the reference at `pointer`.
+pub fn pick(pointer: &str) -> Fix {
+    Fix::Pick {
+        pointer: pointer.to_owned(),
     }
-    record
 }
 
-/// A box record; `position` is omitted when `None`.
-pub fn box_record(
-    feature: &str,
-    body: &str,
-    size: [&str; 3],
-    position: Option<[&str; 3]>,
-    op: &str,
-) -> Value {
-    let mut record = json!({"id": feature, "type": "box", "body": body, "size": size});
-    if let Some(position) = position {
-        record["position"] = json!(position);
+/// `KeepMatch` of the reference at `pointer`.
+pub fn keep_match(pointer: &str) -> Fix {
+    Fix::KeepMatch {
+        pointer: pointer.to_owned(),
     }
-    record["op"] = json!(op);
-    record
 }
 
-/// A fillet record.
-pub fn fillet(feature: &str, body: &str, edges: Vec<Value>, radius: &str) -> Value {
-    json!({"id": feature, "type": "fillet", "body": body, "edges": edges, "radius": radius})
+/// `Unsuppress` of `feature`.
+pub fn unsuppress(feature: &str) -> Fix {
+    Fix::Unsuppress {
+        feature: id(feature),
+    }
 }
 
-/// An equal-distance chamfer record.
-pub fn chamfer(feature: &str, body: &str, edges: Vec<Value>, distance: &str) -> Value {
-    json!({
-        "id": feature, "type": "chamfer", "body": body, "edges": edges,
-        "distance": {"kind": "equal", "expr": distance}
-    })
-}
-
-/// A shell record.
-pub fn shell(feature: &str, body: &str, thickness: &str, remove_faces: Vec<Value>) -> Value {
-    json!({
-        "id": feature, "type": "shell", "body": body, "thickness": thickness,
-        "remove_faces": remove_faces
-    })
-}
-
-/// A simple hole record on the points of `sketch`.
-pub fn hole(
-    feature: &str,
-    body: &str,
-    sketch: &str,
-    points: &[&str],
-    diameter: &str,
-    extent: Value,
-) -> Value {
-    json!({
-        "id": feature, "type": "hole", "body": body, "sketch": sketch,
-        "points": points, "diameter": diameter, "extent": extent
-    })
-}
-
-// Shared setups of the corpus.
-
-/// CUBE20: `f-box1` box 20 x 20 x 20 in `b-1`.
-pub fn cube20() -> Value {
-    box_record("f-box1", "b-1", ["20", "20", "20"], None, "new")
-}
-
-/// CUBE10: `f-box1` box 10 x 10 x 10 in `b-1`.
-pub fn cube10() -> Value {
-    box_record("f-box1", "b-1", ["10", "10", "10"], None, "new")
-}
-
-/// BOX-BELOW: `f-box1` box 40 x 40 x 10 at (0,0,-10) in `b-1` (top at z = 0).
-pub fn box_below() -> Value {
-    box_record(
-        "f-box1",
-        "b-1",
-        ["40", "40", "10"],
-        Some(["0", "0", "-10"]),
-        "new",
-    )
+/// `Show` of `feature` itself.
+pub fn show(feature: &str) -> Fix {
+    Fix::Show {
+        feature: id(feature),
+        entity: None,
+    }
 }
 
 // Documents and runs.
@@ -279,61 +94,62 @@ pub fn saved(document: &Document) -> String {
         .unwrap_or_else(|error| panic!("the document does not save: {error}"))
 }
 
-/// The features without the records `removed`.
-pub fn without(features: &[Value], removed: &[&str]) -> Vec<Value> {
-    features
-        .iter()
-        .filter(|record| {
-            !removed
-                .iter()
-                .any(|feature| record["id"].as_str() == Some(feature))
-        })
-        .cloned()
-        .collect()
-}
-
-/// The features with `inserted` placed directly before the record `before`.
-pub fn insert_before(features: &[Value], before: &str, inserted: Vec<Value>) -> Vec<Value> {
-    let position = features
-        .iter()
-        .position(|record| record["id"].as_str() == Some(before))
-        .unwrap_or_else(|| panic!("no feature {before}"));
-    let mut result = features[..position].to_vec();
-    result.extend(inserted);
-    result.extend_from_slice(&features[position..]);
-    result
-}
-
-/// The features with the records `moved` taken out and appended at the end, in their order.
-pub fn move_to_end(features: &[Value], moved: &[&str]) -> Vec<Value> {
-    let mut result = without(features, moved);
-    for feature in moved {
-        let record = features
-            .iter()
-            .find(|record| record["id"].as_str() == Some(feature))
-            .unwrap_or_else(|| panic!("no feature {feature}"));
-        result.push(record.clone());
-    }
-    result
-}
-
-/// The features with the record `feature` replaced by `change(record)`.
-pub fn edited(
+/// A document in `units` with these parameter records, test bodies and feature records
+/// (features.md section 6.1).
+pub fn document_in(
+    units: &str,
+    parameters: &[Value],
+    bodies: &[&str],
     features: &[Value],
-    feature: &str,
-    change: impl FnOnce(Value) -> Value,
-) -> Vec<Value> {
-    let mut change = Some(change);
-    features
-        .iter()
-        .map(|record| match change.take() {
-            Some(apply) if record["id"].as_str() == Some(feature) => apply(record.clone()),
-            other => {
-                change = other;
-                record.clone()
-            }
-        })
-        .collect()
+) -> Document {
+    let parameters: Vec<String> = parameters.iter().map(Value::to_string).collect();
+    let parameters: Vec<&str> = parameters.iter().map(String::as_str).collect();
+    let features: Vec<String> = features.iter().map(Value::to_string).collect();
+    let features: Vec<&str> = features.iter().map(String::as_str).collect();
+    parse_document(&document_text(units, &parameters, bodies, &features))
+}
+
+/// A millimeter document without parameters, with these test bodies and feature records.
+pub fn document_of(bodies: &[&str], features: &[Value]) -> Document {
+    document_in("mm", &[], bodies, features)
+}
+
+/// Runs the setup made of these test bodies and feature records, with its references picked as
+/// the corpus's "Picked references" rule says ([`run_picked`]).
+pub fn run(bodies: &[&str], features: &[Value]) -> Run {
+    run_with_assets(bodies, features, &Assets::new())
+}
+
+/// Runs the setup made of these test bodies and feature records with these asset bytes, with its
+/// references picked ([`run_picked`]).
+pub fn run_with_assets(bodies: &[&str], features: &[Value], assets: &Assets) -> Run {
+    run_picked(document_of(bodies, features), assets)
+}
+
+/// The edit of the document of `run` made of these test bodies and feature records, with the
+/// picks of `run`'s document carried over ([`with_picks`]).
+pub fn edited_document(run: &Run, bodies: &[&str], features: &[Value]) -> Document {
+    with_picks(&run.document, &document_of(bodies, features))
+}
+
+/// Runs the edit of `setup` made of these test bodies and feature records on a new recompute, with
+/// the picks of `setup` carried over.
+pub fn run_edited(setup: &Run, bodies: &[&str], features: &[Value]) -> Run {
+    Run::new(edited_document(setup, bodies, features))
+}
+
+/// Replaces the document of `run` by the edit made of these test bodies and feature records, with
+/// the picks of `run`'s document carried over, and runs it again on the same recompute, as an edit
+/// in an open session does: results of the earlier runs stay in its cache.
+pub fn edit(run: &mut Run, bodies: &[&str], features: &[Value]) {
+    edit_document(run, document_of(bodies, features), &Assets::new());
+}
+
+/// Replaces the document of `run` by the edit `document`, with the picks of `run`'s document
+/// carried over, and runs it again on the same recompute with these asset bytes.
+pub fn edit_document(run: &mut Run, document: Document, assets: &Assets) {
+    run.document = with_picks(&run.document, &document);
+    run.rerun(assets);
 }
 
 // STEP assets.
@@ -709,11 +525,6 @@ pub fn codes(run: &Run, feature: &str) -> Vec<&'static str> {
         .collect()
 }
 
-/// The state of `body` at the end of the run.
-pub fn final_state<'a>(run: &'a Run, body: &str) -> &'a BodyState {
-    run.body(body)
-}
-
 /// The volume of `body` at the end of the run, 0 when it is empty.
 pub fn volume_of(run: &Run, body: &str) -> f64 {
     run.body(body)
@@ -828,7 +639,7 @@ pub fn describe_faces(faces: &[(String, ElementGeometry)]) -> String {
 /// [`stored`]) against the state of `body` just before `feature`, or `None` when the feature did
 /// not run or the body was empty.
 pub fn resolution(run: &Run, feature: &str, body: &str, reference: &Value) -> Option<Resolution> {
-    let state = state_before(run, feature, body)?;
+    let state = try_body_before(run, feature, body)?;
     if state.is_empty() {
         return None;
     }
@@ -836,22 +647,12 @@ pub fn resolution(run: &Run, feature: &str, body: &str, reference: &Value) -> Op
     Some(resolve_in_state(&parsed_reference(&stored), state))
 }
 
-/// The element set of a body state: its element infos, aliases and successions.
-pub fn element_set(state: &BodyState) -> ElementSet {
-    let elements = state
-        .elements()
-        .unwrap_or_else(|error| panic!("element infos of the body: {error}"));
-    ElementSet::new(
-        elements,
-        state.naming().aliases().clone(),
-        state.naming().successions().clone(),
-    )
-    .unwrap_or_else(|error| panic!("the body names each element once: {error}"))
-}
-
 /// The resolution of `reference` against a body state.
 pub fn resolve_in_state(reference: &Reference, state: &BodyState) -> Resolution {
-    resolve(reference, &element_set(state))
+    let set = state
+        .element_set()
+        .unwrap_or_else(|error| panic!("the element set of the body: {error}"));
+    resolve(reference, &set)
 }
 
 /// A one-line description of a resolution.
@@ -883,6 +684,50 @@ pub fn describe_resolution(resolution: &Resolution) -> String {
     }
 }
 
+/// What the resolver does with `reference` against the state of `body` just before `feature`:
+/// the resolution and the four best fingerprint candidates of the reference's kind.
+pub fn diagnose(run: &Run, feature: &str, body: &str, reference: &Value) -> String {
+    let Some(state) = try_body_before(run, feature, body) else {
+        return format!("{feature} has no state of {body} before it (it did not run)");
+    };
+    diagnose_in(state, &format!("{body} before {feature}"), reference)
+}
+
+/// What the resolver does with `reference` against a body state.
+pub fn diagnose_in(state: &BodyState, place: &str, reference: &Value) -> String {
+    if state.is_empty() {
+        return format!("{place}: the body is empty");
+    }
+    let parsed = parsed_reference(reference);
+    let elements = state
+        .elements()
+        .unwrap_or_else(|error| panic!("element infos in {place}: {error}"));
+    let resolution = resolve_in_state(&parsed, state);
+    let kind = parsed.query.kind();
+    let mut scored: Vec<(f64, &str)> = elements
+        .iter()
+        .filter(|info| info.kind == kind)
+        .map(|info| {
+            (
+                score(&parsed.fingerprint, &info.fingerprint, kind),
+                info.name.as_str(),
+            )
+        })
+        .collect();
+    scored.sort_by(|first, second| second.0.total_cmp(&first.0).then(first.1.cmp(second.1)));
+    let best: Vec<String> = scored
+        .iter()
+        .take(4)
+        .map(|(value, name)| format!("{name} {value:.4}"))
+        .collect();
+    format!(
+        "{} in {place}: {} | best fingerprint scores: {}",
+        parsed.query,
+        describe_resolution(&resolution),
+        best.join(", ")
+    )
+}
+
 /// The repair pointers of the messages of `feature`.
 pub fn repair_pointers(run: &Run, feature: &str) -> Vec<String> {
     run.feature(feature)
@@ -896,7 +741,7 @@ pub fn repair_pointers(run: &Run, feature: &str) -> Vec<String> {
 }
 
 /// The state of `body` just before `feature`, if the feature ran.
-pub fn state_before<'a>(run: &'a Run, feature: &str, body: &str) -> Option<&'a BodyState> {
+pub fn try_body_before<'a>(run: &'a Run, feature: &str, body: &str) -> Option<&'a BodyState> {
     run.feature(feature)
         .bodies_before
         .iter()

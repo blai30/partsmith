@@ -7,14 +7,7 @@ use partsmith_sketch::{Geometry, PointRef, SketchEntity, SketchParams};
 use serde_json::Value;
 
 use super::super::message::{Names, format_value};
-
-/// Feature types whose faces with Operation Cut read as the floor and walls of a cut (section 3.12).
-const CUTTING_TYPES: [&str; 7] = [
-    "extrude", "revolve", "box", "cylinder", "sphere", "cone", "torus",
-];
-
-/// Primitive feature types, whose faces use their role as their direction word.
-const PRIMITIVE_TYPES: [&str; 5] = ["box", "cylinder", "sphere", "cone", "torus"];
+use crate::builtin::{CUTTING_TYPES, PRIMITIVE_TYPES};
 
 /// How a feature that is not in the document is named (section 3.12).
 pub(super) const NOT_IN_DOCUMENT: &str = "a feature that is not in this document";

@@ -5,9 +5,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use partsmith_features::{
-    BodyState, FeatureError, FeatureOutput, FeatureWarning, FieldRef, Fix, RenderContext, Repair,
+    BodyState, FeatureError, FeatureOutput, FeatureWarning, FieldRef, Fix, Loss, RenderContext,
+    Repair,
 };
 use partsmith_model::{ExprError, Id, Quantity};
+use partsmith_naming::{ElementName, Follow, Reference};
 
 /// Severity of a message: `Info`, `Warning` or `Error` (features.md section 2.8).
 pub use partsmith_features::Severity;
@@ -242,6 +244,98 @@ pub(crate) enum Problem<'a> {
     Warning(&'a FeatureWarning),
 }
 
+impl<'a> Problem<'a> {
+    /// The message code of the problem.
+    pub(crate) fn code(self) -> &'static str {
+        match self {
+            Problem::Error(error) => error.code(),
+            Problem::Warning(warning) => warning.code(),
+        }
+    }
+
+    /// The losses a lost-reference problem reports, with their field and whether the reference is
+    /// the only entry of its field: a `references_not_found` or `reference_not_found` error, a
+    /// `reference_lost` warning, or a `plane_fallback` warning that carries a loss.
+    pub(crate) fn lost(self) -> Option<(&'a FieldRef, &'a [Loss], bool)> {
+        match self {
+            Problem::Error(FeatureError::ReferencesNotFound { field, losses, .. }) => {
+                Some((field, losses.as_slice(), losses.len() == 1))
+            }
+            Problem::Error(FeatureError::ReferenceNotFound { field, loss }) => {
+                Some((field, std::slice::from_ref(loss), true))
+            }
+            Problem::Warning(FeatureWarning::ReferenceLost { field, loss }) => {
+                Some((field, std::slice::from_ref(loss), false))
+            }
+            Problem::Warning(FeatureWarning::PlaneFallback {
+                field,
+                loss: Some(loss),
+                ..
+            }) => Some((field, std::slice::from_ref(loss), true)),
+            _ => None,
+        }
+    }
+
+    /// The reference a `reference_followed` or `reference_widened` notice reports.
+    pub(crate) fn followed(self) -> Option<Followed<'a>> {
+        match self {
+            Problem::Warning(FeatureWarning::ReferenceFollowed {
+                field,
+                position,
+                body,
+                reference,
+                elements,
+                follow,
+                via,
+            }) => Some(Followed {
+                field,
+                position: *position,
+                body,
+                reference,
+                elements,
+                follow: Some(*follow),
+                via,
+            }),
+            Problem::Warning(FeatureWarning::ReferenceWidened {
+                field,
+                position,
+                body,
+                reference,
+                elements,
+                via,
+                ..
+            }) => Some(Followed {
+                field,
+                position: *position,
+                body,
+                reference,
+                elements,
+                follow: None,
+                via,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// A followed or widened reference, as the diagnosis reads it to find the feature it followed.
+pub(crate) struct Followed<'a> {
+    /// The field of the reference.
+    pub(crate) field: &'a FieldRef,
+    /// The reference's position in its list.
+    pub(crate) position: usize,
+    /// The body it is resolved in.
+    pub(crate) body: &'a Id,
+    /// The stored reference.
+    pub(crate) reference: &'a Reference,
+    /// The elements it resolves to now.
+    pub(crate) elements: &'a [Reference],
+    /// How it followed; None for a widened reference.
+    pub(crate) follow: Option<Follow>,
+    /// The alias and succession keys the match went through.
+    pub(crate) via: &'a [ElementName],
+}
+
 /// The problems of a feature in message order (section 3.6): its error first, then its warnings
 /// of severity warning, then its info notices, each group in the order of `warnings`.
 pub(crate) fn problems<'a>(
@@ -270,7 +364,7 @@ mod tests {
     use partsmith_model::{FeatureRecord, Units};
 
     use super::*;
-    use crate::test_support::id;
+    use crate::test_support::{id, region_split};
 
     /// Names that know body `b-1` as `Bracket` and feature `f-1` as `Base`.
     struct Bracket;
@@ -394,20 +488,6 @@ mod tests {
         assert_eq!(message.reason, Some(LossReason::Unknown));
     }
 
-    /// The `region_split` notice of a profile region split in two (features.md section 4.2).
-    fn region_split() -> FeatureWarning {
-        FeatureWarning::RegionSplit {
-            field: field("profile.regions[0]", "Profile"),
-            position: 0,
-            sketch: id("f-1"),
-            region: serde_json::from_value(
-                serde_json::json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}),
-            )
-            .expect("the region reference is valid"),
-            count: 2,
-        }
-    }
-
     #[test]
     fn problems_list_the_error_then_warnings_then_notices() {
         let error = FeatureError::UpstreamFailed { feature: id("f-1") };
@@ -421,10 +501,7 @@ mod tests {
 
         let codes: Vec<&str> = problems(Some(&error), &warnings)
             .into_iter()
-            .map(|problem| match problem {
-                Problem::Error(error) => error.code(),
-                Problem::Warning(warning) => warning.code(),
-            })
+            .map(Problem::code)
             .collect();
 
         assert_eq!(

@@ -3,7 +3,16 @@
 
 use std::collections::BTreeSet;
 
-use partsmith_features::{BodyChange, BodyState, Loss};
+use partsmith_features::builtin::chamfer::Chamfer;
+use partsmith_features::builtin::circular_pattern::CircularPattern;
+use partsmith_features::builtin::fillet::Fillet;
+use partsmith_features::builtin::hole::Hole;
+use partsmith_features::builtin::import::Import;
+use partsmith_features::builtin::linear_pattern::LinearPattern;
+use partsmith_features::builtin::mirror::Mirror;
+use partsmith_features::builtin::shell::Shell;
+use partsmith_features::builtin::split_body::SplitBody;
+use partsmith_features::{BodyChange, BodyState, Feature, Loss};
 use partsmith_model::Id;
 use partsmith_naming::{
     ElementKind, ElementName, FaceGenerator, FaceName, Follow, Merged, NameSet, NamingMap,
@@ -16,7 +25,7 @@ use super::{LossReason, Removal};
 use crate::graph::NodeState;
 
 /// Feature types that make copies of a body (`CopyGone`).
-const COPY_TYPES: [&str; 3] = ["linear_pattern", "circular_pattern", "mirror"];
+const COPY_TYPES: [&str; 3] = [LinearPattern::TYPE, CircularPattern::TYPE, Mirror::TYPE];
 
 impl<'r> Probe<'_, 'r> {
     /// The reason of a loss that is not ambiguous (rules 1 to 9).
@@ -53,7 +62,7 @@ impl<'r> Probe<'_, 'r> {
     /// the first part of the query with a sketch generator and relatives in the body just before
     /// the feature explained, when it is active, comes before it and did not fail.
     pub(crate) fn ambiguous_after(&mut self, loss: &Loss) -> Option<Id> {
-        let (state, _) = self.view.state_before(&loss.body, self.explained)?;
+        let state = self.declared_state_before(&loss.body, self.explained)?;
         let feature = loss
             .reference
             .query
@@ -99,13 +108,13 @@ impl<'r> Probe<'_, 'r> {
                     .flat_map(|element| element.query.face_parts())
                     .find_map(|face| {
                         let parts = face.face_name()?;
-                        (parts.role() == "rim").then(|| Id::new(parts.feature()).ok())?
+                        (parts.role() == roles::RIM).then(|| Id::new(parts.feature()).ok())?
                     })?;
                 self.record(&rim);
                 Some(rim)
             }
             Some(Follow::Related) => {
-                let (state, _) = self.view.state_before(body, self.explained)?;
+                let state = self.declared_state_before(body, self.explained)?;
                 let names = state.name_set();
                 let part = query
                     .face_parts()
@@ -162,8 +171,10 @@ impl<'r> Probe<'_, 'r> {
                 let fallback = lost_name
                     .face_name()
                     .is_some_and(|face| face.role() == roles::FACE && face.generator().is_none());
-                (self.view.kind(position) == "import" && fallback).then(|| LossReason::NotInFile {
-                    feature: maker.clone(),
+                (self.view.kind(position) == Import::TYPE && fallback).then(|| {
+                    LossReason::NotInFile {
+                        feature: maker.clone(),
+                    }
                 })
             })
     }
@@ -248,7 +259,7 @@ impl<'r> Probe<'_, 'r> {
         let sketch_position = self.position(&sketch)?;
         let result = self.view.sketch_result(sketch_position)?;
         let feature = self.view.id(maker).clone();
-        if self.view.kind(maker) == "hole" {
+        if self.view.kind(maker) == Hole::TYPE {
             if super::point_in(result, generator).is_none() {
                 return Some(LossReason::PointGone {
                     feature,
@@ -296,12 +307,8 @@ impl<'r> Probe<'_, 'r> {
     ) -> Option<LossReason> {
         let body = &loss.body;
         let presence = Presence::new(loss, lost_name, unmet);
-        let writers: Vec<usize> = self
-            .view
-            .bodies
-            .writers_before(body, self.explained)
-            .map(|(position, _)| position)
-            .collect();
+        let bodies = self.view.bodies;
+        let writers = bodies.writers_before(body, self.explained);
         let mut remover = None;
         for &writer in writers.iter().rev() {
             if presence.has(self.output_of(body, writer)?) {
@@ -335,28 +342,15 @@ impl<'r> Probe<'_, 'r> {
     /// The state of `body` just after its writer at `writer`: the state just before the record
     /// after it.
     fn output_of(&self, body: &Id, writer: usize) -> Option<&'r BodyState> {
-        self.view
-            .state_before(body, writer + 1)
-            .map(|(state, _)| state)
+        self.declared_state_before(body, writer + 1)
     }
 
     /// True when one of the bodies the writer at `writer` declares has the lost name just before
     /// it.
     fn input_has(&mut self, writer: usize, presence: &Presence<'_>) -> bool {
-        let declared: Vec<Id> = self
-            .view
-            .dependencies(writer)
-            .map(|dependencies| {
-                dependencies
-                    .bodies_read
-                    .iter()
-                    .chain(&dependencies.bodies_written)
-                    .map(|link| link.id.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        declared.iter().any(|body| {
-            self.state_before(body, writer)
+        let view = self.view;
+        view.body_links(writer).any(|link| {
+            self.state_before(&link.id, writer)
                 .is_some_and(|state| presence.has(state))
         })
     }
@@ -391,21 +385,23 @@ impl<'r> Probe<'_, 'r> {
             return Some(Removal::NoLongerMade { absence });
         }
         let blend = match kind {
-            "fillet" => Some(Removal::Rounded),
-            "chamfer" => Some(Removal::Beveled),
+            Fillet::TYPE => Some(Removal::Rounded),
+            Chamfer::TYPE => Some(Removal::Beveled),
             _ => None,
         };
         if blend.is_some() && self.blends_query(loss, remover) {
             return blend;
         }
-        if kind == "shell" {
+        if kind == Shell::TYPE {
             return Some(Removal::Hollowed);
         }
         if loss.lost.pieces.contains(lost_name) {
             return Some(Removal::PieceGone);
         }
         let change = self.view.update(remover, body).map(|update| update.change);
-        if matches!(change, Some(BodyChange::Cut | BodyChange::Intersect)) || kind == "split_body" {
+        if matches!(change, Some(BodyChange::Cut | BodyChange::Intersect))
+            || kind == SplitBody::TYPE
+        {
             return Some(Removal::CutAway);
         }
         if change == Some(BodyChange::Join) {
@@ -426,9 +422,9 @@ impl<'r> Probe<'_, 'r> {
         let body = &loss.body;
         let query = &loss.reference.query;
         let feature = self.view.id(blend).as_str();
-        let (Some(output), Some((input, _))) = (
+        let (Some(output), Some(input)) = (
             self.output_of(body, blend),
-            self.view.state_before(body, blend),
+            self.declared_state_before(body, blend),
         ) else {
             return false;
         };
@@ -444,7 +440,8 @@ impl<'r> Probe<'_, 'r> {
             let Some(FaceGenerator::List(generator)) = parts.generator() else {
                 return false;
             };
-            if parts.feature() != feature || !matches!(parts.role(), "fillet" | "chamfer") {
+            if parts.feature() != feature || !matches!(parts.role(), roles::FILLET | roles::CHAMFER)
+            {
                 return false;
             }
             generator == query.as_str()
@@ -513,16 +510,15 @@ impl<'r> Probe<'_, 'r> {
         body: &Id,
         records: impl Fn(&NamingMap) -> bool,
     ) -> Option<usize> {
-        let writers: Vec<usize> = self
-            .view
-            .bodies
+        let bodies = self.view.bodies;
+        bodies
             .writers_before(body, self.explained)
-            .map(|(position, _)| position)
-            .collect();
-        writers.into_iter().find(|&writer| {
-            self.output_of(body, writer)
-                .is_some_and(|state| records(state.naming()))
-        })
+            .iter()
+            .copied()
+            .find(|&writer| {
+                self.output_of(body, writer)
+                    .is_some_and(|state| records(state.naming()))
+            })
     }
 }
 
@@ -641,10 +637,7 @@ fn has_relatives(map: &NamingMap, face: &FaceName<'_>, generator: &str) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn name(text: &str) -> ElementName {
-        ElementName::parse(text).expect("a valid name")
-    }
+    use crate::test_support::name;
 
     fn family(names: &[&str]) -> BTreeSet<ElementName> {
         names.iter().map(|text| name(text)).collect()

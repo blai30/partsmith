@@ -4,8 +4,10 @@
 
 use std::sync::Arc;
 
+use partsmith_features::builtin::sketch::SketchFeature;
 use partsmith_features::{
-    BodyState, BodyUpdate, Dependencies, FeatureError, FeatureOutput, OutputData, SketchResult,
+    BodyState, BodyUpdate, Dependencies, Feature, FeatureError, FeatureOutput, Link, OutputData,
+    SketchResult,
 };
 use partsmith_model::{Document, Id};
 
@@ -14,6 +16,7 @@ use crate::graph::NodeState;
 use crate::key::CacheKey;
 use crate::report::{FeatureReport, Status};
 use crate::timeline::Timeline;
+use crate::validation::Valid;
 
 /// A finished run, as the diagnosis reads it.
 #[derive(Clone, Copy)]
@@ -94,15 +97,18 @@ impl<'r> RunView<'r> {
         })
     }
 
+    /// The body links of the record at `position` in key order (read, then written), whatever its
+    /// state, when it validates.
+    pub(crate) fn body_links(&self, position: usize) -> impl Iterator<Item = &'r Link> + use<'r> {
+        self.timeline.steps[position]
+            .valid()
+            .into_iter()
+            .flat_map(Valid::body_links)
+    }
+
     /// True when the record at `position` declares `body` read or written.
     pub(crate) fn declares(&self, position: usize, body: &Id) -> bool {
-        self.dependencies(position).is_some_and(|dependencies| {
-            dependencies
-                .bodies_read
-                .iter()
-                .chain(&dependencies.bodies_written)
-                .any(|link| link.id == *body)
-        })
+        self.body_links(position).any(|link| link.id == *body)
     }
 
     /// The first feature link of the record at `position` whose record is a sketch: the sketch it
@@ -114,7 +120,7 @@ impl<'r> RunView<'r> {
             .map(|link| &link.id)
             .find(|feature| {
                 self.position(feature)
-                    .is_some_and(|upstream| self.kind(upstream) == "sketch")
+                    .is_some_and(|upstream| self.kind(upstream) == SketchFeature::TYPE)
             })
     }
 
@@ -197,5 +203,30 @@ impl<'r> RunView<'r> {
             .rev()
             .find(|&position| self.writes(position, body) && self.declares(position, other))
             .map(|position| self.id(position))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::test_support::{id, with_view};
+
+    #[test]
+    fn a_fact_says_whether_its_record_is_at_or_after_the_rollback_marker() {
+        let after_marker = |view: &RunView<'_>| -> Vec<bool> {
+            ["f-1", "f-2", "f-3"]
+                .iter()
+                .map(|feature| view.record_fact(&id(feature), 0).after_marker)
+                .collect()
+        };
+
+        with_view(json!({"rollback": "f-2"}), |view| {
+            assert_eq!(after_marker(view), [false, true, true]);
+        });
+        with_view(json!({}), |view| {
+            assert_eq!(after_marker(view), [false, false, false]);
+        });
     }
 }

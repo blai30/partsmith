@@ -7,10 +7,9 @@ mod common;
 
 use common::records::{circle, edited, line, rectangle, rectangle_region, sketch, xy};
 use common::timeline::Timeline;
-use common::{id, warning_fixes};
+use common::{id, pointer, warning_fixes};
 use partsmith_features::{
-    Diagnosis, FeatureError, FeatureWarning, FieldRef, Fix, ProfileRef, Repair, ResolvedProfile,
-    Severity,
+    Diagnosis, FeatureError, FeatureWarning, Fix, ProfileRef, Repair, ResolvedProfile, Severity,
 };
 use partsmith_sketch::{RegionLoss, RegionRef};
 use serde_json::{Value, json};
@@ -53,11 +52,6 @@ fn with_profile<T>(
     };
     let context = fixture.context();
     check(context.profile("profile", &profile))
-}
-
-/// The JSON Pointer of a warning's field.
-fn pointer(warning: &FeatureWarning) -> Option<String> {
-    warning.field().map(FieldRef::pointer)
 }
 
 /// `KeepRegions` then `Pick` at `pointer`: the fixes of a region still used (section 3.7).

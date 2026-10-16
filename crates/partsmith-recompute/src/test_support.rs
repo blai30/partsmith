@@ -9,18 +9,22 @@ use std::sync::{Arc, OnceLock};
 
 use partsmith_features::{
     AssetLink, BodyChange, BodyUpdate, BuildContext, DatumResult, Dependencies, ExprUse, Feature,
-    FeatureError, FeatureOutput, Link, OutputData, Registry,
+    FeatureError, FeatureOutput, FeatureWarning, FieldRef, Link, OutputData, Registry,
 };
 use partsmith_model::{
     Category, Document, Expr, FeatureManifest, FeatureRecord, FieldHint, FieldUnit, Id,
     SelectionKind,
 };
+use partsmith_naming::ElementName;
 use partsmith_sketch::Placement;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::Input;
+use crate::chains::Bodies;
+use crate::diagnosis::RunView;
+use crate::report::{FeatureReport, Status};
 use crate::timeline::Timeline;
 use crate::validation::Validations;
 
@@ -141,6 +145,52 @@ pub(crate) fn id(text: &str) -> Id {
     Id::new(text).expect("valid test id")
 }
 
+/// A test element name.
+pub(crate) fn name(text: &str) -> ElementName {
+    ElementName::parse(text).expect("valid test element name")
+}
+
+/// The `region_split` notice of a profile region split in two (features.md section 4.2), severity
+/// info.
+pub(crate) fn region_split() -> FeatureWarning {
+    FeatureWarning::RegionSplit {
+        field: FieldRef {
+            path: "profile.regions[0]".to_string(),
+            label: "Profile".to_string(),
+        },
+        position: 0,
+        sketch: id("f-sk1"),
+        region: serde_json::from_value(json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}))
+            .expect("the region reference is valid"),
+        count: 2,
+    }
+}
+
+/// Calls `check` with the view of a run of the datums `f-1` to `f-3` where every record is ok, in
+/// a document with `members` (such as `rollback` or `bodies`) replacing or adding top-level
+/// members.
+pub(crate) fn with_view(members: Value, check: impl FnOnce(&RunView<'_>)) {
+    let mut text = json!({
+        "features": [datum("f-1", "1"), datum("f-2", "1"), datum("f-3", "1")]
+    });
+    for (key, value) in members.as_object().expect("members are an object") {
+        text[key] = value.clone();
+    }
+    let document = document_with(text);
+    let timeline = prepared(&document);
+    let reports: Vec<FeatureReport> = timeline
+        .steps
+        .iter()
+        .map(|step| FeatureReport::idle(&step.record.id, Status::Ok))
+        .collect();
+    let bodies = Bodies::empty(document.bodies.iter().map(|body| &body.id));
+    check(&RunView {
+        timeline: &timeline,
+        reports: &reports,
+        bodies: &bodies,
+    });
+}
+
 /// A manifest labeled `label` with these hints.
 fn manifest(label: &str, fields: Vec<FieldHint>) -> FeatureManifest {
     FeatureManifest {
@@ -179,11 +229,7 @@ fn link(id: &Id, field: &str) -> Link {
 
 /// An output with no warnings.
 fn output(data: OutputData) -> FeatureOutput {
-    FeatureOutput {
-        data,
-        warnings: Vec::new(),
-        absent: Vec::new(),
-    }
+    FeatureOutput::new(data, Vec::new())
 }
 
 /// Params of `test_datum`.

@@ -11,9 +11,7 @@ use common::{
 };
 use partsmith_features::BodyState;
 use partsmith_model::Document;
-use partsmith_naming::{
-    ElementKind, ElementName, ElementSet, MatchMethod, Reference, Resolution, resolve,
-};
+use partsmith_naming::{ElementKind, ElementName, MatchMethod, Reference, Resolution, resolve};
 use serde_json::{Value, json};
 
 /// An extrude record of one profile region.
@@ -186,16 +184,9 @@ fn t084_a_split_cap_keeps_its_name_with_suffixes_and_old_references_follow_it() 
     assert_face_position(&face(slotted, "f-ext1/end-cap#2"), 0, 65.0);
     let reference: Reference =
         serde_json::from_value(edge_reference).expect("the edge reference is valid");
-    let infos = slotted
-        .elements()
-        .expect("element infos of the slotted body");
-    let naming = slotted.naming();
-    let set = ElementSet::new(
-        infos,
-        naming.aliases().clone(),
-        naming.successions().clone(),
-    )
-    .expect("the slotted body names each element once");
+    let set = slotted
+        .element_set()
+        .expect("the slotted body names each element once");
     match resolve(&reference, &set) {
         Resolution::Resolved {
             elements, method, ..

@@ -1,15 +1,14 @@
 //! Helpers for the reference stability tests R01 to R22 (`reference_stability_1.rs`, from
-//! docs/design/reference-stability-corpus.md): feature records of the corpus's shared setups,
-//! geometry probes for fillet, chamfer and shell results, a collector of unmet expectations and
-//! resolver diagnostics.
+//! docs/design/reference-stability-corpus.md): the feature records only they use, geometry probes
+//! for fillet, chamfer and shell results, a collector of unmet expectations and region diagnostics.
 //!
 //! A scenario states several expectations (the result, the status, the message);
 //! [`Expectations`] records each one that is not met and fails the test once with all of them, so
 //! a failing scenario shows everything that is wrong, with the resolver's view of the reference
 //! under test. Positions are compared at the corpus's 1e-6 mm (`EXACT_POSITION_TOLERANCE`).
 //!
-//! The record builders and readers the three thirds of the corpus share come from
-//! `stability_common`, which it includes with `#[path]` and re-exports, beside its own
+//! The record builders, runs, readers and resolver diagnostics the three thirds of the corpus share
+//! come from `stability_common`, which it includes with `#[path]` and re-exports, beside its own
 //! `feature_support`.
 //!
 //! It lives in its own directory, like `common/` and `feature_support/`, so Cargo does not build
@@ -29,8 +28,7 @@ pub use stability_common::*;
 use std::f64::consts::PI;
 
 use partsmith_features::{BodyState, Repair, SketchResult};
-use partsmith_model::Document;
-use partsmith_naming::{ElementKind, ElementName, MatchMethod, Resolution, score};
+use partsmith_naming::{ElementKind, ElementName, MatchMethod, Resolution};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 use partsmith_recompute::{FeatureReport, Message, Report, Severity, Status};
 use partsmith_sketch::{Id, RegionRef, match_region};
@@ -50,54 +48,11 @@ pub const LOSS_CODES: [&str; 6] = [
     "no_effect",
 ];
 
-/// The phrase of today's generic lost-reference messages, which says neither what was lost in words
-/// nor why.
-pub const GENERIC_LOSS: &str = "can no longer be found";
-
-// Sketch entities and feature records.
-
-/// A sketch arc, counterclockwise from `start_angle` to `end_angle` (radians).
-pub fn arc(id: &str, center: [f64; 2], radius: f64, start_angle: f64, end_angle: f64) -> Value {
-    json!({
-        "id": id, "type": "arc", "center": center, "radius": radius,
-        "start_angle": start_angle, "end_angle": end_angle
-    })
-}
-
-/// The region ref of [`rectangle`]: its key and its centroid and area fingerprint.
-pub fn rectangle_region(first: usize, x0: f64, y0: f64, x1: f64, y1: f64) -> Value {
-    let key = (first..first + 4)
-        .map(|number| format!("e-{number}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    // Rust's f64 Display matches the region fingerprint text for these round values.
-    let fingerprint = format!(
-        "c={},{}|a={}",
-        (x0 + x1) / 2.0,
-        (y0 + y1) / 2.0,
-        (x1 - x0) * (y1 - y0)
-    );
-    region_with_fingerprint(&key, &fingerprint)
-}
+// Feature records.
 
 /// A region ref with this key and fingerprint text.
 pub fn region_with_fingerprint(key: &str, fingerprint: &str) -> Value {
     json!({"key": key, "fp": fingerprint})
-}
-
-/// A symmetric extent.
-pub fn symmetric(expr: &str) -> Value {
-    json!({"kind": "symmetric", "expr": expr})
-}
-
-/// A through-all extent.
-pub fn through_all() -> Value {
-    json!({"kind": "through_all"})
-}
-
-/// The same extrude record with `reverse` set.
-pub fn reversed(record: Value) -> Value {
-    with(record, "reverse", json!(true))
 }
 
 /// A two-distance chamfer of `b-1`.
@@ -108,63 +63,9 @@ pub fn chamfer_two_distances(id: &str, edges: Vec<Value>, first: &str, second: &
     })
 }
 
-/// A linear pattern of `b-1` along an origin axis (op join, the default).
-pub fn linear_pattern(id: &str, axis: &str, count: &str, spacing: &str) -> Value {
-    json!({
-        "id": id, "type": "linear_pattern", "body": "b-1",
-        "direction": {"axis": {"kind": "origin", "axis": axis}, "count": count, "spacing": spacing}
-    })
-}
-
-/// A split of `b-1` by a datum plane, the other side going to `target`.
-pub fn split_body(id: &str, datum: &str, target: &str) -> Value {
-    json!({
-        "id": id, "type": "split_body", "body": "b-1",
-        "plane": {"kind": "datum", "feature": datum}, "target": target
-    })
-}
-
 /// A parameter record.
 pub fn parameter(id: &str, name: &str, expr: &str) -> Value {
     json!({"id": id, "name": name, "expr": expr})
-}
-
-// Documents.
-
-/// A millimeter document with these parameters, bodies (`b-<n>` named `Body <n>`) and features.
-pub fn document_with_parameters(
-    parameters: Vec<Value>,
-    bodies: &[&str],
-    features: Vec<Value>,
-) -> Document {
-    let bodies: Vec<Value> = bodies
-        .iter()
-        .map(|body| {
-            let number = body.strip_prefix("b-").expect("test bodies are b-<n>");
-            json!({"id": body, "name": format!("Body {number}")})
-        })
-        .collect();
-    let text = json!({
-        "format": "partsmith", "format_version": 1, "units": "mm",
-        "parameters": parameters, "bodies": bodies, "features": features
-    })
-    .to_string();
-    match partsmith_model::load(&text) {
-        Ok(loaded) => loaded.document,
-        Err(error) => panic!("the test document does not load: {error}\n{text}"),
-    }
-}
-
-/// A millimeter document without parameters.
-pub fn document(bodies: &[&str], features: Vec<Value>) -> Document {
-    document_with_parameters(Vec::new(), bodies, features)
-}
-
-// Shared setups of the corpus.
-
-/// The BLOCK outline: `e-1` to `e-4`, an 80 x 50 rectangle.
-pub fn block_outline() -> Vec<Value> {
-    rectangle(1, 0.0, 0.0, 80.0, 50.0)
 }
 
 /// The block outline with its right side at `x` instead of 80.
@@ -172,70 +73,9 @@ pub fn block_outline_to(x: f64) -> Vec<Value> {
     rectangle(1, 0.0, 0.0, x, 50.0)
 }
 
-/// The BLOCK profile region as stored when the block was made.
-pub fn block_region() -> Value {
-    region_with_fingerprint("e-1,e-2,e-3,e-4", "c=40,25|a=4000")
-}
-
-/// BLOCK with this outline in `f-sk1` and this extrude distance: `f-sk1` on XY and `f-ext1`, an
-/// extrude of the stored block region, op new.
-pub fn block_with(outline: Vec<Value>, height: &str) -> Vec<Value> {
-    vec![
-        sketch("f-sk1", origin_plane("XY"), outline),
-        extrude(
-            "f-ext1",
-            "b-1",
-            "f-sk1",
-            vec![block_region()],
-            distance(height),
-            "new",
-        ),
-    ]
-}
-
-/// BLOCK: x 0..80, y 0..50, z 0..30.
-pub fn block() -> Vec<Value> {
-    block_with(block_outline(), "30")
-}
-
 /// `f-dp1`: datum XY offset 30 (the block top).
 pub fn top_datum() -> Value {
     datum_offset("f-dp1", "XY", "30")
-}
-
-/// A slot cut 5 deep down from `f-dp1`: the sketch `sketch_feature` with a rectangle x `x0..x1`,
-/// y -1..51 (entities `e-5` to `e-8`) and its reversed extrude `extrude_feature`, op cut.
-pub fn slot(sketch_feature: &str, extrude_feature: &str, x0: f64, x1: f64) -> Vec<Value> {
-    vec![
-        sketch(
-            sketch_feature,
-            datum_plane("f-dp1"),
-            rectangle(5, x0, -1.0, x1, 51.0),
-        ),
-        reversed(extrude(
-            extrude_feature,
-            "b-1",
-            sketch_feature,
-            vec![rectangle_region(5, x0, -1.0, x1, 51.0)],
-            distance("5"),
-            "cut",
-        )),
-    ]
-}
-
-/// SLOT(a, b) on BLOCK: `f-dp1`, `f-sk2` and `f-ext2`.
-pub fn slot_setup(x0: f64, x1: f64) -> Vec<Value> {
-    let mut records = vec![top_datum()];
-    records.extend(slot("f-sk2", "f-ext2", x0, x1));
-    records
-}
-
-/// The front top edge of CUBE20, as picked.
-pub fn cube20_front_top() -> Value {
-    reference(
-        "edge(f-box1/front|f-box1/top)",
-        "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2",
-    )
 }
 
 // Geometry probes.
@@ -428,36 +268,6 @@ pub fn summary(report: &Report) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-// Diagnostics.
-
-/// The resolution of `reference` against a body state and the five best fingerprint scores of
-/// elements of its kind, for failure reports.
-pub fn diagnose(state: &BodyState, reference: &Value) -> String {
-    if state.is_empty() {
-        return "the body is empty".to_owned();
-    }
-    let parsed = parsed_reference(reference);
-    let kind = parsed.query.kind();
-    let elements = state.elements().expect("element infos of the body");
-    let mut scores: Vec<(f64, &str)> = elements
-        .iter()
-        .filter(|info| info.kind == kind)
-        .map(|info| {
-            (
-                score(&parsed.fingerprint, &info.fingerprint, kind),
-                info.name.as_str(),
-            )
-        })
-        .collect();
-    scores.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(b.1)));
-    scores.truncate(5);
-    format!(
-        "{} resolves to {:?}; best fingerprint scores {scores:?}",
-        parsed.query,
-        resolve_in_state(&parsed, state)
-    )
 }
 
 /// How a sketch's regions match a stored region ref, with every region's key, area and centroid.

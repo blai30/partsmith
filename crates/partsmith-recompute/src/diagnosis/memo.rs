@@ -14,16 +14,15 @@ use crate::key::CacheKey;
 /// What the diagnosis found for one loss or follow: ids, never text.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Finding {
-    /// A loss: its reason (None for an ambiguous loss) and, for an ambiguous loss, the feature
-    /// after whose change it became ambiguous.
-    Loss {
-        /// Why it was lost.
-        reason: Option<LossReason>,
-        /// What it became ambiguous after.
+    /// A loss that is not ambiguous, and why it was lost.
+    Lost(LossReason),
+    /// An ambiguous loss: the feature after whose change it became ambiguous, when found.
+    Ambiguous {
+        /// The feature.
         after: Option<Id>,
     },
     /// A followed or widened reference: the feature whose change it followed, when found.
-    Follow {
+    Followed {
         /// The feature.
         by: Option<Id>,
     },
@@ -149,6 +148,12 @@ impl Observations {
 
 /// Reads a run for the diagnosis of one feature and records what it observes, so the finding can
 /// be memoized with its observations.
+///
+/// Every read that can change while the explained feature's key stays the same is observed: the
+/// facts of the records it consults, the rollback marker, the states of bodies the feature does
+/// not declare (by their provider's key), rule 3's `by` and the order of the bodies. The states of
+/// the bodies the feature declares are read unobserved, through `declared_state_before`, because
+/// its key covers them and their writer chains (section 3.4).
 pub(crate) struct Probe<'p, 'r> {
     /// The run.
     pub(crate) view: &'p RunView<'r>,
@@ -204,6 +209,22 @@ impl<'p, 'r> Probe<'p, 'r> {
         Some(state)
     }
 
+    /// The state of `body`, a body the explained feature declares, just before the record at
+    /// `position`. It is not observed: the explained feature's key covers it.
+    pub(crate) fn declared_state_before(
+        &self,
+        body: &Id,
+        position: usize,
+    ) -> Option<&'r BodyState> {
+        debug_assert!(
+            self.view.declares(self.explained, body),
+            "only the states of bodies the explained feature declares are read unobserved"
+        );
+        self.view
+            .state_before(body, position)
+            .map(|(state, _)| state)
+    }
+
     /// The document's bodies in order, observed.
     pub(crate) fn bodies(&mut self) -> Vec<Id> {
         let bodies: Vec<Id> = body_ids(self.view).cloned().collect();
@@ -239,39 +260,12 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::chains::Bodies;
-    use crate::report::{FeatureReport, Status};
-    use crate::test_support::{datum, document_with, id, prepared};
+    use crate::test_support::{id, with_view};
 
     /// A reference written in a test.
     fn reference() -> Reference {
         serde_json::from_value(json!({"q": "f-1/top", "fp": "plane|n=0,0,1|c=0,0,0|a=1"}))
             .expect("a valid reference")
-    }
-
-    /// Calls `check` with the view of a run of the datums `f-1` to `f-3` where every record is
-    /// ok, in a document with `members` (such as `rollback` or `bodies`) replacing or adding
-    /// top-level members.
-    fn with_view(members: Value, check: impl FnOnce(&RunView<'_>)) {
-        let mut text = json!({
-            "features": [datum("f-1", "1"), datum("f-2", "1"), datum("f-3", "1")]
-        });
-        for (key, value) in members.as_object().expect("members are an object") {
-            text[key] = value.clone();
-        }
-        let document = document_with(text);
-        let timeline = prepared(&document);
-        let reports: Vec<FeatureReport> = timeline
-            .steps
-            .iter()
-            .map(|step| FeatureReport::idle(&step.record.id, Status::Ok))
-            .collect();
-        let bodies = Bodies::empty(document.bodies.iter().map(|body| &body.id));
-        check(&RunView {
-            timeline: &timeline,
-            reports: &reports,
-            bodies: &bodies,
-        });
     }
 
     /// The observations of a probe of the record at `explained` that consulted `f-1`.
@@ -284,7 +278,7 @@ mod tests {
     #[test]
     fn a_finding_holds_while_what_it_observed_holds() {
         let key = FindingKey::new("reference_missing", "edges", 0, &reference());
-        let finding = Finding::Follow {
+        let finding = Finding::Followed {
             by: Some(id("f-1")),
         };
         with_view(json!({}), |view| {
@@ -306,7 +300,7 @@ mod tests {
         with_view(json!({}), |view| {
             findings.insert(
                 key.clone(),
-                Finding::Follow { by: None },
+                Finding::Followed { by: None },
                 consulted_first(view, 1),
             );
         });
@@ -317,26 +311,9 @@ mod tests {
     }
 
     #[test]
-    fn a_fact_says_whether_its_record_is_at_or_after_the_rollback_marker() {
-        let after_marker = |view: &RunView<'_>| -> Vec<bool> {
-            ["f-1", "f-2", "f-3"]
-                .iter()
-                .map(|feature| view.record_fact(&id(feature), 0).after_marker)
-                .collect()
-        };
-
-        with_view(json!({"rollback": "f-2"}), |view| {
-            assert_eq!(after_marker(view), [false, true, true]);
-        });
-        with_view(json!({}), |view| {
-            assert_eq!(after_marker(view), [false, false, false]);
-        });
-    }
-
-    #[test]
     fn a_finding_that_looked_through_the_bodies_does_not_hold_after_they_are_reordered() {
         let key = FindingKey::new("reference_missing", "edges", 0, &reference());
-        let finding = Finding::Follow { by: None };
+        let finding = Finding::Followed { by: None };
         let bodies = |order: [&str; 2]| {
             let bodies: Vec<Value> = order
                 .iter()

@@ -243,6 +243,10 @@ pub struct ValidationDiagnostic {
     /// boxed, since most diagnostics have none and a message with its actions and reason is large.
     pub feature: Option<Box<FeatureMessage>>,
 }
+impl ValidationDiagnostic {
+    /// A finding with a severity, a code and a message, and no position and no feature message.
+    pub fn new(severity: Severity, code: impl Into<String>, message: impl Into<String>) -> ValidationDiagnostic;
+}
 /// A feature message as `validate` reports it.
 pub struct FeatureMessage {
     /// The feature.
@@ -264,6 +268,9 @@ impl ValidationReport {
 pub fn ptsm_schema() -> String;
 /// The protocol JSON Schema (re-export of `partsmith_protocol::protocol_schema`).
 pub fn protocol_schema() -> String;
+/// Where a message of the feature at timeline position `position` is in the document: `/features/<position>` followed
+/// by the message's field (section 3.19 step 8, cli.md section 2.2).
+pub fn message_location(position: usize, field: Option<&str>) -> String;
 ```
 
 `EngineInfo.kernel` is `OCCT ` followed by `partsmith_occt_sys::OCCT_VERSION` (kernel.md), for example `OCCT 7.9.3`.

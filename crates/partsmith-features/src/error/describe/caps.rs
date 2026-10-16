@@ -2,7 +2,7 @@
 //! for a cap that is not in the state (features.md section 3.12, "Direction words").
 
 use partsmith_model::{Expr, FieldUnit, LINEAR_TOLERANCE};
-use partsmith_naming::GeometryKind;
+use partsmith_naming::{GeometryKind, roles};
 use partsmith_sketch::{Geometry, RegionFingerprint};
 use serde_json::Value;
 
@@ -17,8 +17,8 @@ use crate::params::AxisRef;
 /// record does not give the direction.
 pub(super) fn cap_direction(names: &dyn Names, maker: &Maker<'_>, role: &str) -> Option<[f64; 3]> {
     let start = match role {
-        "start-cap" => true,
-        "end-cap" => false,
+        roles::START_CAP => true,
+        roles::END_CAP => false,
         _ => return None,
     };
     let sketch = names.sketch_result(&maker.sketch()?)?;

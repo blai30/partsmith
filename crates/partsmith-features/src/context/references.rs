@@ -446,7 +446,7 @@ fn one_carrier(geometries: &[ElementGeometry]) -> bool {
             })
         }
         GeometryKind::Circle => same_round(first, rest, |other, center| {
-            distance(other, center) <= LINEAR_TOLERANCE
+            other.distance(center) <= LINEAR_TOLERANCE
         }),
         GeometryKind::Cylinder => {
             let Some(direction) = first.direction else {
@@ -507,16 +507,11 @@ fn offset(to: Point, from: Point) -> Vector {
     Vector::new(to.x - from.x, to.y - from.y, to.z - from.z)
 }
 
-/// The distance between two points.
-fn distance(first: Point, second: Point) -> f64 {
-    offset(first, second).length()
-}
-
 /// The distance from `point` to the line through `through` along `direction`.
 fn distance_to_line(point: Point, through: Point, direction: Vector) -> f64 {
     let length = direction.length();
     if length == 0.0 {
-        return distance(point, through);
+        return point.distance(through);
     }
     offset(point, through).cross(direction).length() / length
 }

@@ -24,15 +24,17 @@ use partsmith_naming::ElementKind;
 use partsmith_recompute::Status;
 use partsmith_sketch::Placement;
 use serde_json::Value;
-use stability_support_1::feature_support::{Assets, Run, run_document};
+use stability_support_1::feature_support::{Assets, Run};
 use stability_support_1::{
-    EXACT_POSITION_TOLERANCE, Expectations, arc, block, block_outline, block_outline_to,
-    block_region, block_with, box_record, chamfer, chamfer_spans, chamfer_two_distances, circle,
-    coordinates, cube20, cube20_front_top, datum_on_face, datum_plane, diagnose, diagnose_region,
-    distance, document, document_with_parameters, extrude, face_plane, faces_with_prefix, fillet,
-    line, linear_pattern, names, origin_plane, parameter, rectangle, rectangle_region, reference,
-    region_with_fingerprint, reversed, run_picked, shell, sketch, slot, slot_setup, split_body,
-    stored, summary, suppressed, symmetric, through_all, top_datum, volume, with_picks,
+    EXACT_POSITION_TOLERANCE, Expectations, arc, block, block_back_top, block_front_right_vertical,
+    block_front_top, block_outline, block_outline_to, block_region, block_right_side,
+    block_right_top, block_top, block_with, box_record, chamfer, chamfer_spans,
+    chamfer_two_distances, circle, coordinates, cube20, cube20_front_top, datum_on_face,
+    datum_plane, diagnose, diagnose_region, distance, document_in, document_of, edit_document,
+    extrude, face_plane, faces_with_prefix, fillet, line, linear_pattern, names, origin_plane,
+    parameter, rectangle, rectangle_region, reference, region_with_fingerprint, reversed,
+    run_picked, shell, sketch, slot, slot_cut, split_by_datum, stored, summary, suppressed,
+    symmetric, through_all, top_datum, try_body_before, volume,
 };
 
 // Running scenarios.
@@ -50,34 +52,11 @@ fn setup(document: Document) -> Run {
     run
 }
 
-/// Runs the edited `document`, with the picks of the run before the edit carried over
-/// (`with_picks`), on the recompute of that run, as an app does after an edit: unchanged features
-/// come from its cache.
-fn edit(before: Run, document: Document) -> Run {
-    let document = with_picks(&before.document, &document);
-    let mut recompute = before.recompute;
-    let report = run_document(&mut recompute, &document, &Assets::new());
-    Run {
-        document,
-        recompute,
-        report,
-    }
-}
-
 /// Checks for a run, with the run's statuses and messages as the first note.
 fn checks_for(run: &Run) -> Expectations {
     let mut checks = Expectations::new();
     checks.note(format!("run after the edit:\n{}", summary(&run.report)));
     checks
-}
-
-/// The state of `b-1` just before `feature`, when it ran.
-fn b1_before<'a>(run: &'a Run, feature: &str) -> Option<&'a BodyState> {
-    run.feature(feature)
-        .bodies_before
-        .iter()
-        .find(|(body, _)| body.as_str() == "b-1")
-        .map(|(_, state)| state)
 }
 
 /// The state `feature`'s output gives `body`, when it built.
@@ -105,14 +84,6 @@ fn datum_output(run: &Run, feature: &str) -> Option<Placement> {
     match &run.feature(feature).output.as_deref()?.data {
         OutputData::Datum(DatumResult::Plane(placement)) => Some(*placement),
         _ => None,
-    }
-}
-
-/// How the resolver sees `reference` just before `feature`, for failure reports.
-fn diagnosis(run: &Run, feature: &str, reference: &Value) -> String {
-    match b1_before(run, feature) {
-        Some(state) => format!("before {feature}: {}", diagnose(state, reference)),
-        None => format!("{feature} did not run"),
     }
 }
 
@@ -172,43 +143,6 @@ fn check_lost_edge(
 
 // References of the shared setups, as picked.
 
-/// The front top edge of BLOCK.
-fn front_top() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
-        "line|n=1,0,0|c=40,0,30|l=80|adj=2,2",
-    )
-}
-
-/// The back top edge of BLOCK.
-fn back_top() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
-        "line|n=1,0,0|c=40,50,30|l=80|adj=2,2",
-    )
-}
-
-/// The right top edge of BLOCK.
-fn right_top() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
-        "line|n=0,1,0|c=80,25,30|l=50|adj=2,2",
-    )
-}
-
-/// The front right vertical edge of BLOCK.
-fn front_right_vertical() -> Value {
-    reference(
-        "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
-        "line|n=0,0,1|c=80,0,15|l=30|adj=2,2",
-    )
-}
-
-/// The top face of BLOCK.
-fn block_top() -> Value {
-    reference("f-ext1/end-cap", "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4")
-}
-
 /// The four top edges of a box `f-box1` of `width` x `width` x `height` centered on the z axis.
 fn box_top_edges(width: f64, height: f64) -> Vec<Value> {
     let half = width / 2.0;
@@ -258,9 +192,9 @@ fn r01_model(outline: Vec<Value>) -> Document {
             distance("10"),
             "join",
         ),
-        fillet("f-fil1", "b-1", vec![back_top()], "2"),
+        fillet("f-fil1", "b-1", vec![block_back_top()], "2"),
     ]);
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 /// The block outline with its front right corner cut by line `e-6`, `size` along each side.
@@ -276,12 +210,16 @@ fn corner_chamfered_outline(size: f64) -> Vec<Value> {
 
 /// R01 with a corner chamfer line of `size`.
 fn r01(size: f64) {
-    let before = setup(r01_model(block_outline()));
-    let run = edit(before, r01_model(corner_chamfered_outline(size)));
+    let mut run = setup(r01_model(block_outline()));
+    edit_document(
+        &mut run,
+        r01_model(corner_chamfered_outline(size)),
+        &Assets::new(),
+    );
     let mut checks = checks_for(&run);
     checks.note(region_diagnosis(&run, "f-sk1", &block_region()));
-    checks.note(diagnosis(&run, "f-sk2", &block_top()));
-    checks.note(diagnosis(&run, "f-fil1", &back_top()));
+    checks.note(diagnose(&run, "f-sk2", "b-1", &block_top()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &block_back_top()));
 
     checks.built_with_at_most_notices(run.feature("f-ext1"));
     if let Some(block) = state_after(&run, "f-ext1", "b-1") {
@@ -344,10 +282,10 @@ fn r01_corner_chamfer_10mm_keeps_top_sketch_and_back_fillet() {
 fn r02_model(outline: Vec<Value>) -> Document {
     let mut features = block_with(outline, "30");
     features.extend([
-        fillet("f-fil1", "b-1", vec![front_top()], "2"),
-        chamfer("f-cha1", "b-1", vec![front_right_vertical()], "1"),
+        fillet("f-fil1", "b-1", vec![block_front_top()], "2"),
+        chamfer("f-cha1", "b-1", vec![block_front_right_vertical()], "1"),
     ]);
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 /// The block outline with a `width` x `depth` notch centered at x = 40 in the back side: `e-3`
@@ -388,12 +326,17 @@ fn corner_rounded_outline(radius: f64) -> Vec<Value> {
 /// R02 with `outline`: the block after Extrude 1 has `face_count` faces, the outline's `area`
 /// times 30 as volume, and `new_faces` besides the original names.
 fn r02(outline: Vec<Value>, face_count: usize, area: f64, new_faces: &[&str]) {
-    let before = setup(r02_model(block_outline()));
-    let run = edit(before, r02_model(outline));
+    let mut run = setup(r02_model(block_outline()));
+    edit_document(&mut run, r02_model(outline), &Assets::new());
     let mut checks = checks_for(&run);
     checks.note(region_diagnosis(&run, "f-sk1", &block_region()));
-    checks.note(diagnosis(&run, "f-fil1", &front_top()));
-    checks.note(diagnosis(&run, "f-cha1", &front_right_vertical()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &block_front_top()));
+    checks.note(diagnose(
+        &run,
+        "f-cha1",
+        "b-1",
+        &block_front_right_vertical(),
+    ));
 
     checks.built_with_at_most_notices(run.feature("f-ext1"));
     if let Some(block) = state_after(&run, "f-ext1", "b-1") {
@@ -415,22 +358,22 @@ fn r02(outline: Vec<Value>, face_count: usize, area: f64, new_faces: &[&str]) {
         }
     }
     checks.clean(run.feature("f-fil1"));
-    if let Some(state) = b1_before(&run, "f-fil1") {
+    if let Some(state) = try_body_before(&run, "f-fil1", "b-1") {
         checks.resolves_exactly(
             "the fillet's edge",
             state,
-            &stored(&run, "f-fil1", &front_top()),
+            &stored(&run, "f-fil1", &block_front_top()),
         );
     }
     if let Some(filleted) = state_after(&run, "f-fil1", "b-1") {
         checks.fillets_along_x(&filleted, "f-fil1/fillet/", 2.0, 2.0, 28.0, &[(0.0, 80.0)]);
     }
     checks.clean(run.feature("f-cha1"));
-    if let Some(state) = b1_before(&run, "f-cha1") {
+    if let Some(state) = try_body_before(&run, "f-cha1", "b-1") {
         checks.resolves_exactly(
             "the chamfer's edge",
             state,
-            &stored(&run, "f-cha1", &front_right_vertical()),
+            &stored(&run, "f-cha1", &block_front_right_vertical()),
         );
     }
     let body = run.body("b-1");
@@ -519,9 +462,9 @@ fn beveled_region() -> Value {
 /// R03: the beveled block (or the block with `outline`) with a fillet on the bevel's top edge
 /// and the front top edge.
 fn r03_model(outline: Vec<Value>) -> Document {
-    document(
+    document_of(
         &["b-1"],
-        vec![
+        &[
             sketch("f-sk1", origin_plane("XY"), outline),
             extrude(
                 "f-ext1",
@@ -531,7 +474,7 @@ fn r03_model(outline: Vec<Value>) -> Document {
                 distance("30"),
                 "new",
             ),
-            fillet("f-fil1", "b-1", vec![bevel_top(), front_top()], "2"),
+            fillet("f-fil1", "b-1", vec![bevel_top(), block_front_top()], "2"),
         ],
     )
 }
@@ -545,12 +488,12 @@ fn r03_removed_bevel_reports_its_lost_edge_and_keeps_the_rest() {
         line("e-3", [70.0, 50.0], [0.0, 50.0]),
         line("e-4", [0.0, 50.0], [0.0, 0.0]),
     ];
-    let before = setup(r03_model(beveled));
-    let run = edit(before, r03_model(block_outline()));
+    let mut run = setup(r03_model(beveled));
+    edit_document(&mut run, r03_model(block_outline()), &Assets::new());
     let mut checks = checks_for(&run);
     checks.note(region_diagnosis(&run, "f-sk1", &beveled_region()));
-    checks.note(diagnosis(&run, "f-fil1", &bevel_top()));
-    checks.note(diagnosis(&run, "f-fil1", &front_top()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &bevel_top()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &block_front_top()));
 
     checks.built_with_at_most_notices(run.feature("f-ext1"));
     if let Some(block) = state_after(&run, "f-ext1", "b-1") {
@@ -585,19 +528,19 @@ fn r03_removed_bevel_reports_its_lost_edge_and_keeps_the_rest() {
 /// R04: BLOCK with `outline` and a fillet on the back top edge.
 fn r04_model(outline: Vec<Value>) -> Document {
     let mut features = block_with(outline, "30");
-    features.push(fillet("f-fil1", "b-1", vec![back_top()], "2"));
-    document(&["b-1"], features)
+    features.push(fillet("f-fil1", "b-1", vec![block_back_top()], "2"));
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r04_circle_across_the_outline_keeps_every_piece_of_the_region() {
-    let before = setup(r04_model(block_outline()));
+    let mut run = setup(r04_model(block_outline()));
     let mut outline = block_outline();
     outline.push(circle("e-5", [40.0, 50.0], 10.0));
-    let run = edit(before, r04_model(outline));
+    edit_document(&mut run, r04_model(outline), &Assets::new());
     let mut checks = checks_for(&run);
     checks.note(region_diagnosis(&run, "f-sk1", &block_region()));
-    checks.note(diagnosis(&run, "f-fil1", &back_top()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &block_back_top()));
 
     checks.built_with_at_most_notices(run.feature("f-ext1"));
     if let Some(block) = state_after(&run, "f-ext1", "b-1") {
@@ -616,11 +559,11 @@ fn r04_circle_across_the_outline_keeps_every_piece_of_the_region() {
         );
     }
     checks.clean(run.feature("f-fil1"));
-    if let Some(state) = b1_before(&run, "f-fil1") {
+    if let Some(state) = try_body_before(&run, "f-fil1", "b-1") {
         checks.resolves_exactly(
             "the fillet's edge",
             state,
-            &stored(&run, "f-fil1", &back_top()),
+            &stored(&run, "f-fil1", &block_back_top()),
         );
     }
     checks.volume("final volume", run.body("b-1"), 119931.327412);
@@ -640,9 +583,9 @@ fn r05_edge() -> Value {
 fn r05_model(b_left: f64, b_right: f64) -> Document {
     let mut entities = rectangle(1, 0.0, 0.0, 30.0, 50.0);
     entities.extend(rectangle(5, b_left, 0.0, b_right, 50.0));
-    document(
+    document_of(
         &["b-1"],
-        vec![
+        &[
             sketch("f-sk1", origin_plane("XY"), entities),
             extrude(
                 "f-ext1",
@@ -662,8 +605,8 @@ fn r05_model(b_left: f64, b_right: f64) -> Document {
 
 #[test]
 fn r05_overlapping_profile_rectangles_extrude_their_union() {
-    let before = setup(r05_model(50.0, 80.0));
-    let run = edit(before, r05_model(20.0, 70.0));
+    let mut run = setup(r05_model(50.0, 80.0));
+    edit_document(&mut run, r05_model(20.0, 70.0), &Assets::new());
     let mut checks = checks_for(&run);
     checks.note(region_diagnosis(
         &run,
@@ -675,7 +618,7 @@ fn r05_overlapping_profile_rectangles_extrude_their_union() {
         "f-sk1",
         &rectangle_region(5, 50.0, 0.0, 80.0, 50.0),
     ));
-    checks.note(diagnosis(&run, "f-fil1", &r05_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &r05_edge()));
 
     checks.built_with_at_most_notices(run.feature("f-ext1"));
     if let Some(block) = state_after(&run, "f-ext1", "b-1") {
@@ -707,25 +650,17 @@ fn r05_overlapping_profile_rectangles_extrude_their_union() {
     checks.finish();
 }
 
-/// The right side of BLOCK, on which R06's sketch is.
-fn right_side() -> Value {
-    reference(
-        "f-ext1/lateral/e-2",
-        "plane|n=1,0,0|c=80,25,15|a=1500|adj=4,4",
-    )
-}
-
 /// R06: BLOCK with `outline`, a fillet on the right top edge and a pocket cut from a face sketch on
 /// the right side.
 fn r06_model(outline: Vec<Value>) -> Document {
     let mut features = block_with(outline, "30");
     features.extend([
-        fillet("f-fil1", "b-1", vec![right_top()], "2"),
+        fillet("f-fil1", "b-1", vec![block_right_top()], "2"),
         sketch(
             "f-sk2",
             face_plane(
                 "b-1",
-                right_side(),
+                block_right_side(),
                 [80.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0],
                 [1.0, 0.0, 0.0],
@@ -741,7 +676,7 @@ fn r06_model(outline: Vec<Value>) -> Document {
             "cut",
         )),
     ]);
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 /// The block outline with `e-2` deleted and `e-9` drawn as the right side at `x`.
@@ -756,12 +691,12 @@ fn redrawn_right_side(x: f64) -> Vec<Value> {
 
 /// R06 with the right side redrawn at `x`; `final_volume` is the expected volume.
 fn r06(x: f64, final_volume: f64) {
-    let before = setup(r06_model(block_outline()));
-    let run = edit(before, r06_model(redrawn_right_side(x)));
+    let mut run = setup(r06_model(block_outline()));
+    edit_document(&mut run, r06_model(redrawn_right_side(x)), &Assets::new());
     let mut checks = checks_for(&run);
     checks.note(region_diagnosis(&run, "f-sk1", &block_region()));
-    checks.note(diagnosis(&run, "f-fil1", &right_top()));
-    checks.note(diagnosis(&run, "f-sk2", &right_side()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &block_right_top()));
+    checks.note(diagnose(&run, "f-sk2", "b-1", &block_right_side()));
 
     checks.built_with_at_most_notices(run.feature("f-ext1"));
     if let Some(block) = state_after(&run, "f-ext1", "b-1") {
@@ -814,8 +749,8 @@ fn r06b_side_line_redrawn_further_out_keeps_fillet_and_pocket_on_it() {
 /// R07: BLOCK with `outline` and `height`, and a fillet on the back top edge.
 fn r07_model(outline: Vec<Value>, height: &str) -> Document {
     let mut features = block_with(outline, height);
-    features.push(fillet("f-fil1", "b-1", vec![back_top()], "2"));
-    document(&["b-1"], features)
+    features.push(fillet("f-fil1", "b-1", vec![block_back_top()], "2"));
+    document_of(&["b-1"], &features)
 }
 
 /// The block outline with its right side at `x`, `e-3` deleted and `e-9` drawn as the back side.
@@ -831,16 +766,20 @@ fn replaced_back_side(x: f64) -> Vec<Value> {
 /// R07: the back side replaced (edit 1), then `second` (edit 2); after it the fillet must be on the
 /// back top edge at height `top`, spanning x 0..`width`, with `final_volume` when given.
 fn r07(second: Document, top: f64, width: f64, final_volume: Option<f64>) {
-    let before = setup(r07_model(block_outline(), "30"));
-    let replaced = edit(before, r07_model(replaced_back_side(80.0), "30"));
+    let mut run = setup(r07_model(block_outline(), "30"));
+    edit_document(
+        &mut run,
+        r07_model(replaced_back_side(80.0), "30"),
+        &Assets::new(),
+    );
     let mut checks = Expectations::new();
-    checks.note(format!("run after edit 1:\n{}", summary(&replaced.report)));
+    checks.note(format!("run after edit 1:\n{}", summary(&run.report)));
     checks.note(format!(
         "after edit 1, {}",
-        diagnosis(&replaced, "f-fil1", &back_top())
+        diagnose(&run, "f-fil1", "b-1", &block_back_top())
     ));
     checks.fillets_along_x(
-        replaced.body("b-1"),
+        run.body("b-1"),
         "f-fil1/fillet/",
         2.0,
         48.0,
@@ -848,11 +787,11 @@ fn r07(second: Document, top: f64, width: f64, final_volume: Option<f64>) {
         &[(0.0, 80.0)],
     );
 
-    let run = edit(replaced, second);
+    edit_document(&mut run, second, &Assets::new());
     checks.note(format!("run after edit 2:\n{}", summary(&run.report)));
     checks.note(format!(
         "after edit 2, {}",
-        diagnosis(&run, "f-fil1", &back_top())
+        diagnose(&run, "f-fil1", "b-1", &block_back_top())
     ));
     checks.note(format!(
         "after edit 2, {}",
@@ -901,7 +840,7 @@ fn r07b_followed_fillet_stays_on_back_top_edge_when_block_widens() {
 /// piece of the top.
 fn r08a_model(width: f64) -> Document {
     let mut features = block_with(block_outline_to(width), "30");
-    features.extend(slot_setup(30.0, 50.0));
+    features.extend(slot(30.0, 50.0));
     features.push(fillet(
         "f-fil1",
         "b-1",
@@ -911,17 +850,18 @@ fn r08a_model(width: f64) -> Document {
         )],
         "2",
     ));
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 /// R08 (a) at `width`: one fillet on x 50..`width`.
 fn r08a(width: f64) {
-    let before = setup(r08a_model(80.0));
-    let run = edit(before, r08a_model(width));
+    let mut run = setup(r08a_model(80.0));
+    edit_document(&mut run, r08a_model(width), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(
+    checks.note(diagnose(
         &run,
         "f-fil1",
+        "b-1",
         &reference(
             "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)",
             "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
@@ -965,10 +905,11 @@ fn r08b_edge() -> Value {
 /// R08 (b): a box `w` wide (parameter `w` = `width` mm) with a centered slot box cut from its top
 /// and a fillet on the front top edge of the right piece.
 fn r08b_model(width: f64) -> Document {
-    document_with_parameters(
-        vec![parameter("p-w", "w", &format!("{width} mm"))],
+    document_in(
+        "mm",
+        &[parameter("p-w", "w", &format!("{width} mm"))],
         &["b-1"],
-        vec![
+        &[
             box_record(
                 "f-box1",
                 "b-1",
@@ -990,10 +931,10 @@ fn r08b_model(width: f64) -> Document {
 
 /// R08 (b) at `width`: one fillet on the right piece, x `width`/2 + 10..`width`.
 fn r08b(width: f64) {
-    let before = setup(r08b_model(80.0));
-    let run = edit(before, r08b_model(width));
+    let mut run = setup(r08b_model(80.0));
+    edit_document(&mut run, r08b_model(width), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &r08b_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &r08b_edge()));
     checks.clean(run.feature("f-fil1"));
     checks.fillets_along_x(
         run.body("b-1"),
@@ -1032,17 +973,17 @@ fn r09_face() -> Value {
 /// R09: BLOCK with a slot x `x0..x1` and a shell opening the right-hand piece of the top.
 fn r09_model(x0: f64, x1: f64) -> Document {
     let mut features = block();
-    features.extend(slot_setup(x0, x1));
+    features.extend(slot(x0, x1));
     features.push(shell("f-sh1", "b-1", "2", vec![r09_face()]));
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r09_slot_moved_so_pieces_swap_sizes_keeps_the_shell_opening() {
-    let before = setup(r09_model(20.0, 30.0));
+    let mut run = setup(r09_model(20.0, 30.0));
     let mut checks = Expectations::new();
     // The setup opens the right piece (x 30..80): its rim is centered at x 55.
-    if let Some(rim) = checks.element(before.body("b-1"), "f-sh1/rim/f-ext1/end-cap#2") {
+    if let Some(rim) = checks.element(run.body("b-1"), "f-sh1/rim/f-ext1/end-cap#2") {
         checks.near(
             "before the edit: centroid x of the rim of the right piece",
             rim.centroid.x,
@@ -1050,9 +991,9 @@ fn r09_slot_moved_so_pieces_swap_sizes_keeps_the_shell_opening() {
             EXACT_POSITION_TOLERANCE,
         );
     }
-    let run = edit(before, r09_model(55.0, 65.0));
+    edit_document(&mut run, r09_model(55.0, 65.0), &Assets::new());
     checks.note(format!("run after the edit:\n{}", summary(&run.report)));
-    checks.note(diagnosis(&run, "f-sh1", &r09_face()));
+    checks.note(diagnose(&run, "f-sh1", "b-1", &r09_face()));
     checks.clean(run.feature("f-sh1"));
     let body = run.body("b-1");
     if let Some(rim) = checks.element(body, "f-sh1/rim/f-ext1/end-cap#2") {
@@ -1091,17 +1032,17 @@ fn r10a_edge() -> Value {
 /// R10 (a): BLOCK with a slot x `x0..x1` and a fillet on the front top edge of the right piece.
 fn r10a_model(x0: f64, x1: f64) -> Document {
     let mut features = block();
-    features.extend(slot_setup(x0, x1));
+    features.extend(slot(x0, x1));
     features.push(fillet("f-fil1", "b-1", vec![r10a_edge()], "2"));
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r10a_slot_moved_over_the_right_piece_reports_its_lost_edge() {
-    let before = setup(r10a_model(30.0, 50.0));
-    let run = edit(before, r10a_model(50.0, 81.0));
+    let mut run = setup(r10a_model(30.0, 50.0));
+    edit_document(&mut run, r10a_model(50.0, 81.0), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &r10a_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &r10a_edge()));
     // The corpus quotes the structural message; the cause line naming the moved line of 'Sketch 2'
     // is the engine twin's (recompute.md test 69).
     let candidates = check_lost_edge(
@@ -1112,7 +1053,7 @@ fn r10a_slot_moved_over_the_right_piece_reports_its_lost_edge() {
             "The front top edge of 'Extrude 1' selected for Edges no longer exists: the part of the top of 'Extrude 1' it was on was removed by 'Extrude 2'.",
         ],
     );
-    if let Some(state) = b1_before(&run, "f-fil1") {
+    if let Some(state) = try_body_before(&run, "f-fil1", "b-1") {
         checks.candidate_edge(
             "the slot floor's front edge",
             state,
@@ -1151,23 +1092,23 @@ fn r10b_edge() -> Value {
 fn r10b_model(first: FirstSlot) -> Document {
     let mut features = block();
     features.push(top_datum());
-    let slot_a = slot("f-sk2", "f-ext2", 10.0, 20.0);
+    let slot_a = slot_cut("f-dp1", "f-sk2", "f-ext2", 10.0, 20.0, "5");
     match first {
         FirstSlot::Present => features.extend(slot_a),
         FirstSlot::Deleted => {}
         FirstSlot::Suppressed => features.extend(slot_a.into_iter().map(suppressed)),
     }
-    features.extend(slot("f-sk3", "f-ext3", 50.0, 60.0));
+    features.extend(slot_cut("f-dp1", "f-sk3", "f-ext3", 50.0, 60.0, "5"));
     features.push(fillet("f-fil1", "b-1", vec![r10b_edge()], "1"));
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 /// R10 (b) after `first`: the fillet runs over the merged segment x 0..50.
 fn r10b(first: FirstSlot) {
-    let before = setup(r10b_model(FirstSlot::Present));
-    let run = edit(before, r10b_model(first));
+    let mut run = setup(r10b_model(FirstSlot::Present));
+    edit_document(&mut run, r10b_model(first), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &r10b_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &r10b_edge()));
     checks.built_with_at_most_notices(run.feature("f-fil1"));
     checks.fillets_along_x(
         run.body("b-1"),
@@ -1218,15 +1159,15 @@ fn r11_model(center_y: f64) -> Document {
         ),
         chamfer("f-cha1", "b-1", vec![r11_edge()], "1"),
     ]);
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r11_notch_moved_further_than_its_width_keeps_the_chamfer_on_its_side() {
-    let before = setup(r11_model(25.0));
+    let mut run = setup(r11_model(25.0));
     let mut checks = Expectations::new();
     // The setup chamfers the edge at y=30: its face lies between y 30 and 31.
-    for (name, chamfer) in faces_with_prefix(before.body("b-1"), "f-cha1/chamfer/") {
+    for (name, chamfer) in faces_with_prefix(run.body("b-1"), "f-cha1/chamfer/") {
         checks.near(
             &format!("before the edit: centroid y of {name}"),
             chamfer.centroid.y,
@@ -1234,9 +1175,9 @@ fn r11_notch_moved_further_than_its_width_keeps_the_chamfer_on_its_side() {
             0.5,
         );
     }
-    let run = edit(before, r11_model(40.0));
+    edit_document(&mut run, r11_model(40.0), &Assets::new());
     checks.note(format!("run after the edit:\n{}", summary(&run.report)));
-    checks.note(diagnosis(&run, "f-cha1", &r11_edge()));
+    checks.note(diagnose(&run, "f-cha1", "b-1", &r11_edge()));
     checks.clean(run.feature("f-cha1"));
     let chamfers = faces_with_prefix(run.body("b-1"), "f-cha1/chamfer/");
     checks.expect(chamfers.len() == 1, || {
@@ -1311,15 +1252,15 @@ fn r12_model(pocket: Pocket, depth: &str) -> Document {
         )),
         fillet("f-fil1", "b-1", vec![pocket.floor_edge()], radius),
     ]);
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 /// R12 with `pocket` deepened to `depth`: the floor edge is gone and nothing is rounded.
 fn r12(pocket: Pocket, depth: &str) {
-    let before = setup(r12_model(pocket, "5"));
-    let run = edit(before, r12_model(pocket, depth));
+    let mut run = setup(r12_model(pocket, "5"));
+    edit_document(&mut run, r12_model(pocket, depth), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &pocket.floor_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &pocket.floor_edge()));
     check_lost_edge(&mut checks, &run, "f-fil1", &["Extrude 2"]);
     let body = run.body("b-1");
     checks.no_faces_with_prefix(body, "f-fil1/");
@@ -1387,7 +1328,7 @@ fn r13_model(height: &str) -> Document {
             distance(height),
             "join",
         ),
-        fillet("f-fil1", "b-1", vec![right_top()], "2"),
+        fillet("f-fil1", "b-1", vec![block_right_top()], "2"),
         sketch(
             "f-sk3",
             face_plane(
@@ -1409,17 +1350,17 @@ fn r13_model(height: &str) -> Document {
         ),
         fillet("f-fil2", "b-1", vec![r13_right_edge()], "1"),
     ]);
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r13_block_made_flush_follows_the_merged_top_and_reports_the_lost_step() {
-    let before = setup(r13_model("20"));
-    let run = edit(before, r13_model("30"));
+    let mut run = setup(r13_model("20"));
+    edit_document(&mut run, r13_model("30"), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &right_top()));
-    checks.note(diagnosis(&run, "f-sk3", &r13_face()));
-    checks.note(diagnosis(&run, "f-fil2", &r13_right_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &block_right_top()));
+    checks.note(diagnose(&run, "f-sk3", "b-1", &r13_face()));
+    checks.note(diagnose(&run, "f-fil2", "b-1", &r13_right_edge()));
 
     checks.clean(run.feature("f-sk3"));
     check_placement(
@@ -1475,9 +1416,9 @@ fn r14_model(radius: &str) -> Document {
             &format!("line|n=0,0,1|c={x},{y},5|l=10|adj=2,2"),
         )
     };
-    document(
+    document_of(
         &["b-1"],
-        vec![
+        &[
             box_record("f-box1", "b-1", ["30", "20", "10"], None, "new"),
             fillet(
                 "f-fil1",
@@ -1497,12 +1438,12 @@ fn r14_model(radius: &str) -> Document {
 
 /// R14 with Fillet 1's radius changed to `radius`.
 fn r14(radius: &str) {
-    let before = setup(r14_model("3"));
-    let run = edit(before, r14_model(radius));
+    let mut run = setup(r14_model("3"));
+    edit_document(&mut run, r14_model(radius), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil2", &r14_arc()));
+    checks.note(diagnose(&run, "f-fil2", "b-1", &r14_arc()));
     checks.clean(run.feature("f-fil2"));
-    if let Some(state) = b1_before(&run, "f-fil2") {
+    if let Some(state) = try_body_before(&run, "f-fil2", "b-1") {
         checks.resolves_exactly("the arc", state, &stored(&run, "f-fil2", &r14_arc()));
     }
     let faces = faces_with_prefix(run.body("b-1"), "f-fil2/fillet/");
@@ -1555,20 +1496,20 @@ fn r15a_model(with_fillet: bool) -> Document {
             "join",
         ),
     ]);
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r15a_fillet_inserted_under_a_face_sketch_keeps_the_sketch() {
-    let before = setup(r15a_model(false));
-    let run = edit(before, r15a_model(true));
+    let mut run = setup(r15a_model(false));
+    edit_document(&mut run, r15a_model(true), &Assets::new());
     let face = reference("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4");
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-sk2", &face));
+    checks.note(diagnose(&run, "f-sk2", "b-1", &face));
     for feature in &run.report.features {
         checks.clean(feature);
     }
-    if let Some(state) = b1_before(&run, "f-sk2") {
+    if let Some(state) = try_body_before(&run, "f-sk2", "b-1") {
         checks.resolves_exactly("the sketch face", state, &stored(&run, "f-sk2", &face));
     }
     check_placement(
@@ -1601,18 +1542,18 @@ fn r15b_model(with_fillet: bool) -> Document {
             reference("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4"),
             "-5",
         ),
-        split_body("f-split1", "f-dp1", "b-2"),
+        split_by_datum("f-split1", "b-1", "f-dp1", "b-2"),
     ]);
-    document(&["b-1", "b-2"], features)
+    document_of(&["b-1", "b-2"], &features)
 }
 
 #[test]
 fn r15b_fillet_inserted_under_a_datum_keeps_the_datum_and_split() {
-    let before = setup(r15b_model(false));
-    let run = edit(before, r15b_model(true));
+    let mut run = setup(r15b_model(false));
+    edit_document(&mut run, r15b_model(true), &Assets::new());
     let face = reference("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4");
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-dp1", &face));
+    checks.note(diagnose(&run, "f-dp1", "b-1", &face));
     for feature in &run.report.features {
         checks.clean(feature);
     }
@@ -1653,15 +1594,15 @@ fn r15c_model(with_chamfer: bool) -> Document {
         ));
     }
     features.push(fillet("f-fil1", "b-1", vec![cube20_front_top()], "2"));
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r15c_chamfer_inserted_before_a_fillet_keeps_the_fillet() {
-    let before = setup(r15c_model(false));
-    let run = edit(before, r15c_model(true));
+    let mut run = setup(r15c_model(false));
+    edit_document(&mut run, r15c_model(true), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &cube20_front_top()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &cube20_front_top()));
     for feature in &run.report.features {
         checks.clean(feature);
     }
@@ -1696,17 +1637,17 @@ fn r16_model(with_rabbet: bool) -> Document {
         ]);
     }
     features.push(fillet("f-fil1", "b-1", vec![cube20_front_top()], "2"));
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r16_cut_that_removes_the_filleted_edge_says_what_and_why() {
-    let before = setup(r16_model(false));
-    let run = edit(before, r16_model(true));
+    let mut run = setup(r16_model(false));
+    edit_document(&mut run, r16_model(true), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &cube20_front_top()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &cube20_front_top()));
     let candidates = check_lost_edge(&mut checks, &run, "f-fil1", &["Box 1", "Extrude 1"]);
-    if let Some(state) = b1_before(&run, "f-fil1") {
+    if let Some(state) = try_body_before(&run, "f-fil1", "b-1") {
         checks.candidate_edge(
             "the rabbet's top outer edge",
             state,
@@ -1761,17 +1702,17 @@ fn r17ab_model(inserted: Inserted) -> Document {
     let mut features = block();
     features.push(top_datum());
     if inserted == Inserted::BeforeSlotB {
-        features.extend(slot("f-sk2", "f-ext2", 10.0, 20.0));
+        features.extend(slot_cut("f-dp1", "f-sk2", "f-ext2", 10.0, 20.0, "5"));
     }
-    features.extend(slot("f-sk3", "f-ext3", 50.0, 60.0));
+    features.extend(slot_cut("f-dp1", "f-sk3", "f-ext3", 50.0, 60.0, "5"));
     if inserted == Inserted::AfterSlotB {
-        features.extend(slot("f-sk2", "f-ext2", 10.0, 20.0));
+        features.extend(slot_cut("f-dp1", "f-sk2", "f-ext2", 10.0, 20.0, "5"));
     }
     features.extend([
         fillet("f-fil1", "b-1", vec![r17ab_fillet_edge()], "1"),
         chamfer("f-cha1", "b-1", vec![r17ab_chamfer_edge()], "1"),
     ]);
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 /// Checks R17's expectations: every feature ok, fillets on `fillet_spans` of the front top edge,
@@ -1796,11 +1737,11 @@ fn check_r17(
 
 /// R17 (a) or (b): slot A inserted where `inserted` says.
 fn r17ab(inserted: Inserted) {
-    let before = setup(r17ab_model(Inserted::Nowhere));
-    let run = edit(before, r17ab_model(inserted));
+    let mut run = setup(r17ab_model(Inserted::Nowhere));
+    edit_document(&mut run, r17ab_model(inserted), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &r17ab_fillet_edge()));
-    checks.note(diagnosis(&run, "f-cha1", &r17ab_chamfer_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &r17ab_fillet_edge()));
+    checks.note(diagnose(&run, "f-cha1", "b-1", &r17ab_chamfer_edge()));
     check_r17(
         &mut checks,
         &run,
@@ -1842,23 +1783,23 @@ fn r17c_model(inserted: bool) -> Document {
     let mut features = block();
     features.push(top_datum());
     if inserted {
-        features.extend(slot("f-sk3", "f-ext3", 60.0, 70.0));
+        features.extend(slot_cut("f-dp1", "f-sk3", "f-ext3", 60.0, 70.0, "5"));
     }
-    features.extend(slot("f-sk2", "f-ext2", 30.0, 50.0));
+    features.extend(slot_cut("f-dp1", "f-sk2", "f-ext2", 30.0, 50.0, "5"));
     features.extend([
         fillet("f-fil1", "b-1", vec![r17c_fillet_edge()], "1"),
         chamfer("f-cha1", "b-1", vec![r17c_chamfer_edge()], "1"),
     ]);
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r17c_slot_inserted_in_the_right_piece_splits_references_by_meaning() {
-    let before = setup(r17c_model(false));
-    let run = edit(before, r17c_model(true));
+    let mut run = setup(r17c_model(false));
+    edit_document(&mut run, r17c_model(true), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &r17c_fillet_edge()));
-    checks.note(diagnosis(&run, "f-cha1", &r17c_chamfer_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &r17c_fillet_edge()));
+    checks.note(diagnose(&run, "f-cha1", "b-1", &r17c_chamfer_edge()));
     check_r17(
         &mut checks,
         &run,
@@ -1873,18 +1814,33 @@ fn r17c_slot_inserted_in_the_right_piece_splits_references_by_meaning() {
 fn r18a_model(with_fillet: bool) -> Document {
     let mut features = block();
     if with_fillet {
-        features.push(fillet("f-fil1", "b-1", vec![front_right_vertical()], "5"));
+        features.push(fillet(
+            "f-fil1",
+            "b-1",
+            vec![block_front_right_vertical()],
+            "5",
+        ));
     }
-    features.push(chamfer("f-cha1", "b-1", vec![front_right_vertical()], "2"));
-    document(&["b-1"], features)
+    features.push(chamfer(
+        "f-cha1",
+        "b-1",
+        vec![block_front_right_vertical()],
+        "2",
+    ));
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r18a_fillet_inserted_before_a_chamfer_on_the_same_edge_says_why() {
-    let before = setup(r18a_model(false));
-    let run = edit(before, r18a_model(true));
+    let mut run = setup(r18a_model(false));
+    edit_document(&mut run, r18a_model(true), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-cha1", &front_right_vertical()));
+    checks.note(diagnose(
+        &run,
+        "f-cha1",
+        "b-1",
+        &block_front_right_vertical(),
+    ));
     checks.clean(run.feature("f-fil1"));
     let candidates = check_lost_edge(&mut checks, &run, "f-cha1", &["Fillet 1"]);
     // The corpus offers the straight edges that keep a face of the lost edge, the right top and
@@ -1916,17 +1872,17 @@ fn r18b_model(with_chamfer: bool) -> Document {
         features.push(chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2"));
     }
     features.push(fillet("f-fil1", "b-1", vec![cube20_front_top()], "2"));
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r18b_chamfer_inserted_before_a_fillet_on_the_same_edge_says_why() {
-    let before = setup(r18b_model(false));
-    let run = edit(before, r18b_model(true));
+    let mut run = setup(r18b_model(false));
+    edit_document(&mut run, r18b_model(true), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &cube20_front_top()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &cube20_front_top()));
     let candidates = check_lost_edge(&mut checks, &run, "f-fil1", &["Chamfer 1"]);
-    if let Some(state) = b1_before(&run, "f-fil1") {
+    if let Some(state) = try_body_before(&run, "f-fil1", "b-1") {
         checks.candidate_edge(
             "the chamfer's edge on the top",
             state,
@@ -1955,16 +1911,16 @@ fn r19_model(with_shell: bool) -> Document {
     if with_shell {
         features.push(shell("f-sh1", "b-1", "3", vec![block_top()]));
     }
-    features.push(fillet("f-fil1", "b-1", vec![front_top()], "1"));
-    document(&["b-1"], features)
+    features.push(fillet("f-fil1", "b-1", vec![block_front_top()], "1"));
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r19_shell_inserted_before_a_fillet_keeps_it_on_the_outer_top_edge() {
-    let before = setup(r19_model(false));
-    let run = edit(before, r19_model(true));
+    let mut run = setup(r19_model(false));
+    edit_document(&mut run, r19_model(true), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &front_top()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &block_front_top()));
     checks.built_with_at_most_notices(run.feature("f-fil1"));
     let body = run.body("b-1");
     checks.element(
@@ -2008,9 +1964,9 @@ fn r20_model(slot_state: PatternSlot, edge: Value) -> Document {
     let mut features = block();
     match slot_state {
         PatternSlot::Absent => {}
-        PatternSlot::Active => features.extend(slot_setup(30.0, 50.0)),
+        PatternSlot::Active => features.extend(slot(30.0, 50.0)),
         PatternSlot::Suppressed => {
-            let mut records = slot_setup(30.0, 50.0);
+            let mut records = slot(30.0, 50.0);
             let cut = records.pop().expect("the slot ends with its cut");
             records.push(suppressed(cut));
             features.extend(records);
@@ -2020,15 +1976,19 @@ fn r20_model(slot_state: PatternSlot, edge: Value) -> Document {
         linear_pattern("f-lp1", "Y", "2", "60"),
         fillet("f-fil1", "b-1", vec![edge], "1"),
     ]);
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 #[test]
 fn r20a_slot_inserted_before_a_pattern_splits_the_copy_reference() {
-    let before = setup(r20_model(PatternSlot::Absent, r20_copy_edge()));
-    let run = edit(before, r20_model(PatternSlot::Active, r20_copy_edge()));
+    let mut run = setup(r20_model(PatternSlot::Absent, r20_copy_edge()));
+    edit_document(
+        &mut run,
+        r20_model(PatternSlot::Active, r20_copy_edge()),
+        &Assets::new(),
+    );
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &r20_copy_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &r20_copy_edge()));
     checks.clean(run.feature("f-fil1"));
     checks.fillets_along_x(
         run.body("b-1"),
@@ -2043,11 +2003,11 @@ fn r20a_slot_inserted_before_a_pattern_splits_the_copy_reference() {
 
 #[test]
 fn r20b_slot_suppressed_before_a_pattern_follows_the_unsplit_copy_edge() {
-    let before = setup(r20_model(PatternSlot::Active, r20_copy_piece_edge()));
-    let volume_before = volume(before.body("b-1")).expect("the setup body has a solid");
+    let mut run = setup(r20_model(PatternSlot::Active, r20_copy_piece_edge()));
+    let volume_before = volume(run.body("b-1")).expect("the setup body has a solid");
     let mut checks = Expectations::new();
     checks.fillets_along_x(
-        before.body("b-1"),
+        run.body("b-1"),
         "f-fil1/fillet/",
         1.0,
         61.0,
@@ -2055,15 +2015,16 @@ fn r20b_slot_suppressed_before_a_pattern_follows_the_unsplit_copy_edge() {
         &[(50.0, 80.0)],
     );
 
-    let run = edit(
-        before,
+    edit_document(
+        &mut run,
         r20_model(PatternSlot::Suppressed, r20_copy_piece_edge()),
+        &Assets::new(),
     );
     checks.note(format!(
         "run with the slot suppressed:\n{}",
         summary(&run.report)
     ));
-    checks.note(diagnosis(&run, "f-fil1", &r20_copy_piece_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &r20_copy_piece_edge()));
     checks.built_with_at_most_notices(run.feature("f-fil1"));
     checks.fillets_along_x(
         run.body("b-1"),
@@ -2074,25 +2035,25 @@ fn r20b_slot_suppressed_before_a_pattern_follows_the_unsplit_copy_edge() {
         &[(0.0, 80.0)],
     );
 
-    let restored = edit(run, r20_model(PatternSlot::Active, r20_copy_piece_edge()));
+    edit_document(
+        &mut run,
+        r20_model(PatternSlot::Active, r20_copy_piece_edge()),
+        &Assets::new(),
+    );
     checks.note(format!(
         "run after unsuppressing:\n{}",
-        summary(&restored.report)
+        summary(&run.report)
     ));
-    checks.clean(restored.feature("f-fil1"));
+    checks.clean(run.feature("f-fil1"));
     checks.fillets_along_x(
-        restored.body("b-1"),
+        run.body("b-1"),
         "f-fil1/fillet/",
         1.0,
         61.0,
         29.0,
         &[(50.0, 80.0)],
     );
-    checks.volume(
-        "volume after unsuppressing",
-        restored.body("b-1"),
-        volume_before,
-    );
+    checks.volume("volume after unsuppressing", run.body("b-1"), volume_before);
     checks.finish();
 }
 
@@ -2118,17 +2079,17 @@ fn r21_model(height: Option<&str>) -> Document {
         ));
     }
     features.push(fillet("f-fil1", "b-1", vec![r21_edge()], "2"));
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 /// R21 with Box 2 `height` tall: no fillet and no cove, and a message naming both boxes.
 fn r21(height: &str, final_volume: f64, inside_corner: bool) {
-    let before = setup(r21_model(None));
-    let run = edit(before, r21_model(Some(height)));
+    let mut run = setup(r21_model(None));
+    edit_document(&mut run, r21_model(Some(height)), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnosis(&run, "f-fil1", &r21_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &r21_edge()));
     let candidates = check_lost_edge(&mut checks, &run, "f-fil1", &["Box 1", "Box 2"]);
-    if inside_corner && let Some(state) = b1_before(&run, "f-fil1") {
+    if inside_corner && let Some(state) = try_body_before(&run, "f-fil1", "b-1") {
         checks.candidate_edge(
             "the inside corner",
             state,
@@ -2164,18 +2125,18 @@ fn r22_model(inserted: Option<Value>) -> Document {
         "1",
         "3",
     ));
-    document(&["b-1"], features)
+    document_of(&["b-1"], &features)
 }
 
 /// R22 with `inserted` joined: the chamfer keeps 1 mm on the front and 3 mm on the top; `top` is
 /// the merged top's name and expected area, when the scenario gives it.
 fn r22(inserted: Value, top: Option<(&str, f64)>) {
-    let before = setup(r22_model(None));
+    let mut run = setup(r22_model(None));
     let mut checks = Expectations::new();
-    check_r22_sides(&mut checks, before.body("b-1"), "before the insert");
-    let run = edit(before, r22_model(Some(inserted)));
+    check_r22_sides(&mut checks, run.body("b-1"), "before the insert");
+    edit_document(&mut run, r22_model(Some(inserted)), &Assets::new());
     checks.note(format!("run after the edit:\n{}", summary(&run.report)));
-    checks.note(diagnosis(&run, "f-cha1", &cube20_front_top()));
+    checks.note(diagnose(&run, "f-cha1", "b-1", &cube20_front_top()));
     checks.built_with_at_most_notices(run.feature("f-cha1"));
     let body = run.body("b-1");
     check_r22_sides(&mut checks, body, "after the insert");

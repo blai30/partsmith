@@ -185,15 +185,7 @@ mod tests {
     use crate::output::capture;
 
     fn diagnostic(severity: Severity, code: &str) -> ValidationDiagnostic {
-        ValidationDiagnostic {
-            severity,
-            code: code.to_owned(),
-            message: "Message.".to_owned(),
-            line: None,
-            column: None,
-            path: None,
-            feature: None,
-        }
+        ValidationDiagnostic::new(severity, code, "Message.")
     }
 
     fn report(severities: &[Severity]) -> ValidationReport {
@@ -226,8 +218,7 @@ mod tests {
                 diagnostic: projected,
                 candidates: Vec::new(),
             })),
-            message: "The edge is gone.".to_owned(),
-            ..diagnostic(Severity::Warning, "reference_missing")
+            ..ValidationDiagnostic::new(Severity::Warning, "reference_missing", "The edge is gone.")
         }
     }
 

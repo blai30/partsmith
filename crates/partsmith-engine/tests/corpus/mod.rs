@@ -1050,17 +1050,12 @@ pub fn picked(text: &str) -> String {
 pub fn picked_before(text: &str, feature: &str, body: &str, names: &[&str]) -> Vec<Value> {
     let mut session = headless_session();
     let doc = doc_handle(&open_text(&mut session, text));
-    focus_on(&mut session, doc, feature);
-    let references = names
-        .iter()
-        .map(|name| pick_named(&mut session, doc, body, name)["reference"].clone())
-        .collect();
-    send(
-        &mut session,
-        json!({"type": "cancel_transaction", "doc": doc}),
-    )
-    .ok();
-    references
+    with_focus(&mut session, doc, feature, |session| {
+        names
+            .iter()
+            .map(|name| pick_named(session, doc, body, name)["reference"].clone())
+            .collect()
+    })
 }
 
 /// The descriptor `pick_reference` gives, in a headless session, for the element named `name` of `body` at the display
@@ -1090,8 +1085,14 @@ pub fn pick_named(session: &mut Session, doc: u64, body: &str, name: &str) -> Va
         .clone()
 }
 
-/// Opens a transaction and focuses `feature`, so that the display state is the state just before it.
-fn focus_on(session: &mut Session, doc: u64, feature: &str) {
+/// Runs `pick` in a transaction that focuses `feature`, so that the display state is the state just before it, then
+/// cancels the transaction.
+fn with_focus<T>(
+    session: &mut Session,
+    doc: u64,
+    feature: &str,
+    pick: impl FnOnce(&mut Session) -> T,
+) -> T {
     send(
         session,
         json!({"type": "begin_transaction", "doc": doc, "label": "Pick"}),
@@ -1102,6 +1103,9 @@ fn focus_on(session: &mut Session, doc: u64, feature: &str) {
         json!({"type": "set_focus", "doc": doc, "feature": feature}),
     )
     .ok();
+    let picked = pick(session);
+    send(session, json!({"type": "cancel_transaction", "doc": doc})).ok();
+    picked
 }
 
 /// The record with each stored reference picked in the state just before it and each profile region taken from the
@@ -1111,15 +1115,15 @@ fn picked_record(session: &mut Session, doc: u64, record: &Value) -> Value {
     let references = stored_references(record);
     if !references.is_empty() {
         let feature = record["id"].as_str().expect("records have ids");
-        focus_on(session, doc, feature);
-        for stored in &references {
-            let reference =
-                pick_named(session, doc, &stored.body, &stored.query)["reference"].clone();
-            *picked
-                .pointer_mut(&stored.pointer)
-                .expect("the pointer names the stored reference") = reference;
-        }
-        send(session, json!({"type": "cancel_transaction", "doc": doc})).ok();
+        with_focus(session, doc, feature, |session| {
+            for stored in &references {
+                let reference =
+                    pick_named(session, doc, &stored.body, &stored.query)["reference"].clone();
+                *picked
+                    .pointer_mut(&stored.pointer)
+                    .expect("the pointer names the stored reference") = reference;
+            }
+        });
     }
     if let Some(regions) = record.pointer("/profile/regions").and_then(Value::as_array) {
         let sketch = record["profile"]["sketch"].clone();
@@ -1248,16 +1252,9 @@ pub fn edits(session: &mut Session, doc: u64, changes: &[Change]) -> Vec<Value> 
                 set_in(&mut updated, &timeline, feature, pointer, value.clone());
             }
             Change::InsertBefore(feature, records) => {
-                let index = position(feature);
-                for (offset, inserted) in records.iter().enumerate() {
-                    structural.push(json!({"type": "add_feature", "index": index + offset, "feature": inserted}));
-                }
+                push_insertions(&mut structural, position(feature), records);
             }
-            Change::InsertAt(index, records) => {
-                for (offset, inserted) in records.iter().enumerate() {
-                    structural.push(json!({"type": "add_feature", "index": index + offset, "feature": inserted}));
-                }
-            }
+            Change::InsertAt(index, records) => push_insertions(&mut structural, *index, records),
             Change::Remove(removed) => {
                 structural.extend(
                     removed
@@ -1275,6 +1272,14 @@ pub fn edits(session: &mut Session, doc: u64, changes: &[Change]) -> Vec<Value> 
         .map(|record| json!({"type": "update_feature", "feature": record}))
         .chain(structural)
         .collect()
+}
+
+/// Adds one `add_feature` edit per record of `records`, in order, from timeline position `index` on.
+fn push_insertions(structural: &mut Vec<Value>, index: usize, records: &[Value]) {
+    for (offset, inserted) in records.iter().enumerate() {
+        structural
+            .push(json!({"type": "add_feature", "index": index + offset, "feature": inserted}));
+    }
 }
 
 /// Sets `pointer` of `feature`'s record among the `updated` records, taking the record from `timeline` the first time.

@@ -55,7 +55,7 @@ partsmith_features
   params       BodyOp, CopyOp, ProfileRef, PlaneRef, AxisRef, OriginAxis, PlacementExt, point, vector
   context      BuildContext, BuildInputs, Values, BodyState, Resolved, ResolvedProfile, FacePlacement, FaceFallback, WithWarnings, CancelToken, MODEL_LIMIT
   output       FeatureOutput, OutputData, BodyUpdate, BodyChange, Measurements, AbsentFace, Absence, SketchResult, DatumResult, Tool, Direction, apply_op, apply_op_result, reverse_hits, VOLUME_TOLERANCE
-  error        FeatureError, FeatureWarning, FieldRef, Bound, Noun, IgnoredReason, FallbackCause, Placed, NoEffectHow, Limit, Loss, LossCandidate, RegionLost, Fix, Place, Severity, Repair, Names, DocumentNames, RenderContext, Diagnosis, Explanation, Because, format_value, describe_elements, describe_face, describe_copy, made_from_line, sketch_coordinates
+  error        FeatureError, FeatureWarning, FieldRef, Bound, Noun, IgnoredReason, FallbackCause, Placed, NoEffectHow, Limit, Loss, LossCandidate, RegionLost, Fix, Place, Severity, Repair, Names, DocumentNames, RenderContext, Diagnosis, Explanation, Because, format_value, joined, describe_elements, describe_face, describe_copy, made_from_line, sketch_coordinates
   registry     Registry, DynFeature, Canonical, Validated, RegistryError, register_builtins
   python       PythonCall, PythonValue, PythonNames
   builtin      one module per built-in feature type (sketch, extrude, ...)
@@ -544,6 +544,11 @@ pub struct FeatureOutput {
     pub absent: Vec<AbsentFace>,
 }
 
+impl FeatureOutput {
+    /// An output of `data` with `warnings` and no absent faces, as most features make it.
+    pub fn new(data: OutputData, warnings: Vec<FeatureWarning>) -> FeatureOutput;
+}
+
 /// A face a feature's naming rule names that this build did not make.
 pub struct AbsentFace {
     /// The face name it would have, for example `f-ext2/end-cap`.
@@ -1007,6 +1012,9 @@ pub enum Because {
 
 /// Formats a value in display units for messages and suggestions (section 3.12).
 pub fn format_value(kind: FieldUnit, value: f64, units: Units) -> String;
+
+/// Descriptions joined as words for a message: `a`, `a and b`, `a, b and c` (section 3.12).
+pub fn joined(items: &[String]) -> String;
 
 /// The words for the faces, edges or vertices of `body` one message or candidate list names, in order (section 3.12):
 /// "the front top edge of 'Box 1'". Each element is given by its name and fingerprint; `state` is the state of `body`

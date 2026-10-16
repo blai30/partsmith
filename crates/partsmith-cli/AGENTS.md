@@ -32,7 +32,7 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 - `error.rs`: `CliError` and `UsageError` with exit status, code and report line; `status.rs`: `Status`, ordered so the largest wins.
 - `files.rs`: inputs (`-` is standard input) read as bytes, where bytes that are not UTF-8 are a `parse_error` load error with the file format's `NotUtf8` message; asset discovery in `assets/`; `write` (atomic, keeping an existing file's permissions) and `create_directory`, whose failures are `CliError::Write` naming the path.
 - `output.rs`: standard output and error, human numbers, diagnostic lines, JSON diagnostics (with a feature message's `feature` and members), and `capture` (tests only: runs a writer on memory); `rotation.rs`: `--rotate` values to an `Orientation::Matrix`.
-- `messages.rs`: `MessageMembers`, what a feature message adds to its diagnostic (field, suggestion, actions as `Action` with `label` and `kind`, candidates without their mesh element, reason, root, detail), with `write_lines` for its action and candidate lines; `validate` builds it from the engine's `FeatureMessage`, and `rebuild` from each status message with the candidates `partsmith_engine::message_candidates` picks out of the feature's repairs.
+- `messages.rs`: `MessageMembers`, what a feature message adds to its diagnostic (field, suggestion, actions as `Action` with `label` and `kind`, candidates without their mesh element, reason, root, detail), with `write_lines` for its action and candidate lines; `validate` builds it from the engine's `FeatureMessage`, and `rebuild` from each status message with the location `partsmith_engine::message_location` gives it and the candidates `partsmith_engine::message_candidates` picks out of the feature's repairs.
 
 ## Commands
 

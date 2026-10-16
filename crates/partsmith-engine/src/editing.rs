@@ -1,15 +1,15 @@
 //! Edits, transactions, coalescing, undo and redo, and parameter renames (engine.md section 3.3).
 
 use partsmith_features::{FeatureError, Registry};
-use partsmith_model::{Document, Edit, Id, RecordKind, Step, Transaction};
+use partsmith_model::{Document, Edit, FeatureRecord, Id, RecordKind, Step, Transaction};
 use partsmith_protocol::DocHandle;
 
 use crate::counts::saturating_u32;
+use crate::diagnostics::{feature_error_detail, render_feature_error};
 use crate::document::OpenTransaction;
 use crate::error::EngineError;
 use crate::session::Session;
 use crate::state::{feature_label, is_active};
-use crate::status::render_feature_error;
 use crate::types::{Committed, Stepped};
 
 impl Session {
@@ -249,7 +249,7 @@ fn canonical_edit(
     };
     let validated = registry
         .validate_and_canonicalize(feature)
-        .map_err(|error| invalid_params(registry, document, &edit, &error, edit_index))?;
+        .map_err(|error| invalid_params(registry, document, &edit, feature, &error, edit_index))?;
     Ok(match edit {
         Edit::AddFeature { index, .. } => Edit::AddFeature {
             index,
@@ -261,23 +261,22 @@ fn canonical_edit(
     })
 }
 
-/// The `invalid_params` error of a feature edit the registry rejects (section 4): the registry's
-/// error worded for an edit that was not applied, naming the feature by its label in the working
-/// copy with the edit applied, and the feature type, its id and the parser's text as the detail.
+/// The `invalid_params` error of `edit`, which adds or updates `feature`, when the registry
+/// rejects its params (section 4): the registry's error worded for an edit that was not applied,
+/// naming the feature by its label in the working copy with the edit applied, and the feature
+/// type, its id and the parser's text as the detail.
 fn invalid_params(
     registry: &Registry,
     document: &Document,
     edit: &Edit,
+    feature: &FeatureRecord,
     error: &FeatureError,
     edit_index: u32,
 ) -> EngineError {
-    let (Edit::AddFeature { feature, .. } | Edit::UpdateFeature { feature }) = edit else {
-        return EngineError::internal("only feature edits have params");
-    };
+    // `Document::apply` leaves the copy unchanged when the edit fails, so the feature is then
+    // labeled in the document as it is.
     let mut edited = document.clone();
-    if edited.apply(edit.clone()).is_err() {
-        edited = document.clone();
-    }
+    let _ = edited.apply(edit.clone());
     let label = || feature_label(registry, &edited, &feature.id);
     let message = match error {
         FeatureError::InvalidParams {
@@ -305,7 +304,7 @@ fn invalid_params(
             "{} {}: {}",
             feature.kind,
             feature.id,
-            error.detail().unwrap_or_else(|| error.to_string())
+            feature_error_detail(error)
         ),
     }
 }

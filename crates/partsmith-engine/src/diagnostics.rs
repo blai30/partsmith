@@ -1,149 +1,65 @@
 //! Feature messages as protocol diagnostics with their repairs (engine.md section 3.4): each
 //! message with its actions, detail, root and reason, and each repair with the lost element or
-//! region in words and its candidates, described by what they keep and how far they are.
+//! region in words and its candidates, described by what they keep and how far they are. Also
+//! feature errors rendered with the document's names outside a run.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use partsmith_features::{
-    Absence as RunAbsence, BodyState, DocumentNames, FeatureOutput, FieldUnit, Loss, Names,
-    Registry, Repair as FeatureRepair, describe_elements, format_value, sketch_coordinates,
+    Absence as RunAbsence, BodyState, Diagnosis, DocumentNames, FeatureError, Loss, Names,
+    Registry, RenderContext, Repair as FeatureRepair, describe_elements,
 };
-use partsmith_model::{Dimension, Document, FeatureRecord, Id, LINEAR_TOLERANCE};
+use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName, Fingerprint, Reference};
 use partsmith_protocol::{
     Absence, Diagnostic, FixRef, InstanceIndex, LossReason, MeshElement, RegionCandidate, Removal,
     Repair, RepairCandidate, ResolutionStatus, Severity,
 };
 use partsmith_recompute::{
-    FeatureReport, LossReason as RunReason, Message, Removal as RunRemoval, Report,
-    Severity as MessageSeverity,
+    LossReason as RunReason, Message, Removal as RunRemoval, Severity as MessageSeverity,
 };
 use partsmith_sketch::RegionRef;
 
 use crate::counts::saturating_u32;
-use crate::fixes::{offers, value_at};
-use crate::state::state_before;
+use crate::fixes::offers;
+use crate::run::FeatureView;
+use crate::words::{distance_words, region_words, relation};
 
 /// Finds a named element in the current model-layer mesh of a body (display sessions only), for
 /// the `element` of candidates.
 pub(crate) type ElementLookup<'a> = &'a dyn Fn(&Id, &ElementName) -> Option<MeshElement>;
 
-/// A finished run of a document as its messages are projected: the recipe, the registry, the
-/// report and the outputs that name sketch results and absent faces.
-pub(crate) struct RunView<'a> {
-    /// The recipe the run built.
-    pub(crate) document: &'a Document,
-    /// The registry.
-    pub(crate) registry: &'a Registry,
-    /// The run's report.
-    pub(crate) report: &'a Report,
-    /// The outputs of the run by feature.
-    outputs: BTreeMap<Id, Arc<FeatureOutput>>,
+/// A feature error of `feature` rendered with the document's current names and units, without
+/// body states or a diagnosis (features.md section 4).
+pub(crate) fn render_feature_error(
+    error: &FeatureError,
+    document: &Document,
+    registry: &Registry,
+    feature: &Id,
+) -> String {
+    let outputs = BTreeMap::new();
+    let names = DocumentNames {
+        document,
+        registry,
+        outputs: &outputs,
+    };
+    let bodies = BTreeMap::new();
+    let diagnosis = Diagnosis::default();
+    error.render(&RenderContext {
+        feature,
+        names: &names,
+        units: document.units,
+        bodies: &bodies,
+        diagnosis: &diagnosis,
+    })
 }
 
-impl<'a> RunView<'a> {
-    /// The view of the run `report` of `document`.
-    pub(crate) fn new(document: &'a Document, registry: &'a Registry, report: &'a Report) -> Self {
-        let outputs = report
-            .features
-            .iter()
-            .filter_map(|feature| {
-                Some((
-                    feature.feature.clone(),
-                    Arc::clone(feature.output.as_ref()?),
-                ))
-            })
-            .collect();
-        RunView {
-            document,
-            registry,
-            report,
-            outputs,
-        }
-    }
-
-    /// The document's names with the run's outputs, as recompute renders messages with them.
-    pub(crate) fn names(&self) -> DocumentNames<'_> {
-        DocumentNames {
-            document: self.document,
-            registry: self.registry,
-            outputs: &self.outputs,
-        }
-    }
-
-    /// The feature at timeline position `position` with its report.
-    pub(crate) fn feature_at(&self, position: usize) -> Option<FeatureView<'_>> {
-        let report = self.report.features.get(position)?;
-        let record = self
-            .document
-            .features
-            .get(position)
-            .filter(|record| record.id == report.feature)
-            .or_else(|| self.document.feature(&report.feature))?;
-        Some(FeatureView {
-            run: self,
-            position,
-            record,
-            report,
-        })
-    }
-
-    /// The feature `feature` with its report.
-    pub(crate) fn feature(&self, feature: &Id) -> Option<FeatureView<'_>> {
-        let position = self
-            .report
-            .features
-            .iter()
-            .position(|report| report.feature == *feature)?;
-        self.feature_at(position)
-    }
-
-    /// The label of a feature for messages: its name, or its type label and number; its id
-    /// when the document does not have it.
-    pub(crate) fn label(&self, feature: &Id) -> String {
-        self.names()
-            .feature_label(feature)
-            .unwrap_or_else(|| feature.to_string())
-    }
+/// The technical text of a feature error for a detail: its own detail, else its text with ids.
+pub(crate) fn feature_error_detail(error: &FeatureError) -> String {
+    error.detail().unwrap_or_else(|| error.to_string())
 }
 
-/// One feature of a run, whose messages are projected.
-pub(crate) struct FeatureView<'v> {
-    /// The run.
-    pub(crate) run: &'v RunView<'v>,
-    /// The feature's timeline position.
-    pub(crate) position: usize,
-    /// Its record.
-    pub(crate) record: &'v FeatureRecord,
-    /// Its report.
-    pub(crate) report: &'v FeatureReport,
-}
-
-impl<'v> FeatureView<'v> {
-    /// The feature.
-    pub(crate) fn id(&self) -> &'v Id {
-        &self.record.id
-    }
-
-    /// The state of `body` just before the feature, which its references were resolved in.
-    pub(crate) fn state_before(&self, body: &Id) -> BodyState {
-        state_before(self.run.report, self.position, body)
-    }
-
-    /// The value of the feature's record at a JSON Pointer into it.
-    pub(crate) fn record_value(&self, pointer: &str) -> Option<&'v serde_json::Value> {
-        value_at(&self.record.params, pointer)
-    }
-
-    /// The feature's message with this code and field, if it has one.
-    pub(crate) fn message(&self, code: &str, field: Option<&str>) -> Option<&'v Message> {
-        self.report
-            .messages
-            .iter()
-            .find(|message| message.code == code && message.pointer.as_deref() == field)
-    }
-
+impl FeatureView<'_> {
     /// The message as a protocol diagnostic, its actions carrying `revision`, and its repairs.
     /// `elements` gives candidates their mesh element in display sessions.
     pub(crate) fn project(
@@ -372,77 +288,6 @@ struct RepairWords {
     kept: BTreeMap<ElementName, String>,
 }
 
-/// The region or regions of a sketch in words, by the centroids of their fingerprints:
-/// `the region of 'Sketch 1' around (40, 25)`, or `the 2 regions of 'Sketch 1' around (40, 25)
-/// and (175, 10)` (section 3.4).
-pub(crate) fn region_words(
-    sketch: &str,
-    regions: &[RegionRef],
-    units: partsmith_model::Units,
-) -> String {
-    let centroids: Vec<String> = regions
-        .iter()
-        .map(|region| sketch_coordinates(region.fp.centroid, units))
-        .collect();
-    match centroids.as_slice() {
-        [] => format!("a region of '{sketch}'"),
-        [one] => format!("the region of '{sketch}' around {one}"),
-        several => format!(
-            "the {} regions of '{sketch}' around {}",
-            several.len(),
-            and_list(several)
-        ),
-    }
-}
-
-/// Words joined by `, ` and a final ` and `.
-pub(crate) fn and_list(words: &[String]) -> String {
-    match words {
-        [] => String::new(),
-        [one] => one.clone(),
-        [leading @ .., last] => format!("{} and {last}", leading.join(", ")),
-    }
-}
-
-/// How a candidate of `kind` relates to the lost element (section 3.4): `next to {kept}` for a
-/// face and `on {kept}` for an edge or vertex that keeps a face of it, then `distance`.
-fn relation(kind: ElementKind, kept: Option<&String>, distance: String) -> String {
-    match kept {
-        Some(face) if kind == ElementKind::Face => format!("next to {face}, {distance}"),
-        Some(face) => format!("on {face}, {distance}"),
-        None => distance,
-    }
-}
-
-/// The relative difference up to which a rounded distance still equals the distance: the 1e-6
-/// precision of fingerprint numbers (naming.md section 3.7.3), so the float noise of centroid
-/// differences (15.3 - 15 is 0.3000000000000007) is no rounding.
-const ROUNDING_TOLERANCE: f64 = 1e-6;
-
-/// How far a candidate is from where the lost element was (section 3.4): the distance in the
-/// document units rounded to 2 significant digits, preceded by `about` when rounding changed it
-/// by more than `ROUNDING_TOLERANCE`, then `from where it was`; `where it was` below
-/// `LINEAR_TOLERANCE`.
-fn distance_words(millimeters: f64, units: partsmith_model::Units) -> String {
-    if millimeters < LINEAR_TOLERANCE {
-        return "where it was".to_string();
-    }
-    let factor = Dimension::LENGTH.display_factor(units);
-    let shown = millimeters / factor;
-    let rounded = round_to_two_digits(shown);
-    let text = format_value(FieldUnit::Length, rounded * factor, units);
-    if (rounded - shown).abs() <= ROUNDING_TOLERANCE * shown {
-        format!("{text} from where it was")
-    } else {
-        format!("about {text} from where it was")
-    }
-}
-
-/// `value` rounded to the nearest number with two significant digits.
-fn round_to_two_digits(value: f64) -> f64 {
-    format!("{value:.1e}").parse().unwrap_or(value)
-}
-
 /// The face a candidate keeps of the lost element (section 3.4): the first, in byte order of
 /// names, of its adjacent faces (its face terms for an edge or vertex, the faces it shares an
 /// edge with for a face) that is in the family of a part of the stored query in `state`.
@@ -593,112 +438,10 @@ fn removal(removal: &RunRemoval) -> Removal {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::Units;
     use partsmith_naming::Instance;
 
     use super::*;
     use crate::test_support::id;
-
-    fn region(key: &str, centroid: [f64; 2]) -> RegionRef {
-        serde_json::from_value(serde_json::json!({
-            "key": key,
-            "fp": format!("c={},{}|a=100", centroid[0], centroid[1])
-        }))
-        .expect("a valid region reference")
-    }
-
-    #[test]
-    fn distances_are_rounded_to_two_digits_in_the_document_units() {
-        assert_eq!(distance_words(5.0, Units::Mm), "5 mm from where it was");
-        assert_eq!(
-            distance_words(20.615528, Units::Mm),
-            "about 21 mm from where it was"
-        );
-        assert_eq!(
-            distance_words(20.615528, Units::In),
-            "about 0.81 in from where it was"
-        );
-    }
-
-    #[test]
-    fn candidates_relate_by_the_face_they_keep_then_their_distance() {
-        let top = "the top of 'Box 1'".to_string();
-        let distance = || "5 mm from where it was".to_string();
-
-        assert_eq!(
-            relation(ElementKind::Face, Some(&top), distance()),
-            "next to the top of 'Box 1', 5 mm from where it was"
-        );
-        assert_eq!(
-            relation(ElementKind::Edge, Some(&top), distance()),
-            "on the top of 'Box 1', 5 mm from where it was"
-        );
-        assert_eq!(
-            relation(ElementKind::Vertex, None, distance()),
-            "5 mm from where it was"
-        );
-    }
-
-    #[test]
-    fn words_are_listed_with_a_final_and() {
-        let words = ["a".to_string(), "b".to_string(), "c".to_string()];
-
-        assert_eq!(and_list(&words[..1]), "a");
-        assert_eq!(and_list(&words[..2]), "a and b");
-        assert_eq!(and_list(&words), "a, b and c");
-    }
-
-    #[test]
-    fn float_noise_of_a_decimal_centroid_is_no_rounding() {
-        let distance = 15.3 - 15.0;
-        assert_ne!(distance, 0.3);
-
-        assert_eq!(
-            distance_words(distance, Units::Mm),
-            "0.3 mm from where it was"
-        );
-        assert_eq!(
-            distance_words(0.3 + 2e-6, Units::Mm),
-            "about 0.3 mm from where it was"
-        );
-    }
-
-    #[test]
-    fn a_candidate_closer_than_the_tolerance_is_where_it_was() {
-        assert_eq!(distance_words(0.0, Units::Mm), "where it was");
-        assert_eq!(
-            distance_words(LINEAR_TOLERANCE / 2.0, Units::Mm),
-            "where it was"
-        );
-    }
-
-    #[test]
-    fn two_significant_digits_round_to_nearest() {
-        assert_eq!(round_to_two_digits(20.615528), 21.0);
-        assert_eq!(round_to_two_digits(0.8116), 0.81);
-        assert_eq!(round_to_two_digits(1234.0), 1200.0);
-        assert_eq!(round_to_two_digits(5.0), 5.0);
-    }
-
-    #[test]
-    fn regions_are_described_by_their_centroids() {
-        let first = region("e-1,e-2,e-3,e-4", [40.0, 25.0]);
-        let second = region("e-5", [175.0, 10.0]);
-        let third = region("e-6", [1.0, 2.0]);
-
-        assert_eq!(
-            region_words("Sketch 1", std::slice::from_ref(&first), Units::Mm),
-            "the region of 'Sketch 1' around (40, 25)"
-        );
-        assert_eq!(
-            region_words("Sketch 1", &[first.clone(), second.clone()], Units::Mm),
-            "the 2 regions of 'Sketch 1' around (40, 25) and (175, 10)"
-        );
-        assert_eq!(
-            region_words("Sketch 1", &[first, second, third], Units::Mm),
-            "the 3 regions of 'Sketch 1' around (40, 25), (175, 10) and (1, 2)"
-        );
-    }
 
     #[test]
     fn reasons_keep_their_variant_and_fields() {

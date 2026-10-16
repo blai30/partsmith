@@ -1,15 +1,14 @@
 //! Feature statuses, parameter values and document diagnostics of a recompute (engine.md
 //! section 3.4).
 
-use std::collections::BTreeMap;
-
-use partsmith_features::{Diagnosis, DocumentNames, FeatureError, Registry, RenderContext};
+use partsmith_features::Registry;
 use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName};
 use partsmith_protocol::{Diagnostic, FeatureState, FeatureStatus, ParameterValue, Severity};
 use partsmith_recompute::Status;
 
-use crate::diagnostics::{ElementLookup, RunView};
+use crate::diagnostics::ElementLookup;
+use crate::run::RunView;
 use crate::state::{BodyView, Computed, display_bodies};
 
 /// A body whose display mesh could not be built (section 3.8): the error is reported on the
@@ -37,29 +36,24 @@ pub(crate) fn feature_statuses(
         .filter(|view| view.has_geometry() && has_duplicate_names(view))
         .collect();
     let run = RunView::new(document, registry, &computed.report);
-    computed
-        .report
-        .features
-        .iter()
-        .enumerate()
-        .map(|(position, report)| {
+    run.features()
+        .map(|feature| {
+            let report = feature.report;
             let mut status = FeatureStatus {
                 id: report.feature.clone(),
                 status: state(report.status),
                 messages: Vec::with_capacity(report.messages.len()),
                 repairs: Vec::new(),
             };
-            if let Some(feature) = run.feature_at(position) {
-                for message in &report.messages {
-                    let (diagnostic, repairs) = feature.project(message, revision, elements);
-                    status.messages.push(diagnostic);
-                    status.repairs.extend(repairs);
-                }
+            for message in &report.messages {
+                let (diagnostic, repairs) = feature.project(message, revision, elements);
+                status.messages.push(diagnostic);
+                status.repairs.extend(repairs);
             }
             for view in &duplicated {
                 if view.provider.as_ref() == Some(&report.feature) {
                     status.status = FeatureState::Error;
-                    status.messages.push(diagnostic(
+                    status.messages.push(Diagnostic::new(
                         Severity::Error,
                         "duplicate_element_name",
                         format!(
@@ -72,7 +66,7 @@ pub(crate) fn feature_statuses(
             for failure in failures {
                 if failure.feature.as_ref() == Some(&report.feature) {
                     status.status = FeatureState::Error;
-                    status.messages.push(diagnostic(
+                    status.messages.push(Diagnostic::new(
                         Severity::Error,
                         "display_failed",
                         failure.message.clone(),
@@ -94,36 +88,6 @@ fn state(status: Status) -> FeatureState {
         Status::Suppressed => FeatureState::Suppressed,
         Status::RolledBack | Status::NotRun => FeatureState::RolledBack,
     }
-}
-
-/// A diagnostic about no field, with no suggestion.
-pub(crate) fn diagnostic(severity: Severity, code: &str, message: String) -> Diagnostic {
-    Diagnostic::new(severity, code, message)
-}
-
-/// A feature error of `feature` rendered with the document's current names and units, without body states or a
-/// diagnosis (features.md section 4).
-pub(crate) fn render_feature_error(
-    error: &FeatureError,
-    document: &Document,
-    registry: &Registry,
-    feature: &Id,
-) -> String {
-    let outputs = BTreeMap::new();
-    let names = DocumentNames {
-        document,
-        registry,
-        outputs: &outputs,
-    };
-    let bodies = BTreeMap::new();
-    let diagnosis = Diagnosis::default();
-    error.render(&RenderContext {
-        feature,
-        names: &names,
-        units: document.units,
-        bodies: &bodies,
-        diagnosis: &diagnosis,
-    })
 }
 
 /// True when two elements of one kind of the body's naming map share a name.

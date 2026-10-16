@@ -1,5 +1,8 @@
 //! Acceptance tests for the `.ptsm` JSON Schema (file-format.md section 6, "JSON Schema", tests 46 to 53).
 
+mod common;
+
+use common::keys_at;
 use partsmith_model::canonical::{parse, to_string};
 use partsmith_model::{FeatureParamsSchema, SchemaError, ptsm_schema, ptsm_schema_text};
 use serde_json::{Value, json};
@@ -46,16 +49,6 @@ fn at<'a>(schema: &'a Value, pointer: &str) -> &'a Value {
     schema
         .pointer(pointer)
         .unwrap_or_else(|| panic!("the schema has nothing at {pointer}"))
-}
-
-/// Keys of the object at a JSON pointer, in order.
-fn keys_at<'a>(schema: &'a Value, pointer: &str) -> Vec<&'a str> {
-    at(schema, pointer)
-        .as_object()
-        .unwrap_or_else(|| panic!("{pointer} is not an object"))
-        .keys()
-        .map(String::as_str)
-        .collect()
 }
 
 #[test]

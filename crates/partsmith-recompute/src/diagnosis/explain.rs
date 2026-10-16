@@ -1,14 +1,17 @@
 //! Explanations rendered from findings at report time, with current labels and units (recompute.md
 //! section 3.10, "Rendering" and `fixes`).
 
+use partsmith_features::builtin::extrude::Extrude;
+use partsmith_features::builtin::revolve::Revolve;
 use partsmith_features::{
-    Absence, Explanation, FieldRef, Fix, Loss, Names, Place, describe_copy, describe_face,
+    Absence, Explanation, Feature, FieldRef, Fix, Loss, Names, Place, describe_copy, describe_face,
     made_from_line, sketch_coordinates,
 };
 use partsmith_model::{FeatureManifest, Id, Units};
-use partsmith_naming::{ElementName, FaceGenerator, MergedName, Reference};
+use partsmith_naming::{ElementName, FaceGenerator, MergedName, Reference, roles};
 use serde_json::Value;
 
+use super::memo::Finding;
 use super::view::RunView;
 use super::{LossReason, Removal, point_in};
 
@@ -32,10 +35,9 @@ pub(crate) struct Explained<'a> {
     pub(crate) loss: &'a Loss,
     /// The field of the reference, the list for a list entry.
     pub(crate) field: &'a FieldRef,
-    /// Why it was lost; None for an ambiguous loss.
-    pub(crate) reason: Option<&'a LossReason>,
-    /// For an ambiguous loss, the feature after whose change it became ambiguous.
-    pub(crate) after: Option<Id>,
+    /// What the diagnosis found: its reason, or for an ambiguous loss the feature after whose
+    /// change it became ambiguous.
+    pub(crate) finding: &'a Finding,
     /// True when the reference is the only entry of its field.
     pub(crate) only_entry: bool,
 }
@@ -43,19 +45,15 @@ pub(crate) struct Explained<'a> {
 impl Explainer<'_> {
     /// The explanation of one loss.
     pub(crate) fn explanation(&self, explained: &Explained<'_>) -> Explanation {
-        let Some(reason) = explained.reason else {
-            return Explanation {
-                text: String::new(),
-                after: explained.after.clone(),
-                fixes: Vec::new(),
-                upstream: false,
-            };
-        };
-        Explanation {
-            text: self.text(explained.loss, reason),
-            after: None,
-            fixes: self.fixes(explained, reason),
-            upstream: matches!(reason, LossReason::UpstreamFailed { .. }),
+        match explained.finding {
+            Finding::Lost(reason) => Explanation {
+                text: self.text(explained.loss, reason),
+                after: None,
+                fixes: self.fixes(explained, reason),
+                upstream: matches!(reason, LossReason::UpstreamFailed { .. }),
+            },
+            Finding::Ambiguous { after } => without_reason(after.clone()),
+            Finding::Followed { .. } => without_reason(None),
         }
     }
 
@@ -323,12 +321,14 @@ impl Explainer<'_> {
         loop {
             let parts = face.face_name()?;
             match parts.generator()? {
-                FaceGenerator::Face(generator) if matches!(parts.role(), "inner" | "rim") => {
+                FaceGenerator::Face(generator)
+                    if matches!(parts.role(), roles::INNER | roles::RIM) =>
+                {
                     face = ElementName::parse(generator).ok()?;
                 }
-                FaceGenerator::Sketch(entity) if parts.role() == "lateral" => {
+                FaceGenerator::Sketch(entity) if parts.role() == roles::LATERAL => {
                     let sweep = self.view.position(&Id::new(parts.feature()).ok()?)?;
-                    if !matches!(self.view.kind(sweep), "extrude" | "revolve") {
+                    if !matches!(self.view.kind(sweep), Extrude::TYPE | Revolve::TYPE) {
                         return None;
                     }
                     let sketch = self.view.first_sketch(sweep)?;
@@ -398,6 +398,17 @@ impl Explainer<'_> {
     }
 }
 
+/// The explanation of a loss the diagnosis gives no reason for: an ambiguous loss, with the feature
+/// after whose change it became ambiguous when it was found.
+fn without_reason(after: Option<Id>) -> Explanation {
+    Explanation {
+        text: String::new(),
+        after,
+        fixes: Vec::new(),
+        upstream: false,
+    }
+}
+
 /// The body field next to a reference at `path`: the sibling `body` of a face or edge field
 /// (`base.body` for `base.face`), else the feature's own `body`.
 fn body_field(path: &str) -> String {
@@ -449,10 +460,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid id")
-    }
+    use crate::test_support::id;
 
     #[test]
     fn the_body_field_of_a_face_or_edge_is_its_sibling() {

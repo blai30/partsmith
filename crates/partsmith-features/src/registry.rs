@@ -554,11 +554,7 @@ mod tests {
             _params: &FlatParams,
             _context: &BuildContext<'_>,
         ) -> Result<FeatureOutput, FeatureError> {
-            Ok(FeatureOutput {
-                data: OutputData::Nothing,
-                warnings: Vec::new(),
-                absent: Vec::new(),
-            })
+            Ok(FeatureOutput::new(OutputData::Nothing, Vec::new()))
         }
     }
 

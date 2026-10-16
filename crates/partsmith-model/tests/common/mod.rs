@@ -75,6 +75,17 @@ pub fn differing_lines(before: &str, after: &str) -> Vec<usize> {
         .collect()
 }
 
+/// Keys of the JSON object at a pointer, in order.
+pub fn keys_at<'a>(value: &'a Value, pointer: &str) -> Vec<&'a str> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| panic!("there is no object at {pointer}"))
+        .keys()
+        .map(String::as_str)
+        .collect()
+}
+
 /// Lines of the non-canonical E8 input; the file ends every line with CR LF.
 pub const E8_INPUT_LINES: [&str; 3] = [
     r#"{"units":"mm","format_version":2.0,"format":"partsmith","#,

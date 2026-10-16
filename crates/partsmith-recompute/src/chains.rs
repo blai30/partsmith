@@ -64,14 +64,15 @@ impl Bodies {
         }
     }
 
-    /// Records that the record `writer` at `position` is done with `body`: it becomes the body's
-    /// provider and joins its writer chain with `before`, the body's state just before it. A record
-    /// joins a chain once, even when its dependencies name the body twice.
-    pub(crate) fn written(&mut self, body: &Id, writer: &Id, position: usize, before: BodyState) {
+    /// Records that the record `writer` at `position` is done with `body`, before its update is
+    /// applied: it becomes the body's provider and joins its writer chain with the body's current
+    /// state, the state just before it. A record joins a chain once, even when its dependencies
+    /// name the body twice.
+    pub(crate) fn written(&mut self, body: &Id, writer: &Id, position: usize) {
         if let Some(chain) = self.bodies.get_mut(body) {
             chain.provider = Some(position);
             if chain.positions.last() != Some(&position) {
-                chain.writers.push((writer.clone(), before));
+                chain.writers.push((writer.clone(), chain.current.clone()));
                 chain.positions.push(position);
             }
         }
@@ -103,24 +104,12 @@ impl Bodies {
         }
     }
 
-    /// The writers of `body` before `position`, in timeline order: each one's position and the
-    /// body's state just before it.
-    pub(crate) fn writers_before(
-        &self,
-        body: &Id,
-        position: usize,
-    ) -> impl DoubleEndedIterator<Item = (usize, &BodyState)> {
-        let (positions, writers): (&[usize], &[(Id, BodyState)]) = match self.bodies.get(body) {
-            Some(chain) => {
-                let end = chain.positions.partition_point(|&writer| writer < position);
-                (&chain.positions[..end], &chain.writers[..end])
-            }
-            None => (&[], &[]),
-        };
-        positions
-            .iter()
-            .copied()
-            .zip(writers.iter().map(|(_, state)| state))
+    /// The positions of the writers of `body` before `position`, in timeline order.
+    pub(crate) fn writers_before(&self, body: &Id, position: usize) -> &[usize] {
+        self.bodies.get(body).map_or(&[], |chain| {
+            let end = chain.positions.partition_point(|&writer| writer < position);
+            &chain.positions[..end]
+        })
     }
 
     /// The state of `body` just before the record at `position`, with its provider's position:
@@ -153,9 +142,10 @@ mod tests {
     fn written_twice() -> (Bodies, [BodyState; 3]) {
         let states = [BodyState::empty(), BodyState::empty(), BodyState::empty()];
         let mut bodies = Bodies::empty(&[id("b-1"), id("b-2")]);
-        bodies.written(&id("b-1"), &id("f-1"), 1, states[0].clone());
+        bodies.set(&id("b-1"), states[0].clone());
+        bodies.written(&id("b-1"), &id("f-1"), 1);
         bodies.set(&id("b-1"), states[1].clone());
-        bodies.written(&id("b-1"), &id("f-3"), 3, states[1].clone());
+        bodies.written(&id("b-1"), &id("f-3"), 3);
         bodies.set(&id("b-1"), states[2].clone());
         (bodies, states)
     }
@@ -186,13 +176,10 @@ mod tests {
     fn writers_before_a_position_come_in_timeline_order() {
         let (bodies, _) = written_twice();
 
-        let positions: Vec<usize> = bodies
-            .writers_before(&id("b-1"), 3)
-            .map(|(position, _)| position)
-            .collect();
+        let positions = bodies.writers_before(&id("b-1"), 3);
 
         assert_eq!(positions, [1]);
-        assert_eq!(bodies.writers_before(&id("b-2"), 9).count(), 0);
+        assert_eq!(bodies.writers_before(&id("b-2"), 9).len(), 0);
         assert_eq!(bodies.provider(&id("b-1")), Some(3));
     }
 
@@ -208,7 +195,7 @@ mod tests {
         bodies.restore_histories(histories);
 
         assert_eq!(writers, ["f-1", "f-3"]);
-        assert_eq!(bodies.writers_before(&id("b-1"), 9).count(), 2);
+        assert_eq!(bodies.writers_before(&id("b-1"), 9).len(), 2);
     }
 
     #[test]
@@ -219,7 +206,7 @@ mod tests {
         assert_eq!(histories[&id("b-1")].len(), 2);
         bodies.restore_histories(histories);
 
-        assert_eq!(bodies.writers_before(&id("b-1"), 9).count(), 2);
+        assert_eq!(bodies.writers_before(&id("b-1"), 9).len(), 2);
         let (between, _) = bodies.state_before(&id("b-1"), 2).expect("b-1");
         assert!(same(between, &states[1]));
     }
@@ -228,10 +215,10 @@ mod tests {
     fn a_writer_that_names_its_body_twice_joins_the_chain_once() {
         let (mut bodies, _) = written_twice();
 
-        bodies.written(&id("b-2"), &id("f-4"), 4, BodyState::empty());
-        bodies.written(&id("b-2"), &id("f-4"), 4, BodyState::empty());
+        bodies.written(&id("b-2"), &id("f-4"), 4);
+        bodies.written(&id("b-2"), &id("f-4"), 4);
 
-        assert_eq!(bodies.writers_before(&id("b-2"), 9).count(), 1);
+        assert_eq!(bodies.writers_before(&id("b-2"), 9).len(), 1);
         assert_eq!(bodies.provider(&id("b-2")), Some(4));
     }
 }

@@ -10,10 +10,10 @@ use partsmith_recompute::Status;
 use partsmith_sketch::{MatchMethod, RegionMatch, RegionRef, match_region};
 use serde_json::Value;
 
-use super::params::{is_list_entry, parent, remove, replace, replace_each, set, stored_references};
-use crate::diagnostics::{FeatureView, RunView};
 use crate::elements::full_reference;
 use crate::error::EngineError;
+use crate::params::{is_list_entry, parent, remove, replace, replace_each, set, stored_references};
+use crate::run::{FeatureView, RunView};
 
 impl FeatureView<'_> {
     /// The edits of an offered `apply` fix of this feature's message, built from the current
@@ -125,10 +125,11 @@ impl FeatureView<'_> {
         let regions = Value::Array(region_entries(&regions)?);
         let mut edits = vec![updated(self.record, |params| set(params, list, regions))?];
         if !successions.is_empty() {
-            for position in self.position + 1..later.report.features.len() {
-                if let Some(feature) = later.feature_at(position) {
-                    edits.extend(feature.references_following(&successions)?);
-                }
+            let after = later
+                .features()
+                .skip_while(|feature| feature.position <= self.position);
+            for feature in after {
+                edits.extend(feature.references_following(&successions)?);
             }
         }
         Ok(edits)

@@ -4,18 +4,15 @@
 
 mod edits;
 mod labels;
-mod params;
 
 use partsmith_features::Fix;
 use partsmith_model::{Document, Id};
 use partsmith_protocol::{DocHandle, FixAction, FixKind, FixRef, Repair};
 use partsmith_recompute::{Message, Recompute};
 
-pub(crate) use params::value_at;
-
-use crate::diagnostics::{FeatureView, RunView};
 use crate::document::OpenDocument;
 use crate::error::EngineError;
+use crate::run::{FeatureView, RunView};
 use crate::session::Session;
 use crate::state::{self, Computed};
 use labels::Labels;

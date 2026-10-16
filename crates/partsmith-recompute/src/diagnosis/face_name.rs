@@ -22,10 +22,7 @@ pub(crate) fn has_copy_group(text: &str, group: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn name(text: &str) -> ElementName {
-        ElementName::parse(text).expect("a valid name")
-    }
+    use crate::test_support::{id, name};
 
     #[test]
     fn makers_are_the_feature_of_the_last_copy_group() {
@@ -47,9 +44,5 @@ mod tests {
         assert!(has_copy_group("f-box1/top@f-lp1:2#1", group));
         assert!(!has_copy_group("f-box1/top@f-lp1:20", group));
         assert!(!has_copy_group("f-box1/top@f-lp1:2.1", group));
-    }
-
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid id")
     }
 }

@@ -195,12 +195,14 @@ fn largest_radius_fix(answer: &Answer) -> Value {
         .unwrap_or_else(|| panic!("the lid fillet offers no fix: {status}"))
 }
 
+/// The lid count parameter the loss row adds, with `expr`.
+fn lid_count_parameter(expr: &str) -> Value {
+    json!({"id": "p-lid-count", "name": "lid_count", "expr": expr})
+}
+
 /// The `update_parameter` edit that gives the lid count parameter the loss row adds `expr`.
 fn lid_count_edit(expr: &str) -> Value {
-    json!({
-        "type": "update_parameter",
-        "parameter": {"id": "p-lid-count", "name": "lid_count", "expr": expr}
-    })
+    json!({"type": "update_parameter", "parameter": lid_count_parameter(expr)})
 }
 
 /// Makes the count of the reference part's lid pattern the parameter `lid_count` (3) and adds a
@@ -214,7 +216,7 @@ fn add_third_lid_fillet(driver: &mut Driver, doc: u64, text: &str) -> Answer {
         .send(json!({
             "type": "apply_edits", "doc": doc,
             "edits": [
-                {"type": "add_parameter", "index": 2, "parameter": {"id": "p-lid-count", "name": "lid_count", "expr": "3"}},
+                {"type": "add_parameter", "index": 2, "parameter": lid_count_parameter("3")},
                 {"type": "update_feature", "feature": pattern}
             ]
         }))

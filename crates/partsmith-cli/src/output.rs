@@ -4,7 +4,7 @@
 use std::fmt::Display;
 use std::io::{self, Write};
 
-use partsmith_engine::{FeatureMessage, ValidationDiagnostic};
+use partsmith_engine::ValidationDiagnostic;
 use partsmith_model::Id;
 use partsmith_protocol::Severity;
 use serde::Serialize;
@@ -142,17 +142,10 @@ pub struct JsonDiagnostic {
 
 impl From<ValidationDiagnostic> for JsonDiagnostic {
     fn from(diagnostic: ValidationDiagnostic) -> JsonDiagnostic {
-        let (feature, members) = match diagnostic.feature.map(|message| *message) {
-            Some(FeatureMessage {
-                feature,
-                diagnostic: projected,
-                candidates,
-            }) => (
-                Some(feature),
-                Some(MessageMembers::new(projected, candidates)),
-            ),
-            None => (None, None),
-        };
+        let (feature, members) = diagnostic
+            .feature
+            .map(|message| (message.feature.clone(), MessageMembers::from(*message)))
+            .unzip();
         JsonDiagnostic {
             severity: diagnostic.severity,
             code: diagnostic.code,
@@ -199,13 +192,10 @@ mod tests {
         path: Option<&str>,
     ) -> ValidationDiagnostic {
         ValidationDiagnostic {
-            severity: Severity::Error,
-            code: "parse_error".to_owned(),
-            message: "Broken.".to_owned(),
             line,
             column,
             path: path.map(str::to_owned),
-            feature: None,
+            ..ValidationDiagnostic::new(Severity::Error, "parse_error", "Broken.")
         }
     }
 

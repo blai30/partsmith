@@ -157,11 +157,10 @@ mod tests {
 
     #[test]
     fn built_outputs_without_bodies_have_no_states() {
-        let built = Built::new(FeatureOutput {
-            data: OutputData::Datum(DatumResult::Plane(OriginPlane::Xy.placement())),
-            warnings: Vec::new(),
-            absent: Vec::new(),
-        });
+        let built = Built::new(FeatureOutput::new(
+            OutputData::Datum(DatumResult::Plane(OriginPlane::Xy.placement())),
+            Vec::new(),
+        ));
 
         assert!(built.bodies.is_empty());
     }
@@ -169,17 +168,16 @@ mod tests {
     #[test]
     fn an_emptied_body_gets_an_empty_state() {
         let body = id("b-1");
-        let built = Built::new(FeatureOutput {
-            data: OutputData::Bodies(vec![partsmith_features::BodyUpdate {
+        let built = Built::new(FeatureOutput::new(
+            OutputData::Bodies(vec![partsmith_features::BodyUpdate {
                 body: body.clone(),
                 shape: None,
                 naming: BodyState::empty().naming().clone(),
                 change: partsmith_features::BodyChange::Clear,
                 measured: partsmith_features::Measurements::default(),
             }]),
-            warnings: Vec::new(),
-            absent: Vec::new(),
-        });
+            Vec::new(),
+        ));
 
         assert_eq!(built.bodies.len(), 1);
         assert_eq!(built.bodies[0].0, body);

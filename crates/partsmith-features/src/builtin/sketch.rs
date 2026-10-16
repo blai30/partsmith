@@ -144,16 +144,15 @@ impl Feature for SketchFeature {
             warnings.push(FeatureWarning::RedundantConstraints { issues });
         }
         let profile = build_profile(&solved.entities);
-        Ok(FeatureOutput {
-            data: OutputData::Sketch(SketchResult {
+        Ok(FeatureOutput::new(
+            OutputData::Sketch(SketchResult {
                 placement,
                 motion: Motion::IDENTITY,
                 solved,
                 profile,
             }),
             warnings,
-            absent: Vec::new(),
-        })
+        ))
     }
 }
 

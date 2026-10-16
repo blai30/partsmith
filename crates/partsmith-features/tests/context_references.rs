@@ -16,14 +16,15 @@ mod common;
 use std::f64::consts::FRAC_PI_2;
 
 use common::records::{
-    arc, block, block_with, box_below, box_record, cube10, cube20, distance, edited, extrude, line,
-    linear_pattern, point, rectangle, reference, shell, sketch, slot, xy,
+    BLOCK_TOP, FRONT_TOP_EDGE, RIGHT_SIDE, RIGHT_TOP_EDGE, arc, block, block_with, box_below,
+    box_record, cube10, cube20, distance, edited, extrude, line, linear_pattern, point, rectangle,
+    reference, shell, sketch, slot, xy,
 };
 use common::timeline::{Timeline, stored, sub_shape_names};
-use common::{assert_vector_close, id, warning_fixes};
+use common::{assert_vector_close, id, keep_and_pick, pointer, warning_fixes};
 use partsmith_features::{
-    BodyState, FaceFallback, FeatureError, FeatureWarning, FieldRef, Fix, Loss, PlaneRef, Repair,
-    Resolved, Severity, WithWarnings,
+    BodyState, FaceFallback, FeatureError, FeatureWarning, Fix, Loss, PlaneRef, Repair, Resolved,
+    Severity, WithWarnings,
 };
 use partsmith_naming::{ElementKind, Follow, Lost, Reference, Resolution};
 use partsmith_sketch::Placement;
@@ -34,27 +35,6 @@ const BACK_TOP_EDGE: (&str, &str) = (
     "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
     "line|n=1,0,0|c=40,50,30|l=80|adj=2,2",
 );
-
-/// The right top edge of `BLOCK` (R06).
-const RIGHT_TOP_EDGE: (&str, &str) = (
-    "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
-    "line|n=0,1,0|c=80,25,30|l=50|adj=2,2",
-);
-
-/// The front top edge of `BLOCK` (R19).
-const FRONT_TOP_EDGE: (&str, &str) = (
-    "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
-    "line|n=1,0,0|c=40,0,30|l=80|adj=2,2",
-);
-
-/// The right side of `BLOCK` (R49).
-const RIGHT_SIDE: (&str, &str) = (
-    "f-ext1/lateral/e-2",
-    "plane|n=1,0,0|c=80,25,15|a=1500|adj=4,4",
-);
-
-/// The top of `BLOCK` (R19, R58).
-const BLOCK_TOP: (&str, &str) = ("f-ext1/end-cap", "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4");
 
 /// A stored reference from a (query, fingerprint) pair.
 fn stored_pair((query, fingerprint): (&str, &str)) -> Reference {
@@ -80,23 +60,6 @@ fn resolve_faces(timeline: &Timeline, references: &[Reference]) -> Result<Resolv
 /// The names of the resolved elements in `b-1` at the end of `timeline`, in order.
 fn resolved_names(timeline: &Timeline, resolved: &Resolved) -> Vec<String> {
     sub_shape_names(&timeline.state("b-1"), &resolved.elements)
-}
-
-/// The JSON Pointer of a warning's field.
-fn pointer(warning: &FeatureWarning) -> Option<String> {
-    warning.field().map(FieldRef::pointer)
-}
-
-/// `KeepMatch` then `Pick` at `pointer`: the fixes of a followed reference (section 3.8).
-fn keep_and_pick(pointer: &str) -> Vec<Fix> {
-    vec![
-        Fix::KeepMatch {
-            pointer: pointer.to_string(),
-        },
-        Fix::Pick {
-            pointer: pointer.to_string(),
-        },
-    ]
 }
 
 /// The queries of references, as text.

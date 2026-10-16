@@ -270,6 +270,47 @@ pub enum Command {
     },
 }
 
+impl Command {
+    /// The command's `type` as the wire writes it, for example `apply_edits`, which internal
+    /// errors name in words (engine.md section 4).
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Command::EngineInfo => "engine_info",
+            Command::FeatureCatalog => "feature_catalog",
+            Command::ListPrinterProfiles => "list_printer_profiles",
+            Command::PutPrinterProfile { .. } => "put_printer_profile",
+            Command::NewDocument { .. } => "new_document",
+            Command::OpenDocument { .. } => "open_document",
+            Command::SaveDocument { .. } => "save_document",
+            Command::CloseDocument { .. } => "close_document",
+            Command::GetDocument { .. } => "get_document",
+            Command::MarkSaved { .. } => "mark_saved",
+            Command::ApplyEdits { .. } => "apply_edits",
+            Command::RenameParameter { .. } => "rename_parameter",
+            Command::ApplyFix { .. } => "apply_fix",
+            Command::BeginTransaction { .. } => "begin_transaction",
+            Command::SetFocus { .. } => "set_focus",
+            Command::CommitTransaction { .. } => "commit_transaction",
+            Command::CancelTransaction { .. } => "cancel_transaction",
+            Command::Undo { .. } => "undo",
+            Command::Redo { .. } => "redo",
+            Command::SolveSketch { .. } => "solve_sketch",
+            Command::DragSketch { .. } => "drag_sketch",
+            Command::EndSketchDrag { .. } => "end_sketch_drag",
+            Command::SetTessellation { .. } => "set_tessellation",
+            Command::Evaluate { .. } => "evaluate",
+            Command::ListElements { .. } => "list_elements",
+            Command::PickReference { .. } => "pick_reference",
+            Command::ResolveReferences { .. } => "resolve_references",
+            Command::Measure { .. } => "measure",
+            Command::AnalyzePrint { .. } => "analyze_print",
+            Command::Export { .. } => "export",
+            Command::ImportStep { .. } => "import_step",
+            Command::ExportPython { .. } => "export_python",
+        }
+    }
+}
+
 /// The success value of every command; its `type` equals the command's `type`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]

@@ -17,7 +17,7 @@ use crate::cache::{Built, Cache, Outcome};
 use crate::chains::Bodies;
 use crate::evaluate::{Progress, evaluate};
 use crate::key::CacheKey;
-use crate::report::{BodyReport, FeatureReport, Status, Timing};
+use crate::report::{BodyReport, FeatureReport, Severity, Status, Timing};
 use crate::timeline::{ActiveStep, StepKind, Timeline};
 
 /// What a run produced, besides the parts the caller adds (messages, parameters, time).
@@ -199,6 +199,8 @@ impl Runner<'_> {
             .take_histories(step.body_links().map(|link| &link.id));
         let (result, duration) = self.build(record, step, values, bodies_before, &histories);
         self.bodies.restore_histories(histories);
+        // A panic is never cached, so the next run builds the feature again.
+        let cacheable = !matches!(result, Err(FeatureError::Internal { .. }));
         let outcome = match result {
             Ok(output) => Outcome::Built(Built::new(output)),
             Err(FeatureError::Canceled) => {
@@ -207,9 +209,7 @@ impl Runner<'_> {
             }
             Err(error) => Outcome::Failed(Box::new(error)),
         };
-        // A panic is never cached, so the next run builds the feature again.
-        let panicked = matches!(&outcome, Outcome::Failed(error) if matches!(**error, FeatureError::Internal { .. }));
-        if !panicked {
+        if cacheable {
             cache.insert(key, outcome.clone());
         }
         let timing = Timing {
@@ -287,13 +287,10 @@ impl Runner<'_> {
 
     /// Records that the active step at `position` is done with the bodies it declares written,
     /// before its body updates are applied: it becomes their provider, whether it changed them or
-    /// not, so later keys stay a function of the timeline, and joins their writer chains with
-    /// their current states, the states just before it.
+    /// not, so later keys stay a function of the timeline, and joins their writer chains.
     fn written(&mut self, record: &FeatureRecord, step: &ActiveStep<'_>, position: usize) {
         for link in &step.valid.dependencies.bodies_written {
-            if let Some(before) = self.bodies.current(&link.id).cloned() {
-                self.bodies.written(&link.id, &record.id, position, before);
-            }
+            self.bodies.written(&link.id, &record.id, position);
         }
     }
 }
@@ -355,14 +352,15 @@ fn check_updates(output: &FeatureOutput, written: &[Link]) -> Result<(), Feature
     Ok(())
 }
 
-/// The status of a feature that ran (recompute.md section 3.5 step 11): `Error` with an error, `Warning` with a
-/// warning of severity `Warning`, otherwise `Ok`, also when its only warnings are info notices.
+/// The status of a feature that ran (recompute.md section 3.5 step 11): `Error` with an error,
+/// `Warning` with a warning of severity `Warning`, otherwise `Ok`, also when its only warnings are
+/// info notices.
 fn status(error: Option<&FeatureError>, warnings: &[FeatureWarning]) -> Status {
     if error.is_some() {
         Status::Error
     } else if warnings
         .iter()
-        .any(|warning| warning.severity() == partsmith_features::Severity::Warning)
+        .any(|warning| warning.severity() == Severity::Warning)
     {
         Status::Warning
     } else {
@@ -383,11 +381,11 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_features::{BodyChange, BodyUpdate, DatumResult, FieldRef, Measurements};
+    use partsmith_features::{BodyChange, BodyUpdate, DatumResult, Measurements};
     use partsmith_sketch::OriginPlane;
 
     use super::*;
-    use crate::test_support::id;
+    use crate::test_support::{id, region_split};
 
     fn link(body: &str) -> Link {
         Link {
@@ -398,8 +396,8 @@ mod tests {
 
     /// An output that empties each of `bodies`.
     fn clearing(bodies: &[&str]) -> FeatureOutput {
-        FeatureOutput {
-            data: OutputData::Bodies(
+        FeatureOutput::new(
+            OutputData::Bodies(
                 bodies
                     .iter()
                     .map(|body| BodyUpdate {
@@ -411,9 +409,8 @@ mod tests {
                     })
                     .collect(),
             ),
-            warnings: Vec::new(),
-            absent: Vec::new(),
-        }
+            Vec::new(),
+        )
     }
 
     #[test]
@@ -467,11 +464,10 @@ mod tests {
 
     #[test]
     fn outputs_without_bodies_have_no_updates_to_check() {
-        let datum = FeatureOutput {
-            data: OutputData::Datum(DatumResult::Plane(OriginPlane::Xy.placement())),
-            warnings: Vec::new(),
-            absent: Vec::new(),
-        };
+        let datum = FeatureOutput::new(
+            OutputData::Datum(DatumResult::Plane(OriginPlane::Xy.placement())),
+            Vec::new(),
+        );
 
         assert!(check_updates(&datum, &[]).is_ok());
     }
@@ -485,23 +481,6 @@ mod tests {
         assert_eq!(panic_message(static_text.as_ref()), "boom");
         assert_eq!(panic_message(owned_text.as_ref()), "bang");
         assert_eq!(panic_message(number.as_ref()), "unknown panic");
-    }
-
-    /// The `region_split` notice of a profile region split in two (features.md section 4.2), severity info.
-    fn region_split() -> FeatureWarning {
-        FeatureWarning::RegionSplit {
-            field: FieldRef {
-                path: "profile.regions[0]".to_string(),
-                label: "Profile".to_string(),
-            },
-            position: 0,
-            sketch: id("f-sk1"),
-            region: serde_json::from_value(
-                serde_json::json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}),
-            )
-            .expect("the region reference is valid"),
-            count: 2,
-        }
     }
 
     /// `UnknownParams`, a warning of severity warning.

@@ -445,11 +445,7 @@ mod tests {
         let registry = Registry::new();
         let built = Id::new("f-built").expect("a valid id");
         let failed = Id::new("f-failed").expect("a valid id");
-        let output = FeatureOutput {
-            data: OutputData::Bodies(Vec::new()),
-            warnings: Vec::new(),
-            absent: Vec::new(),
-        };
+        let output = FeatureOutput::new(OutputData::Bodies(Vec::new()), Vec::new());
         let outputs = BTreeMap::from([(built.clone(), Arc::new(output))]);
         let names = DocumentNames {
             document: &document,

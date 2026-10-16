@@ -118,13 +118,14 @@ impl CliError {
             _ => (None, None, None),
         };
         let diagnostic = ValidationDiagnostic {
-            severity: Severity::Error,
-            code: wire_name(&error.code()),
-            message: error.to_string(),
             line,
             column,
             path: pointer,
-            feature: None,
+            ..ValidationDiagnostic::new(
+                Severity::Error,
+                wire_name(&error.code()),
+                error.to_string(),
+            )
         };
         CliError::Load {
             path,
@@ -165,15 +166,7 @@ impl CliError {
     pub fn diagnostic(&self) -> ValidationDiagnostic {
         match self {
             CliError::Load { diagnostic, .. } => ValidationDiagnostic::clone(diagnostic),
-            _ => ValidationDiagnostic {
-                severity: Severity::Error,
-                code: self.code(),
-                message: self.to_string(),
-                line: None,
-                column: None,
-                path: None,
-                feature: None,
-            },
+            _ => ValidationDiagnostic::new(Severity::Error, self.code(), self.to_string()),
         }
     }
 
@@ -298,13 +291,8 @@ mod tests {
         let error = CliError::Load {
             path: "badid.ptsm".to_owned(),
             diagnostic: Box::new(ValidationDiagnostic {
-                severity: Severity::Error,
-                code: "parse_error".to_owned(),
-                message: "Bad id.".to_owned(),
-                line: None,
-                column: None,
                 path: Some("/bodies/0/id".to_owned()),
-                feature: None,
+                ..ValidationDiagnostic::new(Severity::Error, "parse_error", "Bad id.")
             }),
         };
 

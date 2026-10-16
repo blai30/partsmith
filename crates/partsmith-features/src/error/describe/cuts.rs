@@ -6,9 +6,7 @@ use partsmith_model::{FeatureRecord, Id};
 use serde_json::Value;
 
 use super::super::message::Names;
-
-/// Feature types that take their body's faces into a target body and leave the body its own: copies and splits.
-const COPYING_TYPES: [&str; 4] = ["mirror", "linear_pattern", "circular_pattern", "split_body"];
+use crate::builtin::COPYING_TYPES;
 
 /// How the faces read in a body that holds them: the cut boolean whose tool faces they are there, or None when they
 /// read as their own feature's.

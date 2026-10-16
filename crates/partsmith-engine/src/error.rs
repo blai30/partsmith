@@ -282,53 +282,45 @@ impl EngineError {
     /// other, with the line and column of JSON problems and the JSON Pointer of the field a
     /// structure problem names. A parser's own text goes to the detail only.
     pub fn from_load(error: LoadError) -> EngineError {
-        let full = error.to_string();
-        match error {
-            LoadError::NewerFormatVersion { found, .. }
-            | LoadError::UnsupportedFormatVersion { found, .. } => {
-                EngineError::UnsupportedFormatVersion {
-                    found,
-                    message: full,
-                }
-            }
-            LoadError::Syntax { line, column, .. } => EngineError::Parse {
-                message: format!("The file is not valid JSON at line {line}, column {column}."),
-                detail: full,
-                line: Some(saturating_u32(line)),
-                column: Some(saturating_u32(column)),
-                path: None,
-            },
-            LoadError::DuplicateKey { line, column, .. } => EngineError::Parse {
-                message: full.clone(),
-                detail: full,
-                line: Some(saturating_u32(line)),
-                column: Some(saturating_u32(column)),
-                path: None,
-            },
-            LoadError::Invalid { path, message } => EngineError::Parse {
-                message: if is_deserializer_description(&message) {
-                    WRONG_FORM.to_string()
-                } else {
-                    full.clone()
-                },
-                detail: full,
-                line: None,
-                column: None,
-                path: (!path.is_empty()).then(|| {
-                    FieldRef {
-                        path,
-                        label: String::new(),
-                    }
-                    .pointer()
-                }),
-            },
-            _ => EngineError::Parse {
-                message: full.clone(),
-                detail: full,
-                line: None,
-                column: None,
-                path: None,
-            },
+        let detail = error.to_string();
+        if let LoadError::NewerFormatVersion { found, .. }
+        | LoadError::UnsupportedFormatVersion { found, .. } = error
+        {
+            return EngineError::UnsupportedFormatVersion {
+                found,
+                message: detail,
+            };
+        }
+        // The message when it is not the load error's own text, the line and column, and the
+        // pointer of the field.
+        let (message, position, path) = match error {
+            LoadError::Syntax { line, column, .. } => (
+                Some(format!(
+                    "The file is not valid JSON at line {line}, column {column}."
+                )),
+                Some((line, column)),
+                None,
+            ),
+            LoadError::DuplicateKey { line, column, .. } => (None, Some((line, column)), None),
+            LoadError::Invalid {
+                path,
+                message: description,
+            } => (
+                is_deserializer_description(&description).then(|| WRONG_FORM.to_string()),
+                None,
+                (!path.is_empty()).then(|| field_pointer(path)),
+            ),
+            _ => (None, None, None),
+        };
+        let (line, column) = position
+            .map(|(line, column)| (saturating_u32(line), saturating_u32(column)))
+            .unzip();
+        EngineError::Parse {
+            message: message.unwrap_or_else(|| detail.clone()),
+            detail,
+            line,
+            column,
+            path,
         }
     }
 
@@ -464,6 +456,16 @@ impl EngineError {
             other => other,
         }
     }
+}
+
+/// The JSON Pointer of the field path an `Invalid` load error names: `features[2].radius` is
+/// `/features/2/radius`.
+fn field_pointer(path: String) -> String {
+    FieldRef {
+        path,
+        label: String::new(),
+    }
+    .pointer()
 }
 
 /// True when an `Invalid` load message is a deserializer's description of a value of the wrong

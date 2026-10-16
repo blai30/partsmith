@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn values_change_in_place_without_being_used() {
+    fn peek_mut_does_not_mark_an_entry_used() {
         let mut lru = PassLru::default();
         pass(&mut lru, &[1], 1);
         lru.begin_pass();

@@ -21,7 +21,7 @@ use partsmith_features::{
     Absence, Because, BodyChange, BodyState, Diagnosis, DocumentNames, FeatureError, FeatureOutput,
     FeatureWarning, FieldRef, Loss, Registry, RenderContext, SketchResult,
 };
-use partsmith_model::{FeatureManifest, Id, Units};
+use partsmith_model::{Id, Units};
 use partsmith_naming::{ElementName, Instance};
 
 use crate::cache::Cache;
@@ -32,7 +32,7 @@ use crate::timeline::Timeline;
 use explain::{Explained, Explainer};
 pub(crate) use memo::Findings;
 use memo::{Finding, FindingKey, Probe};
-use view::RunView;
+pub(crate) use view::RunView;
 
 /// Why a reference was lost, or which feature a followed reference followed. Holds ids, never
 /// display names, so it renders with current labels.
@@ -188,19 +188,21 @@ pub(crate) fn render_messages(finished: &Finished<'_>, cache: &mut Cache) -> Vec
         bodies: &finished.ran.bodies,
     };
     (0..reports.len())
-        .map(|position| {
-            let findings = reports[position]
+        .map(|explained| {
+            let findings = reports[explained]
                 .key
                 .and_then(|key| cache.findings_mut(&key));
             let feature = FeatureMessages {
-                view: &view,
-                names: &names,
-                units: finished.units,
-                position,
-                manifest: finished
-                    .registry
-                    .get(view.kind(position))
-                    .map(|feature| feature.manifest()),
+                explainer: Explainer {
+                    view: &view,
+                    names: &names,
+                    units: finished.units,
+                    explained,
+                    manifest: finished
+                        .registry
+                        .get(view.kind(explained))
+                        .map(|feature| feature.manifest()),
+                },
             };
             feature.render(findings)
         })
@@ -209,16 +211,9 @@ pub(crate) fn render_messages(finished: &Finished<'_>, cache: &mut Cache) -> Vec
 
 /// The messages of one feature.
 struct FeatureMessages<'m> {
-    /// The run.
-    view: &'m RunView<'m>,
-    /// Current names, records and the run's outputs.
-    names: &'m DocumentNames<'m>,
-    /// Document units.
-    units: Units,
-    /// The feature's position.
-    position: usize,
-    /// Its manifest, when its type is registered.
-    manifest: Option<&'m FeatureManifest>,
+    /// The run, current names and units, and the feature's position, with which the explanations
+    /// of its losses render.
+    explainer: Explainer<'m>,
 }
 
 /// What the diagnosis says about one problem.
@@ -235,7 +230,8 @@ struct Diagnosed {
 impl FeatureMessages<'_> {
     /// Renders every problem of the feature, explained.
     fn render(&self, mut findings: Option<&mut Findings>) -> Vec<Message> {
-        let report = self.view.report(self.position);
+        let explainer = &self.explainer;
+        let report = explainer.view.report(explainer.explained);
         let problems = problems(report.error.as_ref(), &report.warnings);
         if problems.is_empty() {
             return Vec::new();
@@ -247,8 +243,8 @@ impl FeatureMessages<'_> {
                 let diagnosed = self.explain(problem, findings.as_deref_mut());
                 let context = RenderContext {
                     feature: &report.feature,
-                    names: self.names,
-                    units: self.units,
+                    names: explainer.names,
+                    units: explainer.units,
                     bodies: &bodies,
                     diagnosis: &diagnosed.diagnosis,
                 };
@@ -259,9 +255,30 @@ impl FeatureMessages<'_> {
 
     /// The explanation of one problem (section 3.10).
     fn explain(&self, problem: Problem<'_>, findings: Option<&mut Findings>) -> Diagnosed {
+        if let Some((field, losses, only_entry)) = problem.lost() {
+            return self.losses(problem.code(), field, losses, only_entry, findings);
+        }
+        if let Some(followed) = problem.followed() {
+            let key = FindingKey::new(
+                problem.code(),
+                &followed.field.path,
+                followed.position,
+                followed.reference,
+            );
+            let by = self.followed_by(key, findings, |probe| {
+                probe.followed_by(
+                    followed.body,
+                    &followed.reference.query,
+                    followed.follow,
+                    followed.via,
+                    followed.elements,
+                )
+            });
+            return self.followed(by);
+        }
         match problem {
             Problem::Error(FeatureError::UpstreamFailed { feature }) => {
-                let root = Probe::new(self.view, self.position).root_of(feature);
+                let root = self.probe().root_of(feature);
                 Diagnosed {
                     diagnosis: Diagnosis {
                         root: (root != *feature).then(|| root.clone()),
@@ -276,9 +293,7 @@ impl FeatureMessages<'_> {
             ) => {
                 let because = self.because(body);
                 let root = match &because {
-                    Some(Because::Failed(failed)) => {
-                        Some(Probe::new(self.view, self.position).root_of(failed))
-                    }
+                    Some(Because::Failed(failed)) => Some(self.probe().root_of(failed)),
                     _ => None,
                 };
                 Diagnosed {
@@ -289,71 +304,6 @@ impl FeatureMessages<'_> {
                     root,
                     reason: None,
                 }
-            }
-            Problem::Error(error @ FeatureError::ReferencesNotFound { field, losses, .. }) => {
-                self.losses(error.code(), field, losses, losses.len() == 1, findings)
-            }
-            Problem::Error(error @ FeatureError::ReferenceNotFound { field, loss }) => self.losses(
-                error.code(),
-                field,
-                std::slice::from_ref(loss),
-                true,
-                findings,
-            ),
-            Problem::Warning(warning @ FeatureWarning::ReferenceLost { field, loss }) => self
-                .losses(
-                    warning.code(),
-                    field,
-                    std::slice::from_ref(loss),
-                    false,
-                    findings,
-                ),
-            Problem::Warning(
-                warning @ FeatureWarning::PlaneFallback {
-                    field,
-                    loss: Some(loss),
-                    ..
-                },
-            ) => self.losses(
-                warning.code(),
-                field,
-                std::slice::from_ref(loss),
-                true,
-                findings,
-            ),
-            Problem::Warning(
-                warning @ FeatureWarning::ReferenceFollowed {
-                    field,
-                    position,
-                    body,
-                    reference,
-                    elements,
-                    follow,
-                    via,
-                },
-            ) => {
-                let key = FindingKey::new(warning.code(), &field.path, *position, reference);
-                let by = self.followed_by(key, findings, |probe| {
-                    probe.followed_by(body, &reference.query, Some(*follow), via, elements)
-                });
-                self.followed(by)
-            }
-            Problem::Warning(
-                warning @ FeatureWarning::ReferenceWidened {
-                    field,
-                    position,
-                    body,
-                    reference,
-                    elements,
-                    via,
-                    ..
-                },
-            ) => {
-                let key = FindingKey::new(warning.code(), &field.path, *position, reference);
-                let by = self.followed_by(key, findings, |probe| {
-                    probe.followed_by(body, &reference.query, None, via, elements)
-                });
-                self.followed(by)
             }
             Problem::Warning(
                 FeatureWarning::NoEffect { .. } | FeatureWarning::HoleMissesBody { .. },
@@ -372,6 +322,11 @@ impl FeatureMessages<'_> {
         }
     }
 
+    /// A probe of the run for the feature.
+    fn probe(&self) -> Probe<'_, '_> {
+        Probe::new(self.explainer.view, self.explainer.explained)
+    }
+
     /// The explanation of a message about `losses` of the field `field`: each loss's explanation,
     /// the first loss's reason and the root of an upstream reason.
     fn losses(
@@ -382,43 +337,30 @@ impl FeatureMessages<'_> {
         only_entry: bool,
         mut findings: Option<&mut Findings>,
     ) -> Diagnosed {
-        let explainer = Explainer {
-            view: self.view,
-            names: self.names,
-            units: self.units,
-            explained: self.position,
-            manifest: self.manifest,
-        };
         let mut diagnosis = Diagnosis::default();
         let mut first_reason = None;
         for (index, loss) in losses.iter().enumerate() {
             let key = FindingKey::new(code, &field.path, loss.position, &loss.reference);
-            let (reason, after) = match self.finding(key, findings.as_deref_mut(), |probe| {
+            let finding = self.finding(key, findings.as_deref_mut(), |probe| {
                 if loss.ambiguous {
-                    Finding::Loss {
-                        reason: None,
+                    Finding::Ambiguous {
                         after: probe.ambiguous_after(loss),
                     }
                 } else {
-                    Finding::Loss {
-                        reason: Some(probe.loss_reason(loss)),
-                        after: None,
-                    }
+                    Finding::Lost(probe.loss_reason(loss))
                 }
-            }) {
-                Finding::Loss { reason, after } => (reason, after),
-                Finding::Follow { .. } => (None, None),
-            };
-            let explanation = explainer.explanation(&Explained {
+            });
+            let explanation = self.explainer.explanation(&Explained {
                 loss,
                 field,
-                reason: reason.as_ref(),
-                after,
+                finding: &finding,
                 only_entry,
             });
             diagnosis.losses.insert(loss.position, explanation);
-            if index == 0 {
-                first_reason = reason;
+            if index == 0
+                && let Finding::Lost(reason) = finding
+            {
+                first_reason = Some(reason);
             }
         }
         let root = match &first_reason {
@@ -451,11 +393,11 @@ impl FeatureMessages<'_> {
         findings: Option<&mut Findings>,
         compute: impl FnOnce(&mut Probe<'_, '_>) -> Option<Id>,
     ) -> Option<Id> {
-        match self.finding(key, findings, |probe| Finding::Follow {
+        match self.finding(key, findings, |probe| Finding::Followed {
             by: compute(probe),
         }) {
-            Finding::Follow { by } => by,
-            Finding::Loss { .. } => None,
+            Finding::Followed { by } => by,
+            Finding::Lost(_) | Finding::Ambiguous { .. } => None,
         }
     }
 
@@ -469,11 +411,11 @@ impl FeatureMessages<'_> {
     ) -> Finding {
         if let Some(found) = findings
             .as_deref()
-            .and_then(|findings| findings.get(&key, self.view, self.position))
+            .and_then(|findings| findings.get(&key, self.explainer.view, self.explainer.explained))
         {
             return found.clone();
         }
-        let mut probe = Probe::new(self.view, self.position);
+        let mut probe = self.probe();
         let finding = compute(&mut probe);
         if let Some(findings) = findings {
             findings.insert(key, finding.clone(), probe.observations());
@@ -486,8 +428,9 @@ impl FeatureMessages<'_> {
     /// tool; else the last suppressed record before it that writes the body; else the first record
     /// after it that does.
     fn because(&self, body: &Id) -> Option<Because> {
-        let view = self.view;
-        for (writer, _) in view.bodies.writers_before(body, self.position).rev() {
+        let view = self.explainer.view;
+        let explained = self.explainer.explained;
+        for &writer in view.bodies.writers_before(body, explained).iter().rev() {
             let report = view.report(writer);
             match &report.error {
                 Some(
@@ -515,13 +458,13 @@ impl FeatureMessages<'_> {
                 }
             }
         }
-        let suppressed = (0..self.position).rev().find(|&position| {
+        let suppressed = (0..explained).rev().find(|&position| {
             view.state(position) == NodeState::Suppressed && view.writes(position, body)
         });
         if let Some(suppressed) = suppressed {
             return Some(Because::Suppressed(view.id(suppressed).clone()));
         }
-        (self.position + 1..view.reports.len())
+        (explained + 1..view.reports.len())
             .find(|&position| view.writes(position, body))
             .map(|later| Because::ComesLater(view.id(later).clone()))
     }
@@ -529,10 +472,10 @@ impl FeatureMessages<'_> {
     /// The sketch the feature reads, when its report in this run has a `PlaneFallback` warning: the
     /// sketch lost its face (section 3.10, `lost_face`).
     fn lost_face(&self) -> Option<Id> {
-        let sketch = self.view.first_sketch(self.position)?;
-        let position = self.view.position(sketch)?;
-        self.view
-            .report(position)
+        let view = self.explainer.view;
+        let sketch = view.first_sketch(self.explainer.explained)?;
+        let position = view.position(sketch)?;
+        view.report(position)
             .warnings
             .iter()
             .any(|warning| matches!(warning, FeatureWarning::PlaneFallback { .. }))

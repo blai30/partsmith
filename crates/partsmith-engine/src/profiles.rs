@@ -10,7 +10,6 @@ use partsmith_print::{
 use partsmith_protocol::{Diagnostic, Severity, TessellationQuality};
 
 use crate::error::EngineError;
-use crate::status::diagnostic;
 
 /// Smallest display or export chord deviation, in mm.
 const MIN_CHORD: f64 = 0.001;
@@ -37,7 +36,7 @@ impl ResolvedProfile {
     /// The `unknown_printer_profile` warning when the document's printer is not installed.
     pub(crate) fn diagnostic(&self) -> Option<Diagnostic> {
         self.missing.as_ref().map(|id| {
-            diagnostic(
+            Diagnostic::new(
                 Severity::Warning,
                 "unknown_printer_profile",
                 format!(

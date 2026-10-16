@@ -147,11 +147,7 @@ pub fn no_dependencies() -> Dependencies {
 
 /// An output with no data, no warnings and no absent faces.
 pub fn nothing() -> FeatureOutput {
-    FeatureOutput {
-        data: OutputData::Nothing,
-        warnings: Vec::new(),
-        absent: Vec::new(),
-    }
+    FeatureOutput::new(OutputData::Nothing, Vec::new())
 }
 
 /// The links of a dependency list as (id, field) pairs, for comparisons.
@@ -298,6 +294,23 @@ pub fn warning_fixes(warning: &FeatureWarning, feature: &str) -> Vec<Fix> {
     let bodies = BTreeMap::new();
     let diagnosis = Diagnosis::default();
     warning.fixes(&render_context(&feature, &NoNames, &diagnosis, &bodies))
+}
+
+/// The JSON Pointer of a warning's field.
+pub fn pointer(warning: &FeatureWarning) -> Option<String> {
+    warning.field().map(FieldRef::pointer)
+}
+
+/// `KeepMatch` then `Pick` at `pointer`: the fixes of a followed reference (section 3.8).
+pub fn keep_and_pick(pointer: &str) -> Vec<Fix> {
+    vec![
+        Fix::KeepMatch {
+            pointer: pointer.to_string(),
+        },
+        Fix::Pick {
+            pointer: pointer.to_string(),
+        },
+    ]
 }
 
 /// The `PythonNames` of features.md section 6.2 test 22: units mm, body `b-1` as `block`,
@@ -599,16 +612,15 @@ pub fn empty_sketch_output() -> FeatureOutput {
         "measured": {}
     }))
     .expect("an empty solve result deserializes");
-    FeatureOutput {
-        data: OutputData::Sketch(SketchResult {
+    FeatureOutput::new(
+        OutputData::Sketch(SketchResult {
             placement: OriginPlane::Xy.placement(),
             motion: Motion::IDENTITY,
             solved,
             profile: build_profile(&[]),
         }),
-        warnings: Vec::new(),
-        absent: Vec::new(),
-    }
+        Vec::new(),
+    )
 }
 
 /// Owns everything a `BuildContext` borrows. Tests change the public fields, then call `context`.

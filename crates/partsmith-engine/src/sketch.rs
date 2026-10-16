@@ -14,8 +14,8 @@ use partsmith_sketch::{
     SolveResult, Solver, ValueKind, build_profile,
 };
 
+use crate::diagnostics::{feature_error_detail, render_feature_error};
 use crate::error::EngineError;
-use crate::status::render_feature_error;
 
 /// The type name of sketch features.
 pub(crate) const SKETCH_TYPE: &str = "sketch";
@@ -42,7 +42,7 @@ pub(crate) fn sketch_params(
         .validate_and_canonicalize(record)
         .map_err(|error| EngineError::InvalidSketch {
             message: render_feature_error(&error, document, registry, &record.id),
-            detail: error.detail().unwrap_or_else(|| error.to_string()),
+            detail: feature_error_detail(&error),
         })?;
     serde_json::from_value(serde_json::Value::Object(validated.record.params))
         .map_err(EngineError::unexpected)

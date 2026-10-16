@@ -242,13 +242,12 @@ mod tests {
     #[test]
     fn a_datum_plane_places_the_mirror() {
         let plane = r#"{"kind": "datum", "feature": "f-dp1"}"#;
-        let datum = crate::output::FeatureOutput {
-            data: OutputData::Datum(DatumResult::Plane(
+        let datum = crate::output::FeatureOutput::new(
+            OutputData::Datum(DatumResult::Plane(
                 partsmith_sketch::OriginPlane::Yz.placement().offset(20.0),
             )),
-            warnings: Vec::new(),
-            absent: Vec::new(),
-        };
+            Vec::new(),
+        );
 
         let output = build::<Mirror>(
             "f-mir1",

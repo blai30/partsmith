@@ -51,6 +51,18 @@ pub(crate) fn is_list_entry(params: &Map<String, Value>, pointer: &str) -> bool 
     value_at(params, parent(pointer)).is_some_and(Value::is_array)
 }
 
+/// The reference stored at `pointer` of a record's params, under section 3.24's rule.
+pub(crate) fn reference_at(params: &Map<String, Value>, pointer: &str) -> Option<Reference> {
+    value_at(params, pointer).and_then(reference_in)
+}
+
+/// The reference `value` stores (engine.md section 3.24): an object with a `q` key that reads as
+/// a naming `Reference`.
+fn reference_in(value: &Value) -> Option<Reference> {
+    value.get("q")?;
+    serde_json::from_value(value.clone()).ok()
+}
+
 /// A reference a record's params store.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StoredReference {
@@ -96,14 +108,14 @@ fn collect_value(
     found: &mut Vec<StoredReference>,
 ) {
     match value {
+        // An object with a `q` key holds a reference even when it does not read as one, so its
+        // members are not searched.
         Value::Object(members) if members.contains_key("q") => {
-            if let Ok(reference) = serde_json::from_value(value.clone()) {
-                found.push(StoredReference {
-                    pointer: pointer.to_string(),
-                    body: body.cloned(),
-                    reference,
-                });
-            }
+            found.extend(reference_in(value).map(|reference| StoredReference {
+                pointer: pointer.to_string(),
+                body: body.cloned(),
+                reference,
+            }));
         }
         Value::Object(members) => collect_references(members, pointer, body, found),
         Value::Array(items) => {
@@ -333,6 +345,24 @@ mod tests {
                 named("/a~1b/face", "b-1", "f-box1/top"),
             ]
         );
+    }
+
+    #[test]
+    fn references_are_read_at_a_pointer_only_from_objects_with_a_query() {
+        let Value::Object(params) = json!({
+            "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0"}],
+            "plane": {"kind": "face", "body": "b-1"},
+            "broken": {"q": "not a name", "fp": "line"}
+        }) else {
+            panic!("params are an object");
+        };
+
+        let edge = reference_at(&params, "/edges/0").expect("a stored reference");
+
+        assert_eq!(edge.query.to_string(), "edge(f-box1/front|f-box1/top)");
+        assert_eq!(reference_at(&params, "/plane"), None);
+        assert_eq!(reference_at(&params, "/broken"), None);
+        assert_eq!(reference_at(&params, "/edges/1"), None);
     }
 
     #[test]

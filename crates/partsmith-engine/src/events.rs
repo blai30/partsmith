@@ -345,7 +345,7 @@ fn datum_events(open: &mut OpenDocument, doc: DocHandle, output: &mut Output) {
     open.emitted.datums.retain(|id, _| present.contains(id));
 }
 
-/// One `body_mesh` event to emit: the body and its new mesh with its key, or no mesh.
+/// A body whose shown mesh changes: its new mesh with its key, or none.
 struct MeshChange {
     /// The body.
     body: Id,
@@ -480,10 +480,10 @@ fn display_failure(document: &Document, view: &BodyView, error: &EngineError) ->
 }
 
 /// One `body_mesh` event to emit: the body, the id of its event and its mesh, if it has one.
-struct Recorded {
+struct NumberedMesh {
     /// The body.
     body: Id,
-    /// The id of the event.
+    /// The mesh id its `body_mesh` event carries.
     mesh_id: u64,
     /// The mesh; absent when the body shows none.
     mesh: Option<Arc<DisplayMesh>>,
@@ -494,7 +494,7 @@ fn record_layer(
     state: &mut LayerState,
     changes: Vec<MeshChange>,
     next_mesh_id: &mut u64,
-) -> Vec<Recorded> {
+) -> Vec<NumberedMesh> {
     changes
         .into_iter()
         .map(|change| {
@@ -514,7 +514,7 @@ fn record_layer(
                     None
                 }
             };
-            Recorded {
+            NumberedMesh {
                 body: change.body,
                 mesh_id,
                 mesh,
@@ -523,15 +523,15 @@ fn record_layer(
         .collect()
 }
 
-/// Emits the `body_mesh` events of one layer's recorded changes.
+/// Emits the `body_mesh` events of one layer's numbered meshes.
 fn emit_layer(
     layer: Layer,
-    recorded: Vec<Recorded>,
+    numbered: Vec<NumberedMesh>,
     doc: DocHandle,
     revision: u64,
     output: &mut Output,
 ) {
-    for change in recorded {
+    for change in numbered {
         let mesh = change.mesh.map(|mesh| mesh_buffers(&mesh, output));
         output.events.push(Event::BodyMesh {
             doc,

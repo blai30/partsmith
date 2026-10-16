@@ -9,8 +9,8 @@ mod common;
 use std::f64::consts::{FRAC_PI_2, PI};
 
 use common::records::{
-    arc, block, block_with, box_below, cube10, edited, line, linear_pattern, point, rectangle,
-    reference, shell, sketch, xy,
+    BLOCK_TOP, FRONT_TOP_EDGE, RIGHT_SIDE, RIGHT_TOP_EDGE, arc, block, block_with, box_below,
+    cube10, edited, line, linear_pattern, point, rectangle, reference, shell, sketch, xy,
 };
 use common::timeline::{Timeline, stored};
 use common::{id, lint::assert_passes_lint};
@@ -88,27 +88,6 @@ fn render(
     assert_passes_lint(&text);
     text
 }
-
-/// The right top edge of `BLOCK`, as the corpus stores it (R06, R49).
-const RIGHT_TOP_EDGE: (&str, &str) = (
-    "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
-    "line|n=0,1,0|c=80,25,30|l=50|adj=2,2",
-);
-
-/// The right side of `BLOCK` (R49).
-const RIGHT_SIDE: (&str, &str) = (
-    "f-ext1/lateral/e-2",
-    "plane|n=1,0,0|c=80,25,15|a=1500|adj=4,4",
-);
-
-/// The top of `BLOCK` (R19).
-const BLOCK_TOP: (&str, &str) = ("f-ext1/end-cap", "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4");
-
-/// The front top edge of `BLOCK` (R19).
-const FRONT_TOP_EDGE: (&str, &str) = (
-    "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
-    "line|n=1,0,0|c=40,0,30|l=80|adj=2,2",
-);
 
 /// `BLOCK` with its sketch edited, then `holder`.
 fn edited_block(removed: &[&str], added: Vec<Value>, holder: Value) -> Timeline {

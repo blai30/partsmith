@@ -2,7 +2,7 @@
 //! starts with a verb and says exactly what changes, naming elements and regions by the words
 //! their repair gives them.
 
-use partsmith_features::{FieldRef, Fix, Names, Place, SelectionKind};
+use partsmith_features::{FieldRef, Fix, Names, Place, SelectionKind, joined};
 use partsmith_model::{Expr, ExprNodeKind, FeatureRecord, Id};
 use partsmith_naming::{ElementKind, Reference};
 use partsmith_protocol::{Repair, RepairCandidate};
@@ -10,9 +10,10 @@ use partsmith_recompute::Message;
 use partsmith_sketch::RegionRef;
 use serde_json::Value;
 
-use super::params::{field_path, is_list_entry};
 use super::{Offer, OfferRun};
-use crate::diagnostics::{FeatureView, and_list, region_words};
+use crate::params::{field_path, is_list_entry, reference_at};
+use crate::run::FeatureView;
+use crate::words::region_words;
 
 /// The code of the warning whose reference now covers every element its replacement makes
 /// (features.md section 3.8), whose keep and use fixes read `Keep all` and `Use only`.
@@ -218,7 +219,7 @@ impl Labels<'_> {
                     .map(|candidate| candidate.description.clone())
             })
             .collect::<Option<Vec<String>>>()?;
-        Some(and_list(&words))
+        Some(joined(&words))
     }
 
     /// The words of the regions a fix stores at `pointer`: the description of the candidate set
@@ -264,10 +265,8 @@ impl Labels<'_> {
             .element_repair(pointer)
             .map(|(reference, _)| reference.query.kind())
             .or_else(|| {
-                let value = self.feature.record_value(pointer)?;
-                value.get("q")?;
-                let reference: Reference = serde_json::from_value(value.clone()).ok()?;
-                Some(reference.query.kind())
+                reference_at(&self.feature.record.params, pointer)
+                    .map(|reference| reference.query.kind())
             });
         if let Some(kind) = stored {
             return element_noun(kind).to_string();

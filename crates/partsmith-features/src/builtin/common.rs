@@ -318,11 +318,7 @@ pub(crate) fn unchanged(body: &Id, state: &BodyState, change: BodyChange) -> Bod
 
 /// A body-updating output that records no absent face.
 pub(crate) fn bodies(updates: Vec<BodyUpdate>, warnings: Vec<FeatureWarning>) -> FeatureOutput {
-    FeatureOutput {
-        data: OutputData::Bodies(updates),
-        warnings,
-        absent: Vec::new(),
-    }
+    FeatureOutput::new(OutputData::Bodies(updates), warnings)
 }
 
 /// Applies a solid feature's tool to its body with the shared body semantics and outputs the

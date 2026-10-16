@@ -113,11 +113,10 @@ mod tests {
     }
 
     fn nothing() -> Outcome {
-        Outcome::Built(Built::new(FeatureOutput {
-            data: OutputData::Nothing,
-            warnings: Vec::new(),
-            absent: Vec::new(),
-        }))
+        Outcome::Built(Built::new(FeatureOutput::new(
+            OutputData::Nothing,
+            Vec::new(),
+        )))
     }
 
     /// A cache holding `outcome` under the planned key of the step at `position`.

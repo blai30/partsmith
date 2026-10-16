@@ -29,7 +29,38 @@ pub mod sphere;
 pub mod split_body;
 pub mod torus;
 
+use crate::feature::Feature;
 use crate::registry::{Registry, RegistryError};
+
+/// Primitive types, whose faces use their role as their direction word (features.md section 3.12).
+pub(crate) const PRIMITIVE_TYPES: [&str; 5] = [
+    r#box::BoxFeature::TYPE,
+    cylinder::Cylinder::TYPE,
+    sphere::Sphere::TYPE,
+    cone::Cone::TYPE,
+    torus::Torus::TYPE,
+];
+
+/// Types whose faces with Operation Cut read as the floor and walls of a cut (section 3.12): the sweeps and the
+/// primitives.
+pub(crate) const CUTTING_TYPES: [&str; 7] = [
+    extrude::Extrude::TYPE,
+    revolve::Revolve::TYPE,
+    r#box::BoxFeature::TYPE,
+    cylinder::Cylinder::TYPE,
+    sphere::Sphere::TYPE,
+    cone::Cone::TYPE,
+    torus::Torus::TYPE,
+];
+
+/// Types that take their body's faces into a target body and leave the body its own: copies and splits (section
+/// 3.12).
+pub(crate) const COPYING_TYPES: [&str; 4] = [
+    mirror::Mirror::TYPE,
+    linear_pattern::LinearPattern::TYPE,
+    circular_pattern::CircularPattern::TYPE,
+    split_body::SplitBody::TYPE,
+];
 
 /// Registers one feature type, for example `Registry::register::<extrude::Extrude>`.
 pub(crate) type Registration = fn(&mut Registry) -> Result<(), RegistryError>;

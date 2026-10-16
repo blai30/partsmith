@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::io;
 
-use partsmith_engine::{EngineError, PrintRequest, Session, message_candidates};
+use partsmith_engine::{EngineError, PrintRequest, Session, message_candidates, message_location};
 use partsmith_model::{Body, Dimension, Document, Id};
 use partsmith_protocol::{
     BoundingBox, Diagnostic, DocHandle, FeatureState, FeatureStatus, MeasureTarget, Measurement,
@@ -247,10 +247,8 @@ fn feature_reports(
 /// its field.
 fn message_report(message: Diagnostic, repairs: &[Repair], index: usize) -> MessageReport {
     let field = message.field.as_deref();
-    let location = format!("/features/{index}{}", field.unwrap_or_default());
-    let candidates = field
-        .map(|field| message_candidates(repairs, field))
-        .unwrap_or_default();
+    let location = message_location(index, field);
+    let candidates = message_candidates(repairs, field);
     MessageReport {
         severity: message.severity,
         code: message.code.clone(),

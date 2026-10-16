@@ -1,5 +1,6 @@
 //! Feature records of the specs' shared setups, as JSON: `BLOCK` and `SLOT(a, b)` (reference stability corpus,
-//! "Shared setups"), `CUBE10`, `CUBE20`, `BOX-BELOW`, and builders for sketches, extrudes, fillets and shells.
+//! "Shared setups"), `CUBE10`, `CUBE20`, `BOX-BELOW`, builders for sketches, extrudes, fillets and shells, and the
+//! stored references of `BLOCK`'s elements that several tests pick.
 
 use serde_json::{Value, json};
 
@@ -94,6 +95,27 @@ pub fn block_with(entities: Vec<Value>) -> Vec<Value> {
 pub fn block() -> Vec<Value> {
     block_with(rectangle())
 }
+
+/// The right top edge of `BLOCK`, as the corpus stores it (R06, R49).
+pub const RIGHT_TOP_EDGE: (&str, &str) = (
+    "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
+    "line|n=0,1,0|c=80,25,30|l=50|adj=2,2",
+);
+
+/// The front top edge of `BLOCK` (R19).
+pub const FRONT_TOP_EDGE: (&str, &str) = (
+    "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
+    "line|n=1,0,0|c=40,0,30|l=80|adj=2,2",
+);
+
+/// The right side of `BLOCK` (R49).
+pub const RIGHT_SIDE: (&str, &str) = (
+    "f-ext1/lateral/e-2",
+    "plane|n=1,0,0|c=80,25,15|a=1500|adj=4,4",
+);
+
+/// The top of `BLOCK` (R19, R58).
+pub const BLOCK_TOP: (&str, &str) = ("f-ext1/end-cap", "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4");
 
 /// `SLOT(a, b)` on `BLOCK`: `f-dp1` datum XY offset 30, `f-sk2` on it with a rectangle x a..b, y -1..51 (lines
 /// `e-21` to `e-24`), and `f-ext2`, its extrude, distance 5, reverse, op cut.

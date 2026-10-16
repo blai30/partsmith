@@ -196,6 +196,25 @@ pub struct ValidationDiagnostic {
     pub feature: Option<Box<FeatureMessage>>,
 }
 
+impl ValidationDiagnostic {
+    /// A finding with a severity, a code and a message, and no position and no feature message.
+    pub fn new(
+        severity: Severity,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> ValidationDiagnostic {
+        ValidationDiagnostic {
+            severity,
+            code: code.into(),
+            message: message.into(),
+            line: None,
+            column: None,
+            path: None,
+            feature: None,
+        }
+    }
+}
+
 /// A feature message as `validate` reports it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FeatureMessage {
@@ -214,15 +233,25 @@ mod tests {
     use super::*;
 
     fn diagnostic(severity: Severity) -> ValidationDiagnostic {
-        ValidationDiagnostic {
-            severity,
-            code: "code".to_string(),
-            message: "Message.".to_string(),
-            line: None,
-            column: None,
-            path: None,
-            feature: None,
-        }
+        ValidationDiagnostic::new(severity, "code", "Message.")
+    }
+
+    #[test]
+    fn a_new_diagnostic_has_no_position_and_no_feature_message() {
+        let diagnostic = ValidationDiagnostic::new(Severity::Warning, "code", "Message.");
+
+        assert_eq!(
+            diagnostic,
+            ValidationDiagnostic {
+                severity: Severity::Warning,
+                code: "code".to_string(),
+                message: "Message.".to_string(),
+                line: None,
+                column: None,
+                path: None,
+                feature: None,
+            }
+        );
     }
 
     #[test]

@@ -709,6 +709,11 @@ A `pick_reference` of the front top edge of the right piece of a top split by a 
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command { /* variants below */ }
 
+impl Command {
+    /// The command's `type` as the wire writes it, for example `apply_edits`.
+    pub fn type_name(&self) -> &'static str;
+}
+
 /// The success value of every command; its `type` equals the command's `type`.
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CommandResult { /* variants below */ }

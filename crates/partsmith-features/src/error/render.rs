@@ -10,8 +10,8 @@ use partsmith_sketch::RegionLoss;
 use super::describe::{describe_elements, describe_face};
 use super::field::FieldRef;
 use super::fix::{Fix, Place};
-use super::loss::{Loss, RegionLost};
-use super::message::{Names, format_value, plural, suggested_limit};
+use super::loss::{Loss, LossCandidate, RegionLost};
+use super::message::{IdNames, Names, format_value, plural, suggested_limit};
 use crate::context::BodyState;
 
 /// What rendering a message, and computing its fixes, needs besides the error or warning itself (section 3.12).
@@ -114,21 +114,6 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// The renderer `Display` uses: ids for names, millimeters, `this feature`, no body states and no diagnosis.
-    pub(crate) fn plain(
-        names: &'a dyn Names,
-        bodies: &'a BTreeMap<Id, BodyState>,
-        diagnosis: &'a Diagnosis,
-    ) -> Renderer<'a> {
-        Renderer {
-            feature: None,
-            names,
-            units: Units::Mm,
-            bodies,
-            diagnosis,
-        }
-    }
-
     /// Recompute's explanation of the message.
     pub(crate) fn diagnosis(&self) -> &'a Diagnosis {
         self.diagnosis
@@ -197,7 +182,7 @@ impl<'a> Renderer<'a> {
     }
 
     /// The state of a declared body just before the feature, when the context has it.
-    pub(crate) fn bodies_of(&self, body: &Id) -> Option<&'a BodyState> {
+    pub(crate) fn body_state(&self, body: &Id) -> Option<&'a BodyState> {
         self.bodies.get(body)
     }
 
@@ -352,11 +337,6 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// `'{sketch}'` of a region message.
-    pub(crate) fn region_sketch(&self, sketch: &Id) -> String {
-        self.quoted_feature(sketch)
-    }
-
     /// `UseRegions` at `pointer` for each set of regions, with each region's reference from the sketch's result,
     /// when the names know it.
     pub(crate) fn use_regions(&self, pointer: &str, sketch: &Id, sets: &[Vec<usize>]) -> Vec<Fix> {
@@ -384,6 +364,29 @@ impl<'a> Renderer<'a> {
     }
 }
 
+/// What a lost reference is to its feature, which decides whether `RemoveEntry` is offered (section 4.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Entry {
+    /// A list entry the feature skipped and built without.
+    Skipped,
+    /// A reference the feature could not build without.
+    Required,
+}
+
+/// A message as `Display` writes it: `text` rendered with ids for names, millimeters, `this feature`, no body states
+/// and no diagnosis.
+pub(crate) fn plain_text(text: impl FnOnce(&Renderer<'_>) -> String) -> String {
+    let bodies = BTreeMap::new();
+    let diagnosis = Diagnosis::default();
+    text(&Renderer {
+        feature: None,
+        names: &IdNames,
+        units: Units::Mm,
+        bodies: &bodies,
+        diagnosis: &diagnosis,
+    })
+}
+
 /// The fixes of one loss at `pointer` in the order of section 4.4: candidates that keep a face of the lost element,
 /// the reason's fixes, the other candidates, `RemoveEntry` when the loss is a list entry the feature skipped, and
 /// `Pick` unless the reason is upstream.
@@ -391,12 +394,12 @@ pub(crate) fn loss_fixes(
     loss: &Loss,
     pointer: &str,
     explanation: Option<&Explanation>,
-    removable: bool,
+    entry: Entry,
 ) -> Vec<Fix> {
     let mut fixes = candidate_fixes(loss, explanation, |reference| {
         Fix::use_reference(pointer, reference)
     });
-    if removable {
+    if entry == Entry::Skipped {
         fixes.push(Fix::RemoveEntry {
             pointer: pointer.to_string(),
         });
@@ -414,20 +417,21 @@ pub(crate) fn candidate_fixes(
     explanation: Option<&Explanation>,
     use_candidate: impl Fn(&Reference) -> Fix,
 ) -> Vec<Fix> {
-    let keeping_meaning = |meaning: bool| !loss.every_part_lost() && meaning;
-    let mut fixes: Vec<Fix> = loss
+    let every_part_lost = loss.every_part_lost();
+    let (keeping_meaning, others): (Vec<&LossCandidate>, Vec<&LossCandidate>) = loss
         .candidates
         .iter()
-        .filter(|candidate| keeping_meaning(candidate.meaning))
+        .partition(|candidate| !every_part_lost && candidate.meaning);
+    let mut fixes: Vec<Fix> = keeping_meaning
+        .into_iter()
         .map(|candidate| use_candidate(&candidate.reference))
         .collect();
     if let Some(explanation) = explanation {
         fixes.extend(explanation.fixes.iter().cloned());
     }
     fixes.extend(
-        loss.candidates
-            .iter()
-            .filter(|candidate| !keeping_meaning(candidate.meaning))
+        others
+            .into_iter()
             .map(|candidate| use_candidate(&candidate.reference)),
     );
     fixes
@@ -462,7 +466,7 @@ pub(crate) fn region_gone_text(
 ) -> String {
     format!(
         "The region of {} selected for {label} is gone because {}{consequence}.",
-        renderer.region_sketch(sketch),
+        renderer.quoted_feature(sketch),
         region_reason(loss)
     )
 }
@@ -478,7 +482,7 @@ pub(crate) fn region_matches_text(
 ) -> String {
     format!(
         "The region of {} selected for {label} now matches {count} separate areas{consequence}. Pick the one you mean.",
-        renderer.region_sketch(sketch)
+        renderer.quoted_feature(sketch)
     )
 }
 
@@ -524,8 +528,8 @@ pub(crate) fn entry_pointer(field: &FieldRef, position: usize) -> String {
     format!("{}/{position}", field.pointer())
 }
 
-/// The descriptions of `items` joined as words: `a`, `a and b`, `a, b and c`.
-pub(crate) fn joined(items: &[String]) -> String {
+/// Descriptions joined as words for a message: `a`, `a and b`, `a, b and c` (section 3.12).
+pub fn joined(items: &[String]) -> String {
     match items {
         [] => String::new(),
         [only] => only.clone(),

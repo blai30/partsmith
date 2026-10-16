@@ -18,12 +18,12 @@ use serde_json::Value;
 
 use crate::assets::asset_matches;
 use crate::counts::saturating_u32;
-use crate::diagnostics::RunView;
+use crate::diagnostics::render_feature_error;
 use crate::document::{canonical_text, canonicalize_params};
 use crate::error::EngineError;
+use crate::run::RunView;
 use crate::session::Session;
 use crate::sketch::{SKETCH_TYPE, dimension_values};
-use crate::status::render_feature_error;
 use crate::types::{
     Asset, FeatureMessage, ValidateOptions, ValidationDiagnostic, ValidationReport,
 };
@@ -101,15 +101,14 @@ impl Session {
         {
             let line = first_difference_line(text, &canonical);
             report.diagnostics.push(ValidationDiagnostic {
-                severity: Severity::Error,
-                code: "not_canonical".to_string(),
-                message: format!(
-                    "The file is not in canonical form; the first difference is on line {line}. Run partsmith fmt to rewrite it."
-                ),
                 line: Some(line),
-                column: None,
-                path: None,
-                feature: None,
+                ..ValidationDiagnostic::new(
+                    Severity::Error,
+                    "not_canonical",
+                    format!(
+                        "The file is not in canonical form; the first difference is on line {line}. Run partsmith fmt to rewrite it."
+                    ),
+                )
             });
         }
         report
@@ -139,43 +138,51 @@ fn feature_messages(
         })
     };
     let mut diagnostics = Vec::new();
-    for position in 0..run.report.features.len() {
-        let Some(feature) = run.feature_at(position) else {
-            continue;
-        };
+    for feature in run.features() {
         for message in &feature.report.messages {
             let field = message.pointer.as_deref();
-            let path = format!("/features/{position}{}", field.unwrap_or_default());
+            let path = message_location(feature.position, field);
             if reported(message.code, &path) {
                 continue;
             }
             let (diagnostic, repairs) = feature.project(message, VALIDATED_REVISION, None);
-            let candidates = field
-                .map(|field| message_candidates(&repairs, field))
-                .unwrap_or_default();
+            let candidates = message_candidates(&repairs, field);
+            let found = ValidationDiagnostic::new(
+                diagnostic.severity,
+                diagnostic.code.clone(),
+                diagnostic.message.clone(),
+            );
             diagnostics.push(ValidationDiagnostic {
-                severity: diagnostic.severity,
-                code: diagnostic.code.clone(),
-                message: diagnostic.message.clone(),
-                line: None,
-                column: None,
                 path: Some(path),
                 feature: Some(Box::new(FeatureMessage {
                     feature: feature.id().clone(),
                     diagnostic,
                     candidates,
                 })),
+                ..found
             });
         }
     }
     diagnostics
 }
 
+/// Where a message of the feature at timeline position `position` is in the document (cli.md
+/// section 2.2): `/features/<position>` followed by the message's field, a JSON Pointer.
+/// `validate` reports it as the message's path, and hosts that read statuses locate messages
+/// with it.
+pub fn message_location(position: usize, field: Option<&str>) -> String {
+    format!("/features/{position}{}", field.unwrap_or_default())
+}
+
 /// The candidates of a feature message whose field is `field` (cli.md section 2.2): those of the
 /// element repairs among a feature's `repairs` whose path is `field` or lies under it (`/edges/0`
-/// under `/edges`), in repair order, then candidate order. `validate` reports them with each
-/// message, and hosts that read statuses pick them out of `FeatureStatus::repairs` with it.
-pub fn message_candidates(repairs: &[Repair], field: &str) -> Vec<RepairCandidate> {
+/// under `/edges`), in repair order, then candidate order; none for a message about no field.
+/// `validate` reports them with each message, and hosts that read statuses pick them out of
+/// `FeatureStatus::repairs` with it.
+pub fn message_candidates(repairs: &[Repair], field: Option<&str>) -> Vec<RepairCandidate> {
+    let Some(field) = field else {
+        return Vec::new();
+    };
     repairs
         .iter()
         .filter_map(|repair| match repair {
@@ -218,13 +225,8 @@ impl<'a> Checks<'a> {
     /// Adds a diagnostic without a position in the text.
     fn push(&mut self, severity: Severity, code: &str, message: String, path: Option<String>) {
         self.diagnostics.push(ValidationDiagnostic {
-            severity,
-            code: code.to_string(),
-            message,
-            line: None,
-            column: None,
             path,
-            feature: None,
+            ..ValidationDiagnostic::new(severity, code, message)
         });
     }
 
@@ -574,10 +576,7 @@ fn sketch_lines(value: &Value, path: &str, links: &mut Vec<EntityLink>) {
 
 /// `/features/<position>` followed by the field's pointer.
 fn feature_path(position: usize, field: Option<&FieldRef>) -> String {
-    format!(
-        "/features/{position}{}",
-        field.map(FieldRef::pointer).unwrap_or_default()
-    )
+    message_location(position, field.map(FieldRef::pointer).as_deref())
 }
 
 /// The diagnostic of a document that does not load (step 1): the load error's code, message and
@@ -590,18 +589,15 @@ fn load_diagnostic(error: LoadError) -> ValidationDiagnostic {
         } => (*line, *column, path.clone()),
         _ => (None, None, None),
     };
+    let code = match engine_error {
+        EngineError::UnsupportedFormatVersion { .. } => "unsupported_format_version",
+        _ => "parse_error",
+    };
     ValidationDiagnostic {
-        severity: Severity::Error,
-        code: match engine_error {
-            EngineError::UnsupportedFormatVersion { .. } => "unsupported_format_version",
-            _ => "parse_error",
-        }
-        .to_string(),
-        message: engine_error.to_string(),
         line,
         column,
         path,
-        feature: None,
+        ..ValidationDiagnostic::new(Severity::Error, code, engine_error.to_string())
     }
 }
 
@@ -774,7 +770,7 @@ mod tests {
         ];
 
         assert_eq!(
-            queries(message_candidates(&repairs, "/edges")),
+            queries(message_candidates(&repairs, Some("/edges"))),
             [
                 "edge(f-box1/front|f-ext1/lateral/e-1)",
                 "edge(f-box1/top|f-ext1/lateral/e-2)",
@@ -782,10 +778,17 @@ mod tests {
             ]
         );
         assert_eq!(
-            queries(message_candidates(&repairs, "/edges/1")),
+            queries(message_candidates(&repairs, Some("/edges/1"))),
             ["edge(f-box1/back|f-box1/top)"]
         );
-        assert!(message_candidates(&repairs, "/radius").is_empty());
+        assert!(message_candidates(&repairs, Some("/radius")).is_empty());
+        assert!(message_candidates(&repairs, None).is_empty());
+    }
+
+    #[test]
+    fn message_locations_append_the_field() {
+        assert_eq!(message_location(2, Some("/edges/0")), "/features/2/edges/0");
+        assert_eq!(message_location(0, None), "/features/0");
     }
 
     fn record(json: serde_json::Value) -> FeatureRecord {

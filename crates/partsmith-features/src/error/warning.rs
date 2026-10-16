@@ -1,6 +1,5 @@
 //! Feature warnings and notices, their messages, fixes and repair data (features.md sections 2.8, 3.7, 3.8 and 4.2).
 
-use std::collections::BTreeMap;
 use std::fmt;
 
 use partsmith_model::{Id, Units};
@@ -11,10 +10,10 @@ use super::describe::{made_from_line, new_faces_are_flat, rim_generator};
 use super::field::FieldRef;
 use super::fix::Fix;
 use super::loss::{Loss, LossCandidate, Repair, Severity};
-use super::message::{FallbackCause, IdNames, IgnoredReason, Placed, plural};
+use super::message::{FallbackCause, IgnoredReason, Placed, plural};
 use super::render::{
-    Diagnosis, RenderContext, Renderer, candidate_fixes, joined, loss_fixes, lost_reference_text,
-    region_gone_text, region_matches_text, selected_for,
+    Entry, RenderContext, Renderer, candidate_fixes, joined, loss_fixes, lost_reference_text,
+    plain_text, region_gone_text, region_matches_text, selected_for,
 };
 use super::{candidate_detail, loss_detail};
 
@@ -247,7 +246,7 @@ impl FeatureWarning {
                 let element =
                     selected_for(&renderer.describe_reference(reference, body), &field.label);
                 let line = line_or_curve(reference);
-                let flat = new_faces_are_flat(reference, elements, renderer.bodies_of(body))
+                let flat = new_faces_are_flat(reference, elements, renderer.body_state(body))
                     .unwrap_or_else(|| made_from_line(reference));
                 let lines = if flat { "lines" } else { "curves" };
                 let count = elements.len();
@@ -264,7 +263,7 @@ impl FeatureWarning {
                 ..
             } => format!(
                 "The region of {} selected for {} is now split in {count} parts by other curves of the sketch, and all of them are used. Remove a part from the profile to leave it out.",
-                renderer.region_sketch(sketch),
+                renderer.quoted_feature(sketch),
                 field.label
             ),
             FeatureWarning::RegionResized {
@@ -274,12 +273,12 @@ impl FeatureWarning {
                 ..
             } => format!(
                 "The region of {} selected for {} is now {count} parts whose outline runs along other curves of the sketch, so it covers a different area than when it was picked. Check the profile, then keep it or pick it again.",
-                renderer.region_sketch(sketch),
+                renderer.quoted_feature(sketch),
                 field.label
             ),
             FeatureWarning::RegionRemapped { field, sketch, .. } => format!(
                 "The outline of the region of {} selected for {} was drawn again, so the region with the same size and place is used. Check it, then keep it or pick it again.",
-                renderer.region_sketch(sketch),
+                renderer.quoted_feature(sketch),
                 field.label
             ),
             FeatureWarning::RegionAmbiguous {
@@ -402,7 +401,7 @@ impl FeatureWarning {
                 loss,
                 &field.pointer(),
                 renderer.explanation(loss.position),
-                true,
+                Entry::Skipped,
             ),
             FeatureWarning::ReferenceGuessed { alternatives, .. } => {
                 let mut fixes = vec![keep()];
@@ -568,9 +567,7 @@ impl FeatureWarning {
 
 impl fmt::Display for FeatureWarning {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let bodies = BTreeMap::new();
-        let diagnosis = Diagnosis::default();
-        formatter.write_str(&self.text(&Renderer::plain(&IdNames, &bodies, &diagnosis)))
+        formatter.write_str(&plain_text(|renderer| self.text(renderer)))
     }
 }
 
@@ -638,7 +635,10 @@ fn still_used(
 /// The distance between the stored centroids of two references, 0 when either has none.
 fn centroid_distance(first: &Reference, second: &Reference) -> f64 {
     match (first.fingerprint.centroid, second.fingerprint.centroid) {
-        (Some(a), Some(b)) => (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f64>().sqrt(),
+        (Some(first), Some(second)) => (0..3)
+            .map(|i| (first[i] - second[i]).powi(2))
+            .sum::<f64>()
+            .sqrt(),
         _ => 0.0,
     }
 }
@@ -807,11 +807,14 @@ fn continued_part(query: &ElementName, elements: &[Reference]) -> Option<String>
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use partsmith_model::FeatureRecord;
     use serde_json::json;
 
     use super::*;
-    use crate::error::{Explanation, Names};
+    use crate::error::message::IdNames;
+    use crate::error::{Diagnosis, Explanation, Names};
     use crate::output::SketchResult;
 
     fn id(text: &str) -> Id {

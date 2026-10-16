@@ -1,5 +1,5 @@
-//! Statuses and the loss diagnosis of recompute.md sections 3.5, 3.6 and 3.10: tests 41 and 43 to 71 of section 6,
-//! as far as phase 1 of the reference stability plan builds them, plus small tests of the rules those scenarios do not
+//! Statuses and the loss diagnosis of recompute.md sections 3.5, 3.6 and 3.10: tests 41, 43 to 68, 71 and 73 of
+//! section 6, as far as phase 1 of the reference stability plan builds them, plus small tests of the rules those scenarios do not
 //! reach. A test named `tNNN` is section 6 test NNN; a test with several scenarios is one test per scenario.
 //!
 //! Each test runs the scenario of the reference stability corpus or the newcomer error corpus it names as a document of
@@ -27,43 +27,30 @@ use feature_support::{
     use_reference,
 };
 use partsmith_features::{Absence, FieldRef, Fix, Place, Repair};
-use partsmith_model::{Document, EmptyContext, Id};
+use partsmith_model::{Document, EmptyContext};
 use partsmith_naming::{ElementKind, ElementName, Instance};
 use partsmith_recompute::{
     CancelToken, Input, LossReason, Message, Recompute, Removal, Report, Severity, Status,
 };
 use serde_json::{Value, json};
 use stability_common::{
-    asset_name, box_below, box_record, chamfer, circle, cube10, cube20, datum_offset,
-    datum_on_face, datum_plane, distance, edited, extrude, face_plane, fillet, fingerprint_number,
-    hole, insert_before, line, origin_plane, plate_bytes, point, rectangle, reference, run_picked,
-    saved, shell, sketch, suppressed, top_face_plane, unsuppressed, with, with_picks, without,
+    angle, arc, asset_name, block, block_back_top, block_front_right_vertical, block_front_top,
+    block_right_top, block_top, boolean, boss_base_ring, boss_top_rim, box_below, box_record,
+    chamfer, circle, circle_region, constrained_sketch, counterbore, cube10, cube20,
+    cube20_bottom_front, cube20_front_top, datum_offset, datum_on_face, datum_plane, distance,
+    document_of, edit, edit_document, edited, edited_document, extrude, face_plane, fillet,
+    filleted_boss, full_turn, hole, id, import, insert_before, keep_match, line, linear_pattern,
+    move_before, move_to_end, origin_plane, pegs, pick, plate_bytes, point, rectangle,
+    rectangle_region, reference, region, reversed, revolve, run, run_edited, run_with_assets,
+    saved, shell, show, size_constraint, sketch, slotted_cube, split, suppressed, symmetric,
+    through_all, top_face_plane, unsuppress, unsuppressed, with, without,
 };
 
 // Ids, names and fixes.
 
-/// An id written in a test.
-fn id(text: &str) -> Id {
-    Id::new(text).expect("ids written in tests are valid")
-}
-
 /// An element name written in a test.
 fn name(text: &str) -> ElementName {
     ElementName::parse(text).expect("names written in tests are valid")
-}
-
-/// `Pick` of the reference at `pointer`.
-fn pick(pointer: &str) -> Fix {
-    Fix::Pick {
-        pointer: pointer.to_owned(),
-    }
-}
-
-/// `KeepMatch` of the reference at `pointer`.
-fn keep_match(pointer: &str) -> Fix {
-    Fix::KeepMatch {
-        pointer: pointer.to_owned(),
-    }
 }
 
 /// `RemoveEntry` of the list entry at `pointer`.
@@ -73,25 +60,10 @@ fn remove_entry(pointer: &str) -> Fix {
     }
 }
 
-/// `Unsuppress` of `feature`.
-fn unsuppress(feature: &str) -> Fix {
-    Fix::Unsuppress {
-        feature: id(feature),
-    }
-}
-
 /// `Suppress` of `feature`.
 fn suppress(feature: &str) -> Fix {
     Fix::Suppress {
         feature: id(feature),
-    }
-}
-
-/// `Show` of `feature` itself.
-fn show(feature: &str) -> Fix {
-    Fix::Show {
-        feature: id(feature),
-        entity: None,
     }
 }
 
@@ -253,47 +225,7 @@ fn assert_no_faces_of(run: &Run, body: &str, feature: &str) {
     assert!(faces.is_empty(), "{feature} left faces {faces:?} in {body}");
 }
 
-// Documents and runs.
-
-/// A millimeter document with these test bodies and feature records.
-fn document_of(bodies: &[&str], features: &[Value]) -> Document {
-    let texts: Vec<String> = features.iter().map(Value::to_string).collect();
-    let records: Vec<&str> = texts.iter().map(String::as_str).collect();
-    feature_support::document(bodies, &records)
-}
-
-/// Runs the setup made of these test bodies and feature records, with its references picked.
-fn setup(bodies: &[&str], features: &[Value]) -> Run {
-    setup_with_assets(bodies, features, &Assets::new())
-}
-
-/// Runs the setup made of these test bodies and feature records with these asset bytes, with its references picked.
-fn setup_with_assets(bodies: &[&str], features: &[Value], assets: &Assets) -> Run {
-    run_picked(document_of(bodies, features), assets)
-}
-
-/// The edit of the document of `run` made of these test bodies and feature records, with the picks of `run`'s
-/// document carried over.
-fn edited_document(run: &Run, bodies: &[&str], features: &[Value]) -> Document {
-    with_picks(&run.document, &document_of(bodies, features))
-}
-
-/// Runs the edit made of these test bodies and feature records on the recompute of `session`, as an edit in an open
-/// session does.
-fn edit(session: &mut Run, bodies: &[&str], features: &[Value]) {
-    edit_with_assets(session, bodies, features, &Assets::new());
-}
-
-/// Runs the edit made of these test bodies and feature records on the recompute of `session` with these asset bytes.
-fn edit_with_assets(session: &mut Run, bodies: &[&str], features: &[Value], assets: &Assets) {
-    session.document = edited_document(session, bodies, features);
-    session.rerun(assets);
-}
-
-/// Runs the edit of `setup` made of these test bodies and feature records on a new recompute.
-fn fresh(setup: &Run, bodies: &[&str], features: &[Value]) -> Run {
-    Run::new(edited_document(setup, bodies, features))
-}
+// Runs.
 
 /// A new recompute with the built-in registry.
 fn new_recompute() -> Recompute {
@@ -315,181 +247,12 @@ fn run_until(recompute: &mut Recompute, document: &Document, stop_at: &str) -> R
     recompute.run(&input, &CancelToken::new())
 }
 
-// Records.
-
-/// A region reference with this key and the fingerprint of a region with this centroid and area.
-fn region(key: &str, center: [f64; 2], area: f64) -> Value {
-    json!({
-        "key": key,
-        "fp": format!(
-            "c={},{}|a={}",
-            fingerprint_number(center[0]),
-            fingerprint_number(center[1]),
-            fingerprint_number(area)
-        )
-    })
-}
-
-/// The region reference of a circle entity.
-fn circle_region(entity: &str, center: [f64; 2], radius: f64) -> Value {
-    region(entity, center, PI * radius * radius)
-}
-
-/// The region reference of the rectangle `e-<first>` to `e-<first + 3>` from (x0, y0) to (x1, y1).
-fn rectangle_region(first: usize, x0: f64, y0: f64, x1: f64, y1: f64) -> Value {
-    let key = (first..first + 4)
-        .map(|number| format!("e-{number}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    region(
-        &key,
-        [(x0 + x1) / 2.0, (y0 + y1) / 2.0],
-        (x1 - x0) * (y1 - y0),
-    )
-}
-
-/// An arc entity from `start_angle` to `end_angle`, counterclockwise.
-fn arc(entity: &str, center: [f64; 2], radius: f64, start_angle: f64, end_angle: f64) -> Value {
-    json!({
-        "id": entity, "type": "arc", "center": center, "radius": radius,
-        "start_angle": start_angle, "end_angle": end_angle
-    })
-}
-
-/// A symmetric extent.
-fn symmetric(expr: &str) -> Value {
-    json!({"kind": "symmetric", "expr": expr})
-}
-
-/// A through-all extent.
-fn through_all() -> Value {
-    json!({"kind": "through_all"})
-}
-
-/// The record with `reverse` set.
-fn reversed(record: Value) -> Value {
-    with(record, "reverse", json!(true))
-}
-
-/// A sketch record with constraints.
-fn constrained_sketch(
-    feature: &str,
-    plane: Value,
-    entities: Vec<Value>,
-    constraints: Vec<Value>,
-) -> Value {
-    with(
-        sketch(feature, plane, entities),
-        "constraints",
-        json!(constraints),
-    )
-}
-
-/// A `radius` or `diameter` constraint on a circle.
-fn size_constraint(constraint: &str, kind: &str, curve: &str, expr: &str) -> Value {
-    json!({"id": constraint, "type": kind, "curve": curve, "expr": expr})
-}
-
-/// A revolve record of `b-1` about the origin Z axis.
-fn revolve(feature: &str, sketch: &str, region: Value, extent: Value) -> Value {
-    json!({
-        "id": feature, "type": "revolve", "body": "b-1",
-        "profile": {"sketch": sketch, "regions": [region]},
-        "axis": {"kind": "origin", "axis": "Z"}, "extent": extent, "op": "new"
-    })
-}
-
-/// A linear pattern record `f-lp1` of `b-1` along the origin X axis.
-fn linear_pattern(count: &str, spacing: &str) -> Value {
-    json!({
-        "id": "f-lp1", "type": "linear_pattern", "body": "b-1",
-        "direction": {"axis": {"kind": "origin", "axis": "X"}, "count": count, "spacing": spacing}
-    })
-}
-
-/// A boolean record `f-bool1`.
-fn boolean(target: &str, tools: &[&str], op: &str) -> Value {
-    json!({"id": "f-bool1", "type": "boolean", "target": target, "tools": tools, "op": op})
-}
-
-/// The split body record `f-split1` of `b-1` by the datum `f-dp1` into `b-2`.
-fn split(flip: bool) -> Value {
-    let record = json!({
-        "id": "f-split1", "type": "split_body", "body": "b-1",
-        "plane": datum_plane("f-dp1"), "target": "b-2"
-    });
-    if flip {
-        with(record, "flip", json!(true))
-    } else {
-        record
-    }
-}
-
-/// A counterbore hole type.
-fn counterbore(diameter: &str, depth: &str) -> Value {
-    json!({"kind": "counterbore", "diameter": diameter, "depth": depth})
-}
-
-/// An import record `f-imp1` of `asset` into `b-1`.
-fn import(asset: &str) -> Value {
-    json!({"id": "f-imp1", "type": "import", "body": "b-1", "asset": asset, "op": "new"})
-}
-
-/// The features with the records `moved` taken out and placed, in their order, directly before `before` (a timeline
-/// drag).
-fn dragged(features: &[Value], moved: &[&str], before: &str) -> Vec<Value> {
-    let taken: Vec<Value> = moved
-        .iter()
-        .map(|feature| {
-            features
-                .iter()
-                .find(|record| record["id"].as_str() == Some(feature))
-                .unwrap_or_else(|| panic!("no feature {feature}"))
-                .clone()
-        })
-        .collect();
-    insert_before(&without(features, moved), before, taken)
-}
-
-/// The features with the records `moved` taken out and appended, in their order, at the end.
-fn dragged_to_end(features: &[Value], moved: &[&str]) -> Vec<Value> {
-    let mut result = without(features, moved);
-    result.extend(moved.iter().map(|feature| {
-        features
-            .iter()
-            .find(|record| record["id"].as_str() == Some(feature))
-            .unwrap_or_else(|| panic!("no feature {feature}"))
-            .clone()
-    }));
-    result
-}
+// Edits of feature lists.
 
 /// The features with `more` appended.
 fn followed_by(mut features: Vec<Value>, more: Vec<Value>) -> Vec<Value> {
     features.extend(more);
     features
-}
-
-// The corpus's shared setups and references.
-
-/// BLOCK's sketch `f-sk1` with these entities and its 80 x 50 extrude `f-ext1` of 30.
-fn block_with(outline: Vec<Value>) -> Vec<Value> {
-    vec![
-        sketch("f-sk1", origin_plane("XY"), outline),
-        extrude(
-            "f-ext1",
-            "b-1",
-            "f-sk1",
-            vec![rectangle_region(1, 0.0, 0.0, 80.0, 50.0)],
-            distance("30"),
-            "new",
-        ),
-    ]
-}
-
-/// BLOCK: the 80 x 50 rectangle `e-1` to `e-4` extruded 30 into `b-1`.
-fn block() -> Vec<Value> {
-    block_with(rectangle(1, 0.0, 0.0, 80.0, 50.0))
 }
 
 /// The features with the entities of `f-sk1` replaced by `outline` (an edit of the base outline).
@@ -499,50 +262,7 @@ fn with_outline(features: &[Value], outline: Vec<Value>) -> Vec<Value> {
     })
 }
 
-/// BLOCK's front top edge.
-fn block_front_top() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext1/lateral/e-1)",
-        "line|n=1,0,0|c=40,0,30|l=80|adj=2,2",
-    )
-}
-
-/// BLOCK's back top edge.
-fn block_back_top() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext1/lateral/e-3)",
-        "line|n=1,0,0|c=40,50,30|l=80|adj=2,2",
-    )
-}
-
-/// BLOCK's right top edge.
-fn block_right_top() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
-        "line|n=0,1,0|c=80,25,30|l=50|adj=2,2",
-    )
-}
-
-/// BLOCK's front right vertical edge.
-fn block_front_right_vertical() -> Value {
-    reference(
-        "edge(f-ext1/lateral/e-1|f-ext1/lateral/e-2)",
-        "line|n=0,0,1|c=80,0,15|l=30|adj=2,2",
-    )
-}
-
-/// BLOCK's top.
-fn block_top() -> Value {
-    reference("f-ext1/end-cap", "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4")
-}
-
-/// CUBE20's front top edge.
-fn cube20_front_top() -> Value {
-    reference(
-        "edge(f-box1/front|f-box1/top)",
-        "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2",
-    )
-}
+// Setups several tests share.
 
 /// CUBE20 and a fillet `f-fil1` of 2 on its front top edge (corpus R16 and R18 (b)).
 fn filleted_cube() -> Vec<Value> {
@@ -604,7 +324,7 @@ fn right_side_redrawn() -> Vec<Value> {
 #[test]
 fn t041_a_feature_whose_only_message_is_a_notice_is_ok() {
     let features = right_top_fillet(Vec::new());
-    let mut session = setup(&["b-1"], &features);
+    let mut session = run(&["b-1"], &features);
 
     edit(
         &mut session,
@@ -644,7 +364,7 @@ fn t041_a_warning_beside_a_notice_makes_the_status_warning_and_comes_first() {
         "line|n=0,0,1|c=500,500,500|l=1",
     );
     let features = right_top_fillet(vec![gone]);
-    let mut session = setup(&["b-1"], &features);
+    let mut session = run(&["b-1"], &features);
 
     edit(
         &mut session,
@@ -670,29 +390,6 @@ fn t041_a_warning_beside_a_notice_makes_the_status_warning_and_comes_first() {
 
 // Test 43: memoized reasons follow the records they read (section 3.10, memoization).
 
-/// Corpus R24's slot rim: the right rim of the slot `f-box2` cuts into CUBE20's top.
-fn slot_right_rim() -> Value {
-    reference(
-        "edge(f-box1/top#2|f-box2/right)",
-        "line|n=0,1,0|c=-4,0,20|l=20|adj=2,2",
-    )
-}
-
-/// Corpus R24's setup: CUBE20, the slot `f-box2` and a fillet `f-fil1` of 0.5 on the slot's right rim.
-fn slotted_cube() -> Vec<Value> {
-    vec![
-        cube20(),
-        box_record(
-            "f-box2",
-            "b-1",
-            ["4", "30", "5"],
-            Some(["-6", "0", "15"]),
-            "cut",
-        ),
-        fillet("f-fil1", "b-1", vec![slot_right_rim()], "0.5"),
-    ]
-}
-
 /// Corpus R24 (a): the slot suppressed.
 fn slot_suppressed() -> Vec<Value> {
     edited(&slotted_cube(), "f-box2", suppressed)
@@ -700,14 +397,14 @@ fn slot_suppressed() -> Vec<Value> {
 
 /// Corpus R24 (b): the fillet dragged above the slot.
 fn fillet_above_slot() -> Vec<Value> {
-    dragged(&slotted_cube(), &["f-fil1"], "f-box2")
+    move_before(&slotted_cube(), &["f-fil1"], "f-box2")
 }
 
 #[test]
 fn t043_r24a_a_suppressed_maker_is_named_with_unsuppress() {
-    let setup = setup(&["b-1"], &slotted_cube());
+    let setup = run(&["b-1"], &slotted_cube());
 
-    let run = fresh(&setup, &["b-1"], &slot_suppressed());
+    let run = run_edited(&setup, &["b-1"], &slot_suppressed());
 
     let error = error_message(&run, "f-fil1", "references_not_found");
     assert_eq!(
@@ -728,8 +425,8 @@ fn t043_r24a_a_suppressed_maker_is_named_with_unsuppress() {
 
 #[test]
 fn t043_a_run_with_every_reason_memoized_gives_the_messages_of_a_cold_run() {
-    let setup = setup(&["b-1"], &slotted_cube());
-    let mut run = fresh(&setup, &["b-1"], &slot_suppressed());
+    let setup = run(&["b-1"], &slotted_cube());
+    let mut run = run_edited(&setup, &["b-1"], &slot_suppressed());
     let cold = all_messages(&run.report);
 
     run.rerun(&Assets::new());
@@ -740,8 +437,8 @@ fn t043_a_run_with_every_reason_memoized_gives_the_messages_of_a_cold_run() {
 
 #[test]
 fn t043_r24b_a_result_reused_from_the_cache_is_explained_again_when_its_maker_moves() {
-    let setup = setup(&["b-1"], &slotted_cube());
-    let mut run = fresh(&setup, &["b-1"], &slot_suppressed());
+    let setup = run(&["b-1"], &slotted_cube());
+    let mut run = run_edited(&setup, &["b-1"], &slot_suppressed());
     let key = run.feature("f-fil1").key;
 
     edit(&mut run, &["b-1"], &fillet_above_slot());
@@ -766,7 +463,7 @@ fn t043_r24b_a_result_reused_from_the_cache_is_explained_again_when_its_maker_mo
         error.fixes
     );
     assert_volume(run.shape("b-1"), 7600.0);
-    let cold = fresh(&setup, &["b-1"], &fillet_above_slot());
+    let cold = run_edited(&setup, &["b-1"], &fillet_above_slot());
     assert_eq!(all_messages(&cold.report), all_messages(&run.report));
 }
 
@@ -774,8 +471,8 @@ fn t043_r24b_a_result_reused_from_the_cache_is_explained_again_when_its_maker_mo
 
 #[test]
 fn t044_the_states_the_diagnosis_walks_compute_no_element_infos() {
-    let setup = setup(&["b-1"], &filleted_cube());
-    let mut run = fresh(&setup, &["b-1"], &rabbeted_cube());
+    let setup = run(&["b-1"], &filleted_cube());
+    let mut run = run_edited(&setup, &["b-1"], &rabbeted_cube());
     // The diagnosis walked b-1's writer chain to explain the loss.
     assert_eq!(
         message(&run, "f-fil1", "references_not_found").reason,
@@ -796,53 +493,9 @@ fn t044_the_states_the_diagnosis_walks_compute_no_element_infos() {
 
 // Test 45: `NotInDocument` (corpus R23 (b)).
 
-/// Peg A's top rim.
-fn peg_a_rim() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext1/lateral/e-5)",
-        "circle|n=0,0,1|c=-5,0,30|l=25.132741|r=4|adj=2,1",
-    )
-}
-
-/// Corpus R23's setup: a 60 x 30 x 10 box, pegs A (`f-sk1`, `f-ext1`) and B (`f-sk2`, `f-ext2`) on it, and a fillet
-/// of 1 on peg A's top rim.
-fn pegs() -> Vec<Value> {
-    vec![
-        box_record("f-box1", "b-1", ["60", "30", "10"], None, "new"),
-        datum_offset("f-dp1", "XY", "10"),
-        sketch(
-            "f-sk1",
-            datum_plane("f-dp1"),
-            vec![circle("e-5", [-5.0, 0.0], 4.0)],
-        ),
-        extrude(
-            "f-ext1",
-            "b-1",
-            "f-sk1",
-            vec![circle_region("e-5", [-5.0, 0.0], 4.0)],
-            distance("20"),
-            "join",
-        ),
-        sketch(
-            "f-sk2",
-            datum_plane("f-dp1"),
-            vec![circle("e-7", [5.0, 0.0], 4.0)],
-        ),
-        extrude(
-            "f-ext2",
-            "b-1",
-            "f-sk2",
-            vec![circle_region("e-7", [5.0, 0.0], 4.0)],
-            distance("20"),
-            "join",
-        ),
-        fillet("f-fil1", "b-1", vec![peg_a_rim()], "1"),
-    ]
-}
-
 #[test]
 fn t045_r23b_a_maker_that_is_not_in_the_document() {
-    let mut session = setup(&["b-1"], &pegs());
+    let mut session = run(&["b-1"], &pegs());
 
     edit(
         &mut session,
@@ -923,7 +576,7 @@ fn boss_under_datum() -> Vec<Value> {
 
 #[test]
 fn t046_r54_one_root_for_a_chain() {
-    let mut session = setup(&["b-1"], &boss_under_datum());
+    let mut session = run(&["b-1"], &boss_under_datum());
 
     edit(
         &mut session,
@@ -995,7 +648,7 @@ fn datum_on_chamfer() -> Vec<Value> {
 
 #[test]
 fn t047_r25_a_suppressed_maker_comes_back_with_unsuppress() {
-    let mut session = setup(&["b-1"], &datum_on_chamfer());
+    let mut session = run(&["b-1"], &datum_on_chamfer());
     let original = saved(&session.document);
 
     edit(
@@ -1037,54 +690,14 @@ fn t047_r25_a_suppressed_maker_comes_back_with_unsuppress() {
 
 // Tests 48 and 49: `ComesLater`, the drag back, and `RolledBack` (corpus R28).
 
-/// Corpus R28's boss top rim.
-fn boss_top_rim() -> Value {
-    reference(
-        "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
-        "circle|n=0,0,1|c=40,25,40|l=62.831853|r=10|adj=2,1",
-    )
-}
-
-/// Corpus R28's variant reference: the ring where the boss meets BLOCK's top.
-fn boss_base_ring() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext2/lateral/e-5)",
-        "circle|n=0,0,1|c=40,25,30|l=62.831853|r=10|adj=2,1",
-    )
-}
-
-/// Corpus R28's setup: BLOCK, a boss `f-dp1`, `f-sk2`, `f-ext2` on its top, and a fillet `f-fil1` of 2 on `edge`.
-fn filleted_boss(edge: Value) -> Vec<Value> {
-    followed_by(
-        block(),
-        vec![
-            datum_offset("f-dp1", "XY", "30"),
-            sketch(
-                "f-sk2",
-                datum_plane("f-dp1"),
-                vec![circle("e-5", [40.0, 25.0], 10.0)],
-            ),
-            extrude(
-                "f-ext2",
-                "b-1",
-                "f-sk2",
-                vec![circle_region("e-5", [40.0, 25.0], 10.0)],
-                distance("10"),
-                "join",
-            ),
-            fillet("f-fil1", "b-1", vec![edge], "2"),
-        ],
-    )
-}
-
 /// Corpus R28's edit: the fillet dragged directly after 'Extrude 1'.
 fn fillet_above_boss(edge: Value) -> Vec<Value> {
-    dragged(&filleted_boss(edge), &["f-fil1"], "f-dp1")
+    move_before(&filleted_boss(edge), &["f-fil1"], "f-dp1")
 }
 
 #[test]
 fn t048_r28_a_maker_that_now_comes_later_offers_the_move_first() {
-    let mut session = setup(&["b-1"], &filleted_boss(boss_top_rim()));
+    let mut session = run(&["b-1"], &filleted_boss(boss_top_rim()));
 
     edit(&mut session, &["b-1"], &fillet_above_boss(boss_top_rim()));
 
@@ -1106,7 +719,7 @@ fn t048_r28_a_maker_that_now_comes_later_offers_the_move_first() {
 
 #[test]
 fn t048_r28_the_base_ring_gets_the_same_reason() {
-    let mut session = setup(&["b-1"], &filleted_boss(boss_base_ring()));
+    let mut session = run(&["b-1"], &filleted_boss(boss_base_ring()));
 
     edit(&mut session, &["b-1"], &fillet_above_boss(boss_base_ring()));
 
@@ -1120,7 +733,7 @@ fn t048_r28_the_base_ring_gets_the_same_reason() {
 
 #[test]
 fn t048_r28_dragging_back_restores_the_document() {
-    let mut session = setup(&["b-1"], &filleted_boss(boss_top_rim()));
+    let mut session = run(&["b-1"], &filleted_boss(boss_top_rim()));
     let original = saved(&session.document);
     edit(&mut session, &["b-1"], &fillet_above_boss(boss_top_rim()));
 
@@ -1132,7 +745,7 @@ fn t048_r28_dragging_back_restores_the_document() {
 
 #[test]
 fn t049_a_maker_after_the_rollback_marker_offers_no_move() {
-    let setup = setup(&["b-1"], &filleted_boss(boss_top_rim()));
+    let setup = run(&["b-1"], &filleted_boss(boss_top_rim()));
     let mut document = edited_document(&setup, &["b-1"], &fillet_above_boss(boss_top_rim()));
     document.rollback = Some(id("f-dp1"));
 
@@ -1157,7 +770,7 @@ fn t049_a_maker_after_the_rollback_marker_offers_no_move() {
 
 #[test]
 fn t049_a_stop_point_is_not_the_rollback_marker() {
-    let setup = setup(&["b-1"], &filleted_boss(boss_top_rim()));
+    let setup = run(&["b-1"], &filleted_boss(boss_top_rim()));
     let document = edited_document(&setup, &["b-1"], &fillet_above_boss(boss_top_rim()));
 
     let report = run_until(&mut new_recompute(), &document, "f-fil1");
@@ -1172,7 +785,7 @@ fn t049_a_stop_point_is_not_the_rollback_marker() {
 
 #[test]
 fn a_memoized_reason_follows_a_maker_that_moved_after_the_rollback_marker() {
-    let setup = setup(&["b-1"], &filleted_boss(boss_top_rim()));
+    let setup = run(&["b-1"], &filleted_boss(boss_top_rim()));
     let marked = |features: Vec<Value>| {
         let mut document = edited_document(&setup, &["b-1"], &features);
         document.rollback = Some(id("f-dp9"));
@@ -1278,7 +891,7 @@ fn conflicting_radius() -> Vec<Value> {
 
 #[test]
 fn t050_r47_a_maker_that_cannot_be_built_names_the_root_and_offers_no_pick() {
-    let mut session = setup(&["b-1"], &boss_beside_hole(Vec::new(), "10"));
+    let mut session = run(&["b-1"], &boss_beside_hole(Vec::new(), "10"));
 
     edit(
         &mut session,
@@ -1317,7 +930,7 @@ fn t050_r47_a_maker_that_cannot_be_built_names_the_root_and_offers_no_pick() {
 
 #[test]
 fn t050_r47_removing_the_conflict_gives_the_original_result() {
-    let mut session = setup(&["b-1"], &boss_beside_hole(Vec::new(), "10"));
+    let mut session = run(&["b-1"], &boss_beside_hole(Vec::new(), "10"));
     let original = (
         session
             .shape("b-1")
@@ -1346,7 +959,7 @@ fn t050_r47_removing_the_conflict_gives_the_original_result() {
 
 #[test]
 fn t050_r47_a_maker_with_its_own_error_is_the_root() {
-    let mut session = setup(&["b-1"], &boss_beside_hole(Vec::new(), "10"));
+    let mut session = run(&["b-1"], &boss_beside_hole(Vec::new(), "10"));
 
     edit(&mut session, &["b-1"], &boss_beside_hole(Vec::new(), "0"));
 
@@ -1372,15 +985,7 @@ fn t050_r47_a_maker_with_its_own_error_is_the_root() {
 fn chamfered_bottom_edge() -> Vec<Value> {
     vec![
         cube20(),
-        chamfer(
-            "f-cha1",
-            "b-1",
-            vec![reference(
-                "edge(f-box1/bottom|f-box1/front)",
-                "line|n=1,0,0|c=0,-10,0|l=20|adj=2,2",
-            )],
-            "1",
-        ),
+        chamfer("f-cha1", "b-1", vec![cube20_bottom_front()], "1"),
     ]
 }
 
@@ -1396,7 +1001,7 @@ fn now_in_body_2(by: &str, by_suppressed: bool) -> LossReason {
 
 #[test]
 fn t051_r31a_an_edge_a_split_put_into_another_body() {
-    let mut session = setup(&["b-1", "b-2"], &chamfered_bottom_edge());
+    let mut session = run(&["b-1", "b-2"], &chamfered_bottom_edge());
 
     edit(
         &mut session,
@@ -1441,7 +1046,7 @@ fn split_then_fillet(flip: bool) -> Vec<Value> {
 
 #[test]
 fn t051_r31b_a_flipped_split_offers_the_body_the_edge_is_in() {
-    let mut session = setup(&["b-1", "b-2"], &split_then_fillet(false));
+    let mut session = run(&["b-1", "b-2"], &split_then_fillet(false));
 
     edit(&mut session, &["b-1", "b-2"], &split_then_fillet(true));
 
@@ -1453,7 +1058,7 @@ fn t051_r31b_a_flipped_split_offers_the_body_the_edge_is_in() {
 
 #[test]
 fn t051_r31b_using_the_other_body_rounds_the_edge_there() {
-    let mut session = setup(&["b-1", "b-2"], &split_then_fillet(false));
+    let mut session = run(&["b-1", "b-2"], &split_then_fillet(false));
     edit(&mut session, &["b-1", "b-2"], &split_then_fillet(true));
 
     edit(
@@ -1485,7 +1090,7 @@ fn boolean_on_top(target: &str, tool: &str) -> Vec<Value> {
             Some(["0", "0", "20"]),
             "new",
         ),
-        boolean(target, &[tool], "join"),
+        boolean("f-bool1", target, &[tool], "join"),
         fillet(
             "f-fil1",
             "b-1",
@@ -1500,7 +1105,7 @@ fn boolean_on_top(target: &str, tool: &str) -> Vec<Value> {
 
 #[test]
 fn t051_r56a_an_edge_whose_boolean_is_suppressed_offers_unsuppress_then_the_body() {
-    let mut session = setup(&["b-1", "b-2"], &boolean_on_top("b-1", "b-2"));
+    let mut session = run(&["b-1", "b-2"], &boolean_on_top("b-1", "b-2"));
 
     edit(
         &mut session,
@@ -1562,7 +1167,7 @@ fn boss_ring(body: &str, op: &str) -> Vec<Value> {
 
 #[test]
 fn t051_r56c_an_edge_whose_maker_now_makes_another_body_left_this_one() {
-    let mut session = setup(&["b-1", "b-2"], &boss_ring("b-1", "join"));
+    let mut session = run(&["b-1", "b-2"], &boss_ring("b-1", "join"));
 
     edit(&mut session, &["b-1", "b-2"], &boss_ring("b-2", "new"));
 
@@ -1592,8 +1197,8 @@ fn t051_r56c_an_edge_whose_maker_now_makes_another_body_left_this_one() {
 
 #[test]
 fn a_memoized_reason_names_a_joiner_inserted_since() {
-    let setup = setup(&["b-1", "b-2"], &boolean_on_top("b-1", "b-2"));
-    let mut session = fresh(
+    let setup = run(&["b-1", "b-2"], &boolean_on_top("b-1", "b-2"));
+    let mut session = run_edited(
         &setup,
         &["b-1", "b-2"],
         &without(&boolean_on_top("b-1", "b-2"), &["f-bool1"]),
@@ -1619,7 +1224,7 @@ fn a_memoized_reason_names_a_joiner_inserted_since() {
         error_message(&session, "f-fil1", "references_not_found").reason,
         Some(now_in_body_2("f-bool1", true))
     );
-    let cold = fresh(&setup, &["b-1", "b-2"], &joined_while_suppressed);
+    let cold = run_edited(&setup, &["b-1", "b-2"], &joined_while_suppressed);
     assert_eq!(all_messages(&cold.report), all_messages(&session.report));
 }
 
@@ -1679,7 +1284,7 @@ fn a_memoized_reason_follows_the_order_of_the_bodies() {
 
 #[test]
 fn t052_r16_an_edge_a_cut_took_away_offers_its_neighbors_by_meaning() {
-    let mut session = setup(&["b-1"], &filleted_cube());
+    let mut session = run(&["b-1"], &filleted_cube());
 
     edit(&mut session, &["b-1"], &rabbeted_cube());
 
@@ -1731,7 +1336,7 @@ fn boolean_boss(op: &str) -> Vec<Value> {
             Some(["0", "0", "14.5"]),
             "new",
         ),
-        boolean("b-1", &["b-2"], op),
+        boolean("f-bool1", "b-1", &["b-2"], op),
         fillet(
             "f-fil1",
             "b-1",
@@ -1746,7 +1351,7 @@ fn boolean_boss(op: &str) -> Vec<Value> {
 
 #[test]
 fn t052_r30b_the_boolean_that_cut_the_tool_face_away_is_the_remover() {
-    let mut session = setup(&["b-1", "b-2"], &boolean_boss("join"));
+    let mut session = run(&["b-1", "b-2"], &boolean_boss("join"));
 
     edit(&mut session, &["b-1", "b-2"], &boolean_boss("cut"));
 
@@ -1767,8 +1372,8 @@ fn t052_r30b_the_boolean_that_cut_the_tool_face_away_is_the_remover() {
 
 #[test]
 fn t071_explanations_render_with_current_names() {
-    let setup = setup(&["b-1"], &filleted_cube());
-    let mut run = fresh(&setup, &["b-1"], &rabbeted_cube());
+    let setup = run(&["b-1"], &filleted_cube());
+    let mut run = run_edited(&setup, &["b-1"], &rabbeted_cube());
 
     edit(
         &mut run,
@@ -1847,7 +1452,7 @@ fn stepped_block(step: &str) -> Vec<Value> {
 
 #[test]
 fn t053_r13_an_edge_a_join_made_flush_is_inside_the_part() {
-    let mut session = setup(&["b-1"], &stepped_block("20"));
+    let mut session = run(&["b-1"], &stepped_block("20"));
 
     edit(&mut session, &["b-1"], &stepped_block("30"));
 
@@ -1899,7 +1504,7 @@ fn box_against_right_side(height: &str) -> Vec<Value> {
 /// Checks corpus R21 with a joined box of `height`: the fillet's edge is covered by 'Box 2' and the body has
 /// `volume`; returns the run.
 fn check_covered_by_box(height: &str, volume: f64) -> Run {
-    let mut session = setup(&["b-1"], &filleted_right_edge());
+    let mut session = run(&["b-1"], &filleted_right_edge());
 
     edit(&mut session, &["b-1"], &box_against_right_side(height));
 
@@ -1954,7 +1559,7 @@ fn t054_r18a_an_edge_an_inserted_fillet_rounded() {
             "2",
         )],
     );
-    let mut session = setup(&["b-1"], &features);
+    let mut session = run(&["b-1"], &features);
 
     edit(
         &mut session,
@@ -1987,7 +1592,7 @@ fn t054_r18a_an_edge_an_inserted_fillet_rounded() {
 
 #[test]
 fn t054_r18b_an_edge_an_inserted_chamfer_beveled() {
-    let mut session = setup(&["b-1"], &filleted_cube());
+    let mut session = run(&["b-1"], &filleted_cube());
 
     edit(
         &mut session,
@@ -2049,7 +1654,7 @@ fn revolve_about_box_edge() -> Vec<Value> {
 
 #[test]
 fn t054_r59a_an_axis_edge_rounded_upstream_offers_the_tangent_edges() {
-    let mut session = setup(&["b-1", "b-2"], &revolve_about_box_edge());
+    let mut session = run(&["b-1", "b-2"], &revolve_about_box_edge());
 
     edit(
         &mut session,
@@ -2091,7 +1696,7 @@ fn t054_r59a_an_axis_edge_rounded_upstream_offers_the_tangent_edges() {
 fn t055_a_face_a_shell_removed_with_nothing_left_in_its_plane() {
     let top = reference("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4");
     let features = vec![cube20(), datum_on_face("f-dp1", "b-1", top, "0")];
-    let mut session = setup(&["b-1"], &features);
+    let mut session = run(&["b-1"], &features);
     let removed: Vec<Value> = ["top", "front", "back", "left", "right"]
         .iter()
         .map(|side| {
@@ -2162,7 +1767,7 @@ fn slotted_block(x0: f64, x1: f64) -> Vec<Value> {
 
 #[test]
 fn t056_r10a_the_piece_an_edge_was_on_is_gone() {
-    let mut session = setup(&["b-1"], &slotted_block(30.0, 50.0));
+    let mut session = run(&["b-1"], &slotted_block(30.0, 50.0));
 
     edit(&mut session, &["b-1"], &slotted_block(50.0, 81.0));
 
@@ -2195,7 +1800,7 @@ fn slotted_floor(x0: f64, x1: f64) -> Vec<Value> {
                 Some(["40", "25", "25"]),
                 "new",
             ),
-            boolean("b-1", &["b-2"], "cut"),
+            boolean("f-bool1", "b-1", &["b-2"], "cut"),
             datum_offset("f-dp1", "XY", "25"),
             sketch(
                 "f-sk2",
@@ -2235,7 +1840,7 @@ fn slotted_floor(x0: f64, x1: f64) -> Vec<Value> {
 fn t056_the_face_a_lost_piece_was_on_reads_as_it_did_just_before_this_feature() {
     // Just before the fillet the floor is in b-1, which 'Boolean 2' joins into b-3 only after it.
     let bodies = ["b-1", "b-2", "b-3"];
-    let mut session = setup(&bodies, &slotted_floor(30.0, 50.0));
+    let mut session = run(&bodies, &slotted_floor(30.0, 50.0));
 
     edit(&mut session, &bodies, &slotted_floor(50.0, 81.0));
 
@@ -2300,7 +1905,7 @@ fn pocket(square: bool, depth: &str) -> Vec<Value> {
 /// Checks corpus R12 with the pocket made `depth` deep: the floor edge is no longer made by the cut, which goes all
 /// the way through, its rims are offered and never applied, and the hole's seam is never offered.
 fn check_pocket_made_through(square: bool, depth: &str) {
-    let mut session = setup(&["b-1"], &pocket(square, "5"));
+    let mut session = run(&["b-1"], &pocket(square, "5"));
 
     edit(&mut session, &["b-1"], &pocket(square, depth));
 
@@ -2392,7 +1997,7 @@ fn symmetric_boss(op: &str) -> Vec<Value> {
 
 #[test]
 fn t057_r30a_a_cut_whose_end_reaches_the_outside_no_longer_makes_its_rim() {
-    let mut session = setup(&["b-1"], &symmetric_boss("join"));
+    let mut session = run(&["b-1"], &symmetric_boss("join"));
 
     edit(&mut session, &["b-1"], &symmetric_boss("cut"));
 
@@ -2424,9 +2029,12 @@ fn three_quarter_ring(extent: Value) -> Vec<Value> {
         ),
         revolve(
             "f-rev1",
+            "b-1",
             "f-sk1",
-            rectangle_region(1, 10.0, 0.0, 20.0, 10.0),
+            vec![rectangle_region(1, 10.0, 0.0, 20.0, 10.0)],
+            json!({"kind": "origin", "axis": "Z"}),
             extent,
+            "new",
         ),
         chamfer(
             "f-cha1",
@@ -2459,20 +2067,11 @@ fn three_quarter_ring(extent: Value) -> Vec<Value> {
     ]
 }
 
-/// A revolve extent of 270 degrees.
-fn three_quarters() -> Value {
-    json!({"kind": "angle", "expr": "270 deg"})
-}
-
 #[test]
 fn t057_r57_a_revolve_that_turns_all_the_way_round_no_longer_makes_its_caps() {
-    let mut session = setup(&["b-1"], &three_quarter_ring(three_quarters()));
+    let mut session = run(&["b-1"], &three_quarter_ring(angle("270 deg")));
 
-    edit(
-        &mut session,
-        &["b-1"],
-        &three_quarter_ring(json!({"kind": "full"})),
-    );
+    edit(&mut session, &["b-1"], &three_quarter_ring(full_turn()));
 
     let error = error_message(&session, "f-cha1", "references_not_found");
     assert_eq!(
@@ -2514,7 +2113,7 @@ fn t057_r57_a_revolve_that_turns_all_the_way_round_no_longer_makes_its_caps() {
     edit(
         &mut session,
         &["b-1"],
-        &three_quarter_ring(three_quarters()),
+        &three_quarter_ring(angle("270 deg")),
     );
 
     session.assert_all_ok();
@@ -2527,7 +2126,7 @@ fn t057_a_face_its_feature_no_longer_makes() {
         chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2"),
         datum_on_face("f-dp1", "b-1", chamfer_face(), "0"),
     ];
-    let mut session = setup(&["b-1"], &features);
+    let mut session = run(&["b-1"], &features);
     let back_top = session.picked_before("f-cha1", "b-1", "edge(f-box1/back|f-box1/top)");
 
     edit(
@@ -2577,7 +2176,7 @@ fn t058_r01_an_edge_whose_faces_no_longer_meet_names_the_face_between() {
             "1",
         )],
     );
-    let mut session = setup(&["b-1"], &features);
+    let mut session = run(&["b-1"], &features);
 
     edit(
         &mut session,
@@ -2634,7 +2233,7 @@ fn rounded_corner_outline() -> Vec<Value> {
 
 #[test]
 fn t058_r64_a_corner_a_sketch_arc_now_rounds_offers_suppress() {
-    let mut session = setup(&["b-1"], &shelled_block());
+    let mut session = run(&["b-1"], &shelled_block());
 
     edit(
         &mut session,
@@ -2687,7 +2286,7 @@ fn t058_r64_a_corner_a_sketch_arc_now_rounds_offers_suppress() {
 
 #[test]
 fn t058_r64_suppressing_the_fillet_leaves_every_other_feature_ok() {
-    let mut session = setup(&["b-1"], &shelled_block());
+    let mut session = run(&["b-1"], &shelled_block());
     let rounded = with_outline(&shelled_block(), rounded_corner_outline());
     edit(&mut session, &["b-1"], &rounded);
 
@@ -2746,7 +2345,7 @@ fn beveled_block() -> Vec<Value> {
 
 #[test]
 fn t059_r03_an_edge_whose_sketch_line_was_deleted_is_skipped() {
-    let mut session = setup(&["b-1"], &beveled_block());
+    let mut session = run(&["b-1"], &beveled_block());
 
     edit(
         &mut session,
@@ -2833,7 +2432,7 @@ fn rounded_plate() -> Vec<Value> {
 
 #[test]
 fn t059_r51_an_edge_whose_sketch_curve_was_deleted() {
-    let mut session = setup(&["b-1"], &rounded_plate());
+    let mut session = run(&["b-1"], &rounded_plate());
 
     edit(
         &mut session,
@@ -2883,7 +2482,7 @@ fn two_holes(points: &[&str]) -> Vec<Value> {
 
 #[test]
 fn t060_r43a_a_hole_point_removed_from_points() {
-    let mut session = setup(&["b-1"], &two_holes(&["e-p1", "e-p2"]));
+    let mut session = run(&["b-1"], &two_holes(&["e-p1", "e-p2"]));
 
     edit(&mut session, &["b-1"], &two_holes(&["e-p1"]));
 
@@ -2919,7 +2518,7 @@ fn copy_right_top_edge(copy: u32) -> Value {
 fn patterned_cubes(count: &str, edges: Vec<Value>) -> Vec<Value> {
     vec![
         cube10(),
-        linear_pattern(count, "20"),
+        linear_pattern("f-lp1", "X", count, "20"),
         fillet("f-fil1", "b-1", edges, "1"),
     ]
 }
@@ -2938,7 +2537,7 @@ fn third_copy_gone() -> LossReason {
 #[test]
 fn t061_r41_an_edge_of_a_copy_the_pattern_no_longer_makes_is_skipped() {
     let edges = vec![copy_right_top_edge(1), copy_right_top_edge(2)];
-    let mut session = setup(&["b-1"], &patterned_cubes("3", edges.clone()));
+    let mut session = run(&["b-1"], &patterned_cubes("3", edges.clone()));
 
     edit(&mut session, &["b-1"], &patterned_cubes("2", edges));
 
@@ -2956,7 +2555,7 @@ fn t061_r41_an_edge_of_a_copy_the_pattern_no_longer_makes_is_skipped() {
 #[test]
 fn t061_r41_the_variant_with_only_the_lost_copy() {
     let edges = vec![copy_right_top_edge(2)];
-    let mut session = setup(&["b-1"], &patterned_cubes("3", edges.clone()));
+    let mut session = run(&["b-1"], &patterned_cubes("3", edges.clone()));
 
     edit(&mut session, &["b-1"], &patterned_cubes("2", edges));
 
@@ -2988,7 +2587,7 @@ fn plates() -> Assets {
 /// An import of the plate `asset` and a chamfer `f-cha1` of 0.5 on `rim`.
 fn imported_plate(asset: char, rim: Value) -> Vec<Value> {
     vec![
-        import(&asset_name(asset)),
+        import("f-imp1", "b-1", &asset_name(asset), "new"),
         chamfer("f-cha1", "b-1", vec![rim], "0.5"),
     ]
 }
@@ -3000,9 +2599,13 @@ fn t062_r46a_an_edge_not_in_the_new_version_of_an_imported_file() {
         "circle|n=0,0,1|c=30,10,5|l=18.849556|r=3|adj=2,1",
     );
     let assets = plates();
-    let mut session = setup_with_assets(&["b-1"], &imported_plate('a', rim.clone()), &assets);
+    let mut session = run_with_assets(&["b-1"], &imported_plate('a', rim.clone()), &assets);
 
-    edit_with_assets(&mut session, &["b-1"], &imported_plate('c', rim), &assets);
+    edit_document(
+        &mut session,
+        document_of(&["b-1"], &imported_plate('c', rim)),
+        &assets,
+    );
 
     let error = error_message(&session, "f-cha1", "references_not_found");
     assert_eq!(
@@ -3025,9 +2628,13 @@ fn t067_r46b_an_ambiguous_loss_in_an_imported_file_names_no_change() {
         "circle|n=0,0,1|c=20,10,5|l=18.849556|r=3|adj=2,1",
     );
     let assets = plates();
-    let mut session = setup_with_assets(&["b-1"], &imported_plate('b', rim.clone()), &assets);
+    let mut session = run_with_assets(&["b-1"], &imported_plate('b', rim.clone()), &assets);
 
-    edit_with_assets(&mut session, &["b-1"], &imported_plate('d', rim), &assets);
+    edit_document(
+        &mut session,
+        document_of(&["b-1"], &imported_plate('d', rim)),
+        &assets,
+    );
 
     let error = error_message(&session, "f-cha1", "references_not_found");
     assert_eq!(
@@ -3083,7 +2690,7 @@ fn t064_r19_an_edge_that_follows_a_shell_rim_names_the_shell() {
         block(),
         vec![fillet("f-fil1", "b-1", vec![block_front_top()], "1")],
     );
-    let mut session = setup(&["b-1"], &features);
+    let mut session = run(&["b-1"], &features);
     let top = serde_json::to_value(session.picked_before("f-fil1", "b-1", "f-ext1/end-cap"))
         .expect("a reference serializes");
 
@@ -3118,11 +2725,11 @@ fn t064_r61a_an_edge_that_merged_names_the_pattern_that_joined_it() {
     let features = |spacing: &str| {
         vec![
             cube10(),
-            linear_pattern("3", spacing),
+            linear_pattern("f-lp1", "X", "3", spacing),
             fillet("f-fil1", "b-1", vec![edge.clone()], "1"),
         ]
     };
-    let mut session = setup(&["b-1"], &features("20"));
+    let mut session = run(&["b-1"], &features("20"));
 
     edit(&mut session, &["b-1"], &features("10"));
 
@@ -3170,7 +2777,7 @@ fn counterbored_hole(diameter: &str, counterbored: bool) -> Vec<Value> {
 
 /// Checks corpus R63 (b) with a hole of `diameter`: the mouth follows the hole made simple, with a notice naming it.
 fn check_mouth_follows_the_hole(diameter: &str) {
-    let mut session = setup(&["b-1"], &counterbored_hole(diameter, true));
+    let mut session = run(&["b-1"], &counterbored_hole(diameter, true));
 
     edit(&mut session, &["b-1"], &counterbored_hole(diameter, false));
 
@@ -3216,7 +2823,7 @@ fn t064_r66_an_edge_widened_by_a_replaced_line_names_the_sketch() {
         block(),
         vec![fillet("f-fil1", "b-1", vec![block_back_top()], "1")],
     );
-    let mut session = setup(&["b-1"], &features);
+    let mut session = run(&["b-1"], &features);
 
     edit(
         &mut session,
@@ -3245,7 +2852,7 @@ fn t065_nc11_a_body_whose_maker_failed() {
         block(),
         vec![fillet("f-fil1", "b-1", vec![block_back_top()], "2")],
     );
-    let mut session = setup(&["b-1"], &features);
+    let mut session = run(&["b-1"], &features);
 
     edit(
         &mut session,
@@ -3281,7 +2888,7 @@ fn block_with_front_fillet() -> Vec<Value> {
 
 #[test]
 fn t065_a_body_whose_maker_is_suppressed() {
-    let mut session = setup(&["b-1"], &block_with_front_fillet());
+    let mut session = run(&["b-1"], &block_with_front_fillet());
 
     edit(
         &mut session,
@@ -3300,12 +2907,12 @@ fn t065_a_body_whose_maker_is_suppressed() {
 
 #[test]
 fn t065_a_body_whose_maker_now_comes_later() {
-    let mut session = setup(&["b-1"], &block_with_front_fillet());
+    let mut session = run(&["b-1"], &block_with_front_fillet());
 
     edit(
         &mut session,
         &["b-1"],
-        &dragged(&block_with_front_fillet(), &["f-fil1"], "f-ext1"),
+        &move_before(&block_with_front_fillet(), &["f-fil1"], "f-ext1"),
     );
 
     let error = error_message(&session, "f-fil1", "body_empty");
@@ -3318,7 +2925,7 @@ fn t065_a_body_whose_maker_now_comes_later() {
 
 #[test]
 fn t065_r56b_a_body_a_boolean_uses_as_a_tool() {
-    let mut session = setup(&["b-1", "b-2"], &boolean_on_top("b-1", "b-2"));
+    let mut session = run(&["b-1", "b-2"], &boolean_on_top("b-1", "b-2"));
 
     edit(&mut session, &["b-1", "b-2"], &boolean_on_top("b-2", "b-1"));
 
@@ -3356,7 +2963,7 @@ fn t065_a_tool_body_whose_maker_is_suppressed() {
         &[
             cube20(),
             suppressed(box_record("f-box2", "b-2", ["5", "5", "5"], None, "new")),
-            boolean("b-1", &["b-2"], "cut"),
+            boolean("f-bool1", "b-1", &["b-2"], "cut"),
         ],
     ));
 
@@ -3422,7 +3029,7 @@ fn chamfered_hole_type(hole_type: Option<Value>) -> Vec<Value> {
 
 #[test]
 fn t067_r63a_an_ambiguous_loss_names_the_feature_that_changed() {
-    let mut session = setup(&["b-1"], &chamfered_hole_type(None));
+    let mut session = run(&["b-1"], &chamfered_hole_type(None));
 
     edit(
         &mut session,
@@ -3555,9 +3162,9 @@ fn hole_in_boss_top() -> Vec<Value> {
 
 #[test]
 fn t073_r55_a_boss_dragged_below_the_hole_moves_back_above_the_sketch() {
-    let mut session = setup(&["b-1"], &hole_in_boss_top());
+    let mut session = run(&["b-1"], &hole_in_boss_top());
     let original = saved(&session.document);
-    let after_edit = dragged_to_end(&hole_in_boss_top(), &["f-ext1"]);
+    let after_edit = move_to_end(&hole_in_boss_top(), &["f-ext1"]);
 
     edit(&mut session, &["b-1"], &after_edit);
 
@@ -3576,7 +3183,7 @@ fn t073_r55_a_boss_dragged_below_the_hole_moves_back_above_the_sketch() {
     edit(
         &mut session,
         &["b-1"],
-        &dragged(&after_edit, &["f-ext1"], "f-sk2"),
+        &move_before(&after_edit, &["f-ext1"], "f-sk2"),
     );
 
     session.assert_all_ok();
@@ -3610,13 +3217,13 @@ fn sketch_on_box_top() -> Vec<Value> {
 
 #[test]
 fn comes_later_moves_the_maker_above_when_a_record_between_uses_this_feature() {
-    let mut session = setup(&["b-1"], &sketch_on_box_top());
+    let mut session = run(&["b-1"], &sketch_on_box_top());
     let original = saved(&session.document);
 
     edit(
         &mut session,
         &["b-1"],
-        &dragged_to_end(&sketch_on_box_top(), &["f-box2"]),
+        &move_to_end(&sketch_on_box_top(), &["f-box2"]),
     );
 
     let error = error_message(&session, "f-dp1", "reference_not_found");
@@ -3672,12 +3279,12 @@ fn sketch_on_boss_top() -> Vec<Value> {
 
 #[test]
 fn comes_later_offers_no_move_when_records_between_use_both_features() {
-    let mut session = setup(&["b-1"], &sketch_on_boss_top());
+    let mut session = run(&["b-1"], &sketch_on_boss_top());
 
     edit(
         &mut session,
         &["b-1"],
-        &dragged(&sketch_on_boss_top(), &["f-dp2", "f-sk3"], "f-dp1"),
+        &move_before(&sketch_on_boss_top(), &["f-dp2", "f-sk3"], "f-dp1"),
     );
 
     let error = error_message(&session, "f-dp2", "reference_not_found");

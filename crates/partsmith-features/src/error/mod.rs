@@ -9,8 +9,6 @@ mod message;
 mod render;
 mod warning;
 
-use std::collections::BTreeMap;
-
 use partsmith_model::{Expr, ExprError, FieldUnit, Id, Units};
 use partsmith_naming::{ElementKind, NamingError};
 use partsmith_occt_sys::KernelError;
@@ -25,12 +23,12 @@ pub use loss::{Loss, LossCandidate, RegionLost, Repair, Severity};
 pub use message::{
     Bound, DocumentNames, FallbackCause, IgnoredReason, Names, Noun, Placed, format_value,
 };
-pub use render::{Because, Diagnosis, Explanation, RenderContext};
+pub use render::{Because, Diagnosis, Explanation, RenderContext, joined};
 pub use warning::FeatureWarning;
 
-use message::{IdNames, plural, suggested_limit};
+use message::{plural, suggested_limit};
 use render::{
-    Renderer, capitalized, entry_pointer, loss_fixes, lost_reference_text, region_gone_text,
+    Entry, Renderer, capitalized, entry_pointer, loss_fixes, lost_reference_text, region_gone_text,
     region_matches_text, region_reasons,
 };
 
@@ -363,9 +361,7 @@ impl FeatureError {
 
     /// The text `Display` writes: ids for names, millimeters, `this feature`, no diagnosis.
     fn plain_text(&self) -> String {
-        let bodies = BTreeMap::new();
-        let diagnosis = Diagnosis::default();
-        self.text(&Renderer::plain(&IdNames, &bodies, &diagnosis))
+        render::plain_text(|renderer| self.text(renderer))
     }
 
     /// The message rendered by `renderer`.
@@ -446,7 +442,7 @@ impl FeatureError {
                 _ => format!(
                     "None of the {} regions of {} selected for {} are left, because {}.",
                     regions.len(),
-                    renderer.region_sketch(sketch),
+                    renderer.quoted_feature(sketch),
                     field.label,
                     region_reasons(regions)
                 ),
@@ -881,7 +877,7 @@ impl FeatureError {
                         loss,
                         &entry_pointer(field, loss.position),
                         renderer.explanation(loss.position),
-                        false,
+                        Entry::Required,
                     )
                 })
                 .collect(),
@@ -889,7 +885,7 @@ impl FeatureError {
                 loss,
                 &field.pointer(),
                 renderer.explanation(loss.position),
-                false,
+                Entry::Required,
             ),
             FeatureError::ProfileNotFound {
                 field,

@@ -9,7 +9,7 @@ mod common;
 mod corpus;
 
 use common::{
-    doc_handle, elements, fixture, headless_session, open_doc, open_text, replace_once, send,
+    doc_handle, elements, fixture, headless_session, open, open_doc, open_text, replace_once, send,
     session,
 };
 use corpus::{
@@ -270,7 +270,7 @@ fn t122_picks_carry_the_full_reference_with_anchors() {
 #[test]
 fn t122_on_a_box_every_pick_equals_its_listed_entry() {
     let mut session = session();
-    let opened = open(&mut session);
+    let opened = open(&mut session, "box.ptsm");
     let doc = doc_handle(&opened);
     let mesh_id = opened.body_mesh("b-1", "model")["mesh_id"].clone();
     let all = elements(&mut session, doc, "b-1", None);
@@ -289,11 +289,6 @@ fn t122_on_a_box_every_pick_equals_its_listed_entry() {
             assert_eq!(&picked.ok()["element"], *element, "{kind} {index}");
         }
     }
-}
-
-/// Opens `box.ptsm` and returns the reply.
-fn open(session: &mut Session) -> common::Sent {
-    common::open(session, "box.ptsm")
 }
 
 #[test]

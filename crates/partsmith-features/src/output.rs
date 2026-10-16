@@ -34,6 +34,17 @@ pub struct FeatureOutput {
     pub absent: Vec<AbsentFace>,
 }
 
+impl FeatureOutput {
+    /// An output of `data` with `warnings` and no absent faces, as most features make it.
+    pub fn new(data: OutputData, warnings: Vec<FeatureWarning>) -> FeatureOutput {
+        FeatureOutput {
+            data,
+            warnings,
+            absent: Vec::new(),
+        }
+    }
+}
+
 /// A face a feature's naming rule names that this build did not make.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AbsentFace {

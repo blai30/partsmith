@@ -154,11 +154,7 @@ fn length_use(field: impl Into<String>, expr: &Expr) -> ExprUse {
 
 /// An output with no warnings.
 fn output(data: OutputData) -> FeatureOutput {
-    FeatureOutput {
-        data,
-        warnings: Vec::new(),
-        absent: Vec::new(),
-    }
+    FeatureOutput::new(data, Vec::new())
 }
 
 /// A datum plane parallel to XY at height `z`.
@@ -490,13 +486,12 @@ impl Feature for TestProbe {
                 use_new: false,
             });
         }
-        Ok(FeatureOutput {
-            data: OutputData::Nothing,
-            warnings: vec![FeatureWarning::NoEffect {
+        Ok(FeatureOutput::new(
+            OutputData::Nothing,
+            vec![FeatureWarning::NoEffect {
                 body: params.body.clone(),
             }],
-            absent: Vec::new(),
-        })
+        ))
     }
 }
 

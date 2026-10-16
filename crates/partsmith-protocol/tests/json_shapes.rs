@@ -202,6 +202,16 @@ fn t034_command_types_are_exactly_the_m1_commands() {
 }
 
 #[test]
+fn every_command_names_its_serialized_type() {
+    for text in all_commands() {
+        let command: Command = serde_json::from_str(text)
+            .unwrap_or_else(|error| panic!("{text} deserializes: {error}"));
+        let written = serde_json::to_value(&command).expect("a command serializes");
+        assert_eq!(written["type"], command.type_name(), "{text}");
+    }
+}
+
+#[test]
 fn t035_every_command_has_exactly_one_result_type() {
     // Every command type has a result that deserializes and serializes back with that type.
     let results = all_results();

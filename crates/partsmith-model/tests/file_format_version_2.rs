@@ -3,7 +3,8 @@
 mod common;
 
 use common::{
-    E2, E8_OUTPUT, E10, differing_lines, e8_input, load_document, save_text, with_format_version,
+    E2, E8_OUTPUT, E10, differing_lines, e8_input, keys_at, load_document, save_text,
+    with_format_version,
 };
 use partsmith_model::{
     Document, LoadError, SaveError, StructureError, Units, load, load_bytes, migrate_with, save,
@@ -24,17 +25,6 @@ fn params_of(document: &Document, id_text: &str) -> Value {
         .find(|feature| feature.id.as_str() == id_text)
         .unwrap_or_else(|| panic!("the document has no feature {id_text}"));
     Value::Object(feature.params.clone())
-}
-
-/// Keys of the JSON object at a pointer, in order.
-fn keys_at<'a>(value: &'a Value, pointer: &str) -> Vec<&'a str> {
-    value
-        .pointer(pointer)
-        .and_then(Value::as_object)
-        .unwrap_or_else(|| panic!("there is no object at {pointer}"))
-        .keys()
-        .map(String::as_str)
-        .collect()
 }
 
 #[test]

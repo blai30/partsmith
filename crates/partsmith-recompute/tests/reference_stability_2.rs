@@ -18,48 +18,14 @@ mod stability_support_2;
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
 use partsmith_features::Fix;
-use partsmith_model::{Document, Id};
+use partsmith_model::Document;
 use partsmith_naming::MatchMethod;
 use partsmith_sketch::{HintFrame, Placement, SketchParams, SketchPlane};
 use serde_json::{Value, json};
-use stability_support_2::feature_support::{Assets, Run, datum_placement, sketch_result};
+use stability_support_2::feature_support::{
+    Assets, Run, body_before, datum_placement, sketch_result,
+};
 use stability_support_2::*;
-
-/// The fingerprint of BLOCK's top as stored when the user picked it.
-const BLOCK_TOP_FINGERPRINT: &str = "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4";
-
-/// An id written in a test.
-fn id(text: &str) -> Id {
-    Id::new(text).expect("ids written in tests are valid")
-}
-
-/// `Pick` of the reference at `pointer`.
-fn pick(pointer: &str) -> Fix {
-    Fix::Pick {
-        pointer: pointer.to_owned(),
-    }
-}
-
-/// `Show` of the whole feature `feature`.
-fn show(feature: &str) -> Fix {
-    Fix::Show {
-        feature: id(feature),
-        entity: None,
-    }
-}
-
-/// The top of BLOCK as a stored reference.
-fn block_top() -> Value {
-    reference("f-ext1/end-cap", BLOCK_TOP_FINGERPRINT)
-}
-
-/// The front top edge of CUBE20 as a stored reference.
-fn cube20_front_top_edge() -> Value {
-    reference(
-        "edge(f-box1/front|f-box1/top)",
-        "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2",
-    )
-}
 
 /// A move body record that translates `b-1`.
 fn translate(feature: &str, translation: [&str; 3]) -> Value {
@@ -74,30 +40,6 @@ fn rotate(feature: &str, axis: Value, angle: &str) -> Value {
     })
 }
 
-/// A full revolve record into `body`.
-fn full_revolve(
-    feature: &str,
-    body: &str,
-    sketch: &str,
-    region: Value,
-    axis: Value,
-    op: &str,
-) -> Value {
-    json!({
-        "id": feature, "type": "revolve", "body": body,
-        "profile": {"sketch": sketch, "regions": [region]},
-        "axis": axis, "extent": {"kind": "full"}, "op": op
-    })
-}
-
-/// A linear pattern record of `b-1` along an origin axis, op join.
-fn linear_pattern(axis: &str, count: &str, spacing: &str) -> Value {
-    json!({
-        "id": "f-lp1", "type": "linear_pattern", "body": "b-1",
-        "direction": {"axis": {"kind": "origin", "axis": axis}, "count": count, "spacing": spacing}
-    })
-}
-
 /// The same pattern record with a second direction.
 fn with_second_direction(record: Value, axis: &str, count: &str, spacing: &str) -> Value {
     with(
@@ -109,49 +51,6 @@ fn with_second_direction(record: Value, axis: &str, count: &str, spacing: &str) 
 
 // D. Suppress and delete.
 
-/// R23: the top rim of peg A.
-fn peg_a_rim() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext1/lateral/e-5)",
-        "circle|n=0,0,1|c=-5,0,30|l=25.132741|r=4|adj=2,1",
-    )
-}
-
-/// R23 setup: a plate with pegs A (`f-ext1`) and B (`f-ext2`) and a fillet on peg A's top rim.
-fn pegs() -> Vec<Value> {
-    vec![
-        box_record("f-box1", "b-1", ["60", "30", "10"], None, "new"),
-        datum_offset("f-dp1", "XY", "10"),
-        sketch(
-            "f-sk1",
-            datum_plane("f-dp1"),
-            vec![circle("e-5", [-5.0, 0.0], 4.0)],
-        ),
-        extrude(
-            "f-ext1",
-            "b-1",
-            "f-sk1",
-            vec![circle_region("e-5", [-5.0, 0.0], 4.0)],
-            distance("20"),
-            "join",
-        ),
-        sketch(
-            "f-sk2",
-            datum_plane("f-dp1"),
-            vec![circle("e-7", [5.0, 0.0], 4.0)],
-        ),
-        extrude(
-            "f-ext2",
-            "b-1",
-            "f-sk2",
-            vec![circle_region("e-7", [5.0, 0.0], 4.0)],
-            distance("20"),
-            "join",
-        ),
-        fillet("f-fil1", "b-1", vec![peg_a_rim()], "1"),
-    ]
-}
-
 #[test]
 fn r23a_suppressing_one_peg_does_not_move_its_fillet_to_the_other_peg() {
     let mut checks = Checks::new();
@@ -159,7 +58,7 @@ fn r23a_suppressing_one_peg_does_not_move_its_fillet_to_the_other_peg() {
     let mut session = run(&["b-1"], &original);
     checks.all_ok(&session);
     checks.faces_count(
-        final_state(&session, "b-1"),
+        session.body("b-1"),
         "f-fil1/fillet/edge(f-ext1/end-cap|f-ext1/lateral/e-5)",
         1,
     );
@@ -171,7 +70,7 @@ fn r23a_suppressing_one_peg_does_not_move_its_fillet_to_the_other_peg() {
     checks.note(diagnose(&session, "f-fil1", "b-1", &peg_a_rim()));
     checks.status(&session, "f-ext1", "suppressed");
     checks.status(&session, "f-fil1", "error");
-    let body = final_state(&session, "b-1");
+    let body = session.body("b-1");
     checks.faces_count(body, "f-fil1/fillet/", 0);
     checks.has_element(body, "edge(f-ext2/end-cap|f-ext2/lateral/e-7)", true);
     checks.message_names(&session, "f-fil1", &["'Extrude 1'", "suppressed"]);
@@ -199,7 +98,7 @@ fn r23b_deleting_one_peg_does_not_move_its_fillet_to_the_other_peg() {
     let after = run_edited(&setup, &["b-1"], &without(&pegs(), &["f-sk1", "f-ext1"]));
     checks.note(diagnose(&after, "f-fil1", "b-1", &peg_a_rim()));
     checks.status(&after, "f-fil1", "error");
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     checks.faces_count(body, "f-fil1/fillet/", 0);
     checks.has_element(body, "edge(f-ext2/end-cap|f-ext2/lateral/e-7)", true);
     // recompute.md test 69: the structural message says "a feature that is not in this document"
@@ -214,36 +113,13 @@ fn r23b_deleting_one_peg_does_not_move_its_fillet_to_the_other_peg() {
     checks.finish();
 }
 
-/// R24: the slot's right rim.
-fn slot_right_rim() -> Value {
-    reference(
-        "edge(f-box1/top#2|f-box2/right)",
-        "line|n=0,1,0|c=-4,0,20|l=20|adj=2,2",
-    )
-}
-
-/// R24 setup: CUBE20 with a slot cut by `f-box2` and a fillet on its right rim.
-fn slotted_cube() -> Vec<Value> {
-    vec![
-        cube20(),
-        box_record(
-            "f-box2",
-            "b-1",
-            ["4", "30", "5"],
-            Some(["-6", "0", "15"]),
-            "cut",
-        ),
-        fillet("f-fil1", "b-1", vec![slot_right_rim()], "0.5"),
-    ]
-}
-
 #[test]
 fn r24a_slot_rim_fillet_when_the_slot_is_suppressed() {
     let mut checks = Checks::new();
     let before = run(&["b-1"], &slotted_cube());
     checks.all_ok(&before);
     checks.faces_count(
-        final_state(&before, "b-1"),
+        before.body("b-1"),
         "f-fil1/fillet/edge(f-box1/top#2|f-box2/right)",
         1,
     );
@@ -256,7 +132,7 @@ fn r24a_slot_rim_fillet_when_the_slot_is_suppressed() {
     checks.note(diagnose(&after, "f-fil1", "b-1", &slot_right_rim()));
     checks.status(&after, "f-box2", "suppressed");
     checks.status(&after, "f-fil1", "error");
-    checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
+    checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 8000.0);
     checks.face_count(&after, "b-1", 6);
     checks.message_names(&after, "f-fil1", &["'Box 2'", "suppressed"]);
@@ -276,7 +152,7 @@ fn r24b_slot_rim_fillet_dragged_above_the_slot() {
     );
     checks.note(diagnose(&after, "f-fil1", "b-1", &slot_right_rim()));
     checks.status(&after, "f-fil1", "error");
-    checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
+    checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 7600.0);
     checks.message_names(&after, "f-fil1", &["'Box 2'"]);
     checks.message_names_one_of(&after, "f-fil1", &["after", "later"]);
@@ -296,7 +172,7 @@ fn chamfer_face() -> Value {
 fn chamfer_datum_model() -> Vec<Value> {
     vec![
         cube20(),
-        chamfer("f-cha1", "b-1", vec![cube20_front_top_edge()], "2"),
+        chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2"),
         datum_on_face("f-dp1", "b-1", chamfer_face(), "0"),
         sketch(
             "f-sk1",
@@ -352,7 +228,7 @@ fn r25_suppressing_a_chamfer_that_carries_a_datum() {
 
 /// R26 setup: BLOCK of this height with a boss sketched on its top.
 fn boss_on_block_top(height: &str) -> Vec<Value> {
-    let mut features = block_with_height(height);
+    let mut features = block_with(block_outline(), height);
     features.push(sketch(
         "f-sk2",
         top_face_plane("b-1", block_top(), 30.0),
@@ -485,7 +361,7 @@ fn r27_removing_an_upstream_move_keeps_the_reference_on_its_piece() {
     let fillet_face = "f-fil1/fillet/edge(f-box1/front|f-box1/top#1)";
     let before = run(&["b-1"], &moved_slotted_cube());
     checks.all_ok(&before);
-    let body = final_state(&before, "b-1");
+    let body = before.body("b-1");
     checks.axis_through(body, fillet_face, [6.0, -9.5, 19.5], POSITION_TOLERANCE);
     checks.centroid_at(body, fillet_face, [6.0, -9.5, 19.5], 0.5);
 
@@ -496,7 +372,7 @@ fn r27_removing_an_upstream_move_keeps_the_reference_on_its_piece() {
     );
     checks.note(diagnose(&after, "f-fil1", "b-1", &left_piece_front_edge()));
     checks.status(&after, "f-fil1", "ok");
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     checks.faces_count(body, "f-fil1/fillet/", 1);
     checks.axis_through(body, fillet_face, [-6.0, -9.5, 19.5], POSITION_TOLERANCE);
     checks.faces_along_x(body, "f-fil1/fillet/", &[-6.0], ABOUT_TOLERANCE);
@@ -504,27 +380,6 @@ fn r27_removing_an_upstream_move_keeps_the_reference_on_its_piece() {
 }
 
 // E. Reorder.
-
-/// R28 setup: BLOCK with a boss joined on its top and a fillet on one of the boss's edges.
-fn filleted_boss(edge: Value) -> Vec<Value> {
-    let mut features = block();
-    features.push(datum_offset("f-dp1", "XY", "30"));
-    features.push(sketch(
-        "f-sk2",
-        datum_plane("f-dp1"),
-        vec![circle("e-5", [40.0, 25.0], 10.0)],
-    ));
-    features.push(extrude(
-        "f-ext2",
-        "b-1",
-        "f-sk2",
-        vec![circle_region("e-5", [40.0, 25.0], 10.0)],
-        distance("10"),
-        "join",
-    ));
-    features.push(fillet("f-fil1", "b-1", vec![edge], "2"));
-    features
-}
 
 /// R28: drags the fillet of `filleted_boss(edge)` above the boss and back, checking the result.
 fn check_fillet_dragged_above_its_edge(edge: Value) {
@@ -542,7 +397,7 @@ fn check_fillet_dragged_above_its_edge(edge: Value) {
     );
     checks.note(diagnose(&session, "f-fil1", "b-1", &edge));
     checks.status(&session, "f-fil1", "error");
-    checks.faces_count(final_state(&session, "b-1"), "f-fil1/fillet/", 0);
+    checks.faces_count(session.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&session, "b-1", 120000.0 + PI * 100.0 * 10.0);
     checks.message_names(&session, "f-fil1", &["'Extrude 2'"]);
     checks.message_names_one_of(&session, "f-fil1", &["after", "later"]);
@@ -550,11 +405,7 @@ fn check_fillet_dragged_above_its_edge(edge: Value) {
 
     edit(&mut session, &["b-1"], &original);
     checks.all_ok(&session);
-    checks.faces_count(
-        final_state(&session, "b-1"),
-        &format!("f-fil1/fillet/{query}"),
-        1,
-    );
+    checks.faces_count(session.body("b-1"), &format!("f-fil1/fillet/{query}"), 1);
     checks.check(
         saved(&session.document) == original_text,
         "the document dragged back is not byte-identical to the original",
@@ -564,18 +415,12 @@ fn check_fillet_dragged_above_its_edge(edge: Value) {
 
 #[test]
 fn r28_fillet_dragged_above_the_feature_that_makes_its_edge() {
-    check_fillet_dragged_above_its_edge(reference(
-        "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
-        "circle|n=0,0,1|c=40,25,40|l=62.831853|r=10|adj=2,1",
-    ));
+    check_fillet_dragged_above_its_edge(boss_top_rim());
 }
 
 #[test]
 fn r28_variant_base_ring_fillet_dragged_above_the_boss() {
-    check_fillet_dragged_above_its_edge(reference(
-        "edge(f-ext1/end-cap|f-ext2/lateral/e-5)",
-        "circle|n=0,0,1|c=40,25,30|l=62.831853|r=10|adj=2,1",
-    ));
+    check_fillet_dragged_above_its_edge(boss_base_ring());
 }
 
 /// R29: the front top edge of the leftmost piece.
@@ -591,8 +436,8 @@ fn leftmost_front_edge() -> Value {
 fn two_slots(b_first: bool) -> Vec<Value> {
     let mut features = block();
     features.push(datum_offset("f-dp1", "XY", "30"));
-    let slot_a = slot_cut("f-dp1", "f-sk2", "f-ext2", 10.0, 20.0);
-    let slot_b = slot_cut("f-dp1", "f-sk3", "f-ext3", 50.0, 60.0);
+    let slot_a = slot_cut("f-dp1", "f-sk2", "f-ext2", 10.0, 20.0, "5");
+    let slot_b = slot_cut("f-dp1", "f-sk3", "f-ext3", 50.0, 60.0, "5");
     if b_first {
         features.extend(slot_b);
         features.extend(slot_a);
@@ -624,7 +469,7 @@ fn r29_swapping_two_independent_slot_cuts_does_not_widen_a_reference() {
     let mut checks = Checks::new();
     let before = run(&["b-1"], &two_slots(false));
     checks.all_ok(&before);
-    let slotted = required_state_before(&before, "f-cha1", "b-1");
+    let slotted = body_before(&before, "f-cha1", "b-1");
     for (name, x) in [
         ("f-ext1/end-cap#1", 5.0),
         ("f-ext1/end-cap#2#1", 35.0),
@@ -632,14 +477,14 @@ fn r29_swapping_two_independent_slot_cuts_does_not_widen_a_reference() {
     ] {
         checks.centroid_at(slotted, name, [x, 25.0, 30.0], POSITION_TOLERANCE);
     }
-    let body = final_state(&before, "b-1");
+    let body = before.body("b-1");
     checks.faces_along_x(body, "f-cha1/chamfer/", &[5.0], ABOUT_TOLERANCE);
     checks.faces_along_x(body, "f-fil1/fillet/", &[35.0, 70.0], ABOUT_TOLERANCE);
     let original_volume = volume_of(&before, "b-1");
 
     let after = run_edited(&before, &["b-1"], &two_slots(true));
     checks.note(diagnose(&after, "f-cha1", "b-1", &leftmost_front_edge()));
-    let slotted = required_state_before(&after, "f-cha1", "b-1");
+    let slotted = body_before(&after, "f-cha1", "b-1");
     for (name, x) in [
         ("f-ext1/end-cap#1#1", 5.0),
         ("f-ext1/end-cap#1#2", 35.0),
@@ -648,7 +493,7 @@ fn r29_swapping_two_independent_slot_cuts_does_not_widen_a_reference() {
         checks.centroid_at(slotted, name, [x, 25.0, 30.0], POSITION_TOLERANCE);
     }
     checks.all_ok(&after);
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     checks.faces_along_x(body, "f-cha1/chamfer/", &[5.0], ABOUT_TOLERANCE);
     checks.faces_along_x(body, "f-fil1/fillet/", &[35.0, 70.0], ABOUT_TOLERANCE);
     checks.relative(
@@ -662,8 +507,8 @@ fn r29_swapping_two_independent_slot_cuts_does_not_widen_a_reference() {
 
 // F. Op, body and direction changes.
 
-/// R30 (a): the boss's top rim.
-fn boss_top_rim() -> Value {
+/// R30 (a): the top rim of the symmetric boss.
+fn symmetric_boss_rim() -> Value {
     reference(
         "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
         "circle|n=0,0,1|c=40,25,50|l=62.831853|r=10|adj=2,1",
@@ -685,10 +530,10 @@ fn symmetric_boss(op: &str) -> Vec<Value> {
         "b-1",
         "f-sk2",
         vec![circle_region("e-5", [40.0, 25.0], 10.0)],
-        json!({"kind": "symmetric", "expr": "40"}),
+        symmetric("40"),
         op,
     ));
-    features.push(fillet("f-fil1", "b-1", vec![boss_top_rim()], "2"));
+    features.push(fillet("f-fil1", "b-1", vec![symmetric_boss_rim()], "2"));
     features
 }
 
@@ -699,20 +544,20 @@ fn r30a_a_join_changed_to_a_cut_does_not_retarget_its_rim_fillet() {
     let before = run(&["b-1"], &symmetric_boss("join"));
     checks.all_ok(&before);
     checks.faces_count(
-        final_state(&before, "b-1"),
+        before.body("b-1"),
         "f-fil1/fillet/edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
         1,
     );
     checks.has_element(
-        required_state_before(&before, "f-fil1", "b-1"),
+        body_before(&before, "f-fil1", "b-1"),
         rim_at_block_top,
         true,
     );
 
     let after = run_edited(&before, &["b-1"], &symmetric_boss("cut"));
-    checks.note(diagnose(&after, "f-fil1", "b-1", &boss_top_rim()));
+    checks.note(diagnose(&after, "f-fil1", "b-1", &symmetric_boss_rim()));
     checks.status(&after, "f-fil1", "error");
-    checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
+    checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 120000.0 - PI * 100.0 * 20.0);
     // recompute.md test 57's text; the changed Operation is the engine twin's cause line.
     checks.message_names(
@@ -724,7 +569,7 @@ fn r30a_a_join_changed_to_a_cut_does_not_retarget_its_rim_fillet() {
     );
     checks.plain_words(&after, "f-fil1");
     checks.repair_at(&after, "f-fil1", "/edges/0");
-    if let Some(state) = state_before(&after, "f-fil1", "b-1") {
+    if let Some(state) = try_body_before(&after, "f-fil1", "b-1") {
         checks.has_element(state, rim_at_block_top, true);
     }
     checks.finish();
@@ -750,7 +595,7 @@ fn boolean_boss(op: &str) -> Vec<Value> {
             Some(["0", "0", "14.5"]),
             "new",
         ),
-        json!({"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2"], "op": op}),
+        boolean("f-bool1", "b-1", &["b-2"], op),
         fillet("f-fil1", "b-1", vec![box2_front_top_edge()], "1"),
     ]
 }
@@ -764,7 +609,7 @@ fn r30b_a_boolean_join_changed_to_a_cut_does_not_retarget_its_fillet() {
     let after = run_edited(&before, &["b-1", "b-2"], &boolean_boss("cut"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &box2_front_top_edge()));
     checks.status(&after, "f-fil1", "error");
-    checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
+    checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 7450.0);
     checks.message_names(&after, "f-fil1", &["'Box 2'", "'Boolean 1'"]);
     checks.plain_words(&after, "f-fil1");
@@ -772,33 +617,12 @@ fn r30b_a_boolean_join_changed_to_a_cut_does_not_retarget_its_fillet() {
     checks.finish();
 }
 
-/// R31 (a): the bottom front edge of CUBE20.
-fn cube20_bottom_front_edge() -> Value {
-    reference(
-        "edge(f-box1/bottom|f-box1/front)",
-        "line|n=1,0,0|c=0,-10,0|l=20|adj=2,2",
-    )
-}
-
-/// A split of `b-1` by `f-dp1` into `b-2`.
-fn split(flip: bool) -> Value {
-    let record = json!({
-        "id": "f-split1", "type": "split_body", "body": "b-1",
-        "plane": datum_plane("f-dp1"), "target": "b-2"
-    });
-    if flip {
-        with(record, "flip", json!(true))
-    } else {
-        record
-    }
-}
-
 #[test]
 fn r31a_a_split_inserted_upstream_moves_the_chamfered_edge_to_the_other_body() {
     let mut checks = Checks::new();
     let original = vec![
         cube20(),
-        chamfer("f-cha1", "b-1", vec![cube20_bottom_front_edge()], "1"),
+        chamfer("f-cha1", "b-1", vec![cube20_bottom_front()], "1"),
     ];
     let before = run(&["b-1", "b-2"], &original);
     checks.all_ok(&before);
@@ -812,14 +636,9 @@ fn r31a_a_split_inserted_upstream_moves_the_chamfered_edge_to_the_other_body() {
             vec![datum_offset("f-dp1", "XY", "5"), split(false)],
         ),
     );
-    checks.note(diagnose(
-        &after,
-        "f-cha1",
-        "b-1",
-        &cube20_bottom_front_edge(),
-    ));
+    checks.note(diagnose(&after, "f-cha1", "b-1", &cube20_bottom_front()));
     checks.status(&after, "f-cha1", "error");
-    checks.faces_count(final_state(&after, "b-1"), "f-cha1/chamfer/", 0);
+    checks.faces_count(after.body("b-1"), "f-cha1/chamfer/", 0);
     checks.volume(&after, "b-1", 6000.0);
     checks.message_names(&after, "f-cha1", &["'Body 2'", "'Split body 1'"]);
     checks.plain_words(&after, "f-cha1");
@@ -850,7 +669,7 @@ fn r31b_flipping_a_split_moves_the_filleted_edge_to_the_other_body() {
     let before = run(&["b-1", "b-2"], &split_then_fillet(false));
     checks.all_ok(&before);
     checks.faces_count(
-        final_state(&before, "b-1"),
+        before.body("b-1"),
         "f-fil1/fillet/edge(f-box1/front#2|f-box1/top)",
         1,
     );
@@ -858,13 +677,9 @@ fn r31b_flipping_a_split_moves_the_filleted_edge_to_the_other_body() {
     let after = run_edited(&before, &["b-1", "b-2"], &split_then_fillet(true));
     checks.note(diagnose(&after, "f-fil1", "b-1", &upper_front_top_edge()));
     checks.status(&after, "f-fil1", "error");
-    checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
+    checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 4000.0);
-    checks.has_element(
-        final_state(&after, "b-2"),
-        "edge(f-box1/front#2|f-box1/top)",
-        true,
-    );
+    checks.has_element(after.body("b-2"), "edge(f-box1/front#2|f-box1/top)", true);
     checks.message_names(&after, "f-fil1", &["'Body 2'", "'Split body 1'"]);
     checks.plain_words(&after, "f-fil1");
     checks.finish();
@@ -893,7 +708,7 @@ fn plate_with_hole(inserted: Vec<Value>) -> Vec<Value> {
         "f-sk2",
         &["e-p1"],
         "4",
-        json!({"kind": "through_all"}),
+        through_all(),
     ));
     features
 }
@@ -904,7 +719,7 @@ fn check_plate_hole_follows_the_face(inserted: Vec<Value>, x: f64, y: f64) {
     let before = run(&["b-1"], &plate_with_hole(Vec::new()));
     checks.all_ok(&before);
     checks.axis_through(
-        final_state(&before, "b-1"),
+        before.body("b-1"),
         "f-hole1/bore/e-p1",
         [15.0, 15.0, 5.0],
         POSITION_TOLERANCE,
@@ -914,7 +729,7 @@ fn check_plate_hole_follows_the_face(inserted: Vec<Value>, x: f64, y: f64) {
     checks.note(diagnose(&after, "f-sk2", "b-1", &plate_top()));
     checks.all_ok(&after);
     checks.axis_through(
-        final_state(&after, "b-1"),
+        after.body("b-1"),
         "f-hole1/bore/e-p1",
         [x, y, 5.0],
         POSITION_TOLERANCE,
@@ -946,9 +761,7 @@ fn r32a_variant_a_sketch_keeps_its_place_on_a_face_that_turns() {
 fn block_with_hole_on_end_cap(reverse: bool) -> Vec<Value> {
     let mut features = block();
     if reverse {
-        features = edited(&features, "f-ext1", |record| {
-            with(record, "reverse", json!(true))
-        });
+        features = edited(&features, "f-ext1", reversed);
     }
     features.push(sketch(
         "f-sk2",
@@ -972,7 +785,7 @@ fn r32b_a_sketch_keeps_its_place_on_a_face_that_turns_over() {
     let before = run(&["b-1"], &block_with_hole_on_end_cap(false));
     checks.all_ok(&before);
     checks.axis_through(
-        final_state(&before, "b-1"),
+        before.body("b-1"),
         "f-hole1/bore/e-p1",
         [20.0, 10.0, 25.0],
         POSITION_TOLERANCE,
@@ -1025,7 +838,7 @@ fn r32b_a_sketch_keeps_its_place_on_a_face_that_turns_over() {
     after.document = turned_drawing_back(&after.document, "f-sk2", turned_over);
     after.rerun(&Assets::new());
     checks.all_ok(&after);
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     checks.axis_through(
         body,
         "f-hole1/bore/e-p1",
@@ -1264,7 +1077,7 @@ fn r35_a_slot_splits_the_face_a_sketch_is_on() {
         [0.0, 0.0, 1.0],
         1e-9,
     );
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     if let Some(bore) = checks.geometry(body, "f-hole1/bore/e-p1") {
         checks.close(
             "bore radius",
@@ -1366,7 +1179,7 @@ fn check_standoff(checks: &mut Checks, after: &Run, floor: f64) {
         [0.0, 0.0, 1.0],
         1e-9,
     );
-    let body = final_state(after, "b-1");
+    let body = after.body("b-1");
     checks.axis_through(
         body,
         "f-ext2/lateral/e-5",
@@ -1407,7 +1220,7 @@ fn r36_variant_a_sketch_on_the_inside_floor_follows_a_change_of_removed_face() {
 fn datum_on_chamfer(inserted: Vec<Value>) -> Vec<Value> {
     let mut features = vec![cube20()];
     features.extend(inserted);
-    features.push(chamfer("f-cha1", "b-1", vec![cube20_front_top_edge()], "2"));
+    features.push(chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2"));
     features.push(datum_on_face("f-dp1", "b-1", chamfer_face(), "0"));
     features
 }
@@ -1450,7 +1263,7 @@ fn r37_a_datum_on_a_chamfer_face_survives_an_upstream_merge() {
     );
     checks.note(diagnose(&after, "f-dp1", "b-1", &chamfer_face()));
     checks.status(&after, "f-cha1", "ok");
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     let merged_chamfer = "f-cha1/chamfer/edge(f-a1/front|f-a1/top)";
     if let Some(geometry) = checks.geometry(body, merged_chamfer) {
         checks.relative(
@@ -1569,12 +1382,13 @@ fn revolve_about_box_edge(inserted: Vec<Value>) -> Vec<Value> {
         origin_plane("XZ"),
         rectangle(1, 10.0, 0.0, 20.0, 30.0),
     ));
-    features.push(full_revolve(
+    features.push(revolve(
         "f-rev1",
         "b-1",
         "f-sk1",
-        rectangle_region(1, 10.0, 0.0, 20.0, 30.0),
-        json!({"kind": "edge", "body": "b-2", "edge": box_corner_edge()}),
+        vec![rectangle_region(1, 10.0, 0.0, 20.0, 30.0)],
+        edge_axis("b-2", box_corner_edge()),
+        full_turn(),
         "new",
     ));
     features
@@ -1639,12 +1453,13 @@ fn grooved_cylinder(inserted: Vec<Value>) -> Vec<Value> {
         origin_plane("XZ"),
         rectangle(1, 8.0, 20.0, 12.0, 24.0),
     ));
-    features.push(full_revolve(
+    features.push(revolve(
         "f-rev1",
         "b-1",
         "f-sk2",
-        rectangle_region(1, 8.0, 20.0, 12.0, 24.0),
+        vec![rectangle_region(1, 8.0, 20.0, 12.0, 24.0)],
         json!({"kind": "face", "body": "b-1", "face": cylinder_side()}),
+        full_turn(),
         "cut",
     ));
     features
@@ -1659,12 +1474,13 @@ fn r39b_a_revolve_axis_on_a_round_face_that_a_groove_splits() {
             origin_plane("XZ"),
             rectangle(1, 8.0, 10.0, 12.0, 12.0),
         ),
-        full_revolve(
+        revolve(
             "f-rev2",
             "b-1",
             "f-sk3",
-            rectangle_region(1, 8.0, 10.0, 12.0, 12.0),
+            vec![rectangle_region(1, 8.0, 10.0, 12.0, 12.0)],
             json!({"kind": "origin", "axis": "Z"}),
+            full_turn(),
             "cut",
         ),
     ];
@@ -1679,7 +1495,7 @@ fn r39b_a_revolve_axis_on_a_round_face_that_a_groove_splits() {
         checks.note(diagnose(&after, "f-rev1", "b-1", &cylinder_side()));
         checks.all_ok(&after);
         checks.resolves(&after, "f-rev1", "b-1", &cylinder_side(), method, expected);
-        let body = final_state(&after, "b-1");
+        let body = after.body("b-1");
         checks.centroid_at(
             body,
             "f-rev1/lateral/e-1",
@@ -1744,11 +1560,7 @@ fn r39c_a_rotation_axis_on_an_edge_that_an_upstream_fillet_shortens() {
     let hinged = |inserted: Option<Value>| {
         let mut features = vec![cube10()];
         features.extend(inserted);
-        features.push(rotate(
-            "f-mv1",
-            json!({"kind": "edge", "body": "b-1", "edge": hinge_edge()}),
-            "180 deg",
-        ));
+        features.push(rotate("f-mv1", edge_axis("b-1", hinge_edge()), "180 deg"));
         features
     };
     let setup = run(&["b-1"], &hinged(None));
@@ -1764,7 +1576,7 @@ fn r39c_a_rotation_axis_on_an_edge_that_an_upstream_fillet_shortens() {
             MatchMethod::Exact,
             &["edge(f-box1/right|f-box1/top)"],
         );
-        if let Some(hinge) = state_before(&after, "f-mv1", "b-1")
+        if let Some(hinge) = try_body_before(&after, "f-mv1", "b-1")
             .and_then(|state| element(state, "edge(f-box1/right|f-box1/top)"))
         {
             checks.note(format!("hinge length before the move: {}", hinge.measure));
@@ -1805,7 +1617,10 @@ fn second_cube_front_edge() -> Value {
 /// R40 (a, b): checks the fillet stays on x 35..45 and the chamfer on x 15..25.
 fn check_patterned_cubes(pattern: Value, solids: usize, cubes: f64) {
     let mut checks = Checks::new();
-    let before = run(&["b-1"], &patterned_cubes(linear_pattern("X", "3", "20")));
+    let before = run(
+        &["b-1"],
+        &patterned_cubes(linear_pattern("f-lp1", "X", "3", "20")),
+    );
     checks.all_ok(&before);
 
     let after = run_edited(&before, &["b-1"], &patterned_cubes(pattern));
@@ -1828,7 +1643,7 @@ fn check_patterned_cubes(pattern: Value, solids: usize, cubes: f64) {
         MatchMethod::Exact,
         &["edge(f-box1/front@f-lp1:1|f-box1/top@f-lp1:1)"],
     );
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     checks.faces_count(body, "f-fil1/fillet/", 1);
     checks.axis_through(
         body,
@@ -1845,13 +1660,13 @@ fn check_patterned_cubes(pattern: Value, solids: usize, cubes: f64) {
 
 #[test]
 fn r40a_raising_a_pattern_count_keeps_references_on_their_copy() {
-    check_patterned_cubes(linear_pattern("X", "5", "20"), 5, 5.0);
+    check_patterned_cubes(linear_pattern("f-lp1", "X", "5", "20"), 5, 5.0);
 }
 
 #[test]
 fn r40b_adding_a_second_pattern_direction_keeps_references_on_their_copy() {
     check_patterned_cubes(
-        with_second_direction(linear_pattern("X", "3", "20"), "Y", "2", "15"),
+        with_second_direction(linear_pattern("f-lp1", "X", "3", "20"), "Y", "2", "15"),
         6,
         6.0,
     );
@@ -1867,7 +1682,7 @@ fn r40c_raising_the_first_count_of_a_grid_keeps_the_grid_position() {
     let grid = |count: &str| {
         vec![
             cube10(),
-            with_second_direction(linear_pattern("X", count, "20"), "Y", "2", "15"),
+            with_second_direction(linear_pattern("f-lp1", "X", count, "20"), "Y", "2", "15"),
             fillet("f-fil1", "b-1", vec![edge.clone()], "1"),
         ]
     };
@@ -1885,7 +1700,7 @@ fn r40c_raising_the_first_count_of_a_grid_keeps_the_grid_position() {
         MatchMethod::Exact,
         &["edge(f-box1/front@f-lp1:2.1|f-box1/top@f-lp1:2.1)"],
     );
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     checks.faces_count(body, "f-fil1/fillet/", 1);
     checks.axis_through(
         body,
@@ -1925,7 +1740,7 @@ fn r40d_raising_a_circular_pattern_count_keeps_the_copy_number() {
     let before = run(&["b-1"], &ring("6"));
     checks.all_ok(&before);
     checks.faces_along_x(
-        final_state(&before, "b-1"),
+        before.body("b-1"),
         "f-cha1/chamfer/",
         &[-21.75],
         ABOUT_TOLERANCE,
@@ -1942,7 +1757,7 @@ fn r40d_raising_a_circular_pattern_count_keeps_the_copy_number() {
         MatchMethod::Exact,
         &["edge(f-box1/right@f-cp1:3|f-box1/top@f-cp1:3)"],
     );
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     checks.faces_count(body, "f-cha1/chamfer/", 1);
     let along = 21.75 * FRAC_1_SQRT_2;
     checks.centroid_at(
@@ -1975,7 +1790,7 @@ fn r41_lowering_a_pattern_count_says_which_copy_is_gone() {
     let cubes = |count: &str| {
         vec![
             cube10(),
-            linear_pattern("X", count, "20"),
+            linear_pattern("f-lp1", "X", count, "20"),
             fillet("f-fil1", "b-1", edges.clone(), "1"),
         ]
     };
@@ -2000,7 +1815,7 @@ fn r41_lowering_a_pattern_count_says_which_copy_is_gone() {
         &["is gone because 'Linear pattern 1' no longer makes its third copy, so it was skipped."],
     );
     checks.plain_words(&after, "f-fil1");
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     checks.faces_count(body, "f-fil1/fillet/", 1);
     checks.axis_through(
         body,
@@ -2019,7 +1834,7 @@ fn r41_variant_only_the_lost_copy_referenced() {
     let cubes = |count: &str| {
         vec![
             cube10(),
-            linear_pattern("X", count, "20"),
+            linear_pattern("f-lp1", "X", count, "20"),
             fillet("f-fil1", "b-1", vec![third.clone()], "1"),
         ]
     };
@@ -2027,7 +1842,7 @@ fn r41_variant_only_the_lost_copy_referenced() {
     let after = run_edited(&setup, &["b-1"], &cubes("2"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &third));
     checks.status(&after, "f-fil1", "error");
-    checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
+    checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 2000.0);
     // recompute.md test 61's text; the changed Count is the engine twin's cause line.
     checks.message_names(
@@ -2056,14 +1871,7 @@ fn chamfered_holes(entities: Vec<Value>, points: &[&str]) -> Vec<Value> {
     vec![
         box_below(),
         sketch("f-sk1", origin_plane("XY"), entities),
-        hole(
-            "f-hole1",
-            "b-1",
-            "f-sk1",
-            points,
-            "6",
-            json!({"kind": "through_all"}),
-        ),
+        hole("f-hole1", "b-1", "f-sk1", points, "6", through_all()),
         chamfer("f-cha1", "b-1", vec![hole_p1_rim()], "1"),
     ]
 }
@@ -2091,7 +1899,7 @@ fn check_chamfer_on_p1(entities: Vec<Value>, points: &[&str], x: f64, y: f64) {
         MatchMethod::Exact,
         &["edge(f-box1/top|f-hole1/bore/e-p1)"],
     );
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     checks.faces_count(body, "f-cha1/chamfer/", 1);
     let chamfer_face = "f-cha1/chamfer/edge(f-box1/top|f-hole1/bore/e-p1)";
     if let Some(geometry) = checks.geometry(body, chamfer_face) {
@@ -2162,14 +1970,7 @@ fn two_holes(entities: Vec<Value>, points: &[&str]) -> Vec<Value> {
     vec![
         box_below(),
         sketch("f-sk1", origin_plane("XY"), entities),
-        hole(
-            "f-hole1",
-            "b-1",
-            "f-sk1",
-            points,
-            "6",
-            json!({"kind": "through_all"}),
-        ),
+        hole("f-hole1", "b-1", "f-sk1", points, "6", through_all()),
         chamfer("f-cha1", "b-1", vec![hole_p2_rim()], "0.5"),
     ]
 }
@@ -2183,7 +1984,7 @@ fn points_p1_p2() -> Vec<Value> {
 fn check_hole_point_removed(checks: &mut Checks, after: &Run) {
     checks.note(diagnose(after, "f-cha1", "b-1", &hole_p2_rim()));
     checks.status(after, "f-cha1", "error");
-    let body = final_state(after, "b-1");
+    let body = after.body("b-1");
     checks.faces_count(body, "f-cha1/chamfer/", 0);
     checks.axis_through(
         body,
@@ -2255,7 +2056,7 @@ fn r44_fillets_inserted_before_a_shell() {
         MatchMethod::Exact,
         &["f-box1/top"],
     );
-    let body = final_state(&after, "b-1");
+    let body = after.body("b-1");
     checks.has_element(body, "f-box1/top", false);
     if let Some(rim) = checks.geometry(body, "f-sh1/rim/f-box1/top") {
         checks.check(

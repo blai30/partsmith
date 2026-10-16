@@ -75,11 +75,10 @@ impl Feature for DatumPlane {
         if params.flip {
             placement = placement.flipped();
         }
-        Ok(FeatureOutput {
-            data: OutputData::Datum(DatumResult::Plane(placement)),
-            warnings: base.warnings,
-            absent: Vec::new(),
-        })
+        Ok(FeatureOutput::new(
+            OutputData::Datum(DatumResult::Plane(placement)),
+            base.warnings,
+        ))
     }
 
     fn python(params: &DatumPlaneParams, names: &dyn PythonNames) -> Option<PythonCall> {

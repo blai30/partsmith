@@ -21,7 +21,6 @@ use crate::error::EngineError;
 use crate::profiles::{is_valid_tolerance, tolerance};
 use crate::session::Session;
 use crate::state::{self, BodyView, display_bodies, select_bodies};
-use crate::status::diagnostic;
 use crate::types::{ExportRequest, Exported, ExportedFile, Imported};
 
 /// The type name of the import feature.
@@ -287,13 +286,12 @@ fn write_meshes(
         .map(|(exportable, mesh)| ExportBody::new(&exportable.body, mesh))
         .collect();
     let mut files = Vec::new();
-    let mut add =
-        |name: &str, extension: &str, written: ExportOutput| {
-            warnings.extend(written.warnings.into_iter().map(|warning| {
-                diagnostic(Severity::Warning, warning.code.as_str(), warning.message)
-            }));
-            files.push(file(name, extension, written.bytes));
-        };
+    let mut add = |name: &str, extension: &str, written: ExportOutput| {
+        warnings.extend(written.warnings.into_iter().map(|warning| {
+            Diagnostic::new(Severity::Warning, warning.code.as_str(), warning.message)
+        }));
+        files.push(file(name, extension, written.bytes));
+    };
     match format {
         ExportFormat::Stl { binary, per_body } => {
             let write = if binary {
