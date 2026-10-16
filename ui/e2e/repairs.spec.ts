@@ -4,6 +4,7 @@ import {
   canvas,
   download,
   dropFile,
+  expectHover,
   fixtureBytes,
   inspector,
   openApp,
@@ -13,7 +14,7 @@ import {
 } from './helpers'
 import { expectTimeline, timelineItems } from './support/documents'
 import { dragTo, expectPreviewShown, fillInspector, timelineGap } from './support/modeling'
-import { app, clickAt, editSketchFromBrowser } from './support/sketch'
+import { app, clickAt, editSketchFromBrowser, expectNoHover, sketchHint } from './support/sketch'
 
 // Lost references with the real core (ui.md 6.5, E-109 and E-123 to E-126; the reference
 // stability study section 6.3): a notification for every new loss, repair mode, the core's fixes
@@ -217,12 +218,19 @@ test.describe('lost references and their fixes', () => {
     await expectTimeline(page, ['Sketch 1', 'Extrude 1', 'Fillet 1'])
     await editSketchFromBrowser(page, 'Sketch 1')
     const s = sketchToScreen(await canvas(page), [0, 0], [80, 50])
-    await clickAt(page, s.toPage([80, 25]))
+    // Each step waits for the state it needs, so a busy machine cannot delete nothing and draw a second side.
+    const side = s.toPage([80, 25])
+    await expectHover(page, side.x, side.y, 'sketch_curve')
+    await clickAt(page, side)
+    await expect(page.getByTestId('selection-title')).toHaveText('1 line')
     await page.keyboard.press('Delete')
+    await expectNoHover(page, side, 'sketch_curve')
     await page.keyboard.press('L')
+    await expect(sketchHint(page)).toHaveText('Click to start a line.')
     await clickAt(page, s.toPage([80, 0]))
     await clickAt(page, s.toPage([80, 50]))
     await page.keyboard.press('Escape')
+    await expectHover(page, side.x, side.y, 'sketch_curve')
     await page.keyboard.press('ControlOrMeta+Enter')
     await expect(app(page)).toHaveAttribute('data-context', 'model')
 
