@@ -42,7 +42,8 @@ import { stubResizeObserver } from '../test/fakes/resize-observer'
 import { settle } from '../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
 import { createFakeViewport } from '../test/fakes/viewport'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { hasTabularFigures, isCode } from '../test/type-roles'
+import { COLOR_CLASSES } from '../theme/roles'
 import { Inspector } from './Inspector'
 import type { Rectangle } from './placement'
 
@@ -195,9 +196,20 @@ describe('the command inspector (3.7)', () => {
     await waitFor(() => {
       expect(within(field('radius')).getByTestId('expression-result')).toHaveTextContent('= 2 mm')
     })
-    expect(within(field('radius')).getByRole('combobox', { name: 'Radius' })).toHaveClass(
-      FONT_CLASSES.values,
-    )
+    const radius = within(field('radius')).getByRole('combobox', { name: 'Radius' })
+    expect(radius).toHaveClass('tabular-nums')
+    expect(radius).not.toHaveClass('font-mono')
+  })
+
+  it("U-205 sets U-31's Distance input in tabular figures, not code", () => {
+    const command: ActiveCommand = {
+      ...NEW_EXTRUDE,
+      params: { extent: { kind: 'distance', expr: '30 mm' }, op: 'new' },
+    }
+    renderInspector(rectSketchDocumentState(), { command })
+    const distance = within(field('extent.expr')).getByRole('combobox', { name: 'Distance' })
+    expect(hasTabularFigures(distance)).toBe(true)
+    expect(isCode(distance)).toBe(false)
   })
 
   it('makes a selection field active on click and empties it with its clear button', async () => {
@@ -577,7 +589,8 @@ describe('the selection inspector (3.8)', () => {
           expect(letter).toHaveTextContent(['X', 'Y', 'Z'][index] ?? '')
           expect(letter).not.toHaveAttribute('aria-hidden')
           expect(letter).toHaveClass('font-semibold', AXIS_FOREGROUNDS[index] ?? '')
-          expect(cell.lastElementChild).toHaveClass('tabular-nums', FONT_CLASSES.values)
+          expect(cell.lastElementChild).toHaveClass('tabular-nums')
+          expect(cell.lastElementChild).not.toHaveClass('font-mono')
         }
         expect(readout.lastElementChild).toHaveTextContent(/^mm$/)
         expect(readout.lastElementChild).toHaveClass('shrink-0')

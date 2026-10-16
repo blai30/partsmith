@@ -55,7 +55,7 @@ partsmith_features
   params       BodyOp, CopyOp, ProfileRef, PlaneRef, AxisRef, OriginAxis, PlacementExt, point, vector
   context      BuildContext, BuildInputs, Values, BodyState, Resolved, ResolvedProfile, FacePlacement, FaceFallback, WithWarnings, CancelToken, MODEL_LIMIT
   output       FeatureOutput, OutputData, BodyUpdate, BodyChange, Measurements, AbsentFace, Absence, SketchResult, DatumResult, Tool, Direction, apply_op, apply_op_result, reverse_hits, VOLUME_TOLERANCE
-  error        FeatureError, FeatureWarning, FieldRef, Bound, Noun, IgnoredReason, FallbackCause, Placed, NoEffectHow, Limit, Loss, LossCandidate, RegionLost, Fix, Place, Severity, Repair, Names, DocumentNames, RenderContext, Diagnosis, Explanation, Because, format_value, describe_elements
+  error        FeatureError, FeatureWarning, FieldRef, Bound, Noun, IgnoredReason, FallbackCause, Placed, NoEffectHow, Limit, Loss, LossCandidate, RegionLost, Fix, Place, Severity, Repair, Names, DocumentNames, RenderContext, Diagnosis, Explanation, Because, format_value, describe_elements, describe_face, describe_copy, made_from_line, sketch_coordinates
   registry     Registry, DynFeature, Canonical, Validated, RegistryError, register_builtins
   python       PythonCall, PythonValue, PythonNames
   builtin      one module per built-in feature type (sketch, extrude, ...)
@@ -426,6 +426,10 @@ impl BodyState {
     /// The resolver's view of the state (naming.md section 2.7): `ElementSet::new` of `elements` with the naming map's
     /// aliases and successions, computed once on first use and shared by clones. Empty for an empty body.
     pub fn element_set(&self) -> Result<Arc<ElementSet>, FeatureError>;
+    /// The names-only view of the state (naming.md section 2.7): `NameSet::new` of the naming map, computed once on
+    /// first use and shared by clones. It reads no topology, so it never computes `elements`; recompute's loss
+    /// diagnosis walks writer chains through it (recompute.md section 3.10).
+    pub fn name_set(&self) -> &NameSet;
     /// The motion the naming map records for a face name (naming.md section 3.3 step 8), also for a name no longer in
     /// the shape; the identity for an empty body.
     pub fn motion(&self, face: &ElementName) -> Motion;
@@ -901,6 +905,9 @@ pub trait Names {
     fn feature_record(&self, feature: &Id) -> Option<&FeatureRecord>;
     /// The sketch's result in the current run, when it built.
     fn sketch_result(&self, sketch: &Id) -> Option<&SketchResult>;
+    /// The faces the feature's output in the current run records absent (section 2.7), for element descriptions
+    /// (section 3.12); none outside a run, which the provided method returns.
+    fn absent_faces(&self, feature: &Id) -> &[AbsentFace] { &[] }
 }
 
 /// `Names` for a document, using the registry for default feature labels and type labels.
@@ -909,7 +916,7 @@ pub struct DocumentNames<'a> {
     pub document: &'a Document,
     /// The registry.
     pub registry: &'a Registry,
-    /// Outputs of the current run by feature id, for sketch results; empty outside a run.
+    /// Outputs of the current run by feature id, for sketch results and absent faces; empty outside a run.
     pub outputs: &'a BTreeMap<Id, Arc<FeatureOutput>>,
 }
 
@@ -986,6 +993,16 @@ pub fn format_value(kind: FieldUnit, value: f64, units: Units) -> String;
 /// elements were resolved in, whose faces give direction words; elements that would read the same get their entity
 /// or position clause.
 pub fn describe_elements(elements: &[(&ElementName, &Fingerprint)], state: Option<&BodyState>, names: &dyn Names, units: Units) -> Vec<String>;
+
+/// The words for one face given by its name alone, read by the face of that name in `state` (section 3.12); recompute
+/// describes the faces its reason clauses name with it (recompute.md section 3.10).
+pub fn describe_face(name: &str, state: Option<&BodyState>, names: &dyn Names, units: Units) -> String;
+/// A pattern or mirror copy in words (section 3.12): `third copy`, `copy in row 2, column 3`, `mirror image`.
+pub fn describe_copy(names: &dyn Names, feature: &Id, instance: Instance) -> String;
+/// True when the stored fingerprint shows that the entity whose face `reference` names was a line (`{line or curve}`).
+pub fn made_from_line(reference: &Reference) -> bool;
+/// Sketch coordinates in document units without the unit, `(80, 40)` (section 3.12).
+pub fn sketch_coordinates(point: [f64; 2], units: Units) -> String;
 
 impl FeatureError {
     /// An `Internal` error for a failure that valid input cannot cause.

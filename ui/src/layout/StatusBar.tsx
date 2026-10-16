@@ -14,7 +14,7 @@ import { PrinterMenu } from '../print/PrinterMenu'
 import { printerLabel } from '../print/printer'
 import { selectHealthBadge, selectSketchDof } from '../state/selectors'
 import type { AppState, CoreState } from '../state/store'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { COLOR_CLASSES } from '../theme/roles'
 import { useCommandViews } from './use-commands'
 
 // The status bar (ui.md 3.21): core status, sketch DOF, grid spacing, rebuild time, units, printer
@@ -104,7 +104,7 @@ function SketchDof() {
         data-state={dof.state}
         className="tabular-nums"
       >
-        <span className={FONT_CLASSES.values}>{dof.dof}</span> DOF
+        {dof.dof} DOF
       </span>
     </Tooltip>
   )
@@ -122,7 +122,7 @@ function GridSpacing() {
     return null
   }
   return (
-    <span data-testid="status-grid" className="whitespace-nowrap">
+    <span data-testid="status-grid" className="whitespace-nowrap tabular-nums">
       Grid {text}
     </span>
   )
@@ -143,8 +143,8 @@ function RebuildTime() {
   const time = rebuildTime(milliseconds)
   return (
     <Tooltip label="Time the last change took to rebuild">
-      <span data-testid="status-recompute" className="whitespace-nowrap">
-        Rebuilt in <span className={FONT_CLASSES.values}>{time.value}</span> {time.unit}
+      <span data-testid="status-recompute" className="whitespace-nowrap tabular-nums">
+        Rebuilt in {time.value} {time.unit}
       </span>
     </Tooltip>
   )

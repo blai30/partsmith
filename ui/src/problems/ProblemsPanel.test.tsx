@@ -97,6 +97,11 @@ describe('the Problems panel (3.9)', () => {
     expect(panel).toHaveTextContent('No problems.')
   })
 
+  it('pads its body on every side, so the first row clears the header rule (3.23)', () => {
+    const { panel } = renderPanel(withProblems([FILLET_TOO_LARGE]))
+    expect(within(panel).getByRole('list').parentElement).toHaveClass('p-4')
+  })
+
   it('lists features with warnings or errors in timeline order, with their messages', () => {
     const { panel } = renderPanel(withProblems([SHELL_WARNING, FILLET_TOO_LARGE]))
     const fillet = within(panel).getByRole('button', { name: 'Fillet 1' })

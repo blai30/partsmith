@@ -26,7 +26,7 @@ import { emptyDocument } from './test/fakes/documents'
 import { bodyItem } from './test/fakes/selection'
 import { settle } from './test/fakes/settle'
 import { checkResult, finding, printReport } from './test/fakes/state'
-import { COLOR_CLASSES, FONT_CLASSES } from './theme/roles'
+import { COLOR_CLASSES } from './theme/roles'
 import { classifyView } from './viewport/camera'
 
 beforeEach(installPopoverPolyfill)
@@ -104,7 +104,7 @@ describe('the app shell (3.2)', () => {
     }
   })
 
-  it('styles the root with the fixed layout, the interface font and the stage and text roles', () => {
+  it('styles the root with the fixed layout and the stage and text roles', () => {
     renderApp()
     const root = screen.getByTestId('app')
     for (const name of [
@@ -113,12 +113,16 @@ describe('the app shell (3.2)', () => {
       'overflow-hidden',
       'p-2',
       'antialiased',
-      ...FONT_CLASSES.interfaceText.split(' '),
       ...COLOR_CLASSES.stage.background.split(' '),
       ...COLOR_CLASSES.text.foreground.split(' '),
     ]) {
       expect(root).toHaveClass(name)
     }
+  })
+
+  it('leaves the root in the interface face it inherits from the root element (2.16.7)', () => {
+    renderApp()
+    expect(screen.getByTestId('app').className).not.toMatch(/(?:^|\s)font-(?:\[|mono|sans)/)
   })
 
   it('mirrors the context in data-context', () => {

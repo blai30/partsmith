@@ -65,8 +65,8 @@ fn expected_configuration() -> Value {
                 "csp": {
                     "default-src": "'self'",
                     "script-src": "'self'",
-                    "style-src": "'self' https://fonts.googleapis.com",
-                    "font-src": "https://fonts.gstatic.com",
+                    "style-src": "'self'",
+                    "font-src": "'self'",
                     "img-src": "'self' data:",
                     "connect-src": "ipc: http://ipc.localhost",
                     "worker-src": "'none'",
@@ -78,8 +78,8 @@ fn expected_configuration() -> Value {
                 "devCsp": {
                     "default-src": "'self'",
                     "script-src": "'self' 'unsafe-inline'",
-                    "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
-                    "font-src": "https://fonts.gstatic.com",
+                    "style-src": "'self' 'unsafe-inline'",
+                    "font-src": "'self'",
                     "img-src": "'self' data:",
                     "connect-src": "'self' ipc: http://ipc.localhost ws://localhost:5173",
                     "worker-src": "'none'",

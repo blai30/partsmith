@@ -49,6 +49,11 @@ impl<K: Ord + Copy, V> PassLru<K, V> {
         self.entries.get(key).map(|entry| &entry.value)
     }
 
+    /// The value under `key` to change in place, without marking it used.
+    pub(crate) fn peek_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.entries.get_mut(key).map(|entry| &mut entry.value)
+    }
+
     /// Stores `value` under `key`, used by the current pass.
     // Inlined so a large value (a feature error) is written in place rather than copied.
     #[inline]
@@ -129,6 +134,22 @@ mod tests {
         assert_eq!(lru.touch(&1), Some(&"one"));
         assert_eq!(lru.touch(&2), None);
         assert_eq!(lru.len(), 1);
+    }
+
+    #[test]
+    fn values_change_in_place_without_being_used() {
+        let mut lru = PassLru::default();
+        pass(&mut lru, &[1], 1);
+        lru.begin_pass();
+
+        if let Some(value) = lru.peek_mut(&1) {
+            *value = ();
+        }
+        lru.insert(2, ());
+        lru.evict_to(1);
+
+        assert_eq!(kept(&lru), [2]);
+        assert!(lru.peek_mut(&3).is_none());
     }
 
     #[test]

@@ -17,7 +17,7 @@ import { framedArea } from '../viewport/camera'
 import { positionElement } from '../viewport/overlay'
 import { commandSelectionFields } from '../viewport/picking-rules'
 import { CommandInspector } from './CommandInspector'
-import { fieldInputId } from './fields/field-id'
+import { fieldInputId, focusFieldInput } from './fields/field-id'
 import { activeCommandModel, fieldsOf, isEmptyValue } from './model'
 import { inspectorBounds, placeInspector, type Rectangle } from './placement'
 import { SelectionInspector } from './SelectionInspector'
@@ -195,11 +195,9 @@ function Panel({
       openingFocus(app.store.getState())
         .map((path) => document.getElementById(fieldInputId(path)))
         .find((candidate) => candidate !== null) ?? null
-    if (target !== null) {
-      target.focus()
-      if (target instanceof HTMLInputElement) {
-        target.select()
-      }
+    focusFieldInput(target)
+    if (target instanceof HTMLInputElement) {
+      target.select()
     }
     return () => {
       const active = document.activeElement

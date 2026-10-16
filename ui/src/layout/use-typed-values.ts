@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { commandValueField, setCommandField } from '../app/actions/command'
 import type { App } from '../app/createApp'
-import { fieldInputId } from '../inspector/fields/field-id'
+import { fieldInputId, focusFieldInput } from '../inspector/fields/field-id'
 import { isView } from './focus'
 
 // Typing values (ui.md 3.7): while a feature command is active, a value typed with focus on the
@@ -44,7 +44,7 @@ export function useTypedValues(app: App): void {
         const field = valueInput(app)
         if (field !== null) {
           event.preventDefault()
-          field.input.focus()
+          focusFieldInput(field.input)
           field.input.select()
         }
         return
@@ -59,7 +59,7 @@ export function useTypedValues(app: App): void {
       }
       // The character goes into the field here, not through the default key action.
       event.preventDefault()
-      field.input.focus()
+      focusFieldInput(field.input)
       setCommandField(app, field.path, event.key, { typing: true })
     }
     window.addEventListener('keydown', onKeyDown, true)

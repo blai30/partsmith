@@ -56,8 +56,8 @@ pub(crate) fn plan(
     let mut steps = Vec::with_capacity(timeline.steps.len());
     for (position, step) in timeline.steps.iter().enumerate() {
         let (action, key, fails) = match &step.kind {
-            StepKind::RolledBack => (Action::RolledBack, None, false),
-            StepKind::Suppressed => (Action::Suppressed, None, false),
+            StepKind::RolledBack(_) => (Action::RolledBack, None, false),
+            StepKind::Suppressed(_) => (Action::Suppressed, None, false),
             StepKind::Invalid(_) => (Action::Fail, None, true),
             StepKind::Active(active) => {
                 let (_, key) = evaluate(timeline, position, active, &progress.keys, scope);

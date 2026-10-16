@@ -176,9 +176,10 @@ impl ElementName {
         uses.into_iter().collect()
     }
 
-    /// The name with every `#n` group removed, wherever it stands; `None` when that text is no
-    /// valid name (removing numbers can unsort the face terms of a nested name).
-    pub(crate) fn piece_free(&self) -> Option<ElementName> {
+    /// The piece-free name (section 3.1): the name with every `#n` group removed, wherever it
+    /// stands; `None` when that text is no valid name (removing numbers can unsort the face terms
+    /// of a nested name). Recompute's loss diagnosis describes a lost piece's whole face by it.
+    pub fn piece_free(&self) -> Option<ElementName> {
         if !self.is_order_dependent() {
             return Some(self.clone());
         }
@@ -466,6 +467,19 @@ mod tests {
     fn instance_suffix_alone_is_not_order_dependent() {
         assert!(!name("f-a/x@f-p:2").is_order_dependent());
         assert!(name("f-f/fillet/edge(f-a/x#1)").is_order_dependent());
+    }
+
+    #[test]
+    fn piece_free_names_drop_every_split_number() {
+        assert_eq!(
+            name("f-ext1/end-cap#2").piece_free(),
+            Some(name("f-ext1/end-cap"))
+        );
+        assert_eq!(
+            name("f-box1/top#1@f-lp1:2").piece_free(),
+            Some(name("f-box1/top@f-lp1:2"))
+        );
+        assert_eq!(name("f-box1/top").piece_free(), Some(name("f-box1/top")));
     }
 
     #[test]

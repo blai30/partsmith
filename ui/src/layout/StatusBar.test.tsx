@@ -6,7 +6,7 @@ import { MESSAGES } from '../messages'
 import type { ActiveCommand, AppState, DocumentState } from '../state/store'
 import { CUBE_DOCUMENT, RECT_SKETCH_SOLUTION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { COLOR_CLASSES } from '../theme/roles'
 import { cubeDocumentState, rectSketchDocumentState } from './fixtures.testing'
 import { StatusBar } from './StatusBar'
 import { renderModelApp, stubMatchMedia } from './test-app.testing'
@@ -130,11 +130,12 @@ describe('the status bar (3.21)', () => {
     expect(screen.queryByTestId('status-core')).toBeNull()
   })
 
-  it('shows the last rebuild time in whole milliseconds, the number in the values font', () => {
+  it('shows the last rebuild time in whole milliseconds, in tabular figures', () => {
     renderApp({}, cubeDocumentState({ lastRebuildMilliseconds: 12.4 }))
     const recompute = screen.getByTestId('status-recompute')
     expect(recompute).toHaveTextContent('Rebuilt in 12 ms')
-    expect(within(recompute).getByText('12')).toHaveClass(FONT_CLASSES.values)
+    expect(recompute).toHaveClass('tabular-nums')
+    expect(recompute.querySelector('.font-mono')).toBeNull()
   })
 
   it('shows rebuilds of a second or more in seconds with one decimal', () => {
@@ -238,7 +239,8 @@ describe('the status bar (3.21)', () => {
     expect(dof).toHaveTextContent('3 DOF')
     expect(dof).toHaveAttribute('data-dof', '3')
     expect(dof).toHaveAttribute('data-state', 'under')
-    expect(within(dof).getByText('3')).toHaveClass(FONT_CLASSES.values)
+    expect(dof).toHaveClass('tabular-nums')
+    expect(dof.querySelector('.font-mono')).toBeNull()
     // "DOF" is explained in plain words (3.16.8, 3.21).
     expect(dof).toHaveAccessibleDescription(
       'Degrees of freedom: how many ways the sketch can still move.',

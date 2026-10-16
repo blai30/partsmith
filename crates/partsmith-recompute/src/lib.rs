@@ -13,8 +13,14 @@
 //! `Recompute` serves every document of a session; its cache evicts the least recently used
 //! results beyond its limit.
 //!
-//! The crate is pure Rust over `partsmith-model` and `partsmith-features`, holds no global state
-//! and is deterministic. The behavior is specified in `docs/spec/recompute.md`.
+//! After the run, the loss diagnosis explains each message from what the feature cannot know from
+//! its own inputs (why a reference was lost, which feature a followed reference followed, the root
+//! of a failure chain, why a body is empty), reading names only, and every message is rendered
+//! with current names and units.
+//!
+//! The crate is pure Rust over `partsmith-model`, `partsmith-naming` and `partsmith-features`,
+//! holds no global state and is deterministic. The behavior is specified in
+//! `docs/spec/recompute.md`.
 
 // Recompute passes `partsmith_features::FeatureError` through unchanged (recompute.md section 4),
 // and that error keeps the payloads features.md section 4.1 gives it, so it is larger than
@@ -25,6 +31,8 @@
 )]
 
 mod cache;
+mod chains;
+mod diagnosis;
 mod evaluate;
 mod graph;
 mod key;
@@ -45,10 +53,11 @@ use std::time::Instant;
 use partsmith_features::Registry;
 use partsmith_model::{Document, EvaluationContext, Id, ParameterValues, Scope};
 
+pub use diagnosis::{LossReason, Removal};
 pub use graph::{Change, Edge, EdgeKind, Graph, Node, NodeState};
 pub use key::CacheKey;
 pub use partsmith_features::{
-    BodyState, CancelToken, FeatureError, FeatureOutput, FeatureWarning, Repair,
+    BodyState, CancelToken, FeatureError, FeatureOutput, FeatureWarning, Fix, Repair,
 };
 pub use plan::{Action, Plan, PlanStep};
 pub use report::{
@@ -56,6 +65,7 @@ pub use report::{
 };
 
 use crate::cache::Cache;
+use crate::diagnosis::Finished;
 use crate::run::Inputs;
 use crate::timeline::Timeline;
 use crate::validation::Validations;
@@ -67,7 +77,8 @@ pub const DEFAULT_CACHE_ENTRIES: usize = 4096;
 pub struct Recompute {
     /// The feature registry.
     registry: Arc<Registry>,
-    /// Cached build results by key, with the run counter of their last use.
+    /// Cached build results by key, with the run counter of their last use and the loss reasons
+    /// memoized for them.
     cache: Cache,
     /// Validation outcomes by record content, so unchanged records are not parsed again.
     validations: Mutex<Validations>,
@@ -122,14 +133,15 @@ impl Recompute {
         )
     }
 
-    /// Runs the timeline up to the stop point.
+    /// Runs the timeline up to the stop point, then explains and renders every message
+    /// (recompute.md sections 3.5, 3.6 and 3.10).
     pub fn run(&mut self, input: &Input<'_>, cancel: &CancelToken) -> Report {
         let started = Instant::now();
         let timeline = prepare(&self.registry, &self.validations, self.cache.limit(), input);
         let parameters = input.document.evaluate_parameters(input.context);
         let scope = input.scope(&parameters);
         self.cache.begin_run();
-        let ran = run::run(
+        let mut ran = run::run(
             &Inputs {
                 timeline: &timeline,
                 registry: &self.registry,
@@ -139,10 +151,22 @@ impl Recompute {
             },
             &mut self.cache,
         );
+        let messages = diagnosis::render_messages(
+            &Finished {
+                timeline: &timeline,
+                registry: &self.registry,
+                units: scope.units,
+                ran: &ran,
+            },
+            &mut self.cache,
+        );
         self.cache.end_run();
+        for (report, messages) in ran.features.iter_mut().zip(messages) {
+            report.messages = messages;
+        }
         Report {
+            bodies: run::body_reports(&timeline, &ran),
             features: ran.features,
-            bodies: ran.bodies,
             parameters: parameter_reports(input.document, &parameters),
             messages: timeline.messages,
             canceled: ran.canceled,

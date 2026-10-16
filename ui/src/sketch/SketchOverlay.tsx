@@ -19,7 +19,7 @@ import type { WorldAxis } from '../core/labels'
 import type { ConstraintSolveState, SketchSolution } from '../generated/protocol'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
 import { selectEditedSketch } from '../state/selectors'
-import { AXIS_ROLES, COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
+import { AXIS_ROLES, COLOR_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 import { useCanvasLayer } from '../viewport/canvas-layer'
 import { positionElement } from '../viewport/overlay'
 import { sketchWorldAxes } from '../viewport/planes'
@@ -460,8 +460,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
           <div ref={placing} hidden className="absolute top-0 left-0">
             <span
               className={clsx(
-                'block -translate-x-1/2 -translate-y-1/2 rounded-sm px-1 text-xs whitespace-nowrap opacity-90',
-                FONT_CLASSES.values,
+                'block -translate-x-1/2 -translate-y-1/2 rounded-sm px-1 text-xs whitespace-nowrap tabular-nums opacity-90',
                 COLOR_CLASSES.surfaceRaised.background,
                 COLOR_CLASSES.text.foreground,
               )}
@@ -682,8 +681,7 @@ const DimensionLabel = memo(function DimensionLabel({
           controller?.hoverConstraint(null)
         }}
         className={clsx(
-          'pointer-events-auto block -translate-x-1/2 -translate-y-1/2 rounded-sm border px-1 text-xs whitespace-nowrap',
-          FONT_CLASSES.values,
+          'pointer-events-auto block -translate-x-1/2 -translate-y-1/2 rounded-sm border px-1 text-xs whitespace-nowrap tabular-nums',
           COLOR_CLASSES.focusRing.outline,
           selected ? COLOR_CLASSES.accent.border : 'border-transparent',
           plain && 'opacity-90',

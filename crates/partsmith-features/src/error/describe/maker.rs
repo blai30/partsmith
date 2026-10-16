@@ -175,8 +175,8 @@ pub(super) fn is_round(geometry: &Geometry) -> bool {
     matches!(geometry, Geometry::Circle { .. } | Geometry::Arc { .. })
 }
 
-/// Sketch coordinates in document units without the unit: `(80, 40)`.
-pub(super) fn sketch_coordinates(point: [f64; 2], units: Units) -> String {
+/// Sketch coordinates in document units without the unit, as section 3.12 writes them: `(80, 40)`.
+pub fn sketch_coordinates(point: [f64; 2], units: Units) -> String {
     format!(
         "({}, {})",
         coordinate(point[0], units),

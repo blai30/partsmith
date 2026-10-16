@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
+  bodyRow,
   dropFile,
   expectReady,
   inspector,
@@ -12,8 +13,8 @@ import {
 import { chooseContext } from './support/print'
 import { editSketchFromTimeline } from './support/sketch'
 
-// Themes, inline styles and fonts (ui.md 2.16, 3.12, 6.5 E-56 and E-60 to E-62) against the
-// production build.
+// Themes, inline styles and fonts (ui.md 2.16, 3.12, 6.5 E-56, E-60 to E-62, E-143 and E-144)
+// against the production build.
 
 /** The key the settings are stored under in localStorage (ui.md 2.15). */
 const SETTINGS_KEY = 'partsmith.settings.v1'
@@ -103,11 +104,81 @@ async function expectOnlyRuntimePositions(page: Page): Promise<void> {
   expect(misplaced).toEqual([])
 }
 
-/** Expects the computed `font-family` of the first element `locator` matches to start with `family`. */
-async function expectFontFamily(locator: Locator, family: string): Promise<void> {
+/** The computed `font-family` of an element up to its first comma, without quotes (E-62). */
+function firstFamily(fontFamily: string): string {
+  return (fontFamily.split(',')[0] ?? '').trim().replaceAll('"', '').replaceAll("'", '')
+}
+
+/** Expects the first family of the first element `locator` matches to be `family`. */
+async function expectFirstFamily(locator: Locator, family: string): Promise<void> {
   await expect(locator.first()).toBeVisible()
-  const computedFamily = await computed(locator.first(), 'font-family')
-  expect(computedFamily.startsWith(family), `font-family ${computedFamily}`).toBe(true)
+  expect(firstFamily(await computed(locator.first(), 'font-family'))).toBe(family)
+}
+
+/** Expects a computed property of the first element `locator` matches to be `value`. */
+async function expectComputed(locator: Locator, property: string, value: string): Promise<void> {
+  await expect(locator.first()).toBeVisible()
+  expect(await computed(locator.first(), property)).toBe(value)
+}
+
+/** Expects the computed `font-feature-settings` of the first element `locator` matches to hold `ss05`. */
+async function expectSerifedCapitalI(locator: Locator): Promise<void> {
+  await expect(locator.first()).toBeVisible()
+  expect(await computed(locator.first(), 'font-feature-settings')).toContain('ss05')
+}
+
+/** The elements of the page that break E-143's rules, as the start of their markup. */
+function typeRuleOffenders(page: Page): Promise<{
+  readonly withoutSerifedI: readonly string[]
+  readonly slashedZero: readonly string[]
+}> {
+  return page.evaluate(() => {
+    const elements = [...document.querySelectorAll('*')]
+    const geist = elements.filter((element) => {
+      const family = getComputedStyle(element).fontFamily.split(',')[0] ?? ''
+      return family.trim().replaceAll('"', '').replaceAll("'", '') === 'Geist'
+    })
+    return {
+      withoutSerifedI: geist
+        .filter((element) => !getComputedStyle(element).fontFeatureSettings.includes('ss05'))
+        .map((element) => element.outerHTML.slice(0, 120)),
+      slashedZero: elements
+        .filter((element) => getComputedStyle(element).fontVariantNumeric.includes('slashed-zero'))
+        .map((element) => element.outerHTML.slice(0, 120)),
+    }
+  })
+}
+
+/** The font faces of `document.fonts` as E-62 reads them. */
+function fontFaces(page: Page): Promise<
+  readonly {
+    readonly family: string
+    readonly weight: string
+    readonly display: string
+    readonly sizeAdjust: string
+    readonly status: string
+  }[]
+> {
+  return page.evaluate(() =>
+    [...document.fonts].map((face) => ({
+      family: face.family.replaceAll('"', '').replaceAll("'", ''),
+      weight: face.weight,
+      display: face.display,
+      // The DOM types of TypeScript lack the descriptor, which Chromium has.
+      sizeAdjust: String(Reflect.get(face, 'sizeAdjust')),
+      status: face.status,
+    })),
+  )
+}
+
+/** Whether `document.fonts.check` is true for a font specifier. */
+function fontAvailable(page: Page, specifier: string): Promise<boolean> {
+  return page.evaluate((font) => document.fonts.check(font), specifier)
+}
+
+/** The browser row of the parameter `size` of parametric.ptsm. */
+function sizeParameterRow(page: Page): Locator {
+  return page.locator('[data-testid=browser-row][data-kind=parameter][data-id=p-size]')
 }
 
 test.describe('themes', () => {
@@ -202,21 +273,157 @@ test.describe('E-61 no inline styles except runtime positions', () => {
 })
 
 test.describe('fonts', () => {
-  test('E-62 interface text is Inter and values are JetBrains Mono', async ({ page }) => {
+  test('E-62 interface text and numbers are Geist, code is JetBrains Mono', async ({ page }) => {
     await openApp(page)
     await dropFile(page, 'rect-sketch.ptsm')
     await editSketchFromTimeline(page, 'Sketch 1')
-    await expectFontFamily(page.getByTestId('document-name'), 'Inter')
-    await expectFontFamily(page.getByTestId('status-units'), 'Inter')
-    await expectFontFamily(page.getByTestId('sketch-header'), 'Inter')
-    // Chrome keeps the quotes of a family name with a space.
-    await expectFontFamily(page.getByTestId('sketch-dimension'), '"JetBrains Mono"')
+    for (const testId of ['document-name', 'status-units', 'sketch-header', 'sketch-dimension']) {
+      // oxlint-disable-next-line no-await-in-loop
+      await expectFirstFamily(page.getByTestId(testId), 'Geist')
+    }
+    await expectComputed(
+      page.getByTestId('sketch-dimension'),
+      'font-variant-numeric',
+      'tabular-nums',
+    )
+    await expectComputed(page.getByTestId('status-dof'), 'font-variant-numeric', 'tabular-nums')
+    await expectComputed(page.getByTestId('sketch-header'), 'font-variant-numeric', 'normal')
+
     await page.getByRole('button', { name: 'Finish sketch', exact: true }).click()
     await expect(page.getByTestId('app')).toHaveAttribute('data-context', 'model')
     await page.keyboard.press('e')
     await expect(inspector(page)).toHaveAccessibleName('Extrude')
     const distance = inspectorField(page, 'extent.expr')
-    await expectFontFamily(distance.getByTestId('expression-result'), '"JetBrains Mono"')
-    await expectFontFamily(distance.locator('label'), 'Inter')
+    const distanceInput = distance.getByRole('combobox', { name: 'Distance', exact: true })
+    const result = distance.getByTestId('expression-result')
+    await expectFirstFamily(result, 'Geist')
+    await expectFirstFamily(distance.locator('label'), 'Geist')
+    await expectFirstFamily(distanceInput, 'Geist')
+    await expectComputed(distanceInput, 'font-variant-numeric', 'tabular-nums')
+    await expectComputed(result, 'font-variant-numeric', 'tabular-nums')
+
+    await page.keyboard.press('Escape')
+    await expect(inspector(page)).toBeHidden()
+    await dropFile(page, 'parametric.ptsm')
+    await runCommand(page, 'Parameters')
+    const panel = page.getByTestId('parameters-panel')
+    for (const input of [
+      panel.getByRole('textbox', { name: 'Name of size', exact: true }),
+      panel.getByRole('combobox', { name: 'Expression of size', exact: true }),
+    ]) {
+      // oxlint-disable-next-line no-await-in-loop
+      await expectFirstFamily(input, 'JetBrains Mono')
+      // oxlint-disable-next-line no-await-in-loop
+      await expectComputed(input, 'font-variant-ligatures', 'no-contextual')
+      // oxlint-disable-next-line no-await-in-loop
+      await expectComputed(input, 'font-feature-settings', 'normal')
+    }
+    const value = panel.getByTestId('parameter-value')
+    await expectFirstFamily(value, 'Geist')
+    await expectComputed(value, 'font-variant-numeric', 'tabular-nums')
+    const rowText = sizeParameterRow(page).getByText('size = 20 mm', { exact: true })
+    await expectFirstFamily(rowText, 'JetBrains Mono')
+    await expectComputed(rowText, 'font-variant-ligatures', 'normal')
+
+    await page.keyboard.press('ControlOrMeta+K')
+    await page.getByTestId('palette-input').fill('size')
+    const option = page.locator('[data-testid=palette-option][data-kind=parameter]')
+    await expectFirstFamily(option.getByText('size = 20 mm', { exact: true }), 'JetBrains Mono')
+    await expectFirstFamily(option.getByText('Parameter', { exact: true }), 'Geist')
+
+    expect(await fontAvailable(page, '14px Geist')).toBe(true)
+    expect(await fontAvailable(page, '14px "JetBrains Mono"')).toBe(true)
+    const faces = await fontFaces(page)
+    expect(faces.find((face) => face.family === 'Geist')).toMatchObject({
+      weight: '100 900',
+      display: 'swap',
+      status: 'loaded',
+    })
+    expect(faces.find((face) => face.family === 'JetBrains Mono')).toMatchObject({
+      weight: '100 800',
+      sizeAdjust: '96%',
+      status: 'loaded',
+    })
+  })
+
+  test('E-143 interface text keeps ss05 and numbers in fields are tabular', async ({ page }) => {
+    await openApp(page)
+    await dropFile(page, 'cube.ptsm')
+    await timelineItem(page, 'Extrude 1')
+      .getByRole('button', { name: 'Extrude 1', exact: true })
+      .dblclick()
+    await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
+    const distance = inspectorField(page, 'extent.expr')
+    const label = distance.locator('label')
+    const input = distance.getByRole('combobox', { name: 'Distance', exact: true })
+    const ok = inspector(page).getByRole('button', { name: 'OK', exact: true })
+    const documentName = page.getByTestId('document-name')
+    for (const element of [documentName, label, input, ok, page.getByTestId('status-units')]) {
+      // oxlint-disable-next-line no-await-in-loop
+      await expectSerifedCapitalI(element)
+    }
+    for (const element of [input, distance.getByTestId('expression-result')]) {
+      // oxlint-disable-next-line no-await-in-loop
+      await expectComputed(element, 'font-variant-numeric', 'tabular-nums')
+    }
+    await expectComputed(
+      page.getByTestId('status-recompute'),
+      'font-variant-numeric',
+      'tabular-nums',
+    )
+    for (const element of [documentName, label, ok]) {
+      // oxlint-disable-next-line no-await-in-loop
+      await expectComputed(element, 'font-variant-numeric', 'normal')
+    }
+    expect(await typeRuleOffenders(page)).toEqual({ withoutSerifedI: [], slashedZero: [] })
+
+    // The footer's Cancel, beside OK; the header's close button has the same name.
+    await inspector(page)
+      .getByRole('button', { name: 'Cancel', exact: true })
+      .filter({ hasText: 'Cancel' })
+      .click()
+    await expect(inspector(page)).not.toHaveAttribute('data-mode', 'command')
+    await bodyRow(page, 'Cube').click()
+    const numbers = page.getByTestId('body-size').locator('.tabular-nums')
+    await expect(numbers).toHaveCount(3)
+    for (const number of await numbers.all()) {
+      // oxlint-disable-next-line no-await-in-loop
+      await expectSerifedCapitalI(number)
+      // oxlint-disable-next-line no-await-in-loop
+      await expectComputed(number, 'font-variant-numeric', 'tabular-nums')
+    }
+    await expectComputed(page.getByTestId('selection-title'), 'font-variant-numeric', 'normal')
+    expect(await typeRuleOffenders(page)).toEqual({ withoutSerifedI: [], slashedZero: [] })
+  })
+
+  test('E-144 no font request leaves the app', async ({ page }) => {
+    const requests: { readonly url: URL; readonly type: string }[] = []
+    page.on('request', (request) => {
+      requests.push({ url: new URL(request.url()), type: request.resourceType() })
+    })
+    const requestsFor = (path: string) =>
+      requests.filter((request) => request.url.pathname === path)
+    await openApp(page)
+    await page.evaluate(() => document.fonts.ready)
+    expect(await fontAvailable(page, '14px Geist')).toBe(true)
+    expect(requestsFor('/fonts/Geist-Variable.woff2')).toHaveLength(1)
+    expect(requestsFor('/fonts/JetBrainsMono-Variable.woff2')).toHaveLength(0)
+
+    await dropFile(page, 'parametric.ptsm')
+    await runCommand(page, 'Parameters')
+    await expect.poll(() => fontAvailable(page, '14px "JetBrains Mono"')).toBe(true)
+    expect(requestsFor('/fonts/JetBrainsMono-Variable.woff2')).toHaveLength(1)
+
+    const origin = new URL(page.url()).origin
+    const strayFonts = requests
+      .filter((request) => request.type === 'font')
+      .filter(
+        (request) => request.url.origin !== origin || !request.url.pathname.startsWith('/fonts/'),
+      )
+    expect(strayFonts.map((request) => request.url.href)).toEqual([])
+    const googleFonts = requests.filter((request) =>
+      ['fonts.googleapis.com', 'fonts.gstatic.com'].includes(request.url.hostname),
+    )
+    expect(googleFonts.map((request) => request.url.href)).toEqual([])
   })
 })

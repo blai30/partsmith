@@ -500,6 +500,50 @@ fn t001_edges_and_floor_of_a_pocket() {
     );
 }
 
+/// Corpus R30 (a) after its edit: `BLOCK` and the boss `f-ext2` of the circle `e-5`, extruded symmetric 40 from
+/// z = 30 with Operation Cut, so it ends outside the body.
+fn r30a_cut() -> Run {
+    let mut features = block();
+    features.extend([
+        datum_xy("f-dp1", "30"),
+        sketch_on_datum(
+            "f-sk2",
+            "f-dp1",
+            vec![json!({"id": "e-5", "type": "circle", "center": [40, 25], "radius": 10})],
+        ),
+        extrude(
+            "f-ext2",
+            "f-sk2",
+            json!([{"key": "e-5", "fp": "c=40,25|a=314.159265"}]),
+            json!({"kind": "symmetric", "expr": "40"}),
+            false,
+            "cut",
+        ),
+    ]);
+    run_features(&["b-1"], &features)
+}
+
+#[test]
+fn t001_a_cap_a_cut_records_ending_outside_reads_as_the_tools_own() {
+    let run = r30a_cut();
+
+    // The boss's top rim: its end cap ends outside the body, so it never was a face the cut leaves.
+    assert_eq!(
+        describe_stored(
+            &run,
+            "b-1",
+            "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
+            "circle|n=0,0,1|c=40,25,50|l=62.831853|r=10|adj=2,1"
+        ),
+        "the top rim of 'Extrude 2'"
+    );
+    // The cut's opening in the top of 'Extrude 1' is still a rim of the cut.
+    assert_eq!(
+        describe_one(&run, "b-1", "edge(f-ext1/end-cap|f-ext2/lateral/e-5)"),
+        "the top rim of the cut made by 'Extrude 2'"
+    );
+}
+
 /// `BOX-BELOW`, the points `points` of `f-sk1` on XY and the through hole `f-hole1` of diameter 6 at `used`, with
 /// `extra` params.
 fn holes(points: Vec<Value>, used: &[&str], extra: Value) -> Run {

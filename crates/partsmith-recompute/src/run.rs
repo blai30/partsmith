@@ -8,23 +8,25 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use partsmith_features::{
-    BodyState, BuildContext, BuildInputs, CancelToken, Diagnosis, DocumentNames, FeatureError,
-    FeatureOutput, FeatureWarning, Link, OutputData, Registry, RenderContext, Values,
+    BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, FeatureWarning,
+    Link, OutputData, Registry, Values,
 };
 use partsmith_model::{FeatureRecord, Id, Scope};
 
 use crate::cache::{Built, Cache, Outcome};
+use crate::chains::Bodies;
 use crate::evaluate::{Progress, evaluate};
 use crate::key::CacheKey;
-use crate::report::{BodyReport, FeatureReport, Message, Status, Timing, render_messages};
+use crate::report::{BodyReport, FeatureReport, Status, Timing};
 use crate::timeline::{ActiveStep, StepKind, Timeline};
 
-/// What a run produced, besides the parts the caller adds (parameters, messages, time).
+/// What a run produced, besides the parts the caller adds (messages, parameters, time).
 pub(crate) struct Ran {
-    /// One report per feature record, in timeline order.
+    /// One report per feature record, in timeline order, without messages: they are rendered
+    /// after the loss diagnosis (section 3.6).
     pub(crate) features: Vec<FeatureReport>,
-    /// One report per body, in document order.
-    pub(crate) bodies: Vec<BodyReport>,
+    /// Every body's final state, provider and writer chain.
+    pub(crate) bodies: Bodies,
     /// True when the run was canceled.
     pub(crate) canceled: bool,
 }
@@ -46,24 +48,12 @@ pub(crate) struct Inputs<'r> {
 /// Runs every step of the timeline in order, reusing and filling `cache`.
 pub(crate) fn run(inputs: &Inputs<'_>, cache: &mut Cache) -> Ran {
     let steps = &inputs.timeline.steps;
-    let empty = BodyState::empty();
+    let document = inputs.timeline.document;
     let mut runner = Runner {
         inputs,
         progress: Progress::with_capacity(steps.len()),
         outputs: Vec::with_capacity(steps.len()),
-        bodies: inputs
-            .timeline
-            .document
-            .bodies
-            .iter()
-            .map(|body| {
-                let slot = Slot {
-                    state: empty.clone(),
-                    writer: None,
-                };
-                (body.id.clone(), slot)
-            })
-            .collect(),
+        bodies: Bodies::empty(document.bodies.iter().map(|body| &body.id)),
         canceled: false,
     };
     let mut features = Vec::with_capacity(steps.len());
@@ -76,10 +66,30 @@ pub(crate) fn run(inputs: &Inputs<'_>, cache: &mut Cache) -> Ran {
         features.push(report);
     }
     Ran {
-        bodies: runner.body_reports(),
-        canceled: runner.canceled,
         features,
+        bodies: runner.bodies,
+        canceled: runner.canceled,
     }
+}
+
+/// The state of every body of the document at the end of `ran`, with its provider, in document
+/// order.
+pub(crate) fn body_reports(timeline: &Timeline<'_>, ran: &Ran) -> Vec<BodyReport> {
+    timeline
+        .document
+        .bodies
+        .iter()
+        .filter_map(|body| {
+            let state = ran.bodies.current(&body.id)?;
+            let provider = ran.bodies.provider(&body.id);
+            Some(BodyReport {
+                body: body.id.clone(),
+                state: state.clone(),
+                key: provider.and_then(|writer| ran.features[writer].key),
+                last_feature: provider.map(|writer| timeline.steps[writer].record.id.clone()),
+            })
+        })
+        .collect()
 }
 
 /// The running state of one run.
@@ -90,18 +100,10 @@ struct Runner<'r> {
     progress: Progress,
     /// The output of every step so far that built or was reused.
     outputs: Vec<Option<Arc<FeatureOutput>>>,
-    /// The current state and provider of every body of the document.
-    bodies: BTreeMap<Id, Slot>,
+    /// The current state, provider and writer chain of every body of the document.
+    bodies: Bodies,
     /// True once the run was canceled.
     canceled: bool,
-}
-
-/// The running state of one body.
-struct Slot {
-    /// Its current state.
-    state: BodyState,
-    /// Position of its provider: the last feature that ran and declares it written.
-    writer: Option<usize>,
 }
 
 impl Runner<'_> {
@@ -110,11 +112,10 @@ impl Runner<'_> {
         let timeline = self.inputs.timeline;
         let step = &timeline.steps[position];
         match &step.kind {
-            StepKind::RolledBack => FeatureReport::idle(&step.record.id, Status::RolledBack),
-            StepKind::Suppressed => FeatureReport::idle(&step.record.id, Status::Suppressed),
+            StepKind::RolledBack(_) => FeatureReport::idle(&step.record.id, Status::RolledBack),
+            StepKind::Suppressed(_) => FeatureReport::idle(&step.record.id, Status::Suppressed),
             StepKind::Invalid(error) => FeatureReport {
                 error: Some(FeatureError::clone(error)),
-                messages: self.messages(&step.record.id, Some(error), &[], &[]),
                 ..FeatureReport::idle(&step.record.id, Status::Error)
             },
             StepKind::Active(active) => self.active(cache, position, step.record, active),
@@ -144,14 +145,14 @@ impl Runner<'_> {
         if let Err(error) =
             timeline.check_links(position, step, &self.progress.failed, self.inputs.assets)
         {
-            self.provide(step, position);
-            return self.report(record, step, key, Err(error), Timing::default(), Vec::new());
+            self.written(record, step, position);
+            return report(record, step, key, Err(error), Timing::default(), Vec::new());
         }
         let bodies_before: Vec<(Id, BodyState)> = step
             .body_links()
             .filter_map(|link| {
-                let slot = self.bodies.get(&link.id)?;
-                Some((link.id.clone(), slot.state.clone()))
+                let state = self.bodies.current(&link.id)?;
+                Some((link.id.clone(), state.clone()))
             })
             .collect();
         let Some((outcome, timing)) =
@@ -162,19 +163,17 @@ impl Runner<'_> {
                 ..FeatureReport::idle(&record.id, Status::NotRun)
             };
         };
-        self.provide(step, position);
+        self.written(record, step, position);
         let result = match outcome {
             Outcome::Built(built) => {
                 for (body, state) in &built.bodies {
-                    if let Some(slot) = self.bodies.get_mut(body) {
-                        slot.state = state.clone();
-                    }
+                    self.bodies.set(body, state.clone());
                 }
                 Ok(built.output)
             }
             Outcome::Failed(error) => Err(*error),
         };
-        self.report(record, step, key, result, timing, bodies_before)
+        report(record, step, key, result, timing, bodies_before)
     }
 
     /// The cached outcome under `key`, or the outcome of building the step, cached unless it is a
@@ -195,7 +194,11 @@ impl Runner<'_> {
             };
             return Some((outcome, timing));
         }
-        let (result, duration) = self.build(record, step, values, bodies_before);
+        let histories = self
+            .bodies
+            .take_histories(step.body_links().map(|link| &link.id));
+        let (result, duration) = self.build(record, step, values, bodies_before, &histories);
+        self.bodies.restore_histories(histories);
         let outcome = match result {
             Ok(output) => Outcome::Built(Built::new(output)),
             Err(FeatureError::Canceled) => {
@@ -216,14 +219,16 @@ impl Runner<'_> {
         Some((outcome, timing))
     }
 
-    /// Builds a step through the registry with a context holding only what it declared, inside
-    /// `catch_unwind`, and checks its body updates. Returns the result and the build time.
+    /// Builds a step through the registry with a context holding only what it declared (the
+    /// writer chains `histories` of its declared bodies included), inside `catch_unwind`, and
+    /// checks its body updates. Returns the result and the build time.
     fn build(
         &self,
         record: &FeatureRecord,
         step: &ActiveStep<'_>,
         values: &Values,
         bodies_before: &[(Id, BodyState)],
+        histories: &BTreeMap<Id, Vec<(Id, BodyState)>>,
     ) -> (Result<FeatureOutput, FeatureError>, Duration) {
         let dependencies = &step.valid.dependencies;
         let bodies: BTreeMap<Id, BodyState> = bodies_before.iter().cloned().collect();
@@ -236,8 +241,6 @@ impl Runner<'_> {
                 Some((link.id.clone(), output))
             })
             .collect();
-        // The writer chains of features.md section 2.6 come with recompute.md section 3.5's next revision.
-        let history = BTreeMap::new();
         let assets: BTreeMap<String, Arc<[u8]>> = dependencies
             .assets
             .iter()
@@ -252,7 +255,7 @@ impl Runner<'_> {
             units: self.inputs.scope.units,
             values,
             bodies: &bodies,
-            history: &history,
+            history: histories,
             upstream: &upstream,
             assets: &assets,
             cancel: self.inputs.cancel,
@@ -282,96 +285,48 @@ impl Runner<'_> {
         (result, duration)
     }
 
-    /// The rendered messages of `feature` with the document's current names and units and the states of its
-    /// declared bodies before it, without a diagnosis (features.md section 4).
-    fn messages(
-        &self,
-        feature: &Id,
-        error: Option<&FeatureError>,
-        warnings: &[FeatureWarning],
-        bodies_before: &[(Id, BodyState)],
-    ) -> Vec<Message> {
-        let outputs = BTreeMap::new();
-        let names = DocumentNames {
-            document: self.inputs.timeline.document,
-            registry: self.inputs.registry,
-            outputs: &outputs,
-        };
-        let bodies: BTreeMap<Id, BodyState> = bodies_before.iter().cloned().collect();
-        let diagnosis = Diagnosis::default();
-        let context = RenderContext {
-            feature,
-            names: &names,
-            units: self.inputs.scope.units,
-            bodies: &bodies,
-            diagnosis: &diagnosis,
-        };
-        render_messages(error, warnings, &context)
-    }
-
-    /// Makes the step at `position` the provider of every body it declares written, whether it
-    /// changed it or not, so later keys stay a function of the timeline.
-    fn provide(&mut self, step: &ActiveStep<'_>, position: usize) {
+    /// Records that the active step at `position` is done with the bodies it declares written,
+    /// before its body updates are applied: it becomes their provider, whether it changed them or
+    /// not, so later keys stay a function of the timeline, and joins their writer chains with
+    /// their current states, the states just before it.
+    fn written(&mut self, record: &FeatureRecord, step: &ActiveStep<'_>, position: usize) {
         for link in &step.valid.dependencies.bodies_written {
-            if let Some(slot) = self.bodies.get_mut(&link.id) {
-                slot.writer = Some(position);
+            if let Some(before) = self.bodies.current(&link.id).cloned() {
+                self.bodies.written(&link.id, &record.id, position, before);
             }
         }
     }
+}
 
-    /// The report of an active step that ran: its output warnings, then `UnknownParams` when the
-    /// record has unknown keys, and the rendered messages.
-    fn report(
-        &self,
-        record: &FeatureRecord,
-        step: &ActiveStep<'_>,
-        key: CacheKey,
-        result: Result<Arc<FeatureOutput>, FeatureError>,
-        timing: Timing,
-        bodies_before: Vec<(Id, BodyState)>,
-    ) -> FeatureReport {
-        let (error, mut warnings, output) = match result {
-            Ok(output) => (None, output.warnings.clone(), Some(output)),
-            Err(error) => (Some(error), Vec::new(), None),
-        };
-        if !step.valid.unknown_keys.is_empty() {
-            warnings.push(FeatureWarning::UnknownParams {
-                keys: step.valid.unknown_keys.clone(),
-            });
-        }
-        let status = status(error.as_ref(), &warnings);
-        let messages = self.messages(&record.id, error.as_ref(), &warnings, &bodies_before);
-        FeatureReport {
-            feature: record.id.clone(),
-            status,
-            error,
-            warnings,
-            messages,
-            key: Some(key),
-            timing,
-            output,
-            bodies_before,
-        }
+/// The report of an active step that ran: its output warnings, then `UnknownParams` when the
+/// record has unknown keys. Its messages are rendered after the run (section 3.6).
+fn report(
+    record: &FeatureRecord,
+    step: &ActiveStep<'_>,
+    key: CacheKey,
+    result: Result<Arc<FeatureOutput>, FeatureError>,
+    timing: Timing,
+    bodies_before: Vec<(Id, BodyState)>,
+) -> FeatureReport {
+    let (error, mut warnings, output) = match result {
+        Ok(output) => (None, output.warnings.clone(), Some(output)),
+        Err(error) => (Some(error), Vec::new(), None),
+    };
+    if !step.valid.unknown_keys.is_empty() {
+        warnings.push(FeatureWarning::UnknownParams {
+            keys: step.valid.unknown_keys.clone(),
+        });
     }
-
-    /// The state of every body of the document at the end of the run, with its provider.
-    fn body_reports(&self) -> Vec<BodyReport> {
-        let steps = &self.inputs.timeline.steps;
-        self.inputs
-            .timeline
-            .document
-            .bodies
-            .iter()
-            .filter_map(|body| {
-                let slot = self.bodies.get(&body.id)?;
-                Some(BodyReport {
-                    body: body.id.clone(),
-                    state: slot.state.clone(),
-                    key: slot.writer.and_then(|writer| self.progress.keys[writer]),
-                    last_feature: slot.writer.map(|writer| steps[writer].record.id.clone()),
-                })
-            })
-            .collect()
+    FeatureReport {
+        feature: record.id.clone(),
+        status: status(error.as_ref(), &warnings),
+        error,
+        warnings,
+        messages: Vec::new(),
+        key: Some(key),
+        timing,
+        output,
+        bodies_before,
     }
 }
 

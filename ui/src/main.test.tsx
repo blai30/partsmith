@@ -4,7 +4,7 @@ import { stubMatchMedia } from './layout/test-app.testing'
 import { MESSAGES } from './messages'
 import { createFakeLocks } from './test/fakes/locks'
 import { createFakeStorage } from './test/fakes/storage'
-import { COLOR_CLASSES, FONT_CLASSES } from './theme/roles'
+import { COLOR_CLASSES } from './theme/roles'
 
 // main.tsx runs when imported: each test imports a fresh copy into a page with a #root element.
 
@@ -39,17 +39,19 @@ describe('the capability check (3.1)', () => {
     expect(screen.queryByTestId('app')).toBeNull()
   })
 
-  it('draws the unsupported page with the interface font and the surface and text roles', async () => {
+  it('draws the unsupported page with the surface and text roles', async () => {
     await import('./main')
     const page = await screen.findByTestId('unsupported')
-    const classes = [
-      FONT_CLASSES.interfaceText,
-      COLOR_CLASSES.surface.background,
-      COLOR_CLASSES.text.foreground,
-    ]
+    const classes = [COLOR_CLASSES.surface.background, COLOR_CLASSES.text.foreground]
     for (const name of classes.flatMap((entry) => entry.split(' '))) {
       expect(page).toHaveClass(name)
     }
+  })
+
+  it('leaves the unsupported page in the interface face it inherits from the root (2.16.7)', async () => {
+    await import('./main')
+    const page = await screen.findByTestId('unsupported')
+    expect(page.className).not.toMatch(/(?:^|\s)font-(?:\[|mono|sans)/)
   })
 })
 

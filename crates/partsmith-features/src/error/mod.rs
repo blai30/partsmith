@@ -16,7 +16,9 @@ use partsmith_naming::ElementKind;
 use partsmith_occt_sys::KernelError;
 use partsmith_sketch::{SketchError, SolveIssue};
 
-pub use describe::describe_elements;
+pub use describe::{
+    describe_copy, describe_elements, describe_face, made_from_line, sketch_coordinates,
+};
 pub use field::FieldRef;
 pub use fix::{Fix, Place};
 pub use loss::{Loss, LossCandidate, RegionLost, Repair, Severity};

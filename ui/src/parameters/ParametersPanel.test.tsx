@@ -11,7 +11,7 @@ import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store
 import { coreErrorFor } from '../test/fakes/core-api'
 import { PARAMETRIC_DOCUMENT } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { COLOR_CLASSES } from '../theme/roles'
 
 beforeEach(installPopoverPolyfill)
 
@@ -92,11 +92,12 @@ describe('the Parameters panel (3.11)', () => {
     expect(within(row).getByRole('button', { name: 'Delete size' })).toBeInTheDocument()
   })
 
-  it('shows the recomputed value formatted by its dimension, in the values font', () => {
+  it('shows the recomputed value formatted by its dimension, in tabular figures', () => {
     renderPanel()
     const value = within(sizeRow()).getByTestId('parameter-value')
     expect(value).toHaveTextContent('20 mm')
-    expect(value).toHaveClass(FONT_CLASSES.values)
+    expect(value).toHaveClass('tabular-nums')
+    expect(value).not.toHaveClass('font-mono')
   })
 
   it('shows the evaluation error instead of a value, in the error text role', () => {
@@ -344,6 +345,17 @@ describe('the Parameters panel during a command and from a field (3.7)', () => {
     expect(screen.getByTestId('parameters-transaction')).toHaveClass(
       COLOR_CLASSES.textMuted.foreground,
     )
+  })
+
+  it('keeps the transaction line clear of the header rule (3.23)', () => {
+    const test = createModelApp({
+      state: readyState(parametric(), {
+        command: EXTRUDE,
+        panels: { ...INITIAL_STATE.panels, side: 'parameters' },
+      }),
+    })
+    renderWithApp(test.app)
+    expect(screen.getByTestId('parameters-transaction')).toHaveClass('pt-3')
   })
 
   it('shows no transaction line without a command', () => {

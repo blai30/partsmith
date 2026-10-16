@@ -47,7 +47,8 @@ pub use deps::{AssetLink, Dependencies, ExprUse, Link};
 pub use error::{
     Because, Bound, Diagnosis, DocumentNames, Explanation, FallbackReason, FeatureError,
     FeatureWarning, FieldRef, Fix, IgnoredReason, Loss, LossCandidate, Names, Noun, Place,
-    RegionLost, RenderContext, Repair, Severity, describe_elements, format_value,
+    RegionLost, RenderContext, Repair, Severity, describe_copy, describe_elements, describe_face,
+    format_value, made_from_line, sketch_coordinates,
 };
 pub use feature::{FEATURE_API_VERSION, Feature};
 pub use naming::{Named, modified_sources, name_by_history, name_shape, topology_info};

@@ -112,7 +112,6 @@ function TimelineItem({
   const Icon = iconName === undefined ? Shapes : (FEATURE_ICONS[iconName] ?? Shapes)
   const state = status?.status
   const messages = status?.messages.map((message) => message.message) ?? []
-  const tooltip = [label, ...messages].join(' ')
   // On Linux and macOS the browser fires `contextmenu` on the right button's press. A menu opened
   // then would be light-dismissed by the release, so it opens on the release instead (3.13).
   const menuOnRelease = useRef(false)
@@ -148,7 +147,7 @@ function TimelineItem({
       }}
       className="relative shrink-0 touch-none"
     >
-      <Tooltip label={tooltip}>
+      <Tooltip label={label} description={messages.length === 0 ? null : messages.join(' ')}>
         <button
           type="button"
           data-strip-item=""

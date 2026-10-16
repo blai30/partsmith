@@ -1,6 +1,6 @@
 # 0013: oxlint and oxfmt for the UI, and a minimal theme stylesheet
 
-Status: Accepted (human decision)
+Status: Accepted (human decision). The font loading (the Google Fonts import, Inter for interface text and JetBrains Mono for values) is superseded by [ADR 0031](0031-self-hosted-geist-and-jetbrains-mono-for-code.md).
 
 ## Context
 

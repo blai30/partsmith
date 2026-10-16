@@ -20,6 +20,10 @@ export type TextFieldProps = Omit<
   readonly className?: string
   /** Hover help on the label (3.7), also the input's accessible description; null for none. */
   readonly help?: string | null
+  /** Sets the text as editable code (ui.md 2.16.7), such as a parameter name; default false. */
+  readonly code?: boolean
+  /** Sets the digits in tabular figures (ui.md 2.16.7), for a field that holds a number; default false. */
+  readonly tabular?: boolean
 }
 
 /** A labeled single-line text input with an optional error under it. */
@@ -31,6 +35,8 @@ export function TextField({
   hideLabel = false,
   className,
   help = null,
+  code = false,
+  tabular = false,
   id,
   disabled,
   ...rest
@@ -72,6 +78,8 @@ export function TextField({
         }}
         className={clsx(
           'h-8 w-full min-w-0 rounded-md border px-2 text-sm',
+          code && 'font-mono [font-variant-ligatures:no-contextual]',
+          tabular && 'tabular-nums',
           COLOR_CLASSES.field.background,
           COLOR_CLASSES.focusRing.outline,
           invalid ? COLOR_CLASSES.errorMark.border : COLOR_CLASSES.borderControl.border,

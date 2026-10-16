@@ -5,10 +5,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use partsmith_features::{
-    BodyState, FeatureError, FeatureOutput, FeatureWarning, RenderContext, Repair,
+    BodyState, FeatureError, FeatureOutput, FeatureWarning, FieldRef, Fix, RenderContext, Repair,
 };
 use partsmith_model::{ExprError, Id, Quantity};
 
+/// Severity of a message: `Info`, `Warning` or `Error` (features.md section 2.8).
+pub use partsmith_features::Severity;
+
+use crate::diagnosis::LossReason;
 use crate::key::CacheKey;
 
 /// The result of a run.
@@ -38,9 +42,11 @@ pub struct FeatureReport {
     pub status: Status,
     /// The error, when status is `Error`.
     pub error: Option<FeatureError>,
-    /// Warnings, from the output first, then those recompute adds (`UnknownParams`).
+    /// Warnings and info notices, from the output first, then those recompute adds (`UnknownParams`).
     pub warnings: Vec<FeatureWarning>,
-    /// The error and warnings rendered with current names and units: error first, then warnings in order.
+    /// The error, warnings and notices rendered with current names, units and the loss diagnosis
+    /// (section 3.6): error first, then warnings of severity warning, then info notices, each group
+    /// in the order of `warnings`.
     pub messages: Vec<Message>,
     /// Its cache key, when it has one.
     pub key: Option<CacheKey>,
@@ -123,43 +129,72 @@ pub struct ParameterReport {
 /// A rendered message.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Message {
-    /// Warning or error.
+    /// Info, warning or error.
     pub severity: Severity,
     /// Stable snake_case code, for example "reference_missing".
     pub code: &'static str,
     /// JSON Pointer of the field it is about, relative to the feature record, for example "/edges/1".
     pub pointer: Option<String>,
-    /// The message text, rendered with current names and units.
+    /// The message text, rendered with current names and units and, for losses, the diagnosed
+    /// reason (section 3.10).
     pub text: String,
     /// Replacement expression for the field at `pointer`, in display units, when the feature
     /// computed a limit (features.md section 4.4).
     pub suggestion: Option<String>,
-    /// Repair data for lost references and regions.
-    pub repair: Option<Repair>,
+    /// Repair data for lost, guessed or widened references and regions: one per loss of
+    /// `ReferencesNotFound` and per region of `ProfileNotFound`, else at most one (features.md
+    /// section 4.2, `repairs`).
+    pub repairs: Vec<Repair>,
+    /// One-click fixes in the order to offer them: the error's or warning's `fixes`, which merge
+    /// the fixes of the diagnosis (features.md section 4.4).
+    pub fixes: Vec<Fix>,
+    /// Technical text for reports (features.md `detail`), never shown as the message.
+    pub detail: Option<String>,
+    /// The first failing feature of an `upstream_failed` chain, of a loss whose reason is
+    /// `UpstreamFailed`, or of the feature a `body_empty` or `tool_empty` names as failed; or the
+    /// sketch that lost its face under a `no_effect` or `hole_misses_body`. Hosts group one root
+    /// cause as one problem (section 3.10).
+    pub root: Option<Id>,
+    /// Why the reference the text names (its first loss) was lost, or which feature a followed or
+    /// widened reference followed (section 3.10). None for messages without a diagnosed loss or
+    /// follow, and for an ambiguous loss.
+    pub reason: Option<LossReason>,
 }
 
 impl Message {
-    /// The rendered message of a feature error.
-    pub(crate) fn error(error: &FeatureError, context: &RenderContext<'_>) -> Message {
-        Message {
-            severity: Severity::Error,
-            code: error.code(),
-            pointer: error.field().map(|field| field.pointer()),
-            text: error.render(context),
-            suggestion: error.suggestion(context.units),
-            repair: error.repair(),
-        }
-    }
-
-    /// The rendered message of a feature warning.
-    pub(crate) fn warning(warning: &FeatureWarning, context: &RenderContext<'_>) -> Message {
-        Message {
-            severity: Severity::Warning,
-            code: warning.code(),
-            pointer: warning.field().map(|field| field.pointer()),
-            text: warning.render(context),
-            suggestion: warning.suggestion(context.units),
-            repair: warning.repair(),
+    /// The message of `problem` rendered with `context`, whose diagnosis explains it, with its
+    /// `root` and `reason` (section 3.6).
+    pub(crate) fn rendered(
+        problem: Problem<'_>,
+        context: &RenderContext<'_>,
+        root: Option<Id>,
+        reason: Option<LossReason>,
+    ) -> Message {
+        match problem {
+            Problem::Error(error) => Message {
+                severity: error.severity(),
+                code: error.code(),
+                pointer: error.field().map(FieldRef::pointer),
+                text: error.render(context),
+                suggestion: error.suggestion(context.units),
+                repairs: error.repairs(),
+                fixes: error.fixes(context),
+                detail: error.detail(),
+                root,
+                reason,
+            },
+            Problem::Warning(warning) => Message {
+                severity: warning.severity(),
+                code: warning.code(),
+                pointer: warning.field().map(FieldRef::pointer),
+                text: warning.render(context),
+                suggestion: warning.suggestion(context.units),
+                repairs: warning.repair().into_iter().collect(),
+                fixes: warning.fixes(context),
+                detail: warning.detail(),
+                root,
+                reason,
+            },
         }
     }
 
@@ -180,7 +215,8 @@ impl Message {
         ))
     }
 
-    /// An `unknown_stop` warning with this text.
+    /// An `unknown_stop` warning with this text. Document-level messages have no repairs, fixes,
+    /// detail, root or reason (section 4).
     fn unknown_stop_with(text: String) -> Message {
         Message {
             severity: Severity::Warning,
@@ -188,34 +224,41 @@ impl Message {
             pointer: None,
             text,
             suggestion: None,
-            repair: None,
+            repairs: Vec::new(),
+            fixes: Vec::new(),
+            detail: None,
+            root: None,
+            reason: None,
         }
     }
 }
 
-/// Severity of a message.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Severity {
-    /// Something to check; the feature still produced a result.
-    Warning,
-    /// The feature failed.
-    Error,
+/// An error, warning or notice of a feature, before it is rendered.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Problem<'a> {
+    /// The feature's error.
+    Error(&'a FeatureError),
+    /// One of its warnings or notices.
+    Warning(&'a FeatureWarning),
 }
 
-/// The messages of a feature: its error first, then its warnings in order (recompute.md section 3.6).
-pub(crate) fn render_messages(
-    error: Option<&FeatureError>,
-    warnings: &[FeatureWarning],
-    context: &RenderContext<'_>,
-) -> Vec<Message> {
+/// The problems of a feature in message order (section 3.6): its error first, then its warnings
+/// of severity warning, then its info notices, each group in the order of `warnings`.
+pub(crate) fn problems<'a>(
+    error: Option<&'a FeatureError>,
+    warnings: &'a [FeatureWarning],
+) -> Vec<Problem<'a>> {
+    let of_severity = |severity: Severity| {
+        warnings
+            .iter()
+            .filter(move |warning| warning.severity() == severity)
+            .map(Problem::Warning)
+    };
     error
-        .map(|error| Message::error(error, context))
+        .map(Problem::Error)
         .into_iter()
-        .chain(
-            warnings
-                .iter()
-                .map(|warning| Message::warning(warning, context)),
-        )
+        .chain(of_severity(Severity::Warning))
+        .chain(of_severity(Severity::Info))
         .collect()
 }
 
@@ -223,7 +266,7 @@ pub(crate) fn render_messages(
 mod tests {
     use std::collections::BTreeMap;
 
-    use partsmith_features::{Diagnosis, FieldRef, Names, SketchResult};
+    use partsmith_features::{Diagnosis, Names, SketchResult};
     use partsmith_model::{FeatureRecord, Units};
 
     use super::*;
@@ -276,14 +319,19 @@ mod tests {
         }
     }
 
+    /// The message of `problem` rendered on `f-2` without a diagnosis.
+    fn rendered(problem: Problem<'_>) -> Message {
+        with_context(|context| Message::rendered(problem, context, None, None))
+    }
+
     #[test]
-    fn error_messages_carry_code_pointer_and_current_names() {
+    fn error_messages_carry_code_pointer_fixes_and_current_names() {
         let error = FeatureError::UnknownBody {
             field: field("body", "Body"),
             body: id("b-9"),
         };
 
-        let message = with_context(|context| Message::error(&error, context));
+        let message = rendered(Problem::Error(&error));
 
         assert_eq!(message.severity, Severity::Error);
         assert_eq!(message.code, "unknown_body");
@@ -293,14 +341,22 @@ mod tests {
             "Body 'b-9' does not exist in this document. Pick an existing body for Body."
         );
         assert_eq!(message.suggestion, None);
-        assert_eq!(message.repair, None);
+        assert!(message.repairs.is_empty());
+        assert_eq!(
+            message.fixes,
+            [Fix::Pick {
+                pointer: "/body".to_string()
+            }]
+        );
+        assert_eq!(message.detail, None);
+        assert_eq!((message.root, message.reason), (None, None));
     }
 
     #[test]
     fn warning_messages_render_body_names() {
         let warning = FeatureWarning::NoEffect { body: id("b-1") };
 
-        let message = with_context(|context| Message::warning(&warning, context));
+        let message = rendered(Problem::Warning(&warning));
 
         assert_eq!(message.severity, Severity::Warning);
         assert_eq!(message.code, "no_effect");
@@ -312,28 +368,87 @@ mod tests {
     }
 
     #[test]
-    fn messages_list_the_error_before_the_warnings() {
+    fn a_bug_keeps_its_technical_text_in_the_detail() {
+        let error = FeatureError::internal("boom");
+
+        let message = rendered(Problem::Error(&error));
+
+        assert!(!message.text.contains("boom"), "{}", message.text);
+        assert_eq!(message.detail.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn root_and_reason_are_the_ones_given() {
+        let error = FeatureError::UpstreamFailed { feature: id("f-1") };
+
+        let message = with_context(|context| {
+            Message::rendered(
+                Problem::Error(&error),
+                context,
+                Some(id("f-0")),
+                Some(LossReason::Unknown),
+            )
+        });
+
+        assert_eq!(message.root, Some(id("f-0")));
+        assert_eq!(message.reason, Some(LossReason::Unknown));
+    }
+
+    /// The `region_split` notice of a profile region split in two (features.md section 4.2).
+    fn region_split() -> FeatureWarning {
+        FeatureWarning::RegionSplit {
+            field: field("profile.regions[0]", "Profile"),
+            position: 0,
+            sketch: id("f-1"),
+            region: serde_json::from_value(
+                serde_json::json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}),
+            )
+            .expect("the region reference is valid"),
+            count: 2,
+        }
+    }
+
+    #[test]
+    fn problems_list_the_error_then_warnings_then_notices() {
         let error = FeatureError::UpstreamFailed { feature: id("f-1") };
         let warnings = [
+            region_split(),
             FeatureWarning::NoEffect { body: id("b-1") },
             FeatureWarning::UnknownParams {
                 keys: vec!["taper".to_string()],
             },
         ];
 
-        let messages = with_context(|context| render_messages(Some(&error), &warnings, context));
+        let codes: Vec<&str> = problems(Some(&error), &warnings)
+            .into_iter()
+            .map(|problem| match problem {
+                Problem::Error(error) => error.code(),
+                Problem::Warning(warning) => warning.code(),
+            })
+            .collect();
 
-        let codes: Vec<&str> = messages.iter().map(|message| message.code).collect();
-        assert_eq!(codes, ["upstream_failed", "no_effect", "unknown_params"]);
         assert_eq!(
-            messages[0].text,
-            "'Base' has an error, so this feature cannot use it. Fix 'Base' first."
+            codes,
+            [
+                "upstream_failed",
+                "no_effect",
+                "unknown_params",
+                "region_split"
+            ]
         );
     }
 
     #[test]
-    fn messages_without_error_or_warnings_are_empty() {
-        assert!(with_context(|context| render_messages(None, &[], context)).is_empty());
+    fn notices_are_rendered_with_severity_info() {
+        let message = rendered(Problem::Warning(&region_split()));
+
+        assert_eq!(message.severity, Severity::Info);
+        assert_eq!(message.code, "region_split");
+    }
+
+    #[test]
+    fn features_without_error_or_warnings_have_no_problems() {
+        assert!(problems(None, &[]).is_empty());
     }
 
     #[test]
@@ -343,6 +458,11 @@ mod tests {
         assert_eq!(message.severity, Severity::Warning);
         assert_eq!(message.code, "unknown_stop");
         assert_eq!(message.pointer, None);
+        assert!(message.repairs.is_empty() && message.fixes.is_empty());
+        assert_eq!(
+            (message.detail, message.root, message.reason),
+            (None, None, None)
+        );
         assert_eq!(
             message.text,
             "The preview or rollback point 'f-nope' is not in this document, so the whole timeline was rebuilt."

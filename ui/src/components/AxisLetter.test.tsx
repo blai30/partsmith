@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { COLOR_CLASSES } from '../theme/roles'
 import { AxisLetter, AxisValues } from './AxisLetter'
 
 // Axis letters and coordinate readouts (ui.md 3.7, 3.8): X, Y and Z in their axis colors, always
@@ -76,7 +76,7 @@ describe('AxisValues (U-182)', () => {
     expect(unit).toHaveClass('shrink-0')
   })
 
-  it('gives each cell a letter in its axis role and a number in the values font', () => {
+  it('gives each cell a letter in its axis role and a number in tabular figures, not code', () => {
     const readout = renderReadout()
     const letters = within(readout).getAllByTestId('axis-letter')
     expect(letters.map((letter) => letter.textContent)).toEqual(['X', 'Y', 'Z'])
@@ -86,7 +86,8 @@ describe('AxisValues (U-182)', () => {
       expect(letter).toHaveClass('font-semibold', AXIS_FOREGROUNDS[index] ?? '')
       const number = letter.parentElement?.lastElementChild
       expect(number).toHaveTextContent(/^\d+$/)
-      expect(number).toHaveClass('tabular-nums', FONT_CLASSES.values)
+      expect(number).toHaveClass('tabular-nums')
+      expect(number).not.toHaveClass('font-mono')
     })
   })
 })

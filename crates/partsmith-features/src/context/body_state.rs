@@ -4,7 +4,7 @@
 use std::sync::{Arc, OnceLock};
 
 use partsmith_naming::{
-    ElementInfo, ElementName, ElementSet, Motion, NamingMap, Successions, TopologyInfo,
+    ElementInfo, ElementName, ElementSet, Motion, NameSet, NamingMap, Successions, TopologyInfo,
 };
 use partsmith_occt_sys::Shape;
 
@@ -32,6 +32,8 @@ struct BodyContent {
     elements: OnceLock<Result<Arc<[ElementInfo]>, FeatureError>>,
     /// The resolver's view of the state, computed on first use.
     element_set: OnceLock<Result<Arc<ElementSet>, FeatureError>>,
+    /// The names-only view of the naming map, computed on first use.
+    name_set: OnceLock<NameSet>,
     /// Volume, carried from the update or computed on first use.
     volume: OnceLock<Result<f64, FeatureError>>,
 }
@@ -136,6 +138,15 @@ impl BodyState {
             .clone()
     }
 
+    /// The names-only view of the state (naming.md section 2.7): `NameSet::new` of the naming map, computed once on
+    /// first use and shared by clones. It reads no topology, so it never computes `elements` (recompute's loss
+    /// diagnosis walks writer chains through it, recompute.md section 3.10).
+    pub fn name_set(&self) -> &NameSet {
+        self.content
+            .name_set
+            .get_or_init(|| NameSet::new(&self.content.naming))
+    }
+
     /// True when `elements` (or `element_set`, which computes it) has been computed for this state or a clone of
     /// it.
     pub fn elements_computed(&self) -> bool {
@@ -191,6 +202,7 @@ impl BodyState {
                 topology: known(measured.topology.map(Ok)),
                 elements: OnceLock::new(),
                 element_set: OnceLock::new(),
+                name_set: OnceLock::new(),
                 volume: known(measured.volume.map(Ok)),
             }),
         }
@@ -271,6 +283,21 @@ mod tests {
             &topology,
             &clone.topology().expect("the clone has a topology")
         ));
+    }
+
+    #[test]
+    fn the_name_set_of_a_state_reads_names_only_and_is_shared_by_its_clones() {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let clone = state.clone();
+        let top = ElementName::parse("f-box1/top").expect("a face name");
+        let front = ElementName::parse("f-box1/front").expect("a face name");
+
+        let names = state.name_set();
+
+        assert!(names.touches(&top, &front));
+        assert!(std::ptr::eq(names, clone.name_set()));
+        assert!(!state.elements_computed());
+        assert!(state.measurements().topology.is_none());
     }
 
     #[test]

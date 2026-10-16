@@ -25,7 +25,7 @@ import type { ActiveCommand, CatalogFeature } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { ChoiceField } from './fields/ChoiceField'
 import { ExpressionField } from './fields/ExpressionField'
-import { fieldInputId } from './fields/field-id'
+import { fieldInputId, focusFieldInput } from './fields/field-id'
 import { SelectionField } from './fields/SelectionField'
 import { NumberField, SwitchField, TextValueField, UnsupportedField } from './fields/ValueFields'
 import { buildInspectorModel, fieldsOf, siblingsOf, type InspectorField } from './model'
@@ -228,7 +228,7 @@ function StatusBanner({
                     if (field.control.type === 'selection') {
                       setActiveField(app, field.path)
                     }
-                    document.getElementById(fieldInputId(field.path))?.focus()
+                    focusFieldInput(document.getElementById(fieldInputId(field.path)))
                   }}
                   className={clsx(
                     'rounded-xs text-left hover:underline',
@@ -247,7 +247,7 @@ function StatusBanner({
                     fix.run()
                     // The banner goes when the fix clears its message, so focus stays in the
                     // inspector, where Enter confirms (3.5, 3.7).
-                    document.getElementById(fieldInputId(fix.focusPath))?.focus()
+                    focusFieldInput(document.getElementById(fieldInputId(fix.focusPath)))
                   }}
                 >
                   {fix.label}

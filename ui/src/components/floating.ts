@@ -106,6 +106,15 @@ export function placeNextTo(
   positionElement(element, position.x, position.y)
 }
 
+export type AnchoredPositionOptions = {
+  /**
+   * Also places the element again when its anchor moves without changing size, which no event
+   * reports (content shown above an input while the user types moves it), by checking the anchor's
+   * box once per animation frame while open; default false.
+   */
+  readonly followMoves?: boolean
+}
+
 /**
  * While `open`, keeps a floating element next to its anchor: placed before the first paint, and
  * again when the window resizes, anything scrolls or either element changes size. Declare it after
@@ -116,7 +125,9 @@ export function useAnchoredPosition(
   anchor: RefObject<Element | null>,
   open: boolean,
   placement: Placement,
+  options: AnchoredPositionOptions = {},
 ): void {
+  const followMoves = options.followMoves === true
   useLayoutEffect(() => {
     const element = floating.current
     if (!open || element === null) {
@@ -135,10 +146,26 @@ export function useAnchoredPosition(
     if (anchor.current !== null) {
       observer?.observe(anchor.current)
     }
+    let frame: number | undefined
+    let placedAt = anchor.current?.getBoundingClientRect() ?? null
+    const follow = (): void => {
+      const box = anchor.current?.getBoundingClientRect() ?? null
+      if (box !== null && (placedAt === null || box.x !== placedAt.x || box.y !== placedAt.y)) {
+        update()
+      }
+      placedAt = box
+      frame = requestAnimationFrame(follow)
+    }
+    if (followMoves) {
+      frame = requestAnimationFrame(follow)
+    }
     return () => {
       view?.removeEventListener('resize', update)
       document.removeEventListener('scroll', update, { capture: true })
       observer?.disconnect()
+      if (frame !== undefined) {
+        cancelAnimationFrame(frame)
+      }
     }
-  }, [floating, anchor, open, placement])
+  }, [floating, anchor, open, placement, followMoves])
 }

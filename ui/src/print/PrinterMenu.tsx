@@ -221,7 +221,7 @@ function PrinterMenuList({ anchor, onOpenChange, printers, current, onChoose }: 
             <span
               id={detailId(index)}
               aria-hidden="true"
-              className={clsx('truncate text-xs', COLOR_CLASSES.textMuted.foreground)}
+              className={clsx('truncate text-xs tabular-nums', COLOR_CLASSES.textMuted.foreground)}
             >
               {choice.detail}
             </span>

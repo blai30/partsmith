@@ -20,7 +20,7 @@ import { PanelHeader } from '../layout/PanelHeader'
 import { useUiRequest } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { SeverityIcon } from '../print/SeverityIcon'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { COLOR_CLASSES } from '../theme/roles'
 
 // The Parameters panel (ui.md 3.11): one row per parameter with its name, expression, value and
 // comment, each committed on Enter or blur and reverted with Esc, and a draft row to add one.
@@ -56,11 +56,7 @@ function ParameterValueText({
   return (
     <span
       data-testid="parameter-value"
-      className={clsx(
-        'text-xs tabular-nums',
-        FONT_CLASSES.values,
-        COLOR_CLASSES.textMuted.foreground,
-      )}
+      className={clsx('text-xs tabular-nums', COLOR_CLASSES.textMuted.foreground)}
     >
       {formatParameterValue(value, units) ?? ''}
     </span>
@@ -141,6 +137,7 @@ function ParameterRow({
           value={name ?? parameter.name}
           error={nameError}
           className="w-32"
+          code
           spellCheck={false}
           onChange={(next) => {
             setName(next)
@@ -169,6 +166,7 @@ function ParameterRow({
             hideLabel
             value={expression ?? parameter.expr}
             unit="any"
+            code
             onChange={(next) => {
               if (next !== (expression ?? parameter.expr)) {
                 setExpression(next)
@@ -274,6 +272,7 @@ function DraftRow({ draft, onDone }: { readonly draft: Draft; readonly onDone: (
           value={name}
           error={nameError}
           className="w-32"
+          code
           spellCheck={false}
           onChange={(next) => {
             setName(next)
@@ -300,6 +299,7 @@ function DraftRow({ draft, onDone }: { readonly draft: Draft; readonly onDone: (
             hideLabel
             value={expression}
             unit="any"
+            code
             error={expressionError}
             onChange={(next) => {
               setExpression(next)
@@ -368,7 +368,7 @@ export function ParametersPanel() {
       {commandTitle === null ? null : (
         <p
           data-testid="parameters-transaction"
-          className={clsx('px-4 pb-2 text-xs', COLOR_CLASSES.textMuted.foreground)}
+          className={clsx('px-4 pt-3 pb-2 text-xs', COLOR_CLASSES.textMuted.foreground)}
         >
           Changes are part of {commandTitle} until you press OK.
         </p>

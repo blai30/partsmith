@@ -1,7 +1,7 @@
 import { clsx } from 'clsx/lite'
 import { useEffect, useId, useRef, type KeyboardEvent, type Ref } from 'react'
 import { reportFailure } from '../app/report'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { COLOR_CLASSES } from '../theme/roles'
 import type { DrawInputModel, SketchController } from './session'
 
 // Dimension as you draw (ui.md 3.16.4): text inputs beside the rubber band that lock its length,
@@ -86,8 +86,7 @@ export function DrawInputs({ ref, controller, inputs, focusRequest }: DrawInputs
                 onKeyDown(event, index)
               }}
               className={clsx(
-                'h-6 w-20 rounded-md border px-1.5 text-xs',
-                FONT_CLASSES.values,
+                'h-6 w-20 rounded-md border px-1.5 text-xs tabular-nums',
                 COLOR_CLASSES.field.background,
                 COLOR_CLASSES.text.foreground,
                 COLOR_CLASSES.textMuted.placeholder,

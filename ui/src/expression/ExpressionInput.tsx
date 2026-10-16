@@ -14,11 +14,12 @@ import { openSidePanel } from '../app/actions/panels'
 import { AxisLetter } from '../components/AxisLetter'
 import { Button } from '../components/Button'
 import { describedBy } from '../components/described-by'
+import { useAnchoredPosition, usePopoverVisibility } from '../components/floating'
 import { HelpLabel } from '../components/HelpLabel'
 import type { Dimension, FieldUnit, Units } from '../generated/protocol'
 import type { InspectorField } from '../inspector/model'
 import { requestUi } from '../layout/requests'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { COLOR_CLASSES } from '../theme/roles'
 import {
   completionAt,
   completionNames,
@@ -71,6 +72,11 @@ export type ExpressionInputProps = {
   readonly trailing?: ReactNode
   /** The coordinate the field holds (2.12): its letter is drawn inside the input's start (3.7). */
   readonly axis?: InspectorField['axis']
+  /**
+   * Sets the text as editable code (2.16.7), in place of the interface face with tabular figures,
+   * and the name suggestions with it; only the Parameters panel's expression field sets it (3.11).
+   */
+  readonly code?: boolean
   /** Called with the text on every edit, and again when the state of the text changes. */
   readonly onChange: (value: string, state: ExpressionState) => void
   readonly onCommit?: (value: string, state: ExpressionState) => void
@@ -151,6 +157,7 @@ export function ExpressionInput({
   completion = true,
   trailing = null,
   axis = null,
+  code = false,
   onChange,
   onCommit,
   onCancel,
@@ -168,6 +175,7 @@ export function ExpressionInput({
   const invalid = state.state === 'invalid'
   const message = invalid ? state.message : (error ?? '')
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null)
+  const list = useRef<HTMLUListElement>(null)
   // The caret to restore after an inserted name re-renders the text.
   const caretAfterRender = useRef<number | null>(null)
   const missingName = useAppState((current) =>
@@ -365,6 +373,11 @@ export function ExpressionInput({
   }
 
   const open = suggestions !== null
+  // The list is a popover in the top layer, under the input or above it when only that side has
+  // room, so no scrolling panel or inspector body cuts it off. It follows the input when a message
+  // shown above it while the user types moves it (2.13).
+  usePopoverVisibility(list, open, input)
+  useAnchoredPosition(list, input, open, 'below', { followMoves: true })
   const optionId = (index: number) => `${listId}-${String(index)}`
   return (
     <div className="flex min-w-0 flex-col gap-1">
@@ -426,7 +439,7 @@ export function ExpressionInput({
             className={clsx(
               'h-8 w-full min-w-0 rounded-md border px-2 text-sm',
               axis !== null && 'pl-6',
-              FONT_CLASSES.values,
+              code ? 'font-mono [font-variant-ligatures:no-contextual]' : 'tabular-nums',
               COLOR_CLASSES.field.background,
               COLOR_CLASSES.text.foreground,
               COLOR_CLASSES.focusRing.outline,
@@ -443,15 +456,18 @@ export function ExpressionInput({
           )}
           {completion ? (
             <ul
+              ref={list}
               id={listId}
               // The combobox pattern needs a listbox of rich options, which a native datalist cannot hold.
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-to-interactive-role
               role="listbox"
               aria-label={`Names for ${label}`}
               data-testid={open ? 'expression-suggestions' : undefined}
-              hidden={!open}
+              popover="manual"
+              // `hidden open:flex`: a display class would override the browser's hiding of a closed popover.
+              // `pointer-events-auto`: the top layer still inherits pointer-events from DOM parents.
               className={clsx(
-                'absolute top-full left-0 z-30 mt-1 flex w-full min-w-48 flex-col rounded-lg border py-1 shadow-lg',
+                'pointer-events-auto fixed top-0 left-0 m-0 hidden w-max min-w-48 max-w-80 flex-col open:flex rounded-lg border py-1 shadow-lg',
                 COLOR_CLASSES.surfaceRaised.background,
                 COLOR_CLASSES.border.border,
                 COLOR_CLASSES.elevation.shadow,
@@ -475,7 +491,7 @@ export function ExpressionInput({
                   }}
                   className={clsx(
                     'cursor-pointer truncate px-2 py-1 text-sm',
-                    FONT_CLASSES.values,
+                    code ? 'font-mono' : 'tabular-nums',
                     COLOR_CLASSES.text.foreground,
                     suggestions.active === index
                       ? COLOR_CLASSES.hover.active
@@ -492,8 +508,7 @@ export function ExpressionInput({
         <span
           data-testid="expression-result"
           className={clsx(
-            'shrink-0 text-sm whitespace-nowrap empty:hidden',
-            FONT_CLASSES.values,
+            'shrink-0 text-sm whitespace-nowrap tabular-nums empty:hidden',
             COLOR_CLASSES.textMuted.foreground,
           )}
         >

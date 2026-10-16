@@ -18,7 +18,7 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0010](0010-unsafe-c-abi-exports-in-partsmith-wasm.md) | `unsafe` on the three C ABI exports of `partsmith-wasm` | Accepted, needs human review |
 | [0011](0011-feature-contract-extensions.md) | Feature contract extensions and manifests in the model crate | Accepted, needs human review |
 | [0012](0012-dependency-log-m1.md) | New dependencies for M1: blake3, zip and faer | Accepted, needs human review |
-| [0013](0013-oxc-tooling-and-theme-stylesheet.md) | oxlint and oxfmt for the UI, and a minimal theme stylesheet | Accepted |
+| [0013](0013-oxc-tooling-and-theme-stylesheet.md) | oxlint and oxfmt for the UI, and a minimal theme stylesheet | Accepted; font loading superseded by 0031 |
 | [0014](0014-desktop-host-and-dependencies.md) | Tauri 2 desktop host with tauri-build and tauri-plugin-dialog, and no Tauri npm package | Proposed, needs human review |
 | [0015](0015-sketch-solver-own-sparse-qr.md) | Sketch solver uses its own sparse rank-revealing QR instead of faer | Accepted, needs human review |
 | [0016](0016-generated-schema-check-ins.md) | Generated schema check-ins (log) | Accepted, needs human review |
@@ -36,3 +36,4 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0028](0028-single-license-apache-2.md) | One license, Apache-2.0, for code, specifications, examples and test corpus | Accepted |
 | [0029](0029-z-up-right-handed.md) | Right-handed Z-up coordinates everywhere, with no up-axis option | Accepted |
 | [0030](0030-islands-over-a-full-window-viewport-and-rgb-axes.md) | Floating islands over a full-window viewport, and X, Y, Z in red, green and blue | Accepted, needs human review |
+| [0031](0031-self-hosted-geist-and-jetbrains-mono-for-code.md) | Geist with a serifed I and tabular figures for interface text and numbers, JetBrains Mono for code only, both self-hosted | Accepted, needs human review |

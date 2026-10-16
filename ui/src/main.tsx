@@ -18,7 +18,7 @@ import { createIndexedDbRecovery } from './files/recovery'
 import { systemPrefersDark } from './layout/color-scheme'
 import { MESSAGES } from './messages'
 import { createAppStore } from './state/store'
-import { COLOR_CLASSES, FONT_CLASSES, ROOT_CLASSES } from './theme/roles'
+import { COLOR_CLASSES, ROOT_CLASSES } from './theme/roles'
 import { applyTheme, applyUiScale, resolveTheme } from './theme/theme'
 import './index.css'
 
@@ -62,7 +62,6 @@ if (missing !== null) {
         data-testid="unsupported"
         className={clsx(
           'flex h-dvh w-dvw items-center justify-center p-8 antialiased',
-          FONT_CLASSES.interfaceText,
           COLOR_CLASSES.surface.background,
           COLOR_CLASSES.text.foreground,
         )}

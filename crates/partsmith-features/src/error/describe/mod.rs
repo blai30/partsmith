@@ -11,14 +11,16 @@ mod name;
 
 use std::collections::HashMap;
 
-use partsmith_model::Units;
-use partsmith_naming::{ElementKind, ElementName, Fingerprint, GeometryKind, Reference};
+use partsmith_model::{Id, Units};
+use partsmith_naming::{ElementKind, ElementName, Fingerprint, GeometryKind, Instance, Reference};
 
 use super::message::Names;
 use crate::context::BodyState;
-use face::{Element, FaceFacts, Faces};
-use maker::{NOT_IN_DOCUMENT, world_coordinates};
+use face::{Element, FaceFacts, Faces, copy_noun};
+use maker::{Maker, NOT_IN_DOCUMENT, world_coordinates};
 use name::{FaceName, GeneratorText};
+
+pub use maker::sketch_coordinates;
 
 /// The words for the faces, edges or vertices one message or candidate list names, in order (section 3.12): "the
 /// front top edge of 'Box 1'". Each element is given by its name and fingerprint; `state` is the body state the
@@ -234,9 +236,11 @@ impl Describer<'_> {
     }
 }
 
-/// The words for one element given by its name alone, described in `state` as a stored element without a
-/// fingerprint: the part of a query a message names (`{face}` of section 4.2).
-pub(crate) fn describe_face(
+/// The words for one face given by its name alone (`name` as text), described in `state` as a stored element without
+/// a fingerprint: the part of a query a message names (`{face}` of section 4.2), or a face recompute's loss diagnosis
+/// names (recompute.md section 3.10). Text that is no face name reads as a face of a feature that is not in this
+/// document.
+pub fn describe_face(
     name: &str,
     state: Option<&BodyState>,
     names: &dyn Names,
@@ -257,7 +261,7 @@ pub(crate) fn describe_face(
 /// True when the stored fingerprint shows that the entity whose face `reference` names was a line (section 4.2,
 /// `{line or curve}`): for a face query, a side of an extrude or revolve whose fingerprint is a plane; for an edge
 /// query, an edge between such a side and a cap of the same feature whose fingerprint is a line.
-pub(crate) fn made_from_line(reference: &Reference) -> bool {
+pub fn made_from_line(reference: &Reference) -> bool {
     let query = &reference.query;
     let kind = reference.fingerprint.kind;
     match query.kind() {
@@ -285,6 +289,18 @@ pub(crate) fn made_from_line(reference: &Reference) -> bool {
         }
         ElementKind::Vertex => false,
     }
+}
+
+/// The copy `instance` of the pattern or mirror `feature` in words, as section 3.12 names copies: `third copy` (the
+/// ordinal of the first index plus 1), `copy in row 2, column 3` for two indices (row the second index plus 1, column
+/// the first plus 1), or `mirror image` for a mirror.
+pub fn describe_copy(names: &dyn Names, feature: &Id, instance: Instance) -> String {
+    let second = (instance.second != 0).then_some(instance.second);
+    copy_noun(
+        Maker::of(names, feature.as_str()).is("mirror"),
+        instance.first,
+        second,
+    )
 }
 
 /// Whether every new face of `elements` is flat in `state` (section 4.2, `{lines or curves}`): the elements
@@ -428,7 +444,115 @@ fn words_text(mut words: Vec<Word>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use partsmith_model::FeatureRecord;
+
     use super::*;
+    use crate::SketchResult;
+
+    /// Names that know one record, `f-c` of type `kind`, labeled `Copies 1`.
+    struct OneRecord {
+        /// The record.
+        record: FeatureRecord,
+    }
+
+    impl OneRecord {
+        fn of(kind: &str) -> OneRecord {
+            OneRecord {
+                record: FeatureRecord {
+                    id: Id::new("f-c").expect("a valid id"),
+                    kind: kind.to_string(),
+                    name: None,
+                    suppressed: false,
+                    params: serde_json::Map::new(),
+                },
+            }
+        }
+    }
+
+    impl Names for OneRecord {
+        fn body_name(&self, _body: &Id) -> Option<String> {
+            None
+        }
+
+        fn feature_label(&self, feature: &Id) -> Option<String> {
+            (*feature == self.record.id).then(|| "Copies 1".to_string())
+        }
+
+        fn type_label(&self, feature: &Id) -> Option<String> {
+            (*feature == self.record.id).then(|| self.record.kind.clone())
+        }
+
+        fn feature_record(&self, feature: &Id) -> Option<&FeatureRecord> {
+            (*feature == self.record.id).then_some(&self.record)
+        }
+
+        fn sketch_result(&self, _sketch: &Id) -> Option<&SketchResult> {
+            None
+        }
+    }
+
+    #[test]
+    fn copies_are_described_by_their_place_or_as_the_mirror_image() {
+        let feature = Id::new("f-c").expect("a valid id");
+        let copy = |first: u32, second: u32| Instance { first, second };
+
+        let pattern = OneRecord::of("linear_pattern");
+        let mirror = OneRecord::of("mirror");
+
+        assert_eq!(describe_copy(&pattern, &feature, copy(2, 0)), "third copy");
+        assert_eq!(
+            describe_copy(&pattern, &feature, copy(2, 1)),
+            "copy in row 2, column 3"
+        );
+        assert_eq!(describe_copy(&mirror, &feature, copy(1, 0)), "mirror image");
+    }
+
+    #[test]
+    fn a_face_given_by_name_alone_reads_by_its_feature() {
+        let names = OneRecord::of("box");
+
+        assert_eq!(
+            describe_face("f-c/top", None, &names, Units::Mm),
+            "the top of 'Copies 1'"
+        );
+        assert_eq!(
+            describe_face("f-gone/top", None, &names, Units::Mm),
+            "a face of a feature that is not in this document"
+        );
+    }
+
+    #[test]
+    fn a_face_given_by_name_alone_reads_by_the_face_of_that_name_in_the_state() {
+        let names = OneRecord::of("extrude");
+        let state = crate::test_support::box_body("f-c", [0.0, 0.0, 0.0], 10.0);
+
+        assert_eq!(
+            describe_face("f-c/top", Some(&state), &names, Units::Mm),
+            "the top of 'Copies 1'"
+        );
+    }
+
+    #[test]
+    fn a_side_made_from_a_line_shows_in_its_stored_fingerprint() {
+        let reference = |query: &str, fingerprint: &str| -> Reference {
+            serde_json::from_value(serde_json::json!({"q": query, "fp": fingerprint}))
+                .expect("a valid reference")
+        };
+
+        assert!(made_from_line(&reference(
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-5)",
+            "line|n=1,0,0|c=40,0,30|l=80"
+        )));
+        assert!(!made_from_line(&reference(
+            "edge(f-ext1/end-cap|f-ext1/lateral/e-6)",
+            "circle|n=0,0,1|c=78,48,10|l=7.853982|r=5"
+        )));
+    }
+
+    #[test]
+    fn sketch_coordinates_are_written_without_the_unit() {
+        assert_eq!(sketch_coordinates([7.0, 0.0], Units::Mm), "(7, 0)");
+    }
 
     #[test]
     fn words_come_from_normals_along_world_axes() {

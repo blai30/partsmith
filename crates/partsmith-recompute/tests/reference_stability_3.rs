@@ -186,7 +186,14 @@ fn r46b_imported_file_revised_with_two_lookalike_holes_lists_both_and_chamfers_n
     checks.status(&session, "f-cha1", "error");
     checks.faces_count(final_state(&session, "b-1"), "f-cha1/", 0);
     checks.volume(&session, "b-1", 4000.0 - 2.0 * PI * 9.0 * 5.0);
-    checks.message_names(&session, "f-cha1", &["(10, 10)", "(30, 10)"]);
+    // recompute.md test 67's text (corpus amendment 7); the two top rims are its repair data.
+    checks.message_names(
+        &session,
+        "f-cha1",
+        &[
+            "A round edge of 'Import 1' near (20, 10, 5) selected for Edges now matches 2 edges. Pick the one you mean.",
+        ],
+    );
     checks.plain_words(&session, "f-cha1");
     checks.repair_at(&session, "f-cha1", "/edges/0");
     let candidates = repair_candidates(&session, "f-cha1");
@@ -1172,7 +1179,12 @@ fn r54_deleting_a_boss_under_a_datum_gives_one_root_cause() {
     checks.note(describe_messages(&session, "f-sk3"));
     checks.note(describe_messages(&session, "f-ext3"));
     checks.status(&session, "f-dp1", "error");
-    checks.message_names(&session, "f-dp1", &["deleted"]);
+    // recompute.md test 46's text; "deleted" is the engine twin's cause line (test 69).
+    checks.message_names(
+        &session,
+        "f-dp1",
+        &["A face of a feature that is not in this document selected for Base plane is gone."],
+    );
     checks.plain_words(&session, "f-dp1");
     checks.repair_offers(&session, "f-dp1", &["f-ext1/end-cap"]);
     checks.error_code(&session, "f-sk3", "upstream_failed");
@@ -1313,7 +1325,12 @@ fn r56b_swapped_boolean_names_where_the_edge_now_lives() {
     );
     checks.note(describe_messages(&session, "f-fil1"));
     checks.status(&session, "f-fil1", "error");
-    checks.message_names(&session, "f-fil1", &["'Boolean 1'", "'Body 2'"]);
+    // The text the corpus quotes (recompute.md test 65); 'Body 2' is its Use body fix.
+    checks.message_names(
+        &session,
+        "f-fil1",
+        &["Body 'Body 1' is empty here because 'Boolean 1' uses it as a tool, which empties it."],
+    );
     checks.plain_words(&session, "f-fil1");
 
     // The one-click fix: use Body 2.
@@ -1958,7 +1975,13 @@ fn r63a_hole_made_a_counterbore_offers_the_new_mouth_and_never_chamfers_the_floo
     checks.status(&session, "f-cha1", "error");
     let body = final_state(&session, "b-1");
     checks.faces_count(body, "f-cha1/", 0);
-    checks.message_names(&session, "f-cha1", &["'Hole 1'", "counterbore"]);
+    // recompute.md test 67's text; the hole type changed to counterbore is the engine twin's cause
+    // line (corpus amendment 7).
+    checks.message_names(
+        &session,
+        "f-cha1",
+        &[" now matches 2 edges after 'Hole 1' changed. Pick the one you mean."],
+    );
     checks.plain_words(&session, "f-cha1");
     checks.repair_offers(
         &session,

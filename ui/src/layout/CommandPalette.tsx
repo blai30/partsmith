@@ -414,7 +414,10 @@ function OpenPalette() {
         <span className="flex size-4 shrink-0 items-center justify-center">
           {Icon === null ? null : <Icon aria-hidden="true" strokeWidth={1.75} className="size-4" />}
         </span>
-        <span className="min-w-0 truncate">{item.title}</span>
+        {/* A parameter's "{name} = {expr}" is code (2.16.7). */}
+        <span className={clsx('min-w-0 truncate', item.kind === 'parameter' && 'font-mono')}>
+          {item.title}
+        </span>
         {detail === null ? null : (
           <span
             className={clsx('min-w-0 shrink truncate text-xs', COLOR_CLASSES.textMuted.foreground)}

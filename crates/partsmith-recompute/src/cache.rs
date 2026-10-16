@@ -5,6 +5,7 @@ use std::sync::Arc;
 use partsmith_features::{BodyState, FeatureError, FeatureOutput, OutputData};
 use partsmith_model::Id;
 
+use crate::diagnosis::Findings;
 use crate::key::CacheKey;
 use crate::pass_lru::PassLru;
 
@@ -47,10 +48,20 @@ impl Built {
 /// Cached outcomes by key, shared by every document of a session. Each run is one pass.
 #[derive(Debug)]
 pub(crate) struct Cache {
-    /// The cached outcomes with the run that last used each.
-    entries: PassLru<CacheKey, Outcome>,
+    /// The cached entries with the run that last used each.
+    entries: PassLru<CacheKey, Entry>,
     /// How many entries a run leaves at most, besides those it used.
     limit: usize,
+}
+
+/// One cached result and the loss diagnosis memoized for it, which is evicted with it and never
+/// counts as an entry of its own (recompute.md section 3.7).
+#[derive(Debug)]
+struct Entry {
+    /// The outcome.
+    outcome: Outcome,
+    /// The memoized findings of its messages.
+    findings: Findings,
 }
 
 impl Cache {
@@ -72,14 +83,14 @@ impl Cache {
         self.entries.len()
     }
 
-    /// Drops every cached outcome.
+    /// Drops every cached outcome and its memoized findings.
     pub(crate) fn clear(&mut self) {
         self.entries.clear();
     }
 
     /// The outcome cached under `key`, without marking it used (for plans).
     pub(crate) fn peek(&self, key: &CacheKey) -> Option<&Outcome> {
-        self.entries.peek(key)
+        self.entries.peek(key).map(|entry| &entry.outcome)
     }
 
     /// Starts a run: entries used from now on count as used by it.
@@ -89,12 +100,23 @@ impl Cache {
 
     /// The outcome cached under `key`, marked as used by the current run.
     pub(crate) fn get(&mut self, key: &CacheKey) -> Option<Outcome> {
-        self.entries.touch(key).cloned()
+        self.entries.touch(key).map(|entry| entry.outcome.clone())
     }
 
-    /// Caches `outcome` under `key`, used by the current run.
+    /// Caches `outcome` under `key`, used by the current run, with no findings yet.
     pub(crate) fn insert(&mut self, key: CacheKey, outcome: Outcome) {
-        self.entries.insert(key, outcome);
+        self.entries.insert(
+            key,
+            Entry {
+                outcome,
+                findings: Findings::default(),
+            },
+        );
+    }
+
+    /// The memoized findings of the outcome cached under `key`.
+    pub(crate) fn findings_mut(&mut self, key: &CacheKey) -> Option<&mut Findings> {
+        self.entries.peek_mut(key).map(|entry| &mut entry.findings)
     }
 
     /// Ends a run: evicts the entries used longest ago, beyond the limit, that the run did not

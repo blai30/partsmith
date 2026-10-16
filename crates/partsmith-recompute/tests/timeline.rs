@@ -569,19 +569,12 @@ fn suppressed_features_do_nothing_and_leave_their_bodies_empty() {
     assert!(feature_report(&report, "f-a").output.is_none());
     assert!(bodies_before_ids(&report, "f-a").is_empty());
     assert_eq!(error_code(&report, "f-b"), "body_empty");
-    // features.md section 4.1, `body_empty` without a diagnosis; recompute.md section 3.10 adds why the body is empty.
-    assert_eq!(
-        message_texts(&report, "f-b"),
-        owned(&[
-            "Body 'Body 1' has no solid yet at this point, so there is nothing to add to. Set Operation to New body to start it here."
-        ])
-    );
-    assert_eq!(
-        message_texts(&report, "f-p"),
-        owned(&[
-            "Body 'Body 1' has no solid at this point, so this test probe has nothing to work on. Pick a body that has a solid."
-        ])
-    );
+    // recompute.md section 3.10, `because`: the last suppressed record before each that writes b-1 is why it is
+    // empty, and the walk passes over f-b, which failed only because b-1 was empty (as in test 65).
+    let suppressed_maker =
+        "Body 'Body 1' is empty here because 'Test block 1', which makes it, is suppressed.";
+    assert_eq!(message_texts(&report, "f-b"), owned(&[suppressed_maker]));
+    assert_eq!(message_texts(&report, "f-p"), owned(&[suppressed_maker]));
 }
 
 #[test]

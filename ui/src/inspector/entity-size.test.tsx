@@ -22,6 +22,7 @@ import {
 import { createAppStore, type SelectionItem } from '../state/store'
 import { READY_CORE } from '../test/fakes/state'
 import { createTestApp } from '../test/fakes/test-app'
+import { hasTabularFigures, isCode } from '../test/type-roles'
 import { entitySize, entitySizeDimension } from './entity-size'
 import { SelectionInspector } from './SelectionInspector'
 
@@ -157,6 +158,14 @@ describe('the size field (3.8)', () => {
     })
     expect(vi.mocked(applyEdits).mock.calls[0]?.[1]).toBe('Change dimension')
     expect(writtenConstraints(applyEdits)).toEqual([{ ...WIDTH, expr: 'width + 5' }])
+  })
+
+  it('U-205 sets the size field in tabular figures, not code, while it holds a name', () => {
+    const app = sketchApp([WIDTH], { solveSketch: () => Promise.resolve(solvedSketch(SOLUTION)) })
+    const field = renderField(app, curveItem('e-1', 'line'))
+    expect(field).toHaveValue('width')
+    expect(hasTabularFigures(field)).toBe(true)
+    expect(isCode(field)).toBe(false)
   })
 
   it('U-115 committing "12" for a circle adds a requested diameter dimension, labeled "Dimension"', async () => {

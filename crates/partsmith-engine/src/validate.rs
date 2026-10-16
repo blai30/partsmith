@@ -87,6 +87,7 @@ impl Session {
                     let (severity, code) = match message.severity {
                         MessageSeverity::Error => (Severity::Error, "feature_error"),
                         MessageSeverity::Warning => (Severity::Warning, "feature_warning"),
+                        MessageSeverity::Info => (Severity::Info, "feature_warning"),
                     };
                     checks.push(
                         severity,

@@ -7,6 +7,14 @@ import { afterEach } from 'vitest'
 // narrow windows stub `innerWidth` themselves.
 Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1280 })
 
+// jsdom lays nothing out and has no scrollIntoView, which the inspector calls to bring a whole
+// field into view (ui.md 3.7); this stands in for it, and tests spy on it.
+Object.defineProperty(Element.prototype, 'scrollIntoView', {
+  configurable: true,
+  writable: true,
+  value: () => undefined,
+})
+
 // Unmounts what each test rendered with Testing Library. It runs after the test file's own
 // afterEach hooks, so a file whose teardown must follow the unmount calls `cleanup()` itself first.
 afterEach(cleanup)

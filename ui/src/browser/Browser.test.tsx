@@ -21,7 +21,7 @@ import {
   parametersOf,
 } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
-import { BODY_SWATCHES, COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
+import { BODY_SWATCHES, COLOR_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 
 beforeEach(installPopoverPolyfill)
 
@@ -190,7 +190,7 @@ describe('the browser tree (3.10)', () => {
     expect(row('parameter', 'p-size')).toHaveTextContent('size = 20 mm')
   })
 
-  it('shows the evaluated value of a parameter that is not a plain number, in the values font', () => {
+  it('shows the evaluated value of a parameter that is not a plain number, in tabular figures', () => {
     const document: Document = {
       ...PARAMETRIC_DOCUMENT,
       parameters: [{ id: 'p-size', name: 'size', expr: '2 * 10 mm' }],
@@ -203,7 +203,26 @@ describe('the browser tree (3.10)', () => {
       }),
     )
     const value = within(row('parameter', 'p-size')).getByText('20 mm')
-    expect(value).toHaveClass(FONT_CLASSES.values)
+    expect(value).toHaveClass('tabular-nums')
+    expect(value).not.toHaveClass('font-mono')
+  })
+
+  it("sets a parameter's code and its smaller value on one baseline", () => {
+    const document: Document = {
+      ...PARAMETRIC_DOCUMENT,
+      parameters: [{ id: 'p-size', name: 'size', expr: '2 * 10 mm' }],
+    }
+    renderBrowser(
+      documentState(document, {
+        parameterValues: {
+          'p-size': { id: 'p-size', value: 20, dimension: { length: 1, angle: 0 } },
+        },
+      }),
+    )
+    const code = within(row('parameter', 'p-size')).getByText('size = 2 * 10 mm')
+    const value = within(row('parameter', 'p-size')).getByText('20 mm')
+    expect(code.parentElement).toBe(value.parentElement)
+    expect(code.parentElement).toHaveClass('flex', 'items-baseline')
   })
 })
 
@@ -345,7 +364,8 @@ describe('body rows (3.10)', () => {
       within(row('body', 'b-cube')).getByRole('button', { name: 'Color of Cube', hidden: true }),
     )
     const field = within(screen.getByTestId('color-popover')).getByRole('textbox')
-    expect(field).toHaveClass(FONT_CLASSES.values)
+    expect(field).toHaveClass('tabular-nums')
+    expect(field).not.toHaveClass('font-mono')
     await user.clear(field)
     await user.type(field, '#123456{Enter}')
     await settle()

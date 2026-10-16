@@ -238,12 +238,6 @@ export const BODY_SWATCHES: readonly BodySwatch[] = [
   swatch('Brown', 'amber-800', 'bg-amber-800'),
 ]
 
-/** Font family classes (ui.md 2.16.7): Inter for interface text, JetBrains Mono for values. */
-export const FONT_CLASSES = {
-  interfaceText: 'font-[Inter,ui-sans-serif,system-ui,sans-serif]',
-  values: "font-['JetBrains_Mono',ui-monospace,monospace]",
-} as const
-
 /** Root font-size class of each UI scale (ui.md 2.16.9), a percentage of the browser default. */
 export const UI_SCALE_CLASSES: Readonly<Record<Settings['uiScale'], string>> = {
   1: 'text-[100%]',

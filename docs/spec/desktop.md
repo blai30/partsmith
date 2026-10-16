@@ -381,8 +381,8 @@ Exactly:
       "csp": {
         "default-src": "'self'",
         "script-src": "'self'",
-        "style-src": "'self' https://fonts.googleapis.com",
-        "font-src": "https://fonts.gstatic.com",
+        "style-src": "'self'",
+        "font-src": "'self'",
         "img-src": "'self' data:",
         "connect-src": "ipc: http://ipc.localhost",
         "worker-src": "'none'",
@@ -394,8 +394,8 @@ Exactly:
       "devCsp": {
         "default-src": "'self'",
         "script-src": "'self' 'unsafe-inline'",
-        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
-        "font-src": "https://fonts.gstatic.com",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self'",
         "img-src": "'self' data:",
         "connect-src": "'self' ipc: http://ipc.localhost ws://localhost:5173",
         "worker-src": "'none'",
@@ -436,7 +436,7 @@ Rules behind the values:
 - `dragDropEnabled: false` turns off Tauri's native drop handler, which on Windows replaces the webview's own; HTML5 drag and drop then works exactly as on the web (ui.md 3.19, the drop overlay). A dropped file has no handle, so Save asks where to save, as on the web without the File System Access API.
 - There is no `plugins` key and no `app.security.capabilities` list: every file in `capabilities/` applies, and there is exactly one.
 - The desktop app never loads the WebAssembly core or creates a worker (`chooseTransport` picks the Tauri transport), so the policy allows no `wasm-unsafe-eval` and no workers.
-- **Google Fonts (resolves the desktop part of ui.md open issue 10).** `src/index.css` imports Inter and JetBrains Mono from Google Fonts (ADR 0013). The policy allows exactly `https://fonts.googleapis.com` in `style-src` (the CSS) and `https://fonts.gstatic.com` in `font-src` (the font files), and nothing else remote. Online, the desktop app looks like the web app; offline, the font stacks fall back to system fonts. If the maintainer approves self-hosting the fonts (ui.md open issue 10), both entries are removed and `font-src` becomes `'self'`.
+- **Self-hosted fonts (ADR 0031, which resolves ui.md open issue 10).** Geist and JetBrains Mono are files of the UI (`ui/public/fonts`, ui.md 2.16.7), which `cargo tauri build` embeds with the rest of `ui/dist`, and `src/index.css` loads them with `@font-face` rules from the app's own origin. So `font-src` is `'self'`, `style-src` names no font host, and the policy allows nothing remote: the desktop app looks the same offline as online. The Google Fonts entries of ADR 0013 (`https://fonts.googleapis.com` in `style-src` and `https://fonts.gstatic.com` in `font-src`) are gone.
 - `connect-src` allows only Tauri's IPC (`ipc:` on macOS and Linux, `http://ipc.localhost` on Windows). Tauri adds nonces and hashes for its own scripts at build time.
 - `devCsp` applies only to `cargo tauri dev`, where Vite serves the page from `http://localhost:5173` with inline styles, the React refresh preamble and a hot reload socket.
 - `freezePrototype` freezes `Object.prototype` before the UI's code runs, which hardens the IPC against prototype pollution; the UI's dependencies do not extend built-in prototypes.
@@ -732,7 +732,7 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 51. (Unix) With `<dir>/link.ptsm` a symbolic link to `<dir>/synced/part.ptsm` (holding `old contents`) and the link granted by `pick_open`, `write(grant, b"new")` succeeds; `link.ptsm` is still a symbolic link, `synced/part.ptsm` holds `new`, `synced/` holds only `part.ptsm` and `<dir>` holds only `link.ptsm` and `synced` (3.4 step 4).
 52. A granted `<dir>/part.ptsm` holding `old contents` and made read-only (`Permissions::set_readonly(true)`): `write(grant, b"new")` fails with `Denied { name: "part.ptsm", detail: "the file is read-only" }`, reason `permission`; the file still holds `old contents` and `<dir>` holds only `part.ptsm`.
 
-**Manual checks at the gate** (no harness yet; the reviewer records the result per OS): the window opens at 1440 by 900 with the UI and fonts (online) or system fonts (offline); Open, Save, Save as and Export show native dialogs and write the chosen files; Open recent reopens a file after restarting the app; dropping a `.ptsm` opens it; closing with unsaved changes asks; `cargo tauri dev` loads the UI with hot reload.
+**Manual checks at the gate** (no harness yet; the reviewer records the result per OS): the window opens at 1440 by 900 with the UI in Geist, online and offline, and the Parameters panel of a document with parameters shows their names and expressions in JetBrains Mono; Open, Save, Save as and Export show native dialogs and write the chosen files; Open recent reopens a file after restarting the app; dropping a `.ptsm` opens it; closing with unsaved changes asks; `cargo tauri dev` loads the UI with hot reload.
 
 ## 7. Open issues
 
@@ -753,6 +753,6 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 - **Icon** (2.10): the provisional orange cube mark is a design-system decision.
 - **Window defaults**: 1440 by 900, minimum 960 by 600.
 - **macOS minimum** 13.0 and arm64 only for macOS in this milestone.
-- **Content security policy** (2.8), including the Google Fonts entries, and `freezePrototype`.
+- **Content security policy** (2.8), with no remote source since the fonts are self-hosted (ADR 0031), and `freezePrototype`.
 - **Grant store** limits: `MAX_GRANTS` 100 and persistence across restarts (open issue 5).
 - **Close guard wording** (2.5).

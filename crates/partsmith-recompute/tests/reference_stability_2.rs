@@ -178,7 +178,13 @@ fn r23b_deleting_one_peg_does_not_move_its_fillet_to_the_other_peg() {
     let body = final_state(&after, "b-1");
     checks.faces_count(body, "f-fil1/fillet/", 0);
     checks.has_element(body, "edge(f-ext2/end-cap|f-ext2/lateral/e-7)", true);
-    checks.message_names(&after, "f-fil1", &["deleted"]);
+    // recompute.md test 69: the structural message says "a feature that is not in this document"
+    // where the corpus says "deleted", which the engine twin's cause line says (test 45's text).
+    checks.message_names(
+        &after,
+        "f-fil1",
+        &["An edge of a feature that is not in this document selected for Edges is gone."],
+    );
     checks.plain_words(&after, "f-fil1");
     checks.repair_at(&after, "f-fil1", "/edges/0");
     checks.finish();
@@ -649,7 +655,14 @@ fn r30a_a_join_changed_to_a_cut_does_not_retarget_its_rim_fillet() {
     checks.status(&after, "f-fil1", "error");
     checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 120000.0 - PI * 100.0 * 20.0);
-    checks.message_names(&after, "f-fil1", &["'Extrude 2'", "cut"]);
+    // recompute.md test 57's text; the changed Operation is the engine twin's cause line.
+    checks.message_names(
+        &after,
+        "f-fil1",
+        &[
+            "The top rim of 'Extrude 2' selected for Edges is no longer made by 'Extrude 2', whose end now reaches the outside of the body.",
+        ],
+    );
     checks.plain_words(&after, "f-fil1");
     checks.repair_at(&after, "f-fil1", "/edges/0");
     if let Some(state) = state_before(&after, "f-fil1", "b-1") {
@@ -1842,7 +1855,12 @@ fn r41_lowering_a_pattern_count_says_which_copy_is_gone() {
         ),
     );
     checks.repair_at(&after, "f-fil1", "/edges/1");
-    checks.message_names(&after, "f-fil1", &["'Linear pattern 1'", "Count"]);
+    // recompute.md test 61's text; the changed Count is the engine twin's cause line.
+    checks.message_names(
+        &after,
+        "f-fil1",
+        &["is gone because 'Linear pattern 1' no longer makes its third copy, so it was skipped."],
+    );
     checks.plain_words(&after, "f-fil1");
     let body = final_state(&after, "b-1");
     checks.faces_count(body, "f-fil1/fillet/", 1);
@@ -1873,7 +1891,12 @@ fn r41_variant_only_the_lost_copy_referenced() {
     checks.status(&after, "f-fil1", "error");
     checks.faces_count(final_state(&after, "b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 2000.0);
-    checks.message_names(&after, "f-fil1", &["'Linear pattern 1'", "Count"]);
+    // recompute.md test 61's text; the changed Count is the engine twin's cause line.
+    checks.message_names(
+        &after,
+        "f-fil1",
+        &["is gone because 'Linear pattern 1' no longer makes its third copy."],
+    );
     checks.plain_words(&after, "f-fil1");
     checks.repair_at(&after, "f-fil1", "/edges/0");
     checks.finish();

@@ -9,7 +9,7 @@ use partsmith_naming::ElementKind;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::output::{FeatureOutput, OutputData, SketchResult};
+use crate::output::{AbsentFace, FeatureOutput, OutputData, SketchResult};
 use crate::registry::Registry;
 
 /// A limit in a range error.
@@ -108,6 +108,12 @@ pub trait Names {
     fn feature_record(&self, feature: &Id) -> Option<&FeatureRecord>;
     /// The sketch's result in the current run, when it built.
     fn sketch_result(&self, sketch: &Id) -> Option<&SketchResult>;
+    /// The faces the feature's output in the current run records absent (section 2.7), for element descriptions
+    /// (section 3.12); none outside a run.
+    fn absent_faces(&self, feature: &Id) -> &[AbsentFace] {
+        let _ = feature;
+        &[]
+    }
 }
 
 /// `Names` for a document, using the registry for default feature labels and type labels.
@@ -117,7 +123,7 @@ pub struct DocumentNames<'a> {
     pub document: &'a Document,
     /// The registry.
     pub registry: &'a Registry,
-    /// Outputs of the current run by feature id, for sketch results; empty outside a run.
+    /// Outputs of the current run by feature id, for sketch results and absent faces; empty outside a run.
     pub outputs: &'a BTreeMap<Id, Arc<FeatureOutput>>,
 }
 
@@ -147,6 +153,12 @@ impl Names for DocumentNames<'_> {
             OutputData::Sketch(result) => Some(result),
             _ => None,
         }
+    }
+
+    fn absent_faces(&self, feature: &Id) -> &[AbsentFace] {
+        self.outputs
+            .get(feature)
+            .map_or(&[], |output| output.absent.as_slice())
     }
 }
 

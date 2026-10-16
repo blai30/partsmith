@@ -6,7 +6,6 @@ import {
   COLOR_CLASSES,
   contrastRatio,
   encodedFromHex,
-  FONT_CLASSES,
   linearFromHex,
   PALETTE_HEX,
   ROOT_CLASSES,
@@ -18,6 +17,7 @@ import {
   type ThemeName,
   type ViewportRole,
 } from './roles'
+import * as roleExports from './roles'
 
 const THEMES: readonly ThemeName[] = ['light', 'dark']
 
@@ -572,11 +572,8 @@ describe('mapping tables (U-90)', () => {
     ).toBeLessThan(1e-12)
   })
 
-  it('U-90 FONT_CLASSES equal 2.16.7', () => {
-    expect(FONT_CLASSES).toEqual({
-      interfaceText: 'font-[Inter,ui-sans-serif,system-ui,sans-serif]',
-      values: "font-['JetBrains_Mono',ui-monospace,monospace]",
-    })
+  it('U-90 roles.ts exports no FONT_CLASSES: the faces are theme variables (2.16.7)', () => {
+    expect(Object.keys(roleExports)).not.toContain('FONT_CLASSES')
   })
 
   it('U-90 UI_SCALE_CLASSES equal 2.16.9', () => {

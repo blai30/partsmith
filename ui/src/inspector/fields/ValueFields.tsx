@@ -5,7 +5,7 @@ import { useApp } from '../../app/AppProvider'
 import { Switch } from '../../components/Switch'
 import { TextField } from '../../components/TextField'
 import { MESSAGES } from '../../messages'
-import { COLOR_CLASSES, FONT_CLASSES } from '../../theme/roles'
+import { COLOR_CLASSES } from '../../theme/roles'
 import type { InspectorField } from '../model'
 import { fieldInputId } from './field-id'
 
@@ -77,6 +77,7 @@ export function NumberField({
       label={field.label}
       help={field.help}
       value={text}
+      tabular
       inputMode={integer ? 'numeric' : 'decimal'}
       error={error ?? statusMessage}
       onChange={(next) => {
@@ -114,9 +115,8 @@ export function UnsupportedField({ field }: { readonly field: InspectorField }) 
         id={fieldInputId(field.path)}
         tabIndex={-1}
         className={clsx(
-          'block overflow-x-auto rounded-md border px-2 py-1 text-xs whitespace-pre',
+          'block overflow-x-auto rounded-md border px-2 py-1 font-mono text-xs whitespace-pre',
           COLOR_CLASSES.focusRing.outline,
-          FONT_CLASSES.values,
           COLOR_CLASSES.field.background,
           COLOR_CLASSES.border.border,
           COLOR_CLASSES.text.foreground,

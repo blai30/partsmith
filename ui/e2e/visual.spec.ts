@@ -24,12 +24,12 @@ import { editSketchFromTimeline } from './support/sketch'
 type ColorScheme = 'light' | 'dark'
 
 /**
- * The web fonts every screenshot must show (2.16.7). `document.fonts.check` alone also passes when
- * the Google Fonts stylesheet never loaded (a family without faces counts as available), and a
- * family no element has used yet is not loaded, so each family is loaded explicitly and must
- * resolve with at least one of its web font faces.
+ * The self-hosted fonts every screenshot must show (2.16.7). `document.fonts.check` alone also
+ * passes when a stylesheet never loaded (a family without faces counts as available), and a family
+ * no element has used yet is not loaded (JetBrains Mono on a screen without code), so each family
+ * is loaded explicitly and must resolve with at least one of its faces.
  */
-const FONTS = ['14px Inter', '14px "JetBrains Mono"'] as const
+const FONTS = ['14px Geist', '14px "JetBrains Mono"'] as const
 
 /** Hides what changes from run to run while a screenshot is taken. */
 const SCREENSHOT_STYLE = fileURLToPath(new URL('visual.css', import.meta.url))
@@ -297,5 +297,20 @@ test.describe('visual @visual', () => {
     await expect(page.getByTestId('viewport')).toHaveAttribute('data-view', 'iso')
     await parkPointer(page)
     await expectWindow(page, 'V-20-cube-home-200-light.png')
+  })
+
+  test('V-21 parameter names and expressions as code beside the Distance field, light', async ({
+    page,
+  }) => {
+    await openInTheme(page, 'light')
+    await dropFile(page, 'parametric.ptsm')
+    await runCommand(page, 'Parameters')
+    await expect(page.getByTestId('parameters-panel')).toBeVisible()
+    await timelineItem(page, 'Extrude 1').getByRole('button', { name: 'Extrude 1' }).dblclick()
+    await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
+    await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
+    await expect(inspector(page).getByRole('combobox', { name: 'Distance' })).toHaveValue('size')
+    await parkPointer(page)
+    await expectWindow(page, 'V-21-parameters-code-light.png')
   })
 })

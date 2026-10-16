@@ -1102,7 +1102,16 @@ fn r10a_slot_moved_over_the_right_piece_reports_its_lost_edge() {
     let run = edit(before, r10a_model(50.0, 81.0));
     let mut checks = checks_for(&run);
     checks.note(diagnosis(&run, "f-fil1", &r10a_edge()));
-    let candidates = check_lost_edge(&mut checks, &run, "f-fil1", &["Sketch 2", "Extrude 2"]);
+    // The corpus quotes the structural message; the cause line naming the moved line of 'Sketch 2'
+    // is the engine twin's (recompute.md test 69).
+    let candidates = check_lost_edge(
+        &mut checks,
+        &run,
+        "f-fil1",
+        &[
+            "The front top edge of 'Extrude 1' selected for Edges no longer exists: the part of the top of 'Extrude 1' it was on was removed by 'Extrude 2'.",
+        ],
+    );
     if let Some(state) = b1_before(&run, "f-fil1") {
         checks.candidate_edge(
             "the slot floor's front edge",
@@ -1878,22 +1887,24 @@ fn r18a_fillet_inserted_before_a_chamfer_on_the_same_edge_says_why() {
     checks.note(diagnosis(&run, "f-cha1", &front_right_vertical()));
     checks.clean(run.feature("f-fil1"));
     let candidates = check_lost_edge(&mut checks, &run, "f-cha1", &["Fillet 1"]);
-    if let Some(state) = b1_before(&run, "f-cha1") {
-        checks.candidate_edge(
-            "the fillet's tangent edge on the front",
-            state,
-            &candidates,
-            [75.0, 0.0, 15.0],
-            30.0,
-        );
-        checks.candidate_edge(
-            "the fillet's tangent edge on the right side",
-            state,
-            &candidates,
-            [80.0, 5.0, 15.0],
-            30.0,
-        );
-    }
+    // The corpus offers the straight edges that keep a face of the lost edge, the right top and
+    // right bottom edges first, and never the fillet's tangent edges, which a chamfer skips as
+    // smooth (corpus amendment 8, features.md section 3.8).
+    let offered: Vec<&str> = candidates.iter().map(|edge| edge.as_str()).collect();
+    checks.expect(
+        offered.get(..2)
+            == Some(
+                &[
+                    "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
+                    "edge(f-ext1/lateral/e-2|f-ext1/start-cap)",
+                ][..],
+            ),
+        || format!("the right top and right bottom edges come first: {offered:?}"),
+    );
+    checks.expect(
+        !offered.iter().any(|edge| edge.contains("f-fil1/fillet/")),
+        || format!("no tangent edge of the fillet is offered: {offered:?}"),
+    );
     checks.no_faces_with_prefix(run.body("b-1"), "f-cha1/");
     checks.finish();
 }

@@ -132,6 +132,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
     - A statement that OCCT is statically linked, with where its source is and how to relink it.
     - The licenses of the Cargo.lock crates, per platform.
     - The licenses of the npm runtime dependencies.
+    - The two self-hosted fonts of ADR 0031, both SIL Open Font License 1.1 with no Reserved Font Name: Geist 1.800 ("Copyright (c) 2023 Vercel, in collaboration with basement.studio", `ui/public/fonts/Geist-OFL.txt`) and JetBrains Mono 2.304 ("Copyright 2020 The JetBrains Mono Project Authors", `ui/public/fonts/JetBrainsMono-OFL.txt`, shipped as a subset). Each license text already ships next to its font in `ui/dist/fonts` and so in the desktop bundle (ui.md 2.16.7); the notices list both.
   - Ship them:
     - In desktop `resources` and `licenseFile` (desktop.md package test 49 can check the .deb).
     - Next to the web core, checked by check-dist.

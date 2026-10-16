@@ -20,7 +20,7 @@ import { overhangLegendLimit } from './print/overhang'
 import { PrintHint } from './print/PrintHint'
 import { SketchOverlay } from './sketch/SketchOverlay'
 import type { AppState } from './state/store'
-import { COLOR_CLASSES, FONT_CLASSES, ROOT_CLASSES } from './theme/roles'
+import { COLOR_CLASSES, ROOT_CLASSES } from './theme/roles'
 import { applyTheme, applyUiScale } from './theme/theme'
 import { Timeline } from './timeline/Timeline'
 import { EmptyState } from './viewport/EmptyState'
@@ -79,7 +79,6 @@ export function App() {
       {...drop.handlers}
       className={clsx(
         '@container/app relative grid h-dvh w-dvw grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)_auto_auto] overflow-hidden p-2 antialiased',
-        FONT_CLASSES.interfaceText,
         COLOR_CLASSES.stage.background,
         COLOR_CLASSES.text.foreground,
       )}

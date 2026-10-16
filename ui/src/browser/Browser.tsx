@@ -56,7 +56,7 @@ import { SeverityIcon } from '../print/SeverityIcon'
 import { selectCommandBlock } from '../state/selectors'
 import type { AppState, OriginName, SelectionItem } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
-import { AXIS_ROLES, COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { AXIS_ROLES, COLOR_CLASSES } from '../theme/roles'
 import { BodyColorButton } from './BodyColor'
 
 // The browser (ui.md 3.10): a tree of the origin, bodies, sketches, datum planes and parameters.
@@ -521,18 +521,17 @@ function ParameterRow({
         requestUi(app, { kind: 'parameter', id: parameter.id })
       }}
     >
-      <span className="truncate">{text}</span>
-      {evaluated === null ? null : (
-        <span
-          className={clsx(
-            'shrink-0 text-xs',
-            FONT_CLASSES.values,
-            COLOR_CLASSES.textMuted.foreground,
-          )}
-        >
-          {evaluated}
-        </span>
-      )}
+      {/* The code and the smaller value share a baseline, which centering them would not give. */}
+      <span className="flex min-w-0 items-baseline gap-2">
+        <span className="truncate font-mono">{text}</span>
+        {evaluated === null ? null : (
+          <span
+            className={clsx('shrink-0 text-xs tabular-nums', COLOR_CLASSES.textMuted.foreground)}
+          >
+            {evaluated}
+          </span>
+        )}
+      </span>
     </Row>
   )
 }

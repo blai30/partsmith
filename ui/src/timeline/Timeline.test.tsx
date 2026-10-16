@@ -79,6 +79,18 @@ function describedText(element: HTMLElement): string {
   return ids.map((id) => document.getElementById(id)?.textContent ?? '').join(' ')
 }
 
+/** The lines of the tooltip that describes `element`: its title line, then its description, if any. */
+function tooltipLines(element: HTMLElement): Element[] {
+  const ids = element.getAttribute('aria-describedby')?.split(' ') ?? []
+  const tooltip = ids
+    .map((id) => document.getElementById(id))
+    .find((candidate) => candidate?.getAttribute('role') === 'tooltip')
+  if (tooltip === undefined || tooltip === null) {
+    throw new Error('The element has no tooltip.')
+  }
+  return [...tooltip.children]
+}
+
 function withStatus(document: DocumentState, status: FeatureStatus): DocumentState {
   return { ...document, featureStatus: { ...document.featureStatus, [status.id]: status } }
 }
@@ -172,6 +184,31 @@ describe('timeline items (3.9)', () => {
       'Warning: This feature does not change it.',
     )
     expect(item('f-ext1').querySelector('.lucide-triangle-alert')).not.toBeNull()
+  })
+
+  it("shows the label on the tooltip's first line and every message on its second (3.24)", () => {
+    renderTimeline(
+      withStatus(cubeDocumentState(), {
+        ...FAILED_EXTRUDE,
+        messages: [
+          ...FAILED_EXTRUDE.messages,
+          { severity: 'warning', code: 'no_effect', message: 'This feature does not change it.' },
+        ],
+      }),
+    )
+    const [title, description] = tooltipLines(itemButton('Extrude 1'))
+    expect(title).toHaveTextContent(/^Extrude 1$/)
+    expect(description).toHaveTextContent(
+      /^Body 'Cube' already has a solid\. Use op join to add to it\. This feature does not change it\.$/,
+    )
+    expect(description).toHaveClass(COLOR_CLASSES.textMuted.foreground)
+  })
+
+  it('shows only the label in the tooltip of a feature without messages', () => {
+    renderTimeline()
+    const lines = tooltipLines(itemButton('Extrude 1'))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toHaveTextContent(/^Extrude 1$/)
   })
 
   it('marks suppressed features', () => {

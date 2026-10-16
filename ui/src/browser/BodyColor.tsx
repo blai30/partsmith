@@ -9,7 +9,7 @@ import { Tooltip } from '../components/Tooltip'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
 import type { Body } from '../generated/protocol'
 import { selectCommandBlock } from '../state/selectors'
-import { BODY_SWATCHES, COLOR_CLASSES, FONT_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
+import { BODY_SWATCHES, COLOR_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 
 // A body's display color (ui.md 3.10): a swatch drawn from document data, and the popover that
 // changes it. The stored hex is known only at runtime, so it goes into an SVG `fill` attribute.
@@ -156,8 +156,7 @@ function ColorPopover({ body, anchor, current, onClose }: ColorPopoverProps) {
               }
             }}
             className={clsx(
-              'h-8 w-full rounded-md border px-2 text-sm',
-              FONT_CLASSES.values,
+              'h-8 w-full rounded-md border px-2 text-sm tabular-nums',
               COLOR_CLASSES.field.background,
               COLOR_CLASSES.text.foreground,
               COLOR_CLASSES.focusRing.outline,

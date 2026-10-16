@@ -1,7 +1,7 @@
 import { clsx } from 'clsx/lite'
 import { Fragment } from 'react'
 import type { WorldAxis } from '../core/labels'
-import { AXIS_ROLES, COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { AXIS_ROLES, COLOR_CLASSES } from '../theme/roles'
 
 // Axis letters and coordinate readouts (ui.md 3.7, 3.8): X, Y and Z in the axis roles' colors
 // (2.16.3), always as letters, so color is never the only signal (3.24).
@@ -62,8 +62,7 @@ export function AxisValues({ testId, values, unit, text }: AxisValuesProps) {
       {AXES.map((axis, index) => (
         <Fragment key={axis}>
           <span className="flex flex-1 basis-0 items-baseline gap-1">
-            <AxisLetter axis={axis} />{' '}
-            <span className={clsx('tabular-nums', FONT_CLASSES.values)}>{values[index]}</span>
+            <AxisLetter axis={axis} /> <span className="tabular-nums">{values[index]}</span>
           </span>{' '}
         </Fragment>
       ))}

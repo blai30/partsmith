@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { SketchConstraint } from '../generated/protocol'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { COLOR_CLASSES } from '../theme/roles'
 import { circleEntity, lineEntity, SKETCH_ID, solutionFor, solvedSketch } from './fixtures.testing'
 import type { SketchToolId } from './session'
 import { SketchOverlay } from './SketchOverlay'
@@ -408,7 +408,7 @@ describe('SketchOverlay drawing (3.16.4, 3.16.5)', () => {
     expect(length).toHaveFocus()
   })
 
-  it('shows the live measures in the textMuted placeholder facet and the values font (3.16.4)', async () => {
+  it('shows the live measures in the textMuted placeholder facet and tabular figures (3.16.4)', async () => {
     const harness = sketchHarness()
     const canvas = renderOverlay(harness, 'line')
     act(() => {
@@ -417,12 +417,10 @@ describe('SketchOverlay drawing (3.16.4, 3.16.5)', () => {
     })
     await nextFrame()
     for (const input of screen.getAllByTestId('draw-input')) {
-      for (const name of [
-        ...COLOR_CLASSES.textMuted.placeholder.split(' '),
-        ...FONT_CLASSES.values.split(' '),
-      ]) {
+      for (const name of [...COLOR_CLASSES.textMuted.placeholder.split(' '), 'tabular-nums']) {
         expect(input).toHaveClass(name)
       }
+      expect(input).not.toHaveClass('font-mono')
     }
   })
 

@@ -1,18 +1,22 @@
 import { act, fireEvent, renderHook, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState, type ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { App } from '../app/createApp'
+import { installPopoverPolyfill, isPopoverOpen } from '../components/popover-polyfill.testing'
 import type { Dimension } from '../generated/protocol'
 import { cubeDocumentState, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp } from '../layout/test-app.testing'
 import { coreErrorFor, type FakeCoreApi } from '../test/fakes/core-api'
 import { deferred, type Deferred } from '../test/fakes/deferred'
 import { settle } from '../test/fakes/settle'
-import { FONT_CLASSES } from '../theme/roles'
+import { hasTabularFigures, isCode, NO_CONTEXTUAL_LIGATURES } from '../test/type-roles'
 import { ExpressionInput, type ExpressionInputProps, type ExpressionState } from './ExpressionInput'
 import { useExpression } from './useExpression'
+
+// The name suggestions are a popover in the top layer (2.13).
+beforeEach(installPopoverPolyfill)
 
 const LENGTH: Dimension = { length: 1, angle: 0 }
 
@@ -327,13 +331,6 @@ describe('ExpressionInput', () => {
     })
   })
 
-  it('writes the expression and its result in the values font', async () => {
-    const { input } = setUp({ initial: '10 mm' })
-    await settle()
-    expect(input.className).toContain(FONT_CLASSES.values)
-    expect(screen.getByTestId('expression-result').className).toContain(FONT_CLASSES.values)
-  })
-
   it('evaluates against the open document', async () => {
     const { input, user, core } = setUp({ initial: '' })
     await user.type(input, '5 mm')
@@ -494,6 +491,17 @@ describe('parameter name completion (2.13, U-118)', () => {
     expect(input).toHaveValue('sl')
   })
 
+  it('shows the list as a popover in the top layer, placed at the input, so no panel cuts it off', async () => {
+    const { input, user } = setUpNames()
+    await user.type(input, 'sl')
+    const list = screen.getByTestId('expression-suggestions')
+    expect(list).toHaveAttribute('popover', 'manual')
+    expect(isPopoverOpen(list)).toBe(true)
+    expect(list).toHaveAttribute('data-positioned')
+    await user.keyboard('{Escape}')
+    expect(isPopoverOpen(list)).toBe(false)
+  })
+
   it('U-118 lists printer.nozzle first for printer.n with an FDM profile', async () => {
     const { input, user } = setUpNames()
     await user.type(input, 'printer.n')
@@ -506,13 +514,6 @@ describe('parameter name completion (2.13, U-118)', () => {
     await user.click(within(screen.getByTestId('expression-suggestions')).getByText('slot = 3 mm'))
     expect(input).toHaveValue('2 * slot')
     expect(input).toHaveFocus()
-  })
-
-  it('shows the options in the values font', async () => {
-    const { input, user } = setUpNames()
-    await user.type(input, 'si')
-    const [first] = within(screen.getByTestId('expression-suggestions')).getAllByRole('option')
-    expect(first).toHaveClass(FONT_CLASSES.values)
   })
 })
 
@@ -654,5 +655,67 @@ describe('ps:expression (2.18)', () => {
     await waitFor(() => {
       expect(expressionMeasures()).toHaveLength(3)
     })
+  })
+})
+
+/** The suggestion options for `si`, after typing it into a field with or without `code`. */
+async function suggestionOptions(code: boolean): Promise<HTMLElement[]> {
+  const { input, user } = setUpNames({ code })
+  await user.type(input, 'si')
+  return within(screen.getByTestId('expression-suggestions')).getAllByRole('option')
+}
+
+describe('the type roles of expression fields (2.16.7, U-205)', () => {
+  it('U-205 sets the input in tabular figures, not code, without the ligature class', () => {
+    const { input } = setUpNames()
+    expect(hasTabularFigures(input)).toBe(true)
+    expect(isCode(input)).toBe(false)
+    expect(input).not.toHaveClass(NO_CONTEXTUAL_LIGATURES)
+  })
+
+  it('U-205 sets the result of 10, "mm", in tabular figures, not code', async () => {
+    const { input, user } = setUpNames()
+    await user.type(input, '10')
+    const result = screen.getByTestId('expression-result')
+    await waitFor(() => {
+      expect(result).toHaveTextContent(/^mm$/)
+    })
+    expect(hasTabularFigures(result)).toBe(true)
+    expect(isCode(result)).toBe(false)
+  })
+
+  it('U-205 sets the name suggestions in tabular figures, not code', async () => {
+    const listed = await suggestionOptions(false)
+    expect(listed.length).toBeGreaterThan(0)
+    for (const option of listed) {
+      expect(hasTabularFigures(option)).toBe(true)
+      expect(isCode(option)).toBe(false)
+    }
+  })
+
+  it('U-205 with code, sets the input as editable code without tabular-nums', () => {
+    const { input } = setUpNames({ code: true })
+    expect(isCode(input)).toBe(true)
+    expect(input).toHaveClass(NO_CONTEXTUAL_LIGATURES)
+    expect(input).not.toHaveClass('tabular-nums')
+  })
+
+  it('U-205 with code, keeps the result in tabular figures, not code', async () => {
+    const { input, user } = setUpNames({ code: true })
+    await user.type(input, '10')
+    const result = screen.getByTestId('expression-result')
+    await waitFor(() => {
+      expect(result).toHaveTextContent(/^mm$/)
+    })
+    expect(hasTabularFigures(result)).toBe(true)
+    expect(isCode(result)).toBe(false)
+  })
+
+  it('U-205 with code, sets the name suggestions as code', async () => {
+    const listed = await suggestionOptions(true)
+    expect(listed.length).toBeGreaterThan(0)
+    for (const option of listed) {
+      expect(isCode(option)).toBe(true)
+    }
   })
 })

@@ -1,6 +1,6 @@
 import { clsx } from 'clsx/lite'
 import { formatQuantity } from '../expression/format'
-import { COLOR_CLASSES, FONT_CLASSES } from '../theme/roles'
+import { COLOR_CLASSES } from '../theme/roles'
 
 export type OverhangLegendProps = {
   /** The overhang limit in radians from vertical, where the ramp starts (`overhangLegendLimit`). */
@@ -42,11 +42,7 @@ export function OverhangLegend({ limit }: OverhangLegendProps) {
           )}
         />
         <div
-          className={clsx(
-            'flex justify-between tabular-nums',
-            FONT_CLASSES.values,
-            COLOR_CLASSES.textMuted.foreground,
-          )}
+          className={clsx('flex justify-between tabular-nums', COLOR_CLASSES.textMuted.foreground)}
         >
           <span>{limitText}</span>
           <span>{degrees(Math.PI / 2)}</span>

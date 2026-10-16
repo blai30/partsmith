@@ -96,6 +96,7 @@ fn message_diagnostic(message: &Message) -> Diagnostic {
     let severity = match message.severity {
         MessageSeverity::Error => Severity::Error,
         MessageSeverity::Warning => Severity::Warning,
+        MessageSeverity::Info => Severity::Info,
     };
     Diagnostic {
         field: message.pointer.clone(),
@@ -104,7 +105,7 @@ fn message_diagnostic(message: &Message) -> Diagnostic {
     }
 }
 
-/// The repair entry of a message with repair data.
+/// The repair entry of a message with repair data: its first repair.
 fn repair(message: &Message) -> Option<Repair> {
     let resolution = |ambiguous: bool| {
         if ambiguous {
@@ -113,7 +114,7 @@ fn repair(message: &Message) -> Option<Repair> {
             ResolutionStatus::Missing
         }
     };
-    Some(match message.repair.as_ref()? {
+    Some(match message.repairs.first()? {
         FeatureRepair::Element {
             pointer,
             body,
@@ -226,7 +227,11 @@ mod tests {
             pointer: Some("/edges/0".to_string()),
             text: "The edge is gone.".to_string(),
             suggestion: None,
-            repair,
+            repairs: repair.into_iter().collect(),
+            fixes: Vec::new(),
+            detail: None,
+            root: None,
+            reason: None,
         }
     }
 

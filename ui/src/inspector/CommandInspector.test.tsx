@@ -24,6 +24,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 const PROFILE = { sketch: 'f-sk1', regions: [CUBE_REGION.reference] }
@@ -398,6 +399,23 @@ describe('where focus starts (3.7 step 5, U-104)', () => {
     expect(length).toHaveFocus()
     expect(length).toHaveProperty('selectionStart', 0)
     expect(length).toHaveProperty('selectionEnd', length.getAttribute('value')?.length ?? 0)
+  })
+
+  it('brings the whole focused field into view, its label too, not the input alone', async () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus')
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
+    const test = createModelApp({
+      state: readyState(cubeDocumentState(), { selection: [elementItem(CUBE_TOP_FRONT_EDGE)] }),
+    })
+    renderWithApp(test.app)
+    await startFeatureCommand(test.app, 'fillet')
+    await settle()
+    const radius = within(field('radius')).getByRole('combobox', { name: 'Radius' })
+    expect(radius).toHaveFocus()
+    const focused = focus.mock.contexts.lastIndexOf(radius)
+    expect(focus.mock.calls[focused]).toEqual([{ preventScroll: true }])
+    const scrolled = scroll.mock.contexts.lastIndexOf(field('radius'))
+    expect(scroll.mock.calls[scrolled]).toEqual([{ block: 'nearest' }])
   })
 
   it('focuses a required empty selection field that waits for a pick', async () => {

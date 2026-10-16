@@ -10,7 +10,7 @@ import { Button } from '../../components/Button'
 import { formatNumber } from '../../expression/format'
 import type { Units } from '../../generated/protocol'
 import type { SelectionItem } from '../../state/store'
-import { COLOR_CLASSES, FONT_CLASSES } from '../../theme/roles'
+import { COLOR_CLASSES } from '../../theme/roles'
 import { measuredBody, measureSelection, selectionMeasurements, volumeMeter } from '../measurements'
 import { suggestedCommands } from '../suggestions'
 
@@ -20,7 +20,7 @@ import { suggestedCommands } from '../suggestions'
 /** The section's title: what the selection is. */
 export function Title({ children }: { readonly children: ReactNode }) {
   return (
-    <h2 data-testid="selection-title" className="text-base font-semibold tabular-nums">
+    <h2 data-testid="selection-title" className="text-base font-semibold">
       {children}
     </h2>
   )
@@ -79,7 +79,7 @@ export function CoordinateReadout({
   )
 }
 
-/** A measured value in the value font. */
+/** A measured value, in tabular figures. */
 export function Value({
   testId,
   children,
@@ -88,7 +88,7 @@ export function Value({
   readonly children: ReactNode
 }) {
   return (
-    <span data-testid={testId} className={clsx('tabular-nums', FONT_CLASSES.values)}>
+    <span data-testid={testId} className="tabular-nums">
       {children}
     </span>
   )
@@ -186,9 +186,7 @@ export function MeasureRows({ items }: { readonly items: readonly SelectionItem[
       className="flex min-h-8 items-center justify-between gap-3 text-sm"
     >
       <span className={COLOR_CLASSES.textMuted.foreground}>{row.label}</span>
-      <span className={clsx('min-w-0 text-right tabular-nums select-text', FONT_CLASSES.values)}>
-        {row.value}
-      </span>
+      <span className="min-w-0 text-right tabular-nums select-text">{row.value}</span>
     </div>
   ))
 }

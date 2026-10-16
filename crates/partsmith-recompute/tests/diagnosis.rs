@@ -177,6 +177,15 @@ fn error_message<'r>(run: &'r Run, feature: &str, code: &str) -> &'r Message {
     message(run, feature, code)
 }
 
+/// The message with `code` of `feature` in `report`.
+fn report_message<'r>(report: &'r Report, feature: &str, code: &str) -> &'r Message {
+    feature_support::feature_report(report, feature)
+        .messages
+        .iter()
+        .find(|message| message.code == code)
+        .unwrap_or_else(|| panic!("{feature} has no {code} message"))
+}
+
 /// The candidates of the element repair of `message` at `pointer`, as their queries with `meaning` and `distance`.
 fn repair_candidates(message: &Message, pointer: &str) -> Vec<(String, bool, f64)> {
     message
@@ -286,11 +295,15 @@ fn fresh(setup: &Run, bodies: &[&str], features: &[Value]) -> Run {
     Run::new(edited_document(setup, bodies, features))
 }
 
-/// Runs `document` on a new recompute with the built-in registry, up to and including `stop_at`.
-fn run_until(document: &Document, stop_at: &str) -> Report {
-    let mut recompute = Recompute::new(std::sync::Arc::new(
+/// A new recompute with the built-in registry.
+fn new_recompute() -> Recompute {
+    Recompute::new(std::sync::Arc::new(
         partsmith_features::Registry::with_builtins(),
-    ));
+    ))
+}
+
+/// Runs `document` on `recompute` up to and including `stop_at`, as a preview does.
+fn run_until(recompute: &mut Recompute, document: &Document, stop_at: &str) -> Report {
     let stop_at = id(stop_at);
     let assets = Assets::new();
     let input = Input {
@@ -1147,19 +1160,64 @@ fn t049_a_stop_point_is_not_the_rollback_marker() {
     let setup = setup(&["b-1"], &filleted_boss(boss_top_rim()));
     let document = edited_document(&setup, &["b-1"], &fillet_above_boss(boss_top_rim()));
 
-    let report = run_until(&document, "f-fil1");
+    let report = run_until(&mut new_recompute(), &document, "f-fil1");
 
-    let error = feature_support::feature_report(&report, "f-fil1")
-        .messages
-        .iter()
-        .find(|message| message.code == "references_not_found")
-        .expect("the fillet reports its lost edge");
     assert_eq!(
-        error.reason,
+        report_message(&report, "f-fil1", "references_not_found").reason,
         Some(LossReason::ComesLater {
             feature: id("f-ext2")
         })
     );
+}
+
+#[test]
+fn a_memoized_reason_follows_a_maker_that_moved_after_the_rollback_marker() {
+    let setup = setup(&["b-1"], &filleted_boss(boss_top_rim()));
+    let marked = |features: Vec<Value>| {
+        let mut document = edited_document(&setup, &["b-1"], &features);
+        document.rollback = Some(id("f-dp9"));
+        document
+    };
+    let marker = datum_offset("f-dp9", "XY", "0");
+    let maker_before_marker = marked(followed_by(
+        fillet_above_boss(boss_top_rim()),
+        vec![marker.clone()],
+    ));
+    let maker_after_marker = marked(insert_before(
+        &fillet_above_boss(boss_top_rim()),
+        "f-ext2",
+        vec![marker],
+    ));
+    let mut recompute = new_recompute();
+    let first = run_until(&mut recompute, &maker_before_marker, "f-fil1");
+    assert_eq!(
+        report_message(&first, "f-fil1", "references_not_found").reason,
+        Some(LossReason::ComesLater {
+            feature: id("f-ext2")
+        })
+    );
+
+    let report = run_until(&mut recompute, &maker_after_marker, "f-fil1");
+
+    assert!(
+        feature_support::feature_report(&report, "f-fil1")
+            .timing
+            .from_cache
+    );
+    let error = report_message(&report, "f-fil1", "references_not_found");
+    assert_eq!(
+        error.reason,
+        Some(LossReason::RolledBack {
+            feature: id("f-ext2")
+        })
+    );
+    assert_ends_with(
+        &error.text,
+        "is made by 'Extrude 2', which is after the rollback marker.",
+    );
+    assert!(!error.fixes.iter().any(is_move), "{:?}", error.fixes);
+    let cold = run_until(&mut new_recompute(), &maker_after_marker, "f-fil1");
+    assert_eq!(all_messages(&cold), all_messages(&report));
 }
 
 // Test 50: `UpstreamFailed` (corpus R47).
@@ -1530,6 +1588,91 @@ fn t051_r56c_an_edge_whose_maker_now_makes_another_body_left_this_one() {
         "{:?}",
         error.fixes
     );
+}
+
+#[test]
+fn a_memoized_reason_names_a_joiner_inserted_since() {
+    let setup = setup(&["b-1", "b-2"], &boolean_on_top("b-1", "b-2"));
+    let mut session = fresh(
+        &setup,
+        &["b-1", "b-2"],
+        &without(&boolean_on_top("b-1", "b-2"), &["f-bool1"]),
+    );
+    let key = session.feature("f-fil1").key;
+    assert_eq!(
+        error_message(&session, "f-fil1", "references_not_found").reason,
+        Some(LossReason::OtherBody {
+            body: id("b-2"),
+            by: None,
+            by_suppressed: false,
+            present: true
+        })
+    );
+    let joined_while_suppressed = edited(&boolean_on_top("b-1", "b-2"), "f-bool1", suppressed);
+
+    edit(&mut session, &["b-1", "b-2"], &joined_while_suppressed);
+
+    let report = session.feature("f-fil1");
+    assert!(report.timing.from_cache, "{}", session.summary());
+    assert_eq!(report.key, key);
+    assert_eq!(
+        error_message(&session, "f-fil1", "references_not_found").reason,
+        Some(now_in_body_2("f-bool1", true))
+    );
+    let cold = fresh(&setup, &["b-1", "b-2"], &joined_while_suppressed);
+    assert_eq!(all_messages(&cold.report), all_messages(&session.report));
+}
+
+/// Bodies `b-1` to `b-3`: a box `f-box0` in `b-1`, CUBE20 `f-box1` in `b-2` split at x = 0 into `b-3`, so both halves
+/// have a front top edge, and a fillet `f-fil1` of 1 on `b-1` written with CUBE20's front top edge.
+fn cube20_halves_beside_a_fillet() -> Vec<Value> {
+    vec![
+        box_record(
+            "f-box0",
+            "b-1",
+            ["10", "10", "10"],
+            Some(["50", "0", "0"]),
+            "new",
+        ),
+        box_record("f-box1", "b-2", ["20", "20", "20"], None, "new"),
+        datum_offset("f-dp1", "YZ", "0"),
+        json!({
+            "id": "f-split1", "type": "split_body", "body": "b-2",
+            "plane": datum_plane("f-dp1"), "target": "b-3"
+        }),
+        fillet("f-fil1", "b-1", vec![cube20_front_top()], "1"),
+    ]
+}
+
+#[test]
+fn a_memoized_reason_follows_the_order_of_the_bodies() {
+    let features = cube20_halves_beside_a_fillet();
+    let mut session = Run::new(document_of(&["b-1", "b-2", "b-3"], &features));
+    let in_body = |body: &str| LossReason::OtherBody {
+        body: id(body),
+        by: None,
+        by_suppressed: false,
+        present: true,
+    };
+    assert_eq!(
+        error_message(&session, "f-fil1", "references_not_found").reason,
+        Some(in_body("b-2"))
+    );
+    let reordered = document_of(&["b-1", "b-3", "b-2"], &features);
+
+    session.document = reordered.clone();
+    session.rerun(&Assets::new());
+
+    assert!(
+        session.feature("f-fil1").timing.from_cache,
+        "{}",
+        session.summary()
+    );
+    let error = error_message(&session, "f-fil1", "references_not_found");
+    assert_eq!(error.reason, Some(in_body("b-3")));
+    assert_ends_with(&error.text, "is now in body 'Body 3'.");
+    let cold = Run::new(reordered);
+    assert_eq!(all_messages(&cold.report), all_messages(&session.report));
 }
 
 // Tests 52 and 71: `CutAway` (corpus R16 and R30 (b)), rendered with current names.

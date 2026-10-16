@@ -33,12 +33,25 @@ pub(crate) struct Step<'a> {
     pub(crate) kind: StepKind<'a>,
 }
 
-/// What a run does with a record.
+impl Step<'_> {
+    /// Its canonical params and dependencies when it validates, whatever its state, so the loss
+    /// diagnosis knows what suppressed and rolled-back records write (section 3.10).
+    pub(crate) fn valid(&self) -> Option<&Valid> {
+        match &self.kind {
+            StepKind::Active(active) => Some(&active.valid),
+            StepKind::RolledBack(valid) | StepKind::Suppressed(valid) => valid.as_deref(),
+            StepKind::Invalid(_) => None,
+        }
+    }
+}
+
+/// What a run does with a record. A record that runs nothing keeps its canonical params and
+/// dependencies when it validates.
 pub(crate) enum StepKind<'a> {
     /// Nothing: it is at or after the rollback marker, or after the stop point.
-    RolledBack,
+    RolledBack(Option<Arc<Valid>>),
     /// Nothing: the user suppressed it.
-    Suppressed,
+    Suppressed(Option<Arc<Valid>>),
     /// Reports its validation error. Boxed because an error is much larger than an active step.
     Invalid(Box<FeatureError>),
     /// Evaluates, checks and builds it.
@@ -49,8 +62,8 @@ impl StepKind<'_> {
     /// The graph state of a record with this kind.
     pub(crate) fn state(&self) -> NodeState {
         match self {
-            StepKind::RolledBack => NodeState::RolledBack,
-            StepKind::Suppressed => NodeState::Suppressed,
+            StepKind::RolledBack(_) => NodeState::RolledBack,
+            StepKind::Suppressed(_) => NodeState::Suppressed,
             StepKind::Invalid(_) => NodeState::Invalid,
             StepKind::Active(_) => NodeState::Active,
         }
@@ -110,9 +123,9 @@ impl<'a> Timeline<'a> {
                 Err(_) => Vec::new(),
             };
             let kind = if position >= end {
-                StepKind::RolledBack
+                StepKind::RolledBack(validation.ok().map(|(_, valid)| valid))
             } else if record.suppressed {
-                StepKind::Suppressed
+                StepKind::Suppressed(validation.ok().map(|(_, valid)| valid))
             } else {
                 match validation {
                     Ok((feature, valid)) => {
@@ -165,7 +178,7 @@ impl<'a> Timeline<'a> {
                     feature: link.id.clone(),
                 });
             }
-            if matches!(self.steps[upstream].kind, StepKind::Suppressed) {
+            if matches!(self.steps[upstream].kind, StepKind::Suppressed(_)) {
                 return Err(FeatureError::UpstreamSuppressed {
                     feature: link.id.clone(),
                 });
@@ -378,8 +391,8 @@ mod tests {
             .steps
             .iter()
             .map(|step| match step.kind {
-                StepKind::RolledBack => "rolled_back",
-                StepKind::Suppressed => "suppressed",
+                StepKind::RolledBack(_) => "rolled_back",
+                StepKind::Suppressed(_) => "suppressed",
                 StepKind::Invalid(_) => "invalid",
                 StepKind::Active(_) => "active",
             })
@@ -419,6 +432,37 @@ mod tests {
             ]
         );
         assert!(timeline.messages.is_empty());
+    }
+
+    #[test]
+    fn records_that_validate_keep_their_dependencies_whatever_their_state() {
+        let document = document_with(json!({
+            "features": [
+                writer("f-1", "b-1"),
+                {"id": "f-2", "type": "test_writer", "suppressed": true, "body": "b-2"},
+                {"id": "f-3", "type": "gear_demo"},
+                writer("f-4", "b-3"),
+                {"id": "f-5", "type": "gear_demo"}
+            ],
+            "rollback": "f-4"
+        }));
+
+        let timeline = prepared(&document);
+
+        let written: Vec<Option<Vec<String>>> = timeline
+            .steps
+            .iter()
+            .map(|step| {
+                let valid = step.valid()?;
+                let bodies = &valid.dependencies.bodies_written;
+                Some(bodies.iter().map(|link| link.id.to_string()).collect())
+            })
+            .collect();
+        let bodies = |body: &str| Some(vec![body.to_string()]);
+        assert_eq!(
+            written,
+            [bodies("b-1"), bodies("b-2"), None, bodies("b-3"), None]
+        );
     }
 
     #[test]

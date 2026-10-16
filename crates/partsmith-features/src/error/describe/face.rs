@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use partsmith_model::Units;
+use partsmith_model::{Id, Units};
 use partsmith_naming::{ElementKind, ElementName, Fingerprint, GeometryKind};
 
 use super::Word;
@@ -14,6 +14,7 @@ use super::maker::{
 use super::name::{FaceName, GeneratorText, piece_free};
 use crate::context::BodyState;
 use crate::error::message::Names;
+use crate::output::Absence;
 
 /// The element being described.
 pub(super) struct Element<'e> {
@@ -200,8 +201,8 @@ impl FaceReader<'_, '_> {
             owner: maker.quoted(),
             copies,
             feature_key: format!("{}{}", name.feature, name.copy_text()),
-            cut: maker
-                .is_cut()
+            cut: self
+                .leaves_cut(&maker, name.feature)
                 .then(|| format!("the cut made by {}", maker.quoted())),
             entity: None,
             round: false,
@@ -220,7 +221,7 @@ impl FaceReader<'_, '_> {
             .filter(|fingerprint| fingerprint.kind == GeometryKind::Plane)
             .and_then(|fingerprint| fingerprint.direction)
             .or_else(|| self.estimated_normal(face))
-            .or_else(|| self.cap_normal(&maker, &name));
+            .or_else(|| self.cap_normal(&maker, &name, facts.cut.is_some()));
         facts.word = if maker.is_primitive() {
             Word::of_role(name.role)
         } else {
@@ -256,12 +257,12 @@ impl FaceReader<'_, '_> {
         }
     }
 
-    /// The fingerprint of `face`: the element's own when it is the element, else the state's.
+    /// The fingerprint of `face`: the element's own when it is the element, else the state's. A face given by its
+    /// name alone has no fingerprint of its own, so it reads by the face of that name in the state.
     fn fingerprint(&self, face: &str) -> Option<&Fingerprint> {
-        if self.element.name.as_str() == face {
-            self.element.fingerprint
-        } else {
-            self.faces.fingerprint_of(face)
+        match self.element.fingerprint {
+            Some(own) if self.element.name.as_str() == face => Some(own),
+            _ => self.faces.fingerprint_of(face),
         }
     }
 
@@ -304,10 +305,34 @@ impl FaceReader<'_, '_> {
         Some(crossed.map(|component| component * sign))
     }
 
+    /// True when the faces of `feature` in the element read as faces its cut leaves (section 3.12): `maker` is a cut,
+    /// and the element has no cap of it that it records absent with `EndOutside`. Such a cap never was a face the cut
+    /// leaves, so it, and an edge or vertex with it as a face term, reads as the tool's own.
+    fn leaves_cut(&self, maker: &Maker<'_>, feature: &str) -> bool {
+        if !maker.is_cut() {
+            return false;
+        }
+        let Ok(feature) = Id::new(feature) else {
+            return true;
+        };
+        let absent = self.names.absent_faces(&feature);
+        let faces = match self.element.name.kind() {
+            ElementKind::Face => vec![self.element.name.clone()],
+            ElementKind::Edge | ElementKind::Vertex => self.element.name.face_terms(),
+        };
+        !faces.iter().any(|face| {
+            let whole = face.piece_free();
+            absent.iter().any(|entry| {
+                entry.why == Absence::EndOutside
+                    && (entry.name == *face || whole.as_ref() == Some(&entry.name))
+            })
+        })
+    }
+
     /// For an extrude cap that is not in the state, the direction it faces in this run (section 3.12): an end cap
     /// along the extrude's direction (the sketch normal, reversed by Reverse except for a symmetric extent), a start
-    /// cap against it. A cut leaves the other side of its tool's cap, so its result normal is reversed.
-    fn cap_normal(&self, maker: &Maker<'_>, name: &FaceName<'_>) -> Option<[f64; 3]> {
+    /// cap against it. A cut leaves the other side of its tool's cap (`cut`), so its result normal is reversed.
+    fn cap_normal(&self, maker: &Maker<'_>, name: &FaceName<'_>, cut: bool) -> Option<[f64; 3]> {
         if !maker.is("extrude") || self.faces.fingerprint_of(name.text).is_some() {
             return None;
         }
@@ -326,7 +351,7 @@ impl FaceReader<'_, '_> {
             .and_then(serde_json::Value::as_str)
             == Some("symmetric");
         let along = if reverse && !symmetric { -sign } else { sign };
-        let side = if maker.is_cut() { -along } else { along };
+        let side = if cut { -along } else { along };
         Some(sketch.placement.normal.map(|component| component * side))
     }
 
@@ -589,23 +614,31 @@ impl FaceReader<'_, '_> {
             .map(|copy| {
                 let maker = Maker::of(self.names, copy.feature);
                 let owner = maker.quoted();
-                if maker.is("mirror") {
-                    format!(" of the mirror image made by {owner}")
+                let mirror = maker.is("mirror");
+                let noun = copy_noun(mirror, copy.first, copy.second);
+                if mirror {
+                    format!(" of the {noun} made by {owner}")
                 } else {
-                    match copy.second {
-                        Some(second) => format!(
-                            " of the copy in row {}, column {} of {owner}",
-                            u64::from(second) + 1,
-                            u64::from(copy.first) + 1
-                        ),
-                        None => format!(
-                            " of the {} copy of {owner}",
-                            ordinal(u64::from(copy.first) + 1)
-                        ),
-                    }
+                    format!(" of the {noun} of {owner}")
                 }
             })
             .collect()
+    }
+}
+
+/// A copy in words (section 3.12): `mirror image` for a mirror, `copy in row 2, column 3` with a second index, else
+/// `third copy` (the ordinal of the first index plus 1).
+pub(super) fn copy_noun(mirror: bool, first: u32, second: Option<u32>) -> String {
+    if mirror {
+        return "mirror image".to_string();
+    }
+    match second {
+        Some(second) => format!(
+            "copy in row {}, column {}",
+            u64::from(second) + 1,
+            u64::from(first) + 1
+        ),
+        None => format!("{} copy", ordinal(u64::from(first) + 1)),
     }
 }
 
@@ -674,6 +707,13 @@ fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copies_read_as_ordinals_grid_places_or_mirror_images() {
+        assert_eq!(copy_noun(false, 2, None), "third copy");
+        assert_eq!(copy_noun(false, 2, Some(1)), "copy in row 2, column 3");
+        assert_eq!(copy_noun(true, 1, None), "mirror image");
+    }
 
     #[test]
     fn ordinals_are_words_then_digits() {

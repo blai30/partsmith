@@ -38,7 +38,7 @@ export function ProblemsPanel() {
       className="flex min-h-0 flex-1 flex-col"
     >
       <PanelHeader title="Problems" titleId={titleId} />
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {problems.length === 0 ? (
           <p className={clsx('text-sm', COLOR_CLASSES.textMuted.foreground)}>No problems.</p>
         ) : (

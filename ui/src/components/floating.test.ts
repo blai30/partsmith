@@ -1,6 +1,12 @@
 import { renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { hidePopover, placeNextTo, showPopover, usePopoverVisibility } from './floating'
+import {
+  hidePopover,
+  placeNextTo,
+  showPopover,
+  useAnchoredPosition,
+  usePopoverVisibility,
+} from './floating'
 import { installPopoverPolyfill, isPopoverOpen } from './popover-polyfill.testing'
 
 // The declarations of an element's style attribute, read through the attribute.
@@ -27,7 +33,42 @@ afterEach(() => {
   Reflect.deleteProperty(root, 'clientHeight')
   root.removeAttribute('style')
   document.body.replaceChildren()
+  vi.unstubAllGlobals()
 })
+
+/** Animation frames that run only when the test calls `next`. */
+function stubFrames(): { readonly next: () => void; readonly pending: () => number } {
+  const callbacks = new Map<number, FrameRequestCallback>()
+  let nextId = 1
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callbacks.set(nextId, callback)
+    return nextId++
+  })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    callbacks.delete(id)
+  })
+  return {
+    next() {
+      const due = [...callbacks.values()]
+      callbacks.clear()
+      for (const callback of due) {
+        callback(0)
+      }
+    },
+    pending: () => callbacks.size,
+  }
+}
+
+/** An anchor and a floating element in the document, at the given boxes, in an 800 by 600 window. */
+function anchoredPair(): { readonly anchor: HTMLElement; readonly element: HTMLElement } {
+  setWindowSize(800, 600)
+  const anchor = document.createElement('input')
+  const element = document.createElement('div')
+  document.body.append(anchor, element)
+  withBounds(anchor, 100, 50, 40, 20)
+  withBounds(element, 0, 0, 120, 60)
+  return { anchor, element }
+}
 
 describe('placeNextTo', () => {
   it('moves the element under its anchor with a 0.25rem gap and marks it positioned', () => {
@@ -179,5 +220,53 @@ describe('usePopoverVisibility', () => {
     } finally {
       uninstall()
     }
+  })
+})
+
+describe('useAnchoredPosition', () => {
+  it('places the element next to its anchor while open', () => {
+    const { anchor, element } = anchoredPair()
+    renderHook(() => {
+      useAnchoredPosition({ current: element }, { current: anchor }, true, 'below')
+    })
+    expect(declarations(element)).toEqual(['translate: 100px 74px'])
+  })
+
+  it('with followMoves, places the element again once its anchor moved without resizing', () => {
+    const frames = stubFrames()
+    const { anchor, element } = anchoredPair()
+    renderHook(() => {
+      useAnchoredPosition({ current: element }, { current: anchor }, true, 'below', {
+        followMoves: true,
+      })
+    })
+    withBounds(anchor, 100, 130, 40, 20)
+    frames.next()
+    expect(declarations(element)).toEqual(['translate: 100px 154px'])
+  })
+
+  it('with followMoves, stops checking the anchor once closed', () => {
+    const frames = stubFrames()
+    const { anchor, element } = anchoredPair()
+    const { rerender } = renderHook(
+      ({ open }: { readonly open: boolean }) => {
+        useAnchoredPosition({ current: element }, { current: anchor }, open, 'below', {
+          followMoves: true,
+        })
+      },
+      { initialProps: { open: true } },
+    )
+    expect(frames.pending()).toBe(1)
+    rerender({ open: false })
+    expect(frames.pending()).toBe(0)
+  })
+
+  it('without followMoves, checks no animation frames', () => {
+    const frames = stubFrames()
+    const { anchor, element } = anchoredPair()
+    renderHook(() => {
+      useAnchoredPosition({ current: element }, { current: anchor }, true, 'below')
+    })
+    expect(frames.pending()).toBe(0)
   })
 })

@@ -2,9 +2,32 @@ import { describe, expect, it } from 'vitest'
 
 import { readProjectFile } from '../test/project-file'
 
-// The approved block of ADR 0013 and ui.md 2.16.1, byte for byte.
-const APPROVED_STYLESHEET = `@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
-@import 'tailwindcss';
+// The approved block of ADRs 0013 and 0031 and ui.md 2.16.1, byte for byte.
+const APPROVED_STYLESHEET = `@import 'tailwindcss';
+
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Geist-Variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  size-adjust: 96%;
+  src: url('/fonts/JetBrainsMono-Variable.woff2') format('woff2');
+}
+
+@theme {
+  --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-sans--font-feature-settings: 'ss05';
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-mono--font-feature-settings: normal;
+}
 
 @custom-variant dark (&:where(.dark, .dark *));
 `
