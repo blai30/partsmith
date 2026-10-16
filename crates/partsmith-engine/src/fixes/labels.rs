@@ -5,12 +5,12 @@
 use partsmith_features::{FieldRef, Fix, Names, Place, SelectionKind};
 use partsmith_model::{Expr, ExprNodeKind, FeatureRecord, Id};
 use partsmith_naming::{ElementKind, Reference};
-use partsmith_protocol::Repair;
+use partsmith_protocol::{Repair, RepairCandidate};
 use partsmith_recompute::Message;
 use partsmith_sketch::RegionRef;
 use serde_json::Value;
 
-use super::params::field_path;
+use super::params::{field_path, is_list_entry};
 use super::{Offer, OfferRun};
 use crate::diagnostics::{FeatureView, region_words};
 
@@ -51,14 +51,20 @@ impl Labels<'_> {
                 let verb = if self.widened() { "Use only" } else { "Use" };
                 apply(format!("{verb} {}", self.references(pointer, references)?))
             }
+            // A field that holds one reference cannot keep every element a widening covers.
             Fix::KeepMatch { pointer } if self.widened() => {
-                apply(format!("Keep all {}", self.element_repair(pointer)?.1))
+                if !is_list_entry(&self.feature.record.params, pointer) {
+                    return None;
+                }
+                apply(format!(
+                    "Keep all {}",
+                    self.element_repair(pointer)?.1.len()
+                ))
             }
             Fix::KeepMatch { .. } => apply("Keep this match".to_string()),
-            Fix::RemoveEntry { pointer } => apply(format!(
-                "Remove from {}",
-                self.field_label(self.feature.record, pointer)
-            )),
+            Fix::RemoveEntry { pointer } => {
+                apply(format!("Remove from {}", self.field_label(pointer)))
+            }
             Fix::UseRegions { pointer, regions } => {
                 apply(format!("Use {}", self.regions(pointer, regions)?))
             }
@@ -176,22 +182,25 @@ impl Labels<'_> {
             .map(|option| option.label.clone())
     }
 
-    /// The manifest label of the field at `pointer` of `record`; its path when the type has no
-    /// manifest.
-    fn field_label(&self, record: &FeatureRecord, pointer: &str) -> String {
+    /// The manifest label of the field at `pointer` of the feature; its path when the type has
+    /// no manifest.
+    fn field_label(&self, pointer: &str) -> String {
         let path = field_path(pointer);
-        match self.feature.run.registry.get(&record.kind) {
+        match self.feature.run.registry.get(&self.feature.record.kind) {
             Some(feature) => FieldRef::new(&path, feature.manifest()).label,
             None => path,
         }
     }
 
-    /// The element repair of the message at `pointer`, with how many candidates it has.
-    fn element_repair(&self, pointer: &str) -> Option<(&Repair, usize)> {
+    /// The stored reference and the candidates of the message's element repair at `pointer`.
+    fn element_repair(&self, pointer: &str) -> Option<(&Reference, &[RepairCandidate])> {
         self.repairs.iter().find_map(|repair| match repair {
             Repair::Element {
-                path, candidates, ..
-            } if path == pointer => Some((repair, candidates.len())),
+                path,
+                reference,
+                candidates,
+                ..
+            } if path == pointer => Some((reference, candidates.as_slice())),
             _ => None,
         })
     }
@@ -199,9 +208,7 @@ impl Labels<'_> {
     /// The words of the references a fix stores at `pointer`: their candidates' descriptions in
     /// the repair there, joined by `and`.
     fn references(&self, pointer: &str, references: &[Reference]) -> Option<String> {
-        let (Repair::Element { candidates, .. }, _) = self.element_repair(pointer)? else {
-            return None;
-        };
+        let (_, candidates) = self.element_repair(pointer)?;
         let words = references
             .iter()
             .map(|reference| {
@@ -255,10 +262,7 @@ impl Labels<'_> {
     fn noun(&self, pointer: &str) -> String {
         let stored = self
             .element_repair(pointer)
-            .and_then(|(repair, _)| match repair {
-                Repair::Element { reference, .. } => Some(reference.query.kind()),
-                Repair::Region { .. } => None,
-            })
+            .map(|(reference, _)| reference.query.kind())
             .or_else(|| {
                 let value = self.feature.record_value(pointer)?;
                 value.get("q")?;
@@ -268,16 +272,15 @@ impl Labels<'_> {
         if let Some(kind) = stored {
             return element_noun(kind).to_string();
         }
-        let record = self.feature.record;
         let path = field_path(pointer);
         self.feature
             .run
             .registry
-            .get(&record.kind)
+            .get(&self.feature.record.kind)
             .and_then(|feature| FieldRef::hint(&path, feature.manifest()))
             .and_then(|hint| hint.selection)
             .map_or_else(
-                || self.field_label(record, pointer),
+                || self.field_label(pointer),
                 |selection| selection_noun(selection).to_string(),
             )
     }

@@ -7,15 +7,17 @@ mod labels;
 mod params;
 
 use partsmith_features::Fix;
-use partsmith_model::Id;
+use partsmith_model::{Document, Id};
 use partsmith_protocol::{DocHandle, FixAction, FixKind, FixRef, Repair};
-use partsmith_recompute::Message;
+use partsmith_recompute::{Message, Recompute};
 
 pub(crate) use params::value_at;
 
 use crate::diagnostics::{FeatureView, RunView};
+use crate::document::OpenDocument;
 use crate::error::EngineError;
 use crate::session::Session;
+use crate::state::{self, Computed};
 use labels::Labels;
 
 /// One action a message offers: its label and how it runs.
@@ -92,7 +94,10 @@ impl Session {
     /// `stale_fix` when the document's revision is not `fix.revision`, or its latest statuses no
     /// longer offer that `apply` action. Returns the new revision.
     pub fn apply_fix(&mut self, doc: DocHandle, fix: &FixRef) -> Result<u64, EngineError> {
-        let open = self.open(doc)?;
+        let open = self
+            .documents
+            .get(&doc)
+            .ok_or(EngineError::UnknownDocument { doc })?;
         if open.revision != fix.revision || fix.cause {
             return Err(EngineError::StaleFix);
         }
@@ -111,10 +116,33 @@ impl Session {
         else {
             return Err(EngineError::StaleFix);
         };
-        let edits = feature.edits(chosen)?;
+        // Keeping regions rewrites the references of later features, so it reads them in a run
+        // in which every later feature ran.
+        let whole = (matches!(chosen, Fix::KeepRegions { .. }) && !feature.later_features_ran())
+            .then(|| whole_run(&mut self.recompute, open));
+        let later = whole
+            .as_ref()
+            .map(|(document, computed)| RunView::new(document, &self.registry, &computed.report));
+        let edits = feature.edits(chosen, later.as_ref().unwrap_or(&run))?;
         let label = label.clone();
         self.apply_batch(doc, &label, edits)
     }
+}
+
+/// A recompute of the recipe of `open` without its stop point and rollback marker, so that every
+/// feature that is not suppressed runs, and the recipe it ran.
+fn whole_run(recompute: &mut Recompute, open: &OpenDocument) -> (Document, Computed) {
+    let mut document = Document::clone(&open.document);
+    document.rollback = None;
+    let computed = state::run(
+        recompute,
+        &document,
+        &open.assets,
+        open.computed.profile.clone(),
+        None,
+        open.computed.run,
+    );
+    (document, computed)
 }
 
 #[cfg(test)]

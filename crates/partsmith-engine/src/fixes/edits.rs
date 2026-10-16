@@ -5,18 +5,22 @@ use std::collections::BTreeSet;
 
 use partsmith_features::{FeatureWarning, Fix, Names, Place};
 use partsmith_model::{Edit, FeatureRecord, Id};
-use partsmith_naming::{ElementName, Generator, Reference, roles};
+use partsmith_naming::{ElementName, Generator, Reference, Resolution, resolve, roles};
+use partsmith_recompute::Status;
 use partsmith_sketch::{MatchMethod, RegionMatch, RegionRef, match_region};
 use serde_json::Value;
 
-use super::params::{parent, remove, replace, replace_each, set};
-use crate::diagnostics::FeatureView;
+use super::params::{
+    is_list_entry, parent, remove, replace, replace_each, set, stored_references,
+};
+use crate::diagnostics::{FeatureView, RunView};
 use crate::error::EngineError;
 
 impl FeatureView<'_> {
     /// The edits of an offered `apply` fix of this feature's message, built from the current
-    /// records.
-    pub(super) fn edits(&self, fix: &Fix) -> Result<Vec<Edit>, EngineError> {
+    /// records. `KeepRegions` resolves the references of later features in `later`, a run of
+    /// the same recipe in which every later feature ran.
+    pub(super) fn edits(&self, fix: &Fix, later: &RunView<'_>) -> Result<Vec<Edit>, EngineError> {
         match fix {
             Fix::SetField {
                 feature,
@@ -44,7 +48,8 @@ impl FeatureView<'_> {
                 references,
             } => self.replaced(pointer, reference_entries(references)?),
             Fix::KeepMatch { pointer } => {
-                self.replaced(pointer, reference_entries(self.matched_elements(pointer)?)?)
+                let elements = stored_at(self.record, pointer, self.matched_elements(pointer)?);
+                self.replaced(pointer, reference_entries(elements)?)
             }
             Fix::RemoveEntry { pointer } => Ok(vec![updated(self.record, |params| {
                 remove(params, pointer)
@@ -52,7 +57,7 @@ impl FeatureView<'_> {
             Fix::UseRegions { pointer, regions } => {
                 self.replaced(pointer, region_entries(regions)?)
             }
-            Fix::KeepRegions { pointer } => self.kept_regions(pointer),
+            Fix::KeepRegions { pointer } => self.kept_regions(pointer, later),
             Fix::UseBody { field, body } => Ok(vec![updated(self.record, |params| {
                 set(params, &field.pointer(), Value::String(body.to_string()))
             })?]),
@@ -102,11 +107,20 @@ impl FeatureView<'_> {
             .ok_or_else(|| EngineError::internal("a kept match has no resolved elements"))
     }
 
+    /// True when every feature after this one ran in this run or is suppressed, so that the
+    /// state just before each of them is known: none comes after the run's stop point or at or
+    /// after the rollback marker.
+    pub(super) fn later_features_ran(&self) -> bool {
+        self.run.report.features[self.position + 1..]
+            .iter()
+            .all(|feature| !matches!(feature.status, Status::RolledBack | Status::NotRun))
+    }
+
     /// The re-anchoring of `KeepRegions` (section 3.22) for the region entry at `pointer`: the
-    /// profile's whole region list stores the regions the profile uses now, and every later
-    /// reference that followed a succession the old regions produced stores the elements it
-    /// resolves to now, all in one batch.
-    fn kept_regions(&self, pointer: &str) -> Result<Vec<Edit>, EngineError> {
+    /// profile's whole region list stores the regions the profile uses now, and every reference
+    /// of a later feature whose resolution in `later` went through a succession the old regions
+    /// produced stores the elements it resolves to now, all in one batch.
+    fn kept_regions(&self, pointer: &str, later: &RunView<'_>) -> Result<Vec<Edit>, EngineError> {
         let missing = || EngineError::internal("kept regions name no resolved profile");
         let list = parent(pointer);
         let profile = parent(list);
@@ -151,7 +165,11 @@ impl FeatureView<'_> {
         let regions = Value::Array(region_entries(&regions)?);
         let mut edits = vec![updated(self.record, |params| set(params, list, regions))?];
         if !successions.is_empty() {
-            edits.extend(self.later_references_following(&successions)?);
+            for position in self.position + 1..later.report.features.len() {
+                if let Some(feature) = later.feature_at(position) {
+                    edits.extend(feature.references_following(&successions)?);
+                }
+            }
         }
         Ok(edits)
     }
@@ -167,47 +185,54 @@ impl FeatureView<'_> {
         .map_err(EngineError::unexpected)
     }
 
-    /// One `update_feature` of each later feature with a followed or widened reference whose
-    /// match went through one of `successions`, storing the elements it resolves to now.
-    fn later_references_following(
+    /// One `update_feature` of this feature when it stores references whose resolution went
+    /// through one of `successions`, each storing the elements it resolves to now.
+    fn references_following(
         &self,
         successions: &BTreeSet<ElementName>,
-    ) -> Result<Vec<Edit>, EngineError> {
-        let mut edits = Vec::new();
-        for position in self.position + 1..self.run.report.features.len() {
-            let Some(later) = self.run.feature_at(position) else {
+    ) -> Result<Option<Edit>, EngineError> {
+        let mut rewrites = Vec::new();
+        for stored in stored_references(&self.record.params) {
+            let Some(body) = &stored.body else {
                 continue;
             };
-            let rewrites = later
-                .report
-                .warnings
-                .iter()
-                .filter_map(|warning| match warning {
-                    FeatureWarning::ReferenceFollowed {
-                        field,
-                        elements,
-                        via,
-                        ..
-                    }
-                    | FeatureWarning::ReferenceWidened {
-                        field,
-                        elements,
-                        via,
-                        ..
-                    } if via.iter().any(|key| successions.contains(key)) => {
-                        let entries = reference_entries(elements);
-                        Some(entries.map(|entries| (field.pointer(), entries)))
-                    }
-                    _ => None,
-                })
-                .collect::<Result<Vec<(String, Vec<Value>)>, EngineError>>()?;
-            if !rewrites.is_empty() {
-                edits.push(updated(later.record, |params| {
-                    replace_each(params, rewrites)
-                })?);
+            if let Some(elements) = self.resolved_through(body, &stored.reference, successions)? {
+                let entries = reference_entries(stored_at(self.record, &stored.pointer, &elements))?;
+                rewrites.push((stored.pointer, entries));
             }
         }
-        Ok(edits)
+        if rewrites.is_empty() {
+            return Ok(None);
+        }
+        updated(self.record, |params| replace_each(params, rewrites)).map(Some)
+    }
+
+    /// The elements `reference` resolves to in the state of `body` just before this feature, as
+    /// `Reference::from_element` stores them, in the resolver's order; `None` unless its
+    /// resolution went through one of `successions`.
+    fn resolved_through(
+        &self,
+        body: &Id,
+        reference: &Reference,
+        successions: &BTreeSet<ElementName>,
+    ) -> Result<Option<Vec<Reference>>, EngineError> {
+        let state = self.state_before(body);
+        if state.is_empty() {
+            return Ok(None);
+        }
+        let set = state.element_set().map_err(EngineError::unexpected)?;
+        let Resolution::Resolved { elements, via, .. } = resolve(reference, &set) else {
+            return Ok(None);
+        };
+        if !via.iter().any(|key| successions.contains(key)) {
+            return Ok(None);
+        }
+        let picked = elements
+            .iter()
+            .filter_map(|name| set.elements().iter().find(|info| info.name == *name))
+            .map(|info| Reference::from_element(info, &set))
+            .collect();
+        Ok(Some(picked))
     }
 
     /// One `update_feature` of `feature`'s suppression.
@@ -265,6 +290,17 @@ fn updated(
             ..record.clone()
         },
     })
+}
+
+/// What a fix stores at `pointer` of `record` for a reference that resolves to `elements`: every
+/// element in a list entry, and in a field that holds one reference the first, in the resolver's
+/// order, which is the element the feature uses (section 3.22).
+fn stored_at<'e>(record: &FeatureRecord, pointer: &str, elements: &'e [Reference]) -> &'e [Reference] {
+    if is_list_entry(&record.params, pointer) {
+        elements
+    } else {
+        &elements[..elements.len().min(1)]
+    }
 }
 
 /// References as the entries of a record's list stores them.

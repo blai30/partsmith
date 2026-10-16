@@ -117,6 +117,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   5. Record the outcome in delivery.md open issue 1, and fix whatever the first runs expose.
 - **Impact:** blocker. **Size:** M. The setup is small, but the fixes the first runs need are unknown.
 - **Depends on:** a human repository owner. Every item that adds a CI job depends on this one.
+- **Status (2026-10-16):** the human setup of step 1 is done, apart from branch protection. `main` is the default branch, the Git-connected Pages project has its own builds paused and takes CI's Wrangler deploys, and both Cloudflare secrets are set. `main` is not protected yet; that is best added right after the first green run, since required checks would block every merge while `main` is red. CI has run four times on pushes to `main` (runs 38431025954, 38446384392, 38492295214 and 38857833462), all red. The latest (commit 5e32ada, the rename of every CLAUDE.md to AGENTS.md) passed occt-native, occt-wasm, kernel-wasm and desktop; failed rust, ui, schema, core-wasm and python, because `main` carries the unfinished reference stability phase 1; failed deny, which passed before, because crates.io has yanked `zip` 9.0.1 (the fix is `cargo update -p zip --precise 9.0.3` with ADR 0020's row, not phase 1's work); and skipped web, e2e and deploy. Nothing has been deployed. The first green run deploys production at once, so besides the end of that phase it waits for B-2's web notices and `check:dist` rule on `main` and for the ADR 0034 decision, or a guard on the Pages project (an access policy, or the secrets removed). The release dry run and open issue 1 (steps 3 to 5) come after it. delivery.md 8 records this.
 
 **B-2. Third-party notices and OCCT LGPL compliance** (repo root, desktop bundle, web build, release)
 - **Spec:** technical design 3 and 17, ADR 0003, LGPL 2.1 section 6.
@@ -139,6 +140,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
     - As a release draft asset next to SHA256SUMS.
 - **Impact:** high. Distributing without these breaks the LGPL. **Size:** M.
 - **Depends on:** the human license gate, and B-1 for the CI checks.
+- **Status (2026-10-16):** spec written, code not started, human gate open. delivery.md 2.9 (the inputs, including OCCT's bundled notices, the texts for crates that ship none and the prebuilt-library check; the layout; the two OCCT statements; where each file ships; `check:notices` in the `schema` job), 2.6 (check-dist requires the web notices), 2.5 and 3.6 (the release asset, and two checklist gates for ADR 0034), 4, 6 (tests 6, 8, 12 and 13 changed, 34 to 42 new), 7 (open issues 10 to 13) and 8; desktop.md 2.8 (`resources`, and no `licenseFile`, which would make the notices a license to accept), tests 49 and 53; ADR 0033 (the generator, with no new tool) and ADR 0034 (the OCCT linking contradiction, its options and a recommendation), both Proposed, needing human review. Already in place: each font's license ships next to it, and both OCCT installs hold the LGPL text and the exception. Missing: both notices files, the committed texts under `ui/scripts/notices/`, the bundle resource and the release asset. Order: the web notices and the notices rule of `check:dist` land on `main` no later than the commit that ends reference stability phase 1, whose green run deploys production. Found while specifying: the AppImage bundles LGPL system libraries and a runtime that no notice covers, `webview2-com-sys` links Microsoft's WebView2 loader statically, OCCT's toolkits include code from four other projects with their own notices, and the repository is private while the Pages site will be public (ADR 0034).
 
 **B-3. Recovery keeps one slot, so unsaved work is lost** (`ui/src/files/recovery.ts`, `ui/src/app/actions/document.ts`, `ui/src/app/createApp.ts`)
 - **Spec:** ui.md 2.15 (line 1852), 3.19 (lines 3032 and 3043-3044); desktop.md line 590 and open issue 7.
@@ -154,6 +156,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - New U-tests: replaced, then autosave, then save; and two sessions at once.
 - **Impact:** high (data loss). **Size:** M.
 - **Depends on:** nothing. Do it together with B-4. B-5 later adds asset bytes to these entries.
+- **Status (2026-10-16):** done in the UI wave of 2026-10-13. IndexedDB version 2 keys recovery entries by id and moves the `current` record over (`ui/src/files/database.ts`, U-155 and U-170). Web Locks keep pages from offering, overwriting or discarding each other's live copies, and the first write asks once for `navigator.storage.persist()` (`recovery.ts`, U-156). The `replaced` stash survives later autosaves, a save removes only its own entry (U-157), two pages run at once (U-158), and startup offers every entry (U-159). desktop.md no longer claims "at most 2 s lost"; its open issue 7 states what two instances share. The tests pass (Vitest, `src/files` and `src/app`, 113 tests).
 
 **B-4. The recovery copy stores uncommitted preview edits** (`ui/src/app/createApp.ts`)
 - **Spec:** ui.md 3.19 against 4.4 (line 3253).
@@ -192,6 +195,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - desktop.md: an open issue, until request cancellation (later in protocol.md) lands.
 - **Impact:** medium. **Size:** M.
 - **Depends on:** B-4 (settled recipe) and B-3 (the recovery entry survives the restart).
+- **Status (2026-10-16):** done. After 10 s without an answer, the status bar and the viewport say the core is still working (U-161, U-171, U-172). "Stop and restart core" terminates the worker, drops the waiting changes with a notice and reopens the settled recipe without the open command (U-162, U-165, U-166, U-169). The desktop shows the panel without the button, and desktop.md open issue 9 explains why until request cancellation lands.
 
 **B-8. Windows and macOS builds are never tested** (`.github/workflows/release.yml` bundle job, or a ci.yml matrix job)
 - **Spec:** delivery.md 1 (line 9: "every platform the project ships"), 1.1, 2.5, 6; open issue 1.
@@ -219,6 +223,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - Publishing wheels stays out of M1.
 - **Impact:** medium. **Size:** S.
 - **Depends on:** B-1.
+- **Status (2026-10-16):** test 76 exists (`python/tests/test_core.py`, marked `packaging`, which `python/pyproject.toml` leaves out by default, and parametrized over `python3.12` and `python3.13`), but CI's `python` job installs only 3.12 and never runs it. Spec written: delivery.md 2.2 (both interpreters), the 2.4 `python` row (`pytest python/tests -m packaging` after the existing run), test 10 and section 8; python-api.md 2.1 and test 76 point at the job. The workflow change is not made.
 
 **B-11. Release-gate perf tests P-1 to P-8** (new `ui/e2e/perf.spec.ts`, `ui/e2e/helpers.ts`)
 - **Spec:** ui.md 5, 6.7; technical design 14 (the web column is a release gate).
@@ -230,6 +235,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - The fixed-hardware CI gate stays deferred (delivery.md 1.2). Run these by hand on the reference machine before a release.
 - **Impact:** medium. **Size:** M.
 - **Depends on:** nothing. The fixtures exist, apart from P-9's, which is in R-2.
+- **Status (2026-10-16):** done. `ui/e2e/perf.spec.ts` holds P-1 to P-8, and also P-10 to P-12, all tagged `@perf` and run only with `PARTSMITH_PERF=1` (`playwright.config.ts` leaves them out otherwise); `ui/e2e/helpers.ts` has `percentile`, `watchLongTasks` (the `addInitScript` observer P-2 uses) and `longTasks`. Whether they meet their budgets is measured by hand on the reference machine before a release (ui.md 6.7). P-9 and its fixture stay with R-2.
 
 **B-12. No check enforces the 250 KB gzipped initial JavaScript budget** (`ui/scripts/check-dist.mjs` and its tests)
 - **Spec:** ui.md 5.
@@ -242,6 +248,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
 - **Work:** implement it with `node:zlib`. No new dependency is needed.
 - **Impact:** medium. The bundle is already at 230,462 bytes gzipped (233,328 with the worker), 92 to 93 percent of the budget, and the app is not split into chunks. **Size:** S.
 - **Depends on:** nothing. The CI web job already runs `check:dist`.
+- **Status (2026-10-16):** done. delivery.md 2.6 defines the limit (250,000 bytes, 1 KB being 1,000 bytes), what counts as initial (the scripts and `modulepreload` links of `index.html`, plus the core worker script), and gzip level 9; section 4 has its messages and tests 26 to 33 its cases; ui.md 6.7 points at it. `ui/scripts/check-dist.mjs` implements it with `node:zlib`, and `pnpm test:scripts` passes (37 tests). The headroom is delivery.md open issue 8 (94.1 percent of the limit on 2026-10-13).
 
 **B-13. README, install notes and release checklist** (README.md, `.github/workflows/CLAUDE.md`)
 - **Spec:** delivery.md 3.6 (the release notes say nothing is signed); desktop.md 3.8 and line 615.
@@ -257,6 +264,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - A release checklist with the exact unsigned-bundle paragraph. `--generate-notes` stays, per delivery.md 2.5.
 - **Impact:** medium. **Size:** S.
 - **Depends on:** B-1 (URLs) and B-2.
+- **Status (2026-10-16):** `README.md` is unchanged (it still says phase 0). Spec written: delivery.md 2.12 lists what it says, part by part. Its web app URL is the production `*.pages.dev` subdomain that the Cloudflare dashboard (or `wrangler pages project list`) shows for the project, as the owner confirms it, since Pages adds a suffix when a project name is taken; previews are at `https://{branch}.{subdomain}`, and releases at `https://github.com/blai30/partsmith/releases`. delivery.md 3.6 holds the unsigned-bundle paragraph word for word and the release checklist for `.github/workflows/AGENTS.md` (the name on `main` since 5e32ada; this branch merges `main` before the implementation). The CC0 scope item is void, since ADR 0028 replaced the grant. The License part links the notices, so it lands with or after B-2.
 
 ## 2. After the blockers, by owner
 
@@ -569,6 +577,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Work:** a scheduled workflow (cron and `workflow_dispatch`) that runs `PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test properties`. It needs no OCCT cache. List it in `.github/workflows/CLAUDE.md`.
 - **Impact:** low. **Size:** S.
 - **Depends on:** B-1.
+- **Status (2026-10-16):** spec written, no workflow yet. delivery.md 1.1 and 2.11 (`nightly.yml`: cron `23 4 * * *` and `workflow_dispatch`; a scheduled run skips when the newest concluded nightly run already tested the head of `main`), the skip notice in section 4, a budget in 5, test 48 and section 8; sketch.md 6.13 points at it. Measured on a 4-core machine: a cold release build of the sketch tests takes 2 min 26 s and the 4096-case run 1.6 s, so a night costs about 3 billed minutes after a change and 1 when skipped.
 
 ### partsmith-cli
 
@@ -624,6 +633,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
   - An ADR entry that logs the npm packages and their licenses.
 - **Impact:** low. **Size:** S.
 - **Depends on:** B-1. Share the license data with B-2.
+- **Status (2026-10-16):** spec written, code not started, human gate open. delivery.md 1.1, 2.10 (`ui/scripts/check-licenses.mjs` over `pnpm licenses list --prod --json` and `pnpm licenses list --json`, against the `allow` list of `deny.toml`), the 2.4 `ui` row, section 4, tests 5 and 43 to 47, and section 8; ADR 0033 logs the eleven packages that ship: eight production packages (seven MIT, one ISC) and three development dependencies whose code the build writes into `ui/dist` (`rolldown`, `tailwindcss` and `vite`, all MIT). The generator of B-2 reuses its package list. The other development dependencies hold MIT-0, Python-2.0 and BlueOak-1.0.0; they do not ship, and the check leaves them out.
 
 ## Suggested sequence
 

@@ -19,7 +19,7 @@ The webview gets the least privilege that does the job. It can call the engine, 
 - A close guard: closing the window while the document has unsaved changes asks first.
 - `tauri.conf.json`, the capability file `capabilities/main.json`, the build script with an app command manifest, a strict content security policy, and the icons.
 - In the UI: `createDesktopFileService` (the desktop `FileService`), `chooseFileService`, `tauriGlobalOf`, `installCloseGuard`, and a host-neutral `FileHandle` type in `src/files/file-service.ts`.
-- Bundles: deb, rpm and AppImage on Linux (x86_64), an NSIS installer on Windows (x86_64), an app bundle and dmg on macOS (arm64), all unsigned (delivery.md section 3.6).
+- Bundles: deb, rpm and AppImage on Linux (x86_64), an NSIS installer on Windows (x86_64), an app bundle and dmg on macOS (arm64), all unsigned (delivery.md section 3.6), each carrying the third-party notices of the desktop app (delivery.md section 2.9).
 
 ### 1.2 Later (not in this milestone)
 
@@ -411,6 +411,9 @@ Exactly:
     "active": true,
     "targets": ["deb", "rpm", "appimage", "nsis", "app", "dmg"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "resources": {
+      "../../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
+    },
     "category": "GraphicsAndDesign",
     "shortDescription": "Parametric CAD for 3D printing",
     "longDescription": "Partsmith is an open-source parametric CAD application for designing parts for 3D printing.",
@@ -441,6 +444,7 @@ Rules behind the values:
 - `devCsp` applies only to `cargo tauri dev`, where Vite serves the page from `http://localhost:5173` with inline styles, the React refresh preamble and a hot reload socket.
 - `freezePrototype` freezes `Object.prototype` before the UI's code runs, which hardens the IPC against prototype pollution; the UI's dependencies do not extend built-in prototypes.
 - `bundle.targets` lists every target; each OS builds the ones that apply to it, and the release workflow passes `--bundles` explicitly (delivery.md 3.6). `createUpdaterArtifacts` stays at its default (off).
+- **Third-party notices (delivery.md 2.9, ADR 0033).** `bundle.resources` holds exactly one file: the root `THIRD-PARTY-NOTICES.txt` (paths are relative to `desktop/src-tauri`), installed as `THIRD-PARTY-NOTICES.txt` in the app's resource folder, which is `usr/lib/Partsmith/` in the `.deb` and `.rpm` and inside the AppImage (Tauri names it after `productName`), the install folder next to `partsmith-desktop.exe` on Windows, and `Partsmith.app/Contents/Resources/` on macOS. The map form keeps the file at the top of that folder; the list form would put it under `_up_/_up_/`. A build without the file fails, because `tauri-build` and the bundler copy every resource. `bundle.licenseFile` stays unset: the bundler of `tauri-cli` 2.12.2 turns that file into a license the user must accept, on the NSIS installer's license page and as the DMG's license agreement (`bundle_dmg.sh --eula`), and neither Apache-2.0 nor the LGPL asks anyone to accept anything. The app shows nothing of the notices itself (delivery.md open issue 11).
 - `minimumSystemVersion` 13.0 is the oldest macOS whose WKWebView has the WebGL2 and JavaScript features the UI needs, and the release build sets `MACOSX_DEPLOYMENT_TARGET=13.0` for OCCT and Rust to match (delivery.md 3.6).
 
 ### 2.9 Capability
@@ -612,7 +616,7 @@ A command that returns `Err(FileError)` rejects the JavaScript `invoke` with `{"
 | Windows (`windows-2025`) | x86_64 | `nsis` | `Partsmith_{version}_x64-setup.exe` (per-user install; WebView2 bootstrapper downloaded when missing) |
 | macOS (`macos-15`) | arm64 | `app,dmg` | `Partsmith.app`, `Partsmith_{version}_aarch64.dmg` |
 
-The Linux packages are built on Ubuntu 24.04, so they need glibc 2.39 or later and WebKitGTK 4.1. MSI is not built: it needs the WiX toolset and adds nothing NSIS lacks for a per-user install. All artifacts are unsigned in this milestone: Windows SmartScreen warns on first run and macOS Gatekeeper requires the user to allow the app in System Settings (section 1.2).
+The Linux packages are built on Ubuntu 24.04, so they need glibc 2.39 or later and WebKitGTK 4.1. The `.deb` and `.rpm` depend on the distribution's WebKitGTK; the AppImage bundles WebKitGTK, GTK and their libraries from the build machine, and its runtime, none of which the notices of delivery.md 2.9 list (delivery.md open issue 10, ADR 0034). MSI is not built: it needs the WiX toolset and adds nothing NSIS lacks for a per-user install. All artifacts are unsigned in this milestone: Windows SmartScreen warns on first run and macOS Gatekeeper requires the user to allow the app in System Settings (section 1.2).
 
 ### 3.9 Determinism and state
 
@@ -724,13 +728,17 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 
 **Build check (CI, delivery.md 2.4 job `desktop`)**
 
-49. On `ubuntu-24.04`, after `pnpm -C ui build`, `cargo tauri build --bundles deb` in `desktop/src-tauri` exits 0 and produces exactly one `.deb` under `target/release/bundle/deb/`, whose file list (`dpkg-deb --fsys-tarfile` piped to `tar -t`, a leading `./` removed from each entry, since Tauri's bundler writes none) holds `usr/bin/partsmith-desktop` and exactly one `.desktop` file under `usr/share/applications/`.
+49. On `ubuntu-24.04`, after `pnpm -C ui build`, `cargo tauri build --bundles deb` in `desktop/src-tauri` exits 0 and produces exactly one `.deb` under `target/release/bundle/deb/`, whose file list (`dpkg-deb --fsys-tarfile` piped to `tar -t`, a leading `./` removed from each entry, since Tauri's bundler writes none) holds `usr/bin/partsmith-desktop`, exactly one `.desktop` file under `usr/share/applications/`, and `usr/lib/Partsmith/THIRD-PARTY-NOTICES.txt`, whose bytes equal the repository's `THIRD-PARTY-NOTICES.txt` (2.8).
 50. `cargo clippy -p partsmith-desktop --all-targets -- -D warnings` passes (part of the workspace clippy run).
 
 **Added file tests (`tests/files.rs`)**
 
 51. (Unix) With `<dir>/link.ptsm` a symbolic link to `<dir>/synced/part.ptsm` (holding `old contents`) and the link granted by `pick_open`, `write(grant, b"new")` succeeds; `link.ptsm` is still a symbolic link, `synced/part.ptsm` holds `new`, `synced/` holds only `part.ptsm` and `<dir>` holds only `link.ptsm` and `synced` (3.4 step 4).
 52. A granted `<dir>/part.ptsm` holding `old contents` and made read-only (`Permissions::set_readonly(true)`): `write(grant, b"new")` fails with `Denied { name: "part.ptsm", detail: "the file is read-only" }`, reason `permission`; the file still holds `old contents` and `<dir>` holds only `part.ptsm`.
+
+**Added configuration test (`tests/config.rs`)**
+
+53. `bundle.resources` is an object with exactly one key, `../../THIRD-PARTY-NOTICES.txt`, whose value is `THIRD-PARTY-NOTICES.txt`, and `bundle` has no `licenseFile` key. That path, resolved from `desktop/src-tauri/`, is the repository root's `THIRD-PARTY-NOTICES.txt`, a regular file whose first line is `Third-party notices for the Partsmith desktop app` (delivery.md 2.9). Test 33 checks the rest of the object.
 
 **Manual checks at the gate** (no harness yet; the reviewer records the result per OS): the window opens at 1440 by 900 with the UI in Geist, online and offline, and the Parameters panel of a document with parameters shows their names and expressions in JetBrains Mono; Open, Save, Save as and Export show native dialogs and write the chosen files; Open recent reopens a file after restarting the app; dropping a `.ptsm` opens it; closing with unsaved changes asks; `cargo tauri dev` loads the UI with hot reload.
 
@@ -754,5 +762,6 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 - **Window defaults**: 1440 by 900, minimum 960 by 600.
 - **macOS minimum** 13.0 and arm64 only for macOS in this milestone.
 - **Content security policy** (2.8), with no remote source since the fonts are self-hosted (ADR 0031), and `freezePrototype`.
+- **Third-party notices in the bundles** (2.8): the notices of delivery.md 2.9 as the one bundle resource, with no license page or agreement in any installer (ADR 0033); whether the AppImage, which bundles LGPL system libraries, stays in M1 (ADR 0034).
 - **Grant store** limits: `MAX_GRANTS` 100 and persistence across restarts (open issue 5).
 - **Close guard wording** (2.5).

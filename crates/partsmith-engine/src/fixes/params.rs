@@ -1,8 +1,11 @@
 //! Feature params addressed by JSON Pointer (RFC 6901), as messages and fixes name their fields:
-//! the field path of a pointer, and the changes fixes make at a pointer.
+//! the field path of a pointer, the references params store, and the changes fixes make at a
+//! pointer.
 
 use std::cmp::Ordering;
 
+use partsmith_model::Id;
+use partsmith_naming::Reference;
 use serde_json::{Map, Value};
 
 /// The field path of a JSON Pointer into a feature record (features.md section 3.2): `/edges/1`
@@ -40,6 +43,76 @@ pub(crate) fn value_at<'p>(params: &'p Map<String, Value>, pointer: &str) -> Opt
 /// `/profile/regions`. The root holds itself.
 pub(crate) fn parent(pointer: &str) -> &str {
     pointer.rsplit_once('/').map_or("", |(parent, _)| parent)
+}
+
+/// True when `pointer` names an entry of a list of `params`, false for a field that holds one
+/// value.
+pub(crate) fn is_list_entry(params: &Map<String, Value>, pointer: &str) -> bool {
+    value_at(params, parent(pointer)).is_some_and(Value::is_array)
+}
+
+/// A reference a record's params store.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct StoredReference {
+    /// Its JSON Pointer in the params.
+    pub(crate) pointer: String,
+    /// The body it is resolved in: the `body` of the nearest object around it that names one.
+    pub(crate) body: Option<Id>,
+    /// The reference.
+    pub(crate) reference: Reference,
+}
+
+/// Every reference `params` store, in params order: each object, at any depth, that has a `q`
+/// key and reads as a naming `Reference` (engine.md section 3.24).
+pub(crate) fn stored_references(params: &Map<String, Value>) -> Vec<StoredReference> {
+    let mut found = Vec::new();
+    collect_references(params, "", None, &mut found);
+    found
+}
+
+/// Adds the references of the object `members` at `pointer`, whose nearest object that names a
+/// body names `body`.
+fn collect_references(
+    members: &Map<String, Value>,
+    pointer: &str,
+    body: Option<&Id>,
+    found: &mut Vec<StoredReference>,
+) {
+    let named = members
+        .get("body")
+        .and_then(Value::as_str)
+        .and_then(|text| Id::new(text).ok());
+    let body = named.as_ref().or(body);
+    for (key, value) in members {
+        collect_value(value, &format!("{pointer}/{}", escaped(key)), body, found);
+    }
+}
+
+/// Adds the references of `value` at `pointer` (section 3.24's rule).
+fn collect_value(value: &Value, pointer: &str, body: Option<&Id>, found: &mut Vec<StoredReference>) {
+    match value {
+        Value::Object(members) if members.contains_key("q") => {
+            if let Ok(reference) = serde_json::from_value(value.clone()) {
+                found.push(StoredReference {
+                    pointer: pointer.to_string(),
+                    body: body.cloned(),
+                    reference,
+                });
+            }
+        }
+        Value::Object(members) => collect_references(members, pointer, body, found),
+        Value::Array(items) => {
+            for (position, item) in items.iter().enumerate() {
+                collect_value(item, &format!("{pointer}/{position}"), body, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A key as a pointer's reference token: `~` written `~0` and `/` written `~1`.
+fn escaped(key: &str) -> String {
+    key.replace('~', "~0").replace('/', "~1")
 }
 
 /// Replaces the value at `pointer` of `params` with `values`: spliced in, one entry each, when it
@@ -202,6 +275,55 @@ mod tests {
     fn the_parent_of_a_pointer_holds_its_value() {
         assert_eq!(parent("/profile/regions/0"), "/profile/regions");
         assert_eq!(parent("/edges"), "");
+    }
+
+    #[test]
+    fn list_entries_are_told_from_fields_that_hold_one_value() {
+        let Value::Object(params) = json!({"edges": ["a"], "base": {"face": "b"}}) else {
+            panic!("params are an object");
+        };
+
+        assert!(is_list_entry(&params, "/edges/0"));
+        assert!(!is_list_entry(&params, "/base/face"));
+        assert!(!is_list_entry(&params, "/edges"));
+    }
+
+    #[test]
+    fn stored_references_name_their_pointer_and_the_nearest_body() {
+        let edge = json!({"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0"});
+        let face = json!({"q": "f-box1/top", "fp": "plane|n=0,0,1"});
+        let Value::Object(params) = json!({
+            "body": "b-1",
+            "edges": [edge, {"q": "not a name", "fp": "line"}],
+            "plane": {"kind": "face", "body": "b-2", "face": face.clone()},
+            "a/b": {"face": face},
+            "label": "q"
+        }) else {
+            panic!("params are an object");
+        };
+
+        let found: Vec<(String, Option<String>, String)> = stored_references(&params)
+            .into_iter()
+            .map(|stored| {
+                (
+                    stored.pointer,
+                    stored.body.map(|body| body.to_string()),
+                    stored.reference.query.to_string(),
+                )
+            })
+            .collect();
+
+        let named = |pointer: &str, body: &str, query: &str| {
+            (pointer.to_string(), Some(body.to_string()), query.to_string())
+        };
+        assert_eq!(
+            found,
+            [
+                named("/edges/0", "b-1", "edge(f-box1/front|f-box1/top)"),
+                named("/plane/face", "b-2", "f-box1/top"),
+                named("/a~1b/face", "b-1", "f-box1/top"),
+            ]
+        );
     }
 
     #[test]

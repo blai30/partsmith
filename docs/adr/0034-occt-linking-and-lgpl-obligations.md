@@ -6,12 +6,12 @@ Status: Proposed, needs human review (license and linking: the owner chooses an 
 
 **The contradiction.** Four documents describe how Partsmith uses OCCT, and they disagree:
 
-- CLAUDE.md, invariants: "License policy: only permissive dependencies, plus OCCT (LGPL, linked as a separate library)."
-- Technical design section 3: "OCCT and PlaneGCS stay LGPL as separate libraries; publishing their source and allowing relinking, which an open project does anyway, meets the LGPL." Section 17 adds that cargo-deny allows "the listed LGPL exceptions (OCCT, PlaneGCS)".
+- AGENTS.md (CLAUDE.md until the owner renamed the instruction files on 2026-10-16), invariants: "License policy: only permissive dependencies, plus OCCT (LGPL, linked as a separate library)."
+- Technical design section 3: "OCCT and PlaneGCS stay LGPL as separate libraries; publishing their source and allowing relinking, which an open project does anyway, meets the LGPL." Section 17 adds that cargo-deny allows "the listed LGPL exceptions (OCCT, PlaneGCS)", "protecting the MIT/Apache license".
 - README.md: "OCCT is used under the LGPL 2.1 with the OCCT exception, as a separately buildable library."
 - [ADR 0003](0003-pin-occt-and-build-from-source.md): OCCT 7.9.3 is built "from source with `scripts/build-occt.sh` for every target: native static libraries with position-independent code, and Emscripten static libraries".
 
-ADR 0003 is what the code does. `partsmith-occt-sys/build.rs` links the 19 OCCT toolkits with `rustc-link-lib=static`, so OCCT is part of every binary that uses the kernel: the desktop app on each platform, the `partsmith` CLI, the Python extension module `partsmith._core` and the web core `partsmith_core.wasm`. PlaneGCS is not used at all ([ADR 0004](0004-native-rust-sketch-solver.md)), and `deny.toml` lists no LGPL exception, because OCCT is not a crate.
+ADR 0003 is what the code does. `partsmith-occt-sys/build.rs` links the OCCT toolkits with `rustc-link-lib=static`, so OCCT is part of every binary that uses the kernel: the desktop app on each platform, the `partsmith` CLI, the Python extension module `partsmith._core` and the web core `partsmith_core.wasm`. PlaneGCS is not used at all ([ADR 0004](0004-native-rust-sketch-solver.md)), and `deny.toml` lists no LGPL exception, because OCCT is not a crate.
 
 **What the license asks.** OCCT is under the GNU LGPL 2.1 with the Open CASCADE exception 1.0 (the texts are in `share/doc/opencascade` of every OCCT install). An executable that contains OCCT falls under LGPL 2.1 section 6. Its terms must allow modification for the user's own use and reverse engineering to debug it (Apache-2.0 does). Each copy needs a prominent notice that OCCT is used and is under the LGPL, with a copy of the license. The OCCT exception lets object code that includes material from OCCT's headers carry any terms, given a prominent notice in the supporting documentation that it uses OCCT. Beyond the notice, section 6 asks for one of:
 
@@ -21,16 +21,17 @@ ADR 0003 is what the code does. `partsmith-occt-sys/build.rs` links the 19 OCCT 
 - (d) when the work is distributed by offering access from a designated place, equivalent access to those materials from the same place;
 - (e) proof that the user already has them.
 
-Distributing OCCT's own object code also falls under section 4: its source must come with it, or be available from the same place. This ADR reads the license as engineers do. It is not legal advice, and the owner may want a lawyer to confirm the choice before the first public release.
+Distributing OCCT's own object code also falls under section 4: its source must come with it, or be available from the same place. LGPL 2.1, unlike GPLv3, has no provision for pointing at a third party's server. This ADR reads the license as engineers do. It is not legal advice; the questions for a lawyer are listed with the recommendation.
 
 **Facts on 2026-10-16.**
 
-- The GitHub repository `blai30/partsmith` is private. Release assets of a private repository are visible only to people with access to it.
-- The Pages site is reachable by anyone who has its URL, since no Cloudflare Access policy protects the project. Every visitor receives `partsmith_core.wasm`, which contains OCCT. Production has not been deployed yet, because CI on `main` has not passed (m1-gap-list B-1), but every pull request whose CI passes deploys a preview.
-- The OCCT in every build is the unmodified source of the upstream tag `V7_9_3`; `scripts/build-occt.sh` changes only build options. The script skips its clone when `$OCCT_WORK_DIR/src` exists, so it builds any OCCT source put there.
-- Partsmith's own source, the repository at one commit as `git archive` writes it, is 10.3 MB gzipped.
+- The GitHub repository `blai30/partsmith` is private. Its release assets and Actions artifacts are visible only to people with access to it; once it is public, any signed-in GitHub user can download both.
+- Nothing has been deployed yet. The four CI runs so far were pushes to `main`, all red, so `deploy` was skipped, and the repository has no pull requests. The first green push to `main` deploys production at once (delivery.md 3.3), reachable by anyone who has its URL, since no Cloudflare Access policy protects the project, and every visitor then receives `partsmith_core.wasm`, which contains OCCT. Each pull request whose CI passes would deploy a public preview the same way.
+- The OCCT in every build is the unmodified source of the upstream tag `V7_9_3`; `scripts/build-occt.sh` applies no patches and changes only build options. The script skips its clone when `$OCCT_WORK_DIR/src` exists, so it builds any OCCT source put there.
+- OCCT includes code from four other projects under their own notices (flex, DELABELLA, David M. Gay's strtod and Unicode's ConvertUTF), which the notices of [ADR 0033](0033-notices-and-npm-license-check-from-the-lock-files.md) carry.
+- Sizes, gzipped: Partsmith's source at one commit, as `git archive` writes it, is 10.3 MB. OCCT's tag without its Git data is 49.5 MB, of which the files the build reads (`src`, `adm`, `CMakeLists.txt` and the root text files) are 18.3 MB. Pages serves files of at most 25 MiB.
 - M1 distributes the web app and the desktop bundles. The CLI and the Python wheel are built from source only (python-api.md: publishing wheels is later).
-- The Tauri AppImage also bundles WebKitGTK, GTK and their dependencies from the Ubuntu 24.04 build machine, many of them under the LGPL. The `.deb` and `.rpm` depend on the distribution's packages instead, and the Windows and macOS bundles use the system webview.
+- The Tauri AppImage also bundles WebKitGTK, GTK and their dependencies from the Ubuntu 24.04 build machine, many of them under the LGPL, and the AppImage runtime, which reportedly links libfuse (LGPL) statically. The `.deb` and `.rpm` depend on the distribution's packages instead, and the Windows and macOS bundles use the system webview. The NSIS installer carries NSIS's own code, its LZMA decompressor and Tauri's `nsis_tauri_utils` plugin, none of them a Cargo or npm package.
 
 ## Options
 
@@ -38,38 +39,48 @@ Distributing OCCT's own object code also falls under section 4: its source must 
 
 - What it needs:
   1. Partsmith's source for each distributed build, from the place that distributes it: either the repository made public, so each release's tag (with GitHub's source archives on the release page) and `main`'s history are there, or, while it stays private, a source archive attached to each release and written into each web deployment (about 10 MB, under the 25 MiB per-file limit).
-  2. OCCT's source from the same place: a `git archive` of the tag `V7_9_3` (tens of MB) attached to each release by the `draft` job, with the web notices linking to it or to the upstream tag.
-  3. The notices of [ADR 0033](0033-notices-and-npm-license-check-from-the-lock-files.md), whose OCCT statement already says how to relink.
-  4. A way for a web user to find the exact commit a deployment was built from (a stamp the `web` job writes, or the version and commit in the UI), since one committed notices file cannot name it.
-- Cost: no change to the kernel, the hosts or the build. The `draft` job gains a clone and an archive step (a minute or two) and the release gains the archives. Making the repository public is the owner's decision; under GitHub's current billing it would also make the standard hosted runners free, macOS included, which removes the CI-minutes concern.
+  2. OCCT's source from the same place: an archive of the tag `V7_9_3` attached to each release by the `draft` job and, in the private variant, written into each web deployment too. An archive of the files the build reads is 18.3 MB and fits the 25 MiB limit (that the build works from it alone is checked when the step is implemented); the whole tag, at 49.5 MB, would have to be split into parts under 25 MiB or served from a public place the owner controls. A link to the upstream tag alone is not relied on, since section 6(d) asks for access "from the same place" (question 1 below).
+  3. The notices of ADR 0033, whose OCCT statements already say how to relink and point at the exact build steps of each workflow.
+  4. A way for a web user to find the exact commit a deployment was built from, previews included (a stamp the `web` job writes, or the version and commit in the UI), since one committed notices file cannot name it.
+- Cost: no change to the kernel, the hosts or the build. The `draft` job gains a clone and an archive step (a minute or two) and the release gains the archives (about 30 MB). Making the repository public is the owner's decision; under GitHub's current billing it would also make the standard hosted runners free, macOS included, which removes the CI-minutes concern (a release costs about 520 billed minutes on a private repository, delivery.md section 8).
 - It covers the WebAssembly core, which no option can link dynamically at a reasonable cost.
 
 **B. Link OCCT dynamically on the desktop, the CLI and Python; keep it static only in the WebAssembly core.**
 
-- Section 6(b) then covers those three: the 19 OCCT shared libraries ship next to the program and a user can replace them. OCCT's own source still has to be offered for the libraries that ship (section 4), and the web core still needs option A's source route.
+- Section 6(b) then covers those three: the OCCT shared libraries ship next to the program and a user can replace them. OCCT's own source still has to be offered for the libraries that ship (section 4), and the web core still needs option A's source route.
 - Cost: `build-occt.sh` gains a shared native build with its own cache; `partsmith-occt-sys/build.rs` links dynamically (ADR 0003 superseded); each bundle carries and finds the libraries: `$ORIGIN` run paths in the Linux packages, install names and `bundle.macOS.frameworks` or resources on macOS, DLLs next to the executable on Windows, each with new desktop.md packaging tests; a published wheel would vendor them. A user who swaps OCCT can change results that the recompute cache keys, which name `OCCT_VERSION` rather than the loaded library, do not notice.
 - Gain: the roughly 170 test binaries, each of which links OCCT statically at 55 to 80 MB (delivery.md 3.2), would shrink and link faster. delivery.md open issue 9 attacks the same disk problem without touching the license question.
 
 **C. A mix: dynamic only in the desktop app, static elsewhere.** It carries both mechanisms and keeps option A's requirements for every static artifact (web, CLI, wheel), so it gains little over A.
 
-**Not an option: leaving things as they are.** The preview deployments already distribute OCCT object code without the license text, the notice or a way to the source.
+**Not an option: leaving things as they are.** Nothing has been deployed yet, but the first green run on `main` deploys production with OCCT, and without B-2's notices and one of these options in place it would ship OCCT without the license text, the notice or a way to the source.
 
-**The AppImage**, separately: (1) drop it from the M1 release matrix, leaving `.deb` and `.rpm` for Linux; or (2) keep it and add, for each library it bundles, the Debian copyright file to its notices and the Ubuntu source package to the release (hundreds of MB per release).
+**The AppImage**, separately: (1) drop it from M1, which means removing `appimage` from the release matrix, the dry run included (a public repository's Actions artifacts are downloadable), and from `bundle.targets`, leaving `.deb` and `.rpm` for Linux; or (2) keep it and add, for each library it bundles and for its runtime, the Debian copyright file to its notices and the Ubuntu source package to the release (hundreds of MB per release).
 
 ## Recommendation
 
 Option A, with:
 
-- the repository made public before the Pages site or a release is shared beyond the owner and collaborators, or, until then, the Pages project protected by Cloudflare Access;
-- the OCCT source archive attached to every release next to `SHA256SUMS`, and named by the notices;
-- the AppImage dropped from M1 (choice 1), since `.deb` and `.rpm` cover the supported distributions and choice 2 costs more than the format is worth now;
-- the wording made true: CLAUDE.md's invariant becomes "plus OCCT (LGPL 2.1 with the Open CASCADE exception, linked statically; its source and Partsmith's are published so users can relink, ADR 0034)"; technical design section 3 says the same and drops PlaneGCS; section 17 says OCCT is not a crate and is covered by the notices of delivery.md 2.9 rather than by cargo-deny; README.md's license section follows delivery.md 2.12.
+- the repository made public before the Pages site or a release is shared beyond the owner and collaborators. Until then: the Pages project's access policy for preview deployments turned on (Settings, General), the cheapest step, which limits previews to the account's members; and production held back, by a Cloudflare Access application on its host or by removing the two deploy secrets, which makes `deploy` skip cleanly (delivery.md 3.3), until B-2's notices are on `main` and this option's source route is in place;
+- the OCCT source archive (the files the build reads) attached to every release next to `SHA256SUMS` and named by the notices, and in the private variant also written into each web deployment;
+- every release kept a draft until the source route is in place (delivery.md 3.6, checklist item 1);
+- the AppImage dropped from M1 (choice 1), from the release matrix and the dry run alike, since `.deb` and `.rpm` cover the supported distributions and choice 2 costs more than the format is worth now;
+- the wording made true:
+  - AGENTS.md's invariant becomes "plus OCCT (LGPL 2.1 with the Open CASCADE exception, linked statically; every distributed build comes with a way to get its exact source and OCCT's so users can relink, ADR 0034)";
+  - technical design section 3 says the same and drops PlaneGCS; section 17 says OCCT is not a crate and is covered by the notices of delivery.md 2.9 rather than by cargo-deny, and "protecting the MIT/Apache license" becomes "protecting the Apache-2.0 license" (ADR 0028);
+  - README.md's license section follows delivery.md 2.12.
+
+Questions for the owner's lawyer before the first public release:
+
+1. Does a link to the upstream OCCT tag meet section 6(d)'s "from the same place", or must the archive come from Partsmith's own release and site? This ADR assumes the latter.
+2. Do crates.io and npm, reached through the committed lock files, meet section 6(a)'s "complete machine-readable work that uses the Library", or should each release carry a vendored archive of the dependencies (`cargo vendor` and the pnpm store)?
+3. Do the NSIS installer's code and the AppImage runtime need entries in the notices (delivery.md open issue 10)?
 
 Why: it changes no code, the web core needs the source route under every option, and one rule then covers every artifact. Option B's real benefit, smaller and faster test binaries, is a build question that can be decided on its own merits later.
 
 ## Consequences
 
-- Until the owner decides, nothing about the linking changes, and the notices of ADR 0033 describe today's static linking.
-- If A is accepted: delivery.md 2.5 gains the OCCT source archive in `draft`, the repository visibility change is made by the owner, the web build gains its commit stamp (a ui.md or delivery.md change), and the four documents above are corrected.
+- Until the owner decides, nothing about the linking changes, the notices of ADR 0033 describe today's static linking, releases stay drafts, and production waits as delivery.md section 8 describes.
+- If A is accepted: delivery.md 2.5 gains the OCCT source archive in `draft` (and, in the private variant, both archives in the `web` job), the repository visibility change is made by the owner, the web build gains its commit stamp (a ui.md or delivery.md change), and the four documents above are corrected.
 - If B or C is accepted: a new ADR supersedes ADR 0003 for native builds, and desktop.md 2.8 and 3.8 and delivery.md 2.4 to 3.6 change for the shared libraries; the notices statements change with them.
-- If the AppImage is dropped: desktop.md 1.1 and 3.8 and delivery.md 3.6 lose it, and `bundle.targets` loses `appimage`.
+- If the AppImage is dropped: desktop.md 1.1, 2.8 (`bundle.targets`) and 3.8, delivery.md 3.6 (the matrix and the unsigned-bundle paragraph) and test 13 lose it.

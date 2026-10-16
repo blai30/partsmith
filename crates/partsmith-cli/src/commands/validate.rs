@@ -77,7 +77,7 @@ fn check(
         Ok(text) => text,
         Err(CliError::Load { diagnostic, .. }) => {
             return Ok(ValidationReport {
-                diagnostics: vec![diagnostic],
+                diagnostics: vec![*diagnostic],
             });
         }
         Err(error) => return Err(error),

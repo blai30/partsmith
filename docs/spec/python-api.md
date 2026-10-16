@@ -89,6 +89,7 @@ python -m venv .venv && . .venv/bin/activate && pip install maturin pytest
 (cd python && maturin develop --release)
 pytest python/tests
 (cd python && maturin build --release)      # target/wheels/partsmith-0.1.0-cp312-abi3-*.whl
+pytest python/tests -m packaging            # test 76; needs python3.12 and python3.13 on PATH
 ```
 
 ### 2.2 `partsmith._core`
@@ -917,7 +918,7 @@ with Sketch(
 73. `Session().call(<example A of protocol.md>)` returns bytes that decode to an `engine_info` response with id 1; `call(b"hello")` returns an error frame with code `malformed_frame` and does not raise; `call("text")` raises `TypeError`.
 74. Two threads each sending 50 `engine_info` frames through one `Session` all receive valid responses.
 75. `partsmith._core.protocol_schema()` equals `docs/format/protocol.schema.json`, and `ptsm_schema()` equals `docs/format/ptsm.schema.json`.
-76. `maturin build --release` in `python/` produces exactly one wheel named `partsmith-0.1.0-cp312-abi3-<platform>.whl`, which installs and imports on CPython 3.12 and 3.13.
+76. `maturin build --release` in `python/` produces exactly one wheel named `partsmith-0.1.0-cp312-abi3-<platform>.whl`, which installs and imports on CPython 3.12 and 3.13. Marked `packaging`, which `pytest python/tests` leaves out (`pyproject.toml`), and run by `pytest python/tests -m packaging` in CI's `python` job, which installs both interpreters (delivery.md 2.4, test 10).
 77. `partsmith.__all__` equals the list in 2.3, and every name in it is importable.
 
 **Added code generation and feature mapping**

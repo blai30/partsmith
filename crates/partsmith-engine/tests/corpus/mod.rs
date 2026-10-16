@@ -388,6 +388,14 @@ pub fn block_right_side() -> Value {
     )
 }
 
+/// BLOCK's back side.
+pub fn block_back_side() -> Value {
+    reference(
+        "f-ext1/lateral/e-3",
+        "plane|n=0,1,0|c=40,50,15|a=2400|adj=4,4",
+    )
+}
+
 /// CUBE20's front top edge.
 pub fn cube20_front_top() -> Value {
     reference(
@@ -403,6 +411,43 @@ pub fn right_side_redrawn() -> Vec<Value> {
         line("e-3", [80.0, 50.0], [0.0, 50.0]),
         line("e-4", [0.0, 50.0], [0.0, 0.0]),
         line("e-9", [80.0, 0.0], [80.0, 50.0]),
+    ]
+}
+
+/// Corpus R49's edit of BLOCK's outline: `e-2` ends at (80, 25) and the collinear `e-6` continues it to (80, 50).
+pub fn right_side_split() -> Vec<Value> {
+    vec![
+        line("e-1", [0.0, 0.0], [80.0, 0.0]),
+        line("e-2", [80.0, 0.0], [80.0, 25.0]),
+        line("e-6", [80.0, 25.0], [80.0, 50.0]),
+        line("e-3", [80.0, 50.0], [0.0, 50.0]),
+        line("e-4", [0.0, 50.0], [0.0, 0.0]),
+    ]
+}
+
+/// BLOCK's outline with `e-2` deleted and drawn again as two collinear lines, `e-9` (80, 0)-(80, 25) and `e-10`
+/// (80, 25)-(80, 50), so the right side is replaced by two faces in one plane.
+pub fn right_side_redrawn_in_two() -> Vec<Value> {
+    vec![
+        line("e-1", [0.0, 0.0], [80.0, 0.0]),
+        line("e-3", [80.0, 50.0], [0.0, 50.0]),
+        line("e-4", [0.0, 50.0], [0.0, 0.0]),
+        line("e-9", [80.0, 0.0], [80.0, 25.0]),
+        line("e-10", [80.0, 25.0], [80.0, 50.0]),
+    ]
+}
+
+/// Corpus R66's edit of BLOCK's outline: `e-3` replaced by the five lines `e-9` to `e-13` of a notch.
+pub fn back_line_notched() -> Vec<Value> {
+    vec![
+        line("e-1", [0.0, 0.0], [80.0, 0.0]),
+        line("e-2", [80.0, 0.0], [80.0, 50.0]),
+        line("e-4", [0.0, 50.0], [0.0, 0.0]),
+        line("e-9", [80.0, 50.0], [50.0, 50.0]),
+        line("e-10", [50.0, 50.0], [50.0, 40.0]),
+        line("e-11", [50.0, 40.0], [30.0, 40.0]),
+        line("e-12", [30.0, 40.0], [30.0, 50.0]),
+        line("e-13", [30.0, 50.0], [0.0, 50.0]),
     ]
 }
 
@@ -871,20 +916,26 @@ pub fn r63a() -> Scenario {
 
 /// Corpus R66: BLOCK, a fillet of 1 on the back top edge, then `e-3` replaced by the five lines of a notch.
 pub fn r66() -> Scenario {
-    let features = block_then(vec![fillet("f-fil1", "b-1", vec![block_back_top()], "1")]);
-    let notched = vec![
-        line("e-1", [0.0, 0.0], [80.0, 0.0]),
-        line("e-2", [80.0, 0.0], [80.0, 50.0]),
-        line("e-4", [0.0, 50.0], [0.0, 0.0]),
-        line("e-9", [80.0, 50.0], [50.0, 50.0]),
-        line("e-10", [50.0, 50.0], [50.0, 40.0]),
-        line("e-11", [50.0, 40.0], [30.0, 40.0]),
-        line("e-12", [30.0, 40.0], [30.0, 50.0]),
-        line("e-13", [30.0, 50.0], [0.0, 50.0]),
-    ];
+    block_edited(
+        vec![fillet("f-fil1", "b-1", vec![block_back_top()], "1")],
+        back_line_notched(),
+    )
+}
+
+/// BLOCK followed by `more`, then BLOCK's outline changed to `outline`.
+pub fn block_edited(more: Vec<Value>, outline: Vec<Value>) -> Scenario {
     Scenario::new(
-        &document(&["b-1"], &features),
-        vec![Change::Entities("f-sk1", notched)],
+        &document(&["b-1"], &block_then(more)),
+        vec![Change::Entities("f-sk1", outline)],
+    )
+}
+
+/// A datum plane `f-dp1` offset 5 from BLOCK's right side (engine.md section 3.22, `KeepMatch` of a field that holds
+/// one reference), then corpus R49's edit, so the face it is on follows to both halves of the side.
+pub fn datum_on_a_split_side() -> Scenario {
+    block_edited(
+        vec![datum_on_face("f-dp1", "b-1", block_right_side(), "5")],
+        right_side_split(),
     )
 }
 
@@ -926,10 +977,15 @@ pub fn two_areas() -> Scenario {
 /// succession `e-2 -> [e-9]`, and the fillet follows it with a notice) and draws a guide circle `e-10` inside the tile
 /// (the tile's region is split, with the `region_split` notice and `Keep these regions`).
 pub fn redrawn_beside_a_split() -> Scenario {
+    redrawn_beside_a_split_then(Vec::new())
+}
+
+/// [`redrawn_beside_a_split`] with `more` features after the fillet.
+fn redrawn_beside_a_split_then(more: Vec<Value>) -> Scenario {
     let tile = rectangle(5, 100.0, 0.0, 120.0, 20.0);
     let mut outline = block_outline();
     outline.extend(tile.clone());
-    let features = vec![
+    let mut features = vec![
         sketch("f-sk1", origin_plane("XY"), outline),
         extrude(
             "f-ext1",
@@ -944,6 +1000,7 @@ pub fn redrawn_beside_a_split() -> Scenario {
         ),
         fillet("f-fil1", "b-1", vec![block_front_right_vertical()], "2"),
     ];
+    features.extend(more);
     let mut edited = right_side_redrawn();
     edited.extend(tile);
     edited.push(circle("e-10", [110.0, 10.0], 5.0));
@@ -951,6 +1008,23 @@ pub fn redrawn_beside_a_split() -> Scenario {
         &document(&["b-1"], &features),
         vec![Change::Entities("f-sk1", edited)],
     )
+}
+
+/// [`redrawn_beside_a_split`] with a face sketch `f-sk2` on BLOCK's right side after the fillet, a circle `e-1` at
+/// (25, 15) of radius 4 on it. After the edit the sketch follows the replaced line to `f-ext1/lateral/e-9` without a
+/// message (features.md section 3.6).
+pub fn redrawn_beside_a_split_with_a_face_sketch() -> Scenario {
+    redrawn_beside_a_split_then(vec![sketch(
+        "f-sk2",
+        face_plane(
+            "b-1",
+            block_right_side(),
+            [80.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ),
+        vec![circle("e-1", [25.0, 15.0], 4.0)],
+    )])
 }
 
 // Picks.

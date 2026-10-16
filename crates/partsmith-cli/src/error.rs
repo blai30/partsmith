@@ -67,8 +67,9 @@ pub enum CliError {
     Load {
         /// The document path as given, or `<stdin>`.
         path: String,
-        /// The load diagnostic: an error with the position of the problem when known.
-        diagnostic: ValidationDiagnostic,
+        /// The load diagnostic: an error with the position of the problem when known. Boxed, so
+        /// that every `Result` with a `CliError` stays small.
+        diagnostic: Box<ValidationDiagnostic>,
     },
     /// The engine refused a command.
     #[error(transparent)]
@@ -125,7 +126,10 @@ impl CliError {
             path: pointer,
             feature: None,
         };
-        CliError::Load { path, diagnostic }
+        CliError::Load {
+            path,
+            diagnostic: Box::new(diagnostic),
+        }
     }
 
     /// The exit status this problem gives its file.
@@ -160,7 +164,7 @@ impl CliError {
     /// else the message and code without a position.
     pub fn diagnostic(&self) -> ValidationDiagnostic {
         match self {
-            CliError::Load { diagnostic, .. } => diagnostic.clone(),
+            CliError::Load { diagnostic, .. } => ValidationDiagnostic::clone(diagnostic),
             _ => ValidationDiagnostic {
                 severity: Severity::Error,
                 code: self.code(),
@@ -293,7 +297,7 @@ mod tests {
     fn load_diagnostics_with_a_pointer_name_it() {
         let error = CliError::Load {
             path: "badid.ptsm".to_owned(),
-            diagnostic: ValidationDiagnostic {
+            diagnostic: Box::new(ValidationDiagnostic {
                 severity: Severity::Error,
                 code: "parse_error".to_owned(),
                 message: "Bad id.".to_owned(),
@@ -301,7 +305,7 @@ mod tests {
                 column: None,
                 path: Some("/bodies/0/id".to_owned()),
                 feature: None,
-            },
+            }),
         };
 
         assert_eq!(

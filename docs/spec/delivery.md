@@ -10,7 +10,7 @@ Every change is built and tested on every platform the project ships before it m
 
 ### 1.1 In this milestone
 
-- CI jobs: OCCT native and WebAssembly builds with caches; Rust format, lint and tests (including the desktop crate and the examples runner); `cargo-deny`; kernel tests on WebAssembly; the WebAssembly core built with `scripts/build-wasm.sh`; UI lint, typecheck, unit tests and script tests, and the licenses of the npm production dependencies checked against the allow list of `deny.toml` (2.10); the web build with the distribution check; Playwright end-to-end tests against the real WebAssembly core; schema, generated-type and third-party notices drift; Python package tests including the examples' Python twins, and the wheel built and installed on CPython 3.12 and 3.13 (python-api.md test 76); a Linux desktop build.
+- CI jobs: OCCT native and WebAssembly builds with caches; Rust format, lint and tests (including the desktop crate and the examples runner); `cargo-deny`; kernel tests on WebAssembly; the WebAssembly core built with `scripts/build-wasm.sh`; UI lint, typecheck, unit tests and script tests, and the licenses of the npm packages that ship checked against the allow list of `deny.toml` (2.10); the web build with the distribution check; Playwright end-to-end tests against the real WebAssembly core; schema, generated-type and third-party notices drift; Python package tests including the examples' Python twins, and the wheel built and installed on CPython 3.12 and 3.13 (python-api.md test 76); a Linux desktop build.
 - Third-party notices for the desktop app and the web app, generated from the lock files, committed, checked in CI and shipped in the desktop bundles, the web build and each release (2.9).
 - A nightly run of the sketch property tests at 4096 cases, which skips a night when `main` has not changed (2.11).
 - What `README.md` says, and the release checklist (2.12, 3.6).
@@ -52,7 +52,7 @@ THIRD-PARTY-NOTICES.txt           notices of the desktop app, generated (2.9)
 ui/public/THIRD-PARTY-NOTICES.txt notices of the web app, generated (2.9)
 ui/scripts/notices.mjs            notices generator and check (2.9)
 ui/scripts/notices.test.mjs       its unit tests (node:test)
-ui/scripts/notices/               standard license texts and Emscripten texts the generator reads (2.9)
+ui/scripts/notices/               committed license texts the generator reads: standard texts, copies from crate repositories, OCCT's, Rust's, Emscripten's and WebView2's (2.9)
 ui/scripts/check-licenses.mjs     npm license check (2.10)
 ui/scripts/check-licenses.test.mjs  its unit tests (node:test)
 ui/package.json                   scripts "check:dist", "test:scripts", "notices", "check:notices" and "check:licenses"
@@ -120,7 +120,7 @@ Triggers `push` to `main` and `pull_request`; `concurrency` `ci-${{ github.ref }
 | `rust` | `occt-native` | Frees disk space and installs the Tauri Linux packages (3.2), then `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo clippy -p partsmith-recompute --features stability-study --all-targets -- -D warnings` (the reference stability corpus, which fails by design until its study's plan is implemented, is compiled and linted but not run), `cargo test --workspace`, and prints the free disk space after the tests, also when they fail. The workspace includes `partsmith-desktop` and the examples runner. |
 | `deny` | | `cargo-deny` with `deny.toml` (unchanged action; the policy now covers the Tauri tree, 3.2). |
 | `ui` | | In `ui/`: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:scripts`, `pnpm check:licenses` (2.10). |
-| `schema` | `occt-native` | `cargo run -p partsmith-cli -- schema --write`, `pnpm -C ui install --frozen-lockfile`, `pnpm -C ui generate:protocol`, the drift check of 3.4, then `pnpm -C ui check:notices` (2.9), which reads OCCT's license texts from the restored install through the workflow's `OCCT_ROOT`. |
+| `schema` | `occt-native` | `cargo run -p partsmith-cli -- schema --write`, `pnpm -C ui install --frozen-lockfile`, `pnpm -C ui generate:protocol`, the drift check of 3.4, then `pnpm -C ui check:notices` (2.9) in a step with `if: ${{ !cancelled() }}`, so that a drift failure does not hide a notices failure. |
 | `core-wasm` | `occt-native`, `occt-wasm` | Restores both OCCT caches, sets up Emscripten 4.0.15, runs `scripts/build-wasm.sh` with `OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=$GITHUB_WORKSPACE/.occt/wasm`, then `cargo test -p partsmith-wasm --test web_module` (the Node round trip against the module just built) with `PARTSMITH_REQUIRE_WEB_MODULE=1`, so the test fails instead of skipping when Node or the module is missing, and uploads `ui/public/core/` as the artifact `core-wasm` (retention 7 days, `if-no-files-found: error`). |
 | `web` | `core-wasm` | Downloads `core-wasm` into `ui/public/core/`, then in `ui/`: `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm check:dist`, then checks that `dist/core/partsmith_core.wasm` and `dist/core/partsmith_core.mjs` exist (`check:dist` does not look for the core); uploads `ui/dist/` as the artifact `web-dist` (retention 7 days, `if-no-files-found: error`). |
 | `e2e` | `core-wasm` | Downloads `core-wasm` into `ui/public/core/`, then in `ui/`: `pnpm install --frozen-lockfile`, `pnpm exec playwright install --with-deps chromium`, `pnpm e2e`. On failure uploads `ui/playwright-report/` and `ui/test-results/` as the artifact `playwright-report`. |
@@ -188,7 +188,7 @@ Triggers: `push` of tags matching `v[0-9]+.[0-9]+.[0-9]+`, and `workflow_dispatc
 
 ### 2.6 Distribution check (`ui/scripts/check-dist.mjs`)
 
-An ES module with no dependencies beyond Node's standard library, usable as a library and as a command:
+An ES module with no dependencies beyond Node's standard library and the notices generator, from which it takes one constant, usable as a library and as a command:
 
 ```js
 /** Cloudflare Pages' per-file limit: 25 MiB. */
@@ -200,8 +200,8 @@ export const INITIAL_JAVASCRIPT_LIMIT = 250_000
 /** The exact text of `_headers` (2.7). */
 export const EXPECTED_HEADERS = '/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: require-corp\n'
 
-/** The first line of the web app's notices, `THIRD-PARTY-NOTICES.txt` at the root of the build (2.9). */
-export const WEB_NOTICES_HEADING = 'Third-party notices for the Partsmith web app'
+/** The first line of the web app's notices (2.9), defined once in the generator. */
+export { WEB_NOTICES_HEADING } from './notices.mjs'
 
 /**
  * Every regular file under `directory` (recursively, not following symbolic links) larger than `limit` bytes,
@@ -300,25 +300,25 @@ A twin may be the generated script or a hand-edited, more readable one, as long 
 
 ### 2.9 Third-party notices
 
-Every artifact Partsmith distributes carries the notices of the third-party software in it (ADR 0033): the license texts of every Rust crate and npm package it is built from, the two self-hosted fonts, the toolchain libraries linked into it, and OCCT's LGPL 2.1 text and exception with a statement of how OCCT is linked, where its source is and how to relink it. OCCT is linked statically today (ADR 0003). ADR 0034 sets out the options for meeting LGPL 2.1 section 6, which wait for the owner; the statements below describe the linking as it is.
+Every artifact Partsmith distributes carries the notices of the third-party software in it (ADR 0033): the license texts of every Rust crate and npm package it is built from, the two self-hosted fonts and the other libraries linked into it, and, for OCCT, its LGPL 2.1 text and exception, the notices of the code it includes from other projects, and a statement of how it is linked, where its source is and how to relink it. OCCT is linked statically today (ADR 0003). ADR 0034 sets out the options for meeting LGPL 2.1 section 6, which wait for the owner; the statements below describe the linking as it is.
 
 **Files.** Two generated files, committed, in UTF-8 with LF line endings and one final newline:
 
 | File | Artifact | Ships |
 | --- | --- | --- |
-| `THIRD-PARTY-NOTICES.txt` (repository root) | The desktop app for Linux (`x86_64-unknown-linux-gnu`), Windows (`x86_64-pc-windows-msvc`) and macOS (`aarch64-apple-darwin`), root crate `partsmith-desktop` | As a bundle resource and as the Windows installer's license page (desktop.md 2.8), and as an asset of every release next to `SHA256SUMS` (2.5) |
+| `THIRD-PARTY-NOTICES.txt` (repository root) | The desktop app for Linux (`x86_64-unknown-linux-gnu`), Windows (`x86_64-pc-windows-msvc`) and macOS (`aarch64-apple-darwin`), root crate `partsmith-desktop` | As a resource of every bundle (desktop.md 2.8), and as an asset of every release next to `SHA256SUMS` (2.5) |
 | `ui/public/THIRD-PARTY-NOTICES.txt` | The web app, whose core is built for `wasm32-unknown-emscripten` from root crate `partsmith-wasm` | At `/THIRD-PARTY-NOTICES.txt` of every deployment: Vite copies it into `ui/dist`, and `check:dist` requires it (2.6) |
 
 The desktop app embeds `ui/dist`, so it also carries the web file among its assets, where nothing shows it.
 
-**Commands.** `ui/scripts/notices.mjs` is an ES module that uses only Node's standard library. `ui/package.json` gains `"notices": "node scripts/notices.mjs write"` and `"check:notices": "node scripts/notices.mjs check"`, both run in `ui/`:
+**Commands.** `ui/scripts/notices.mjs` is an ES module that uses only Node's standard library and the exports of `check-licenses.mjs` (2.10). Like `check-dist.mjs`, it runs its command only when it is the script Node started, so importing it has no side effect. `ui/package.json` gains `"notices": "node scripts/notices.mjs write"` and `"check:notices": "node scripts/notices.mjs check"`, both run in `ui/`:
 
 - `write` writes both files and prints `Wrote THIRD-PARTY-NOTICES.txt and ui/public/THIRD-PARTY-NOTICES.txt.`
 - `check` generates both texts in memory and compares each with its committed file byte for byte. It exits 0 and prints `THIRD-PARTY-NOTICES.txt and ui/public/THIRD-PARTY-NOTICES.txt are up to date.` when both match, and exits 1 with the out-of-date message of section 4 for each file that differs or is missing, in the order of the table above.
 - Any other argument list exits 2 with `usage: node scripts/notices.mjs write|check`.
 - A failing input (section 4) exits 1 with its message, and `write` then writes nothing.
 
-Both commands need `cargo` and `pnpm` on `PATH`, `ui/node_modules` installed (`pnpm install --frozen-lockfile`), and `OCCT_ROOT` naming an install made by `scripts/build-occt.sh`. The module finds the repository root from its own location and runs every command through one function, `run(command, args, directory)`, which resolves to the command's standard output and which the tests replace.
+Both commands need `cargo` and `pnpm` on `PATH` and `ui/node_modules` installed (`pnpm install --frozen-lockfile`). They need no OCCT install: every text they read is in the repository or in a package folder. The module finds the repository root from its own location and runs every command through one function, `run(command, args, directory)`, which resolves to the command's standard output and which the tests replace.
 
 ```js
 /** The first line of each notices file. */
@@ -332,6 +332,30 @@ export const DESKTOP_TARGETS = [
   { triple: 'aarch64-apple-darwin', platform: 'macOS' },
 ]
 
+/**
+ * Nested license files of code that no artifact builds (input 3), as `{ crate, path, reason }`, with `path` relative
+ * to the crate's folder: a file, or a folder ending in `/` for every file below it.
+ */
+export const EXCLUDED_LICENSE_FILES = [
+  {
+    crate: 'libdbus-sys',
+    path: 'vendor/dbus/',
+    reason: 'the vendored libdbus, compiled only with the vendored feature, which no Partsmith build enables',
+  },
+]
+
+/** The crates allowed to ship prebuilt libraries (input 8), as `{ crate, reason }`. */
+export const PREBUILT_LIBRARY_CRATES = [
+  {
+    crate: 'webview2-com-sys',
+    reason: 'links the WebView2 SDK loader statically under MSVC; the loader has its own entry (input 6)',
+  },
+  {
+    crate: 'windows_x86_64_msvc',
+    reason: 'import libraries that the windows-rs project generates, under the crate license',
+  },
+]
+
 /** `text` normalized as below; '' when nothing is left. */
 export function normalizeText(text)
 
@@ -341,29 +365,58 @@ export function normalizeText(text)
  */
 export function artifactCrates(metadata, rootName)
 
-/** The paths of the license files of a package folder (input 3), in order. */
-export async function licenseFiles(folder, licenseFile)
+/**
+ * The paths of the license files of a package folder (input 3), relative to it with `/`, in order, without the
+ * paths `excluded` names (written as the `path` of EXCLUDED_LICENSE_FILES).
+ */
+export async function licenseFiles(folder, licenseFile, excluded = [])
+
+/** The prebuilt libraries of a package folder (input 8), relative to it with `/`, in byte order. */
+export async function prebuiltLibraries(folder)
 
 /** The text of one notices file from its parts, in the layout below, with no input or output. */
 export function renderNotices(notices)
 
 /** Both texts as `{ desktop, web }`, read from the repository at `root`, with every command sent through `run`. */
-export async function generateNotices(root, { run, occtRoot })
+export async function generateNotices(root, { run })
 ```
 
-`renderNotices` takes `{ heading, scope, partsmith, occt, fonts, crates, packages, toolchain }`. `partsmith` is the text of `LICENSE`; `occt` is `{ statement, entry }`; the other four are lists of entries `{ name, version, license, url, platforms, standard, texts }`, where `texts` holds the entry's normalized license texts in order, `platforms` the desktop platforms whose graph holds it (`null` in the web file), and `standard` whether `texts` is a standard text (input 3).
+`renderNotices` takes `{ heading, scope, partsmith, occt, fonts, crates, packages, libraries }`. `partsmith` is the text of `LICENSE`; `occt` is `{ statement, entries }`; `occt.entries` and the other four are lists of entries `{ name, version, license, url, platforms, textSource, texts }`, where `texts` holds the entry's normalized license texts in order, `platforms` the desktop platforms whose graph holds it (`null` in the web file), and `textSource` where its texts come from: `shipped` (from the package itself or a file inputs 4 to 7 name), `standard` or `repository` (input 3).
 
 **Inputs.** Every input is fixed by committed files:
 
 1. **Crates.** For each triple, `cargo metadata --format-version 1 --locked --all-features --filter-platform <triple>` in the repository root, which is the graph `cargo-deny` checks (`deny.toml` sets `[graph] all-features`). An artifact's crates are the packages with a non-null `source` that `resolve` reaches from its root crate through dependencies whose `dep_kinds` include a normal one (`kind` null) or a `build` one. Dev-dependencies are left out, and the workspace crates are Partsmith itself. Release bundles build on their own operating system, so the target filter is right for build dependencies too. The desktop crates are the union over the three triples, each with the platforms whose graph holds it. The root crate's `repository` names the Partsmith repository in the statements.
-2. **npm packages.** `productionPackages` of 2.10: each name and version that `pnpm licenses list --prod --json` lists in `ui/`, once. Both files list them, since the desktop app embeds the same `ui/dist`.
-3. **License texts of a crate or package.** The file its manifest names as `license_file` (crates only), then every regular file directly in its folder (the folder of `manifest_path`, or the npm package's path) whose name starts with `LICENSE`, `LICENCE`, `COPYING`, `COPYRIGHT`, `NOTICE` or `UNLICENSE` in any letter case, then every regular file in a folder named `LICENSES` there; each group in byte order of names, each file once. A package with none of these gets the standard text of the first license in its expression, read left to right, that `deny.toml` allows (`licenseAllowed` of 2.10), from `ui/scripts/notices/licenses/<identifier>.txt`, a committed copy of the SPDX License List's plain text of that identifier; its entry says `standard text`. Seven Linux crates need one on 2026-10-16 (ADR 0033).
-4. **OCCT.** `OCCT_VERSION` and `OCCT_TAG` from `scripts/occt-version.sh`; `$OCCT_ROOT/share/doc/opencascade/LICENSE_LGPL_21.txt` and `OCCT_LGPL_EXCEPTION.txt`; and `OCC_VERSION_COMPLETE` in `$OCCT_ROOT/include/opencascade/Standard_Version.hxx`, which must equal `OCCT_VERSION`.
-5. **Fonts** (ADR 0031), named in the generator in this order: `Geist` `1.800`, `OFL-1.1`, `https://github.com/vercel/geist-font`, text `ui/public/fonts/Geist-OFL.txt`; `JetBrains Mono` `2.304`, `OFL-1.1`, `https://github.com/JetBrains/JetBrainsMono`, text `ui/public/fonts/JetBrainsMono-OFL.txt`.
-6. **Toolchain libraries**, in this order. In both files: `Rust standard library` with the `channel` of `rust-toolchain.toml` as its version, `MIT OR Apache-2.0`, `https://www.rust-lang.org`, with the Apache License 2.0 (the text of `LICENSE`) as its text. In the web file only, with `{emsdk}` the version in `scripts/emsdk-version.sh`: `Emscripten runtime` `{emsdk}` (the JavaScript of `core/partsmith_core.mjs` and the system libraries in `core/partsmith_core.wasm`), `MIT OR NCSA`, `https://emscripten.org`, text `ui/scripts/notices/emscripten-{emsdk}/LICENSE`; `musl libc, in the Emscripten runtime` with no version, `MIT`, `https://musl.libc.org`, text `ui/scripts/notices/emscripten-{emsdk}/musl-COPYRIGHT`; and `LLVM libc++, libc++abi, libunwind and compiler-rt, in the Emscripten runtime` with no version, `Apache-2.0 WITH LLVM-exception`, `https://llvm.org`, with the text of `LICENSE` (the exception asks no notice for object code). The two Emscripten files are committed copies of the SDK's `upstream/emscripten/LICENSE` and `upstream/emscripten/system/lib/libc/musl/COPYRIGHT`; a new Emscripten pin needs new copies, or the generator fails.
-7. **Partsmith's own license**: the root `LICENSE`.
+2. **npm packages.** `shippedPackages` of 2.10: the production packages that `pnpm licenses list --prod --json` lists in `ui/`, and the build packages of `EMITTED_BUILD_PACKAGES` whose code the build writes into `ui/dist`, each name and version once. Both files list them, since the desktop app embeds the same `ui/dist`.
+3. **License texts of a crate or package**, in this order, each group in byte order of paths and each file once: the file its manifest names as `license_file` (crates only); every regular file directly in its folder (the folder of `manifest_path`, or the npm package's path) whose name starts with `LICENSE`, `LICENCE`, `COPYING`, `COPYRIGHT`, `NOTICE` or `UNLICENSE` in any letter case; every regular file directly in a folder `LICENSES` there; and every other regular file below the folder, at any depth, whose name starts with one of those prefixes and does not end in `.rs`, `.c` or `.h`, unless `EXCLUDED_LICENSE_FILES` names it for that crate. Symbolic links are not followed. Nested files hold the licenses of code or data inside a crate, such as the Unicode data license of `regex-syntax` in `src/unicode_tables/LICENSE-UNICODE`. A package with none of these files gets one of two kinds of text, and its entry says which:
+   - **Standard text**, when `Apache-2.0` or `MPL-2.0` alone satisfies its expression (the whole expression, or an `OR` alternative at any position), `Apache-2.0` first: that license's text from `ui/scripts/notices/licenses/<identifier>.txt`, a committed copy of the SPDX License List's plain text. These two texts have no copyright line to fill in.
+   - **Text from its repository** otherwise: every regular file in `ui/scripts/notices/crates/<name>/`, in byte order of names, a committed copy of the license file in the crate's repository, kept by name so that a version update keeps it. The SPDX texts of MIT, BSD and Zlib leave the copyright line as a placeholder, and those licenses ask for "the above copyright notice", so only the holder's own file meets them.
 
-**Normalized text.** A license text is decoded as UTF-8, with U+FFFD for an invalid byte sequence. Then a leading U+FEFF is removed, CRLF and a lone CR become LF, form feeds are removed, spaces and tabs at the end of each line are removed, blank lines at the start and the end are removed, and one LF ends the text. Two texts are the same text when their normalized forms are equal. Nothing else changes: the texts keep every other character as their packages ship it, including characters that CLAUDE.md's style rules keep out of the project's own text (ADR 0033).
+   On 2026-10-16, 22 desktop crates ship no license file (ADR 0033). Twelve take a standard text: `Apache-2.0` for `defmt-parser`, `dispatch2`, `libappindicator-sys`, `objc2-app-kit`, `objc2-core-foundation`, `objc2-core-graphics`, `objc2-exception-helper`, `objc2-io-surface`, `objc2-quartz-core`, `objc2-web-kit` and `tauri-plugin`, and `MPL-2.0` for `selectors`. Ten take a text from their repository: `alloc-stdlib` (BSD-3-Clause), and `block2`, `dlopen2`, `dlopen2_derive`, `objc2`, `objc2-encode`, `objc2-foundation`, `webview2-com`, `webview2-com-macros` and `webview2-com-sys` (MIT). Every web crate ships its texts.
+4. **OCCT.** `OCCT_VERSION` and `OCCT_TAG` from `scripts/occt-version.sh`, and the folder `ui/scripts/notices/occt-{OCCT_VERSION}/`, made once per OCCT pin and committed:
+   - `LICENSE_LGPL_21.txt` and `OCCT_LGPL_EXCEPTION.txt`, copies of the files of those names in `share/doc/opencascade` of an install that `scripts/build-occt.sh` makes (the root of the tag's source holds the same two files).
+   - `bundled.json`, an array of `{ name, license, path, text }`, one element for each piece of code from another project that the toolkits `partsmith-occt-sys/build.rs` links compile and whose license asks for its notice with binaries. `license` is an SPDX expression or `null`, `path` is the file in OCCT's source, and `text` names the file of this folder that holds its notice: the lines below, with each line's comment marker (`//`, `/*` or `*`) and the spaces after it removed.
+
+   For 7.9.3, in this order:
+
+   | `name` | `license` | `path` | `text`, from the lines |
+   | --- | --- | --- | --- |
+   | `flex, in OCCT's STEP reader (FlexLexer.h and the generated scanner)` | `null` | `src/FlexLexer/FlexLexer.h` | `FlexLexer.txt`, lines 5 to 28 |
+   | `DELABELLA, in OCCT's mesher` | `MIT` | `src/BRepMesh/delabella.cpp` | `delabella.txt`, lines 3 to 24 |
+   | `strtod of David M. Gay, in OCCT's number parsing` | `null` | `src/Standard/Standard_Strtod.cxx` | `strtod.txt`, lines 3 to 16 |
+   | `ConvertUTF of Unicode, Inc., in OCCT's UTF iterator` | `null` | `src/NCollection/NCollection_UtfIterator.lxx` | `ConvertUTF.txt`, lines 16 to 36 |
+
+   Not listed: the Bison skeleton of the STEP parser (`src/StepFile/step.tab.cxx`), whose special exception asks nothing, and the DejaVu Sans font of `src/Font`, compiled only with FreeType, which `build-occt.sh` turns off. Whoever adds the folder for a new pin also searches that version's sources of the linked toolkits for other third-party notices. A missing folder or file fails the generator.
+5. **Fonts** (ADR 0031), named in the generator in this order: `Geist` `1.800`, `OFL-1.1`, `https://github.com/vercel/geist-font`, text `ui/public/fonts/Geist-OFL.txt`; `JetBrains Mono` `2.304`, `OFL-1.1`, `https://github.com/JetBrains/JetBrainsMono`, text `ui/public/fonts/JetBrainsMono-OFL.txt`.
+6. **Other libraries**, in this order:
+   - In both files: `Rust standard library` with the `channel` of `rust-toolchain.toml` as its version, `(MIT OR Apache-2.0) AND Unicode-3.0`, `https://www.rust-lang.org`, with two texts: the Apache License 2.0 (the text of `LICENSE`), and `ui/scripts/notices/rust-{channel}/Unicode-3.0.txt`, a copy of the toolchain's `share/doc/rust/licenses/Unicode-3.0.txt` (under `rustc --print sysroot`), for the Unicode data tables of `core` that the toolchain's `share/doc/rust/COPYRIGHT-library.html` names.
+   - In the desktop file only, for Windows only: `Microsoft Edge WebView2 SDK loader, in webview2-com-sys` with the locked version of that crate, `BSD-3-Clause`, `https://www.nuget.org/packages/Microsoft.Web.WebView2`, text `ui/scripts/notices/webview2-com-sys-{version}/LICENSE.txt`, a copy of the `LICENSE.txt` of the `Microsoft.Web.WebView2` NuGet package whose `WebView2LoaderStatic.lib` that crate version ships and links statically under MSVC. The crate declares only MIT, which covers its bindings, and ships no text for the loader.
+   - In the web file only, with `{emsdk}` the version in `scripts/emsdk-version.sh`: `Emscripten runtime` `{emsdk}` (the JavaScript of `core/partsmith_core.mjs` and the system libraries in `core/partsmith_core.wasm`), `MIT OR NCSA`, `https://emscripten.org`, text `ui/scripts/notices/emscripten-{emsdk}/LICENSE`; `musl libc, in the Emscripten runtime` with no version, `MIT`, `https://musl.libc.org`, text `ui/scripts/notices/emscripten-{emsdk}/musl-COPYRIGHT`; and `LLVM libc++, libc++abi, libunwind and compiler-rt, in the Emscripten runtime` with no version, `Apache-2.0 WITH LLVM-exception AND (NCSA OR MIT)`, `https://llvm.org`, texts `ui/scripts/notices/emscripten-{emsdk}/libcxx-LICENSE.TXT`, `libcxxabi-LICENSE.TXT`, `libunwind-LICENSE.TXT` and `compiler-rt-LICENSE.TXT`. Each LLVM file holds the Apache 2.0 text with the LLVM exception and the NCSA and MIT texts that still cover older code, which ask for their notice with binaries.
+
+   The Emscripten files are copies of the SDK's `upstream/emscripten/LICENSE`, `upstream/emscripten/system/lib/libc/musl/COPYRIGHT` and `upstream/emscripten/system/lib/{libcxx,libcxxabi,libunwind,compiler-rt}/LICENSE.TXT`. A new Rust, Emscripten or `webview2-com-sys` version needs new copies, or the generator fails.
+7. **Partsmith's own license**: the root `LICENSE`.
+8. **Prebuilt libraries.** Every crate of input 1 is searched for regular files ending in `.lib`, `.a`, `.dll`, `.so` or `.dylib` below its folder, outside any folder named `tests` (`system-deps` keeps a test library in `src/tests/lib`). A crate that ships one and is not in `PREBUILT_LIBRARY_CRATES` fails the generator: a prebuilt library is under the license of whoever built it, which the crate's own license may not cover.
+
+**Normalized text.** A license text is decoded as UTF-8, with U+FFFD for an invalid byte sequence. Then a leading U+FEFF is removed, CRLF and a lone CR become LF, form feeds are removed, spaces and tabs at the end of each line are removed, blank lines at the start and the end are removed, and one LF ends the text. Two texts are the same text when their normalized forms are equal. Nothing else changes: the texts keep every other character as their packages ship it, including the em dash that AGENTS.md's style rules keep out of the project's own text (ADR 0033 proposes the wording that allows it, section 8).
 
 **Layout.** In this order, with `{...}` filled in and the blank lines shown:
 
@@ -378,7 +431,7 @@ Partsmith is licensed under the Apache License 2.0, text [1]. Models you make wi
 
 {OCCT statement}
 
-{OCCT entry}
+{one entry line per OCCT entry}
 
 == Fonts ==
 
@@ -386,13 +439,15 @@ Partsmith is licensed under the Apache License 2.0, text [1]. Models you make wi
 
 == Rust crates ==
 
+Each crate's source code is at its crates.io URL; for the crates under MPL-2.0 that is where to obtain their Source Code Form.
+
 {one entry line per crate}
 
 == npm packages ==
 
 {one entry line per package}
 
-== Toolchain libraries ==
+== Other libraries ==
 
 {one entry line per library}
 
@@ -408,40 +463,46 @@ Partsmith is licensed under the Apache License 2.0, text [1]. Models you make wi
 ```
 
 - `{heading}` is `DESKTOP_NOTICES_HEADING` or `WEB_NOTICES_HEADING`, and `{scope}` is `The Partsmith desktop app for Linux, Windows and macOS` or `The Partsmith web app`.
-- An entry line is `{name}`, then ` {version}` when it has one, then `, {license}, {url}`; then `, only {platforms}` for a desktop entry that some platform lacks (`{platforms}` the platforms that hold it, in the order of `DESKTOP_TARGETS`, joined by ` and `); then `, standard text` for a standard text; then `, texts` followed by ` [{n}]` for each of its texts. `{license}` is the package's license field as written (`MIT/Apache-2.0` stays as it is), or `see texts` when it has none. `{url}` is `https://crates.io/crates/{name}/{version}` for a crate, `https://www.npmjs.com/package/{name}/v/{version}` for an npm package, and the URL of inputs 5 and 6 for fonts and toolchain libraries; for MPL-2.0 code it is also where its source is.
-- The OCCT entry is `Open CASCADE Technology {OCCT_VERSION}, LGPL-2.1-only WITH OCCT-exception-1.0, https://github.com/Open-Cascade-SAS/OCCT/tree/{OCCT_TAG}, texts [2] [3]`.
-- Fonts and toolchain libraries come in the order of inputs 5 and 6. Crates and npm packages are sorted by name (byte order) and then by version precedence (Semantic Versioning 2.0.0).
-- Texts are numbered from 1 in the order the file first refers to them, reading from the top, so `LICENSE` is always [1] and OCCT's license and exception are [2] and [3]. Each distinct text appears once, as a line `[{n}]`, a blank line and the normalized text, with one blank line before the next `[{n}]`; the file ends with the last text's final LF.
+- An entry line is `{name}`, then ` {version}` when it has one, then `, {license}, {url}`; then `, only {platforms}` for a desktop entry that some platform lacks (`{platforms}` the platforms that hold it, in the order of `DESKTOP_TARGETS`, joined by ` and `); then `, standard text` or `, text from its repository` when its `textSource` is `standard` or `repository`; then `, texts` followed by ` [{n}]` for each of its texts. `{license}` is the package's license field as written (`MIT/Apache-2.0` stays as it is), or `see texts` when it has none. `{url}` is `https://crates.io/crates/{name}/{version}` for a crate, `https://www.npmjs.com/package/{name}/v/{version}` for an npm package, and the URL of inputs 4 to 6 for the others.
+- The OCCT entries are, first, `Open CASCADE Technology {OCCT_VERSION}, LGPL-2.1-only WITH OCCT-exception-1.0, https://github.com/Open-Cascade-SAS/OCCT/tree/{OCCT_TAG}, texts [2] [3]`, then one line per element of `bundled.json`, in its order, whose URL is `https://github.com/Open-Cascade-SAS/OCCT/blob/{OCCT_TAG}/{path}`.
+- Fonts and other libraries come in the order of inputs 5 and 6. Crates and npm packages are sorted by name (byte order) and then by version precedence (Semantic Versioning 2.0.0).
+- Texts are numbered from 1 in the order the file first refers to them, reading from the top, so `LICENSE` is always [1], OCCT's license and exception are [2] and [3], and the notices of `bundled.json` follow. Each distinct text appears once, as a line `[{n}]`, a blank line and the normalized text, with one blank line before the next `[{n}]`; the file ends with the last text's final LF.
 
 **The OCCT statement.** `{OCCT_VERSION}`, `{OCCT_TAG}` and `{repository}` come from the inputs; the rest is literal, and each paragraph is one line. In the desktop file:
 
 ```text
-The Partsmith desktop app uses Open CASCADE Technology (OCCT) {OCCT_VERSION}, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0; both texts are below.
+The Partsmith desktop app uses Open CASCADE Technology (OCCT) {OCCT_VERSION}, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.
 
 OCCT is linked statically into the app. It is the unmodified source of the tag {OCCT_TAG} of https://github.com/Open-Cascade-SAS/OCCT, built as static libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.
 
-You may modify OCCT and use your version with Partsmith. The Partsmith source of each release is the tag v followed by the app's version (for example v0.1.0) in {repository}, with every script, tool version and lock file the build uses. To relink: put your OCCT source in <work>/src, run OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>, and build the app with OCCT_ROOT=<prefix> as README.md describes (pnpm -C ui build, then cargo tauri build in desktop/src-tauri).
+You may modify OCCT and use your version with Partsmith. The Partsmith source of each release is the tag v followed by the app's version (for example v0.1.0) in {repository}, with every script, tool version and lock file the build uses. To relink: put your OCCT source in <work>/src, run OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>, and build the app with OCCT_ROOT=<prefix> as README.md describes (pnpm -C ui build, then cargo tauri build in desktop/src-tauri). The exact commands for each platform, including the environment Windows and macOS need, are the steps of the bundle job in .github/workflows/release.yml at that tag.
 ```
 
 In the web file:
 
 ```text
-The Partsmith web app uses Open CASCADE Technology (OCCT) {OCCT_VERSION}, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0; both texts are below.
+The Partsmith web app uses Open CASCADE Technology (OCCT) {OCCT_VERSION}, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.
 
 OCCT is linked statically into the app's geometry core, core/partsmith_core.wasm. It is the unmodified source of the tag {OCCT_TAG} of https://github.com/Open-Cascade-SAS/OCCT, built as static WebAssembly libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.
 
-You may modify OCCT and use your version with Partsmith. The Partsmith source of this site is in {repository}, whose main branch the production site is built from, with every script, tool version and lock file the build uses. To relink: put your OCCT source in <work>/src, run OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix> with the Emscripten SDK of scripts/emsdk-version.sh active, and build the core with OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md describes (scripts/build-wasm.sh, then pnpm -C ui build).
+You may modify OCCT and use your version with Partsmith. Each deployment of this site is built from one commit of {repository}: production from its main branch, a preview from the head commit of its pull request; that commit holds every script, tool version and lock file the build uses. To relink: put your OCCT source in <work>/src, run OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix> with the Emscripten SDK of scripts/emsdk-version.sh active, and build the core with OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md describes (scripts/build-wasm.sh, then pnpm -C ui build). The exact commands are the steps of the core-wasm and web jobs in .github/workflows/ci.yml at that commit.
 ```
 
-**Kept current.** A pull request that changes `Cargo.lock`, `ui/pnpm-lock.yaml`, `rust-toolchain.toml`, `scripts/occt-version.sh`, `scripts/emsdk-version.sh`, a font license text or `LICENSE` runs `pnpm -C ui notices` and commits both files with the change; otherwise `check:notices` fails the `schema` job (2.4). The release asset is the file of the tagged commit, whose CI passed (`verify`, 2.5).
+**Kept current.** A pull request that changes `Cargo.lock`, a `Cargo.toml` (the root crates' `repository`), `ui/pnpm-lock.yaml`, `rust-toolchain.toml`, `scripts/occt-version.sh`, `scripts/emsdk-version.sh`, a font license text, `LICENSE`, `ui/scripts/notices.mjs`, `ui/scripts/check-licenses.mjs` or a file under `ui/scripts/notices/` runs `pnpm -C ui notices` and commits both files with the change; otherwise `check:notices` fails the `schema` job (2.4). Since other changes read only the root `AGENTS.md`, the change that first commits the notices also adds to its Commands block the line `pnpm -C ui notices   # after changing Cargo.lock, a Cargo.toml, ui/pnpm-lock.yaml, rust-toolchain.toml or scripts/*-version.sh`. The release asset is the file of the tagged commit, whose CI passed (`verify`, 2.5).
 
-**Not covered** (open issue 10): the system libraries that the AppImage bundles (desktop.md 3.8), and the CLI and the Python wheel, which M1 does not distribute (1.2).
+**Not covered** (open issue 10): the system libraries and the runtime that the AppImage bundles (desktop.md 3.8), the code the NSIS installer adds, and the CLI and the Python wheel, which M1 does not distribute (1.2).
 
 ### 2.10 npm license check (`ui/scripts/check-licenses.mjs`)
 
-An ES module with no dependencies beyond Node's standard library, usable as a library and as a command. It holds the npm packages that ship, the production dependencies of `ui/package.json` and theirs, to the license allow list that `cargo-deny` applies to crates, so the policy has one source, `deny.toml` (ADR 0033). Development dependencies are not checked: they never ship.
+An ES module with no dependencies beyond Node's standard library, usable as a library and as a command; like `check-dist.mjs`, it runs its command only when it is the script Node started. It holds the npm packages that ship to the license allow list that `cargo-deny` applies to crates, so the policy has one source, `deny.toml` (ADR 0033). The packages that ship are the production dependencies of `ui/package.json` and theirs, and the development dependencies whose code the build writes into `ui/dist`. The other development dependencies are not checked: they do not ship.
 
 ```js
+/**
+ * The development dependencies whose code the build writes into `ui/dist`: Rolldown's CommonJS interop helpers at the
+ * top of `assets/index-*.js`, Vite's module preload polyfill (test 32), and Tailwind's CSS with its license banner.
+ */
+export const EMITTED_BUILD_PACKAGES = ['rolldown', 'tailwindcss', 'vite']
+
 /** The strings of the `allow` array of the `[licenses]` table of `denyToml` (the text of deny.toml), in order. */
 export function allowedLicenses(denyToml)
 
@@ -449,26 +510,34 @@ export function allowedLicenses(denyToml)
 export function licenseAllowed(expression, allowed)
 
 /**
- * The packages of `listing`, the standard output of `pnpm licenses list --prod --json`, as
+ * The packages of `listing`, the standard output of `pnpm licenses list --json` with or without `--prod`, as
  * `{ name, version, license, path }`, one per name and version, sorted by name and then by version precedence.
  */
 export function productionPackages(listing)
+
+/**
+ * The packages that ship: `productionPackages(production)` and, from `productionPackages(all)`, every version of each
+ * name of EMITTED_BUILD_PACKAGES, each name and version once, sorted as `productionPackages` sorts. `production` and
+ * `all` are the standard outputs of `pnpm licenses list --prod --json` and `pnpm licenses list --json`. Throws an
+ * `Error` with the emitted-package message of section 4 for the first name, in list order, that `all` lacks.
+ */
+export function shippedPackages(production, all)
 
 /** One message (section 4) for each package whose license `licenseAllowed` rejects, in the order of `packages`. */
 export function licenseProblems(packages, allowed)
 ```
 
-Command: `node scripts/check-licenses.mjs` in `ui/` (`ui/package.json` gains `"check:licenses": "node scripts/check-licenses.mjs"`). It reads `deny.toml` from the repository root, found from the module's location, and runs `pnpm licenses list --prod --json` in `ui/`:
+Command: `node scripts/check-licenses.mjs` in `ui/` (`ui/package.json` gains `"check:licenses": "node scripts/check-licenses.mjs"`). It reads `deny.toml` from the repository root, found from the module's location, runs `pnpm licenses list --prod --json` and `pnpm licenses list --json` in `ui/`, and checks `shippedPackages` of the two:
 
-- Exit 0 and `{n} production npm packages, each under a license deny.toml allows.` when there is no problem.
-- Exit 1 with every problem on standard error, one per line, or with the message of section 4 when `deny.toml` has no allow list or `pnpm` fails.
+- Exit 0 and `{n} npm packages that ship, each under a license deny.toml allows.` when there is no problem.
+- Exit 1 with every problem on standard error, one per line, or with the message of section 4 when `deny.toml` has no allow list, a package of `EMITTED_BUILD_PACKAGES` is not installed, or `pnpm` fails.
 - Exit 2 with `usage: node scripts/check-licenses.mjs` when given any argument.
 
 **Reading `deny.toml`.** The `[licenses]` table runs from its header line to the next table header. Its `allow` key holds one array of double-quoted strings, which may span lines, hold `#` comments and end with a trailing comma. Anything else (no `[licenses]` table, no `allow` key in it, an unterminated array, an element that is not a double-quoted string) throws an `Error` with the deny.toml message of section 4. The repository's list is `MIT`, `Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `BSD-2-Clause`, `BSD-3-Clause`, `ISC`, `Zlib`, `Unicode-3.0`, `CC0-1.0`, `MPL-2.0` and `BSL-1.0`.
 
-**Expressions** (SPDX license expressions). Spaces and parentheses separate tokens: `(`, `)`, the operators `AND`, `OR` and `WITH` (upper case only), and identifiers made of letters, digits, `.`, `-` and `+`. `WITH` binds tighter than `AND`, and `AND` tighter than `OR`; parentheses group. An identifier is satisfied when it equals an element of `allowed`, ignoring case; `A WITH B` when the text `A WITH B` equals an element, ignoring case (only `Apache-2.0 WITH LLVM-exception` today); `A AND B` when both are; `A OR B` when either is. Any other text is not satisfied: an empty license, `UNLICENSED`, `SEE LICENSE IN LICENSE.txt`, `Unknown` (what pnpm reports for a package without a license field), or an expression with a syntax error.
+**Expressions** (SPDX license expressions). Spaces and parentheses separate tokens: `(`, `)`, the operators `AND`, `OR` and `WITH` (upper case only), and identifiers made of letters, digits, `.`, `-` and `+`. `WITH` binds tighter than `AND`, and `AND` tighter than `OR`; parentheses group. An identifier is satisfied when it equals an element of `allowed`, ignoring case; `A WITH B` when the text `A WITH B` equals an element, ignoring case (only `Apache-2.0 WITH LLVM-exception` today); `A AND B` when both are; `A OR B` when either is. Any other text is not satisfied: an empty license, `UNLICENSED`, `SEE LICENSE IN LICENSE.txt`, `Unknown` (what pnpm reports for a package without a license field), or an expression with a syntax error. The notices generator uses the same parser to find whether `Apache-2.0` or `MPL-2.0` alone satisfies an expression (2.9, input 3), by calling `licenseAllowed(expression, [identifier])`.
 
-**Measured (2026-10-16).** Eight production packages: `react`, `react-dom`, `scheduler`, `zustand`, `clsx`, `@types/react` and `csstype` under MIT, and `lucide-react` under ISC (ADR 0033 logs them). The development dependencies include MIT-0, Python-2.0 and BlueOak-1.0.0, which the list does not allow and which this check does not see.
+**Measured (2026-10-16).** Eight production packages: `react`, `react-dom`, `scheduler`, `zustand`, `clsx`, `@types/react` and `csstype` under MIT, and `lucide-react` under ISC; and three build packages whose code ships: `rolldown` 1.2.13, `tailwindcss` 4.3.3 and `vite` 8.3.4, all MIT. ADR 0033 logs the eleven. The other development dependencies include MIT-0, Python-2.0 and BlueOak-1.0.0, which the list does not allow and which do not ship.
 
 ### 2.11 Nightly workflow (`nightly.yml`)
 
@@ -492,7 +561,7 @@ The crate is pure Rust, so the job needs no OCCT cache, no system packages and n
 1. **Title and summary**: the current heading and paragraph, unchanged.
 2. **Status**: one line in place of "Status: early development (phase 0)": `> Status: milestone 1 in progress. What remains before the first release is in [the M1 gap list](docs/design/m1-gap-list.md).`
 3. **Try it.**
-   - The web app at `https://partsmith.pages.dev`, the production deployment of `main` (3.3). Its host is `https://{project}.pages.dev`, where `{project}` is the repository variable `CLOUDFLARE_PAGES_PROJECT`, or `partsmith` when it is unset, so README names the project that variable names. A pull request's preview is at `https://{branch}.{project}.pages.dev` and is linked from the pull request. CI tests the web app in Chromium (m1-gap-list B-9 adds Firefox and WebKit).
+   - The web app at `https://{subdomain}`, the production deployment of `main` (3.3), where `{subdomain}` is the `*.pages.dev` subdomain that the Cloudflare dashboard (or `wrangler pages project list`) shows for the project, as the owner confirms it. Pages fixes the subdomain when the project is created, adding a suffix to the project name when that name is taken, so it cannot be derived from `CLOUDFLARE_PAGES_PROJECT`; it is `partsmith.pages.dev` only if the dashboard says so. A pull request's preview is at `https://{branch}.{subdomain}` and is linked from the pull request. CI tests the web app in Chromium (m1-gap-list B-9 adds Firefox and WebKit).
    - The desktop app from GitHub Releases, `https://github.com/blai30/partsmith/releases`: the files of desktop.md 3.8 and what each needs (Windows x64, where the installer fetches WebView2 when it is missing; macOS 13 or later on Apple silicon; Linux x86_64 with glibc 2.39 or later and WebKitGTK 4.1, such as Ubuntu 24.04), then the unsigned-bundle paragraph of 3.6 word for word, and `SHA256SUMS` to check a download (`sha256sum -c SHA256SUMS --ignore-missing`).
 4. **Building.**
    - Prerequisites on Linux, the only platform CI builds from source (the release workflow proves Windows and macOS, open issue 1): Git, CMake, Ninja and a C++17 compiler for OCCT; rustup, which installs the Rust of `rust-toolchain.toml` with its WebAssembly target; Node 22 and pnpm 10.28.0 (`corepack enable`); Python 3.12 or later for the Python package; and one install line, `sudo apt-get install -y build-essential cmake ninja-build libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev`.
@@ -503,10 +572,10 @@ The crate is pure Rust, so the job needs no OCCT cache, no system packages and n
    - The desktop app: once, `cargo install tauri-cli --version 2.12.2 --locked`; then `pnpm -C ui dev`, and in a second terminal `cargo tauri dev` in `desktop/src-tauri`. A bundle: `pnpm -C ui build`, then `cargo tauri build` in `desktop/src-tauri`.
    - The CLI: `cargo run -p partsmith-cli -- <command>`, with its five commands `validate`, `fmt`, `rebuild`, `export` and `schema`, one line each as cli.md section 1 describes them.
    - Python: a virtual environment, `pip install maturin pytest`, `(cd python && maturin develop --release)`, then `python -m partsmith build script.py -o part.ptsm` (python-api.md 2.1 and 2.10).
-6. **Contributing**: [CLAUDE.md](CLAUDE.md) (rules, commands and invariants), [the spec index](docs/spec/README.md), [the ADR log](docs/adr/README.md) and the [technical design](docs/design/technical-design.md); and the regeneration commands: examples, `PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test examples` and `PARTSMITH_BLESS=1 pytest python/tests/test_examples.py` (2.8); schemas, `cargo run -p partsmith-cli -- schema --write && pnpm -C ui generate:protocol` (3.4); notices, `pnpm -C ui notices` (2.9).
+6. **Contributing**: [AGENTS.md](AGENTS.md) (rules, commands and invariants), [the spec index](docs/spec/README.md), [the ADR log](docs/adr/README.md) and the [technical design](docs/design/technical-design.md); and the regeneration commands: examples, `PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test examples` and `PARTSMITH_BLESS=1 pytest python/tests/test_examples.py` (2.8); schemas, `cargo run -p partsmith-cli -- schema --write && pnpm -C ui generate:protocol` (3.4); notices, `pnpm -C ui notices` (2.9).
 7. **License**: Partsmith is under the Apache License 2.0 ([LICENSE](LICENSE)), one license for the code, the specifications, the file format, the examples and the test corpus (ADR 0028), and models made with Partsmith belong to their makers. The third-party software and its licenses are in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) for the desktop app and [ui/public/THIRD-PARTY-NOTICES.txt](ui/public/THIRD-PARTY-NOTICES.txt) for the web app. In place of "as a separately buildable library", the OCCT sentence is: `OCCT 7.9.3 is used under the LGPL 2.1 with the Open CASCADE exception. It is linked statically, and the notices say where its source is and how to build Partsmith with a modified OCCT.` It changes if ADR 0034 changes the linking. There is no CC0 grant to scope: ADR 0028 replaced it.
 
-The release checklist is not in `README.md`; it is in `.github/workflows/CLAUDE.md` (3.6).
+The release checklist is not in `README.md`; it is in `.github/workflows/AGENTS.md` (3.6).
 
 ## 3. Behavior
 
@@ -537,7 +606,7 @@ Tag-triggered release runs restore caches saved on `main`; a run's own caches ar
 
 1. The deploy runs only when both secrets are present. On forks and in repositories without them (including Dependabot pull requests, which get no secrets) the job succeeds with the notice of 2.4 and deploys nothing.
 2. A push to `main` deploys with `--branch=main`; the Pages project's production branch is `main`, so that deployment becomes production.
-3. A pull request deploys with `--branch=<head branch>`; Pages makes it a preview with a stable alias `https://<sanitized branch>.<project>.pages.dev` and a unique deployment URL. The alias URL is the `preview` environment's URL on the pull request and is written to the job summary.
+3. A pull request deploys with `--branch=<head branch>`; Pages makes it a preview with a stable alias `https://<sanitized branch>.<subdomain>`, where `<subdomain>` is the project's `*.pages.dev` host (2.12), and a unique deployment URL. The alias URL is the `preview` environment's URL on the pull request and is written to the job summary.
 4. The artifact deployed is exactly the `web-dist` that `web` checked (`check:dist`) and that `e2e` tested against the same core build.
 5. The project name comes from the repository variable `CLOUDFLARE_PAGES_PROJECT`, else `partsmith`. Creating the project (`wrangler pages project create <name> --production-branch main`) and the token are one-time human steps (section 8).
 6. Only this job builds what Pages serves. Cloudflare's own build image cannot build the WebAssembly core (it needs Emscripten and OCCT built for WebAssembly, longer than a Pages build may run), and `ui/public/core` is not in git, so a Pages build of `ui/` alone serves an app whose core fails to load. A project connected to the repository in the Cloudflare dashboard therefore keeps its automatic builds paused (Settings, Build, Branch control: "Enable automatic production branch deployments" off and preview branches None), and this job's Wrangler deploys go to it as to a project created with Wrangler.
@@ -591,15 +660,17 @@ Steps per runner, all with `shell: bash` (Git Bash on Windows):
 These builds are not signed yet. On Windows, SmartScreen may say "Windows protected your PC": choose More info, then Run anyway. On macOS, the first open is blocked: open System Settings, then Privacy & Security, and choose Open Anyway for Partsmith. On Linux, the .deb, .rpm and .AppImage need glibc 2.39 or later and WebKitGTK 4.1, as on Ubuntu 24.04. To check a download, run sha256sum -c SHA256SUMS --ignore-missing in the folder that holds it.
 ```
 
-**Release checklist**, kept in `.github/workflows/CLAUDE.md` with this text:
+**Release checklist**, kept in `.github/workflows/AGENTS.md` with this text:
 
-1. CI passed on the `main` commit to release, including `check:notices` (2.4).
-2. The version is the same in the workspace `Cargo.toml` (`[workspace.package] version`) and `ui/package.json`, as `verify` checks; a version bump is its own pull request.
-3. A release dry run (`workflow_dispatch` of `release.yml`) from `main` passed on that commit (test 13), and each bundle installed and started on its OS (the manual checks of desktop.md section 6).
-4. Push the tag `vX.Y.Z` on that commit.
-5. When `draft` finishes, download the assets, check them with `sha256sum -c SHA256SUMS`, and install each bundle once more.
-6. Edit the draft's notes: the unsigned-bundle paragraph first, then the generated notes.
-7. Publish the release.
+1. ADR 0034 is accepted and its source route is in place for this commit (the repository is public, or `draft` attaches the Partsmith and OCCT source archives); until then a release stays a draft.
+2. A release whose assets include an `.AppImage` is not published until the AppImage question of ADR 0034 is decided.
+3. CI passed on the `main` commit to release, including `check:notices` (2.4).
+4. The version is the same in the workspace `Cargo.toml` (`[workspace.package] version`) and `ui/package.json`, as `verify` checks; a version bump is its own pull request.
+5. A release dry run (`workflow_dispatch` of `release.yml`) from `main` passed on that commit (test 13), and each bundle installed and started on its OS (the manual checks of desktop.md section 6).
+6. Push the tag `vX.Y.Z` on that commit.
+7. When `draft` finishes, download the assets, check them with `sha256sum -c SHA256SUMS`, and install each bundle once more.
+8. Edit the draft's notes: the unsigned-bundle paragraph first, then the generated notes.
+9. Publish the release.
 
 **Prerequisites in the build scripts**, made by the implementer of `release.yml` and proven by a `workflow_dispatch` dry run on all three runners before the first tag: `scripts/build-occt.sh` passes `-DINSTALL_DIR_LAYOUT=Unix` on Windows, so the install has the `include/opencascade` and `lib` folders `partsmith-occt-sys/build.rs` expects; the Windows build uses Ninja with MSVC from the developer environment; and the native OCCT and the shim must build with MSVC and with Apple Clang for arm64, which CI has not yet exercised (open issue 1).
 
@@ -625,14 +696,15 @@ The `rust` job runs the Rust runner as part of `cargo test --workspace` (with th
 | Generated files drifted | `schema` job | `Generated files are out of date. Run: cargo run -p partsmith-cli -- schema --write && pnpm -C ui generate:protocol` |
 | A notices file differs from what the inputs give, or is missing (2.9) | `check:notices`, standard error, exit 1, one line per file | `{file} is out of date. Run: pnpm -C ui notices` (`{file}` is `THIRD-PARTY-NOTICES.txt` or `ui/public/THIRD-PARTY-NOTICES.txt`) |
 | A command the generator runs fails (2.9) | `notices`, `check:notices`, exit 1 | `{command} {arguments} failed with exit status {status}: {standard error}` |
-| `OCCT_ROOT` unset, or without the license texts (2.9) | `notices`, `check:notices`, exit 1 | `OCCT_ROOT must name an OCCT install made by scripts/build-occt.sh, with share/doc/opencascade/LICENSE_LGPL_21.txt and OCCT_LGPL_EXCEPTION.txt.` |
-| OCCT install of another version (2.9) | `notices`, `check:notices`, exit 1 | `OCCT_ROOT holds OCCT {found}, but scripts/occt-version.sh pins {OCCT_VERSION}.` |
-| A package ships no license text and its standard text is missing (2.9) | `notices`, `check:notices`, exit 1 | `{name} {version} ships no license text, and ui/scripts/notices/licenses/{identifier}.txt is missing. Add the SPDX License List text of {identifier} there.` (with no allowed identifier in the expression: `{name} {version} ships no license text, and its license {license} names no license deny.toml allows.`) |
-| An Emscripten text is missing (2.9) | `notices`, `check:notices`, exit 1 | `ui/scripts/notices/emscripten-{version}/{file} is missing. Copy it from the Emscripten SDK {version} (docs/spec/delivery.md section 2.9).` |
+| A package ships no license text and its standard text is missing (2.9, input 3) | `notices`, `check:notices`, exit 1 | `{name} {version} ships no license text, and ui/scripts/notices/licenses/{identifier}.txt is missing. Add the SPDX License List text of {identifier} there.` |
+| A package ships no license text, takes none of the two standard texts, and has no copy from its repository (2.9, input 3) | `notices`, `check:notices`, exit 1 | `{name} {version} ships no license text, and ui/scripts/notices/crates/{name}/ is missing. Commit a copy of the license file of its repository there (docs/spec/delivery.md section 2.9).` |
+| A committed copy that inputs 4 or 6 name is missing (2.9) | `notices`, `check:notices`, exit 1 | `ui/scripts/notices/{path} is missing. Make it as docs/spec/delivery.md section 2.9 describes, from the version that the pins name.` (`{path}` relative to `ui/scripts/notices/`, for example `occt-7.9.3/bundled.json` or `emscripten-4.0.15/LICENSE`) |
+| A crate ships a prebuilt library and is not in `PREBUILT_LIBRARY_CRATES` (2.9, input 8) | `notices`, `check:notices`, exit 1 | `{name} {version} ships the prebuilt library {path}. Find its license, give it an entry if it needs one, and add the crate to PREBUILT_LIBRARY_CRATES (docs/spec/delivery.md section 2.9).` (`{path}` the first of `prebuiltLibraries`) |
 | Wrong arguments | `notices`, exit 2 | `usage: node scripts/notices.mjs write\|check` |
-| An npm production package under a license the list does not allow (2.10) | `check:licenses`, standard error, exit 1 | `npm package {name} {version} is licensed {license}, which deny.toml does not allow. Replace the package, or allow the license in deny.toml with an ADR (docs/spec/delivery.md section 2.10).` (`{license}` exactly as pnpm reports it) |
+| An npm package that ships under a license the list does not allow (2.10) | `check:licenses`, standard error, exit 1 | `npm package {name} {version} is licensed {license}, which deny.toml does not allow. Replace the package, or allow the license in deny.toml with an ADR (docs/spec/delivery.md section 2.10).` (`{license}` exactly as pnpm reports it) |
 | `deny.toml` has no readable allow list (2.10) | `check:licenses`, exit 1 | `deny.toml has no allow array of license strings in its [licenses] table (docs/spec/delivery.md section 2.10).` |
-| `pnpm licenses list` fails (2.10) | `check:licenses`, exit 1 | `pnpm licenses list --prod --json failed with exit status {status}: {standard error}` |
+| A package of `EMITTED_BUILD_PACKAGES` is not installed (2.10) | `check:licenses`, `notices`, `check:notices`, exit 1 | `npm package {name} of EMITTED_BUILD_PACKAGES is not in pnpm licenses list --json. Remove it from the list if the build no longer uses it (docs/spec/delivery.md section 2.10).` |
+| `pnpm licenses list` fails (2.10) | `check:licenses`, exit 1 | `{command} failed with exit status {status}: {standard error}` (`{command}` is `pnpm licenses list --prod --json` or `pnpm licenses list --json`) |
 | Wrong arguments | `check:licenses`, exit 2 | `usage: node scripts/check-licenses.mjs` |
 | A scheduled night after no change to `main` (2.11) | `nightly.yml` notice, success | `::notice title=Nightly skipped::The last nightly run already tested {sha}, the head of main, so the property tests did not run.` |
 | Deploy secrets absent | `deploy` job notice, success | `Cloudflare secrets are not available to this run (a fork, or the repository is not configured), so nothing was deployed.` |
@@ -683,8 +755,14 @@ Each job's checks are its acceptance tests; they pass on every pull request and 
 9. `e2e`: `pnpm e2e` passes against the real core (ui.md 6.5).
 10. `python`: `maturin develop --release` succeeds, `pytest python/tests` passes, including `test_examples.py`, and `pytest python/tests -m packaging` passes: python-api.md test 76 builds one wheel `partsmith-0.1.0-cp312-abi3-<platform>.whl` and installs and imports it with `python3.12` and with `python3.13`, both found on `PATH` (the test fails, rather than skips, when either is missing).
 11. `deploy`: with secrets, the Wrangler step succeeds and the job summary contains a `pages.dev` URL; on a fork pull request, the job succeeds and its log contains the "Deploy skipped" notice.
-12. `desktop`: `cargo tauri build --bundles deb` exits 0, exactly one `.deb` exists under `target/release/bundle/deb/`, and its file list holds `usr/bin/partsmith-desktop`, exactly one `.desktop` file under `usr/share/applications/` and `usr/lib/Partsmith/THIRD-PARTY-NOTICES.txt`, whose bytes (extracted with `tar -xO`) equal the repository's `THIRD-PARTY-NOTICES.txt` (desktop.md test 49). The file list is `dpkg-deb --fsys-tarfile` piped to `tar -t` with a leading `./` removed from each entry: Tauri's bundler writes entries without the `./` that `dpkg-deb --build` writes, so the check accepts both forms.
-13. `release.yml` dry run (`workflow_dispatch`): the three `bundle` jobs upload `bundle-Linux` (a `.deb`, an `.rpm` and an `.AppImage`), `bundle-Windows` (one `-setup.exe`) and `bundle-macOS` (one `.dmg`); `verify` and `draft` are skipped. The reviewer of the dry run records that the Windows installer's license page shows the desktop notices, scrolls to their end and shows their non-ASCII characters correctly (open issue 13). On a tag, `draft` creates a draft release holding those files, `THIRD-PARTY-NOTICES.txt` (equal to the tagged commit's file) and `SHA256SUMS`, whose lines verify with `sha256sum -c` and include the notices.
+12. `desktop`: `cargo tauri build --bundles deb` exits 0, exactly one `.deb` exists under `target/release/bundle/deb/`, and its file list holds `usr/bin/partsmith-desktop`, exactly one `.desktop` file under `usr/share/applications/` and `usr/lib/Partsmith/THIRD-PARTY-NOTICES.txt`, whose bytes equal the repository's `THIRD-PARTY-NOTICES.txt` (desktop.md test 49). The file list is `dpkg-deb --fsys-tarfile` piped to `tar -t` with a leading `./` removed from each entry: Tauri's bundler writes entries without the `./` that `dpkg-deb --build` writes, so the check accepts both forms. The notices are extracted by their member name as the list writes it, from the repository root, with `deb` the path of that `.deb`:
+
+    ```sh
+    member="$(dpkg-deb --fsys-tarfile "$deb" | tar -t | grep -xE '(\./)?usr/lib/Partsmith/THIRD-PARTY-NOTICES\.txt')"
+    dpkg-deb --fsys-tarfile "$deb" | tar -xO "$member" | cmp - THIRD-PARTY-NOTICES.txt
+    ```
+
+13. `release.yml` dry run (`workflow_dispatch`): the three `bundle` jobs upload `bundle-Linux` (a `.deb`, an `.rpm` and an `.AppImage`), `bundle-Windows` (one `-setup.exe`) and `bundle-macOS` (one `.dmg`); `verify` and `draft` are skipped. The reviewer of the dry run records, for each bundle, that it holds `THIRD-PARTY-NOTICES.txt` at the place of desktop.md 2.8, equal to the repository's file: in the `.rpm` (`rpm -qlp` lists `/usr/lib/Partsmith/THIRD-PARTY-NOTICES.txt`), in the AppImage (`--appimage-extract`, then `squashfs-root/usr/lib/Partsmith/`), in the mounted `.dmg` (`Partsmith.app/Contents/Resources/`) and in the folder the NSIS installer installs to (next to `partsmith-desktop.exe`); and that neither the installer nor the disk image asks the user to accept a license (desktop.md 2.8). On a tag, `draft` creates a draft release holding those files, `THIRD-PARTY-NOTICES.txt` (equal to the tagged commit's file) and `SHA256SUMS`, whose lines verify with `sha256sum -c` and include the notices.
 
 **Distribution check (`ui/scripts/check-dist.test.mjs`, `node:test`, temporary directories)**
 
@@ -717,6 +795,35 @@ Run by `pnpm test:scripts` in `ui/`. `node --test` takes files or glob patterns,
 32. The build keeps the shape 2.6 relies on. `resolveConfig({ root, configFile }, 'build')` from `vite`, with `root` the `ui` folder and `configFile` its `vite.config.ts`, gives `build.modulePreload` equal to Vite's default `{ polyfill: true }` (with `false` Vite writes no `modulepreload` link, and a `resolveDependencies` function can leave chunks out), `build.assetsDir` `assets` and no `worker.rolldownOptions.output`, so the worker script keeps Vite's name `assets/[name]-[hash].js`. `ui/src/core/core.worker.ts` is a regular file, and `ui/src/core/transport.ts` passes `new URL('./core.worker.ts', import.meta.url)` to `new Worker`.
 33. Attributes in any order: an `index.html` holding `<link crossorigin href="/assets/vendor-b2.js" rel="modulepreload">` and `<script src="/assets/index-a1.js" type="module"></script>`, next to those two files, each holding a different short text: `initialJavaScript` returns `unresolved` `[]` and `files` with exactly `assets/index-a1.js` and `assets/vendor-b2.js`, in that order.
 
+**Notices in the build (`ui/scripts/check-dist.test.mjs`, `node:test`, temporary directories, run by `pnpm test:scripts`)**
+
+34. Next to a small file and the exact `_headers`: without `THIRD-PARTY-NOTICES.txt`, `checkDist` returns exactly the missing-notices message; with one whose first line is `Third-party notices for the Partsmith desktop app`, exactly the wrong-notices message; with one that holds only the web heading and no LF, `[]`; with `THIRD-PARTY-NOTICES.txt` a symbolic link to a valid notices file outside the directory, the missing-notices message. With a sparse file of 26,214,401 bytes at `core/big.wasm`, no `_headers` and no notices, `checkDist` returns the oversized, missing-headers and missing-notices messages, in that order. The command on the directory without notices exits 1 with the missing-notices message on standard error.
+
+**Notices generator (`ui/scripts/notices.test.mjs`, `node:test`, temporary directories and literal inputs, run by `pnpm test:scripts`)**
+
+No test runs `cargo` or `pnpm`: the tests pass a fake `run` that answers each command with a literal output, and they fail on a command they did not expect.
+
+35. `DESKTOP_NOTICES_HEADING` and `WEB_NOTICES_HEADING` are the first lines of `THIRD-PARTY-NOTICES.txt` and `ui/public/THIRD-PARTY-NOTICES.txt`. `DESKTOP_TARGETS` lists `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc` and `aarch64-apple-darwin` with the platforms `Linux`, `Windows` and `macOS`, in that order.
+36. `normalizeText('\uFEFF\r\n  \nMIT License \t\r\n\fCopyright\rline\n\n\n')` is `'MIT License\nCopyright\nline\n'`; `normalizeText(' \n\t\n')` is `''`; `normalizeText('a \u2014 b')` is `'a \u2014 b\n'` (the character is kept).
+37. `artifactCrates` of literal metadata: the workspace crate `app` (`source` null) has a normal dependency `a 1.0.0`, a build dependency `b 1.0.0` and a dev dependency `c 1.0.0`; `a` has a normal dependency `d 2.0.0` and one on the workspace crate `lib`, which depends on `e 0.10.0` and `e 0.9.1`; only `c` reaches `f 1.0.0`; `app` reaches `g 1.0.0` through an edge whose `dep_kinds` holds a `dev` entry and a normal one. `artifactCrates(metadata, 'app')` returns `a 1.0.0`, `b 1.0.0`, `d 2.0.0`, `e 0.9.1`, `e 0.10.0` and `g 1.0.0`, in that order, each with its `license`, its `license_file` as `licenseFile`, the folder of its `manifest_path` and the `repository` of `app`; never `app`, `lib`, `c` or `f`.
+38. `licenseFiles` of a folder holding the regular files `LICENSE-MIT`, `license`, `COPYING.txt`, `NOTICE`, `UNLICENSE`, `Licence.md`, `README.md`, `LICENSES/MIT.txt`, `LICENSES/sub/x.txt`, `src/LICENSE`, `src/unicode/LICENSE-UNICODE`, `src/license.rs`, `vendor/lib/COPYING` and `legal/TERMS.txt`, a folder `COPYRIGHT`, a symbolic link `LICENSE-APACHE` to a file outside and a symbolic link `linked` to a folder outside that holds a `LICENSE`, with `licenseFile` `legal/TERMS.txt` and `excluded` `['vendor/']`, returns, relative to the folder with `/`: `legal/TERMS.txt`, `COPYING.txt`, `LICENSE-MIT`, `Licence.md`, `NOTICE`, `UNLICENSE`, `license`, `LICENSES/MIT.txt`, `src/LICENSE`, `src/unicode/LICENSE-UNICODE`. With `licenseFile` `LICENSE-MIT`, that file comes first and only once; with `excluded` `[]`, `vendor/lib/COPYING` comes last; with `excluded` `['src/LICENSE']`, only that file is left out. `prebuiltLibraries` of a folder holding `x64/a.lib`, `lib/b.a`, `c.dll`, `d.so`, `e.dylib`, `src/tests/lib/f.a`, `tests/g.a` and `h.lib.txt` returns `c.dll`, `d.so`, `e.dylib`, `lib/b.a` and `x64/a.lib`, in that order.
+39. `renderNotices` of a literal fixture, compared with the whole expected text written in the test: heading and scope of the desktop file; `partsmith` `Apache text\n`; the OCCT statement `Statement.` and two OCCT entries, the first with texts `LGPL\n` and `Exception\n`, the second `x, in OCCT's y` with no version, no license and the URL `https://example.com/y` (`Bundled\n`); one font with `OFL\n`; the crates, in this order, `b 1.0.0` (`MIT`, all platforms, `MIT b\n`), `a 1.0.0` (`MIT OR Apache-2.0`, Windows only, `Apache text\n` and `MIT a\n`), `c 2.0.0` (`BSD-3-Clause`, Linux and macOS, text from its repository `BSD c\n`), `d 0.1.0` (no license field, all platforms, `Custom\n`) and `e 0.2.0` (`Zlib OR Apache-2.0 OR MIT`, macOS only, standard text `Apache text\n`); one npm package `p 0.1.0` (`MIT`, `MIT b\n`); and one other library `LLVM libc++, libc++abi, libunwind and compiler-rt, in the Emscripten runtime` with no version (`Apache-2.0 WITH LLVM-exception AND (NCSA OR MIT)`, `https://llvm.org`, `LLVM\n`). Expected: the layout of 2.9, with the line `Each crate's source code is at its crates.io URL; for the crates under MPL-2.0 that is where to obtain their Source Code Form.` and a blank line after `== Rust crates ==`; entries in the order given; the texts [1] `Apache text`, [2] `LGPL`, [3] `Exception`, [4] `Bundled`, [5] `OFL`, [6] `MIT b`, [7] `MIT a`, [8] `BSD c`, [9] `Custom` and [10] `LLVM`, each once; the lines `x, in OCCT's y, see texts, https://example.com/y, texts [4]`, `a 1.0.0, MIT OR Apache-2.0, https://crates.io/crates/a/1.0.0, only Windows, texts [1] [7]`, `c 2.0.0, BSD-3-Clause, https://crates.io/crates/c/2.0.0, only Linux and macOS, text from its repository, texts [8]`, `d 0.1.0, see texts, https://crates.io/crates/d/0.1.0, texts [9]`, `e 0.2.0, Zlib OR Apache-2.0 OR MIT, https://crates.io/crates/e/0.2.0, only macOS, standard text, texts [1]`, `p 0.1.0, MIT, https://www.npmjs.com/package/p/v/0.1.0, texts [6]` and `LLVM libc++, libc++abi, libunwind and compiler-rt, in the Emscripten runtime, Apache-2.0 WITH LLVM-exception AND (NCSA OR MIT), https://llvm.org, texts [10]`; and the text ends with `LLVM\n`.
+40. `generateNotices` of a temporary repository root holding copies of `scripts/occt-version.sh`, `scripts/emsdk-version.sh`, `rust-toolchain.toml`, `LICENSE`, the two font license texts and `ui/scripts/notices/`, with no `OCCT_ROOT` in the environment, and a `run` that answers literal metadata and literal pnpm listings. The metadata has the root crates `partsmith-desktop` and `partsmith-wasm` with `repository` `https://github.com/blai30/partsmith`, one crate with a license file in a temporary folder on every platform, and `webview2-com-sys` at its locked version in the Windows graph only, with `x64/WebView2LoaderStatic.lib` in its temporary folder. The production listing has one package and the full listing adds every name of `EMITTED_BUILD_PACKAGES`. `run` receives `cargo metadata --format-version 1 --locked --all-features --filter-platform <triple>` once for each triple of `DESKTOP_TARGETS` and once for `wasm32-unknown-emscripten`, and `pnpm licenses list --prod --json` and `pnpm licenses list --json` once each in `ui/`. The desktop text's statement is exactly the desktop statement of 2.9 with `7.9.3`, `V7_9_3` and that repository, and the web text's exactly the web statement. Both texts have the OCCT entry with `texts [2] [3]` followed by the four entries of `bundled.json`, in its order, the crates' source line, the packages of `EMITTED_BUILD_PACKAGES`, and the Rust standard library line with the `channel` of `rust-toolchain.toml`, `(MIT OR Apache-2.0) AND Unicode-3.0` and two texts. The desktop text has the WebView2 loader line, marked `only Windows`, and no Emscripten line; the web text has the Emscripten, musl and LLVM lines, the last with four texts, and no WebView2 line. A license file holding the bytes `61 ff 62 0a` gives the text `a\uFFFDb\n`.
+41. Failing inputs, each rejecting with its message of section 4 and writing nothing: a crate without license files under `MIT` and without `ui/scripts/notices/crates/<name>/`; a crate without license files under `BSD-3-Clause OR MPL-2.0` while `ui/scripts/notices/licenses/MPL-2.0.txt` is missing; `scripts/occt-version.sh` naming `9.9.9`, for which `ui/scripts/notices/occt-9.9.9/` is missing, and an `occt-7.9.3/` folder without `delabella.txt`; `scripts/emsdk-version.sh` naming `9.9.9`, for which `ui/scripts/notices/emscripten-9.9.9/LICENSE` is missing; a `rust-toolchain.toml` with the channel `9.9.9` and no `ui/scripts/notices/rust-9.9.9/Unicode-3.0.txt`; a `webview2-com-sys` version without its `ui/scripts/notices/webview2-com-sys-{version}/LICENSE.txt`; a crate `z 1.0.0` not in `PREBUILT_LIBRARY_CRATES` with `lib/z.a` in its folder (the message names `z 1.0.0` and `lib/z.a`); a full pnpm listing without `rolldown`; a `run` that rejects `cargo metadata` with exit status 101 and standard error `error: x`. And the choice of text for crates without license files: under `MIT OR Apache-2.0` and under `Zlib OR Apache-2.0 OR MIT`, the `Apache-2.0` standard text; under `MPL-2.0`, the `MPL-2.0` standard text; under `MIT AND Apache-2.0` and under `Apache-2.0 WITH LLVM-exception`, the files of `ui/scripts/notices/crates/<name>/`, marked `text from its repository`.
+42. `node scripts/notices.mjs` with no argument, with `wrong` and with `write check` exits 2 with the usage line. (The `schema` job runs `check` on the real repository, test 6.)
+
+**npm license check (`ui/scripts/check-licenses.test.mjs`, `node:test`, run by `pnpm test:scripts`)**
+
+43. `allowedLicenses` of the repository's `deny.toml` is the eleven identifiers of 2.10, in that order. On literal texts: an `allow` array with a comment line, a comment after an element and a trailing comma gives its strings; an `allow` key in a table before `[licenses]` is ignored; a text without `[licenses]`, a `[licenses]` table without `allow`, an unterminated array and an element `MIT` without quotes each throw the deny.toml message.
+44. `licenseAllowed` with the repository's list is true for `MIT`, `mit`, `(MIT OR Apache-2.0)`, `MIT OR GPL-3.0-only`, `GPL-3.0-only OR MIT`, `Apache-2.0 WITH LLVM-exception`, `MIT AND (Apache-2.0 OR BSD-3-Clause)`, `MIT OR GPL-3.0-only AND Zlib` and `((ISC))`, and false for `GPL-3.0-only`, `MIT AND GPL-2.0-only`, `(GPL-3.0-only OR MIT) AND BlueOak-1.0.0`, `MIT WITH LLVM-exception`, `GPL-2.0-only WITH Classpath-exception-2.0`, `BlueOak-1.0.0`, `UNLICENSED`, `SEE LICENSE IN LICENSE.txt`, `Unknown`, the empty string, `MIT OR`, `MIT or Apache-2.0`, `(MIT` and `MIT)`.
+45. `productionPackages` of a literal listing with the groups `MIT` (`a` with versions `1.0.0` and `2.0.0` and a path for each, and `c 0.1.0`) and `ISC` (`b 1.0.0`) returns `a 1.0.0`, `a 2.0.0`, `b 1.0.0` and `c 0.1.0`, in that order, each with its path and its `license` field; a name and version listed twice comes back once. `EMITTED_BUILD_PACKAGES` is `['rolldown', 'tailwindcss', 'vite']`. `shippedPackages` of a production listing with `react 19.3.0` and a full listing that also holds `vite` 8.3.4 and 7.0.0, `tailwindcss 4.3.3`, `rolldown 1.2.13` and `typescript 6.0.0` returns `react 19.3.0`, `rolldown 1.2.13`, `tailwindcss 4.3.3`, `vite 7.0.0` and `vite 8.3.4`, in that order; with a full listing that lacks `rolldown` and `vite`, it throws the emitted-package message naming `rolldown`.
+46. `licenseProblems` of `react 19.3.0` under `MIT` and `lru-cache 11.5.3` under `BlueOak-1.0.0`, with the repository's list, returns exactly the not-allowed message for `lru-cache 11.5.3` and `BlueOak-1.0.0`.
+47. The command in `ui/` of this repository exits 0 and prints the success line whose `{n}` is the length of `shippedPackages` of the same two listings, which the test runs itself; with any argument it exits 2 with the usage line.
+
+**Nightly workflow (`nightly.yml`)**
+
+48. A `workflow_dispatch` run from `main` runs `cargo test -p partsmith-sketch --release --test properties` with `PROPTEST_CASES` `4096` and passes, its log showing sketch.md tests 189 to 196 passing. The next scheduled run with `main` unchanged succeeds with the skip notice of section 4 and runs no checkout and no cargo step; the first scheduled run after a new commit on `main` runs the tests.
+
 ## 7. Open issues
 
 1. **OCCT on Windows and macOS.** `scripts/build-occt.sh` and `partsmith-occt-sys` have been built only on Linux and Emscripten. The release dry run is the first MSVC and Apple Clang build; it may need script changes beyond `INSTALL_DIR_LAYOUT` (3.6), which this spec lists but does not prove.
@@ -728,13 +835,22 @@ Run by `pnpm test:scripts` in `ui/`. `node --test` takes files or glob patterns,
 7. **features.md and cli.md open issues 3.** Both point at the examples layout, which section 2.8 now defines; their text can be updated to point here when those specs are next edited.
 8. **Initial JavaScript headroom.** The app is one chunk, and its initial JavaScript is 94.1 percent of the 250 KB limit (2.6), so a few more features will fail the `web` job. The first response is moving code that startup does not need into chunks loaded with a dynamic `import()` (candidates: the Print context, sketch mode, export), with the loading state each needs specified in ui.md. Raising the limit changes the budget of ui.md 5 and needs human review.
 9. **One integration test binary per crate.** Each file in a crate's `tests/` is its own binary, and each links OCCT: about 170 binaries of 55 to 80 MB. Gathering a crate's integration tests into one binary (`tests/main.rs` with a module per file) would cut disk use and link time several times over, locally and in CI. It moves no test and changes no assertion, but touches every crate, so it waits until no other change is in flight there.
+10. **What the notices do not cover.** The AppImage bundles WebKitGTK, GTK and their dependencies from the Ubuntu 24.04 build machine, many under the LGPL, and the AppImage runtime, which reportedly links libfuse (LGPL) statically; the NSIS installer carries NSIS's own code, its LZMA decompressor (CPL-1.0 with a special exception) and Tauri's `nsis_tauri_utils` plugin. None of these is a Cargo or npm package, so the generator lists none of them, and the AppImage's sources are not offered. ADR 0034 sets out the AppImage choice (drop it from M1, or add its libraries' copyright files and source packages to each release) for the owner, and section 8 asks whether the installer code and the runtime need entries among the other libraries (Windows only, Linux only). The CLI and the Python wheel need notices of their own when they are distributed (1.2).
+11. **No way to the notices inside the app.** LGPL 2.1 section 6 asks for a prominent notice with each copy. The bundles and the web app carry the file, but nothing in the UI names it. A command in the palette (on the web, opening `/THIRD-PARTY-NOTICES.txt`; on the desktop, naming where the file is installed) would fix that; it is for ui.md to specify, with ADR 0034.
+12. **The web notices name no commit.** One committed file serves every deployment, production and previews alike, so the web statement names the repository and how a deployment's commit is chosen, not the commit itself. ADR 0034 option A, item 4, needs a stamp of the commit in each deployment, previews included, for that.
+13. **Two bundle builds per release.** The checklist (3.6) runs a dry run before the tag, and the tag run builds every bundle again from the same commit, so each release pays twice for the Windows and macOS jobs (section 8). The tag run could take the dry run's `bundle-*` artifacts of that commit instead (`actions/download-artifact` with the dry run's `run-id`), which halves the cost; that needs `verify` to find the dry run and a change to 2.5, and is left for the implementer of `release.yml` to propose with the first measured figures.
 
 ## 8. Needs human review
 
-- **Cloudflare setup** (one time): create the Pages project with production branch `main`, create an API token with only "Account, Cloudflare Pages, Edit", add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository secrets, and optionally `CLOUDFLARE_PAGES_PROJECT`. Decide whether the account belongs to a person or a project organization (technical design section 19). A project connected to the repository in the dashboard has its automatic builds paused (3.3 item 6). Status 2026-10-13: `main` exists and a Git-connected project builds `ui/` with `pnpm build`; pausing its builds, the token and the secrets (and the project name variable, if it is not `partsmith`) remain.
-- **Branch protection** on `main` requiring the CI jobs of 2.4.
+- **Cloudflare setup** (one time): create the Pages project with production branch `main`, create an API token with only "Account, Cloudflare Pages, Edit", add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository secrets, and optionally `CLOUDFLARE_PAGES_PROJECT`. Decide whether the account belongs to a person or a project organization (technical design section 19). A project connected to the repository in the dashboard has its automatic builds paused (3.3 item 6). Status 2026-10-16: done. `main` is the default branch, the Git-connected Pages project has its own builds paused and receives CI's Wrangler deploys, and both secrets are set. CI on `main` has not passed yet. Of its four runs, all pushes, the latest (38857833462, 2026-10-16, commit 5e32ada, the rename of every CLAUDE.md to AGENTS.md) passed `occt-native`, `occt-wasm`, `kernel-wasm` and `desktop`, failed `rust`, `ui`, `schema`, `core-wasm` and `python`, because `main` carries the unfinished reference stability phase 1, and failed `deny` too, which passed in 38492295214: crates.io has since yanked `zip` 9.0.1, which `Cargo.lock` locks, and `deny.toml` denies yanked crates. That failure is not phase 1's; it needs `cargo update -p zip --precise 9.0.3` (the current release, 2026-10-13) and the version in ADR 0020's row, a change outside this spec's paths. `web`, `e2e` and `deploy` were skipped, and nothing has been deployed. The first green run, which deploys production at once (3.3), waits for that phase and the `zip` update, and two more things: B-2's web notices and the notices rule of `check:dist` land on `main` no later than the commit that ends phase 1, and the ADR 0034 decision with its source route is in place, or a green `main` serves OCCT publicly without notices or a way to its source. Until then the cheapest guards are the Pages project's access policy for preview deployments (Settings, General), which limits previews to the account's members, and, for production, a Cloudflare Access application on its host or the two secrets removed, which makes `deploy` skip cleanly (3.3 item 1).
+- **Branch protection** on `main` requiring the CI jobs of 2.4. Status 2026-10-16: not set (`main` is unprotected). Requiring the jobs while `main` is red would block every merge, so it is best added right after the first green run.
+- **Third-party notices** (2.9, ADR 0033): what they list and leave out; the two OCCT statements; the four notices of code OCCT includes from other projects (flex, DELABELLA, David M. Gay's strtod, Unicode's ConvertUTF); the texts given to the 22 crates that ship none (a standard Apache-2.0 or MPL-2.0 text, or a committed copy from the crate's repository); the WebView2 SDK loader that `webview2-com-sys` links statically on Windows, whose license the owner confirms against the NuGet package that crate version ships (for SDK 1.0.3650.58 it is a BSD-3-Clause text with Microsoft's copyright line); the Unicode data license of `regex-syntax`'s tables (Unicode-DFS-2016, which `deny.toml` does not allow and `cargo-deny` never sees, since the crate declares `MIT OR Apache-2.0`): allow it with an ADR, or accept it as data rather than code; whether the NSIS installer code (NSIS, its LZMA module, `nsis_tauri_utils`) and the AppImage runtime get entries (open issue 10); the shipping places (bundle resource, release asset, web build), with no license page or agreement in any installer; and the texts reproduced as their packages ship them. The ICU4X crates' Unicode-3.0 texts hold em dashes, which the root AGENTS.md forbids in any file; ADR 0033 proposes the wording `Never write the em dash character in any file, except third-party license texts copied verbatim: the notices that pnpm -C ui notices writes and the copies it reads under ui/scripts/notices/ (delivery.md 2.9).` for the owner to accept.
+- **How OCCT is linked** (ADR 0034): the owner chooses between keeping static linking with published source, dynamic linking on the desktop, CLI and Python, or a mix; whether the repository becomes public before builds are shared beyond collaborators, and how previews and production are guarded until then; and whether the AppImage stays in M1. Until then releases stay drafts (3.6), production waits (the Cloudflare item above), the notices describe today's static linking, and AGENTS.md, technical design sections 3 and 17 and README.md keep wording that ADR 0034 shows to be wrong. ADR 0034 lists three questions for a lawyer.
+- **npm license policy** (2.10, ADR 0033): the npm packages that ship (the production dependencies, and `rolldown`, `tailwindcss` and `vite`, whose code the build writes into `ui/dist`) are held to `deny.toml`'s allow list; the other development dependencies, three of which are under MIT-0, Python-2.0 and BlueOak-1.0.0, do not ship and are not checked. The eleven packages are logged in ADR 0033.
+- **Python 3.13 on CI** (2.4 `python`, python-api.md test 76): a second interpreter on the runner, and the wheel build and two installs added to the job's time.
+- **The nightly workflow** (2.11): its schedule, its cost (about 30 to 90 billed minutes a month) and its skip rule.
 - **`deny.toml` advisory exceptions** RUSTSEC-2024-0429 and RUSTSEC-2024-0370 for Tauri's GTK3 stack (3.2), a change to the dependency policy.
-- **Release policy**: tags `vX.Y.Z` on commits with green CI, a dry run from `main` before each tag, draft releases published by a human, unsigned bundles until signing is set up, macOS arm64 only.
+- **Release policy**: tags `vX.Y.Z` on commits with green CI, a dry run from `main` before each tag, draft releases published by a human, unsigned bundles until signing is set up, macOS arm64 only. Its cost: each release builds the bundles twice, in the dry run and in the tag run, and on a private repository GitHub counts each Windows minute twice and each macOS minute ten times against the included minutes (2,000 a month on GitHub Free). With bundle jobs of about 20 minutes each, an estimate the first dry run replaces with measured figures, a release costs about 2 x (20 + 2 x 20 + 10 x 20) = 520 billed minutes, a quarter of a month's allowance, and a cold OCCT build on macOS adds several hundred more. Standard runners are free on a public repository (ADR 0034), and open issue 13 would halve the figure.
 - **Build tools pinned here** (`tauri-cli` 2.12.2, Wrangler 4.149.0, maturin 1.15.0, pytest 9.1.1) and the new actions (`upload-artifact`, `download-artifact`, `setup-python`, `wrangler-action`, `msvc-dev-cmd`).
 - **Examples rules**: the expected-results format and the 1e-6 tolerance, and the bless workflow.
 - **The 25 MiB plan** (3.5): each step's ADR when the gate first fails.
