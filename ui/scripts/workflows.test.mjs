@@ -1,4 +1,4 @@
-// Acceptance tests 49 to 54 and 57 of docs/spec/delivery.md section 6 for the workflow files.
+// Acceptance tests 49 to 54, 57 and 59 of docs/spec/delivery.md section 6 for the workflow files.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -63,6 +63,12 @@ const EXPECTED_TIMEOUTS = {
   },
   'release.yml': { verify: 60, bundle: 150, draft: 60 },
   'nightly.yml': { properties: 20 },
+}
+
+// The artifacts each workflow file uploads, in the order of its steps, every one kept 7 days (sections 2.4 and 2.5).
+const EXPECTED_UPLOADS = {
+  'ci.yml': ['core-wasm', 'web-dist', 'playwright-report'],
+  'release.yml': ['bundle-${{ runner.os }}'],
 }
 
 // A stand-in for gh that appends its arguments, separated by NUL, as one line to $STUB_CALLS, then prints
@@ -142,25 +148,40 @@ function jobSteps(job) {
 }
 
 /**
- * The entries of the mapping `key` of a step, such as its `env` or `with`, as an object of their values as written
- * (`|` for a block scalar); undefined when the step has no such key.
+ * The lines of the mapping `key` of a step, such as its `env` or `with`, with their indentation of two spaces
+ * removed, so that its entries start the lines as a step's keys do; undefined when the step has no such key.
  */
-function stepMapping(step, key) {
+function mappingLines(step, key) {
   const index = step.indexOf(`${key}:`)
   if (index === -1) {
     return undefined
   }
-  const entries = {}
+  const lines = []
   for (const line of step.slice(index + 1)) {
-    // The lines of a block scalar belong to the entry above them.
-    if (line.startsWith('    ')) {
-      continue
-    }
-    const entry = /^ {2}([\w-]+): (.*)$/.exec(line)
-    if (entry === null) {
+    if (!line.startsWith('  ')) {
       break
     }
-    entries[entry[1]] = entry[2]
+    lines.push(line.slice(2))
+  }
+  return lines
+}
+
+/**
+ * The entries of the mapping `key` of a step, such as its `env` or `with`, as an object of their values as written
+ * (`|` for a block scalar); undefined when the step has no such key.
+ */
+function stepMapping(step, key) {
+  const lines = mappingLines(step, key)
+  if (lines === undefined) {
+    return undefined
+  }
+  const entries = {}
+  // The lines of a block scalar are indented further, so they match no entry and belong to the entry above them.
+  for (const line of lines) {
+    const entry = /^([\w-]+): (.*)$/.exec(line)
+    if (entry !== null) {
+      entries[entry[1]] = entry[2]
+    }
   }
   return entries
 }
@@ -592,5 +613,62 @@ test('57: the notices statements name the stamp, the archive and its script', as
   }
   for (const name of [archiveName, ARCHIVE_SCRIPT]) {
     assert.ok(desktop.includes(name), `THIRD-PARTY-NOTICES.txt does not name ${name}`)
+  }
+})
+
+/** The steps of the workflow `text` that use `action` (its name before `@`), in order. */
+function actionSteps(text, action) {
+  return workflowJobs(text).flatMap((job) =>
+    jobSteps(job).filter((step) => stepValue(step, 'uses')?.startsWith(`${action}@`)),
+  )
+}
+
+test('59: every artifact the workflows upload is kept 7 days', async () => {
+  const files = Object.keys(EXPECTED_UPLOADS)
+  const texts = await Promise.all(files.map(workflowText))
+  files.forEach((file, i) => {
+    const uploads = actionSteps(texts[i], 'actions/upload-artifact').map((step) =>
+      stepMapping(step, 'with'),
+    )
+
+    assert.deepEqual(
+      uploads.map((upload) => [upload?.name, upload?.['retention-days']]),
+      EXPECTED_UPLOADS[file].map((name) => [name, '7']),
+      file,
+    )
+  })
+})
+
+/** Whether `step` downloads the artifact `core-wasm` into `ui/public`. */
+function downloadsCoreIntoPublic(step) {
+  const options = stepMapping(step, 'with')
+  return (
+    stepValue(step, 'uses')?.startsWith('actions/download-artifact@') === true &&
+    options?.name === 'core-wasm' &&
+    options.path === 'ui/public'
+  )
+}
+
+test('59: the core-wasm artifact holds the web notices next to the core, and web and e2e download it into ui/public', async () => {
+  const text = await workflowText('ci.yml')
+  const upload = actionSteps(text, 'actions/upload-artifact').find(
+    (step) => stepMapping(step, 'with')?.name === 'core-wasm',
+  )
+  assert.ok(upload, 'ci.yml uploads no core-wasm artifact')
+  const jobs = workflowJobs(text)
+
+  assert.equal(
+    stepValue(mappingLines(upload, 'with'), 'path'),
+    'ui/public/core/\nui/public/THIRD-PARTY-NOTICES.txt\n',
+  )
+  // The jobs alone would not catch an artifact without the notices: web and e2e take them from their checkout.
+  for (const id of ['web', 'e2e']) {
+    const job = jobs.find((listed) => listed.id === id)
+    assert.ok(job, `ci.yml has no job ${id}`)
+    stepIndex(
+      jobSteps(job),
+      `in ${id} that downloads core-wasm into ui/public`,
+      downloadsCoreIntoPublic,
+    )
   }
 })
