@@ -10,7 +10,7 @@ Status: Accepted, needs human review
 - `outline`, the outer loop in traversal order, on region references (ADR 0022);
 - `fallback_frame` on face sketch planes, marking a fallback in body coordinates, and `direction` on edge and face axes (ADR 0023).
 
-`FORMAT_VERSION` and `OLDEST_FORMAT_VERSION` are 1 and `MIGRATIONS` is empty (file-format.md section 3.9). Any change that older readers would misread bumps the version and needs a format ADR and human review. A build that reads only version 1 rejects unknown fields inside a reference (`Reference` uses `deny_unknown_fields`, and sketch records reject unknown nested fields), so a file with `nb` would fail there with a serde "unknown field" error, which [the error guidelines](../guidelines/errors.md) forbid as a message. Saving an unchanged document must stay byte-identical (CLAUDE.md invariant), and a file written before the change must keep its meaning.
+`FORMAT_VERSION` and `OLDEST_FORMAT_VERSION` are 1 and `MIGRATIONS` is empty (file-format.md section 3.9). Any change that older readers would misread bumps the version and needs a format ADR and human review. A build that reads only version 1 rejects unknown fields inside a reference (`Reference` uses `deny_unknown_fields`, and sketch records reject unknown nested fields), so a file with `nb` would fail there with a serde "unknown field" error, which [the error guidelines](../guidelines/errors.md) forbid as a message. Saving an unchanged document must stay byte-identical (AGENTS.md invariant), and a file written before the change must keep its meaning.
 
 ## Decision
 

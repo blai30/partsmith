@@ -4,7 +4,7 @@ Open-source parametric CAD for 3D printing. Rust core over the OCCT kernel, comp
 
 ## Repository map
 
-- `crates/` Rust workspace. Each crate has its own `CLAUDE.md` with purpose, public interface and test commands.
+- `crates/` Rust workspace. Each crate has its own `AGENTS.md` with purpose, public interface and test commands.
 - `ui/` React + TypeScript app (web, and the desktop front end).
 - `desktop/` Tauri 2 host.
 - `python/` pure-Python `partsmith` package on top of `partsmith-py`.

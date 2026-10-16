@@ -7,7 +7,7 @@ It was produced on 2026-10-13 by comparing the technical design and every spec w
 Legend:
 - **Sizes:** S is one small PR. M is several PRs in one area. L spans hosts or crates and needs a spec round.
 - **Spec first:** the spec text that must merge before any code.
-- **Human gate:** a license, dependency, schema, public API or capability change that waits for review (CLAUDE.md Process).
+- **Human gate:** a license, dependency, schema, public API or capability change that waits for review (AGENTS.md Process).
 
 These claims were spot-checked against the repo while planning, and all hold:
 - The only branch is `claude/tender-sagan-4ek456`.
@@ -37,7 +37,7 @@ These claims were spot-checked against the repo while planning, and all hold:
 | 10 | B-10 | Wheel packaging test 76 is not in CI | ci.yml python job | medium | S |
 | 11 | B-11 | Release-gate perf tests P-1 to P-8 | ui/e2e | medium | M |
 | 12 | B-12 | 250 KB initial JavaScript check (already at 92 percent) | ui/scripts/check-dist.mjs | medium | S |
-| 13 | B-13 | README, install notes, release checklist | README.md, .github/workflows/CLAUDE.md | medium | S |
+| 13 | B-13 | README, install notes, release checklist | README.md, .github/workflows/AGENTS.md | medium | S |
 | 14 | PRINT-1 | Show split-plane and drain-hole suggestions | ui/src/print, ui/src/viewport, python | medium | M |
 | 15 | PRINT-2 | Custom printer profile route, or mark it Later | partsmith-cli, python | low | S or M |
 | 16 | PRINT-3 | Protocol schema of listed printer profiles | partsmith-print, partsmith-protocol, ui | low | M |
@@ -69,7 +69,7 @@ These claims were spot-checked against the repo while planning, and all hold:
 | 42 | SK-2 | Nightly 4096-case property run | .github/workflows | low | S |
 | 43 | CLI-1 | Correct cli.md open issue 1 | docs/spec/cli.md | low | S |
 | 44 | CLI-2 | CLI budgets bench | partsmith-cli | low | M |
-| 45 | PROTO-1 | Stale `Edit` note in the protocol CLAUDE.md, plus a test for it | partsmith-protocol | low | S |
+| 45 | PROTO-1 | Stale `Edit` note in the protocol AGENTS.md, plus a test for it | partsmith-protocol | low | S |
 | 46 | DEL-1 | CC0 legal text and scope | root, README, ADR | low | S |
 | 47 | DEL-2 | npm license check in CI | ui/scripts, ci.yml, ADR | low | S |
 
@@ -81,7 +81,7 @@ These two are gaps in `docs/design/reference-stability-and-errors.md` section 10
 - **Spec:** sketch.md 1.1, 2.2, 3.17, 6.21 (tests 248 to 250).
 - **Spec first:** no spec change, the spec is already written. Plan text only.
 - **Work:**
-  - Add a phase 2 step before 10.4 step 1: `SketchParams::mirrored`, `mirrored_point` and `mirrored_region`, tests in a new `tests/mirrored.rs`, and the interface in the crate's CLAUDE.md.
+  - Add a phase 2 step before 10.4 step 1: `SketchParams::mirrored`, `mirrored_point` and `mirrored_region`, tests in a new `tests/mirrored.rs`, and the interface in the crate's AGENTS.md.
   - Cite that step from 10.4 step 1 (`TurnDrawingBack`, features/sketch.md test 24) and step 3 (engine `apply_fix`, engine.md test 135).
   - Add sketch.md tests 252 and 253 to 10.3 step 2.
   - Give test 251 (NC08 `NotConverged`) to the phase 3 sketch messages step.
@@ -124,7 +124,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - A new delivery.md notices section, with section 6 tests.
   - The desktop.md `bundle` object, plus the exact-object test in `desktop/src-tauri/tests/config.rs`.
   - An ADR for the generator tool, or a row in ADR 0020.
-  - A new ADR that resolves a contradiction: CLAUDE.md and technical design 3 say OCCT is "linked as a separate library", but ADR 0003 links it statically. Either the wording or the linking changes.
+  - A new ADR that resolves a contradiction: AGENTS.md and technical design 3 say OCCT is "linked as a separate library", but ADR 0003 links it statically. Either the wording or the linking changes.
 - **Human gate:** licenses and a new tool.
 - **Work:**
   - Collect the notices:
@@ -242,7 +242,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
 - **Impact:** medium. The bundle is already at 230,462 bytes gzipped (233,328 with the worker), 92 to 93 percent of the budget, and the app is not split into chunks. **Size:** S.
 - **Depends on:** nothing. The CI web job already runs `check:dist`.
 
-**B-13. README, install notes and release checklist** (README.md, `.github/workflows/CLAUDE.md`)
+**B-13. README, install notes and release checklist** (README.md, `.github/workflows/AGENTS.md`)
 - **Spec:** delivery.md 3.6 (the release notes say nothing is signed); desktop.md 3.8 and line 615.
 - **Spec first:** no. An optional `python/README.md` would need a python-api.md 2.1 amendment.
 - **Work:**
@@ -252,7 +252,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - How to run the web app, the desktop app, the CLI (its five subcommands) and Python (`maturin develop`, `python -m partsmith build`).
   - Download and install: the Pages URL, GitHub Releases, unsigned-install steps, glibc 2.39 and WebKitGTK 4.1.
   - A License section linking the notices (B-2) and the CC0 scope (DEL-1).
-  - Contributor pointers to CLAUDE.md, the spec README, the ADR README and the bless command.
+  - Contributor pointers to AGENTS.md, the spec README, the ADR README and the bless command.
   - A release checklist with the exact unsigned-bundle paragraph. `--generate-notes` stays, per delivery.md 2.5.
 - **Impact:** medium. **Size:** S.
 - **Depends on:** B-1 (URLs) and B-2.
@@ -472,7 +472,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Spec first:** yes. A new engine.md 6 test next to tests 87 and 88. It says when a regenerated golden is expected (a zip or deflate change, or an OCCT bump) and which target it is pinned on.
 - **Work:**
   - Add `tests/fixtures/box.3mf` and `two-bodies.3mf`, checked in `export_and_import.rs`.
-  - Regeneration is opt-in and refused in CI, like `bless_mode`. Document it in the engine's CLAUDE.md.
+  - Regeneration is opt-in and refused in CI, like `bless_mode`. Document it in the engine's AGENTS.md.
 - **Impact:** low. **Size:** S.
 - **Depends on:** nothing.
 
@@ -547,7 +547,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Work:**
   - `python/benches/budgets.py`, or a `budgets` pytest marker beside `packaging`.
   - It measures: import, per-call overhead, the fifty-features twin, and Selection filtering over 1000 elements.
-  - Run it in the python CI job, and list it in the partsmith-py CLAUDE.md.
+  - Run it in the python CI job, and list it in the partsmith-py AGENTS.md.
 - **Impact:** low. **Size:** M.
 - **Depends on:** B-1 and B-10.
 
@@ -563,9 +563,9 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Depends on:** B-1 and the shared wasm job.
 
 **SK-2. No nightly job runs the property tests at 4096 cases**
-- **Spec:** sketch.md 6.13; crates/partsmith-sketch/CLAUDE.md.
+- **Spec:** sketch.md 6.13; crates/partsmith-sketch/AGENTS.md.
 - **Spec first:** yes. delivery.md 1.1 plus a section 6 test, or a 1.2 deferral.
-- **Work:** a scheduled workflow (cron and `workflow_dispatch`) that runs `PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test properties`. It needs no OCCT cache. List it in `.github/workflows/CLAUDE.md`.
+- **Work:** a scheduled workflow (cron and `workflow_dispatch`) that runs `PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test properties`. It needs no OCCT cache. List it in `.github/workflows/AGENTS.md`.
 - **Impact:** low. **Size:** S.
 - **Depends on:** B-1.
 
@@ -585,17 +585,17 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
   - `benches/budgets.rs` on partsmith-budgets, timing the release binary through `std::process::Command`.
   - A 200 KB workload, generated at run time or added as an `examples/bench/<name>`.
   - rebuild and export on fifty-features, at the engine budget plus 100 ms.
-  - Cargo.toml bench wiring, and the command in the crate's CLAUDE.md.
+  - Cargo.toml bench wiring, and the command in the crate's AGENTS.md.
 - **Impact:** low. **Size:** M.
 - **Depends on:** nothing.
 
 ### partsmith-protocol
 
-**PROTO-1. The protocol CLAUDE.md says `Edit` accepts unknown fields**
+**PROTO-1. The protocol AGENTS.md says `Edit` accepts unknown fields**
 - **Spec:** model.md 2.9 (line 568); protocol.md 2.3.
 - **Spec first:** no.
 - **Work:**
-  - Fix line 24 of `crates/partsmith-protocol/CLAUDE.md`: `Edit` rejects unknown fields, while the `FeatureRecord` inside it keeps unknown keys as params.
+  - Fix line 24 of `crates/partsmith-protocol/AGENTS.md`: `Edit` rejects unknown fields, while the `FeatureRecord` inside it keeps unknown keys as params.
   - Add an acceptance test that `apply_edits` rejects an unknown `Edit` field, if none exists.
 - **Impact:** low. **Size:** S.
 - **Depends on:** nothing.
@@ -614,7 +614,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Depends on:** the same license gate as B-2.
 
 **DEL-2. No CI check covers npm licenses**
-- **Spec:** technical design 17; the CLAUDE.md license invariant.
+- **Spec:** technical design 17; the AGENTS.md license invariant.
 - **Spec first:** yes. delivery.md 1.1, 2.4 and 6, using the deny.toml SPDX allow list.
 - **Human gate:** dependencies and licenses.
 - **Work:**

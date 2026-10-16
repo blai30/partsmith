@@ -4,7 +4,7 @@ Status: Proposed, needs human review
 
 ## Context
 
-The technical design proposes a Tauri 2 shell for the desktop app (section 4), and the architecture places it in `desktop/src-tauri`, depending on the engine and the protocol. protocol.md 2.12 fixes the wire contract of its one `call` command, and ui.md open issue 2 left the rest to a desktop spec: how the UI reaches Tauri without `@tauri-apps/api`, and how the desktop `FileService` gets native dialogs and file access, which it expected to need the Tauri dialog and fs plugins. CLAUDE.md requires every new dependency to be recorded here and reviewed by a human, and the license policy (`deny.toml`) allows only permissive licenses. [desktop.md](../spec/desktop.md) and [delivery.md](../spec/delivery.md) are the specs this decision serves.
+The technical design proposes a Tauri 2 shell for the desktop app (section 4), and the architecture places it in `desktop/src-tauri`, depending on the engine and the protocol. protocol.md 2.12 fixes the wire contract of its one `call` command, and ui.md open issue 2 left the rest to a desktop spec: how the UI reaches Tauri without `@tauri-apps/api`, and how the desktop `FileService` gets native dialogs and file access, which it expected to need the Tauri dialog and fs plugins. AGENTS.md requires every new dependency to be recorded here and reviewed by a human, and the license policy (`deny.toml`) allows only permissive licenses. [desktop.md](../spec/desktop.md) and [delivery.md](../spec/delivery.md) are the specs this decision serves.
 
 ## Decision
 

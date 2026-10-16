@@ -30,7 +30,7 @@ The protocol additions of the study's section 5.5 (PR1 to PR6), with the engine 
 - **Put the session's history into the message and its actions.** The same document would then read differently in the UI, in `rebuild --json` and in Python, and cached feature errors would depend on the session. A separate `cause` keeps the message and its actions a function of the document.
 - **Keep one `suggestion` value per message.** It covers 14 of 260 messages; candidates, timeline fixes (Unsuppress, Move below), sketch fixes (Connect the ends, Delete a constraint) and reverts need labels and kinds.
 - **Show fingerprint scores next to candidates.** A 100% lookalike is exactly what made FreeCAD's breakage silent (R21b's cove scores 1.0). Candidates are ordered and described by what they keep and how far they are; scores stay in the data for reports.
-- **Let the UI compute candidates and ghosts itself.** The UI depends only on the protocol (CLAUDE.md invariant), and the CLI and Python need the same data.
+- **Let the UI compute candidates and ghosts itself.** The UI depends only on the protocol (AGENTS.md invariant), and the CLI and Python need the same data.
 
 ## Consequences
 

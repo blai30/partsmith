@@ -17,7 +17,7 @@ Inline classes directly on elements; don't assign static class strings to consta
 
 Repeated class sets across components is correct: keeping classes inline and local is the goal of utility-first styling. Do NOT extract shared constants, helpers, or token-like abstractions to deduplicate ordinary repetition. A project's pre-existing sanctioned fragments (e.g. focus-ring in `lib/styles.ts`) are fine; don't hunt for more.
 
-**Exception: documented design-system mappings.** When repeated classes encode a documented role-to-value rule (a CLAUDE.md, design doc, tokens table mapping semantic roles to specific scale steps), single-sourcing keeps the spec authoritative. This covers the **mapping** (role -> hue/step as named facets like `fill`/`fg`/`border`), NOT surrounding layout. The mapping must be documented; undocumented recipes are still ordinary repetition: leave inline.
+**Exception: documented design-system mappings.** When repeated classes encode a documented role-to-value rule (a AGENTS.md, design doc, tokens table mapping semantic roles to specific scale steps), single-sourcing keeps the spec authoritative. This covers the **mapping** (role -> hue/step as named facets like `fill`/`fg`/`border`), NOT surrounding layout. The mapping must be documented; undocumented recipes are still ordinary repetition: leave inline.
 
 ## Tailwind v4 Token Shorthand
 

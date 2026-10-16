@@ -4,7 +4,7 @@ Status: Accepted, needs human review
 
 ## Context
 
-CLAUDE.md requires every new dependency to be recorded in the ADR log and reviewed by a human at the next gate. The M1 specs need three crates that no earlier ADR names. The license policy (technical design section 17, enforced by `cargo-deny` with `deny.toml`) allows only permissive licenses.
+AGENTS.md requires every new dependency to be recorded in the ADR log and reviewed by a human at the next gate. The M1 specs need three crates that no earlier ADR names. The license policy (technical design section 17, enforced by `cargo-deny` with `deny.toml`) allows only permissive licenses.
 
 ## Decision
 

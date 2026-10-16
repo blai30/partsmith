@@ -12,7 +12,7 @@ Several fixes of the study need facts only the kernel has:
 - **Limits that name their cause.** The error guidelines allow blaming a small face only when it was measured below the requested value. The fillet of newcomer scenario NC05 fails because the face next to its edge is only 2.4 mm across, which nothing measures today.
 - **Ghosts.** Repair mode draws the lost element where it was in its last build (ADR 0024), which needs the display geometry of one element of the previous body state; the facade only tessellates whole shapes.
 
-Changing the facade adds C++ shim code and safe Rust API at the one C++ boundary (CLAUDE.md invariant: no C++ types, exceptions or `unsafe` outside `partsmith-occt-sys`).
+Changing the facade adds C++ shim code and safe Rust API at the one C++ boundary (AGENTS.md invariant: no C++ types, exceptions or `unsafe` outside `partsmith-occt-sys`).
 
 ## Decision
 

@@ -1,6 +1,6 @@
 # Coding guidelines
 
-Project-wide style guides that every change follows, in addition to the code style section of the root `CLAUDE.md`.
+Project-wide style guides that every change follows, in addition to the code style section of the root `AGENTS.md`.
 
 - [TypeScript](typescript.md)
 - [Tailwind CSS](tailwind-css.md)

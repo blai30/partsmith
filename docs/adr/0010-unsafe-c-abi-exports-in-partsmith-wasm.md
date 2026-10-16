@@ -14,7 +14,7 @@ The architecture allows C++ and `unsafe` only in `partsmith-occt-sys`, and the w
 - The exports stay thin: they convert between raw pointers and slices and call the safe `call(request: &[u8]) -> Vec<u8>`, which native tests exercise directly.
 - The `thread_local!` `Session` in `partsmith-wasm` is host state, like the `Session` a Tauri or Python host owns. The core crates stay free of global mutable state.
 - The STEP mutex and the one-time OCCT initialization in `partsmith-occt-sys` guard OCCT's own process-wide state, not Partsmith state, and are invisible to callers. They do not break the "no global mutable state in the core" invariant, which stays as written.
-- The CLAUDE.md invariant on C++ and `unsafe` names this exception.
+- The AGENTS.md invariant on C++ and `unsafe` names this exception.
 
 ## Consequences
 

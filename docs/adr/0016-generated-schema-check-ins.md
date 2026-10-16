@@ -4,7 +4,7 @@ Status: Accepted, needs human review
 
 ## Context
 
-CLAUDE.md requires every change to the file-format schema or the protocol schema to be recorded in the ADR log and reviewed by a human at the next gate. Both schemas are generated from the Rust types with `schemars` (ADR 0006) and checked in under `docs/format/`, where tests compare them with the generated text so drift fails CI.
+AGENTS.md requires every change to the file-format schema or the protocol schema to be recorded in the ADR log and reviewed by a human at the next gate. Both schemas are generated from the Rust types with `schemars` (ADR 0006) and checked in under `docs/format/`, where tests compare them with the generated text so drift fails CI.
 
 ## Decision
 

@@ -570,7 +570,7 @@ Claude Code agents write all of Partsmith's code. Humans set direction, approve 
 **Repository set-up for agents**
 
 - One monorepo: the Cargo workspace, the TypeScript UI, the Python package, the docs and the model corpus.
-- A root `CLAUDE.md` holds build and test commands, coding rules, the engineering principles from section 1, and the invariants that must never break (deterministic serialization, no index-based references, no C++ types outside `partsmith-occt-sys`). Each crate has its own short `CLAUDE.md` with its purpose, public interface and test commands.
+- A root `AGENTS.md` holds build and test commands, coding rules, the engineering principles from section 1, and the invariants that must never break (deterministic serialization, no index-based references, no C++ types outside `partsmith-occt-sys`). Each crate has its own short `AGENTS.md` with its purpose, public interface and test commands.
 - This design doc becomes `docs/design/`. Every lasting decision is an ADR in `docs/adr/`. Agents read the relevant ADRs before changing an area and write a new ADR when they change a decision.
 - `docs/spec/<feature>.md` describes each feature's behavior, parameters, edge cases and acceptance tests before any code is written.
 - Small crates with narrow, documented interfaces, so one agent can hold the whole area it is working on in context.
