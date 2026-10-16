@@ -319,6 +319,6 @@ fn describe_elements_of_five_elements_within_200_microseconds() {
     assert_within(
         "describe_elements of 5 elements",
         duration,
-        Duration::from_micros(200),
+        Duration::from_micros(1),
     );
 }
