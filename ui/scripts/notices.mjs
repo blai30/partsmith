@@ -91,6 +91,11 @@ const CRATES_SOURCE_LINE =
 
 const OCCT_LICENSE = 'LGPL-2.1-only WITH OCCT-exception-1.0'
 
+// What the statements name from section 2.13: the source stamp of every web deployment, at the site's root, and the
+// script that makes the OCCT source archive of every release.
+const SOURCE_STAMP = 'SOURCE.txt'
+const ARCHIVE_SCRIPT = 'scripts/occt-source-archive.sh'
+
 // The self-hosted fonts of ADR 0031 (input 5).
 const FONTS = [
   {
@@ -648,21 +653,32 @@ function occtUsedParagraph(app, occtVersion) {
   return `The Partsmith ${app} uses Open CASCADE Technology (OCCT) ${occtVersion}, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.`
 }
 
+/** The OCCT source archive of `occtVersion` and the command that extracts it into `<work>/src` (section 2.13). */
+function occtSourceArchive(occtVersion) {
+  const archive = `occt-${occtVersion}-source.tar.gz`
+  return {
+    archive,
+    extract: `mkdir -p <work>/src && tar -xzf ${archive} --strip-components=1 -C <work>/src`,
+  }
+}
+
 /** The OCCT statement of the desktop file: three paragraphs, each one line. */
 function desktopStatement({ occtVersion, occtTag }, repository) {
+  const { archive, extract } = occtSourceArchive(occtVersion)
   return [
     occtUsedParagraph('desktop app', occtVersion),
     `OCCT is linked statically into the app. It is the unmodified source of the tag ${occtTag} of https://github.com/Open-Cascade-SAS/OCCT, built as static libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.`,
-    `You may modify OCCT and use your version with Partsmith. The Partsmith source of each release is the tag v followed by the app's version (for example v0.1.0) in ${repository}, with every script, tool version and lock file the build uses. To relink: put your OCCT source in <work>/src, run OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>, and build the app with OCCT_ROOT=<prefix> as README.md describes (pnpm -C ui build, then cargo tauri build in desktop/src-tauri). The exact commands for each platform, including the environment Windows and macOS need, are the steps of the bundle job in .github/workflows/release.yml at that tag.`,
+    `You may modify OCCT and use your version with Partsmith. The source of each release is on its page under ${repository}/releases: the Partsmith source is the release's tag, v followed by the app's version (for example v0.1.0), with every script, tool version and lock file the build uses, and the OCCT source the build reads is the release's asset ${archive}, which ${ARCHIVE_SCRIPT} makes from the tag ${occtTag}. To relink: put your OCCT source in <work>/src (from the asset: ${extract}), run OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>, and build the app with OCCT_ROOT=<prefix> as README.md describes (pnpm -C ui build, then cargo tauri build in desktop/src-tauri). The exact commands for each platform, including the environment Windows and macOS need, are the steps of the bundle job in .github/workflows/release.yml at that tag.`,
   ].join('\n\n')
 }
 
 /** The OCCT statement of the web file: three paragraphs, each one line. */
 function webStatement({ occtVersion, occtTag }, repository) {
+  const { archive, extract } = occtSourceArchive(occtVersion)
   return [
     occtUsedParagraph('web app', occtVersion),
     `OCCT is linked statically into the app's geometry core, core/partsmith_core.wasm. It is the unmodified source of the tag ${occtTag} of https://github.com/Open-Cascade-SAS/OCCT, built as static WebAssembly libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.`,
-    `You may modify OCCT and use your version with Partsmith. Each deployment of this site is built from one commit of ${repository}: production from its main branch, a preview from the head commit of its pull request; that commit holds every script, tool version and lock file the build uses. To relink: put your OCCT source in <work>/src, run OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix> with the Emscripten SDK of scripts/emsdk-version.sh active, and build the core with OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md describes (scripts/build-wasm.sh, then pnpm -C ui build). The exact commands are the steps of the core-wasm and web jobs in .github/workflows/ci.yml at that commit.`,
+    `You may modify OCCT and use your version with Partsmith. Each deployment of this site names the commit of ${repository} it was built from in /${SOURCE_STAMP}, with a link to that commit's source archive; that commit holds every script, tool version and lock file the build uses. Production is built from the main branch, and a preview from the commit GitHub makes by merging its pull request into the base branch; for a preview, /${SOURCE_STAMP} also names the two commits that merge joins and its tree: if the merge commit is gone, check out the first, run git merge --no-ff with the second, and compare the tree that git log -1 --format=%T prints with that tree. The OCCT source the build reads is ${archive}, which ${ARCHIVE_SCRIPT} at that commit makes from the tag ${occtTag}; each Partsmith desktop release built with OCCT ${occtVersion} carries that file as an asset under ${repository}/releases. To relink: put your OCCT source in <work>/src (from the archive: ${extract}), run OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix> with the Emscripten SDK of scripts/emsdk-version.sh active, and build the core with OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md describes (scripts/build-wasm.sh, then pnpm -C ui build). The exact commands are the steps of the core-wasm and web jobs in .github/workflows/ci.yml at that commit.`,
   ].join('\n\n')
 }
 

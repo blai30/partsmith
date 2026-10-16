@@ -18,8 +18,7 @@ env:
   # Every test binary links OCCT statically; with debug info they outgrow the runner's disk (delivery.md 3.2).
   CARGO_PROFILE_DEV_DEBUG: "0"
 
-# Every job sets timeout-minutes, so a hung job bills at most that on this private repository,
-# not GitHub's default of 360 minutes (delivery.md 2.4).
+# Every job sets timeout-minutes, so a hung job ends long before GitHub's default of 360 minutes (delivery.md 2.4).
 jobs:
   occt-native:
     name: OCCT (native)
@@ -217,10 +216,13 @@ jobs:
       - run: cargo test -p partsmith-wasm --test web_module
         env:
           PARTSMITH_REQUIRE_WEB_MODULE: "1"
+      # The web notices go wherever the core goes. With two paths, the artifact is rooted at ui/public/.
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: core-wasm
-          path: ui/public/core/
+          path: |
+            ui/public/core/
+            ui/public/THIRD-PARTY-NOTICES.txt
           retention-days: 7
           if-no-files-found: error
 
@@ -234,10 +236,11 @@ jobs:
         working-directory: ui
     steps:
       - uses: actions/checkout@v7.0.1
+      # The notices file it writes is the checkout's, from the same commit.
       - uses: actions/download-artifact@v8.0.2
         with:
           name: core-wasm
-          path: ui/public/core
+          path: ui/public
       - uses: pnpm/action-setup@v6.1.0
         with:
           package_json_file: ui/package.json
@@ -248,6 +251,30 @@ jobs:
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      # The commit of this build, at /SOURCE.txt of every deployment (delivery.md 2.13). The checkout is shallow, so a
+      # pull request's parents and tree come from the merge commit's header, the lines before its first blank line.
+      - name: Write the source stamp
+        env:
+          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+          PULL_REQUEST_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          if [ -n "$PULL_REQUEST_URL" ]; then
+            object="$(git cat-file commit "$GITHUB_SHA")"
+            header="${object%%$'\n\n'*}"
+            parents="$(sed -n 's/^parent //p' <<<"$header" | paste -sd ' ')"
+            tree="$(sed -n 's/^tree //p' <<<"$header")"
+          fi
+          {
+            echo "Source of this deployment of the Partsmith web app"
+            echo "Repository: $REPOSITORY_URL"
+            echo "Commit: $GITHUB_SHA"
+            echo "Source archive: $REPOSITORY_URL/archive/$GITHUB_SHA.tar.gz"
+            if [ -n "$PULL_REQUEST_URL" ]; then
+              echo "Pull request: $PULL_REQUEST_URL"
+              echo "Parents: $parents"
+              echo "Tree: $tree"
+            fi
+          } >dist/SOURCE.txt
       - run: pnpm check:dist
       # check:dist does not look for the core, which acceptance test 8 requires.
       - name: Check that the build contains the web core
@@ -274,7 +301,7 @@ jobs:
       - uses: actions/download-artifact@v8.0.2
         with:
           name: core-wasm
-          path: ui/public/core
+          path: ui/public
       - uses: pnpm/action-setup@v6.1.0
         with:
           package_json_file: ui/package.json
@@ -286,6 +313,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm e2e
+      # Its traces can hold the files the page loaded, the core among them, so it is kept 7 days like the others.
       - if: failure()
         uses: actions/upload-artifact@v7.0.2
         with:
@@ -293,6 +321,7 @@ jobs:
           path: |
             ui/playwright-report/
             ui/test-results/
+          retention-days: 7
 
   python:
     name: Python
@@ -425,6 +454,14 @@ jobs:
         with:
           name: web-dist
           path: ui/dist
+      # No deployment goes out without the stamp that names its source (delivery.md 2.13).
+      - if: steps.secrets.outputs.available == 'true'
+        name: Check the source stamp
+        run: |
+          if ! grep -qxF "Commit: $GITHUB_SHA" ui/dist/SOURCE.txt 2>/dev/null; then
+            echo "::error title=Source stamp missing::ui/dist/SOURCE.txt does not name the commit $GITHUB_SHA, so nothing was deployed. The web job writes it (docs/spec/delivery.md section 2.13)."
+            exit 1
+          fi
       - if: steps.secrets.outputs.available == 'true'
         id: pages
         uses: cloudflare/wrangler-action@v4.1.3

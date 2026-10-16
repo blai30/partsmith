@@ -16,8 +16,16 @@ work="${OCCT_WORK_DIR:-${TMPDIR:-/tmp}/occt-${OCCT_VERSION}}"
 src="$work/src"
 build="$work/build-$target"
 
+# An existing src is used as it is, which is how a modified OCCT is built (delivery.md section 2.13).
 if [ ! -d "$src" ]; then
   git clone --depth 1 --branch "$OCCT_TAG" https://github.com/Open-Cascade-SAS/OCCT.git "$src"
+  commit="$(git -C "$src" rev-parse "$OCCT_TAG^{commit}")"
+  if [ "$commit" != "$OCCT_COMMIT" ]; then
+    echo "The tag $OCCT_TAG in $src names the commit $commit, not $OCCT_COMMIT, which scripts/occt-version.sh pins. Upstream may have moved the tag; nothing was built or archived from it (docs/spec/delivery.md section 2.13)." >&2
+    # So that the next run clones and checks again instead of building what this one refused.
+    rm -rf "$src"
+    exit 1
+  fi
 fi
 
 toolkits="TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo TKTopAlgo TKPrim TKBO TKBool TKFillet TKOffset TKFeat TKMesh TKShHealing TKDESTEP TKDESTL"

@@ -1,13 +1,26 @@
-// Acceptance tests 49 to 51 of docs/spec/delivery.md section 6 for the workflow files.
+// Acceptance tests 49 to 54 and 57 of docs/spec/delivery.md section 6 for the workflow files.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const workflowsDirectory = fileURLToPath(new URL('../../.github/workflows/', import.meta.url))
+import { git, isolatedGitEnvironment } from './isolated-git.mjs'
+
+const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
+const workflowsDirectory = join(repositoryRoot, '.github/workflows')
+
+// The source stamp at the root of every web build, which tests 52, 53 and 57 name (section 2.13).
+const SOURCE_STAMP = 'SOURCE.txt'
+
+// The script that writes the OCCT source archive of a release, which tests 54 and 57 name (section 2.13).
+const ARCHIVE_SCRIPT = 'scripts/occt-source-archive.sh'
+
+// The repository and a pull request as GitHub gives them to the source stamp's writer (section 2.13).
+const REPOSITORY_URL = 'https://github.com/blai30/partsmith'
+const PULL_REQUEST_URL = 'https://github.com/blai30/partsmith/pull/7'
 
 // Two commits, 40 hexadecimal digits as GitHub writes them: the head of main that a night tests, and an older one.
 const HEAD_COMMIT = 'a'.repeat(40)
@@ -126,6 +139,47 @@ function jobSteps(job) {
     }
   }
   return steps
+}
+
+/**
+ * The entries of the mapping `key` of a step, such as its `env` or `with`, as an object of their values as written
+ * (`|` for a block scalar); undefined when the step has no such key.
+ */
+function stepMapping(step, key) {
+  const index = step.indexOf(`${key}:`)
+  if (index === -1) {
+    return undefined
+  }
+  const entries = {}
+  for (const line of step.slice(index + 1)) {
+    // The lines of a block scalar belong to the entry above them.
+    if (line.startsWith('    ')) {
+      continue
+    }
+    const entry = /^ {2}([\w-]+): (.*)$/.exec(line)
+    if (entry === null) {
+      break
+    }
+    entries[entry[1]] = entry[2]
+  }
+  return entries
+}
+
+/** The index of the first step of `steps` for which `matches` is true; fails the test, naming `what`, when none is. */
+function stepIndex(steps, what, matches) {
+  const index = steps.findIndex(matches)
+  assert.notEqual(index, -1, `no step ${what}`)
+  return index
+}
+
+/** The index of the step of `steps` named `name`; fails the test when there is none. */
+function namedStep(steps, name) {
+  return stepIndex(steps, `named ${name}`, (step) => stepValue(step, 'name') === name)
+}
+
+/** The index of the step of `steps` whose `run` is `command`; fails the test when there is none. */
+function commandStep(steps, command) {
+  return stepIndex(steps, `that runs ${command}`, (step) => stepValue(step, 'run') === command)
 }
 
 /** The value of `key` in a step: the rest of its line, or for a block scalar (`|`) the lines below it. */
@@ -256,4 +310,287 @@ test('51: the nightly skip check tests with a warning when gh fails', async (con
     result.stdout,
     `::warning title=Nightly skip check failed::gh run list failed, so the property tests run without checking whether an earlier night tested ${HEAD_COMMIT}.\n`,
   )
+})
+
+/** The four lines of the source stamp of section 2.13 for `commit`, each with its LF. */
+function stampText(commit) {
+  return [
+    'Source of this deployment of the Partsmith web app',
+    `Repository: ${REPOSITORY_URL}`,
+    `Commit: ${commit}`,
+    `Source archive: ${REPOSITORY_URL}/archive/${commit}.tar.gz`,
+  ]
+    .map((line) => `${line}\n`)
+    .join('')
+}
+
+/** The three lines a pull request's build adds to the source stamp (section 2.13), each with its LF. */
+function pullRequestText(parents, tree) {
+  return `Pull request: ${PULL_REQUEST_URL}\nParents: ${parents.join(' ')}\nTree: ${tree}\n`
+}
+
+/** The source-stamp error of section 4 for `commit`. */
+function stampErrorMessage(commit) {
+  return `::error title=Source stamp missing::ui/dist/${SOURCE_STAMP} does not name the commit ${commit}, so nothing was deployed. The web job writes it (docs/spec/delivery.md section 2.13).`
+}
+
+/** Runs a step's `run` script with `bash -e` in `directory` and `environment`, as GitHub runs a step without a `shell`. */
+async function runStep(context, step, directory, environment) {
+  const scriptPath = join(await temporaryDirectory(context), 'step.sh')
+  await writeFile(scriptPath, stepValue(step, 'run'))
+  return spawnSync('bash', ['-e', scriptPath], {
+    cwd: directory,
+    env: environment,
+    encoding: 'utf8',
+  })
+}
+
+/** The step `Write the source stamp` of the web job of ci.yml. */
+async function stampWriter() {
+  const steps = jobSteps(await workflowJob('ci.yml', 'web'))
+  return steps[namedStep(steps, 'Write the source stamp')]
+}
+
+test('52: the web job writes the source stamp after the build and before the distribution check', async () => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'web'))
+  const build = commandStep(steps, 'pnpm build')
+  const writer = namedStep(steps, 'Write the source stamp')
+  const check = commandStep(steps, 'pnpm check:dist')
+
+  assert.ok(
+    build < writer && writer < check,
+    'Write the source stamp is not between pnpm build and pnpm check:dist',
+  )
+  assert.equal(stepValue(steps[writer], 'shell'), undefined)
+  assert.deepEqual(stepMapping(steps[writer], 'env'), {
+    REPOSITORY_URL: '${{ github.server_url }}/${{ github.repository }}',
+    PULL_REQUEST_URL: '${{ github.event.pull_request.html_url }}',
+  })
+})
+
+test('52: the source stamp of a push names the repository, the commit and its source archive', async (context) => {
+  const build = await temporaryDirectory(context)
+  const environment = await isolatedGitEnvironment(build)
+  await mkdir(join(build, 'dist'))
+
+  const result = await runStep(context, await stampWriter(), build, {
+    ...environment,
+    REPOSITORY_URL,
+    PULL_REQUEST_URL: '',
+    GITHUB_SHA: HEAD_COMMIT,
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(await readFile(join(build, 'dist', SOURCE_STAMP), 'utf8'), stampText(HEAD_COMMIT))
+})
+
+/**
+ * Makes a repository in `directory` whose tip is a merge, made with --no-ff, of a head commit on another branch into a
+ * base commit, with a message whose second paragraph holds a decoy parent line and a decoy tree line. Returns the
+ * repository's path and the merge commit, its two parents and its tree.
+ */
+async function mergedRepository(environment, directory) {
+  const repository = join(directory, 'repository')
+  await mkdir(repository)
+  git(environment, repository, 'init', '--initial-branch=main')
+  await writeFile(join(repository, 'base.txt'), 'base\n')
+  git(environment, repository, 'add', '--all')
+  git(environment, repository, 'commit', '--message', 'Base')
+  const base = git(environment, repository, 'rev-parse', 'HEAD')
+  git(environment, repository, 'switch', '--create', 'head')
+  await writeFile(join(repository, 'head.txt'), 'head\n')
+  git(environment, repository, 'add', '--all')
+  git(environment, repository, 'commit', '--message', 'Head')
+  const head = git(environment, repository, 'rev-parse', 'HEAD')
+  git(environment, repository, 'switch', 'main')
+  const decoy = `parent ${'c'.repeat(40)}\ntree ${'d'.repeat(40)}`
+  git(
+    environment,
+    repository,
+    'merge',
+    '--no-ff',
+    '--message',
+    `Merge head into main\n\n${decoy}`,
+    'head',
+  )
+  const merge = git(environment, repository, 'rev-parse', 'HEAD')
+  assert.ok(git(environment, repository, 'cat-file', 'commit', merge).endsWith(`\n\n${decoy}`))
+  return {
+    repository,
+    merge,
+    parents: [base, head],
+    tree: git(environment, repository, 'rev-parse', `${merge}^{tree}`),
+  }
+}
+
+/** A shallow clone (depth 1) of `repository` in `directory`, holding an empty `dist/`, as the web job checks out. */
+async function shallowClone(environment, repository, directory) {
+  const clone = join(directory, 'clone')
+  git(
+    environment,
+    directory,
+    'clone',
+    '--quiet',
+    '--depth',
+    '1',
+    pathToFileURL(repository).href,
+    clone,
+  )
+  await mkdir(join(clone, 'dist'))
+  return clone
+}
+
+test('52: the source stamp of a pull request also names it, the two parents of the merge and its tree', async (context) => {
+  const directory = await temporaryDirectory(context)
+  const environment = await isolatedGitEnvironment(directory)
+  const { repository, merge, parents, tree } = await mergedRepository(environment, directory)
+  const clone = await shallowClone(environment, repository, directory)
+
+  const result = await runStep(context, await stampWriter(), clone, {
+    ...environment,
+    REPOSITORY_URL,
+    PULL_REQUEST_URL,
+    GITHUB_SHA: merge,
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(
+    await readFile(join(clone, 'dist', SOURCE_STAMP), 'utf8'),
+    stampText(merge) + pullRequestText(parents, tree),
+  )
+})
+
+test('52: the source stamp of a pull request fails when the checkout does not hold the commit', async (context) => {
+  const directory = await temporaryDirectory(context)
+  const environment = await isolatedGitEnvironment(directory)
+  const { repository, parents } = await mergedRepository(environment, directory)
+  const clone = await shallowClone(environment, repository, directory)
+
+  // The base is a parent of the clone's only commit, so the shallow clone does not hold it.
+  const result = await runStep(context, await stampWriter(), clone, {
+    ...environment,
+    REPOSITORY_URL,
+    PULL_REQUEST_URL,
+    GITHUB_SHA: parents[0],
+  })
+
+  assert.notEqual(result.status, 0)
+})
+
+/** The steps of the deploy job of ci.yml and the index of its step `Check the source stamp`. */
+async function deploySteps() {
+  const steps = jobSteps(await workflowJob('ci.yml', 'deploy'))
+  return { steps, check: namedStep(steps, 'Check the source stamp') }
+}
+
+test('53: the deploy job checks the source stamp after downloading web-dist and before Wrangler', async () => {
+  const { steps, check } = await deploySteps()
+  const download = stepIndex(
+    steps,
+    'that downloads web-dist',
+    (step) =>
+      stepValue(step, 'uses')?.startsWith('actions/download-artifact@') &&
+      stepMapping(step, 'with')?.name === 'web-dist',
+  )
+  const pages = stepIndex(steps, 'with id pages', (step) => stepValue(step, 'id') === 'pages')
+
+  assert.equal(stepValue(steps[check], 'if'), "steps.secrets.outputs.available == 'true'")
+  assert.ok(
+    download < check && check < pages,
+    'Check the source stamp is not between the download and Wrangler',
+  )
+})
+
+/**
+ * Runs the deploy job's stamp check in a new folder with `GITHUB_SHA` forty `a` digits, after writing `stamp` to
+ * `ui/dist/SOURCE.txt` (no file when it is null, and no `ui/dist` when it is undefined).
+ */
+async function runStampCheck(context, stamp) {
+  const { steps, check } = await deploySteps()
+  const workspace = await temporaryDirectory(context)
+  if (stamp !== undefined) {
+    await mkdir(join(workspace, 'ui/dist'), { recursive: true })
+  }
+  if (typeof stamp === 'string') {
+    await writeFile(join(workspace, 'ui/dist', SOURCE_STAMP), stamp)
+  }
+  return runStep(context, steps[check], workspace, { ...process.env, GITHUB_SHA: HEAD_COMMIT })
+}
+
+/** Asserts that the stamp check passes and prints nothing with `stamp` in `ui/dist/SOURCE.txt`. */
+async function assertStampAccepted(context, stamp) {
+  const result = await runStampCheck(context, stamp)
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.stdout, '')
+  assert.equal(result.stderr, '')
+}
+
+/** Asserts that the stamp check fails with exactly the source-stamp error, as `runStampCheck` takes `stamp`. */
+async function assertStampRejected(context, stamp) {
+  const result = await runStampCheck(context, stamp)
+
+  assert.equal(result.status, 1)
+  assert.equal(result.stdout, `${stampErrorMessage(HEAD_COMMIT)}\n`)
+  assert.equal(result.stderr, '')
+}
+
+test('53: the stamp check passes silently when the stamp of a push names the commit', (context) =>
+  assertStampAccepted(context, stampText(HEAD_COMMIT)))
+
+test('53: the stamp check passes silently when the stamp of a pull request names the commit', (context) =>
+  assertStampAccepted(
+    context,
+    stampText(HEAD_COMMIT) + pullRequestText([OTHER_COMMIT, 'c'.repeat(40)], 'd'.repeat(40)),
+  ))
+
+test('53: the stamp check fails with the source-stamp error when the stamp is missing', (context) =>
+  assertStampRejected(context, null))
+
+test('53: the stamp check fails with the source-stamp error when ui/dist is missing', (context) =>
+  assertStampRejected(context, undefined))
+
+test('53: the stamp check fails with the source-stamp error when the stamp names another commit', (context) =>
+  assertStampRejected(context, stampText(OTHER_COMMIT)))
+
+test('53: the stamp check fails with the source-stamp error when the commit line runs on', (context) =>
+  assertStampRejected(
+    context,
+    stampText(HEAD_COMMIT).replace(`Commit: ${HEAD_COMMIT}\n`, `Commit: ${HEAD_COMMIT}0\n`),
+  ))
+
+test('54: the draft job adds the OCCT source archive after the notices and before SHA256SUMS', async () => {
+  const steps = jobSteps(await workflowJob('release.yml', 'draft'))
+  const notices = commandStep(steps, 'cp THIRD-PARTY-NOTICES.txt release/')
+  const archive = commandStep(steps, `${ARCHIVE_SCRIPT} release`)
+  const sums = namedStep(steps, 'Write SHA256SUMS')
+
+  assert.ok(
+    notices < archive && archive < sums,
+    'the archive step is not between the notices and SHA256SUMS',
+  )
+  assert.match(stepValue(steps.at(-1), 'run'), /^gh release create .* release\/\*$/m)
+})
+
+test('54: the archive script is a regular file its owner can run', async () => {
+  const status = await lstat(join(repositoryRoot, ARCHIVE_SCRIPT))
+
+  assert.ok(status.isFile(), `${ARCHIVE_SCRIPT} is not a regular file`)
+  assert.notEqual(status.mode & 0o100, 0, `${ARCHIVE_SCRIPT} is not executable by its owner`)
+})
+
+test('57: the notices statements name the stamp, the archive and its script', async () => {
+  const pins = await readFile(join(repositoryRoot, 'scripts/occt-version.sh'), 'utf8')
+  const version = /^OCCT_VERSION=(\S+)$/m.exec(pins)?.[1]
+  assert.ok(version, 'scripts/occt-version.sh sets no OCCT_VERSION')
+  const archiveName = `occt-${version}-source.tar.gz`
+  const web = await readFile(join(repositoryRoot, 'ui/public/THIRD-PARTY-NOTICES.txt'), 'utf8')
+  const desktop = await readFile(join(repositoryRoot, 'THIRD-PARTY-NOTICES.txt'), 'utf8')
+
+  for (const name of [`/${SOURCE_STAMP}`, archiveName, ARCHIVE_SCRIPT]) {
+    assert.ok(web.includes(name), `ui/public/THIRD-PARTY-NOTICES.txt does not name ${name}`)
+  }
+  for (const name of [archiveName, ARCHIVE_SCRIPT]) {
+    assert.ok(desktop.includes(name), `THIRD-PARTY-NOTICES.txt does not name ${name}`)
+  }
 })
