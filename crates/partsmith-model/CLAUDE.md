@@ -40,4 +40,5 @@ cargo bench -p partsmith-model --bench budgets
 
 - Pure Rust, no kernel dependency, no global state. Dependencies: `serde`, `serde_json`, `schemars`, `thiserror`, `ryu`, `getrandom` (model.md section 2.1); anything else needs an ADR.
 - Canonical serialization must stay byte-stable; any change to output needs a format ADR.
+- A `FORMAT_VERSION` bump moves every committed `.ptsm` to the new version: these fixtures, the engine's, `examples/` (checked by the CLI) and `ui/e2e/fixtures/` (checked by `tests/committed_documents.rs`).
 - `serde_json` must stay without `arbitrary_precision`: the strict parser and number handling rely on plain number values.
