@@ -1,13 +1,16 @@
 //! Why a reference was lost, and which feature a followed reference followed (recompute.md section
 //! 3.10, "The lost name", "Reason", "Ambiguous losses" and "Follows").
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use partsmith_features::{BodyChange, BodyState, Loss};
 use partsmith_model::Id;
-use partsmith_naming::{ElementKind, ElementName, Follow, Merged, NameSet, NamingMap, Reference};
+use partsmith_naming::{
+    ElementKind, ElementName, FaceGenerator, FaceName, Follow, Merged, NameSet, NamingMap,
+    Reference, roles,
+};
 
-use super::face_name::{FaceName, Generator, copy_group, has_copy_group, maker_of, parts_of};
+use super::face_name::{has_copy_group, maker_of};
 use super::memo::Probe;
 use super::{LossReason, Removal};
 use crate::graph::NodeState;
@@ -51,13 +54,16 @@ impl<'r> Probe<'_, 'r> {
     /// the feature explained, when it is active, comes before it and did not fail.
     pub(crate) fn ambiguous_after(&mut self, loss: &Loss) -> Option<Id> {
         let (state, _) = self.view.state_before(&loss.body, self.explained)?;
-        let feature = parts_of(&loss.reference.query)
+        let feature = loss
+            .reference
+            .query
+            .face_parts()
             .into_iter()
             .find_map(|part| {
-                let face = FaceName::of(&part)?;
+                let face = part.face_name()?;
                 let generator = face.sketch_generator()?;
                 has_relatives(state.naming(), &face, generator)
-                    .then(|| Id::new(face.feature).ok())?
+                    .then(|| Id::new(face.feature()).ok())?
             })?;
         let fact = self.record(&feature);
         (fact.state == Some(NodeState::Active) && fact.before && !fact.failed).then_some(feature)
@@ -90,10 +96,10 @@ impl<'r> Probe<'_, 'r> {
             Some(Follow::Continued) => {
                 let rim = elements
                     .iter()
-                    .flat_map(|element| parts_of(&element.query))
+                    .flat_map(|element| element.query.face_parts())
                     .find_map(|face| {
-                        let parts = FaceName::of(&face)?;
-                        (parts.role == "rim").then(|| Id::new(parts.feature).ok())?
+                        let parts = face.face_name()?;
+                        (parts.role() == "rim").then(|| Id::new(parts.feature()).ok())?
                     })?;
                 self.record(&rim);
                 Some(rim)
@@ -101,10 +107,11 @@ impl<'r> Probe<'_, 'r> {
             Some(Follow::Related) => {
                 let (state, _) = self.view.state_before(body, self.explained)?;
                 let names = state.name_set();
-                let part = parts_of(query)
+                let part = query
+                    .face_parts()
                     .into_iter()
                     .find(|part| names.family(part, &Merged::default()).is_empty())?;
-                let feature = Id::new(FaceName::of(&part)?.feature).ok()?;
+                let feature = Id::new(part.face_name()?.feature()).ok()?;
                 self.record(&feature);
                 Some(feature)
             }
@@ -113,7 +120,7 @@ impl<'r> Probe<'_, 'r> {
 
     /// The latest in timeline order of the features that make the face terms of `query`.
     fn latest_maker(&mut self, query: &ElementName) -> Option<Id> {
-        let makers: Vec<Id> = parts_of(query).iter().filter_map(maker_of).collect();
+        let makers: Vec<Id> = query.face_parts().iter().filter_map(maker_of).collect();
         makers
             .iter()
             .filter_map(|maker| Some((self.view.position(maker)?, maker)))
@@ -152,7 +159,9 @@ impl<'r> Probe<'_, 'r> {
             .or_else(|| self.copy_gone(position, lost_name))
             .or_else(|| self.sketch_generator_gone(position, lost_name))
             .or_else(|| {
-                let fallback = FaceName::of(lost_name).is_some_and(|face| face.is_fallback());
+                let fallback = lost_name
+                    .face_name()
+                    .is_some_and(|face| face.role() == roles::FACE && face.generator().is_none());
                 (self.view.kind(position) == "import" && fallback).then(|| LossReason::NotInFile {
                     feature: maker.clone(),
                 })
@@ -177,7 +186,7 @@ impl<'r> Probe<'_, 'r> {
     /// explained (and, for an edge or vertex, an element of that body joins them).
     fn in_other_body(&mut self, loss: &Loss) -> Option<LossReason> {
         let query = &loss.reference.query;
-        let parts = parts_of(query);
+        let parts = query.face_parts();
         let others = self.bodies().into_iter().filter(|body| *body != loss.body);
         for body in others {
             let Some(state) = self.state_before(&body, self.explained) else {
@@ -212,20 +221,19 @@ impl<'r> Probe<'_, 'r> {
             return None;
         }
         let feature = self.view.id(maker);
-        let (copier, instance) = *FaceName::of(lost_name)?.copies.last()?;
-        if copier != feature.as_str() {
+        let copy = *lost_name.face_name()?.copies().last()?;
+        if copy.feature != feature.as_str() {
             return None;
         }
-        let group = copy_group(feature, instance);
         let made = self.view.updates(maker).iter().any(|update| {
             update
                 .naming
                 .names(ElementKind::Face)
-                .any(|(_, face)| has_copy_group(face.as_str(), &group))
+                .any(|(_, face)| has_copy_group(face.as_str(), copy.text))
         });
         (!made).then(|| LossReason::CopyGone {
             feature: feature.clone(),
-            instance,
+            instance: copy.instance,
         })
     }
 
@@ -235,7 +243,7 @@ impl<'r> Probe<'_, 'r> {
         maker: usize,
         lost_name: &ElementName,
     ) -> Option<LossReason> {
-        let generator = FaceName::of(lost_name)?.sketch_generator()?;
+        let generator = lost_name.face_name()?.sketch_generator()?;
         let sketch = self.view.first_sketch(maker)?.clone();
         let sketch_position = self.position(&sketch)?;
         let result = self.view.sketch_result(sketch_position)?;
@@ -424,15 +432,19 @@ impl<'r> Probe<'_, 'r> {
         ) else {
             return false;
         };
-        let families = families(input.name_set(), &parts_of(query), &loss.reference.merged);
+        let families = families(
+            input.name_set(),
+            &query.face_parts(),
+            &loss.reference.merged,
+        );
         output.naming().names(ElementKind::Face).any(|(_, face)| {
-            let Some(parts) = FaceName::of(face) else {
+            let Some(parts) = face.face_name() else {
                 return false;
             };
-            let Some(Generator::List(generator)) = parts.generator else {
+            let Some(FaceGenerator::List(generator)) = parts.generator() else {
                 return false;
             };
-            if parts.feature != feature || !matches!(parts.role, "fillet" | "chamfer") {
+            if parts.feature() != feature || !matches!(parts.role(), "fillet" | "chamfer") {
                 return false;
             }
             generator == query.as_str()
@@ -450,14 +462,13 @@ impl<'r> Probe<'_, 'r> {
         let names = state.name_set();
         let families = families(
             names,
-            &parts_of(&loss.reference.query),
+            &loss.reference.query.face_parts(),
             &loss.reference.merged,
         );
-        let touching = touching_faces(state.naming());
         let touches = |face: &ElementName, family: &BTreeSet<ElementName>| {
-            touching.get(face).is_some_and(|neighbors| {
-                neighbors.iter().any(|neighbor| family.contains(*neighbor))
-            })
+            names
+                .neighbors(face)
+                .any(|neighbor| family.contains(neighbor))
         };
         let mut faces: Vec<&ElementName> = state
             .naming()
@@ -470,10 +481,7 @@ impl<'r> Probe<'_, 'r> {
             .iter()
             .find(|face| {
                 faces.iter().all(|other| {
-                    other == *face
-                        || touching
-                            .get(*face)
-                            .is_some_and(|neighbors| neighbors.contains(*other))
+                    other == *face || names.neighbors(face).any(|neighbor| neighbor == *other)
                 })
             })
             .map(|face| (*face).clone())
@@ -559,7 +567,7 @@ impl<'l> Presence<'l> {
         let names = state.name_set();
         if self.unmet {
             let query = &self.reference.query;
-            let families = families(names, &parts_of(query), &self.reference.merged);
+            let families = families(names, &query.face_parts(), &self.reference.merged);
             return families.iter().all(|family| !family.is_empty())
                 && joins(state.naming(), query.kind(), &families);
         }
@@ -616,38 +624,16 @@ fn pairs(terms: &[ElementName], families: &[BTreeSet<ElementName>]) -> bool {
     terms.len() == families.len() && assign(terms, families, &mut vec![false; families.len()])
 }
 
-/// The faces each face of `map` touches: two faces touch when an edge name lists both.
-fn touching_faces(map: &NamingMap) -> BTreeMap<&ElementName, BTreeSet<&ElementName>> {
-    let faces: BTreeMap<&str, &ElementName> = map
-        .names(ElementKind::Face)
-        .map(|(_, face)| (face.as_str(), face))
-        .collect();
-    let mut touching: BTreeMap<&ElementName, BTreeSet<&ElementName>> = BTreeMap::new();
-    for (_, edge) in map.names(ElementKind::Edge) {
-        let terms: Vec<&ElementName> = edge
-            .face_terms()
-            .iter()
-            .filter_map(|term| faces.get(term.as_str()).copied())
-            .collect();
-        for &face in &terms {
-            touching
-                .entry(face)
-                .or_default()
-                .extend(terms.iter().filter(|&&other| other != face));
-        }
-    }
-    touching
-}
-
 /// True when `map` has a relative of `face` (naming.md section 3.9 step 4): a face of the same
 /// feature, sketch generator and `@` groups under another role.
 fn has_relatives(map: &NamingMap, face: &FaceName<'_>, generator: &str) -> bool {
+    let copies = face.copies();
     map.names(ElementKind::Face).any(|(_, other)| {
-        FaceName::of(other).is_some_and(|other| {
-            other.feature == face.feature
-                && other.role != face.role
+        other.face_name().is_some_and(|other| {
+            other.feature() == face.feature()
+                && other.role() != face.role()
                 && other.sketch_generator() == Some(generator)
-                && other.copies == face.copies
+                && other.copies() == copies
         })
     })
 }

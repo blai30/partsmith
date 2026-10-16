@@ -3,10 +3,10 @@
 use std::cmp::Ordering;
 
 use crate::fingerprint::Fingerprint;
-use crate::kind::{ElementKind, GeometryKind};
+use crate::kind::ElementKind;
 use crate::name::ElementName;
 use crate::resolver::Candidate;
-use crate::score::score;
+use crate::score::{self, dot, score};
 
 /// How close a direction must be to the stored one to agree with it.
 const DIRECTION_AGREEMENT: f64 = 1.0 - 1e-9;
@@ -67,12 +67,7 @@ pub(super) fn in_candidate_order(mut ranked: Vec<Ranked>, limit: usize) -> Vec<C
 /// The distance in mm between the centroids of two fingerprints; 0 when either has none.
 pub(super) fn distance(stored: &Fingerprint, candidate: &Fingerprint) -> f64 {
     match (stored.centroid, candidate.centroid) {
-        (Some(first), Some(second)) => first
-            .iter()
-            .zip(second)
-            .map(|(first, second)| (first - second).powi(2))
-            .sum::<f64>()
-            .sqrt(),
+        (Some(first), Some(second)) => score::distance(first, second),
         _ => 0.0,
     }
 }
@@ -83,15 +78,11 @@ fn direction_agrees(stored: &Fingerprint, candidate: &Fingerprint) -> bool {
     let (Some(first), Some(second)) = (stored.direction, candidate.direction) else {
         return false;
     };
-    let dot: f64 = first
-        .iter()
-        .zip(second)
-        .map(|(first, second)| first * second)
-        .sum();
-    let alignment = if stored.kind == GeometryKind::Plane {
-        dot
+    let product = dot(first, second);
+    let alignment = if stored.kind.keeps_direction_sign() {
+        product
     } else {
-        dot.abs()
+        product.abs()
     };
     alignment >= DIRECTION_AGREEMENT
 }

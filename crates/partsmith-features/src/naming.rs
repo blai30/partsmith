@@ -93,8 +93,7 @@ pub fn name_shape(
     new_motion: &Motion,
 ) -> Result<Named, FeatureError> {
     let topology = topology_info(shape)?;
-    let naming = NamingMap::build(faces, &topology, inherited, successions, new_motion)
-        .map_err(naming_failed)?;
+    let naming = NamingMap::build(faces, &topology, inherited, successions, new_motion)?;
     Ok(Named {
         naming,
         topology: Arc::new(topology),
@@ -150,7 +149,7 @@ pub fn name_by_history(
     inputs: &[&NamingMap],
     new_motion: &Motion,
 ) -> Result<Named, FeatureError> {
-    let fallback = ElementName::generated(feature, roles::FACE, None).map_err(naming_failed)?;
+    let fallback = ElementName::generated(feature, roles::FACE, None)?;
     let faces = modified_sources(result, inputs)?
         .into_iter()
         .map(|names| {
@@ -196,17 +195,6 @@ pub(crate) fn sub_shape_kind(kind: ElementKind) -> SubShapeKind {
     }
 }
 
-/// A naming failure as a feature error: a name too long to build is `NameTooDeep` (features.md section 4.1), any
-/// other failure, which valid kernel output cannot cause, `Internal`.
-pub(crate) fn naming_failed(error: partsmith_naming::NamingError) -> FeatureError {
-    match error {
-        partsmith_naming::NamingError::NameTooLong { length } => {
-            FeatureError::NameTooDeep { length }
-        }
-        error => FeatureError::internal(format!("naming the result failed: {error}")),
-    }
-}
-
 /// The fingerprint of one element from its kernel geometry (naming.md section 3.7.1): faces and
 /// edges carry their area or length, vertices only their position.
 fn fingerprint(geometry: &ElementGeometry, kind: ElementKind) -> Result<Fingerprint, FeatureError> {
@@ -224,7 +212,7 @@ fn fingerprint(geometry: &ElementGeometry, kind: ElementKind) -> Result<Fingerpr
         size,
         geometry.radius,
     )
-    .map_err(naming_failed)
+    .map_err(FeatureError::from)
 }
 
 /// The naming crate's geometry kind of a kernel geometry kind; the two enums mirror each other.

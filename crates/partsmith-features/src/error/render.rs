@@ -231,19 +231,20 @@ impl<'a> Renderer<'a> {
         )
     }
 
+    /// The description of the element a stored reference names in `body`, on its own.
+    pub(crate) fn describe_reference(&self, reference: &Reference, body: &Id) -> String {
+        self.describe(&[(&reference.query, &reference.fingerprint)], body)
+            .remove(0)
+    }
+
     /// The description of the element a loss stores.
     pub(crate) fn lost_element(&self, loss: &Loss) -> String {
-        let reference = &loss.reference;
-        self.describe(&[(&reference.query, &reference.fingerprint)], &loss.body)
-            .remove(0)
+        self.describe_reference(&loss.reference, &loss.body)
     }
 
     /// `{Element}` of a loss: its capitalized description followed by ` selected for {label}`.
     pub(crate) fn lost_element_selected(&self, loss: &Loss, label: &str) -> String {
-        format!(
-            "{} selected for {label}",
-            capitalized(&self.lost_element(loss))
-        )
+        selected_for(&self.lost_element(loss), label)
     }
 
     /// The explanation of the loss at `position`, if the diagnosis has one.
@@ -256,6 +257,15 @@ impl<'a> Renderer<'a> {
         match self.explanation(loss.position) {
             Some(explanation) if !explanation.text.is_empty() => explanation.text.clone(),
             _ => UNKNOWN_REASON.to_string(),
+        }
+    }
+
+    /// What became of a lost reference: `{ambiguity}` when it is ambiguous, else `{reason}`.
+    pub(crate) fn loss_clause(&self, loss: &Loss) -> String {
+        if loss.ambiguous {
+            self.ambiguity(loss)
+        } else {
+            self.reason(loss)
         }
     }
 
@@ -421,6 +431,60 @@ pub(crate) fn candidate_fixes(
             .map(|candidate| use_candidate(&candidate.reference)),
     );
     fixes
+}
+
+/// The sentence of one lost reference, shared by the error (section 4.1) and the warning (4.2): `{Element}
+/// {reason}{consequence}.{ending}`, or for an ambiguous one `{Element} {ambiguity}{consequence}. Pick the one you
+/// mean.` The consequence is empty for the error and `, so it was skipped` for the warning.
+pub(crate) fn lost_reference_text(
+    renderer: &Renderer<'_>,
+    loss: &Loss,
+    label: &str,
+    consequence: &str,
+) -> String {
+    let element = renderer.lost_element_selected(loss, label);
+    let clause = renderer.loss_clause(loss);
+    let ending = if loss.ambiguous {
+        " Pick the one you mean.".to_string()
+    } else {
+        renderer.upstream_ending(loss)
+    };
+    format!("{element} {clause}{consequence}.{ending}")
+}
+
+/// The sentence of one region that is gone, shared by the error and the warning like `lost_reference_text`.
+pub(crate) fn region_gone_text(
+    renderer: &Renderer<'_>,
+    sketch: &Id,
+    label: &str,
+    loss: &RegionLoss,
+    consequence: &str,
+) -> String {
+    format!(
+        "The region of {} selected for {label} is gone because {}{consequence}.",
+        renderer.region_sketch(sketch),
+        region_reason(loss)
+    )
+}
+
+/// The sentence of one region that matches `count` separate areas, shared by the error and the warning like
+/// `lost_reference_text`.
+pub(crate) fn region_matches_text(
+    renderer: &Renderer<'_>,
+    sketch: &Id,
+    label: &str,
+    count: usize,
+    consequence: &str,
+) -> String {
+    format!(
+        "The region of {} selected for {label} now matches {count} separate areas{consequence}. Pick the one you mean.",
+        renderer.region_sketch(sketch)
+    )
+}
+
+/// `{Element}` of a reference: its capitalized `description` followed by ` selected for {label}`.
+pub(crate) fn selected_for(description: &str, label: &str) -> String {
+    format!("{} selected for {label}", capitalized(description))
 }
 
 /// `{region reason}` of one lost region (section 4.1, `profile_not_found`).

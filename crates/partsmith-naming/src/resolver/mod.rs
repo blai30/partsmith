@@ -1,7 +1,12 @@
 //! Resolving references by meaning after a rebuild (naming.md sections 2.8 and 3.9).
 
 mod candidates;
+mod continued;
+mod exact;
+mod missing;
 mod parts;
+mod pieces;
+mod related;
 mod steps;
 
 use schemars::JsonSchema;

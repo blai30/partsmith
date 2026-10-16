@@ -4,10 +4,10 @@
 mod common;
 
 use common::{
-    ScopeElement, TOP_FINGERPRINT, TOP_FRONT_EDGE_FINGERPRINT, aliases, assert_follow,
-    assert_resolved, box_scope, element_named, element_set, element_set_with, fingerprint, id,
-    merged, merged_name, name, names, reference, resolved, scope_element, successions,
-    with_anchors, with_merged,
+    ScopeElement, TOP_FINGERPRINT, TOP_FRONT_EDGE_FINGERPRINT, aliases, anchored_pieces_infos,
+    assert_follow, assert_resolved, box_scope, element_named, element_set, element_set_with,
+    fingerprint, id, merged, merged_name, name, names, reference, resolved, scope_element,
+    successions, with_anchors, with_merged,
 };
 use partsmith_naming::{
     ANCHOR_LIMIT, Aliases, Anchors, ElementInfo, ElementKind, ElementSet, GeometryKind,
@@ -65,18 +65,7 @@ fn merged_list_reason(face: &str) -> String {
 
 /// Test 91's scope: two pieces of a top face, each next to its own wall, with their front edges.
 fn anchored_pieces_scope() -> ElementSet {
-    element_set(vec![
-        scope_element("f-b/top#1")
-            .with_adjacency(&["f-b/back", "f-b/front", "f-b/left", "f-c/w1"])
-            .with_fingerprint("plane|n=0,0,1|c=15,0,0"),
-        scope_element("f-b/top#2")
-            .with_adjacency(&["f-b/back", "f-b/front", "f-b/right", "f-c/w2"])
-            .with_fingerprint("plane|n=0,0,1|c=65,0,0"),
-        scope_element("edge(f-b/front|f-b/top#1)")
-            .with_fingerprint("line|n=1,0,0|c=15,0,30|l=30|adj=2,2"),
-        scope_element("edge(f-b/front|f-b/top#2)")
-            .with_fingerprint("line|n=1,0,0|c=65,0,30|l=30|adj=2,2"),
-    ])
+    element_set(anchored_pieces_infos())
 }
 
 /// Test 113's adjacency of a piece: back, front and the walls `f-h/w<first>` to `f-h/w<last>`.
@@ -89,9 +78,7 @@ fn piece_adjacency(first: u32, last: u32) -> Vec<String> {
 
 /// A face with this adjacency, kept sorted as element infos require.
 fn face_next_to(text: &str, adjacency: &[String]) -> ElementInfo {
-    let mut sorted: Vec<&str> = adjacency.iter().map(String::as_str).collect();
-    sorted.sort_unstable();
-    scope_element(text).with_adjacency(&sorted)
+    scope_element(text).with_sorted_adjacency(adjacency)
 }
 
 /// Test 114: the fused top of a linear pattern whose listed copies merged into it.

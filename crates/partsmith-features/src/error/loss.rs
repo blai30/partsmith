@@ -45,12 +45,11 @@ impl Loss {
     /// True when no part of the stored query is present: `lost.parts` holds every face of the query (section 4.4),
     /// so no candidate keeps a face of the lost element.
     pub(crate) fn every_part_lost(&self) -> bool {
-        let query = &self.reference.query;
-        let parts = match query.kind() {
-            ElementKind::Face => vec![query.clone()],
-            ElementKind::Edge | ElementKind::Vertex => query.face_terms(),
-        };
-        parts.iter().all(|part| self.lost.parts.contains(part))
+        self.reference
+            .query
+            .face_parts()
+            .iter()
+            .all(|part| self.lost.parts.contains(part))
     }
 }
 

@@ -63,22 +63,21 @@ pub(super) fn select_edges(
     };
     let resolved =
         context.resolve_all_usable("edges", body, edges, ElementKind::Edge, &has_corner)?;
-    let mut warnings = resolved.warnings;
-    warnings.extend(resolved.notices);
+    let indices: Vec<u32> = resolved.elements.iter().map(|edge| edge.index).collect();
     let mut selection = EdgeSelection {
         edges: Vec::new(),
-        warnings,
+        warnings: resolved.into_messages(),
     };
-    for element in resolved.elements {
-        if is_smooth(shape, &topology, element.index)? {
+    for index in indices {
+        if is_smooth(shape, &topology, index)? {
             selection.warnings.push(FeatureWarning::Ignored {
                 field: context.field("edges"),
                 reason: IgnoredReason::SmoothEdge,
             });
         } else {
             selection.edges.push(SelectedEdge {
-                index: element.index,
-                faces: edge_topology(&topology, element.index)?.faces.clone(),
+                index,
+                faces: edge_topology(&topology, index)?.faces.clone(),
             });
         }
     }

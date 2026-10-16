@@ -2,7 +2,6 @@
 //! section 3.11).
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
 use partsmith_model::Id;
 
@@ -12,9 +11,9 @@ use crate::kind::ElementKind;
 use crate::name::ElementName;
 use crate::name_set::{NameSet, share_a_face};
 use crate::reference::{
-    ANCHOR_LIMIT, Anchors, Merged, MergedName, Reference, face_names_in, face_parts, has_own_split,
+    ANCHOR_LIMIT, Anchors, Merged, MergedName, Reference, face_names_in, has_own_split,
 };
-use crate::shape::{InstanceName, Shape};
+use crate::shape::InstanceName;
 
 impl Reference {
     /// The reference that denotes this element as it is now in `set`, with anchors and merged
@@ -32,18 +31,18 @@ impl Reference {
 /// The anchors of every order-dependent part of the element's name that is not a fallback name,
 /// and of the name itself when it has its own `#n` and a face term that is no fallback name.
 fn anchors_of(info: &ElementInfo, set: &ElementSet) -> Anchors {
-    let parts = face_parts(&info.name);
-    let fallback: Vec<bool> = parts
+    let parts = info.name.face_parts();
+    let is_fallback: Vec<bool> = parts
         .iter()
-        .map(|part| Shape::of(Arc::clone(part.shared_text())).is_fallback())
+        .map(|part| part.parsed().is_fallback())
         .collect();
     let mut anchors: BTreeMap<ElementName, Vec<ElementName>> = parts
         .iter()
-        .zip(&fallback)
+        .zip(&is_fallback)
         .filter(|&(part, &fallback)| part.is_order_dependent() && !fallback)
         .filter_map(|(part, _)| Some((part.clone(), part_anchors(set.names(), part)?)))
         .collect();
-    let own_is_fallback = fallback.iter().all(|&fallback| fallback);
+    let own_is_fallback = is_fallback.iter().all(|&fallback| fallback);
     if has_own_split(&info.name)
         && !own_is_fallback
         && let Some(kept) = own_anchors(info, set, &parts)
@@ -122,6 +121,16 @@ fn piece_free_neighbors(
     neighbors.into_iter().collect()
 }
 
+/// A name next to a part, with the siblings of the part that touch it.
+struct Neighbor<'n> {
+    /// How many siblings touch it.
+    touched_by: usize,
+    /// The name.
+    name: &'n ElementName,
+    /// For each sibling, whether it touches the name.
+    touched: Vec<bool>,
+}
+
 /// The anchors kept for a part next to `adjacent` whose siblings are next to `siblings`: the names
 /// some sibling does not touch, at most `ANCHOR_LIMIT`, those touched by the fewest siblings first,
 /// then in byte order, sorted. `None` when no name is left or a sibling touches every kept name.
@@ -130,32 +139,36 @@ fn distinguishing(
     adjacent: &[ElementName],
     siblings: &[Vec<u32>],
 ) -> Option<Vec<ElementName>> {
-    let mut counted: Vec<(usize, &ElementName, Vec<bool>)> = adjacent
+    let mut neighbors: Vec<Neighbor<'_>> = adjacent
         .iter()
-        .map(|anchor| {
-            let family = names.family_of_name(anchor);
+        .map(|name| {
+            let family = names.family_of_name(name);
             let touched: Vec<bool> = siblings
                 .iter()
                 .map(|sibling| share_a_face(sibling, &family))
                 .collect();
-            let count = touched.iter().filter(|&&touch| touch).count();
-            (count, anchor, touched)
+            let touched_by = touched.iter().filter(|&&touch| touch).count();
+            Neighbor {
+                touched_by,
+                name,
+                touched,
+            }
         })
-        .filter(|(count, _, _)| siblings.is_empty() || *count < siblings.len())
+        .filter(|neighbor| siblings.is_empty() || neighbor.touched_by < siblings.len())
         .collect();
-    counted.sort_by(|first, second| first.0.cmp(&second.0).then_with(|| first.1.cmp(second.1)));
-    counted.truncate(ANCHOR_LIMIT);
-    if counted.is_empty() {
+    neighbors.sort_by_key(|neighbor| (neighbor.touched_by, neighbor.name));
+    neighbors.truncate(ANCHOR_LIMIT);
+    if neighbors.is_empty() {
         return None;
     }
-    let sibling_touches_all =
-        (0..siblings.len()).any(|sibling| counted.iter().all(|(_, _, touched)| touched[sibling]));
+    let sibling_touches_all = (0..siblings.len())
+        .any(|sibling| neighbors.iter().all(|neighbor| neighbor.touched[sibling]));
     if sibling_touches_all {
         return None;
     }
-    let mut kept: Vec<ElementName> = counted
+    let mut kept: Vec<ElementName> = neighbors
         .into_iter()
-        .map(|(_, anchor, _)| anchor.clone())
+        .map(|neighbor| neighbor.name.clone())
         .collect();
     kept.sort_unstable();
     Some(kept)
@@ -165,14 +178,15 @@ fn distinguishing(
 /// one feature written once when the set knows no other copy.
 fn merged_of(query: &ElementName, names: &NameSet) -> Merged {
     let mut merged = BTreeMap::new();
-    for face in face_names_in(query) {
-        let shape = Shape::of(Arc::from(face.as_str()));
+    for (face, shape) in face_names_in(query) {
         let keys = names.merged_into(&shape);
         if keys.is_empty() {
             continue;
         }
-        let face_name = ElementName::parse(&face).expect("a face name of a valid name is valid");
-        merged.insert(face_name, with_copies_written_once(keys, names));
+        merged.insert(
+            ElementName::nested(&face),
+            with_copies_written_once(keys, names),
+        );
     }
     Merged(merged)
 }
@@ -209,14 +223,16 @@ fn with_copies_written_once(keys: Vec<ElementName>, names: &NameSet) -> Vec<Merg
 fn copy_of(name: &ElementName) -> Option<(ElementName, Id)> {
     let copy = InstanceName::of(name.as_str())?;
     let source = ElementName::parse(copy.source).ok()?;
-    (source.kind() == ElementKind::Face).then_some(())?;
+    if source.kind() != ElementKind::Face {
+        return None;
+    }
     Some((source, Id::new(copy.feature).ok()?))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::name_set::testing::{ids, name, set_of};
+    use crate::testing::{ids, name, set_of};
 
     /// The element names `texts`.
     fn names(texts: &[&str]) -> Vec<ElementName> {

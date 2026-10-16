@@ -50,23 +50,10 @@ impl Successions {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn name(text: &str) -> ElementName {
-        ElementName::parse(text).expect("the test name is valid")
-    }
+    use crate::testing::{lists, name};
 
     fn aliases(entries: &[(&str, &[&str])]) -> Aliases {
-        Aliases(
-            entries
-                .iter()
-                .map(|(former, targets)| {
-                    (
-                        name(former),
-                        targets.iter().map(|target| name(target)).collect(),
-                    )
-                })
-                .collect(),
-        )
+        Aliases(lists(entries))
     }
 
     #[test]

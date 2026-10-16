@@ -1,7 +1,8 @@
 //! Resolving stored references by meaning (features.md section 3.8): elements, follows, guesses, widenings and
 //! losses with candidates a fix can store.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use partsmith_model::{Id, LINEAR_TOLERANCE};
 use partsmith_naming::{
@@ -22,19 +23,16 @@ const ANGLE_TOLERANCE: f64 = 1e-9;
 pub type Usable<'u> = dyn Fn(&ElementInfo) -> Result<bool, FeatureError> + 'u;
 
 impl BuildContext<'_> {
-    /// Resolves `references` of `kind` in `body` (section 3.8), each lost or ambiguous one as a `ReferenceLost`
-    /// warning. A list's entries are named `field[i]`, a single reference `field`. Candidates that `usable` rejects,
-    /// and in a list those another entry resolves to, are dropped from every loss and guess. An empty body is
-    /// `BodyEmpty` of the body field next to `field`.
-    pub(super) fn resolve_references(
-        &self,
+    /// The resolver of the entries of a reference field: `references` of `kind` resolved in `body` (section 3.8). An
+    /// empty body is `BodyEmpty` of the body field next to `field`.
+    pub(super) fn entry_resolver<'r>(
+        &'r self,
         field: &str,
-        body: &Id,
-        references: &[Reference],
+        body: &'r Id,
+        references: &'r [Reference],
         kind: ElementKind,
-        list: bool,
-        usable: &Usable<'_>,
-    ) -> Result<Resolved, FeatureError> {
+        usable: &'r Usable<'r>,
+    ) -> Result<EntryResolver<'r>, FeatureError> {
         let state = self.body(body)?;
         if state.is_empty() {
             return Err(FeatureError::BodyEmpty {
@@ -44,7 +42,7 @@ impl BuildContext<'_> {
             });
         }
         let set = state.element_set()?;
-        let resolutions: Vec<Resolution> = references
+        let resolutions = references
             .iter()
             .map(|reference| {
                 if reference.query.kind() == kind {
@@ -57,63 +55,111 @@ impl BuildContext<'_> {
                 }
             })
             .collect();
-        let resolver = EntryResolver {
+        Ok(EntryResolver {
             body,
             state,
-            set: &set,
-            infos: set
-                .elements()
-                .iter()
-                .map(|info| (&info.name, info))
-                .collect(),
+            set,
             references,
-            resolutions: &resolutions,
+            resolutions,
             usable,
-        };
-        let mut resolved = Resolved {
+        })
+    }
+}
+
+/// What one entry of a reference field resolved to (section 3.8).
+pub(super) enum Outcome {
+    /// Its elements, with the warning of a guess or a widening, or the notice of a follow.
+    Resolved(Resolved),
+    /// It is missing or ambiguous.
+    Lost {
+        /// The entry's field.
+        field: FieldRef,
+        /// The loss, boxed because it is much larger than a resolved entry.
+        loss: Box<Loss>,
+    },
+}
+
+impl Outcome {
+    /// True when the entry gave no element.
+    pub(super) fn has_no_elements(&self) -> bool {
+        match self {
+            Outcome::Resolved(resolved) => resolved.elements.is_empty(),
+            Outcome::Lost { .. } => true,
+        }
+    }
+
+    /// The loss of a lost entry.
+    pub(super) fn into_loss(self) -> Option<Loss> {
+        match self {
+            Outcome::Resolved(_) => None,
+            Outcome::Lost { loss, .. } => Some(*loss),
+        }
+    }
+}
+
+impl Resolved {
+    /// Nothing resolved yet.
+    fn empty() -> Resolved {
+        Resolved {
             elements: Vec::new(),
             sources: Vec::new(),
             warnings: Vec::new(),
             notices: Vec::new(),
-        };
-        for position in 0..references.len() {
-            let entry_field = if list {
-                self.field(&format!("{field}[{position}]"))
-            } else {
-                self.field(field)
-            };
-            resolver.entry(position, entry_field, &mut resolved)?;
         }
-        Ok(resolved)
+    }
+
+    /// The result of a field's entries, in entry order: their elements without duplicates, each with the first entry
+    /// that resolved to it, and their warnings and notices, a lost entry's as its `ReferenceLost` warning.
+    pub(super) fn of_entries(outcomes: Vec<Outcome>) -> Resolved {
+        let mut resolved = Resolved::empty();
+        for outcome in outcomes {
+            match outcome {
+                Outcome::Resolved(entry) => {
+                    resolved.add_elements(entry.elements.into_iter().zip(entry.sources));
+                    resolved.warnings.extend(entry.warnings);
+                    resolved.notices.extend(entry.notices);
+                }
+                Outcome::Lost { field, loss } => {
+                    resolved
+                        .warnings
+                        .push(FeatureWarning::ReferenceLost { field, loss: *loss });
+                }
+            }
+        }
+        resolved
+    }
+
+    /// Adds each element that is not in yet, with the position of the entry it was resolved from.
+    fn add_elements(&mut self, elements: impl IntoIterator<Item = (SubShape, usize)>) {
+        for (element, source) in elements {
+            if !self.elements.contains(&element) {
+                self.elements.push(element);
+                self.sources.push(source);
+            }
+        }
     }
 }
 
-/// Resolves the entries of one field.
-struct EntryResolver<'r> {
+/// Resolves the entries of one field. Candidates that `usable` rejects, and in a list those another entry resolves
+/// to, are dropped from every loss and guess.
+pub(super) struct EntryResolver<'r> {
     /// The body the references are resolved in.
     body: &'r Id,
     /// Its state just before the feature.
     state: &'r BodyState,
     /// The resolver's view of the state.
-    set: &'r ElementSet,
-    /// The element infos of the state by name.
-    infos: HashMap<&'r ElementName, &'r ElementInfo>,
+    set: Arc<ElementSet>,
     /// The stored references.
     references: &'r [Reference],
     /// Their resolutions, in the same order.
-    resolutions: &'r [Resolution],
+    resolutions: Vec<Resolution>,
     /// Whether the field can use a candidate.
     usable: &'r Usable<'r>,
 }
 
 impl EntryResolver<'_> {
-    /// Adds the effect of the entry at `position` (section 3.8).
-    fn entry(
-        &self,
-        position: usize,
-        field: FieldRef,
-        resolved: &mut Resolved,
-    ) -> Result<(), FeatureError> {
+    /// What the entry at `position` resolves to, with `field` in its messages (section 3.8).
+    pub(super) fn entry(&self, position: usize, field: FieldRef) -> Result<Outcome, FeatureError> {
         let reference = &self.references[position];
         match &self.resolutions[position] {
             Resolution::Resolved {
@@ -124,13 +170,9 @@ impl EntryResolver<'_> {
                 via,
                 alternatives,
             } => {
+                let mut resolved = Resolved::empty();
                 let sub_shapes = self.sub_shapes(elements)?;
-                for sub_shape in &sub_shapes {
-                    if !resolved.elements.contains(sub_shape) {
-                        resolved.elements.push(*sub_shape);
-                        resolved.sources.push(position);
-                    }
-                }
+                resolved.add_elements(sub_shapes.iter().map(|&sub_shape| (sub_shape, position)));
                 if *method == MatchMethod::Guess {
                     resolved.warnings.push(FeatureWarning::ReferenceGuessed {
                         field,
@@ -141,10 +183,10 @@ impl EntryResolver<'_> {
                         alternatives: self.candidates(position, alternatives)?,
                         score: *confidence,
                     });
-                    return Ok(());
+                    return Ok(Outcome::Resolved(resolved));
                 }
                 let Some(follow) = *follow else {
-                    return Ok(());
+                    return Ok(Outcome::Resolved(resolved));
                 };
                 let followed = || FeatureWarning::ReferenceFollowed {
                     field: field.clone(),
@@ -170,21 +212,17 @@ impl EntryResolver<'_> {
                     Follow::Merged if self.every_merged_part_picked(position, elements) => {}
                     _ => resolved.notices.push(followed()),
                 }
+                Ok(Outcome::Resolved(resolved))
             }
-            Resolution::Ambiguous { candidates } => {
-                let loss = self.loss(position, true, Lost::default(), candidates)?;
-                resolved
-                    .warnings
-                    .push(FeatureWarning::ReferenceLost { field, loss });
-            }
-            Resolution::Missing { lost, candidates } => {
-                let loss = self.loss(position, false, lost.clone(), candidates)?;
-                resolved
-                    .warnings
-                    .push(FeatureWarning::ReferenceLost { field, loss });
-            }
+            Resolution::Ambiguous { candidates } => Ok(Outcome::Lost {
+                field,
+                loss: Box::new(self.loss(position, true, Lost::default(), candidates)?),
+            }),
+            Resolution::Missing { lost, candidates } => Ok(Outcome::Lost {
+                field,
+                loss: Box::new(self.loss(position, false, lost.clone(), candidates)?),
+            }),
         }
-        Ok(())
     }
 
     /// The kernel sub-shapes of resolved elements, in resolver order.
@@ -207,8 +245,8 @@ impl EntryResolver<'_> {
     fn picked(&self, elements: &[ElementName]) -> Vec<Reference> {
         elements
             .iter()
-            .filter_map(|name| self.infos.get(name))
-            .map(|info| Reference::from_element(info, self.set))
+            .filter_map(|name| self.set.element(name))
+            .map(|info| Reference::from_element(info, &self.set))
             .collect()
     }
 
@@ -253,14 +291,14 @@ impl EntryResolver<'_> {
             .collect();
         let mut kept = Vec::new();
         for candidate in candidates {
-            let Some(info) = self.infos.get(&candidate.name) else {
+            let Some(info) = self.set.element(&candidate.name) else {
                 continue;
             };
             if taken.contains(&candidate.name) || !(self.usable)(info)? {
                 continue;
             }
             kept.push(LossCandidate {
-                reference: Reference::from_element(info, self.set),
+                reference: Reference::from_element(info, &self.set),
                 meaning: candidate.meaning,
                 distance: candidate.distance,
                 score: candidate.score,
@@ -292,8 +330,8 @@ impl EntryResolver<'_> {
             })
             .or_else(|| elements.first());
         chosen
-            .and_then(|name| self.infos.get(name))
-            .map(|info| Reference::from_element(info, self.set))
+            .and_then(|name| self.set.element(name))
+            .map(|info| Reference::from_element(info, &self.set))
             .ok_or_else(|| {
                 FeatureError::internal("a widened reference resolved to no known element")
             })
@@ -357,7 +395,7 @@ fn grown_names(
     elements: &[ElementName],
 ) -> BTreeSet<ElementName> {
     let query = &reference.query;
-    let parts = faces_of(query);
+    let parts = query.face_parts();
     let merged: Vec<&MergedName> = reference.merged.0.values().flatten().collect();
     let is_merged = |name: &ElementName| {
         merged.iter().any(|merged_name| match merged_name {
@@ -368,7 +406,7 @@ fn grown_names(
         })
     };
     let mut grown = BTreeSet::new();
-    for face in elements.iter().flat_map(faces_of) {
+    for face in elements.iter().flat_map(ElementName::face_parts) {
         let extends = |name: &ElementName| face == *name || face.is_split_descendant_of(name);
         let keys: Vec<&ElementName> = aliases
             .0
@@ -383,14 +421,6 @@ fn grown_names(
     }
     grown.retain(|name| !parts.contains(name) && !is_merged(name));
     grown
-}
-
-/// The faces of an element name: the name itself for a face, its face terms for an edge or vertex.
-fn faces_of(name: &ElementName) -> Vec<ElementName> {
-    match name.kind() {
-        ElementKind::Face => vec![name.clone()],
-        ElementKind::Edge | ElementKind::Vertex => name.face_terms(),
-    }
 }
 
 /// True when the geometries lie on one carrier (section 3.8).
@@ -493,8 +523,6 @@ fn distance_to_line(point: Point, through: Point, direction: Vector) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use partsmith_naming::Successions;
 
     use super::*;
@@ -542,10 +570,9 @@ mod tests {
         let resolver = EntryResolver {
             body: &body,
             state: &state,
-            set: &set,
-            infos: HashMap::new(),
+            set: Arc::new(set),
             references: &[],
-            resolutions: &[],
+            resolutions: Vec::new(),
             usable: &usable,
         };
         let element = ElementName::parse("edge(f-ext1/end-cap|f-ext1/lateral/e-9)")

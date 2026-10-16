@@ -11,11 +11,9 @@ use partsmith_model::Id;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::intersection::same_circle;
+use super::Region;
 use super::key::{RegionFingerprint, RegionRef};
-use super::{ProfileCurve, Region};
-use crate::PROFILE_TOLERANCE;
-use crate::vector::{norm, signed_distance, subtract};
+use crate::vector::{norm, subtract};
 
 /// Largest score difference that still counts as a tie.
 const TIE_TOLERANCE: f64 = 1e-12;
@@ -247,89 +245,14 @@ impl<'a> Stored<'a> {
     }
 }
 
-/// True when `piece` lies on the line or circle of `carrier`: a line piece whose end points are within
-/// `PROFILE_TOLERANCE` of the carrier line's infinite extension, or an arc or circle piece with the carrier
-/// circle's center and radius.
-fn lies_on(piece: &ProfileCurve, carrier: &ProfileCurve) -> bool {
-    match (*piece, *carrier) {
-        (
-            ProfileCurve::Line { start, end },
-            ProfileCurve::Line {
-                start: line_start,
-                end: line_end,
-            },
-        ) => [start, end]
-            .into_iter()
-            .all(|point| signed_distance(point, line_start, line_end).abs() <= PROFILE_TOLERANCE),
-        (ProfileCurve::Line { .. }, _) | (_, ProfileCurve::Line { .. }) => false,
-        (piece, carrier) => same_circle(circle_of(&piece), circle_of(&carrier)),
-    }
-}
-
-/// The center and radius of an arc or circle.
-fn circle_of(curve: &ProfileCurve) -> Option<([f64; 2], f64)> {
-    match *curve {
-        ProfileCurve::Line { .. } => None,
-        ProfileCurve::Arc { center, radius, .. } | ProfileCurve::Circle { center, radius, .. } => {
-            Some((center, radius))
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::id;
-
-    fn line(start: [f64; 2], end: [f64; 2]) -> ProfileCurve {
-        ProfileCurve::Line { start, end }
-    }
-
-    fn arc(center: [f64; 2], radius: f64) -> ProfileCurve {
-        ProfileCurve::Arc {
-            center,
-            radius,
-            start: [center[0] + radius, center[1]],
-            end: [center[0], center[1] + radius],
-            ccw: true,
-        }
-    }
-
-    #[test]
-    fn a_collinear_piece_lies_on_a_line_beyond_its_ends() {
-        assert!(lies_on(
-            &line([90.0, 0.0], [100.0, 0.0]),
-            &line([0.0, 0.0], [10.0, 0.0])
-        ));
-    }
-
-    #[test]
-    fn a_parallel_piece_does_not_lie_on_a_line() {
-        assert!(!lies_on(
-            &line([0.0, 1e-3], [10.0, 1e-3]),
-            &line([0.0, 0.0], [10.0, 0.0])
-        ));
-    }
-
-    #[test]
-    fn an_arc_lies_on_the_circle_of_another_arc_only() {
-        assert!(lies_on(&arc([1.0, 2.0], 3.0), &arc([1.0, 2.0], 3.0)));
-        assert!(!lies_on(&arc([1.0, 2.0], 3.0), &arc([1.0, 2.0], 3.5)));
-        assert!(!lies_on(
-            &arc([0.0, 0.0], 1.0),
-            &line([0.0, 0.0], [1.0, 0.0])
-        ));
-    }
+    use crate::test_support::{edgeless_region, id};
 
     #[test]
     fn a_zero_area_fingerprint_scores_absolute_differences() {
-        let region = Region {
-            key: "e-1".parse().expect("valid key"),
-            outer: super::super::ProfileLoop { edges: Vec::new() },
-            holes: Vec::new(),
-            area: 2.0,
-            centroid: [3.0, 4.0],
-        };
+        let region = edgeless_region("e-1", 2.0, [3.0, 4.0]);
         let stored = RegionFingerprint {
             area: 0.0,
             centroid: [0.0, 0.0],

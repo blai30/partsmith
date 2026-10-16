@@ -356,9 +356,6 @@ pub fn grid_benchmark() -> Vec<SketchEntity> {
     entities
 }
 
-/// Number of cells in each row and column of the grid benchmark.
-pub const GRID_CELLS: usize = 19;
-
 /// Number of first-row cells that the line of the split grid divides (u from 0 to 50).
 pub const SPLIT_CELLS: usize = 10;
 

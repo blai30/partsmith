@@ -7,7 +7,7 @@ use partsmith_model::{
     SelectionKind,
 };
 use partsmith_naming::{
-    ElementName, FaceSource, Generator, Motion, NamingError, Reference, Successions, roles,
+    ElementKind, ElementName, FaceSource, Generator, Motion, Reference, Successions, roles,
 };
 use partsmith_occt_sys::{
     KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult,
@@ -276,6 +276,34 @@ pub(crate) fn solid_body<'a>(
     }
 }
 
+/// The face names of what a feature left in its body: those of its first body update. None for an
+/// output without body updates, and for one with a `NoEffect` warning, which tells why none of the
+/// feature's faces are there, so the feature records no face absent.
+pub(crate) fn result_faces(output: &FeatureOutput) -> Option<Vec<&ElementName>> {
+    let no_effect = output
+        .warnings
+        .iter()
+        .any(|warning| matches!(warning, FeatureWarning::NoEffect { .. }));
+    let OutputData::Bodies(updates) = &output.data else {
+        return None;
+    };
+    let update = updates.first().filter(|_| !no_effect)?;
+    Some(
+        update
+            .naming
+            .names(ElementKind::Face)
+            .map(|(_, name)| name)
+            .collect(),
+    )
+}
+
+/// True when `faces` has `face` or a piece split from it.
+pub(crate) fn has_face(faces: &[&ElementName], face: &ElementName) -> bool {
+    faces
+        .iter()
+        .any(|name| *name == face || name.is_split_descendant_of(face))
+}
+
 /// An update that keeps a body's state exactly: the same shape and naming map, with what has been
 /// measured on it.
 pub(crate) fn unchanged(body: &Id, state: &BodyState, change: BodyChange) -> BodyUpdate {
@@ -338,22 +366,13 @@ pub(crate) fn farthest_corner(bounds: &BoundingBox, origin: Point, direction: Ve
     farthest
 }
 
-/// A naming failure as a feature error: a name too long to build is `NameTooDeep` (features.md
-/// section 4.1), any other failure, which valid kernel output cannot cause, `Internal`.
-pub(crate) fn naming_failed(error: NamingError) -> FeatureError {
-    match error {
-        NamingError::NameTooLong { length } => FeatureError::NameTooDeep { length },
-        error => FeatureError::internal(format!("naming the result failed: {error}")),
-    }
-}
-
 /// A new face name `<feature>/<role>`, or `<feature>/<role>/<generator>` (naming.md section 3.2).
 pub(crate) fn face_name(
     feature: &Id,
     role: &str,
     generator: Option<Generator<'_>>,
 ) -> Result<ElementName, FeatureError> {
-    ElementName::generated(feature, role, generator).map_err(naming_failed)
+    ElementName::generated(feature, role, generator).map_err(FeatureError::from)
 }
 
 /// The tool of a primitive: each face named `<feature>/<role>` from its kernel role (naming.md
@@ -476,14 +495,6 @@ pub(crate) fn swept_tool(
         &successions,
         &profile.sketch.motion,
     )
-}
-
-/// The warnings of a resolved profile, then its notices: what a sweep reports first (features.md
-/// section 3.7).
-pub(crate) fn profile_messages(profile: ResolvedProfile<'_>) -> Vec<FeatureWarning> {
-    let mut messages = profile.warnings;
-    messages.extend(profile.notices);
-    messages
 }
 
 /// The snake_case name of a body op, as stored and as Python writes it.

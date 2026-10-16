@@ -139,11 +139,7 @@ impl<'n> FaceName<'n> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ElementName;
-
-    fn name(text: &str) -> ElementName {
-        ElementName::parse(text).expect("a valid name")
-    }
+    use crate::testing::name;
 
     fn copy(first: u32, second: u32) -> Instance {
         Instance { first, second }

@@ -6,10 +6,9 @@ use partsmith_features::{
     made_from_line, sketch_coordinates,
 };
 use partsmith_model::{FeatureManifest, Id, Units};
-use partsmith_naming::{ElementName, MergedName, Reference};
+use partsmith_naming::{ElementName, FaceGenerator, MergedName, Reference};
 use serde_json::Value;
 
-use super::face_name::{FaceName, Generator, parts_of};
 use super::view::RunView;
 use super::{LossReason, Removal, point_in};
 
@@ -322,13 +321,13 @@ impl Explainer<'_> {
     fn rounding_sketch(&self, face: &ElementName) -> Option<Id> {
         let mut face = face.clone();
         loop {
-            let parts = FaceName::of(&face)?;
-            match parts.generator? {
-                Generator::Face(generator) if matches!(parts.role, "inner" | "rim") => {
+            let parts = face.face_name()?;
+            match parts.generator()? {
+                FaceGenerator::Face(generator) if matches!(parts.role(), "inner" | "rim") => {
                     face = ElementName::parse(generator).ok()?;
                 }
-                Generator::Sketch(entity) if parts.role == "lateral" => {
-                    let sweep = self.view.position(&Id::new(parts.feature).ok()?)?;
+                FaceGenerator::Sketch(entity) if parts.role() == "lateral" => {
+                    let sweep = self.view.position(&Id::new(parts.feature()).ok()?)?;
                     if !matches!(self.view.kind(sweep), "extrude" | "revolve") {
                         return None;
                     }
@@ -345,9 +344,9 @@ impl Explainer<'_> {
     /// True when the element the query names reads as an element of a feature that is not in the
     /// document (features.md section 3.12, "Missing features").
     fn described_as_missing(&self, query: &ElementName) -> bool {
-        parts_of(query).iter().any(|part| {
-            FaceName::of(part).is_some_and(|face| {
-                Id::new(face.feature)
+        query.face_parts().iter().any(|part| {
+            part.face_name().is_some_and(|face| {
+                Id::new(face.feature())
                     .map_or(true, |feature| self.names.feature_label(&feature).is_none())
             })
         })

@@ -59,7 +59,7 @@ impl Lists {
     /// Appends a list.
     fn push(&mut self, list: impl IntoIterator<Item = u32>) {
         self.items.extend(list);
-        self.starts.push(count(self.items.len()));
+        self.starts.push(to_u32(self.items.len()));
     }
 
     /// The same lists with every id replaced by its entry in `rank`, each list sorted and without
@@ -83,7 +83,7 @@ impl Lists {
                 }
             }
             start = end;
-            self.starts[list] = count(kept);
+            self.starts[list] = to_u32(kept);
         }
         self.items.truncate(kept);
         self
@@ -101,20 +101,20 @@ impl Lists {
         }
     }
 
-    /// For each of `targets` ids, the positions of the lists of `lists` that hold it.
-    fn inverted(lists: &Lists, targets: usize) -> Lists {
+    /// For each of `targets` ids, the positions of the lists that hold it.
+    fn inverted(&self, targets: usize) -> Lists {
         let mut counts = vec![0_u32; targets + 1];
-        for &item in &lists.items {
+        for &item in &self.items {
             counts[item as usize + 1] += 1;
         }
         for position in 1..counts.len() {
             counts[position] += counts[position - 1];
         }
-        let mut items = vec![0; lists.items.len()];
+        let mut items = vec![0; self.items.len()];
         let mut next = counts.clone();
-        for list in 0..lists.starts.len() - 1 {
-            for &item in lists.get(list) {
-                items[next[item as usize] as usize] = count(list);
+        for list in 0..self.starts.len() - 1 {
+            for &item in self.get(list) {
+                items[next[item as usize] as usize] = to_u32(list);
                 next[item as usize] += 1;
             }
         }
@@ -133,7 +133,7 @@ impl Lists {
 }
 
 /// A count or position as a `u32`; element counts come from kernel indices, which are `i32`.
-fn count(value: usize) -> u32 {
+pub(crate) fn to_u32(value: usize) -> u32 {
     u32::try_from(value).expect("element counts fit in u32")
 }
 
@@ -173,39 +173,13 @@ impl ElementSet {
         let face_ids: Vec<u32> = face_ids.into_iter().map(|id| rank[id as usize]).collect();
         let mut face_elements = vec![None; names.len()];
         for (position, &face) in face_ids.iter().enumerate() {
-            face_elements[face as usize] = Some(count(position));
+            face_elements[face as usize] = Some(to_u32(position));
         }
         let adjacency = adjacency.renumbered(&rank);
-        let mut touching = vec![Vec::new(); names.len()];
-        for (position, &face) in face_ids.iter().enumerate() {
-            for &other in adjacency
-                .get(position)
-                .iter()
-                .filter(|&&other| other != face)
-            {
-                touching[face as usize].push(other);
-                touching[other as usize].push(face);
-            }
-        }
+        let touching = touching_faces(&face_ids, &adjacency, names.len());
         let adjacent = adjacency.tail(edges_start);
-        let mut incident = Lists::inverted(&adjacent, names.len());
-        let start = count(edges_start);
-        for position in &mut incident.items {
-            *position += start;
-        }
-
-        let mut by_name = FastMap::default();
-        by_name.reserve(elements.len() - edges_start);
-        for (position, info) in elements.iter().enumerate().skip(edges_start) {
-            if by_name
-                .insert(Arc::clone(info.name.shared_text()), count(position))
-                .is_some()
-            {
-                return Err(NamingError::DuplicateName {
-                    name: info.name.to_string(),
-                });
-            }
-        }
+        let incident = incidence(&adjacent, names.len(), edges_start);
+        let by_name = edge_and_vertex_positions(&elements, edges_start)?;
         let face_by_name = ids_by_name(&names);
         let names = NameSet::build(names, face_by_name, touching, aliases, successions);
         Ok(ElementSet {
@@ -231,6 +205,12 @@ impl ElementSet {
         &self.names
     }
 
+    /// The element named `name`, if the set has it.
+    pub fn element(&self, name: &ElementName) -> Option<&ElementInfo> {
+        self.position_of(name.kind(), name.as_str())
+            .map(|position| &self.elements[position])
+    }
+
     /// The positions of the elements of `kind`.
     pub(crate) fn positions(&self, kind: ElementKind) -> Range<usize> {
         match kind {
@@ -241,17 +221,17 @@ impl ElementSet {
     }
 
     /// The element at `position`.
-    pub(crate) fn element(&self, position: usize) -> &ElementInfo {
+    pub(crate) fn element_at(&self, position: usize) -> &ElementInfo {
         &self.elements[position]
     }
 
     /// The position of the element of `kind` named `name`.
     pub(crate) fn position_of(&self, kind: ElementKind, name: &str) -> Option<usize> {
         match kind {
-            ElementKind::Face => {
-                let face = self.names.face_id(name)?;
-                self.face_elements[face as usize].map(|position| position as usize)
-            }
+            ElementKind::Face => self
+                .names
+                .face_id(name)
+                .and_then(|face| self.face_element(face)),
             ElementKind::Edge | ElementKind::Vertex => self
                 .by_name
                 .get(name)
@@ -334,22 +314,65 @@ pub(crate) fn faces_pair(adjacent: &[u32], allowed: &[&[u32]]) -> bool {
     })
 }
 
-/// The infos with the faces first, then the edges, then the vertices, each kind in the given order.
+/// The infos with the faces first, then the edges, then the vertices, each kind in the given order
+/// (`ElementKind` orders faces, edges, vertices, and the sort is stable).
 fn in_kind_order(elements: Arc<[ElementInfo]>) -> Arc<[ElementInfo]> {
-    let rank = |info: &ElementInfo| match info.kind {
-        ElementKind::Face => 0,
-        ElementKind::Edge => 1,
-        ElementKind::Vertex => 2,
-    };
-    if elements
-        .windows(2)
-        .all(|pair| rank(&pair[0]) <= rank(&pair[1]))
-    {
+    if elements.is_sorted_by_key(|info| info.kind) {
         return elements;
     }
     let mut ordered = elements.to_vec();
-    ordered.sort_by_key(rank);
+    ordered.sort_by_key(|info| info.kind);
     Arc::from(ordered)
+}
+
+/// The faces each face id touches, from the adjacency lists of the face elements (`adjacency`,
+/// whose list at a face element's position holds the faces it lists): two faces touch when one
+/// lists the other.
+fn touching_faces(face_ids: &[u32], adjacency: &Lists, face_count: usize) -> Vec<Vec<u32>> {
+    let mut touching = vec![Vec::new(); face_count];
+    for (position, &face) in face_ids.iter().enumerate() {
+        for &other in adjacency
+            .get(position)
+            .iter()
+            .filter(|&&other| other != face)
+        {
+            touching[face as usize].push(other);
+            touching[other as usize].push(face);
+        }
+    }
+    touching
+}
+
+/// For each face id, the positions of the edges and then the vertices whose adjacency lists it,
+/// from `adjacent`, the face lists of the elements from `edges_start` on.
+fn incidence(adjacent: &Lists, face_count: usize, edges_start: usize) -> Lists {
+    let mut incident = adjacent.inverted(face_count);
+    let start = to_u32(edges_start);
+    for position in &mut incident.items {
+        *position += start;
+    }
+    incident
+}
+
+/// The positions of the edges and vertices of `elements` (from `edges_start` on) by name;
+/// `DuplicateName` when two share a name.
+fn edge_and_vertex_positions(
+    elements: &[ElementInfo],
+    edges_start: usize,
+) -> Result<FastMap<Arc<str>, u32>, NamingError> {
+    let mut by_name = FastMap::default();
+    by_name.reserve(elements.len() - edges_start);
+    for (position, info) in elements.iter().enumerate().skip(edges_start) {
+        if by_name
+            .insert(Arc::clone(info.name.shared_text()), to_u32(position))
+            .is_some()
+        {
+            return Err(NamingError::DuplicateName {
+                name: info.name.to_string(),
+            });
+        }
+    }
+    Ok(by_name)
 }
 
 /// Face names numbered in the order they are met.
@@ -366,7 +389,7 @@ struct ProvisionalIds<'a> {
 impl<'a> ProvisionalIds<'a> {
     /// The id of `name`, numbering it when it is new.
     fn of(&mut self, name: &'a ElementName) -> u32 {
-        let next = count(self.names.len());
+        let next = to_u32(self.names.len());
         let id = *self.ids.entry(name.as_str()).or_insert(next);
         if id == next {
             self.names.push(name);
@@ -382,13 +405,13 @@ impl<'a> ProvisionalIds<'a> {
 
     /// The names in byte order, and for each provisional id its position there.
     fn in_byte_order(self) -> (Vec<ElementName>, Vec<u32>) {
-        let mut order: Vec<u32> = (0..count(self.names.len())).collect();
+        let mut order: Vec<u32> = (0..to_u32(self.names.len())).collect();
         order.sort_unstable_by(|&first, &second| {
             self.names[first as usize].cmp(self.names[second as usize])
         });
         let mut rank = vec![0; order.len()];
         for (position, &id) in order.iter().enumerate() {
-            rank[id as usize] = count(position);
+            rank[id as usize] = to_u32(position);
         }
         let names = order
             .iter()
@@ -402,23 +425,21 @@ impl<'a> ProvisionalIds<'a> {
 mod tests {
     use super::*;
     use crate::fingerprint::Fingerprint;
+    use crate::testing::name;
 
     fn info(text: &str, adjacency: &[&str]) -> ElementInfo {
-        let name = ElementName::parse(text).expect("the test name is valid");
-        let kind = name.kind();
+        let element = name(text);
+        let kind = element.kind();
         let fingerprint = match kind {
             ElementKind::Face => "plane|c=0,0,0",
             ElementKind::Edge => "line|c=0,0,0",
             ElementKind::Vertex => "point|c=0,0,0",
         };
         ElementInfo {
-            name,
+            name: element,
             kind,
             fingerprint: Fingerprint::parse(fingerprint).expect("valid fingerprint"),
-            adjacency: adjacency
-                .iter()
-                .map(|face| ElementName::parse(face).expect("valid name"))
-                .collect(),
+            adjacency: adjacency.iter().map(|face| name(face)).collect(),
             vertices: Vec::new(),
         }
     }
@@ -445,6 +466,26 @@ mod tests {
         assert_eq!(scope.face_element(face), None);
         assert_eq!(scope.incident(ElementKind::Edge, face), [0]);
         assert!(scope.incident(ElementKind::Vertex, face).is_empty());
+    }
+
+    #[test]
+    fn element_finds_an_info_of_any_kind_by_name() {
+        let scope = set(vec![
+            info("edge(f-a/x|f-b/y)", &["f-a/x", "f-b/y"]),
+            info("f-a/x", &["f-b/y"]),
+        ]);
+
+        assert_eq!(
+            scope.element(&name("f-a/x")).map(|info| &info.adjacency),
+            Some(&vec![name("f-b/y")])
+        );
+        assert_eq!(
+            scope
+                .element(&name("edge(f-a/x|f-b/y)"))
+                .map(|info| info.kind),
+            Some(ElementKind::Edge)
+        );
+        assert_eq!(scope.element(&name("f-b/y")), None);
     }
 
     #[test]
@@ -507,7 +548,7 @@ mod tests {
             lists.push(list);
         }
 
-        let inverted = Lists::inverted(&lists, 3);
+        let inverted = lists.inverted(3);
 
         assert_eq!(inverted.get(0), [2]);
         assert_eq!(inverted.get(1), [0]);

@@ -11,6 +11,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::grammar;
+use crate::name::list_parts;
 use crate::roles;
 
 /// A face name taken apart. The text must be a structurally valid face name; its face terms need
@@ -141,8 +142,9 @@ impl FaceParts<'_> {
 fn generator_after(text: &str, start: usize) -> (GeneratorParts<'_>, usize) {
     let rest = &text[start..];
     if let Some((_, prefix)) = grammar::leading_list_prefix(rest.as_bytes()) {
-        let (terms, length) = list_terms(&rest[prefix.len()..]);
-        let groups_start = start + prefix.len() + length + 1;
+        let parts = list_parts(rest).expect("a structurally valid name closes its face list");
+        let groups_start = start + rest.len() - parts.closing.len() + 1;
+        let terms = parts.terms;
         return (GeneratorParts::List { prefix, terms }, groups_start);
     }
     let id_length = rest
@@ -310,6 +312,11 @@ impl Shape {
         }
     }
 
+    /// True when either name extends the other.
+    pub(crate) fn extends_either_way(&self, other: &Shape) -> bool {
+        self.extends(other) || other.extends(self)
+    }
+
     /// The features and sketch generators the name depends on, with repetitions (section 2.2,
     /// `ElementName::generators`).
     pub(crate) fn generators(&self) -> Vec<(&str, Option<&str>)> {
@@ -323,31 +330,6 @@ impl Shape {
         }
         found
     }
-}
-
-/// The face terms of a list name's face list, which starts `text`, and the byte length of the list
-/// up to its closing parenthesis.
-fn list_terms(text: &str) -> (Vec<&str>, usize) {
-    let mut terms = Vec::new();
-    let mut depth = 0_usize;
-    let mut start = 0;
-    for (position, byte) in text.bytes().enumerate() {
-        match byte {
-            b'(' => depth += 1,
-            b')' if depth == 0 => {
-                terms.push(&text[start..position]);
-                return (terms, position);
-            }
-            b')' => depth -= 1,
-            b'|' if depth == 0 => {
-                terms.push(&text[start..position]);
-                start = position + 1;
-            }
-            _ => {}
-        }
-    }
-    terms.push(&text[start..]);
-    (terms, text.len())
 }
 
 /// The `@<feature>:<instance>` groups of a run of suffix groups, in order, each as written from its

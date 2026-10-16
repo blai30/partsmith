@@ -4,7 +4,7 @@
 use partsmith_model::Id;
 
 use crate::constraint::{Alignment, ConstraintKind, DistanceTarget, SketchConstraint};
-use crate::entity::{Geometry, SketchEntity};
+use crate::entity::{EntityKind, Geometry, SketchEntity};
 use crate::params::SketchParams;
 use crate::point_ref::{PointRef, PointRole};
 use crate::profile::{KeyEdge, RegionFingerprint, RegionKey, RegionLoop, RegionRef};
@@ -30,9 +30,10 @@ impl SketchParams {
     /// What a point reference of this sketch names in `mirrored()`: the start and end of an arc swap, every other
     /// reference is unchanged (section 3.17).
     pub fn mirrored_point(&self, point: &PointRef) -> PointRef {
+        let is_arc = || self.kind_of(&point.entity) == Some(EntityKind::Arc);
         let role = match point.role {
-            PointRole::Start if self.is_arc(&point.entity) => PointRole::End,
-            PointRole::End if self.is_arc(&point.entity) => PointRole::Start,
+            PointRole::Start if is_arc() => PointRole::End,
+            PointRole::End if is_arc() => PointRole::Start,
             role => role,
         };
         PointRef {
@@ -47,7 +48,7 @@ impl SketchParams {
         // an arc or circle turns with its loop. An entity the sketch does not have keeps its flag.
         let flipped = |entry: &KeyEdge| KeyEdge {
             entity: entry.entity.clone(),
-            reversed: entry.reversed != self.is_line(&entry.entity),
+            reversed: entry.reversed != (self.kind_of(&entry.entity) == Some(EntityKind::Line)),
         };
         let key = RegionKey::new(
             region.key.outer().iter().map(flipped).collect(),
@@ -60,7 +61,8 @@ impl SketchParams {
         );
         let outline = region.outline.as_ref().map(|outline| {
             let entries = outline.entries().iter().rev().map(flipped).collect();
-            RegionLoop::new(entries).expect("a mirrored loop has as many entries as its loop")
+            RegionLoop::new(entries)
+                .expect("a stored outline has at least one entry, and flipping keeps them all")
         });
         RegionRef {
             key,
@@ -74,17 +76,13 @@ impl SketchParams {
 
     /// A constraint of this sketch rewritten to hold on `mirrored()`.
     fn mirrored_constraint(&self, kind: &ConstraintKind) -> ConstraintKind {
-        let point = |point: &PointRef| self.mirrored_point(point);
-        let pair = |[first, second]: &[PointRef; 2]| [point(first), point(second)];
+        let mirror = |point: &PointRef| self.mirrored_point(point);
         match kind {
             ConstraintKind::Coincident { points } => ConstraintKind::Coincident {
-                points: pair(points),
+                points: self.mirrored_pair(points),
             },
-            ConstraintKind::PointOnObject {
-                point: target,
-                curve,
-            } => ConstraintKind::PointOnObject {
-                point: point(target),
+            ConstraintKind::PointOnObject { point, curve } => ConstraintKind::PointOnObject {
+                point: mirror(point),
                 curve: curve.clone(),
             },
             ConstraintKind::Horizontal(alignment) => {
@@ -94,29 +92,23 @@ impl SketchParams {
                 ConstraintKind::Vertical(self.mirrored_alignment(alignment))
             }
             ConstraintKind::Symmetric { points, line } => ConstraintKind::Symmetric {
-                points: pair(points),
+                points: self.mirrored_pair(points),
                 line: line.clone(),
             },
-            ConstraintKind::Midpoint {
-                point: target,
-                line,
-            } => ConstraintKind::Midpoint {
-                point: point(target),
+            ConstraintKind::Midpoint { point, line } => ConstraintKind::Midpoint {
+                point: mirror(point),
                 line: line.clone(),
             },
             ConstraintKind::Fix { target } => ConstraintKind::Fix {
-                target: point(target),
+                target: mirror(target),
             },
             ConstraintKind::Distance { target, dimension } => ConstraintKind::Distance {
                 target: match target {
                     DistanceTarget::Points { points } => DistanceTarget::Points {
-                        points: pair(points),
+                        points: self.mirrored_pair(points),
                     },
-                    DistanceTarget::PointLine {
-                        point: target,
-                        line,
-                    } => DistanceTarget::PointLine {
-                        point: point(target),
+                    DistanceTarget::PointLine { point, line } => DistanceTarget::PointLine {
+                        point: mirror(point),
                         line: line.clone(),
                     },
                     DistanceTarget::Line { line } => DistanceTarget::Line { line: line.clone() },
@@ -129,25 +121,22 @@ impl SketchParams {
                     dimension: dimension.clone(),
                 }
             }
-            // Mirroring negates every v, so the points swap to measure the same value again.
+            // Mirroring negates every v, so the points swap to measure the same value again; the line form becomes
+            // the points form on the line's ends.
             ConstraintKind::VerticalDistance { target, dimension } => {
-                let points = match target {
-                    Alignment::Points {
-                        points: [first, second],
-                    } => [point(second), point(first)],
-                    Alignment::Line { line } => [
-                        PointRef {
+                let [first, second] = match target {
+                    Alignment::Points { points } => self.mirrored_pair(points),
+                    Alignment::Line { line } => {
+                        [PointRole::Start, PointRole::End].map(|role| PointRef {
                             entity: line.clone(),
-                            role: PointRole::End,
-                        },
-                        PointRef {
-                            entity: line.clone(),
-                            role: PointRole::Start,
-                        },
-                    ],
+                            role,
+                        })
+                    }
                 };
                 ConstraintKind::VerticalDistance {
-                    target: Alignment::Points { points },
+                    target: Alignment::Points {
+                        points: [second, first],
+                    },
                     dimension: dimension.clone(),
                 }
             }
@@ -173,25 +162,21 @@ impl SketchParams {
     /// An alignment with `mirrored_point` applied to its points.
     fn mirrored_alignment(&self, alignment: &Alignment) -> Alignment {
         match alignment {
-            Alignment::Line { line } => Alignment::Line { line: line.clone() },
-            Alignment::Points {
-                points: [first, second],
-            } => Alignment::Points {
-                points: [self.mirrored_point(first), self.mirrored_point(second)],
+            Alignment::Line { .. } => alignment.clone(),
+            Alignment::Points { points } => Alignment::Points {
+                points: self.mirrored_pair(points),
             },
         }
     }
 
-    /// True when this sketch has a line with this id.
-    fn is_line(&self, entity: &Id) -> bool {
-        self.entity(entity)
-            .is_some_and(|found| matches!(found.geometry, Geometry::Line { .. }))
+    /// Two point references with `mirrored_point` applied to each, in their order.
+    fn mirrored_pair(&self, [first, second]: &[PointRef; 2]) -> [PointRef; 2] {
+        [self.mirrored_point(first), self.mirrored_point(second)]
     }
 
-    /// True when this sketch has an arc with this id.
-    fn is_arc(&self, entity: &Id) -> bool {
-        self.entity(entity)
-            .is_some_and(|found| matches!(found.geometry, Geometry::Arc { .. }))
+    /// The kind of this sketch's entity with this id, or `None` when the sketch does not have it.
+    fn kind_of(&self, entity: &Id) -> Option<EntityKind> {
+        self.entity(entity).map(SketchEntity::kind)
     }
 }
 

@@ -337,7 +337,7 @@ impl FaceReader<'_, '_> {
     /// boolean that the state does not have never was a face the cut leaves, so it, and an edge or vertex with it as a
     /// face term, reads as the tool's own (section 3.12, corpus R30 (b)).
     fn all_in_state(&self, feature: &str) -> bool {
-        self.element_faces().iter().all(|face| {
+        self.element.name.face_parts().iter().all(|face| {
             face.face_name()
                 .is_none_or(|name| name.feature() != feature)
                 || self.faces.has_any_piece_of(face.as_str())
@@ -355,21 +355,13 @@ impl FaceReader<'_, '_> {
             return true;
         };
         let absent = self.names.absent_faces(&feature);
-        !self.element_faces().iter().any(|face| {
+        !self.element.name.face_parts().iter().any(|face| {
             let whole = face.piece_free();
             absent.iter().any(|entry| {
                 entry.why == Absence::EndOutside
                     && (entry.name == *face || whole.as_ref() == Some(&entry.name))
             })
         })
-    }
-
-    /// The faces the element names: itself for a face, else its face terms.
-    fn element_faces(&self) -> Vec<ElementName> {
-        match self.element.name.kind() {
-            ElementKind::Face => vec![self.element.name.clone()],
-            ElementKind::Edge | ElementKind::Vertex => self.element.name.face_terms(),
-        }
     }
 
     /// For a cap of an extrude or revolve that is not in the state, the direction it faces in this run (section 3.12).
@@ -413,7 +405,12 @@ impl FaceReader<'_, '_> {
         if maker.is("hole") {
             return matches!(name.role(), "bore" | "counterbore" | "countersink");
         }
-        match (maker.is_sweep(), name.role(), name.generator(), maker.sketch()) {
+        match (
+            maker.is_sweep(),
+            name.role(),
+            name.generator(),
+            maker.sketch(),
+        ) {
             (true, "lateral", Some(FaceGenerator::Sketch(entity)), Some(sketch)) => {
                 entity_geometry(self.names, &sketch, entity)
                     .is_some_and(|geometry| is_round(&geometry))

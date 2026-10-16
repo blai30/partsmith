@@ -9,6 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::aliases::{Aliases, Successions};
 use crate::error::NamingError;
+use crate::is_sorted_list;
 use crate::map::NamingMap;
 use crate::map::motions::Motions;
 use crate::name::ElementName;
@@ -68,9 +69,7 @@ struct SuccessionLists(Successions);
 impl<'de> Deserialize<'de> for AliasLists {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<AliasLists, D::Error> {
         let lists = BTreeMap::<ElementName, Vec<ElementName>>::deserialize(deserializer)?;
-        if let Some((former, _)) = lists.iter().find(|(_, targets)| {
-            targets.is_empty() || targets.windows(2).any(|pair| pair[0] >= pair[1])
-        }) {
+        if let Some((former, _)) = lists.iter().find(|(_, targets)| !is_sorted_list(targets)) {
             return Err(D::Error::custom(format!(
                 "the alias \"{former}\" must list the faces it merged into once each, sorted"
             )));

@@ -457,6 +457,11 @@ pub struct Resolved {
     pub notices: Vec<FeatureWarning>,
 }
 
+impl Resolved {
+    /// The warnings, then the notices: the messages a feature adds to its output.
+    pub fn into_messages(self) -> Vec<FeatureWarning>;
+}
+
 /// Result of resolving a profile (section 3.7).
 pub struct ResolvedProfile<'a> {
     /// The sketch result.
@@ -469,6 +474,11 @@ pub struct ResolvedProfile<'a> {
     pub warnings: Vec<FeatureWarning>,
     /// Notices for regions split by other curves of the sketch (`RegionSplit`).
     pub notices: Vec<FeatureWarning>,
+}
+
+impl ResolvedProfile<'_> {
+    /// The warnings, then the notices: the messages a sweep reports first.
+    pub fn into_messages(self) -> Vec<FeatureWarning>;
 }
 
 /// A plane placed on a face (section 3.6).
@@ -1043,6 +1053,10 @@ impl FeatureError {
 /// A kernel failure becomes `Kernel { error }`, so `?` works on kernel calls.
 impl From<KernelError> for FeatureError { /* ... */ }
 
+/// A naming failure becomes `NameTooDeep` for a name too long to build (section 4.1), and `Internal` otherwise, which
+/// valid kernel output cannot cause, so `?` works on naming calls.
+impl From<NamingError> for FeatureError { /* ... */ }
+
 impl FeatureWarning {
     /// The message (section 4.2), with current names and units and the diagnosis.
     pub fn render(&self, context: &RenderContext<'_>) -> String;
@@ -1264,7 +1278,7 @@ pub trait PythonNames {
 
 Built-in features use only the public API, like a plugin would: they are registered through `register_builtins` with `Registry::register` (section 2.9) and build with the public items of this crate and of the crates listed at the top of section 2, never with framework internals (the private parts of the context, registry, naming bridge and error modules). Helpers that several built-ins share (manifest hints, range checks, tool naming, Python arguments) may stay private to the crate when they are built only on public items, as a plugin crate could write them for itself. What a built-in needs that a plugin would need too is public:
 
-- `From<KernelError> for FeatureError` and `FeatureError::internal` (section 2.8).
+- `From<KernelError> for FeatureError`, `From<NamingError> for FeatureError` and `FeatureError::internal` (section 2.8).
 - `point` and `vector` (section 2.5), the kernel `Point` and `Vector` of `[f64; 3]` coordinates.
 - `BuildContext::face_placement` and `face_placement_before_removal` (section 2.6), a plane on a face that reports why it cannot place one instead of failing, and the place a removed face had.
 - `VOLUME_TOLERANCE` (section 2.7), for features that apply the volume rules of section 3.5 to results of their own (hole's overlap test, split_body's sides).

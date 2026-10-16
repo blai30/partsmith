@@ -202,9 +202,7 @@ pub(crate) fn describe_element(
 /// against the element set of its state, with anchors and merged names (section 3.9). `None`
 /// when the set has no such element.
 pub(crate) fn full_reference(set: &ElementSet, name: &ElementName) -> Option<Reference> {
-    set.elements()
-        .iter()
-        .find(|element| element.name == *name)
+    set.element(name)
         .map(|info| Reference::from_element(info, set))
 }
 

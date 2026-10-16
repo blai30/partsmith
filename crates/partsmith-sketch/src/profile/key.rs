@@ -174,18 +174,16 @@ impl FromStr for RegionKey {
 
 /// One canonical loop: non-empty, valid entries, entries strictly ascending.
 fn parse_loop(text: &str) -> Option<Vec<KeyEdge>> {
-    let entries = text
-        .split(',')
-        .map(parse_entry)
-        .collect::<Option<Vec<KeyEdge>>>()?;
-    entries
-        .windows(2)
-        .all(|pair| pair[0] < pair[1])
-        .then_some(entries)
+    parse_entries(text).filter(|entries| entries.windows(2).all(|pair| pair[0] < pair[1]))
+}
+
+/// The entries of a loop text, separated by ",", in written order; `None` when any entry is invalid.
+pub(super) fn parse_entries(text: &str) -> Option<Vec<KeyEdge>> {
+    text.split(',').map(parse_entry).collect()
 }
 
 /// One entry `[~]id`: a valid id with at most one "~" before it.
-pub(super) fn parse_entry(text: &str) -> Option<KeyEdge> {
+fn parse_entry(text: &str) -> Option<KeyEdge> {
     let (name, reversed) = match text.strip_prefix('~') {
         Some(name) => (name, true),
         None => (text, false),
@@ -327,20 +325,14 @@ pub struct RegionRef {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn entry(entity: &str, reversed: bool) -> KeyEdge {
-        KeyEdge {
-            entity: Id::new(entity).expect("valid id"),
-            reversed,
-        }
-    }
+    use crate::test_support::key_edge;
 
     #[test]
     fn holes_sort_by_text_not_by_entries() {
         // By entries (e-1, true) sorts before (e-2, false); by text "e-2" sorts before "~e-1".
         let key = RegionKey::new(
-            vec![entry("e-9", false)],
-            vec![vec![entry("e-1", true)], vec![entry("e-2", false)]],
+            vec![key_edge("e-9", false)],
+            vec![vec![key_edge("e-1", true)], vec![key_edge("e-2", false)]],
         );
 
         assert_eq!(key.to_string(), "e-9;e-2;~e-1");
@@ -349,8 +341,8 @@ mod tests {
     #[test]
     fn built_and_parsed_keys_are_equal_and_hash_equally() {
         let built = RegionKey::new(
-            vec![entry("e-2", false), entry("e-1", true)],
-            vec![vec![entry("e-5", true)]],
+            vec![key_edge("e-2", false), key_edge("e-1", true)],
+            vec![vec![key_edge("e-5", true)]],
         );
         let parsed: RegionKey = "~e-1,e-2;~e-5".parse().expect("a canonical key");
 

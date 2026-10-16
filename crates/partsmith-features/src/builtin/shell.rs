@@ -82,9 +82,7 @@ impl Feature for Shell {
                 ElementKind::Face,
             )?;
             let faces = resolved.elements.iter().map(|face| face.index).collect();
-            let mut warnings = resolved.warnings;
-            warnings.extend(resolved.notices);
-            (faces, warnings)
+            (faces, resolved.into_messages())
         };
         let solids = body_solids(shape, &removed)?;
         let hollow = run_or_search(

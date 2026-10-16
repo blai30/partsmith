@@ -58,15 +58,11 @@ pub fn score(query: &Fingerprint, candidate: &Fingerprint, kind: ElementKind) ->
 /// Direction similarity: the dot product for signed plane normals (opposite normals score 0), its
 /// absolute value for axes.
 fn direction_similarity(first: [f64; 3], second: [f64; 3], kind: GeometryKind) -> f64 {
-    let dot: f64 = first
-        .iter()
-        .zip(second)
-        .map(|(first, second)| first * second)
-        .sum();
+    let product = dot(first, second);
     if kind.keeps_direction_sign() {
-        dot.max(0.0)
+        product.max(0.0)
     } else {
-        dot.abs()
+        product.abs()
     }
 }
 
@@ -81,8 +77,17 @@ fn length_scale(query: &Fingerprint, candidate: &Fingerprint, kind: ElementKind)
     size_scale.max(MIN_LENGTH_SCALE)
 }
 
+/// The dot product of two directions.
+pub(crate) fn dot(first: [f64; 3], second: [f64; 3]) -> f64 {
+    first
+        .iter()
+        .zip(second)
+        .map(|(first, second)| first * second)
+        .sum()
+}
+
 /// Euclidean distance between two points.
-fn distance(first: [f64; 3], second: [f64; 3]) -> f64 {
+pub(crate) fn distance(first: [f64; 3], second: [f64; 3]) -> f64 {
     first
         .iter()
         .zip(second)

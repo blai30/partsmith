@@ -1,12 +1,20 @@
 //! Builders for region references and match results (spec sections 6.12 and 6.17 to 6.21).
 
 use partsmith_sketch::{
-    MatchMethod, Region, RegionFingerprint, RegionKey, RegionLoop, RegionMatch, RegionRef,
-    SketchEntity, Succession, build_profile, match_region,
+    KeyEdge, MatchMethod, Region, RegionFingerprint, RegionKey, RegionLoop, RegionLoss,
+    RegionMatch, RegionRef, SketchEntity, Succession, build_profile, match_region,
 };
 
 use super::benchmark::entity_ids;
 use super::{id, ids};
+
+/// A region key entry.
+pub fn key_edge(entity: &str, reversed: bool) -> KeyEdge {
+    KeyEdge {
+        entity: id(entity),
+        reversed,
+    }
+}
 
 /// A canonical region key, panicking on a fixture mistake.
 pub fn key(text: &str) -> RegionKey {
@@ -27,7 +35,7 @@ pub fn region_loop(text: &str) -> RegionLoop {
 }
 
 /// A reference written before file format version 2: a key and a fingerprint, no outline.
-pub fn reference(key_text: &str, fingerprint_text: &str) -> RegionRef {
+pub fn region_ref(key_text: &str, fingerprint_text: &str) -> RegionRef {
     RegionRef {
         key: key(key_text),
         fp: fingerprint(fingerprint_text),
@@ -36,14 +44,14 @@ pub fn reference(key_text: &str, fingerprint_text: &str) -> RegionRef {
 }
 
 /// A reference with an outline, as `Region::reference()` writes it.
-pub fn reference_with_outline(
+pub fn region_ref_with_outline(
     key_text: &str,
     fingerprint_text: &str,
     outline_text: &str,
 ) -> RegionRef {
     RegionRef {
         outline: Some(region_loop(outline_text)),
-        ..reference(key_text, fingerprint_text)
+        ..region_ref(key_text, fingerprint_text)
     }
 }
 
@@ -92,6 +100,11 @@ pub fn resolved(
         method,
         successions,
     }
+}
+
+/// `Missing { loss }`.
+pub fn missing(loss: RegionLoss) -> RegionMatch {
+    RegionMatch::Missing { loss }
 }
 
 /// `Succession { entity, now }`.

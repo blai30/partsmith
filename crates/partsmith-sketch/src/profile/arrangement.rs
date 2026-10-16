@@ -324,17 +324,7 @@ mod tests {
     use super::*;
     use crate::entity::Geometry;
     use crate::profile::{ProfileCurve, ProfileEdge};
-    use crate::test_support::{circle, entity, id, line};
-
-    /// The 80 x 50 rectangle e-1 to e-4, drawn counterclockwise from the origin.
-    fn rectangle() -> Vec<SketchEntity> {
-        vec![
-            line("e-1", [0.0, 0.0], [80.0, 0.0]),
-            line("e-2", [80.0, 0.0], [80.0, 50.0]),
-            line("e-3", [80.0, 50.0], [0.0, 50.0]),
-            line("e-4", [0.0, 50.0], [0.0, 0.0]),
-        ]
-    }
+    use crate::test_support::{circle, entity, id, line, rectangle};
 
     fn keys(profile: &Profile) -> Vec<String> {
         profile

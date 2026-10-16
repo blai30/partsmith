@@ -5,7 +5,9 @@ mod common;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_6};
 
 use common::benchmark::entity_ids;
-use common::matching::{key_texts, region_ref_texts, regions_of, resolved};
+use common::matching::{
+    key_texts, region_ref, region_ref_texts, region_ref_with_outline, regions_of, resolved,
+};
 use common::{
     Sketch, TOLERANCE, arc, assert_bitwise, assert_close, assert_point_close, circle, coincident,
     construction_line, equal, fix, line, measured, plate, plate_entities, point_at_angle,
@@ -458,7 +460,7 @@ fn mirrored_region_keeps_the_area_and_negates_the_centroid_v() {
 #[test]
 fn mirrored_region_keeps_the_flag_of_an_entity_the_sketch_does_not_have() {
     let params = Sketch::new(rect_entities()).params;
-    let stored = common::matching::reference_with_outline("e-1,~e-77", "c=1,1|a=1", "e-1,~e-77");
+    let stored = region_ref_with_outline("e-1,~e-77", "c=1,1|a=1", "e-1,~e-77");
 
     let mirrored_reference = params.mirrored_region(&stored);
 
@@ -471,7 +473,7 @@ fn mirrored_region_keeps_the_flag_of_an_entity_the_sketch_does_not_have() {
 #[test]
 fn mirrored_region_without_outline_stays_without_outline() {
     let params = Sketch::new(rect_entities()).params;
-    let stored = common::matching::reference("e-1,e-2,e-3,e-4", "c=40,25|a=4000");
+    let stored = region_ref("e-1,e-2,e-3,e-4", "c=40,25|a=4000");
 
     let mirrored_reference = params.mirrored_region(&stored);
 

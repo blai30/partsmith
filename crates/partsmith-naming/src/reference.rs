@@ -2,8 +2,9 @@
 //! section 2.4).
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 
 use partsmith_model::Id;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::NamingError;
 use crate::fingerprint::Fingerprint;
 use crate::grammar;
+use crate::is_sorted_list;
 use crate::kind::ElementKind;
 use crate::name::ElementName;
 use crate::shape::Shape;
@@ -162,7 +164,7 @@ impl Reference {
         }
         let faces = face_names_in(&self.query);
         for (face, merged_names) in &self.merged.0 {
-            if !faces.contains(face.as_str()) {
+            if !faces.contains_key(face.as_str()) {
                 return Err(invalid(format!(
                     "merged names are listed for \"{face}\", which is not a face name in the query"
                 )));
@@ -177,28 +179,14 @@ impl Reference {
     }
 }
 
-/// True when `items` is non-empty and strictly ascending.
-fn is_sorted_list<T: Ord>(items: &[T]) -> bool {
-    !items.is_empty() && items.windows(2).all(|pair| pair[0] < pair[1])
-}
-
 /// The parts of a query (section 3.1): its face terms for an edge or vertex name, the name itself
 /// for a face name, and an edge or vertex name with its own `#n` itself.
 pub(crate) fn query_parts(query: &ElementName) -> Vec<ElementName> {
-    let mut parts = face_parts(query);
+    let mut parts = query.face_parts();
     if has_own_split(query) {
         parts.push(query.clone());
     }
     parts
-}
-
-/// The face parts of a query: the name itself for a face name, its face terms for an edge or
-/// vertex name.
-pub(crate) fn face_parts(query: &ElementName) -> Vec<ElementName> {
-    match query.kind() {
-        ElementKind::Face => vec![query.clone()],
-        ElementKind::Edge | ElementKind::Vertex => query.face_terms(),
-    }
 }
 
 /// True for an edge or vertex name with its own trailing `#n`.
@@ -206,13 +194,14 @@ pub(crate) fn has_own_split(query: &ElementName) -> bool {
     query.kind() != ElementKind::Face && query.split_base_str().len() != query.as_str().len()
 }
 
-/// Every face name occurring in a query: its face parts and every face name nested in them.
-pub(crate) fn face_names_in(query: &ElementName) -> BTreeSet<String> {
-    let mut faces = BTreeSet::new();
+/// Every face name occurring in a query, taken apart, by its text: its face parts and every face
+/// name nested in them.
+pub(crate) fn face_names_in(query: &ElementName) -> BTreeMap<Arc<str>, Shape> {
+    let mut faces = BTreeMap::new();
     let mut pending: Vec<Shape> = query.face_shapes();
     while let Some(face) = pending.pop() {
         pending.extend(face.terms().iter().cloned());
-        faces.insert(face.text().to_string());
+        faces.insert(Arc::clone(face.text()), face);
     }
     faces
 }
@@ -303,10 +292,7 @@ impl JsonSchema for MergedName {
 mod tests {
     use super::*;
     use crate::kind::GeometryKind;
-
-    fn name(text: &str) -> ElementName {
-        ElementName::parse(text).expect("the test name is valid")
-    }
+    use crate::testing::name;
 
     #[test]
     fn new_accepts_matching_kinds() {
@@ -354,7 +340,7 @@ mod tests {
         let faces = face_names_in(&name("edge(f-c/chamfer/edge(f-a/x|f-b/y)|f-d/w)"));
 
         assert_eq!(
-            faces.into_iter().collect::<Vec<_>>(),
+            faces.keys().map(AsRef::as_ref).collect::<Vec<&str>>(),
             ["f-a/x", "f-b/y", "f-c/chamfer/edge(f-a/x|f-b/y)", "f-d/w"]
         );
     }

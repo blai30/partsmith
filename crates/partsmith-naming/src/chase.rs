@@ -56,7 +56,8 @@ pub(crate) struct Chaser<'a> {
 type Memo<'a> = FastMap<&'a ElementName, Vec<Reached>>;
 
 impl<'a> Chaser<'a> {
-    /// A chaser that follows merge aliases only (`Aliases::chase`).
+    /// A chaser that follows merge aliases only: `Aliases::chase`, and the ends of merge chases in
+    /// `NameSet`'s key index.
     pub(crate) fn aliases_only(aliases: &'a BTreeMap<ElementName, Vec<ElementName>>) -> Chaser<'a> {
         Chaser {
             aliases,
@@ -64,7 +65,8 @@ impl<'a> Chaser<'a> {
         }
     }
 
-    /// A chaser that follows both merge aliases and successions (the resolver's `chase`).
+    /// A chaser that follows both merge aliases and successions: the chase of every key in
+    /// `NameSet`'s key index, which the resolver reads.
     pub(crate) fn with_successions(
         aliases: &'a BTreeMap<ElementName, Vec<ElementName>>,
         successions: &'a BTreeMap<ElementName, Vec<ElementName>>,
@@ -76,7 +78,7 @@ impl<'a> Chaser<'a> {
     }
 
     /// True when `name` is an alias or followed succession key.
-    pub(crate) fn is_key(&self, name: &ElementName) -> bool {
+    fn is_key(&self, name: &ElementName) -> bool {
         self.aliases.contains_key(name)
             || self
                 .successions
@@ -171,22 +173,7 @@ impl<'a> Chaser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn name(text: &str) -> ElementName {
-        ElementName::parse(text).expect("the test name is valid")
-    }
-
-    fn lists(entries: &[(&str, &[&str])]) -> BTreeMap<ElementName, Vec<ElementName>> {
-        entries
-            .iter()
-            .map(|(key, targets)| {
-                (
-                    name(key),
-                    targets.iter().map(|target| name(target)).collect(),
-                )
-            })
-            .collect()
-    }
+    use crate::testing::{lists, name};
 
     fn ends(reached: &[Reached]) -> Vec<(&str, Links)> {
         reached
@@ -203,9 +190,11 @@ mod tests {
             ("f-e/l/e-2", &["f-e/l/e-2", "f-e/l/e-6"]),
         ]);
         let chaser = Chaser::with_successions(&aliases, &successions);
+        let replaced_key = name("f-e/l/e-3");
+        let extended_key = name("f-e/l/e-2");
 
-        let replaced = chaser.chase(successions.keys().nth(1).expect("two keys"));
-        let extended = chaser.chase(successions.keys().next().expect("two keys"));
+        let replaced = chaser.chase(&replaced_key);
+        let extended = chaser.chase(&extended_key);
 
         assert_eq!(ends(&replaced), [("f-e/l/e-9", Links::REPLACEMENT)]);
         assert_eq!(

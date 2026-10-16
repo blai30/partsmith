@@ -13,9 +13,9 @@ use super::common::{
     selection_hint, target_hint, unit_hint,
 };
 use super::copy::{self, Source};
-use crate::context::BuildContext;
+use crate::context::{BuildContext, WithWarnings};
 use crate::deps::Dependencies;
-use crate::error::{Bound, FeatureError, FeatureWarning};
+use crate::error::{Bound, FeatureError};
 use crate::feature::Feature;
 use crate::output::FeatureOutput;
 use crate::params::{AxisRef, CopyOp};
@@ -80,7 +80,7 @@ impl Step {
         context: &BuildContext<'_>,
         field: &str,
         direction: &LinearPatternDirection,
-    ) -> Result<(Step, Vec<FeatureWarning>), FeatureError> {
+    ) -> Result<WithWarnings<Step>, FeatureError> {
         let count = context.eval_count(&format!("{field}.count"), &direction.count, 1)?;
         let spacing_field = format!("{field}.spacing");
         let spacing = length_in_range(
@@ -95,7 +95,10 @@ impl Step {
             count,
             offset: axis.value.direction.scaled(signed),
         };
-        Ok((step, axis.warnings))
+        Ok(WithWarnings {
+            value: step,
+            warnings: axis.warnings,
+        })
     }
 
     /// The single instance of a missing second direction.
@@ -186,12 +189,15 @@ impl Feature for LinearPattern {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let source = Source::new(context, &params.body)?;
-        let (first, mut warnings) = Step::new(context, DIRECTION_FIELDS[0], &params.direction)?;
+        let WithWarnings {
+            value: first,
+            mut warnings,
+        } = Step::new(context, DIRECTION_FIELDS[0], &params.direction)?;
         let second = match &params.second_direction {
             Some(direction) => {
-                let (second, second_warnings) = Step::new(context, DIRECTION_FIELDS[1], direction)?;
-                warnings.extend(second_warnings);
-                second
+                let second = Step::new(context, DIRECTION_FIELDS[1], direction)?;
+                warnings.extend(second.warnings);
+                second.value
             }
             None => Step::NONE,
         };

@@ -7,6 +7,7 @@ use crate::entity::{Geometry, SketchEntity};
 use crate::params::SketchParams;
 use crate::plane::{OriginPlane, SketchPlane};
 use crate::point_ref::PointRef;
+use crate::profile::{KeyEdge, ProfileLoop, Region};
 
 /// The id with this text.
 pub(crate) fn id(text: &str) -> Id {
@@ -35,6 +36,40 @@ pub(crate) fn line(name: &str, start: [f64; 2], end: [f64; 2]) -> SketchEntity {
 /// A non-construction circle.
 pub(crate) fn circle(name: &str, center: [f64; 2], radius: f64) -> SketchEntity {
     entity(name, Geometry::Circle { center, radius })
+}
+
+/// The 80 x 50 rectangle `e-1` to `e-4`, drawn counterclockwise from the origin.
+pub(crate) fn rectangle() -> Vec<SketchEntity> {
+    vec![
+        line("e-1", [0.0, 0.0], [80.0, 0.0]),
+        line("e-2", [80.0, 0.0], [80.0, 50.0]),
+        line("e-3", [80.0, 50.0], [0.0, 50.0]),
+        line("e-4", [0.0, 50.0], [0.0, 0.0]),
+    ]
+}
+
+/// The ids of these entities, in order.
+pub(crate) fn entity_ids(entities: &[SketchEntity]) -> Vec<Id> {
+    entities.iter().map(|entity| entity.id.clone()).collect()
+}
+
+/// A region key entry.
+pub(crate) fn key_edge(entity: &str, reversed: bool) -> KeyEdge {
+    KeyEdge {
+        entity: id(entity),
+        reversed,
+    }
+}
+
+/// A hand-built region with this key, area and centroid, and no edges.
+pub(crate) fn edgeless_region(key: &str, area: f64, centroid: [f64; 2]) -> Region {
+    Region {
+        key: key.parse().expect("test region keys are valid"),
+        outer: ProfileLoop { edges: Vec::new() },
+        holes: Vec::new(),
+        area,
+        centroid,
+    }
 }
 
 /// A sketch on the XY origin plane whose constraints get the ids "c-0", "c-1" and so on.

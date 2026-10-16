@@ -22,6 +22,7 @@ use partsmith_sketch::{Geometry, OriginPlane, Placement, Succession};
 use crate::error::{Bound, FallbackCause, FeatureError, FeatureWarning, FieldRef, Loss, Noun};
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
 use crate::params::{AxisRef, PlaneRef, point, vector};
+use references::Outcome;
 
 /// Largest distance from a whole number that a count may have (section 3.4).
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
@@ -187,22 +188,21 @@ impl<'a> BuildContext<'a> {
         kind: ElementKind,
         usable: &Usable<'_>,
     ) -> Result<Resolved, FeatureError> {
-        let resolved = self.resolve_references(field, body, references, kind, true, usable)?;
-        if references.is_empty() || !resolved.elements.is_empty() {
-            return Ok(resolved);
+        let resolver = self.entry_resolver(field, body, references, kind, usable)?;
+        let outcomes = (0..references.len())
+            .map(|position| resolver.entry(position, self.field(&format!("{field}[{position}]"))))
+            .collect::<Result<Vec<Outcome>, FeatureError>>()?;
+        if !references.is_empty() && outcomes.iter().all(Outcome::has_no_elements) {
+            return Err(FeatureError::ReferencesNotFound {
+                field: self.field(field),
+                kind,
+                losses: outcomes
+                    .into_iter()
+                    .filter_map(Outcome::into_loss)
+                    .collect(),
+            });
         }
-        Err(FeatureError::ReferencesNotFound {
-            field: self.field(field),
-            kind,
-            losses: resolved
-                .warnings
-                .into_iter()
-                .filter_map(|warning| match warning {
-                    FeatureWarning::ReferenceLost { loss, .. } => Some(loss),
-                    _ => None,
-                })
-                .collect(),
-        })
+        Ok(Resolved::of_entries(outcomes))
     }
 
     /// `resolve` for a field that cannot use every element (section 3.8).
@@ -214,25 +214,30 @@ impl<'a> BuildContext<'a> {
         kind: ElementKind,
         usable: &Usable<'_>,
     ) -> Result<Resolved, FeatureError> {
-        let mut resolved = self.resolve_references(
-            field,
-            body,
-            std::slice::from_ref(reference),
-            kind,
-            false,
-            usable,
-        )?;
-        let lost = resolved
-            .warnings
-            .iter()
-            .position(|warning| matches!(warning, FeatureWarning::ReferenceLost { .. }));
-        if let Some(position) = lost
-            && let FeatureWarning::ReferenceLost { field, loss } =
-                resolved.warnings.remove(position)
-        {
-            return Err(FeatureError::ReferenceNotFound { field, loss });
-        }
-        Ok(resolved)
+        self.resolve_one(field, body, reference, kind, usable)?
+            .map_err(|loss| FeatureError::ReferenceNotFound {
+                field: self.field(field),
+                loss,
+            })
+    }
+
+    /// Resolves one reference, whose messages name `field` itself (section 3.8): its elements with the warning or
+    /// notice of a guess, a widening or a follow, or its loss when it is missing or ambiguous. An empty body is
+    /// `BodyEmpty`.
+    fn resolve_one(
+        &self,
+        field: &str,
+        body: &Id,
+        reference: &Reference,
+        kind: ElementKind,
+        usable: &Usable<'_>,
+    ) -> Result<Result<Resolved, Loss>, FeatureError> {
+        let references = std::slice::from_ref(reference);
+        let resolver = self.entry_resolver(field, body, references, kind, usable)?;
+        Ok(match resolver.entry(0, self.field(field))? {
+            Outcome::Resolved(resolved) => Ok(resolved),
+            Outcome::Lost { loss, .. } => Err(*loss),
+        })
     }
 
     /// Resolves a plane to a placement (section 3.6), with the warnings and notices of its face reference. A face
@@ -251,8 +256,10 @@ impl<'a> BuildContext<'a> {
             }
             PlaneRef::Face { body, face } => {
                 let face_field = format!("{field}.face");
-                let (geometry, warnings) =
-                    self.first_element(&face_field, body, face, ElementKind::Face, &is_flat)?;
+                let WithWarnings {
+                    value: geometry,
+                    warnings,
+                } = self.first_element(&face_field, body, face, ElementKind::Face, &is_flat)?;
                 let placement =
                     on_face(&geometry, &OriginPlane::Xy.placement())?.ok_or_else(|| {
                         FeatureError::NotPlanar {
@@ -285,17 +292,10 @@ impl<'a> BuildContext<'a> {
         let Some(shape) = state.shape() else {
             return Ok(Err(FaceFallback::without_loss(FallbackCause::Missing)));
         };
-        let resolved = self.resolve_references(
-            field,
-            body,
-            std::slice::from_ref(face),
-            ElementKind::Face,
-            false,
-            &is_flat,
-        )?;
-        if let Some(fallback) = resolved.warnings.iter().find_map(lost_face) {
-            return Ok(Err(fallback));
-        }
+        let resolved = match self.resolve_one(field, body, face, ElementKind::Face, &is_flat)? {
+            Ok(resolved) => resolved,
+            Err(loss) => return Ok(Err(FaceFallback::lost(loss))),
+        };
         let first = resolved
             .elements
             .first()
@@ -304,11 +304,9 @@ impl<'a> BuildContext<'a> {
         let Some(placement) = on_face(&geometry, hint)? else {
             return Ok(Err(FaceFallback::without_loss(FallbackCause::NotPlanar)));
         };
-        let mut warnings = resolved.warnings;
-        warnings.extend(resolved.notices);
         Ok(Ok(WithWarnings {
             value: placement,
-            warnings,
+            warnings: resolved.into_messages(),
         }))
     }
 
@@ -326,8 +324,10 @@ impl<'a> BuildContext<'a> {
             }
             AxisRef::Edge { body, edge, .. } => {
                 let edge_field = format!("{field}.edge");
-                let (geometry, warnings) =
-                    self.first_element(&edge_field, body, edge, ElementKind::Edge, &is_straight)?;
+                let WithWarnings {
+                    value: geometry,
+                    warnings,
+                } = self.first_element(&edge_field, body, edge, ElementKind::Edge, &is_straight)?;
                 let value = match (geometry.kind, geometry.direction) {
                     (GeometryKind::Line, Some(direction)) => {
                         canonical_axis(geometry.centroid, direction)
@@ -340,8 +340,10 @@ impl<'a> BuildContext<'a> {
             }
             AxisRef::Face { body, face, .. } => {
                 let face_field = format!("{field}.face");
-                let (geometry, warnings) =
-                    self.first_element(&face_field, body, face, ElementKind::Face, &has_axis)?;
+                let WithWarnings {
+                    value: geometry,
+                    warnings,
+                } = self.first_element(&face_field, body, face, ElementKind::Face, &has_axis)?;
                 let direction = match geometry.kind {
                     GeometryKind::Cylinder | GeometryKind::Cone | GeometryKind::Torus => {
                         geometry.direction
@@ -415,7 +417,7 @@ impl<'a> BuildContext<'a> {
         reference: &Reference,
         kind: ElementKind,
         usable: &Usable<'_>,
-    ) -> Result<(ElementGeometry, Vec<FeatureWarning>), FeatureError> {
+    ) -> Result<WithWarnings<ElementGeometry>, FeatureError> {
         let resolved = self.resolve_usable(field, body, reference, kind, usable)?;
         let first = resolved
             .elements
@@ -426,10 +428,10 @@ impl<'a> BuildContext<'a> {
             .body(body)?
             .shape()
             .ok_or_else(|| FeatureError::internal("a body with a solid has no shape"))?;
-        let geometry = shape.element(first.kind, first.index)?;
-        let mut warnings = resolved.warnings;
-        warnings.extend(resolved.notices);
-        Ok((geometry, warnings))
+        Ok(WithWarnings {
+            value: shape.element(first.kind, first.index)?,
+            warnings: resolved.into_messages(),
+        })
     }
 
     /// The axis of a sketch line: from its solved start to its end, in world space. An unknown
@@ -483,6 +485,15 @@ pub struct Resolved {
     pub notices: Vec<FeatureWarning>,
 }
 
+impl Resolved {
+    /// The warnings, then the notices: the messages a feature adds to its output (section 3.8).
+    pub fn into_messages(self) -> Vec<FeatureWarning> {
+        let mut messages = self.warnings;
+        messages.extend(self.notices);
+        messages
+    }
+}
+
 /// Result of resolving a profile (section 3.7).
 #[derive(Clone, Debug)]
 pub struct ResolvedProfile<'a> {
@@ -497,6 +508,15 @@ pub struct ResolvedProfile<'a> {
     pub warnings: Vec<FeatureWarning>,
     /// Notices for regions split by other curves of the sketch (`RegionSplit`).
     pub notices: Vec<FeatureWarning>,
+}
+
+impl ResolvedProfile<'_> {
+    /// The warnings, then the notices: the messages a sweep reports first (section 3.7).
+    pub fn into_messages(self) -> Vec<FeatureWarning> {
+        let mut messages = self.warnings;
+        messages.extend(self.notices);
+        messages
+    }
 }
 
 /// A value resolved through stored references, with the warnings and notices they gave (section 3.8). The caller
@@ -533,6 +553,18 @@ impl FaceFallback {
     /// A fallback with no loss behind it: an empty body, or a face that is not flat.
     fn without_loss(cause: FallbackCause) -> FaceFallback {
         FaceFallback { cause, loss: None }
+    }
+
+    /// The fallback of a face reference that is missing or ambiguous, with its loss.
+    fn lost(loss: Loss) -> FaceFallback {
+        FaceFallback {
+            cause: if loss.ambiguous {
+                FallbackCause::Ambiguous
+            } else {
+                FallbackCause::Missing
+            },
+            loss: Some(loss),
+        }
     }
 }
 
@@ -575,21 +607,6 @@ fn every_element(_info: &ElementInfo) -> Result<bool, FeatureError> {
 /// A plane or sketch face can use only flat faces (section 3.8).
 fn is_flat(info: &ElementInfo) -> Result<bool, FeatureError> {
     Ok(info.fingerprint.kind == NameGeometry::Plane)
-}
-
-/// Why a face reference cannot place a plane, with its loss, for a warning that reports it lost (section 3.6).
-fn lost_face(warning: &FeatureWarning) -> Option<FaceFallback> {
-    match warning {
-        FeatureWarning::ReferenceLost { loss, .. } => Some(FaceFallback {
-            cause: if loss.ambiguous {
-                FallbackCause::Ambiguous
-            } else {
-                FallbackCause::Missing
-            },
-            loss: Some(loss.clone()),
-        }),
-        _ => None,
-    }
 }
 
 /// An edge axis can use only straight edges (section 3.8).

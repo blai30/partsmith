@@ -5,6 +5,8 @@ mod build;
 mod motions;
 mod serial;
 
+use std::collections::BTreeMap;
+
 use partsmith_model::Id;
 
 use crate::aliases::{Aliases, Successions};
@@ -130,26 +132,10 @@ impl NamingMap {
             .iter()
             .map(rename_slot)
             .collect::<Result<_, _>>()?;
-        let aliases = self
-            .aliases
-            .0
-            .iter()
-            .map(|(former, targets)| {
-                let mut renamed = targets.iter().map(rename).collect::<Result<Vec<_>, _>>()?;
-                // Appending a suffix can change the byte order of names.
-                renamed.sort_unstable();
-                Ok((rename(former)?, renamed))
-            })
-            .collect::<Result<_, NamingError>>()?;
-        let successions = self
-            .successions
-            .0
-            .iter()
-            .map(|(replaced, now)| {
-                let renamed = now.iter().map(rename).collect::<Result<Vec<_>, _>>()?;
-                Ok((rename(replaced)?, renamed))
-            })
-            .collect::<Result<_, NamingError>>()?;
+        // Appending a suffix can change the byte order of names, so alias targets are sorted again;
+        // successions keep their profile order.
+        let aliases = renamed_lists(&self.aliases.0, rename, true)?;
+        let successions = renamed_lists(&self.successions.0, rename, false)?;
         let motions = self.motions.renamed(rename)?.then(transform);
         NamingMap::from_parts(
             faces,
@@ -335,13 +321,29 @@ fn sorted_indices<'a>(
     Ok(named.into_iter().map(|(_, index)| index).collect())
 }
 
+/// The lists with every key and every listed name renamed by `rename`, each list sorted again when
+/// `sort` is set.
+fn renamed_lists(
+    lists: &BTreeMap<ElementName, Vec<ElementName>>,
+    rename: impl Fn(&ElementName) -> Result<ElementName, NamingError>,
+    sort: bool,
+) -> Result<BTreeMap<ElementName, Vec<ElementName>>, NamingError> {
+    lists
+        .iter()
+        .map(|(key, names)| {
+            let mut renamed = names.iter().map(&rename).collect::<Result<Vec<_>, _>>()?;
+            if sort {
+                renamed.sort_unstable();
+            }
+            Ok((rename(key)?, renamed))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn name(text: &str) -> ElementName {
-        ElementName::parse(text).expect("the test name is valid")
-    }
+    use crate::testing::name;
 
     #[test]
     fn sorted_indices_are_by_name() {

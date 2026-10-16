@@ -10,8 +10,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, essential, face_name, flag, hint, is_false, manifest, naming_failed, part,
-    selection_hint, single_or_compound, solid_body, target_hint,
+    bodies, essential, face_name, flag, hint, is_false, manifest, part, selection_hint,
+    single_or_compound, solid_body, target_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -245,13 +245,11 @@ fn part_update(
                 FeatureError::internal("a piece of a split has an element the split result lacks")
             })
     };
-    let naming = whole
-        .project(
-            &indices(SubShapeKind::Face)?,
-            &indices(SubShapeKind::Edge)?,
-            &indices(SubShapeKind::Vertex)?,
-        )
-        .map_err(naming_failed)?;
+    let naming = whole.project(
+        &indices(SubShapeKind::Face)?,
+        &indices(SubShapeKind::Edge)?,
+        &indices(SubShapeKind::Vertex)?,
+    )?;
     Ok(BodyUpdate {
         body: body.clone(),
         shape: Some(shape),

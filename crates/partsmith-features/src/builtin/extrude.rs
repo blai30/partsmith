@@ -9,15 +9,15 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     THROUGH_ALL_MARGIN, apply_tool, body_hint, body_op_hint, call, essential, face_name,
-    farthest_corner, flag, hint, is_false, is_positive_length, length_in_range, manifest,
-    op_keyword, options_hint, positive_length, profile_arguments, profile_messages,
-    require_selection, selection_hint, swept_tool, unit_hint,
+    farthest_corner, flag, has_face, hint, is_false, is_positive_length, length_in_range, manifest,
+    op_keyword, options_hint, positive_length, profile_arguments, require_selection, result_faces,
+    selection_hint, swept_tool, unit_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
-use crate::error::{Bound, FeatureError, FeatureWarning, Noun};
+use crate::error::{Bound, FeatureError, Noun};
 use crate::feature::Feature;
-use crate::output::{Absence, AbsentFace, FeatureOutput, OutputData};
+use crate::output::{Absence, AbsentFace, FeatureOutput};
 use crate::params::{BodyOp, PlacementExt, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
@@ -157,7 +157,7 @@ impl Feature for Extrude {
             BodyOp::Cut => Some(CutCaps::of(context.feature(), &tool.naming)?),
             _ => None,
         };
-        let messages = profile_messages(profile);
+        let messages = profile.into_messages();
         let mut output = apply_tool(context, &params.body, params.op, tool, messages)?;
         if let Some(caps) = caps {
             output.absent = caps.absent_from(&output);
@@ -273,25 +273,8 @@ impl CutCaps {
     /// `Through` when no start cap is in the result either, else `EndOutside`. A cut without
     /// effect records none, since its `NoEffect` warning tells why none of its faces are there.
     fn absent_from(&self, output: &FeatureOutput) -> Vec<AbsentFace> {
-        let no_effect = output
-            .warnings
-            .iter()
-            .any(|warning| matches!(warning, FeatureWarning::NoEffect { .. }));
-        let OutputData::Bodies(updates) = &output.data else {
+        let Some(result) = result_faces(output) else {
             return Vec::new();
-        };
-        let Some(update) = updates.first().filter(|_| !no_effect) else {
-            return Vec::new();
-        };
-        let result: Vec<&ElementName> = update
-            .naming
-            .names(ElementKind::Face)
-            .map(|(_, name)| name)
-            .collect();
-        let has = |cap: &ElementName| {
-            result
-                .iter()
-                .any(|name| *name == cap || name.is_split_descendant_of(cap))
         };
         let why = if result
             .iter()
@@ -303,7 +286,7 @@ impl CutCaps {
         };
         self.end_caps
             .iter()
-            .filter(|cap| !has(cap))
+            .filter(|cap| !has_face(&result, cap))
             .map(|cap| AbsentFace {
                 name: cap.clone(),
                 why,

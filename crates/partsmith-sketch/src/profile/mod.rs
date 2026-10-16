@@ -72,7 +72,7 @@ impl Region {
 
     /// The outer loop's entries in traversal order, or `None` when the outer loop has no edges (a hand-built
     /// region).
-    pub(crate) fn try_outline(&self) -> Option<RegionLoop> {
+    fn try_outline(&self) -> Option<RegionLoop> {
         RegionLoop::new(self.outer.edges.iter().map(ProfileEdge::key_edge).collect()).ok()
     }
 
@@ -126,7 +126,7 @@ pub struct ProfileEdge {
 
 impl ProfileEdge {
     /// The key entry of this edge: its entity and whether traversal runs against the entity's direction.
-    pub(crate) fn key_edge(&self) -> KeyEdge {
+    fn key_edge(&self) -> KeyEdge {
         KeyEdge {
             entity: self.entity.clone(),
             reversed: self.reversed,
@@ -175,6 +175,15 @@ impl ProfileCurve {
         match *self {
             ProfileCurve::Line { start, .. } | ProfileCurve::Arc { start, .. } => start,
             ProfileCurve::Circle { center, .. } => center,
+        }
+    }
+
+    /// The center and radius of an arc or circle; `None` for a line.
+    fn circle(&self) -> Option<([f64; 2], f64)> {
+        match *self {
+            ProfileCurve::Line { .. } => None,
+            ProfileCurve::Arc { center, radius, .. }
+            | ProfileCurve::Circle { center, radius, .. } => Some((center, radius)),
         }
     }
 }
@@ -250,6 +259,7 @@ impl fmt::Display for ProfileFinding {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::edgeless_region;
 
     #[test]
     fn empty_loop_has_no_area() {
@@ -281,13 +291,7 @@ mod tests {
 
     #[test]
     fn a_region_without_outer_edges_has_a_reference_without_outline() {
-        let region = Region {
-            key: "e-1".parse().expect("valid key"),
-            outer: ProfileLoop { edges: Vec::new() },
-            holes: Vec::new(),
-            area: 1.0,
-            centroid: [0.0, 0.0],
-        };
+        let region = edgeless_region("e-1", 1.0, [0.0, 0.0]);
 
         assert_eq!(region.reference().outline, None);
     }

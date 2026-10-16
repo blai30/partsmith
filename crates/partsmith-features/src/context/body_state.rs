@@ -9,7 +9,7 @@ use partsmith_naming::{
 use partsmith_occt_sys::Shape;
 
 use crate::error::FeatureError;
-use crate::naming::{has_element_counts, naming_failed, topology_info};
+use crate::naming::{has_element_counts, topology_info};
 use crate::output::{BodyUpdate, Measurements};
 
 /// The state of a body at one point in the timeline. Cloning is cheap.
@@ -110,11 +110,7 @@ impl BodyState {
             .elements
             .get_or_init(|| {
                 let topology = self.topology()?;
-                let infos = self
-                    .content
-                    .naming
-                    .element_infos(&topology)
-                    .map_err(naming_failed)?;
+                let infos = self.content.naming.element_infos(&topology)?;
                 Ok(Arc::from(infos))
             })
             .clone()
@@ -133,7 +129,7 @@ impl BodyState {
                     naming.successions().clone(),
                 )
                 .map(Arc::new)
-                .map_err(naming_failed)
+                .map_err(FeatureError::from)
             })
             .clone()
     }

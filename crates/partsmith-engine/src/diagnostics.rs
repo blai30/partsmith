@@ -451,13 +451,10 @@ fn kept_face(
     stored: &Reference,
     state: &BodyState,
 ) -> Option<ElementName> {
-    let query = &stored.query;
-    let parts = match query.kind() {
-        ElementKind::Face => vec![query.clone()],
-        ElementKind::Edge | ElementKind::Vertex => query.face_terms(),
-    };
     let names = state.name_set();
-    let family: Vec<&ElementName> = parts
+    let family: Vec<&ElementName> = stored
+        .query
+        .face_parts()
         .iter()
         .flat_map(|part| names.family(part, &stored.merged))
         .collect();
@@ -465,9 +462,7 @@ fn kept_face(
         ElementKind::Face => state
             .element_set()
             .ok()?
-            .elements()
-            .iter()
-            .find(|element| element.name == *candidate)?
+            .element(candidate)?
             .adjacency
             .clone(),
         ElementKind::Edge | ElementKind::Vertex => candidate.face_terms(),

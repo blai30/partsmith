@@ -587,6 +587,8 @@ pub trait ScopeElement {
     fn with_fingerprint(self, fingerprint_text: &str) -> Self;
     /// The same element with this adjacency, as written.
     fn with_adjacency(self, adjacency: &[&str]) -> Self;
+    /// The same element with this adjacency, sorted as element infos require.
+    fn with_sorted_adjacency<Face: AsRef<str>>(self, adjacency: &[Face]) -> Self;
     /// The same edge with these named vertices, as written.
     fn with_vertices(self, vertices: &[&str]) -> Self;
 }
@@ -606,12 +608,36 @@ impl ScopeElement for ElementInfo {
         }
     }
 
+    fn with_sorted_adjacency<Face: AsRef<str>>(self, adjacency: &[Face]) -> Self {
+        let mut sorted: Vec<&str> = adjacency.iter().map(AsRef::as_ref).collect();
+        sorted.sort_unstable();
+        self.with_adjacency(&sorted)
+    }
+
     fn with_vertices(self, vertices: &[&str]) -> Self {
         ElementInfo {
             vertices: names(vertices),
             ..self
         }
     }
+}
+
+/// The fingerprint of the front edge of the first top piece in test 91.
+pub const FIRST_FRONT_EDGE: &str = "line|n=1,0,0|c=15,0,30|l=30|adj=2,2";
+
+/// Test 91's infos: two pieces of a top face, each next to its own wall, with their front edges.
+pub fn anchored_pieces_infos() -> Vec<ElementInfo> {
+    vec![
+        scope_element("f-b/top#1")
+            .with_adjacency(&["f-b/back", "f-b/front", "f-b/left", "f-c/w1"])
+            .with_fingerprint("plane|n=0,0,1|c=15,0,0"),
+        scope_element("f-b/top#2")
+            .with_adjacency(&["f-b/back", "f-b/front", "f-b/right", "f-c/w2"])
+            .with_fingerprint("plane|n=0,0,1|c=65,0,0"),
+        scope_element("edge(f-b/front|f-b/top#1)").with_fingerprint(FIRST_FRONT_EDGE),
+        scope_element("edge(f-b/front|f-b/top#2)")
+            .with_fingerprint("line|n=1,0,0|c=65,0,30|l=30|adj=2,2"),
+    ]
 }
 
 /// Builds an element set the test knows to be valid.

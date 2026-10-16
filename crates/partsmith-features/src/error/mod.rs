@@ -12,7 +12,7 @@ mod warning;
 use std::collections::BTreeMap;
 
 use partsmith_model::{Expr, ExprError, FieldUnit, Id, Units};
-use partsmith_naming::ElementKind;
+use partsmith_naming::{ElementKind, NamingError};
 use partsmith_occt_sys::KernelError;
 use partsmith_sketch::{SketchError, SolveIssue};
 
@@ -29,7 +29,10 @@ pub use render::{Because, Diagnosis, Explanation, RenderContext};
 pub use warning::FeatureWarning;
 
 use message::{IdNames, plural, suggested_limit};
-use render::{Renderer, capitalized, entry_pointer, loss_fixes, region_reason, region_reasons};
+use render::{
+    Renderer, capitalized, entry_pointer, loss_fixes, lost_reference_text, region_gone_text,
+    region_matches_text, region_reasons,
+};
 
 use crate::params::BodyOp;
 
@@ -405,23 +408,17 @@ impl FeatureError {
                 kind,
                 losses,
             } => match losses.as_slice() {
-                [loss] => lost_reference_text(renderer, loss, &field.label),
-                [first, ..] => {
-                    let reason = if first.ambiguous {
-                        renderer.ambiguity(first)
-                    } else {
-                        renderer.reason(first)
-                    };
-                    format!(
-                        "None of the {count} {kinds} selected for {label} are left: {element} {reason}, and {more} more.{ending}",
-                        count = losses.len(),
-                        kinds = plural(*kind),
-                        label = field.label,
-                        element = renderer.lost_element(first),
-                        more = losses.len() - 1,
-                        ending = renderer.upstream_ending(first),
-                    )
-                }
+                [loss] => lost_reference_text(renderer, loss, &field.label, ""),
+                [first, ..] => format!(
+                    "None of the {count} {kinds} selected for {label} are left: {element} {reason}, and {more} more.{ending}",
+                    count = losses.len(),
+                    kinds = plural(*kind),
+                    label = field.label,
+                    element = renderer.lost_element(first),
+                    reason = renderer.loss_clause(first),
+                    more = losses.len() - 1,
+                    ending = renderer.upstream_ending(first),
+                ),
                 [] => format!(
                     "None of the {} selected for {} are left.",
                     plural(*kind),
@@ -429,35 +426,31 @@ impl FeatureError {
                 ),
             },
             FeatureError::ReferenceNotFound { field, loss } => {
-                lost_reference_text(renderer, loss, &field.label)
+                lost_reference_text(renderer, loss, &field.label, "")
             }
             FeatureError::ProfileNotFound {
                 field,
                 sketch,
                 regions,
-            } => {
-                let sketch = renderer.region_sketch(sketch);
-                match regions.as_slice() {
-                    [region] => match &region.loss {
-                        Some(loss) => format!(
-                            "The region of {sketch} selected for {} is gone because {}.",
-                            field.label,
-                            region_reason(loss)
-                        ),
-                        None => format!(
-                            "The region of {sketch} selected for {} now matches {} separate areas. Pick the one you mean.",
-                            field.label,
-                            region.candidates.len()
-                        ),
-                    },
-                    _ => format!(
-                        "None of the {} regions of {sketch} selected for {} are left, because {}.",
-                        regions.len(),
-                        field.label,
-                        region_reasons(regions)
+            } => match regions.as_slice() {
+                [region] => match &region.loss {
+                    Some(loss) => region_gone_text(renderer, sketch, &field.label, loss, ""),
+                    None => region_matches_text(
+                        renderer,
+                        sketch,
+                        &field.label,
+                        region.candidates.len(),
+                        "",
                     ),
-                }
-            }
+                },
+                _ => format!(
+                    "None of the {} regions of {} selected for {} are left, because {}.",
+                    regions.len(),
+                    renderer.region_sketch(sketch),
+                    field.label,
+                    region_reasons(regions)
+                ),
+            },
             FeatureError::Internal { .. } => format!(
                 "Partsmith hit a bug while building {}. Suppress it or undo the last change to keep working, and report it with the details.",
                 renderer.this()
@@ -1010,21 +1003,14 @@ impl FeatureError {
     }
 }
 
-/// The text of one lost reference (section 4.1): `{Element} {reason}.`, or for an ambiguous one `{Element} now
-/// matches {n} {kind}s{after}. Pick the one you mean.`
-fn lost_reference_text(renderer: &Renderer<'_>, loss: &Loss, label: &str) -> String {
-    let element = renderer.lost_element_selected(loss, label);
-    if loss.ambiguous {
-        format!(
-            "{element} {}. Pick the one you mean.",
-            renderer.ambiguity(loss)
-        )
-    } else {
-        format!(
-            "{element} {}.{}",
-            renderer.reason(loss),
-            renderer.upstream_ending(loss)
-        )
+/// A naming failure: a name too long to build is `NameTooDeep` (section 4.1), any other failure, which valid kernel
+/// output cannot cause, `Internal`. So `?` works on naming calls.
+impl From<NamingError> for FeatureError {
+    fn from(error: NamingError) -> FeatureError {
+        match error {
+            NamingError::NameTooLong { length } => FeatureError::NameTooDeep { length },
+            error => FeatureError::internal(format!("naming the result failed: {error}")),
+        }
     }
 }
 
@@ -1453,9 +1439,7 @@ mod tests {
 
     #[test]
     fn a_name_too_deep_is_its_own_error() {
-        let error = crate::naming::naming_failed(partsmith_naming::NamingError::NameTooLong {
-            length: 5000,
-        });
+        let error = FeatureError::from(NamingError::NameTooLong { length: 5000 });
 
         assert_eq!(error, FeatureError::NameTooDeep { length: 5000 });
     }

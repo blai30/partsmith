@@ -14,7 +14,7 @@ mod tool;
 
 use partsmith_mesh::BoundingBox;
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_naming::{ElementKind, ElementName, Generator, roles};
+use partsmith_naming::{ElementName, Generator, roles};
 use partsmith_occt_sys::{Point, Vector};
 use partsmith_sketch::{PointRef, PointRole};
 use schemars::JsonSchema;
@@ -24,17 +24,15 @@ use self::overlap::{Candidate, Decision, cut_candidates};
 use self::size::HoleSize;
 use self::tool::{Frame, hole_tool};
 use super::common::{
-    bodies, body_hint, call, check_canceled, essential, face_name, farthest_corner, flag, hint,
-    is_false, manifest, one_or_list, options_hint, require_selection, selection_hint, solid_body,
-    unchanged, unit_hint,
+    bodies, body_hint, call, check_canceled, essential, face_name, farthest_corner, flag, has_face,
+    hint, is_false, manifest, one_or_list, options_hint, require_selection, result_faces,
+    selection_hint, solid_body, unchanged, unit_hint,
 };
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning, Noun};
 use crate::feature::Feature;
-use crate::output::{
-    Absence, AbsentFace, BodyChange, FeatureOutput, OutputData, SketchResult, Tool, apply_op,
-};
+use crate::output::{Absence, AbsentFace, BodyChange, FeatureOutput, SketchResult, Tool, apply_op};
 use crate::params::{BodyOp, PlacementExt};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
@@ -363,28 +361,15 @@ impl ToolEnds {
 /// when its entry is not in the result either, else `EndOutside` (features/hole.md section 3.3 step 6). A hole
 /// without effect records none, since its `NoEffect` warning tells why none of its faces are there.
 fn absent_ends(ends: &[ToolEnds], overlaps: &[bool], output: &FeatureOutput) -> Vec<AbsentFace> {
-    let OutputData::Bodies(updates) = &output.data else {
+    let Some(result) = result_faces(output) else {
         return Vec::new();
-    };
-    let no_effect = output
-        .warnings
-        .iter()
-        .any(|warning| matches!(warning, FeatureWarning::NoEffect { .. }));
-    let Some(update) = updates.first().filter(|_| !no_effect) else {
-        return Vec::new();
-    };
-    let has = |face: &ElementName| {
-        update
-            .naming
-            .names(ElementKind::Face)
-            .any(|(_, name)| name == face || name.is_split_descendant_of(face))
     };
     ends.iter()
         .zip(overlaps)
-        .filter(|(tool, overlaps)| **overlaps && !has(&tool.end))
+        .filter(|(tool, overlaps)| **overlaps && !has_face(&result, &tool.end))
         .map(|(tool, _)| AbsentFace {
             name: tool.end.clone(),
-            why: if has(&tool.entry) {
+            why: if has_face(&result, &tool.entry) {
                 Absence::EndOutside
             } else {
                 Absence::Through

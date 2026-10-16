@@ -5,37 +5,19 @@
 mod common;
 
 use common::{
-    DISTANCE_TOLERANCE, SCORE_TOLERANCE, ScopeElement, TOP_FRONT_EDGE_FINGERPRINT, aliases,
-    ambiguous, assert_candidate, assert_candidate_place, assert_close, assert_follow, assert_guess,
-    assert_lost, assert_resolved, assert_via, box_infos_with, box_scope, build, build_on,
-    candidate_names, cuboid_topology, element_named, element_set, element_set_of_map,
-    element_set_with, face_row_topology, from_indexed_sources, from_sources, map_with_faces,
-    missing, name, names, names_of, nested_alias_scope, nested_merged, nested_merged_scope,
-    new_source, query, reference, renumbered_pieces_infos, resolved, scope_element, successions,
-    with_anchors, with_merged,
+    DISTANCE_TOLERANCE, FIRST_FRONT_EDGE, SCORE_TOLERANCE, ScopeElement,
+    TOP_FRONT_EDGE_FINGERPRINT, aliases, ambiguous, anchored_pieces_infos, assert_candidate,
+    assert_candidate_place, assert_close, assert_follow, assert_guess, assert_lost,
+    assert_resolved, assert_via, box_infos_with, box_scope, build, build_on, candidate_names,
+    cuboid_topology, element_named, element_set, element_set_of_map, element_set_with,
+    face_row_topology, from_indexed_sources, from_sources, map_with_faces, missing, name, names,
+    names_of, nested_alias_scope, nested_merged, nested_merged_scope, new_source, query, reference,
+    renumbered_pieces_infos, resolved, scope_element, successions, with_anchors, with_merged,
 };
 use partsmith_naming::{
     Aliases, Anchors, ElementInfo, ElementKind, ElementSet, Follow, MatchMethod, NamingMap,
     Reference, Resolution, Successions, resolve, score,
 };
-
-/// The fingerprint of the front edge of the first top piece in test 91.
-const FIRST_FRONT_EDGE: &str = "line|n=1,0,0|c=15,0,30|l=30|adj=2,2";
-
-/// Test 91's infos: two pieces of a top face, each next to its own wall, with their front edges.
-fn anchored_pieces_infos() -> Vec<ElementInfo> {
-    vec![
-        scope_element("f-b/top#1")
-            .with_adjacency(&["f-b/back", "f-b/front", "f-b/left", "f-c/w1"])
-            .with_fingerprint("plane|n=0,0,1|c=15,0,0"),
-        scope_element("f-b/top#2")
-            .with_adjacency(&["f-b/back", "f-b/front", "f-b/right", "f-c/w2"])
-            .with_fingerprint("plane|n=0,0,1|c=65,0,0"),
-        scope_element("edge(f-b/front|f-b/top#1)").with_fingerprint(FIRST_FRONT_EDGE),
-        scope_element("edge(f-b/front|f-b/top#2)")
-            .with_fingerprint("line|n=1,0,0|c=65,0,30|l=30|adj=2,2"),
-    ]
-}
 
 /// Test 91's query: the front edge of the second piece, with the stale fingerprint of the first
 /// piece's edge and the walls only the second piece touches as anchors.
@@ -67,9 +49,7 @@ fn renamed_wall_infos() -> Vec<ElementInfo> {
                     other => other.to_owned(),
                 })
                 .collect();
-            let mut sorted: Vec<&str> = adjacency.iter().map(String::as_str).collect();
-            sorted.sort_unstable();
-            info.with_adjacency(&sorted)
+            info.with_sorted_adjacency(&adjacency)
         })
         .collect()
 }
@@ -82,14 +62,13 @@ fn face_next_to_walls(
     fingerprint_text: &str,
 ) -> ElementInfo {
     let wall_names: Vec<String> = walls.map(|wall| format!("f-h/w{wall}")).collect();
-    let mut adjacency: Vec<&str> = fixed
+    let adjacency: Vec<&str> = fixed
         .iter()
         .copied()
         .chain(wall_names.iter().map(String::as_str))
         .collect();
-    adjacency.sort_unstable();
     scope_element(text)
-        .with_adjacency(&adjacency)
+        .with_sorted_adjacency(&adjacency)
         .with_fingerprint(fingerprint_text)
 }
 

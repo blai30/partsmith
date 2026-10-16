@@ -8,8 +8,8 @@ use std::f64::consts::{FRAC_PI_2, PI};
 
 use common::benchmark::entity_ids;
 use common::matching::{
-    key_texts, matched, reference_with_outline, region_ref_texts, regions_of, resolved, succession,
-    without_outline,
+    key_texts, matched, missing, region_ref_texts, region_ref_with_outline, regions_of, resolved,
+    succession, without_outline,
 };
 use common::random::Rng;
 use common::{
@@ -21,7 +21,7 @@ use partsmith_sketch::{
 
 /// `R0`: the reference test 220 serializes for `RECT`.
 fn r0() -> RegionRef {
-    reference_with_outline("e-1,e-2,e-3,e-4", "c=40,25|a=4000", "e-1,e-2,e-3,e-4")
+    region_ref_with_outline("e-1,e-2,e-3,e-4", "c=40,25|a=4000", "e-1,e-2,e-3,e-4")
 }
 
 /// `R0'`: `R0` without its outline, as written before file format version 2.
@@ -69,11 +69,6 @@ fn bitten_region() -> RegionRef {
     stored
 }
 
-/// `Missing { loss }`.
-fn missing(loss: RegionLoss) -> RegionMatch {
-    RegionMatch::Missing { loss }
-}
-
 /// Test 230: two overlapping rectangles, A from x 0 to 30 and B from x 20 to 70.
 fn overlapping_rectangles() -> Vec<SketchEntity> {
     vec![
@@ -90,12 +85,12 @@ fn overlapping_rectangles() -> Vec<SketchEntity> {
 
 /// The reference to rectangle A of test 230.
 fn rectangle_a() -> RegionRef {
-    reference_with_outline("e-1,e-2,e-3,e-4", "c=15,25|a=1500", "e-1,e-2,e-3,e-4")
+    region_ref_with_outline("e-1,e-2,e-3,e-4", "c=15,25|a=1500", "e-1,e-2,e-3,e-4")
 }
 
 /// The reference to rectangle B of test 230.
 fn rectangle_b() -> RegionRef {
-    reference_with_outline("e-5,e-6,e-7,e-8", "c=65,25|a=1500", "e-5,e-6,e-7,e-8")
+    region_ref_with_outline("e-5,e-6,e-7,e-8", "c=65,25|a=1500", "e-5,e-6,e-7,e-8")
 }
 
 /// Asserts the results of test 230 on these entities, passed to `match_region` in the order of `entity_ids`.
@@ -352,7 +347,7 @@ fn t229_circle_inside_covers_with_ring_and_disc() {
 
 #[test]
 fn t229_stored_hole_stays_a_hole() {
-    let stored = reference_with_outline(
+    let stored = region_ref_with_outline(
         "e-1,e-2,e-3,e-4;~e-5",
         "c=40,25|a=3921.460184",
         "e-1,e-2,e-3,e-4",
@@ -421,7 +416,7 @@ fn t231_second_rectangle_on_an_extended_line_is_ambiguous() {
 
 #[test]
 fn t232_deleted_bevel_with_a_chamfer_elsewhere_gives_no_succession() {
-    let stored = reference_with_outline(
+    let stored = region_ref_with_outline(
         "e-1,e-2,e-3,e-4,e-5",
         "c=39.535865,24.725738|a=3950",
         "e-1,e-2,e-5,e-3,e-4",

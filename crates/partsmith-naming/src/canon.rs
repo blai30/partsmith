@@ -125,7 +125,7 @@ fn names_meet(first: &Forms, second: &Forms) -> bool {
     fewer.names.iter().any(|form| {
         more.with_piece_free(form.shape.piece_free_text())
             .iter()
-            .any(|other| form.shape.extends(&other.shape) || other.shape.extends(&form.shape))
+            .any(|other| form.shape.extends_either_way(&other.shape))
     })
 }
 
@@ -142,14 +142,7 @@ impl NameSet {
             }
             forms.extend(self.chase_of_keys_extending(name));
         } else {
-            let pattern = Pattern {
-                skeleton: Arc::clone(name.skeleton().expect("a name with terms has a skeleton")),
-                terms: name
-                    .terms()
-                    .iter()
-                    .map(|term| self.canonical(term, merged))
-                    .collect(),
-            };
+            let pattern = self.pattern_of(name, merged);
             for key in self.keys_with_skeleton(&pattern.skeleton) {
                 if self.fits(key, &pattern) {
                     forms.extend(self.chase_forms(key));
@@ -166,7 +159,7 @@ impl NameSet {
         for merged_name in recorded {
             match merged_name {
                 MergedName::Face(face) => {
-                    forms.extend(self.merged_forms(&Shape::of(Arc::clone(face.shared_text()))));
+                    forms.extend(self.merged_forms(&face.parsed()));
                 }
                 MergedName::Copies { source, feature } => {
                     for copy in self.known_copies(source, feature.as_str()) {
@@ -181,20 +174,13 @@ impl NameSet {
     /// The forms of a merged name taken as written: its chase when it is a key, else the name, and
     /// the chase of every key that strictly extends it (section 3.9).
     fn merged_forms(&self, name: &Shape) -> Vec<Form> {
-        let mut forms = if self.is_key(name.text()) {
-            self.chase_forms(name)
-        } else {
-            vec![Form {
-                shape: Arc::new(name.clone()),
-                via: Vec::new(),
-            }]
-        };
+        let mut forms = self.chase_forms(name);
         forms.extend(self.chase_of_keys_extending(name));
         forms
     }
 
     /// The chase of every key that strictly extends `name`.
-    fn chase_of_keys_extending(&self, name: &Shape) -> Vec<Form> {
+    pub(crate) fn chase_of_keys_extending(&self, name: &Shape) -> Vec<Form> {
         self.keys_with_piece_free(name.piece_free_text())
             .filter(|key| key.text() != name.text() && key.extends(name))
             .flat_map(|key| self.chase_forms(key))
@@ -204,27 +190,19 @@ impl NameSet {
     /// True when the name `name` fits `pattern`: it has the pattern's skeleton and terms that pair
     /// one to one with its term sets, the canonical set of each term meeting its set.
     pub(crate) fn fits(&self, name: &Shape, pattern: &Pattern) -> bool {
-        if name.skeleton() != Some(&pattern.skeleton) {
-            return false;
-        }
-        let terms = name.terms();
-        let canonical: Vec<Forms> = terms
-            .iter()
-            .map(|term| self.canonical(term, &Merged::default()))
-            .collect();
-        pairs_one_to_one(canonical.len(), pattern.terms.len(), |term, set| {
-            self.meet(&canonical[term], &pattern.terms[set])
-        })
+        name.skeleton() == Some(&pattern.skeleton)
+            && self.patterns_meet(&self.pattern_of(name, &Merged::default()), pattern)
     }
 
-    /// The pattern of a name with terms: its skeleton with the canonical set of each term.
-    pub(crate) fn pattern_of(&self, name: &Shape) -> Pattern {
+    /// The pattern of a name with terms: its skeleton with the canonical set of each term, with the
+    /// merged names `merged` records for the face names nested in it.
+    pub(crate) fn pattern_of(&self, name: &Shape, merged: &Merged) -> Pattern {
         Pattern {
             skeleton: Arc::clone(name.skeleton().expect("a name with terms has a skeleton")),
             terms: name
                 .terms()
                 .iter()
-                .map(|term| self.canonical(term, &Merged::default()))
+                .map(|term| self.canonical(term, merged))
                 .collect(),
         }
     }
@@ -271,13 +249,13 @@ impl NameSet {
             if form.shape.is_flat() {
                 for &face in self.faces_with_piece_free(form.shape.piece_free_text()) {
                     let shape = self.face_shape(face);
-                    if shape.is_flat() && (shape.extends(&form.shape) || form.shape.extends(shape))
-                    {
+                    if shape.is_flat() && shape.extends_either_way(&form.shape) {
                         members.push(face);
                     }
                 }
             } else {
-                self.push_faces_meeting(&self.pattern_of(&form.shape), &mut members);
+                let pattern = self.pattern_of(&form.shape, &Merged::default());
+                self.push_faces_meeting(&pattern, &mut members);
             }
         }
         for pattern in &canonical.patterns {
@@ -290,7 +268,7 @@ impl NameSet {
 
     /// Adds the faces whose pattern meets `pattern`.
     fn push_faces_meeting(&self, pattern: &Pattern, members: &mut Vec<u32>) {
-        let mut candidates = self.faces_with_term_like(pattern);
+        let mut candidates = self.faces_with_first_term_like(pattern);
         candidates.sort_unstable();
         candidates.dedup();
         for face in candidates {
@@ -326,7 +304,7 @@ impl NameSet {
     fn collect_matches(&self, first: &Forms, second: &Forms, via: &mut Via) {
         for left in &first.names {
             for right in second.with_piece_free(left.shape.piece_free_text()) {
-                if left.shape.extends(&right.shape) || right.shape.extends(&left.shape) {
+                if left.shape.extends_either_way(&right.shape) {
                     push_via(via, &left.via);
                     push_via(via, &right.via);
                 }
@@ -367,7 +345,10 @@ impl NameSet {
                 .names
                 .iter()
                 .filter(|form| !form.shape.is_flat())
-                .map(|form| (self.pattern_of(&form.shape), form.via.as_slice())),
+                .map(|form| {
+                    let pattern = self.pattern_of(&form.shape, &Merged::default());
+                    (pattern, form.via.as_slice())
+                }),
         );
         patterns
     }
@@ -384,7 +365,7 @@ fn push_via(via: &mut Via, more: &[(ElementName, Links)]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::name_set::testing::{name, names_of, set_of, shape};
+    use crate::testing::{name, names_of, set_of, shape};
 
     /// The names of a set of forms.
     fn texts(forms: &Forms) -> Vec<String> {
@@ -514,7 +495,10 @@ mod tests {
     #[test]
     fn a_name_fits_a_pattern_whose_term_sets_meet_its_terms() {
         let set = set_of(&[], &[], &[("f-box2/top", &["f-box1/top"])], &[]);
-        let pattern = set.pattern_of(&shape("f-cha1/chamfer/edge(f-box1/front|f-box2/top)"));
+        let pattern = set.pattern_of(
+            &shape("f-cha1/chamfer/edge(f-box1/front|f-box2/top)"),
+            &Merged::default(),
+        );
 
         assert!(set.fits(
             &shape("f-cha1/chamfer/edge(f-box1/front|f-box1/top)"),

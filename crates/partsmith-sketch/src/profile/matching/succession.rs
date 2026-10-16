@@ -1,11 +1,14 @@
 //! Successions of a `Boundary` match: which entities now carry the place of a stored boundary entity (spec
 //! section 3.14).
 
+use std::collections::BTreeMap;
+
 use partsmith_model::Id;
 
 use super::super::hashing::{FastMap, FastSet};
+use super::super::intersection::lies_on;
 use super::super::{ProfileEdge, Region, RegionLoop};
-use super::{Stored, Succession, lies_on};
+use super::{Stored, Succession};
 
 /// The successions of the one region a stored reference matched by boundary, sorted by entity: replacements
 /// first (only with a stored outline), then extensions among the new entities no replacement uses.
@@ -31,9 +34,10 @@ pub(super) fn successions(region: &Region, stored: &Stored<'_>) -> Vec<Successio
     found
 }
 
-/// Each removed entity that is the only entry between two consecutive surviving entities of the stored outline,
-/// where the current loop has new entities between them. The runs that replace the pieces of one removed entity
-/// (a line another curve interrupted) form its one succession, in the order of the current loop.
+/// Each removed entity that is the only entry of the stored outline between two survivors that follow each other
+/// in the current loop, where the current loop has new entities between them. The runs that replace the pieces of
+/// one removed entity (a line another curve interrupted) form its one succession, in the order of the current
+/// loop.
 fn replacements(
     current: &Sequence<'_>,
     previous: &Sequence<'_>,
@@ -42,8 +46,7 @@ fn replacements(
     let survivors: Vec<usize> = (0..current.entities.len())
         .filter(|&position| !stored.is_added(current.entities[position]))
         .collect();
-    let mut found: Vec<(&Id, Vec<&Id>)> = Vec::new();
-    let mut found_index: FastMap<&Id, usize> = FastMap::default();
+    let mut found: BTreeMap<&Id, Vec<&Id>> = BTreeMap::new();
     for (rank, &position) in survivors.iter().enumerate() {
         let next = survivors[(rank + 1) % survivors.len()];
         // Every entry between two consecutive survivors is new.
@@ -54,13 +57,7 @@ fn replacements(
         let Some(removed) = removed_between(current, previous, position, next) else {
             continue;
         };
-        match found_index.get(removed) {
-            Some(&index) => found[index].1.extend(new_run),
-            None => {
-                found_index.insert(removed, found.len());
-                found.push((removed, new_run));
-            }
-        }
+        found.entry(removed).or_default().extend(new_run);
     }
     found
         .into_iter()
@@ -149,6 +146,7 @@ fn continuing_positions(
     let count = entities.len();
     let mut chained: Vec<usize> = Vec::new();
     for &position in positions {
+        // 1 walks forward, count - 1 walks backward, cyclically.
         for step in [1, count - 1] {
             let mut next = (position + step) % count;
             while next != position && !marked[next] && continues(entities[next]) {
@@ -243,26 +241,17 @@ fn distinct<'a>(entities: impl IntoIterator<Item = &'a Id>) -> Vec<Id> {
 mod tests {
     use super::*;
     use crate::entity::SketchEntity;
-    use crate::profile::{
-        MatchMethod, ProfileLoop, RegionMatch, RegionRef, build_profile, match_region,
-    };
-    use crate::test_support::{circle, id, line};
-
-    /// The rectangle `e-1` to `e-4` (80 x 50), drawn counterclockwise.
-    fn rectangle() -> Vec<SketchEntity> {
-        vec![
-            line("e-1", [0.0, 0.0], [80.0, 0.0]),
-            line("e-2", [80.0, 0.0], [80.0, 50.0]),
-            line("e-3", [80.0, 50.0], [0.0, 50.0]),
-            line("e-4", [0.0, 50.0], [0.0, 0.0]),
-        ]
-    }
+    use crate::profile::{MatchMethod, RegionMatch, RegionRef, build_profile, match_region};
+    use crate::test_support::{circle, edgeless_region, entity_ids, id, line, rectangle};
 
     /// The successions of the first region of `stored` matched among the regions of `entities`.
     fn successions_after(stored: &[SketchEntity], entities: &[SketchEntity]) -> Vec<Succession> {
         let reference = build_profile(stored).regions[0].reference();
-        let ids: Vec<Id> = entities.iter().map(|entity| entity.id.clone()).collect();
-        match match_region(&build_profile(entities).regions, &ids, &reference) {
+        match match_region(
+            &build_profile(entities).regions,
+            &entity_ids(entities),
+            &reference,
+        ) {
             RegionMatch::Resolved { successions, .. } => successions,
             other => panic!("the region resolves, found {other:?}"),
         }
@@ -377,13 +366,7 @@ mod tests {
 
     #[test]
     fn a_region_without_outer_edges_has_no_successions() {
-        let regions = [Region {
-            key: "e-1,e-2".parse().expect("valid key"),
-            outer: ProfileLoop { edges: Vec::new() },
-            holes: Vec::new(),
-            area: 100.0,
-            centroid: [0.0, 0.0],
-        }];
+        let regions = [edgeless_region("e-1,e-2", 100.0, [0.0, 0.0])];
         let reference = RegionRef {
             key: "e-1,e-3".parse().expect("valid key"),
             fp: "c=0,0|a=100".parse().expect("valid fingerprint"),

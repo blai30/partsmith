@@ -13,10 +13,13 @@ use super::fix::Fix;
 use super::loss::{Loss, LossCandidate, Repair, Severity};
 use super::message::{FallbackCause, IdNames, IgnoredReason, Placed, plural};
 use super::render::{
-    Diagnosis, RenderContext, Renderer, candidate_fixes, capitalized, joined, loss_fixes,
-    region_reason,
+    Diagnosis, RenderContext, Renderer, candidate_fixes, joined, loss_fixes, lost_reference_text,
+    region_gone_text, region_matches_text, selected_for,
 };
 use super::{candidate_detail, loss_detail};
+
+/// The consequence a warning adds to the sentence of a lost reference or region: the feature went on without it.
+const SKIPPED: &str = ", so it was skipped";
 
 /// Something a feature built around: a lost, guessed, followed or widened reference, a region that matched in
 /// another way, an unchanged body. Stores ids, never display names, so it renders correctly after a rename. `Display`
@@ -209,19 +212,7 @@ impl FeatureWarning {
     fn text(&self, renderer: &Renderer<'_>) -> String {
         match self {
             FeatureWarning::ReferenceLost { field, loss } => {
-                let element = renderer.lost_element_selected(loss, &field.label);
-                if loss.ambiguous {
-                    format!(
-                        "{element} {}, so it was skipped. Pick the one you mean.",
-                        renderer.ambiguity(loss)
-                    )
-                } else {
-                    format!(
-                        "{element} {}, so it was skipped.{}",
-                        renderer.reason(loss),
-                        renderer.upstream_ending(loss)
-                    )
-                }
+                lost_reference_text(renderer, loss, &field.label, SKIPPED)
             }
             FeatureWarning::ReferenceGuessed {
                 field,
@@ -253,7 +244,8 @@ impl FeatureWarning {
                 elements,
                 ..
             } => {
-                let element = described_selected(renderer, &field.label, body, reference, &[]).0;
+                let element =
+                    selected_for(&renderer.describe_reference(reference, body), &field.label);
                 let line = line_or_curve(reference);
                 let flat = new_faces_are_flat(reference, elements, renderer.bodies_of(body))
                     .unwrap_or_else(|| made_from_line(reference));
@@ -295,23 +287,13 @@ impl FeatureWarning {
                 sketch,
                 candidates,
                 ..
-            } => format!(
-                "The region of {} selected for {} now matches {} separate areas, so it was skipped. Pick the one you mean.",
-                renderer.region_sketch(sketch),
-                field.label,
-                candidates.len()
-            ),
+            } => region_matches_text(renderer, sketch, &field.label, candidates.len(), SKIPPED),
             FeatureWarning::RegionMissing {
                 field,
                 sketch,
                 loss,
                 ..
-            } => format!(
-                "The region of {} selected for {} is gone because {}, so it was skipped.",
-                renderer.region_sketch(sketch),
-                field.label,
-                region_reason(loss)
-            ),
+            } => region_gone_text(renderer, sketch, &field.label, loss, SKIPPED),
             FeatureWarning::PlaneFallback {
                 body,
                 reference,
@@ -602,9 +584,7 @@ fn plane_fallback_text(
     cause: FallbackCause,
     placed: &Placed,
 ) -> String {
-    let element = renderer
-        .describe(&[(&reference.query, &reference.fingerprint)], body)
-        .remove(0);
+    let element = renderer.describe_reference(reference, body);
     let what = match (cause, loss) {
         (FallbackCause::Missing, Some(loss)) => renderer.reason(loss),
         (FallbackCause::Missing, None) => format!(
@@ -679,7 +659,7 @@ fn described_selected(
             .map(|other| (&other.query, &other.fingerprint)),
     );
     let mut texts = renderer.describe(&elements, body);
-    let element = format!("{} selected for {label}", capitalized(&texts.remove(0)));
+    let element = selected_for(&texts.remove(0), label);
     (element, texts)
 }
 

@@ -14,7 +14,8 @@ use std::collections::HashMap;
 
 use partsmith_model::{Id, Units};
 use partsmith_naming::{
-    ElementKind, ElementName, FaceGenerator, FaceName, Fingerprint, GeometryKind, Instance, Reference,
+    ElementKind, ElementName, FaceGenerator, FaceName, Fingerprint, GeometryKind, Instance,
+    Reference,
 };
 
 use super::message::Names;
@@ -289,7 +290,8 @@ pub fn made_from_line(reference: &Reference) -> bool {
         }
         ElementKind::Edge => {
             let terms = query.face_terms();
-            let faces: Vec<FaceName<'_>> = terms.iter().filter_map(ElementName::face_name).collect();
+            let faces: Vec<FaceName<'_>> =
+                terms.iter().filter_map(ElementName::face_name).collect();
             let [first, second] = faces.as_slice() else {
                 return false;
             };
@@ -330,15 +332,11 @@ pub(crate) fn new_faces_are_flat(
     let query_faces = reference.query.face_terms();
     let mut flat = true;
     for element in elements {
-        let new_faces = match element.query.kind() {
-            ElementKind::Face => vec![element.query.clone()],
-            ElementKind::Edge | ElementKind::Vertex => element
-                .query
-                .face_terms()
-                .into_iter()
-                .filter(|face| !query_faces.contains(face))
-                .collect(),
-        };
+        let new_faces = element
+            .query
+            .face_parts()
+            .into_iter()
+            .filter(|face| !query_faces.contains(face));
         for face in new_faces {
             flat &= faces.fingerprint_of(face.as_str())?.kind == GeometryKind::Plane;
         }

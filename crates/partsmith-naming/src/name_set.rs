@@ -6,13 +6,14 @@ use std::sync::Arc;
 use crate::aliases::{Aliases, Successions};
 use crate::canon::{Form, Forms, FormsBuilder, Pattern};
 use crate::chase::Chaser;
+use crate::element_set::to_u32;
 use crate::fast_hash::FastMap;
 use crate::kind::ElementKind;
 use crate::map::NamingMap;
 use crate::name::ElementName;
 use crate::reference::Merged;
 use crate::roles;
-use crate::shape::{InstanceName, Shape};
+use crate::shape::{InstanceName, Shape, shared_piece_free};
 
 /// The names-only view of one body state: its face names, aliases and successions, which faces
 /// touch, and the indexes the resolver matches names with (section 3.9). It reads no fingerprints,
@@ -231,11 +232,7 @@ impl NameSet {
     /// for the face names nested in it; sorted, distinct. An edge or vertex part has no family of
     /// faces, so its family here is empty.
     pub fn family(&self, part: &ElementName, merged: &Merged) -> Vec<&ElementName> {
-        if part.kind() != ElementKind::Face {
-            return Vec::new();
-        }
-        let shape = Shape::of(Arc::clone(part.shared_text()));
-        self.family_of(&self.canonical(&shape, merged))
+        self.family_ids(part, merged)
             .into_iter()
             .map(|face| &self.faces[face as usize].name)
             .collect()
@@ -250,13 +247,33 @@ impl NameSet {
         self.touches_any(face, &family)
     }
 
+    /// The faces that touch `face`, in byte order; none when `face` is no face of the set. Two faces
+    /// touch as the constructor says: from a naming map when an edge name lists both, from element
+    /// infos when one lists the other in its adjacency.
+    pub fn neighbors<'s>(
+        &'s self,
+        face: &ElementName,
+    ) -> impl Iterator<Item = &'s ElementName> + use<'s> {
+        let touching = self
+            .face_id(face.as_str())
+            .map_or(&[][..], |face| self.touching(face));
+        touching
+            .iter()
+            .map(|&other| &self.faces[other as usize].name)
+    }
+
     /// The family of a face name without merged names, as face ids.
     pub(crate) fn family_of_name(&self, name: &ElementName) -> Vec<u32> {
-        if name.kind() != ElementKind::Face {
+        self.family_ids(name, &Merged::default())
+    }
+
+    /// The family of a part with the merged names `merged`, as ascending face ids; empty for an
+    /// edge or vertex part.
+    fn family_ids(&self, part: &ElementName, merged: &Merged) -> Vec<u32> {
+        if part.kind() != ElementKind::Face {
             return Vec::new();
         }
-        let shape = Shape::of(Arc::clone(name.shared_text()));
-        self.family_of(&self.canonical(&shape, &Merged::default()))
+        self.family_of(&self.canonical(&part.parsed(), merged))
     }
 
     /// True when face `face` touches one of the faces `family` (ascending ids).
@@ -357,8 +374,7 @@ impl NameSet {
     /// The instance names `<source>@<feature>:<i>` of the instances the set knows: a face name or
     /// key of the set extends the instance name (section 3.9).
     pub(crate) fn known_copies(&self, source: &ElementName, feature: &str) -> Vec<Shape> {
-        let source_shape = Shape::of(Arc::clone(source.shared_text()));
-        let prefix = format!("{}@{feature}", source_shape.piece_free_text());
+        let prefix = format!("{}@{feature}", shared_piece_free(source.shared_text()));
         let Some(instances) = self.copies.get(&prefix) else {
             return Vec::new();
         };
@@ -379,7 +395,7 @@ impl NameSet {
     }
 
     /// The faces whose term sets hold a name that could meet the first term set of `pattern`.
-    pub(crate) fn faces_with_term_like(&self, pattern: &Pattern) -> Vec<u32> {
+    pub(crate) fn faces_with_first_term_like(&self, pattern: &Pattern) -> Vec<u32> {
         let Some(index) = self.by_skeleton.get(pattern.skeleton.as_ref()) else {
             return Vec::new();
         };
@@ -408,8 +424,8 @@ impl NameSet {
     }
 
     /// True when a face named `name` grew by a merge (section 3.9, "Follow"): it extends the target
-    /// of a merge alias and stands for a name for which `known` is false.
-    pub(crate) fn grew(&self, name: &Shape, known: impl Fn(&str) -> bool) -> bool {
+    /// of a merge alias and stands for a name for which `in_query` is false.
+    pub(crate) fn grew(&self, name: &Shape, in_query: impl Fn(&str) -> bool) -> bool {
         let is_target = self
             .keys
             .alias_targets
@@ -418,7 +434,7 @@ impl NameSet {
         if !is_target {
             return false;
         }
-        if !known(name.text()) {
+        if !in_query(name.text()) {
             return true;
         }
         self.keys
@@ -426,7 +442,7 @@ impl NameSet {
             .get(name.piece_free_text())
             .into_iter()
             .flatten()
-            .any(|(end, key)| name.extends(end) && !known(key.as_str()))
+            .any(|(end, key)| name.extends(end) && !in_query(key.as_str()))
     }
 
     /// The merge alias keys, other than `name` itself, whose chase over the aliases holds a name
@@ -452,7 +468,7 @@ impl NameSet {
             let Some(skeleton) = shape.skeleton() else {
                 continue;
             };
-            let face = u32::try_from(id).expect("face counts fit in u32");
+            let face = to_u32(id);
             let index = by_skeleton.entry(Arc::clone(skeleton)).or_default();
             let mut terms = Vec::with_capacity(shape.terms().len());
             for term in shape.terms() {
@@ -605,87 +621,11 @@ pub(crate) fn share_a_face(first: &[u32], second: &[u32]) -> bool {
     fewer.iter().any(|face| more.binary_search(face).is_ok())
 }
 
-/// Name sets for unit tests.
-#[cfg(test)]
-pub(crate) mod testing {
-    use std::collections::BTreeMap;
-
-    use super::*;
-
-    /// The element name `text`.
-    pub(crate) fn name(text: &str) -> ElementName {
-        ElementName::parse(text).expect("the test name is valid")
-    }
-
-    /// The taken-apart name `text`.
-    pub(crate) fn shape(text: &str) -> Shape {
-        Shape::of(Arc::from(text))
-    }
-
-    /// Name lists by key.
-    pub(crate) fn lists(entries: &[(&str, &[&str])]) -> BTreeMap<ElementName, Vec<ElementName>> {
-        entries
-            .iter()
-            .map(|(key, targets)| {
-                (
-                    name(key),
-                    targets.iter().map(|target| name(target)).collect(),
-                )
-            })
-            .collect()
-    }
-
-    /// The names-only view of the faces `faces`, where the faces of each pair of `touching` touch,
-    /// with the aliases `aliases` and the successions `successions`.
-    pub(crate) fn set_of(
-        faces: &[&str],
-        touching: &[(&str, &str)],
-        aliases: &[(&str, &[&str])],
-        successions: &[(&str, &[&str])],
-    ) -> NameSet {
-        let mut names: Vec<ElementName> = faces.iter().map(|face| name(face)).collect();
-        names.sort_unstable();
-        let by_name = ids_by_name(&names);
-        let mut touches = vec![Vec::new(); names.len()];
-        for (first, second) in touching {
-            let first = by_name[*first];
-            let second = by_name[*second];
-            touches[first as usize].push(second);
-            touches[second as usize].push(first);
-        }
-        NameSet::build(
-            names,
-            by_name,
-            touches,
-            Aliases(lists(aliases)),
-            Successions(lists(successions)),
-        )
-    }
-
-    /// The ids of the faces `texts` of `set`, ascending.
-    pub(crate) fn ids(set: &NameSet, texts: &[&str]) -> Vec<u32> {
-        let mut ids: Vec<u32> = texts
-            .iter()
-            .map(|text| set.face_id(text).expect("the face is in the set"))
-            .collect();
-        ids.sort_unstable();
-        ids
-    }
-
-    /// The names of the face ids `faces` of `set`.
-    pub(crate) fn names_of(set: &NameSet, faces: &[u32]) -> Vec<String> {
-        faces
-            .iter()
-            .map(|&face| set.face_shape(face).text().to_string())
-            .collect()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::testing::{name, names_of, set_of, shape};
     use super::*;
     use crate::chase::Links;
+    use crate::testing::{name, names_of, set_of, shape};
 
     #[test]
     fn faces_are_numbered_in_byte_order() {
@@ -725,6 +665,26 @@ mod tests {
         assert_eq!(set.touching(0), [1]);
         assert_eq!(set.touching(1), [0]);
         assert!(set.touching(2).is_empty());
+    }
+
+    #[test]
+    fn neighbors_are_the_touching_faces_by_name() {
+        let map: NamingMap = serde_json::from_str(
+            r#"{"faces": ["f-a/x", "f-a/y", "f-a/z"], "edges": ["edge(f-a/x|f-a/z)", "edge(f-a/x|f-a/y)", "edge(f-a/w|f-a/y)"], "vertices": []}"#,
+        )
+        .expect("the test map is valid");
+
+        let set = NameSet::new(&map);
+
+        assert_eq!(
+            set.neighbors(&name("f-a/x")).collect::<Vec<_>>(),
+            [&name("f-a/y"), &name("f-a/z")]
+        );
+        assert_eq!(
+            set.neighbors(&name("f-a/y")).collect::<Vec<_>>(),
+            [&name("f-a/x")]
+        );
+        assert_eq!(set.neighbors(&name("f-a/w")).count(), 0);
     }
 
     #[test]

@@ -9,7 +9,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::key::{KeyEdge, loop_text, parse_entry};
+use super::key::{KeyEdge, loop_text, parse_entries};
 use crate::error::SketchError;
 
 /// The pattern of a region loop text: entries separated by ",".
@@ -88,11 +88,7 @@ impl FromStr for RegionLoop {
         let invalid = || SketchError::InvalidRegionKey {
             text: text.to_owned(),
         };
-        let entries = text
-            .split(',')
-            .map(parse_entry)
-            .collect::<Option<Vec<KeyEdge>>>()
-            .ok_or_else(invalid)?;
+        let entries = parse_entries(text).ok_or_else(invalid)?;
         RegionLoop::new(entries).map_err(|_| invalid())
     }
 }
@@ -128,18 +124,11 @@ impl JsonSchema for RegionLoop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::id;
-
-    fn entry(entity: &str, reversed: bool) -> KeyEdge {
-        KeyEdge {
-            entity: id(entity),
-            reversed,
-        }
-    }
+    use crate::test_support::key_edge;
 
     #[test]
     fn reversed_entries_sort_after_every_unreversed_one() {
-        let region_loop = RegionLoop::new(vec![entry("e-1", true), entry("e-2", false)])
+        let region_loop = RegionLoop::new(vec![key_edge("e-1", true), key_edge("e-2", false)])
             .expect("two entries form a loop");
 
         assert_eq!(region_loop.to_string(), "e-2,~e-1");
@@ -147,7 +136,7 @@ mod tests {
 
     #[test]
     fn a_shorter_id_sorts_before_a_longer_one_it_starts() {
-        let region_loop = RegionLoop::new(vec![entry("e-1-a", false), entry("e-1", false)])
+        let region_loop = RegionLoop::new(vec![key_edge("e-1-a", false), key_edge("e-1", false)])
             .expect("two entries form a loop");
 
         assert_eq!(region_loop.to_string(), "e-1,e-1-a");
@@ -155,9 +144,9 @@ mod tests {
 
     #[test]
     fn one_entity_repeated_all_the_way_round_is_one_entry() {
-        let region_loop = RegionLoop::new(vec![entry("e-4", false); 3]).expect("a loop");
+        let region_loop = RegionLoop::new(vec![key_edge("e-4", false); 3]).expect("a loop");
 
-        assert_eq!(region_loop.entries(), [entry("e-4", false)]);
+        assert_eq!(region_loop.entries(), [key_edge("e-4", false)]);
     }
 
     #[test]

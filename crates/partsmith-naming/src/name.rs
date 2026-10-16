@@ -111,6 +111,16 @@ impl ElementName {
         })
     }
 
+    /// The face parts of a name: the name itself for a face name, its face terms for an edge or
+    /// vertex name. Unlike the parts of a query (section 3.1), they never include an edge or vertex
+    /// name with its own `#n`.
+    pub fn face_parts(&self) -> Vec<ElementName> {
+        match self.kind() {
+            ElementKind::Face => vec![self.clone()],
+            ElementKind::Edge | ElementKind::Vertex => self.face_terms(),
+        }
+    }
+
     /// The name with one more split suffix `#index` appended (`index >= 1`).
     pub fn with_split(&self, index: u32) -> Result<ElementName, NamingError> {
         ElementName::assembled(format!("{self}#{index}"))
@@ -198,6 +208,22 @@ impl ElementName {
         &self.0
     }
 
+    /// The face name taken apart.
+    pub(crate) fn parsed(&self) -> Shape {
+        Shape::of(Arc::clone(&self.0))
+    }
+
+    /// The face name `text` nested in a valid name, such as a face term or a name nested in one:
+    /// valid because the grammar is recursive, so it is not checked again.
+    pub(crate) fn nested(text: &Arc<str>) -> ElementName {
+        debug_assert_eq!(
+            grammar::validate(text),
+            Ok(()),
+            "{text} is nested in a valid name"
+        );
+        ElementName(Arc::clone(text))
+    }
+
     /// For an edge or vertex name, the text of its face terms in written order; empty for a face
     /// name.
     pub(crate) fn face_term_texts(&self) -> Vec<&str> {
@@ -207,7 +233,7 @@ impl ElementName {
     /// The name of a face taken apart, or the face terms of an edge or vertex name taken apart.
     pub(crate) fn face_shapes(&self) -> Vec<Shape> {
         match list_parts(&self.0) {
-            None => vec![Shape::of(Arc::clone(&self.0))],
+            None => vec![self.parsed()],
             Some(parts) => parts
                 .terms
                 .into_iter()
@@ -325,17 +351,18 @@ fn is_split_descendant(text: &str, ancestor: &str) -> bool {
 }
 
 /// An edge or vertex name taken apart.
-struct ListParts<'a> {
+pub(crate) struct ListParts<'a> {
     /// `edge(` or `vertex(`.
-    prefix: &'a str,
+    pub(crate) prefix: &'a str,
     /// The face names of the face list.
-    terms: Vec<&'a str>,
-    /// The closing parenthesis and any split suffixes after it.
-    closing: &'a str,
+    pub(crate) terms: Vec<&'a str>,
+    /// The closing parenthesis and any suffix groups after it.
+    pub(crate) closing: &'a str,
 }
 
-/// Splits a valid edge or vertex name into its parts; `None` for a face name.
-fn list_parts(text: &str) -> Option<ListParts<'_>> {
+/// Splits a valid edge or vertex name, or a text that starts with one, into its parts; `None` for
+/// a face name.
+pub(crate) fn list_parts(text: &str) -> Option<ListParts<'_>> {
     let prefix_length = grammar::list_prefix_length(text)?;
     let mut terms = Vec::new();
     let mut depth = 0_usize;
@@ -532,6 +559,15 @@ mod tests {
         assert_eq!(
             name("edge(f-f/fillet/edge(f-a/x|f-b/y)#1|f-g/z)").face_terms(),
             vec![name("f-f/fillet/edge(f-a/x|f-b/y)#1"), name("f-g/z")]
+        );
+    }
+
+    #[test]
+    fn the_face_parts_of_a_name_are_its_face_or_its_face_terms() {
+        assert_eq!(name("f-box1/top").face_parts(), [name("f-box1/top")]);
+        assert_eq!(
+            name("edge(f-box1/front|f-box1/top)").face_parts(),
+            [name("f-box1/front"), name("f-box1/top")]
         );
     }
 

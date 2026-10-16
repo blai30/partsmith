@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     apply_tool, body_hint, body_op_hint, call, essential, face_name, flag, hint, is_false,
-    manifest, op_keyword, options_hint, out_of_range, profile_arguments, profile_messages,
-    require_selection, selection_hint, swept_tool, unit_hint,
+    manifest, op_keyword, options_hint, out_of_range, profile_arguments, require_selection,
+    selection_hint, swept_tool, unit_hint,
 };
 use crate::context::{BuildContext, ResolvedProfile};
 use crate::deps::Dependencies;
@@ -130,7 +130,7 @@ impl Feature for Revolve {
         let turn = turn(params, context)?;
         let angle = turn.sweep_angle(params.reverse);
         let tool = swept_tool(context, &profile, |faces| revolve(faces, &axis, angle))?;
-        let mut messages = profile_messages(profile);
+        let mut messages = profile.into_messages();
         messages.extend(resolved_axis.warnings);
         let mut output = apply_tool(context, &params.body, params.op, tool, messages)?;
         if turn == Turn::Full {

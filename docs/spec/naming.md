@@ -129,6 +129,9 @@ impl ElementName {
     pub fn is_split_descendant_of(&self, ancestor: &ElementName) -> bool;
     /// For an edge or vertex name, its face names in written (sorted) order; empty for a face name.
     pub fn face_terms(&self) -> Vec<ElementName>;
+    /// The face parts of a name: the name itself for a face name, its face terms for an edge or vertex name. Unlike the
+    /// parts of a query (section 3.1), they never include an edge or vertex name with its own `#n`.
+    pub fn face_parts(&self) -> Vec<ElementName>;
     /// The name with one more split suffix `#index` appended (`index >= 1`).
     pub fn with_split(&self, index: u32) -> Result<ElementName, NamingError>;
     /// The name of the same element in an instance copy made by a pattern or mirror feature (section 3.5).
@@ -142,6 +145,10 @@ impl ElementName {
     /// Every feature and sketch generator the name depends on: those of each face term, of every nested name and
     /// of every instance group, sorted and distinct. Engine queries use it to say what uses a feature (engine.md section 3.24).
     pub fn generators(&self) -> Vec<GeneratorUse>;
+    /// The parts of a face name (section 3.1), borrowed from it: its feature, role, generator and own suffix groups;
+    /// `None` for an edge or vertex name. Element descriptions (features.md section 3.12) and recompute's loss diagnosis
+    /// read face names through it.
+    pub fn face_name(&self) -> Option<FaceName<'_>>;
 }
 
 impl std::fmt::Display for ElementName { /* writes as_str() */ }
@@ -175,6 +182,54 @@ pub struct Instance {
     /// Index along the second direction of a two-direction pattern; 0 for one-direction patterns, circular patterns and mirrors.
     pub second: u32,
 }
+
+/// A face name taken apart (`ElementName::face_name`): `<feature>/<role>[/<generator>]` followed by its own `#n` and
+/// `@` groups. Groups after a face-name generator belong to that generator (section 3.1 rule 6), so such a name has no
+/// own groups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FaceName<'n> { /* private */ }
+
+impl<'n> FaceName<'n> {
+    /// The feature id that starts the name.
+    pub fn feature(&self) -> &'n str;
+    /// The role, for example `lateral`, `top` or `fillet`.
+    pub fn role(&self) -> &'n str;
+    /// What the face was made from, if the name says.
+    pub fn generator(&self) -> Option<FaceGenerator<'n>>;
+    /// The sketch generator, when the face was made from a sketch entity or point.
+    pub fn sketch_generator(&self) -> Option<&'n str>;
+    /// True when the name has a `#n` group of its own, so it names a piece of a split face.
+    pub fn has_own_pieces(&self) -> bool;
+    /// The name's own `@<feature>:<instance>` groups, in written order.
+    pub fn copies(&self) -> Vec<CopyGroup<'n>>;
+    /// The feature the name belongs to: the pattern or mirror of its last own `@` group, else the feature that starts it.
+    pub fn maker(&self) -> &'n str;
+}
+
+/// What a face was made from, as written in its name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FaceGenerator<'n> {
+    /// A sketch entity id or point reference, for example `e-5` or `e-1.center`.
+    Sketch(&'n str),
+    /// A face name, such as the face a shell's inner face or rim was named after, with its suffix groups.
+    Face(&'n str),
+    /// An edge or vertex name, such as the edge a fillet face rounds.
+    List(&'n str),
+}
+
+/// One of a face name's own `@<feature>:<instance>` groups: a copy made by a pattern or a mirror.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CopyGroup<'n> {
+    /// The pattern or mirror feature that made the copy.
+    pub feature: &'n str,
+    /// The instance number.
+    pub instance: Instance,
+    /// The group as written, such as `@f-lp1:2.1`.
+    pub text: &'n str,
+}
+
+/// The piece-free text of a name (section 3.1): `text` with every `#n` group removed, wherever it stands.
+pub fn piece_free_text(text: &str) -> String;
 
 /// Role words used by the M1 naming rules (section 3.6).
 pub mod roles {
@@ -549,6 +604,8 @@ impl ElementSet {
     pub fn elements(&self) -> &[ElementInfo];
     /// The names-only view of the same body state.
     pub fn names(&self) -> &NameSet;
+    /// The element named `name`, if the set has it.
+    pub fn element(&self, name: &ElementName) -> Option<&ElementInfo>;
 }
 
 /// The names-only view of one body state: its face names, aliases and successions, which faces touch, and the
@@ -570,6 +627,9 @@ impl NameSet {
     pub fn family(&self, part: &ElementName, merged: &Merged) -> Vec<&ElementName>;
     /// True when `face` touches a face in the family of `anchor` (the anchor test of section 3.9).
     pub fn touches(&self, face: &ElementName, anchor: &ElementName) -> bool;
+    /// The faces that touch `face`, in byte order; none when `face` is no face of the set. Recompute's loss diagnosis
+    /// finds the face that runs between the faces of a lost edge with it (recompute.md section 3.10, `between`).
+    pub fn neighbors(&self, face: &ElementName) -> impl Iterator<Item = &ElementName>;
 }
 ```
 

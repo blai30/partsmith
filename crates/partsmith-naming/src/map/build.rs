@@ -159,21 +159,16 @@ fn face_base(source: FaceSource, index: u32, map_count: usize) -> Result<FaceBas
     }
     // A merge of different faces keeps the smallest name; the sources of other faces become
     // aliases of it under their full names.
-    let base_piece_free = piece_free(&smallest);
+    let base_piece_free = shared_piece_free(smallest.shared_text());
     let merged = names
         .into_iter()
-        .filter(|name| piece_free(name) != base_piece_free)
+        .filter(|name| shared_piece_free(name.shared_text()) != base_piece_free)
         .collect();
     Ok(FaceBase {
         name: smallest,
         merged,
         motion,
     })
-}
-
-/// The piece-free text of a name.
-fn piece_free(name: &ElementName) -> Arc<str> {
-    shared_piece_free(name.shared_text())
 }
 
 /// The aliases of the output (section 3.3, step 6): the union of every inherited list and the
@@ -228,7 +223,7 @@ pub(super) fn pruned(
 ) -> Aliases {
     let mut by_piece_free: FastMap<Arc<str>, Vec<Shape>> = FastMap::default();
     for face in faces {
-        let shape = Shape::of(Arc::clone(face.shared_text()));
+        let shape = face.parsed();
         by_piece_free
             .entry(Arc::clone(shape.piece_free_text()))
             .or_default()
@@ -236,7 +231,7 @@ pub(super) fn pruned(
     }
     let names: BTreeSet<&str> = faces.iter().map(ElementName::as_str).collect();
     let extended = |target: &ElementName| {
-        let shape = Shape::of(Arc::clone(target.shared_text()));
+        let shape = target.parsed();
         by_piece_free
             .get(shape.piece_free_text())
             .is_some_and(|faces| faces.iter().any(|face| face.extends(&shape)))
@@ -403,11 +398,8 @@ fn quantize(value: f64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::name;
     use crate::topology::FaceInfo;
-
-    fn name(text: &str) -> ElementName {
-        ElementName::parse(text).expect("the test name is valid")
-    }
 
     fn fingerprint(text: &str) -> Fingerprint {
         Fingerprint::parse(text).expect("the test fingerprint is valid")

@@ -30,6 +30,8 @@ mod resolver;
 pub mod roles;
 mod score;
 mod shape;
+#[cfg(test)]
+mod testing;
 mod topology;
 
 pub use aliases::{Aliases, Successions};
@@ -51,3 +53,9 @@ pub use resolver::{
 pub use score::score;
 pub use shape::piece_free_text;
 pub use topology::{EdgeInfo, FaceInfo, FaceSource, TopologyInfo, VertexInfo};
+
+/// True when `items` is non-empty and strictly ascending: a sorted list of distinct items, as alias
+/// targets, anchors and merged names are stored.
+pub(crate) fn is_sorted_list<T: Ord>(items: &[T]) -> bool {
+    !items.is_empty() && items.windows(2).all(|pair| pair[0] < pair[1])
+}

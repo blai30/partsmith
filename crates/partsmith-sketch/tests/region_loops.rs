@@ -5,23 +5,16 @@ mod common;
 
 use std::f64::consts::PI;
 
-use common::matching::{key_texts, region_loop, regions_of};
-use common::{arc, circle, id, line, plate_entities, rect_entities};
+use common::matching::{key_edge, key_texts, region_loop, regions_of};
+use common::{arc, circle, line, plate_entities, rect_entities};
 use partsmith_sketch::{KeyEdge, RegionLoop, RegionRef, SketchEntity, SketchError};
-
-fn entry(entity: &str, reversed: bool) -> KeyEdge {
-    KeyEdge {
-        entity: id(entity),
-        reversed,
-    }
-}
 
 /// The entries of a loop text, in written order, without canonicalizing.
 fn entries(text: &str) -> Vec<KeyEdge> {
     text.split(',')
         .map(|written| match written.strip_prefix('~') {
-            Some(entity) => entry(entity, true),
-            None => entry(written, false),
+            Some(entity) => key_edge(entity, true),
+            None => key_edge(written, false),
         })
         .collect()
 }

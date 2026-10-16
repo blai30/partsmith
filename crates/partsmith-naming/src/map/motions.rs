@@ -112,10 +112,7 @@ impl Motions {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn name(text: &str) -> ElementName {
-        ElementName::parse(text).expect("the test name is valid")
-    }
+    use crate::testing::name;
 
     /// A translation by `x` mm along x.
     fn shift(x: f64) -> Motion {
