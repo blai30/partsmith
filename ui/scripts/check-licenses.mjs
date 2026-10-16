@@ -35,8 +35,8 @@ const IDENTIFIER_PATTERN = /^[A-Za-z0-9.+-]+$/
 // A version as Semantic Versioning 2.0.0 writes it, with its numbers and pre-release identifiers captured.
 const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/
 
-/** Orders two strings by code units, so the order is the same in every locale. */
-function compareText(first, second) {
+/** Orders two strings by code units, so the order is the same in every locale; the notices sort paths with it. */
+export function compareText(first, second) {
   if (first === second) {
     return 0
   }

@@ -90,18 +90,18 @@ csstype 3.2.3, MIT, https://www.npmjs.com/package/csstype/v/3.2.3, texts [56]
 lucide-react 1.55.0, ISC, https://www.npmjs.com/package/lucide-react/v/1.55.0, texts [57]
 react 19.3.0, MIT, https://www.npmjs.com/package/react/v/19.3.0, texts [58]
 react-dom 19.3.0, MIT, https://www.npmjs.com/package/react-dom/v/19.3.0, texts [58]
-rolldown 1.2.13, MIT, https://www.npmjs.com/package/rolldown/v/1.2.13, texts [59]
+rolldown 1.2.13, MIT, https://www.npmjs.com/package/rolldown/v/1.2.13, texts [59] [60]
 scheduler 0.28.0, MIT, https://www.npmjs.com/package/scheduler/v/0.28.0, texts [58]
-tailwindcss 4.3.3, MIT, https://www.npmjs.com/package/tailwindcss/v/4.3.3, texts [60]
-vite 8.3.4, MIT, https://www.npmjs.com/package/vite/v/8.3.4, texts [61]
-zustand 5.0.15, MIT, https://www.npmjs.com/package/zustand/v/5.0.15, texts [62]
+tailwindcss 4.3.3, MIT, https://www.npmjs.com/package/tailwindcss/v/4.3.3, texts [61]
+vite 8.3.4, MIT, https://www.npmjs.com/package/vite/v/8.3.4, texts [62]
+zustand 5.0.15, MIT, https://www.npmjs.com/package/zustand/v/5.0.15, texts [63]
 
 == Other libraries ==
 
-Rust standard library 1.97.0, (MIT OR Apache-2.0) AND Unicode-3.0, https://www.rust-lang.org, texts [1] [63]
-Emscripten runtime 4.0.15, MIT OR NCSA, https://emscripten.org, texts [64]
-musl libc, in the Emscripten runtime, MIT, https://musl.libc.org, texts [65]
-LLVM libc++, libc++abi, libunwind and compiler-rt, in the Emscripten runtime, Apache-2.0 WITH LLVM-exception AND (NCSA OR MIT), https://llvm.org, texts [66] [67] [68] [69]
+Rust standard library 1.97.0, (MIT OR Apache-2.0) AND Unicode-3.0, https://www.rust-lang.org, texts [1] [64]
+Emscripten runtime 4.0.15, MIT OR NCSA, https://emscripten.org, texts [65]
+musl libc, in the Emscripten runtime, MIT, https://musl.libc.org, texts [66]
+LLVM libc++, libc++abi, libunwind and compiler-rt, in the Emscripten runtime, Apache-2.0 WITH LLVM-exception AND (NCSA OR MIT), https://llvm.org, texts [67] [68] [69] [70]
 
 == License texts ==
 
@@ -4180,6 +4180,42 @@ The licenses of externally maintained libraries from which parts of the Software
 
 [60]
 
+The MIT License (MIT)
+
+Copyright (c) 2017 [these people](https://github.com/rollup/rollup/graphs/contributors)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+MIT License
+
+Copyright (c) 2020 Evan Wallace
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+[61]
+
 MIT License
 
 Copyright (c) Tailwind Labs, Inc.
@@ -4202,7 +4238,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-[61]
+[62]
 
 # Vite core license
 Vite is released under the MIT license:
@@ -6470,7 +6506,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
-[62]
+[63]
 
 MIT License
 
@@ -6494,7 +6530,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-[63]
+[64]
 
 UNICODE LICENSE V3
 
@@ -6536,7 +6572,7 @@ not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 
-[64]
+[65]
 
 Emscripten is available under 2 licenses, the MIT license and the
 University of Illinois/NCSA Open Source License.
@@ -6640,7 +6676,7 @@ The third_party/ subdirectory contains code with other licenses. None of it is
 used by default, but certain options use it (e.g., the optional closure compiler
 flag will run closure compiler from third_party/).
 
-[65]
+[66]
 
 musl as a whole is licensed under the following standard MIT license:
 
@@ -6836,7 +6872,7 @@ negated the permissions granted in the license. In the spirit of
 permissive licensing, and of not having licensing issues being an
 obstacle to adoption, that text has been removed.
 
-[66]
+[67]
 
 ==============================================================================
 The LLVM Project is under the Apache License v2.0 with LLVM Exceptions:
@@ -7150,7 +7186,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-[67]
+[68]
 
 ==============================================================================
 The LLVM Project is under the Apache License v2.0 with LLVM Exceptions:
@@ -7464,7 +7500,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-[68]
+[69]
 
 ==============================================================================
 The LLVM Project is under the Apache License v2.0 with LLVM Exceptions:
@@ -7778,7 +7814,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-[69]
+[70]
 
 ==============================================================================
 The LLVM Project is under the Apache License v2.0 with LLVM Exceptions:

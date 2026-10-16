@@ -25,6 +25,7 @@ jobs:
     name: Verify the tag
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
@@ -83,6 +84,9 @@ jobs:
             bundles: app,dmg
             files: target/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.runner }}
+    # Above the cold release budget of 120 minutes; GitHub's default of 360 would let a hung macOS job
+    # bill 3,600 minutes on this private repository (delivery.md 2.5).
+    timeout-minutes: 150
     defaults:
       run:
         shell: bash
@@ -163,6 +167,7 @@ jobs:
     needs: bundle
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:

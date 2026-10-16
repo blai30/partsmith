@@ -18,10 +18,14 @@ env:
   # Every test binary links OCCT statically; with debug info they outgrow the runner's disk (delivery.md 3.2).
   CARGO_PROFILE_DEV_DEBUG: "0"
 
+# Every job sets timeout-minutes, so a hung job bills at most that on this private repository,
+# not GitHub's default of 360 minutes (delivery.md 2.4).
 jobs:
   occt-native:
     name: OCCT (native)
     runs-on: ubuntu-24.04
+    # A cold OCCT build takes about an hour (56 minutes on 2026-10-13).
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7.0.1
       - id: cache
@@ -37,6 +41,8 @@ jobs:
   occt-wasm:
     name: OCCT (WebAssembly)
     runs-on: ubuntu-24.04
+    # A cold OCCT build for WebAssembly takes about an hour and a half (88 minutes on 2026-10-13).
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7.0.1
       - id: cache
@@ -57,6 +63,7 @@ jobs:
     name: Kernel tests (WebAssembly)
     needs: occt-wasm
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN: ${{ github.workspace }}/.occt/wasm
     steps:
@@ -77,6 +84,7 @@ jobs:
     name: Rust
     needs: occt-native
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/cache/restore@v6.1.0
@@ -107,6 +115,7 @@ jobs:
   deny:
     name: License and advisory policy
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: EmbarkStudios/cargo-deny-action@v2.1.1
@@ -114,6 +123,7 @@ jobs:
   ui:
     name: UI
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: ui
@@ -138,6 +148,7 @@ jobs:
     name: Generated files
     needs: occt-native
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/cache/restore@v6.1.0
@@ -155,8 +166,11 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
+      # First, since it needs nothing the schema steps make, so a failure there leaves the packages
+      # the notices check reads.
+      - id: install
+        run: pnpm -C ui install --frozen-lockfile
       - run: cargo run -p partsmith-cli -- schema --write
-      - run: pnpm -C ui install --frozen-lockfile
       - run: pnpm -C ui generate:protocol
       - name: Check that the generated files are up to date
         run: |
@@ -168,15 +182,17 @@ jobs:
             git diff -- docs/format ui/src/generated
             exit 1
           fi
-      # Runs after a drift failure too, so that one does not hide a notices failure.
+      # Runs after a failure of the steps above too, so that one does not hide a notices failure,
+      # but only with the packages installed.
       - name: Check that the third-party notices are up to date
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm -C ui check:notices
 
   core-wasm:
     name: Web core (WebAssembly)
     needs: [occt-native, occt-wasm]
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN: ${{ github.workspace }}/.occt/wasm
     steps:
@@ -212,6 +228,7 @@ jobs:
     name: Web build
     needs: core-wasm
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: ui
@@ -248,6 +265,7 @@ jobs:
     name: End-to-end tests
     needs: core-wasm
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: ui
@@ -280,6 +298,7 @@ jobs:
     name: Python
     needs: occt-native
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/cache/restore@v6.1.0
@@ -313,6 +332,7 @@ jobs:
     name: Desktop (Linux)
     needs: occt-native
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/cache/restore@v6.1.0
@@ -382,6 +402,7 @@ jobs:
     needs: [kernel-wasm, rust, deny, ui, schema, web, e2e, python, desktop]
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     environment:
       name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
       url: ${{ steps.pages.outputs.pages-deployment-alias-url || steps.pages.outputs.deployment-url }}

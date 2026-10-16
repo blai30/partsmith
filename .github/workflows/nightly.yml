@@ -23,7 +23,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      # Only a run that passed or failed tested its commit; this run and canceled runs do not count.
+      # Every finished run tested its commit, whatever its conclusion: passed, failed, timed out or canceled.
+      # This run has not finished, so it never counts.
       - name: Skip when the last nightly run tested the head of main
         id: skip
         if: github.event_name == 'schedule'
@@ -31,8 +32,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          tested="$(gh run list --workflow nightly.yml --branch main --limit 20 --json headSha,conclusion \
-            --jq 'map(select(.conclusion == "success" or .conclusion == "failure")) | first | .headSha // ""')"
+          # When gh fails, the night tests: failing this step would record a run that later nights count as tested.
+          if ! tested="$(gh run list --workflow nightly.yml --branch main --status completed --limit 1 \
+            --json headSha --jq '.[0].headSha // ""')"; then
+            echo "::warning title=Nightly skip check failed::gh run list failed, so the property tests run without checking whether an earlier night tested $GITHUB_SHA."
+            tested=""
+          fi
           if [ "$tested" = "$GITHUB_SHA" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "::notice title=Nightly skipped::The last nightly run already tested $GITHUB_SHA, the head of main, so the property tests did not run."

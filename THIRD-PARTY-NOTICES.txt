@@ -398,16 +398,16 @@ csstype 3.2.3, MIT, https://www.npmjs.com/package/csstype/v/3.2.3, texts [206]
 lucide-react 1.55.0, ISC, https://www.npmjs.com/package/lucide-react/v/1.55.0, texts [207]
 react 19.3.0, MIT, https://www.npmjs.com/package/react/v/19.3.0, texts [208]
 react-dom 19.3.0, MIT, https://www.npmjs.com/package/react-dom/v/19.3.0, texts [208]
-rolldown 1.2.13, MIT, https://www.npmjs.com/package/rolldown/v/1.2.13, texts [209]
+rolldown 1.2.13, MIT, https://www.npmjs.com/package/rolldown/v/1.2.13, texts [209] [210]
 scheduler 0.28.0, MIT, https://www.npmjs.com/package/scheduler/v/0.28.0, texts [208]
-tailwindcss 4.3.3, MIT, https://www.npmjs.com/package/tailwindcss/v/4.3.3, texts [210]
-vite 8.3.4, MIT, https://www.npmjs.com/package/vite/v/8.3.4, texts [211]
-zustand 5.0.15, MIT, https://www.npmjs.com/package/zustand/v/5.0.15, texts [212]
+tailwindcss 4.3.3, MIT, https://www.npmjs.com/package/tailwindcss/v/4.3.3, texts [211]
+vite 8.3.4, MIT, https://www.npmjs.com/package/vite/v/8.3.4, texts [212]
+zustand 5.0.15, MIT, https://www.npmjs.com/package/zustand/v/5.0.15, texts [213]
 
 == Other libraries ==
 
-Rust standard library 1.97.0, (MIT OR Apache-2.0) AND Unicode-3.0, https://www.rust-lang.org, texts [1] [213]
-Microsoft Edge WebView2 SDK loader, in webview2-com-sys 0.39.1, BSD-3-Clause, https://www.nuget.org/packages/Microsoft.Web.WebView2, only Windows, texts [214]
+Rust standard library 1.97.0, (MIT OR Apache-2.0) AND Unicode-3.0, https://www.rust-lang.org, texts [1] [214]
+Microsoft Edge WebView2 SDK loader, in webview2-com-sys 0.39.1, BSD-3-Clause, https://www.nuget.org/packages/Microsoft.Web.WebView2, only Windows, texts [215]
 
 == License texts ==
 
@@ -13506,6 +13506,42 @@ The licenses of externally maintained libraries from which parts of the Software
 
 [210]
 
+The MIT License (MIT)
+
+Copyright (c) 2017 [these people](https://github.com/rollup/rollup/graphs/contributors)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+MIT License
+
+Copyright (c) 2020 Evan Wallace
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+[211]
+
 MIT License
 
 Copyright (c) Tailwind Labs, Inc.
@@ -13528,7 +13564,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-[211]
+[212]
 
 # Vite core license
 Vite is released under the MIT license:
@@ -15796,7 +15832,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
-[212]
+[213]
 
 MIT License
 
@@ -15820,7 +15856,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-[213]
+[214]
 
 UNICODE LICENSE V3
 
@@ -15862,7 +15898,7 @@ not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 
-[214]
+[215]
 
 Copyright (C) Microsoft Corporation. All rights reserved.
 

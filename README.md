@@ -8,7 +8,7 @@ Open-source parametric CAD for people who design parts for 3D printing. Sketch, 
 
 **On the web.** The web app deploys to Cloudflare Pages from `main` once CI passes there; its address goes here with the first production deployment. Each pull request gets a preview, linked from the pull request. CI tests the web app in Chromium (Firefox and WebKit follow, B-9 of the gap list).
 
-**On the desktop.** Download the app from [GitHub Releases](https://github.com/blai30/partsmith/releases):
+**On the desktop.** Desktop builds appear on [GitHub Releases](https://github.com/blai30/partsmith/releases) once the first release is published; until then there is nothing to download. Each release holds:
 
 - Windows x64: `Partsmith_{version}_x64-setup.exe`, a per-user installer that downloads WebView2 when it is missing.
 - macOS 13 or later on Apple silicon: `Partsmith_{version}_aarch64.dmg`.
@@ -28,12 +28,15 @@ CI builds from source on Linux; the release workflow builds the Windows and macO
 On Ubuntu 24.04 one line installs the system packages, including the WebKitGTK, xdo, SSL and rsvg libraries the desktop app needs:
 
 ```sh
-sudo apt-get install -y build-essential cmake ninja-build python3-venv libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev
+sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build python3-venv libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev
 ```
 
 Partsmith links the OCCT geometry kernel, pinned to the version in `scripts/occt-version.sh` and built from source:
 
 ```sh
+# Once: the build ends by installing into its prefix, and /opt belongs to root
+sudo mkdir -p /opt/occt && sudo chown "$USER" /opt/occt
+
 scripts/build-occt.sh native /opt/occt/7.9.3/native
 export OCCT_ROOT=/opt/occt/7.9.3/native
 cargo test --workspace

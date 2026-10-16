@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import {
   commandFailureMessage,
   compareNameAndVersion,
+  compareText,
   licenseAllowed,
   runCommand,
   shippedPackages,
@@ -70,8 +71,10 @@ const EVERY_PLATFORM = DESKTOP_TARGETS.map((target) => target.platform)
 // The licenses whose standard text a package without license files can take, in order of preference (input 3).
 const STANDARD_LICENSES = ['Apache-2.0', 'MPL-2.0']
 
-// The start of the name of a license file, in any letter case (input 3).
-const LICENSE_FILE_PATTERN = /^(?:LICENSE|LICENCE|COPYING|COPYRIGHT|NOTICE|UNLICENSE)/i
+// The start of the name of a license file, in any letter case (input 3). The THIRD-PARTY names hold the notices of
+// code a package bundles from other projects, such as rolldown's THIRD-PARTY-LICENSE.
+const LICENSE_FILE_PATTERN =
+  /^(?:LICENSE|LICENCE|COPYING|COPYRIGHT|NOTICE|UNLICENSE|THIRD-PARTY|THIRD_PARTY|THIRDPARTY)/i
 
 // Source code and source maps, which a nested file named like a license file may be, such as the icon
 // dist/esm/icons/copyright.mjs of lucide-react, but which hold no license text.
@@ -105,14 +108,6 @@ const FONTS = [
     text: 'ui/public/fonts/JetBrainsMono-OFL.txt',
   },
 ]
-
-/** Orders two strings by code units, which is byte order for the ASCII paths and names here. */
-function compareText(first, second) {
-  if (first === second) {
-    return 0
-  }
-  return first < second ? -1 : 1
-}
 
 /** `text` normalized as below; '' when nothing is left. */
 export function normalizeText(text) {
@@ -648,10 +643,15 @@ function packageEntry(listed, texts, url, platforms) {
   })
 }
 
+/** The first paragraph of both OCCT statements, for `app`, `desktop app` or `web app`. */
+function occtUsedParagraph(app, occtVersion) {
+  return `The Partsmith ${app} uses Open CASCADE Technology (OCCT) ${occtVersion}, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.`
+}
+
 /** The OCCT statement of the desktop file: three paragraphs, each one line. */
 function desktopStatement({ occtVersion, occtTag }, repository) {
   return [
-    `The Partsmith desktop app uses Open CASCADE Technology (OCCT) ${occtVersion}, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.`,
+    occtUsedParagraph('desktop app', occtVersion),
     `OCCT is linked statically into the app. It is the unmodified source of the tag ${occtTag} of https://github.com/Open-Cascade-SAS/OCCT, built as static libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.`,
     `You may modify OCCT and use your version with Partsmith. The Partsmith source of each release is the tag v followed by the app's version (for example v0.1.0) in ${repository}, with every script, tool version and lock file the build uses. To relink: put your OCCT source in <work>/src, run OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>, and build the app with OCCT_ROOT=<prefix> as README.md describes (pnpm -C ui build, then cargo tauri build in desktop/src-tauri). The exact commands for each platform, including the environment Windows and macOS need, are the steps of the bundle job in .github/workflows/release.yml at that tag.`,
   ].join('\n\n')
@@ -660,7 +660,7 @@ function desktopStatement({ occtVersion, occtTag }, repository) {
 /** The OCCT statement of the web file: three paragraphs, each one line. */
 function webStatement({ occtVersion, occtTag }, repository) {
   return [
-    `The Partsmith web app uses Open CASCADE Technology (OCCT) ${occtVersion}, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.`,
+    occtUsedParagraph('web app', occtVersion),
     `OCCT is linked statically into the app's geometry core, core/partsmith_core.wasm. It is the unmodified source of the tag ${occtTag} of https://github.com/Open-Cascade-SAS/OCCT, built as static WebAssembly libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.`,
     `You may modify OCCT and use your version with Partsmith. Each deployment of this site is built from one commit of ${repository}: production from its main branch, a preview from the head commit of its pull request; that commit holds every script, tool version and lock file the build uses. To relink: put your OCCT source in <work>/src, run OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix> with the Emscripten SDK of scripts/emsdk-version.sh active, and build the core with OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md describes (scripts/build-wasm.sh, then pnpm -C ui build). The exact commands are the steps of the core-wasm and web jobs in .github/workflows/ci.yml at that commit.`,
   ].join('\n\n')

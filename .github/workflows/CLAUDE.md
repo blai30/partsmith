@@ -7,16 +7,16 @@ Spec: `docs/spec/delivery.md` (the jobs of 2.4 and 2.5, the notices of 2.9, the 
 ## Interface
 
 - `ci.yml`, on pushes to `main` and pull requests: `occt-native`, `occt-wasm`, `kernel-wasm`, `rust`, `deny`, `ui`, `schema`, `core-wasm`, `web`, `e2e`, `python`, `desktop`, then `deploy`. Artifacts: `core-wasm` (`ui/public/core/`), `web-dist` (`ui/dist/`), `playwright-report` on an end-to-end failure.
-- `ui` ends with `pnpm check:licenses`, which holds the npm packages that ship to the allow list of `deny.toml`. `schema` ends with `pnpm -C ui check:notices`, which runs after a drift failure too. `desktop` checks that the `.deb` holds `THIRD-PARTY-NOTICES.txt`, equal to the repository's file.
+- `ui` ends with `pnpm check:licenses`, which holds the npm packages that ship to the allow list of `deny.toml`. `schema` installs the packages first and ends with `pnpm -C ui check:notices`, which runs after a failure of the schema steps too, as long as the install passed. `desktop` checks that the `.deb` holds `THIRD-PARTY-NOTICES.txt`, equal to the repository's file.
 - `python` installs CPython 3.13 and 3.12 (3.12 last, so it is the default `python`), makes its virtual environment with `python3.12`, runs `pytest python/tests` and then `pytest python/tests -m packaging` (python-api.md test 76: one abi3 wheel, installed and imported with `python3.12` and `python3.13`).
 - `deploy` publishes `web-dist` with Wrangler: production on `main`, a preview per pull request. It needs the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` and reads the optional variable `CLOUDFLARE_PAGES_PROJECT` (default `partsmith`); without the secrets it succeeds with a "Deploy skipped" notice.
 - `release.yml`, on a `vX.Y.Z` tag: `verify` (the tag equals the version of `partsmith-desktop` and `ui/package.json`, and CI passed for the commit), `bundle` (Linux, Windows and macOS bundles as `bundle-<runner.os>`), `draft` (a draft GitHub Release with the bundles, `THIRD-PARTY-NOTICES.txt` and `SHA256SUMS`, published by a human). A manual run (`workflow_dispatch`) is a dry run that only builds the bundles.
-- `nightly.yml`, at 04:23 UTC (cron `23 4 * * *`) and on `workflow_dispatch`: the job `properties` runs the sketch property tests with `PROPTEST_CASES=4096` in release. A scheduled run first asks `gh run list` for the newest nightly run on `main` that passed or failed, and when that run tested the head of `main` it stops with a "Nightly skipped" notice before checkout. A manual run always tests.
+- `nightly.yml`, at 04:23 UTC (cron `23 4 * * *`) and on `workflow_dispatch`: the job `properties` runs the sketch property tests with `PROPTEST_CASES=4096` in release. A scheduled run first asks `gh run list` for the newest finished nightly run on `main`, whatever its conclusion, and when that run tested the head of `main` it stops with a "Nightly skipped" notice before checkout; when `gh` fails, it warns and tests. A manual run always tests.
 
 ## Commands
 
 ```sh
-# The scripts CI runs and their tests (run in ui/)
+# The scripts CI runs and their tests, and the tests of these workflow files (run in ui/)
 pnpm test:scripts
 pnpm check:licenses
 # pnpm notices rewrites both notices files
@@ -41,7 +41,7 @@ gh release download vX.Y.Z --dir release-vX.Y.Z && (cd release-vX.Y.Z && sha256s
 - Jobs that need OCCT restore its cache with `fail-on-cache-miss: true`; only `occt-native`, `occt-wasm` and the release `bundle` job build it.
 - Every job that runs cargo runs `rustup show active-toolchain || rustup toolchain install` and then `Swatinem/rust-cache`; every job that runs pnpm sets up pnpm from `ui/package.json` and Node 22 with the pnpm cache.
 - No secret other than the two Cloudflare secrets and `GITHUB_TOKEN`. Signing and updater secrets wait for a human decision (delivery.md 1.2).
-- The repository is private, so every runner minute counts against the owner's allowance (Windows at twice and macOS at ten times the Linux rate). `nightly.yml` therefore skips nights when `main` has not changed, needs no OCCT and stops after `timeout-minutes: 20`; its cron is the one place to change its cadence (delivery.md 2.11).
+- The repository is private, so every runner minute counts against the owner's allowance (Windows at twice and macOS at ten times the Linux rate). Every job therefore sets `timeout-minutes` (delivery.md 2.4, 2.5 and 2.11): 150 for the jobs that may build OCCT (`occt-native`, `occt-wasm`, `bundle`), 20 for the nightly `properties` and 60 for every other job, a new one included; `ui/scripts/workflows.test.mjs` checks every value. `nightly.yml` also skips nights when `main` has not changed and needs no OCCT; its cron is the one place to change its cadence (delivery.md 2.11).
 - Before each tag, start the release dry run from `main`. It proves the bundles (delivery.md section 6, test 13) and saves the Windows and macOS caches on `main`, the only scope a tag run can restore them from; a tag run's own caches are scoped to its tag, and GitHub drops caches unused for 7 days. The `bundle` job saves its Rust cache only on `main`.
 - On Windows, release steps run in Git Bash, whose GNU `link` comes before MSVC's `link.exe` on `PATH`; `bundle` points `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER` at the `link.exe` next to `cl.exe`, so rustc does not pick the wrong one.
 
