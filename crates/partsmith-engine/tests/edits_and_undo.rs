@@ -75,7 +75,7 @@ fn t016_a_rejected_edit_rolls_back_the_whole_batch() {
 }
 
 #[test]
-fn t017_invalid_params_name_the_edit_and_the_feature_type() {
+fn t017_invalid_params_name_the_field_and_keep_the_feature_type_in_the_detail() {
     let mut session = session();
     let doc = open_doc(&mut session, "box.ptsm");
 
@@ -91,10 +91,16 @@ fn t017_invalid_params_name_the_edit_and_the_feature_type() {
 
     assert_eq!(sent.error_code(), "invalid_params");
     assert_eq!(sent.error()["edit_index"], 1);
+    assert_eq!(
+        sent.error_message(),
+        "Body of 'Box 2' cannot be read, so this change was not applied. Set Body again."
+    );
+    let detail = sent.error()["detail"]
+        .as_str()
+        .expect("the error has a detail");
     assert!(
-        sent.error_message().starts_with("box"),
-        "message starts with the type: {}",
-        sent.error_message()
+        detail.starts_with("box f-box2"),
+        "the detail starts with the type and id: {detail}"
     );
 }
 

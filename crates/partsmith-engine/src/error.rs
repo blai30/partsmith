@@ -337,7 +337,8 @@ pub(crate) fn saturating_u32(value: usize) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_model::RecordKind;
+    use partsmith_model::{LoadError, RecordKind};
+    use partsmith_protocol::FixKind;
 
     use super::*;
     use crate::test_support::id;
@@ -365,26 +366,38 @@ mod tests {
     }
 
     #[test]
-    fn invalid_params_start_with_the_feature_type() {
+    fn invalid_params_show_their_message_and_keep_the_feature_in_the_detail() {
         let error = EngineError::InvalidParams {
             index: 2,
             feature: id("f-box2"),
             feature_type: "box".to_string(),
-            message: "Body is missing.".to_string(),
+            message:
+                "Body of 'Box 2' cannot be read, so this change was not applied. Set Body again."
+                    .to_string(),
+            detail: "box f-box2: missing field `body`".to_string(),
         };
 
-        assert_eq!(error.to_string(), "box f-box2: Body is missing.");
+        assert_eq!(
+            error.to_string(),
+            "Body of 'Box 2' cannot be read, so this change was not applied. Set Body again."
+        );
         assert_eq!(error.edit_index(), Some(2));
+        assert_eq!(
+            error.detail().as_deref(),
+            Some("box f-box2: missing field `body`")
+        );
     }
 
     #[test]
     fn invalid_sketches_share_the_invalid_params_code_without_an_index() {
         let error = EngineError::InvalidSketch {
-            message: "Line e-1 has zero length.".to_string(),
+            message: "A line of this sketch has no length.".to_string(),
+            detail: "Line e-1 has zero length.".to_string(),
         };
 
         assert_eq!(error.code(), ErrorCode::InvalidParams);
         assert_eq!(error.edit_index(), None);
+        assert_eq!(error.detail().as_deref(), Some("Line e-1 has zero length."));
     }
 
     #[test]
@@ -409,6 +422,217 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "Export failed. Body \"Ghost\" has no triangles to export."
+        );
+    }
+
+    #[test]
+    fn internal_errors_name_the_command_and_keep_the_panic_text_in_the_detail() {
+        let error = EngineError::Internal {
+            command: "apply edits".to_string(),
+            detail: "boom".to_string(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "Partsmith hit a bug while running apply edits. Your document is unchanged. Save a copy, and report this with the details."
+        );
+        assert_eq!(error.code(), ErrorCode::InternalError);
+        assert_eq!(error.detail().as_deref(), Some("boom"));
+        assert!(error.actions().is_empty());
+    }
+
+    #[test]
+    fn parse_errors_show_the_message_and_keep_the_parser_text_in_the_detail() {
+        let error = EngineError::Parse {
+            message: "The file is not valid JSON at line 1, column 23.".to_string(),
+            detail: "The file is not valid JSON at line 1, column 23: EOF while parsing an object."
+                .to_string(),
+            line: Some(1),
+            column: Some(23),
+            path: None,
+        };
+
+        let info = error.to_info();
+
+        assert_eq!(info.code, ErrorCode::ParseError);
+        assert_eq!(
+            info.message,
+            "The file is not valid JSON at line 1, column 23."
+        );
+        assert_eq!(
+            info.detail.as_deref(),
+            Some("The file is not valid JSON at line 1, column 23: EOF while parsing an object.")
+        );
+    }
+
+    #[test]
+    fn unsupported_format_versions_show_the_model_message() {
+        let message = "This file uses format version 3, which is newer than this version of Partsmith supports (up to 2). Update Partsmith to open it.";
+        let error = EngineError::UnsupportedFormatVersion {
+            found: 3,
+            message: message.to_string(),
+        };
+
+        assert_eq!(error.to_string(), message);
+        assert_eq!(error.code(), ErrorCode::UnsupportedFormatVersion);
+        assert_eq!(error.detail(), None);
+    }
+
+    #[test]
+    fn stale_fixes_say_the_document_changed() {
+        let error = EngineError::StaleFix;
+
+        assert_eq!(error.code(), ErrorCode::StaleFix);
+        assert_eq!(
+            error.to_string(),
+            "This fix no longer applies because the document changed after it was offered. Look at the problem again."
+        );
+        assert!(error.actions().is_empty());
+    }
+
+    #[test]
+    fn an_open_transaction_offers_to_finish_it_and_do_again_what_failed() {
+        let cases = [
+            ("save", "Finish \"Resize\" and save"),
+            ("undo", "Finish \"Resize\" and undo"),
+            ("redo", "Finish \"Resize\" and redo"),
+            ("start \"Fillet\"", "Finish \"Resize\" and start \"Fillet\""),
+        ];
+
+        for (then, label) in cases {
+            let error = EngineError::TransactionOpen {
+                label: "Resize".to_string(),
+                then: then.to_string(),
+            };
+
+            assert_eq!(error.to_string(), "Finish or cancel \"Resize\" first.");
+            let actions = error.actions();
+            assert_eq!(actions.len(), 1, "{actions:?}");
+            assert_eq!(actions[0].label, label);
+            assert_eq!(actions[0].run, FixKind::FinishTransaction);
+            assert_eq!(error.to_info().actions, actions);
+        }
+    }
+
+    #[test]
+    fn errors_without_technical_text_have_no_detail_and_no_actions() {
+        for error in [
+            EngineError::NothingToUndo,
+            EngineError::StalePick,
+            EngineError::UnknownBody { id: id("b-9") },
+        ] {
+            let info = error.to_info();
+
+            assert_eq!(info.detail, None, "{error:?}");
+            assert!(info.actions.is_empty(), "{error:?}");
+        }
+    }
+
+    // The engine error of a model load error (`EngineError::from_load`).
+
+    #[test]
+    fn json_problems_say_where_and_keep_the_parser_text_in_the_detail() {
+        let load = LoadError::Syntax {
+            line: 1,
+            column: 23,
+            message: "EOF while parsing an object".to_string(),
+        };
+        let full = load.to_string();
+
+        let error = EngineError::from_load(load);
+
+        assert_eq!(
+            error,
+            EngineError::Parse {
+                message: "The file is not valid JSON at line 1, column 23.".to_string(),
+                detail: full,
+                line: Some(1),
+                column: Some(23),
+                path: None,
+            }
+        );
+    }
+
+    #[test]
+    fn repeated_keys_read_their_own_message_with_a_position() {
+        let load = LoadError::DuplicateKey {
+            key: "id".to_string(),
+            line: 4,
+            column: 9,
+        };
+        let full = load.to_string();
+
+        let error = EngineError::from_load(load);
+
+        assert_eq!(
+            error,
+            EngineError::Parse {
+                message: full.clone(),
+                detail: full,
+                line: Some(4),
+                column: Some(9),
+                path: None,
+            }
+        );
+    }
+
+    #[test]
+    fn structure_problems_are_parse_errors_with_a_pointer() {
+        let error = EngineError::from_load(LoadError::Invalid {
+            path: "bodies[0].id".to_string(),
+            message: "The id 'b 1' contains ' '. Ids use only letters A to Z and a to z, digits, - and _."
+                .to_string(),
+        });
+
+        let EngineError::Parse {
+            line, column, path, ..
+        } = &error
+        else {
+            panic!("a parse error, got {error:?}");
+        };
+        assert_eq!((*line, *column), (None, None));
+        assert_eq!(path.as_deref(), Some("/bodies/0/id"));
+    }
+
+    #[test]
+    fn problems_of_the_whole_document_have_no_pointer() {
+        let error = EngineError::from_load(LoadError::Invalid {
+            path: String::new(),
+            message: "missing field `units`".to_string(),
+        });
+
+        assert!(matches!(error, EngineError::Parse { path: None, .. }));
+    }
+
+    #[test]
+    fn newer_format_versions_are_unsupported_with_the_model_message() {
+        let load = LoadError::NewerFormatVersion {
+            found: 99,
+            supported: 2,
+        };
+        let message = load.to_string();
+
+        let error = EngineError::from_load(load);
+
+        assert_eq!(
+            error,
+            EngineError::UnsupportedFormatVersion { found: 99, message }
+        );
+    }
+
+    #[test]
+    fn older_format_versions_than_the_oldest_are_unsupported_with_the_model_message() {
+        let load = LoadError::UnsupportedFormatVersion {
+            found: 0,
+            oldest: 1,
+        };
+        let message = load.to_string();
+
+        let error = EngineError::from_load(load);
+
+        assert_eq!(
+            error,
+            EngineError::UnsupportedFormatVersion { found: 0, message }
         );
     }
 
