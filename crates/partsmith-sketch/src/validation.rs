@@ -19,12 +19,7 @@ pub(crate) fn validate(sketch: &SketchParams) -> Result<(), SketchError> {
         fallback.validate()?;
     }
     for entity in &sketch.entities {
-        if !entity
-            .geometry
-            .numbers()
-            .iter()
-            .all(|value| value.is_finite())
-        {
+        if !entity.geometry.is_finite() {
             return Err(SketchError::NonFiniteGeometry {
                 entity: entity.id.clone(),
             });

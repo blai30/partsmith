@@ -10,10 +10,9 @@ use common::benchmark::chain;
 use common::messages::solved_context;
 use common::{
     Sketch, TOLERANCE, angle, arc, assert_bitwise, assert_close, assert_ids, circle, coincident,
-    diameter, distance_line, distance_point_line, distance_points, fix,
-    fixed_points_with_distance, horizontal, horizontal_distance_points, id, line, measured,
-    parallel, point, radius, rect, rect_with_redundant_parallel, reference, tangent, two_distances,
-    vertical_distance_points,
+    diameter, distance_line, distance_point_line, distance_points, fix, fixed_points_with_distance,
+    horizontal, horizontal_distance_points, id, line, measured, parallel, point, radius, rect,
+    rect_with_redundant_parallel, reference, tangent, two_distances, vertical_distance_points,
 };
 use partsmith_sketch::{EntityState, SketchStatus, SolveIssue, SolveResult};
 

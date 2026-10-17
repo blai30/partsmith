@@ -18,6 +18,17 @@ pub(crate) fn is_axis(name: &str) -> bool {
     name == X_AXIS || name == Y_AXIS
 }
 
+/// The words messages use for a reserved name ("the origin", "the x axis", "the y axis"), or `None` for any other
+/// name (spec section 4).
+pub(crate) fn words(name: &str) -> Option<&'static str> {
+    match name {
+        ORIGIN => Some("the origin"),
+        X_AXIS => Some("the x axis"),
+        Y_AXIS => Some("the y axis"),
+        _ => None,
+    }
+}
+
 /// The constant start and end of an axis, or `None` for any other name.
 pub(crate) fn axis_line(name: &str) -> Option<([f64; 2], [f64; 2])> {
     match name {
@@ -51,6 +62,14 @@ mod tests {
     fn origin_is_not_an_axis() {
         assert!(!is_axis("origin"));
         assert_eq!(axis_line("origin"), None);
+    }
+
+    #[test]
+    fn reserved_names_have_words_and_other_names_none() {
+        assert_eq!(words("origin"), Some("the origin"));
+        assert_eq!(words("x_axis"), Some("the x axis"));
+        assert_eq!(words("y_axis"), Some("the y axis"));
+        assert_eq!(words("e-1"), None);
     }
 
     #[test]

@@ -1,26 +1,26 @@
-//! Profiles: closed regions and check findings of a sketch's solved curves (spec sections 2.7 and 3.13 to 3.14).
+//! Profiles: closed regions and check findings of a sketch's solved curves (spec sections 2.7, 3.13, 3.14 and 4.3).
 
 mod area;
 mod arrangement;
+mod finding;
 mod graph;
 mod hashing;
 mod intersection;
 mod key;
 mod matching;
+mod open_ends;
 mod region_loop;
-
-use std::fmt;
 
 use partsmith_model::Id;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub use finding::{Connection, ProfileFinding};
 pub use key::{KeyEdge, RegionFingerprint, RegionKey, RegionRef};
 pub use matching::{MatchMethod, RegionLoss, RegionMatch, Succession, match_region};
 pub use region_loop::RegionLoop;
 
 use crate::entity::SketchEntity;
-use crate::number::RoundedPoint;
 
 /// Builds the profile of a sketch from solved entities (section 3.13).
 pub fn build_profile(entities: &[SketchEntity]) -> Profile {
@@ -184,74 +184,6 @@ impl ProfileCurve {
             ProfileCurve::Line { .. } => None,
             ProfileCurve::Arc { center, radius, .. }
             | ProfileCurve::Circle { center, radius, .. } => Some((center, radius)),
-        }
-    }
-}
-
-/// A profile check finding. `Display` gives the message of section 4.3.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ProfileFinding {
-    /// A curve end that touches no other non-construction curve.
-    OpenEndpoint {
-        /// The curve that ends there.
-        entity: Id,
-        /// Where it ends.
-        point: [f64; 2],
-    },
-    /// Two curves share a stretch of positive length.
-    Overlap {
-        /// The two curves, sorted by id.
-        entities: [Id; 2],
-        /// Start of the shared stretch in the direction of the first curve.
-        start: [f64; 2],
-        /// End of the shared stretch.
-        end: [f64; 2],
-    },
-    /// Two curves of one connected chain cross at a point inside both.
-    SelfIntersection {
-        /// The two curves, sorted by id.
-        entities: [Id; 2],
-        /// The crossing point.
-        point: [f64; 2],
-    },
-    /// A curve too short to use; it is ignored.
-    ZeroLength {
-        /// The curve.
-        entity: Id,
-    },
-}
-
-impl fmt::Display for ProfileFinding {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ProfileFinding::OpenEndpoint { entity, point } => write!(
-                formatter,
-                "The end of {entity} at {} is not connected to other geometry. Connect it with a coincident constraint, or delete the curve if it is not needed.",
-                RoundedPoint(*point)
-            ),
-            ProfileFinding::Overlap {
-                entities: [first, second],
-                start,
-                end,
-            } => write!(
-                formatter,
-                "{first} and {second} overlap between {} and {}. Delete one of them, or move it so they meet only at their ends.",
-                RoundedPoint(*start),
-                RoundedPoint(*end)
-            ),
-            ProfileFinding::SelfIntersection {
-                entities: [first, second],
-                point,
-            } => write!(
-                formatter,
-                "{first} and {second} cross at {}. A closed outline that crosses itself splits into several regions; check that this is intended.",
-                RoundedPoint(*point)
-            ),
-            ProfileFinding::ZeroLength { entity } => write!(
-                formatter,
-                "{entity} has no length and is ignored for profiles. Delete it."
-            ),
         }
     }
 }

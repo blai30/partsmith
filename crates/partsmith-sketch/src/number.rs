@@ -1,4 +1,4 @@
-//! The number form used in messages and region fingerprints (spec sections 3.13.6 and 4).
+//! The number form used in messages, details and region fingerprints (spec sections 3.13.6, 4 and 4.4).
 
 use std::fmt;
 
@@ -32,6 +32,16 @@ impl fmt::Display for RoundedPoint {
             Rounded(self.0[0]),
             Rounded(self.0[1])
         )
+    }
+}
+
+/// A sketch point written as `u,v` with both coordinates in the rounded form, as details write points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct RoundedPair(pub(crate) [f64; 2]);
+
+impl fmt::Display for RoundedPair {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{},{}", Rounded(self.0[0]), Rounded(self.0[1]))
     }
 }
 
@@ -72,5 +82,11 @@ mod tests {
     fn points_print_in_parentheses() {
         assert_eq!(RoundedPoint([1.0000004, -0.0]).to_string(), "(1, 0)");
         assert_eq!(RoundedPoint([80.0, 50.0]).to_string(), "(80, 50)");
+    }
+
+    #[test]
+    fn pairs_print_without_parentheses_or_spaces() {
+        assert_eq!(RoundedPair([0.0, 0.3]).to_string(), "0,0.3");
+        assert_eq!(RoundedPair([-0.0, 1.0 / 3.0]).to_string(), "0,0.333333");
     }
 }

@@ -4,6 +4,7 @@ mod common;
 
 use std::f64::consts::FRAC_PI_4;
 
+use common::messages::{context, error_message, sketch_error};
 use common::{
     Sketch, TOLERANCE, angle, assert_bitwise, assert_close, assert_ids, assert_point_bitwise,
     assert_point_close, circle, coincident, collinear, concentric, constraint, distance_line,
@@ -13,7 +14,7 @@ use common::{
     vertical_distance_line,
 };
 use partsmith_sketch::{
-    ConstraintKind, EntityState, ORIGIN, PointRef, PointRole, SketchError, SketchStatus,
+    ConstraintKind, EntityState, ORIGIN, PointRef, PointRole, SketchError, SketchFix, SketchStatus,
     SolveIssue, X_AXIS, Y_AXIS,
 };
 
@@ -396,25 +397,89 @@ fn t215_reserved_names_are_not_drag_targets() {
 }
 
 #[test]
-fn t216_reserved_id_message() {
-    let error = SketchError::ReservedId { id: id("origin") };
+fn t216_reserved_id_message_and_detail() {
+    let sketch = Sketch::new(vec![point("origin", 1.0, 1.0)]);
+
+    let error = sketch_error(&sketch);
 
     assert_eq!(
+        error.render(&context(&sketch)),
+        "An item of this sketch uses a name reserved for the sketch's origin and axes, so the sketch cannot be read. Delete and redraw it, or report it if you did not edit the file by hand."
+    );
+    assert_eq!(error.to_string(), "reserved_id id=origin");
+}
+
+#[test]
+fn t216_reserved_misuse_message_and_detail() {
+    let sketch = rect_with_circle().with("c-9", coincident("e-1.start", "origin.center"));
+
+    let error = sketch_error(&sketch);
+
+    assert_eq!(
+        error.render(&context(&sketch)),
+        "Coincident on the line from (0, 0) to (80, 0) cannot use the origin: the origin is a single point, and the axes are endless lines. Pick a point or line of the sketch instead."
+    );
+    assert_eq!(
         error.to_string(),
-        "The id origin is reserved for the sketch origin and axes. Give the entity or constraint another id."
+        r#"reserved_misuse constraint=c-9 type_name="coincident" reference="origin.center""#
     );
 }
 
 #[test]
-fn t216_reserved_misuse_message() {
-    let error = SketchError::ReservedMisuse {
-        constraint: id("c-9"),
-        type_name: "coincident",
-        reference: "origin.center".to_owned(),
-    };
+fn reserved_misuse_titles_leave_out_only_the_misused_reference() {
+    let ending = ": the origin is a single point, and the axes are endless lines. Pick a point or line of the sketch instead.";
+    let cases = [
+        (
+            coincident("e-1.start", "x_axis"),
+            "Coincident on the line from (0, 0) to (80, 0) cannot use the x axis",
+        ),
+        (fix("y_axis"), "Fix cannot use the y axis"),
+        (
+            parallel("e-1", "origin"),
+            "Parallel on the line from (0, 0) to (80, 0) cannot use the origin",
+        ),
+        (horizontal("x_axis"), "Horizontal cannot use the x axis"),
+        (
+            distance_line("x_axis", "10 mm"),
+            "Distance 10 mm cannot use the x axis",
+        ),
+        (
+            concentric("e-5", "x_axis"),
+            "Concentric on the circle at (40, 25) with radius 5 mm cannot use the x axis",
+        ),
+        (
+            tangent("x_axis", "y_axis"),
+            "Tangent on the x axis cannot use the y axis",
+        ),
+    ];
+
+    for (kind, start) in cases {
+        let sketch = rect_with_circle().with("c-9", kind);
+
+        let error = sketch_error(&sketch);
+
+        assert_eq!(error.render(&context(&sketch)), format!("{start}{ending}"));
+        assert_eq!(
+            error.fixes(),
+            [SketchFix::DeleteConstraint {
+                constraint: id("c-9")
+            }],
+            "{start}"
+        );
+    }
+}
+
+#[test]
+fn reserved_references_are_named_in_the_messages_of_other_errors() {
+    let parallel_axes = rect().with("c-9", parallel("x_axis", "x_axis"));
+    let coincident_origins = rect().with("c-9", coincident("origin", "origin"));
 
     assert_eq!(
-        error.to_string(),
-        "Constraint c-9 (coincident) cannot use origin.center: origin is a single point, and x_axis and y_axis are endless lines. Pick a point or line of the sketch instead."
+        error_message(&parallel_axes),
+        "Parallel on the x axis uses the x axis twice. Pick two different ones."
+    );
+    assert_eq!(
+        error_message(&coincident_origins),
+        "Coincident on the origin uses the origin twice. Pick two different ones."
     );
 }

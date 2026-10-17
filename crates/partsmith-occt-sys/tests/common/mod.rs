@@ -249,6 +249,37 @@ pub fn box_with_displaced_corner() -> Shape {
     corrupted
 }
 
+/// `RECT`'s face read back from its BRep bytes without its wire: a plane face with no boundary,
+/// which the validity check accepts but `BRepMesh_IncrementalMesh` cannot triangulate (section
+/// 3.7, items 7 and 9.2).
+pub fn unbounded_face() -> Shape {
+    let mut bytes = rectangle_profile()
+        .shape
+        .to_brep()
+        .expect("RECT serializes");
+    // The bytes end with the face's sub-shapes, each an orientation byte and two 32-bit indices,
+    // then `*` closing that list and the entry of the face itself, of the same size.
+    let entry_size = 9;
+    let list_end = bytes.len() - entry_size - 1;
+    assert_eq!(
+        bytes[list_end], b'*',
+        "RECT's face lists its sub-shapes last"
+    );
+    bytes.drain(list_end - entry_size..list_end);
+    let face = Shape::from_brep(&bytes).expect("the face without its wire reads");
+    assert_eq!(face.count(SubShapeKind::Face), 1, "one face");
+    assert_eq!(
+        face.count(SubShapeKind::Edge),
+        0,
+        "the wire was RECT's only one"
+    );
+    assert!(
+        face.is_valid().expect("validity check"),
+        "a face without a boundary passes the validity check"
+    );
+    face
+}
+
 /// The cylinder of test 10: radius 5 and height 10 on `Plane::XY`.
 pub fn cylinder_primitive() -> Primitive {
     make_cylinder(&Plane::XY, 5.0, 10.0).expect("the cylinder of test 10 builds")

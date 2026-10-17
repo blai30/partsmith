@@ -9,7 +9,7 @@
         {
           "severity": "warning",
           "code": "redundant_constraints",
-          "message": "Dimension c-4 (distance) is redundant: the other constraints already determine what it sets. Delete it or make it a reference dimension."
+          "message": "In 'Sketch 1', Distance 100 mm is not needed: the other constraints already set it."
         }
       ]
     }

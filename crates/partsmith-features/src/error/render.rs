@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 
 use partsmith_model::{FieldUnit, Id, Units};
 use partsmith_naming::{ElementName, Fingerprint, Reference};
-use partsmith_sketch::RegionLoss;
+use partsmith_sketch::{DimensionValues, MessageContext, RegionLoss};
 
-use super::describe::{describe_elements, describe_face};
+use super::describe::{describe_elements, describe_face, stored_params};
 use super::field::FieldRef;
 use super::fix::{Fix, Place};
 use super::loss::{Loss, LossCandidate, RegionLost};
@@ -179,6 +179,34 @@ impl<'a> Renderer<'a> {
     /// The text of a computed length limit.
     pub(crate) fn limit(&self, millimeters: f64) -> String {
         suggested_limit(millimeters, self.units)
+    }
+
+    /// A message of the sketch crate (sketch.md section 4) about the sketch this message is on, rendered with the
+    /// sketch's label, its stored params, its solved entities and measured values in the run when it built, and the
+    /// document units (section 4.2), without dimension values, which the variants do not carry; `detail` when the
+    /// sketch's params cannot be read, as for `Display`.
+    pub(crate) fn sketch_message(
+        &self,
+        message: impl FnOnce(&MessageContext<'_>) -> String,
+        detail: impl FnOnce() -> String,
+    ) -> String {
+        let Some(sketch) = self.feature else {
+            return detail();
+        };
+        let Some(params) = stored_params(self.names, sketch) else {
+            return detail();
+        };
+        let result = self.names.sketch_result(sketch);
+        let label = self.feature_label(sketch);
+        let values = DimensionValues::new();
+        message(&MessageContext {
+            label: &label,
+            sketch: &params,
+            solved: result.map(|result| result.solved.entities.as_slice()),
+            values: &values,
+            measured: result.map(|result| &result.solved.measured),
+            units: self.units,
+        })
     }
 
     /// The state of a declared body just before the feature, when the context has it.

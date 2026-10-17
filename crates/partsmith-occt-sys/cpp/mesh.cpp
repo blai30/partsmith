@@ -1,6 +1,7 @@
 // Tessellation into flat mesh arrays, and the display geometry of one element (kernel spec section
 // 3.7).
 #include <algorithm>
+#include <array>
 #include <vector>
 
 #include <BRepAdaptor_Curve.hxx>
@@ -46,10 +47,35 @@ IMeshTools_Parameters mesh_parameters(double chord_deviation, double angle) {
   parameters.InParallel = Standard_False;
   // Delabella triangulates each face's nodes at once, where OCCT's default inserts them one by
   // one, which took seconds on large spheres and on planar faces with many holes (kernel spec
-  // section 3.7, item 2). Naming the algorithm also keeps OCCT from choosing it
-  // from the CSF_MeshAlgo environment variable.
+  // section 3.7, item 2). Naming the algorithm also keeps OCCT from choosing it from the
+  // CSF_MeshAlgo environment variable.
   parameters.MeshAlgo = IMeshTools_MeshAlgoType_Delabella;
   return parameters;
+}
+
+// The triangulation the mesher stored on face `index`, in the frame of the face without
+// `location`; raises StdFail_NotDone when it stored none, as on a face without a wire (kernel
+// spec section 3.7, items 7 and 9.2).
+const Handle(Poly_Triangulation) &
+    triangulation_of(const TopoDS_Face &face, std::uint32_t index, TopLoc_Location &location) {
+  const Handle(Poly_Triangulation) &triangulation = BRep_Tool::Triangulation(face, location);
+  if (triangulation.IsNull()) {
+    raise_not_done("BRepMesh_IncrementalMesh gave face " + std::to_string(index) +
+                   " no triangulation");
+  }
+  return triangulation;
+}
+
+// The nodes of a triangle wound counterclockwise seen from outside: the triangulation's order,
+// with two nodes swapped on a reversed face (kernel spec section 3.7, item 3).
+std::array<int, 3> outward_nodes(const Poly_Triangulation &triangulation, int triangle,
+                                 bool reversed) {
+  int first = 0, second = 0, third = 0;
+  triangulation.Triangle(triangle).Get(first, second, third);
+  if (reversed) {
+    std::swap(second, third);
+  }
+  return {first, second, third};
 }
 
 // The mesh vertices one face's triangulation gives an edge, in increasing edge parameter.
@@ -130,11 +156,8 @@ class MeshBuilder {
   void add_face(int face_index) {
     const TopoDS_Face &face = TopoDS::Face(shape_.faces()(face_index));
     TopLoc_Location location;
-    const Handle(Poly_Triangulation) &triangulation = BRep_Tool::Triangulation(face, location);
-    if (triangulation.IsNull()) {
-      raise_not_done("BRepMesh_IncrementalMesh gave face " + std::to_string(face_index) +
-                     " no triangulation");
-    }
+    const Handle(Poly_Triangulation) &triangulation =
+        triangulation_of(face, static_cast<std::uint32_t>(face_index), location);
     const gp_Trsf transformation = location.Transformation();
     const bool reversed = face.Orientation() == TopAbs_REVERSED;
     const std::uint32_t base = vertex_count();
@@ -152,12 +175,7 @@ class MeshBuilder {
     }
 
     for (int triangle = 1; triangle <= triangulation->NbTriangles(); ++triangle) {
-      int first = 0, second = 0, third = 0;
-      triangulation->Triangle(triangle).Get(first, second, third);
-      if (reversed) {
-        std::swap(second, third);
-      }
-      for (int node : {first, second, third}) {
+      for (int node : outward_nodes(*triangulation, triangle, reversed)) {
         data_.triangles.push_back(base + static_cast<std::uint32_t>(node) - 1);
       }
       data_.face_ids.push_back(static_cast<std::uint32_t>(face_index));
@@ -288,23 +306,14 @@ rust::Vec<double> face_display(const TopoDS_Face &face, std::uint32_t index, dou
   const TopoDS_Face copy = TopoDS::Face(copier.Shape());
   BRepMesh_IncrementalMesh mesher(copy, mesh_parameters(chord_deviation, angle));
   TopLoc_Location location;
-  const Handle(Poly_Triangulation) &triangulation = BRep_Tool::Triangulation(copy, location);
-  if (triangulation.IsNull()) {
-    raise_not_done("BRepMesh_IncrementalMesh gave face " + std::to_string(index) +
-                   " no triangulation");
-  }
+  const Handle(Poly_Triangulation) &triangulation = triangulation_of(copy, index, location);
   // The triangulation lies in the frame of the face without its location, like a whole shape's.
   const gp_Trsf transformation = location.Transformation();
   const bool reversed = copy.Orientation() == TopAbs_REVERSED;
   rust::Vec<double> points;
   points.reserve(9 * static_cast<std::size_t>(triangulation->NbTriangles()));
   for (int triangle = 1; triangle <= triangulation->NbTriangles(); ++triangle) {
-    int first = 0, second = 0, third = 0;
-    triangulation->Triangle(triangle).Get(first, second, third);
-    if (reversed) {
-      std::swap(second, third);
-    }
-    for (int node : {first, second, third}) {
+    for (int node : outward_nodes(*triangulation, triangle, reversed)) {
       push_point(points, triangulation->Node(node).Transformed(transformation).XYZ());
     }
   }

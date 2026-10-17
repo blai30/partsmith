@@ -2,6 +2,7 @@
 
 mod diagnosis;
 mod drag;
+mod issue;
 mod layout;
 mod measure;
 mod numeric;
@@ -11,17 +12,17 @@ mod substitution;
 mod system;
 
 use std::collections::BTreeMap;
-use std::fmt;
 
 use partsmith_model::Id;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use drag::NativeDragSession;
+pub use issue::SolveIssue;
 
 use crate::SOLVER_TOLERANCE;
 use crate::entity::SketchEntity;
-use crate::error::{SketchError, label};
+use crate::error::SketchError;
 use crate::params::{DimensionValues, SketchParams};
 use crate::point_ref::PointRef;
 use crate::validation::check_values;
@@ -177,71 +178,6 @@ pub enum EntityState {
     FullyConstrained,
     /// A conflicting constraint references it.
     Conflicting,
-}
-
-/// A user-facing solver finding. `Display` gives the message of section 4.2.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SolveIssue {
-    /// These constraints cannot all hold.
-    Conflicting {
-        /// The conflicting constraints in document order.
-        constraints: Vec<Id>,
-    },
-    /// This constraint repeats what others already determine.
-    Redundant {
-        /// The redundant constraint.
-        constraint: Id,
-        /// Its JSON type name.
-        type_name: &'static str,
-        /// True for a driving dimension.
-        dimension: bool,
-    },
-    /// Some component did not converge and no conflict explains it.
-    NotConverged,
-}
-
-impl fmt::Display for SolveIssue {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SolveIssue::Conflicting { constraints } => match constraints.as_slice() {
-                // Spec 4.2 also asks for "({label})" here, but the variant of spec 2.6 carries no
-                // type name; the label waits for a spec decision.
-                [single] => write!(
-                    formatter,
-                    "Constraint {single} cannot be satisfied. Delete it or change a dimension."
-                ),
-                _ => {
-                    let names: Vec<&str> = constraints.iter().map(Id::as_str).collect();
-                    write!(
-                        formatter,
-                        "Constraints {} conflict: they cannot all be satisfied at once. Delete one of them or change a dimension.",
-                        names.join(", ")
-                    )
-                }
-            },
-            SolveIssue::Redundant {
-                constraint,
-                type_name,
-                dimension: false,
-            } => write!(
-                formatter,
-                "Constraint {constraint} ({}) is redundant: the other constraints already determine what it sets. Delete it.",
-                label(type_name)
-            ),
-            SolveIssue::Redundant {
-                constraint,
-                type_name,
-                dimension: true,
-            } => write!(
-                formatter,
-                "Dimension {constraint} ({}) is redundant: the other constraints already determine what it sets. Delete it or make it a reference dimension.",
-                label(type_name)
-            ),
-            SolveIssue::NotConverged => formatter.write_str(
-                "The sketch could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape and try again.",
-            ),
-        }
-    }
 }
 
 /// A solve result together with the components that failed.
@@ -446,18 +382,5 @@ mod tests {
         assert!((radius - 6.0).abs() <= 1e-9);
         assert_eq!(start_angle.to_bits(), 0.0_f64.to_bits());
         assert!((0.0..std::f64::consts::TAU).contains(&end_angle));
-    }
-
-    /// Without the "({label})" of spec 4.2, which the variant cannot give (see `Display`).
-    #[test]
-    fn single_conflict_message_names_the_constraint() {
-        let issue = SolveIssue::Conflicting {
-            constraints: vec![id("c-1")],
-        };
-
-        assert_eq!(
-            issue.to_string(),
-            "Constraint c-1 cannot be satisfied. Delete it or change a dimension."
-        );
     }
 }

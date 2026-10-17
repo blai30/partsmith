@@ -9,6 +9,7 @@ use super::area::{total_moments, winding_number};
 use super::graph::{Chain, Graph, TracedLoop};
 use super::intersection::{Curve, Shape, meet};
 use super::key::{RegionKey, sort_holes};
+use super::open_ends;
 use super::{Profile, ProfileFinding, ProfileLoop, Region};
 use crate::PROFILE_TOLERANCE;
 use crate::entity::SketchEntity;
@@ -85,7 +86,12 @@ pub(super) fn build(entities: &[SketchEntity]) -> Profile {
     // Steps 3 to 6: edges, overlap removal, open endpoints and bridges.
     let mut graph = Graph::split(&curves, &endpoint_vertices, &vertices);
     graph.remove_overlaps(&curves, &vertices);
-    findings.extend(graph.open_endpoints(&curves, &vertices));
+    findings.extend(open_ends::findings(
+        &graph.open_vertices(vertices.len()),
+        &curves,
+        &endpoint_vertices,
+        &vertices,
+    ));
     graph.remove_bridges(vertices.len());
 
     // Steps 7 to 9: faces, holes and regions.
@@ -301,7 +307,7 @@ fn compare_findings(first: &ProfileFinding, second: &ProfileFinding) -> Ordering
     let key = |finding: &ProfileFinding| -> (u8, Vec<Id>, [f64; 2]) {
         match finding {
             ProfileFinding::ZeroLength { entity } => (0, vec![entity.clone()], [0.0, 0.0]),
-            ProfileFinding::OpenEndpoint { entity, point } => (1, vec![entity.clone()], *point),
+            ProfileFinding::OpenEndpoint { entity, point, .. } => (1, vec![entity.clone()], *point),
             ProfileFinding::Overlap {
                 entities, start, ..
             } => (2, entities.to_vec(), *start),

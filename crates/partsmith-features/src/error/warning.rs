@@ -349,11 +349,22 @@ impl FeatureWarning {
                     keys.join(", ")
                 )
             }
-            FeatureWarning::RedundantConstraints { issues } => issues
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(" "),
+            FeatureWarning::RedundantConstraints { issues } => renderer.sketch_message(
+                |context| {
+                    issues
+                        .iter()
+                        .map(|issue| issue.render(context))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                },
+                || {
+                    issues
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                },
+            ),
             FeatureWarning::ImportWarning { message } => message.clone(),
         }
     }
@@ -1147,6 +1158,80 @@ mod tests {
         assert_eq!(
             warning.to_string(),
             format!("{} {}", issue("c-3"), issue("c-9"))
+        );
+    }
+
+    #[test]
+    fn redundant_constraints_render_the_sketch_crate_messages_on_the_sketch() {
+        struct OneSketch {
+            record: FeatureRecord,
+        }
+
+        impl Names for OneSketch {
+            fn body_name(&self, _body: &Id) -> Option<String> {
+                None
+            }
+
+            fn feature_label(&self, _feature: &Id) -> Option<String> {
+                Some("Sketch 1".to_string())
+            }
+
+            fn type_label(&self, _feature: &Id) -> Option<String> {
+                Some("Sketch".to_string())
+            }
+
+            fn feature_record(&self, feature: &Id) -> Option<&FeatureRecord> {
+                (*feature == self.record.id).then_some(&self.record)
+            }
+
+            fn sketch_result(&self, _sketch: &Id) -> Option<&SketchResult> {
+                None
+            }
+        }
+
+        let names = OneSketch {
+            record: serde_json::from_value(json!({
+                "id": "f-sk1",
+                "type": "sketch",
+                "plane": {"kind": "origin", "plane": "XY"},
+                "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}],
+                "constraints": [
+                    {"id": "c-1", "type": "horizontal", "line": "e-1"},
+                    {"id": "c-2", "type": "horizontal", "line": "e-1"},
+                    {"id": "c-3", "type": "distance", "line": "e-1", "expr": "80 mm"},
+                    {"id": "c-4", "type": "distance", "line": "e-1", "expr": "80 mm"}
+                ]
+            }))
+            .expect("the record deserializes"),
+        };
+        let feature = id("f-sk1");
+        let bodies = BTreeMap::new();
+        let diagnosis = Diagnosis::default();
+        let context = RenderContext {
+            feature: &feature,
+            names: &names,
+            units: Units::Mm,
+            bodies: &bodies,
+            diagnosis: &diagnosis,
+        };
+        let warning = FeatureWarning::RedundantConstraints {
+            issues: vec![
+                SolveIssue::Redundant {
+                    constraint: id("c-2"),
+                    type_name: "horizontal",
+                    dimension: false,
+                },
+                SolveIssue::Redundant {
+                    constraint: id("c-4"),
+                    type_name: "distance",
+                    dimension: true,
+                },
+            ],
+        };
+
+        assert_eq!(
+            warning.render(&context),
+            "In 'Sketch 1', Horizontal on the line from (0, 0) to (80, 0) is not needed: the other constraints already hold it. In 'Sketch 1', Distance 80 mm is not needed: the other constraints already set it."
         );
     }
 

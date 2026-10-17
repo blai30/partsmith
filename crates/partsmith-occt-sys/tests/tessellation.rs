@@ -11,12 +11,12 @@ use common::{
     assert_near, assert_point_near, assert_relative, assert_same_points, box_corners,
     box_primitive, cylinder_primitive, degenerated_edges, directed_edge_uses, edge_between,
     face_with_role, generated_faces, geometry, mesh_face_ids, rectangle_profile, seam_edge,
-    sphere_primitive, top_front_edge, weld_exactly,
+    sphere_primitive, top_front_edge, unbounded_face, weld_exactly,
 };
 use partsmith_mesh::{Mesh, TessellationTolerance};
 use partsmith_occt_sys::{
-    ElementDisplay, KernelError, Operation, Plane, Point, Primitive, PrimitiveFace, Shape,
-    SubShapeKind, Transform, Vector, shell, transform,
+    ElementDisplay, KernelError, KernelErrorKind, Operation, Plane, Point, Primitive,
+    PrimitiveFace, Shape, SubShapeKind, Transform, Vector, shell, transform,
 };
 
 const TOLERANCE_MESSAGE: &str =
@@ -841,6 +841,41 @@ fn missing_edges_and_vertices_cannot_be_displayed() {
             message,
         );
     }
+}
+
+/// Asserts the `Failed` error of face 1, which the mesher left without a triangulation (section
+/// 3.7, items 7 and 9.2).
+fn assert_untriangulated(error: &KernelError) {
+    assert_eq!(error.kind, KernelErrorKind::Failed, "kind of {error:?}");
+    assert_eq!(
+        error.operation,
+        Operation::Tessellate,
+        "operation of {error:?}"
+    );
+    assert_eq!(error.exception, "StdFail_NotDone", "exception of {error:?}");
+    assert_eq!(
+        error.message,
+        "BRepMesh_IncrementalMesh gave face 1 no triangulation"
+    );
+}
+
+#[test]
+fn face_without_a_boundary_cannot_be_tessellated() {
+    let error = unbounded_face()
+        .tessellate(&OPT)
+        .expect_err("the face gets no triangulation");
+
+    assert_untriangulated(&error);
+}
+
+#[test]
+fn face_without_a_boundary_cannot_be_displayed() {
+    assert_untriangulated(&display_error(
+        &unbounded_face(),
+        SubShapeKind::Face,
+        1,
+        &OPT,
+    ));
 }
 
 #[test]

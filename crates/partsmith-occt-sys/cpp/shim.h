@@ -85,7 +85,6 @@ class Shape {
   // The index map of sub-shapes of one kind (TopExp::MapShapes order, 1-based).
   const TopTools_IndexedMapOfShape &map(ElementKind kind) const;
   const TopTools_IndexedMapOfShape &solids() const { return solids_; }
-  const TopTools_IndexedMapOfShape &shells() const { return shells_; }
   const TopTools_IndexedMapOfShape &faces() const { return faces_; }
   const TopTools_IndexedMapOfShape &edges() const { return edges_; }
   const TopTools_IndexedMapOfShape &vertices() const { return vertices_; }

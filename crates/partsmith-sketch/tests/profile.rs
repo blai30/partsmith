@@ -1,20 +1,23 @@
-//! Acceptance tests for profiles (spec section 6.11, tests 147 to 173).
+//! Acceptance tests for profiles and their open ends (spec sections 6.11 and 6.19, tests 147 to 173 and 237 to 239).
 //!
-//! Areas and centroids hold within 1e-9 relative; coordinates within 1e-9 unless "bitwise".
+//! Areas and centroids hold within 1e-9 relative; coordinates and gaps within 1e-9 unless "bitwise".
 
 mod common;
 
 use std::f64::consts::PI;
 
+use common::messages::context;
 use common::random::Rng;
 use common::{
-    TOLERANCE, arc, as_construction, assert_bitwise, assert_point_bitwise, assert_point_close,
-    assert_relative, circle, crossing_rectangles, id, line, nested_circles, overlapping_circles,
-    plate_entities, point, rect_entities, slot,
+    Sketch, TOLERANCE, arc, as_construction, assert_bitwise, assert_close, assert_point_bitwise,
+    assert_point_close, assert_relative, bowtie, circle, coincident, crossing_rectangles, find, id,
+    line, line_ends, nested_circles, open_polyline, overlapping_bottom, overlapping_circles,
+    plate_entities, point, point_ref, rect_entities, rect_with_gap, rect_with_zero_size_curves,
+    slot,
 };
 use partsmith_sketch::{
-    Profile, ProfileCurve, ProfileEdge, ProfileFinding, ProfileLoop, Region, SketchEntity,
-    build_profile,
+    CONNECT_DISTANCE, Connection, Profile, ProfileCurve, ProfileEdge, ProfileFinding, ProfileLoop,
+    Region, SketchEntity, SketchFix, build_profile,
 };
 
 /// Relative tolerance for areas and centroids (section 6.11).
@@ -75,14 +78,20 @@ fn assert_findings(actual: &[ProfileFinding], expected: &[ProfileFinding]) {
     for (found, wanted) in actual.iter().zip(expected) {
         match (found, wanted) {
             (
-                ProfileFinding::OpenEndpoint { entity, point },
+                ProfileFinding::OpenEndpoint {
+                    entity,
+                    point,
+                    connect,
+                },
                 ProfileFinding::OpenEndpoint {
                     entity: wanted_entity,
                     point: wanted_point,
+                    connect: wanted_connect,
                 },
             ) => {
                 assert_eq!(entity, wanted_entity, "{found:?}");
                 assert_point_close(*point, *wanted_point, TOLERANCE, &format!("{found:?}"));
+                assert_connection(connect.as_ref(), wanted_connect.as_ref(), found);
             }
             (
                 ProfileFinding::Overlap {
@@ -121,10 +130,54 @@ fn assert_findings(actual: &[ProfileFinding], expected: &[ProfileFinding]) {
     }
 }
 
+/// Asserts that two connections of open ends are both absent, or join the same ends with gaps within the tolerance.
+#[track_caller]
+fn assert_connection(
+    actual: Option<&Connection>,
+    expected: Option<&Connection>,
+    finding: &ProfileFinding,
+) {
+    match (actual, expected) {
+        (None, None) => {}
+        (Some(found), Some(wanted)) => {
+            assert_eq!(found.first, wanted.first, "first end of {finding:?}");
+            assert_eq!(found.second, wanted.second, "second end of {finding:?}");
+            assert_close(
+                found.gap,
+                wanted.gap,
+                TOLERANCE,
+                &format!("gap of {finding:?}"),
+            );
+        }
+        _ => panic!("connection of {finding:?} is not the expected {expected:?}"),
+    }
+}
+
+/// An open end that no other open end within `CONNECT_DISTANCE` is paired with.
 fn open_endpoint(entity: &str, point: [f64; 2]) -> ProfileFinding {
     ProfileFinding::OpenEndpoint {
         entity: id(entity),
         point,
+        connect: None,
+    }
+}
+
+/// An open end paired with the open end `second`, `gap` mm away (section 3.13.3).
+fn connected_endpoint(
+    entity: &str,
+    point: [f64; 2],
+    first: &str,
+    second: &str,
+    gap: f64,
+) -> ProfileFinding {
+    ProfileFinding::OpenEndpoint {
+        entity: id(entity),
+        point,
+        connect: Some(Connection {
+            first: point_ref(first),
+            second: point_ref(second),
+            gap,
+        }),
     }
 }
 
@@ -167,34 +220,6 @@ fn assert_loop_invariants(profile: &Profile) {
         }
         assert_relative(region.area, total, RELATIVE, &format!("area of {key}"));
     }
-}
-
-/// Test 160: a bowtie of four lines.
-fn bowtie() -> Vec<SketchEntity> {
-    vec![
-        line("e-1", [0.0, 0.0], [10.0, 10.0]),
-        line("e-2", [10.0, 10.0], [10.0, 0.0]),
-        line("e-3", [10.0, 0.0], [0.0, 10.0]),
-        line("e-4", [0.0, 10.0], [0.0, 0.0]),
-    ]
-}
-
-/// Test 158: a rectangle whose bottom side is two overlapping lines.
-fn overlapping_bottom() -> Vec<SketchEntity> {
-    vec![
-        line("e-1", [0.0, 0.0], [60.0, 0.0]),
-        line("e-2", [80.0, 0.0], [80.0, 50.0]),
-        line("e-3", [80.0, 50.0], [0.0, 50.0]),
-        line("e-4", [0.0, 50.0], [0.0, 0.0]),
-        line("e-5", [20.0, 0.0], [80.0, 0.0]),
-    ]
-}
-
-/// `RECT` with `e-4` ending at `(0, gap)`.
-fn rect_with_gap(gap: f64) -> Vec<SketchEntity> {
-    let mut entities = rect_entities();
-    entities[3] = line("e-4", [0.0, 50.0], [0.0, gap]);
-    entities
 }
 
 #[test]
@@ -351,13 +376,7 @@ fn t153_points_are_ignored() {
 
 #[test]
 fn t154_open_polyline_has_no_region_and_two_open_ends() {
-    let entities = vec![
-        line("e-1", [0.0, 0.0], [10.0, 0.0]),
-        line("e-2", [10.0, 0.0], [10.0, 10.0]),
-        line("e-3", [10.0, 10.0], [0.0, 10.0]),
-    ];
-
-    let profile = build_profile(&entities);
+    let profile = build_profile(&open_polyline());
 
     assert!(profile.regions.is_empty());
     assert_findings(
@@ -471,11 +490,7 @@ fn t158_overlapping_lines_keep_the_smaller_id() {
 
 #[test]
 fn t159_zero_size_curves_are_reported_and_ignored() {
-    let mut entities = rect_entities();
-    entities.push(line("e-5", [5.0, 5.0], [5.0, 5.0]));
-    entities.push(circle("e-6", [1.0, 1.0], 0.0));
-
-    let profile = build_profile(&entities);
+    let profile = build_profile(&rect_with_zero_size_curves());
 
     assert_eq!(profile.regions, build_profile(&rect_entities()).regions);
     assert_findings(
@@ -703,10 +718,13 @@ fn t168_gap_wider_than_the_tolerance_leaves_the_outline_open() {
     assert!(profile.regions.is_empty(), "regions: {:?}", keys(&profile));
     assert_findings(
         &profile.findings,
-        &[
-            open_endpoint("e-1", [0.0, 0.0]),
-            open_endpoint("e-4", [0.0, 0.001]),
-        ],
+        &[connected_endpoint(
+            "e-4",
+            [0.0, 0.001],
+            "e-4.end",
+            "e-1.start",
+            0.001,
+        )],
     );
 }
 
@@ -802,18 +820,24 @@ fn t172_grid_of_lines_gives_nine_cells() {
         })
         .expect("a cell is centered at (5, 5)");
     assert_eq!(corner.key.to_string(), "e-1,~e-2,~e-5,e-6");
-    let open = profile
-        .findings
-        .iter()
-        .filter(|finding| matches!(finding, ProfileFinding::OpenEndpoint { .. }))
-        .count();
-    let crossings = profile
-        .findings
-        .iter()
-        .filter(|finding| matches!(finding, ProfileFinding::SelfIntersection { .. }))
-        .count();
-    assert_eq!(open, 16);
-    assert_eq!(crossings, 0);
+    let corner_gap = 2.0_f64.sqrt();
+    assert_findings(
+        &profile.findings,
+        &[
+            open_endpoint("e-2", [-1.0, 10.0]),
+            open_endpoint("e-2", [31.0, 10.0]),
+            open_endpoint("e-3", [-1.0, 20.0]),
+            open_endpoint("e-3", [31.0, 20.0]),
+            connected_endpoint("e-5", [0.0, -1.0], "e-5.start", "e-1.start", corner_gap),
+            connected_endpoint("e-5", [0.0, 31.0], "e-5.end", "e-4.start", corner_gap),
+            open_endpoint("e-6", [10.0, -1.0]),
+            open_endpoint("e-6", [10.0, 31.0]),
+            open_endpoint("e-7", [20.0, -1.0]),
+            open_endpoint("e-7", [20.0, 31.0]),
+            connected_endpoint("e-8", [30.0, -1.0], "e-8.start", "e-1.end", corner_gap),
+            connected_endpoint("e-8", [30.0, 31.0], "e-8.end", "e-4.end", corner_gap),
+        ],
+    );
 }
 
 #[test]
@@ -822,4 +846,239 @@ fn t173_profiles_are_deterministic() {
     let second = build_profile(&overlapping_circles());
 
     assert_bitwise(&second, &first, "profile");
+}
+
+// ---------------------------------------------------------------------------
+// 6.19 Open ends
+// ---------------------------------------------------------------------------
+
+/// The `fixes()` of every finding, in order.
+fn fixes_of(profile: &Profile) -> Vec<Vec<SketchFix>> {
+    profile.findings.iter().map(ProfileFinding::fixes).collect()
+}
+
+/// Test 239: an open end within 2 mm of two others.
+fn three_lines_with_close_ends() -> Vec<SketchEntity> {
+    vec![
+        line("e-1", [0.0, 0.0], [10.0, 0.0]),
+        line("e-2", [10.5, 0.0], [20.0, 0.0]),
+        line("e-3", [10.0, 1.0], [10.0, 10.0]),
+    ]
+}
+
+#[test]
+fn t237_a_small_gap_is_one_finding_for_both_open_ends() {
+    let profile = build_profile(&rect_with_gap(0.3));
+
+    assert!(profile.regions.is_empty(), "regions: {:?}", keys(&profile));
+    assert_findings(
+        &profile.findings,
+        &[connected_endpoint(
+            "e-4",
+            [0.0, 0.3],
+            "e-4.end",
+            "e-1.start",
+            0.3,
+        )],
+    );
+}
+
+#[test]
+fn t237_the_small_gap_is_described_and_offers_to_connect_the_ends() {
+    let sketch = Sketch::new(rect_with_gap(0.3));
+    let profile = sketch.profile();
+    assert_eq!(
+        profile.findings.len(),
+        1,
+        "findings: {:?}",
+        profile.findings
+    );
+
+    let finding = &profile.findings[0];
+
+    assert_eq!(
+        finding.render(&context(&sketch)),
+        "The end of the line from (0, 50) to (0, 0.3) at (0, 0.3) is not connected to other geometry."
+    );
+    assert_eq!(
+        finding.fixes(),
+        [SketchFix::ConnectEnds {
+            first: point_ref("e-4.end"),
+            second: point_ref("e-1.start"),
+        }]
+    );
+}
+
+#[test]
+fn t237_connecting_the_ends_closes_the_outline() {
+    let sketch = Sketch::new(rect_with_gap(0.3)).with("c-1", coincident("e-4.end", "e-1.start"));
+
+    let result = sketch.solve();
+
+    let (first_start, _) = line_ends(find(&result.entities, "e-1"));
+    let (_, fourth_end) = line_ends(find(&result.entities, "e-4"));
+    assert_point_close(fourth_end, [0.0, 0.15], TOLERANCE, "e-4.end");
+    assert_point_bitwise(first_start, fourth_end, "e-1.start equals e-4.end");
+    let profile = build_profile(&result.entities);
+    assert_eq!(keys(&profile), ["e-1,e-2,e-3,e-4"]);
+    assert!(
+        profile.findings.is_empty(),
+        "findings: {:?}",
+        profile.findings
+    );
+}
+
+#[test]
+fn t238_a_gap_over_the_connect_distance_leaves_two_open_ends_without_a_fix() {
+    let profile = build_profile(&rect_with_gap(3.0));
+
+    assert!(profile.regions.is_empty(), "regions: {:?}", keys(&profile));
+    assert_findings(
+        &profile.findings,
+        &[
+            open_endpoint("e-1", [0.0, 0.0]),
+            open_endpoint("e-4", [0.0, 3.0]),
+        ],
+    );
+    let no_fix: Vec<SketchFix> = Vec::new();
+    assert_eq!(fixes_of(&profile), [no_fix.clone(), no_fix]);
+}
+
+#[test]
+fn t239_the_closest_pair_of_open_ends_is_used_first() {
+    let profile = build_profile(&three_lines_with_close_ends());
+
+    assert!(profile.regions.is_empty(), "regions: {:?}", keys(&profile));
+    assert_findings(
+        &profile.findings,
+        &[
+            open_endpoint("e-1", [0.0, 0.0]),
+            connected_endpoint("e-2", [10.5, 0.0], "e-2.start", "e-1.end", 0.5),
+            open_endpoint("e-2", [20.0, 0.0]),
+            open_endpoint("e-3", [10.0, 1.0]),
+            open_endpoint("e-3", [10.0, 10.0]),
+        ],
+    );
+}
+
+#[test]
+fn connect_distance_is_two_millimeters() {
+    assert_eq!(CONNECT_DISTANCE, 2.0);
+}
+
+#[test]
+fn open_ends_exactly_the_connect_distance_apart_are_paired() {
+    let profile = build_profile(&rect_with_gap(CONNECT_DISTANCE));
+
+    assert_findings(
+        &profile.findings,
+        &[connected_endpoint(
+            "e-4",
+            [0.0, 2.0],
+            "e-4.end",
+            "e-1.start",
+            2.0,
+        )],
+    );
+}
+
+#[test]
+fn open_ends_just_over_the_connect_distance_apart_are_not_paired() {
+    let profile = build_profile(&rect_with_gap(2.001));
+
+    assert_findings(
+        &profile.findings,
+        &[
+            open_endpoint("e-1", [0.0, 0.0]),
+            open_endpoint("e-4", [0.0, 2.001]),
+        ],
+    );
+}
+
+#[test]
+fn the_two_ends_of_one_curve_are_never_paired() {
+    let profile = build_profile(&[line("e-1", [0.0, 0.0], [1.0, 0.0])]);
+
+    assert_findings(
+        &profile.findings,
+        &[
+            open_endpoint("e-1", [0.0, 0.0]),
+            open_endpoint("e-1", [1.0, 0.0]),
+        ],
+    );
+}
+
+#[test]
+fn equal_gaps_pair_the_ends_of_the_lower_entity_id_first() {
+    // The start of e-2 is 1 mm from the end of e-1 and from the start of e-3, which are 2 mm apart.
+    let entities = vec![
+        line("e-1", [0.0, 0.0], [9.0, 0.0]),
+        line("e-2", [10.0, 0.0], [10.0, 10.0]),
+        line("e-3", [11.0, 0.0], [20.0, 0.0]),
+    ];
+
+    let profile = build_profile(&entities);
+
+    assert_findings(
+        &profile.findings,
+        &[
+            open_endpoint("e-1", [0.0, 0.0]),
+            connected_endpoint("e-2", [10.0, 0.0], "e-2.start", "e-1.end", 1.0),
+            open_endpoint("e-2", [10.0, 10.0]),
+            open_endpoint("e-3", [11.0, 0.0]),
+            open_endpoint("e-3", [20.0, 0.0]),
+        ],
+    );
+}
+
+#[test]
+fn an_open_arc_end_is_paired_by_its_role() {
+    // The arc e-3 runs from the end of e-1 at (10, 0) up to (10, 10); the line e-2 starts 0.5 mm above that end.
+    let sketch = Sketch::new(vec![
+        line("e-1", [0.0, 0.0], [10.0, 0.0]),
+        line("e-2", [10.0, 10.5], [0.0, 10.5]),
+        arc("e-3", [10.0, 5.0], 5.0, -PI / 2.0, PI / 2.0),
+        line("e-4", [0.0, 10.5], [0.0, 0.0]),
+    ]);
+
+    let profile = sketch.profile();
+
+    assert_findings(
+        &profile.findings,
+        &[connected_endpoint(
+            "e-3",
+            [10.0, 10.0],
+            "e-3.end",
+            "e-2.start",
+            0.5,
+        )],
+    );
+    assert_eq!(
+        profile.findings[0].render(&context(&sketch)),
+        "The end of the arc from (10, 0) to (10, 10) around (10, 5) at (10, 10) is not connected to other geometry."
+    );
+    assert_eq!(
+        fixes_of(&profile),
+        [vec![SketchFix::ConnectEnds {
+            first: point_ref("e-3.end"),
+            second: point_ref("e-2.start"),
+        }]]
+    );
+}
+
+#[test]
+fn pairing_open_ends_does_not_depend_on_the_order_of_entities() {
+    let base = build_profile(&three_lines_with_close_ends());
+    let mut rng = Rng::new(239);
+
+    for permutation in 0..20 {
+        let mut entities = three_lines_with_close_ends();
+        rng.shuffle(&mut entities);
+
+        assert_eq!(
+            build_profile(&entities).findings,
+            base.findings,
+            "findings of permutation {permutation}"
+        );
+    }
 }

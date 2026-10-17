@@ -1380,7 +1380,7 @@ export type RegionFingerprint = string
  */
 export type RegionLoop = string
 /**
- * A profile check finding. `Display` gives the message of section 4.3.
+ * A profile check finding. `render` gives the message of section 4.3 and `Display` the detail of section 4.4.
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
  * via the `definition` "ProfileFinding".
@@ -1397,6 +1397,10 @@ entity: Id
  * @maxItems 2
  */
 point: [number, number]
+/**
+ * The other open end within `CONNECT_DISTANCE` that this end is paired with.
+ */
+connect?: (Connection | null)
 type: "open_endpoint"
 } | {
 /**
@@ -2750,6 +2754,26 @@ fp: RegionFingerprint
  * written before file format version 2. Omitted from JSON when `None`.
  */
 outline?: (RegionLoop | null)
+}
+/**
+ * Two open curve ends within `CONNECT_DISTANCE` of each other. `Display` writes `first,second,gap` (section 4.4).
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "Connection".
+ */
+export interface Connection {
+/**
+ * The open end the finding names.
+ */
+first: PointRef
+/**
+ * The open end it would be joined to.
+ */
+second: PointRef
+/**
+ * Distance between the two ends in mm.
+ */
+gap: number
 }
 /**
  * A message about a document, feature, sketch or export.

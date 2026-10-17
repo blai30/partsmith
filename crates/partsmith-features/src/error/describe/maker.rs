@@ -126,7 +126,7 @@ fn stored_entities(names: &dyn Names, sketch: &Id) -> Option<Vec<SketchEntity>> 
 }
 
 /// The stored params of a sketch record.
-fn stored_params(names: &dyn Names, sketch: &Id) -> Option<SketchParams> {
+pub(crate) fn stored_params(names: &dyn Names, sketch: &Id) -> Option<SketchParams> {
     let record = names.feature_record(sketch)?;
     serde_json::from_value(Value::Object(record.params.clone())).ok()
 }

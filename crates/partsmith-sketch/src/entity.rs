@@ -79,18 +79,18 @@ pub enum EntityKind {
 }
 
 impl EntityKind {
-    /// The kind name with a capital letter, as a message begins with it ("Circle").
-    pub(crate) fn title(&self) -> &'static str {
+    /// The kind name in snake_case, as JSON and details write it ("circle").
+    pub(crate) fn name(self) -> &'static str {
         match self {
-            EntityKind::Point => "Point",
-            EntityKind::Line => "Line",
-            EntityKind::Circle => "Circle",
-            EntityKind::Arc => "Arc",
+            EntityKind::Point => "point",
+            EntityKind::Line => "line",
+            EntityKind::Circle => "circle",
+            EntityKind::Arc => "arc",
         }
     }
 
     /// The kind name with its article ("a circle", "an arc").
-    pub(crate) fn with_article(&self) -> &'static str {
+    pub(crate) fn with_article(self) -> &'static str {
         match self {
             EntityKind::Point => "a point",
             EntityKind::Line => "a line",
@@ -174,8 +174,13 @@ impl Geometry {
         }
     }
 
+    /// True when every coordinate, radius and angle is finite.
+    pub(crate) fn is_finite(&self) -> bool {
+        self.numbers().iter().all(|value| value.is_finite())
+    }
+
     /// Every number of the geometry, for finiteness checks.
-    pub(crate) fn numbers(&self) -> Vec<f64> {
+    fn numbers(&self) -> Vec<f64> {
         match self {
             Geometry::Point { position } => position.to_vec(),
             Geometry::Line { start, end } => vec![start[0], start[1], end[0], end[1]],

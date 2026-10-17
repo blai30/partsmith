@@ -507,6 +507,9 @@ fn t017_drag_targets_round_trip() {
 #[test]
 fn t017_profile_findings_round_trip() {
     assert_round_trip::<ProfileFinding>(
+        r#"{"type": "open_endpoint", "entity": "e-4", "point": [0, 0.3], "connect": {"first": "e-4.end", "second": "e-1.start", "gap": 0.3}}"#,
+    );
+    assert_round_trip::<ProfileFinding>(
         r#"{"type": "open_endpoint", "entity": "e-3", "point": [80, 50]}"#,
     );
     assert_round_trip::<ProfileFinding>(
@@ -516,6 +519,32 @@ fn t017_profile_findings_round_trip() {
         r#"{"type": "self_intersection", "entities": ["e-1", "e-3"], "point": [5, 5]}"#,
     );
     assert_round_trip::<ProfileFinding>(r#"{"type": "zero_length", "entity": "e-7"}"#);
+}
+
+#[test]
+fn an_open_endpoint_writes_its_connection_and_leaves_out_an_absent_one() {
+    let connected: ProfileFinding = parse(
+        r#"{"type": "open_endpoint", "entity": "e-4", "point": [0, 0.3], "connect": {"first": "e-4.end", "second": "e-1.start", "gap": 0.3}}"#,
+    );
+    let alone: ProfileFinding =
+        parse(r#"{"type": "open_endpoint", "entity": "e-3", "point": [80, 50]}"#);
+
+    assert_eq!(
+        write(&connected),
+        r#"{"type":"open_endpoint","entity":"e-4","point":[0.0,0.3],"connect":{"first":"e-4.end","second":"e-1.start","gap":0.3}}"#
+    );
+    assert_eq!(
+        write(&alone),
+        r#"{"type":"open_endpoint","entity":"e-3","point":[80.0,50.0]}"#
+    );
+    assert_eq!(
+        alone,
+        ProfileFinding::OpenEndpoint {
+            entity: id("e-3"),
+            point: [80.0, 50.0],
+            connect: None,
+        }
+    );
 }
 
 #[test]

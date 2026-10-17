@@ -275,7 +275,7 @@ impl ConstraintKind {
     }
 
     /// The entity id of every reference field in field order, reserved names included.
-    fn references(&self) -> Vec<&Id> {
+    pub(crate) fn references(&self) -> Vec<&Id> {
         match self {
             ConstraintKind::Coincident { points } => pair_entities(points).to_vec(),
             ConstraintKind::PointOnObject { point, curve } => vec![&point.entity, curve],

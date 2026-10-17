@@ -6,7 +6,7 @@ use std::f64::consts::{PI, TAU};
 
 use super::intersection::{Bounds, Curve, Shape, same_circle};
 use super::key::KeyEdge;
-use super::{ProfileCurve, ProfileEdge, ProfileFinding, signed_area};
+use super::{ProfileCurve, ProfileEdge, signed_area};
 use crate::PROFILE_TOLERANCE;
 use crate::entity::point_at_angle;
 use crate::union_find::UnionFind;
@@ -55,6 +55,15 @@ struct HalfEdge<'a> {
 enum ClosedEdge {
     Piece(usize),
     Ring(usize),
+}
+
+/// A vertex of degree 1 and the curve of the one piece that ends there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct OpenVertex {
+    /// The vertex.
+    pub(super) vertex: usize,
+    /// The curve, by index.
+    pub(super) curve: usize,
 }
 
 /// The edges of the arrangement.
@@ -217,25 +226,22 @@ impl Graph {
         }
     }
 
-    /// Ends of curves that touch nothing else: vertices of degree 1 (step 5). A closed piece counts twice.
-    pub(super) fn open_endpoints(
-        &self,
-        curves: &[Curve<'_>],
-        vertices: &[[f64; 2]],
-    ) -> Vec<ProfileFinding> {
-        let mut degree = vec![0_usize; vertices.len()];
-        let mut last_curve = vec![0_usize; vertices.len()];
+    /// Ends of curves that touch nothing else: the vertices of degree 1 (step 5), each with the curve of its one
+    /// piece, in vertex order. A closed piece counts twice.
+    pub(super) fn open_vertices(&self, vertex_count: usize) -> Vec<OpenVertex> {
+        let mut degree = vec![0_usize; vertex_count];
+        let mut last_curve = vec![0_usize; vertex_count];
         for piece in &self.pieces {
             for vertex in [piece.from, piece.to] {
                 degree[vertex] += 1;
                 last_curve[vertex] = piece.curve;
             }
         }
-        (0..vertices.len())
+        (0..vertex_count)
             .filter(|&vertex| degree[vertex] == 1)
-            .map(|vertex| ProfileFinding::OpenEndpoint {
-                entity: curves[last_curve[vertex]].entity.clone(),
-                point: vertices[vertex],
+            .map(|vertex| OpenVertex {
+                vertex,
+                curve: last_curve[vertex],
             })
             .collect()
     }

@@ -625,12 +625,19 @@ impl FeatureError {
                 renderer.feature_label(sketch),
                 field.label
             ),
-            FeatureError::SketchInvalid { error } => error.to_string(),
-            FeatureError::SketchConflict { constraints } => SolveIssue::Conflicting {
-                constraints: constraints.clone(),
+            FeatureError::SketchInvalid { error } => {
+                renderer.sketch_message(|context| error.render(context), || error.to_string())
             }
-            .to_string(),
-            FeatureError::SketchNotSolved => SolveIssue::NotConverged.to_string(),
+            FeatureError::SketchConflict { constraints } => {
+                let issue = SolveIssue::Conflicting {
+                    constraints: constraints.clone(),
+                };
+                renderer.sketch_message(|context| issue.render(context), || issue.to_string())
+            }
+            FeatureError::SketchNotSolved => {
+                let issue = SolveIssue::NotConverged;
+                renderer.sketch_message(|context| issue.render(context), || issue.to_string())
+            }
             FeatureError::Kernel { error } => error.user_message(),
             FeatureError::FilletTooLarge {
                 radius, max: Some(max), ..

@@ -4077,10 +4077,10 @@
       "pattern": "^~?[A-Za-z0-9_-]{1,64}(,~?[A-Za-z0-9_-]{1,64})*$"
     },
     "ProfileFinding": {
-      "description": "A profile check finding. `Display` gives the message of section 4.3.",
+      "description": "A profile check finding. `render` gives the message of section 4.3 and `Display` the detail of section 4.4.",
       "oneOf": [
         {
-          "description": "A curve end that touches no other non-construction curve.",
+          "description": "A curve end that touches no other non-construction curve. With `connect`, the finding stands for two open\nends that one coincident constraint would join (section 3.13.3); `connect` is omitted from JSON when `None`.",
           "type": "object",
           "properties": {
             "entity": {
@@ -4096,6 +4096,17 @@
               },
               "minItems": 2,
               "maxItems": 2
+            },
+            "connect": {
+              "description": "The other open end within `CONNECT_DISTANCE` that this end is paired with.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Connection"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": {
               "type": "string",
@@ -4205,6 +4216,30 @@
             "entity"
           ]
         }
+      ]
+    },
+    "Connection": {
+      "description": "Two open curve ends within `CONNECT_DISTANCE` of each other. `Display` writes `first,second,gap` (section 4.4).",
+      "type": "object",
+      "properties": {
+        "first": {
+          "description": "The open end the finding names.",
+          "$ref": "#/$defs/PointRef"
+        },
+        "second": {
+          "description": "The open end it would be joined to.",
+          "$ref": "#/$defs/PointRef"
+        },
+        "gap": {
+          "description": "Distance between the two ends in mm.",
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "first",
+        "second",
+        "gap"
       ]
     },
     "Diagnostic": {
