@@ -128,11 +128,8 @@ impl Cache {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_features::DatumResult;
-    use partsmith_sketch::OriginPlane;
-
     use super::*;
-    use crate::test_support::id;
+    use crate::test_support::{datum_at, id};
 
     fn key(byte: u8) -> CacheKey {
         CacheKey([byte; 32])
@@ -157,13 +154,7 @@ mod tests {
 
     #[test]
     fn built_outputs_without_bodies_have_no_states() {
-        let built = Built::new(FeatureOutput::new(
-            OutputData::Datum(DatumResult::Plane {
-                placement: OriginPlane::Xy.placement(),
-                motion: partsmith_naming::Motion::IDENTITY,
-            }),
-            Vec::new(),
-        ));
+        let built = Built::new(FeatureOutput::new(datum_at(0.0), Vec::new()));
 
         assert!(built.bodies.is_empty());
     }

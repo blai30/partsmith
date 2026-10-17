@@ -95,20 +95,21 @@ impl<'a> Source<'a> {
         Ok(Source { body, state, shape })
     }
 
-    /// The source moved by `motion`, named as instance `instance` of the feature being built:
-    /// every source name with the suffix `@<feature>:<instance>` (naming.md section 3.5.1). The
-    /// kernel transform keeps element indices, so the instance map fits the copy as it is.
+    /// The source moved by `copy_transform`, named as instance `instance` of the feature being
+    /// built: every source name with the suffix `@<feature>:<instance>` (naming.md section 3.5.1),
+    /// with `copy_transform` as the motion of its faces. The kernel transform keeps element
+    /// indices, so the instance map fits the copy as it is.
     pub(super) fn copy(
         &self,
         context: &BuildContext<'_>,
-        motion: &Transform,
+        copy_transform: &Transform,
         instance: Instance,
     ) -> Result<Tool, FeatureError> {
-        let moved = transform(self.shape, motion)?;
+        let moved = transform(self.shape, copy_transform)?;
         let naming = self.state.naming().with_instance(
             context.feature(),
             instance,
-            &naming_motion(motion),
+            &naming_motion(copy_transform),
         )?;
         Ok(Tool {
             shape: moved.shape,

@@ -15,7 +15,7 @@ use feature_support::{
     assert_face_kind, assert_list_field, assert_median_build_within, assert_messages_pass_lint,
     assert_moved_by_100, assert_placement, assert_relative, assert_unchanged, assert_volume,
     body_update, document, edge, face, face_names, face_sketch, load_example, message, one_point,
-    sketch_result, suggested_limit,
+    point_components, sketch_result, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
 use partsmith_model::{Document, Units};
@@ -501,8 +501,8 @@ fn t015_the_sides_do_not_depend_on_the_joins_id() {
     assert_relative("chamfer face area", kept.measure, renamed.measure);
     assert_coordinates(
         "chamfer face centroid",
-        components_of(kept.centroid),
-        components_of(renamed.centroid),
+        point_components(kept.centroid),
+        point_components(renamed.centroid),
         LENGTH_TOLERANCE,
     );
     assert_relative(
@@ -516,11 +516,6 @@ fn t015_the_sides_do_not_depend_on_the_joins_id() {
             .volume()
             .expect("the kernel measures the volume"),
     );
-}
-
-/// The coordinates of a kernel point.
-fn components_of(point: partsmith_occt_sys::Point) -> [f64; 3] {
-    [point.x, point.y, point.z]
 }
 
 #[test]

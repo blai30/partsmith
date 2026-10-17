@@ -138,16 +138,16 @@ impl Feature for MoveBody {
                 warnings,
             ));
         }
-        let motion = rotation
+        let body_transform = rotation
             .map_or(Transform::IDENTITY, |(axis, angle)| {
                 Transform::rotation(&axis, angle)
             })
             .then(&Transform::translation(vector(translation)));
-        let moved = transform(shape, &motion)?;
+        let moved = transform(shape, &body_transform)?;
         let update = BodyUpdate {
             body: params.body.clone(),
             shape: Some(moved.shape),
-            naming: Arc::new(state.naming().moved(&naming_motion(&motion))),
+            naming: Arc::new(state.naming().moved(&naming_motion(&body_transform))),
             change: BodyChange::Modify,
             measured: Measurements::default(),
         };

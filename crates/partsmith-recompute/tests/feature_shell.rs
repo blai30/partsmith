@@ -200,19 +200,6 @@ fn assert_no_inner_rounds(run: &Run) {
     );
 }
 
-/// Asserts that every feature of `run` has status ok and no message at all.
-fn assert_all_ok_without_messages(run: &Run) {
-    run.assert_all_ok();
-    for report in &run.report.features {
-        let feature = report.feature.as_str();
-        assert_eq!(
-            run.messages(feature),
-            Vec::<&str>::new(),
-            "{feature} has no message"
-        );
-    }
-}
-
 /// Asserts that `f-sh1` of `run` fails with `shell_too_thick` on `thickness` for the wall
 /// `requested`, with the thickest working wall in `max_range` and `b-1` unchanged, and returns its
 /// limit `{s}`, rounded down to 2 significant digits. The message and the suggestion `{s} mm` are
@@ -635,7 +622,7 @@ fn t015_walls_thicker_than_the_fillets_rounds() {
 
     // The 40 mm prism with 1 mm rounds minus an 18 mm deep cavity with a sharp 36 mm square
     // section.
-    assert_all_ok_without_messages(&run);
+    run.assert_all_quiet();
     let shape = run.shape("b-1");
     assert_volume(shape, 8592.0 + 20.0 * PI);
     assert_face_count(shape, 15);
@@ -816,7 +803,7 @@ fn t023_ui_fixture_with_a_shell_after_a_fillet() {
     let run = Run::new(parse_document(&text));
 
     assert_eq!(run.report.features.len(), 4, "the fixture has 4 features");
-    assert_all_ok_without_messages(&run);
+    run.assert_all_quiet();
     let shape = run.shape("b-cube");
     assert_volume(shape, 3072.0 + 80.0 * PI);
     assert_face_count(shape, 15);

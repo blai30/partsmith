@@ -18,13 +18,14 @@
 
 mod records;
 
+pub use super::feature_support::{id, saved};
 pub use records::*;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use partsmith_features::{BodyState, Fix, OutputData, Repair};
-use partsmith_model::{Document, Id};
+use partsmith_model::Document;
 use partsmith_naming::{
     ElementKind, ElementName, MatchMethod, Reference, Resolution, resolve, score,
 };
@@ -52,11 +53,6 @@ pub fn parsed_reference(value: &Value) -> Reference {
         .unwrap_or_else(|error| panic!("{value} is not a valid reference: {error}"))
 }
 
-/// An id written in a test.
-pub fn id(text: &str) -> Id {
-    Id::new(text).expect("ids written in tests are valid")
-}
-
 /// `Unsuppress` of `feature`.
 pub fn unsuppress(feature: &str) -> Fix {
     Fix::Unsuppress {
@@ -73,12 +69,6 @@ pub fn show(feature: &str) -> Fix {
 }
 
 // Documents and runs.
-
-/// The canonical saved text of a document.
-pub fn saved(document: &Document) -> String {
-    partsmith_model::save(document)
-        .unwrap_or_else(|error| panic!("the document does not save: {error}"))
-}
 
 /// A document in `units` with these parameter records, test bodies and feature records
 /// (features.md section 6.1).

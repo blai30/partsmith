@@ -19,14 +19,15 @@ use common::records::{
     leaning_wall, reversed_block, slot,
 };
 use common::timeline::{Timeline, stored};
-use common::{ContextFixture, assert_vector_close, built_body, empty_sketch_output, id};
+use common::{
+    ContextFixture, HALF_TURN_ABOUT_Z, NO_TURN, Placed, assert_vector_close, built_body,
+    empty_sketch_output, fallback, id, moved_state, placed,
+};
 use partsmith_features::{
-    AxisRef, BodyState, FaceFallback, FacePlacement, FallbackCause, FeatureError, Noun,
-    PlacementExt, PlaneRef,
+    AxisRef, BodyState, FacePlacement, FallbackCause, FeatureError, Noun, PlacementExt, PlaneRef,
 };
 use partsmith_model::Units;
-use partsmith_naming::{ElementKind, ElementName, Motion, Reference};
-use partsmith_occt_sys::{Transform, transform};
+use partsmith_naming::{ElementKind, ElementName, Reference};
 use partsmith_sketch::{HintFrame, OriginPlane, Placement};
 use serde_json::{Value, json};
 
@@ -276,18 +277,10 @@ fn top_hint(origin: [f64; 3]) -> Placement {
     }
 }
 
-/// A stored reference from its query and fingerprint text.
-fn reference(query: &str, fingerprint: &str) -> Reference {
-    stored(query, fingerprint)
-}
-
 /// A stored reference from its JSON form.
 fn reference_from(value: Value) -> Reference {
     serde_json::from_value(value).expect("references written in tests are valid")
 }
-
-/// What `face_placement` gives: the placement, or why the face cannot place it.
-type Placed = Result<Result<FacePlacement, FaceFallback>, FeatureError>;
 
 /// `face_placement` of `face` as the face of a sketch plane in `b-1` holding `state`, with `hint` in `frame`.
 fn place_in(state: BodyState, face: &Reference, hint: &Placement, frame: HintFrame) -> Placed {
@@ -304,29 +297,6 @@ fn face_placement(state: BodyState, face: &Reference) -> Placed {
     place_in(state, face, &tilted_hint(), HintFrame::World)
 }
 
-/// The placement of a face placement that used its face; fails the test when it fell back or failed.
-#[track_caller]
-fn placed(result: Placed) -> FacePlacement {
-    match result {
-        Ok(Ok(placement)) => placement,
-        Ok(Err(fallback)) => panic!("expected a placement, got the fallback {fallback:?}"),
-        Err(error) => panic!("expected a placement, got the error {error:?}"),
-    }
-}
-
-/// The fallback of a face placement that could not use its face.
-#[track_caller]
-fn fallback(result: Placed) -> FaceFallback {
-    match result {
-        Ok(Err(fallback)) => fallback,
-        Ok(Ok(placement)) => panic!(
-            "expected a fallback, got the placement {:?}",
-            placement.placement
-        ),
-        Err(error) => panic!("expected a fallback, got the error {error:?}"),
-    }
-}
-
 /// Asserts a placement's origin, x axis and normal within `TOLERANCE`.
 #[track_caller]
 fn assert_placement(placement: &Placement, origin: [f64; 3], x_axis: [f64; 3], normal: [f64; 3]) {
@@ -339,7 +309,7 @@ fn assert_placement(placement: &Placement, origin: [f64; 3], x_axis: [f64; 3], n
 fn t022_flat_face_projects_the_hint_onto_its_plane() {
     let placed = placed(face_placement(
         box_test_1(),
-        &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
+        &stored("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
     ));
 
     assert_placement(
@@ -360,7 +330,7 @@ fn t022_flat_face_projects_the_hint_onto_its_plane() {
 fn t022_missing_reference_is_missing_with_its_loss() {
     let fallback = fallback(face_placement(
         box_test_1(),
-        &reference("f-box9/top", "plane|n=0,0,1|c=500,500,500|a=1"),
+        &stored("f-box9/top", "plane|n=0,0,1|c=500,500,500|a=1"),
     ));
 
     assert_eq!(fallback.cause, FallbackCause::Missing);
@@ -373,7 +343,7 @@ fn t022_missing_reference_is_missing_with_its_loss() {
 fn t022_any_reference_in_an_empty_body_is_missing_without_a_loss() {
     let fallback = fallback(face_placement(
         BodyState::empty(),
-        &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
+        &stored("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
     ));
 
     assert_eq!(fallback.cause, FallbackCause::Missing);
@@ -384,7 +354,7 @@ fn t022_any_reference_in_an_empty_body_is_missing_without_a_loss() {
 fn t022_cylinder_side_is_not_planar_without_a_loss() {
     let fallback = fallback(face_placement(
         cylinder_test_1(),
-        &reference("f-cyl1/side", "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5"),
+        &stored("f-cyl1/side", "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5"),
     ));
 
     assert_eq!(fallback.cause, FallbackCause::NotPlanar);
@@ -398,14 +368,14 @@ fn t022_undeclared_body_is_undeclared() {
     let result = fixture.context().face_placement(
         "plane.face",
         &id("b-9"),
-        &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
+        &stored("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
         &tilted_hint(),
         HintFrame::World,
     );
 
     assert!(
         matches!(result, Err(FeatureError::UndeclaredDependency { .. })),
-        "expected UndeclaredDependency"
+        "expected UndeclaredDependency, got {result:?}"
     );
 }
 
@@ -549,7 +519,7 @@ fn t027_a_plane_on_a_face_split_into_coplanar_pieces_keeps_its_plane() {
             "plane",
             &PlaneRef::Face {
                 body: id("b-1"),
-                face: reference("f-ext1/end-cap", "plane|n=0,0,1|c=40,25,30|a=4000"),
+                face: stored("f-ext1/end-cap", "plane|n=0,0,1|c=40,25,30|a=4000"),
             },
         )
         .expect("both pieces lie in one plane");
@@ -611,34 +581,6 @@ fn assert_direction(actual: [f64; 3], expected: [f64; 3], what: &str) {
 fn leaning_wall_state(lean: f64) -> BodyState {
     Timeline::run(&["b-1"], &leaning_wall(lean)).state("b-1")
 }
-
-/// `state` with its shape transformed by the isometry (`matrix`, `translation`) and its naming map `moved` by it, as a
-/// Move body leaves a body (naming.md section 3.6.12).
-fn moved_state(state: &BodyState, matrix: [[f64; 3]; 3], translation: [f64; 3]) -> BodyState {
-    let rows = [0, 1, 2].map(|row| {
-        [
-            matrix[row][0],
-            matrix[row][1],
-            matrix[row][2],
-            translation[row],
-        ]
-    });
-    let moved = transform(
-        state.shape().expect("the body has a solid"),
-        &Transform { matrix: rows },
-    )
-    .expect("an isometry applies");
-    BodyState::new(
-        moved.shape,
-        Arc::new(state.naming().moved(&Motion::new(matrix, translation))),
-    )
-}
-
-/// The rotation by 180 degrees about the Z axis.
-const HALF_TURN_ABOUT_Z: [[f64; 3]; 3] = [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]];
-
-/// The identity matrix: a translation's rotation part.
-const NO_TURN: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 #[test]
 fn t028_a_wall_leaning_back_keeps_the_side_of_the_stored_direction() {
@@ -711,7 +653,7 @@ fn moved_box() -> BodyState {
 
 /// The top of the 40 x 40 x 10 box as a pick stored it before the move.
 fn moved_box_top() -> Reference {
-    reference("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=1600")
+    stored("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=1600")
 }
 
 #[test]
@@ -759,7 +701,7 @@ fn t029_a_face_that_turned_over_keeps_a_right_handed_placement() {
     let placed = placed(fixture.context().face_placement(
         "plane.face",
         &id("b-1"),
-        &reference(BLOCK_TOP.0, "plane|n=0,0,1|c=40,25,30|a=4000"),
+        &stored(BLOCK_TOP.0, "plane|n=0,0,1|c=40,25,30|a=4000"),
         &top_hint([0.0, 0.0, 30.0]),
         HintFrame::Body,
     ));
@@ -796,7 +738,7 @@ fn place_on_mirror_image(frame: HintFrame) -> FacePlacement {
     placed(fixture.context().face_placement(
         "plane.face",
         &id("b-1"),
-        &reference("f-box1/top@f-mir1:1", "plane|n=0,0,-1|c=0,0,30|a=100"),
+        &stored("f-box1/top@f-mir1:1", "plane|n=0,0,-1|c=0,0,30|a=100"),
         &top_hint([0.0, 0.0, 10.0]),
         frame,
     ))

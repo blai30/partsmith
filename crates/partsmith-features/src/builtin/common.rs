@@ -18,10 +18,10 @@ use partsmith_sketch::{RegionRef, Succession};
 
 use crate::context::{BodyState, BuildContext, ResolvedProfile};
 use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, Noun};
-use crate::name_shape;
 use crate::output::{BodyChange, BodyUpdate, FeatureOutput, OutputData, Tool, apply_op};
 use crate::params::{BodyOp, CopyOp, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
+use crate::{Named, name_shape};
 
 /// The options of a `BodyOp` field, with their labels.
 pub(crate) const BODY_OP_OPTIONS: [(&str, &str); 4] = [
@@ -331,11 +331,22 @@ pub(crate) fn naming_motion(transform: &Transform) -> Motion {
     )
 }
 
-/// The base motion of `input`, the naming map of the body a fillet, chamfer, shell or split body makes its new faces
-/// on, which those faces take (features.md section 3.9): the motion of a name the map never saw, the feature's own
-/// `<feature>/face`.
-pub(crate) fn body_base_motion(feature: &Id, input: &NamingMap) -> Result<Motion, FeatureError> {
-    Ok(input.motion(&face_name(feature, roles::FACE, None)?))
+/// Names `shape`, made by a fillet, chamfer, shell or split body from the body whose naming map is `input`, with
+/// `input` inherited and no successions. Its new faces take the base motion of the body's map (features.md section
+/// 3.9): the motion of a name the map never saw, the feature's own `<feature>/face`.
+pub(crate) fn name_on_body(
+    feature: &Id,
+    shape: &Shape,
+    faces: Vec<FaceSource>,
+    input: &NamingMap,
+) -> Result<Named, FeatureError> {
+    name_shape(
+        shape,
+        faces,
+        &[input],
+        &Successions::default(),
+        &input.motion(&face_name(feature, roles::FACE, None)?),
+    )
 }
 
 /// A body-updating output that records no absent face.

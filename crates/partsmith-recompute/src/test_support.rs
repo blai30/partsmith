@@ -232,6 +232,18 @@ fn output(data: OutputData) -> FeatureOutput {
     FeatureOutput::new(data, Vec::new())
 }
 
+/// A datum plane parallel to XY at height `z`, with the identity motion.
+pub(crate) fn datum_at(z: f64) -> OutputData {
+    OutputData::Datum(DatumResult::Plane {
+        placement: Placement {
+            origin: [0.0, 0.0, z],
+            x_axis: [1.0, 0.0, 0.0],
+            normal: [0.0, 0.0, 1.0],
+        },
+        motion: Motion::IDENTITY,
+    })
+}
+
 /// Params of `test_datum`.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub(crate) struct TestDatumParams {
@@ -276,20 +288,14 @@ impl Feature for TestDatum {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let base = match &params.base {
-            Some(base) => match context.datum("base", base)? {
-                DatumResult::Plane { placement, .. } => placement.origin[2],
-            },
+            Some(base) => {
+                let DatumResult::Plane { placement, .. } = context.datum("base", base)?;
+                placement.origin[2]
+            }
             None => 0.0,
         };
         let offset = context.eval_length("offset", &params.offset)?;
-        Ok(output(OutputData::Datum(DatumResult::Plane {
-            placement: Placement {
-                origin: [0.0, 0.0, base + offset],
-                x_axis: [1.0, 0.0, 0.0],
-                normal: [0.0, 0.0, 1.0],
-            },
-            motion: Motion::IDENTITY,
-        })))
+        Ok(output(datum_at(base + offset)))
     }
 }
 

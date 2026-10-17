@@ -3,6 +3,7 @@
 mod body_state;
 #[cfg(test)]
 mod fixtures;
+mod geometry;
 mod placements;
 mod references;
 mod regions;

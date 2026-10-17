@@ -1042,20 +1042,14 @@ impl FeatureError {
                 body,
                 reference,
                 faces,
-            } => vec![Repair::element(
-                reference_pointer(field, ElementKind::Face),
-                &Loss::fitting(0, body, reference, faces),
-            )],
+            } => choice_repair(field, ElementKind::Face, body, reference, faces),
             FeatureError::NotCollinear {
                 field,
                 body,
                 reference,
                 elements,
                 kind,
-            } => vec![Repair::element(
-                reference_pointer(field, *kind),
-                &Loss::fitting(0, body, reference, elements),
-            )],
+            } => choice_repair(field, *kind, body, reference, elements),
             FeatureError::ProfileNotFound {
                 field,
                 sketch,
@@ -1130,6 +1124,22 @@ fn choice_fixes(pointer: &str, elements: &[Reference]) -> Vec<Fix> {
         .collect();
     fixes.push(Fix::pick(pointer));
     fixes
+}
+
+/// The repair of a reference that several elements fit and no order may decide between (`not_coplanar`,
+/// `not_collinear`): an ambiguous loss of those `elements` at the stored reference inside the plane or axis param
+/// `field`, as a widening's repair is.
+fn choice_repair(
+    field: &FieldRef,
+    kind: ElementKind,
+    body: &Id,
+    reference: &Reference,
+    elements: &[Reference],
+) -> Vec<Repair> {
+    vec![Repair::element(
+        reference_pointer(field, kind),
+        &Loss::fitting(0, body, reference, elements),
+    )]
 }
 
 /// The field of the region list of a profile field: `profile.regions`.

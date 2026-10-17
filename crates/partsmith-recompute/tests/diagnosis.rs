@@ -9,9 +9,9 @@
 //! `Message::root`; a text the spec gives as an ending is compared by its end, whose start, the element's description,
 //! features.md section 6.5 test 15 tests.
 //!
-//! Phase 2 adds test 42 (a sketch placed where its face was just before its removal, read from the writer chains whose
-//! entries `timeline.rs` tests), test 66's sketch placed where the cut face was (corpus R33) and test 72 (a drawing
-//! turned over, corpus R32 (b)) with its statuses and roots. Left for the phases that build what they need: test 60 (b)
+//! Test 42 reads the placement of a sketch where its face was just before its removal from the writer chains, whose
+//! entries `timeline.rs` tests; test 66 includes the sketch placed where the cut face was (corpus R33); and test 72 (a
+//! drawing turned over, corpus R32 (b)) checks its statuses and roots. Left for the phases that build what they need: test 60 (b)
 //! (a hole that skips a deleted point, phase 3), the `no_effect` and `separate_solid` texts and fixes of test 66
 //! (phase 3), and test 72's hole text, single message and `Show` fix, which need the hole's rendering of
 //! `Diagnosis::turned_over` by coordinates and the one-point rule (features.md sections 3.15 and 4.2, phase 3 step 4),
@@ -27,10 +27,10 @@ mod stability_common;
 use std::f64::consts::FRAC_PI_2;
 
 use feature_support::{
-    Assets, Run, assert_placement, assert_volume, body_before, element_names,
+    Assets, Run, assert_sketch_on_top_plane, assert_volume, body_before, element_names,
     face_names_with_prefix, keep_match, message, pick, remove_entry, sketch_result, use_reference,
 };
-use partsmith_features::{Absence, FeatureWarning, FieldRef, Fix, Place, Placed, Repair};
+use partsmith_features::{Absence, FieldRef, Fix, Place, Placed, Repair};
 use partsmith_model::{Document, EmptyContext};
 use partsmith_naming::{ElementKind, ElementName, Instance};
 use partsmith_recompute::{
@@ -39,18 +39,19 @@ use partsmith_recompute::{
 use serde_json::{Value, json};
 use stability_common::{
     angle, arc, asset_name, block, block_back_top, block_front_right_vertical, block_front_top,
-    block_right_top, block_top, block_with_end_cap_sketch, block_with_hole_on_end_cap, boolean,
-    boolean_boss, boss_base_ring, boss_on_chamfer_datum, boss_top_rim, box_below, box_corner_edge,
-    box_record, chamfer, chamfer_face, circle, circle_region, constrained_sketch, counterbore,
-    cube10, cube20, cube20_bottom_front, cube20_front_top, datum_offset, datum_on_face,
-    datum_plane, distance, document_of, edit, edit_document, edited, edited_document, extrude,
-    fillet, filleted_boss, full_turn, hole, id, import, insert_before, line, linear_pattern,
-    move_before, move_to_end, notched_back_outline, origin_plane, pegs, plate_bytes, point,
-    rectangle, rectangle_region, reference, region, reversed, revolve_about_box_edge,
-    rounded_outline, rounded_plate, run, run_edited, run_with_assets, saved, shell, show,
-    size_constraint, sketch, slotted_cube, split, split_then_fillet, suppressed, symmetric,
-    symmetric_boss, tall_box_with_boss, three_quarter_ring, through_all, top_cut, top_face_plane,
-    unsuppress, unsuppressed, with, without,
+    block_right_top, block_top, block_with_end_cap_sketch, block_with_hole_on_end_cap,
+    block_with_holes_on_end_cap, boolean, boolean_boss, boss_base_ring, boss_on_chamfer_datum,
+    boss_top_rim, box_below, box_corner_edge, box_record, chamfer, chamfer_face, circle,
+    circle_region, constrained_sketch, counterbore, cube10, cube20, cube20_bottom_front,
+    cube20_front_top, datum_offset, datum_on_face, datum_plane, distance, document_of, edit,
+    edit_document, edited, edited_document, extrude, fillet, filleted_boss, full_turn, hole, id,
+    import, insert_before, line, linear_pattern, move_before, move_to_end, notched_back_outline,
+    origin_plane, pegs, plate_bytes, point, rectangle, rectangle_region, reference, region,
+    reversed, revolve_about_box_edge, rounded_outline, rounded_plate, run, run_edited,
+    run_with_assets, saved, shell, show, size_constraint, sketch, slotted_cube, split,
+    split_then_fillet, suppressed, symmetric, symmetric_boss, tall_box_with_boss,
+    three_quarter_ring, through_all, top_cut, top_face_plane, unsuppress, unsuppressed, with,
+    without,
 };
 
 // Ids, names and fixes.
@@ -398,29 +399,6 @@ fn cut_below_the_sketch() -> Run {
     session
 }
 
-/// Where the `plane_fallback` warning of `feature` says the sketch was placed.
-fn placed_of(run: &Run, feature: &str) -> Placed {
-    run.feature(feature)
-        .warnings
-        .iter()
-        .find_map(|warning| match warning {
-            FeatureWarning::PlaneFallback { placed, .. } => Some(placed.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("{feature} has no plane_fallback warning; {}", run.summary()))
-}
-
-/// Asserts that the sketch `f-sk2` lies on the XY frame lifted to height `z`.
-#[track_caller]
-fn assert_sketch_at(run: &Run, z: f64) {
-    assert_placement(
-        &sketch_result(run, "f-sk2").placement,
-        [0.0, 0.0, z],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    );
-}
-
 /// `Placed::BeforeRemoval` by the cut `f-ext3` of corpus R33.
 fn before_the_cut() -> Placed {
     Placed::BeforeRemoval { by: id("f-ext3") }
@@ -437,9 +415,9 @@ fn t042_r33_a_sketch_is_placed_where_its_face_was_just_before_the_cut() {
         .expect("the box is built before the cut");
     assert_volume(box_left, 16000.0);
     // Where the top was just before 'Extrude 1' removed it, never the fallback's z = 10.
-    assert_sketch_at(&session, 40.0);
+    assert_sketch_on_top_plane(&session, "f-sk2", [0.0, 0.0, 40.0]);
     session.assert_warnings("f-sk2", &["plane_fallback"]);
-    assert_eq!(placed_of(&session, "f-sk2"), before_the_cut());
+    assert_eq!(*session.plane_fallback("f-sk2").0, before_the_cut());
 }
 
 #[test]
@@ -485,9 +463,9 @@ fn t042_r33_a_lower_box_rebuilds_the_sketch_where_the_lower_top_was() {
         "f-sk2 was reused; {}",
         session.summary()
     );
-    assert_sketch_at(&session, 38.0);
+    assert_sketch_on_top_plane(&session, "f-sk2", [0.0, 0.0, 38.0]);
     session.assert_warnings("f-sk2", &["plane_fallback"]);
-    assert_eq!(placed_of(&session, "f-sk2"), before_the_cut());
+    assert_eq!(*session.plane_fallback("f-sk2").0, before_the_cut());
 }
 
 // Test 43: memoized reasons follow the records they read (section 3.10, memoization).
@@ -2877,7 +2855,7 @@ fn a_sketch_placed_before_the_removal_names_the_remover_by_its_current_label() {
     );
 
     assert_all_reused(&session);
-    assert_eq!(placed_of(&session, "f-sk2"), before_the_cut());
+    assert_eq!(*session.plane_fallback("f-sk2").0, before_the_cut());
     assert_ends_with(
         &message(&session, "f-sk2", "plane_fallback").text,
         "was cut away by 'Pocket', which comes before this sketch, so the sketch stays where that face was.",
@@ -3017,26 +2995,19 @@ fn t068_a_message_keeps_every_loss_and_its_fixes_in_loss_order() {
 
 // Test 72: a sketch whose face turned over is the root of what it causes (corpus R32 (b), section 3.10 `turned_over`).
 
-/// Corpus R32 (b) with these sketch points and hole points, run as its setup (BLOCK and the sketch on its end cap),
-/// then edited on the setup's recompute: BLOCK extruded in reverse, so the end cap faces -Z at z = -30.
-fn turned_over_end_cap(points: &[Value], drilled: &[&str]) -> Run {
-    let with_points = |reverse: bool| {
-        let features = edited(&block_with_hole_on_end_cap(reverse), "f-sk2", |record| {
-            with(record, "entities", json!(points))
-        });
-        edited(&features, "f-hole1", |record| {
-            with(record, "points", json!(drilled))
-        })
-    };
-    let mut session = run(&["b-1"], &with_points(false));
-    edit(&mut session, &["b-1"], &with_points(true));
+/// Corpus R32 (b) with the setup `features` gives for whether BLOCK is reversed: the setup runs unreversed (BLOCK and
+/// the sketch on its end cap), then is edited on the setup's recompute with BLOCK reversed, so the end cap faces -Z at
+/// z = -30.
+fn turned_over(features: impl Fn(bool) -> Vec<Value>) -> Run {
+    let mut session = run(&["b-1"], &features(false));
+    edit(&mut session, &["b-1"], &features(true));
     session
 }
 
 /// Corpus R32 (b) after its edit (the document of features/sketch.md test 24): the point `e-p1` at (20, 10) on the
 /// end cap that turned over, and its hole.
 fn turned_over_hole() -> Run {
-    turned_over_end_cap(&[point("e-p1", [20.0, 10.0])], &["e-p1"])
+    turned_over(block_with_hole_on_end_cap)
 }
 
 #[test]
@@ -3316,10 +3287,13 @@ fn a_no_effect_under_a_sketch_that_lost_its_face_has_that_sketch_as_root() {
 #[test]
 fn every_message_of_a_hole_under_a_turned_over_sketch_has_that_sketch_as_root() {
     // Both points lie off the end cap once the drawing is mirrored on it.
-    let session = turned_over_end_cap(
-        &[point("e-p1", [20.0, 10.0]), point("e-p2", [60.0, 40.0])],
-        &["e-p1", "e-p2"],
-    );
+    let session = turned_over(|reverse| {
+        block_with_holes_on_end_cap(
+            reverse,
+            vec![point("e-p1", [20.0, 10.0]), point("e-p2", [60.0, 40.0])],
+            &["e-p1", "e-p2"],
+        )
+    });
 
     let messages = &session.feature("f-hole1").messages;
     assert!(messages.len() >= 2, "{:?}", session.messages("f-hole1"));

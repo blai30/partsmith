@@ -19,12 +19,14 @@ use std::sync::Arc;
 
 use partsmith_features::{
     BodyOp, BodyState, BuildContext, BuildInputs, CancelToken, Category, Dependencies, Diagnosis,
-    ExprUse, Feature, FeatureError, FeatureManifest, FeatureOutput, FeatureWarning, FieldHint,
-    FieldRef, FieldUnit, Fix, Link, Names, Noun, OptionHint, OutputData, ProfileRef, PythonCall,
-    PythonNames, PythonValue, Registry, RenderContext, SelectionKind, SketchResult, Values,
+    ExprUse, FaceFallback, FacePlacement, Feature, FeatureError, FeatureManifest, FeatureOutput,
+    FeatureWarning, FieldHint, FieldRef, FieldUnit, Fix, Link, Names, Noun, OptionHint, OutputData,
+    ProfileRef, PythonCall, PythonNames, PythonValue, Registry, RenderContext, SelectionKind,
+    SketchResult, Values,
 };
 use partsmith_model::{EmptyContext, Expr, FeatureRecord, Id, ParameterValues, Scope, Units};
-use partsmith_naming::Motion;
+use partsmith_naming::{Motion, Reference};
+use partsmith_occt_sys::{Transform, transform};
 use partsmith_sketch::{OriginPlane, RegionRef, SolveResult, build_profile};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -301,16 +303,55 @@ pub fn pointer(warning: &FeatureWarning) -> Option<String> {
     warning.field().map(FieldRef::pointer)
 }
 
+/// `UseReferences` of one reference at `pointer`.
+pub fn use_reference(pointer: &str, reference: Reference) -> Fix {
+    Fix::UseReferences {
+        pointer: pointer.to_string(),
+        references: vec![reference],
+    }
+}
+
+/// `Pick` at `pointer`.
+pub fn pick(pointer: &str) -> Fix {
+    Fix::Pick {
+        pointer: pointer.to_string(),
+    }
+}
+
 /// `KeepMatch` then `Pick` at `pointer`: the fixes of a followed reference (section 3.8).
 pub fn keep_and_pick(pointer: &str) -> Vec<Fix> {
     vec![
         Fix::KeepMatch {
             pointer: pointer.to_string(),
         },
-        Fix::Pick {
-            pointer: pointer.to_string(),
-        },
+        pick(pointer),
     ]
+}
+
+/// What `face_placement` gives: the placement, or why the face cannot place it.
+pub type Placed = Result<Result<FacePlacement, FaceFallback>, FeatureError>;
+
+/// The placement of a face placement that used its face; fails the test when it fell back or failed.
+#[track_caller]
+pub fn placed(result: Placed) -> FacePlacement {
+    match result {
+        Ok(Ok(placement)) => placement,
+        Ok(Err(fallback)) => panic!("expected a placement, got the fallback {fallback:?}"),
+        Err(error) => panic!("expected a placement, got the error {error:?}"),
+    }
+}
+
+/// The fallback of a face placement that could not use its face.
+#[track_caller]
+pub fn fallback(result: Placed) -> FaceFallback {
+    match result {
+        Ok(Err(fallback)) => fallback,
+        Ok(Ok(placement)) => panic!(
+            "expected a fallback, got the placement {:?}",
+            placement.placement
+        ),
+        Err(error) => panic!("expected a fallback, got the error {error:?}"),
+    }
 }
 
 /// The `PythonNames` of features.md section 6.2 test 22: units mm, body `b-1` as `block`,
@@ -723,6 +764,34 @@ pub fn assert_vector_close(actual: [f64; 3], expected: [f64; 3], what: &str) {
             .all(|(value, wanted)| (value - wanted).abs() <= TOLERANCE),
         "{what}: expected {expected:?} within {TOLERANCE}, got {actual:?}"
     );
+}
+
+/// The identity matrix: a translation's rotation part.
+pub const NO_TURN: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+/// The rotation by 180 degrees about the Z axis.
+pub const HALF_TURN_ABOUT_Z: [[f64; 3]; 3] = [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]];
+
+/// `state` with its shape transformed by the isometry (`matrix`, `translation`) and its naming map `moved` by it, as a
+/// Move body leaves a body (naming.md section 3.6.12).
+pub fn moved_state(state: &BodyState, matrix: [[f64; 3]; 3], translation: [f64; 3]) -> BodyState {
+    let rows = [0, 1, 2].map(|row| {
+        [
+            matrix[row][0],
+            matrix[row][1],
+            matrix[row][2],
+            translation[row],
+        ]
+    });
+    let moved = transform(
+        state.shape().expect("the body has a solid"),
+        &Transform { matrix: rows },
+    )
+    .expect("an isometry applies");
+    BodyState::new(
+        moved.shape,
+        Arc::new(state.naming().moved(&Motion::new(matrix, translation))),
+    )
 }
 
 /// The state that a solid feature record of the built-in registry, such as a box or a cylinder

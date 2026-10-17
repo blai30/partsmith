@@ -12,9 +12,9 @@ use feature_support::{
     assert_absolute, assert_bounding_box, assert_choice_between, assert_empty, assert_error_field,
     assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
     assert_face_kind, assert_face_radius, assert_has_face, assert_median_build_within,
-    assert_messages_pass_lint, assert_no_face, assert_unchanged, assert_volume, face,
+    assert_messages_pass_lint, assert_no_face, assert_unchanged, assert_volume, edge_axis, face,
     face_names_with_prefix, keep_and_pick, l_shaped_body, lean, lean_edge_axis, line, link_ids,
-    load_example, message, output_body, successions,
+    load_example, message, output_body, successions, turn,
 };
 use partsmith_features::{Diagnosis, Fix};
 use partsmith_naming::Follow;
@@ -801,12 +801,14 @@ fn quarter_turn_after_turning_the_box(extra: &str) -> Run {
         &["b-1", "b-2"],
         &[
             r#"{"id": "f-box1", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "position": ["0", "5", "0"], "op": "new"}"#,
-            r#"{"id": "f-mv1", "type": "move_body", "body": "b-2", "rotation": {"axis": {"kind": "origin", "axis": "X"}, "angle": "180 deg"}}"#,
+            &turn("b-2", "X", "180 deg"),
             RING_SKETCH,
             &revolve(
                 RING_PROFILE,
-                &format!(
-                    r#"{{"kind": "edge", "body": "b-2", "edge": {{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-5,0,5|l=10"}}{extra}}}"#
+                &edge_axis(
+                    "b-2",
+                    r#"{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-5,0,5|l=10"}"#,
+                    extra,
                 ),
                 &angle("90 deg"),
                 "new",
@@ -844,7 +846,7 @@ fn t030_axis_edges_not_on_one_line() {
             RING_SKETCH,
             &revolve(
                 RING_PROFILE,
-                &format!(r#"{{"kind": "edge", "body": "b-2", "edge": {BOTH_FRONT_TOP_EDGES}}}"#),
+                &edge_axis("b-2", BOTH_FRONT_TOP_EDGES, ""),
                 FULL,
                 "new",
             ),

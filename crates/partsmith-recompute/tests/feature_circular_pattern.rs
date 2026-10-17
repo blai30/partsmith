@@ -10,11 +10,12 @@ use std::time::Duration;
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, THROUGH_ALL,
     assert_absolute, assert_bore_through, assert_bounding_box, assert_choice_between,
-    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
-    assert_face_kind, assert_face_position, assert_median_build_within, assert_placement,
-    assert_quarter_turns_about_z, assert_same_body, assert_solid_count, assert_unchanged,
-    assert_volume, body_changes, document, face, face_sketch_with, hole_at_point, l_shaped_body,
-    lean, lean_edge_axis, link_ids, load_example, one_point, sketch_result,
+    assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_count, assert_face_kind, assert_face_position, assert_median_build_within,
+    assert_placement, assert_quarter_turns_about_z, assert_same_body, assert_solid_count,
+    assert_unchanged, assert_volume, body_changes, document, edge_axis, face, face_sketch_with,
+    hole_at_point, l_shaped_body, lean, lean_edge_axis, link_ids, load_example, one_point,
+    sketch_result, turn,
 };
 use partsmith_model::Units;
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
@@ -280,9 +281,12 @@ fn t012_the_sketch_follows_a_wider_angle() {
 
     run.assert_all_ok();
     let origin = sketch_result(&run, "f-sk2").placement.origin;
-    for (axis, expected) in [-10.0, 17.320508, 5.0].into_iter().enumerate() {
-        assert_absolute("placement origin", origin[axis], expected, LENGTH_TOLERANCE);
-    }
+    assert_coordinates(
+        "placement origin",
+        origin,
+        [-10.0, 17.320508, 5.0],
+        LENGTH_TOLERANCE,
+    );
     // Copy 2 sits at 120 degrees: (20 cos 120, 20 sin 120) = (-10, 10 sqrt 3).
     assert_bore_through(&run, [-10.0, 10.0 * 3.0_f64.sqrt(), 0.0]);
     assert_volume(run.shape("b-1"), 184.568568);
@@ -296,9 +300,14 @@ fn pattern_about_a_turned_edge(extra: &str) -> Run {
         &[
             PEG,
             r#"{"id": "f-box2", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "position": ["5", "5", "0"], "op": "new"}"#,
-            r#"{"id": "f-mv1", "type": "move_body", "body": "b-2", "rotation": {"axis": {"kind": "origin", "axis": "X"}, "angle": "180 deg"}}"#,
+            &turn("b-2", "X", "180 deg"),
             &format!(
-                r#"{{"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {{"kind": "edge", "body": "b-2", "edge": {{"q": "edge(f-box2/front|f-box2/left)", "fp": "line|n=0,0,1|c=0,0,5|l=10"}}{extra}}}, "count": "3", "angle": "90 deg"}}"#
+                r#"{{"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {}, "count": "3", "angle": "90 deg"}}"#,
+                edge_axis(
+                    "b-2",
+                    r#"{"q": "edge(f-box2/front|f-box2/left)", "fp": "line|n=0,0,1|c=0,0,5|l=10"}"#,
+                    extra
+                )
             ),
         ],
     )
@@ -373,7 +382,8 @@ fn t015_axis_edges_not_on_one_line() {
             &box_2,
             PEG,
             &format!(
-                r#"{{"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {{"kind": "edge", "body": "b-2", "edge": {BOTH_FRONT_TOP_EDGES}}}, "count": "3"}}"#
+                r#"{{"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {}, "count": "3"}}"#,
+                edge_axis("b-2", BOTH_FRONT_TOP_EDGES, "")
             ),
         ],
     );

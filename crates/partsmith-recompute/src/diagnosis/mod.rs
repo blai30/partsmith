@@ -458,21 +458,23 @@ impl Explainer<'_> {
     fn sketch_root(&self) -> Option<Diagnosed> {
         let view = self.view;
         let sketch = view.first_sketch(self.explained)?;
-        let turned_over = view
+        let diagnosis = view
             .report(view.position(sketch)?)
             .warnings
             .iter()
             .find_map(|warning| match warning {
-                FeatureWarning::PlaneFallback { .. } => Some(false),
-                FeatureWarning::SketchTurnedOver { .. } => Some(true),
+                FeatureWarning::PlaneFallback { .. } => Some(Diagnosis {
+                    lost_face: Some(sketch.clone()),
+                    ..Diagnosis::default()
+                }),
+                FeatureWarning::SketchTurnedOver { .. } => Some(Diagnosis {
+                    turned_over: Some(sketch.clone()),
+                    ..Diagnosis::default()
+                }),
                 _ => None,
             })?;
         Some(Diagnosed {
-            diagnosis: Diagnosis {
-                lost_face: (!turned_over).then(|| sketch.clone()),
-                turned_over: turned_over.then(|| sketch.clone()),
-                ..Diagnosis::default()
-            },
+            diagnosis,
             root: Some(sketch.clone()),
             reason: None,
         })

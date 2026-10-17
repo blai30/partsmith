@@ -16,13 +16,11 @@
 mod feature_support;
 
 use feature_support::{
-    MOVE_BY_100, Run, THROUGH_ALL, TURN_BY_90, assert_bore_through, assert_bounding_box,
-    assert_placement, assert_translation, assert_volume, document, face_sketch, hole_at_point,
-    leaning_wall, left_bottom_edge_axis, moved_box_document, one_point, output_body,
-    parse_document, sketch_result,
+    MOVE_BY_100, Run, TURN_BY_90, assert_bore_through, assert_bounding_box, assert_face_translated,
+    assert_sketch_on_top_plane, assert_volume, box_top_sketch_document, leaning_wall_pattern,
+    moved_box_document, parse_document, saved,
 };
-use partsmith_model::{Document, load, save};
-use partsmith_naming::ElementName;
+use partsmith_model::{Document, load};
 use partsmith_recompute::Status;
 
 /// The `format_version` line of canonical text at version 2, the current version.
@@ -30,11 +28,6 @@ const VERSION_2_LINE: &str = "  \"format_version\": 2,";
 
 /// The same line as a file written at format version 1 holds it.
 const VERSION_1_LINE: &str = "  \"format_version\": 1,";
-
-/// The canonical text of `document`.
-fn saved(document: &Document) -> String {
-    save(document).unwrap_or_else(|error| panic!("the document does not save: {error}"))
-}
 
 /// The canonical text of `document` as a file written at format version 1 holds it: only its `format_version` line,
 /// line 3, differs from the text `save` writes.
@@ -71,57 +64,17 @@ fn loaded_from_version_1(document: &Document) -> Document {
     loaded.document
 }
 
-/// Asserts that `feature` has status `expected`.
-#[track_caller]
-fn assert_status(run: &Run, feature: &str, expected: Status) {
-    let status = &run.feature(feature).status;
-    assert!(
-        *status == expected,
-        "{feature} should be {expected:?}, but it is {status:?}; {}",
-        run.summary()
-    );
-}
-
-/// Asserts that `f-sk2` lies on the plane z = 10 with the axes of its world fallback: origin (0, 0, 10), x axis +X,
-/// normal +Z.
-#[track_caller]
-fn assert_sketch_on_world_fallback(run: &Run) {
-    assert_placement(
-        &sketch_result(run, "f-sk2").placement,
-        [0.0, 0.0, 10.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    );
-}
-
-/// Corpus R38 after its edit as a file written before format version 2 stores it, with no `direction` on the axis and
-/// no outline on the region: `leaning_wall(lean)`, a 40 x 20 x 10 block whose left wall runs from (0, 0) to (`lean`,
-/// 20), and `f-lp1`, two copies 30 apart along the bottom edge of that wall, as picked while the wall stood upright
-/// (`n=0,1,0`).
-fn leaning_wall_pattern(lean: i32) -> Document {
-    let [sketch, extrude] = leaning_wall(lean);
-    let axis = left_bottom_edge_axis("");
-    document(
-        &["b-1"],
-        &[
-            &sketch,
-            &extrude,
-            &format!(
-                r#"{{"id": "f-lp1", "type": "linear_pattern", "body": "b-1", "direction": {{"axis": {axis}, "count": "2", "spacing": "30"}}}}"#
-            ),
-        ],
-    )
-}
-
 /// Asserts that the copy of `f-lp1` lies 30 mm from the block along the leaning wall `wall`, the vector from (0, 0) to
 /// the wall's top end, in the sense with +Y: the motion of the copy's top is that translation.
 #[track_caller]
 fn assert_copy_along_the_wall(run: &Run, wall: [f64; 2]) {
     let [x, y] = wall;
     let length = x.hypot(y);
-    let copy_top = ElementName::parse("f-ext1/end-cap@f-lp1:1").expect("a valid name");
-    assert_translation(
-        &output_body(run, "f-lp1", "b-1").motion(&copy_top),
+    assert_face_translated(
+        run,
+        "f-lp1",
+        "b-1",
+        "f-ext1/end-cap@f-lp1:1",
         [30.0 * x / length, 30.0 * y / length, 0.0],
     );
 }
@@ -142,8 +95,8 @@ fn t057_a_version_1_face_sketch_keeps_its_fallback_in_world_coordinates() {
         None,
     )));
 
-    assert_status(&run, "f-sk2", Status::Ok);
-    assert_sketch_on_world_fallback(&run);
+    run.assert_ok("f-sk2");
+    assert_sketch_on_top_plane(&run, "f-sk2", [0.0, 0.0, 10.0]);
 }
 
 #[test]
@@ -153,9 +106,14 @@ fn t057_the_version_1_hole_misses_the_moved_box_as_before() {
         None,
     )));
 
-    assert_status(&run, "f-box1", Status::Ok);
-    assert_status(&run, "f-mv1", Status::Ok);
-    assert_status(&run, "f-hole1", Status::Warning);
+    run.assert_ok("f-box1");
+    run.assert_ok("f-mv1");
+    assert!(
+        matches!(run.feature("f-hole1").status, Status::Warning),
+        "f-hole1 should be Warning, but it is {:?}; {}",
+        run.feature("f-hole1").status,
+        run.summary()
+    );
     let codes: Vec<&str> = run
         .feature("f-hole1")
         .messages
@@ -193,7 +151,9 @@ fn t057_at_version_2_with_a_body_frame_the_hole_follows_the_moved_face() {
 
 #[test]
 fn t057_r38_a_version_1_axis_without_direction_keeps_the_side_it_was_picked_on() {
-    let run = Run::new(loaded_from_version_1(&leaning_wall_pattern(-1)));
+    // Corpus R38 after its edit as a file written before format version 2 stores it, with no `direction` on the axis
+    // and no outline on the region.
+    let run = Run::new(loaded_from_version_1(&leaning_wall_pattern(-1, "")));
 
     run.assert_all_ok();
     // Along (-0.049938, 0.998752, 0): the copy is offset by (-1.498129, 29.962570, 0), on +Y.
@@ -208,7 +168,7 @@ fn t057_r38_a_version_1_axis_without_direction_keeps_the_side_it_was_picked_on()
 #[test]
 fn an_axis_that_crossed_no_coordinate_plane_keeps_its_version_1_side() {
     // The wall leaning to (1, 20) keeps a positive first component, so the version 1 rule and the fingerprint agree.
-    let run = Run::new(loaded_from_version_1(&leaning_wall_pattern(1)));
+    let run = Run::new(loaded_from_version_1(&leaning_wall_pattern(1, "")));
 
     run.assert_all_ok();
     assert_copy_along_the_wall(&run, [1.0, 20.0]);
@@ -226,7 +186,7 @@ fn a_version_1_face_sketch_does_not_turn_with_its_face() {
     let run = Run::new(loaded_from_version_1(&moved_box_document(TURN_BY_90, None)));
 
     run.assert_all_ok();
-    assert_sketch_on_world_fallback(&run);
+    assert_sketch_on_top_plane(&run, "f-sk2", [0.0, 0.0, 10.0]);
     assert_bore_through(&run, [15.0, 15.0, 0.0]);
     assert_volume(run.shape("b-1"), 15874.336294);
 }
@@ -234,28 +194,12 @@ fn a_version_1_face_sketch_does_not_turn_with_its_face() {
 #[test]
 fn without_a_move_world_and_body_fallbacks_place_the_sketch_alike() {
     // A box with a face sketch and a hole, but nothing that moves the box: body and world coordinates coincide.
-    let plate = |frame: Option<&str>| {
-        document(
-            &["b-1"],
-            &[
-                r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}"#,
-                &face_sketch(
-                    r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"}"#,
-                    [0.0, 0.0, 10.0],
-                    frame,
-                    &one_point([15.0, 15.0]),
-                ),
-                &hole_at_point("4", THROUGH_ALL),
-            ],
-        )
-    };
-
-    let world = Run::new(loaded_from_version_1(&plate(None)));
-    let body = Run::new(plate(Some("body")));
+    let world = Run::new(loaded_from_version_1(&box_top_sketch_document(&[], None)));
+    let body = Run::new(box_top_sketch_document(&[], Some("body")));
 
     for run in [&world, &body] {
         run.assert_all_ok();
-        assert_sketch_on_world_fallback(run);
+        assert_sketch_on_top_plane(run, "f-sk2", [0.0, 0.0, 10.0]);
         assert_bore_through(run, [15.0, 15.0, 0.0]);
         assert_volume(run.shape("b-1"), 15874.336294);
     }

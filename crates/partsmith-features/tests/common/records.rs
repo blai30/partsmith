@@ -1,7 +1,8 @@
 //! Feature records of the specs' shared setups, as JSON: `BLOCK` and `SLOT(a, b)` (reference stability corpus,
 //! "Shared setups"), `CUBE10`, `CUBE20`, `BOX-BELOW`, the L-shaped body of features/fillet.md test 4, the setups of
-//! corpus R32b, R33 and R38, builders for sketches (`FACE-SK2` of features/sketch.md included), extrudes, fillets and
-//! shells, and the stored references of elements that several tests pick.
+//! corpus R32b, R33 and R38, builders for sketches (`FACE-SK2` of features/sketch.md included), extrudes, fillets,
+//! shells, linear patterns and the Move body by (100, 0, 0), and the stored references of elements that several tests
+//! pick.
 
 use serde_json::{Value, json};
 
@@ -181,6 +182,11 @@ pub fn fillet(edges: Vec<Value>, radius: &str) -> Value {
 /// A shell `f-sh1` of `b-1` removing `faces`.
 pub fn shell(thickness: &str, faces: Vec<Value>) -> Value {
     json!({"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": thickness, "remove_faces": faces})
+}
+
+/// The Move body `f-mv1` of `b-1` by (100, 0, 0).
+pub fn move_by_100() -> Value {
+    json!({"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]})
 }
 
 /// `f-lp1`, a linear pattern of `b-1` along origin X with this count and spacing, op join.

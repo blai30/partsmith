@@ -374,12 +374,7 @@ fn t017_a_face_split_into_coplanar_pieces_keeps_its_plane() {
     let features: Vec<&str> = features.iter().map(String::as_str).collect();
     let run = Run::records(&["b-1"], &features);
 
-    run.assert_ok("f-dp1");
-    assert!(
-        run.messages("f-dp1").is_empty(),
-        "{:?}",
-        run.messages("f-dp1")
-    );
+    run.assert_quiet("f-dp1");
     assert_placement(
         datum_placement(&run, "f-dp1"),
         [0.0, 0.0, 35.0],
@@ -429,7 +424,7 @@ fn t019_a_slide_along_the_face_does_not_move_the_datums_frame() {
         [0.0, 0.0, 1.0],
     );
     // The identity: the frame P0 of the face mapped back by its motion is the frame P.
-    assert_translation(datum_motion(&run.report, "f-dp1"), [0.0, 0.0, 0.0]);
+    assert_translation(datum_motion(&run, "f-dp1"), [0.0, 0.0, 0.0]);
 }
 
 #[test]
@@ -446,7 +441,7 @@ fn t019_a_face_turned_over_turns_the_datum_and_its_motion() {
     );
     // The rotation of 180 degrees about X: (x, y, z) to (x, -y, -z).
     assert_moves(
-        datum_motion(&run.report, "f-dp1"),
+        datum_motion(&run, "f-dp1"),
         &[
             ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
             ([1.0, 2.0, 3.0], [1.0, -2.0, -3.0]),
@@ -470,11 +465,8 @@ fn t019_an_origin_base_and_a_datum_base_pass_on_their_motion() {
     );
 
     run.assert_all_ok();
-    assert_eq!(*datum_motion(&run.report, "f-dp1"), Motion::IDENTITY);
-    assert_eq!(
-        datum_motion(&run.report, "f-dp2"),
-        datum_motion(&run.report, "f-dp1")
-    );
+    assert_eq!(*datum_motion(&run, "f-dp1"), Motion::IDENTITY);
+    assert_eq!(datum_motion(&run, "f-dp2"), datum_motion(&run, "f-dp1"));
 }
 
 #[test]
@@ -483,8 +475,5 @@ fn t019_a_datum_on_a_datum_on_a_turned_face_passes_on_the_turn() {
     let run = datum_on_moved_top_then(HALF_TURN_ABOUT_X, &[DATUM_ON_DATUM]);
 
     run.assert_all_ok();
-    assert_eq!(
-        datum_motion(&run.report, "f-dp2"),
-        datum_motion(&run.report, "f-dp1")
-    );
+    assert_eq!(datum_motion(&run, "f-dp2"), datum_motion(&run, "f-dp1"));
 }

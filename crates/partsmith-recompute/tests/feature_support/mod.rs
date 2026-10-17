@@ -14,13 +14,13 @@ use std::time::Duration;
 
 use partsmith_features::{
     BodyState, BodyUpdate, CancelToken, DatumResult, Dependencies, Diagnosis, DocumentNames,
-    FeatureError, FeatureOutput, FeatureWarning, FieldRef, Fix, Link, Names, OutputData, Registry,
-    RenderContext, Repair, Severity, SketchResult,
+    FallbackCause, FeatureError, FeatureOutput, FeatureWarning, FieldRef, Fix, Link, Loss, Names,
+    OutputData, Placed, Registry, RenderContext, Repair, Severity, SketchResult,
 };
 use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit, Id};
 use partsmith_naming::{ElementKind, ElementName, Follow, Motion, Reference};
 use partsmith_occt_sys::{
-    ElementGeometry, GeometryKind, Plane, Shape, StepBody, SubShapeKind, Vector, make_box,
+    ElementGeometry, GeometryKind, Plane, Point, Shape, StepBody, SubShapeKind, Vector, make_box,
     write_step,
 };
 use partsmith_recompute::{BodyReport, FeatureReport, Input, Message, Recompute, Report, Status};
@@ -78,6 +78,17 @@ pub fn parse_document(text: &str) -> Document {
         Ok(loaded) => loaded.document,
         Err(error) => panic!("the test document does not load: {error}\n{text}"),
     }
+}
+
+/// The canonical saved text of a document.
+pub fn saved(document: &Document) -> String {
+    partsmith_model::save(document)
+        .unwrap_or_else(|error| panic!("the document does not save: {error}"))
+}
+
+/// An id written in a test.
+pub fn id(text: &str) -> Id {
+    Id::new(text).unwrap_or_else(|error| panic!("'{text}' is not a valid id: {error}"))
 }
 
 /// The JSON of a test body: `b-<n>` is named `Body <n>` (features.md section 6.1).
@@ -241,6 +252,29 @@ impl Run {
         }
     }
 
+    /// Asserts that `feature` has status ok and no message at all, not even a notice.
+    pub fn assert_quiet(&self, feature: &str) {
+        self.assert_ok(feature);
+        assert!(
+            self.messages(feature).is_empty(),
+            "{:?}",
+            self.messages(feature)
+        );
+    }
+
+    /// Asserts that every feature of the document has status ok and no message at all.
+    pub fn assert_all_quiet(&self) {
+        self.assert_all_ok();
+        for report in &self.report.features {
+            let feature = report.feature.as_str();
+            assert_eq!(
+                self.messages(feature),
+                Vec::<&str>::new(),
+                "{feature} has no message"
+            );
+        }
+    }
+
     /// Asserts that `feature` has status error with the error code `code`, and returns the error.
     pub fn assert_error(&self, feature: &str, code: &str) -> &FeatureError {
         let report = self.feature(feature);
@@ -347,21 +381,18 @@ pub fn output_update<'r>(report: &'r Report, feature: &str, body: &str) -> &'r B
         .unwrap_or_else(|| panic!("{feature} did not update body {body}"))
 }
 
-/// The placement of the datum plane that `feature` produced.
-pub fn datum_plane<'r>(report: &'r Report, feature: &str) -> &'r Placement {
-    let OutputData::Datum(DatumResult::Plane { placement, .. }) = &output(report, feature).data
+/// The placement and motion of the datum plane that `feature` produced.
+fn datum_output<'r>(report: &'r Report, feature: &str) -> (&'r Placement, &'r Motion) {
+    let OutputData::Datum(DatumResult::Plane { placement, motion }) = &output(report, feature).data
     else {
         panic!("{feature} did not output a datum plane");
     };
-    placement
+    (placement, motion)
 }
 
-/// The motion of the datum plane that `feature` produced (features/datum_plane.md section 3.2 step 4).
-pub fn datum_motion<'r>(report: &'r Report, feature: &str) -> &'r Motion {
-    let OutputData::Datum(DatumResult::Plane { motion, .. }) = &output(report, feature).data else {
-        panic!("{feature} did not output a datum plane");
-    };
-    motion
+/// The placement of the datum plane that `feature` produced.
+pub fn datum_plane<'r>(report: &'r Report, feature: &str) -> &'r Placement {
+    datum_output(report, feature).0
 }
 
 /// Every feature's status and messages, for failure output.
@@ -532,6 +563,11 @@ pub fn assert_face_radius(geometry: &ElementGeometry, expected: f64) {
 /// The components of a vector.
 pub fn components(vector: Vector) -> [f64; 3] {
     [vector.x, vector.y, vector.z]
+}
+
+/// The coordinates of a kernel point.
+pub fn point_components(point: Point) -> [f64; 3] {
+    [point.x, point.y, point.z]
 }
 
 /// Asserts a flat face's outward unit normal, sign included (absolute 1e-9).
@@ -814,6 +850,11 @@ pub fn datum_placement<'a>(run: &'a Run, feature: &str) -> &'a Placement {
     datum_plane(&run.report, feature)
 }
 
+/// The motion of the datum plane that `feature` produced (features/datum_plane.md section 3.2 step 4).
+pub fn datum_motion<'a>(run: &'a Run, feature: &str) -> &'a Motion {
+    datum_output(&run.report, feature).1
+}
+
 /// The rendered message of `feature` with this code.
 pub fn message<'a>(run: &'a Run, feature: &str, code: &str) -> &'a Message {
     run.feature(feature)
@@ -884,18 +925,46 @@ pub fn assert_moves(motion: &Motion, moves: &[([f64; 3], [f64; 3])]) {
     }
 }
 
+/// The points a motion is probed with: the origin and the unit points.
+const PROBE_POINTS: [[f64; 3]; 4] = [
+    [0.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0],
+];
+
+/// Asserts that `motion` moves each of `PROBE_POINTS` to where `expected` puts it (absolute 1e-9).
+fn assert_moves_probe_points(motion: &Motion, expected: impl Fn([f64; 3]) -> [f64; 3]) {
+    let moves: Vec<([f64; 3], [f64; 3])> = PROBE_POINTS
+        .iter()
+        .map(|point| (*point, expected(*point)))
+        .collect();
+    assert_moves(motion, &moves);
+}
+
 /// Asserts that `motion` is the translation by `offset`: it moves the origin and the unit points by `offset`.
 pub fn assert_translation(motion: &Motion, offset: [f64; 3]) {
-    let moved = |point: [f64; 3]| [0, 1, 2].map(|axis| point[axis] + offset[axis]);
-    let points = [
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ];
-    let moves: Vec<([f64; 3], [f64; 3])> =
-        points.iter().map(|point| (*point, moved(*point))).collect();
-    assert_moves(motion, &moves);
+    assert_moves_probe_points(motion, |point| {
+        [0, 1, 2].map(|axis| point[axis] + offset[axis])
+    });
+}
+
+/// The motion of the face named `face` in the state `feature`'s output gives `body`.
+pub fn face_motion(run: &Run, feature: &str, body: &str, face: &str) -> Motion {
+    let name = ElementName::parse(face).expect("names written in tests are valid");
+    output_body(run, feature, body).motion(&name)
+}
+
+/// The motion of the face named `face` in the state of `body` just before `feature`.
+pub fn face_motion_before(run: &Run, feature: &str, body: &str, face: &str) -> Motion {
+    let name = ElementName::parse(face).expect("names written in tests are valid");
+    body_before(run, feature, body).motion(&name)
+}
+
+/// Asserts that the motion of the face `face` of `body` after `feature` is the translation by `offset`.
+#[track_caller]
+pub fn assert_face_translated(run: &Run, feature: &str, body: &str, face: &str, offset: [f64; 3]) {
+    assert_translation(&face_motion(run, feature, body, face), offset);
 }
 
 /// Asserts that the face `face` of `body` after `feature` has the motion of `MOVE_BY_100` earlier in the run, the
@@ -903,33 +972,14 @@ pub fn assert_translation(motion: &Motion, offset: [f64; 3]) {
 /// makes, so they move with the part like the faces it keeps (features.md section 3.9).
 #[track_caller]
 pub fn assert_moved_by_100(run: &Run, feature: &str, body: &str, face: &str) {
-    let name = ElementName::parse(face).expect("names written in tests are valid");
-    assert_translation(
-        &output_body(run, feature, body).motion(&name),
-        [100.0, 0.0, 0.0],
-    );
+    assert_face_translated(run, feature, body, face, [100.0, 0.0, 0.0]);
 }
 
 /// Asserts that `motion` is the rotation by `turns` quarter turns counterclockwise about the world Z axis.
 pub fn assert_quarter_turns_about_z(motion: &Motion, turns: u32) {
-    let turned = |point: [f64; 3]| {
-        let mut point = point;
-        for _ in 0..turns {
-            point = [-point[1], point[0], point[2]];
-        }
-        point
-    };
-    let points = [
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ];
-    let moves: Vec<([f64; 3], [f64; 3])> = points
-        .iter()
-        .map(|point| (*point, turned(*point)))
-        .collect();
-    assert_moves(motion, &moves);
+    assert_moves_probe_points(motion, |point| {
+        (0..turns).fold(point, |point, _| [-point[1], point[0], point[2]])
+    });
 }
 
 /// The JSON text of a stored reference, for a record written after a pick or a fix stored it.
@@ -1174,6 +1224,22 @@ impl Run {
         }
     }
 
+    /// The only `plane_fallback` warning of `sketch` (features/sketch.md section 3.5): where it placed the sketch, its
+    /// cause and its loss.
+    pub fn plane_fallback(&self, sketch: &str) -> (&Placed, FallbackCause, Option<&Loss>) {
+        let warning = self.warning(sketch, "plane_fallback");
+        let FeatureWarning::PlaneFallback {
+            placed,
+            cause,
+            loss,
+            ..
+        } = warning
+        else {
+            panic!("expected a plane fallback warning, got {warning:?}");
+        };
+        (placed, *cause, loss.as_ref())
+    }
+
     /// Asserts that `feature` built with status ok and exactly these notices, in order, each of severity info
     /// (recompute.md section 3.5 step 11: notices leave the status ok).
     pub fn assert_notices(&self, feature: &str, codes: &[&str]) {
@@ -1391,6 +1457,17 @@ pub fn top_fallback(origin: [f64; 3]) -> String {
     format!(r#"{{"origin": [{x}, {y}, {z}], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}"#)
 }
 
+/// Asserts that the sketch `sketch` is placed at `PL(origin)`: origin `origin`, x axis +X, normal +Z (absolute 1e-9).
+#[track_caller]
+pub fn assert_sketch_on_top_plane(run: &Run, sketch: &str, origin: [f64; 3]) {
+    assert_placement(
+        &sketch_result(run, sketch).placement,
+        origin,
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+}
+
 /// `FACE-SK2(face, fallback, frame, entities)` of features/sketch.md section 6 with `fallback` given as JSON: the sketch `f-sk2` on
 /// `face` of `b-1`, its `fallback_frame` left out for `None` (`world`, as every document written before file format
 /// version 2 has it).
@@ -1438,20 +1515,59 @@ pub const MOVE_BY_100: &str =
 /// the world Z axis.
 pub const TURN_BY_90: &str = r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "90 deg"}}"#;
 
-/// The document of features/sketch.md test 20 (corpus R32a) with the Move body record `motion`: a box 40 x 40 x 10
-/// (x -20..20, y -20..20, z 0..10), the move, `f-sk2` on the box's top with its fallback in `frame` and a point `e-p1`
-/// at (15, 15), and a hole `f-hole1` of diameter 4 through all at the point.
+/// The Move body `f-mv1` turning `body` by the angle expression `angle` about the world axis `axis` (`X`, `Y` or `Z`).
+pub fn turn(body: &str, axis: &str, angle: &str) -> String {
+    format!(
+        r#"{{"id": "f-mv1", "type": "move_body", "body": "{body}", "rotation": {{"axis": {{"kind": "origin", "axis": "{axis}"}}, "angle": "{angle}"}}}}"#
+    )
+}
+
+/// An edge of `body` as an axis reference: the edge stored as the reference `edge` (JSON), followed by `extra` members
+/// such as `, "direction": [0, 1, 0]`, or none.
+pub fn edge_axis(body: &str, edge: &str, extra: &str) -> String {
+    format!(r#"{{"kind": "edge", "body": "{body}", "edge": {edge}{extra}}}"#)
+}
+
+/// A box 40 x 40 x 10 in `b-1` (x -20..20, y -20..20, z 0..10), the `inserted` records, `f-sk2` on the box's top with
+/// its fallback in `frame` and a point `e-p1` at (15, 15), and a hole `f-hole1` of diameter 4 through all at the point.
+pub fn box_top_sketch_document(inserted: &[&str], frame: Option<&str>) -> Document {
+    let sketch = face_sketch(
+        r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"}"#,
+        [0.0, 0.0, 10.0],
+        frame,
+        &one_point([15.0, 15.0]),
+    );
+    let hole = hole_at_point("4", THROUGH_ALL);
+    let mut features = vec![
+        r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}"#,
+    ];
+    features.extend_from_slice(inserted);
+    features.extend([sketch.as_str(), hole.as_str()]);
+    document(&["b-1"], &features)
+}
+
+/// The document of features/sketch.md test 20 (corpus R32a) with the Move body record `motion`: the box of
+/// `box_top_sketch_document` with the move inserted before the face sketch.
 pub fn moved_box_document(motion: &str, frame: Option<&str>) -> Document {
+    box_top_sketch_document(&[motion], frame)
+}
+
+/// The document of features/sketch.md test 27, which linear_pattern.md test 16 also runs: a box 20 x 20 x 10 in `b-1`,
+/// its linear pattern `f-lp1` along X with count 2 and `spacing`, a face sketch `f-sk2` on the copy's top in body
+/// coordinates with a point `e-p1` at (5, 5), and a hole `f-hole1` of diameter 4 through all at the point.
+pub fn sketch_on_pattern_copy_document(spacing: &str) -> Document {
     document(
         &["b-1"],
         &[
-            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}"#,
-            motion,
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "op": "new"}"#,
+            &format!(
+                r#"{{"id": "f-lp1", "type": "linear_pattern", "body": "b-1", "direction": {{"axis": {{"kind": "origin", "axis": "X"}}, "count": "2", "spacing": "{spacing}"}}}}"#
+            ),
             &face_sketch(
-                r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"}"#,
+                r#"{"q": "f-box1/top@f-lp1:1", "fp": "plane|n=0,0,1|c=60,0,10|a=400|adj=4,4"}"#,
                 [0.0, 0.0, 10.0],
-                frame,
-                &one_point([15.0, 15.0]),
+                Some("body"),
+                &one_point([5.0, 5.0]),
             ),
             &hole_at_point("4", THROUGH_ALL),
         ],
@@ -1560,8 +1676,27 @@ pub fn leaning_wall(lean: i32) -> [String; 2] {
 /// The left wall's bottom edge of `leaning_wall` as an axis of `b-1` (corpus R38), followed by `extra` members such as
 /// `, "direction": [0, 1, 0]`, or none.
 pub fn left_bottom_edge_axis(extra: &str) -> String {
-    format!(
-        r#"{{"kind": "edge", "body": "b-1", "edge": {{"q": "edge(f-ext1/lateral/e-4|f-ext1/start-cap)", "fp": "line|n=0,1,0|c=0,10,0|l=20|adj=2,2"}}{extra}}}"#
+    edge_axis(
+        "b-1",
+        r#"{"q": "edge(f-ext1/lateral/e-4|f-ext1/start-cap)", "fp": "line|n=0,1,0|c=0,10,0|l=20|adj=2,2"}"#,
+        extra,
+    )
+}
+
+/// Corpus R38 in `b-1`: `leaning_wall(lean)` and `f-lp1`, two copies 30 apart along `left_bottom_edge_axis(extra)`,
+/// the bottom edge of the left wall as picked while the wall stood upright (`n=0,1,0`).
+pub fn leaning_wall_pattern(lean: i32, extra: &str) -> Document {
+    let [sketch, extrude] = leaning_wall(lean);
+    let axis = left_bottom_edge_axis(extra);
+    document(
+        &["b-1"],
+        &[
+            &sketch,
+            &extrude,
+            &format!(
+                r#"{{"id": "f-lp1", "type": "linear_pattern", "body": "b-1", "direction": {{"axis": {axis}, "count": "2", "spacing": "30"}}}}"#
+            ),
+        ],
     )
 }
 
@@ -1587,8 +1722,10 @@ pub fn lean(top_x: i32) -> [String; 2] {
 /// The edge of `lean` along `e-12` on the wall's face at y = 0, as an axis of `b-2`, followed by `extra` members such
 /// as `, "direction": [0, 0, 1]`, or none.
 pub fn lean_edge_axis(extra: &str) -> String {
-    format!(
-        r#"{{"kind": "edge", "body": "b-2", "edge": {{"q": "edge(f-ext5/lateral/e-12|f-ext5/start-cap)", "fp": "line|n=0,0,1|c=-4,0,15|l=30|adj=2,2"}}{extra}}}"#
+    edge_axis(
+        "b-2",
+        r#"{"q": "edge(f-ext5/lateral/e-12|f-ext5/start-cap)", "fp": "line|n=0,0,1|c=-4,0,15|l=30|adj=2,2"}"#,
+        extra,
     )
 }
 

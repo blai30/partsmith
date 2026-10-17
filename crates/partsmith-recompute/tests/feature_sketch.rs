@@ -9,23 +9,24 @@
 //! them: that `hole_misses_body` is the hole's only warning (one point, so no `no_effect`), its text
 //! and fixes (tests 21 and 24), the text and fix of `no_effect` (test 23) and the `separate_solid`
 //! warnings of tests 22 and 28 (phase 3: features.md sections 3.5 and 3.15 and the hole points of
-//! features/hole.md), and the root of test 24's `hole_misses_body` under a drawing turned over
-//! (recompute.md test 72). Tests 30 and 31 (the modeling limit and the sketch crate's texts with
-//! values) belong to phase 3.
+//! features/hole.md). The root of test 24's `hole_misses_body` under a drawing turned over is checked
+//! by recompute.md test 72 (`diagnosis.rs`). Tests 30 and 31 (the modeling limit and the sketch
+//! crate's texts with values) belong to phase 3.
 
 mod feature_support;
 
 use std::time::Duration;
 
 use feature_support::{
-    AXIS_TOLERANCE, BOTH_TOPS, MOVE_BY_100, Run, THROUGH_ALL, TURN_BY_90, assert_bore_through,
+    AXIS_TOLERANCE, BOTH_TOPS, MOVE_BY_100, Run, TURN_BY_90, assert_bore_through,
     assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_in_plane,
     assert_median_build_within, assert_moves, assert_placement, assert_quarter_turns_about_z,
-    assert_relative, assert_solid_count, assert_top_at, assert_translation, assert_volume,
-    body_before, box_step_asset, datum_motion, document, document_text, expression_uses, face,
-    face_sketch, face_sketch_with, hole_at_point, l_shaped_body, link_ids, load_example, message,
-    moved_box_document, one_circle, one_point, parse_document, reference_json, sketch_result,
-    step_asset_name, top_fallback,
+    assert_relative, assert_sketch_on_top_plane, assert_solid_count, assert_top_at,
+    assert_translation, assert_volume, box_step_asset, datum_motion, document, document_text,
+    expression_uses, face, face_motion_before, face_sketch, face_sketch_with, hole_at_point, id,
+    l_shaped_body, link_ids, load_example, message, moved_box_document, one_circle, one_point,
+    parse_document, reference_json, saved, sketch_on_pattern_copy_document, sketch_result,
+    step_asset_name, top_fallback, turn,
 };
 use partsmith_features::{
     FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
@@ -112,19 +113,9 @@ fn fallback(origin: [f64; 3]) -> Placement {
 /// Asserts that the only warning of `f-sk1` is a `plane_fallback` placed at its saved position, and returns its
 /// cause and whether it carries a loss.
 fn plane_fallback_cause(run: &Run) -> (FallbackCause, bool) {
-    run.assert_warnings("f-sk1", &["plane_fallback"]);
-    let warning = &run.feature("f-sk1").warnings[0];
-    let FeatureWarning::PlaneFallback {
-        cause,
-        loss,
-        placed,
-        ..
-    } = warning
-    else {
-        panic!("expected a plane fallback warning, got {warning:?}");
-    };
-    assert_eq!(*placed, Placed::Saved, "where the sketch was placed");
-    (*cause, loss.is_some())
+    let (placed, cause, has_loss) = plane_fallback_of(run, "f-sk1");
+    assert_eq!(placed, Placed::Saved, "where the sketch was placed");
+    (cause, has_loss)
 }
 
 /// The fixes of the `plane_fallback` message of `f-sk1`.
@@ -596,7 +587,8 @@ const BLOCK_TOP: &str =
     r#"{"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}"#;
 
 /// Asserts that `f-hole1` warns `hole_misses_body`. That it is the only warning (one point, so no `no_effect`,
-/// features.md section 3.15) and its text, fixes and root come with phase 3 and recompute.md test 72.
+/// features.md section 3.15) and its text and fixes come with phase 3; its root under a drawing turned over is
+/// checked by recompute.md test 72 (`diagnosis.rs`).
 #[track_caller]
 fn assert_hole_misses_the_body(run: &Run) {
     let report = run.feature("f-hole1");
@@ -618,22 +610,15 @@ fn assert_hole_misses_the_body(run: &Run) {
 /// The only `plane_fallback` warning of `sketch`: where it placed the sketch, its cause and whether it has a loss.
 fn plane_fallback_of(run: &Run, sketch: &str) -> (Placed, FallbackCause, bool) {
     run.assert_warnings(sketch, &["plane_fallback"]);
-    match &run.feature(sketch).warnings[0] {
-        FeatureWarning::PlaneFallback {
-            cause,
-            loss,
-            placed,
-            ..
-        } => (placed.clone(), *cause, loss.is_some()),
-        other => panic!("expected a plane fallback warning, got {other:?}"),
-    }
+    let (placed, cause, loss) = run.plane_fallback(sketch);
+    (placed.clone(), cause, loss.is_some())
 }
 
-/// `Attach` of `f-sk2` to `face` of `b-1`.
-fn attach(face: Reference) -> Fix {
+/// `Attach` of `sketch` to `face` of `b-1`.
+fn attach(sketch: &str, face: Reference) -> Fix {
     Fix::Attach {
-        sketch: Id::new("f-sk2").expect("a valid id"),
-        body: Id::new("b-1").expect("a valid id"),
+        sketch: id(sketch),
+        body: id("b-1"),
         face,
     }
 }
@@ -654,13 +639,8 @@ fn t020_the_part_moves_and_the_sketch_moves_with_its_face() {
     let run = Run::new(moved_box_document(MOVE_BY_100, Some("body")));
 
     run.assert_all_ok();
+    assert_sketch_on_top_plane(&run, "f-sk2", [100.0, 0.0, 10.0]);
     let sketch = sketch_result(&run, "f-sk2");
-    assert_placement(
-        &sketch.placement,
-        [100.0, 0.0, 10.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    );
     assert_translation(&sketch.motion, [100.0, 0.0, 0.0]);
     assert_coordinates(
         "to_world([15, 15])",
@@ -698,17 +678,12 @@ fn t020_the_part_turns_and_the_sketch_turns_with_its_face() {
 #[test]
 fn t021_a_fallback_in_world_coordinates_rebuilds_as_before() {
     let document = moved_box_document(MOVE_BY_100, None);
-    let saved = partsmith_model::save(&document).expect("the document saves");
+    let text = saved(&document);
     let run = Run::new(document);
 
     run.assert_ok("f-sk2");
+    assert_sketch_on_top_plane(&run, "f-sk2", [0.0, 0.0, 10.0]);
     let sketch = sketch_result(&run, "f-sk2");
-    assert_placement(
-        &sketch.placement,
-        [0.0, 0.0, 10.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    );
     assert_eq!(sketch.motion, Motion::IDENTITY);
     assert_coordinates(
         "to_world([15, 15])",
@@ -719,11 +694,8 @@ fn t021_a_fallback_in_world_coordinates_rebuilds_as_before() {
     assert_hole_misses_the_body(&run);
     assert_volume(run.shape("b-1"), 16000.0);
     // Nothing is written back, and no `fallback_frame` is added.
-    assert_eq!(
-        partsmith_model::save(&run.document).expect("the document saves"),
-        saved
-    );
-    assert!(!saved.contains("fallback_frame"), "{saved}");
+    assert_eq!(saved(&run.document), text);
+    assert!(!text.contains("fallback_frame"), "{text}");
 }
 
 /// The document of test 22 (corpus R33): the box cut below a sketch attached to its top when it was 10 tall, and a
@@ -769,20 +741,9 @@ fn cut_top_document() -> partsmith_model::Document {
 fn t022_a_face_cut_away_before_the_sketch_keeps_it_where_the_face_was() {
     let run = Run::new(cut_top_document());
 
-    let sketch = sketch_result(&run, "f-sk2");
-    assert_placement(
-        &sketch.placement,
-        [0.0, 0.0, 40.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    );
+    assert_sketch_on_top_plane(&run, "f-sk2", [0.0, 0.0, 40.0]);
     let (placed, cause, has_loss) = plane_fallback_of(&run, "f-sk2");
-    assert_eq!(
-        placed,
-        Placed::BeforeRemoval {
-            by: Id::new("f-ext3").expect("a valid id")
-        }
-    );
+    assert_eq!(placed, Placed::BeforeRemoval { by: id("f-ext3") });
     assert_eq!(cause, FallbackCause::Missing);
     assert!(has_loss, "the warning carries the loss");
     assert_eq!(
@@ -795,11 +756,10 @@ fn t022_a_face_cut_away_before_the_sketch_keeps_it_where_the_face_was() {
     let fixes = &message(&run, "f-sk2", "plane_fallback").fixes;
     assert_eq!(
         fixes.first(),
-        Some(&attach(run.picked_before(
+        Some(&attach(
             "f-sk2",
-            "b-1",
-            "f-ext3/start-cap"
-        ))),
+            run.picked_before("f-sk2", "b-1", "f-ext3/start-cap")
+        )),
         "{fixes:?}"
     );
     assert_eq!(fixes.last(), Some(&pick_face()), "{fixes:?}");
@@ -816,14 +776,11 @@ fn t022_a_face_cut_away_before_the_sketch_keeps_it_where_the_face_was() {
 #[test]
 fn t022_the_placement_is_read_from_the_run_and_nothing_is_written() {
     let document = cut_top_document();
-    let saved = partsmith_model::save(&document).expect("the document saves");
+    let text = saved(&document);
     let run = Run::new(document);
-    assert_eq!(
-        partsmith_model::save(&run.document).expect("the document saves"),
-        saved
-    );
+    assert_eq!(saved(&run.document), text);
 
-    let again = Run::new(parse_document(&saved));
+    let again = Run::new(parse_document(&text));
 
     assert_eq!(
         sketch_result(&again, "f-sk2").placement,
@@ -892,7 +849,7 @@ fn t023_a_face_whose_feature_was_deleted_uses_the_saved_position() {
         "f-ext3/lateral/e-2",
     ]
     .iter()
-    .map(|name| attach(run.picked_before("f-sk2", "b-1", name)))
+    .map(|name| attach("f-sk2", run.picked_before("f-sk2", "b-1", name)))
     .collect();
     expected.push(pick_face());
     assert_eq!(fixes, &expected);
@@ -975,7 +932,7 @@ fn assert_drawing_turned_over(run: &Run) {
         message(run, "f-sk2", "sketch_turned_over").fixes,
         [
             Fix::TurnDrawingBack {
-                sketch: Id::new("f-sk2").expect("a valid id")
+                sketch: id("f-sk2")
             },
             pick_face(),
         ]
@@ -1066,18 +1023,8 @@ fn slotted_block_document(face: &str) -> partsmith_model::Document {
 fn t025_a_face_split_into_coplanar_pieces_keeps_the_placement() {
     let run = Run::new(slotted_block_document(BLOCK_TOP));
 
-    run.assert_ok("f-sk2");
-    assert!(
-        run.messages("f-sk2").is_empty(),
-        "{:?}",
-        run.messages("f-sk2")
-    );
-    assert_placement(
-        &sketch_result(&run, "f-sk2").placement,
-        [0.0, 0.0, 30.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    );
+    run.assert_quiet("f-sk2");
+    assert_sketch_on_top_plane(&run, "f-sk2", [0.0, 0.0, 30.0]);
 }
 
 #[test]
@@ -1105,17 +1052,12 @@ fn t026_faces_in_two_planes_use_the_saved_position_and_offer_both() {
             "The face this sketch is on, the top of 'Box 1', now matches 2 faces that do not lie in one plane, so the sketch uses the position saved with it. Pick the one you mean."
         ]
     );
-    let attach_to = |name: &str| Fix::Attach {
-        sketch: Id::new("f-sk1").expect("a valid id"),
-        body: Id::new("b-1").expect("a valid id"),
-        face: run.picked_before("f-sk1", "b-1", name),
-    };
     // Neither face is chosen by name order: both are offered, then Pick.
     assert_eq!(
         plane_fallback_fixes(&run),
         [
-            attach_to("f-box1/top"),
-            attach_to("f-box2/top"),
+            attach("f-sk1", run.picked_before("f-sk1", "b-1", "f-box1/top")),
+            attach("f-sk1", run.picked_before("f-sk1", "b-1", "f-box2/top")),
             pick_face()
         ]
     );
@@ -1125,41 +1067,14 @@ fn t026_faces_in_two_planes_use_the_saved_position_and_offer_both() {
     );
 }
 
-/// The document of test 27: a box, a linear pattern of it with `spacing`, a face sketch on the copy's top in body
-/// coordinates, and a hole through all at its point.
-fn pattern_copy_document(spacing: &str) -> partsmith_model::Document {
-    document(
-        &["b-1"],
-        &[
-            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "op": "new"}"#,
-            &format!(
-                r#"{{"id": "f-lp1", "type": "linear_pattern", "body": "b-1", "direction": {{"axis": {{"kind": "origin", "axis": "X"}}, "count": "2", "spacing": "{spacing}"}}}}"#
-            ),
-            &face_sketch(
-                r#"{"q": "f-box1/top@f-lp1:1", "fp": "plane|n=0,0,1|c=60,0,10|a=400|adj=4,4"}"#,
-                [0.0, 0.0, 10.0],
-                Some("body"),
-                &one_point([5.0, 5.0]),
-            ),
-            &hole_at_point("4", THROUGH_ALL),
-        ],
-    )
-}
-
 #[test]
 fn t027_a_sketch_on_a_pattern_copy_follows_the_spacing() {
     for (spacing, offset) in [("60", 60.0), ("80", 80.0)] {
-        let run = Run::new(pattern_copy_document(spacing));
+        let run = Run::new(sketch_on_pattern_copy_document(spacing));
 
         run.assert_all_ok();
-        let sketch = sketch_result(&run, "f-sk2");
-        assert_placement(
-            &sketch.placement,
-            [offset, 0.0, 10.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0],
-        );
-        assert_translation(&sketch.motion, [offset, 0.0, 0.0]);
+        assert_sketch_on_top_plane(&run, "f-sk2", [offset, 0.0, 10.0]);
+        assert_translation(&sketch_result(&run, "f-sk2").motion, [offset, 0.0, 0.0]);
         assert_bore_through(&run, [offset + 5.0, 5.0, 0.0]);
         assert_volume(run.shape("b-1"), 7874.336294);
     }
@@ -1260,8 +1175,14 @@ fn t029_a_revolve_that_turns_all_the_way_round_leaves_the_saved_position() {
     assert_eq!(
         message(&run, "f-sk2", "plane_fallback").fixes,
         [
-            attach(run.picked_before("f-sk2", "b-1", "f-rev1/lateral/e-1")),
-            attach(run.picked_before("f-sk2", "b-1", "f-rev1/lateral/e-3")),
+            attach(
+                "f-sk2",
+                run.picked_before("f-sk2", "b-1", "f-rev1/lateral/e-1")
+            ),
+            attach(
+                "f-sk2",
+                run.picked_before("f-sk2", "b-1", "f-rev1/lateral/e-3")
+            ),
             pick_face(),
         ]
     );
@@ -1302,12 +1223,7 @@ fn t032_a_face_taken_by_its_position_among_pieces_is_a_guess() {
         .collect();
     assert_eq!(alternatives, ["f-ext1/end-cap#2"]);
     // Every piece of a flat face lies in its plane, so the placement is test 25's.
-    assert_placement(
-        &sketch_result(&run, "f-sk2").placement,
-        [0.0, 0.0, 30.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    );
+    assert_sketch_on_top_plane(&run, "f-sk2", [0.0, 0.0, 30.0]);
 }
 
 #[test]
@@ -1317,7 +1233,7 @@ fn a_sketch_on_a_datum_takes_the_datums_motion() {
         &["b-1"],
         &[
             r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}"#,
-            r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "X"}, "angle": "180 deg"}}"#,
+            &turn("b-1", "X", "180 deg"),
             r#"{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=100"}}}"#,
             &sketch_on_datum("f-sk2", "f-dp1", &one_point([1.0, 2.0])),
         ],
@@ -1328,16 +1244,9 @@ fn a_sketch_on_a_datum_takes_the_datums_motion() {
     // The rotation of 180 degrees about X: (x, y, z) to (x, -y, -z).
     assert_moves(&sketch.motion, &[([1.0, 2.0, 3.0], [1.0, -2.0, -3.0])]);
     assert_moves(
-        datum_motion(&run.report, "f-dp1"),
+        datum_motion(&run, "f-dp1"),
         &[([1.0, 2.0, 3.0], [1.0, -2.0, -3.0])],
     );
-}
-
-/// The motion of `face` in `body` just before `feature`.
-fn motion_before(run: &Run, feature: &str, body: &str, face: &str) -> Motion {
-    body_before(run, feature, body).motion(
-        &partsmith_naming::ElementName::parse(face).expect("names written in tests are valid"),
-    )
 }
 
 #[test]
@@ -1347,6 +1256,6 @@ fn a_face_sketch_in_body_coordinates_takes_the_motion_of_its_face() {
 
     assert_eq!(
         sketch_result(&run, "f-sk2").motion,
-        motion_before(&run, "f-sk2", "b-1", "f-box1/top")
+        face_motion_before(&run, "f-sk2", "b-1", "f-box1/top")
     );
 }

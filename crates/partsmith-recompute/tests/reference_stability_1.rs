@@ -24,17 +24,17 @@ use partsmith_naming::ElementKind;
 use partsmith_recompute::Status;
 use partsmith_sketch::Placement;
 use serde_json::Value;
-use stability_support_1::feature_support::{Assets, Run};
+use stability_support_1::feature_support::{Assets, Run, point_components};
 use stability_support_1::{
     EXACT_POSITION_TOLERANCE, Expectations, arc, block, block_back_top, block_front_right_vertical,
     block_front_top, block_outline, block_outline_to, block_region, block_right_side,
     block_right_top, block_top, block_with, box_record, chamfer, chamfer_spans,
-    chamfer_two_distances, circle, coordinates, cube20, cube20_front_top, datum_on_face,
-    datum_plane, diagnose, diagnose_region, distance, document_in, document_of, edit_document,
-    extrude, face_plane, faces_with_prefix, fillet, line, linear_pattern, names, origin_plane,
-    parameter, rectangle, rectangle_region, reference, region_with_fingerprint, reversed,
-    run_picked, shell, sketch, slot, slot_cut, split_by_datum, stored, summary, suppressed,
-    symmetric, through_all, top_datum, try_body_before, volume,
+    chamfer_two_distances, circle, cube20, cube20_front_top, datum_on_face, datum_plane, diagnose,
+    diagnose_region, distance, document_in, document_of, edit_document, extrude, face_plane,
+    faces_with_prefix, fillet, line, linear_pattern, names, origin_plane, parameter, rectangle,
+    rectangle_region, reference, region_with_fingerprint, reversed, run_picked, shell, sketch,
+    slot, slot_cut, split_by_datum, stored, summary, suppressed, symmetric, through_all, top_datum,
+    try_body_before, volume,
 };
 
 // Running scenarios.
@@ -1009,7 +1009,7 @@ fn r09_slot_moved_so_pieces_swap_sizes_keeps_the_shell_opening() {
         checks.plane_normal("closed top of the left piece", &top, [0.0, 0.0, 1.0]);
         checks.point(
             "centroid of the closed top of the left piece",
-            coordinates(top.centroid),
+            point_components(top.centroid),
             [27.5, 25.0, 30.0],
         );
         checks.relative(
@@ -2157,7 +2157,7 @@ fn check_r22_sides(checks: &mut Expectations, body: &BodyState, when: &str) {
     for (name, chamfer) in &chamfers {
         checks.point(
             &format!("{when}: centroid of {name} (edges at z=19 on the front, y=-7 on the top)"),
-            coordinates(chamfer.centroid),
+            point_components(chamfer.centroid),
             [0.0, -8.5, 19.5],
         );
     }

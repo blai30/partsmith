@@ -756,19 +756,22 @@ pub fn block_with_end_cap_sketch(reverse: bool, entities: Vec<Value>) -> Vec<Val
     features
 }
 
-/// R32 (b) setup (features/sketch.md test 24 when `reverse`): `block_with_end_cap_sketch` with a
-/// point `e-p1` at (20,10) and a 5 mm hole `f-hole1` 10 deep there.
-pub fn block_with_hole_on_end_cap(reverse: bool) -> Vec<Value> {
-    let mut features = block_with_end_cap_sketch(reverse, vec![point("e-p1", [20.0, 10.0])]);
-    features.push(hole(
-        "f-hole1",
-        "b-1",
-        "f-sk2",
-        &["e-p1"],
-        "5",
-        distance("10"),
-    ));
+/// R32 (b) with these sketch entities and hole points: `block_with_end_cap_sketch` with `entities`
+/// and a 5 mm hole `f-hole1` 10 deep at `points`.
+pub fn block_with_holes_on_end_cap(
+    reverse: bool,
+    entities: Vec<Value>,
+    points: &[&str],
+) -> Vec<Value> {
+    let mut features = block_with_end_cap_sketch(reverse, entities);
+    features.push(hole("f-hole1", "b-1", "f-sk2", points, "5", distance("10")));
     features
+}
+
+/// R32 (b) setup (features/sketch.md test 24 when `reverse`): `block_with_holes_on_end_cap` with a
+/// point `e-p1` at (20,10) and the hole there.
+pub fn block_with_hole_on_end_cap(reverse: bool) -> Vec<Value> {
+    block_with_holes_on_end_cap(reverse, vec![point("e-p1", [20.0, 10.0])], &["e-p1"])
 }
 
 /// R33: the top of the 20 x 20 x 40 box as picked when it was 10 tall.

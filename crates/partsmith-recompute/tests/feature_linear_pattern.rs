@@ -10,18 +10,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use feature_support::{
-    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, THROUGH_ALL, assert_bore_through,
+    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_bore_through,
     assert_bounding_box, assert_choice_between, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_position, assert_has_face,
-    assert_median_build_within, assert_solid_count, assert_translation, assert_unchanged,
-    assert_volume, body_changes, document, face, face_sketch, hole_at_point, l_shaped_body,
-    leaning_wall, left_bottom_edge_axis, link_ids, one_point, output_body,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_position,
+    assert_face_translated, assert_has_face, assert_median_build_within, assert_solid_count,
+    assert_unchanged, assert_volume, body_changes, document, edge_axis, face, l_shaped_body,
+    leaning_wall_pattern, link_ids, sketch_on_pattern_copy_document, turn,
 };
 use partsmith_features::{
     BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, Values,
 };
 use partsmith_model::{EmptyContext, Id, Scope, Units};
-use partsmith_naming::ElementName;
 use partsmith_occt_sys::GeometryKind;
 
 /// The bodies of every linear pattern test.
@@ -352,34 +351,17 @@ fn t015_fractional_count_below_1() {
 // Tests 16 to 19: copies carry their transform as the motion of their faces, and an edge direction keeps the side the
 // user picked (features.md sections 3.6 and 3.9).
 
-/// The document of features/sketch.md test 27: a box 20 x 20 x 10, this pattern of it along X with count 2 and
-/// `spacing`, a face sketch on the copy's top in the coordinates of 'Box 1', and a hole through all at its point (5, 5).
-fn sketch_on_copy_document(spacing: &str) -> partsmith_model::Document {
-    document(
-        &BODIES,
-        &[
-            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "op": "new"}"#,
-            &pattern(&direction(X, "2", spacing), ""),
-            &face_sketch(
-                r#"{"q": "f-box1/top@f-lp1:1", "fp": "plane|n=0,0,1|c=60,0,10|a=400|adj=4,4"}"#,
-                [0.0, 0.0, 10.0],
-                Some("body"),
-                &one_point([5.0, 5.0]),
-            ),
-            &hole_at_point("4", THROUGH_ALL),
-        ],
-    )
-}
-
 #[test]
 fn t016_a_sketch_on_a_copys_face_follows_the_spacing() {
     for (spacing, offset) in [("60", 60.0), ("80", 80.0)] {
-        let run = Run::new(sketch_on_copy_document(spacing));
+        let run = Run::new(sketch_on_pattern_copy_document(spacing));
 
         run.assert_all_ok();
-        let copy_top = ElementName::parse("f-box1/top@f-lp1:1").expect("a valid name");
-        assert_translation(
-            &output_body(&run, "f-lp1", "b-1").motion(&copy_top),
+        assert_face_translated(
+            &run,
+            "f-lp1",
+            "b-1",
+            "f-box1/top@f-lp1:1",
             [offset, 0.0, 0.0],
         );
         assert_bore_through(&run, [offset + 5.0, 5.0, 0.0]);
@@ -389,15 +371,7 @@ fn t016_a_sketch_on_a_copys_face_follows_the_spacing() {
 /// The R38 setup with its left wall leaning by `lean`, and the pattern of test 17 along its bottom edge, with the
 /// axis's `extra` members.
 fn pattern_along_leaning_wall(lean: i32, extra: &str) -> Run {
-    let [sketch, extrude] = leaning_wall(lean);
-    Run::records(
-        &["b-1"],
-        &[
-            &sketch,
-            &extrude,
-            &pattern(&direction(&left_bottom_edge_axis(extra), "2", "30"), ""),
-        ],
-    )
+    Run::new(leaning_wall_pattern(lean, extra))
 }
 
 #[test]
@@ -438,11 +412,13 @@ fn pattern_after_a_half_turn(extra: &str) -> Run {
         &BODIES,
         &[
             CUBE10,
-            r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "180 deg"}}"#,
+            &turn("b-1", "Z", "180 deg"),
             &pattern(
                 &direction(
-                    &format!(
-                        r#"{{"kind": "edge", "body": "b-1", "edge": {{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}}{extra}}}"#
+                    &edge_axis(
+                        "b-1",
+                        r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}"#,
+                        extra,
                     ),
                     "2",
                     "20",
@@ -480,13 +456,7 @@ fn t019_direction_edges_not_on_one_line() {
             &box_1,
             &box_2,
             &pattern(
-                &direction(
-                    &format!(
-                        r#"{{"kind": "edge", "body": "b-1", "edge": {BOTH_FRONT_TOP_EDGES}}}"#
-                    ),
-                    "2",
-                    "50",
-                ),
+                &direction(&edge_axis("b-1", BOTH_FRONT_TOP_EDGES, ""), "2", "50"),
                 "",
             ),
         ],

@@ -2,13 +2,13 @@
 //! removing faces (features/shell.md).
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_naming::{ElementKind, FaceSource, NamingMap, Reference, Successions, roles};
+use partsmith_naming::{ElementKind, FaceSource, NamingMap, Reference, roles};
 use partsmith_occt_sys::{KernelError, OpResult, Shape, SubShapeKind, compound, shell};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    body_base_motion, body_hint, essential, manifest, positive_length, references, selection_hint,
+    body_hint, essential, manifest, name_on_body, positive_length, references, selection_hint,
     solid_body, unit_hint,
 };
 use super::dressup::{
@@ -17,7 +17,7 @@ use super::dressup::{
 };
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Named, PythonCall,
-    PythonNames, PythonValue, name_shape,
+    PythonNames, PythonValue,
 };
 
 /// Hollows a body inward to a wall thickness.
@@ -260,13 +260,7 @@ fn name_shell(
         .iter()
         .map(|origin| face_source(feature, input, removed, origin))
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    name_shape(
-        &hollow.shape,
-        faces,
-        &[input],
-        &Successions::default(),
-        &body_base_motion(feature, input)?,
-    )
+    name_on_body(feature, &hollow.shape, faces, input)
 }
 
 /// The source of one face of the hollow body by the first rule of naming.md section 3.6.7 that

@@ -27,6 +27,8 @@ pub use stability_common::*;
 
 use std::f64::consts::PI;
 
+use feature_support::point_components;
+
 use partsmith_features::{BodyState, Repair, SketchResult};
 use partsmith_naming::{ElementKind, ElementName, MatchMethod, Resolution};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
@@ -162,14 +164,9 @@ pub fn sorted_spans(mut spans: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
     spans
 }
 
-/// The coordinates of a kernel point.
-pub fn coordinates(point: partsmith_occt_sys::Point) -> [f64; 3] {
-    [point.x, point.y, point.z]
-}
-
 /// True when a straight edge's geometry has this centroid and length (1e-6 mm).
 pub fn is_edge_at(geometry: &ElementGeometry, centroid: [f64; 3], length: f64) -> bool {
-    coordinates(geometry.centroid)
+    point_components(geometry.centroid)
         .iter()
         .zip(centroid)
         .all(|(a, b)| (a - b).abs() <= EXACT_POSITION_TOLERANCE)
@@ -460,7 +457,7 @@ impl Expectations {
             1.0,
             1e-9,
         );
-        let location = coordinates(location);
+        let location = point_components(location);
         let offset = [0, 1, 2].map(|i| point[i] - location[i]);
         let along: f64 = offset.iter().zip(axis).map(|(a, b)| a * b).sum();
         let distance = offset

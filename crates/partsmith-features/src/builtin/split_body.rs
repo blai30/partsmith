@@ -4,23 +4,23 @@
 use std::sync::Arc;
 
 use partsmith_model::{Category, FeatureManifest, Id, SelectionKind};
-use partsmith_naming::{FaceSource, NamingMap, Successions, roles};
+use partsmith_naming::{FaceSource, NamingMap, roles};
 use partsmith_occt_sys::{PlaneSide, Shape, SplitResult, SubShapeKind, split};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, body_base_motion, essential, face_name, flag, hint, is_false, manifest, part,
+    bodies, essential, face_name, flag, hint, is_false, manifest, name_on_body, part,
     selection_hint, single_or_compound, solid_body, target_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FieldRef};
 use crate::feature::Feature;
+use crate::modified_sources;
 use crate::output::{BodyChange, BodyUpdate, FeatureOutput, Measurements, VOLUME_TOLERANCE};
 use crate::params::{PlacementExt, PlaneRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
-use crate::{modified_sources, name_shape};
 
 /// Cuts a body in two with a plane.
 #[derive(Clone, Copy, Debug, Default)]
@@ -217,14 +217,7 @@ fn name_pieces(
             })
         })
         .collect();
-    let named = name_shape(
-        &pieces.result.shape,
-        faces,
-        &[input],
-        &Successions::default(),
-        &body_base_motion(feature, input)?,
-    )?;
-    Ok(named.naming)
+    Ok(name_on_body(feature, &pieces.result.shape, faces, input)?.naming)
 }
 
 /// The update giving `body` these solids of the split `result`: one solid as it is, several as

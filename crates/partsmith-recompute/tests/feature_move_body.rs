@@ -11,11 +11,11 @@ use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_bore_through,
     assert_bounding_box, assert_choice_between, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_normal,
-    assert_face_position, assert_median_build_within, assert_quarter_turns_about_z,
-    assert_translation, assert_unchanged, assert_volume, body_changes, face, l_shaped_body,
-    leaning_wall, left_bottom_edge_axis, load_example, moved_box_document, output_body,
+    assert_face_position, assert_face_translated, assert_median_build_within,
+    assert_quarter_turns_about_z, assert_unchanged, assert_volume, body_changes, edge_axis, face,
+    face_motion, l_shaped_body, leaning_wall, left_bottom_edge_axis, load_example,
+    moved_box_document,
 };
-use partsmith_naming::ElementName;
 use partsmith_occt_sys::GeometryKind;
 
 /// The bodies of every move body test.
@@ -176,12 +176,6 @@ fn sketch_after_a_move_document(extra: &str) -> partsmith_model::Document {
     moved_box_document(&move_body(extra), Some("body"))
 }
 
-/// The motion of `f-box1/top` in b-1's state after `f-mv1`.
-fn top_motion_after_the_move(run: &Run) -> partsmith_naming::Motion {
-    let top = ElementName::parse("f-box1/top").expect("a valid name");
-    output_body(run, "f-mv1", "b-1").motion(&top)
-}
-
 #[test]
 fn t010_a_sketch_after_the_move_keeps_its_point_on_the_moved_face() {
     let run = Run::new(sketch_after_a_move_document(
@@ -189,7 +183,7 @@ fn t010_a_sketch_after_the_move_keeps_its_point_on_the_moved_face() {
     ));
 
     run.assert_all_ok();
-    assert_translation(&top_motion_after_the_move(&run), [100.0, 0.0, 0.0]);
+    assert_face_translated(&run, "f-mv1", "b-1", "f-box1/top", [100.0, 0.0, 0.0]);
     assert_bore_through(&run, [115.0, 15.0, 0.0]);
 }
 
@@ -201,7 +195,7 @@ fn t010_a_sketch_after_a_turn_keeps_its_point_on_the_turned_face() {
     )));
 
     run.assert_all_ok();
-    assert_quarter_turns_about_z(&top_motion_after_the_move(&run), 1);
+    assert_quarter_turns_about_z(&face_motion(&run, "f-mv1", "b-1", "f-box1/top"), 1);
     assert_bore_through(&run, [-15.0, 15.0, 0.0]);
 }
 
@@ -258,7 +252,12 @@ fn quarter_turn_after_a_half_turn(extra: &str) -> Run {
             r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}"#,
             &move_body(&format!(r#""rotation": {}"#, rotation_z("180 deg"))),
             &format!(
-                r#"{{"id": "f-mv2", "type": "move_body", "body": "b-1", "rotation": {{"axis": {{"kind": "edge", "body": "b-1", "edge": {{"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=5,0,10|l=10"}}{extra}}}, "angle": "90 deg"}}}}"#
+                r#"{{"id": "f-mv2", "type": "move_body", "body": "b-1", "rotation": {{"axis": {}, "angle": "90 deg"}}}}"#,
+                edge_axis(
+                    "b-1",
+                    r#"{"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=5,0,10|l=10"}"#,
+                    extra
+                )
             ),
         ],
     )
@@ -291,7 +290,8 @@ fn t013_axis_edges_not_on_one_line() {
             &box_1,
             &box_2,
             &move_body(&format!(
-                r#""rotation": {{"axis": {{"kind": "edge", "body": "b-1", "edge": {BOTH_FRONT_TOP_EDGES}}}, "angle": "90 deg"}}"#
+                r#""rotation": {{"axis": {}, "angle": "90 deg"}}"#,
+                edge_axis("b-1", BOTH_FRONT_TOP_EDGES, "")
             )),
         ],
     );

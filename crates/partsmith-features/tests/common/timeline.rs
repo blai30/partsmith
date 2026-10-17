@@ -195,6 +195,16 @@ impl Timeline {
         self.chains.get(&id(body)).cloned().unwrap_or_default()
     }
 
+    /// The writers of `body`'s chain at the end of the timeline, oldest first.
+    pub fn writers(&self, body: &str) -> Vec<String> {
+        self.chains
+            .get(&id(body))
+            .into_iter()
+            .flatten()
+            .map(|(writer, _)| writer.to_string())
+            .collect()
+    }
+
     /// The output of `feature`; fails the test when it failed.
     pub fn output(&self, feature: &str) -> &FeatureOutput {
         self.outputs.get(&id(feature)).unwrap_or_else(|| {

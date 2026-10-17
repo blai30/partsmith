@@ -8,14 +8,13 @@ use std::sync::Arc;
 
 use common::records::{
     ATTACHED_BOX_TOP, block, block_with, cube10, cube20, cut_through_the_top, edited, fillet, line,
-    linear_pattern, rectangle, reference, sketch, xy,
+    linear_pattern, move_by_100, rectangle, reference, sketch, xy,
 };
 use common::timeline::{Timeline, stored};
-use common::{ContextFixture, assert_vector_close, built_body, id};
+use common::{ContextFixture, NO_TURN, assert_vector_close, built_body, id, moved_state};
 use partsmith_features::{Absence, BodyState, FeatureError};
 use partsmith_model::{Id, Units};
 use partsmith_naming::{ElementName, Motion, Reference};
-use partsmith_occt_sys::{Transform, transform};
 use partsmith_sketch::{HintFrame, Placement};
 use serde_json::{Value, json};
 
@@ -29,30 +28,6 @@ fn box_test_1() -> BodyState {
 /// An element name written in a test.
 fn name(text: &str) -> ElementName {
     ElementName::parse(text).expect("element names written in tests are valid")
-}
-
-/// The translation by (100, 0, 0).
-fn shift() -> Motion {
-    Motion::new(
-        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-        [100.0, 0.0, 0.0],
-    )
-}
-
-/// `state` with its shape translated by (100, 0, 0) and its naming map `moved` by that translation.
-fn shifted(state: &BodyState) -> BodyState {
-    let moved = transform(
-        state.shape().expect("the box has a solid"),
-        &Transform {
-            matrix: [
-                [1.0, 0.0, 0.0, 100.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-            ],
-        },
-    )
-    .expect("a translation applies");
-    BodyState::new(moved.shape, Arc::new(state.naming().moved(&shift())))
 }
 
 #[test]
@@ -114,10 +89,12 @@ fn t026_a_box_has_the_identity_motion() {
 
 #[test]
 fn t026_a_moved_map_gives_its_faces_and_unseen_names_the_move() {
-    let moved = shifted(&box_test_1());
+    let translation = [100.0, 0.0, 0.0];
+    let moved = moved_state(&box_test_1(), NO_TURN, translation);
 
-    assert_eq!(moved.motion(&name("f-box1/top")), shift());
-    assert_eq!(moved.motion(&name("f-gone/x")), shift());
+    let shift = Motion::new(NO_TURN, translation);
+    assert_eq!(moved.motion(&name("f-box1/top")), shift);
+    assert_eq!(moved.motion(&name("f-gone/x")), shift);
 }
 
 #[test]
@@ -254,11 +231,6 @@ fn cut_through_the_top_then(extra: Vec<Value>) -> Timeline {
     Timeline::run(&["b-1"], &features)
 }
 
-/// The Move body `f-mv1` of `b-1` by (100, 0, 0).
-fn move_by_100() -> Value {
-    json!({"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]})
-}
-
 /// `face_placement_before_removal` of `face` in `b-1` with the attached top's hint in `frame`, for a sketch `f-sk2`
 /// at the end of `timeline` (its states and writer chains).
 fn before_removal(
@@ -282,13 +254,7 @@ fn attached_box_top() -> Reference {
 fn t030_the_writer_chain_holds_the_box_before_its_cut() {
     let timeline = cut_through_the_top_then(Vec::new());
 
-    let writers: Vec<String> = timeline
-        .chain("b-1")
-        .iter()
-        .map(|(writer, _)| writer.to_string())
-        .collect();
-
-    assert_eq!(writers, ["f-box1", "f-ext3"]);
+    assert_eq!(timeline.writers("b-1"), ["f-box1", "f-ext3"]);
 }
 
 #[test]
@@ -307,12 +273,7 @@ fn t030_a_face_a_cut_removed_places_the_sketch_where_it_was_just_before_the_cut(
 #[test]
 fn t030_a_move_body_after_the_removal_moves_the_placement_with_the_body() {
     let timeline = cut_through_the_top_then(vec![move_by_100()]);
-    let writers: Vec<String> = timeline
-        .chain("b-1")
-        .iter()
-        .map(|(writer, _)| writer.to_string())
-        .collect();
-    assert_eq!(writers, ["f-box1", "f-ext3", "f-mv1"]);
+    assert_eq!(timeline.writers("b-1"), ["f-box1", "f-ext3", "f-mv1"]);
 
     let (placement, writer) = before_removal(&timeline, &attached_box_top(), HintFrame::Body)
         .expect("the box's state before the cut has its top");

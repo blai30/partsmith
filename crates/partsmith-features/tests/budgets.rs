@@ -10,15 +10,16 @@ mod common;
 
 use std::f64::consts::PI;
 use std::hint::black_box;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::records::{block, slot};
-use common::timeline::Timeline;
+use common::timeline::{Timeline, stored};
 use common::{ContextFixture, Probe, ScriptNames, Slab, built_body, id, record, slab_record};
 use partsmith_features::{BodyState, Registry, describe_elements, name_shape};
 use partsmith_model::{FieldUnit, Units};
 use partsmith_naming::{
-    ElementKind, ElementName, FaceSource, Fingerprint, Motion, Reference, Successions,
+    ElementKind, ElementName, FaceSource, Fingerprint, Motion, NamingMap, Successions,
 };
 use partsmith_occt_sys::{Plane, Point, Shape, SubShapeKind, cut, make_box, make_cylinder};
 use partsmith_sketch::{HintFrame, OriginPlane};
@@ -246,26 +247,30 @@ fn plate_with_holes() -> Shape {
     plate
 }
 
+/// `plate_with_holes` with every face a new `f-plate1/face` (numbered `#n`), and its naming map.
+fn named_plate() -> (Shape, Arc<NamingMap>) {
+    let plate = plate_with_holes();
+    let face = ElementName::parse("f-plate1/face").expect("a valid name");
+    let faces = vec![FaceSource::New(face); 200];
+    let naming = name_shape(
+        &plate,
+        faces,
+        &[],
+        &Successions::default(),
+        &Motion::IDENTITY,
+    )
+    .expect("the plate is named")
+    .naming;
+    (plate, Arc::new(naming))
+}
+
 #[test]
 #[cfg_attr(
     debug_assertions,
     ignore = "performance budgets hold for release builds: run with cargo test --release"
 )]
 fn element_infos_of_a_200_face_body_within_10_milliseconds() {
-    let plate = plate_with_holes();
-    let face = ElementName::parse("f-plate1/face").expect("a valid name");
-    let faces = vec![FaceSource::New(face); 200];
-    let naming = std::sync::Arc::new(
-        name_shape(
-            &plate,
-            faces,
-            &[],
-            &Successions::default(),
-            &Motion::IDENTITY,
-        )
-        .expect("the plate is named")
-        .naming,
-    );
+    let (plate, naming) = named_plate();
 
     let duration = median(11, || {
         // A new state each time: the element infos are computed once per state.
@@ -337,20 +342,7 @@ fn describe_elements_of_five_elements_within_200_microseconds() {
 fn face_placement_before_removal_over_50_writers_within_5_milliseconds() {
     // The worst case: only the oldest of the 50 states has the face, so the walk resolves the reference in every
     // state, and each of the 49 newer ones is the 200-face plate, where it is missing.
-    let plate = plate_with_holes();
-    let face = ElementName::parse("f-plate1/face").expect("a valid name");
-    let faces = vec![FaceSource::New(face); 200];
-    let naming = std::sync::Arc::new(
-        name_shape(
-            &plate,
-            faces,
-            &[],
-            &Successions::default(),
-            &Motion::IDENTITY,
-        )
-        .expect("the plate is named")
-        .naming,
-    );
+    let (plate, naming) = named_plate();
     let plate = BodyState::new(plate, naming);
     let block = built_body(
         json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "40"], "op": "new"}),
@@ -363,10 +355,7 @@ fn face_placement_before_removal_over_50_writers_within_5_milliseconds() {
     history.extend((1..50).map(|writer| (id(&format!("f-cut{writer}")), plate.clone())));
     fixture.history.insert(id("b-1"), history);
     fixture.bodies.insert(id("b-1"), plate);
-    let top: Reference = serde_json::from_value(
-        json!({"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=400|adj=4,4"}),
-    )
-    .expect("a valid reference");
+    let top = stored("f-box1/top", "plane|n=0,0,1|c=0,0,40|a=400|adj=4,4");
     let hint = OriginPlane::Xy.placement();
     let context = fixture.context();
 

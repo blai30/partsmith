@@ -8,17 +8,17 @@ use std::sync::Arc;
 use partsmith_model::Id;
 use partsmith_naming::{
     EdgeInfo, ElementInfo, ElementKind, ElementName, FaceSource, Generator, NamingMap, Reference,
-    Successions, TopologyInfo, roles,
+    TopologyInfo, roles,
 };
 use partsmith_occt_sys::{
     Continuity, EdgeNormals, InputHistory, KernelError, KernelErrorKind, OpResult, Shape,
     SubShapeKind, Vector,
 };
 
-use super::common::{bodies, body_base_motion, check_canceled, face_name, unchanged};
+use super::common::{bodies, check_canceled, face_name, name_on_body, unchanged};
 use crate::{
     BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
-    IgnoredReason, Measurements, Named, name_shape, too_large_search,
+    IgnoredReason, Measurements, Named, too_large_search,
 };
 
 /// Largest angle in radians between the outward normals of an edge's two faces at the edge's
@@ -66,7 +66,7 @@ pub(super) fn select_edges(
     };
     let resolved =
         context.resolve_all_usable("edges", body, edges, ElementKind::Edge, &has_corner)?;
-    let indices: Vec<(u32, usize)> = resolved
+    let resolved_edges: Vec<(u32, usize)> = resolved
         .elements
         .iter()
         .zip(&resolved.sources)
@@ -76,7 +76,7 @@ pub(super) fn select_edges(
         edges: Vec::new(),
         warnings: resolved.into_messages(),
     };
-    for (index, source) in indices {
+    for (index, source) in resolved_edges {
         if is_smooth(shape, &topology, index)? {
             selection.warnings.push(FeatureWarning::Ignored {
                 field: context.field("edges"),
@@ -330,13 +330,7 @@ fn name_blend(
             new_face(feature, roles::FACE, None)
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    name_shape(
-        &result.shape,
-        faces,
-        &[input],
-        &Successions::default(),
-        &body_base_motion(feature, input)?,
-    )
+    name_on_body(feature, &result.shape, faces, input)
 }
 
 /// The output of a dress-up feature that changed `body` into `shape` named by `named`, with the

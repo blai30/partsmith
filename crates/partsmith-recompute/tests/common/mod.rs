@@ -33,15 +33,10 @@ pub use feature_support::{
     AXIS_TOLERANCE, LENGTH_TOLERANCE, MEASURE_TOLERANCE, assert_absolute, assert_bounding_box,
     assert_coordinates, assert_face_normal, assert_face_position, assert_relative,
     assert_solid_count, assert_volume, body_report, datum_plane, element_names, face, face_names,
-    feature_report, final_state, output, output_update, state_before,
+    feature_report, final_state, id, output, output_update, state_before,
 };
 
 // Ids and documents.
-
-/// A test id.
-pub fn id(text: &str) -> Id {
-    Id::new(text).unwrap_or_else(|error| panic!("'{text}' is not a valid id: {error}"))
-}
 
 /// The document skeleton of features.md section 6.1 with `members` replacing or adding top-level
 /// members (for example `parameters`, `bodies`, `features`, `units`, `rollback`).

@@ -23,6 +23,7 @@ pub use stability_common::*;
 use feature_support::{Run, sketch_result};
 use partsmith_features::{BodyState, Fix};
 use partsmith_model::Id;
+use partsmith_recompute::Message;
 
 // Collected checks.
 
@@ -40,44 +41,55 @@ pub struct ExactMessage<'a> {
 }
 
 impl Checks {
-    /// Checks that `feature` has exactly one message and that it is `expected`.
-    pub fn only_message(&mut self, run: &Run, feature: &str, expected: ExactMessage<'_>) {
+    /// Checks that `feature` has exactly one message and that it has this code, rendered text and
+    /// root cause, and returns the message with the code, if there is one.
+    pub fn the_only_message<'r>(
+        &mut self,
+        run: &'r Run,
+        feature: &str,
+        code: &str,
+        text: &str,
+        root: Option<&str>,
+    ) -> Option<&'r Message> {
         let messages = &run.feature(feature).messages;
         self.check(
             messages.len() == 1,
             format!(
-                "{feature} should have exactly one message, {}: {:?}",
-                expected.code,
+                "{feature} should have exactly one message, {code}: {:?}",
                 run.messages(feature)
             ),
         );
-        let Some(message) = messages
-            .iter()
-            .find(|message| message.code == expected.code)
-        else {
-            self.check(false, format!("{feature} has no {} message", expected.code));
-            return;
+        let Some(message) = messages.iter().find(|message| message.code == code) else {
+            self.check(false, format!("{feature} has no {code} message"));
+            return None;
         };
         self.check(
-            message.text == expected.text,
+            message.text == text,
             format!(
-                "{feature}'s {} reads {:?}, expected {:?}",
-                expected.code, message.text, expected.text
+                "{feature}'s {code} reads {:?}, expected {text:?}",
+                message.text
             ),
         );
+        let actual_root = message.root.as_ref().map(Id::as_str);
+        self.check(
+            actual_root == root,
+            format!("{feature}'s {code} has root {actual_root:?}, expected {root:?}"),
+        );
+        Some(message)
+    }
+
+    /// Checks that `feature` has exactly one message and that it is `expected`.
+    pub fn only_message(&mut self, run: &Run, feature: &str, expected: ExactMessage<'_>) {
+        let Some(message) =
+            self.the_only_message(run, feature, expected.code, expected.text, expected.root)
+        else {
+            return;
+        };
         self.check(
             message.fixes == expected.fixes,
             format!(
                 "{feature}'s {} offers {:?}, expected {:?}",
                 expected.code, message.fixes, expected.fixes
-            ),
-        );
-        let root = message.root.as_ref().map(Id::as_str);
-        self.check(
-            root == expected.root,
-            format!(
-                "{feature}'s {} has root {root:?}, expected {:?}",
-                expected.code, expected.root
             ),
         );
     }

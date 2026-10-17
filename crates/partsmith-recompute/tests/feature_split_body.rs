@@ -273,12 +273,7 @@ fn t012_a_plane_face_split_into_coplanar_pieces() {
     let features: Vec<&str> = features.iter().map(String::as_str).collect();
     let run = Run::records(&BODIES, &features);
 
-    run.assert_ok("f-split1");
-    assert!(
-        run.messages("f-split1").is_empty(),
-        "{:?}",
-        run.messages("f-split1")
-    );
+    run.assert_quiet("f-split1");
     // The reference resolves to both pieces in the plane z = 5, so b-1 keeps the part above it, as test 2.
     let shape = run.shape("b-1");
     assert_volume(shape, 6000.0);

@@ -9,7 +9,7 @@ use partsmith_sketch::{
 };
 
 use super::common::{essential, hint, manifest, selection_hint};
-use crate::context::{BuildContext, WithWarnings};
+use crate::context::{BuildContext, FaceFallback, WithWarnings};
 use crate::deps::Dependencies;
 use crate::error::{FallbackCause, FeatureError, FeatureWarning, Placed};
 use crate::feature::Feature;
@@ -107,12 +107,15 @@ impl Feature for SketchFeature {
                 fallback_frame,
             } => {
                 // A fallback in world coordinates does not follow the face's motion (naming.md section 3.6).
-                let motion = match fallback_frame {
-                    HintFrame::Body => context.body(body)?.motion(&face.query),
-                    HintFrame::World => Motion::IDENTITY,
+                let (motion, saved) = match fallback_frame {
+                    HintFrame::Body => {
+                        let motion = context.body(body)?.motion(&face.query);
+                        (motion, fallback.moved(&motion))
+                    }
+                    HintFrame::World => (Motion::IDENTITY, *fallback),
                 };
                 let placed =
-                    face_sketch_placement(context, body, face, fallback, *fallback_frame, &motion)?;
+                    face_sketch_placement(context, body, face, fallback, *fallback_frame, saved)?;
                 (placed.value, motion, placed.warnings)
             }
         };
@@ -150,18 +153,17 @@ impl Feature for SketchFeature {
 }
 
 /// The placement of a sketch on `face` of `body` (features/sketch.md section 3.3 step 1), with its stored
-/// `fallback` in the coordinates `frame` names and the sketch's `motion`, the first that applies: on the face, with
-/// its reference's warnings and notices and `SketchTurnedOver` when the face now faces the other way; for a missing
-/// face, where it was just before the earlier writer that removed it, moved with the body since; else the saved
-/// `fallback`, moved by `motion` for `HintFrame::Body`. The last two warn `PlaneFallback` with where the sketch was
-/// placed.
+/// `fallback` in the coordinates `frame` names, the first that applies: on the face, with its reference's warnings
+/// and notices and `SketchTurnedOver` when the face now faces the other way; for a missing face, where it was just
+/// before the earlier writer that removed it, moved with the body since; else `saved`, the fallback in world
+/// coordinates. The last two warn `PlaneFallback` with where the sketch was placed.
 fn face_sketch_placement(
     context: &BuildContext<'_>,
     body: &Id,
     face: &Reference,
     fallback: &Placement,
     frame: HintFrame,
-    motion: &Motion,
+    saved: Placement,
 ) -> Result<WithWarnings<Placement>, FeatureError> {
     let face_fallback = match context.face_placement(FACE_FIELD, body, face, fallback, frame)? {
         Ok(placed) => {
@@ -181,21 +183,17 @@ fn face_sketch_placement(
         Err(face_fallback) => face_fallback,
     };
     // An empty body has no loss and no earlier state with the face to look for.
-    let missing = face_fallback.cause == FallbackCause::Missing && face_fallback.loss.is_some();
-    let before_removal = if missing {
-        context.face_placement_before_removal(body, face, fallback, frame)?
-    } else {
-        None
+    let before_removal = match &face_fallback {
+        FaceFallback {
+            cause: FallbackCause::Missing,
+            loss: Some(_),
+            ..
+        } => context.face_placement_before_removal(body, face, fallback, frame)?,
+        _ => None,
     };
     let (value, placed) = match before_removal {
         Some((placement, by)) => (placement, Placed::BeforeRemoval { by }),
-        None => {
-            let saved = match frame {
-                HintFrame::Body => fallback.moved(motion),
-                HintFrame::World => *fallback,
-            };
-            (saved, Placed::Saved)
-        }
+        None => (saved, Placed::Saved),
     };
     Ok(WithWarnings {
         value,

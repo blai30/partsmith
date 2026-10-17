@@ -21,10 +21,12 @@ use common::records::{
     reference, shell, sketch, slot, xy,
 };
 use common::timeline::{Timeline, stored, sub_shape_names};
-use common::{assert_vector_close, id, keep_and_pick, pointer, warning_fixes};
+use common::{
+    Placed, assert_vector_close, id, keep_and_pick, pick, placed, pointer, use_reference,
+    warning_fixes,
+};
 use partsmith_features::{
-    BodyState, FaceFallback, FacePlacement, FeatureError, FeatureWarning, Fix, Loss, PlaneRef,
-    Repair, Resolved, Severity,
+    BodyState, FeatureError, FeatureWarning, Fix, Loss, PlaneRef, Repair, Resolved, Severity,
 };
 use partsmith_naming::{ElementKind, Follow, Lost, Reference, Resolution};
 use partsmith_sketch::{HintFrame, Placement};
@@ -223,13 +225,11 @@ fn a_widened_reference_offers_keep_all_use_only_the_first_new_entity_and_pick() 
             Fix::KeepMatch {
                 pointer: "/edges/0".to_string()
             },
-            Fix::UseReferences {
-                pointer: "/edges/0".to_string(),
-                references: vec![timeline.picked("b-1", "edge(f-ext1/end-cap|f-ext1/lateral/e-9)")],
-            },
-            Fix::Pick {
-                pointer: "/edges/0".to_string()
-            },
+            use_reference(
+                "/edges/0",
+                timeline.picked("b-1", "edge(f-ext1/end-cap|f-ext1/lateral/e-9)")
+            ),
+            pick("/edges/0"),
         ]
     );
 }
@@ -623,13 +623,11 @@ fn a_guess_offers_keep_each_alternative_and_pick() {
             Fix::KeepMatch {
                 pointer: "/remove_faces/0".to_string()
             },
-            Fix::UseReferences {
-                pointer: "/remove_faces/0".to_string(),
-                references: vec![timeline.picked("b-1", "f-ext1/end-cap#2")],
-            },
-            Fix::Pick {
-                pointer: "/remove_faces/0".to_string()
-            },
+            use_reference(
+                "/remove_faces/0",
+                timeline.picked("b-1", "f-ext1/end-cap#2")
+            ),
+            pick("/remove_faces/0"),
         ]
     );
 }
@@ -743,17 +741,12 @@ fn a_missing_entry_offers_its_candidates_then_remove_then_pick() {
                 .iter()
                 .filter(|candidate| !candidate.meaning),
         )
-        .map(|candidate| Fix::UseReferences {
-            pointer: "/edges/1".to_string(),
-            references: vec![candidate.reference.clone()],
-        })
+        .map(|candidate| use_reference("/edges/1", candidate.reference.clone()))
         .collect();
     expected.push(Fix::RemoveEntry {
         pointer: "/edges/1".to_string(),
     });
-    expected.push(Fix::Pick {
-        pointer: "/edges/1".to_string(),
-    });
+    expected.push(pick("/edges/1"));
     assert_eq!(warning_fixes(&resolved.warnings[0], "f-fil1"), expected);
 }
 
@@ -1058,25 +1051,11 @@ fn right_side_hint() -> Placement {
 
 /// `face_placement` of `face` as the face of the plane of a sketch `f-sk9` on `b-1` at the end of `timeline`, with
 /// `hint` in world coordinates.
-fn place_sketch(
-    timeline: &Timeline,
-    face: &Reference,
-    hint: &Placement,
-) -> Result<Result<FacePlacement, FaceFallback>, FeatureError> {
+fn place_sketch(timeline: &Timeline, face: &Reference, hint: &Placement) -> Placed {
     let fixture = timeline.fixture("f-sk9", "sketch");
     fixture
         .context()
         .face_placement("plane.face", &id("b-1"), face, hint, HintFrame::World)
-}
-
-/// The placement of a face placement that used its face; fails the test when it fell back or failed.
-#[track_caller]
-fn placed(result: Result<Result<FacePlacement, FaceFallback>, FeatureError>) -> FacePlacement {
-    match result {
-        Ok(Ok(placement)) => placement,
-        Ok(Err(fallback)) => panic!("expected a placement, got the fallback {fallback:?}"),
-        Err(error) => panic!("expected a placement, got the error {error:?}"),
-    }
 }
 
 #[test]

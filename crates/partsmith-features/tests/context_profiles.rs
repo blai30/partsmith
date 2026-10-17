@@ -7,7 +7,7 @@ mod common;
 
 use common::records::{circle, edited, line, rectangle, rectangle_region, sketch, xy};
 use common::timeline::Timeline;
-use common::{id, pointer, warning_fixes};
+use common::{id, pick, pointer, warning_fixes};
 use partsmith_features::{
     Diagnosis, FeatureError, FeatureWarning, Fix, ProfileRef, Repair, ResolvedProfile, Severity,
 };
@@ -60,9 +60,7 @@ fn keep_regions_and_pick(pointer: &str) -> Vec<Fix> {
         Fix::KeepRegions {
             pointer: pointer.to_string(),
         },
-        Fix::Pick {
-            pointer: pointer.to_string(),
-        },
+        pick(pointer),
     ]
 }
 
@@ -73,9 +71,7 @@ fn show_and_pick(pointer: &str) -> Vec<Fix> {
             feature: id("f-sk1"),
             entity: None,
         },
-        Fix::Pick {
-            pointer: pointer.to_string(),
-        },
+        pick(pointer),
     ]
 }
 
@@ -338,9 +334,7 @@ fn an_ambiguous_region_is_skipped_with_each_set_of_regions() {
                         pointer: "/profile/regions/0".to_string(),
                         regions: vec![references[1].clone()],
                     },
-                    Fix::Pick {
-                        pointer: "/profile/regions/0".to_string()
-                    },
+                    pick("/profile/regions/0"),
                 ]
             );
         },

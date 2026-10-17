@@ -182,26 +182,14 @@ impl Feature for Chamfer {
             return Ok(no_effect(&params.body, state, selection.warnings));
         }
         let mut warnings = selection.warnings;
-        let mut edges = Vec::with_capacity(selection.edges.len());
-        for edge in sorted_by_name(state.naming(), &selection.edges)? {
-            // An equal distance has no side; two distances measure `on_first` on the edge's first face.
-            let size = match distances {
-                Distances::Equal(distance) => ChamferSize::Equal { distance },
-                Distances::TwoDistances { on_first, on_other } => {
-                    let (face, notice) = side_of(context, params, state, edge, &warnings)?;
-                    warnings.extend(notice);
-                    ChamferSize::TwoDistances {
-                        distance: on_first,
-                        other_distance: on_other,
-                        face,
-                    }
-                }
-            };
-            edges.push(ChamferEdge {
-                edge: edge.index,
-                size,
-            });
-        }
+        let edges = chamfer_edges(
+            context,
+            params,
+            state,
+            distances,
+            sorted_by_name(state.naming(), &selection.edges)?,
+            &mut warnings,
+        )?;
         let larger = distances.larger();
         let result = run_or_search(
             context,
@@ -248,6 +236,39 @@ impl Feature for Chamfer {
         ];
         Some(call)
     }
+}
+
+/// The kernel request for each of `edges`, in order: an equal distance has no side, and two distances measure
+/// `on_first` on the edge's first face (chamfer.md section 3.3 step 4). Each side notice is added to `warnings`,
+/// which the next edge's side reads.
+fn chamfer_edges(
+    context: &BuildContext<'_>,
+    params: &ChamferParams,
+    state: &BodyState,
+    distances: Distances,
+    edges: Vec<&SelectedEdge>,
+    warnings: &mut Vec<FeatureWarning>,
+) -> Result<Vec<ChamferEdge>, FeatureError> {
+    let mut requests = Vec::with_capacity(edges.len());
+    for edge in edges {
+        let size = match distances {
+            Distances::Equal(distance) => ChamferSize::Equal { distance },
+            Distances::TwoDistances { on_first, on_other } => {
+                let (face, notice) = side_of(context, params, state, edge, warnings)?;
+                warnings.extend(notice);
+                ChamferSize::TwoDistances {
+                    distance: on_first,
+                    other_distance: on_other,
+                    face,
+                }
+            }
+        };
+        requests.push(ChamferEdge {
+            edge: edge.index,
+            size,
+        });
+    }
+    Ok(requests)
 }
 
 /// The face next to `edge` of `state` that a two-distance chamfer measures its first distance on

@@ -381,11 +381,10 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_features::{BodyChange, BodyUpdate, DatumResult, Measurements};
-    use partsmith_sketch::OriginPlane;
+    use partsmith_features::{BodyChange, BodyUpdate, Measurements};
 
     use super::*;
-    use crate::test_support::{id, region_split};
+    use crate::test_support::{datum_at, id, region_split};
 
     fn link(body: &str) -> Link {
         Link {
@@ -464,13 +463,7 @@ mod tests {
 
     #[test]
     fn outputs_without_bodies_have_no_updates_to_check() {
-        let datum = FeatureOutput::new(
-            OutputData::Datum(DatumResult::Plane {
-                placement: OriginPlane::Xy.placement(),
-                motion: partsmith_naming::Motion::IDENTITY,
-            }),
-            Vec::new(),
-        );
+        let datum = FeatureOutput::new(datum_at(0.0), Vec::new());
 
         assert!(check_updates(&datum, &[]).is_ok());
     }

@@ -11,11 +11,10 @@ use feature_support::{
     AXIS_TOLERANCE, Run, THROUGH_ALL, assert_bore_through, assert_bounding_box, assert_coordinates,
     assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
     assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
-    assert_median_build_within, assert_moves, assert_placement, assert_solid_count,
-    assert_unchanged, assert_volume, body_changes, document, face, face_sketch_with, hole_at_point,
-    link_ids, load_example, one_point, output_body, sketch_result,
+    assert_median_build_within, assert_moves, assert_sketch_on_top_plane, assert_solid_count,
+    assert_unchanged, assert_volume, body_changes, document, face, face_motion, face_sketch_with,
+    hole_at_point, link_ids, load_example, one_point, sketch_result,
 };
-use partsmith_naming::ElementName;
 use partsmith_occt_sys::GeometryKind;
 
 /// The bodies of every mirror test.
@@ -275,17 +274,11 @@ fn t013_a_sketch_on_the_mirror_image_keeps_its_place() {
 
     // No `sketch_turned_over`: the reflection moves the hint with the face.
     run.assert_all_ok();
-    let placement = &sketch_result(&run, "f-sk2").placement;
-    assert_placement(
-        placement,
-        [-10.0, 0.0, 10.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    );
+    assert_sketch_on_top_plane(&run, "f-sk2", [-10.0, 0.0, 10.0]);
     // Right-handed: the y axis is the normal times the x axis.
     assert_coordinates(
         "y axis",
-        placement.y_axis(),
+        sketch_result(&run, "f-sk2").placement.y_axis(),
         [0.0, 1.0, 0.0],
         AXIS_TOLERANCE,
     );
@@ -299,12 +292,7 @@ fn t013_the_sketch_follows_the_mirror_plane() {
     let run = Run::new(sketch_on_image_document("-10"));
 
     run.assert_all_ok();
-    assert_placement(
-        &sketch_result(&run, "f-sk2").placement,
-        [-30.0, 0.0, 10.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    );
+    assert_sketch_on_top_plane(&run, "f-sk2", [-30.0, 0.0, 10.0]);
     assert_bore_through(&run, [-28.0, 3.0, 0.0]);
     assert_volume(run.shape("b-1"), 1992.146018);
 }
@@ -314,8 +302,7 @@ fn the_image_faces_move_by_the_reflection() {
     // Section 3.3 step 3: the image is named with the reflection, an improper motion, as its transform.
     let run = Run::records(&BODIES, &[&box_r("10"), &mirror(YZ, "")]);
 
-    let image_top = ElementName::parse("f-box1/top@f-mir1:1").expect("a valid name");
-    let motion = output_body(&run, "f-mir1", "b-1").motion(&image_top);
+    let motion = face_motion(&run, "f-mir1", "b-1", "f-box1/top@f-mir1:1");
     assert_moves(
         &motion,
         &[

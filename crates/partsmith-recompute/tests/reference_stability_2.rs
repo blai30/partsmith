@@ -820,43 +820,26 @@ fn r33_a_sketch_whose_face_is_cut_away_keeps_its_last_placement() {
 /// faces the way the stored face did) as the first one-click re-attach, then the other planar
 /// candidates, then Pick.
 fn check_reattach_to_the_new_top(checks: &mut Checks, session: &Run) {
-    let messages = &session.feature("f-sk2").messages;
-    checks.check(
-        messages.len() == 1,
-        format!(
-            "f-sk2 should have exactly one message, plane_fallback: {:?}",
-            session.messages("f-sk2")
-        ),
-    );
-    let Some(message) = messages.first() else {
+    let text = "The face this sketch is on, the top of 'Box 1', was cut away by 'Extrude 1', which comes before this sketch, so the sketch stays where that face was.";
+    let Some(message) = checks.the_only_message(session, "f-sk2", "plane_fallback", text, None)
+    else {
         return;
     };
-    let text = "The face this sketch is on, the top of 'Box 1', was cut away by 'Extrude 1', which comes before this sketch, so the sketch stays where that face was.";
-    checks.check(
-        message.code == "plane_fallback" && message.text == text,
-        format!(
-            "f-sk2's message is {} {:?}, expected plane_fallback {text:?}",
-            message.code, message.text
-        ),
-    );
-    checks.check(
-        message.root.is_none(),
-        format!("f-sk2's plane_fallback has root {:?}", message.root),
-    );
     let new_top = Fix::Attach {
         sketch: id("f-sk2"),
         body: id("b-1"),
         face: session.picked_before("f-sk2", "b-1", "f-ext3/start-cap"),
     };
     let fixes = &message.fixes;
-    let between_are_attaches = fixes.len() >= 2
-        && fixes[1..fixes.len() - 1]
-            .iter()
-            .all(|fix| matches!(fix, Fix::Attach { .. }));
     checks.check(
-        fixes.first() == Some(&new_top)
-            && fixes.last() == Some(&pick("/plane/face"))
-            && between_are_attaches,
+        match fixes.as_slice() {
+            [first, between @ .., last] => {
+                *first == new_top
+                    && *last == pick("/plane/face")
+                    && between.iter().all(|fix| matches!(fix, Fix::Attach { .. }))
+            }
+            _ => false,
+        },
         format!(
             "f-sk2's plane_fallback offers {fixes:?}, expected Attach to the new top first, then \
              Attach to other faces, then Pick"

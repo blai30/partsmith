@@ -5,12 +5,10 @@ use partsmith_naming::{
     ElementInfo, ElementKind, ElementName, GeometryKind as NameGeometry, MatchMethod, Motion,
     Reference, Resolution, roles,
 };
-use partsmith_occt_sys::{
-    Axis, ElementGeometry, GeometryKind, Point, Shape, SubShape, SubShapeKind, Vector,
-};
+use partsmith_occt_sys::{Axis, ElementGeometry, GeometryKind, Point, Shape, SubShape, Vector};
 use partsmith_sketch::{Geometry, HintFrame, OriginPlane, Placement};
 
-use super::references::{collinear, coplanar, same_axis};
+use super::geometry::{coplanar, element_geometries, same_axis, same_line, sub_shapes};
 use super::{BodyState, BuildContext, Resolved, WithWarnings};
 use crate::error::{FallbackCause, FeatureError, FeatureWarning, Loss, Noun};
 use crate::output::DatumResult;
@@ -122,6 +120,10 @@ impl BuildContext<'_> {
     ) -> Result<Option<(Placement, Id)>, FeatureError> {
         let history = self.body_history(body)?;
         let now = self.body(body)?.motion(&face.query);
+        // An edge or vertex reference names no face that an earlier state could have.
+        if face.query.kind() != ElementKind::Face {
+            return Ok(None);
+        }
         for (writer, state) in history.iter().rev() {
             let Some(plane) = plane_by_meaning(state, face)? else {
                 continue;
@@ -157,16 +159,15 @@ impl BuildContext<'_> {
                 let edge_field = format!("{field}.edge");
                 let resolved =
                     self.resolve_usable(&edge_field, body, edge, ElementKind::Edge, &is_straight)?;
-                let geometries = self.geometries(body, &resolved)?;
-                let lines = geometries
+                let lines = element_geometries(self.solid_shape(body)?, &resolved.elements)?
                     .iter()
                     .map(edge_line)
                     .collect::<Option<Vec<(Point, Vector)>>>()
                     .ok_or_else(|| FeatureError::NotStraight {
                         field: self.field(&edge_field),
                     })?;
-                let (first, rest) = split_first(&geometries)?;
-                if !rest.iter().all(|other| collinear(first, other)) {
+                let (first, rest) = split_first(&lines)?;
+                if !rest.iter().all(|other| same_line(*first, *other)) {
                     return Err(self.not_collinear(
                         field,
                         body,
@@ -175,7 +176,7 @@ impl BuildContext<'_> {
                         &resolved,
                     )?);
                 }
-                let value = self.kept_side(body, edge, *direction, lines[0])?;
+                let value = self.kept_side(body, edge, *direction, *first)?;
                 Ok(WithWarnings {
                     value,
                     warnings: resolved.into_messages(),
@@ -189,8 +190,7 @@ impl BuildContext<'_> {
                 let face_field = format!("{field}.face");
                 let resolved =
                     self.resolve_usable(&face_field, body, face, ElementKind::Face, &has_axis)?;
-                let axes = self
-                    .geometries(body, &resolved)?
+                let axes = element_geometries(self.solid_shape(body)?, &resolved.elements)?
                     .iter()
                     .map(axis_line)
                     .collect::<Option<Vec<(Point, Vector)>>>()
@@ -221,20 +221,6 @@ impl BuildContext<'_> {
         self.body(body)?
             .shape()
             .ok_or_else(|| FeatureError::internal("a body with a solid has no shape"))
-    }
-
-    /// The kernel geometry of every element a reference resolved to in `body`, in resolver order.
-    fn geometries(
-        &self,
-        body: &Id,
-        resolved: &Resolved,
-    ) -> Result<Vec<ElementGeometry>, FeatureError> {
-        let shape = self.solid_shape(body)?;
-        resolved
-            .elements
-            .iter()
-            .map(|element| Ok(shape.element(element.kind, element.index)?))
-            .collect()
     }
 
     /// `NotCollinear` for the axis param `field` whose `reference` resolved to elements of `kind` not on one line.
@@ -386,20 +372,14 @@ impl FlatFaces {
 
     /// True when the outward normal points against `hint`'s normal (dot product below 0): the face turned over.
     fn faces_against(&self, hint: &Placement) -> bool {
-        (0..3)
-            .map(|axis| self.normal[axis] * hint.normal[axis])
-            .sum::<f64>()
-            < 0.0
+        vector(self.normal).dot(vector(hint.normal)) < 0.0
     }
 }
 
 /// Whether the kernel faces `faces` of `shape` are flat and lie in one plane (section 3.6): outward normals within
 /// 1e-9 rad of the first face's and each centroid within `LINEAR_TOLERANCE` of the first face's plane.
 fn face_plane(shape: &Shape, faces: &[SubShape]) -> Result<FacePlane, FeatureError> {
-    let geometries = faces
-        .iter()
-        .map(|face| Ok(shape.element(face.kind, face.index)?))
-        .collect::<Result<Vec<ElementGeometry>, FeatureError>>()?;
+    let geometries = element_geometries(shape, faces)?;
     if geometries
         .iter()
         .any(|geometry| geometry.kind != GeometryKind::Plane)
@@ -419,8 +399,8 @@ fn face_plane(shape: &Shape, faces: &[SubShape]) -> Result<FacePlane, FeatureErr
     }))
 }
 
-/// The flat faces in one plane that `face` resolves to in `state` by meaning (`Exact`, `History`, `Continued` or
-/// `Related`, never a guess), if any (section 3.6, `face_placement_before_removal`).
+/// The flat faces in one plane that the face reference `face` resolves to in `state` by meaning (`Exact`, `History`,
+/// `Continued` or `Related`, never a guess), if any (section 3.6, `face_placement_before_removal`).
 fn plane_by_meaning(
     state: &BodyState,
     face: &Reference,
@@ -428,7 +408,7 @@ fn plane_by_meaning(
     let Some(shape) = state.shape() else {
         return Ok(None);
     };
-    if face.query.kind() != ElementKind::Face || !may_resolve_by_meaning(state, face) {
+    if !may_resolve_by_meaning(state, face) {
         return Ok(None);
     }
     let set = state.element_set()?;
@@ -441,18 +421,8 @@ fn plane_by_meaning(
     if method == MatchMethod::Guess {
         return Ok(None);
     }
-    let faces = elements
-        .iter()
-        .map(|name| {
-            let index = state.naming().index(name).ok_or_else(|| {
-                FeatureError::internal(format!("the resolved face {name} has no index"))
-            })?;
-            Ok(SubShape {
-                kind: SubShapeKind::Face,
-                index,
-            })
-        })
-        .collect::<Result<Vec<SubShape>, FeatureError>>()?;
+    let faces = sub_shapes(state.naming(), &elements)
+        .map_err(|name| FeatureError::internal(format!("the resolved face {name} has no index")))?;
     Ok(match face_plane(shape, &faces)? {
         FacePlane::Flat(plane) => Some(plane),
         FacePlane::NotPlanar | FacePlane::NotCoplanar => None,

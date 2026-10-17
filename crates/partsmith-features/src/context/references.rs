@@ -4,19 +4,16 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use partsmith_model::{Id, LINEAR_TOLERANCE};
+use partsmith_model::Id;
 use partsmith_naming::{
     Aliases, Candidate, ElementInfo, ElementKind, ElementName, ElementSet, Follow, Lost,
     MatchMethod, MergedName, Reference, Resolution,
 };
-use partsmith_occt_sys::{ElementGeometry, GeometryKind, Point, SubShape, Vector};
+use partsmith_occt_sys::SubShape;
 
+use super::geometry::{element_geometries, one_carrier, sub_shapes};
 use super::{BodyState, BuildContext, Resolved};
 use crate::error::{FeatureError, FeatureWarning, FieldRef, Loss, LossCandidate};
-use crate::naming::sub_shape_kind;
-
-/// Largest angle in radians between two directions that still agree (section 3.8, "one carrier").
-const ANGLE_TOLERANCE: f64 = 1e-9;
 
 /// Tells whether the field being resolved can use a candidate element (section 3.8): candidates it rejects are
 /// dropped from losses and guesses, because a fix is offered only when it works.
@@ -258,18 +255,9 @@ impl EntryResolver<'_> {
 
     /// The kernel sub-shapes of resolved elements, in resolver order.
     fn sub_shapes(&self, elements: &[ElementName]) -> Result<Vec<SubShape>, FeatureError> {
-        elements
-            .iter()
-            .map(|name| {
-                let index = self.state.naming().index(name).ok_or_else(|| {
-                    FeatureError::internal(format!("the resolved element {name} has no index"))
-                })?;
-                Ok(SubShape {
-                    kind: sub_shape_kind(name.kind()),
-                    index,
-                })
-            })
-            .collect()
+        sub_shapes(self.state.naming(), elements).map_err(|name| {
+            FeatureError::internal(format!("the resolved element {name} has no index"))
+        })
     }
 
     /// `Reference::from_element` of each element, as a pick of it stores it.
@@ -377,11 +365,7 @@ impl EntryResolver<'_> {
         let Some(shape) = self.state.shape() else {
             return Ok(false);
         };
-        let geometries = elements
-            .iter()
-            .map(|element| Ok(shape.element(element.kind, element.index)?))
-            .collect::<Result<Vec<ElementGeometry>, FeatureError>>()?;
-        Ok(one_carrier(&geometries))
+        Ok(one_carrier(&element_geometries(shape, elements)?))
     }
 
     /// True for a merged follow whose every grown name is the query, or a face term of the query, of another
@@ -454,146 +438,11 @@ fn grown_names(
     grown
 }
 
-/// True when the geometries lie on one carrier (section 3.8).
-fn one_carrier(geometries: &[ElementGeometry]) -> bool {
-    let Some((first, rest)) = geometries.split_first() else {
-        return true;
-    };
-    let same_kind = rest.iter().all(|other| other.kind == first.kind);
-    if !same_kind {
-        return false;
-    }
-    match first.kind {
-        GeometryKind::Line => rest.iter().all(|other| collinear(first, other)),
-        GeometryKind::Circle => same_round(first, rest, |other, center| {
-            other.distance(center) <= LINEAR_TOLERANCE
-        }),
-        GeometryKind::Cylinder => {
-            let Some(direction) = first.direction else {
-                return false;
-            };
-            same_round(first, rest, |other, center| {
-                distance_to_line(other, center, direction) <= LINEAR_TOLERANCE
-            })
-        }
-        GeometryKind::Plane => rest.iter().all(|other| coplanar(first, other)),
-        _ => false,
-    }
-}
-
-/// True when the line `other` lies on the line of `first` (section 3.6): directions within `ANGLE_TOLERANCE` up to
-/// sign, and `other`'s centroid within `LINEAR_TOLERANCE` of `first`'s line. False when either has no direction.
-pub(super) fn collinear(first: &ElementGeometry, other: &ElementGeometry) -> bool {
-    match (first.direction, other.direction) {
-        (Some(direction), Some(other_direction)) => {
-            parallel(direction, other_direction)
-                && distance_to_line(other.centroid, first.centroid, direction) <= LINEAR_TOLERANCE
-        }
-        _ => false,
-    }
-}
-
-/// True when the plane `other` lies in the plane of `first` and faces the same way (section 3.6): outward normals
-/// within `ANGLE_TOLERANCE`, and `other`'s centroid within `LINEAR_TOLERANCE` of `first`'s plane. False when either
-/// has no normal.
-pub(super) fn coplanar(first: &ElementGeometry, other: &ElementGeometry) -> bool {
-    match (first.direction, other.direction) {
-        (Some(normal), Some(other_normal)) => {
-            normal.dot(other_normal) > 0.0
-                && parallel(normal, other_normal)
-                && offset(other.centroid, first.centroid).dot(normal).abs() <= LINEAR_TOLERANCE
-        }
-        _ => false,
-    }
-}
-
-/// True when the axis through `other_through` along `other_direction` lies on the axis through `through` along
-/// `direction` in the same sense (section 3.6): directions within `ANGLE_TOLERANCE` with a positive dot product,
-/// and `other_through` within `LINEAR_TOLERANCE` of the first axis.
-pub(super) fn same_axis(
-    (through, direction): (Point, Vector),
-    (other_through, other_direction): (Point, Vector),
-) -> bool {
-    direction.dot(other_direction) > 0.0
-        && parallel(direction, other_direction)
-        && distance_to_line(other_through, through, direction) <= LINEAR_TOLERANCE
-}
-
-/// True when every other circle or cylinder has a parallel axis, the first's radius, and a location `on_axis`
-/// accepts against the first's location.
-fn same_round(
-    first: &ElementGeometry,
-    rest: &[ElementGeometry],
-    on_axis: impl Fn(Point, Point) -> bool,
-) -> bool {
-    let (Some(direction), Some(location), Some(radius)) =
-        (first.direction, first.location, first.radius)
-    else {
-        return false;
-    };
-    rest.iter().all(
-        |other| match (other.direction, other.location, other.radius) {
-            (Some(other_direction), Some(other_location), Some(other_radius)) => {
-                parallel(direction, other_direction)
-                    && on_axis(other_location, location)
-                    && (other_radius - radius).abs() <= LINEAR_TOLERANCE
-            }
-            _ => false,
-        },
-    )
-}
-
-/// True when two directions agree within `ANGLE_TOLERANCE`, up to sign.
-fn parallel(first: Vector, second: Vector) -> bool {
-    first.cross(second).length().atan2(first.dot(second).abs()) <= ANGLE_TOLERANCE
-}
-
-/// The vector from `from` to `to`.
-fn offset(to: Point, from: Point) -> Vector {
-    Vector::new(to.x - from.x, to.y - from.y, to.z - from.z)
-}
-
-/// The distance from `point` to the line through `through` along `direction`.
-fn distance_to_line(point: Point, through: Point, direction: Vector) -> f64 {
-    let length = direction.length();
-    if length == 0.0 {
-        return point.distance(through);
-    }
-    offset(point, through).cross(direction).length() / length
-}
-
 #[cfg(test)]
 mod tests {
     use partsmith_naming::Successions;
 
     use super::*;
-
-    fn line(direction: [f64; 3], centroid: [f64; 3]) -> ElementGeometry {
-        ElementGeometry {
-            kind: GeometryKind::Line,
-            direction: Some(Vector::new(direction[0], direction[1], direction[2])),
-            location: None,
-            radius: None,
-            centroid: Point::new(centroid[0], centroid[1], centroid[2]),
-            measure: 1.0,
-        }
-    }
-
-    #[test]
-    fn collinear_lines_lie_on_one_carrier() {
-        assert!(one_carrier(&[
-            line([1.0, 0.0, 0.0], [20.0, 50.0, 30.0]),
-            line([-1.0, 0.0, 0.0], [60.0, 50.0, 30.0]),
-        ]));
-    }
-
-    #[test]
-    fn parallel_lines_apart_do_not() {
-        assert!(!one_carrier(&[
-            line([1.0, 0.0, 0.0], [20.0, 50.0, 30.0]),
-            line([1.0, 0.0, 0.0], [40.0, 40.0, 30.0]),
-        ]));
-    }
 
     #[test]
     fn a_widened_element_without_an_element_info_is_internal() {

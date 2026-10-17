@@ -17,7 +17,7 @@ use common::records::{
     shell, slot,
 };
 use common::timeline::{Timeline, stored};
-use common::{LabelNames, assert_vector_close, field, id, render_context};
+use common::{LabelNames, assert_vector_close, field, id, pick, render_context, use_reference};
 use partsmith_features::{
     Because, BodyState, Diagnosis, Explanation, FallbackCause, FeatureError, FeatureWarning,
     FieldRef, Fix, Loss, LossCandidate, Place, Placed, RegionLost, Repair, Severity,
@@ -112,10 +112,7 @@ const CUT_AWAY: &str = "was cut away by 'Extrude 1', which comes before this fil
 
 /// `UseReferences` of a candidate at `/edges/0`.
 fn use_candidate(candidate: &LossCandidate) -> Fix {
-    Fix::UseReferences {
-        pointer: "/edges/0".to_string(),
-        references: vec![candidate.reference.clone()],
-    }
+    use_reference("/edges/0", candidate.reference.clone())
 }
 
 /// Renders `warning` on `f-fil1` of `timeline` with `diagnosis`.
@@ -171,9 +168,7 @@ fn t003_a_loss_offers_candidates_that_keep_a_face_then_the_others_then_remove_th
             Fix::RemoveEntry {
                 pointer: "/edges/0".to_string()
             },
-            Fix::Pick {
-                pointer: "/edges/0".to_string()
-            },
+            pick("/edges/0"),
         ]
     );
 }
@@ -200,9 +195,7 @@ fn t003_the_reasons_fixes_come_after_the_candidates_that_keep_a_face() {
             Fix::RemoveEntry {
                 pointer: "/edges/0".to_string()
             },
-            Fix::Pick {
-                pointer: "/edges/0".to_string()
-            },
+            pick("/edges/0"),
         ]
     );
 }
@@ -453,12 +446,7 @@ fn t004_several_losses_list_their_fixes_in_loss_order() {
         }),
         "the first loss's fixes come first: {fixes:?}"
     );
-    assert_eq!(
-        fixes.last(),
-        Some(&Fix::Pick {
-            pointer: "/edges/1".to_string()
-        })
-    );
+    assert_eq!(fixes.last(), Some(&pick("/edges/1")));
 }
 
 /// Names for the hand-built messages of tests 5 to 7: bodies 'Body 1' and 'Body 2', and the features they name.
@@ -703,9 +691,7 @@ fn t006_an_empty_tool_whose_maker_is_suppressed() {
             Fix::Unsuppress {
                 feature: id("f-box2")
             },
-            Fix::Pick {
-                pointer: "/tools/0".to_string()
-            },
+            pick("/tools/0"),
         ]
     );
 }
@@ -719,9 +705,7 @@ fn t006_an_empty_tool_nothing_makes() {
     );
     assert_eq!(
         fixes_labeled(&tool_empty(), "f-bool1", &Diagnosis::default()),
-        [Fix::Pick {
-            pointer: "/tools/0".to_string()
-        }]
+        [pick("/tools/0")]
     );
 }
 
@@ -891,12 +875,7 @@ fn a_missing_region_says_why_for_each_loss() {
             "f-ext1",
             &Diagnosis::default()
         ),
-        [
-            show("f-sk1"),
-            Fix::Pick {
-                pointer: "/profile/regions/1".to_string()
-            },
-        ]
+        [show("f-sk1"), pick("/profile/regions/1"),]
     );
 }
 
@@ -945,12 +924,7 @@ fn a_profile_without_its_region_says_why() {
     );
     assert_eq!(
         fixes_labeled(&deleted, "f-ext1", &Diagnosis::default()),
-        [
-            show("f-sk1"),
-            Fix::Pick {
-                pointer: "/profile/regions/0".to_string()
-            },
-        ]
+        [show("f-sk1"), pick("/profile/regions/0"),]
     );
 }
 
@@ -966,12 +940,7 @@ fn a_profile_whose_region_matches_several_areas_asks_which() {
     let fixes = fixes_labeled(&error, "f-ext1", &Diagnosis::default());
     assert_eq!(
         fixes[fixes.len().saturating_sub(2)..],
-        [
-            show("f-sk1"),
-            Fix::Pick {
-                pointer: "/profile/regions/0".to_string()
-            },
-        ]
+        [show("f-sk1"), pick("/profile/regions/0"),]
     );
 }
 
@@ -1670,21 +1639,6 @@ fn the_message_lint_rejects_ids_numbered_elements_ops_scores_and_the_repair_pane
 // Frames on the model (phase 2): faces in several planes, edges and axes not on one line, a face that turned over, and
 // a sketch placed where its face was just before its removal (features.md sections 3.6, 4.1 and 4.2, features/sketch.md
 // section 3.5).
-
-/// `UseReferences` of one reference at `pointer`.
-fn use_reference(pointer: &str, reference: Reference) -> Fix {
-    Fix::UseReferences {
-        pointer: pointer.to_string(),
-        references: vec![reference],
-    }
-}
-
-/// `Pick` at `pointer`.
-fn pick(pointer: &str) -> Fix {
-    Fix::Pick {
-        pointer: pointer.to_string(),
-    }
-}
 
 /// Asserts that `repairs` is one ambiguous element repair at `pointer` in `body` whose candidates hold `references`, in
 /// order (section 4.2: `NotCoplanar` and `NotCollinear` repair as an ambiguous loss).
