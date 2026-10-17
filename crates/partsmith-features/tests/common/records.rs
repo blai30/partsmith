@@ -1,8 +1,8 @@
 //! Feature records of the specs' shared setups, as JSON: `BLOCK` and `SLOT(a, b)` (reference stability corpus,
-//! "Shared setups"), `CUBE10`, `CUBE20`, `BOX-BELOW`, the L-shaped body of features/fillet.md test 4, the setups of
-//! corpus R32b, R33 and R38, builders for sketches (`FACE-SK2` of features/sketch.md included), extrudes, fillets,
-//! shells, linear patterns and the Move body by (100, 0, 0), and the stored references of elements that several tests
-//! pick.
+//! "Shared setups"), `CUBE10`, `CUBE20`, `BOX-BELOW`, the L-shaped body of features/fillet.md test 4, `STEP` of
+//! features/fillet.md tests 19 to 22 (newcomer error corpus NC05), the rounded box of NC06, the setups of corpus R32b,
+//! R33 and R38, builders for sketches (`FACE-SK2` of features/sketch.md included), extrudes, fillets, shells, linear
+//! patterns and the Move body by (100, 0, 0), and the stored references of elements that several tests pick.
 
 use serde_json::{Value, json};
 
@@ -307,4 +307,58 @@ pub fn reversed_block() -> Vec<Value> {
     let mut features = block();
     features[1]["reverse"] = json!(true);
     features
+}
+
+/// `STEP` of features/fillet.md tests 19 to 22 (newcomer error corpus NC05): `f-box1` 40 x 20 x 10 (x -20..20,
+/// y -10..10, z 0..10) and `f-box2` 20 x 30 x 5 at (10, 0, 7.6) cut from it, a step 2.4 mm deep over x 0..20 whose
+/// riser `f-box2/left` lies at x = 0 (volume 7040).
+pub fn step() -> Vec<Value> {
+    vec![
+        json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}),
+        box_record("f-box2", ["20", "30", "5"], ["10", "0", "7.6"], "cut"),
+    ]
+}
+
+/// `E-RISER` of features/fillet.md: the edge between the top of 'Box 1' and the riser of `STEP`.
+pub const RISER_EDGE: (&str, &str) = (
+    "edge(f-box1/top|f-box2/left)",
+    "line|n=0,1,0|c=0,0,10|l=20|adj=2,2",
+);
+
+/// The bottom left edge of `STEP`, which the riser does not limit (features/fillet.md test 20).
+pub const STEP_BOTTOM_LEFT_EDGE: (&str, &str) = (
+    "edge(f-box1/bottom|f-box1/left)",
+    "line|n=0,1,0|c=-20,0,0|l=20|adj=2,2",
+);
+
+/// The rounded box of newcomer error corpus NC06: `f-box1` 40 x 40 x 20 (x -20..20, y -20..20, z 0..20) and
+/// `f-fil1`, its four vertical edges rounded at `radius`.
+pub fn rounded_box(radius: &str) -> Vec<Value> {
+    let vertical = |faces: &str, x: f64, y: f64| {
+        reference(
+            &format!("edge({faces})"),
+            &format!("line|n=0,0,1|c={x},{y},10|l=20"),
+        )
+    };
+    vec![
+        json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "20"], "op": "new"}),
+        fillet(
+            vec![
+                vertical("f-box1/front|f-box1/left", -20.0, -20.0),
+                vertical("f-box1/front|f-box1/right", 20.0, -20.0),
+                vertical("f-box1/back|f-box1/left", -20.0, 20.0),
+                vertical("f-box1/back|f-box1/right", 20.0, 20.0),
+            ],
+            radius,
+        ),
+    ]
+}
+
+/// The top of `rounded_box`, a 40 mm square with rounded corners (newcomer error corpus NC06).
+pub const ROUNDED_BOX_TOP: (&str, &str) = ("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=1600");
+
+/// `record` with `"suppressed": true`, so a timeline keeps its label and type without building it.
+pub fn suppressed(mut record: Value) -> Value {
+    record["suppressed"] = json!(true);
+    record
 }

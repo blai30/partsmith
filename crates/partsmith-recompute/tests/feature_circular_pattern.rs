@@ -118,6 +118,10 @@ fn t005_count_1_has_no_effect() {
     let run = Run::example("circular_pattern/count-one.ptsm");
 
     run.assert_warnings("f-cp1", &["no_effect"]);
+    assert_eq!(
+        run.messages("f-cp1"),
+        ["This circular pattern makes no copies, because Count is 1."]
+    );
     assert_unchanged(&run, "f-cp1", "b-1");
 }
 

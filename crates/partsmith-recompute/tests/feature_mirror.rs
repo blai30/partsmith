@@ -13,9 +13,11 @@ use feature_support::{
     assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
     assert_median_build_within, assert_moves, assert_sketch_on_top_plane, assert_solid_count,
     assert_unchanged, assert_volume, body_changes, document, face, face_motion, face_sketch_with,
-    hole_at_point, link_ids, load_example, one_point, sketch_result,
+    hole_at_point, link_ids, load_example, message, one_point, pick, sketch_result,
 };
+use partsmith_features::{FeatureWarning, FieldRef, Fix, NoEffectHow};
 use partsmith_occt_sys::GeometryKind;
+use serde_json::json;
 
 /// The bodies of every mirror test.
 const BODIES: [&str; 2] = ["b-1", "b-2"];
@@ -145,7 +147,13 @@ fn t004_new_without_target() {
     assert_error_field(error, "target");
     assert_eq!(
         run.messages("f-mir1"),
-        ["Op new puts the copies into another body. Pick an empty body for Target body."]
+        [
+            "Operation New body puts the copies into another body, so Target body needs an empty body. Pick one, or set Operation to Join."
+        ]
+    );
+    assert_eq!(
+        message(&run, "f-mir1", "target_required").fixes,
+        [set_field("op", "Operation", json!("join")), pick("/target")]
     );
 }
 
@@ -157,7 +165,16 @@ fn t005_target_with_join() {
     assert_error_field(error, "target");
     assert_eq!(
         run.messages("f-mir1"),
-        ["Target body is only used with op new. Remove it, or set the op to new."]
+        [
+            "Target body is used only when Operation is New body. Clear Target body, or set Operation to New body."
+        ]
+    );
+    assert_eq!(
+        message(&run, "f-mir1", "target_not_allowed").fixes,
+        [
+            set_field("op", "Operation", json!("new")),
+            set_field("target", "Target body", serde_json::Value::Null),
+        ]
     );
 }
 
@@ -173,6 +190,16 @@ fn t006_target_with_a_solid() {
     );
 
     run.assert_error("f-mir1", "body_not_empty");
+    assert_eq!(
+        run.messages("f-mir1"),
+        [
+            "Body 'Body 2' already has a solid here, so this mirror cannot put its result there. Pick an empty body for Target body."
+        ]
+    );
+    assert_eq!(
+        message(&run, "f-mir1", "body_not_empty").fixes,
+        [pick("/target")]
+    );
     assert_volume(run.shape("b-2"), 1.0);
     assert_unchanged(&run, "f-mir1", "b-2");
 }
@@ -215,6 +242,23 @@ fn t010_symmetric_body_has_no_effect() {
     let run = Run::example("mirror/symmetric.ptsm");
 
     run.assert_warnings("f-mir1", &["no_effect"]);
+    assert!(
+        matches!(
+            run.warning("f-mir1", "no_effect"),
+            FeatureWarning::NoEffect {
+                how: NoEffectHow::Inside,
+                ..
+            }
+        ),
+        "{:?}",
+        run.messages("f-mir1")
+    );
+    assert_eq!(
+        run.messages("f-mir1"),
+        [
+            "This mirror adds nothing to body 'Body 1': its mirror image lies entirely inside the body."
+        ]
+    );
     assert_unchanged(&run, "f-mir1", "b-1");
 }
 
@@ -311,4 +355,16 @@ fn the_image_faces_move_by_the_reflection() {
         ],
     );
     assert!(!motion.is_proper(), "a reflection turns handedness");
+}
+
+/// `SetField` of the mirror's field `path` to `value`.
+fn set_field(path: &str, label: &str, value: serde_json::Value) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field: FieldRef {
+            path: path.to_string(),
+            label: label.to_string(),
+        },
+        value,
+    }
 }

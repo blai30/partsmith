@@ -240,6 +240,7 @@ fn event_solution(registry: &Registry, open: &OpenDocument, position: usize) -> 
         Status::Error => {
             let params = sketch_params(registry, &open.document, record).ok()?;
             solve_in(
+                registry,
                 &open.document,
                 &open.computed,
                 position,

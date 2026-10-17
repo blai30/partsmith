@@ -10,13 +10,15 @@ use feature_support::{
     BOX_BELOW, LENGTH_TOLERANCE, MOVE_BY_100, Run, absent_faces, assert_bounding_box,
     assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_count, assert_face_in_plane, assert_face_kind, assert_face_radius, assert_has_face,
-    assert_median_build_within, assert_no_face, assert_solid_count, assert_translation,
-    assert_unchanged, assert_volume, body_update, document, face, face_motion,
-    face_names_with_prefix, load_example, moved_box_document, output_body, sketch_result, vertex,
+    assert_median_build_within, assert_messages_pass_lint, assert_no_face, assert_solid_count,
+    assert_translation, assert_unchanged, assert_volume, body_update, document, face, face_motion,
+    face_names_with_prefix, id, load_example, message, moved_box_document, output_body, pick,
+    remove_entry, sketch_result, vertex,
 };
-use partsmith_features::{BodyChange, Bound, FeatureError};
+use partsmith_features::{BodyChange, Bound, FeatureError, FeatureWarning, FieldRef, Fix};
 use partsmith_model::Document;
 use partsmith_occt_sys::GeometryKind;
+use partsmith_recompute::Message;
 
 /// `SK-PTS`: the points `e-p1` (0, 0), `e-p2` (10, 10) and `e-p3` (100, 0) on XY.
 const POINTS_SKETCH: &str = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-p1", "type": "point", "position": [0, 0]}, {"id": "e-p2", "type": "point", "position": [10, 10]}, {"id": "e-p3", "type": "point", "position": [100, 0]}]}"#;
@@ -147,15 +149,97 @@ fn t006_two_points() {
     assert_has_face(run.body("b-1"), "f-hole1/bore/e-p2");
 }
 
+/// `SetField` of `reverse` to `value`: "Turn on Reverse" for true, "Turn off Reverse" for false (engine.md section
+/// 3.22).
+fn set_reverse(value: bool) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field: FieldRef {
+            path: "reverse".to_string(),
+            label: "Reverse".to_string(),
+        },
+        value: serde_json::json!(value),
+    }
+}
+
+/// The messages of `f-hole1` in order: its error, then its warnings.
+fn hole_messages(run: &Run) -> &[Message] {
+    &run.feature("f-hole1").messages
+}
+
+/// The box of test 7's reversed variant: 40 x 40 x 10 from z = 0, above the sketch plane.
+const BOX_ABOVE: &str =
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}"#;
+
 #[test]
 fn t007_one_point_off_the_body() {
     let run = Run::example("hole/point-off-body.ptsm");
 
     run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    // The hole is named by its sketch coordinates, and reversed it misses too, so no Reverse is offered.
     assert_eq!(
         run.messages("f-hole1"),
         [
-            "The hole at point 'e-p3' does not touch body 'Body 1'. Move the point, or turn on Reverse."
+            "The hole at (100, 0) in 'Sketch 1' does not touch body 'Body 1'. Move the point onto the body."
+        ],
+    );
+    assert_eq!(message(&run, "f-hole1", "hole_misses_body").fixes, []);
+    assert_volume(run.shape("b-1"), 15717.256661);
+    assert_messages_pass_lint(&run, "f-hole1");
+}
+
+#[test]
+fn t007_a_point_that_drills_away_from_the_body_offers_reverse() {
+    let run = Run::records(
+        &["b-1"],
+        &[
+            BOX_ABOVE,
+            POINTS_SKETCH,
+            &hole(r#"["e-p1", "e-p3"]"#, THROUGH_ALL),
+        ],
+    );
+
+    run.assert_warnings(
+        "f-hole1",
+        &["hole_misses_body", "hole_misses_body", "no_effect"],
+    );
+    let messages = hole_messages(&run);
+    assert_eq!(
+        messages[0].text,
+        "The hole at (0, 0) in 'Sketch 1' does not touch body 'Body 1'."
+    );
+    assert_eq!(messages[0].fixes, [set_reverse(true)]);
+    assert_eq!(
+        messages[1].text,
+        "The hole at (100, 0) in 'Sketch 1' does not touch body 'Body 1'. Move the point onto the body."
+    );
+    assert_eq!(messages[1].fixes, []);
+    assert_eq!(
+        messages[2].text,
+        "This hole cuts nothing from body 'Body 1': every hole misses it."
+    );
+    assert_unchanged(&run, "f-hole1", "b-1");
+}
+
+#[test]
+fn t007_turning_on_reverse_drills_the_hole_that_reaches_the_body() {
+    let run = Run::records(
+        &["b-1"],
+        &[
+            BOX_ABOVE,
+            POINTS_SKETCH,
+            &hole(
+                r#"["e-p1", "e-p3"]"#,
+                &format!(r#"{THROUGH_ALL}, "reverse": true"#),
+            ),
+        ],
+    );
+
+    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    assert_eq!(
+        run.messages("f-hole1"),
+        [
+            "The hole at (100, 0) in 'Sketch 1' does not touch body 'Body 1'. Move the point onto the body."
         ],
     );
     assert_volume(run.shape("b-1"), 15717.256661);
@@ -165,15 +249,56 @@ fn t007_one_point_off_the_body() {
 fn t008_every_point_off_the_body() {
     let run = Run::example("hole/all-points-off-body.ptsm");
 
-    run.assert_warnings("f-hole1", &["hole_misses_body", "no_effect"]);
+    // One point, one message: its own warning already says that nothing changed and why (features.md section 3.15).
+    run.assert_warnings("f-hole1", &["hole_misses_body"]);
     assert_unchanged(&run, "f-hole1", "b-1");
+}
+
+#[test]
+fn t008_every_one_of_two_points_off_the_body() {
+    let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-p1", "type": "point", "position": [0, 0]}, {"id": "e-p2", "type": "point", "position": [10, 10]}, {"id": "e-p3", "type": "point", "position": [100, 0]}, {"id": "e-p4", "type": "point", "position": [-100, 0]}]}"#;
+    let run = Run::records(
+        &["b-1"],
+        &[BOX_BELOW, sketch, &hole(r#"["e-p3", "e-p4"]"#, THROUGH_ALL)],
+    );
+
+    run.assert_warnings(
+        "f-hole1",
+        &["hole_misses_body", "hole_misses_body", "no_effect"],
+    );
+    let warning = run.warning("f-hole1", "no_effect");
+    assert!(
+        matches!(
+            warning,
+            FeatureWarning::NoEffect {
+                how: partsmith_features::NoEffectHow::Missed,
+                ..
+            }
+        ),
+        "{warning:?}"
+    );
+    assert_eq!(
+        message(&run, "f-hole1", "no_effect").text,
+        "This hole cuts nothing from body 'Body 1': every hole misses it."
+    );
+    assert_unchanged(&run, "f-hole1", "b-1");
+    assert_messages_pass_lint(&run, "f-hole1");
 }
 
 #[test]
 fn t009_reverse_drills_away() {
     let run = Run::example("hole/reverse.ptsm");
 
-    run.assert_warnings("f-hole1", &["hole_misses_body", "no_effect"]);
+    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    assert_eq!(
+        run.messages("f-hole1"),
+        ["The hole at (0, 0) in 'Sketch 1' does not touch body 'Body 1'."],
+    );
+    // Verified: drilled the other way, the hole reaches the body, so Turn off Reverse is offered.
+    assert_eq!(
+        message(&run, "f-hole1", "hole_misses_body").fixes,
+        [set_reverse(false)]
+    );
     assert_unchanged(&run, "f-hole1", "b-1");
 }
 
@@ -267,9 +392,14 @@ fn t015_unknown_point() {
 
     let error = run.assert_error("f-hole1", "unknown_entity");
     assert_error_field(error, "points[0]");
+    // No point is left, so the hole fails (features/hole.md section 3.3 step 4).
     assert_eq!(
         run.messages("f-hole1"),
-        ["'Sketch 1' has no point 'e-p9'. Re-pick it for Points."],
+        ["'Sketch 1' no longer has the point picked for Points. Pick a point of 'Sketch 1' again."],
+    );
+    assert_eq!(
+        message(&run, "f-hole1", "unknown_entity").fixes,
+        [pick("/points/0")]
     );
 }
 
@@ -361,7 +491,7 @@ fn t022_zero_depth_with_a_counterbore() {
     assert_error_field(error, "extent.expr");
     assert_eq!(
         run.messages("f-hole1"),
-        ["Depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+        ["Depth must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."],
     );
     assert_unchanged(&run, "f-hole1", "b-1");
 }
@@ -421,7 +551,7 @@ fn t025_counterbore_ending_at_the_shoulder_within_the_tolerance() {
     assert_eq!(
         run.messages("f-hole1"),
         [
-            "Counterbore depth must be less than the hole depth (5 mm), but it is 5 mm. Use a value less than 5 mm."
+            "Counterbore depth must be less than the hole depth (5 mm), but it is 4.9999999 mm. Use a value less than 5 mm."
         ],
     );
 }
@@ -438,7 +568,7 @@ fn t026_countersink_ending_at_the_shoulder_within_the_tolerance() {
     assert_eq!(
         run.messages("f-hole1"),
         [
-            "Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 16 mm. Use a value less than 16 mm."
+            "Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 15.9999999 mm. Use a value less than 16 mm."
         ],
     );
 }
@@ -460,7 +590,9 @@ fn t027_diameter_below_the_tolerance() {
 
     assert_eq!(
         run.messages("f-hole1"),
-        ["Diameter must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+        [
+            "Diameter must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+        ],
     );
 }
 
@@ -492,7 +624,7 @@ fn t029_depth_below_the_tolerance() {
     assert_error_field(error, "extent.expr");
     assert_eq!(
         run.messages("f-hole1"),
-        ["Depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+        ["Depth must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."],
     );
     assert_unchanged(&run, "f-hole1", "b-1");
 }
@@ -511,7 +643,7 @@ fn t030_counterbore_depth_below_the_tolerance() {
     assert_eq!(
         run.messages("f-hole1"),
         [
-            "Counterbore depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."
+            "Counterbore depth must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
         ],
     );
     assert_unchanged(&run, "f-hole1", "b-1");
@@ -531,7 +663,7 @@ fn t031_head_within_the_tolerance_of_the_hole_diameter() {
     assert_eq!(
         run.messages("f-hole1"),
         [
-            "Head diameter must be greater than the hole diameter (6 mm), but it is 6 mm. Use a value greater than 6 mm."
+            "Head diameter must be greater than the hole diameter (6 mm), but it is 6.0000001 mm. Use a value greater than 6 mm."
         ],
     );
     assert_unchanged(&run, "f-hole1", "b-1");
@@ -541,17 +673,19 @@ fn t031_head_within_the_tolerance_of_the_hole_diameter() {
 fn t032_tools_decided_by_the_cut_and_by_their_shared_volume() {
     let run = Run::example("hole/swallowed-solid.ptsm");
 
-    run.assert_ok("f-box2");
+    // The small cube does not touch the box, so its join leaves two pieces (features.md section 3.5).
+    run.assert_warnings("f-box2", &["separate_solid"]);
     let joined = output_body(&run, "f-box2", "b-1");
     let joined_shape = joined.shape().expect("the body holds the box and the cube");
     assert_solid_count(joined_shape, 2);
     assert_volume(joined_shape, 16008.0);
     assert_bounding_box(joined_shape, [-20.0, -20.0, -10.0], [31.0, 20.0, 0.0]);
     run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    // Reversed, it misses too.
     assert_eq!(
         run.messages("f-hole1"),
         [
-            "The hole at point 'e-p5' does not touch body 'Body 1'. Move the point, or turn on Reverse."
+            "The hole at (25, 15) in 'Sketch 1' does not touch body 'Body 1'. Move the point onto the body."
         ],
     );
     let shape = run.shape("b-1");
@@ -682,4 +816,132 @@ fn t037_the_holes_faces_move_with_the_part() {
     let motion = face_motion(&run, "f-hole1", "b-1", "f-hole1/bore/e-p1");
     assert_translation(&motion, [100.0, 0.0, 0.0]);
     assert_eq!(motion, sketch_result(&run, "f-sk2").motion);
+}
+
+#[test]
+fn t034_a_deleted_point_is_skipped() {
+    // Corpus R43b: `SK-PTS` has no `e-p9`, so the hole at e-p1 is drilled and e-p9 is skipped.
+    let run = run_hole(&hole(r#"["e-p1", "e-p9"]"#, THROUGH_ALL));
+
+    run.assert_warnings("f-hole1", &["point_missing"]);
+    let missing = message(&run, "f-hole1", "point_missing");
+    assert_eq!(missing.pointer.as_deref(), Some("/points/1"));
+    assert_eq!(
+        missing.text,
+        "This hole no longer makes the hole at a point that was deleted from 'Sketch 1', so it was skipped."
+    );
+    // Remove from Points, then Pick.
+    assert_eq!(
+        missing.fixes,
+        [remove_entry("/points/1"), pick("/points/1")]
+    );
+    let warning = run.warning("f-hole1", "point_missing");
+    assert!(
+        matches!(
+            warning,
+            FeatureWarning::PointMissing { position: 1, sketch, point, .. }
+                if *sketch == id("f-sk1") && point == "e-p9"
+        ),
+        "{warning:?}"
+    );
+    assert_volume(run.shape("b-1"), 15717.256661);
+    assert_has_face(run.body("b-1"), "f-hole1/bore/e-p1");
+    assert_messages_pass_lint(&run, "f-hole1");
+}
+
+#[test]
+fn t034_removing_the_deleted_point_leaves_the_hole_without_a_warning() {
+    let run = run_hole(&hole(r#"["e-p1"]"#, THROUGH_ALL));
+
+    run.assert_all_quiet();
+    assert_volume(run.shape("b-1"), 15717.256661);
+}
+
+#[test]
+fn a_deleted_point_between_two_holes_skips_only_that_point() {
+    let run = run_hole(&hole(r#"["e-p1", "e-p9", "e-p2"]"#, THROUGH_ALL));
+
+    run.assert_warnings("f-hole1", &["point_missing"]);
+    assert_eq!(
+        message(&run, "f-hole1", "point_missing").pointer.as_deref(),
+        Some("/points/1")
+    );
+    assert_volume(run.shape("b-1"), 15434.513322);
+    assert_has_face(run.body("b-1"), "f-hole1/bore/e-p1");
+    assert_has_face(run.body("b-1"), "f-hole1/bore/e-p2");
+}
+
+#[test]
+fn every_point_deleted_fails_on_the_first_point() {
+    let run = run_hole(&hole(r#"["e-p8", "e-p9"]"#, THROUGH_ALL));
+
+    let error = run.assert_error("f-hole1", "unknown_entity");
+    assert_error_field(error, "points[0]");
+    assert!(
+        matches!(error, FeatureError::UnknownEntity { entity, .. } if entity == "e-p8"),
+        "{error:?}"
+    );
+    assert_unchanged(&run, "f-hole1", "b-1");
+}
+
+#[test]
+fn t035_a_hole_beside_the_body() {
+    // Newcomer error corpus NC12: a face sketch on the top of `BLOCK` with its point at (95, 25), past the right side.
+    let rectangle = r#"[{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}]"#;
+    let sketch = format!(
+        r#"{{"id": "f-sk1", "type": "sketch", "plane": {{"kind": "origin", "plane": "XY"}}, "entities": {rectangle}}}"#
+    );
+    let block = r#"{"id": "f-ext1", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]}, "extent": {"kind": "distance", "expr": "30"}, "op": "new"}"#;
+    let face_sketch = r#"{"id": "f-sk2", "type": "sketch", "plane": {"kind": "face", "body": "b-1", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}, "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}, "fallback_frame": "body"}, "entities": [{"id": "e-p1", "type": "point", "position": [95, 25]}]}"#;
+    let hole = r#"{"id": "f-hole1", "type": "hole", "body": "b-1", "sketch": "f-sk2", "points": ["e-p1"], "diameter": "5", "extent": {"kind": "through_all"}}"#;
+    let run = Run::records(&["b-1"], &[&sketch, block, face_sketch, hole]);
+
+    // One point, so no `no_effect`; reversed it misses too, so no Reverse.
+    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    assert_eq!(
+        run.messages("f-hole1"),
+        [
+            "The hole at (95, 25) in 'Sketch 2' does not touch body 'Body 1'. Move the point onto the body."
+        ],
+    );
+    assert_eq!(message(&run, "f-hole1", "hole_misses_body").fixes, []);
+    assert_volume(run.shape("b-1"), 120000.0);
+    assert_messages_pass_lint(&run, "f-hole1");
+}
+
+#[test]
+fn a_diameter_beyond_the_modeling_limit() {
+    let run = assert_diameter_out_of_range("1e200");
+
+    assert_eq!(
+        run.messages("f-hole1"),
+        ["Diameter must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."],
+    );
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert!(
+        matches!(
+            error,
+            FeatureError::OutOfRange {
+                bound: Bound::AtMost(limit),
+                ..
+            } if *limit == 1_000_000.0
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_depth_beyond_the_modeling_limit_is_checked_after_its_own_bound() {
+    let run = run_hole(&hole(
+        r#"["e-p1"]"#,
+        r#""extent": {"kind": "distance", "expr": "1e200"}"#,
+    ));
+
+    let error = run.assert_error("f-hole1", "out_of_range");
+    assert_error_field(error, "extent.expr");
+    assert_eq!(
+        run.messages("f-hole1"),
+        ["Depth must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."],
+    );
+    assert_unchanged(&run, "f-hole1", "b-1");
 }

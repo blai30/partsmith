@@ -2,7 +2,7 @@
 //! 15, 16 and 17), run through recompute (section 6.1). Tests named `tNNN` are section 6.5 test NNN. Messages are
 //! rendered by the features crate with the diagnosis each scenario's cause implies (recompute.md section 3.10), so
 //! they check the rendering rules on their own; recompute's own diagnosis is checked in its tests. Test 15 covers
-//! the corpus messages of the rows that phase 1 of the reference stability plan implements.
+//! the corpus messages of the reference stability corpus and of the newcomer error corpus that it lists.
 
 mod feature_support;
 
@@ -10,11 +10,12 @@ use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_2, PI};
 
 use feature_support::{
-    Run, assert_messages_pass_lint, body_before, box_step_asset, id, pick, remove_entry,
-    step_asset_name, use_reference,
+    Run, assert_messages_pass_lint, body_before, box_step_asset, document_text, id, parse_document,
+    pick, remove_entry, step_asset_name, use_reference,
 };
 use partsmith_features::{
-    Because, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, Repair, describe_elements,
+    Because, Diagnosis, Explanation, FeatureError, FeatureWarning, FieldRef, Fix, Repair,
+    describe_elements,
 };
 use partsmith_naming::{ElementName, Fingerprint};
 use serde_json::{Value, json};
@@ -1410,6 +1411,404 @@ fn t015_r41_a_copy_that_is_gone() {
 }
 
 // Test 16: repairs of references and regions that are still used.
+
+// Test 8: unknown settings (sections 3.2 and 4.2), as recompute reports them for a document.
+
+/// `CUBE20` and a 2 mm shell of it whose record has the extra keys `extra` (JSON members).
+fn shell_with(extra: Value) -> Run {
+    let mut shell = json!({"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2"});
+    for (key, value) in extra.as_object().expect("the extra keys are a JSON object") {
+        shell[key] = value.clone();
+    }
+    run_features(&["b-1"], &[cube20(), shell])
+}
+
+/// The top of `CUBE20` as a stored reference.
+fn cube20_top() -> Value {
+    reference("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4")
+}
+
+#[test]
+fn t008_a_misspelled_setting_offers_its_rename() {
+    let run = shell_with(json!({"remove_face": [cube20_top()]}));
+
+    // The misspelled key is ignored, so the shell builds a closed hollow and warns.
+    run.assert_warnings("f-sh1", &["unknown_params"]);
+    assert_eq!(
+        run.messages("f-sh1"),
+        ["'remove_face' is not a Shell setting, so it is ignored. Did you mean Faces to remove?"]
+    );
+    assert_eq!(
+        run.feature("f-sh1").messages[0].fixes,
+        [Fix::RenameKey {
+            from: "remove_face".to_string(),
+            to: "remove_faces".to_string(),
+        }]
+    );
+    assert_messages_pass_lint(&run, "f-sh1");
+}
+
+#[test]
+fn t008_an_unknown_setting_without_a_near_name_is_kept_and_ignored() {
+    let run = shell_with(json!({"zzz": 1}));
+
+    run.assert_warnings("f-sh1", &["unknown_params"]);
+    assert_eq!(
+        run.messages("f-sh1"),
+        [
+            "This shell has settings Partsmith does not know ('zzz'). They are kept in the file and ignored."
+        ]
+    );
+    assert_eq!(run.feature("f-sh1").messages[0].fixes, []);
+}
+
+#[test]
+fn t008_both_settings_list_together_with_the_one_rename() {
+    let run = shell_with(json!({"remove_face": [cube20_top()], "zzz": 1}));
+
+    run.assert_warnings("f-sh1", &["unknown_params"]);
+    assert_eq!(
+        run.messages("f-sh1"),
+        [
+            "This shell has settings Partsmith does not know ('remove_face', 'zzz'). They are kept in the file and ignored."
+        ]
+    );
+    assert_eq!(
+        run.feature("f-sh1").messages[0].fixes,
+        [Fix::RenameKey {
+            from: "remove_face".to_string(),
+            to: "remove_faces".to_string(),
+        }]
+    );
+}
+
+// Test 15, the rows of the feature rules (sections 3.15 and 4.3): newcomer error corpus NC02 to NC05 and NC12, and
+// corpus R26 and R48.
+
+/// `SetField` of this feature's field `path`, labeled `label`, to `value`.
+fn set_field(path: &str, label: &str, value: Value) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field: FieldRef {
+            path: path.to_string(),
+            label: label.to_string(),
+        },
+        value,
+    }
+}
+
+/// `f-sk2` with the circle `e-5` at (40, 25), radius 5, on `plane` (NC02 to NC04).
+fn small_circle_sketch(plane: Value) -> Value {
+    json!({"id": "f-sk2", "type": "sketch", "plane": plane, "entities": [{"id": "e-5", "type": "circle", "center": [40, 25], "radius": 5}]})
+}
+
+/// `f-ext2`, the circle of `small_circle_sketch` extruded `depth` with `op`.
+fn small_circle_extrude(depth: &str, op: &str) -> Value {
+    extrude(
+        "f-ext2",
+        "f-sk2",
+        json!([{"key": "e-5", "fp": "c=40,25|a=78.539816"}]),
+        distance(depth),
+        false,
+        op,
+    )
+}
+
+/// `BLOCK` with `others` after it.
+fn on_block(others: Vec<Value>) -> Run {
+    let mut features = block();
+    features.extend(others);
+    run_features(&["b-1"], &features)
+}
+
+/// NC03 and NC04: `BLOCK`, the datum `f-dp1` at z = 40 and the circle extruded `depth` up from it with `op`.
+fn above_the_block(depth: &str, op: &str) -> Run {
+    on_block(vec![
+        datum_xy("f-dp1", "40"),
+        small_circle_sketch(json!({"kind": "datum", "feature": "f-dp1"})),
+        small_circle_extrude(depth, op),
+    ])
+}
+
+/// [Attach 'Sketch 2' to the top of 'Extrude 1'], with the top as a pick just before `f-ext2`.
+fn attach_sketch_2_to_the_top(run: &Run) -> Fix {
+    Fix::Attach {
+        sketch: id("f-sk2"),
+        body: id("b-1"),
+        face: run.picked_before("f-ext2", "b-1", "f-ext1/end-cap"),
+    }
+}
+
+#[test]
+fn t015_nc02_a_join_buried_in_the_body() {
+    let run = on_block(vec![
+        small_circle_sketch(json!({"kind": "origin", "plane": "XY"})),
+        small_circle_extrude("10", "join"),
+    ]);
+
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    let diagnosis = Diagnosis::default();
+    assert_eq!(
+        run.render_warning("f-ext2", "no_effect", &diagnosis),
+        "This extrude adds nothing to body 'Body 1': it lies entirely inside the body."
+    );
+    assert_eq!(
+        run.warning_fixes("f-ext2", "no_effect", &diagnosis),
+        [attach_sketch_2_to_the_top(&run)]
+    );
+    assert_messages_pass_lint(&run, "f-ext2");
+}
+
+#[test]
+fn t015_nc03_a_cut_that_points_away() {
+    let run = above_the_block("15", "cut");
+
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    let diagnosis = Diagnosis::default();
+    assert_eq!(
+        run.render_warning("f-ext2", "no_effect", &diagnosis),
+        "This cut does not touch body 'Body 1': it starts 10 mm from the body and points away from it."
+    );
+    assert_eq!(
+        run.warning_fixes("f-ext2", "no_effect", &diagnosis),
+        [set_field("reverse", "Reverse", json!(true))]
+    );
+    assert_messages_pass_lint(&run, "f-ext2");
+}
+
+#[test]
+fn t015_nc03_a_cut_that_misses_both_ways_offers_no_reverse() {
+    // Reversed, the cut ends at z = 35 and still misses, so the sentence stays and Reverse is not offered.
+    let run = above_the_block("5", "cut");
+
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    let diagnosis = Diagnosis::default();
+    assert_eq!(
+        run.render_warning("f-ext2", "no_effect", &diagnosis),
+        "This cut does not touch body 'Body 1': it starts 10 mm from the body and points away from it."
+    );
+    assert_eq!(run.warning_fixes("f-ext2", "no_effect", &diagnosis), []);
+}
+
+#[test]
+fn t015_nc04_a_join_that_floats() {
+    let run = above_the_block("15", "join");
+
+    run.assert_warnings("f-ext2", &["separate_solid"]);
+    let diagnosis = Diagnosis::default();
+    assert_eq!(
+        run.render_warning("f-ext2", "separate_solid", &diagnosis),
+        "This extrude does not touch body 'Body 1', so the body now has 2 separate pieces."
+    );
+    assert_eq!(
+        run.warning_fixes("f-ext2", "separate_solid", &diagnosis),
+        [Fix::NewBody, attach_sketch_2_to_the_top(&run)]
+    );
+    assert_messages_pass_lint(&run, "f-ext2");
+}
+
+#[test]
+fn t015_nc05_a_fillet_too_large_for_a_step() {
+    // A step 2.4 mm deep cut by 'Box 2'; the fillet rounds the edge between the top and the step's riser at x = 0.
+    let run = run_features(
+        &["b-1"],
+        &[
+            box_in("f-box1", "b-1", ["40", "20", "10"], ["0", "0", "0"], "new"),
+            box_in(
+                "f-box2",
+                "b-1",
+                ["20", "30", "5"],
+                ["10", "0", "7.6"],
+                "cut",
+            ),
+            fillet(
+                "b-1",
+                vec![reference(
+                    "edge(f-box1/top|f-box2/left)",
+                    "line|n=0,1,0|c=0,0,10|l=20|adj=2,2",
+                )],
+                "3",
+            ),
+        ],
+    );
+
+    run.assert_error("f-fil1", "fillet_too_large");
+    let diagnosis = Diagnosis::default();
+    assert_eq!(
+        run.render_error("f-fil1", &diagnosis),
+        "Fillet radius 3 mm is too large for the selected edges: the largest that works is about 2.3 mm. The top edge of the cut made by 'Box 2' lies next to a wall of the cut made by 'Box 2', which is only 2.4 mm across."
+    );
+    assert_eq!(
+        run.error_fixes("f-fil1", &diagnosis),
+        [set_field("radius", "Radius", json!("2.3 mm"))]
+    );
+    assert_messages_pass_lint(&run, "f-fil1");
+}
+
+#[test]
+fn t015_nc12_a_hole_beside_the_body() {
+    let run = on_block(vec![
+        json!({
+            "id": "f-sk2",
+            "type": "sketch",
+            "plane": {
+                "kind": "face",
+                "body": "b-1",
+                "face": reference("f-ext1/end-cap", "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"),
+                "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+                "fallback_frame": "body"
+            },
+            "entities": [point("e-p1", [95.0, 25.0])]
+        }),
+        json!({"id": "f-hole1", "type": "hole", "body": "b-1", "sketch": "f-sk2", "points": ["e-p1"], "diameter": "5", "extent": {"kind": "through_all"}}),
+    ]);
+
+    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    let diagnosis = Diagnosis::default();
+    assert_eq!(
+        run.render_warning("f-hole1", "hole_misses_body", &diagnosis),
+        "The hole at (95, 25) in 'Sketch 2' does not touch body 'Body 1'. Move the point onto the body."
+    );
+    // Reversed, it misses too, so there is no Reverse action.
+    assert_eq!(
+        run.warning_fixes("f-hole1", "hole_misses_body", &diagnosis),
+        []
+    );
+    assert_messages_pass_lint(&run, "f-hole1");
+}
+
+/// R26 after its edit: `BLOCK`'s extrude deleted and an extrude `f-ext3` 80 tall drawn in its place ('Extrude 1'),
+/// with 'Sketch 2' still stored on the deleted extrude's top and a boss `f-ext2` on it.
+fn r26() -> Run {
+    run_features(
+        &["b-1"],
+        &[
+            sketch("f-sk1", "XY", rectangle(1, 0.0, 0.0, 80.0, 50.0)),
+            extrude(
+                "f-ext3",
+                "f-sk1",
+                json!([{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]),
+                distance("80"),
+                false,
+                "new",
+            ),
+            json!({
+                "id": "f-sk2",
+                "type": "sketch",
+                "plane": {
+                    "kind": "face",
+                    "body": "b-1",
+                    "face": reference("f-ext1/end-cap", "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"),
+                    "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}
+                },
+                "entities": [{"id": "e-5", "type": "circle", "center": [40, 25], "radius": 10}]
+            }),
+            extrude(
+                "f-ext2",
+                "f-sk2",
+                json!([{"key": "e-5", "fp": "c=40,25|a=314.159265"}]),
+                distance("10"),
+                false,
+                "join",
+            ),
+        ],
+    )
+}
+
+#[test]
+fn t015_r26_a_sketch_whose_face_feature_was_deleted() {
+    let run = r26();
+    // The cause `NotInDocument` explains a face already described as a feature's not in this document as gone
+    // (recompute.md section 3.10).
+    let diagnosis = explained(0, "is gone");
+
+    run.assert_warnings("f-sk2", &["plane_fallback"]);
+    assert_eq!(
+        run.render_warning("f-sk2", "plane_fallback", &diagnosis),
+        "The face this sketch is on, a face of a feature that is not in this document, is gone, so the sketch uses the position saved with it."
+    );
+    // The top of 'Extrude 1' first, then the nearest planar faces (naming.md test 133), then Pick.
+    let mut expected: Vec<Fix> = [
+        "f-ext3/end-cap",
+        "f-ext3/lateral/e-1",
+        "f-ext3/lateral/e-3",
+        "f-ext3/start-cap",
+        "f-ext3/lateral/e-2",
+    ]
+    .iter()
+    .map(|face| Fix::Attach {
+        sketch: id("f-sk2"),
+        body: id("b-1"),
+        face: run.picked_before("f-sk2", "b-1", face),
+    })
+    .collect();
+    expected.push(pick("/plane/face"));
+    assert_eq!(
+        run.warning_fixes("f-sk2", "plane_fallback", &diagnosis),
+        expected
+    );
+}
+
+#[test]
+fn t015_r26_the_boss_on_it_names_the_sketch_as_the_cause() {
+    let run = r26();
+    let diagnosis = Diagnosis {
+        lost_face: Some(id("f-sk2")),
+        ..Diagnosis::default()
+    };
+
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    assert_eq!(
+        run.render_warning("f-ext2", "no_effect", &diagnosis),
+        "This extrude adds nothing to body 'Body 1' because 'Sketch 2' lost the face it was on. Fix 'Sketch 2' first."
+    );
+    assert_eq!(
+        run.warning_fixes("f-ext2", "no_effect", &diagnosis),
+        [Fix::Show {
+            feature: id("f-sk2"),
+            entity: None,
+        }]
+    );
+}
+
+#[test]
+fn t015_r48_bare_numbers_after_switching_to_inches() {
+    // R48 after its edit: `BLOCK` and SLOT(30, 50) with bare numbers, now in inches, and a fillet of radius '2' on the
+    // front top edge of the right piece.
+    let mut features = block();
+    features.extend(slot(30.0, 50.0));
+    features.push(fillet(
+        "b-1",
+        vec![reference(
+            "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)",
+            "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
+        )],
+        "2",
+    ));
+    let texts: Vec<String> = features.iter().map(Value::to_string).collect();
+    let records: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let run = Run::new(parse_document(&document_text(
+        "in",
+        &[],
+        &["b-1"],
+        &records,
+    )));
+
+    run.assert_error("f-fil1", "fillet_too_large");
+    let diagnosis = Diagnosis::default();
+    assert_eq!(
+        run.render_error("f-fil1", &diagnosis),
+        "Fillet radius 2 in is too large for the selected edges: the largest that works is about 1.9 in. '2' has no unit, so it means 2 in in this document."
+    );
+    assert_eq!(
+        run.error_fixes("f-fil1", &diagnosis),
+        [
+            set_field("radius", "Radius", json!("2 mm")),
+            set_field("radius", "Radius", json!("1.9 in")),
+        ]
+    );
+    assert_messages_pass_lint(&run, "f-fil1");
+}
 
 #[test]
 fn t016_a_widened_edge_repairs_as_ambiguous_with_nothing_lost() {

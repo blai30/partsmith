@@ -15,9 +15,11 @@ use feature_support::{
     assert_face_kind, assert_list_field, assert_median_build_within, assert_messages_pass_lint,
     assert_moved_by_100, assert_placement, assert_relative, assert_unchanged, assert_volume,
     body_update, document, edge, face, face_names, face_sketch, load_example, message, one_point,
-    point_components, sketch_result, suggested_limit,
+    point_components, remove_entry, sketch_result, suggested_limit,
 };
-use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
+use partsmith_features::{
+    BodyChange, FeatureError, FeatureWarning, FieldRef, Fix, IgnoredReason, Limit,
+};
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
 
@@ -49,6 +51,64 @@ fn chamfer_record(edges: &[&str], distance: &str) -> String {
 /// An equal-distance chamfer distance.
 fn equal_distance(expr: &str) -> String {
     format!(r#"{{"kind": "equal", "expr": "{expr}"}}"#)
+}
+
+/// Asserts that a skipped edge's warning is `Ignored` with the reason `SmoothEdge`.
+#[track_caller]
+fn assert_skipped_as_smooth(warning: &FeatureWarning) {
+    assert!(
+        matches!(
+            warning,
+            FeatureWarning::Ignored {
+                reason: IgnoredReason::SmoothEdge,
+                ..
+            }
+        ),
+        "expected the edge to be skipped as smooth, got {warning:?}"
+    );
+}
+
+/// "Use {value}": `SetField` of the equal distance to the expression `value`.
+fn use_distance(value: &str) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field: FieldRef {
+            path: "distance.expr".to_string(),
+            label: "Distance".to_string(),
+        },
+        value: serde_json::json!(value),
+    }
+}
+
+/// Asserts that a "too large" error measured the face `face` across the edge `edge` at `position` of Edges, 2.4 mm
+/// across, as its `limit`, and whether the other edges were verified to work without that edge (features.md section
+/// 4.3).
+#[track_caller]
+fn assert_limiting_face(
+    error: &FeatureError,
+    position: usize,
+    edge: &str,
+    face: &str,
+    removable: bool,
+) {
+    let FeatureError::ChamferTooLarge { limit, .. } = error else {
+        panic!("expected ChamferTooLarge, got {error:?}");
+    };
+    let Some(Limit::Face {
+        position: found_position,
+        edge: found_edge,
+        face: found_face,
+        width,
+        removable: found_removable,
+    }) = limit
+    else {
+        panic!("expected a limiting face, got {limit:?}");
+    };
+    assert_eq!(*found_position, position, "the limiting edge's entry");
+    assert_eq!(found_edge.query.to_string(), edge);
+    assert_eq!(found_face.query.to_string(), face);
+    assert!((width - 2.4).abs() <= 1e-5, "width {width}");
+    assert_eq!(*found_removable, removable, "removable");
 }
 
 /// Test 6: the plate with its four top edges chamfered at the equal distance `distance`.
@@ -155,11 +215,24 @@ fn t006_too_large() {
         (2.0..2.4).contains(&max),
         "the largest working distance {max} lies in [2, 2.4)"
     );
+    // The four side faces tie at 2.4 mm, and `edge(f-box1/back|f-box1/top)` sorts first; the other three edges fail
+    // without it, so its removal is not offered.
+    assert_limiting_face(
+        error,
+        0,
+        "edge(f-box1/back|f-box1/top)",
+        "f-box1/back",
+        false,
+    );
     let limit = suggested_limit(max);
     let expected = format!(
-        "Chamfer distance 3 mm is too large for the selected edges. The largest distance that works is about {limit} mm. Try {limit} mm or less."
+        "Chamfer distance 3 mm is too large for the selected edges: the largest that works is about {limit} mm. The back top edge of 'Box 1' lies next to the back side of 'Box 1', which is only 2.4 mm across."
     );
     assert_eq!(run.messages("f-cha1"), [expected.as_str()]);
+    assert_eq!(
+        message(&run, "f-cha1", "chamfer_too_large").fixes,
+        [use_distance(&format!("{limit} mm"))]
+    );
     assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
     assert_unchanged(&run, "f-cha1", "b-1");
     assert_volume(run.shape("b-1"), 960.0);
@@ -266,7 +339,7 @@ fn two_distances_too_large() {
     );
     let limit = suggested_limit(max);
     let expected = format!(
-        "Chamfer distance 4 mm is too large for the selected edges. The largest distance that works is about {limit} mm. Try {limit} mm or less."
+        "Chamfer distance 4 mm is too large for the selected edges: the largest that works is about {limit} mm. The back top edge of 'Box 1' lies next to the back side of 'Box 1', which is only 2.4 mm across."
     );
     assert_eq!(run.messages("f-cha1"), [expected.as_str()]);
     assert_eq!(
@@ -274,6 +347,8 @@ fn two_distances_too_large() {
         None,
         "a two-distance limit scales both distances, so it has no one-step fix"
     );
+    // No SetField for two distances, and the other edges fail without the limiting one.
+    assert_eq!(message(&run, "f-cha1", "chamfer_too_large").fixes, []);
     assert_unchanged(&run, "f-cha1", "b-1");
 }
 
@@ -285,21 +360,18 @@ fn smooth_edge_skipped() {
 
     run.assert_ok("f-box1");
     run.assert_ok("f-fil1");
-    run.assert_warnings("f-cha1", &["ignored", "no_effect"]);
-    let warning = &run.feature("f-cha1").warnings[0];
-    let FeatureWarning::Ignored { reason, .. } = warning else {
-        panic!("expected an Ignored warning, got {warning:?}");
-    };
-    assert!(
-        matches!(reason, IgnoredReason::SmoothEdge),
-        "the edge is skipped as smooth, got {reason:?}"
-    );
+    // One edge, one message (features.md section 3.15).
+    run.assert_warnings("f-cha1", &["ignored"]);
+    assert_skipped_as_smooth(&run.feature("f-cha1").warnings[0]);
     assert_eq!(
         run.messages("f-cha1"),
         [
-            "One of the edges selected for Edges is smooth (its faces meet without a corner), so it was skipped.",
-            "This feature does not change body 'Body 1'. Check its position, size and direction.",
+            "One of the edges selected for Edges is smooth (its faces meet without a corner), so it was skipped."
         ]
+    );
+    assert_eq!(
+        message(&run, "f-cha1", "ignored").fixes,
+        [remove_entry("/edges/0")]
     );
     assert_unchanged(&run, "f-cha1", "b-1");
 }
@@ -363,15 +435,9 @@ fn t013_chamfer_beside_a_fillet_on_a_pipe_tee() {
     run.assert_ok("f-cyl1");
     run.assert_ok("f-cyl2");
     run.assert_ok("f-fil1");
-    run.assert_warnings("f-cha1", &["ignored", "no_effect"]);
-    let warning = &run.feature("f-cha1").warnings[0];
-    let FeatureWarning::Ignored { reason, .. } = warning else {
-        panic!("expected an Ignored warning, got {warning:?}");
-    };
-    assert!(
-        matches!(reason, IgnoredReason::SmoothEdge),
-        "the edge is skipped as smooth, got {reason:?}"
-    );
+    // One edge, so no `no_effect` (features.md section 3.15).
+    run.assert_warnings("f-cha1", &["ignored"]);
+    assert_skipped_as_smooth(&run.feature("f-cha1").warnings[0]);
     assert_unchanged(&run, "f-cha1", "b-1");
 }
 
@@ -388,7 +454,7 @@ fn t014_distance_below_the_tolerance() {
     assert_eq!(
         run.messages("f-cha1"),
         [
-            "Second distance must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."
+            "Second distance must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
         ]
     );
     assert_unchanged(&run, "f-cha1", "b-1");
@@ -584,4 +650,98 @@ fn a_sketch_on_the_beveled_face_stays_on_it_after_the_move() {
         [1.0, 0.0, 0.0],
         [0.0, -FRAC_1_SQRT_2, FRAC_1_SQRT_2],
     );
+}
+
+/// `STEP` of fillet.md tests 19 to 22 (newcomer error corpus NC05): a 40 x 20 x 10 box with a step 2.4 mm deep over
+/// x 0..20 whose riser `f-box2/left` lies at x = 0 (volume 7040).
+const STEP: [&str; 2] = [
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}"#,
+    r#"{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "30", "5"], "position": ["10", "0", "7.6"], "op": "cut"}"#,
+];
+
+/// `E-RISER`: the edge between the top of 'Box 1' and the riser of `STEP`.
+const RISER_EDGE: &str =
+    r#"{"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,10|l=20|adj=2,2"}"#;
+
+/// The bottom left edge of `STEP`, which the riser does not limit.
+const BOTTOM_LEFT_EDGE: &str =
+    r#"{"q": "edge(f-box1/bottom|f-box1/left)", "fp": "line|n=0,1,0|c=-20,0,0|l=20|adj=2,2"}"#;
+
+/// `STEP` with `CHA(edges, {"kind": "equal", "expr": distance})`.
+fn step_run(edges: &[&str], distance: &str) -> Run {
+    let chamfer = chamfer_record(edges, &equal_distance(distance));
+    Run::records(&["b-1"], &[STEP[0], STEP[1], &chamfer])
+}
+
+/// The sentence of NC05 that names the riser as the limit.
+const RISER_SENTENCE: &str = "The top edge of the cut made by 'Box 2' lies next to a wall of the cut made by 'Box 2', which is only 2.4 mm across.";
+
+/// Asserts the error of test 17, also the error of test 18: `chamfer_too_large` with a largest working distance in
+/// [2, 2.4) and the riser as the limit, rendered with its limit `{s}`, which this returns.
+#[track_caller]
+fn assert_riser_limits(run: &Run, removable: bool) -> String {
+    let error = run.assert_error("f-cha1", "chamfer_too_large");
+    let FeatureError::ChamferTooLarge { max, .. } = error else {
+        panic!("expected ChamferTooLarge, got {error:?}");
+    };
+    let max = max.unwrap_or_else(|| panic!("the search finds a working distance: {error:?}"));
+    assert!(
+        (2.0..2.4).contains(&max),
+        "the largest working distance {max} lies in [2, 2.4)"
+    );
+    assert_limiting_face(
+        error,
+        0,
+        "edge(f-box1/top|f-box2/left)",
+        "f-box2/left",
+        removable,
+    );
+    let limit = suggested_limit(max);
+    assert_eq!(
+        run.messages("f-cha1"),
+        [format!(
+            "Chamfer distance 3 mm is too large for the selected edges: the largest that works is about {limit} mm. {RISER_SENTENCE}"
+        )
+        .as_str()]
+    );
+    assert_messages_pass_lint(run, "f-cha1");
+    limit
+}
+
+#[test]
+fn t017_the_limiting_face_is_named() {
+    let run = step_run(&[RISER_EDGE], "3");
+
+    let limit = assert_riser_limits(&run, false);
+
+    assert_eq!(
+        message(&run, "f-cha1", "chamfer_too_large").fixes,
+        [use_distance(&format!("{limit} mm"))]
+    );
+    assert_unchanged(&run, "f-cha1", "b-1");
+    step_run(&[RISER_EDGE], &limit).assert_all_ok();
+}
+
+#[test]
+fn t018_the_edge_that_limits_it_can_be_removed_when_the_others_work() {
+    let run = step_run(&[RISER_EDGE, BOTTOM_LEFT_EDGE], "3");
+
+    let limit = assert_riser_limits(&run, true);
+
+    assert_eq!(
+        message(&run, "f-cha1", "chamfer_too_large").fixes,
+        [
+            use_distance(&format!("{limit} mm")),
+            remove_entry("/edges/0")
+        ]
+    );
+}
+
+#[test]
+fn t018_removing_the_limiting_edge_chamfers_the_other_at_the_requested_distance() {
+    let run = step_run(&[BOTTOM_LEFT_EDGE], "3");
+
+    run.assert_all_ok();
+    // The stepped body's 7040 less 3 x 3 / 2 x 20.
+    assert_volume(run.shape("b-1"), 6950.0);
 }

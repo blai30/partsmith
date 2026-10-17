@@ -134,7 +134,7 @@ Source faces keep their names. Instance numbers are pattern positions, not kerne
 | Condition | Variant | Example message |
 | --- | --- | --- |
 | Count < 1 (fractional included) | `OutOfRange` | `Count must be at least 1, but it is 0. Use 1 or more.` |
-| Count not whole | `NotWholeNumber` | `Count must be a whole number, but it is 2.5. Use 2 or 3.` |
+| Count not whole | `NotWholeNumber` | `Count must be a whole number, but it is 2.5.` with the fixes `SetField` `2` and `SetField` `3` (features.md section 4.1) |
 | Spacing ≤ 0 | `OutOfRange` | `Spacing must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm.` |
 | Spacing above the modeling limit | `OutOfRange` | `Spacing must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less.` |
 | Too many instances | `TooManyInstances` | `This linear pattern would make 20000 copies, more than the limit of 10000. Lower Count.` |
@@ -162,7 +162,7 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2]`. Fixtures:
 3. **Grid.** `CUBE10`, `LP(DIR(X, "3", "20"), "second_direction": DIR(Y, "2", "15"))`. Expected: volume 6000, 36 faces, bbox [-5,-5,0]-[45,20,10]; faces `f-box1/top@f-lp1:1`, `f-box1/top@f-lp1:0.1` and `f-box1/top@f-lp1:2.1` exist.
 4. **Reverse.** `CUBE10`, `LP({"axis": X, "count": "3", "spacing": "20", "reverse": true})`. Expected: bbox [-45,-5,0]-[5,5,10].
 5. **Count 1.** `CUBE10`, `LP(DIR(X, "1", "20"))`. Expected: warning `no_effect` with how `NoCopies { fields: [direction.count] }`, rendered `This linear pattern makes no copies, because Count is 1.`; b-1 unchanged. With `"second_direction": DIR(Y, "1", "15")` as well: rendered `This linear pattern makes no copies, because Count and Second count are 1.`
-6. **Fractional count.** `CUBE10`, `LP(DIR(X, "2.5", "20"))`. Expected: error `not_whole_number`, field `direction.count`, rendered `Count must be a whole number, but it is 2.5. Use 2 or 3.`
+6. **Fractional count.** `CUBE10`, `LP(DIR(X, "2.5", "20"))`. Expected: error `not_whole_number`, field `direction.count`, rendered `Count must be a whole number, but it is 2.5.`, with the fixes `SetField` `2` then `SetField` `3`
 7. **Zero count.** `CUBE10`, `LP(DIR(X, "0", "20"))`. Expected: error `out_of_range` rendered `Count must be at least 1, but it is 0. Use 1 or more.`
 8. **Zero spacing.** `CUBE10`, `LP(DIR(X, "3", "0"))`. Expected: error `out_of_range`, field `direction.spacing`.
 9. **New body.** `CUBE10`, `LP(DIR(X, "3", "20"), "op": "new", "target": "b-2")`. Expected: b-1 unchanged; b-2 volume 2000, 12 faces, bbox [15,-5,0]-[45,5,10], change `New`.

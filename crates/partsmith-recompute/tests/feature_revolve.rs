@@ -14,7 +14,7 @@ use feature_support::{
     assert_face_kind, assert_face_radius, assert_has_face, assert_median_build_within,
     assert_messages_pass_lint, assert_no_face, assert_unchanged, assert_volume, edge_axis, face,
     face_names_with_prefix, keep_and_pick, l_shaped_body, lean, lean_edge_axis, line, link_ids,
-    load_example, message, output_body, successions, turn,
+    load_example, message, output_body, pick, successions, turn,
 };
 use partsmith_features::{Diagnosis, Fix};
 use partsmith_naming::Follow;
@@ -366,7 +366,11 @@ fn t021_unknown_axis_line() {
     assert_error_field(error, "axis");
     assert_eq!(
         run.messages("f-rev1"),
-        ["'Sketch 1' has no line 'e-9'. Re-pick it for Axis."],
+        ["'Sketch 1' no longer has the line picked for Axis. Pick a line of 'Sketch 1' again."],
+    );
+    assert_eq!(
+        message(&run, "f-rev1", "unknown_entity").fixes,
+        [pick("/axis")]
     );
     assert_empty(&run, "b-1");
 }
@@ -388,10 +392,14 @@ fn t022_axis_entity_is_not_a_line() {
     );
 
     run.assert_error("f-rev1", "not_a_line");
+    // The entity is named by its kind and coordinates (features.md section 4.1, sketch.md section 4).
     assert_eq!(
         run.messages("f-rev1"),
-        ["'e-5' in 'Sketch 1' is not a line with length. Pick a line for Axis."],
+        [
+            "The circle at (50, 50) with radius 1 in 'Sketch 1', picked for Axis, is not a line with length. Pick a line."
+        ],
     );
+    assert_messages_pass_lint(&run, "f-rev1");
 }
 
 #[test]
@@ -414,7 +422,7 @@ fn t023_axis_face_without_an_axis() {
     assert_eq!(
         run.messages("f-rev1"),
         [
-            "The face selected for Axis has no axis. Pick a cylindrical or conical face, a straight edge, a sketch line or an origin axis."
+            "The top of 'Box 1' selected for Axis has no axis. Pick a round face, a straight edge, a sketch line or an origin axis."
         ],
     );
     assert_unchanged(&run, "f-rev1", "b-2");
@@ -440,7 +448,7 @@ fn t024_curved_axis_edge() {
     assert_eq!(
         run.messages("f-rev1"),
         [
-            "The edge selected for Axis is not straight. Pick a straight edge, a sketch line or an origin axis."
+            "The top rim of 'Cylinder 1' selected for Axis is not straight. Pick a straight edge, a sketch line or an origin axis."
         ],
     );
 }
@@ -466,7 +474,9 @@ fn t026_angle_within_the_tolerance_of_zero() {
     assert_error_field(error, "extent.expr");
     assert_eq!(
         run.messages("f-rev1"),
-        ["Angle must be greater than 0 deg, but it is 0 deg. Use a value greater than 0 deg."],
+        [
+            "Angle must be greater than 0 deg, but it is 0.00000001 deg. Use a value greater than 0 deg."
+        ],
     );
     assert_empty(&run, "b-1");
 }

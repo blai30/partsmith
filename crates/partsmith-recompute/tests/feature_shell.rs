@@ -19,8 +19,8 @@ use feature_support::{
     face_names_with_prefix, load_example, median_failed_build_time, parse_document,
     suggested_limit,
 };
-use feature_support::{assert_messages_pass_lint, message};
-use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, FieldRef, Fix};
+use feature_support::{assert_messages_pass_lint, id, message, pick};
+use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, FieldRef, Fix, Limit};
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::{GeometryKind, SubShapeKind};
 
@@ -200,15 +200,33 @@ fn assert_no_inner_rounds(run: &Run) {
     );
 }
 
-/// Asserts that `f-sh1` of `run` fails with `shell_too_thick` on `thickness` for the wall
-/// `requested`, with the thickest working wall in `max_range` and `b-1` unchanged, and returns its
-/// limit `{s}`, rounded down to 2 significant digits. The message and the suggestion `{s} mm` are
-/// those of this phase, with the `SetField` fix (Use {s} mm) of features.md section 4.3; the spec's
-/// text and its round-face fixes come with phase 3 of the reference stability plan.
-fn assert_too_thick(run: &Run, requested: f64, max_range: Range<f64>) -> String {
+/// Round faces a "too large" shell names (features.md section 4.3) that no fillet made: the feature that made them, its
+/// label, and their smallest radius in mm.
+struct RoundFaces {
+    feature: &'static str,
+    label: &'static str,
+    radius: f64,
+}
+
+/// Asserts that `f-sh1` of `run` fails with `shell_too_thick` on `thickness` for the wall `requested`, with the
+/// thickest working wall in `max_range`, the round faces `round_faces` as its limit (none when None) and `b-1`
+/// unchanged, and returns its limit `{s}`, rounded down to 2 significant digits. The message is the "too large" text of
+/// features.md section 4.3, and the only fix is Use {s} mm, since no fillet made the round faces.
+fn assert_too_thick(
+    run: &Run,
+    requested: f64,
+    max_range: Range<f64>,
+    round_faces: Option<RoundFaces>,
+) -> String {
     let error = run.assert_error("f-sh1", "shell_too_thick");
     assert_error_field(error, "thickness");
-    let FeatureError::ShellTooThick { thickness, max, .. } = error else {
+    let FeatureError::ShellTooThick {
+        thickness,
+        max,
+        limit: found_limit,
+        ..
+    } = error
+    else {
         panic!("expected ShellTooThick, got {error:?}");
     };
     assert_eq!(*thickness, requested, "the requested thickness");
@@ -218,9 +236,40 @@ fn assert_too_thick(run: &Run, requested: f64, max_range: Range<f64>) -> String 
         "the thickest working wall {max} lies in {max_range:?}"
     );
     let limit = suggested_limit(max);
-    let expected = format!(
-        "Shell thickness {requested} mm is too thick for body 'Body 1'. The thickest wall that works is about {limit} mm. Try {limit} mm or less."
+    let mut expected = format!(
+        "Shell thickness {requested} mm is too thick for body 'Body 1': the largest that works is about {limit} mm."
     );
+    match (&round_faces, found_limit) {
+        (None, None) => {}
+        (
+            Some(round_faces),
+            Some(Limit::RoundFaces {
+                feature,
+                radius,
+                fillet,
+            }),
+        ) => {
+            assert_eq!(
+                feature,
+                &id(round_faces.feature),
+                "the feature of the round faces"
+            );
+            assert!(
+                (radius - round_faces.radius).abs() <= 1e-6,
+                "round faces of radius {radius}, expected {}",
+                round_faces.radius
+            );
+            assert!(!fillet, "no fillet made them");
+            expected.push_str(&format!(
+                " Its rounded faces made by '{}' have radius {} mm, smaller than the wall.",
+                round_faces.label, round_faces.radius
+            ));
+        }
+        (expected_faces, found) => panic!(
+            "expected the round faces {:?}, got the limit {found:?}",
+            expected_faces.as_ref().map(|faces| faces.feature)
+        ),
+    }
     assert_eq!(run.messages("f-sh1"), [expected.as_str()]);
     assert_eq!(
         message(run, "f-sh1", "shell_too_thick").fixes,
@@ -341,7 +390,8 @@ fn t005_too_thick() {
     let run = Run::new(open_top_document("30"));
 
     run.assert_ok("f-box1");
-    let limit = assert_too_thick(&run, 30.0, 22.5..25.0);
+    // The box has no round faces, so the limit stands alone.
+    let limit = assert_too_thick(&run, 30.0, 22.5..25.0, None);
 
     let rebuilt = Run::new(open_top_document(&limit));
     rebuilt.assert_all_ok();
@@ -434,7 +484,10 @@ fn t009_cylinder_cup() {
 fn t010_two_solids() {
     let run = Run::example("shell/two-solids.ptsm");
 
-    run.assert_all_ok();
+    // The second box does not touch the first, so its join leaves two pieces (features.md section 3.5).
+    run.assert_ok("f-box1");
+    run.assert_warnings("f-box2", &["separate_solid"]);
+    run.assert_ok("f-sh1");
     let shape = run.shape("b-1");
     assert_volume(shape, 2.0 * (8000.0 - 16.0 * 16.0 * 18.0));
     assert_volume(shape, 6784.0);
@@ -546,7 +599,9 @@ fn t013_thickness_below_the_tolerance() {
     assert_error_field(error, "thickness");
     assert_eq!(
         run.messages("f-sh1"),
-        ["Thickness must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."]
+        [
+            "Thickness must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+        ]
     );
     assert_unchanged(&run, "f-sh1", "b-1");
 }
@@ -656,7 +711,18 @@ fn t016_cylinder_wall_stops_below_the_radius() {
     let run = cylinder_cup_run("30");
 
     run.assert_ok("f-cyl1");
-    let limit = assert_too_thick(&run, 30.0, 15.0..20.0);
+    // The side of the cylinder, radius 20, is smaller than the wall and larger than what works; it is not a fillet's,
+    // so the only fix is the thinner wall.
+    let limit = assert_too_thick(
+        &run,
+        30.0,
+        15.0..20.0,
+        Some(RoundFaces {
+            feature: "f-cyl1",
+            label: "Cylinder 1",
+            radius: 20.0,
+        }),
+    );
 
     let rebuilt = cylinder_cup_run(&limit);
     rebuilt.assert_all_ok();
@@ -711,8 +777,8 @@ fn t020_too_thick_past_the_rounds() {
     let run = rounded_cube_run("12");
 
     run.assert_ok("f-fil1");
-    // The walls meet in the middle of the cube.
-    let limit = assert_too_thick(&run, 12.0, 9.0..10.0);
+    // The walls meet in the middle of the cube; the rounds' radius 2 lies below what works, so they are not named.
+    let limit = assert_too_thick(&run, 12.0, 9.0..10.0, None);
 
     let rebuilt = rounded_cube_run(&limit);
     rebuilt.assert_all_ok();
@@ -819,4 +885,69 @@ fn the_rim_and_inside_faces_move_with_the_part() {
     run.assert_all_ok();
     assert_moved_by_100(&run, "f-sh1", "b-1", "f-sh1/rim/f-box1/top");
     assert_moved_by_100(&run, "f-sh1", "b-1", "f-sh1/inner/f-box1/bottom");
+}
+
+#[test]
+fn t017_every_face_removed() {
+    let faces = [
+        r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=400"}"#,
+        r#"{"q": "f-box1/bottom", "fp": "plane|n=0,0,-1|c=0,0,0|a=400"}"#,
+        r#"{"q": "f-box1/front", "fp": "plane|n=0,-1,0|c=0,-10,10|a=400"}"#,
+        r#"{"q": "f-box1/back", "fp": "plane|n=0,1,0|c=0,10,10|a=400"}"#,
+        r#"{"q": "f-box1/left", "fp": "plane|n=-1,0,0|c=-10,0,10|a=400"}"#,
+        r#"{"q": "f-box1/right", "fp": "plane|n=1,0,0|c=10,0,10|a=400"}"#,
+    ];
+    let run = Run::records(&["b-1"], &[CUBE20, &shell_record("2", &faces)]);
+
+    let error = run.assert_error("f-sh1", "shell_removes_all");
+    assert!(
+        matches!(error, FeatureError::ShellRemovesAll { body, count: 6 } if *body == id("b-1")),
+        "{error:?}"
+    );
+    assert_eq!(
+        run.messages("f-sh1"),
+        [
+            "This shell would remove all 6 faces of body 'Body 1', which leaves nothing to hollow. Remove at most 5 faces, or leave Faces to remove empty for a closed hollow."
+        ]
+    );
+    assert_eq!(
+        message(&run, "f-sh1", "shell_removes_all").fixes,
+        [pick("/remove_faces")]
+    );
+    // Checked before any kernel work, so no kernel text appears and nothing reads as a wall that is too thick.
+    assert_messages_pass_lint(&run, "f-sh1");
+    assert_unchanged(&run, "f-sh1", "b-1");
+}
+
+#[test]
+fn removing_every_face_of_one_of_two_solids_is_counted_for_that_solid() {
+    // Shell test 10's two cubes; every face of the first is removed, so nothing of it would be left to hollow.
+    let second = r#"{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "position": ["50", "0", "0"], "op": "join"}"#;
+    let faces = [
+        r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=400"}"#,
+        r#"{"q": "f-box1/bottom", "fp": "plane|n=0,0,-1|c=0,0,0|a=400"}"#,
+        r#"{"q": "f-box1/front", "fp": "plane|n=0,-1,0|c=0,-10,10|a=400"}"#,
+        r#"{"q": "f-box1/back", "fp": "plane|n=0,1,0|c=0,10,10|a=400"}"#,
+        r#"{"q": "f-box1/left", "fp": "plane|n=-1,0,0|c=-10,0,10|a=400"}"#,
+        r#"{"q": "f-box1/right", "fp": "plane|n=1,0,0|c=10,0,10|a=400"}"#,
+    ];
+    let run = Run::records(&["b-1"], &[CUBE20, second, &shell_record("2", &faces)]);
+
+    let error = run.assert_error("f-sh1", "shell_removes_all");
+    assert!(
+        matches!(error, FeatureError::ShellRemovesAll { count: 6, .. }),
+        "{error:?}"
+    );
+    assert_unchanged(&run, "f-sh1", "b-1");
+}
+
+#[test]
+fn t018_a_closed_hollow_is_intended() {
+    let run = Run::example("shell/closed-hollow.ptsm");
+
+    // Shell does not use `apply_op`, so its closed hollow gives no `closed_void` (features.md section 3.5).
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_solid_count(shape, 1);
+    assert_eq!(shape.count(SubShapeKind::Shell), 2);
 }

@@ -4,7 +4,8 @@ use partsmith_model::Id;
 
 use crate::constraint::{ConstraintKind, SketchConstraint};
 use crate::entity::{Geometry, SketchEntity};
-use crate::params::SketchParams;
+use crate::message::MessageContext;
+use crate::params::{DimensionValues, SketchParams};
 use crate::plane::{OriginPlane, SketchPlane};
 use crate::point_ref::PointRef;
 use crate::profile::{KeyEdge, ProfileLoop, Region};
@@ -90,5 +91,20 @@ pub(crate) fn sketch(
                 kind,
             })
             .collect(),
+    }
+}
+
+/// The message context of `sketch` labeled "Sketch 1", with these values, no solve and millimeters.
+pub(crate) fn message_context<'a>(
+    sketch: &'a SketchParams,
+    values: &'a DimensionValues,
+) -> MessageContext<'a> {
+    MessageContext {
+        label: "Sketch 1",
+        sketch,
+        solved: None,
+        values,
+        measured: None,
+        units: partsmith_model::Units::Mm,
     }
 }

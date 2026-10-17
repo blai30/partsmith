@@ -7,8 +7,8 @@ use partsmith_model::Id;
 use crate::entity::EntityKind;
 use crate::message::{MessageContext, SketchFix, capitalized, type_words};
 use crate::number::Rounded;
-use crate::point_ref::PointRef;
-use crate::reserved;
+use crate::point_ref::{PointRef, PointRole};
+use crate::{ORIGIN, reserved};
 
 /// Every error of this crate. `render` gives the message of spec section 4.1 and `Display` the detail of spec
 /// section 4.4.
@@ -200,6 +200,10 @@ pub enum SketchError {
 impl SketchError {
     /// The message (section 4.1).
     pub fn render(&self, context: &MessageContext<'_>) -> String {
+        // The title of the constraint that starts the sentence.
+        let title_of = |constraint: &Id, type_name: Option<&str>| {
+            capitalized(&context.title_or(constraint, type_name))
+        };
         match self {
             SketchError::InvalidPointRef { .. } => "This sketch names a point in a form Partsmith cannot read. Pick a point, or a line's start or end, or a circle's center.".to_owned(),
             SketchError::DuplicateId { .. } => "This sketch has two items with the same id, so it cannot be read. Delete and redraw the later one, or report it if you did not edit the file by hand.".to_owned(),
@@ -217,7 +221,7 @@ impl SketchError {
             ),
             SketchError::UnknownEntity { constraint, .. } => format!(
                 "{} refers to geometry that is not in this sketch. Delete the constraint.",
-                capitalized(&context.title_or(constraint, None))
+                title_of(constraint, None)
             ),
             SketchError::ReservedMisuse {
                 constraint,
@@ -226,11 +230,18 @@ impl SketchError {
             } => {
                 // The reference text may carry a role, as in "origin.center".
                 let name = reference.split('.').next().unwrap_or(reference);
-                format!(
-                    "{} cannot use {}: the origin is a single point, and the axes are endless lines. Pick a point or line of the sketch instead.",
-                    capitalized(&context.title_leaving_out(constraint, type_name, name)),
-                    reserved::words(name).unwrap_or("the origin or an axis")
-                )
+                let title = capitalized(&context.title_leaving_out(constraint, type_name, name));
+                match reference.parse::<PointRef>() {
+                    // Only point fields, which accept the bare origin, reach a role on the origin (section 3.16).
+                    Ok(point) if name == ORIGIN && point.role != PointRole::Point => format!(
+                        "{title} cannot use {}: the origin is a single point. Pick the origin itself instead.",
+                        context.point_words(&point)
+                    ),
+                    _ => format!(
+                        "{title} cannot use {}: the origin is a single point, and the axes are endless lines. Pick a point or line of the sketch instead.",
+                        reserved::words(name).unwrap_or("the origin or an axis")
+                    ),
+                }
             }
             SketchError::InvalidPointRole {
                 constraint,
@@ -238,7 +249,7 @@ impl SketchError {
                 kind,
             } => format!(
                 "{} uses a point that {} does not have: {}.",
-                capitalized(&context.title_or(constraint, None)),
+                title_of(constraint, None),
                 context.entity_or_kind(&point.entity, Some(*kind)),
                 points_of(*kind)
             ),
@@ -250,7 +261,7 @@ impl SketchError {
                 expected,
             } => format!(
                 "{} cannot use {}: it needs {expected}.",
-                capitalized(&context.title_or(constraint, Some(type_name))),
+                title_of(constraint, Some(type_name)),
                 context.entity_or_kind(entity, Some(*found))
             ),
             SketchError::SameEntity {
@@ -259,7 +270,7 @@ impl SketchError {
                 entity,
             } => format!(
                 "{} uses {} twice. Pick two different ones.",
-                capitalized(&context.title_or(constraint, Some(type_name))),
+                title_of(constraint, Some(type_name)),
                 context.entity_or_kind(entity, None)
             ),
             SketchError::SamePoint {
@@ -268,7 +279,7 @@ impl SketchError {
                 point,
             } => format!(
                 "{} uses {} twice. Pick two different ones.",
-                capitalized(&context.title_or(constraint, Some(type_name))),
+                title_of(constraint, Some(type_name)),
                 context.point_words(point)
             ),
             SketchError::PointOnOwnEntity {
@@ -278,7 +289,7 @@ impl SketchError {
                 ..
             } => format!(
                 "{} uses a point of {} itself. Pick a point of another entity.",
-                capitalized(&context.title_or(constraint, Some(type_name))),
+                title_of(constraint, Some(type_name)),
                 context.entity_or_kind(entity, None)
             ),
             SketchError::MissingValue {
@@ -290,7 +301,7 @@ impl SketchError {
                 type_name,
             } => format!(
                 "{} has no value it can use. Check its expression.",
-                capitalized(&context.title_or(constraint, Some(type_name)))
+                title_of(constraint, Some(type_name))
             ),
             SketchError::ValueNotPositive {
                 type_name,
@@ -401,7 +412,67 @@ fn points_of(kind: EntityKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{id, point};
+    use crate::params::DimensionValues;
+    use crate::test_support::{id, message_context, point, sketch};
+
+    /// The message of `error` on an empty sketch, which has none of the ids an error names.
+    fn message_on_an_empty_sketch(error: &SketchError) -> String {
+        let sketch = sketch(Vec::new(), Vec::new());
+        let values = DimensionValues::new();
+        error.render(&message_context(&sketch, &values))
+    }
+
+    #[test]
+    fn a_constraint_the_sketch_does_not_have_is_named_as_a_constraint() {
+        let error = SketchError::UnknownEntity {
+            constraint: id("c-9"),
+            entity: id("e-9"),
+        };
+
+        assert_eq!(
+            message_on_an_empty_sketch(&error),
+            "A constraint refers to geometry that is not in this sketch. Delete the constraint."
+        );
+    }
+
+    #[test]
+    fn entities_the_sketch_does_not_have_are_named_by_kind_or_as_entities() {
+        let wrong_kind = SketchError::WrongEntityKind {
+            constraint: id("c-9"),
+            type_name: "parallel",
+            entity: id("e-5"),
+            found: EntityKind::Circle,
+            expected: "a line",
+        };
+        let same_entity = SketchError::SameEntity {
+            constraint: id("c-9"),
+            type_name: "parallel",
+            entity: id("e-1"),
+        };
+
+        assert_eq!(
+            message_on_an_empty_sketch(&wrong_kind),
+            "Parallel cannot use a circle of this sketch: it needs a line."
+        );
+        assert_eq!(
+            message_on_an_empty_sketch(&same_entity),
+            "Parallel uses an entity of this sketch twice. Pick two different ones."
+        );
+    }
+
+    #[test]
+    fn a_misused_reference_that_is_not_reserved_is_named_as_the_origin_or_an_axis() {
+        let error = SketchError::ReservedMisuse {
+            constraint: id("c-9"),
+            type_name: "fix",
+            reference: "e-1.start".to_owned(),
+        };
+
+        assert_eq!(
+            message_on_an_empty_sketch(&error),
+            "Fix cannot use the origin or an axis: the origin is a single point, and the axes are endless lines. Pick a point or line of the sketch instead."
+        );
+    }
 
     #[test]
     fn detail_of_an_invalid_role_names_the_point_and_its_kind() {

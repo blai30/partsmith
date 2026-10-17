@@ -117,7 +117,7 @@ As [mirror.md](mirror.md) section 3.1 for `op` and `target`.
 | Condition | Variant | Example message |
 | --- | --- | --- |
 | Count < 1 (fractional included) | `OutOfRange` | `Count must be at least 1, but it is 0. Use 1 or more.` |
-| Count not whole | `NotWholeNumber` | `Count must be a whole number, but it is 2.5. Use 2 or 3.` |
+| Count not whole | `NotWholeNumber` | `Count must be a whole number, but it is 2.5.` with the fixes `SetField` `2` and `SetField` `3` (features.md section 4.1) |
 | Angle ≤ 0 | `OutOfRange` | `Total angle must be greater than 0 deg, but it is 0 deg. Use a value greater than 0 deg.` |
 | Angle > 360 deg | `OutOfRange` | `Total angle must be at most 360 deg, but it is 400 deg. Use 360 deg or less.` |
 | Too many instances | `TooManyInstances` | `This circular pattern would make 20000 copies, more than the limit of 10000. Lower Count.` |

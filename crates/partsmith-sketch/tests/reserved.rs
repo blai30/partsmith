@@ -417,11 +417,31 @@ fn t216_reserved_misuse_message_and_detail() {
 
     assert_eq!(
         error.render(&context(&sketch)),
-        "Coincident on the line from (0, 0) to (80, 0) cannot use the origin: the origin is a single point, and the axes are endless lines. Pick a point or line of the sketch instead."
+        "Coincident on the line from (0, 0) to (80, 0) cannot use the center of the origin: the origin is a single point. Pick the origin itself instead."
     );
     assert_eq!(
         error.to_string(),
         r#"reserved_misuse constraint=c-9 type_name="coincident" reference="origin.center""#
+    );
+}
+
+#[test]
+fn a_role_on_the_origin_asks_for_the_origin_itself_and_one_on_an_axis_does_not() {
+    let start_of_origin = rect_with_circle().with("c-9", fix("origin.start"));
+    let end_of_origin = rect_with_circle().with("c-9", coincident("e-1.end", "origin.end"));
+    let start_of_axis = rect_with_circle().with("c-9", coincident("e-1.start", "x_axis.start"));
+
+    assert_eq!(
+        error_message(&start_of_origin),
+        "Fix cannot use the start of the origin: the origin is a single point. Pick the origin itself instead."
+    );
+    assert_eq!(
+        error_message(&end_of_origin),
+        "Coincident on the line from (0, 0) to (80, 0) cannot use the end of the origin: the origin is a single point. Pick the origin itself instead."
+    );
+    assert_eq!(
+        error_message(&start_of_axis),
+        "Coincident on the line from (0, 0) to (80, 0) cannot use the x axis: the origin is a single point, and the axes are endless lines. Pick a point or line of the sketch instead."
     );
 }
 

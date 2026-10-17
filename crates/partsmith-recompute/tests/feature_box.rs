@@ -8,8 +8,10 @@ use std::time::Duration;
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_face_normal,
-    assert_face_position, assert_median_build_within, assert_volume, face, link_ids, load_example,
+    assert_face_position, assert_median_build_within, assert_messages_pass_lint,
+    assert_solid_count, assert_volume, face, link_ids, load_example, message,
 };
+use partsmith_features::{FieldRef, Fix};
 use partsmith_occt_sys::GeometryKind;
 
 /// Asserts a flat face of `f-box1` in `b-1`: its area, the position of its plane along `axis`
@@ -226,7 +228,119 @@ fn t011_size_below_the_tolerance_is_out_of_range() {
     assert_error_field(error, "size[1]");
     assert_eq!(
         run.messages("f-box1"),
-        ["Width must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+        ["Width must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."],
+    );
+    assert_empty(&run, "b-1");
+}
+
+/// The box of test 1: 10 x 20 x 30, spanning [-5,-10,0]-[5,10,30].
+const BOX_OF_TEST_1: &str =
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "20", "30"], "op": "new"}"#;
+
+/// `f-box2`, a 2 mm cube joined to `b-1` at `position`.
+fn small_cube(position: [&str; 3]) -> String {
+    let [x, y, z] = position;
+    format!(
+        r#"{{"id": "f-box2", "type": "box", "body": "b-1", "size": ["2", "2", "2"], "position": ["{x}", "{y}", "{z}"], "op": "join"}}"#
+    )
+}
+
+#[test]
+fn t012_a_join_inside_the_body_adds_nothing() {
+    let run = Run::records(&["b-1"], &[BOX_OF_TEST_1, &small_cube(["0", "0", "10"])]);
+
+    run.assert_warnings("f-box2", &["no_effect"]);
+    assert_eq!(
+        run.messages("f-box2"),
+        ["This box adds nothing to body 'Body 1': it lies entirely inside the body."]
+    );
+    // A primitive has no profile sketch to attach, and a join inside gets no Reverse.
+    assert_eq!(message(&run, "f-box2", "no_effect").fixes, []);
+    assert_volume(run.shape("b-1"), 6000.0);
+}
+
+#[test]
+fn t012_a_join_that_floats_leaves_two_pieces() {
+    let run = Run::records(&["b-1"], &[BOX_OF_TEST_1, &small_cube(["0", "0", "40"])]);
+
+    run.assert_warnings("f-box2", &["separate_solid"]);
+    assert_eq!(
+        run.messages("f-box2"),
+        ["This box does not touch body 'Body 1', so the body now has 2 separate pieces."]
+    );
+    assert_eq!(
+        message(&run, "f-box2", "separate_solid").fixes,
+        [Fix::NewBody]
+    );
+    assert_solid_count(run.shape("b-1"), 2);
+    assert_volume(run.shape("b-1"), 6008.0);
+    assert_messages_pass_lint(&run, "f-box2");
+}
+
+#[test]
+fn t013_a_size_beyond_the_modeling_limit() {
+    let run = Run::records(
+        &["b-1"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["1e200", "20", "30"], "op": "new"}"#,
+        ],
+    );
+
+    let error = run.assert_error("f-box1", "out_of_range");
+    assert_error_field(error, "size[0]");
+    // Checked before the kernel: the message is the range check's, never "The box could not be built."
+    assert_eq!(
+        run.messages("f-box1"),
+        ["Length must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."],
+    );
+    assert_eq!(
+        message(&run, "f-box1", "out_of_range").fixes,
+        [Fix::SetField {
+            feature: None,
+            field: FieldRef {
+                path: "size[0]".to_string(),
+                label: "Length".to_string(),
+            },
+            value: serde_json::json!("1000000 mm"),
+        }]
+    );
+    assert_empty(&run, "b-1");
+}
+
+#[test]
+fn every_size_is_checked_against_the_modeling_limit_in_field_order() {
+    let run = Run::records(
+        &["b-1"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "2e6", "3e6"], "op": "new"}"#,
+        ],
+    );
+
+    let error = run.assert_error("f-box1", "out_of_range");
+    assert_error_field(error, "size[1]");
+    assert_eq!(
+        run.messages("f-box1"),
+        ["Width must be at most 1000000 mm, but it is 2000000 mm. Use 1000000 mm or less."],
+    );
+}
+
+#[test]
+fn a_position_beyond_the_modeling_limit_is_out_of_range() {
+    // A position may be negative, so its lower limit is -1000000 mm (features.md section 3.4).
+    let run = Run::records(
+        &["b-1"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "20", "30"], "position": ["-2e6", "0", "0"], "op": "new"}"#,
+        ],
+    );
+
+    let error = run.assert_error("f-box1", "out_of_range");
+    assert_error_field(error, "position[0]");
+    assert_eq!(
+        run.messages("f-box1"),
+        [
+            "Position X must be at least -1000000 mm, but it is -2000000 mm. Use -1000000 mm or more."
+        ],
     );
     assert_empty(&run, "b-1");
 }

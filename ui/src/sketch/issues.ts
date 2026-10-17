@@ -1,6 +1,7 @@
-import type { ProfileFinding, SketchSolution } from '../generated/protocol'
+import type { Connection, ProfileFinding, SketchSolution } from '../generated/protocol'
 import { counted } from '../messages'
 import { midpoint, type Vector2 } from './geometry'
+import { pointPosition } from './operands'
 
 // The solver's and profile check's messages (sketch.md 4.2, 4.3). A solution carries ids and
 // findings but no text, so the UI words them exactly as the sketch crate does.
@@ -96,13 +97,55 @@ export type IssueRing = {
   readonly title: string
 }
 
-/** The rings of a solution's profile findings, in finding order; zero-length curves get none. */
+/** The other open end an `open_endpoint` finding is paired with, or null for other findings. */
+function connection(finding: ProfileFinding): Connection | null {
+  return finding.type === 'open_endpoint' ? (finding.connect ?? null) : null
+}
+
+/**
+ * The rings of a solution's profile findings, in finding order; zero-length curves get none. A
+ * finding with `connect` stands for two open ends (sketch.md 4.3) and rings its second end too.
+ */
 export function issueRings(solution: SketchSolution): readonly IssueRing[] {
   return solution.profile_findings.flatMap((finding) => {
     const at = profileIssuePosition(finding)
     const title = profileIssueTitle(finding)
-    return at === null || title === null ? [] : [{ at, title }]
+    if (at === null || title === null) {
+      return []
+    }
+    const rings: IssueRing[] = [{ at, title }]
+    const paired = connection(finding)
+    const second = paired === null ? null : pointPosition(solution, paired.second)
+    if (second !== null) {
+      rings.push({ at: second, title })
+    }
+    return rings
   })
+}
+
+/**
+ * The open ends of the solution's outline: an `open_endpoint` finding counts 1, or 2 when it has
+ * `connect` (it stands for two ends, sketch.md 4.3).
+ */
+export function openEnds(solution: SketchSolution): number {
+  return solution.profile_findings.reduce((count, finding) => {
+    if (finding.type !== 'open_endpoint') {
+      return count
+    }
+    return count + (connection(finding) === null ? 1 : 2)
+  }, 0)
+}
+
+function onlyOpenEnds(solution: SketchSolution): boolean {
+  return solution.profile_findings.every((finding) => finding.type === 'open_endpoint')
+}
+
+/**
+ * The number the outline summary counts, and the header's `data-outline` (3.16.8): the open ends
+ * when every finding is `open_endpoint`, else the number of findings; 0 without findings.
+ */
+export function outlineCount(solution: SketchSolution): number {
+  return onlyOpenEnds(solution) ? openEnds(solution) : solution.profile_findings.length
 }
 
 /**
@@ -110,13 +153,9 @@ export function issueRings(solution: SketchSolution): readonly IssueRing[] {
  * "{n} outline problems"; null without profile findings.
  */
 export function outlineProblems(solution: SketchSolution): string | null {
-  const findings = solution.profile_findings
-  const count = findings.length
+  const count = outlineCount(solution)
   if (count === 0) {
     return null
   }
-  if (findings.every((finding) => finding.type === 'open_endpoint')) {
-    return counted(count, 'open end')
-  }
-  return counted(count, 'outline problem')
+  return counted(count, onlyOpenEnds(solution) ? 'open end' : 'outline problem')
 }

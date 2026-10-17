@@ -18,7 +18,8 @@ use feature_support::{
     leaning_wall_pattern, link_ids, sketch_on_pattern_copy_document, turn,
 };
 use partsmith_features::{
-    BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, Values,
+    BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, FieldRef, Fix,
+    Values,
 };
 use partsmith_model::{EmptyContext, Id, Scope, Units};
 use partsmith_occt_sys::GeometryKind;
@@ -150,6 +151,31 @@ fn t005_count_1_has_no_effect() {
     let run = Run::example("linear_pattern/count-one.ptsm");
 
     run.assert_warnings("f-lp1", &["no_effect"]);
+    assert_eq!(
+        run.messages("f-lp1"),
+        ["This linear pattern makes no copies, because Count is 1."]
+    );
+    assert_unchanged(&run, "f-lp1", "b-1");
+}
+
+#[test]
+fn t005_count_1_in_both_directions_names_both_counts() {
+    let run = Run::records(
+        &BODIES,
+        &[
+            CUBE10,
+            &pattern(
+                &direction(X, "1", "20"),
+                &format!(r#""second_direction": {}"#, direction(Y, "1", "15")),
+            ),
+        ],
+    );
+
+    run.assert_warnings("f-lp1", &["no_effect"]);
+    assert_eq!(
+        run.messages("f-lp1"),
+        ["This linear pattern makes no copies, because Count and Second count are 1."]
+    );
     assert_unchanged(&run, "f-lp1", "b-1");
 }
 
@@ -159,9 +185,22 @@ fn t006_fractional_count() {
 
     let error = run.assert_error("f-lp1", "not_whole_number");
     assert_error_field(error, "direction.count");
+    // The floor and the ceiling are the fixes, so the sentence does not repeat them (features.md section 4.1).
     assert_eq!(
         run.messages("f-lp1"),
-        ["Count must be a whole number, but it is 2.5. Use 2 or 3."]
+        ["Count must be a whole number, but it is 2.5."]
+    );
+    let use_count = |value: &str| Fix::SetField {
+        feature: None,
+        field: FieldRef {
+            path: "direction.count".to_string(),
+            label: "Count".to_string(),
+        },
+        value: serde_json::json!(value),
+    };
+    assert_eq!(
+        run.feature("f-lp1").messages[0].fixes,
+        [use_count("2"), use_count("3")]
     );
 }
 
@@ -266,7 +305,7 @@ fn t012_too_many_instances() {
     run.assert_error("f-lp1", "too_many_instances");
     assert_eq!(
         run.messages("f-lp1"),
-        ["This pattern would make 20000 instances; the limit is 10000. Use fewer instances."]
+        ["This linear pattern would make 20000 copies, more than the limit of 10000. Lower Count."]
     );
     assert_unchanged(&run, "f-lp1", "b-1");
 }
@@ -470,6 +509,22 @@ fn t019_direction_edges_not_on_one_line() {
         "b-1",
         &FRONT_TOP_EDGES_OF_BOTH_BOXES,
         "The edge selected for Direction now matches 2 edges that do not lie on one line. Pick the one you mean.",
+    );
+    assert_unchanged(&run, "f-lp1", "b-1");
+}
+
+#[test]
+fn a_spacing_beyond_the_modeling_limit_is_out_of_range() {
+    let run = Run::records(
+        &BODIES,
+        &[CUBE10, &pattern(&direction(X, "3", "1e200"), "")],
+    );
+
+    let error = run.assert_error("f-lp1", "out_of_range");
+    assert_error_field(error, "direction.spacing");
+    assert_eq!(
+        run.messages("f-lp1"),
+        ["Spacing must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."]
     );
     assert_unchanged(&run, "f-lp1", "b-1");
 }

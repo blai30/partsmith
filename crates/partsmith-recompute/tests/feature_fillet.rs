@@ -13,11 +13,14 @@ use feature_support::{
     assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_count, assert_face_kind, assert_face_radius, assert_list_field,
     assert_median_build_within, assert_messages_pass_lint, assert_moved_by_100, assert_same_body,
-    assert_unchanged, assert_volume, body_update, document, face, face_names_with_prefix,
-    load_example, median_failed_build_time, message, output_body, suggested_limit, use_reference,
+    assert_unchanged, assert_volume, body_update, document, document_text, face,
+    face_names_with_prefix, id, load_example, median_failed_build_time, message, output_body,
+    parse_document, remove_entry, round_down_to_two_significant_digits, suggested_limit,
+    use_reference,
 };
 use partsmith_features::{
-    BodyChange, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, IgnoredReason,
+    BodyChange, Diagnosis, Explanation, FeatureError, FeatureWarning, FieldRef, Fix, IgnoredReason,
+    Limit, NoEffectHow,
 };
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
@@ -61,6 +64,66 @@ fn fillet_record(edges: &[&str], radius: &str) -> String {
 /// Test 8: the plate with its four top edges filleted at `radius`.
 fn plate_document(radius: &str) -> Document {
     document(&["b-1"], &[PLATE, &fillet_record(&PLATE_TOP_EDGES, radius)])
+}
+
+/// Asserts that a skipped edge's warning is `Ignored` with the reason `SmoothEdge`.
+#[track_caller]
+fn assert_skipped_as_smooth(warning: &FeatureWarning) {
+    assert!(
+        matches!(
+            warning,
+            FeatureWarning::Ignored {
+                reason: IgnoredReason::SmoothEdge,
+                ..
+            }
+        ),
+        "expected the edge to be skipped as smooth, got {warning:?}"
+    );
+}
+
+/// "Use {value}": `SetField` of the radius to the expression `value`.
+fn use_radius(value: &str) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field: FieldRef {
+            path: "radius".to_string(),
+            label: "Radius".to_string(),
+        },
+        value: serde_json::json!(value),
+    }
+}
+
+/// Asserts that a "too large" error measured the face `face` across the edge `edge` at `position` of Edges, 2.4 mm
+/// across, as its `limit`, and whether the other edges were verified to work without that edge (features.md section
+/// 4.3).
+#[track_caller]
+fn assert_limiting_face(
+    error: &FeatureError,
+    position: usize,
+    edge: &str,
+    face: &str,
+    removable: bool,
+) {
+    let (FeatureError::FilletTooLarge { limit, .. } | FeatureError::ChamferTooLarge { limit, .. }) =
+        error
+    else {
+        panic!("expected a too large error, got {error:?}");
+    };
+    let Some(Limit::Face {
+        position: found_position,
+        edge: found_edge,
+        face: found_face,
+        width,
+        removable: found_removable,
+    }) = limit
+    else {
+        panic!("expected a limiting face, got {limit:?}");
+    };
+    assert_eq!(*found_position, position, "the limiting edge's entry");
+    assert_eq!(found_edge.query.to_string(), edge);
+    assert_eq!(found_face.query.to_string(), face);
+    assert!((width - 2.4).abs() <= 1e-5, "width {width}");
+    assert_eq!(*found_removable, removable, "removable");
 }
 
 /// `names` with `prefix` put in front of each, sorted by byte order.
@@ -256,11 +319,24 @@ fn t008_radius_too_large() {
         bisection_steps.round(),
         "the largest working radius {max} is a bisection point 3k/1024"
     );
+    // The four side faces tie at 2.4 mm across their top edges, and `edge(f-box1/back|f-box1/top)` sorts first;
+    // without it the other three edges fail as well, so its removal is not offered.
+    assert_limiting_face(
+        error,
+        0,
+        "edge(f-box1/back|f-box1/top)",
+        "f-box1/back",
+        false,
+    );
     let limit = suggested_limit(max);
     let expected = format!(
-        "Fillet radius 3 mm is too large for the selected edges. The largest radius that works is about {limit} mm. Try {limit} mm or less."
+        "Fillet radius 3 mm is too large for the selected edges: the largest that works is about {limit} mm. The back top edge of 'Box 1' lies next to the back side of 'Box 1', which is only 2.4 mm across."
     );
     assert_eq!(run.messages("f-fil1"), [expected.as_str()]);
+    assert_eq!(
+        message(&run, "f-fil1", "fillet_too_large").fixes,
+        [use_radius(&format!("{limit} mm"))]
+    );
     assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));
     assert_unchanged(&run, "f-fil1", "b-1");
     assert_volume(run.shape("b-1"), 960.0);
@@ -332,23 +408,55 @@ fn t012_smooth_edge_skipped() {
 
     run.assert_ok("f-box1");
     run.assert_ok("f-fil1");
-    run.assert_warnings("f-fil2", &["ignored", "no_effect"]);
-    let warning = &run.feature("f-fil2").warnings[0];
-    let FeatureWarning::Ignored { reason, .. } = warning else {
-        panic!("expected an Ignored warning, got {warning:?}");
-    };
-    assert!(
-        matches!(reason, IgnoredReason::SmoothEdge),
-        "the edge is skipped as smooth, got {reason:?}"
-    );
+    // One edge, one message: its own warning already says that nothing changed (features.md section 3.15).
+    run.assert_warnings("f-fil2", &["ignored"]);
+    assert_skipped_as_smooth(&run.feature("f-fil2").warnings[0]);
     assert_eq!(
         run.messages("f-fil2"),
         [
-            "One of the edges selected for Edges is smooth (its faces meet without a corner), so it was skipped.",
-            "This feature does not change body 'Body 1'. Check its position, size and direction.",
+            "One of the edges selected for Edges is smooth (its faces meet without a corner), so it was skipped."
         ]
     );
+    // Its reference resolved to that edge alone, so removing the entry removes only it.
+    assert_eq!(
+        message(&run, "f-fil2", "ignored").fixes,
+        [remove_entry("/edges/0")]
+    );
     assert_unchanged(&run, "f-fil2", "b-1");
+}
+
+/// The 30 x 20 x 10 box of tests 11 and 12 with its four vertical edges rounded at 3 mm by `f-fil1`, so the top loop
+/// is one tangent chain.
+const ROUNDED_BOX: [&str; 2] = [
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["30", "20", "10"], "op": "new"}"#,
+    r#"{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-15,-10,5|l=10"}, {"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=15,-10,5|l=10"}, {"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-15,10,5|l=10"}, {"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=15,10,5|l=10"}], "radius": "3"}"#,
+];
+
+#[test]
+fn t012_two_smooth_edges_skipped_change_nothing() {
+    // Both tangent edges of the front left fillet face.
+    let second_fillet = r#"{"id": "f-fil2", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-fil1/fillet/edge(f-box1/front|f-box1/left))", "fp": "line|n=0,0,1|c=-12,-10,5|l=10"}, {"q": "edge(f-box1/left|f-fil1/fillet/edge(f-box1/front|f-box1/left))", "fp": "line|n=0,0,1|c=-15,-7,5|l=10"}], "radius": "1"}"#;
+    let run = Run::records(&["b-1"], &[ROUNDED_BOX[0], ROUNDED_BOX[1], second_fillet]);
+
+    run.assert_ok("f-fil1");
+    run.assert_warnings("f-fil2", &["ignored", "ignored", "no_effect"]);
+    let warning = run.warning("f-fil2", "no_effect");
+    assert!(
+        matches!(
+            warning,
+            FeatureWarning::NoEffect {
+                how: NoEffectHow::Skipped { field },
+                ..
+            } if field.path == "edges"
+        ),
+        "{warning:?}"
+    );
+    assert_eq!(
+        message(&run, "f-fil2", "no_effect").text,
+        "This fillet changes nothing in body 'Body 1', because every edge selected for Edges was skipped."
+    );
+    assert_unchanged(&run, "f-fil2", "b-1");
+    assert_messages_pass_lint(&run, "f-fil2");
 }
 
 /// Step 4 next to a torus: the edge where the side of a cylinder meets the fillet of its top rim
@@ -359,15 +467,8 @@ fn smooth_edge_next_to_a_torus_skipped() {
 
     run.assert_ok("f-cyl1");
     run.assert_ok("f-fil1");
-    run.assert_warnings("f-fil2", &["ignored", "no_effect"]);
-    let warning = &run.feature("f-fil2").warnings[0];
-    let FeatureWarning::Ignored { reason, .. } = warning else {
-        panic!("expected an Ignored warning, got {warning:?}");
-    };
-    assert!(
-        matches!(reason, IgnoredReason::SmoothEdge),
-        "the edge is skipped as smooth, got {reason:?}"
-    );
+    run.assert_warnings("f-fil2", &["ignored"]);
+    assert_skipped_as_smooth(&run.feature("f-fil2").warnings[0]);
     assert_unchanged(&run, "f-fil2", "b-1");
     assert_face_count(run.shape("b-1"), 4);
 }
@@ -438,15 +539,9 @@ fn t016_fillet_beside_a_fillet_on_a_pipe_tee() {
     assert_volume(joint_shape, 20616.732472);
     assert_face_count(joint_shape, 6);
     face(&joint, "f-fil1/fillet/edge(f-cyl1/side|f-cyl2/side)");
-    run.assert_warnings("f-fil2", &["ignored", "no_effect"]);
-    let warning = &run.feature("f-fil2").warnings[0];
-    let FeatureWarning::Ignored { reason, .. } = warning else {
-        panic!("expected an Ignored warning, got {warning:?}");
-    };
-    assert!(
-        matches!(reason, IgnoredReason::SmoothEdge),
-        "the edge is skipped as smooth, got {reason:?}"
-    );
+    // One edge, so its `ignored` warning is the only one (features.md section 3.15).
+    run.assert_warnings("f-fil2", &["ignored"]);
+    assert_skipped_as_smooth(&run.feature("f-fil2").warnings[0]);
     assert_unchanged(&run, "f-fil2", "b-1");
 }
 
@@ -459,9 +554,12 @@ fn t017_radius_below_the_tolerance() {
 
     let error = run.assert_error("f-fil1", "out_of_range");
     assert_error_field(error, "radius");
+    // The value is written with the digits that tell it apart from the bound (features.md section 3.12).
     assert_eq!(
         run.messages("f-fil1"),
-        ["Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."]
+        [
+            "Radius must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+        ]
     );
     assert_unchanged(&run, "f-fil1", "b-1");
 }
@@ -506,5 +604,205 @@ fn a_rounded_face_moves_with_the_part() {
         "f-fil1",
         "b-1",
         "f-fil1/fillet/edge(f-box1/front|f-box1/top)",
+    );
+}
+
+/// `STEP` of tests 19 to 22 (newcomer error corpus NC05): a 40 x 20 x 10 box with a step 2.4 mm deep over x 0..20
+/// whose riser `f-box2/left` lies at x = 0 (volume 7040).
+const STEP: [&str; 2] = [
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}"#,
+    r#"{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "30", "5"], "position": ["10", "0", "7.6"], "op": "cut"}"#,
+];
+
+/// `E-RISER`: the edge between the top of 'Box 1' and the riser of `STEP`.
+const RISER_EDGE: &str =
+    r#"{"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,10|l=20|adj=2,2"}"#;
+
+/// The bottom left edge of `STEP`, which the riser does not limit.
+const BOTTOM_LEFT_EDGE: &str =
+    r#"{"q": "edge(f-box1/bottom|f-box1/left)", "fp": "line|n=0,1,0|c=-20,0,0|l=20|adj=2,2"}"#;
+
+/// `STEP` with `FIL(edges, radius)`.
+fn step_run(edges: &[&str], radius: &str) -> Run {
+    let fillet = fillet_record(edges, radius);
+    Run::records(&["b-1"], &[STEP[0], STEP[1], &fillet])
+}
+
+/// The sentence of NC05 that names the riser as the limit.
+const RISER_SENTENCE: &str = "The top edge of the cut made by 'Box 2' lies next to a wall of the cut made by 'Box 2', which is only 2.4 mm across.";
+
+#[test]
+fn t019_the_limiting_face_is_named() {
+    let run = step_run(&[RISER_EDGE], "3");
+
+    let error = run.assert_error("f-fil1", "fillet_too_large");
+    // There is no other reference, so the removal of the riser's edge cannot be verified.
+    assert_limiting_face(
+        error,
+        0,
+        "edge(f-box1/top|f-box2/left)",
+        "f-box2/left",
+        false,
+    );
+    assert_eq!(
+        run.messages("f-fil1"),
+        [format!(
+            "Fillet radius 3 mm is too large for the selected edges: the largest that works is about 2.3 mm. {RISER_SENTENCE}"
+        )
+        .as_str()]
+    );
+    assert_eq!(
+        message(&run, "f-fil1", "fillet_too_large").fixes,
+        [use_radius("2.3 mm")]
+    );
+    assert_messages_pass_lint(&run, "f-fil1");
+    assert_unchanged(&run, "f-fil1", "b-1");
+}
+
+#[test]
+fn t019_the_suggested_radius_builds() {
+    step_run(&[RISER_EDGE], "2.3").assert_all_ok();
+}
+
+#[test]
+fn t020_the_edge_that_limits_it_can_be_removed_when_the_others_work() {
+    let run = step_run(&[RISER_EDGE, BOTTOM_LEFT_EDGE], "3");
+
+    let error = run.assert_error("f-fil1", "fillet_too_large");
+    // One more attempt at 3 mm without `edges[0]` works.
+    assert_limiting_face(
+        error,
+        0,
+        "edge(f-box1/top|f-box2/left)",
+        "f-box2/left",
+        true,
+    );
+    assert_eq!(
+        run.messages("f-fil1"),
+        [format!(
+            "Fillet radius 3 mm is too large for the selected edges: the largest that works is about 2.3 mm. {RISER_SENTENCE}"
+        )
+        .as_str()]
+    );
+    assert_eq!(
+        message(&run, "f-fil1", "fillet_too_large").fixes,
+        [use_radius("2.3 mm"), remove_entry("/edges/0")]
+    );
+}
+
+#[test]
+fn t020_removing_the_limiting_edge_rounds_the_other_at_the_requested_radius() {
+    let run = step_run(&[BOTTOM_LEFT_EDGE], "3");
+
+    run.assert_all_ok();
+    assert_volume(run.shape("b-1"), 7001.371669);
+}
+
+#[test]
+fn t021_a_limit_far_below_the_request_counts_as_none() {
+    let run = step_run(&[RISER_EDGE], "30");
+
+    let error = run.assert_error("f-fil1", "fillet_too_large");
+    let FeatureError::FilletTooLarge { max, .. } = error else {
+        panic!("expected FilletTooLarge, got {error:?}");
+    };
+    // About 2.3 mm works, below 10 percent of 30 mm, which is no useful fix (features.md section 4.3).
+    assert_eq!(*max, None);
+    assert_limiting_face(
+        error,
+        0,
+        "edge(f-box1/top|f-box2/left)",
+        "f-box2/left",
+        false,
+    );
+    assert_eq!(error.suggestion(Units::Mm), None);
+    assert_eq!(
+        message(&run, "f-fil1", "fillet_too_large").fixes,
+        [Fix::Suppress {
+            feature: id("f-fil1")
+        }]
+    );
+    let text = run.messages("f-fil1")[0];
+    assert!(text.ends_with(RISER_SENTENCE), "{text:?}");
+    assert_messages_pass_lint(&run, "f-fil1");
+}
+
+/// Test 22: a 20 mm cube in an inch document with its front top edge filleted at `radius`.
+fn inch_cube(radius: &str) -> Run {
+    let cube = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "20 mm", "20 mm"], "op": "new"}"#;
+    let fillet = fillet_record(&[FRONT_TOP_EDGE], radius);
+    Run::new(parse_document(&document_text(
+        "in",
+        &[],
+        &["b-1"],
+        &[cube, &fillet],
+    )))
+}
+
+#[test]
+fn t022_a_bare_number_in_an_inch_document() {
+    // Corpus R48: '2' is 2 in, 50.8 mm, on a 20 mm cube.
+    let run = inch_cube("2");
+
+    let error = run.assert_error("f-fil1", "fillet_too_large");
+    let FeatureError::FilletTooLarge { max, .. } = error else {
+        panic!("expected FilletTooLarge, got {error:?}");
+    };
+    let max = max.unwrap_or_else(|| panic!("the search finds a working radius: {error:?}"));
+    assert!(
+        (12.7..20.0).contains(&max),
+        "the largest working radius {max} mm lies in [12.7, 20)"
+    );
+    let limit = round_down_to_two_significant_digits(max / 25.4);
+    // The bare-number sentence takes the place of the limit sentence.
+    assert_eq!(
+        run.messages("f-fil1"),
+        [format!(
+            "Fillet radius 2 in is too large for the selected edges: the largest that works is about {limit} in. '2' has no unit, so it means 2 in in this document."
+        )
+        .as_str()]
+    );
+    assert_eq!(
+        message(&run, "f-fil1", "fillet_too_large").fixes,
+        [use_radius("2 mm"), use_radius(&format!("{limit} in"))]
+    );
+    assert_eq!(error.suggestion(Units::In).as_deref(), Some("2 mm"));
+    assert_messages_pass_lint(&run, "f-fil1");
+}
+
+#[test]
+fn t022_the_bare_number_fix_keeps_the_size_that_was_meant() {
+    let run = inch_cube("2 mm");
+
+    run.assert_all_quiet();
+    assert_volume(run.shape("b-1"), 7982.831853);
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "performance budgets hold for release builds: run with cargo test --release"
+)]
+fn a_failed_fillet_of_twelve_edges_with_its_search_and_limit_within_budget() {
+    // features.md section 5: the search, `width_across` of the faces next to the edges and the attempt without the
+    // narrowest face's edge, on a 2.4 mm plate whose every edge is rounded at 3 mm.
+    let mut edges: Vec<&str> = PLATE_TOP_EDGES.to_vec();
+    edges.extend([
+        r#"{"q": "edge(f-box1/bottom|f-box1/front)", "fp": "line|n=1,0,0|c=0,-10,0|l=20"}"#,
+        r#"{"q": "edge(f-box1/back|f-box1/bottom)", "fp": "line|n=1,0,0|c=0,10,0|l=20"}"#,
+        r#"{"q": "edge(f-box1/bottom|f-box1/left)", "fp": "line|n=0,1,0|c=-10,0,0|l=20"}"#,
+        r#"{"q": "edge(f-box1/bottom|f-box1/right)", "fp": "line|n=0,1,0|c=10,0,0|l=20"}"#,
+        r#"{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-10,-10,1.2|l=2.4"}"#,
+        r#"{"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=10,-10,1.2|l=2.4"}"#,
+        r#"{"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-10,10,1.2|l=2.4"}"#,
+        r#"{"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=10,10,1.2|l=2.4"}"#,
+    ]);
+    let document = document(&["b-1"], &[PLATE, &fillet_record(&edges, "3")]);
+
+    let failed = median_failed_build_time(&document, "f-fil1", "fillet_too_large", 3);
+
+    assert!(
+        failed < Duration::from_millis(1300),
+        "the failing fillet of 12 edges with its search took {failed:?}, the budget is 1.3 s"
     );
 }

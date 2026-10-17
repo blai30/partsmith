@@ -129,7 +129,24 @@ impl fmt::Display for SolveIssue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::id;
+    use crate::params::DimensionValues;
+    use crate::test_support::{id, message_context, sketch};
+
+    #[test]
+    fn a_redundant_constraint_the_sketch_does_not_have_is_named_by_its_type() {
+        let sketch = sketch(Vec::new(), Vec::new());
+        let values = DimensionValues::new();
+        let issue = SolveIssue::Redundant {
+            constraint: id("c-9"),
+            type_name: "point_on_object",
+            dimension: false,
+        };
+
+        assert_eq!(
+            issue.render(&message_context(&sketch, &values)),
+            "In 'Sketch 1', Point on object is not needed: the other constraints already hold it."
+        );
+    }
 
     #[test]
     fn detail_of_a_single_conflict_names_the_constraint() {
@@ -142,16 +159,9 @@ mod tests {
 
     #[test]
     fn a_conflict_without_constraints_still_reads_as_a_sentence() {
-        let sketch = crate::test_support::sketch(Vec::new(), Vec::new());
-        let values = crate::params::DimensionValues::new();
-        let context = MessageContext {
-            label: "Sketch 1",
-            sketch: &sketch,
-            solved: None,
-            values: &values,
-            measured: None,
-            units: partsmith_model::Units::Mm,
-        };
+        let sketch = sketch(Vec::new(), Vec::new());
+        let values = DimensionValues::new();
+        let context = message_context(&sketch, &values);
         let issue = SolveIssue::Conflicting {
             constraints: Vec::new(),
         };

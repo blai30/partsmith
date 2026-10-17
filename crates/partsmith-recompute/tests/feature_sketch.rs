@@ -4,14 +4,10 @@
 //! reference stability plan) are written here until their examples exist.
 //!
 //! Tests 20 to 29 and 32 check what the sketch feature and the features built on it compute: placements,
-//! motions, the sketch's own messages and fixes, codes of the messages of later features, geometry, and
-//! the document after a fix as the engine's `apply_fix` would write it. Left for the steps that build
-//! them: that `hole_misses_body` is the hole's only warning (one point, so no `no_effect`), its text
-//! and fixes (tests 21 and 24), the text and fix of `no_effect` (test 23) and the `separate_solid`
-//! warnings of tests 22 and 28 (phase 3: features.md sections 3.5 and 3.15 and the hole points of
-//! features/hole.md). The root of test 24's `hole_misses_body` under a drawing turned over is checked
-//! by recompute.md test 72 (`diagnosis.rs`). Tests 30 and 31 (the modeling limit and the sketch
-//! crate's texts with values) belong to phase 3.
+//! motions, the sketch's own messages and fixes, the messages of later features with their texts and
+//! fixes (features.md sections 3.5 and 3.15 and the hole points of features/hole.md), geometry, and
+//! the document after a fix as the engine's `apply_fix` would write it. Tests 30 and 31 check the
+//! modeling limit of a dimension and the dimension values carried by sketch errors.
 
 mod feature_support;
 
@@ -29,7 +25,7 @@ use feature_support::{
     step_asset_name, top_fallback, turn,
 };
 use partsmith_features::{
-    FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
+    Bound, FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
 };
 use partsmith_model::{FeatureInspector, FieldUnit, Id};
 use partsmith_naming::{Follow, Motion, Reference};
@@ -590,22 +586,27 @@ const BLOCK_TOP: &str =
 /// features.md section 3.15) and its text and fixes come with phase 3; its root under a drawing turned over is
 /// checked by recompute.md test 72 (`diagnosis.rs`).
 #[track_caller]
-fn assert_hole_misses_the_body(run: &Run) {
-    let report = run.feature("f-hole1");
-    assert!(
-        matches!(report.status, partsmith_recompute::Status::Warning),
-        "f-hole1 should warn: {:?}",
-        run.messages("f-hole1")
-    );
-    assert!(
-        report
-            .warnings
-            .iter()
-            .any(|warning| warning.code() == "hole_misses_body"),
-        "f-hole1 should miss the body: {:?}",
-        run.messages("f-hole1")
+fn assert_hole_misses_the_body(run: &Run, expected_text: &str, expected_fixes: &[Fix]) {
+    // One point, so `hole_misses_body` is the only warning, with no `no_effect` (features.md section 3.15).
+    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    assert_eq!(run.messages("f-hole1"), [expected_text]);
+    assert_eq!(
+        message(run, "f-hole1", "hole_misses_body").fixes,
+        expected_fixes
     );
 }
+
+/// The `Show` fix of sketch `f-sk2` as a whole.
+fn show_sketch() -> Fix {
+    Fix::Show {
+        feature: id("f-sk2"),
+        entity: None,
+    }
+}
+
+/// The text of the `separate_solid` warning of an extrude whose boss floats beside body 'Body 1' in two pieces.
+const BOSS_APART_TEXT: &str =
+    "This extrude does not touch body 'Body 1', so the body now has 2 separate pieces.";
 
 /// The only `plane_fallback` warning of `sketch`: where it placed the sketch, its cause and whether it has a loss.
 fn plane_fallback_of(run: &Run, sketch: &str) -> (Placed, FallbackCause, bool) {
@@ -691,7 +692,12 @@ fn t021_a_fallback_in_world_coordinates_rebuilds_as_before() {
         [15.0, 15.0, 10.0],
         AXIS_TOLERANCE,
     );
-    assert_hole_misses_the_body(&run);
+    // Drilling the other way misses too, so there is no `reverse` fix.
+    assert_hole_misses_the_body(
+        &run,
+        "The hole at (15, 15) in 'Sketch 1' does not touch body 'Body 1'. Move the point onto the body.",
+        &[],
+    );
     assert_volume(run.shape("b-1"), 16000.0);
     // Nothing is written back, and no `fallback_frame` is added.
     assert_eq!(saved(&run.document), text);
@@ -771,6 +777,15 @@ fn t022_a_face_cut_away_before_the_sketch_keeps_it_where_the_face_was() {
     // The boss stands at z 40..45, above the new top at z = 35, never inside the box.
     run.assert_ok("f-ext3");
     assert_top_at(&run, "b-1", 45.0);
+    run.assert_warnings("f-ext2", &["separate_solid"]);
+    assert_eq!(run.messages("f-ext2"), [BOSS_APART_TEXT]);
+    assert_eq!(
+        message(&run, "f-ext2", "separate_solid")
+            .root
+            .as_ref()
+            .map(Id::as_str),
+        Some("f-sk2")
+    );
 }
 
 #[test]
@@ -853,15 +868,17 @@ fn t023_a_face_whose_feature_was_deleted_uses_the_saved_position() {
     .collect();
     expected.push(pick_face());
     assert_eq!(fixes, &expected);
-    // The boss lies inside the taller block; the `no_effect` text with its cause is phase 3's.
+    // The boss lies inside the taller block, explained by the sketch that lost its face.
     run.assert_warnings("f-ext2", &["no_effect"]);
     assert_eq!(
-        message(&run, "f-ext2", "no_effect")
-            .root
-            .as_ref()
-            .map(Id::as_str),
-        Some("f-sk2")
+        run.messages("f-ext2"),
+        [
+            "This extrude adds nothing to body 'Body 1' because 'Sketch 2' lost the face it was on. Fix 'Sketch 2' first."
+        ]
     );
+    let no_effect = message(&run, "f-ext2", "no_effect");
+    assert_eq!(no_effect.root.as_ref().map(Id::as_str), Some("f-sk2"));
+    assert_eq!(no_effect.fixes, [show_sketch()]);
     assert_volume(run.shape("b-1"), 320000.0);
 }
 
@@ -943,8 +960,19 @@ fn assert_drawing_turned_over(run: &Run) {
         [20.0, -10.0, -30.0],
         AXIS_TOLERANCE,
     );
-    // The point lies off the face.
-    assert_hole_misses_the_body(run);
+    // The point lies off the face, explained by the drawing that lies mirrored.
+    assert_hole_misses_the_body(
+        run,
+        "The hole at (20, 10) in 'Sketch 2' does not touch body 'Body 1' because the drawing of 'Sketch 2' lies mirrored on its face. Fix 'Sketch 2' first.",
+        &[show_sketch()],
+    );
+    assert_eq!(
+        message(run, "f-hole1", "hole_misses_body")
+            .root
+            .as_ref()
+            .map(Id::as_str),
+        Some("f-sk2")
+    );
     assert_volume(run.shape("b-1"), 120000.0);
 }
 
@@ -1082,7 +1110,7 @@ fn t027_a_sketch_on_a_pattern_copy_follows_the_spacing() {
 
 #[test]
 fn t028_a_shell_inserted_under_the_sketch_keeps_it_in_the_plane() {
-    // Corpus R34. The `separate_solid` warning of the boss over the tray's opening is phase 3's.
+    // Corpus R34.
     let run = Run::records(
         &["b-1"],
         &[
@@ -1115,8 +1143,10 @@ fn t028_a_shell_inserted_under_the_sketch_keeps_it_in_the_plane() {
     let placement = &sketch_result(&run, "f-sk2").placement;
     assert_coordinates("origin", placement.origin, [0.0, 0.0, 30.0], AXIS_TOLERANCE);
     assert_coordinates("normal", placement.normal, [0.0, 0.0, 1.0], AXIS_TOLERANCE);
-    // The boss spans z 30..40, never on the tray floor at z = 2.
+    // The boss spans z 30..40, never on the tray floor at z = 2, so it stands apart over the tray's opening.
     assert_top_at(&run, "b-1", 40.0);
+    run.assert_warnings("f-ext2", &["separate_solid"]);
+    assert_eq!(run.messages("f-ext2"), [BOSS_APART_TEXT]);
 }
 
 /// The document of test 29 (corpus R57): a ring revolved with `extent`, a sketch on its start face stored when it
@@ -1197,6 +1227,61 @@ fn t029_the_same_sketch_on_a_partial_turn_is_on_its_face() {
 
     run.assert_all_ok();
     assert_on_ring_start(&run);
+}
+
+#[test]
+fn t030_a_dimension_beyond_the_modeling_limit() {
+    let run = Run::records(&[], &[&line_dimension("1e200", &[])]);
+
+    let error = run.assert_error("f-sk1", "out_of_range");
+    assert_error_field(error, "constraints[2].expr");
+    let FeatureError::OutOfRange { bound, .. } = error else {
+        panic!("expected OutOfRange, got {error:?}");
+    };
+    assert_eq!(*bound, Bound::AtMost(1_000_000.0));
+    assert_eq!(
+        run.messages("f-sk1"),
+        ["Dimension must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."]
+    );
+}
+
+#[test]
+fn t030_the_dimensions_own_bound_comes_before_the_modeling_limit() {
+    let run = Run::records(&[], &[&line_dimension("-1e200", &[])]);
+
+    let error = run.assert_error("f-sk1", "sketch_invalid");
+    assert!(
+        matches!(
+            error,
+            FeatureError::SketchInvalid {
+                error: SketchError::ValueNotPositive { .. },
+                ..
+            }
+        ),
+        "expected the sketch crate's ValueNotPositive, got {error:?}",
+    );
+}
+
+#[test]
+fn t031_values_travel_with_sketch_errors() {
+    let sketch = line_dimension(
+        "width",
+        &[r#"{"id": "c-4", "type": "distance", "line": "e-1", "expr": "50 mm"}"#],
+    );
+    let run = run_with_width(&[], &[&sketch]);
+
+    let error = run.assert_error("f-sk1", "sketch_conflict");
+    let FeatureError::SketchConflict { values, .. } = error else {
+        panic!("expected a sketch conflict, got {error:?}");
+    };
+    assert_eq!(values.get(&id("c-3")), Some(&100.0));
+    assert_eq!(values.get(&id("c-4")), Some(&50.0));
+    let text = run.messages("f-sk1")[0];
+    assert!(
+        text.starts_with("In 'Sketch 1', Distance 50 mm cannot hold together with"),
+        "{text}"
+    );
+    assert!(text.contains("Distance 100 mm (width)"), "{text}");
 }
 
 #[test]

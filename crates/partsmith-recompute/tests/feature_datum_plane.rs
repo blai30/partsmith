@@ -212,12 +212,20 @@ fn t011_curved_face() {
 
     run.assert_ok("f-cyl1");
     run.assert_error("f-dp1", "not_planar");
+    // The face is named in words (features.md section 4.1, `{Element}`).
     assert_eq!(
         run.messages("f-dp1"),
         [
-            "The face selected for Base plane is not flat. Pick a flat face, a datum plane or an origin plane."
+            "The side of 'Cylinder 1' selected for Base plane is not flat. Pick a flat face, a datum plane or an origin plane."
         ],
     );
+    assert_eq!(
+        run.feature("f-dp1").messages[0].fixes,
+        [Fix::Pick {
+            pointer: "/base/face".to_string()
+        }]
+    );
+    assert_messages_pass_lint(&run, "f-dp1");
 }
 
 #[test]
@@ -475,4 +483,43 @@ fn t019_a_datum_on_a_datum_on_a_turned_face_passes_on_the_turn() {
 
     run.assert_all_ok();
     assert_eq!(datum_motion(&run, "f-dp2"), datum_motion(&run, "f-dp1"));
+}
+
+#[test]
+fn an_offset_beyond_the_modeling_limit_is_out_of_range() {
+    let run = Run::records(
+        &[],
+        &[&datum_plane(
+            r#"{"kind": "origin", "plane": "XY"}"#,
+            r#", "offset": "1e200""#,
+        )],
+    );
+
+    run.assert_error("f-dp1", "out_of_range");
+    assert_eq!(
+        run.messages("f-dp1"),
+        ["Offset must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."],
+    );
+}
+
+#[test]
+fn a_negative_offset_beyond_the_modeling_limit_offers_the_lower_limit() {
+    // An offset may be negative, so its lower limit is -1000000 mm (features.md section 3.4).
+    let run = Run::records(
+        &[],
+        &[&datum_plane(
+            r#"{"kind": "origin", "plane": "XY"}"#,
+            r#", "offset": "-2e6""#,
+        )],
+    );
+
+    run.assert_error("f-dp1", "out_of_range");
+    assert_eq!(
+        run.messages("f-dp1"),
+        ["Offset must be at least -1000000 mm, but it is -2000000 mm. Use -1000000 mm or more."],
+    );
+    assert_eq!(
+        run.feature("f-dp1").messages[0].suggestion.as_deref(),
+        Some("-1000000 mm")
+    );
 }

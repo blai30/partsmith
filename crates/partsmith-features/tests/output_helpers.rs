@@ -59,7 +59,7 @@ fn tools(shift: &str) -> Vec<Tool> {
     ]
 }
 
-/// `apply_op` on `b-1` holding `state`.
+/// `apply_op` on `b-1` holding `state`, for a feature without a direction.
 fn apply(
     state: BodyState,
     op: BodyOp,
@@ -67,7 +67,7 @@ fn apply(
 ) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError> {
     let mut fixture = ContextFixture::new(Units::Mm, &[]);
     fixture.bodies.insert(id("b-1"), state);
-    apply_op(&fixture.context(), &id("b-1"), op, tools)
+    apply_op(&fixture.context(), &id("b-1"), op, tools, None)
 }
 
 /// The shape of an update; fails the test when it empties the body.
@@ -307,11 +307,12 @@ fn t024_apply_op_result_gives_what_apply_op_gives() {
         BodyOp::Cut,
         std::slice::from_ref(&tool),
         result,
+        None,
     )
     .expect("the body rules apply");
 
     let (expected, expected_warnings) =
-        apply_op(&context, &id("b-1"), BodyOp::Cut, vec![tool]).expect("the cut applies");
+        apply_op(&context, &id("b-1"), BodyOp::Cut, vec![tool], None).expect("the cut applies");
     assert!(
         shape(&update).to_brep().expect("BRep bytes")
             == shape(&expected).to_brep().expect("BRep bytes")
@@ -374,7 +375,7 @@ fn t024_apply_op_result_rejects_results_it_cannot_apply() {
     ];
 
     for (case, fixture, op, tools, result) in cases {
-        let outcome = apply_op_result(&fixture.context(), &id("b-1"), op, tools, result);
+        let outcome = apply_op_result(&fixture.context(), &id("b-1"), op, tools, result, None);
 
         assert!(
             matches!(outcome, Err(FeatureError::Internal { .. })),

@@ -1,4 +1,4 @@
-//! Acceptance tests for evaluating declared expressions through the build context (features.md section 6.3, tests 1 to 5 and 19).
+//! Acceptance tests for evaluating declared expressions through the build context (features.md section 6.3, tests 1 to 5 and 19), and the modeling limit of section 3.4.
 //!
 //! Each test builds a `BuildContext` for the `probe` test feature, whose manifest labels its fields
 //! Distance, Angle and Count, with one declared expression use.
@@ -14,8 +14,8 @@ mod common;
 
 use std::f64::consts::FRAC_PI_2;
 
-use common::{ContextFixture, NoNames, TOLERANCE, render_error};
-use partsmith_features::{Bound, FeatureError, FieldUnit};
+use common::{ContextFixture, NoNames, TOLERANCE, error_fixes, field, render_error};
+use partsmith_features::{Bound, FeatureError, FieldUnit, Fix, MODEL_LIMIT};
 use partsmith_model::{Expr, Units};
 
 /// The count `expr` declared at `count` gives with `minimum`.
@@ -37,6 +37,15 @@ fn assert_count_out_of_range(result: Result<u32, FeatureError>, bound: Bound) {
         ),
         "expected {bound:?}, got {result:?}"
     );
+}
+
+/// "Use {value}": the fix that sets the probe's Count to `value`.
+fn use_count(value: &str) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field: field("count", "Count"),
+        value: serde_json::Value::String(value.to_string()),
+    }
 }
 
 /// Asserts that `result` is an `UndeclaredDependency` error.
@@ -117,9 +126,14 @@ fn t003_count_with_a_fraction_is_not_a_whole_number() {
         .expect_err("2.5 is not a whole number");
 
     assert_eq!(error.code(), "not_whole_number");
+    // Section 4.1: the floor and the ceiling are the fixes, so the sentence does not repeat them.
     assert_eq!(
         render_error(&error, "f-test1", &NoNames),
-        "Count must be a whole number, but it is 2.5. Use 2 or 3."
+        "Count must be a whole number, but it is 2.5."
+    );
+    assert_eq!(
+        error_fixes(&error, "f-test1"),
+        [use_count("2"), use_count("3")]
     );
 }
 
@@ -265,7 +279,11 @@ fn t019_fraction_in_range_is_not_a_whole_number() {
     assert_eq!(error.code(), "not_whole_number");
     assert_eq!(
         render_error(&error, "f-test1", &NoNames),
-        "Count must be a whole number, but it is 1.5. Use 1 or 2."
+        "Count must be a whole number, but it is 1.5."
+    );
+    assert_eq!(
+        error_fixes(&error, "f-test1"),
+        [use_count("1"), use_count("2")]
     );
 }
 
@@ -277,4 +295,23 @@ fn t019_fraction_above_u32_is_out_of_range() {
 #[test]
 fn t019_range_is_checked_before_the_whole_number() {
     assert_count_out_of_range(count("-0.5", 0), Bound::AtLeast(0.0));
+}
+
+#[test]
+fn the_modeling_limit_is_a_million_millimeters() {
+    // Section 3.4: `pub const MODEL_LIMIT: f64 = 1_000_000.0`, in the `context` module and at the crate root.
+    assert_eq!(MODEL_LIMIT, 1_000_000.0);
+    assert_eq!(partsmith_features::context::MODEL_LIMIT, MODEL_LIMIT);
+}
+
+#[test]
+fn a_length_above_the_modeling_limit_still_evaluates() {
+    // Section 3.4: each feature checks the limit after its field's own bounds, so evaluation itself keeps the value.
+    let fixture = ContextFixture::new(Units::Mm, &[("distance", "1e200", FieldUnit::Length)]);
+
+    let length = fixture
+        .context()
+        .eval_length("distance", &Expr::new("1e200"));
+
+    assert_eq!(length, Ok(1e200));
 }

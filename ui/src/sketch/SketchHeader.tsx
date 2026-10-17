@@ -38,7 +38,7 @@ import { COLOR_CLASSES } from '../theme/roles'
 import { TopCenterSlot } from '../viewport/TopCenterSlot'
 import { constraintTitle } from './constraints'
 import { entitySelectionItem } from './hit'
-import { outlineProblems, profileFindingMessage } from './issues'
+import { outlineCount, outlineProblems, profileFindingMessage } from './issues'
 import { sketchStepHint, type SketchOverlayModel } from './session'
 
 // The sketch header and hint (ui.md 3.16.1, 3.16.3, 3.16.8): the sketch's name and constraint
@@ -167,9 +167,12 @@ function PlanePicking() {
   )
 }
 
-/** The outline problems of a solution, for the header's `data-outline` (3.16.8). */
+/** The number the outline summary counts, for the header's `data-outline` (3.16.8). */
 function selectOutlineCount(sketchId: string): (state: AppState) => number {
-  return (state) => state.document?.sketches[sketchId]?.solution.profile_findings.length ?? 0
+  return (state) => {
+    const solution = state.document?.sketches[sketchId]?.solution
+    return solution === undefined ? 0 : outlineCount(solution)
+  }
 }
 
 function EditingHeader({ sketchId }: { readonly sketchId: string }) {
@@ -180,7 +183,7 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
     const solution = state.document?.sketches[sketchId]?.solution
     return solution === undefined ? null : outlineProblems(solution)
   })
-  const outlineCount = useAppState(selectOutlineCount(sketchId))
+  const outlineNumber = useAppState(selectOutlineCount(sketchId))
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const popoverId = useId()
@@ -202,7 +205,7 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
         data-card=""
         data-state={dof?.state}
         data-dof={dof === null ? undefined : String(dof.dof)}
-        data-outline={String(outlineCount)}
+        data-outline={String(outlineNumber)}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={popoverId}

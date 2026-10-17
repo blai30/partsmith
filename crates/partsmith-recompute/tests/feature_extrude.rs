@@ -11,11 +11,14 @@ use feature_support::{
     assert_examples_canonical, assert_face_area, assert_face_axis_direction,
     assert_face_axis_through, assert_face_count, assert_face_in_plane, assert_face_names,
     assert_face_normal, assert_has_face, assert_median_build_within, assert_messages_pass_lint,
-    assert_no_face, assert_unchanged, assert_volume, body_update, document_text, element_names,
-    face, face_names_with_prefix, id, keep_and_pick, line, load_example, message, output_body,
-    parse_document, successions, use_reference,
+    assert_no_face, assert_solid_count, assert_unchanged, assert_volume, body_update,
+    document_text, element_names, face, face_names_with_prefix, id, keep_and_pick, line,
+    load_example, message, output_body, parse_document, pick, reference_json, successions,
+    top_fallback, use_reference,
 };
-use partsmith_features::{BodyChange, Diagnosis, FeatureWarning, Fix};
+use partsmith_features::{
+    BodyChange, Bound, Diagnosis, FeatureError, FeatureWarning, FieldRef, Fix, NoEffectHow,
+};
 use partsmith_naming::{ElementKind, Follow};
 
 /// `SK-RECT`: `RECT(0, 0, 80, 50)` on XY with id `f-sk1`.
@@ -271,6 +274,15 @@ fn t015_unknown_name() {
         run.messages("f-ext1"),
         ["Distance: 'hieght' is not a parameter. Did you mean 'height'?"],
     );
+    // Section 4.1: the near match is offered as the expression with the name replaced.
+    assert_eq!(
+        message(&run, "f-ext1", "expression").fixes,
+        [set_field(
+            "extent.expr",
+            "Distance",
+            serde_json::json!("height * 2")
+        )]
+    );
     assert_empty(&run, "b-1");
 }
 
@@ -363,12 +375,37 @@ fn t022_through_all_pointing_away() {
     );
 
     run.assert_error("f-ext1", "through_all_misses");
+    // Reversed, through all reaches the body, so Turn on Reverse is offered and the sentence does not repeat it.
+    assert_eq!(
+        run.messages("f-ext1"),
+        ["Through all points away from body 'Body 1', so there is nothing to go through."],
+    );
+    assert_eq!(
+        message(&run, "f-ext1", "through_all_misses").fixes,
+        [turn_on_reverse()]
+    );
+    assert_volume(run.shape("b-1"), 16000.0);
+}
+
+#[test]
+fn t022_through_all_that_misses_either_way_asks_to_point_it_at_the_body() {
+    let run = Run::records(
+        &["b-1"],
+        &[
+            BOX_BELOW,
+            &circle_sketch(100, 0, 5),
+            &extrude(&circle_profile("c=100,0|a=78.539816"), THROUGH_ALL, "cut"),
+        ],
+    );
+
+    run.assert_error("f-ext1", "through_all_misses");
     assert_eq!(
         run.messages("f-ext1"),
         [
-            "Through all points away from body 'Body 1', so there is nothing to go through. Turn on Reverse, or use a distance."
+            "Through all points away from body 'Body 1', so there is nothing to go through. Point it at the body, or use a distance."
         ],
     );
+    assert_eq!(message(&run, "f-ext1", "through_all_misses").fixes, []);
     assert_volume(run.shape("b-1"), 16000.0);
 }
 
@@ -377,6 +414,12 @@ fn t023_through_all_with_op_new() {
     let run = run_rectangle(THROUGH_ALL);
 
     run.assert_error("f-ext1", "through_all_needs_body");
+    assert_eq!(
+        run.messages("f-ext1"),
+        [
+            "Through all goes through an existing solid, and body 'Body 1' has none here. Use a distance instead."
+        ],
+    );
 }
 
 #[test]
@@ -435,7 +478,7 @@ fn t025_intersect_without_overlap() {
     assert_eq!(
         run.messages("f-ext1"),
         [
-            "The shapes do not overlap body 'Body 1', so the intersection is empty. Move them so they overlap the body."
+            "The shapes do not overlap body 'Body 1', so the intersection is empty. Move them so they overlap it."
         ],
     );
     assert_volume(run.shape("b-1"), 16000.0);
@@ -461,7 +504,7 @@ fn t026_cut_everything() {
     assert_eq!(
         run.messages("f-ext1"),
         [
-            "This cut removes all of body 'Body 1'. Make the cut smaller, or change its position or direction."
+            "This cut removes all of body 'Body 1'. Make it smaller, or change its position or direction."
         ],
     );
     assert_volume(run.shape("b-1"), 1000.0);
@@ -473,6 +516,25 @@ fn t027_cut_that_misses() {
 
     run.assert_ok("f-box1");
     run.assert_warnings("f-ext1", &["no_effect"]);
+    // The tool's box and the body's do not overlap across the direction, so the cut lies beside the body; reversed it
+    // misses too, so no Reverse is offered (features.md section 3.15).
+    let warning = run.warning("f-ext1", "no_effect");
+    assert!(
+        matches!(
+            warning,
+            FeatureWarning::NoEffect {
+                how: NoEffectHow::Beside,
+                reverse_hits: false,
+                ..
+            }
+        ),
+        "{warning:?}"
+    );
+    assert_eq!(
+        run.messages("f-ext1"),
+        ["This cut does not touch body 'Body 1': it lies beside it."]
+    );
+    assert_eq!(message(&run, "f-ext1", "no_effect").fixes, []);
     assert_volume(run.shape("b-1"), 16000.0);
     assert_face_count(run.shape("b-1"), 6);
     assert_unchanged(&run, "f-ext1", "b-1");
@@ -672,8 +734,18 @@ fn t035_sketch_later_in_the_timeline() {
     assert_eq!(
         run.messages("f-ext1"),
         [
-            "'Sketch 1' comes later in the timeline than this feature. Move it above this feature, or pick something earlier for Profile."
+            "Profile uses 'Sketch 1', which comes after this extrude. Move this extrude below 'Sketch 1', or pick something earlier."
         ],
+    );
+    assert_eq!(
+        message(&run, "f-ext1", "forward_reference").fixes,
+        [
+            Fix::Move {
+                feature: id("f-ext1"),
+                place: partsmith_features::Place::Below(id("f-sk1")),
+            },
+            pick("/profile/sketch"),
+        ]
     );
     run.assert_ok("f-sk1");
 }
@@ -869,9 +941,12 @@ fn t045_distance_below_the_tolerance() {
 
     let error = run.assert_error("f-ext1", "out_of_range");
     assert_error_field(error, "extent.expr");
+    // The value is written with the digits that tell it apart from the bound (features.md section 3.12).
     assert_eq!(
         run.messages("f-ext1"),
-        ["Distance must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+        [
+            "Distance must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+        ],
     );
     assert_empty(&run, "b-1");
 }
@@ -1267,4 +1342,277 @@ fn a_new_extrude_records_nothing_absent() {
     let run = run_rectangle(&distance("30"));
 
     assert!(absent_faces(&run, "f-ext1").is_empty());
+}
+
+/// `SetField` of this feature's field `path` to `value`.
+fn set_field(path: &str, label: &str, value: serde_json::Value) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field: FieldRef {
+            path: path.to_string(),
+            label: label.to_string(),
+        },
+        value,
+    }
+}
+
+/// "Turn on Reverse": `SetField` of `reverse` to true (engine.md section 3.22 labels it).
+fn turn_on_reverse() -> Fix {
+    set_field("reverse", "Reverse", serde_json::json!(true))
+}
+
+/// The circle `e-5` at (40, 25) with radius 5, the boss or cut of tests 52 to 54.
+const SMALL_CIRCLE: &str = r#"{"id": "e-5", "type": "circle", "center": [40, 25], "radius": 5}"#;
+
+/// The profile of `SMALL_CIRCLE` in `f-sk2`.
+const SMALL_CIRCLE_PROFILE: &str =
+    r#"{"sketch": "f-sk2", "regions": [{"key": "e-5", "fp": "c=40,25|a=78.539816"}]}"#;
+
+/// `f-sk2` with `SMALL_CIRCLE` on `plane` (sketch.md plane JSON).
+fn small_circle_sketch(plane: &str) -> String {
+    format!(
+        r#"{{"id": "f-sk2", "type": "sketch", "plane": {plane}, "entities": [{SMALL_CIRCLE}]}}"#
+    )
+}
+
+/// `f-ext2`, the extrude of `SMALL_CIRCLE_PROFILE` with `extent` (an extent JSON, optionally followed by more members)
+/// and `op`.
+fn small_circle_extrude(extent: &str, op: &str) -> String {
+    format!(
+        r#"{{"id": "f-ext2", "type": "extrude", "body": "b-1", "profile": {SMALL_CIRCLE_PROFILE}, "extent": {extent}, "op": "{op}"}}"#
+    )
+}
+
+/// `BLOCK` with `others` after it.
+fn on_block(others: &[&str]) -> Run {
+    block_run(&rectangle_lines(&[], &[]), "30", others)
+}
+
+/// The datum `f-dp1` at z = 40, above `BLOCK` (newcomer error corpus NC03).
+const DATUM_ABOVE_THE_BLOCK: &str = r#"{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "40"}"#;
+
+/// The plane of a sketch on the datum `f-dp1`.
+const ON_THE_DATUM: &str = r#"{"kind": "datum", "feature": "f-dp1"}"#;
+
+/// The face plane of `f-sk2` attached to `top`, a stored reference to the top of `BLOCK`, with the fallback its
+/// placement projected onto the top gives, in body coordinates: what the `Attach` fix stores (features.md section
+/// 3.15, engine.md section 3.22).
+fn attached_to_the_top(top: &str) -> String {
+    format!(
+        r#"{{"kind": "face", "body": "b-1", "face": {top}, "fallback": {}, "fallback_frame": "body"}}"#,
+        top_fallback([0.0, 0.0, 30.0])
+    )
+}
+
+/// `Attach 'Sketch 2' to the top of 'Extrude 1'`, with the top as a pick just before `f-ext2` stores it.
+fn attach_to_the_top(run: &Run) -> Fix {
+    Fix::Attach {
+        sketch: id("f-sk2"),
+        body: id("b-1"),
+        face: run.picked_before("f-ext2", "b-1", "f-ext1/end-cap"),
+    }
+}
+
+#[test]
+fn t052_a_join_buried_in_the_body_offers_to_attach_its_sketch_to_the_top() {
+    let sketch = small_circle_sketch(r#"{"kind": "origin", "plane": "XY"}"#);
+    let boss = small_circle_extrude(&distance("10"), "join");
+    let run = on_block(&[&sketch, &boss]);
+
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    let warning = run.warning("f-ext2", "no_effect");
+    assert!(
+        matches!(
+            warning,
+            FeatureWarning::NoEffect {
+                how: NoEffectHow::Inside,
+                ..
+            }
+        ),
+        "{warning:?}"
+    );
+    assert_eq!(
+        run.messages("f-ext2"),
+        ["This extrude adds nothing to body 'Body 1': it lies entirely inside the body."]
+    );
+    // A join inside the body gets no Reverse: reversed, it adds nothing either.
+    assert_eq!(
+        message(&run, "f-ext2", "no_effect").fixes,
+        [attach_to_the_top(&run)]
+    );
+    assert_volume(run.shape("b-1"), 120000.0);
+    assert_messages_pass_lint(&run, "f-ext2");
+}
+
+#[test]
+fn t052_attaching_the_sketch_to_the_top_stands_the_boss_on_it() {
+    let before = on_block(&[
+        &small_circle_sketch(r#"{"kind": "origin", "plane": "XY"}"#),
+        &small_circle_extrude(&distance("10"), "join"),
+    ]);
+    let top = reference_json(&before.picked_before("f-ext2", "b-1", "f-ext1/end-cap"));
+
+    let run = on_block(&[
+        &small_circle_sketch(&attached_to_the_top(&top)),
+        &small_circle_extrude(&distance("10"), "join"),
+    ]);
+
+    run.assert_all_quiet();
+    assert_volume(run.shape("b-1"), 120785.398163);
+    assert_bounding_box(run.shape("b-1"), [0.0, 0.0, 0.0], [80.0, 50.0, 40.0]);
+}
+
+/// Newcomer error corpus NC03: `BLOCK`, the datum at z = 40, the circle on it and `f-ext2` with `extent` and `op`.
+fn above_the_block(extent: &str, op: &str) -> Run {
+    let sketch = small_circle_sketch(ON_THE_DATUM);
+    let tool = small_circle_extrude(extent, op);
+    on_block(&[DATUM_ABOVE_THE_BLOCK, &sketch, &tool])
+}
+
+/// The `how` of the only `no_effect` warning of `f-ext2`.
+fn no_effect_how(run: &Run) -> NoEffectHow {
+    match run.warning("f-ext2", "no_effect") {
+        FeatureWarning::NoEffect { how, .. } => how.clone(),
+        other => panic!("expected a no_effect warning, got {other:?}"),
+    }
+}
+
+/// Asserts that `how` is `Away` (`short` false) or `Short` (`short` true) with `gap`.
+#[track_caller]
+fn assert_gap(how: &NoEffectHow, short: bool, gap: f64) {
+    let found = match (how, short) {
+        (NoEffectHow::Away { gap }, false) | (NoEffectHow::Short { gap }, true) => *gap,
+        _ => panic!(
+            "expected {} with gap {gap}, got {how:?}",
+            if short { "Short" } else { "Away" }
+        ),
+    };
+    assert!((found - gap).abs() <= 1e-5, "gap {found}, expected {gap}");
+}
+
+#[test]
+fn t053_a_cut_that_points_away_offers_reverse_when_reversed_it_reaches_the_body() {
+    let run = above_the_block(&distance("15"), "cut");
+
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    assert_gap(&no_effect_how(&run), false, 10.0);
+    assert_eq!(
+        run.messages("f-ext2"),
+        [
+            "This cut does not touch body 'Body 1': it starts 10 mm from the body and points away from it."
+        ]
+    );
+    assert_eq!(
+        message(&run, "f-ext2", "no_effect").fixes,
+        [turn_on_reverse()]
+    );
+    assert_volume(run.shape("b-1"), 120000.0);
+}
+
+#[test]
+fn t053_turning_on_reverse_cuts_the_pocket() {
+    let run = above_the_block(&reversed_distance("15"), "cut");
+
+    run.assert_all_quiet();
+    // The pocket runs from the datum at z = 40 down to z = 25.
+    assert_volume(run.shape("b-1"), 119607.300918);
+}
+
+#[test]
+fn t053_a_cut_that_misses_either_way_offers_no_reverse() {
+    let run = above_the_block(&distance("5"), "cut");
+
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    assert_gap(&no_effect_how(&run), false, 10.0);
+    // Reversed, the cut ends at z = 35 and misses too.
+    assert_eq!(
+        run.messages("f-ext2"),
+        [
+            "This cut does not touch body 'Body 1': it starts 10 mm from the body and points away from it."
+        ]
+    );
+    assert_eq!(message(&run, "f-ext2", "no_effect").fixes, []);
+}
+
+#[test]
+fn t053_a_reversed_cut_that_ends_short_says_by_how_much() {
+    let run = above_the_block(&reversed_distance("5"), "cut");
+
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    assert_gap(&no_effect_how(&run), true, 5.0);
+    assert_eq!(
+        run.messages("f-ext2"),
+        ["This cut does not reach body 'Body 1': it ends 5 mm short of it."]
+    );
+    // The other way it misses too.
+    assert_eq!(message(&run, "f-ext2", "no_effect").fixes, []);
+    assert_volume(run.shape("b-1"), 120000.0);
+}
+
+#[test]
+fn t054_a_join_that_floats_leaves_the_body_in_two_pieces() {
+    let run = above_the_block(&distance("15"), "join");
+
+    run.assert_warnings("f-ext2", &["separate_solid"]);
+    assert_eq!(
+        run.messages("f-ext2"),
+        ["This extrude does not touch body 'Body 1', so the body now has 2 separate pieces."]
+    );
+    // Put it in a new body, then Attach 'Sketch 2' to the top of 'Extrude 1'.
+    assert_eq!(
+        message(&run, "f-ext2", "separate_solid").fixes,
+        [Fix::NewBody, attach_to_the_top(&run)]
+    );
+    assert_solid_count(run.shape("b-1"), 2);
+    assert_messages_pass_lint(&run, "f-ext2");
+}
+
+#[test]
+fn t054_attaching_the_floating_sketch_to_the_top_joins_the_boss() {
+    let before = above_the_block(&distance("15"), "join");
+    let top = reference_json(&before.picked_before("f-ext2", "b-1", "f-ext1/end-cap"));
+
+    let run = on_block(&[
+        DATUM_ABOVE_THE_BLOCK,
+        &small_circle_sketch(&attached_to_the_top(&top)),
+        &small_circle_extrude(&distance("15"), "join"),
+    ]);
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_solid_count(shape, 1);
+    assert_volume(shape, 121178.097245);
+    assert_bounding_box(shape, [0.0, 0.0, 0.0], [80.0, 50.0, 45.0]);
+}
+
+#[test]
+fn t055_distance_beyond_the_modeling_limit() {
+    let run = run_rectangle(&distance("1e200"));
+
+    let error = run.assert_error("f-ext1", "out_of_range");
+    assert_error_field(error, "extent.expr");
+    assert!(
+        matches!(
+            error,
+            FeatureError::OutOfRange {
+                bound: Bound::AtMost(limit),
+                ..
+            } if *limit == 1_000_000.0
+        ),
+        "{error:?}"
+    );
+    // The range check, not the kernel, reports it: no kernel text about the profile appears.
+    assert_eq!(
+        run.messages("f-ext1"),
+        ["Distance must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."]
+    );
+    assert_eq!(
+        message(&run, "f-ext1", "out_of_range").fixes,
+        [set_field(
+            "extent.expr",
+            "Distance",
+            serde_json::json!("1000000 mm")
+        )]
+    );
+    assert_empty(&run, "b-1");
 }

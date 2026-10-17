@@ -13,7 +13,7 @@ use partsmith_model::{
 use partsmith_print::{PrinterValues, Severity};
 use partsmith_protocol::{Repair, RepairCandidate};
 use partsmith_recompute::Input;
-use partsmith_sketch::{NativeSolver, PointRef, SketchParams, SolveIssue, Solver};
+use partsmith_sketch::{MessageContext, NativeSolver, PointRef, SketchParams, SolveIssue, Solver};
 use serde_json::Value;
 
 use crate::assets::asset_matches;
@@ -24,6 +24,7 @@ use crate::error::EngineError;
 use crate::run::RunView;
 use crate::session::Session;
 use crate::sketch::{SKETCH_TYPE, dimension_values};
+use crate::state::feature_label;
 use crate::types::{
     Asset, FeatureMessage, ValidateOptions, ValidationDiagnostic, ValidationReport,
 };
@@ -403,9 +404,10 @@ impl<'a> Checks<'a> {
         checked.get(target)?.as_ref()?.sketch.as_ref()
     }
 
-    /// Step 6: each valid sketch is solved and its solver issues reported.
+    /// Step 6: each valid sketch is solved and its solver issues reported, each with the message
+    /// the sketch crate renders for the sketch and its solve (sketch.md section 4).
     fn sketches(&mut self, checked: &[Option<Checked<'a>>], scope: &Scope<'_>) {
-        for (position, _, found) in self.valid(checked) {
+        for (position, record, found) in self.valid(checked) {
             let Some(params) = &found.sketch else {
                 continue;
             };
@@ -413,7 +415,18 @@ impl<'a> Checks<'a> {
                 continue;
             };
             let path = Some(format!("/features/{position}"));
-            match NativeSolver.solve(params, &values) {
+            let label = feature_label(self.registry, self.document, &record.id);
+            let solve = NativeSolver.solve(params, &values);
+            let result = solve.as_ref().ok();
+            let context = MessageContext {
+                label: &label,
+                sketch: params,
+                solved: result.map(|result| result.entities.as_slice()),
+                values: &values,
+                measured: result.map(|result| &result.measured),
+                units: self.document.units,
+            };
+            match &solve {
                 Ok(result) => {
                     for issue in result.issues(params) {
                         let (severity, code) = match issue {
@@ -423,10 +436,17 @@ impl<'a> Checks<'a> {
                             SolveIssue::Redundant { .. } => (Severity::Warning, "sketch_redundant"),
                             SolveIssue::NotConverged => (Severity::Error, "sketch_not_converged"),
                         };
-                        self.push(severity, code, issue.to_string(), path.clone());
+                        self.push(severity, code, issue.render(&context), path.clone());
                     }
                 }
-                Err(error) => self.push(Severity::Error, "sketch_invalid", error.to_string(), path),
+                Err(error) => {
+                    self.push(
+                        Severity::Error,
+                        "sketch_invalid",
+                        error.render(&context),
+                        path,
+                    );
+                }
             }
         }
     }
@@ -693,6 +713,59 @@ mod tests {
         });
 
         assert_eq!(diagnostic.code, "unsupported_format_version");
+    }
+
+    /// The code and message of every diagnostic `validate` reports, without the optional checks,
+    /// for `drag.ptsm` (one line from (0, 0) to (10, 0), fixed and horizontal) with `constraint`
+    /// added to its sketch.
+    fn sketch_diagnostics(constraint: serde_json::Value) -> Vec<(String, String)> {
+        let mut document: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/drag.ptsm"))
+                .expect("drag.ptsm is JSON");
+        document["features"][0]["constraints"]
+            .as_array_mut()
+            .expect("the sketch lists its constraints")
+            .push(constraint);
+        let mut session = Session::new(crate::SessionOptions::headless());
+
+        session
+            .validate(&document.to_string(), &[], ValidateOptions::default())
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| (diagnostic.code, diagnostic.message))
+            .collect()
+    }
+
+    #[test]
+    fn a_sketch_the_solver_rejects_has_the_sketch_crate_message() {
+        let diagnostics = sketch_diagnostics(serde_json::json!({
+            "id": "c-4", "type": "distance", "points": ["e-1.start", "e-1.end"], "expr": "0 mm"
+        }));
+
+        assert_eq!(
+            diagnostics,
+            [(
+                "sketch_invalid".to_string(),
+                "Distance 0 mm must be greater than 0. To make two points meet, use Coincident instead."
+                    .to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn a_redundant_constraint_is_named_by_its_title() {
+        let diagnostics = sketch_diagnostics(serde_json::json!({
+            "id": "c-5", "type": "horizontal", "line": "e-1"
+        }));
+
+        assert_eq!(
+            diagnostics,
+            [(
+                "sketch_redundant".to_string(),
+                "In 'Sketch 1', Horizontal on the line from (0, 0) to (10, 0) is not needed: the other constraints already hold it."
+                    .to_string()
+            )]
+        );
     }
 
     #[test]

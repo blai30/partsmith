@@ -165,8 +165,18 @@ fn t003_missing_asset() {
     assert_eq!(
         run.messages("f-imp1"),
         [
-            "The imported file assets/0000000000000000000000000000000000000000000000000000000000000000.step is missing. Put it next to the document in the assets folder."
+            "The STEP file of this import is not in this document's assets folder. Copy the assets folder that came with the document next to it, or import the file again."
         ]
+    );
+    let detail = message
+        .detail
+        .as_deref()
+        .expect("the asset name is in the detail");
+    assert!(
+        detail.contains(
+            "assets/0000000000000000000000000000000000000000000000000000000000000000.step"
+        ),
+        "detail: {detail}"
     );
     assert_empty(&run, "b-1");
 }
@@ -195,7 +205,17 @@ fn t004_not_a_step_file() {
     run.assert_error("f-imp1", "kernel");
     assert_eq!(
         run.messages("f-imp1"),
-        ["The file is not a valid STEP file."]
+        [
+            "Partsmith's geometry kernel could not build this import. The file is not a valid STEP file."
+        ]
+    );
+    let detail = run.feature("f-imp1").messages[0]
+        .detail
+        .as_deref()
+        .expect("the kernel's technical text is in the detail");
+    assert!(
+        detail.starts_with("read_step read_failed"),
+        "detail: {detail}"
     );
     assert_empty(&run, "b-1");
 }
@@ -220,6 +240,10 @@ fn t005_invalid_asset_name() {
         "'asset' must name a file in the assets folder, such as <64 hex digits>.step"
     );
     run.assert_error("f-imp1", "invalid_params");
+    assert_eq!(
+        run.messages("f-imp1"),
+        ["File of this import cannot be read, so it was not built. Set File again."]
+    );
 }
 
 #[test]

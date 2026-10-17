@@ -182,6 +182,19 @@ describe('SketchHeader outline (3.16.8)', () => {
   it('has data-outline 0 without findings', () => {
     expect(renderHeader([LINE], fullWith([]))).toHaveAttribute('data-outline', '0')
   })
+
+  it('counts the 0.3 mm gap of NC01, one finding with connect, as " · 2 open ends" and data-outline 2', () => {
+    const lines = [lineEntity('e-1', [0, 0], [80, 0]), lineEntity('e-4', [0, 50], [0, 0.3])]
+    const gap: ProfileFinding = {
+      type: 'open_endpoint',
+      entity: 'e-4',
+      point: [0, 0.3],
+      connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
+    }
+    const header = renderHeader(lines, solutionFor(lines, { profile_findings: [gap] }))
+    expect(header).toHaveAttribute('data-outline', '2')
+    expect(header).toHaveTextContent('· 2 open ends')
+  })
 })
 
 describe('plane picking header (3.16.1)', () => {

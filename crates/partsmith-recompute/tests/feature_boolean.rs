@@ -214,6 +214,12 @@ fn t012_cut_that_misses() {
     let run = Run::example("boolean/cut-misses.ptsm");
 
     run.assert_warnings("f-bool1", &["no_effect"]);
+    // A boolean has no direction, so its cut lies beside the body, with nothing to offer.
+    assert_eq!(
+        run.messages("f-bool1"),
+        ["This cut does not touch body 'Body 1': it lies beside it."]
+    );
+    assert_eq!(run.feature("f-bool1").messages[0].fixes, []);
     assert_unchanged(&run, "f-bool1", "b-1");
     assert_volume(run.shape("b-1"), 8000.0);
     assert_empty(&run, "b-2");
@@ -231,6 +237,12 @@ fn t013_cut_everything() {
     );
 
     run.assert_error("f-bool1", "empty_result");
+    assert_eq!(
+        run.messages("f-bool1"),
+        [
+            "This cut removes all of body 'Body 1'. Make it smaller, or change its position or direction."
+        ]
+    );
     assert_unchanged(&run, "f-bool1", "b-1");
     assert_unchanged(&run, "f-bool1", "b-2");
 }

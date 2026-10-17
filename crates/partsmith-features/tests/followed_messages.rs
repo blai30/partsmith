@@ -10,19 +10,14 @@ use std::f64::consts::{FRAC_PI_2, PI};
 
 use common::records::{
     BLOCK_TOP, FRONT_TOP_EDGE, RIGHT_SIDE, RIGHT_TOP_EDGE, arc, block, block_with, box_below,
-    cube10, edited, line, linear_pattern, point, rectangle, reference, shell, sketch, xy,
+    cube10, edited, line, linear_pattern, point, rectangle, reference, shell, sketch, suppressed,
+    xy,
 };
 use common::timeline::{Timeline, stored};
 use common::{id, lint::assert_passes_lint};
 use partsmith_features::{Diagnosis, FeatureWarning, Resolved};
 use partsmith_naming::{ElementKind, Reference};
 use serde_json::{Value, json};
-
-/// `record` with `"suppressed": true`.
-fn suppressed(mut record: Value) -> Value {
-    record["suppressed"] = json!(true);
-    record
-}
 
 /// A suppressed fillet `f-fil1` of `b-1` with one stored edge.
 fn suppressed_fillet(query: &str, fingerprint: &str) -> Value {

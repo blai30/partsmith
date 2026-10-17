@@ -162,6 +162,18 @@ fn t006_target_with_a_solid() {
     );
 
     run.assert_error("f-split1", "body_not_empty");
+    assert_eq!(
+        run.messages("f-split1"),
+        [
+            "Body 'Body 2' already has a solid here, so this split body cannot put its result there. Pick an empty body for Target body."
+        ]
+    );
+    assert_eq!(
+        run.feature("f-split1").messages[0].fixes,
+        [partsmith_features::Fix::Pick {
+            pointer: "/target".to_string()
+        }]
+    );
     assert_unchanged(&run, "f-split1", "b-1");
     assert_unchanged(&run, "f-split1", "b-2");
 }

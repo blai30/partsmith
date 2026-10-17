@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { ProfileFinding } from '../generated/protocol'
-import { solutionFor } from './fixtures.testing'
+import { lineEntity, solutionFor } from './fixtures.testing'
 import {
   failedSolveMessage,
   findingPoints,
   issueRings,
   messageNumber,
+  openEnds,
+  outlineCount,
   outlineProblems,
   profileFindingMessage,
 } from './issues'
@@ -77,6 +79,45 @@ describe('failed solves', () => {
 function open(point: [number, number]): ProfileFinding {
   return { type: 'open_endpoint', entity: 'e-1', point }
 }
+
+// The 0.3 mm gap of newcomer error corpus NC01: one finding for the end of e-4 at (0, 0.3), paired
+// with the start of e-1 at (0, 0) (sketch.md 4.3).
+const GAP_ENTITIES = [lineEntity('e-1', [0, 0], [80, 0]), lineEntity('e-4', [0, 50], [0, 0.3])]
+const GAP: ProfileFinding = {
+  type: 'open_endpoint',
+  entity: 'e-4',
+  point: [0, 0.3],
+  connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
+}
+
+describe('paired open ends (2.14, 3.16.2)', () => {
+  const solution = solutionFor(GAP_ENTITIES, { profile_findings: [GAP] })
+
+  it('counts a finding with connect as two open ends', () => {
+    expect(openEnds(solution)).toBe(2)
+    expect(outlineCount(solution)).toBe(2)
+    expect(outlineProblems(solution)).toBe('2 open ends')
+  })
+
+  it('rings both ends of a finding with connect', () => {
+    expect(issueRings(solution)).toEqual([
+      { at: [0, 0.3], title: 'Open end' },
+      { at: [0, 0], title: 'Open end' },
+    ])
+  })
+
+  it('counts a finding with connect once among other outline problems', () => {
+    const crossing: ProfileFinding = {
+      type: 'self_intersection',
+      entities: ['e-1', 'e-4'],
+      point: [1, 1],
+    }
+    const mixed = solutionFor(GAP_ENTITIES, { profile_findings: [GAP, crossing] })
+
+    expect(outlineCount(mixed)).toBe(2)
+    expect(outlineProblems(mixed)).toBe('2 outline problems')
+  })
+})
 
 describe('outlineProblems (2.14)', () => {
   it('is null without findings', () => {

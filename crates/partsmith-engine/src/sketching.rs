@@ -16,7 +16,7 @@ use crate::error::EngineError;
 use crate::frames::{face_placement, kept_face_plane, placement_hint, sketch_motion};
 use crate::session::{Session, evaluate_in};
 use crate::sketch::{
-    Drag, Solved, dimension_values, has_point, sketch_params, sketch_record, solve,
+    Drag, SketchWords, Solved, dimension_values, has_point, sketch_params, sketch_record, solve,
 };
 use crate::state::{Computed, built_output, built_sketch, feature_label, state_before};
 
@@ -86,7 +86,14 @@ impl Session {
             }
             None => sketch_params(&self.registry, &open.document, record)?,
         };
-        solve_in(&open.document, &open.computed, position, feature, &params)
+        solve_in(
+            &self.registry,
+            &open.document,
+            &open.computed,
+            position,
+            feature,
+            &params,
+        )
     }
 
     /// `drag_sketch` with the regions its display fills come from.
@@ -114,7 +121,16 @@ impl Session {
         }
         let (values, placement) = sketch_inputs(&open.document, &open.computed, position, &params)?;
         let commit_plane = commit_plane(&params.plane, &placement, &open.computed, position)?;
-        let drag = Drag::begin(params, values, placement, commit_plane, point.clone(), to)?;
+        let words = SketchWords::of(&registry, &open.document, feature);
+        let drag = Drag::begin(
+            params,
+            values,
+            placement,
+            commit_plane,
+            point.clone(),
+            to,
+            words,
+        )?;
         let solved = drag.solved(feature);
         open.drags.insert(feature.clone(), drag);
         Ok(solved)
@@ -124,6 +140,7 @@ impl Session {
 /// Solves `params` of the sketch at timeline position `position` the way `solve_sketch` does,
 /// with the dimension values and placement `sketch_inputs` gives.
 pub(crate) fn solve_in(
+    registry: &Registry,
     document: &Document,
     computed: &Computed,
     position: usize,
@@ -131,7 +148,8 @@ pub(crate) fn solve_in(
     params: &SketchParams,
 ) -> Result<Solved, EngineError> {
     let (values, placement) = sketch_inputs(document, computed, position, params)?;
-    solve(feature, params, &values, placement)
+    let words = SketchWords::of(registry, document, feature);
+    solve(feature, params, &values, placement, &words)
 }
 
 /// What the sketch at timeline position `position` is solved with: its driving dimensions
@@ -256,12 +274,11 @@ pub(crate) fn solved_regions(
 
 /// Sketch params as a feature record's params.
 fn params_map(params: &SketchParams) -> Result<serde_json::Map<String, Value>, EngineError> {
-    match serde_json::to_value(params) {
-        Ok(Value::Object(map)) => Ok(map),
-        Ok(_) => Err(EngineError::internal(
+    match serde_json::to_value(params).map_err(EngineError::unexpected)? {
+        Value::Object(map) => Ok(map),
+        _ => Err(EngineError::internal(
             "sketch params serialize to an object",
         )),
-        Err(error) => Err(EngineError::invalid_sketch(error)),
     }
 }
 
@@ -416,6 +433,46 @@ mod tests {
         assert_eq!(
             candidate_placement(&text, [0.0, 0.0, 10.0], HintFrame::World).origin,
             [0.0, 0.0, 10.0]
+        );
+    }
+
+    /// The message of the error `solve_sketch` of `drag.ptsm`'s sketch (one line from (0, 0) to
+    /// (10, 0)) gives for `candidate`.
+    fn candidate_error(candidate: Value) -> String {
+        let (mut session, doc) = opened(include_str!("../tests/fixtures/drag.ptsm"));
+        let candidate = serde_json::from_value(candidate).expect("candidate sketch params");
+
+        session
+            .solve_sketch(doc, &id("f-sk1"), Some(candidate))
+            .expect_err("the candidate is invalid")
+            .to_string()
+    }
+
+    #[test]
+    fn a_candidate_error_leaves_out_geometry_only_the_stored_sketch_has() {
+        let message = candidate_error(json!({
+            "plane": {"kind": "origin", "plane": "XY"},
+            "entities": [{"id": "e-2", "type": "line", "start": [0, 0], "end": [0, 10]}],
+            "constraints": [{"id": "c-2", "type": "horizontal", "line": "e-1"}]
+        }));
+
+        assert_eq!(
+            message,
+            "Horizontal refers to geometry that is not in this sketch. Delete the constraint."
+        );
+    }
+
+    #[test]
+    fn a_candidate_error_describes_geometry_where_the_candidate_has_it() {
+        let message = candidate_error(json!({
+            "plane": {"kind": "origin", "plane": "XY"},
+            "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [20, 0]}],
+            "constraints": [{"id": "c-3", "type": "parallel", "lines": ["e-1", "e-1"]}]
+        }));
+
+        assert_eq!(
+            message,
+            "Parallel on the line from (0, 0) to (20, 0) uses the line from (0, 0) to (20, 0) twice. Pick two different ones."
         );
     }
 }

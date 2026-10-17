@@ -1,16 +1,21 @@
-//! Acceptance tests for params validation and canonicalization, dependencies, the feature inspector and labels (features.md section 6.2, tests 8 to 14, 16 and 21).
+//! Acceptance tests for params validation and canonicalization, dependencies, the feature inspector and labels (features.md section 6.2, tests 8 to 14, 16 and 21), and the near matches of unknown keys (section 3.2, section 6.5 test 8).
 //!
 //! Tests of the built-in feature types each have a companion with the same number that checks the
 //! same framework behavior with the `slab` test feature, whose params have extrude's shape.
 
 mod common;
 
+use std::collections::BTreeMap;
+
 use common::{
-    NoNames, Probe, Slab, evaluate, extrude_record, id, link_pairs, params_text, record,
-    record_text, rectangle_profile, rectangle_sketch_record, render_error, slab_manifest,
+    NoNames, Probe, Slab, evaluate, extrude_record, field, id, link_pairs, params_text, pick,
+    record, record_text, rectangle_profile, rectangle_sketch_record, render_error, slab_manifest,
     slab_record, use_triples,
 };
-use partsmith_features::{FeatureError, FieldUnit, Registry, Validated};
+use partsmith_features::{
+    Diagnosis, DocumentNames, FeatureError, FieldRef, FieldUnit, Fix, Registry, RenderContext,
+    Validated,
+};
 use partsmith_model::{
     Document, Expr, ExprLink, FeatureInspector, FeatureLinks, FeatureRecord, Units,
 };
@@ -304,7 +309,52 @@ fn t010_unknown_type_message() {
 
     assert_eq!(
         render_error(&error, "f-ext1", &NoNames),
-        "This document uses a feature type 'gear' that this version of Partsmith does not have. Update Partsmith, or delete the feature."
+        "This document has a feature of type 'gear', which this version of Partsmith does not have. Update Partsmith, or delete the feature."
+    );
+}
+
+/// The message and the fixes of `error` on the record `invalid`, rendered with `DocumentNames` for a millimeter
+/// document holding only that record and the built-in registry, as recompute renders an `invalid_params` error.
+fn rendered_in_document(error: &FeatureError, invalid: &FeatureRecord) -> (String, Vec<Fix>) {
+    let registry = Registry::with_builtins();
+    let document = document(vec![invalid.clone()]);
+    let outputs = BTreeMap::new();
+    let names = DocumentNames {
+        document: &document,
+        registry: &registry,
+        outputs: &outputs,
+    };
+    let bodies = BTreeMap::new();
+    let diagnosis = Diagnosis::default();
+    let context = RenderContext {
+        feature: &invalid.id,
+        names: &names,
+        units: Units::Mm,
+        bodies: &bodies,
+        diagnosis: &diagnosis,
+    };
+    (error.render(&context), error.fixes(&context))
+}
+
+#[test]
+fn t011_extrude_without_body_says_which_setting_cannot_be_read() {
+    let registry = Registry::with_builtins();
+    let invalid = without_param(extrude_record(), "body");
+    let error = registry
+        .validate_and_canonicalize(&invalid)
+        .expect_err("an extrude without a body is invalid");
+
+    let (text, fixes) = rendered_in_document(&error, &invalid);
+
+    assert_eq!(
+        text,
+        "Body of this extrude cannot be read, so it was not built. Set Body again."
+    );
+    // The Body hint has a selection, so the field can be picked again.
+    assert_eq!(fixes, [pick("/body")]);
+    assert_eq!(
+        error.detail().as_deref(),
+        Some("the setting 'body' is missing")
     );
 }
 
@@ -411,16 +461,138 @@ fn t012_value_of_the_wrong_type_names_the_field() {
 }
 
 #[test]
-fn t012_invalid_params_message() {
+fn t012_extrude_with_unknown_op_says_which_setting_cannot_be_read() {
+    let registry = Registry::with_builtins();
+    let invalid = with_param(extrude_record(), "op", json!("merge"));
+    let error = registry
+        .validate_and_canonicalize(&invalid)
+        .expect_err("'merge' is not an operation");
+
+    let (text, fixes) = rendered_in_document(&error, &invalid);
+
+    assert_eq!(
+        text,
+        "Operation of this extrude cannot be read, so it was not built. Set Operation again."
+    );
+    // The Operation hint has options, not a selection, so there is nothing to pick.
+    assert_eq!(fixes, []);
+    assert_eq!(
+        error.detail().as_deref(),
+        Some("'merge' is not a valid choice for 'op'")
+    );
+}
+
+#[test]
+fn t012_invalid_params_without_a_field_ask_to_set_the_settings_again() {
     let error = FeatureError::InvalidParams {
         field: None,
-        detail: "the setting 'body' is missing".to_string(),
+        detail: "the settings are not a JSON object".to_string(),
+    };
+
+    let (text, fixes) = rendered_in_document(&error, &extrude_record());
+
+    assert_eq!(
+        text,
+        "The settings of this extrude cannot be read, so it was not built. Edit it to set them again, or delete it."
+    );
+    assert_eq!(fixes, []);
+}
+
+#[test]
+fn t012_invalid_params_with_a_field_render_with_the_field_label() {
+    let error = FeatureError::InvalidParams {
+        field: Some(field("radius", "Radius")),
+        detail: "'radius' has the wrong form (invalid type: map, expected a string)".to_string(),
     };
 
     assert_eq!(
-        render_error(&error, "f-ext1", &NoNames),
-        "This feature's settings are invalid: the setting 'body' is missing. Fix the setting, or delete and recreate the feature."
+        render_error(&error, "f-fil1", &NoNames),
+        "Radius of this feature cannot be read, so it was not built. Set Radius again."
     );
+}
+
+/// A shell record on b-1 with `extra` added after its own params (features.md section 6.5 test 8).
+fn shell_with(extra: &[(&str, Value)]) -> FeatureRecord {
+    let mut shell = record(json!({
+        "id": "f-sh1",
+        "type": "shell",
+        "body": "b-1",
+        "thickness": "2",
+        "remove_faces": [{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=400"}]
+    }));
+    for (key, value) in extra {
+        shell.params.insert((*key).to_string(), value.clone());
+    }
+    shell
+}
+
+/// The field `remove_faces` of the shell manifest.
+fn faces_to_remove() -> FieldRef {
+    field("remove_faces", "Faces to remove")
+}
+
+#[test]
+fn an_unknown_key_that_nearly_matches_one_setting_suggests_it() {
+    let registry = Registry::with_builtins();
+
+    let validated = canonical(&registry, &shell_with(&[("remove_face", json!([]))]));
+
+    assert_eq!(validated.unknown_keys, ["remove_face"]);
+    assert_eq!(
+        validated.suggestions,
+        [("remove_face".to_string(), faces_to_remove())]
+    );
+}
+
+#[test]
+fn an_unknown_key_far_from_every_setting_suggests_nothing() {
+    let registry = Registry::with_builtins();
+
+    let validated = canonical(&registry, &shell_with(&[("zzz", json!(1))]));
+
+    assert_eq!(validated.unknown_keys, ["zzz"]);
+    assert_eq!(validated.suggestions, []);
+}
+
+#[test]
+fn suggestions_follow_the_order_of_the_unknown_keys() {
+    let registry = Registry::with_builtins();
+
+    let validated = canonical(
+        &registry,
+        &shell_with(&[("zzz", json!(1)), ("remove_face", json!([]))]),
+    );
+
+    assert_eq!(validated.unknown_keys, ["zzz", "remove_face"]);
+    assert_eq!(
+        validated.suggestions,
+        [("remove_face".to_string(), faces_to_remove())]
+    );
+}
+
+#[test]
+fn an_unknown_key_near_two_settings_suggests_neither() {
+    // 'maor_radius' is within edit distance 2 of both 'major_radius' and 'minor_radius'.
+    let registry = Registry::with_builtins();
+    let torus = record(json!({
+        "id": "f-tor1", "type": "torus", "body": "b-1", "major_radius": "20", "minor_radius": "5",
+        "maor_radius": "3", "op": "new"
+    }));
+
+    let validated = canonical(&registry, &torus);
+
+    assert_eq!(validated.unknown_keys, ["maor_radius"]);
+    assert_eq!(validated.suggestions, []);
+}
+
+#[test]
+fn a_known_key_is_never_suggested_for_itself() {
+    let registry = Registry::with_builtins();
+
+    let validated = canonical(&registry, &shell_with(&[]));
+
+    assert_eq!(validated.unknown_keys, Vec::<String>::new());
+    assert_eq!(validated.suggestions, []);
 }
 
 #[test]
@@ -681,7 +853,9 @@ fn t016_inspect_of_invalid_params_returns_the_error_text() {
 
     assert_eq!(
         links,
-        Err("This feature's settings are invalid: the setting 'body' is missing. Fix the setting, or delete and recreate the feature.".to_string())
+        Err(
+            "Body of this feature cannot be read, so it was not built. Set Body again.".to_string()
+        )
     );
 }
 

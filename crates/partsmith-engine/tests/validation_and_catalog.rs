@@ -111,6 +111,14 @@ fn t103_validation_reports_canonical_form_and_sketch_conflicts() {
         },
     );
     let conflict = session.validate(&fixture("conflict.ptsm"), &[], ValidateOptions::default());
+    let rebuilt = session.validate(
+        &fixture("conflict.ptsm"),
+        &[],
+        ValidateOptions {
+            rebuild: true,
+            canonical: false,
+        },
+    );
 
     assert!(
         valid.diagnostics.is_empty(),
@@ -130,6 +138,27 @@ fn t103_validation_reports_canonical_form_and_sketch_conflicts() {
     assert_eq!(reindented.diagnostics[0].line, Some(2));
     assert_eq!(error_codes(&conflict), ["sketch_conflicting"]);
     assert!(conflict.has_errors());
+    let found = &conflict.diagnostics[0];
+    assert_eq!(found.path.as_deref(), Some("/features/0"));
+    assert!(
+        found.message.contains("Distance 10 mm"),
+        "the conflict names its constraints by title and value: {}",
+        found.message
+    );
+    for constraint in ["c-1", "c-2", "c-3", "c-4"] {
+        assert!(
+            !found.message.contains(constraint),
+            "the conflict names no constraint id: {}",
+            found.message
+        );
+    }
+    let of_the_sketch: Vec<&str> = rebuilt
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.path.as_deref() == Some("/features/0"))
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect();
+    assert_eq!(of_the_sketch, [found.message.as_str()]);
 }
 
 #[test]

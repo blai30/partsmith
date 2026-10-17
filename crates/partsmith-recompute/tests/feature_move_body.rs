@@ -122,6 +122,12 @@ fn t006_nothing_moves() {
     let run = Run::example("move_body/nothing-moves.ptsm");
 
     run.assert_warnings("f-mv1", &["no_effect"]);
+    assert_eq!(
+        run.messages("f-mv1"),
+        [
+            "This move body leaves body 'Body 1' where it is, because its move is 0 and it turns by whole turns or not at all."
+        ]
+    );
     assert_unchanged(&run, "f-mv1", "b-1");
 }
 
@@ -304,6 +310,23 @@ fn t013_axis_edges_not_on_one_line() {
         "b-1",
         &FRONT_TOP_EDGES_OF_BOTH_BOXES,
         "The edge selected for Rotation axis now matches 2 edges that do not lie on one line. Pick the one you mean.",
+    );
+    assert_unchanged(&run, "f-mv1", "b-1");
+}
+
+#[test]
+fn a_translation_beyond_the_modeling_limit_is_out_of_range() {
+    // As features.md section 6.4 test 15 (d), along Z and above the limit.
+    let run = Run::records(
+        &BODIES,
+        &[BOX123, &move_body(r#""translation": ["0", "0", "1e200"]"#)],
+    );
+
+    let error = run.assert_error("f-mv1", "out_of_range");
+    assert_error_field(error, "translation[2]");
+    assert_eq!(
+        run.messages("f-mv1"),
+        ["Move Z must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."]
     );
     assert_unchanged(&run, "f-mv1", "b-1");
 }

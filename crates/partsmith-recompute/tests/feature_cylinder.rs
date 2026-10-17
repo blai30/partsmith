@@ -154,7 +154,9 @@ fn t008_radius_below_the_tolerance_is_out_of_range() {
     assert_error_field(error, "radius");
     assert_eq!(
         run.messages("f-cyl1"),
-        ["Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+        [
+            "Radius must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+        ],
     );
     assert_empty(&run, "b-1");
 }
@@ -167,6 +169,8 @@ fn t009_height_below_the_tolerance_is_out_of_range() {
     assert_error_field(error, "height");
     assert_eq!(
         run.messages("f-cyl1"),
-        ["Height must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
+        [
+            "Height must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+        ],
     );
 }

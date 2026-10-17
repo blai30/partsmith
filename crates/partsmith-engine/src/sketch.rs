@@ -3,19 +3,20 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use partsmith_features::{Registry, SketchResult};
-use partsmith_model::{Dimension, Document, FeatureRecord, Id, Scope};
+use partsmith_features::{FeatureError, Registry, SketchResult};
+use partsmith_model::{Dimension, Document, FeatureRecord, Id, Scope, Units};
 use partsmith_protocol::{
     ConstraintSolveState, ConstraintState, RegionInfo, SketchSolution, SolvedEntity, SolvedPoint,
 };
 use partsmith_sketch::{
-    DimensionValues, DragSession, DragTarget, EntityState, Geometry, NativeDragSession,
-    NativeSolver, Placement, PointRef, PointRole, Profile, Region, SketchEntity, SketchParams,
-    SketchPlane, SolveResult, Solver, ValueKind, build_profile,
+    DimensionValues, DragSession, DragTarget, EntityState, Geometry, MessageContext,
+    NativeDragSession, NativeSolver, Placement, PointRef, PointRole, Profile, Region, SketchEntity,
+    SketchError, SketchParams, SketchPlane, SolveResult, Solver, ValueKind, build_profile,
 };
 
 use crate::diagnostics::{feature_error_detail, render_feature_error};
 use crate::error::EngineError;
+use crate::state::feature_label;
 
 /// The type name of sketch features.
 pub(crate) const SKETCH_TYPE: &str = "sketch";
@@ -32,6 +33,47 @@ pub(crate) struct Solved {
     pub(crate) regions: Vec<Region>,
 }
 
+/// What the sketch crate's messages of a sketch command name besides the sketch: its label and
+/// the document units (sketch.md section 4).
+#[derive(Clone, Debug)]
+pub(crate) struct SketchWords {
+    /// The sketch's label, for example "Sketch 1".
+    label: String,
+    /// The document units.
+    units: Units,
+}
+
+impl SketchWords {
+    /// The words of the sketch `feature` of `document`.
+    pub(crate) fn of(registry: &Registry, document: &Document, feature: &Id) -> SketchWords {
+        SketchWords {
+            label: feature_label(registry, document, feature),
+            units: document.units,
+        }
+    }
+
+    /// The `invalid_params` error for `error`, raised by `params` with the driving dimension
+    /// values `values` before any solve.
+    pub(crate) fn invalid(
+        &self,
+        error: &SketchError,
+        params: &SketchParams,
+        values: &DimensionValues,
+    ) -> EngineError {
+        EngineError::invalid_sketch(
+            error,
+            &MessageContext {
+                label: &self.label,
+                sketch: params,
+                solved: None,
+                values,
+                measured: None,
+                units: self.units,
+            },
+        )
+    }
+}
+
 /// The params of a sketch record, validated and canonicalized by the registry.
 pub(crate) fn sketch_params(
     registry: &Registry,
@@ -40,12 +82,33 @@ pub(crate) fn sketch_params(
 ) -> Result<SketchParams, EngineError> {
     let validated = registry
         .validate_and_canonicalize(record)
-        .map_err(|error| EngineError::InvalidSketch {
-            message: render_feature_error(&error, document, registry, &record.id),
-            detail: feature_error_detail(&error),
-        })?;
+        .map_err(|error| rejected_record(&error, registry, document, record))?;
     serde_json::from_value(serde_json::Value::Object(validated.record.params))
         .map_err(EngineError::unexpected)
+}
+
+/// The `invalid_params` error of a sketch record the registry rejects. A sketch error is
+/// described from the record's own params, which for a candidate of `solve_sketch` are not the
+/// stored ones; other errors are rendered with the document's names.
+fn rejected_record(
+    error: &FeatureError,
+    registry: &Registry,
+    document: &Document,
+    record: &FeatureRecord,
+) -> EngineError {
+    if let FeatureError::SketchInvalid { error } = error
+        && let Ok(params) = serde_json::from_value(serde_json::Value::Object(record.params.clone()))
+    {
+        return SketchWords::of(registry, document, &record.id).invalid(
+            error,
+            &params,
+            &DimensionValues::new(),
+        );
+    }
+    EngineError::InvalidSketch {
+        message: render_feature_error(error, document, registry, &record.id),
+        detail: feature_error_detail(error),
+    }
 }
 
 /// The record of a sketch command's feature: `unknown_feature` when missing, `not_a_sketch` when
@@ -94,17 +157,18 @@ pub(crate) fn dimension_values(
     Ok(values)
 }
 
-/// Solves `params` with `values` (`invalid_params` with the sketch crate's message when the
-/// solver rejects them) and projects the result.
+/// Solves `params` with `values` (`invalid_params` with the sketch crate's message in `words`
+/// when the solver rejects them) and projects the result.
 pub(crate) fn solve(
     feature: &Id,
     params: &SketchParams,
     values: &DimensionValues,
     placement: Placement,
+    words: &SketchWords,
 ) -> Result<Solved, EngineError> {
     let result = NativeSolver
         .solve(params, values)
-        .map_err(EngineError::invalid_sketch)?;
+        .map_err(|error| words.invalid(&error, params, values))?;
     let profile = build_profile(&result.entities);
     Ok(project(
         feature, params, &result, profile, placement, values,
@@ -313,6 +377,8 @@ pub(crate) struct Drag {
     pub(crate) commit_plane: Option<SketchPlane>,
     /// The last frame's result.
     pub(crate) last: SolveResult,
+    /// How the messages of the drag's errors name the sketch.
+    words: SketchWords,
 }
 
 impl std::fmt::Debug for Drag {
@@ -327,7 +393,7 @@ impl std::fmt::Debug for Drag {
 
 impl Drag {
     /// Begins a drag of `point` and solves its first frame at `to`, with the sketch at `placement`
-    /// and `commit_plane` the plane a commit writes.
+    /// and `commit_plane` the plane a commit writes; errors name the sketch with `words`.
     pub(crate) fn begin(
         params: SketchParams,
         values: DimensionValues,
@@ -335,14 +401,16 @@ impl Drag {
         commit_plane: Option<SketchPlane>,
         point: PointRef,
         to: [f64; 2],
+        words: SketchWords,
     ) -> Result<Drag, EngineError> {
         let target = DragTarget::Point {
             point: point.clone(),
         };
+        let invalid = |error: SketchError| words.invalid(&error, &params, &values);
         let mut session = NativeSolver
             .begin_drag(&params, &values, &target)
-            .map_err(EngineError::invalid_sketch)?;
-        let last = frame(&mut session, to)?;
+            .map_err(invalid)?;
+        let last = session.update(to).map_err(invalid)?;
         Ok(Drag {
             point,
             session,
@@ -351,12 +419,17 @@ impl Drag {
             placement,
             commit_plane,
             last,
+            words,
         })
     }
 
-    /// Solves the next frame at `to`, starting from the previous one.
+    /// Solves the next frame at `to`, starting from the previous one (`invalid_params` when the
+    /// solver rejects the cursor).
     pub(crate) fn update(&mut self, to: [f64; 2]) -> Result<(), EngineError> {
-        self.last = frame(&mut self.session, to)?;
+        self.last = self
+            .session
+            .update(to)
+            .map_err(|error| self.words.invalid(&error, &self.params, &self.values))?;
         Ok(())
     }
 
@@ -372,11 +445,6 @@ impl Drag {
             &self.values,
         )
     }
-}
-
-/// One drag frame (`invalid_params` when the solver rejects the cursor).
-fn frame(session: &mut NativeDragSession, to: [f64; 2]) -> Result<SolveResult, EngineError> {
-    session.update(to).map_err(EngineError::invalid_sketch)
 }
 
 /// True when `point` addresses a point of an entity of `params` (reserved references are not
@@ -431,12 +499,21 @@ mod tests {
         }
     }
 
+    /// The words of a sketch labeled "Sketch 1" in a document in millimeters.
+    fn words() -> SketchWords {
+        SketchWords {
+            label: "Sketch 1".to_owned(),
+            units: Units::Mm,
+        }
+    }
+
     fn solve_drag_sketch() -> Solved {
         solve(
             &id("f-sk1"),
             &drag_sketch(),
             &DimensionValues::new(),
             OriginPlane::Xy.placement(),
+            &words(),
         )
         .expect("the sketch solves")
     }
@@ -484,8 +561,14 @@ mod tests {
         ));
         let values = DimensionValues::from([(id("c-3"), 10.0)]);
 
-        let solved = solve(&id("f-sk1"), &params, &values, OriginPlane::Xy.placement())
-            .expect("the sketch solves");
+        let solved = solve(
+            &id("f-sk1"),
+            &params,
+            &values,
+            OriginPlane::Xy.placement(),
+            &words(),
+        )
+        .expect("the sketch solves");
 
         let distance = &solved.solution.constraints[2];
         assert_eq!(distance.id, id("c-3"));
@@ -512,8 +595,14 @@ mod tests {
         ));
         let values = DimensionValues::from([(id("c-4"), 10.0)]);
 
-        let solved = solve(&id("f-sk1"), &params, &values, OriginPlane::Xy.placement())
-            .expect("the sketch solves");
+        let solved = solve(
+            &id("f-sk1"),
+            &params,
+            &values,
+            OriginPlane::Xy.placement(),
+            &words(),
+        )
+        .expect("the sketch solves");
 
         assert_eq!(solved.solution.status, SketchStatus::Conflicting);
         assert!(solved.solution.failed);
@@ -547,6 +636,7 @@ mod tests {
             &params,
             &DimensionValues::new(),
             OriginPlane::Xy.placement(),
+            &words(),
         )
         .expect("the sketch solves");
 
@@ -556,16 +646,76 @@ mod tests {
     }
 
     #[test]
-    fn drags_follow_the_cursor_within_the_constraints() {
-        let mut drag = Drag::begin(
+    fn a_rejected_solve_has_the_sketch_crate_message_and_its_detail() {
+        let mut params = drag_sketch();
+        params.constraints.push(constraint(
+            "c-3",
+            ConstraintKind::Distance {
+                target: DistanceTarget::Points {
+                    points: [
+                        "e-1.start".parse().expect("a valid point"),
+                        "e-1.end".parse().expect("a valid point"),
+                    ],
+                },
+                dimension: DimensionExpr {
+                    expr: "0 mm".into(),
+                    driving: true,
+                },
+            },
+        ));
+        let values = DimensionValues::from([(id("c-3"), 0.0)]);
+
+        let error = solve(
+            &id("f-sk1"),
+            &params,
+            &values,
+            OriginPlane::Xy.placement(),
+            &words(),
+        )
+        .expect_err("a zero distance is rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "Distance 0 mm must be greater than 0. To make two points meet, use Coincident instead."
+        );
+        assert_eq!(
+            error.detail().as_deref(),
+            Some(r#"value_not_positive constraint=c-3 type_name="distance" value=0 points=true"#)
+        );
+    }
+
+    #[test]
+    fn a_rejected_drag_frame_has_the_sketch_crate_message_and_its_detail() {
+        let mut drag = begin_drag_of_the_end();
+
+        let error = drag
+            .update([f64::NAN, 0.0])
+            .expect_err("a cursor that is not a number is rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "The pointer position cannot be used. Move the pointer over the sketch and drag again."
+        );
+        assert_eq!(error.detail().as_deref(), Some("non_finite_cursor"));
+    }
+
+    /// A drag of the end of `drag_sketch`'s line, its first frame at (20, 5).
+    fn begin_drag_of_the_end() -> Drag {
+        Drag::begin(
             drag_sketch(),
             DimensionValues::new(),
             OriginPlane::Xy.placement(),
             None,
             "e-1.end".parse().expect("a valid point"),
             [20.0, 5.0],
+            words(),
         )
-        .expect("the drag begins");
+        .expect("the drag begins")
+    }
+
+    #[test]
+    fn drags_follow_the_cursor_within_the_constraints() {
+        let mut drag = begin_drag_of_the_end();
 
         drag.update([30.0, -5.0]).expect("the frame solves");
 

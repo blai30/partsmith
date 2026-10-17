@@ -70,23 +70,18 @@ impl ProfileFinding {
                 context.position(*point)
             ),
             ProfileFinding::Overlap {
-                entities: [first, second],
+                entities,
                 start,
                 end,
             } => format!(
-                "{} and {} overlap between {} and {}. Delete one of them, or move it so they meet only at their ends.",
-                capitalized(&context.entity_or_kind(first, None)),
-                context.entity_or_kind(second, None),
+                "{} overlap between {} and {}. Delete one of them, or move it so they meet only at their ends.",
+                both_curves(context, entities),
                 context.position(*start),
                 context.position(*end)
             ),
-            ProfileFinding::SelfIntersection {
-                entities: [first, second],
-                point,
-            } => format!(
-                "{} and {} cross at {}, which splits the outline into several regions.",
-                capitalized(&context.entity_or_kind(first, None)),
-                context.entity_or_kind(second, None),
+            ProfileFinding::SelfIntersection { entities, point } => format!(
+                "{} cross at {}, which splits the outline into several regions.",
+                both_curves(context, entities),
                 context.position(*point)
             ),
             ProfileFinding::ZeroLength { entity } => zero_length_message(context, entity),
@@ -106,6 +101,15 @@ impl ProfileFinding {
             _ => Vec::new(),
         }
     }
+}
+
+/// `{Entity a} and {entity b}`, the two curves an overlap or a crossing names, starting a sentence.
+fn both_curves(context: &MessageContext<'_>, [first, second]: &[Id; 2]) -> String {
+    format!(
+        "{} and {}",
+        capitalized(&context.entity_or_kind(first, None)),
+        context.entity_or_kind(second, None)
+    )
 }
 
 /// The message of `ZeroLength`, which names the curve by its kind at its start, or a circle at its center.
@@ -196,7 +200,20 @@ impl fmt::Display for Connection {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{id, point};
+    use crate::params::DimensionValues;
+    use crate::test_support::{id, message_context, point, sketch};
+
+    #[test]
+    fn a_zero_length_curve_the_sketch_does_not_have_is_named_as_a_curve() {
+        let sketch = sketch(Vec::new(), Vec::new());
+        let values = DimensionValues::new();
+        let finding = ProfileFinding::ZeroLength { entity: id("e-7") };
+
+        assert_eq!(
+            finding.render(&message_context(&sketch, &values)),
+            "A curve of this sketch has no length and is ignored for profiles. Delete it."
+        );
+    }
 
     #[test]
     fn a_connection_is_written_as_both_ends_and_the_gap() {
