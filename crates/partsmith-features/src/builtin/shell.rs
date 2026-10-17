@@ -143,7 +143,7 @@ impl BodySolid {
             SubShapeKind::Face => &self.faces,
             SubShapeKind::Edge => &self.edges,
             SubShapeKind::Vertex => &self.vertices,
-            SubShapeKind::Solid => return None,
+            SubShapeKind::Solid | SubShapeKind::Shell => return None,
         };
         *indices.get(index.checked_sub(1)? as usize)?
     }

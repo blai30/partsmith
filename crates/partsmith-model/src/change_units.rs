@@ -63,28 +63,10 @@ impl<'a> BareNumbers<'a> {
             let Ok(links) = inspector.inspect(feature) else {
                 continue;
             };
-            let mut numbers = Vec::new();
-            for link in links.expressions {
-                let Some(analysis) = Analysis::of(&link.expr, &positions) else {
-                    continue;
-                };
-                let is_length = link.unit == FieldUnit::Length;
-                let way = if is_length { Way::Size } else { Way::Other };
-                starts.extend(
-                    analysis
-                        .uses
-                        .iter()
-                        .map(|used| (used.parameter, way.through(used.promoted))),
-                );
-                if let Some(end) = analysis.bare_number_end
-                    && is_length
-                    && link.is_found_in(&feature.params)
-                {
-                    numbers.push((link, end));
-                }
-            }
-            if !numbers.is_empty() {
-                features.push((feature, numbers));
+            let analysis = RecordAnalysis::of(feature, links.expressions, &positions);
+            starts.extend(analysis.starts);
+            if !analysis.numbers.is_empty() {
+                features.push((feature, analysis.numbers));
             }
         }
         let uses: Vec<&[Use]> = analyses
@@ -133,6 +115,43 @@ impl<'a> BareNumbers<'a> {
             Edit::UpdateFeature { feature: updated }
         });
         parameters.chain(features)
+    }
+}
+
+/// What Keep sizes needs to know about the links of one feature record.
+struct RecordAnalysis {
+    /// The links whose bare numbers it rewrites, each with the byte offset just after its number
+    /// literal.
+    numbers: Vec<(ExprLink, usize)>,
+    /// The parameters the links name directly, each with the way a link reaches it (the starts
+    /// of `reach`).
+    starts: Vec<(usize, Way)>,
+}
+
+impl RecordAnalysis {
+    /// The analysis of `links`, the links of `feature`, whose names are looked up in `positions`.
+    fn of(
+        feature: &FeatureRecord,
+        links: Vec<ExprLink>,
+        positions: &BTreeMap<&str, usize>,
+    ) -> RecordAnalysis {
+        let mut numbers = Vec::new();
+        let mut starts = Vec::new();
+        for link in links {
+            let Some(analysis) = Analysis::of(&link.expr, positions) else {
+                continue;
+            };
+            let is_length = link.unit == FieldUnit::Length;
+            let way = if is_length { Way::Size } else { Way::Other };
+            starts.extend(onward(&analysis.uses, way));
+            if let Some(end) = analysis.bare_number_end
+                && is_length
+                && link.is_found_in(&feature.params)
+            {
+                numbers.push((link, end));
+            }
+        }
+        RecordAnalysis { numbers, starts }
     }
 }
 
@@ -228,6 +247,12 @@ impl Ways {
     }
 }
 
+/// The parameters `uses` name, each with the way on from `way` through its use.
+fn onward(uses: &[Use], way: Way) -> impl Iterator<Item = (usize, Way)> + '_ {
+    uses.iter()
+        .map(move |used| (used.parameter, way.through(used.promoted)))
+}
+
 /// The ways links reach each parameter, from the parameters the links name directly (`starts`),
 /// following `uses` of each parameter. Each parameter is followed at most once per way, so
 /// cycles end.
@@ -236,11 +261,7 @@ fn reach(uses: &[&[Use]], starts: Vec<(usize, Way)>) -> Vec<Ways> {
     let mut pending = starts;
     while let Some((parameter, way)) = pending.pop() {
         if reached[parameter].insert(way) {
-            pending.extend(
-                uses[parameter]
-                    .iter()
-                    .map(|used| (used.parameter, way.through(used.promoted))),
-            );
+            pending.extend(onward(uses[parameter], way));
         }
     }
     reached
@@ -279,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn a_parameter_reached_by_another_unit_is_not_a_size_only() {
+    fn a_parameter_another_unit_also_reaches_is_not_only_a_size() {
         let uses: [&[Use]; 1] = [&[]];
 
         let reached = reach(&uses, vec![(0, Way::Size), (0, Way::Other)]);

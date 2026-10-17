@@ -1,9 +1,13 @@
-// Tessellation into flat mesh arrays (kernel spec section 3.7).
+// Tessellation into flat mesh arrays, and the display geometry of one element (kernel spec section
+// 3.7).
 #include <algorithm>
 #include <vector>
 
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
 #include <GeomLib.hxx>
 #include <Geom_Surface.hxx>
 #include <IMeshTools_Parameters.hxx>
@@ -25,6 +29,28 @@ namespace occt {
 using namespace detail;
 
 namespace {
+
+// Appends a point's three coordinates to a flat list.
+void push_point(rust::Vec<double> &values, const gp_XYZ &point) {
+  values.push_back(point.X());
+  values.push_back(point.Y());
+  values.push_back(point.Z());
+}
+
+// The meshing parameters of kernel spec section 3.7, item 2.
+IMeshTools_Parameters mesh_parameters(double chord_deviation, double angle) {
+  IMeshTools_Parameters parameters;
+  parameters.Deflection = chord_deviation;
+  parameters.Angle = angle;
+  parameters.Relative = Standard_False;
+  parameters.InParallel = Standard_False;
+  // Delabella triangulates each face's nodes at once, where OCCT's default inserts them one by
+  // one, which took seconds on large spheres and on planar faces with many holes (kernel spec
+  // section 3.7, item 2). Naming the algorithm also keeps OCCT from choosing it
+  // from the CSF_MeshAlgo environment variable.
+  parameters.MeshAlgo = IMeshTools_MeshAlgoType_Delabella;
+  return parameters;
+}
 
 // The mesh vertices one face's triangulation gives an edge, in increasing edge parameter.
 using EdgeUse = std::vector<std::uint32_t>;
@@ -64,12 +90,6 @@ class MeshBuilder {
   gp_XYZ position(std::uint32_t vertex) const {
     return gp_XYZ(data_.positions[3 * vertex], data_.positions[3 * vertex + 1],
                   data_.positions[3 * vertex + 2]);
-  }
-
-  static void push_point(rust::Vec<double> &values, const gp_XYZ &point) {
-    values.push_back(point.X());
-    values.push_back(point.Y());
-    values.push_back(point.Z());
   }
 
   // Unit normals of the triangulation nodes in the triangulation's own frame: from the surface
@@ -253,18 +273,95 @@ class MeshBuilder {
 MeshData shape_tessellate(const Shape &shape, double chord_deviation, double angle) {
   // Mesh a copy so the input never carries a triangulation (kernel spec section 3.7, item 2).
   const Shape copy = copy_shape(shape);
-  IMeshTools_Parameters parameters;
-  parameters.Deflection = chord_deviation;
-  parameters.Angle = angle;
-  parameters.Relative = Standard_False;
-  parameters.InParallel = Standard_False;
-  // Delabella triangulates each face's nodes at once, where OCCT's default inserts them one by
-  // one, which took seconds on large spheres and on planar faces with many holes (kernel spec
-  // section 3.7, item 2). Naming the algorithm also keeps OCCT from choosing it
-  // from the CSF_MeshAlgo environment variable.
-  parameters.MeshAlgo = IMeshTools_MeshAlgoType_Delabella;
-  BRepMesh_IncrementalMesh mesher(copy.get(), parameters);
+  BRepMesh_IncrementalMesh mesher(copy.get(), mesh_parameters(chord_deviation, angle));
   return MeshBuilder(copy).build();
+}
+
+namespace {
+
+// The triangles of one face, three points each, wound counterclockwise seen from outside (kernel
+// spec section 3.7, item 9.2). Only a copy of the face alone is meshed, which shares its geometry
+// and keeps its location and orientation, so the triangulation is stored on the copy.
+rust::Vec<double> face_display(const TopoDS_Face &face, std::uint32_t index, double chord_deviation,
+                               double angle) {
+  BRepBuilderAPI_Copy copier(face, Standard_False, Standard_False);
+  const TopoDS_Face copy = TopoDS::Face(copier.Shape());
+  BRepMesh_IncrementalMesh mesher(copy, mesh_parameters(chord_deviation, angle));
+  TopLoc_Location location;
+  const Handle(Poly_Triangulation) &triangulation = BRep_Tool::Triangulation(copy, location);
+  if (triangulation.IsNull()) {
+    raise_not_done("BRepMesh_IncrementalMesh gave face " + std::to_string(index) +
+                   " no triangulation");
+  }
+  // The triangulation lies in the frame of the face without its location, like a whole shape's.
+  const gp_Trsf transformation = location.Transformation();
+  const bool reversed = copy.Orientation() == TopAbs_REVERSED;
+  rust::Vec<double> points;
+  points.reserve(9 * static_cast<std::size_t>(triangulation->NbTriangles()));
+  for (int triangle = 1; triangle <= triangulation->NbTriangles(); ++triangle) {
+    int first = 0, second = 0, third = 0;
+    triangulation->Triangle(triangle).Get(first, second, third);
+    if (reversed) {
+      std::swap(second, third);
+    }
+    for (int node : {first, second, third}) {
+      push_point(points, triangulation->Node(node).Transformed(transformation).XYZ());
+    }
+  }
+  return points;
+}
+
+// The polyline of one edge from its first vertex to its last, a closed edge ending exactly at its
+// first point (kernel spec section 3.7, item 9.3).
+rust::Vec<double> edge_display(const TopoDS_Edge &edge, std::uint32_t index, double chord_deviation,
+                               double angle) {
+  require_curve(edge, index);
+  const BRepAdaptor_Curve curve(edge);
+  const GCPnts_TangentialDeflection discretization(curve, angle, chord_deviation, 2);
+  if (discretization.NbPoints() < 2) {
+    raise_not_done("GCPnts_TangentialDeflection gave edge " + std::to_string(index) +
+                   " fewer than 2 points");
+  }
+  std::vector<gp_XYZ> polyline;
+  polyline.reserve(static_cast<std::size_t>(discretization.NbPoints()));
+  for (int point = 1; point <= discretization.NbPoints(); ++point) {
+    polyline.push_back(discretization.Value(point).XYZ());
+  }
+  // The curve runs along its parameter; a reversed edge runs the other way.
+  if (edge.Orientation() == TopAbs_REVERSED) {
+    std::reverse(polyline.begin(), polyline.end());
+  }
+  TopoDS_Vertex first_vertex, last_vertex;
+  TopExp::Vertices(edge, first_vertex, last_vertex);
+  if (!first_vertex.IsNull() && first_vertex.IsSame(last_vertex)) {
+    polyline.back() = polyline.front();
+  }
+  rust::Vec<double> points;
+  points.reserve(3 * polyline.size());
+  for (const gp_XYZ &point : polyline) {
+    push_point(points, point);
+  }
+  return points;
+}
+
+}  // namespace
+
+rust::Vec<double> shape_element_display(const Shape &shape, ElementKind kind, std::uint32_t index,
+                                        double chord_deviation, double angle) {
+  const TopoDS_Shape &element = element_at(shape, kind, index);
+  switch (element.ShapeType()) {
+    case TopAbs_FACE:
+      return face_display(TopoDS::Face(element), index, chord_deviation, angle);
+    case TopAbs_EDGE:
+      return edge_display(TopoDS::Edge(element), index, chord_deviation, angle);
+    case TopAbs_VERTEX: {
+      rust::Vec<double> position;
+      push_point(position, BRep_Tool::Pnt(TopoDS::Vertex(element)).XYZ());
+      return position;
+    }
+    default:
+      raise_invalid_input("Only faces, edges and vertices can be queried.");
+  }
 }
 
 }  // namespace occt

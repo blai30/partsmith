@@ -3,55 +3,14 @@
 mod common;
 
 use common::{
-    FACE_PLANE_JSON, Sketch, angle, arc, assert_bitwise, assert_close, assert_point_close, circle,
-    coincident, collinear, concentric, diameter, distance_line, distance_point_line,
-    distance_points, equal, find, fix, horizontal, horizontal_distance_line,
-    horizontal_distance_points, id, line, measured, midpoint, parallel, perpendicular, plate,
-    point, point_on_object, point_ref, position, radius, rect, reference, symmetric, tangent,
-    vertical, vertical_distance_line, vertical_distance_points,
+    Sketch, angle, arc, assert_bitwise, assert_close, assert_point_close, circle, coincident,
+    collinear, concentric, diameter, distance_line, distance_point_line, distance_points, equal,
+    find, fix, horizontal, horizontal_distance_line, horizontal_distance_points, id, line,
+    measured, midpoint, parallel, perpendicular, plate, point, point_on_object, point_ref,
+    position, radius, rect, rect_with_circle_and_point, reference, sketch_on_face, symmetric,
+    tangent, value_entities, vertical, vertical_distance_line, vertical_distance_points,
 };
-use partsmith_sketch::{
-    ConstraintKind, EntityKind, Placement, PlacementProblem, SketchError, SketchPlane, ValueKind,
-};
-
-/// `RECT` plus `circle e-5 c(40,25) r5` and `point e-7 (1,1)` (test 27).
-fn rect_with_circle_and_point() -> Sketch {
-    rect()
-        .entity(circle("e-5", [40.0, 25.0], 5.0))
-        .entity(point("e-7", 1.0, 1.0))
-}
-
-/// The face plane example of spec section 2.2 with its fallback replaced.
-fn face_plane(fallback: Placement) -> SketchPlane {
-    let mut plane: SketchPlane =
-        serde_json::from_str(FACE_PLANE_JSON).expect("the face plane example deserializes");
-    match &mut plane {
-        SketchPlane::Face { fallback: slot, .. } => *slot = fallback,
-        other => panic!("the example is a face plane, found {other:?}"),
-    }
-    plane
-}
-
-/// An empty sketch on a face plane with the given fallback placement.
-fn sketch_on_face(origin: [f64; 3], x_axis: [f64; 3], normal: [f64; 3]) -> Sketch {
-    let mut sketch = Sketch::new(Vec::new());
-    sketch.params.plane = face_plane(Placement {
-        origin,
-        x_axis,
-        normal,
-    });
-    sketch
-}
-
-/// The entities of tests 38 to 45: `point e-1 (0,0)`, `point e-2 (3,4)`, `circle e-3 c(10,10) r2`, `line e-4 (0,10)->(10,10)`.
-fn value_entities() -> Sketch {
-    Sketch::new(vec![
-        point("e-1", 0.0, 0.0),
-        point("e-2", 3.0, 4.0),
-        circle("e-3", [10.0, 10.0], 2.0),
-        line("e-4", [0.0, 10.0], [10.0, 10.0]),
-    ])
-}
+use partsmith_sketch::{ConstraintKind, EntityKind, PlacementProblem, SketchError, ValueKind};
 
 // ---------------------------------------------------------------------------
 // 6.2 Validation

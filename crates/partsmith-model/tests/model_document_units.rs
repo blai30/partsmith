@@ -456,6 +456,25 @@ fn bare_numbers_in_other_kinds_of_field_are_left_alone() {
 }
 
 #[test]
+fn a_parameter_times_a_negated_number_keeps_its_size() {
+    let original = document_with(
+        &[("wall", "2")],
+        json!({"body": "b-1", "lengths": ["-2 * wall"]}),
+    );
+    let mut document = original.clone();
+
+    assert_eq!(original.bare_numbers(&TestInspector), 1);
+    commit(
+        &mut document,
+        original.units_edits(Units::In, true, &TestInspector),
+    );
+
+    assert_eq!(document.parameters[0].expr, Expr::new("2 mm"));
+    assert_length_at(&original, "f-1", "/lengths/0", -4.0);
+    assert_length_at(&document, "f-1", "/lengths/0", -4.0);
+}
+
+#[test]
 fn a_parameter_with_one_length_use_that_does_not_promote_it_is_left_alone() {
     let document = document_with(
         &[("wall", "2")],
@@ -557,13 +576,18 @@ fn parameters_in_a_cycle_do_not_stop_the_count() {
 #[test]
 fn a_link_whose_pointer_does_not_lead_to_its_expression_is_left_alone() {
     let mut document = Document::new(Units::Mm);
-    document.features = vec![feature("f-1", "box", json!({"lengths": ["40", "8"]}))];
+    document.features = vec![
+        feature("f-1", "box", json!({"lengths": ["40", "8"]})),
+        feature("f-2", "box", json!({"lengths": ["7"]})),
+    ];
     let inspector = LengthLinks(vec![
         ("/lengths/0", "40"),
         ("/lengths/1", "7"),
         ("/missing/0", "9"),
     ]);
 
+    // Only `/lengths/0` of `f-1` is found, so it is the one bare number counted and rewritten.
+    assert_eq!(document.bare_numbers(&inspector), 1);
     assert_eq!(
         document.units_edits(Units::In, true, &inspector),
         vec![

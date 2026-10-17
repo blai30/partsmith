@@ -222,7 +222,7 @@ pub(super) fn add_origins(
                     SubShapeKind::Face => origin.faces.push(body),
                     SubShapeKind::Edge => origin.edges.push(body),
                     SubShapeKind::Vertex => origin.vertices.push(body),
-                    SubShapeKind::Solid => {}
+                    SubShapeKind::Solid | SubShapeKind::Shell => {}
                 }
             }
         }

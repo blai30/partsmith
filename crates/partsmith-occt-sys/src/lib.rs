@@ -36,6 +36,7 @@ pub use profiles::{
 };
 pub use shape::{Shape, ShapeKind, SubShape, SubShapeKind};
 pub use sweeps::{SweepFace, SweepResult, extrude, revolve};
+pub use tessellation::ElementDisplay;
 pub use transforms::{PlaneSide, SectionFace, SplitResult, compound, section, split, transform};
 pub use values::{Axis, Color, Plane, Point, Point2, Transform, Vector};
 

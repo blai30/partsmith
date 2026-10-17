@@ -12,14 +12,7 @@ impl ParsedExpr {
         if source.contains('(') {
             return None;
         }
-        let mut node = &self.root;
-        loop {
-            match &node.kind {
-                ExprNodeKind::Negate(operand) => node = operand,
-                ExprNodeKind::Number { unit: None, .. } => return Some(node.span.end),
-                _ => return None,
-            }
-        }
+        plain_literal(&self.root).map(|number| number.span.end)
     }
 
     /// Calls `visit` with every occurrence of a parameter name, in source order, and whether it
@@ -60,8 +53,11 @@ fn visit_parameters<'tree>(
         } => {
             let (left_promoting, right_promoting) = match operator {
                 BinaryOperator::Add | BinaryOperator::Subtract => (true, true),
-                BinaryOperator::Multiply => (is_plain_literal(right), is_plain_literal(left)),
-                BinaryOperator::Divide => (is_plain_literal(right), false),
+                BinaryOperator::Multiply => (
+                    plain_literal(right).is_some(),
+                    plain_literal(left).is_some(),
+                ),
+                BinaryOperator::Divide => (plain_literal(right).is_some(), false),
                 BinaryOperator::Power => (false, false),
             };
             visit_parameters(left, promoting && left_promoting, visit);
@@ -83,10 +79,15 @@ fn visit_parameters<'tree>(
     }
 }
 
-/// True for a number literal without a unit, the one factor that keeps the other operand of a
-/// `*` (or the left operand of a `/`) promoted.
-fn is_plain_literal(node: &ExprNode) -> bool {
-    matches!(node.kind, ExprNodeKind::Number { unit: None, .. })
+/// The number literal without a unit that `node` is, optionally negated (`2`, `-2`, `--2`), or
+/// `None` for any other node. It is a bare number's literal, and the one factor that keeps the
+/// other operand of a `*` (or the left operand of a `/`) promoted.
+fn plain_literal(node: &ExprNode) -> Option<&ExprNode> {
+    let mut node = node;
+    while let ExprNodeKind::Negate(operand) = &node.kind {
+        node = operand;
+    }
+    matches!(node.kind, ExprNodeKind::Number { unit: None, .. }).then_some(node)
 }
 
 #[cfg(test)]
@@ -119,8 +120,8 @@ mod tests {
     }
 
     #[test]
-    fn a_negated_literal_is_not_a_plain_literal() {
-        assert_eq!(visited("-2 * a"), [("a".to_string(), false)]);
+    fn a_negated_literal_is_still_a_literal() {
+        assert_eq!(visited("--2 * a"), [("a".to_string(), true)]);
     }
 
     #[test]

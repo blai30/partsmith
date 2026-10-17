@@ -5,7 +5,9 @@
 
 pub mod benchmark;
 pub mod generator;
+pub mod lint;
 pub mod matching;
+pub mod messages;
 pub mod plane;
 pub mod random;
 pub mod residuals;
@@ -15,9 +17,9 @@ use std::fmt::Debug;
 
 use partsmith_sketch::{
     Alignment, ConstraintKind, DimensionExpr, DimensionValues, DistanceTarget, DragSession,
-    DragTarget, Expr, Geometry, Id, NativeDragSession, NativeSolver, OriginPlane, PointRef,
-    Profile, SketchConstraint, SketchEntity, SketchError, SketchParams, SketchPlane, SolveResult,
-    Solver, build_profile,
+    DragTarget, Expr, Geometry, Id, NativeDragSession, NativeSolver, OriginPlane, Placement,
+    PointRef, Profile, SketchConstraint, SketchEntity, SketchError, SketchParams, SketchPlane,
+    SolveResult, Solver, build_profile,
 };
 
 /// Default absolute tolerance for coordinates in mm (spec section 6.0).
@@ -527,6 +529,122 @@ pub fn plate() -> Sketch {
             25.0,
         )
         .with_value("c-16", diameter("e-5", "hole_d"), 10.0)
+}
+
+/// `RECT` plus `circle e-5 c(40,25) r5` and `point e-7 (1,1)` (test 27).
+pub fn rect_with_circle_and_point() -> Sketch {
+    rect()
+        .entity(circle("e-5", [40.0, 25.0], 5.0))
+        .entity(point("e-7", 1.0, 1.0))
+}
+
+/// The face plane example of spec section 2.2 with its fallback replaced.
+pub fn face_plane(fallback: Placement) -> SketchPlane {
+    let mut plane: SketchPlane =
+        serde_json::from_str(FACE_PLANE_JSON).expect("the face plane example deserializes");
+    match &mut plane {
+        SketchPlane::Face { fallback: slot, .. } => *slot = fallback,
+        other => panic!("the example is a face plane, found {other:?}"),
+    }
+    plane
+}
+
+/// An empty sketch on a face plane with the given fallback placement (test 34).
+pub fn sketch_on_face(origin: [f64; 3], x_axis: [f64; 3], normal: [f64; 3]) -> Sketch {
+    let mut sketch = Sketch::new(Vec::new());
+    sketch.params.plane = face_plane(Placement {
+        origin,
+        x_axis,
+        normal,
+    });
+    sketch
+}
+
+/// The entities of tests 38 to 45: `point e-1 (0,0)`, `point e-2 (3,4)`, `circle e-3 c(10,10) r2`, `line e-4 (0,10)->(10,10)`.
+pub fn value_entities() -> Sketch {
+    Sketch::new(vec![
+        point("e-1", 0.0, 0.0),
+        point("e-2", 3.0, 4.0),
+        circle("e-3", [10.0, 10.0], 2.0),
+        line("e-4", [0.0, 10.0], [10.0, 10.0]),
+    ])
+}
+
+/// Test 108: `RECT` plus a redundant `parallel`.
+pub fn rect_with_redundant_parallel() -> Sketch {
+    rect().with("c-9", parallel("e-1", "e-3"))
+}
+
+/// Tests 110 and 111: two distances between the same points.
+pub fn two_distances(first: f64, second: f64) -> Sketch {
+    Sketch::new(vec![point("e-1", 0.0, 0.0), point("e-2", 3.0, 4.0)])
+        .with_value(
+            "c-1",
+            distance_points("e-1", "e-2", &format!("{first} mm")),
+            first,
+        )
+        .with_value(
+            "c-2",
+            distance_points("e-1", "e-2", &format!("{second} mm")),
+            second,
+        )
+}
+
+/// Test 112: two fixed points with a distance between them.
+pub fn fixed_points_with_distance(value: f64) -> Sketch {
+    Sketch::new(vec![point("e-1", 0.0, 0.0), point("e-2", 3.0, 0.0)])
+        .with("c-1", fix("e-1"))
+        .with("c-2", fix("e-2"))
+        .with_value(
+            "c-3",
+            distance_points("e-1", "e-2", &format!("{value} mm")),
+            value,
+        )
+}
+
+/// Test 154: an open polyline of three lines.
+pub fn open_polyline() -> Vec<SketchEntity> {
+    vec![
+        line("e-1", [0.0, 0.0], [10.0, 0.0]),
+        line("e-2", [10.0, 0.0], [10.0, 10.0]),
+        line("e-3", [10.0, 10.0], [0.0, 10.0]),
+    ]
+}
+
+/// Test 158: a rectangle whose bottom side is two overlapping lines.
+pub fn overlapping_bottom() -> Vec<SketchEntity> {
+    vec![
+        line("e-1", [0.0, 0.0], [60.0, 0.0]),
+        line("e-2", [80.0, 0.0], [80.0, 50.0]),
+        line("e-3", [80.0, 50.0], [0.0, 50.0]),
+        line("e-4", [0.0, 50.0], [0.0, 0.0]),
+        line("e-5", [20.0, 0.0], [80.0, 0.0]),
+    ]
+}
+
+/// Test 159: `RECT` plus a line and a circle of zero size.
+pub fn rect_with_zero_size_curves() -> Vec<SketchEntity> {
+    let mut entities = rect_entities();
+    entities.push(line("e-5", [5.0, 5.0], [5.0, 5.0]));
+    entities.push(circle("e-6", [1.0, 1.0], 0.0));
+    entities
+}
+
+/// Test 160: a bowtie of four lines that crosses itself.
+pub fn bowtie() -> Vec<SketchEntity> {
+    vec![
+        line("e-1", [0.0, 0.0], [10.0, 10.0]),
+        line("e-2", [10.0, 10.0], [10.0, 0.0]),
+        line("e-3", [10.0, 0.0], [0.0, 10.0]),
+        line("e-4", [0.0, 10.0], [0.0, 0.0]),
+    ]
+}
+
+/// `RECT` with `e-4` ending at `(0, gap)` (tests 168, 169, 237 and 238).
+pub fn rect_with_gap(gap: f64) -> Vec<SketchEntity> {
+    let mut entities = rect_entities();
+    entities[3] = line("e-4", [0.0, 50.0], [0.0, gap]);
+    entities
 }
 
 /// Test 157: two overlapping circles.

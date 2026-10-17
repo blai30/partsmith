@@ -55,7 +55,7 @@ pub struct SubShape {
     pub index: u32,
 }
 
-const QUERY_SOLIDS_MESSAGE: &str = "Only faces, edges and vertices can be queried.";
+const NOT_AN_ELEMENT_MESSAGE: &str = "Only faces, edges and vertices can be queried.";
 const NO_VOLUME_MESSAGE: &str = "This shape has no volume, so it has no center of mass.";
 const EMPTY_BOUNDS_MESSAGE: &str = "This shape is empty, so it has no bounding box.";
 
@@ -266,15 +266,18 @@ impl Shape {
         })
     }
 
-    /// Checks that `kind` can be queried as an element.
-    fn check_element_kind(kind: SubShapeKind) -> Result<(), KernelError> {
-        if kind == SubShapeKind::Solid {
-            Err(KernelError::invalid_input(
-                Operation::Query,
-                QUERY_SOLIDS_MESSAGE,
-            ))
-        } else {
-            Ok(())
+    /// Checks that `kind` is a face, edge or vertex, the kinds element queries take, with the
+    /// message of `operation`.
+    pub(crate) fn check_element_kind(
+        operation: Operation,
+        kind: SubShapeKind,
+    ) -> Result<(), KernelError> {
+        match kind {
+            SubShapeKind::Solid | SubShapeKind::Shell => Err(KernelError::invalid_input(
+                operation,
+                NOT_AN_ELEMENT_MESSAGE,
+            )),
+            SubShapeKind::Face | SubShapeKind::Edge | SubShapeKind::Vertex => Ok(()),
         }
     }
 
@@ -297,7 +300,7 @@ impl Shape {
 
     /// Geometry of one face, edge or vertex.
     pub fn element(&self, kind: SubShapeKind, index: u32) -> Result<ElementGeometry, KernelError> {
-        Shape::check_element_kind(kind)?;
+        Shape::check_element_kind(Operation::Query, kind)?;
         self.check_index(Operation::Query, kind, index)?;
         let element = call(Operation::Query, || {
             sys::shape_element(self.inner(), kind.to_ffi(), index)
@@ -307,7 +310,7 @@ impl Shape {
 
     /// Geometry of every face, edge or vertex, in index order.
     pub fn elements(&self, kind: SubShapeKind) -> Result<Vec<ElementGeometry>, KernelError> {
-        Shape::check_element_kind(kind)?;
+        Shape::check_element_kind(Operation::Query, kind)?;
         let elements = call(Operation::Query, || {
             sys::shape_elements(self.inner(), kind.to_ffi())
         })?;
@@ -333,31 +336,40 @@ impl Shape {
         })?;
         EdgeNormals::from_ffi(normals)
     }
+
+    /// How wide a face is across an edge: the largest distance from the edge to a sampled point
+    /// of the face (kernel spec section 3.6, item 7). The face need not contain the edge; on a
+    /// curved face the value can be less than the true width, never more than `LINEAR_TOLERANCE`
+    /// above it.
+    pub fn width_across(&self, face: u32, edge: u32) -> Result<f64, KernelError> {
+        self.check_index(Operation::Query, SubShapeKind::Face, face)?;
+        self.check_index(Operation::Query, SubShapeKind::Edge, edge)?;
+        call(Operation::Query, || {
+            sys::shape_width_across(self.inner(), face, edge)
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Every kind in its sort order.
+    const KINDS: [SubShapeKind; 5] = [
+        SubShapeKind::Solid,
+        SubShapeKind::Shell,
+        SubShapeKind::Face,
+        SubShapeKind::Edge,
+        SubShapeKind::Vertex,
+    ];
+
     #[test]
-    fn sub_shape_kinds_sort_solid_face_edge_vertex() {
-        let mut kinds = [
-            SubShapeKind::Vertex,
-            SubShapeKind::Edge,
-            SubShapeKind::Face,
-            SubShapeKind::Solid,
-        ];
+    fn sub_shape_kinds_sort_solid_shell_face_edge_vertex() {
+        let mut kinds = KINDS;
+        kinds.reverse();
         kinds.sort();
 
-        assert_eq!(
-            kinds,
-            [
-                SubShapeKind::Solid,
-                SubShapeKind::Face,
-                SubShapeKind::Edge,
-                SubShapeKind::Vertex
-            ]
-        );
+        assert_eq!(kinds, KINDS);
     }
 
     #[test]
@@ -376,12 +388,7 @@ mod tests {
 
     #[test]
     fn element_kinds_round_trip_through_the_bridge() {
-        for kind in [
-            SubShapeKind::Solid,
-            SubShapeKind::Face,
-            SubShapeKind::Edge,
-            SubShapeKind::Vertex,
-        ] {
+        for kind in KINDS {
             assert_eq!(
                 SubShapeKind::from_ffi(Operation::Query, kind.to_ffi()),
                 Ok(kind)
@@ -410,5 +417,23 @@ mod tests {
 
         assert_eq!(error.message, "Edge 1 does not exist in this body.");
         assert_eq!(error.operation, Operation::Fillet);
+    }
+
+    #[test]
+    fn only_faces_edges_and_vertices_are_elements() {
+        for kind in KINDS {
+            let checked = Shape::check_element_kind(Operation::Tessellate, kind);
+
+            match kind {
+                SubShapeKind::Solid | SubShapeKind::Shell => {
+                    let error = checked.expect_err("not an element kind");
+                    assert_eq!(error.message, NOT_AN_ELEMENT_MESSAGE);
+                    assert_eq!(error.operation, Operation::Tessellate);
+                }
+                SubShapeKind::Face | SubShapeKind::Edge | SubShapeKind::Vertex => {
+                    assert_eq!(checked, Ok(()));
+                }
+            }
+        }
     }
 }

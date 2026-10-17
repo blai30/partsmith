@@ -16,6 +16,7 @@
 #include <TopTools_ListOfShape.hxx>
 #include <TopTools_MapOfShape.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <gp_Ax2.hxx>
@@ -207,6 +208,15 @@ rust::Vec<InputHistoryData> history_data(const Handle(BRepTools_History) &histor
 // The result shape and the history of every input.
 OpResultData op_result(const TopoDS_Shape &result, const Handle(BRepTools_History) &history,
                        const std::vector<TopoDS_Shape> &inputs);
+
+// queries.cpp
+
+// The sub-shape `index` of `kind`, checking the index.
+const TopoDS_Shape &element_at(const Shape &shape, ElementKind kind, std::uint32_t index);
+
+// Raises Partsmith_InvalidInput for a degenerated edge, which has no curve to measure or draw
+// (kernel spec sections 3.6 item 7 and 3.7 item 9); `index` names it in the message.
+void require_curve(const TopoDS_Edge &edge, std::uint32_t index);
 
 // measure.cpp
 

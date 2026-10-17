@@ -1,14 +1,47 @@
-//! Tessellation into `partsmith_mesh::Mesh` (kernel spec sections 2.11 and 3.7).
+//! Tessellation into `partsmith_mesh::Mesh` and the display geometry of one element (kernel spec
+//! sections 2.11 and 3.7).
 
 use partsmith_mesh::{EdgePolyline, Mesh, Point3, TessellationTolerance, VertexMarker};
 
 use crate::error::{KernelError, Operation, call};
 use crate::ffi::{bridge as sys, split_at_offsets, triples};
-use crate::shape::Shape;
-use crate::values::check_finite;
+use crate::shape::{Shape, SubShapeKind};
+use crate::values::{Point, check_finite};
 
 const TOLERANCE_MESSAGE: &str =
     "Mesh tolerances must be greater than 0, with an angle of at most 90 degrees.";
+
+/// The display geometry of one face, edge or vertex, in millimeters with locations applied
+/// (section 3.7, item 9).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ElementDisplay {
+    /// A face's triangles, three points each, wound counterclockwise seen from outside.
+    Triangles(Vec<Point>),
+    /// An edge's points from its first vertex to its last; a closed edge repeats its first point
+    /// at the end.
+    Polyline(Vec<Point>),
+    /// A vertex's position.
+    Position(Point),
+}
+
+/// The chord and angular deviations of a tolerance after the checks of section 3.7, item 1.
+fn checked_tolerance(
+    operation: Operation,
+    tolerance: &TessellationTolerance,
+) -> Result<(f64, f64), KernelError> {
+    let TessellationTolerance {
+        chord_deviation,
+        angular_deviation,
+    } = *tolerance;
+    check_finite(operation, &[chord_deviation, angular_deviation])?;
+    if chord_deviation <= 0.0
+        || angular_deviation <= 0.0
+        || angular_deviation > std::f64::consts::FRAC_PI_2
+    {
+        return Err(KernelError::invalid_input(operation, TOLERANCE_MESSAGE));
+    }
+    Ok((chord_deviation, angular_deviation))
+}
 
 /// Groups a flat coordinate array into points.
 fn points(operation: Operation, coordinates: &[f64]) -> Result<Vec<Point3>, KernelError> {
@@ -64,26 +97,65 @@ fn mesh_from_ffi(data: sys::MeshData) -> Result<Mesh, KernelError> {
     .map_err(|error| KernelError::internal(operation, error.to_string()))
 }
 
+/// Converts the shim's flat points of an element of `kind` into its display geometry.
+fn display_from_ffi(
+    kind: SubShapeKind,
+    coordinates: &[f64],
+) -> Result<ElementDisplay, KernelError> {
+    let operation = Operation::Tessellate;
+    let malformed =
+        || KernelError::internal(operation, "the shim returned malformed display geometry");
+    let points: Vec<Point> = points(operation, coordinates)?
+        .into_iter()
+        .map(|[x, y, z]| Point::new(x, y, z))
+        .collect();
+    match kind {
+        SubShapeKind::Face if points.len().is_multiple_of(3) => {
+            Ok(ElementDisplay::Triangles(points))
+        }
+        SubShapeKind::Edge if points.len() >= 2 => Ok(ElementDisplay::Polyline(points)),
+        SubShapeKind::Vertex => match points[..] {
+            [position] => Ok(ElementDisplay::Position(position)),
+            _ => Err(malformed()),
+        },
+        _ => Err(malformed()),
+    }
+}
+
 impl Shape {
     /// Triangulates the shape into a mesh with face ids, edge polylines and vertex markers
     /// (section 3.7).
     pub fn tessellate(&self, tolerance: &TessellationTolerance) -> Result<Mesh, KernelError> {
         let operation = Operation::Tessellate;
-        let TessellationTolerance {
-            chord_deviation,
-            angular_deviation,
-        } = *tolerance;
-        check_finite(operation, &[chord_deviation, angular_deviation])?;
-        if chord_deviation <= 0.0
-            || angular_deviation <= 0.0
-            || angular_deviation > std::f64::consts::FRAC_PI_2
-        {
-            return Err(KernelError::invalid_input(operation, TOLERANCE_MESSAGE));
-        }
+        let (chord_deviation, angular_deviation) = checked_tolerance(operation, tolerance)?;
         let data = call(operation, || {
             sys::shape_tessellate(self.inner(), chord_deviation, angular_deviation)
         })?;
         mesh_from_ffi(data)
+    }
+
+    /// The display geometry of one face, edge or vertex, without meshing the rest of the shape
+    /// (section 3.7, item 9): for the ghost of an element where it was in an earlier build.
+    pub fn element_display(
+        &self,
+        kind: SubShapeKind,
+        index: u32,
+        tolerance: &TessellationTolerance,
+    ) -> Result<ElementDisplay, KernelError> {
+        let operation = Operation::Tessellate;
+        Shape::check_element_kind(operation, kind)?;
+        self.check_index(operation, kind, index)?;
+        let (chord_deviation, angular_deviation) = checked_tolerance(operation, tolerance)?;
+        let coordinates = call(operation, || {
+            sys::shape_element_display(
+                self.inner(),
+                kind.to_ffi(),
+                index,
+                chord_deviation,
+                angular_deviation,
+            )
+        })?;
+        display_from_ffi(kind, &coordinates)
     }
 }
 
@@ -224,6 +296,48 @@ mod tests {
             .expect("nothing to mesh");
 
         assert!(mesh.is_empty());
+    }
+
+    #[test]
+    fn flat_points_become_display_geometry_of_their_kind() {
+        let triangle = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+
+        assert_eq!(
+            display_from_ffi(SubShapeKind::Face, &triangle),
+            Ok(ElementDisplay::Triangles(vec![
+                Point::new(0.0, 0.0, 0.0),
+                Point::new(1.0, 0.0, 0.0),
+                Point::new(0.0, 1.0, 0.0),
+            ]))
+        );
+        assert_eq!(
+            display_from_ffi(SubShapeKind::Edge, &triangle[..6]),
+            Ok(ElementDisplay::Polyline(vec![
+                Point::new(0.0, 0.0, 0.0),
+                Point::new(1.0, 0.0, 0.0),
+            ]))
+        );
+        assert_eq!(
+            display_from_ffi(SubShapeKind::Vertex, &triangle[3..6]),
+            Ok(ElementDisplay::Position(Point::new(1.0, 0.0, 0.0)))
+        );
+    }
+
+    #[test]
+    fn malformed_display_geometry_is_internal() {
+        let two_points = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        let malformed = [
+            (SubShapeKind::Face, &two_points[..]),
+            (SubShapeKind::Edge, &two_points[..3]),
+            (SubShapeKind::Vertex, &two_points[..]),
+            (SubShapeKind::Vertex, &two_points[..2]),
+            (SubShapeKind::Shell, &two_points[..3]),
+        ];
+
+        for (kind, coordinates) in malformed {
+            let error = display_from_ffi(kind, coordinates).expect_err("malformed");
+            assert_eq!(error.kind, crate::KernelErrorKind::Internal, "{kind:?}");
+        }
     }
 
     #[test]

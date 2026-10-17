@@ -1,4 +1,5 @@
-//! Acceptance tests for diagnosis and measured values (spec sections 6.7 and 6.8, tests 104 to 127).
+//! Acceptance tests for diagnosis, measured values and failed components (spec sections 6.7, 6.8 and 6.21, tests 104
+//! to 127 and 251).
 
 mod common;
 
@@ -6,11 +7,13 @@ use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_4, PI};
 
 use common::benchmark::chain;
+use common::messages::solved_context;
 use common::{
     Sketch, TOLERANCE, angle, arc, assert_bitwise, assert_close, assert_ids, circle, coincident,
-    diameter, distance_line, distance_point_line, distance_points, fix, horizontal,
-    horizontal_distance_points, id, line, measured, parallel, point, radius, rect, reference,
-    tangent, vertical_distance_points,
+    diameter, distance_line, distance_point_line, distance_points, fix,
+    fixed_points_with_distance, horizontal, horizontal_distance_points, id, line, measured,
+    parallel, point, radius, rect, rect_with_redundant_parallel, reference, tangent, two_distances,
+    vertical_distance_points,
 };
 use partsmith_sketch::{EntityState, SketchStatus, SolveIssue, SolveResult};
 
@@ -47,38 +50,6 @@ fn rect_fixed_with_width() -> Sketch {
     rect()
         .with("c-9", fix("e-1.start"))
         .with_value("c-10", distance_line("e-1", "80 mm"), 80.0)
-}
-
-/// Test 108: `RECT` plus a redundant `parallel`.
-fn rect_with_redundant_parallel() -> Sketch {
-    rect().with("c-9", parallel("e-1", "e-3"))
-}
-
-/// Tests 110 and 111: two distances between the same points.
-fn two_distances(first: f64, second: f64) -> Sketch {
-    Sketch::new(vec![point("e-1", 0.0, 0.0), point("e-2", 3.0, 4.0)])
-        .with_value(
-            "c-1",
-            distance_points("e-1", "e-2", &format!("{first} mm")),
-            first,
-        )
-        .with_value(
-            "c-2",
-            distance_points("e-1", "e-2", &format!("{second} mm")),
-            second,
-        )
-}
-
-/// Test 112: two fixed points with a distance between them.
-fn fixed_points_with_distance(value: f64) -> Sketch {
-    Sketch::new(vec![point("e-1", 0.0, 0.0), point("e-2", 3.0, 0.0)])
-        .with("c-1", fix("e-1"))
-        .with("c-2", fix("e-2"))
-        .with_value(
-            "c-3",
-            distance_points("e-1", "e-2", &format!("{value} mm")),
-            value,
-        )
 }
 
 /// Test 115: a 3-4-5 triangle of points.
@@ -540,4 +511,71 @@ fn t127_driving_distance_measures_its_value_after_solving() {
         .solve();
 
     assert_close(measured(&result, "c-2"), 10.0, TOLERANCE, "c-2");
+}
+
+// ---------------------------------------------------------------------------
+// 6.21 Failed components
+// ---------------------------------------------------------------------------
+
+/// Test 251: three lines joined into a triangle whose sides have Distance 30 mm, 40 mm and `third` mm (newcomer
+/// error corpus NC08).
+fn triangle_of_lines(third: f64) -> Sketch {
+    Sketch::new(vec![
+        line("e-1", [0.0, 0.0], [30.0, 0.0]),
+        line("e-2", [30.0, 0.0], [30.0, 40.0]),
+        line("e-3", [30.0, 40.0], [0.0, 0.0]),
+    ])
+    .with_value("c-1", distance_line("e-1", "30 mm"), 30.0)
+    .with_value("c-2", distance_line("e-2", "40 mm"), 40.0)
+    .with_value("c-3", distance_line("e-3", &format!("{third} mm")), third)
+    .with("c-4", coincident("e-1.end", "e-2.start"))
+    .with("c-5", coincident("e-2.end", "e-3.start"))
+    .with("c-6", coincident("e-3.end", "e-1.start"))
+}
+
+#[test]
+fn t251_a_side_no_triangle_can_have_fails_and_is_diagnosed_where_it_was_given() {
+    let sketch = triangle_of_lines(80.0);
+
+    let result = sketch.solve();
+
+    assert!(result.failed);
+    assert_bitwise(&result.entities, &sketch.params.entities, "entities");
+    assert!(
+        result.redundant.is_empty(),
+        "redundant: {:?}",
+        result.redundant
+    );
+    assert!(
+        result.conflicting.is_empty(),
+        "conflicting: {:?}",
+        result.conflicting
+    );
+    assert_eq!(result.dof, 3);
+    assert_eq!(result.status, SketchStatus::UnderConstrained);
+}
+
+#[test]
+fn t251_a_side_no_triangle_can_have_is_one_not_converged_issue() {
+    let sketch = triangle_of_lines(80.0);
+    let result = sketch.solve();
+
+    let issues = result.issues(&sketch.params);
+
+    assert_eq!(describe(&issues), ["not converged"]);
+    let context = solved_context(&sketch, &result);
+    assert_eq!(
+        issues[0].render(&context),
+        "'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape."
+    );
+}
+
+#[test]
+fn t251_the_triangle_that_closes_is_returned_unchanged() {
+    let sketch = triangle_of_lines(50.0);
+
+    let result = sketch.solve();
+
+    assert!(!result.failed);
+    assert_bitwise(&result.entities, &sketch.params.entities, "entities");
 }

@@ -266,9 +266,10 @@ fn t015_unknown_name() {
 
     let error = run.assert_error("f-ext1", "expression");
     assert_error_field(error, "extent.expr");
+    // `height` is the one parameter within edit distance 2 (expressions.md section 3.18).
     assert_eq!(
         run.messages("f-ext1"),
-        ["Distance: Unknown name 'hieght'. Check the spelling, or add a parameter named hieght."],
+        ["Distance: 'hieght' is not a parameter. Did you mean 'height'?"],
     );
     assert_empty(&run, "b-1");
 }

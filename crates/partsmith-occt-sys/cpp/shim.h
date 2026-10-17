@@ -111,6 +111,7 @@ ElementData shape_element(const Shape &shape, ElementKind kind, std::uint32_t in
 rust::Vec<ElementData> shape_elements(const Shape &shape, ElementKind kind);
 TopologyData shape_topology(const Shape &shape);
 EdgeNormalsData shape_edge_normals(const Shape &shape, std::uint32_t edge);
+double shape_width_across(const Shape &shape, std::uint32_t face, std::uint32_t edge);
 
 // measure.cpp
 double shape_volume(const Shape &shape);
@@ -119,6 +120,8 @@ Vec3 shape_center_of_mass(const Shape &shape);
 
 // mesh.cpp
 MeshData shape_tessellate(const Shape &shape, double chord_deviation, double angle);
+rust::Vec<double> shape_element_display(const Shape &shape, ElementKind kind, std::uint32_t index,
+                                        double chord_deviation, double angle);
 
 // exchange.cpp
 std::unique_ptr<std::string> shape_to_brep(const Shape &shape);

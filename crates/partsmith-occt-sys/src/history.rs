@@ -59,13 +59,13 @@ pub struct Origin {
 }
 
 impl InputHistory {
-    /// The fates of one element kind; solids have no history.
+    /// The fates of one element kind; solids and shells have no history.
     fn fates(&self, kind: SubShapeKind) -> &[ElementFate] {
         match kind {
             SubShapeKind::Face => &self.faces,
             SubShapeKind::Edge => &self.edges,
             SubShapeKind::Vertex => &self.vertices,
-            SubShapeKind::Solid => &[],
+            SubShapeKind::Solid | SubShapeKind::Shell => &[],
         }
     }
 }

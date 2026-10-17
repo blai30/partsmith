@@ -222,6 +222,9 @@ fn t098_promoted_names() {
             "wall / 4",
             "-(wall + 2 * wall)",
             "min(3, wall) + 1",
+            "-2 * wall",
+            "wall * -2",
+            "wall / -2",
         ],
         &["wall"],
     );
@@ -229,6 +232,7 @@ fn t098_promoted_names() {
     assert_promoted(
         &[
             "40 mm * scale",
+            "-2 mm * wall",
             "wall * wall",
             "wall * ratio",
             "4 / wall",

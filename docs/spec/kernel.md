@@ -1001,7 +1001,7 @@ By kind:
 | --- | --- | --- |
 | `InvalidInput` | `It rejected the shapes or values it was given, which is likely a bug; report it with the details.` | `message` unchanged (section 4.2) |
 | `Failed`, `InvalidResult`, `EmptyResult` | the operation's hint in the tables below | `Partsmith's geometry kernel could not build the {noun}. {hint}` for an operation with a noun in the first table; the hint for the others |
-| `ReadFailed` | `read_step`: `The file is not a valid STEP file.`; `read_brep`: `The cached geometry could not be read, so it will be rebuilt.`; any other operation as `Failed` | the hint |
+| `ReadFailed` | `read_step`: `The file is not a valid STEP file.`; `read_brep`: `The cached geometry could not be read, so it will be rebuilt.`; any other operation as `Failed` | the hint for `read_step` and `read_brep`; any other operation as `Failed` |
 | `Internal` | `It hit an unexpected problem; report it with the details.` | `Partsmith's geometry kernel hit an unexpected problem.` |
 
 The `InvalidInput` hint does not repeat the facade's sentence: features check what they pass before calling the kernel, so a rejection that reaches a feature means Partsmith's own checks disagree, and the sentence (which may name kernel indices and tags) goes to the detail.

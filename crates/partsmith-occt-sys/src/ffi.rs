@@ -302,7 +302,17 @@ pub(crate) mod bridge {
         fn shape_elements(shape: &Shape, kind: ElementKind) -> Result<Vec<ElementData>>;
         fn shape_topology(shape: &Shape) -> Result<TopologyData>;
         fn shape_edge_normals(shape: &Shape, edge: u32) -> Result<EdgeNormalsData>;
+        fn shape_width_across(shape: &Shape, face: u32, edge: u32) -> Result<f64>;
         fn shape_tessellate(shape: &Shape, chord_deviation: f64, angle: f64) -> Result<MeshData>;
+        /// The points of one element's display geometry, three coordinates each: a face's
+        /// triangles, an edge's polyline or a vertex's position.
+        fn shape_element_display(
+            shape: &Shape,
+            kind: ElementKind,
+            index: u32,
+            chord_deviation: f64,
+            angle: f64,
+        ) -> Result<Vec<f64>>;
         fn shape_to_brep(shape: &Shape) -> Result<UniquePtr<CxxString>>;
         fn shape_from_brep(bytes: &[u8]) -> Result<SharedPtr<Shape>>;
 

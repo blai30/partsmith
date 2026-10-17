@@ -1,5 +1,5 @@
-// Shape queries: indexing, validity, bounds, element geometry, topology and edge normals (kernel
-// spec sections 3.2 and 3.6).
+// Shape queries: indexing, validity, bounds, element geometry, topology, edge normals and widths
+// across edges (kernel spec sections 3.2 and 3.6).
 #include <algorithm>
 #include <optional>
 #include <utility>
@@ -8,9 +8,13 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepGProp.hxx>
 #include <BRepLProp_SLProps.hxx>
+#include <BRepTools.hxx>
 #include <BRep_CurveRepresentation.hxx>
 #include <BRep_TEdge.hxx>
 #include <BRep_Tool.hxx>
@@ -30,6 +34,7 @@
 #include <gp_Lin.hxx>
 #include <gp_Parab.hxx>
 #include <gp_Pln.hxx>
+#include <gp_Pnt2d.hxx>
 #include <gp_Sphere.hxx>
 #include <gp_Torus.hxx>
 
@@ -70,9 +75,8 @@ std::uint32_t shape_count(const Shape &shape, ElementKind kind) {
   return static_cast<std::uint32_t>(shape.map(kind).Extent());
 }
 
-namespace {
+namespace detail {
 
-// The sub-shape `index` of `kind`, checking the index.
 const TopoDS_Shape &element_at(const Shape &shape, ElementKind kind, std::uint32_t index) {
   const TopTools_IndexedMapOfShape &map = shape.map(kind);
   if (index == 0 || index > static_cast<std::uint32_t>(map.Extent())) {
@@ -80,6 +84,17 @@ const TopoDS_Shape &element_at(const Shape &shape, ElementKind kind, std::uint32
   }
   return map(static_cast<int>(index));
 }
+
+void require_curve(const TopoDS_Edge &edge, std::uint32_t index) {
+  if (BRep_Tool::Degenerated(edge)) {
+    raise_invalid_input("Edge " + std::to_string(index) +
+                        " is a degenerated edge, so it has no curve to measure or draw.");
+  }
+}
+
+}  // namespace detail
+
+namespace {
 
 // The point on an axis closest to a point.
 gp_Pnt closest_on_axis(const gp_Ax1 &axis, const gp_Pnt &point) {
@@ -460,6 +475,11 @@ TopologyData shape_topology(const Shape &shape) {
 
 namespace {
 
+// The middle of the parameter range of an edge's curve (kernel spec section 3.6, item 5.2).
+double middle_parameter(const BRepAdaptor_Curve &curve) {
+  return 0.5 * (curve.FirstParameter() + curve.LastParameter());
+}
+
 // True when `edge` bounds `face`.
 bool bounds_face(const TopoDS_Face &face, const TopoDS_Edge &edge) {
   for (TopExp_Explorer edges(face, TopAbs_EDGE); edges.More(); edges.Next()) {
@@ -517,7 +537,7 @@ EdgeNormalsData shape_edge_normals(const Shape &shape, std::uint32_t edge_index)
     raise_invalid_input(name + " is a degenerated edge, so it has no middle point.");
   }
   const BRepAdaptor_Curve curve(edge);
-  const double middle = 0.5 * (curve.FirstParameter() + curve.LastParameter());
+  const double middle = middle_parameter(curve);
   gp_Pnt point;
   gp_Vec derivative;
   curve.D1(middle, point, derivative);
@@ -554,6 +574,73 @@ EdgeNormalsData shape_edge_normals(const Shape &shape, std::uint32_t edge_index)
     data.continuity = *continuity == GeomAbs_C0 ? ContinuityType::C0 : ContinuityType::G1OrBetter;
   }
   return data;
+}
+
+namespace {
+
+// The cells per side of the parameter grid a width is sampled on (kernel spec section 3.6, item
+// 7.2).
+constexpr int kWidthGridCells = 8;
+
+// The points of `face` a width across an edge is measured from, with the face location applied
+// (kernel spec section 3.6, item 7.2): its vertices, the middles of its edges that are not
+// degenerated, and the centers of the cells of a grid over its parameter bounds that lie on it.
+std::vector<gp_Pnt> width_samples(const TopoDS_Face &face) {
+  std::vector<gp_Pnt> samples;
+  TopTools_IndexedMapOfShape vertices;
+  TopExp::MapShapes(face, TopAbs_VERTEX, vertices);
+  for (int vertex = 1; vertex <= vertices.Extent(); ++vertex) {
+    samples.push_back(BRep_Tool::Pnt(TopoDS::Vertex(vertices(vertex))));
+  }
+  TopTools_IndexedMapOfShape edges;
+  TopExp::MapShapes(face, TopAbs_EDGE, edges);
+  for (int edge = 1; edge <= edges.Extent(); ++edge) {
+    if (!BRep_Tool::Degenerated(TopoDS::Edge(edges(edge)))) {
+      const BRepAdaptor_Curve curve(TopoDS::Edge(edges(edge)));
+      samples.push_back(curve.Value(middle_parameter(curve)));
+    }
+  }
+  double u_first = 0.0, u_last = 0.0, v_first = 0.0, v_last = 0.0;
+  BRepTools::UVBounds(face, u_first, u_last, v_first, v_last);
+  const double u_step = (u_last - u_first) / kWidthGridCells;
+  const double v_step = (v_last - v_first) / kWidthGridCells;
+  const BRepAdaptor_Surface surface(face, Standard_False);
+  BRepClass_FaceClassifier classifier;
+  for (int column = 0; column < kWidthGridCells; ++column) {
+    const double u_parameter = u_first + (column + 0.5) * u_step;
+    for (int row = 0; row < kWidthGridCells; ++row) {
+      const double v_parameter = v_first + (row + 0.5) * v_step;
+      classifier.Perform(face, gp_Pnt2d(u_parameter, v_parameter), kLinear);
+      const TopAbs_State state = classifier.State();
+      if (state == TopAbs_IN || state == TopAbs_ON) {
+        samples.push_back(surface.Value(u_parameter, v_parameter));
+      }
+    }
+  }
+  return samples;
+}
+
+}  // namespace
+
+double shape_width_across(const Shape &shape, std::uint32_t face_index, std::uint32_t edge_index) {
+  const TopoDS_Face &face = TopoDS::Face(element_at(shape, ElementKind::Face, face_index));
+  const TopoDS_Edge &edge = TopoDS::Edge(element_at(shape, ElementKind::Edge, edge_index));
+  require_curve(edge, edge_index);
+  // The edge is loaded once; each sample is a vertex measured to it (kernel spec section 3.6,
+  // item 7.3).
+  BRepExtrema_DistShapeShape distance;
+  distance.SetFlag(Extrema_ExtFlag_MIN);
+  distance.LoadS2(edge);
+  double widest = 0.0;
+  for (const gp_Pnt &sample : width_samples(face)) {
+    distance.LoadS1(BRepBuilderAPI_MakeVertex(sample).Vertex());
+    if (!distance.Perform()) {
+      raise_not_done("BRepExtrema_DistShapeShape found no distance from a point of face " +
+                     std::to_string(face_index) + " to edge " + std::to_string(edge_index));
+    }
+    widest = std::max(widest, distance.Value());
+  }
+  return widest;
 }
 
 }  // namespace occt
