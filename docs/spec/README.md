@@ -78,7 +78,7 @@ A cross-spec review reconciled the drafts. These decisions are binding on the sp
 - **D9.** Feature messages carry an optional `field` (JSON Pointer into the params) and `suggestion` (a replacement value), so the UI can offer one-click fixes.
 - **D10.** Renaming a parameter rewrites every expression that uses it in the same transaction: the model builds the edit set and the protocol has a `rename_parameter` command.
 - **D11.** `Document.rollback` names the first rolled-back feature, and `None` means nothing is rolled back, so rolling back before the first feature is possible and a feature inserted at the marker stays active.
-- **D12.** `partsmith-wasm` may use `unsafe` only on its three C ABI exports (ADR 0010); its thread-local session is host state, and the kernel's STEP mutex and one-time OCCT setup guard OCCT's own process-wide state.
+- **D12.** `partsmith-wasm` may use `unsafe` only on its three C ABI exports (ADR 0010); its thread-local session is host state, and the kernel's STEP and blend mutexes and one-time OCCT setup guard OCCT's own process-wide state.
 - **D13.** Print values the technical design does not give stay as specified and are listed in print.md under "Needs human review".
 - **D14.** `FeatureManifest` and other pure data the protocol needs live in `partsmith-model` or `partsmith-protocol`, so the protocol carries no untyped JSON for core data and the UI gets generated types.
 - **D15.** Protocol sketch regions include the region fingerprint; the protocol sends no tessellated sketch curves, and the UI draws curves from the entities.

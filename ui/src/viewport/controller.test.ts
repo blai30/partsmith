@@ -5,7 +5,16 @@ import { undo } from '../app/actions/document'
 import { enterSketch } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
 import type { BodyMeshData } from '../core/events'
-import type { BoundingBox, ElementDescriptor, ElementRef, Resolution } from '../generated/protocol'
+import type {
+  BoundingBox,
+  ElementDescriptor,
+  ElementRef,
+  FeatureRecord,
+  HintFrame,
+  Placement,
+  Resolution,
+  SketchPlane,
+} from '../generated/protocol'
 import {
   bodyMeshEvent,
   boxMesh,
@@ -26,7 +35,12 @@ import {
 import { onUiRequest } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
-import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store'
+import {
+  INITIAL_STATE,
+  type AppState,
+  type DocumentState,
+  type SketchSession,
+} from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import type { FakeCoreApi } from '../test/fakes/core-api'
 import { deferred } from '../test/fakes/deferred'
@@ -1220,20 +1234,50 @@ describe('clicks into a command (3.7)', () => {
   })
 })
 
-describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
-  const PLANE_PICKING: Partial<AppState> = {
-    context: 'sketch',
-    sketch: {
-      sketchId: null,
-      reattaching: null,
-      tool: null,
-      construction: false,
-      showConstraints: true,
-      selection: [],
-      dragging: false,
-      cameraBefore: null,
+/** 'Sketch 2', a circle on a face the cube lost, with its fallback in `frame` coordinates. */
+function lostFaceSketch(frame: HintFrame): FeatureRecord {
+  return {
+    id: 'f-sk2',
+    type: 'sketch',
+    plane: {
+      kind: 'face',
+      body: 'b-cube',
+      face: { q: 'f-gone/top', fp: 'plane|n=0,0,1|c=0,0,40|a=400|adj=4,4' },
+      fallback: { origin: [0, 0, 40], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+      // World coordinates, the default, are written without the frame.
+      ...(frame === 'body' ? { fallback_frame: 'body' } : {}),
     },
+    entities: [{ id: 'e-1', type: 'circle', center: [0, 0], radius: 3 }],
+    constraints: [],
   }
+}
+
+/** The one `applyEdits` call of an attach: "Attach 'Sketch 2'" storing `plane` in `sketch2`. */
+function attachCall(sketch2: FeatureRecord, plane: SketchPlane): unknown[] {
+  return [1, "Attach 'Sketch 2'", [{ type: 'update_feature', feature: { ...sketch2, plane } }]]
+}
+
+describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
+  const PLANE_PICKING_SESSION: SketchSession = {
+    sketchId: null,
+    reattaching: null,
+    tool: null,
+    construction: false,
+    showConstraints: true,
+    selection: [],
+    dragging: false,
+    cameraBefore: null,
+  }
+
+  const PLANE_PICKING: Partial<AppState> = { context: 'sketch', sketch: PLANE_PICKING_SESSION }
+
+  /** The top's placement after a Move body by (100, 0, 0), and its fallback in body coordinates. */
+  const MOVED_TOP_PLACEMENT: Placement = {
+    origin: [100, 0, 20],
+    x_axis: [1, 0, 0],
+    normal: [0, 0, 1],
+  }
+  const MOVED_TOP_FALLBACK: Placement = { origin: [0, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] }
 
   /** The cube's top after a Move body by (100, 0, 0), with its full reference (engine.md 3.9). */
   const MOVED_TOP_FACE: ElementDescriptor = {
@@ -1243,8 +1287,8 @@ describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
       merged: { 'f-ext1/end-cap': ['f-ext2/end-cap'] },
     },
     centroid: [100, 0, 20],
-    placement: { origin: [100, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
-    fallback: { origin: [0, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+    placement: MOVED_TOP_PLACEMENT,
+    fallback: MOVED_TOP_FALLBACK,
   }
 
   it('starts the sketch on a flat face', async () => {
@@ -1293,66 +1337,81 @@ describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
     ])
   })
 
-  it("U-146 re-attaching 'Sketch 2': a picked flat face commits one update labeled \"Attach 'Sketch 2'\" with its full reference and fallback", async () => {
-    const sketch2 = {
-      id: 'f-sk2',
-      type: 'sketch',
-      plane: {
-        kind: 'face',
-        body: 'b-cube',
-        face: { q: 'f-gone/top', fp: 'plane|n=0,0,1|c=0,0,40|a=400|adj=4,4' },
-        fallback: { origin: [0, 0, 40], x_axis: [1, 0, 0], normal: [0, 0, 1] },
-        fallback_frame: 'body',
-      },
-      entities: [{ id: 'e-1', type: 'circle', center: [0, 0], radius: 3 }],
-      constraints: [],
-    }
+  /** Re-attaching `sketch2`, the last feature but `after`, by a click on `face` (3.16.1). */
+  async function attachByClick(
+    sketch2: FeatureRecord,
+    face: ElementDescriptor,
+    after: readonly FeatureRecord[] = [],
+  ): Promise<Fixture> {
     const fixture = setUp({
       document: documentState(
-        { ...CUBE_DOCUMENT, features: [...featuresOf(CUBE_DOCUMENT), sketch2] },
+        { ...CUBE_DOCUMENT, features: [...featuresOf(CUBE_DOCUMENT), sketch2, ...after] },
         { name: 'cube', meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) } },
       ),
-      state: {
-        context: 'sketch',
-        sketch: {
-          sketchId: null,
-          reattaching: 'f-sk2',
-          tool: null,
-          construction: false,
-          showConstraints: true,
-          selection: [],
-          dragging: false,
-          cameraBefore: null,
-        },
-      },
+      state: { context: 'sketch', sketch: { ...PLANE_PICKING_SESSION, reattaching: 'f-sk2' } },
       prepare: (core) => {
-        core.stub('pickReference', () => Promise.resolve(MOVED_TOP_FACE))
+        core.stub('pickReference', () => Promise.resolve(face))
       },
     })
     pickElement(fixture, 'face', 0)
     click(fixture.canvas, 400, 300)
     await settle()
+    return fixture
+  }
+
+  it("U-146 re-attaching 'Sketch 2' with its fallback in body coordinates: a picked flat face commits one update labeled \"Attach 'Sketch 2'\" with its full reference and its descriptor's fallback in body coordinates", async () => {
+    const sketch2 = lostFaceSketch('body')
+    const fixture = await attachByClick(sketch2, MOVED_TOP_FACE)
     expect(fixture.core.callsTo('applyEdits')).toEqual([
-      [
-        1,
-        "Attach 'Sketch 2'",
-        [
-          {
-            type: 'update_feature',
-            feature: {
-              ...sketch2,
-              plane: {
-                kind: 'face',
-                body: 'b-cube',
-                face: MOVED_TOP_FACE.reference,
-                fallback: MOVED_TOP_FACE.fallback,
-                fallback_frame: 'body',
-              },
-            },
-          },
-        ],
-      ],
+      attachCall(sketch2, {
+        kind: 'face',
+        body: 'b-cube',
+        face: MOVED_TOP_FACE.reference,
+        fallback: MOVED_TOP_FALLBACK,
+        fallback_frame: 'body',
+      }),
     ])
+    expect(fixture.app.store.getState().sketch).toMatchObject({ sketchId: 'f-sk2' })
+  })
+
+  it("U-146 re-attaching 'Sketch 2' with its fallback in world coordinates stores the picked face's placement in world coordinates, which keeps the sketch without motion", async () => {
+    const sketch2 = lostFaceSketch('world')
+    const fixture = await attachByClick(sketch2, MOVED_TOP_FACE)
+    // Strictly: not even an undefined `fallback_frame`, so the plane reads as world coordinates.
+    expect(fixture.core.callsTo('applyEdits')).toStrictEqual([
+      attachCall(sketch2, {
+        kind: 'face',
+        body: 'b-cube',
+        face: MOVED_TOP_FACE.reference,
+        fallback: MOVED_TOP_PLACEMENT,
+      }),
+    ])
+    expect(fixture.app.store.getState().sketch).toMatchObject({ sketchId: 'f-sk2' })
+  })
+
+  it("U-146 refuses a face made by a feature after 'Sketch 2' with attach_after in the sketch hint, and keeps the pick open", async () => {
+    const boss: FeatureRecord = {
+      id: 'f-ext2',
+      type: 'extrude',
+      body: 'b-cube',
+      sketch: 'f-sk2',
+      distance: '5 mm',
+      op: 'join',
+    }
+    const bossTop: ElementDescriptor = {
+      ...CUBE_TOP_FACE,
+      name: 'f-ext2/end-cap',
+      feature: 'f-ext2',
+      reference: { q: 'f-ext2/end-cap', fp: 'plane|n=0,0,1|c=0,0,25|a=28.274334|adj=1' },
+    }
+    const fixture = await attachByClick(lostFaceSketch('body'), bossTop, [boss])
+    const state = fixture.app.store.getState()
+    expect(fixture.core.callsTo('applyEdits')).toEqual([])
+    expect(state.pickHint).toEqual({
+      message: MESSAGES.attach_after('Sketch 2', 'Extrude 2'),
+      field: null,
+    })
+    expect(state.sketch).toMatchObject({ sketchId: null, reattaching: 'f-sk2' })
   })
 
   it('refuses a face that is not flat with pick_plane in the sketch hint, not a notification', async () => {

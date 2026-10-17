@@ -148,6 +148,8 @@ export const MESSAGES = {
   cause_ghost: () => 'Before this change',
   reattach_prompt: (label: string) => `Pick a plane or a flat face for '${label}'`,
   attach_label: (label: string) => `Attach '${label}'`,
+  attach_after: (label: string, feature: string) =>
+    `'${label}' cannot be placed on '${feature}', which comes after it. Pick an origin plane, or a flat face or datum plane made before '${label}'.`,
   preview_pending: () => 'Wait for the preview to update.',
   details_copied: () => 'Details copied.',
   details_not_copied: () =>

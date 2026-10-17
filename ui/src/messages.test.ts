@@ -377,6 +377,11 @@ const CASES: readonly Case[] = [
     "Pick a plane or a flat face for 'Sketch 2'",
   ],
   ['attach_label', () => MESSAGES.attach_label('Sketch 2'), "Attach 'Sketch 2'"],
+  [
+    'attach_after',
+    () => MESSAGES.attach_after('Sketch 2', 'Extrude 2'),
+    "'Sketch 2' cannot be placed on 'Extrude 2', which comes after it. Pick an origin plane, or a flat face or datum plane made before 'Sketch 2'.",
+  ],
   ['preview_pending', () => MESSAGES.preview_pending(), 'Wait for the preview to update.'],
   ['details_copied', () => MESSAGES.details_copied(), 'Details copied.'],
   [
@@ -393,7 +398,7 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(99)
+    expect(CASES).toHaveLength(100)
   })
 
   it('U-73 recovered_more counts one other document in the singular', () => {

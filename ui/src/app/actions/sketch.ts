@@ -1,8 +1,9 @@
 import { generateId, usedIds } from '../../core/ids'
-import { markerPosition } from '../../core/recipe'
+import { comesAfter, markerPosition, sketchRecord } from '../../core/recipe'
 import type {
   FeatureRecord,
   FeatureStatus,
+  HintFrame,
   ProfileFinding,
   SketchConstraint,
   SketchEntity,
@@ -166,9 +167,10 @@ async function stepSketchHistory(app: App, direction: 'undo' | 'redo'): Promise<
  * The sketch.md plane of a plane-like selection item, or null for anything else (3.16.1). A flat
  * face gives its full reference and, as the fallback, its descriptor's `fallback`: the placement in
  * body coordinates (`fallback_frame: body`), so the sketch keeps its place on the face when a Move
- * body or a copy moves the face later (features/sketch.md section 2).
+ * body or a copy moves the face later (features/sketch.md section 2); with `frame` `world`, its
+ * descriptor's `placement` in world coordinates, without `fallback_frame`.
  */
-export function sketchPlaneOf(item: SelectionItem): SketchPlane | null {
+export function sketchPlaneOf(item: SelectionItem, frame: HintFrame = 'body'): SketchPlane | null {
   if (
     item.kind === 'origin_plane' &&
     (item.origin === 'XY' || item.origin === 'XZ' || item.origin === 'YZ')
@@ -179,21 +181,28 @@ export function sketchPlaneOf(item: SelectionItem): SketchPlane | null {
     return { kind: 'datum', feature: item.feature }
   }
   const element = item.element
-  if (
-    item.kind === 'face' &&
-    element?.surface === 'plane' &&
-    element.fallback !== undefined &&
-    element.fallback !== null
-  ) {
-    return {
-      kind: 'face',
-      body: element.body,
-      face: element.reference,
-      fallback: element.fallback,
-      fallback_frame: 'body',
-    }
+  if (item.kind !== 'face' || element?.surface !== 'plane') {
+    return null
   }
-  return null
+  const fallback = frame === 'body' ? element.fallback : element.placement
+  if (fallback === undefined || fallback === null) {
+    return null
+  }
+  const face = { kind: 'face' as const, body: element.body, face: element.reference, fallback }
+  return frame === 'body' ? { ...face, fallback_frame: 'body' } : face
+}
+
+/**
+ * The coordinates a re-attached sketch stores a face's placement in (3.16.1): world coordinates
+ * when its stored plane gives it no motion (an origin plane, or a face whose fallback is in world
+ * coordinates), which keeps it without one, so the faces built from it and what later features
+ * store on them stay in place (engine.md section 3.22); else body coordinates, as a new sketch
+ * stores them (engine.md open issue 16).
+ */
+function frameKeepingMotion(stored: SketchPlane): HintFrame {
+  const withoutMotion =
+    stored.kind === 'origin' || (stored.kind === 'face' && stored.fallback_frame !== 'body')
+  return withoutMotion ? 'world' : 'body'
 }
 
 /** Ends a command or the edit of a sketch before plane picking starts (3.16.1). */
@@ -215,8 +224,13 @@ export async function startNewSketch(app: App): Promise<void> {
     await createSketchOn(app, only)
     return
   }
+  openPlanePicking(app, null)
+}
+
+/** Plane picking (3.16.1) for a new sketch, or for the sketch `reattaching` is the id of. */
+function openPlanePicking(app: App, reattaching: string | null): void {
   leaveSketchHistory(app)
-  app.store.setState({ context: 'sketch', sketch: sketchSession(null, null) })
+  app.store.setState({ context: 'sketch', sketch: { ...sketchSession(null, null), reattaching } })
 }
 
 /**
@@ -228,11 +242,7 @@ export async function reattachSketch(app: App, sketchId: string): Promise<void> 
     return
   }
   await leaveForPlanePicking(app)
-  leaveSketchHistory(app)
-  app.store.setState({
-    context: 'sketch',
-    sketch: { ...sketchSession(null, null), reattaching: sketchId },
-  })
+  openPlanePicking(app, sketchId)
 }
 
 /**
@@ -251,25 +261,24 @@ export async function enterAttachedSketch(app: App): Promise<void> {
  * The plane or face picked while a plane is picked (3.16.1): a new sketch on it, or, while a
  * sketch is re-attached, that sketch's new plane.
  */
-export async function pickPlane(app: App, plane: SelectionItem): Promise<void> {
+export async function pickPlane(app: App, item: SelectionItem): Promise<void> {
   const reattaching = selectReattachedSketch(app.store.getState())
-  await (reattaching === null ? createSketchOn(app, plane) : attachSketch(app, reattaching, plane))
+  await (reattaching === null ? createSketchOn(app, item) : attachSketch(app, reattaching, item))
 }
 
 /** Stores whose sketch is being added or attached, so a second plane pick in the meantime does nothing. */
 const placingSketch = new WeakSet<AppStore>()
 
 /**
- * Runs `place` with the sketch plane of a plane-like item, once at a time per store; an item that
- * is not plane-like shows `pick_plane` in the sketch hint instead (3.16.1).
+ * Runs `place` with the sketch plane of a picked item, once at a time per store; an item that is
+ * not plane-like (`sketchPlane` null) shows `pick_plane` in the sketch hint instead (3.16.1).
  */
 async function placeSketch(
   app: App,
-  plane: SelectionItem,
+  sketchPlane: SketchPlane | null,
   place: (sketchPlane: SketchPlane, document: DocumentState) => Promise<void>,
 ): Promise<void> {
   const document = documentOf(app)
-  const sketchPlane = sketchPlaneOf(plane)
   if (document === null || placingSketch.has(app.store)) {
     return
   }
@@ -290,27 +299,55 @@ async function placeSketch(
  * double-click on a plane, or on Sketch with a plane selected, adds one sketch.
  */
 export async function createSketchOn(app: App, plane: SelectionItem): Promise<void> {
-  await placeSketch(app, plane, (sketchPlane, document) => addSketchOn(app, document, sketchPlane))
+  await placeSketch(app, sketchPlaneOf(plane), (sketchPlane, document) =>
+    addSketchOn(app, document, sketchPlane),
+  )
 }
 
 /**
  * Stores a plane-like item as a sketch's plane in one edit labeled "Attach '{label}'", then edits
  * the sketch (3.16.1). The entities keep their sketch coordinates, so the drawing lands on the new
- * plane as it lay on the old one.
+ * plane as it lay on the old one. A face is stored in the coordinates that keep the sketch's motion
+ * where its stored plane tells it (`frameKeepingMotion`); what a feature after the sketch made is
+ * refused with `attach_after`, since the sketch is built before it.
  */
-async function attachSketch(app: App, sketchId: string, plane: SelectionItem): Promise<void> {
-  await placeSketch(app, plane, async (sketchPlane) => {
+async function attachSketch(app: App, sketchId: string, item: SelectionItem): Promise<void> {
+  const state = app.store.getState()
+  const stored = storedSketchParams(state, sketchId)?.plane
+  if (stored === undefined) {
+    return
+  }
+  const sketchPlane = sketchPlaneOf(item, frameKeepingMotion(stored))
+  const maker = sketchPlane === null ? null : makerAfter(state, sketchId, item)
+  if (maker !== null) {
+    const message = MESSAGES.attach_after(
+      selectFeatureLabel(state, sketchId),
+      selectFeatureLabel(state, maker),
+    )
+    showPickHint(app, message, null)
+    return
+  }
+  await placeSketch(app, sketchPlane, async (plane) => {
     const label = MESSAGES.attach_label(selectFeatureLabel(app.store.getState(), sketchId))
     const attached = await commitBuiltEdits(app, (document) => {
-      const record = document.recipe.features?.find((feature) => feature.id === sketchId)
-      return record?.type === 'sketch'
-        ? { label, edits: [{ type: 'update_feature', feature: { ...record, plane: sketchPlane } }] }
-        : null
+      const record = sketchRecord(document.recipe, sketchId)
+      return record === null
+        ? null
+        : { label, edits: [{ type: 'update_feature', feature: { ...record, plane } }] }
     })
     if (attached) {
       await enterSketch(app, sketchId)
     }
   })
+}
+
+/** The feature that made a picked item when it comes after the sketch in the timeline, else null. */
+function makerAfter(state: AppState, sketchId: string, item: SelectionItem): string | null {
+  const recipe = state.document?.recipe
+  const maker = item.feature
+  return recipe !== undefined && maker !== null && comesAfter(recipe, maker, sketchId)
+    ? maker
+    : null
 }
 
 async function addSketchOn(
@@ -672,11 +709,8 @@ export function createSketchIds(app: App): IdSource {
 
 /** The sketch record with this id in the recipe, or null. */
 export function sketchRecordOf(state: AppState, sketchId: string | null): FeatureRecord | null {
-  if (sketchId === null) {
-    return null
-  }
-  const record = state.document?.recipe.features?.find((feature) => feature.id === sketchId)
-  return record?.type === 'sketch' ? record : null
+  const recipe = state.document?.recipe
+  return sketchId === null || recipe === undefined ? null : sketchRecord(recipe, sketchId)
 }
 
 /** The params of the sketch with this id as the recipe stores them, or null. */

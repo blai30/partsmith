@@ -8,7 +8,7 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | --- | --- | --- |
 | [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted |
 | [0002](0002-react-for-the-ui.md) | React for the UI | Accepted |
-| [0003](0003-pin-occt-and-build-from-source.md) | Pin OCCT 7.9.3, built from source as static libraries | Accepted |
+| [0003](0003-pin-occt-and-build-from-source.md) | Pin OCCT 7.9.3, built from source as static libraries | Accepted; amended 2026-10-17 (fillets and chamfers build one at a time), the amendment needs human review |
 | [0004](0004-native-rust-sketch-solver.md) | Native Rust sketch solver instead of PlaneGCS | Accepted, needs human review |
 | [0005](0005-feature-registry-with-generic-params.md) | Feature registry with generically stored params | Accepted |
 | [0006](0006-protocol-framing-and-schema.md) | Protocol: JSON header plus binary buffers, schema-generated types | Accepted |

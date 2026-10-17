@@ -15,3 +15,9 @@ OCCT 8.0 is released; moving to it is a separate decision gated by a full corpus
 ## Consequences
 
 Native and web builds run the identical kernel version, so corpus baselines agree across platforms. First builds take tens of minutes; caches make later builds fast.
+
+## Amendments (needs human review)
+
+| Date | Specs | Change |
+| --- | --- | --- |
+| 2026-10-17 | kernel.md section 3.10 items 5 and 6, test 134, open issue 13 | **The pinned OCCT builds fillets and chamfers one at a time.** OCCT 7.9.3 is used unmodified, and its fillet and chamfer builder is not safe on several threads even on distinct shapes: `ChFi3d_Builder` assembles every result with `TopOpeBRepBuild`, whose file-level static `STATIC_SOLIDINDEX` (`TopOpeBRepBuild_Builder.cxx`) picks the solid an edge is classified against, so concurrent blends returned invalid shapes (about one in five with 8 threads; ThreadSanitizer reports the race). The shim builds `fillet` and `chamfer` under one mutex, as it already serializes STEP. This guards OCCT's state, not Partsmith's, and slows nothing today (single-threaded budgets, sequential recompute). The alternative, a patched OCCT that keeps the index as a member, would change what this decision pins and is left to kernel.md open issue 13. |
