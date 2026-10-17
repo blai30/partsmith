@@ -11,9 +11,10 @@ use feature_support::{
     assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
     assert_face_kind, assert_face_radius, assert_has_face, assert_median_build_within,
     assert_messages_pass_lint, assert_no_face, assert_unchanged, assert_volume, face,
-    face_names_with_prefix, link_ids, load_example, message, output_body, successions,
+    face_names_with_prefix, keep_and_pick, line, link_ids, load_example, message, output_body,
+    successions,
 };
-use partsmith_features::{Diagnosis, FeatureWarning, Fix};
+use partsmith_features::{Diagnosis, Fix};
 use partsmith_naming::Follow;
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 
@@ -494,14 +495,6 @@ fn t027_a_quarter_turn_records_nothing_absent() {
 /// `P-RING-V2`: the region of `SK-RING` as a pick stores it since file format version 2.
 const RING_PROFILE_V2: &str = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=15,15|a=300", "outline": "e-1,e-2,e-3,e-4"}]}"#;
 
-/// A line entity of a sketch.
-fn line(entity: &str, start: [i32; 2], end: [i32; 2]) -> String {
-    format!(
-        r#"{{"id": "{entity}", "type": "line", "start": [{}, {}], "end": [{}, {}]}}"#,
-        start[0], start[1], end[0], end[1]
-    )
-}
-
 /// `SK-RING` without the line `e-2`, followed by `added` in its place.
 fn ring_sketch_without_outer_side(added: &[String]) -> String {
     let lines: Vec<String> = [
@@ -560,30 +553,10 @@ fn t031_a_side_line_deleted_and_drawn_again_is_followed() {
             vec!["f-rev1/lateral/e-9".to_string()]
         )],
     );
-    run.assert_notices("f-fil1", &["reference_followed"]);
-    assert!(matches!(
-        run.warning("f-fil1", "reference_followed"),
-        FeatureWarning::ReferenceFollowed {
-            follow: Follow::Replaced,
-            ..
-        }
-    ));
-    assert_eq!(
-        message(&run, "f-fil1", "reference_followed")
-            .pointer
-            .as_deref(),
-        Some("/edges/0"),
-    );
+    run.assert_followed("f-fil1", Follow::Replaced, "/edges/0");
     assert_eq!(
         run.warning_fixes("f-fil1", "reference_followed", &Diagnosis::default()),
-        [
-            Fix::KeepMatch {
-                pointer: "/edges/0".to_string()
-            },
-            Fix::Pick {
-                pointer: "/edges/0".to_string()
-            },
-        ],
+        keep_and_pick("/edges/0"),
     );
     assert_messages_pass_lint(&run, "f-fil1");
 }
@@ -667,20 +640,7 @@ fn t033_a_side_line_split_by_a_collinear_line_keeps_the_whole_opening() {
         assert_cylinder(&geometry, 20.0);
         assert_face_area(&geometry, 1884.955592);
     }
-    run.assert_notices("f-sh1", &["reference_followed"]);
-    assert!(matches!(
-        run.warning("f-sh1", "reference_followed"),
-        FeatureWarning::ReferenceFollowed {
-            follow: Follow::Extended,
-            ..
-        }
-    ));
-    assert_eq!(
-        message(&run, "f-sh1", "reference_followed")
-            .pointer
-            .as_deref(),
-        Some("/remove_faces/0"),
-    );
+    run.assert_followed("f-sh1", Follow::Extended, "/remove_faces/0");
     let shelled = run.body("b-1");
     assert_no_face(shelled, "f-rev1/lateral/e-2");
     assert_no_face(shelled, "f-rev1/lateral/e-6");

@@ -3,7 +3,7 @@ import { setHover } from '../app/actions/selection'
 import type { App } from '../app/createApp'
 import type { MeshElement } from '../generated/protocol'
 import type { HoverTarget } from '../state/store'
-import { meshElementKey } from '../viewport/scene'
+import { meshElementKey } from '../viewport/keys'
 import type { RepairCandidateView } from './repair'
 
 // What a candidate's button in the banner and its marker on the model do (ui.md 3.7).
@@ -39,7 +39,7 @@ export function candidateHandlers(app: App, candidate: RepairCandidateView, onRa
     onBlur: leave,
     onClick: () => {
       if (candidate.action !== null) {
-        runOfferedFix(app, candidate.action, 'banner', { onRan })
+        runOfferedFix(app, candidate.action, 'banner', { onRan, failure: 'Using the candidate' })
       }
     },
   }

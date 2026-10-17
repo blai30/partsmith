@@ -12,8 +12,8 @@ use feature_support::{
     assert_face_axis_through, assert_face_count, assert_face_in_plane, assert_face_names,
     assert_face_normal, assert_has_face, assert_median_build_within, assert_messages_pass_lint,
     assert_no_face, assert_unchanged, assert_volume, body_update, document_text, element_names,
-    face, face_names_with_prefix, load_example, message, output_body, parse_document, successions,
-    use_reference,
+    face, face_names_with_prefix, keep_and_pick, line, load_example, message, output_body,
+    parse_document, successions, use_reference,
 };
 use partsmith_features::{BodyChange, Diagnosis, FeatureWarning, Fix};
 use partsmith_model::Id;
@@ -897,14 +897,6 @@ const RIGHT_TOP_EDGE: &str = r#"{"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-2)",
 /// The back top edge of `BLOCK`, as stored before the edit (corpus R07 and R66).
 const BACK_TOP_EDGE: &str = r#"{"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)", "fp": "line|n=1,0,0|c=40,50,30|l=80|adj=2,2"}"#;
 
-/// A line entity.
-fn line(entity: &str, start: [i32; 2], end: [i32; 2]) -> String {
-    format!(
-        r#"{{"id": "{entity}", "type": "line", "start": [{}, {}], "end": [{}, {}]}}"#,
-        start[0], start[1], end[0], end[1]
-    )
-}
-
 /// The lines of `SK-RECT` without `removed`, followed by `added`.
 fn rectangle_lines(removed: &[&str], added: &[String]) -> Vec<String> {
     [
@@ -952,18 +944,6 @@ fn followed_in_the_sketch() -> Diagnosis {
     }
 }
 
-/// `KeepMatch` then `Pick` at `pointer`.
-fn keep_and_pick(pointer: &str) -> [Fix; 2] {
-    [
-        Fix::KeepMatch {
-            pointer: pointer.to_string(),
-        },
-        Fix::Pick {
-            pointer: pointer.to_string(),
-        },
-    ]
-}
-
 /// `BLOCK` after deleting `e-2` and drawing `e-9` in its place (corpus R06a), with the fillet of radius 2 on the right
 /// top edge as stored before the edit, or `stored` in its place.
 fn redrawn_right_side(stored: &str) -> Run {
@@ -989,20 +969,7 @@ fn t047_a_side_line_deleted_and_drawn_again_is_followed() {
         after_extrude.naming().aliases().is_empty(),
         "a succession is never a merge alias"
     );
-    run.assert_notices("f-fil1", &["reference_followed"]);
-    assert!(matches!(
-        run.warning("f-fil1", "reference_followed"),
-        FeatureWarning::ReferenceFollowed {
-            follow: Follow::Replaced,
-            ..
-        }
-    ));
-    assert_eq!(
-        message(&run, "f-fil1", "reference_followed")
-            .pointer
-            .as_deref(),
-        Some("/edges/0"),
-    );
+    run.assert_followed("f-fil1", Follow::Replaced, "/edges/0");
     assert_eq!(
         run.warning_fixes("f-fil1", "reference_followed", &Diagnosis::default()),
         keep_and_pick("/edges/0"),
@@ -1108,20 +1075,7 @@ fn t049_a_side_line_split_by_a_collinear_line_keeps_the_whole_opening() {
     assert_face_in_plane(&face(&after_extrude, "f-ext1/lateral/e-2"), 0, 80.0);
     assert_face_area(&face(&after_extrude, "f-ext1/lateral/e-2"), 750.0);
     assert_face_area(&face(&after_extrude, "f-ext1/lateral/e-6"), 750.0);
-    run.assert_notices("f-sh1", &["reference_followed"]);
-    assert!(matches!(
-        run.warning("f-sh1", "reference_followed"),
-        FeatureWarning::ReferenceFollowed {
-            follow: Follow::Extended,
-            ..
-        }
-    ));
-    assert_eq!(
-        message(&run, "f-sh1", "reference_followed")
-            .pointer
-            .as_deref(),
-        Some("/remove_faces/0"),
-    );
+    run.assert_followed("f-sh1", Follow::Extended, "/remove_faces/0");
     let shelled = run.body("b-1");
     assert_no_face(shelled, "f-ext1/lateral/e-2");
     assert_no_face(shelled, "f-ext1/lateral/e-6");

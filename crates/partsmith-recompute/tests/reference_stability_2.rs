@@ -23,7 +23,7 @@ use partsmith_naming::MatchMethod;
 use partsmith_sketch::{HintFrame, Placement, SketchParams, SketchPlane};
 use serde_json::{Value, json};
 use stability_support_2::feature_support::{
-    Assets, Run, body_before, datum_placement, sketch_result,
+    Assets, Run, body_before, datum_placement, pick, sketch_result,
 };
 use stability_support_2::*;
 
@@ -160,40 +160,10 @@ fn r24b_slot_rim_fillet_dragged_above_the_slot() {
     checks.finish();
 }
 
-/// R25 and R37: the chamfer face of CUBE20's front top edge.
-fn chamfer_face() -> Value {
-    reference(
-        "f-cha1/chamfer/edge(f-box1/front|f-box1/top)",
-        "plane|n=0,-0.707107,0.707107|c=0,-9,19|a=56.568542|adj=4,4",
-    )
-}
-
-/// R25 setup: a chamfer, a datum plane on its face, and a small boss sketched on the datum.
-fn chamfer_datum_model() -> Vec<Value> {
-    vec![
-        cube20(),
-        chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2"),
-        datum_on_face("f-dp1", "b-1", chamfer_face(), "0"),
-        sketch(
-            "f-sk1",
-            datum_plane("f-dp1"),
-            vec![circle("e-1", [0.0, 7.071068], 0.5)],
-        ),
-        extrude(
-            "f-ext1",
-            "b-1",
-            "f-sk1",
-            vec![circle_region("e-1", [0.0, 7.071068], 0.5)],
-            distance("1"),
-            "join",
-        ),
-    ]
-}
-
 #[test]
 fn r25_suppressing_a_chamfer_that_carries_a_datum() {
     let mut checks = Checks::new();
-    let original = chamfer_datum_model();
+    let original = boss_on_chamfer_datum();
     let mut session = run(&["b-1"], &original);
     checks.all_ok(&session);
     let original_result = snapshot(&session, "b-1");
@@ -507,36 +477,6 @@ fn r29_swapping_two_independent_slot_cuts_does_not_widen_a_reference() {
 
 // F. Op, body and direction changes.
 
-/// R30 (a): the top rim of the symmetric boss.
-fn symmetric_boss_rim() -> Value {
-    reference(
-        "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
-        "circle|n=0,0,1|c=40,25,50|l=62.831853|r=10|adj=2,1",
-    )
-}
-
-/// R30 (a) setup: BLOCK with a symmetric extrude of 40 from the top with this op, and a fillet on
-/// its top rim.
-fn symmetric_boss(op: &str) -> Vec<Value> {
-    let mut features = block();
-    features.push(datum_offset("f-dp1", "XY", "30"));
-    features.push(sketch(
-        "f-sk2",
-        datum_plane("f-dp1"),
-        vec![circle("e-5", [40.0, 25.0], 10.0)],
-    ));
-    features.push(extrude(
-        "f-ext2",
-        "b-1",
-        "f-sk2",
-        vec![circle_region("e-5", [40.0, 25.0], 10.0)],
-        symmetric("40"),
-        op,
-    ));
-    features.push(fillet("f-fil1", "b-1", vec![symmetric_boss_rim()], "2"));
-    features
-}
-
 #[test]
 fn r30a_a_join_changed_to_a_cut_does_not_retarget_its_rim_fillet() {
     let mut checks = Checks::new();
@@ -573,31 +513,6 @@ fn r30a_a_join_changed_to_a_cut_does_not_retarget_its_rim_fillet() {
         checks.has_element(state, rim_at_block_top, true);
     }
     checks.finish();
-}
-
-/// R30 (b): the top front edge of Box 2.
-fn box2_front_top_edge() -> Value {
-    reference(
-        "edge(f-box2/front|f-box2/top)",
-        "line|n=1,0,0|c=0,-5,24.5|l=10|adj=2,2",
-    )
-}
-
-/// R30 (b) setup: CUBE20 in b-1, a box in b-2 combined into b-1 with this op, and a fillet on the
-/// box's top front edge.
-fn boolean_boss(op: &str) -> Vec<Value> {
-    vec![
-        cube20(),
-        box_record(
-            "f-box2",
-            "b-2",
-            ["10", "10", "10"],
-            Some(["0", "0", "14.5"]),
-            "new",
-        ),
-        boolean("f-bool1", "b-1", &["b-2"], op),
-        fillet("f-fil1", "b-1", vec![box2_front_top_edge()], "1"),
-    ]
 }
 
 #[test]
@@ -643,24 +558,6 @@ fn r31a_a_split_inserted_upstream_moves_the_chamfered_edge_to_the_other_body() {
     checks.message_names(&after, "f-cha1", &["'Body 2'", "'Split body 1'"]);
     checks.plain_words(&after, "f-cha1");
     checks.finish();
-}
-
-/// R31 (b): the top front edge of the upper part after the split.
-fn upper_front_top_edge() -> Value {
-    reference(
-        "edge(f-box1/front#2|f-box1/top)",
-        "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2",
-    )
-}
-
-/// R31 (b) setup: CUBE20 split at z=10 into b-2 and a fillet on the part `b-1` keeps.
-fn split_then_fillet(flip: bool) -> Vec<Value> {
-    vec![
-        cube20(),
-        datum_offset("f-dp1", "XY", "10"),
-        split(flip),
-        fillet("f-fil1", "b-1", vec![upper_front_top_edge()], "2"),
-    ]
 }
 
 #[test]
@@ -1154,11 +1051,6 @@ fn tray_floor() -> Value {
     )
 }
 
-/// R36: the top of the 80 x 50 x 30 box.
-fn tray_box_top() -> Value {
-    reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4")
-}
-
 /// R36: checks the standoff of a tray run: sketch at height `floor`, standoff from there 8 mm up.
 fn check_standoff(checks: &mut Checks, after: &Run, floor: f64) {
     checks.note(diagnose(after, "f-sk2", "b-1", &tray_floor()));
@@ -1198,9 +1090,9 @@ fn check_standoff(checks: &mut Checks, after: &Run, floor: f64) {
 #[test]
 fn r36_a_sketch_on_the_inside_floor_follows_a_shell_thickness_change() {
     let mut checks = Checks::new();
-    let before = run(&["b-1"], &tray_with_standoff("2", tray_box_top()));
+    let before = run(&["b-1"], &tray_with_standoff("2", tray_top()));
     check_standoff(&mut checks, &before, 2.0);
-    let after = run_edited(&before, &["b-1"], &tray_with_standoff("3", tray_box_top()));
+    let after = run_edited(&before, &["b-1"], &tray_with_standoff("3", tray_top()));
     check_standoff(&mut checks, &after, 3.0);
     checks.finish();
 }
@@ -1209,7 +1101,7 @@ fn r36_a_sketch_on_the_inside_floor_follows_a_shell_thickness_change() {
 fn r36_variant_a_sketch_on_the_inside_floor_follows_a_change_of_removed_face() {
     let mut checks = Checks::new();
     let front = reference("f-box1/front", "plane|n=0,-1,0|c=0,-25,15|a=2400|adj=4,4");
-    let setup = run(&["b-1"], &tray_with_standoff("2", tray_box_top()));
+    let setup = run(&["b-1"], &tray_with_standoff("2", tray_top()));
     let after = run_edited(&setup, &["b-1"], &tray_with_standoff("2", front));
     check_standoff(&mut checks, &after, 2.0);
     checks.finish();
@@ -1357,41 +1249,6 @@ fn r38_a_pattern_direction_from_an_edge_does_not_flip_after_a_1_mm_tweak() {
 #[test]
 fn r38_variant_leaning_the_wall_inward_keeps_the_copy_on_plus_y() {
     check_pattern_keeps_its_side(1.0);
-}
-
-/// R39 (a): the front left vertical edge of the box in b-2.
-fn box_corner_edge() -> Value {
-    reference(
-        "edge(f-box1/front|f-box1/left)",
-        "line|n=0,0,1|c=-5,0,5|l=10|adj=2,2",
-    )
-}
-
-/// R39 (a) setup: revolve.md test 16 with these features inserted before the revolve.
-fn revolve_about_box_edge(inserted: Vec<Value>) -> Vec<Value> {
-    let mut features = vec![box_record(
-        "f-box1",
-        "b-2",
-        ["10", "10", "10"],
-        Some(["0", "5", "0"]),
-        "new",
-    )];
-    features.extend(inserted);
-    features.push(sketch(
-        "f-sk1",
-        origin_plane("XZ"),
-        rectangle(1, 10.0, 0.0, 20.0, 30.0),
-    ));
-    features.push(revolve(
-        "f-rev1",
-        "b-1",
-        "f-sk1",
-        vec![rectangle_region(1, 10.0, 0.0, 20.0, 30.0)],
-        edge_axis("b-2", box_corner_edge()),
-        full_turn(),
-        "new",
-    ));
-    features
 }
 
 #[test]
@@ -2042,17 +1899,17 @@ fn r44_fillets_inserted_before_a_shell() {
     let features = vec![
         box_record("f-box1", "b-1", ["80", "50", "30"], None, "new"),
         fillet("f-fil1", "b-1", edges, "5"),
-        shell("f-sh1", "b-1", "2", vec![tray_box_top()]),
+        shell("f-sh1", "b-1", "2", vec![tray_top()]),
     ];
     let setup = run(&["b-1"], &without(&features, &["f-fil1"]));
     let after = run_edited(&setup, &["b-1"], &features);
-    checks.note(diagnose(&after, "f-sh1", "b-1", &tray_box_top()));
+    checks.note(diagnose(&after, "f-sh1", "b-1", &tray_top()));
     checks.all_ok(&after);
     checks.resolves(
         &after,
         "f-sh1",
         "b-1",
-        &tray_box_top(),
+        &tray_top(),
         MatchMethod::Exact,
         &["f-box1/top"],
     );

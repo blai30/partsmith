@@ -17,9 +17,6 @@ use super::render::{
 };
 use super::{candidate_detail, loss_detail};
 
-/// The consequence a warning adds to the sentence of a lost reference or region: the feature went on without it.
-const SKIPPED: &str = ", so it was skipped";
-
 /// Something a feature built around: a lost, guessed, followed or widened reference, a region that matched in
 /// another way, an unchanged body. Stores ids, never display names, so it renders correctly after a rename. `Display`
 /// renders the message with ids in place of names, values in millimeters and no diagnosis.
@@ -211,7 +208,7 @@ impl FeatureWarning {
     fn text(&self, renderer: &Renderer<'_>) -> String {
         match self {
             FeatureWarning::ReferenceLost { field, loss } => {
-                lost_reference_text(renderer, loss, &field.label, SKIPPED)
+                lost_reference_text(renderer, loss, &field.label, Entry::Skipped)
             }
             FeatureWarning::ReferenceGuessed {
                 field,
@@ -286,13 +283,19 @@ impl FeatureWarning {
                 sketch,
                 candidates,
                 ..
-            } => region_matches_text(renderer, sketch, &field.label, candidates.len(), SKIPPED),
+            } => region_matches_text(
+                renderer,
+                sketch,
+                &field.label,
+                candidates.len(),
+                Entry::Skipped,
+            ),
             FeatureWarning::RegionMissing {
                 field,
                 sketch,
                 loss,
                 ..
-            } => region_gone_text(renderer, sketch, &field.label, loss, SKIPPED),
+            } => region_gone_text(renderer, sketch, &field.label, loss, Entry::Skipped),
             FeatureWarning::PlaneFallback {
                 body,
                 reference,

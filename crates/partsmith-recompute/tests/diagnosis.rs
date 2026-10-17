@@ -20,11 +20,11 @@ mod feature_support;
 #[path = "stability_common/mod.rs"]
 mod stability_common;
 
-use std::f64::consts::{FRAC_PI_2, PI};
+use std::f64::consts::FRAC_PI_2;
 
 use feature_support::{
-    Assets, Run, assert_volume, body_before, element_names, face_names_with_prefix, message,
-    use_reference,
+    Assets, Run, assert_volume, body_before, element_names, face_names_with_prefix, keep_match,
+    message, pick, remove_entry, use_reference,
 };
 use partsmith_features::{Absence, FieldRef, Fix, Place, Repair};
 use partsmith_model::{Document, EmptyContext};
@@ -35,15 +35,17 @@ use partsmith_recompute::{
 use serde_json::{Value, json};
 use stability_common::{
     angle, arc, asset_name, block, block_back_top, block_front_right_vertical, block_front_top,
-    block_right_top, block_top, boolean, boss_base_ring, boss_top_rim, box_below, box_record,
-    chamfer, circle, circle_region, constrained_sketch, counterbore, cube10, cube20,
-    cube20_bottom_front, cube20_front_top, datum_offset, datum_on_face, datum_plane, distance,
-    document_of, edit, edit_document, edited, edited_document, extrude, face_plane, fillet,
-    filleted_boss, full_turn, hole, id, import, insert_before, keep_match, line, linear_pattern,
-    move_before, move_to_end, origin_plane, pegs, pick, plate_bytes, point, rectangle,
-    rectangle_region, reference, region, reversed, revolve, run, run_edited, run_with_assets,
-    saved, shell, show, size_constraint, sketch, slotted_cube, split, suppressed, symmetric,
-    through_all, top_face_plane, unsuppress, unsuppressed, with, without,
+    block_right_top, block_top, boolean, boolean_boss, boss_base_ring, boss_on_chamfer_datum,
+    boss_top_rim, box_below, box_corner_edge, box_record, chamfer, chamfer_face, circle,
+    circle_region, constrained_sketch, counterbore, cube10, cube20, cube20_bottom_front,
+    cube20_front_top, datum_offset, datum_on_face, datum_plane, distance, document_of, edit,
+    edit_document, edited, edited_document, extrude, fillet, filleted_boss, full_turn, hole, id,
+    import, insert_before, line, linear_pattern, move_before, move_to_end, notched_back_outline,
+    origin_plane, pegs, plate_bytes, point, rectangle, rectangle_region, reference, region,
+    reversed, revolve_about_box_edge, rounded_outline, rounded_plate, run, run_edited,
+    run_with_assets, saved, shell, show, size_constraint, sketch, slotted_cube, split,
+    split_then_fillet, suppressed, symmetric, symmetric_boss, three_quarter_ring, through_all,
+    top_face_plane, unsuppress, unsuppressed, with, without,
 };
 
 // Ids, names and fixes.
@@ -51,13 +53,6 @@ use stability_common::{
 /// An element name written in a test.
 fn name(text: &str) -> ElementName {
     ElementName::parse(text).expect("names written in tests are valid")
-}
-
-/// `RemoveEntry` of the list entry at `pointer`.
-fn remove_entry(pointer: &str) -> Fix {
-    Fix::RemoveEntry {
-        pointer: pointer.to_owned(),
-    }
 }
 
 /// `Suppress` of `feature`.
@@ -615,46 +610,15 @@ fn t046_r54_one_root_for_a_chain() {
 
 // Test 47: `Suppressed` (corpus R25).
 
-/// Corpus R25's chamfer face.
-fn chamfer_face() -> Value {
-    reference(
-        "f-cha1/chamfer/edge(f-box1/front|f-box1/top)",
-        "plane|n=0,-0.707107,0.707107|c=0,-9,19|a=56.568542|adj=4,4",
-    )
-}
-
-/// Corpus R25's setup: CUBE20, a chamfer `f-cha1` of 2 on its front top edge, a datum `f-dp1` on the chamfer face and
-/// a small boss `f-sk1`, `f-ext1` on the datum.
-fn datum_on_chamfer() -> Vec<Value> {
-    vec![
-        cube20(),
-        chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2"),
-        datum_on_face("f-dp1", "b-1", chamfer_face(), "0"),
-        sketch(
-            "f-sk1",
-            datum_plane("f-dp1"),
-            vec![circle("e-1", [0.0, 7.071068], 0.5)],
-        ),
-        extrude(
-            "f-ext1",
-            "b-1",
-            "f-sk1",
-            vec![circle_region("e-1", [0.0, 7.071068], 0.5)],
-            distance("1"),
-            "join",
-        ),
-    ]
-}
-
 #[test]
 fn t047_r25_a_suppressed_maker_comes_back_with_unsuppress() {
-    let mut session = run(&["b-1"], &datum_on_chamfer());
+    let mut session = run(&["b-1"], &boss_on_chamfer_datum());
     let original = saved(&session.document);
 
     edit(
         &mut session,
         &["b-1"],
-        &edited(&datum_on_chamfer(), "f-cha1", suppressed),
+        &edited(&boss_on_chamfer_datum(), "f-cha1", suppressed),
     );
 
     let datum = error_message(&session, "f-dp1", "reference_not_found");
@@ -681,7 +645,7 @@ fn t047_r25_a_suppressed_maker_comes_back_with_unsuppress() {
     edit(
         &mut session,
         &["b-1"],
-        &edited(&datum_on_chamfer(), "f-cha1", unsuppressed),
+        &edited(&boss_on_chamfer_datum(), "f-cha1", unsuppressed),
     );
 
     assert_all_clean(&session);
@@ -1025,25 +989,6 @@ fn t051_r31a_an_edge_a_split_put_into_another_body() {
     assert_volume(session.shape("b-1"), 6000.0);
 }
 
-/// Corpus R31 (b)'s setup: CUBE20 split at z = 10 into `b-2` (flipped or not) and a fillet `f-fil1` of 2 on the top
-/// front edge of the upper part.
-fn split_then_fillet(flip: bool) -> Vec<Value> {
-    vec![
-        cube20(),
-        datum_offset("f-dp1", "XY", "10"),
-        split(flip),
-        fillet(
-            "f-fil1",
-            "b-1",
-            vec![reference(
-                "edge(f-box1/front#2|f-box1/top)",
-                "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2",
-            )],
-            "2",
-        ),
-    ]
-}
-
 #[test]
 fn t051_r31b_a_flipped_split_offers_the_body_the_edge_is_in() {
     let mut session = run(&["b-1", "b-2"], &split_then_fillet(false));
@@ -1324,31 +1269,6 @@ fn t052_r16_an_edge_a_cut_took_away_offers_its_neighbors_by_meaning() {
     assert_volume(session.shape("b-1"), 7500.0);
 }
 
-/// Corpus R30 (b)'s setup: CUBE20 in `b-1`, a box in `b-2` reaching into its top, the boolean `f-bool1` of `op` into
-/// `b-1`, and a fillet `f-fil1` of 1 on the box's top front edge.
-fn boolean_boss(op: &str) -> Vec<Value> {
-    vec![
-        cube20(),
-        box_record(
-            "f-box2",
-            "b-2",
-            ["10", "10", "10"],
-            Some(["0", "0", "14.5"]),
-            "new",
-        ),
-        boolean("f-bool1", "b-1", &["b-2"], op),
-        fillet(
-            "f-fil1",
-            "b-1",
-            vec![reference(
-                "edge(f-box2/front|f-box2/top)",
-                "line|n=1,0,0|c=0,-5,24.5|l=10|adj=2,2",
-            )],
-            "1",
-        ),
-    ]
-}
-
 #[test]
 fn t052_r30b_the_boolean_that_cut_the_tool_face_away_is_the_remover() {
     let mut session = run(&["b-1", "b-2"], &boolean_boss("join"));
@@ -1619,48 +1539,15 @@ fn t054_r18b_an_edge_an_inserted_chamfer_beveled() {
     assert_volume(session.shape("b-1"), 7960.0);
 }
 
-/// Corpus R39 (a)'s box edge, the axis of corpus R59 (a)'s revolve.
-fn box_corner_edge() -> Value {
-    reference(
-        "edge(f-box1/front|f-box1/left)",
-        "line|n=0,0,1|c=-5,0,5|l=10|adj=2,2",
-    )
-}
-
-/// Corpus R39 (a)'s setup (revolve.md test 16): a box in `b-2` and a full revolve `f-rev1` into `b-1` about its front
-/// left edge.
-fn revolve_about_box_edge() -> Vec<Value> {
-    vec![
-        box_record(
-            "f-box1",
-            "b-2",
-            ["10", "10", "10"],
-            Some(["0", "5", "0"]),
-            "new",
-        ),
-        sketch(
-            "f-sk1",
-            origin_plane("XZ"),
-            rectangle(1, 10.0, 0.0, 20.0, 30.0),
-        ),
-        json!({
-            "id": "f-rev1", "type": "revolve", "body": "b-1",
-            "profile": {"sketch": "f-sk1", "regions": [rectangle_region(1, 10.0, 0.0, 20.0, 30.0)]},
-            "axis": {"kind": "edge", "body": "b-2", "edge": box_corner_edge()},
-            "extent": {"kind": "full"}, "op": "new"
-        }),
-    ]
-}
-
 #[test]
 fn t054_r59a_an_axis_edge_rounded_upstream_offers_the_tangent_edges() {
-    let mut session = run(&["b-1", "b-2"], &revolve_about_box_edge());
+    let mut session = run(&["b-1", "b-2"], &revolve_about_box_edge(Vec::new()));
 
     edit(
         &mut session,
         &["b-1", "b-2"],
         &insert_before(
-            &revolve_about_box_edge(),
+            &revolve_about_box_edge(Vec::new()),
             "f-rev1",
             vec![fillet("f-fil1", "b-2", vec![box_corner_edge()], "1")],
         ),
@@ -1962,39 +1849,6 @@ fn t057_r12_a_square_pocket_made_through_40() {
     check_pocket_made_through(true, "40");
 }
 
-/// Corpus R30 (a)'s setup: BLOCK, a boss `f-ext2` of `op` extruded symmetric 40 from z = 30, and a fillet `f-fil1` of
-/// 2 on its top rim.
-fn symmetric_boss(op: &str) -> Vec<Value> {
-    followed_by(
-        block(),
-        vec![
-            datum_offset("f-dp1", "XY", "30"),
-            sketch(
-                "f-sk2",
-                datum_plane("f-dp1"),
-                vec![circle("e-5", [40.0, 25.0], 10.0)],
-            ),
-            extrude(
-                "f-ext2",
-                "b-1",
-                "f-sk2",
-                vec![circle_region("e-5", [40.0, 25.0], 10.0)],
-                symmetric("40"),
-                op,
-            ),
-            fillet(
-                "f-fil1",
-                "b-1",
-                vec![reference(
-                    "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
-                    "circle|n=0,0,1|c=40,25,50|l=62.831853|r=10|adj=2,1",
-                )],
-                "2",
-            ),
-        ],
-    )
-}
-
 #[test]
 fn t057_r30a_a_cut_whose_end_reaches_the_outside_no_longer_makes_its_rim() {
     let mut session = run(&["b-1"], &symmetric_boss("join"));
@@ -2016,55 +1870,6 @@ fn t057_r30a_a_cut_whose_end_reaches_the_outside_no_longer_makes_its_rim() {
         "The top rim of 'Extrude 2' selected for Edges is no longer made by 'Extrude 2', whose end now reaches the outside of the body."
     );
     assert_volume(session.shape("b-1"), 113716.814693);
-}
-
-/// Corpus R57's setup: a 10 x 10 section revolved by `extent` about Z, a chamfer `f-cha1` of 1 on the top edge of its
-/// end face, a sketch `f-sk2` on its start face and a small cut `f-ext2` from it.
-fn three_quarter_ring(extent: Value) -> Vec<Value> {
-    vec![
-        sketch(
-            "f-sk1",
-            origin_plane("XZ"),
-            rectangle(1, 10.0, 0.0, 20.0, 10.0),
-        ),
-        revolve(
-            "f-rev1",
-            "b-1",
-            "f-sk1",
-            vec![rectangle_region(1, 10.0, 0.0, 20.0, 10.0)],
-            json!({"kind": "origin", "axis": "Z"}),
-            extent,
-            "new",
-        ),
-        chamfer(
-            "f-cha1",
-            "b-1",
-            vec![reference(
-                "edge(f-rev1/end-cap|f-rev1/lateral/e-3)",
-                "line|n=0,1,0|c=0,-15,10|l=10|adj=2,2",
-            )],
-            "1",
-        ),
-        sketch(
-            "f-sk2",
-            face_plane(
-                "b-1",
-                reference("f-rev1/start-cap", "plane|n=0,-1,0|c=15,0,5|a=100|adj=4,4"),
-                [15.0, 0.0, 5.0],
-                [1.0, 0.0, 0.0],
-                [0.0, -1.0, 0.0],
-            ),
-            vec![circle("e-11", [0.0, 0.0], 2.0)],
-        ),
-        reversed(extrude(
-            "f-ext2",
-            "b-1",
-            "f-sk2",
-            vec![circle_region("e-11", [0.0, 0.0], 2.0)],
-            distance("3"),
-            "cut",
-        )),
-    ]
 }
 
 #[test]
@@ -2383,61 +2188,14 @@ fn t059_r03_an_edge_whose_sketch_line_was_deleted_is_skipped() {
     assert_volume(session.shape("b-1"), 119931.327412);
 }
 
-/// Corpus R51's rounded rectangle, with or without the back right arc `e-6`.
-fn rounded_outline(back_right_arc: bool) -> Vec<Value> {
-    let corner_end = if back_right_arc { 45.0 } else { 50.0 };
-    let back_start = if back_right_arc { 75.0 } else { 80.0 };
-    let mut entities = vec![
-        line("e-1", [5.0, 0.0], [75.0, 0.0]),
-        line("e-2", [80.0, 5.0], [80.0, corner_end]),
-        line("e-3", [back_start, 50.0], [5.0, 50.0]),
-        line("e-4", [0.0, 45.0], [0.0, 5.0]),
-        arc("e-5", [75.0, 5.0], 5.0, 3.0 * FRAC_PI_2, 0.0),
-    ];
-    if back_right_arc {
-        entities.push(arc("e-6", [75.0, 45.0], 5.0, 0.0, FRAC_PI_2));
-    }
-    entities.push(arc("e-7", [5.0, 45.0], 5.0, FRAC_PI_2, PI));
-    entities.push(arc("e-8", [5.0, 5.0], 5.0, PI, 3.0 * FRAC_PI_2));
-    entities
-}
-
-/// Corpus R51's setup: the rounded rectangle extruded 10, and a fillet `f-fil1` of 1 on the top edge of `e-6`.
-fn rounded_plate() -> Vec<Value> {
-    vec![
-        sketch("f-sk1", origin_plane("XY"), rounded_outline(true)),
-        extrude(
-            "f-ext1",
-            "b-1",
-            "f-sk1",
-            vec![region(
-                "e-1,e-2,e-3,e-4,e-5,e-6,e-7,e-8",
-                [40.0, 25.0],
-                80.0 * 50.0 - (4.0 - PI) * 25.0,
-            )],
-            distance("10"),
-            "new",
-        ),
-        fillet(
-            "f-fil1",
-            "b-1",
-            vec![reference(
-                "edge(f-ext1/end-cap|f-ext1/lateral/e-6)",
-                "circle|n=0,0,1|c=78.183099,48.183099,10|l=7.853982|r=5|adj=2,2",
-            )],
-            "1",
-        ),
-    ]
-}
-
 #[test]
 fn t059_r51_an_edge_whose_sketch_curve_was_deleted() {
-    let mut session = run(&["b-1"], &rounded_plate());
+    let mut session = run(&["b-1"], &rounded_plate(true));
 
     edit(
         &mut session,
         &["b-1"],
-        &with_outline(&rounded_plate(), rounded_outline(false)),
+        &with_outline(&rounded_plate(true), rounded_outline(false)),
     );
 
     let error = error_message(&session, "f-fil1", "references_not_found");
@@ -2801,20 +2559,6 @@ fn t064_r63b_a_mouth_that_follows_its_hole_names_the_hole_diameter_6() {
 #[test]
 fn t064_r63b_a_mouth_that_follows_its_hole_names_the_hole_diameter_3() {
     check_mouth_follows_the_hole("3");
-}
-
-/// Corpus R66's edit of BLOCK's outline: `e-3` replaced by the five lines `e-9` to `e-13` of a 20 x 10 notch.
-fn notched_back_outline() -> Vec<Value> {
-    vec![
-        line("e-1", [0.0, 0.0], [80.0, 0.0]),
-        line("e-2", [80.0, 0.0], [80.0, 50.0]),
-        line("e-4", [0.0, 50.0], [0.0, 0.0]),
-        line("e-9", [80.0, 50.0], [50.0, 50.0]),
-        line("e-10", [50.0, 50.0], [50.0, 40.0]),
-        line("e-11", [50.0, 40.0], [30.0, 40.0]),
-        line("e-12", [30.0, 40.0], [30.0, 50.0]),
-        line("e-13", [30.0, 50.0], [0.0, 50.0]),
-    ]
 }
 
 #[test]

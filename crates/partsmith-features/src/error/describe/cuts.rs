@@ -7,6 +7,8 @@ use serde_json::Value;
 
 use super::super::message::Names;
 use crate::builtin::COPYING_TYPES;
+use crate::builtin::boolean::Boolean;
+use crate::feature::Feature;
 
 /// How the faces read in a body that holds them: the cut boolean whose tool faces they are there, or None when they
 /// read as their own feature's.
@@ -39,7 +41,7 @@ pub(super) fn cut_boolean(
         let Some(target) = id_param(record, "target") else {
             continue;
         };
-        let reading = if record.kind == "boolean" {
+        let reading = if record.kind == Boolean::TYPE {
             boolean_reading(record, &mut holders)
         } else if COPYING_TYPES.contains(&record.kind.as_str()) {
             id_param(record, "body").and_then(|source| holders.get(&source).cloned())

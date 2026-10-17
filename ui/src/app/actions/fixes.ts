@@ -202,10 +202,13 @@ export function runOfferedFix(
   {
     cause,
     onRan,
+    failure = `Running "${action.label}"`,
   }: {
     /** The cause line the action belongs to, whose ghost a `show` draws; absent for a message action. */
     readonly cause?: Cause | undefined
     readonly onRan?: (() => void) | undefined
+    /** What the console names when the action fails. */
+    readonly failure?: string | undefined
   } = {},
 ): void {
   if (selectFixBlock(app.store.getState(), action, place) !== null) {
@@ -213,7 +216,7 @@ export function runOfferedFix(
   }
   runFixAction(app, action, place, cause)
     .then(() => onRan?.())
-    .catch(reportFailure(`Running "${action.label}"`))
+    .catch(reportFailure(failure))
 }
 
 /** The actions a message or a cause line offers, in order: all but `finish_transaction` (4.2). */

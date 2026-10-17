@@ -59,3 +59,8 @@ pub use topology::{EdgeInfo, FaceInfo, FaceSource, TopologyInfo, VertexInfo};
 pub(crate) fn is_sorted_list<T: Ord>(items: &[T]) -> bool {
     !items.is_empty() && items.windows(2).all(|pair| pair[0] < pair[1])
 }
+
+/// A count or position as a `u32`; element counts come from kernel indices, which are `i32`.
+pub(crate) fn to_u32(value: usize) -> u32 {
+    u32::try_from(value).expect("element counts fit in u32")
+}

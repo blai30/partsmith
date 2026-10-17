@@ -132,10 +132,13 @@ impl NamingMap {
             .iter()
             .map(rename_slot)
             .collect::<Result<_, _>>()?;
+        let mut aliases = renamed_lists(&self.aliases.0, rename)?;
         // Appending a suffix can change the byte order of names, so alias targets are sorted again;
         // successions keep their profile order.
-        let aliases = renamed_lists(&self.aliases.0, rename, true)?;
-        let successions = renamed_lists(&self.successions.0, rename, false)?;
+        for targets in aliases.values_mut() {
+            targets.sort_unstable();
+        }
+        let successions = renamed_lists(&self.successions.0, rename)?;
         let motions = self.motions.renamed(rename)?.then(transform);
         NamingMap::from_parts(
             faces,
@@ -321,20 +324,15 @@ fn sorted_indices<'a>(
     Ok(named.into_iter().map(|(_, index)| index).collect())
 }
 
-/// The lists with every key and every listed name renamed by `rename`, each list sorted again when
-/// `sort` is set.
+/// The lists with every key and every listed name renamed by `rename`, each list in its order.
 fn renamed_lists(
     lists: &BTreeMap<ElementName, Vec<ElementName>>,
     rename: impl Fn(&ElementName) -> Result<ElementName, NamingError>,
-    sort: bool,
 ) -> Result<BTreeMap<ElementName, Vec<ElementName>>, NamingError> {
     lists
         .iter()
         .map(|(key, names)| {
-            let mut renamed = names.iter().map(&rename).collect::<Result<Vec<_>, _>>()?;
-            if sort {
-                renamed.sort_unstable();
-            }
+            let renamed = names.iter().map(&rename).collect::<Result<Vec<_>, _>>()?;
             Ok((rename(key)?, renamed))
         })
         .collect()

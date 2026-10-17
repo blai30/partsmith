@@ -364,13 +364,25 @@ impl<'a> Renderer<'a> {
     }
 }
 
-/// What a lost reference is to its feature, which decides whether `RemoveEntry` is offered (section 4.4).
+/// What a lost reference or region is to its feature, which decides whether its sentence says it was skipped and
+/// whether `RemoveEntry` is offered (sections 4.1, 4.2 and 4.4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Entry {
-    /// A list entry the feature skipped and built without.
+    /// A list entry the feature skipped and built without: a warning.
     Skipped,
-    /// A reference the feature could not build without.
+    /// A reference the feature could not build without: an error.
     Required,
+}
+
+impl Entry {
+    /// What the sentence of a lost reference or region adds after its reason: `, so it was skipped` when the feature
+    /// went on without it, nothing for an error.
+    fn consequence(self) -> &'static str {
+        match self {
+            Entry::Skipped => ", so it was skipped",
+            Entry::Required => "",
+        }
+    }
 }
 
 /// A message as `Display` writes it: `text` rendered with ids for names, millimeters, `this feature`, no body states
@@ -439,15 +451,16 @@ pub(crate) fn candidate_fixes(
 
 /// The sentence of one lost reference, shared by the error (section 4.1) and the warning (4.2): `{Element}
 /// {reason}{consequence}.{ending}`, or for an ambiguous one `{Element} {ambiguity}{consequence}. Pick the one you
-/// mean.` The consequence is empty for the error and `, so it was skipped` for the warning.
+/// mean.`, with the consequence of `entry`.
 pub(crate) fn lost_reference_text(
     renderer: &Renderer<'_>,
     loss: &Loss,
     label: &str,
-    consequence: &str,
+    entry: Entry,
 ) -> String {
     let element = renderer.lost_element_selected(loss, label);
     let clause = renderer.loss_clause(loss);
+    let consequence = entry.consequence();
     let ending = if loss.ambiguous {
         " Pick the one you mean.".to_string()
     } else {
@@ -462,12 +475,13 @@ pub(crate) fn region_gone_text(
     sketch: &Id,
     label: &str,
     loss: &RegionLoss,
-    consequence: &str,
+    entry: Entry,
 ) -> String {
     format!(
-        "The region of {} selected for {label} is gone because {}{consequence}.",
+        "The region of {} selected for {label} is gone because {}{}.",
         renderer.quoted_feature(sketch),
-        region_reason(loss)
+        region_reason(loss),
+        entry.consequence()
     )
 }
 
@@ -478,11 +492,12 @@ pub(crate) fn region_matches_text(
     sketch: &Id,
     label: &str,
     count: usize,
-    consequence: &str,
+    entry: Entry,
 ) -> String {
     format!(
-        "The region of {} selected for {label} now matches {count} separate areas{consequence}. Pick the one you mean.",
-        renderer.quoted_feature(sketch)
+        "The region of {} selected for {label} now matches {count} separate areas{}. Pick the one you mean.",
+        renderer.quoted_feature(sketch),
+        entry.consequence()
     )
 }
 

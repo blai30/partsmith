@@ -8,7 +8,10 @@ use serde_json::Value;
 
 use super::maker::{Maker, entity_geometry};
 use super::{cross, dot};
+use crate::builtin::extrude::Extrude;
+use crate::builtin::revolve::Revolve;
 use crate::error::message::Names;
+use crate::feature::Feature;
 use crate::output::SketchResult;
 use crate::params::AxisRef;
 
@@ -23,8 +26,8 @@ pub(super) fn cap_direction(names: &dyn Names, maker: &Maker<'_>, role: &str) ->
     };
     let sketch = names.sketch_result(&maker.sketch()?)?;
     match maker.kind()? {
-        "extrude" => Some(extrude_cap(maker, sketch, start)),
-        "revolve" => revolve_cap(names, maker, sketch, start),
+        Extrude::TYPE => Some(extrude_cap(maker, sketch, start)),
+        Revolve::TYPE => revolve_cap(names, maker, sketch, start),
         _ => None,
     }
 }

@@ -15,7 +15,8 @@ use super::memo::Finding;
 use super::view::RunView;
 use super::{LossReason, Removal, point_in};
 
-/// Renders the explanations of the losses of one feature.
+/// Explains the messages of one feature: renders the explanations of its losses here, and its
+/// messages with their diagnosis in `diagnosis/mod.rs`.
 pub(crate) struct Explainer<'e> {
     /// The run.
     pub(crate) view: &'e RunView<'e>,

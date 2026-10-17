@@ -36,19 +36,25 @@ pub(crate) fn feature_statuses(
         .filter(|view| view.has_geometry() && has_duplicate_names(view))
         .collect();
     let run = RunView::new(document, registry, &computed.report);
-    run.features()
-        .map(|feature| {
-            let report = feature.report;
+    computed
+        .report
+        .features
+        .iter()
+        .enumerate()
+        .map(|(position, report)| {
             let mut status = FeatureStatus {
                 id: report.feature.clone(),
                 status: state(report.status),
                 messages: Vec::with_capacity(report.messages.len()),
                 repairs: Vec::new(),
             };
-            for message in &report.messages {
-                let (diagnostic, repairs) = feature.project(message, revision, elements);
-                status.messages.push(diagnostic);
-                status.repairs.extend(repairs);
+            // A report entry whose feature the document lacks keeps its status without messages.
+            if let Some(feature) = run.feature_at(position) {
+                for message in &report.messages {
+                    let (diagnostic, repairs) = feature.project(message, revision, elements);
+                    status.messages.push(diagnostic);
+                    status.repairs.extend(repairs);
+                }
             }
             for view in &duplicated {
                 if view.provider.as_ref() == Some(&report.feature) {

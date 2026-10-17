@@ -57,20 +57,6 @@ pub fn id(text: &str) -> Id {
     Id::new(text).expect("ids written in tests are valid")
 }
 
-/// `Pick` of the reference at `pointer`.
-pub fn pick(pointer: &str) -> Fix {
-    Fix::Pick {
-        pointer: pointer.to_owned(),
-    }
-}
-
-/// `KeepMatch` of the reference at `pointer`.
-pub fn keep_match(pointer: &str) -> Fix {
-    Fix::KeepMatch {
-        pointer: pointer.to_owned(),
-    }
-}
-
 /// `Unsuppress` of `feature`.
 pub fn unsuppress(feature: &str) -> Fix {
     Fix::Unsuppress {

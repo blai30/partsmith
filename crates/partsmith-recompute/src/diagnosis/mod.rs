@@ -192,28 +192,19 @@ pub(crate) fn render_messages(finished: &Finished<'_>, cache: &mut Cache) -> Vec
             let findings = reports[explained]
                 .key
                 .and_then(|key| cache.findings_mut(&key));
-            let feature = FeatureMessages {
-                explainer: Explainer {
-                    view: &view,
-                    names: &names,
-                    units: finished.units,
-                    explained,
-                    manifest: finished
-                        .registry
-                        .get(view.kind(explained))
-                        .map(|feature| feature.manifest()),
-                },
+            let explainer = Explainer {
+                view: &view,
+                names: &names,
+                units: finished.units,
+                explained,
+                manifest: finished
+                    .registry
+                    .get(view.kind(explained))
+                    .map(|feature| feature.manifest()),
             };
-            feature.render(findings)
+            explainer.render(findings)
         })
         .collect()
-}
-
-/// The messages of one feature.
-struct FeatureMessages<'m> {
-    /// The run, current names and units, and the feature's position, with which the explanations
-    /// of its losses render.
-    explainer: Explainer<'m>,
 }
 
 /// What the diagnosis says about one problem.
@@ -227,11 +218,11 @@ struct Diagnosed {
     reason: Option<LossReason>,
 }
 
-impl FeatureMessages<'_> {
+/// The messages of the feature explained, with their diagnosis.
+impl Explainer<'_> {
     /// Renders every problem of the feature, explained.
     fn render(&self, mut findings: Option<&mut Findings>) -> Vec<Message> {
-        let explainer = &self.explainer;
-        let report = explainer.view.report(explainer.explained);
+        let report = self.view.report(self.explained);
         let problems = problems(report.error.as_ref(), &report.warnings);
         if problems.is_empty() {
             return Vec::new();
@@ -243,8 +234,8 @@ impl FeatureMessages<'_> {
                 let diagnosed = self.explain(problem, findings.as_deref_mut());
                 let context = RenderContext {
                     feature: &report.feature,
-                    names: explainer.names,
-                    units: explainer.units,
+                    names: self.names,
+                    units: self.units,
                     bodies: &bodies,
                     diagnosis: &diagnosed.diagnosis,
                 };
@@ -324,7 +315,7 @@ impl FeatureMessages<'_> {
 
     /// A probe of the run for the feature.
     fn probe(&self) -> Probe<'_, '_> {
-        Probe::new(self.explainer.view, self.explainer.explained)
+        Probe::new(self.view, self.explained)
     }
 
     /// The explanation of a message about `losses` of the field `field`: each loss's explanation,
@@ -350,7 +341,7 @@ impl FeatureMessages<'_> {
                     Finding::Lost(probe.loss_reason(loss))
                 }
             });
-            let explanation = self.explainer.explanation(&Explained {
+            let explanation = self.explanation(&Explained {
                 loss,
                 field,
                 finding: &finding,
@@ -411,7 +402,7 @@ impl FeatureMessages<'_> {
     ) -> Finding {
         if let Some(found) = findings
             .as_deref()
-            .and_then(|findings| findings.get(&key, self.explainer.view, self.explainer.explained))
+            .and_then(|findings| findings.get(&key, self.view, self.explained))
         {
             return found.clone();
         }
@@ -428,8 +419,8 @@ impl FeatureMessages<'_> {
     /// tool; else the last suppressed record before it that writes the body; else the first record
     /// after it that does.
     fn because(&self, body: &Id) -> Option<Because> {
-        let view = self.explainer.view;
-        let explained = self.explainer.explained;
+        let view = self.view;
+        let explained = self.explained;
         for &writer in view.bodies.writers_before(body, explained).iter().rev() {
             let report = view.report(writer);
             match &report.error {
@@ -472,8 +463,8 @@ impl FeatureMessages<'_> {
     /// The sketch the feature reads, when its report in this run has a `PlaneFallback` warning: the
     /// sketch lost its face (section 3.10, `lost_face`).
     fn lost_face(&self) -> Option<Id> {
-        let view = self.explainer.view;
-        let sketch = view.first_sketch(self.explainer.explained)?;
+        let view = self.view;
+        let sketch = view.first_sketch(self.explained)?;
         let position = view.position(sketch)?;
         view.report(position)
             .warnings

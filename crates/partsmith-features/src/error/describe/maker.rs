@@ -7,7 +7,11 @@ use partsmith_sketch::{Geometry, PointRef, SketchEntity, SketchParams};
 use serde_json::Value;
 
 use super::super::message::{Names, format_value};
+use crate::builtin::extrude::Extrude;
+use crate::builtin::hole::Hole;
+use crate::builtin::revolve::Revolve;
 use crate::builtin::{CUTTING_TYPES, PRIMITIVE_TYPES};
+use crate::feature::Feature;
 
 /// How a feature that is not in the document is named (section 3.12).
 pub(super) const NOT_IN_DOCUMENT: &str = "a feature that is not in this document";
@@ -59,7 +63,7 @@ impl<'a> Maker<'a> {
 
     /// True for an extrude or a revolve.
     pub(super) fn is_sweep(&self) -> bool {
-        self.is("extrude") || self.is("revolve")
+        self.is(Extrude::TYPE) || self.is(Revolve::TYPE)
     }
 
     /// The param at `path`.
@@ -81,7 +85,7 @@ impl<'a> Maker<'a> {
 
     /// The sketch the feature reads: the profile's for an extrude or revolve, the point sketch for a hole.
     pub(super) fn sketch(&self) -> Option<Id> {
-        let value = if self.is("hole") {
+        let value = if self.is(Hole::TYPE) {
             self.param(&["sketch"])
         } else {
             self.param(&["profile", "sketch"])

@@ -404,7 +404,7 @@ impl FeatureError {
                 kind,
                 losses,
             } => match losses.as_slice() {
-                [loss] => lost_reference_text(renderer, loss, &field.label, ""),
+                [loss] => lost_reference_text(renderer, loss, &field.label, Entry::Required),
                 [first, ..] => format!(
                     "None of the {count} {kinds} selected for {label} are left: {element} {reason}, and {more} more.{ending}",
                     count = losses.len(),
@@ -422,7 +422,7 @@ impl FeatureError {
                 ),
             },
             FeatureError::ReferenceNotFound { field, loss } => {
-                lost_reference_text(renderer, loss, &field.label, "")
+                lost_reference_text(renderer, loss, &field.label, Entry::Required)
             }
             FeatureError::ProfileNotFound {
                 field,
@@ -430,13 +430,15 @@ impl FeatureError {
                 regions,
             } => match regions.as_slice() {
                 [region] => match &region.loss {
-                    Some(loss) => region_gone_text(renderer, sketch, &field.label, loss, ""),
+                    Some(loss) => {
+                        region_gone_text(renderer, sketch, &field.label, loss, Entry::Required)
+                    }
                     None => region_matches_text(
                         renderer,
                         sketch,
                         &field.label,
                         region.candidates.len(),
-                        "",
+                        Entry::Required,
                     ),
                 },
                 _ => format!(

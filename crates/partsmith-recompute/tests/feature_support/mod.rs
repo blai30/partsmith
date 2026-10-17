@@ -18,8 +18,11 @@ use partsmith_features::{
     RenderContext, Repair, Severity, SketchResult,
 };
 use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit, Id};
-use partsmith_naming::{ElementKind, ElementName, Reference};
-use partsmith_occt_sys::{ElementGeometry, GeometryKind, Shape, SubShapeKind, Vector};
+use partsmith_naming::{ElementKind, ElementName, Follow, Reference};
+use partsmith_occt_sys::{
+    ElementGeometry, GeometryKind, Plane, Shape, StepBody, SubShapeKind, Vector, make_box,
+    write_step,
+};
 use partsmith_recompute::{BodyReport, FeatureReport, Input, Message, Recompute, Report, Status};
 use partsmith_sketch::Placement;
 
@@ -752,9 +755,37 @@ pub fn median_failed_build_time(
     })
 }
 
-// Helpers for the sketch, extrude, revolve, hole and datum plane tests: sketch and datum outputs,
-// states before a feature, message pointers, expression uses, placements, vertices, flat faces and
-// canonical examples (features.md section 6.1).
+// Helpers for the sketch, extrude, revolve, hole, datum plane and import tests: sketch lines as
+// text, a STEP box asset, sketch and datum outputs, states before a feature, message pointers,
+// expression uses, placements, vertices, flat faces and canonical examples (features.md section 6.1).
+
+/// A sketch line entity as JSON text, for documents written as text.
+pub fn line(entity: &str, start: [i32; 2], end: [i32; 2]) -> String {
+    format!(
+        r#"{{"id": "{entity}", "type": "line", "start": [{}, {}], "end": [{}, {}]}}"#,
+        start[0], start[1], end[0], end[1]
+    )
+}
+
+/// The name the tests give a STEP asset, features/import.md's fixture `A`: 64 zeros followed by `.step` (the tests do
+/// not check that it is a hash).
+pub fn step_asset_name() -> String {
+    format!("{}.step", "0".repeat(64))
+}
+
+/// The asset map of a STEP file with one body named `name`, a `make_box` solid of `size` with its corner at the
+/// origin, under `step_asset_name()`.
+pub fn box_step_asset(name: &str, size: [f64; 3]) -> Assets {
+    let [length, width, height] = size;
+    let solid = make_box(&Plane::XY, length, width, height).expect("the kernel makes a valid box");
+    let bytes = write_step(&[StepBody {
+        shape: solid.shape,
+        name: name.to_owned(),
+        color: None,
+    }])
+    .expect("the kernel writes STEP");
+    Assets::from([(step_asset_name(), Arc::from(bytes))])
+}
 
 /// The state of `body` just before `feature` (its `bodies_before`, which holds the bodies it declares).
 pub fn body_before<'a>(run: &'a Run, feature: &str, body: &str) -> &'a BodyState {
@@ -961,8 +992,8 @@ pub fn assert_no_face(state: &BodyState, name: &str) {
 }
 
 // Helpers for messages, fixes and repairs (features.md sections 3.7, 3.8, 3.12, 4 and 6.5): rendering a
-// feature's errors and warnings with the diagnosis a scenario implies, notices, picked references,
-// successions, absent faces and the message lint.
+// feature's errors and warnings with the diagnosis a scenario implies, notices, followed references, picked
+// references, the fixes tests expect, successions, absent faces and the message lint.
 
 impl Run {
     /// Calls `use_context` with the render context of `feature` in this run (features.md section 2.8): the document's
@@ -1089,6 +1120,23 @@ impl Run {
         }
     }
 
+    /// Asserts that the only notice of `feature` is a `reference_followed` that followed by `follow`, at the field
+    /// `pointer` (features.md section 3.8).
+    pub fn assert_followed(&self, feature: &str, follow: Follow, pointer: &str) {
+        self.assert_notices(feature, &["reference_followed"]);
+        let warning = self.warning(feature, "reference_followed");
+        assert!(
+            matches!(warning, FeatureWarning::ReferenceFollowed { follow: actual, .. } if *actual == follow),
+            "{feature} should follow by {follow:?}, but its notice is {warning:?}"
+        );
+        assert_eq!(
+            message(self, feature, "reference_followed")
+                .pointer
+                .as_deref(),
+            Some(pointer),
+        );
+    }
+
     /// `Reference::from_element` of the element named `name` in `body` just before `feature`: what a pick there
     /// stores, and what a candidate or fix of that feature holds.
     pub fn picked_before(&self, feature: &str, body: &str, name: &str) -> Reference {
@@ -1117,6 +1165,32 @@ pub fn use_reference(pointer: &str, reference: Reference) -> Fix {
         pointer: pointer.to_string(),
         references: vec![reference],
     }
+}
+
+/// `Pick` of the reference at `pointer`.
+pub fn pick(pointer: &str) -> Fix {
+    Fix::Pick {
+        pointer: pointer.to_owned(),
+    }
+}
+
+/// `KeepMatch` of the reference at `pointer`.
+pub fn keep_match(pointer: &str) -> Fix {
+    Fix::KeepMatch {
+        pointer: pointer.to_owned(),
+    }
+}
+
+/// `RemoveEntry` of the list entry at `pointer`.
+pub fn remove_entry(pointer: &str) -> Fix {
+    Fix::RemoveEntry {
+        pointer: pointer.to_owned(),
+    }
+}
+
+/// `KeepMatch` then `Pick` at `pointer`: the fixes of a followed reference (features.md section 4.2).
+pub fn keep_and_pick(pointer: &str) -> [Fix; 2] {
+    [keep_match(pointer), pick(pointer)]
 }
 
 /// The successions a body's naming map records, as (stored face, faces now) names.

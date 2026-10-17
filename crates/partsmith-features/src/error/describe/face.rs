@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use partsmith_model::Id;
 use partsmith_naming::{
-    ElementKind, ElementName, FaceGenerator, FaceName, Fingerprint, GeometryKind, piece_free_text,
-    roles,
+    ElementKind, ElementName, FaceGenerator, FaceName, Fingerprint, GeometryKind, Instance,
+    piece_free_text, roles,
 };
 
 use super::caps::cap_direction;
@@ -16,7 +16,21 @@ use super::maker::{
     sketch_point, world_coordinates,
 };
 use super::{Describer, Word, cross, dot};
+use crate::builtin::r#box::BoxFeature;
+use crate::builtin::chamfer::Chamfer;
+use crate::builtin::cone::Cone;
+use crate::builtin::cylinder::Cylinder;
+use crate::builtin::extrude::Extrude;
+use crate::builtin::fillet::Fillet;
+use crate::builtin::hole::Hole;
+use crate::builtin::mirror::Mirror;
+use crate::builtin::revolve::Revolve;
+use crate::builtin::shell::Shell;
+use crate::builtin::sphere::Sphere;
+use crate::builtin::split_body::SplitBody;
+use crate::builtin::torus::Torus;
 use crate::context::BodyState;
+use crate::feature::Feature;
 use crate::output::Absence;
 
 /// The element being described.
@@ -185,7 +199,7 @@ impl FaceReader<'_, '_> {
             word: None,
             normal: None,
             missing: !maker.exists(),
-            fallback: name.role() == roles::FACE,
+            fallback: name.is_fallback(),
             owner: maker.quoted(),
             copies,
             feature_key: format!("{}{copy_groups}", name.feature()),
@@ -381,7 +395,7 @@ impl FaceReader<'_, '_> {
                     | GeometryKind::Torus
             );
         }
-        if maker.is("hole") {
+        if maker.is(Hole::TYPE) {
             return matches!(
                 name.role(),
                 roles::BORE | roles::COUNTERBORE | roles::COUNTERSINK
@@ -423,7 +437,7 @@ impl FaceReader<'_, '_> {
 
     /// What a rim on the face belongs to.
     fn rim_owner(&self, maker: &Maker<'_>, name: &FaceName<'_>, facts: &FaceFacts) -> String {
-        if maker.is("hole") {
+        if maker.is(Hole::TYPE) {
             let hole = self.hole(maker, name);
             return match name.role() {
                 roles::COUNTERBORE => format!("the counterbore of {hole}"),
@@ -471,32 +485,32 @@ impl FaceReader<'_, '_> {
         }
         let role = name.role();
         match maker.kind() {
-            Some("box") => match role {
+            Some(BoxFeature::TYPE) => match role {
                 roles::FRONT | roles::BACK | roles::LEFT | roles::RIGHT => {
                     format!("the {role} side of {owner}")
                 }
                 roles::TOP | roles::BOTTOM => format!("the {role} of {owner}"),
                 _ => format!("a face of {owner}"),
             },
-            Some("cylinder" | "cone")
+            Some(Cylinder::TYPE | Cone::TYPE)
                 if matches!(role, roles::TOP | roles::BOTTOM | roles::SIDE) =>
             {
                 format!("the {role} of {owner}")
             }
-            Some("sphere" | "torus") if role == roles::SURFACE => {
+            Some(Sphere::TYPE | Torus::TYPE) if role == roles::SURFACE => {
                 format!("the surface of {owner}")
             }
-            Some("extrude" | "revolve") => self.sweep_face_text(name, facts, fingerprint),
-            Some("fillet") => match role {
+            Some(Extrude::TYPE | Revolve::TYPE) => self.sweep_face_text(name, facts, fingerprint),
+            Some(Fillet::TYPE) => match role {
                 roles::FILLET => format!("the rounded face of {owner}"),
                 _ => format!("a corner face of {owner}"),
             },
-            Some("chamfer") => match role {
+            Some(Chamfer::TYPE) => match role {
                 roles::CHAMFER => format!("the beveled face of {owner}"),
                 _ => format!("a corner face of {owner}"),
             },
-            Some("shell") => self.shell_face_text(name, facts),
-            Some("hole") => {
+            Some(Shell::TYPE) => self.shell_face_text(name, facts),
+            Some(Hole::TYPE) => {
                 let hole = self.hole(maker, name);
                 match role {
                     roles::BORE => format!("the wall of {hole}"),
@@ -508,7 +522,7 @@ impl FaceReader<'_, '_> {
                     _ => format!("the opening of {hole}"),
                 }
             }
-            Some("split_body") => format!("the cut face of {owner}"),
+            Some(SplitBody::TYPE) => format!("the cut face of {owner}"),
             _ => format!("a face of {owner}"),
         }
     }
@@ -649,9 +663,8 @@ impl FaceReader<'_, '_> {
             .map(|copy| {
                 let maker = Maker::of(self.describer.names, copy.feature);
                 let owner = maker.quoted();
-                let mirror = maker.is("mirror");
-                let second = (copy.instance.second != 0).then_some(copy.instance.second);
-                let noun = copy_noun(mirror, copy.instance.first, second);
+                let mirror = maker.is(Mirror::TYPE);
+                let noun = copy_noun(mirror, copy.instance);
                 if mirror {
                     format!(" of the {noun} made by {owner}")
                 } else {
@@ -664,17 +677,18 @@ impl FaceReader<'_, '_> {
 
 /// A copy in words (section 3.12): `mirror image` for a mirror, `copy in row 2, column 3` with a second index, else
 /// `third copy` (the ordinal of the first index plus 1).
-pub(super) fn copy_noun(mirror: bool, first: u32, second: Option<u32>) -> String {
+pub(super) fn copy_noun(mirror: bool, instance: Instance) -> String {
+    let Instance { first, second } = instance;
     if mirror {
-        return "mirror image".to_string();
-    }
-    match second {
-        Some(second) => format!(
+        "mirror image".to_string()
+    } else if second != 0 {
+        format!(
             "copy in row {}, column {}",
             u64::from(second) + 1,
             u64::from(first) + 1
-        ),
-        None => format!("{} copy", ordinal(u64::from(first) + 1)),
+        )
+    } else {
+        format!("{} copy", ordinal(u64::from(first) + 1))
     }
 }
 
@@ -732,9 +746,11 @@ mod tests {
 
     #[test]
     fn copies_read_as_ordinals_grid_places_or_mirror_images() {
-        assert_eq!(copy_noun(false, 2, None), "third copy");
-        assert_eq!(copy_noun(false, 2, Some(1)), "copy in row 2, column 3");
-        assert_eq!(copy_noun(true, 1, None), "mirror image");
+        let copy = |first, second| Instance { first, second };
+
+        assert_eq!(copy_noun(false, copy(2, 0)), "third copy");
+        assert_eq!(copy_noun(false, copy(2, 1)), "copy in row 2, column 3");
+        assert_eq!(copy_noun(true, copy(1, 0)), "mirror image");
     }
 
     #[test]

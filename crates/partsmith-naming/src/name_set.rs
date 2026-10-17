@@ -6,7 +6,6 @@ use std::sync::Arc;
 use crate::aliases::{Aliases, Successions};
 use crate::canon::{Form, Forms, FormsBuilder, Pattern};
 use crate::chase::Chaser;
-use crate::element_set::to_u32;
 use crate::fast_hash::FastMap;
 use crate::kind::ElementKind;
 use crate::map::NamingMap;
@@ -14,6 +13,7 @@ use crate::name::ElementName;
 use crate::reference::Merged;
 use crate::roles;
 use crate::shape::{InstanceName, Shape, shared_piece_free};
+use crate::to_u32;
 
 /// The names-only view of one body state: its face names, aliases and successions, which faces
 /// touch, and the indexes the resolver matches names with (section 3.9). It reads no fingerprints,

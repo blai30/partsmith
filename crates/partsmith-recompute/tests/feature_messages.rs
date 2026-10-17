@@ -8,15 +8,16 @@ mod feature_support;
 
 use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_2, PI};
-use std::sync::Arc;
 
-use feature_support::{Assets, Run, assert_messages_pass_lint, body_before, use_reference};
+use feature_support::{
+    Run, assert_messages_pass_lint, body_before, box_step_asset, pick, remove_entry,
+    step_asset_name, use_reference,
+};
 use partsmith_features::{
     Because, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, Repair, describe_elements,
 };
 use partsmith_model::Id;
 use partsmith_naming::{ElementName, Fingerprint};
-use partsmith_occt_sys::{Plane, StepBody, make_box, write_step};
 use serde_json::{Value, json};
 
 // Records of the shared setups (reference stability corpus, "Shared setups"; features.md section 6.1).
@@ -257,20 +258,6 @@ fn use_each(run: &Run, feature: &str, body: &str, pointer: &str, elements: &[&st
         .iter()
         .map(|element| use_reference(pointer, run.picked_before(feature, body, element)))
         .collect()
-}
-
-/// `Pick` at `pointer`.
-fn pick(pointer: &str) -> Fix {
-    Fix::Pick {
-        pointer: pointer.to_string(),
-    }
-}
-
-/// `RemoveEntry` at `pointer`.
-fn remove(pointer: &str) -> Fix {
-    Fix::RemoveEntry {
-        pointer: pointer.to_string(),
-    }
 }
 
 // Test 1: element descriptions (section 3.12).
@@ -766,18 +753,11 @@ fn t001_faces_of_dress_ups_and_splits() {
 /// features/import.md test 1: a STEP file with one block [0,10]x[0,20]x[0,30], imported with op new; its faces have
 /// fallback names `f-imp1/face#1` to `#6`.
 fn imported_block() -> Run {
-    let solid = make_box(&Plane::XY, 10.0, 20.0, 30.0).expect("the kernel makes a valid box");
-    let bytes = write_step(&[StepBody {
-        shape: solid.shape,
-        name: "Block".to_string(),
-        color: None,
-    }])
-    .expect("the kernel writes STEP");
-    let asset = format!("{}.step", "0".repeat(64));
-    let record =
-        json!({"id": "f-imp1", "type": "import", "body": "b-1", "asset": asset, "op": "new"});
+    let record = json!({
+        "id": "f-imp1", "type": "import", "body": "b-1", "asset": step_asset_name(), "op": "new"
+    });
     let text = record.to_string();
-    let assets = Assets::from([(asset, Arc::from(bytes))]);
+    let assets = box_step_asset("Block", [10.0, 20.0, 30.0]);
     Run::with_assets(feature_support::document(&["b-1"], &[&text]), &assets)
 }
 
@@ -1284,7 +1264,7 @@ fn t015_r03_a_deleted_bevel() {
             "edge(f-ext1/lateral/e-2|f-ext1/lateral/e-3)",
         ],
     );
-    expected.push(remove("/edges/0"));
+    expected.push(remove_entry("/edges/0"));
     expected.push(pick("/edges/0"));
     assert_eq!(
         run.warning_fixes("f-fil1", "reference_missing", &diagnosis),
@@ -1426,7 +1406,7 @@ fn t015_r41_a_copy_that_is_gone() {
             "edge(f-box1/back@f-lp1:1|f-box1/top@f-lp1:1)",
         ],
     );
-    expected.push(remove("/edges/1"));
+    expected.push(remove_entry("/edges/1"));
     expected.push(pick("/edges/1"));
     assert_eq!(
         run.warning_fixes("f-fil1", "reference_missing", &diagnosis),

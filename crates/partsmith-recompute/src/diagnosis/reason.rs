@@ -168,9 +168,7 @@ impl<'r> Probe<'_, 'r> {
             .or_else(|| self.copy_gone(position, lost_name))
             .or_else(|| self.sketch_generator_gone(position, lost_name))
             .or_else(|| {
-                let fallback = lost_name
-                    .face_name()
-                    .is_some_and(|face| face.role() == roles::FACE && face.generator().is_none());
+                let fallback = lost_name.face_name().is_some_and(|face| face.is_fallback());
                 (self.view.kind(position) == Import::TYPE && fallback).then(|| {
                     LossReason::NotInFile {
                         feature: maker.clone(),

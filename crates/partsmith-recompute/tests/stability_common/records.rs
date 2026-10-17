@@ -1,9 +1,9 @@
 //! Feature records as `.ptsm` JSON for the corpus scenarios: sketch entities, regions, planes,
 //! feature records, the corpus's shared setups (BLOCK, SLOT, CUBE20, CUBE10 and BOX-BELOW) with
-//! their picked references, the setups more than one test file runs (PEGS of R23, the slot of R24,
-//! the boss of R28 and the split of R31), and edits of feature lists.
+//! their picked references, the setups more than one test file runs (PEGS of R23 to the notched
+//! outline of R66), and edits of feature lists.
 
-use std::f64::consts::PI;
+use std::f64::consts::{FRAC_PI_2, PI};
 
 use serde_json::{Value, json};
 
@@ -516,7 +516,7 @@ pub fn slot(x0: f64, x1: f64) -> Vec<Value> {
     features
 }
 
-// Setups of R23, R24, R28 and R31.
+// Setups that more than one test file runs, R23 to R66, with their picked references.
 
 /// R23: peg A's top rim.
 pub fn peg_a_rim() -> Value {
@@ -585,6 +585,37 @@ pub fn slotted_cube() -> Vec<Value> {
     ]
 }
 
+/// R25 and R37: the chamfer face of CUBE20's front top edge.
+pub fn chamfer_face() -> Value {
+    reference(
+        "f-cha1/chamfer/edge(f-box1/front|f-box1/top)",
+        "plane|n=0,-0.707107,0.707107|c=0,-9,19|a=56.568542|adj=4,4",
+    )
+}
+
+/// R25 setup: CUBE20, a chamfer `f-cha1` of 2 on its front top edge, a datum `f-dp1` on the
+/// chamfer face and a small boss `f-sk1`, `f-ext1` on the datum.
+pub fn boss_on_chamfer_datum() -> Vec<Value> {
+    vec![
+        cube20(),
+        chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2"),
+        datum_on_face("f-dp1", "b-1", chamfer_face(), "0"),
+        sketch(
+            "f-sk1",
+            datum_plane("f-dp1"),
+            vec![circle("e-1", [0.0, 7.071068], 0.5)],
+        ),
+        extrude(
+            "f-ext1",
+            "b-1",
+            "f-sk1",
+            vec![circle_region("e-1", [0.0, 7.071068], 0.5)],
+            distance("1"),
+            "join",
+        ),
+    ]
+}
+
 /// R28: the boss's top rim.
 pub fn boss_top_rim() -> Value {
     reference(
@@ -625,6 +656,61 @@ pub fn filleted_boss(edge: Value) -> Vec<Value> {
     features
 }
 
+/// R30 (a): the top rim of the symmetric boss.
+pub fn symmetric_boss_rim() -> Value {
+    reference(
+        "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
+        "circle|n=0,0,1|c=40,25,50|l=62.831853|r=10|adj=2,1",
+    )
+}
+
+/// R30 (a) setup: BLOCK, a boss `f-ext2` of `op` extruded symmetric 40 from z = 30, and a fillet
+/// `f-fil1` of 2 on its top rim.
+pub fn symmetric_boss(op: &str) -> Vec<Value> {
+    let mut features = block();
+    features.push(datum_offset("f-dp1", "XY", "30"));
+    features.push(sketch(
+        "f-sk2",
+        datum_plane("f-dp1"),
+        vec![circle("e-5", [40.0, 25.0], 10.0)],
+    ));
+    features.push(extrude(
+        "f-ext2",
+        "b-1",
+        "f-sk2",
+        vec![circle_region("e-5", [40.0, 25.0], 10.0)],
+        symmetric("40"),
+        op,
+    ));
+    features.push(fillet("f-fil1", "b-1", vec![symmetric_boss_rim()], "2"));
+    features
+}
+
+/// R30 (b): the top front edge of Box 2.
+pub fn box2_front_top_edge() -> Value {
+    reference(
+        "edge(f-box2/front|f-box2/top)",
+        "line|n=1,0,0|c=0,-5,24.5|l=10|adj=2,2",
+    )
+}
+
+/// R30 (b) setup: CUBE20 in `b-1`, a box in `b-2` reaching into its top, the boolean `f-bool1` of
+/// `op` into `b-1`, and a fillet `f-fil1` of 1 on the box's top front edge.
+pub fn boolean_boss(op: &str) -> Vec<Value> {
+    vec![
+        cube20(),
+        box_record(
+            "f-box2",
+            "b-2",
+            ["10", "10", "10"],
+            Some(["0", "0", "14.5"]),
+            "new",
+        ),
+        boolean("f-bool1", "b-1", &["b-2"], op),
+        fillet("f-fil1", "b-1", vec![box2_front_top_edge()], "1"),
+    ]
+}
+
 /// R31: the split body record `f-split1` of `b-1` by the datum `f-dp1` into `b-2`, flipped when
 /// `flip`.
 pub fn split(flip: bool) -> Value {
@@ -634,6 +720,179 @@ pub fn split(flip: bool) -> Value {
     } else {
         record
     }
+}
+
+/// R31 (b): the top front edge of the upper part after the split.
+pub fn upper_front_top_edge() -> Value {
+    reference(
+        "edge(f-box1/front#2|f-box1/top)",
+        "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2",
+    )
+}
+
+/// R31 (b) setup: CUBE20 split at z = 10 into `b-2` (flipped when `flip`) and a fillet `f-fil1` of
+/// 2 on the top front edge of the part `b-1` keeps.
+pub fn split_then_fillet(flip: bool) -> Vec<Value> {
+    vec![
+        cube20(),
+        datum_offset("f-dp1", "XY", "10"),
+        split(flip),
+        fillet("f-fil1", "b-1", vec![upper_front_top_edge()], "2"),
+    ]
+}
+
+/// R36 and R53 (a): the top of the 80 x 50 x 30 box.
+pub fn tray_top() -> Value {
+    reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4")
+}
+
+/// R39 (a): the front left vertical edge of the box in `b-2`, the axis of R59 (a)'s revolve.
+pub fn box_corner_edge() -> Value {
+    reference(
+        "edge(f-box1/front|f-box1/left)",
+        "line|n=0,0,1|c=-5,0,5|l=10|adj=2,2",
+    )
+}
+
+/// R39 (a) setup (revolve.md test 16): a box in `b-2`, these features, and a full revolve `f-rev1`
+/// into `b-1` about the box's front left edge.
+pub fn revolve_about_box_edge(inserted: Vec<Value>) -> Vec<Value> {
+    let mut features = vec![box_record(
+        "f-box1",
+        "b-2",
+        ["10", "10", "10"],
+        Some(["0", "5", "0"]),
+        "new",
+    )];
+    features.extend(inserted);
+    features.push(sketch(
+        "f-sk1",
+        origin_plane("XZ"),
+        rectangle(1, 10.0, 0.0, 20.0, 30.0),
+    ));
+    features.push(revolve(
+        "f-rev1",
+        "b-1",
+        "f-sk1",
+        vec![rectangle_region(1, 10.0, 0.0, 20.0, 30.0)],
+        edge_axis("b-2", box_corner_edge()),
+        full_turn(),
+        "new",
+    ));
+    features
+}
+
+/// R51: the outline of an 80 x 50 rectangle with radius 5 corners; `back_right_arc` false draws a
+/// sharp back right corner instead of the arc `e-6`.
+pub fn rounded_outline(back_right_arc: bool) -> Vec<Value> {
+    let corner_end = if back_right_arc { 45.0 } else { 50.0 };
+    let back_start = if back_right_arc { 75.0 } else { 80.0 };
+    let mut entities = vec![
+        line("e-1", [5.0, 0.0], [75.0, 0.0]),
+        line("e-2", [80.0, 5.0], [80.0, corner_end]),
+        line("e-3", [back_start, 50.0], [5.0, 50.0]),
+        line("e-4", [0.0, 45.0], [0.0, 5.0]),
+        arc("e-5", [75.0, 5.0], 5.0, 3.0 * FRAC_PI_2, 0.0),
+    ];
+    if back_right_arc {
+        entities.push(arc("e-6", [75.0, 45.0], 5.0, 0.0, FRAC_PI_2));
+    }
+    entities.push(arc("e-7", [5.0, 45.0], 5.0, FRAC_PI_2, PI));
+    entities.push(arc("e-8", [5.0, 5.0], 5.0, PI, 3.0 * FRAC_PI_2));
+    entities
+}
+
+/// R51: the top edge of the back right corner arc.
+pub fn arc_top_edge() -> Value {
+    reference(
+        "edge(f-ext1/end-cap|f-ext1/lateral/e-6)",
+        "circle|n=0,0,1|c=78.183099,48.183099,10|l=7.853982|r=5|adj=2,2",
+    )
+}
+
+/// R51 setup: the rounded outline (with or without the arc `e-6`) extruded 10 and a fillet `f-fil1`
+/// of 1 on the top edge of `e-6`.
+pub fn rounded_plate(back_right_arc: bool) -> Vec<Value> {
+    let area = 80.0 * 50.0 - (4.0 - PI) * 25.0;
+    vec![
+        sketch("f-sk1", origin_plane("XY"), rounded_outline(back_right_arc)),
+        extrude(
+            "f-ext1",
+            "b-1",
+            "f-sk1",
+            vec![region(
+                "e-1,e-2,e-3,e-4,e-5,e-6,e-7,e-8",
+                [40.0, 25.0],
+                area,
+            )],
+            distance("10"),
+            "new",
+        ),
+        fillet("f-fil1", "b-1", vec![arc_top_edge()], "1"),
+    ]
+}
+
+/// R57: the top edge of the revolve's end face.
+pub fn revolve_end_edge() -> Value {
+    reference(
+        "edge(f-rev1/end-cap|f-rev1/lateral/e-3)",
+        "line|n=0,1,0|c=0,-15,10|l=10|adj=2,2",
+    )
+}
+
+/// R57 setup: a 10 x 10 section revolved by `extent` about Z, a chamfer `f-cha1` of 1 on the top
+/// edge of its end face, a sketch `f-sk2` on its start face and a small cut `f-ext2` from it.
+pub fn three_quarter_ring(extent: Value) -> Vec<Value> {
+    vec![
+        sketch(
+            "f-sk1",
+            origin_plane("XZ"),
+            rectangle(1, 10.0, 0.0, 20.0, 10.0),
+        ),
+        revolve(
+            "f-rev1",
+            "b-1",
+            "f-sk1",
+            vec![rectangle_region(1, 10.0, 0.0, 20.0, 10.0)],
+            json!({"kind": "origin", "axis": "Z"}),
+            extent,
+            "new",
+        ),
+        chamfer("f-cha1", "b-1", vec![revolve_end_edge()], "1"),
+        sketch(
+            "f-sk2",
+            face_plane(
+                "b-1",
+                reference("f-rev1/start-cap", "plane|n=0,-1,0|c=15,0,5|a=100|adj=4,4"),
+                [15.0, 0.0, 5.0],
+                [1.0, 0.0, 0.0],
+                [0.0, -1.0, 0.0],
+            ),
+            vec![circle("e-11", [0.0, 0.0], 2.0)],
+        ),
+        reversed(extrude(
+            "f-ext2",
+            "b-1",
+            "f-sk2",
+            vec![circle_region("e-11", [0.0, 0.0], 2.0)],
+            distance("3"),
+            "cut",
+        )),
+    ]
+}
+
+/// R66: BLOCK's outline with `e-3` replaced by the five lines `e-9` to `e-13` of a 20 x 10 notch.
+pub fn notched_back_outline() -> Vec<Value> {
+    vec![
+        line("e-1", [0.0, 0.0], [80.0, 0.0]),
+        line("e-2", [80.0, 0.0], [80.0, 50.0]),
+        line("e-4", [0.0, 50.0], [0.0, 0.0]),
+        line("e-9", [80.0, 50.0], [50.0, 50.0]),
+        line("e-10", [50.0, 50.0], [50.0, 40.0]),
+        line("e-11", [50.0, 40.0], [30.0, 40.0]),
+        line("e-12", [30.0, 40.0], [30.0, 50.0]),
+        line("e-13", [30.0, 50.0], [0.0, 50.0]),
+    ]
 }
 
 // Editing feature lists.

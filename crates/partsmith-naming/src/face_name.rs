@@ -2,6 +2,7 @@
 //! generator and own suffix groups, read with the scanner `Shape::of` uses.
 
 use crate::name::Instance;
+use crate::roles;
 use crate::shape::{FaceParts, GeneratorParts, instance_groups};
 
 /// A face name taken apart: `<feature>/<role>[/<generator>]` followed by its own `#n` and `@`
@@ -86,6 +87,12 @@ impl<'n> FaceName<'n> {
             Some(FaceGenerator::Sketch(generator)) => Some(generator),
             _ => None,
         }
+    }
+
+    /// True for a fallback name: role `face`, with no meaning beyond geometric order (section
+    /// 3.6.14).
+    pub fn is_fallback(&self) -> bool {
+        self.role == roles::FACE
     }
 
     /// True when the name has a `#n` group of its own, so it names a piece of a split face.
@@ -247,15 +254,12 @@ mod tests {
     }
 
     #[test]
-    fn fallback_names_have_the_face_role_and_no_generator() {
-        let is_fallback =
-            |parts: FaceName<'_>| parts.role() == crate::roles::FACE && parts.generator().is_none();
+    fn fallback_names_have_the_face_role() {
         let face = name("f-imp1/face#3");
+        let top = name("f-box1/top");
 
-        assert!(is_fallback(face.face_name().expect("a face name")));
-        assert!(!is_fallback(
-            name("f-box1/top").face_name().expect("a face name")
-        ));
+        assert!(face.face_name().expect("a face name").is_fallback());
+        assert!(!top.face_name().expect("a face name").is_fallback());
         assert_eq!(name("edge(f-box1/front|f-box1/top)").face_name(), None);
     }
 

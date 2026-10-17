@@ -4,20 +4,19 @@
 
 mod feature_support;
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use feature_support::{
-    AXIS_TOLERANCE, Assets, Run, assert_coordinates, assert_error_field, assert_examples_canonical,
-    assert_median_build_within, assert_placement, assert_relative, document_text, expression_uses,
-    link_ids, load_example, message, parse_document, sketch_result,
+    AXIS_TOLERANCE, Run, assert_coordinates, assert_error_field, assert_examples_canonical,
+    assert_median_build_within, assert_placement, assert_relative, box_step_asset, document_text,
+    expression_uses, link_ids, load_example, message, parse_document, sketch_result,
+    step_asset_name,
 };
 use partsmith_features::{
     FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
 };
 use partsmith_model::{FeatureInspector, FieldUnit};
 use partsmith_naming::Motion;
-use partsmith_occt_sys::{Plane, StepBody, make_box, write_step};
 use partsmith_sketch::{Placement, PointRef, SketchError};
 
 /// The four lines of `RECT(0, 0, 80, 50)` (features.md section 6.1).
@@ -241,23 +240,6 @@ fn t005_face_lost() {
     assert_eq!(fixes[5], pick_face());
 }
 
-/// The name of the STEP asset of `face_ambiguous`.
-fn cube_asset_name() -> String {
-    format!("{}.step", "0".repeat(64))
-}
-
-/// A STEP file holding one 10 mm cube with its corner at the origin.
-fn cube_step() -> Assets {
-    let cube = make_box(&Plane::XY, 10.0, 10.0, 10.0).expect("the kernel makes a valid box");
-    let bodies = [StepBody {
-        shape: cube.shape,
-        name: "Cube".to_owned(),
-        color: None,
-    }];
-    let bytes: Arc<[u8]> = Arc::from(write_step(&bodies).expect("the kernel writes STEP"));
-    Assets::from([(cube_asset_name(), bytes)])
-}
-
 #[test]
 fn face_ambiguous() {
     // Section 3.3: a face reference that now matches several faces keeps the fallback placement.
@@ -266,13 +248,13 @@ fn face_ambiguous() {
     // partial fingerprint fits all six faces of the cube equally.
     let import = format!(
         r#"{{"id": "f-imp1", "type": "import", "body": "b-1", "asset": "{}", "op": "new"}}"#,
-        cube_asset_name()
+        step_asset_name()
     );
     let sketch = format!(
         r#"{{"id": "f-sk1", "type": "sketch", "plane": {{"kind": "face", "body": "b-1", "face": {{"q": "f-imp1/face#9", "fp": "plane|a=100"}}, "fallback": {{"origin": [3, 4, 0], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}}}, "entities": {RECTANGLE_ENTITIES}}}"#
     );
     let document = parse_document(&document_text("mm", &[], &["b-1"], &[&import, &sketch]));
-    let run = Run::with_assets(document, &cube_step());
+    let run = Run::with_assets(document, &box_step_asset("Cube", [10.0, 10.0, 10.0]));
 
     run.assert_ok("f-imp1");
     assert_eq!(plane_fallback_cause(&run), (FallbackCause::Ambiguous, true));

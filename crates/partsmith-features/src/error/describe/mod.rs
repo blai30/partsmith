@@ -19,7 +19,9 @@ use partsmith_naming::{
 };
 
 use super::message::Names;
+use crate::builtin::mirror::Mirror;
 use crate::context::BodyState;
+use crate::feature::Feature;
 use face::{Element, FaceFacts, FaceReader, Faces, copy_noun};
 use maker::{Maker, NOT_IN_DOCUMENT, world_coordinates};
 
@@ -316,11 +318,9 @@ pub fn made_from_line(reference: &Reference) -> bool {
 /// ordinal of the first index plus 1), `copy in row 2, column 3` for two indices (row the second index plus 1, column
 /// the first plus 1), or `mirror image` for a mirror.
 pub fn describe_copy(names: &dyn Names, feature: &Id, instance: Instance) -> String {
-    let second = (instance.second != 0).then_some(instance.second);
     copy_noun(
-        Maker::of(names, feature.as_str()).is("mirror"),
-        instance.first,
-        second,
+        Maker::of(names, feature.as_str()).is(Mirror::TYPE),
+        instance,
     )
 }
 

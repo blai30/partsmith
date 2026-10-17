@@ -12,6 +12,7 @@ use crate::kind::ElementKind;
 use crate::name::ElementName;
 use crate::name_set::{NameSet, ids_by_name};
 use crate::shape::pairs_one_to_one;
+use crate::to_u32;
 
 /// The resolver's view of one body state: its element infos and their `NameSet` (section 3.9).
 /// Built once per body state and shared (features.md `BodyState::element_set`).
@@ -130,11 +131,6 @@ impl Lists {
         let end = self.starts[position + 1] as usize;
         &self.items[start..end]
     }
-}
-
-/// A count or position as a `u32`; element counts come from kernel indices, which are `i32`.
-pub(crate) fn to_u32(value: usize) -> u32 {
-    u32::try_from(value).expect("element counts fit in u32")
 }
 
 impl ElementSet {

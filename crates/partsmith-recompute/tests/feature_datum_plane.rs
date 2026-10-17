@@ -10,9 +10,9 @@ use std::time::Duration;
 use feature_support::{
     AXIS_TOLERANCE, Run, assert_coordinates, assert_element_repair, assert_examples_canonical,
     assert_median_build_within, assert_messages_pass_lint, assert_placement, datum_placement,
-    link_ids, load_example, message, use_reference,
+    keep_and_pick, link_ids, load_example, use_reference,
 };
-use partsmith_features::{Diagnosis, FeatureWarning, Fix};
+use partsmith_features::{Diagnosis, Fix};
 use partsmith_model::Id;
 use partsmith_naming::Follow;
 
@@ -317,34 +317,14 @@ fn t018_a_shell_inserted_under_the_datums_face_keeps_it_on_the_rim() {
         ..Diagnosis::default()
     };
 
-    run.assert_notices("f-dp1", &["reference_followed"]);
-    assert!(matches!(
-        run.warning("f-dp1", "reference_followed"),
-        FeatureWarning::ReferenceFollowed {
-            follow: Follow::Continued,
-            ..
-        }
-    ));
-    assert_eq!(
-        message(&run, "f-dp1", "reference_followed")
-            .pointer
-            .as_deref(),
-        Some("/base/face")
-    );
+    run.assert_followed("f-dp1", Follow::Continued, "/base/face");
     assert_eq!(
         run.render_warning("f-dp1", "reference_followed", &diagnosis),
         "The top of 'Box 1' selected for Base plane was removed by 'Shell 1', which left its rim in the same place, so the rim is used."
     );
     assert_eq!(
         run.warning_fixes("f-dp1", "reference_followed", &diagnosis),
-        [
-            Fix::KeepMatch {
-                pointer: "/base/face".to_string()
-            },
-            Fix::Pick {
-                pointer: "/base/face".to_string()
-            },
-        ]
+        keep_and_pick("/base/face")
     );
     let placement = datum_placement(&run, "f-dp1");
     assert_coordinates("origin", placement.origin, [0.0, 0.0, 28.0], AXIS_TOLERANCE);

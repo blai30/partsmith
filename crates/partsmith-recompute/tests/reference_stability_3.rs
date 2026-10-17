@@ -16,11 +16,11 @@ mod stability_support_3;
 
 use std::f64::consts::{FRAC_PI_2, PI, SQRT_2};
 
-use partsmith_features::Fix;
 use partsmith_naming::MatchMethod;
 use serde_json::{Value, json};
 use stability_support_3::feature_support::{
-    Assets, Run, datum_placement, face_names, picked_in, sketch_result, successions,
+    Assets, Run, datum_placement, face_names, keep_match, pick, picked_in, sketch_result,
+    successions, use_reference,
 };
 use stability_support_3::*;
 
@@ -466,56 +466,6 @@ fn r50_circle_drawn_inside_the_region_keeps_both_parts_of_the_selection() {
     checks.finish();
 }
 
-/// R51: the outline of an 80 x 50 rectangle with radius 5 corners; `back_right_arc` false draws a
-/// sharp back right corner instead of the arc `e-6`.
-fn rounded_outline(back_right_arc: bool) -> Vec<Value> {
-    let corner_end = if back_right_arc { 45.0 } else { 50.0 };
-    let back_start = if back_right_arc { 75.0 } else { 80.0 };
-    let mut entities = vec![
-        line("e-1", [5.0, 0.0], [75.0, 0.0]),
-        line("e-2", [80.0, 5.0], [80.0, corner_end]),
-        line("e-3", [back_start, 50.0], [5.0, 50.0]),
-        line("e-4", [0.0, 45.0], [0.0, 5.0]),
-        arc("e-5", [75.0, 5.0], 5.0, 3.0 * FRAC_PI_2, 0.0),
-    ];
-    if back_right_arc {
-        entities.push(arc("e-6", [75.0, 45.0], 5.0, 0.0, FRAC_PI_2));
-    }
-    entities.push(arc("e-7", [5.0, 45.0], 5.0, FRAC_PI_2, PI));
-    entities.push(arc("e-8", [5.0, 5.0], 5.0, PI, 3.0 * FRAC_PI_2));
-    entities
-}
-
-/// R51: the top edge of the back right corner arc.
-fn arc_top_edge() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext1/lateral/e-6)",
-        "circle|n=0,0,1|c=78.183099,48.183099,10|l=7.853982|r=5|adj=2,2",
-    )
-}
-
-/// R51 setup: the rounded outline (with or without the arc `e-6`) extruded 10 and a fillet of 1 on
-/// the top edge of `e-6`.
-fn rounded_plate(back_right_arc: bool) -> Vec<Value> {
-    let area = 80.0 * 50.0 - (4.0 - PI) * 25.0;
-    vec![
-        sketch("f-sk1", origin_plane("XY"), rounded_outline(back_right_arc)),
-        extrude(
-            "f-ext1",
-            "b-1",
-            "f-sk1",
-            vec![region(
-                "e-1,e-2,e-3,e-4,e-5,e-6,e-7,e-8",
-                [40.0, 25.0],
-                area,
-            )],
-            distance("10"),
-            "new",
-        ),
-        fillet("f-fil1", "b-1", vec![arc_top_edge()], "1"),
-    ]
-}
-
 #[test]
 fn r51_deleted_arc_of_a_tangent_chain_is_reported_with_its_loop_as_the_fix() {
     let mut checks = Checks::new();
@@ -598,20 +548,6 @@ const NOTCH_TOP_EDGES: [&str; 5] = [
     "edge(f-ext1/end-cap|f-ext1/lateral/e-13)",
 ];
 
-/// R66: BLOCK's outline with `e-3` replaced by the five lines `e-9` to `e-13` of a 20 x 10 notch.
-fn notched_back_outline() -> Vec<Value> {
-    vec![
-        line("e-1", [0.0, 0.0], [80.0, 0.0]),
-        line("e-2", [80.0, 0.0], [80.0, 50.0]),
-        line("e-4", [0.0, 50.0], [0.0, 0.0]),
-        line("e-9", [80.0, 50.0], [50.0, 50.0]),
-        line("e-10", [50.0, 50.0], [50.0, 40.0]),
-        line("e-11", [50.0, 40.0], [30.0, 40.0]),
-        line("e-12", [30.0, 40.0], [30.0, 50.0]),
-        line("e-13", [30.0, 50.0], [0.0, 50.0]),
-    ]
-}
-
 #[test]
 fn r66_a_side_line_replaced_by_a_notch_widens_the_fillet_with_a_warning() {
     let mut checks = Checks::new();
@@ -682,16 +618,9 @@ fn r66_a_side_line_replaced_by_a_notch_widens_the_fillet_with_a_warning() {
             format!("f-fil1's message reads {:?}", message.text),
         );
         let expected = vec![
-            Fix::KeepMatch {
-                pointer: "/edges/0".to_owned(),
-            },
-            Fix::UseReferences {
-                pointer: "/edges/0".to_owned(),
-                references: vec![picked_in(block, NOTCH_TOP_EDGES[0])],
-            },
-            Fix::Pick {
-                pointer: "/edges/0".to_owned(),
-            },
+            keep_match("/edges/0"),
+            use_reference("/edges/0", picked_in(block, NOTCH_TOP_EDGES[0])),
+            pick("/edges/0"),
         ];
         checks.check(
             message.fixes == expected,
@@ -923,11 +852,6 @@ fn tray(cover: Option<Value>, removed: Value) -> Vec<Value> {
     features.extend(cover);
     features.push(shell("f-sh1", "b-1", "2", vec![removed]));
     features
-}
-
-/// R53 (a): the top of the 80 x 50 x 30 box.
-fn tray_top() -> Value {
-    reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4")
 }
 
 fn r53a(thickness: f64) {
@@ -1356,59 +1280,6 @@ fn r56c_boss_moved_to_its_own_body_names_where_the_edge_now_lives() {
     checks.message_names(&session, "f-fil1", &["'Extrude 1'", "'Body 2'"]);
     checks.plain_words(&session, "f-fil1");
     checks.finish();
-}
-
-/// R57: the top edge of the revolve's end face.
-fn revolve_end_edge() -> Value {
-    reference(
-        "edge(f-rev1/end-cap|f-rev1/lateral/e-3)",
-        "line|n=0,1,0|c=0,-15,10|l=10|adj=2,2",
-    )
-}
-
-/// R57 setup: a 270 degree revolve (or a full turn), a chamfer on its end face's top edge and a
-/// pocket sketched on its start face.
-fn three_quarter_ring(extent: Value) -> Vec<Value> {
-    vec![
-        sketch(
-            "f-sk1",
-            origin_plane("XZ"),
-            rectangle(1, 10.0, 0.0, 20.0, 10.0),
-        ),
-        revolve(
-            "f-rev1",
-            "b-1",
-            "f-sk1",
-            vec![rectangle_region(1, 10.0, 0.0, 20.0, 10.0)],
-            json!({"kind": "origin", "axis": "Z"}),
-            extent,
-            "new",
-        ),
-        chamfer("f-cha1", "b-1", vec![revolve_end_edge()], "1"),
-        sketch(
-            "f-sk2",
-            face_plane(
-                "b-1",
-                reference("f-rev1/start-cap", "plane|n=0,-1,0|c=15,0,5|a=100|adj=4,4"),
-                [15.0, 0.0, 5.0],
-                [1.0, 0.0, 0.0],
-                [0.0, -1.0, 0.0],
-            ),
-            vec![circle("e-11", [0.0, 0.0], 2.0)],
-        ),
-        with(
-            extrude(
-                "f-ext2",
-                "b-1",
-                "f-sk2",
-                vec![circle_region("e-11", [0.0, 0.0], 2.0)],
-                distance("3"),
-                "cut",
-            ),
-            "reverse",
-            json!(true),
-        ),
-    ]
 }
 
 #[test]

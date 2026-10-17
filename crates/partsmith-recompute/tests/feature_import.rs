@@ -12,14 +12,10 @@ use feature_support::{
     Assets, Run, assert_bounding_box, assert_empty, assert_examples_canonical, assert_face_count,
     assert_face_kind, assert_face_names, assert_face_position, assert_solid_count, assert_volume,
     body_changes, face, load_example, median_build_time_with_assets, median_duration,
+    step_asset_name,
 };
 use partsmith_features::FeatureError;
 use partsmith_occt_sys::{GeometryKind, Plane, Point, StepBody, make_box, read_step, write_step};
-
-/// The fixture `A`: 64 zeros followed by `.step` (the tests do not check that it is a hash).
-fn asset_name() -> String {
-    format!("{}.step", "0".repeat(64))
-}
 
 /// A STEP body named `name` holding a `make_box` solid of this size on `placement`.
 fn block(name: &str, placement: &Plane, size: [f64; 3]) -> StepBody {
@@ -54,7 +50,7 @@ fn two_cubes_bytes() -> Arc<[u8]> {
 
 /// The asset map `{A: bytes}`.
 fn assets(bytes: Arc<[u8]>) -> Assets {
-    Assets::from([(asset_name(), bytes)])
+    Assets::from([(step_asset_name(), bytes)])
 }
 
 /// Runs an example with the asset map `{A: bytes}`.
@@ -128,7 +124,7 @@ fn t001_op_new_dependencies() {
     let run = run_example("import/new-body.ptsm", block_bytes());
 
     let dependencies = run.dependencies("f-imp1");
-    let name = asset_name();
+    let name = step_asset_name();
     let assets: Vec<(&str, &str)> = dependencies
         .assets
         .iter()

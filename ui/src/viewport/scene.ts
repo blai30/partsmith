@@ -59,6 +59,7 @@ import {
   type GridSegments,
 } from './grid'
 import { elementExtentPoints } from './element-extent'
+import { meshElementKey } from './keys'
 import { boundsCenter, boundsCorners, boundsDiagonal, extendBounds, type Bounds } from './math'
 import type { PickClass, PickResult, SelectionItemKind } from './picking'
 import {
@@ -96,11 +97,6 @@ import {
 
 // The scene (ui.md 2.11, 3.12): every drawable's CPU-side data, so a lost WebGL context can be
 // restored; pick id ranges and their targets; and the render frame for a camera and the store.
-
-/** The hover and pick key of a mesh element by display id: `mesh:{meshId}:{kind}:{index}` (3.6). */
-export function meshElementKey(meshId: number, kind: ElementKind, index: number): string {
-  return `mesh:${String(meshId)}:${kind}:${String(index)}`
-}
 
 /**
  * The edges around a hovered face, by display id, while a multiple edge field takes the face as
