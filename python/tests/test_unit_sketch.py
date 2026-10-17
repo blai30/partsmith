@@ -9,6 +9,7 @@ from support import stored_feature
 from partsmith import (
     Angle,
     Arc,
+    Axis,
     Circle,
     Coincident,
     Concentric,
@@ -41,8 +42,10 @@ from partsmith import (
     VerticalDistance,
     box,
     cylinder,
+    deg,
     faces,
     mm,
+    move,
     param,
 )
 
@@ -277,7 +280,7 @@ def test_name_and_suppressed_are_stored():
     )
 
 
-def test_a_sketch_on_a_face_defaults_its_fallback_to_the_face_placement():
+def test_a_sketch_on_a_face_of_a_part_that_did_not_move_stores_its_placement_in_the_body_frame():
     document = Document()
     with Part("P"):
         box(20, 30, 40)
@@ -287,6 +290,87 @@ def test_a_sketch_on_a_face_defaults_its_fallback_to_the_face_placement():
     plane = stored_feature(document, sketch.id)["plane"]
     assert plane["kind"] == "face"
     assert plane["fallback"] == {"origin": [0, 0, 40], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}
+    assert plane["fallback_frame"] == "body"
+
+
+def moved_top_sketch_plane(units: str = "mm", **motion: object) -> dict:
+    """The stored plane of a sketch on the top of a 20 x 30 x 40 box (in `units`) moved by `move(**motion)`, attached
+    by selecting the face."""
+    document = Document(units=units)
+    with Part("P"):
+        box(20, 30, 40)
+        move(**motion)
+        with Sketch(faces().top()) as sketch:
+            Point(0, 0)
+    return stored_feature(document, sketch.id)["plane"]
+
+
+def test_a_sketch_on_a_moved_face_stores_its_fallback_in_body_coordinates():
+    plane = moved_top_sketch_plane(translate=(100, 0, 0))
+
+    # The face's placement has origin (0, 0, 40), above the model origin; the move is undone in the fallback.
+    assert plane["fallback"] == {"origin": [-100, 0, 40], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}
+    assert plane["fallback_frame"] == "body"
+
+
+def test_a_sketch_on_a_turned_face_stores_its_fallback_axes_in_body_coordinates():
+    plane = moved_top_sketch_plane(rotate=(Axis.Z, 90 * deg))
+
+    fallback = plane["fallback"]
+    assert fallback["origin"] == pytest.approx([0, 0, 40], abs=1e-9)
+    assert fallback["x_axis"] == pytest.approx([0, -1, 0], abs=1e-9)
+    assert fallback["normal"] == pytest.approx([0, 0, 1], abs=1e-9)
+    assert plane["fallback_frame"] == "body"
+
+
+def test_an_element_fallback_is_stored_in_millimeters():
+    plane = moved_top_sketch_plane("cm", translate=(10, 0, 0))
+
+    # 10 cm is 100 mm and the box is 40 cm tall: the engine reports the fallback in millimeters.
+    assert plane["fallback"]["origin"] == [-100, 0, 400]
+
+
+def test_a_sketch_on_a_face_element_and_on_its_selection_store_the_same_plane():
+    document = Document()
+    with Part("P"):
+        box(20, 30, 40)
+        move(translate=(100, 0, 0))
+        top = faces().top()
+        with Sketch(top) as on_selection:
+            Point(0, 0)
+        with Sketch(top[0]) as on_element:
+            Point(0, 0)
+
+    assert stored_feature(document, on_element.id)["plane"] == stored_feature(document, on_selection.id)["plane"]
+
+
+@pytest.mark.parametrize("frame", [None, "world"])
+def test_a_given_fallback_on_a_moved_face_is_stored_as_given_in_world_coordinates(frame):
+    document = Document()
+    with Part("P"):
+        box(20, 30, 40)
+        move(translate=(100, 0, 0))
+        placement = Placement((100, 0, 40), (1, 0, 0), (0, 0, 1))
+        with Sketch(faces().top(), fallback=placement, fallback_frame=frame) as sketch:
+            Point(0, 0)
+
+    plane = stored_feature(document, sketch.id)["plane"]
+    assert plane["fallback"] == {"origin": [100, 0, 40], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}
+    assert "fallback_frame" not in plane
+
+
+def test_a_given_fallback_on_a_moved_face_with_the_body_frame_is_stored_as_given():
+    document = Document()
+    with Part("P"):
+        box(20, 30, 40)
+        move(translate=(100, 0, 0))
+        placement = Placement((5, 0, 40), (0, 1, 0), (0, 0, 1))
+        with Sketch(faces().top(), fallback=placement, fallback_frame="body") as sketch:
+            Point(0, 0)
+
+    plane = stored_feature(document, sketch.id)["plane"]
+    assert plane["fallback"] == {"origin": [5, 0, 40], "x_axis": [0, 1, 0], "normal": [0, 0, 1]}
+    assert plane["fallback_frame"] == "body"
 
 
 def test_a_fallback_origin_is_in_document_units():

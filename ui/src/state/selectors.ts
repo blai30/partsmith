@@ -1,6 +1,7 @@
 import { featureLabel } from '../core/labels'
 import { activeFeatures } from '../core/recipe'
 import type { FixAction } from '../generated/protocol'
+import { pointsInto } from '../inspector/status'
 import { MESSAGES } from '../messages'
 import { isCheckHidden } from '../print/checks'
 import { sameOrientation } from '../print/orientation'
@@ -65,6 +66,26 @@ export function editingSession(state: AppState): EditingSession | null {
 /** The edited sketch's id: undefined outside sketch mode, null while picking a plane. */
 export function selectEditedSketch(state: AppState): string | null | undefined {
   return state.context === 'sketch' && state.sketch !== null ? state.sketch.sketchId : undefined
+}
+
+/** The sketch whose plane is being picked again (3.16.1, re-attaching), or null. */
+export function selectReattachedSketch(state: AppState): string | null {
+  return state.context === 'sketch' ? (state.sketch?.reattaching ?? null) : null
+}
+
+/** The pointer of a sketch's plane, which has no inspector field, so re-attaching picks it (3.16.1). */
+const SKETCH_PLANE_POINTER = '/plane'
+
+/** Whether the feature is a sketch and the pointer lies in its plane, such as `/plane/face` (3.16.1). */
+export function selectIsSketchPlane(state: AppState, feature: string, pointer: string): boolean {
+  const record = state.document?.recipe.features?.find((candidate) => candidate.id === feature)
+  return record?.type === 'sketch' && pointsInto(pointer, SKETCH_PLANE_POINTER)
+}
+
+/** Whether a sketch's face is lost: its status has a repair in its plane (3.16.1). */
+export function selectSketchFaceLost(state: AppState, sketchId: string): boolean {
+  const repairs = state.document?.featureStatus[sketchId]?.repairs ?? []
+  return repairs.some((repair) => selectIsSketchPlane(state, sketchId, repair.path))
 }
 
 /**

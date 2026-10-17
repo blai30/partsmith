@@ -306,6 +306,7 @@ describe('the view cube and viewport controls (3.14)', () => {
       context: 'sketch',
       sketch: {
         sketchId: 'f-sk1',
+        reattaching: null,
         tool: null,
         construction: false,
         showConstraints: true,
@@ -426,6 +427,7 @@ describe('overlays', () => {
       context: 'sketch',
       sketch: {
         sketchId: null,
+        reattaching: null,
         tool: null,
         construction: false,
         showConstraints: true,
@@ -490,6 +492,7 @@ describe('overlays', () => {
       context: 'sketch',
       sketch: {
         sketchId: 'f-sk1',
+        reattaching: null,
         tool: null,
         construction: false,
         showConstraints: true,

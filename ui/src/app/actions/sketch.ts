@@ -29,7 +29,12 @@ import { isReservedReference } from '../../sketch/refs'
 import type { IdSource } from '../../sketch/recipes'
 import type { SketchChange, SketchCommitResult, SketchToolId } from '../../sketch/session'
 import { constraintTool } from '../../sketch/tools'
-import { editingSession, selectFeatureLabel } from '../../state/selectors'
+import {
+  editingSession,
+  selectFeatureLabel,
+  selectReattachedSketch,
+  selectSketchFaceLost,
+} from '../../state/selectors'
 import type {
   AppState,
   AppStore,
@@ -43,7 +48,7 @@ import { addScaled, cross } from '../../viewport/math'
 import type { App } from '../createApp'
 import { cancelCommandImplicitly } from './command'
 import { coreRedo, coreUndo } from './document'
-import { commitEdits, documentOf, showCoreError } from './edits'
+import { commitBuiltEdits, commitEdits, documentOf, showCoreError } from './edits'
 import { reportChange } from './loss-notifications'
 import { dismiss, notify, showPickHint } from './notifications'
 import { select, toggledByKey } from './selection'
@@ -76,6 +81,7 @@ const SKETCH_FRAME_MARGIN = 0.1
 function sketchSession(sketchId: string | null, cameraBefore: Camera | null): SketchSession {
   return {
     sketchId,
+    reattaching: null,
     tool: null,
     construction: false,
     showConstraints: true,
@@ -156,7 +162,12 @@ async function stepSketchHistory(app: App, direction: 'undo' | 'redo'): Promise<
   return true
 }
 
-/** The sketch.md plane of a plane-like selection item, or null for anything else. */
+/**
+ * The sketch.md plane of a plane-like selection item, or null for anything else (3.16.1). A flat
+ * face gives its full reference and, as the fallback, its descriptor's `fallback`: the placement in
+ * body coordinates (`fallback_frame: body`), so the sketch keeps its place on the face when a Move
+ * body or a copy moves the face later (features/sketch.md section 2).
+ */
 export function sketchPlaneOf(item: SelectionItem): SketchPlane | null {
   if (
     item.kind === 'origin_plane' &&
@@ -171,27 +182,33 @@ export function sketchPlaneOf(item: SelectionItem): SketchPlane | null {
   if (
     item.kind === 'face' &&
     element?.surface === 'plane' &&
-    element.placement !== undefined &&
-    element.placement !== null
+    element.fallback !== undefined &&
+    element.fallback !== null
   ) {
     return {
       kind: 'face',
       body: element.body,
       face: element.reference,
-      fallback: element.placement,
+      fallback: element.fallback,
+      fallback_frame: 'body',
     }
   }
   return null
 }
 
-/** Sketch mode for a new sketch: on the one selected plane, else plane picking (3.16.1). */
-export async function startNewSketch(app: App): Promise<void> {
+/** Ends a command or the edit of a sketch before plane picking starts (3.16.1). */
+async function leaveForPlanePicking(app: App): Promise<void> {
   if (app.store.getState().command !== null) {
     await cancelCommandImplicitly(app)
   }
   if (editedSketch(app) !== null) {
     await finishSketch(app)
   }
+}
+
+/** Sketch mode for a new sketch: on the one selected plane, else plane picking (3.16.1). */
+export async function startNewSketch(app: App): Promise<void> {
+  await leaveForPlanePicking(app)
   const { selection } = app.store.getState()
   const [only] = selection
   if (selection.length === 1 && only !== undefined && sketchPlaneOf(only) !== null) {
@@ -202,30 +219,98 @@ export async function startNewSketch(app: App): Promise<void> {
   app.store.setState({ context: 'sketch', sketch: sketchSession(null, null) })
 }
 
-/** Stores whose new sketch is being added, so a second plane pick or click in the meantime adds nothing. */
-const creatingSketch = new WeakSet<AppStore>()
+/**
+ * Picks a new plane or face for a sketch whose face is lost (3.16.1, re-attaching): the plane
+ * picking of a new sketch for that sketch, while repair mode shows its repair (3.7).
+ */
+export async function reattachSketch(app: App, sketchId: string): Promise<void> {
+  if (sketchRecordOf(app.store.getState(), sketchId) === null) {
+    return
+  }
+  await leaveForPlanePicking(app)
+  leaveSketchHistory(app)
+  app.store.setState({
+    context: 'sketch',
+    sketch: { ...sketchSession(null, null), reattaching: sketchId },
+  })
+}
+
+/**
+ * Ends re-attaching once a fix attached the sketch (3.16.1): with its face no longer lost, the
+ * sketch is edited, as after a pick.
+ */
+export async function enterAttachedSketch(app: App): Promise<void> {
+  const state = app.store.getState()
+  const sketchId = selectReattachedSketch(state)
+  if (sketchId !== null && !selectSketchFaceLost(state, sketchId)) {
+    await enterSketch(app, sketchId)
+  }
+}
+
+/**
+ * The plane or face picked while a plane is picked (3.16.1): a new sketch on it, or, while a
+ * sketch is re-attached, that sketch's new plane.
+ */
+export async function pickPlane(app: App, plane: SelectionItem): Promise<void> {
+  const reattaching = selectReattachedSketch(app.store.getState())
+  await (reattaching === null ? createSketchOn(app, plane) : attachSketch(app, reattaching, plane))
+}
+
+/** Stores whose sketch is being added or attached, so a second plane pick in the meantime does nothing. */
+const placingSketch = new WeakSet<AppStore>()
+
+/**
+ * Runs `place` with the sketch plane of a plane-like item, once at a time per store; an item that
+ * is not plane-like shows `pick_plane` in the sketch hint instead (3.16.1).
+ */
+async function placeSketch(
+  app: App,
+  plane: SelectionItem,
+  place: (sketchPlane: SketchPlane, document: DocumentState) => Promise<void>,
+): Promise<void> {
+  const document = documentOf(app)
+  const sketchPlane = sketchPlaneOf(plane)
+  if (document === null || placingSketch.has(app.store)) {
+    return
+  }
+  if (sketchPlane === null) {
+    showPickHint(app, MESSAGES.pick_plane(), null)
+    return
+  }
+  placingSketch.add(app.store)
+  try {
+    await place(sketchPlane, document)
+  } finally {
+    placingSketch.delete(app.store)
+  }
+}
 
 /**
  * Adds an empty sketch on a plane-like item in one edit labeled "New sketch", then edits it. A
  * double-click on a plane, or on Sketch with a plane selected, adds one sketch.
  */
 export async function createSketchOn(app: App, plane: SelectionItem): Promise<void> {
-  const document = documentOf(app)
-  const sketchPlane = sketchPlaneOf(plane)
-  if (document === null || creatingSketch.has(app.store)) {
-    return
-  }
-  if (sketchPlane === null) {
-    // While picking the plane of a new sketch, the hint shows in the sketch hint (3.16.1).
-    showPickHint(app, MESSAGES.pick_plane(), null)
-    return
-  }
-  creatingSketch.add(app.store)
-  try {
-    await addSketchOn(app, document, sketchPlane)
-  } finally {
-    creatingSketch.delete(app.store)
-  }
+  await placeSketch(app, plane, (sketchPlane, document) => addSketchOn(app, document, sketchPlane))
+}
+
+/**
+ * Stores a plane-like item as a sketch's plane in one edit labeled "Attach '{label}'", then edits
+ * the sketch (3.16.1). The entities keep their sketch coordinates, so the drawing lands on the new
+ * plane as it lay on the old one.
+ */
+async function attachSketch(app: App, sketchId: string, plane: SelectionItem): Promise<void> {
+  await placeSketch(app, plane, async (sketchPlane) => {
+    const label = MESSAGES.attach_label(selectFeatureLabel(app.store.getState(), sketchId))
+    const attached = await commitBuiltEdits(app, (document) => {
+      const record = document.recipe.features?.find((feature) => feature.id === sketchId)
+      return record?.type === 'sketch'
+        ? { label, edits: [{ type: 'update_feature', feature: { ...record, plane: sketchPlane } }] }
+        : null
+    })
+    if (attached) {
+      await enterSketch(app, sketchId)
+    }
+  })
 }
 
 async function addSketchOn(

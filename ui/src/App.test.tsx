@@ -305,6 +305,7 @@ describe('the Esc ladder (3.5)', () => {
       context: 'sketch',
       sketch: {
         sketchId: 'f-sk1',
+        reattaching: null,
         tool: 'line',
         construction: false,
         showConstraints: true,
@@ -328,6 +329,7 @@ describe('the Esc ladder (3.5)', () => {
       context: 'sketch',
       sketch: {
         sketchId: null,
+        reattaching: null,
         tool: null,
         construction: false,
         showConstraints: true,

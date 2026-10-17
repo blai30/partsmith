@@ -205,6 +205,11 @@ export type ActiveCommand = {
 export type HelperSketch = {
   readonly id: string
   readonly params: SketchParams
+  /**
+   * The face's placement in world coordinates (its `ElementDescriptor.placement`), on which the
+   * helper's points are drawn, since `params.plane.fallback` is in body coordinates.
+   */
+  readonly placement: Placement
   /** Whether the record has been added inside the transaction. */
   readonly applied: boolean
 }
@@ -218,8 +223,10 @@ export type CommandStep = {
 }
 
 export type SketchSession = {
-  /** Null while picking the plane for a new sketch. */
+  /** Null while picking the plane for a new sketch, or for a sketch being re-attached. */
   readonly sketchId: string | null
+  /** The sketch whose plane is being picked again (3.16.1, re-attaching), else null. */
+  readonly reattaching: string | null
   readonly tool: SketchToolId | null
   readonly construction: boolean
   readonly showConstraints: boolean

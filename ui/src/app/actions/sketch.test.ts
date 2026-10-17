@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Command, Edit, ElementDescriptor } from '../../generated/protocol'
+import type { Command, Edit, ElementDescriptor, Reference } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
 import {
@@ -28,6 +28,27 @@ import {
 } from './sketch'
 
 type AddFeature = Extract<Edit, { type: 'add_feature' }>
+
+/**
+ * The top of a cube moved by (100, 0, 0) with a Move body (U-142): its sketch placement in world
+ * coordinates at (100, 0, 30), and the same placement in body coordinates, the move undone, as its
+ * fallback (engine.md 3.9).
+ */
+const MOVED_TOP_FACE: ElementDescriptor = {
+  ...CUBE_TOP_FACE,
+  centroid: [100, 0, 30],
+  normal: [0, 0, 1],
+  placement: { origin: [100, 0, 30], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+  fallback: { origin: [0, 0, 30], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+}
+
+/** The full reference `pick_reference` gives the top face: anchors and merged names (engine.md 3.9). */
+const FULL_TOP_REFERENCE: Reference = {
+  q: 'f-ext1/end-cap#2',
+  fp: 'plane|n=0,0,1|c=100,0,30|a=400|adj=4,4',
+  nb: { 'f-ext1/end-cap#2': ['f-ext1/lateral/e-2'] },
+  merged: { 'f-ext1/end-cap#2': ['f-ext2/end-cap'] },
+}
 
 function newSketchEdit(fake: FakeApp): {
   readonly command: Extract<Command, { type: 'apply_edits' }> | undefined
@@ -85,7 +106,32 @@ describe('createSketchOn (3.16.1)', () => {
     expect(fake.transport.commandsOfType('apply_edits')).toHaveLength(1)
   })
 
-  it('a flat face gives a face plane with its body, reference and placement as the fallback', async () => {
+  it("U-142 a face moved by a Move body gives a face plane with the descriptor's fallback in body coordinates", async () => {
+    const fake = await cube()
+    await createSketchOn(fake.app, elementItem(MOVED_TOP_FACE, 'Cube'))
+    await settle()
+    const { command, edit } = newSketchEdit(fake)
+    expect(command?.label).toBe('New sketch')
+    expect(edit?.feature['plane']).toEqual({
+      kind: 'face',
+      body: 'b-cube',
+      face: MOVED_TOP_FACE.reference,
+      fallback: MOVED_TOP_FACE.fallback,
+      fallback_frame: 'body',
+    })
+  })
+
+  it("U-142 stores the face's full reference, anchors and merged names included", async () => {
+    const fake = await cube()
+    const face: ElementDescriptor = { ...MOVED_TOP_FACE, reference: FULL_TOP_REFERENCE }
+    await createSketchOn(fake.app, elementItem(face, 'Cube'))
+    await settle()
+    expect(newSketchEdit(fake).edit?.feature['plane']).toMatchObject({
+      face: FULL_TOP_REFERENCE,
+    })
+  })
+
+  it('a face without a motion stores its fallback, which equals its placement, with fallback_frame body', async () => {
     const fake = await cube()
     await createSketchOn(fake.app, elementItem(CUBE_TOP_FACE, 'Cube'))
     await settle()
@@ -94,7 +140,15 @@ describe('createSketchOn (3.16.1)', () => {
       body: 'b-cube',
       face: CUBE_TOP_FACE.reference,
       fallback: CUBE_TOP_FACE.placement,
+      fallback_frame: 'body',
     })
+  })
+
+  it('origin and datum planes carry no fallback or fallback_frame', async () => {
+    const fake = await cube()
+    await createSketchOn(fake.app, originItem('XZ'))
+    await settle()
+    expect(newSketchEdit(fake).edit?.feature['plane']).toEqual({ kind: 'origin', plane: 'XZ' })
   })
 
   it('inserts the sketch at the rollback feature when the marker is not at the end', async () => {
@@ -143,6 +197,20 @@ describe('startNewSketch (3.16.1)', () => {
       kind: 'face',
       body: 'b-cube',
       face: CUBE_FRONT_FACE.reference,
+    })
+  })
+
+  it("U-142 with a moved face selected, stores the descriptor's fallback with fallback_frame body", async () => {
+    const fake = await cube()
+    select(fake.app, [elementItem(MOVED_TOP_FACE, 'Cube')], 'replace')
+    await startNewSketch(fake.app)
+    await settle()
+    expect(newSketchEdit(fake).edit?.feature['plane']).toEqual({
+      kind: 'face',
+      body: 'b-cube',
+      face: MOVED_TOP_FACE.reference,
+      fallback: MOVED_TOP_FACE.fallback,
+      fallback_frame: 'body',
     })
   })
 

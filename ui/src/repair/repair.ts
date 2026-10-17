@@ -10,7 +10,7 @@ import type {
 import { fieldPointer, pointsInto } from '../inspector/status'
 import { capitalized, MESSAGES } from '../messages'
 import { sketchToWorld } from '../sketch/placement'
-import { memoized } from '../state/selectors'
+import { memoized, selectReattachedSketch } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { pointAt, type Vector3 } from '../viewport/math'
 
@@ -171,15 +171,15 @@ export type RepairMode = {
 
 /**
  * The repair mode shown (3.7): while a feature whose status has repairs is edited, that feature
- * with the repair of the active field; with no feature command, the feature `AppState.repair`
- * names (a focused Problems row); else null.
+ * with the repair of the active field; with no feature command, the sketch being re-attached
+ * (3.16.1), else the feature `AppState.repair` names (a focused Problems row); else null.
  */
 export const selectRepairMode: (state: AppState) => RepairMode | null = memoized(
   (state: AppState) => {
     const command = state.command
     const feature =
       command === null
-        ? (state.repair?.feature ?? null)
+        ? (selectReattachedSketch(state) ?? state.repair?.feature ?? null)
         : command.editing
           ? command.featureId
           : null

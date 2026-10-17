@@ -1,0 +1,37 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"},
+    {"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]},
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"},
+        "fallback": {"origin": [0, 0, 10], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-p1", "type": "point", "position": [15, 15]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk2",
+      "points": ["e-p1"],
+      "diameter": "4",
+      "extent": {"kind": "through_all"}
+    }
+  ]
+}

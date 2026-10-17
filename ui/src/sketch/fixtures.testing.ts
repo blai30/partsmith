@@ -207,6 +207,7 @@ export function documentState(options: {
 export function sketchSession(fields: Partial<SketchSession> = {}): SketchSession {
   return {
     sketchId: SKETCH_ID,
+    reattaching: null,
     tool: null,
     construction: false,
     showConstraints: true,

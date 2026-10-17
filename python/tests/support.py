@@ -6,7 +6,7 @@ import warnings
 from collections.abc import Callable
 from pathlib import Path
 
-from partsmith import Document, EngineError, Part, PartsmithWarning, Ref, run_code
+from partsmith import Document, EngineError, Part, PartsmithWarning, Placement, Ref, run_code
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 """The repository root (python/tests/support.py is two levels below it)."""
@@ -70,6 +70,11 @@ def reference_json(reference: Ref) -> dict:
     if reference.merged:
         stored["merged"] = reference.merged
     return stored
+
+
+def placement_json(placement: Placement) -> dict:
+    """The stored JSON of a placement the engine reported (protocol `Placement`, in millimeters)."""
+    return {"origin": list(placement.origin), "x_axis": list(placement.x_axis), "normal": list(placement.normal)}
 
 
 def partsmith_warnings(action: Callable[[], object]) -> list[warnings.WarningMessage]:

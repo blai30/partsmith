@@ -12,7 +12,14 @@ import { MESSAGES } from '../../messages'
 import { frameRepair } from '../../repair/frame'
 import { selectRepairMode } from '../../repair/repair'
 import { entitySelectionItem } from '../../sketch/hit'
-import { selectFeatureLabel, selectFixBlock, type FixPlace } from '../../state/selectors'
+import {
+  selectFeatureLabel,
+  selectFixBlock,
+  selectIsSketchPlane,
+  selectReattachedSketch,
+  selectSketchFaceLost,
+  type FixPlace,
+} from '../../state/selectors'
 import type { Notification, SelectionItem } from '../../state/store'
 import { DEFAULT_FIT_MARGIN } from '../../viewport/camera'
 import type { App } from '../createApp'
@@ -23,7 +30,7 @@ import { documentOf, refusedDuringCommand, runChange } from './edits'
 import { listedElementsOrNone } from './element-lists'
 import { announce, notify } from './notifications'
 import { elementSelectionItem } from './selection'
-import { recordSketchEdit } from './sketch'
+import { enterAttachedSketch, reattachSketch, recordSketchEdit } from './sketch'
 
 // The actions of messages and cause lines (ui.md 4.2: `runFixAction`), Copy details (4.1) and
 // "Show what '{label}' lost" (3.7: `showLost`, which opens repair mode and frames what was lost).
@@ -32,7 +39,8 @@ import { recordSketchEdit } from './sketch'
  * An `apply` action (4.2): offered by the command's own banner it joins the transaction (3.7);
  * offered anywhere else during a feature command it waits with `finish_command_first`; at rest it
  * is one change through `apply_fix`, which the core labels with the action's label, and in a
- * sketch session a step of the session's history, so the next Mod+Z undoes it (3.20, U-145).
+ * sketch session a step of the session's history, so the next Mod+Z undoes it (3.20, U-145). One
+ * that attaches the sketch being re-attached ends the pick in that sketch (3.16.1).
  */
 async function applyFix(app: App, fix: FixRef, place: FixPlace): Promise<void> {
   if (app.store.getState().command !== null) {
@@ -49,16 +57,21 @@ async function applyFix(app: App, fix: FixRef, place: FixPlace): Promise<void> {
   })
   if (sent) {
     recordSketchEdit(app)
+    await enterAttachedSketch(app)
   }
 }
 
 /**
  * A `pick` action (4.2): in the command editing its feature, the field its path maps to takes the
  * picks; otherwise the feature is edited with that field active (an implicit cancel of another
- * command first, 3.7).
+ * command first, 3.7). A sketch's plane is picked again by re-attaching the sketch (3.16.1).
  */
 async function pickAgain(app: App, feature: string, path: string): Promise<void> {
   const state = app.store.getState()
+  if (selectIsSketchPlane(state, feature, path)) {
+    await reattachSketch(app, feature)
+    return
+  }
   const command = state.command
   if (command?.featureId === feature) {
     const fields = state.catalog?.byType[command.featureType]?.manifest.fields ?? []
@@ -295,12 +308,17 @@ export function blurRepair(app: App, featureId: string): void {
 
 /**
  * "Show what '{label}' lost" (3.7): edits the feature, whose first repair's field takes the picks,
- * which shows repair mode, and frames what was lost with the candidates' markers.
+ * or re-attaches a sketch whose face is lost (3.16.1), either of which shows repair mode, and frames
+ * what was lost with the candidates' markers.
  */
 export async function showLost(app: App, featureId: string): Promise<void> {
-  await editFeature(app, featureId)
+  await (selectSketchFaceLost(app.store.getState(), featureId)
+    ? reattachSketch(app, featureId)
+    : editFeature(app, featureId))
   const state = app.store.getState()
-  const mode = state.command?.featureId === featureId ? selectRepairMode(state) : null
+  const opened =
+    state.command?.featureId === featureId || selectReattachedSketch(state) === featureId
+  const mode = opened ? selectRepairMode(state) : null
   if (mode !== null) {
     await frameRepair(app, mode)
   }

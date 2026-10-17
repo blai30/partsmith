@@ -1,11 +1,10 @@
-"""Reference, diagnostic and warning acceptance tests (python-api.md section 6, tests 86 to 96), as far as phase 1 of
-the reference stability plan builds them (docs/design/reference-stability-and-errors.md section 10.3 item 8: PY1 to
-PY3).
+"""Reference, diagnostic and warning acceptance tests (python-api.md section 6, tests 86 to 96), as far as phases 1 and
+2 of the reference stability plan build them (docs/design/reference-stability-and-errors.md sections 10.3 item 8, PY1
+to PY3, and 10.4 item 4: planes and axes taken from elements store an element's `fallback` with `fallback_frame`
+"body" and its `axis_direction` as `direction`).
 
-Later phases add the rest: test 88's planes and axes taken from elements (an element's `fallback` stored with
-`fallback_frame` "body", and a straight edge's `axis_direction` stored as `direction`) come with phase 2, test 94
-(`Document.set_units`, PY4) with phase 3, and test 93's cause line (`This started after you changed parameter 'd'`)
-with phase 4, when the engine fills `cause`.
+Later phases add the rest: test 94 (`Document.set_units`, PY4) comes with phase 3, and test 93's cause line (`This
+started after you changed parameter 'd'`) with phase 4, when the engine fills `cause`.
 """
 
 import inspect
@@ -32,21 +31,27 @@ from partsmith import (
     Sketch,
     box,
     datum_plane,
+    deg,
     edges,
     extrude,
     faces,
     fillet,
+    hole,
     linear_pattern,
     mm,
+    move,
     param,
+    run_code,
 )
 from support import (
     FIXTURES,
     REPOSITORY_ROOT,
     assert_round_trip,
+    feature_statuses,
     fixture_text,
     open_text,
     partsmith_warnings,
+    placement_json,
     reference_json,
     request_command,
     response_message,
@@ -89,6 +94,25 @@ FACE_SKETCH_DOCUMENT = {
     ],
 }
 """Test 86 (d): the document of features/sketch.md test 20, a face sketch with `fallback_frame` "body"."""
+
+ELEMENT_FRAMES_SCRIPT = """\
+from partsmith import *
+
+Document()
+with Part("Plate"):
+    box(40, 40, 10)
+    move(translate=(50, 0, 0))
+    with Sketch(faces().top()) as sketch:
+        Point(65, 15)
+    hole(sketch, 4)
+with Part("Bar"):
+    box(20, 30, 40)
+    move(rotate=(Axis.Z, 90 * deg))
+    [front_top] = edges().top().min(Axis.Y)
+    linear_pattern(front_top, 2, 20)
+"""
+"""Test 88's round trip: a sketch on a face of a moved part and a pattern along an edge of a turned part, both taken
+from elements, so the stored fallback and direction are in body coordinates and differ from world coordinates."""
 
 INDEX_WARNING = (
     "edges()[3] picks an edge by its position in the list, which can change when anything before it changes. "
@@ -158,18 +182,14 @@ def face_sketch_text(directory: Path) -> str:
 
 def edge_axis_text(directory: Path) -> str:
     """(e) Corpus R38 before its edit: a 40 x 20 x 10 block and `f-lp1` patterning it twice, 30 apart, along the
-    picked bottom edge of its left wall, which stores `direction` (0, 1, 0)."""
+    picked bottom edge of its left wall, which stores its `axis_direction` (0, 1, 0) as `direction` (section 3.5)."""
     document = Document()
-    with Part("Body 1", id="b-1") as part:
+    with Part("Body 1", id="b-1"):
         with Sketch(Plane.XY, id="f-sk1") as sketch:
             rectangle_lines(1, 0, 0, 40, 20)
         extrude(sketch, 10, id="f-ext1")
-        left_wall_bottom = Ref(
-            "edge(f-ext1/lateral/e-4|f-ext1/start-cap)",
-            "line|n=0,1,0|c=0,10,0|l=20|adj=2,2",
-            part=part,
-            direction=(0, 1, 0),
-        )
+        # Unpacked, not indexed: indexing a selection warns (section 3.6).
+        [left_wall_bottom] = edges().bottom().min(Axis.X)
         linear_pattern(left_wall_bottom, 2, 30, id="f-lp1")
     return document.to_text()
 
@@ -298,6 +318,7 @@ def test_t086_the_edge_axis_is_written_with_its_direction_after_its_part(tmp_pat
     code = open_text(text, tmp_path, "document.ptsm").to_python()
 
     pattern = next(record for record in json.loads(text)["features"] if record["id"] == "f-lp1")
+    assert pattern["direction"]["axis"]["edge"]["q"] == "edge(f-ext1/lateral/e-4|f-ext1/start-cap)"
     assert pattern["direction"]["axis"]["direction"] == [0, 1, 0]
     assert code.index("direction=(0, 1, 0)") > code.index("part=")
 
@@ -309,6 +330,60 @@ def test_t087_a_region_without_an_outline_is_written_and_round_trips(tmp_path):
 
     assert 'regions=[Region("e-1,e-2,e-3,e-4", "c=40,25|a=4000")]' in code
     assert_round_trip(text, tmp_path)
+
+
+def test_t088_a_sketch_on_a_face_stores_the_element_fallback_with_the_body_frame():
+    document = Document()
+    with Part("P") as part:
+        box(20, 30, 40, id="f-box1")
+        top = faces().top()
+        fallback = top[0].fallback
+        reference = top[0].reference
+        with Sketch(top) as sketch:
+            Point(5, 5)
+
+    assert (fallback.origin, fallback.x_axis, fallback.normal) == ((0, 0, 40), (1, 0, 0), (0, 0, 1))
+    assert stored_feature(document, sketch.id)["plane"] == {
+        "kind": "face",
+        "body": part.id,
+        "face": reference_json(reference),
+        "fallback": placement_json(fallback),
+        "fallback_frame": "body",
+    }
+
+
+def test_t088_an_edge_used_as_an_axis_stores_its_axis_direction():
+    document = Document()
+    with Part("P") as part:
+        box(20, 30, 40, id="f-box1")
+        front_top = edges().top().min(Axis.Y)[0]
+        reference = front_top.reference
+        pattern = linear_pattern(front_top, 2, 40)
+
+    assert front_top.axis_direction == (1, 0, 0)
+    assert stored_feature(document, pattern.id)["direction"]["axis"] == {
+        "kind": "edge",
+        "body": part.id,
+        "edge": reference_json(reference),
+        "direction": list(front_top.axis_direction),
+    }
+
+
+def test_t088_planes_and_axes_from_elements_round_trip(tmp_path):
+    [written] = run_code(ELEMENT_FRAMES_SCRIPT)
+    code = written.to_python()
+
+    assert "fallback=Placement((-50, 0, 10), (1, 0, 0), (0, 0, 1))," in code
+    assert code.index('fallback_frame="body"') > code.index("fallback=Placement(")
+    # The Bar's edge runs along world X after the quarter turn; its direction is stored along the box's -Y.
+    [pattern] = [record for record in json.loads(written.to_text())["features"] if record["type"] == "linear_pattern"]
+    assert pattern["direction"]["axis"]["direction"] == pytest.approx([0, -1, 0], abs=1e-9)
+    assert "direction=(" in code
+    # Section 3.9, the form for a script written by hand.
+    [rebuilt] = run_code(code)
+    assert rebuilt.to_text() == written.to_text()
+    # Section 3.9, the form for a document.
+    assert_round_trip(written.to_text(), tmp_path)
 
 
 def test_t088_a_given_fallback_is_stored_without_a_fallback_frame():
@@ -344,6 +419,62 @@ def test_t088_a_ref_with_a_direction_stores_it_on_the_axis():
         pattern = linear_pattern(front_top, 2, 40)
 
     assert stored_feature(document, pattern.id)["direction"]["axis"]["direction"] == [1, 0, 0]
+
+
+def test_a_sketch_attached_in_python_keeps_its_place_on_a_face_that_moves():
+    # Corpus R32 (a) from Python: attached while the part is moved by 50 mm, the sketch stores its fallback in body
+    # coordinates, so its point keeps its place on the top when the move changes.
+    document = Document()
+    with Part("P") as part:
+        dx = param("dx", 50 * mm)
+        box(40, 40, 10, id="f-box1")
+        move(translate=(dx, 0, 0), id="f-mv1")
+        with Sketch(faces().top(), id="f-sk2") as sketch:
+            Point(65, 15, id="e-p1")
+        hole_feature = hole(sketch, 4, id="f-hole1")
+
+    plane = stored_feature(document, "f-sk2")["plane"]
+    assert (plane["fallback"]["origin"], plane["fallback_frame"]) == ([-50, 0, 10], "body")
+    [bore] = hole_feature.faces().cylindrical()
+    assert bore.centroid[:2] == pytest.approx((65, 15), abs=1e-6)
+    assert part.volume() == pytest.approx(15874.336294, rel=1e-6)
+
+    assert partsmith_warnings(lambda: dx.set(100 * mm)) == []
+    assert feature_statuses(document) == [("f-box1", "ok"), ("f-mv1", "ok"), ("f-sk2", "ok"), ("f-hole1", "ok")]
+    [bore] = hole_feature.faces().cylindrical()
+    assert bore.centroid[:2] == pytest.approx((115, 15), abs=1e-6)
+    assert part.volume() == pytest.approx(15874.336294, rel=1e-6)
+
+
+def test_an_axis_picked_in_python_turns_with_its_part():
+    # Picked while the part is turned a quarter turn about Z, the edge's direction is stored in body coordinates, so the
+    # pattern keeps the side of the part it was picked on when the turn changes (features.md section 3.6, side).
+    document = Document()
+    with Part("P") as part:
+        turn = param("turn", 90 * deg)
+        box(20, 30, 40, id="f-box1")
+        move(rotate=(Axis.Z, turn), id="f-mv1")
+        # The world front top edge, which is the box's left top edge turned.
+        [front_top] = edges().top().min(Axis.Y)
+        pattern = linear_pattern(front_top, 2, 20, id="f-lp1")
+
+    assert front_top.axis_direction == pytest.approx((0, -1, 0), abs=1e-9)
+    assert stored_feature(document, "f-lp1")["direction"]["axis"]["direction"] == list(front_top.axis_direction)
+    assert pattern.status == "ok"
+    bounding_box = part.bounding_box()
+    assert (bounding_box.min, bounding_box.max) == (
+        pytest.approx((-15, -10, 0), abs=1e-6),
+        pytest.approx((35, 10, 40), abs=1e-6),
+    )
+
+    assert partsmith_warnings(lambda: turn.set(270 * deg)) == []
+    assert pattern.status == "ok"
+    assert part.volume() == pytest.approx(40000, rel=1e-6)
+    bounding_box = part.bounding_box()
+    assert (bounding_box.min, bounding_box.max) == (
+        pytest.approx((-35, -10, 0), abs=1e-6),
+        pytest.approx((15, 10, 40), abs=1e-6),
+    )
 
 
 def test_t089_selections_store_full_references():

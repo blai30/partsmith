@@ -223,8 +223,35 @@ describe('commitSketchChange', () => {
     expect(applyEdits).not.toHaveBeenCalled()
   })
 
-  it('for a sketch on a face, the committed plane fallback is the solution placement (3.16.3)', async () => {
+  it('U-142 a sketch on a face sends its plane exactly as stored, whatever solution.placement is (3.16.3)', async () => {
+    // A face moved by (100, 0, 0) with a Move body: the fallback is in body coordinates.
     const facePlane: SketchParams['plane'] = {
+      kind: 'face',
+      body: 'b-cube',
+      face: { q: 'f-ext1/end-cap', fp: 'plane|n=0,0,1|c=0,0,30|a=400|adj=4,4' },
+      fallback: { origin: [0, 0, 30], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+      fallback_frame: 'body',
+    }
+    const placement: SketchSolution['placement'] = {
+      origin: [100, 0, 30],
+      x_axis: [1, 0, 0],
+      normal: [0, 0, 1],
+    }
+    const solveSketch = answers(solutionFor([STORED_LINE, SOLVED_NEW_LINE], { placement }))
+    const applyEdits = revision(5)
+    const app = appWith({ solveSketch, applyEdits }, facePlane)
+
+    await commitSketchChange(app, 'Line', LINE_CHANGE)
+
+    const edits = vi.mocked(applyEdits).mock.calls[0]?.[2]
+    expect(edits).toHaveLength(1)
+    const [edit] = edits ?? []
+    expect(edit?.type).toBe('update_feature')
+    expect(edit?.type === 'update_feature' ? edit.feature['plane'] : null).toEqual(facePlane)
+  })
+
+  it('U-142 a face sketch with a world fallback keeps it in world coordinates, with no fallback_frame added', async () => {
+    const worldPlane: SketchParams['plane'] = {
       kind: 'face',
       body: 'b-cube',
       face: { q: 'f-ext1/end-cap', fp: 'plane|n=0,0,1|c=0,0,20|a=400|adj=4,4' },
@@ -237,16 +264,30 @@ describe('commitSketchChange', () => {
     }
     const solveSketch = answers(solutionFor([STORED_LINE, SOLVED_NEW_LINE], { placement }))
     const applyEdits = revision(5)
-    const app = appWith({ solveSketch, applyEdits }, facePlane)
+    const app = appWith({ solveSketch, applyEdits }, worldPlane)
 
     await commitSketchChange(app, 'Line', LINE_CHANGE)
 
-    const edits = vi.mocked(applyEdits).mock.calls[0]?.[2]
-    expect(edits).toHaveLength(1)
-    expect(edits?.[0]).toMatchObject({
-      type: 'update_feature',
-      feature: { plane: { ...facePlane, fallback: placement } },
-    })
+    const [edit] = vi.mocked(applyEdits).mock.calls[0]?.[2] ?? []
+    const plane = edit?.type === 'update_feature' ? edit.feature['plane'] : null
+    expect(plane).toEqual(worldPlane)
+    expect(Object.keys(plane as object)).not.toContain('fallback_frame')
+  })
+
+  it('U-142 probes the candidate with the stored plane too', async () => {
+    const facePlane: SketchParams['plane'] = {
+      kind: 'face',
+      body: 'b-cube',
+      face: { q: 'f-ext1/end-cap', fp: 'plane|n=0,0,1|c=0,0,30|a=400|adj=4,4' },
+      fallback: { origin: [0, 0, 30], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+      fallback_frame: 'body',
+    }
+    const solveSketch = answers(solutionFor([STORED_LINE, SOLVED_NEW_LINE]))
+    const app = appWith({ solveSketch, applyEdits: revision(5) }, facePlane)
+
+    await commitSketchChange(app, 'Line', LINE_CHANGE)
+
+    expect(candidateOf(solveSketch, 0)?.plane).toEqual(facePlane)
   })
 })
 

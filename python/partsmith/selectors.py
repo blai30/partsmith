@@ -161,7 +161,13 @@ def _name_lists(value: Mapping[str, Sequence[str]] | None, name: str) -> dict[st
 
 
 class Element:
-    """One face, edge or vertex at the time it was selected (protocol ElementDescriptor)."""
+    """One face, edge or vertex at the time it was selected (protocol ElementDescriptor).
+
+    `fallback` (flat faces) is its `placement` in body coordinates, and `axis_direction` (line
+    edges; cylinder, cone and torus faces) its axis direction in body coordinates (engine.md
+    section 3.9): a sketch on the face stores the fallback, and an axis along the element the
+    direction, so both keep their place on the part when it moves later.
+    """
 
     __slots__ = (
         "_adjacent",
@@ -171,9 +177,11 @@ class Element:
         "_table",
         "area",
         "axis",
+        "axis_direction",
         "centroid",
         "curve",
         "direction",
+        "fallback",
         "kind",
         "length",
         "name",
@@ -201,8 +209,9 @@ class Element:
         axis = descriptor.get("axis")
         self.axis = None if axis is None else Axis(point(axis["direction"]), point(axis["origin"]))
         self.radius: float | None = descriptor.get("radius")
-        placement = descriptor.get("placement")
-        self.placement = None if placement is None else Placement._from_protocol(placement)
+        self.placement = _optional_placement(descriptor.get("placement"))
+        self.fallback = _optional_placement(descriptor.get("fallback"))
+        self.axis_direction = _optional_point(descriptor.get("axis_direction"))
         self._adjacent: tuple[str, ...] = tuple(descriptor["adjacent"])
         self._table = table
 
@@ -570,6 +579,11 @@ def _article(kind: str) -> str:
 def _optional_point(values: list[float] | None) -> Point3 | None:
     """A protocol `Vec3`, or None when absent."""
     return None if values is None else point(values)
+
+
+def _optional_placement(data: dict | None) -> Placement | None:
+    """A protocol `Placement`, or None when absent."""
+    return None if data is None else Placement._from_protocol(data)
 
 
 def _cross(first: Point3, second: Point3) -> Point3:

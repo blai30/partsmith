@@ -80,7 +80,11 @@ class Placement:
     @classmethod
     def _from_protocol(cls, data: dict) -> Placement:
         """A placement the engine reported, in millimeters."""
-        placement = cls(data["origin"], data["x_axis"], data["normal"])
+        # The engine's vectors need no argument checks; element lists build one or two per flat face.
+        placement = cls.__new__(cls)
+        placement.origin = triple(data["origin"])
+        placement.x_axis = triple(data["x_axis"])
+        placement.normal = triple(data["normal"])
         placement._millimeters = True
         return placement
 

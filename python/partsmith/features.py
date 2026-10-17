@@ -583,7 +583,7 @@ def plane_reference(function: str, value: object) -> dict:
     if isinstance(value, Feature) and value.type == "datum_plane":
         return {"kind": "datum", "feature": value.id}
     if isinstance(value, (Element, Selection, Ref)):
-        part, face, _placement = _face(f"{function}()", value)
+        part, face, _fallback = _face(f"{function}()", value)
         return {"kind": "face", "body": part.id, "face": face}
     raise TypeError(f"{function}() plane must be a Plane, a DatumPlane, a face or a Ref, not {type(value).__name__}.")
 
@@ -603,18 +603,15 @@ def axis_reference(function: str, value: object) -> dict:
         return {"kind": "sketch_line", "sketch": value.sketch.id, "line": value.id}
     if isinstance(value, Element):
         if value.kind == "edge" and value.curve == "line":
-            return {"kind": "edge", "body": value.part.id, "edge": value.reference._json()}
+            return _body_axis("edge", value.part, value.reference, value.axis_direction)
         if value.kind == "face" and value.surface in ROUND_SURFACES:
-            return {"kind": "face", "body": value.part.id, "face": value.reference._json()}
+            return _body_axis("face", value.part, value.reference, value.axis_direction)
         raise ValueError(AXIS_MESSAGE)
     if isinstance(value, Ref):
         if value.part is None:
             raise ValueError(f"{function}() needs part= on a Ref used as an axis.")
         kind = "face" if value.fp.split("|", 1)[0] in SURFACE_TOKENS else "edge"
-        axis = {"kind": kind, "body": value.part.id, kind: value._json()}
-        if value.direction is not None:
-            axis["direction"] = list(value.direction)
-        return axis
+        return _body_axis(kind, value.part, value, value.direction)
     raise TypeError(
         f"{function}() axis must be an Axis, a sketch Line, an edge, a face or a Ref, not {type(value).__name__}."
     )
@@ -623,19 +620,21 @@ def axis_reference(function: str, value: object) -> dict:
 def sketch_plane(plane: object, fallback: Placement | None, fallback_frame: str | None) -> tuple[Document | None, dict]:
     """The document a sketch plane belongs to (None for origin planes) and its `SketchPlane`.
 
-    A given fallback is stored in the frame `fallback_frame` names: "body" is written as is, while
-    "world" and None write no frame, which means world coordinates (python-api.md section 3.4).
+    Without `fallback`, a face element stores its own fallback, its placement in body coordinates,
+    with the frame "body", as every host's attach does. A given fallback is stored in the frame
+    `fallback_frame` names: "body" is written as is, while "world" and None write no frame, which
+    means world coordinates (python-api.md section 3.4).
     """
     if fallback_frame is not None and fallback_frame not in FALLBACK_FRAMES:
         raise ValueError(f"Sketch() fallback_frame must be 'world' or 'body', not {fallback_frame!r}.")
     if isinstance(plane, (Element, Selection, Ref)):
-        part, face, placement = _face("A sketch", plane)
+        part, face, element_fallback = _face("A sketch", plane)
         if fallback is None:
             if fallback_frame is not None:
                 raise ValueError("Sketch() fallback_frame names the frame of fallback=; pass both.")
-            if placement is None:
+            if element_fallback is None:
                 raise ValueError("A sketch on a Ref needs fallback=, the placement it keeps when the face is missing.")
-            fallback = placement
+            fallback, fallback_frame = element_fallback, "body"
         elif not isinstance(fallback, Placement):
             raise TypeError(f"Sketch() fallback must be a Placement, not {type(fallback).__name__}.")
         sketch_face = {"kind": "face", "body": part.id, "face": face, "fallback": fallback._json(part.document)}
@@ -652,7 +651,8 @@ def sketch_plane(plane: object, fallback: Placement | None, fallback_frame: str 
 
 
 def _face(subject: str, value: Element | Selection | Ref) -> tuple[Part, dict, Placement | None]:
-    """The part, reference and placement of a flat face argument (a Ref has no placement)."""
+    """The part, reference and fallback of a flat face argument: an element's placement in body
+    coordinates (engine.md section 3.9); a Ref has none."""
     if isinstance(value, Ref):
         if value.part is None:
             raise ValueError(f"{subject} on a Ref needs part=, the face's part.")
@@ -660,7 +660,16 @@ def _face(subject: str, value: Element | Selection | Ref) -> tuple[Part, dict, P
     element = single_element(subject, value, "face")
     if element.surface != "plane":
         raise SelectionError(f"{subject} needs a flat face; the selected face is {element.surface}.")
-    return element.part, element.reference._json(), element.placement
+    return element.part, element.reference._json(), element.fallback
+
+
+def _body_axis(kind: str, part: Part, reference: Ref, direction: tuple[float, float, float] | None) -> dict:
+    """The edge or face `AxisRef` of `reference` on the body of `part`, with `direction`, the
+    picked axis direction in body coordinates, when there is one (features.md section 2.5)."""
+    axis = {"kind": kind, "body": part.id, kind: reference._json()}
+    if direction is not None:
+        axis["direction"] = list(direction)
+    return axis
 
 
 def _target(function: str, part: Part | None) -> Part:

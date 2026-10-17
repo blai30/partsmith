@@ -1,7 +1,7 @@
 """Unit tests of the feature records partsmith.features builds and of their argument checks."""
 
 import pytest
-from support import stored_feature
+from support import reference_json, stored_feature
 
 from partsmith import (
     Axis,
@@ -27,6 +27,7 @@ from partsmith import (
     cylinder,
     datum_plane,
     deg,
+    edges,
     expr,
     extrude,
     faces,
@@ -42,6 +43,7 @@ from partsmith import (
     torus,
 )
 from partsmith.features import axis_reference, plane_reference
+from partsmith.selectors import _ElementTable
 
 # These tests check stored records; several features leave the box unchanged on purpose.
 pytestmark = pytest.mark.filterwarnings("ignore::partsmith.PartsmithWarning")
@@ -410,6 +412,95 @@ def test_a_ref_axis_without_a_direction_stores_none():
     part = Part("P")
 
     assert "direction" not in axis_reference("revolve", Ref("edge(a|b)", "line|n=0,0,1", part=part))
+
+
+def test_an_edge_element_used_as_an_axis_stores_its_axis_direction():
+    Document()
+    with Part("P") as part:
+        box(20, 30, 40)
+        [front_top] = edges().top().min(Axis.Y)
+
+    assert axis_reference("linear_pattern", front_top) == {
+        "kind": "edge",
+        "body": part.id,
+        "edge": reference_json(front_top.reference),
+        "direction": [1, 0, 0],
+    }
+
+
+def test_a_round_face_element_used_as_an_axis_stores_its_axis_direction():
+    Document()
+    with Part("C") as part:
+        cylinder(5, 10)
+        [side] = faces().cylindrical()
+
+    assert axis_reference("revolve", side) == {
+        "kind": "face",
+        "body": part.id,
+        "face": reference_json(side.reference),
+        "direction": [0, 0, 1],
+    }
+
+
+def test_an_element_without_an_axis_direction_stores_no_direction():
+    Document()
+    part = Part("P")
+    # Listed before the part was added, and the part has no geometry, so each element keeps the reference it was
+    # listed with (python-api.md section 3.6). A sphere's face has no axis direction (engine.md section 3.9).
+    table = _ElementTable(
+        part,
+        [
+            {
+                "name": "ball",
+                "kind": "face",
+                "body": part.id,
+                "feature": "f-1",
+                "reference": {"q": "f-1/ball", "fp": "sphere|c=0,0,0|r=5"},
+                "surface": "sphere",
+                "centroid": [0.0, 0.0, 0.0],
+                "adjacent": [],
+            },
+            {
+                "name": "e-1",
+                "kind": "edge",
+                "body": part.id,
+                "feature": "f-1",
+                "reference": {"q": "edge(f-1/a|f-1/b)", "fp": "line|n=0,0,1"},
+                "curve": "line",
+                "centroid": [0.0, 0.0, 0.0],
+                "direction": [0.0, 0.0, 1.0],
+                "adjacent": [],
+            },
+        ],
+        revision=0,
+    )
+
+    assert axis_reference("revolve", table.by_kind["face"]["ball"]) == {
+        "kind": "face",
+        "body": part.id,
+        "face": {"q": "f-1/ball", "fp": "sphere|c=0,0,0|r=5"},
+    }
+    assert axis_reference("revolve", table.by_kind["edge"]["e-1"]) == {
+        "kind": "edge",
+        "body": part.id,
+        "edge": {"q": "edge(f-1/a|f-1/b)", "fp": "line|n=0,0,1"},
+    }
+
+
+def test_a_pattern_along_an_edge_element_stores_its_axis_direction(document):
+    [front_top] = edges().top().min(Axis.Y)
+
+    stored = params(document, linear_pattern(front_top, 2, 40))
+
+    assert stored["direction"]["axis"]["direction"] == [1, 0, 0]
+
+
+def test_a_move_about_an_edge_element_stores_its_axis_direction(document):
+    [front_top] = edges().top().min(Axis.Y)
+
+    stored = params(document, move(rotate=(front_top, 90 * deg)))
+
+    assert stored["rotation"]["axis"]["direction"] == [1, 0, 0]
 
 
 def test_a_ref_with_anchors_and_merged_names_stores_them():

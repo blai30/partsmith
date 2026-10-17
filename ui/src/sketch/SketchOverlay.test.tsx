@@ -78,6 +78,7 @@ describe('SketchOverlay in sketch mode (3.2, 3.16.3)', () => {
       state: {
         sketch: {
           sketchId: null,
+          reattaching: null,
           tool: null,
           construction: false,
           showConstraints: true,

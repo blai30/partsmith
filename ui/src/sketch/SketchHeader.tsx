@@ -4,8 +4,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useAppState } from '../app/AppProvider'
 import {
-  createSketchOn,
   deleteSketchConstraints,
+  pickPlane,
   selectInSketch,
   showSketchFinding,
   sketchParamsOf,
@@ -23,9 +23,12 @@ import type {
 import { originItem } from '../inspector/selection-values'
 import { focusLost, focusView } from '../layout/focus'
 import { counted, MESSAGES } from '../messages'
+import { selectRepairMode } from '../repair/repair'
+import { RepairCandidates } from '../repair/RepairCandidates'
 import {
   selectEditedSketch,
   selectFeatureLabel,
+  selectReattachedSketch,
   selectSketchDof,
   type SketchDof,
 } from '../state/selectors'
@@ -40,7 +43,8 @@ import { sketchStepHint, type SketchOverlayModel } from './session'
 // The sketch header and hint (ui.md 3.16.1, 3.16.3, 3.16.8): the sketch's name and constraint
 // status in the viewport's top-center slot (3.2), opening the list of the sketch's problems, and
 // under it the step prompt. While a plane is picked for a new sketch, it offers the three origin
-// planes. The sketch overlay renders it with the sketch controller's hint.
+// planes, and for a re-attached sketch the candidates of its lost face too. The sketch overlay
+// renders it with the sketch controller's hint.
 
 /** The status text of a header state, and whether it reads as an error. */
 function statusOf(dof: SketchDof): { readonly text: string; readonly error: boolean } {
@@ -94,9 +98,19 @@ export function SketchHeader({ hint = null, freePlacement = false }: SketchHeade
   )
 }
 
-/** While a plane is picked for a new sketch: the prompt and the three origin planes. */
+/**
+ * While a plane is picked for a new sketch or a re-attached one (3.16.1): the prompt and the three
+ * origin planes, and, for a re-attached sketch, the numbered candidates of its repair under them.
+ */
 function PlanePicking() {
   const app = useApp()
+  const reattaching = useAppState(selectReattachedSketch)
+  const label = useAppState((state) =>
+    reattaching === null ? null : selectFeatureLabel(state, reattaching),
+  )
+  const mode = useAppState(selectRepairMode)
+  const candidates =
+    reattaching !== null && mode?.feature === reattaching ? mode.view.candidates : []
   const first = useRef<HTMLButtonElement>(null)
   // The Sketch button that started the pick is gone, so the first plane takes its focus (3.24).
   useEffect(() => {
@@ -123,7 +137,9 @@ function PlanePicking() {
       )}
     >
       <legend className="float-left min-w-0 font-medium">
-        Pick a plane or a flat face to draw on
+        {label === null
+          ? 'Pick a plane or a flat face to draw on'
+          : MESSAGES.reattach_prompt(label)}
       </legend>
       {/* The three plane buttons wrap together, so they never split across lines. */}
       <div className="flex gap-2">
@@ -133,13 +149,19 @@ function PlanePicking() {
             ref={index === 0 ? first : undefined}
             aria-label={`Sketch on ${originPlaneName(plane)}`}
             onClick={() => {
-              createSketchOn(app, originItem(plane)).catch(reportFailure('Creating the sketch'))
+              pickPlane(app, originItem(plane)).catch(reportFailure('Placing the sketch'))
             }}
           >
             {originPlaneView(plane)}
           </Button>
         ))}
       </div>
+      {candidates.length === 0 ? null : (
+        // The candidates take their own line under the prompt and the planes.
+        <div className="basis-full pb-1">
+          <RepairCandidates candidates={candidates} />
+        </div>
+      )}
     </fieldset>
   )
 }

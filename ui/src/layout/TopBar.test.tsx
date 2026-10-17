@@ -32,6 +32,7 @@ afterEach(() => {
 
 const EDITING_SKETCH: SketchSession = {
   sketchId: 'f-sk1',
+  reattaching: null,
   tool: null,
   construction: false,
   showConstraints: true,

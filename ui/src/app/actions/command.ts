@@ -1253,7 +1253,8 @@ function placeHoleOnFace(
 ): void {
   const element = item.element
   const plane = sketchPlaneOf(item)
-  if (element === null || plane?.kind !== 'face') {
+  const placement = element?.placement ?? null
+  if (element === null || plane?.kind !== 'face' || placement === null) {
     showPickHint(app, MESSAGES.pick_points(), field.path)
     return
   }
@@ -1272,7 +1273,8 @@ function placeHoleOnFace(
   const entity: SketchEntity = {
     id: issueId(app, session, 'e'),
     type: 'point',
-    position: holeCenter(element, plane.fallback, pointer),
+    // The ray meets the face where it is now, in world coordinates.
+    position: holeCenter(element, placement, pointer),
   }
   const helper: HelperSketch = helperInUse
     ? {
@@ -1282,6 +1284,7 @@ function placeHoleOnFace(
     : {
         id: issueId(app, session, 'f'),
         params: { plane, entities: [entity], constraints: [] },
+        placement,
         applied: false,
       }
   const value = helperInUse && Array.isArray(points) ? [...points, entity.id] : [entity.id]

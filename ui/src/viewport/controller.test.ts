@@ -31,10 +31,12 @@ import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import type { FakeCoreApi } from '../test/fakes/core-api'
 import { deferred } from '../test/fakes/deferred'
 import {
+  CUBE_DOCUMENT,
   CUBE_FEATURES_DOCUMENT,
   CUBE_FRONT_FACE,
   CUBE_TOP_FACE,
   CUBE_TOP_FRONT_EDGE,
+  featuresOf,
 } from '../test/fakes/documents'
 import { bodyItem, elementItem, featureItem } from '../test/fakes/selection'
 import { stubResizeObserver, type FakeResizeObservers } from '../test/fakes/resize-observer'
@@ -1223,6 +1225,7 @@ describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
     context: 'sketch',
     sketch: {
       sketchId: null,
+      reattaching: null,
       tool: null,
       construction: false,
       showConstraints: true,
@@ -1230,6 +1233,18 @@ describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
       dragging: false,
       cameraBefore: null,
     },
+  }
+
+  /** The cube's top after a Move body by (100, 0, 0), with its full reference (engine.md 3.9). */
+  const MOVED_TOP_FACE: ElementDescriptor = {
+    ...CUBE_TOP_FACE,
+    reference: {
+      ...CUBE_TOP_FACE.reference,
+      merged: { 'f-ext1/end-cap': ['f-ext2/end-cap'] },
+    },
+    centroid: [100, 0, 20],
+    placement: { origin: [100, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+    fallback: { origin: [0, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
   }
 
   it('starts the sketch on a flat face', async () => {
@@ -1246,6 +1261,97 @@ describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
     expect(call?.[1]).toBe('New sketch')
     expect(call?.[2]).toMatchObject([
       { type: 'add_feature', feature: { type: 'sketch', plane: { kind: 'face', body: 'b-cube' } } },
+    ])
+  })
+
+  it("U-142 a picked face of a moved body stores its full reference and the descriptor's fallback with fallback_frame body", async () => {
+    const fixture = setUp({
+      state: PLANE_PICKING,
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve(MOVED_TOP_FACE))
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 400, 300)
+    await settle()
+    const [call] = fixture.core.callsTo('applyEdits')
+    expect(call?.[1]).toBe('New sketch')
+    expect(call?.[2]).toMatchObject([
+      {
+        type: 'add_feature',
+        feature: {
+          type: 'sketch',
+          plane: {
+            kind: 'face',
+            body: 'b-cube',
+            face: MOVED_TOP_FACE.reference,
+            fallback: MOVED_TOP_FACE.fallback,
+            fallback_frame: 'body',
+          },
+        },
+      },
+    ])
+  })
+
+  it("U-146 re-attaching 'Sketch 2': a picked flat face commits one update labeled \"Attach 'Sketch 2'\" with its full reference and fallback", async () => {
+    const sketch2 = {
+      id: 'f-sk2',
+      type: 'sketch',
+      plane: {
+        kind: 'face',
+        body: 'b-cube',
+        face: { q: 'f-gone/top', fp: 'plane|n=0,0,1|c=0,0,40|a=400|adj=4,4' },
+        fallback: { origin: [0, 0, 40], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+        fallback_frame: 'body',
+      },
+      entities: [{ id: 'e-1', type: 'circle', center: [0, 0], radius: 3 }],
+      constraints: [],
+    }
+    const fixture = setUp({
+      document: documentState(
+        { ...CUBE_DOCUMENT, features: [...featuresOf(CUBE_DOCUMENT), sketch2] },
+        { name: 'cube', meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) } },
+      ),
+      state: {
+        context: 'sketch',
+        sketch: {
+          sketchId: null,
+          reattaching: 'f-sk2',
+          tool: null,
+          construction: false,
+          showConstraints: true,
+          selection: [],
+          dragging: false,
+          cameraBefore: null,
+        },
+      },
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve(MOVED_TOP_FACE))
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 400, 300)
+    await settle()
+    expect(fixture.core.callsTo('applyEdits')).toEqual([
+      [
+        1,
+        "Attach 'Sketch 2'",
+        [
+          {
+            type: 'update_feature',
+            feature: {
+              ...sketch2,
+              plane: {
+                kind: 'face',
+                body: 'b-cube',
+                face: MOVED_TOP_FACE.reference,
+                fallback: MOVED_TOP_FACE.fallback,
+                fallback_frame: 'body',
+              },
+            },
+          },
+        ],
+      ],
     ])
   })
 

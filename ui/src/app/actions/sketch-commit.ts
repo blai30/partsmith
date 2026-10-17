@@ -7,7 +7,6 @@ import type {
   FeatureRecord,
   SketchEntity,
   SketchParams,
-  SketchPlane,
   SketchSolution,
 } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
@@ -86,9 +85,9 @@ function failure(error: unknown): SketchCommitResult {
  * Commits one sketch change as one undo entry (3.16.3): the candidate is probed with the solver
  * first; a requested constraint that is redundant or conflicting refuses the change, inferred ones
  * are dropped silently, and a failed solve or a refused probe applies nothing. The committed
- * entities carry the solved geometry, and a sketch on a face records the solved placement as its
- * fallback. Reading the params, probing and applying are one task of the mutation queue, so no
- * drag end, undo or other commit lands between them.
+ * entities carry the solved geometry, and the plane is sent exactly as stored. Reading the params,
+ * probing and applying are one task of the mutation queue, so no drag end, undo or other commit
+ * lands between them.
  */
 export function commitSketchChange(
   app: App,
@@ -199,15 +198,13 @@ async function applyCandidate(
   if (document === null) {
     return { outcome: 'failed', message: 'There is no document open.' }
   }
-  const plane: SketchPlane =
-    candidate.plane.kind === 'face'
-      ? { ...candidate.plane, fallback: solution.placement }
-      : candidate.plane
+  // The plane is kept as stored: only an attach, a committed drag and the core's fixes write a
+  // face sketch's fallback, which `solution.placement`, in world coordinates, cannot give (3.16.3).
   const edit: Edit = {
     type: 'update_feature',
     feature: {
       ...record,
-      plane,
+      plane: candidate.plane,
       entities: solvedEntities(candidate.entities ?? [], solution),
       constraints: [...(candidate.constraints ?? [])],
     },

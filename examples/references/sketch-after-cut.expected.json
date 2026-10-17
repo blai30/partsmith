@@ -1,0 +1,326 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-dp1",
+      "type": "datum_plane",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk3",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext3",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "warning",
+      "messages": [
+        {
+          "severity": "warning",
+          "code": "plane_fallback",
+          "message": "The face this sketch is on, the top of 'Box 1', was cut away by 'Extrude 1', which comes before this sketch, so the sketch stays where that face was.",
+          "field": "/plane/face",
+          "actions": [
+            {
+              "label": "Attach to the floor of the cut made by 'Extrude 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to the back side of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to the front side of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to the left side of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to the right side of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Pick a face again",
+              "kind": "pick"
+            }
+          ],
+          "candidates": [
+            {
+              "reference": {
+                "q": "f-ext3/start-cap",
+                "fp": "plane|n=0,0,1|c=0,0,35|a=400|adj=4,4"
+              },
+              "description": "the floor of the cut made by 'Extrude 1'",
+              "relation": "5 mm from where it was",
+              "meaning": true,
+              "distance": 5.0,
+              "score": 0.9139780823055461
+            },
+            {
+              "reference": {
+                "q": "f-box1/back",
+                "fp": "plane|n=0,1,0|c=0,10,17.5|a=700|adj=4,4"
+              },
+              "description": "the back side of 'Box 1'",
+              "relation": "about 25 mm from where it was",
+              "meaning": true,
+              "distance": 24.62214450449026,
+              "score": 0.35163878595482595
+            },
+            {
+              "reference": {
+                "q": "f-box1/front",
+                "fp": "plane|n=0,-1,0|c=0,-10,17.5|a=700|adj=4,4"
+              },
+              "description": "the front side of 'Box 1'",
+              "relation": "about 25 mm from where it was",
+              "meaning": true,
+              "distance": 24.62214450449026,
+              "score": 0.35163878595482595
+            },
+            {
+              "reference": {
+                "q": "f-box1/left",
+                "fp": "plane|n=-1,0,0|c=-10,0,17.5|a=700|adj=4,4"
+              },
+              "description": "the left side of 'Box 1'",
+              "relation": "about 25 mm from where it was",
+              "meaning": true,
+              "distance": 24.62214450449026,
+              "score": 0.35163878595482595
+            },
+            {
+              "reference": {
+                "q": "f-box1/right",
+                "fp": "plane|n=1,0,0|c=10,0,17.5|a=700|adj=4,4"
+              },
+              "description": "the right side of 'Box 1'",
+              "relation": "about 25 mm from where it was",
+              "meaning": true,
+              "distance": 24.62214450449026,
+              "score": 0.35163878595482595
+            }
+          ],
+          "reason": {
+            "kind": "removed",
+            "by": "f-ext3",
+            "how": {
+              "kind": "cut_away"
+            }
+          },
+          "detail": "plane.face q=f-box1/top resolution=missing lost.parts=f-box1/top candidates=f-ext3/start-cap:0.913978,f-box1/back:0.351639,f-box1/front:0.351639,f-box1/left:0.351639,f-box1/right:0.351639"
+        }
+      ]
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 14141.371669411543,
+      "area": 3750.7964473723096,
+      "center_of_mass": [
+        -5.527024022901128e-18,
+        2.5115899637006234e-17,
+        17.74992566618791
+      ],
+      "bounding_box": {
+        "min": [
+          -10.0,
+          -10.0,
+          0.0
+        ],
+        "max": [
+          10.0,
+          10.0,
+          45.0
+        ]
+      },
+      "faces": 9,
+      "edges": 14,
+      "vertices": 10
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 2,
+      "infos": 0,
+      "label": "2 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "islands",
+                  "code": "island",
+                  "severity": "warning",
+                  "message": "Part of the model starts in mid-air 40 mm above the bed. Add supports or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -3.0,
+                      -3.0,
+                      40.0
+                    ],
+                    "max": [
+                      3.0,
+                      3.0,
+                      40.0
+                    ]
+                  },
+                  "value": 40.0,
+                  "faces": [
+                    7
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 28.3 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -3.0,
+                      -3.0,
+                      40.0
+                    ],
+                    "max": [
+                      3.0,
+                      3.0,
+                      40.0
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    7
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

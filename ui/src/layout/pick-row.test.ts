@@ -76,6 +76,7 @@ describe('pickRow', () => {
 /** Sketch mode while a plane is picked for a new sketch (3.16.1). */
 const PLANE_PICKING: SketchSession = {
   sketchId: null,
+  reattaching: null,
   tool: null,
   construction: false,
   showConstraints: true,

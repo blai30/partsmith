@@ -1580,14 +1580,14 @@ export function createScene(backend: RenderBackend): Scene {
     picking: Picking,
     highlight: Highlight,
   ): PendingDraw | null {
-    const plane = helper?.params.plane
     const entities = (helper?.params.entities ?? []).flatMap((entity) =>
       entity.type === 'point' ? [entity] : [],
     )
-    if (helper === null || plane?.kind !== 'face' || entities.length === 0) {
+    if (helper === null || entities.length === 0) {
       return null
     }
-    const placement = plane.fallback
+    // The face where it is now: the plane's fallback is in body coordinates (3.7).
+    const placement = helper.placement
     const id = 'helper:points'
     uploadGenerated(id, JSON.stringify([placement, entities]), () =>
       pointsOnPlane(

@@ -14,10 +14,10 @@ import { isNarrowWindow } from './docking'
 
 /**
  * One step of the Esc ladder after the open layers, which close themselves (3.5): exit the sketch
- * tool, cancel the command, cancel a new sketch's plane pick or the face pick of Lay on face, then
- * clear the selection. Esc never
- * leaves sketch mode once a sketch is being edited; with nothing left to do there, the sketch hint
- * shows `sketch_leave` for 3 s. Returns whether a step applied.
+ * tool, cancel the command, cancel the plane pick of a new or re-attached sketch (3.16.1) or the
+ * face pick of Lay on face, then clear the selection. Esc never leaves sketch mode once a sketch
+ * is being edited; with nothing left to do there, the sketch hint shows `sketch_leave` for 3 s.
+ * Returns whether a step applied.
  */
 export function escapeStep(app: App): boolean {
   const state = app.store.getState()

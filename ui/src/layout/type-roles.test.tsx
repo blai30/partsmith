@@ -310,6 +310,7 @@ describe('tabular and proportional figures (2.16.7, U-207)', () => {
         context: 'sketch',
         sketch: {
           sketchId: 'f-sk1',
+          reattaching: null,
           tool: null,
           construction: false,
           showConstraints: true,
@@ -336,6 +337,7 @@ describe('tabular and proportional figures (2.16.7, U-207)', () => {
         context: 'sketch',
         sketch: {
           sketchId: 'f-sk1',
+          reattaching: null,
           tool: 'line',
           construction: false,
           showConstraints: true,
@@ -408,6 +410,7 @@ describe('no stray code face (2.16.7, U-208)', () => {
         context: 'sketch',
         sketch: {
           sketchId: 'f-sk1',
+          reattaching: null,
           tool: 'line',
           construction: false,
           showConstraints: true,

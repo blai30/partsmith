@@ -1,0 +1,51 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [40, 0]},
+        {"id": "e-2", "type": "line", "start": [40, 0], "end": [40, 20]},
+        {"id": "e-3", "type": "line", "start": [40, 20], "end": [-1, 20]},
+        {"id": "e-4", "type": "line", "start": [-1, 20], "end": [0, 0]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=20,10|a=800", "outline": "e-1,e-2,e-3,e-4"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "10"},
+      "op": "new"
+    },
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "body": "b-1",
+      "direction": {
+        "axis": {
+          "kind": "edge",
+          "body": "b-1",
+          "edge": {"q": "edge(f-ext1/lateral/e-4|f-ext1/start-cap)", "fp": "line|n=0,1,0|c=0,10,0|l=20|adj=2,2"},
+          "direction": [0, 1, 0]
+        },
+        "count": "2",
+        "spacing": "30"
+      }
+    }
+  ]
+}

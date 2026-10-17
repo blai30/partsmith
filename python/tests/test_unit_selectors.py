@@ -6,7 +6,24 @@ import math
 import pytest
 from support import partsmith_warnings
 
-from partsmith import Axis, Document, Part, PartsmithWarning, Ref, Selection, SelectionError, box, chamfer, edges, rad
+from partsmith import (
+    Axis,
+    Document,
+    Element,
+    Part,
+    PartsmithWarning,
+    Ref,
+    Selection,
+    SelectionError,
+    box,
+    chamfer,
+    cylinder,
+    deg,
+    edges,
+    faces,
+    move,
+    rad,
+)
 from partsmith.selectors import _ElementTable, element_references, rotation_rows, single_element
 
 
@@ -99,6 +116,87 @@ def test_elements_carry_their_descriptor_fields(table):
     assert (top.reference.q, top.reference.fp, top.reference.part) == ("top", "fp-top", top.part)
     assert top.curve is None
     assert top.placement is None
+
+
+def test_an_element_carries_its_fallback_and_axis_direction():
+    Document()
+    part = Part("P")
+    placement = {"origin": [0.0, 0.0, 10.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}
+    fallback = {"origin": [-100.0, 0.0, 10.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}
+    table = _ElementTable(
+        part,
+        [
+            descriptor("top", "face", (100, 0, 10), surface="plane", placement=placement, fallback=fallback),
+            descriptor(
+                "e-x", "edge", (100, -5, 10), curve="line", direction=[-1.0, 0.0, 0.0], axis_direction=[1.0, 0.0, 0.0]
+            ),
+        ],
+        revision=0,
+    )
+    top = table.by_kind["face"]["top"]
+    edge = table.by_kind["edge"]["e-x"]
+
+    assert (top.fallback.origin, top.fallback.x_axis, top.fallback.normal) == ((-100, 0, 10), (1, 0, 0), (0, 0, 1))
+    assert top.placement.origin == (0, 0, 10)
+    assert (edge.axis_direction, edge.direction) == ((1, 0, 0), (-1, 0, 0))
+
+
+def test_an_element_without_a_fallback_or_axis_direction_has_none(table):
+    top = table.by_kind["face"]["top"]
+    edge = table.by_kind["edge"]["e-x"]
+
+    assert (top.fallback, top.axis_direction) == (None, None)
+    assert (edge.fallback, edge.axis_direction) == (None, None)
+
+
+def front_top_edge() -> Element:
+    """The element `edge(f-box1/front|f-box1/top)` of the current part."""
+    [edge] = edges().filter(lambda element: element.name == "edge(f-box1/front|f-box1/top)")
+    return edge
+
+
+def test_the_fallback_and_axis_direction_of_a_moved_part_are_in_body_coordinates():
+    Document()
+    with Part("P"):
+        box(20, 30, 40, id="f-box1")
+        move(translate=(100, 0, 0))
+        [top] = faces().top()
+        front_top = front_top_edge()
+
+    # The placement lies above the model origin, as for every flat face; the fallback undoes the move.
+    assert (top.placement.origin, top.fallback.origin) == ((0, 0, 40), (-100, 0, 40))
+    assert (top.fallback.x_axis, top.fallback.normal) == ((1, 0, 0), (0, 0, 1))
+    assert front_top.axis_direction == (1, 0, 0)
+
+
+def test_the_axis_direction_of_a_turned_edge_stays_in_body_coordinates():
+    Document()
+    with Part("P"):
+        box(20, 30, 40, id="f-box1")
+        move(rotate=(Axis.Z, 90 * deg))
+        [top] = faces().top()
+        front_top = front_top_edge()
+
+    # The edge runs along Y after the quarter turn, and its axis direction is still the box's X.
+    assert abs(front_top.direction[1]) == pytest.approx(1, abs=1e-9)
+    assert front_top.axis_direction == pytest.approx((1, 0, 0), abs=1e-9)
+    assert top.fallback.origin == pytest.approx((0, 0, 40), abs=1e-9)
+    assert top.fallback.x_axis == pytest.approx((0, -1, 0), abs=1e-9)
+
+
+def test_round_faces_carry_an_axis_direction_and_flat_faces_a_fallback():
+    Document()
+    with Part("C"):
+        cylinder(5, 10)
+        [side] = faces().cylindrical()
+        caps = faces().planar()
+        circles = edges().circles()
+
+    assert (side.axis_direction, side.fallback) == ((0, 0, 1), None)
+    assert len(caps) == 2
+    assert all(cap.fallback is not None and cap.axis_direction is None for cap in caps)
+    assert len(circles) == 2
+    assert all(circle.axis_direction is None for circle in circles)
 
 
 def test_max_keeps_every_element_within_the_tolerance(table):

@@ -842,6 +842,7 @@ describe('the selection inspector (3.8)', () => {
         context: 'sketch',
         sketch: {
           sketchId: 'f-sk1',
+          reattaching: null,
           tool: null,
           construction: false,
           showConstraints: true,

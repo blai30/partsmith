@@ -246,6 +246,7 @@ describe('running feature commands', () => {
         context: 'sketch',
         sketch: {
           sketchId: 'f-sk1',
+          reattaching: null,
           tool: null,
           construction: false,
           showConstraints: true,
@@ -359,6 +360,7 @@ describe('availability reasons (2.10, U-98)', () => {
         context: 'sketch',
         sketch: {
           sketchId: 'f-sk1',
+          reattaching: null,
           tool: null,
           construction: false,
           showConstraints: true,

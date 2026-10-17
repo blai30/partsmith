@@ -41,6 +41,7 @@ describe('selectEmptyState (3.2)', () => {
   }
   const PICKING_PLANE: SketchSession = {
     sketchId: null,
+    reattaching: null,
     tool: null,
     construction: false,
     showConstraints: true,
@@ -152,6 +153,7 @@ describe('selectActiveFeatureIds', () => {
 describe('editingSession and selectEditedSketch', () => {
   const SESSION: SketchSession = {
     sketchId: 'f-sk1',
+    reattaching: null,
     tool: null,
     construction: false,
     showConstraints: true,

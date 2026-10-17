@@ -1,7 +1,7 @@
 import { editFeature } from '../app/actions/command'
 import { layOnFace } from '../app/actions/print'
 import { clearSelection, elementSelectionItem, pickAt } from '../app/actions/selection'
-import { createSketchOn, enterSketch, recordSketchView } from '../app/actions/sketch'
+import { enterSketch, pickPlane, recordSketchView } from '../app/actions/sketch'
 import { onCoreEvent, type App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { CoreError } from '../core/client'
@@ -849,8 +849,9 @@ export function createViewportController(options: {
     if (item === null) {
       return
     }
-    // A face that is not flat is refused with `pick_plane` in the sketch hint (3.16.1).
-    await createSketchOn(app, item)
+    // A new sketch or the re-attached one goes on it; a face that is not flat is refused with
+    // `pick_plane` in the sketch hint (3.16.1).
+    await pickPlane(app, item)
   }
 
   async function doubleClick(x: number, y: number): Promise<void> {

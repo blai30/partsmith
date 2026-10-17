@@ -16,6 +16,7 @@ import {
   type ActiveCommand,
   type AppState,
   type DocumentState,
+  type HelperSketch,
   type SelectionItem,
   type SketchSession,
 } from '../state/store'
@@ -862,6 +863,60 @@ describe('sketch point entities', () => {
   })
 })
 
+describe("a hole's helper points on a moved face (3.7)", () => {
+  // The cube's top after a Move body by (100, 0, 0): the helper's fallback is in body coordinates,
+  // and its points are drawn on the face's world placement.
+  const HELPER: HelperSketch = {
+    id: 'f-help1',
+    params: {
+      plane: {
+        kind: 'face',
+        body: 'b-cube',
+        face: { q: 'f-ext1/end-cap', fp: 'plane|n=0,0,1|c=0,0,20|a=400|adj=4,4' },
+        fallback: { origin: [0, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+        fallback_frame: 'body',
+      },
+      entities: [{ id: 'e-p1', type: 'point', position: [3, 4] }],
+      constraints: [],
+    },
+    placement: { origin: [100, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+    applied: false,
+  }
+  const HOLE_COMMAND: ActiveCommand = {
+    ...FILLET_EDGES_COMMAND,
+    featureType: 'hole',
+    featureId: 'f-hole1',
+    title: 'Hole',
+    params: { points: ['e-p1'], sketch: 'f-help1', body: 'b-cube' },
+    activeField: 'points',
+    helper: HELPER,
+  }
+
+  it('draws each helper point where it lies on the face in world coordinates, not at its body-coordinate fallback', () => {
+    const fixture = cubeScene()
+    const frame = render(fixture, cubeState({ command: HOLE_COMMAND }))
+    const draw = frame.draws.find((candidate) => candidate.id === 'helper:points')
+    expect(draw).toBeDefined()
+    const geometry = fixture.backend.geometries.get('helper:points')
+    expect([...(geometry?.positions ?? [])]).toEqual([103, 4, 20])
+  })
+
+  it('picks the drawn helper point as the point of the helper sketch', () => {
+    const fixture = cubeScene()
+    const frame = render(fixture, cubeState({ command: HOLE_COMMAND }))
+    const draw = frame.draws.find((candidate) => candidate.id === 'helper:points')
+    if (draw === undefined || draw.pickBase === null) {
+      throw new Error('The helper points are not pickable.')
+    }
+    const target = fixture.scene.targetFor(draw.pickBase)
+    expect(target?.result.kind === 'item' ? target.result.item.sketchItem : null).toEqual({
+      kind: 'point',
+      sketch: 'f-help1',
+      point: 'e-p1',
+    })
+  })
+})
+
 function gridDraws(frame: RenderFrame): readonly DrawCall[] {
   return frame.draws.filter((draw) => draw.id.startsWith('grid:'))
 }
@@ -869,6 +924,7 @@ function gridDraws(frame: RenderFrame): readonly DrawCall[] {
 describe('the grid (3.12)', () => {
   const EDITING: SketchSession = {
     sketchId: 'f-sk1',
+    reattaching: null,
     tool: null,
     construction: false,
     showConstraints: true,
@@ -1056,6 +1112,7 @@ describe('axis colors (3.12, 3.16.2, U-183)', () => {
   }
   const EDITING_SKETCH: SketchSession = {
     sketchId: 'f-sk1',
+    reattaching: null,
     tool: null,
     construction: false,
     showConstraints: true,

@@ -379,6 +379,7 @@ describe('running built-in commands', () => {
         context: 'sketch',
         sketch: {
           sketchId: 'f-sk1',
+          reattaching: null,
           tool: null,
           construction: false,
           showConstraints: true,

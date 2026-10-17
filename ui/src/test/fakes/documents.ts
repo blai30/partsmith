@@ -317,6 +317,8 @@ export const CUBE_TOP_FACE: ElementDescriptor = {
   area: 400,
   normal: [0, 0, 1],
   placement: { origin: [0, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+  // The cube has not moved, so its fallback in body coordinates equals its placement (engine.md 3.9).
+  fallback: { origin: [0, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
   adjacent: [
     'edge(f-ext1/end-cap|f-ext1/side-0)',
     'edge(f-ext1/end-cap|f-ext1/side-1)',
@@ -337,6 +339,7 @@ export const CUBE_FRONT_FACE: ElementDescriptor = {
   area: 400,
   normal: [0, -1, 0],
   placement: { origin: [0, -10, 10], x_axis: [1, 0, 0], normal: [0, -1, 0] },
+  fallback: { origin: [0, -10, 10], x_axis: [1, 0, 0], normal: [0, -1, 0] },
   adjacent: [
     'edge(f-ext1/end-cap|f-ext1/side-0)',
     'edge(f-ext1/side-0|f-ext1/side-1)',

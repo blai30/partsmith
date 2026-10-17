@@ -16,6 +16,7 @@ const GROUND: Placement = { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, 0,
 
 const EDITING_SKETCH: SketchSession = {
   sketchId: 'f-sk1',
+  reattaching: null,
   tool: null,
   construction: false,
   showConstraints: true,

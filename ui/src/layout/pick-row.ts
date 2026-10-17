@@ -1,6 +1,6 @@
 import { capturePick } from '../app/actions/command'
 import { select } from '../app/actions/selection'
-import { createSketchOn } from '../app/actions/sketch'
+import { pickPlane } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import type { SelectionKind } from '../generated/protocol'
@@ -10,7 +10,8 @@ import type { AppState, SelectionItem } from '../state/store'
 
 // Clicks and keys on timeline items and browser rows (ui.md 3.9, 3.10): while a feature command's
 // active selection field accepts the item, the click fills that field; while a plane is picked for
-// a new sketch, an origin plane or datum row starts the sketch on it (3.16.1); otherwise it selects.
+// a new sketch or a re-attached one, an origin plane or datum row places the sketch on it (3.16.1);
+// otherwise it selects.
 
 /** What the active command's active selection field accepts, or null without one. */
 export function activeFieldAccepts(state: AppState): SelectionKind | null {
@@ -23,19 +24,19 @@ export function activeFieldAccepts(state: AppState): SelectionKind | null {
   return field?.control.type === 'selection' ? field.control.accepts : null
 }
 
-/** Whether a plane is being picked for a new sketch (3.16.1). */
+/** Whether a plane is being picked for a new sketch or a re-attached one (3.16.1). */
 function pickingPlane(state: AppState): boolean {
   return state.context === 'sketch' && state.sketch !== null && state.sketch.sketchId === null
 }
 
 /**
- * Captures the item into the active field when it fits, starts a new sketch on a plane row while
- * a plane is picked, else selects the item (toggling with Shift or Mod).
+ * Captures the item into the active field when it fits, places the new or re-attached sketch on a
+ * plane row while a plane is picked, else selects the item (toggling with Shift or Mod).
  */
 export function pickRow(app: App, item: SelectionItem, toggle: boolean): void {
   const state = app.store.getState()
   if (pickingPlane(state) && (item.kind === 'origin_plane' || item.kind === 'datum_plane')) {
-    createSketchOn(app, item).catch(reportFailure('Creating the sketch'))
+    pickPlane(app, item).catch(reportFailure('Placing the sketch'))
     return
   }
   const accepts = activeFieldAccepts(state)

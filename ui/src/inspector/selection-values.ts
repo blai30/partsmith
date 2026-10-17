@@ -96,6 +96,11 @@ function planeValue(item: SelectionItem): unknown {
   return { kind: 'face', body: item.body, face: item.element?.reference }
 }
 
+/**
+ * An axis value; a straight edge or a round face keeps the side it was picked on as `direction`,
+ * its descriptor's `axis_direction` in body coordinates, left out when the descriptor has none
+ * (features.md 2.5).
+ */
 function axisValue(item: SelectionItem): unknown {
   if (item.kind === 'origin_axis') {
     return { kind: 'origin', axis: item.origin }
@@ -103,10 +108,12 @@ function axisValue(item: SelectionItem): unknown {
   if (item.sketchItem?.kind === 'entity') {
     return { kind: 'sketch_line', sketch: item.sketchItem.sketch, line: item.sketchItem.entity }
   }
+  const direction = item.element?.axis_direction ?? null
+  const side = direction === null ? {} : { direction }
   if (item.kind === 'edge') {
-    return { kind: 'edge', body: item.body, edge: item.element?.reference }
+    return { kind: 'edge', body: item.body, edge: item.element?.reference, ...side }
   }
-  return { kind: 'face', body: item.body, face: item.element?.reference }
+  return { kind: 'face', body: item.body, face: item.element?.reference, ...side }
 }
 
 /** The param value for the items, or null when they cannot form one. */

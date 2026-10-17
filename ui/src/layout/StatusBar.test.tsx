@@ -225,6 +225,7 @@ describe('the status bar (3.21)', () => {
         context: 'sketch',
         sketch: {
           sketchId: 'f-sk1',
+          reattaching: null,
           tool: null,
           construction: false,
           showConstraints: true,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { ElementDescriptor } from '../generated/protocol'
 import {
   CIRCULAR_EDGE,
   CORNER_VERTEX,
@@ -34,6 +35,19 @@ import {
   parseSelectionKey,
   selectionValue,
 } from './selection-values'
+
+/** The cube's left top edge, along +Y, with the axis direction the engine reports for it (engine.md 3.9). */
+const LEFT_TOP_EDGE: ElementDescriptor = {
+  ...LINE_EDGE,
+  name: 'edge(f-ext1/end-cap|f-ext1/side-3)',
+  reference: {
+    q: 'edge(f-ext1/end-cap|f-ext1/side-3)',
+    fp: 'line|n=0,1,0|c=-10,0,20|l=20|adj=2,2',
+  },
+  centroid: [-10, 0, 20],
+  direction: [0, 1, 0],
+  axis_direction: [0, 1, 0],
+}
 
 const SECOND_REGION = {
   reference: { key: 'e-5', fp: 'c=30,30|a=78.539816' },
@@ -89,6 +103,78 @@ describe('selectionValue', () => {
       kind: 'face',
       body: 'b-peg',
       face: CYLINDRICAL_FACE.reference,
+    })
+  })
+
+  it('U-143 an edge whose descriptor has axis_direction [0, 1, 0] gives {kind: edge, body, edge, direction: [0, 1, 0]}', () => {
+    expect(selectionValue('axis', [elementItem(LEFT_TOP_EDGE)], false)).toEqual({
+      kind: 'edge',
+      body: 'b-cube',
+      edge: LEFT_TOP_EDGE.reference,
+      direction: [0, 1, 0],
+    })
+  })
+
+  it('U-143 a cylindrical face with axis_direction [0, 0, 1] gives {kind: face, body, face, direction: [0, 0, 1]}', () => {
+    const face = { ...CYLINDRICAL_FACE, axis_direction: [0, 0, 1] as [number, number, number] }
+    expect(selectionValue('axis', [elementItem(face, 'Peg')], false)).toEqual({
+      kind: 'face',
+      body: 'b-peg',
+      face: CYLINDRICAL_FACE.reference,
+      direction: [0, 0, 1],
+    })
+  })
+
+  it('U-143 an edge whose descriptor has no axis_direction gives no direction key', () => {
+    const value = selectionValue('axis', [elementItem(LINE_EDGE)], false)
+    expect(value).toEqual({ kind: 'edge', body: 'b-cube', edge: LINE_EDGE.reference })
+    expect(Object.keys(value as object)).not.toContain('direction')
+    const unset = selectionValue(
+      'axis',
+      [elementItem({ ...LINE_EDGE, axis_direction: null })],
+      false,
+    )
+    expect(Object.keys(unset as object)).not.toContain('direction')
+  })
+
+  it('stores the descriptor’s axis_direction, not its fingerprint direction or its axis', () => {
+    // A leaning edge whose own direction runs the other way: the stored side is the descriptor's.
+    const edge: ElementDescriptor = {
+      ...LEFT_TOP_EDGE,
+      direction: [0, -1, 0],
+      axis_direction: [0, 1, 0],
+    }
+    const face: ElementDescriptor = {
+      ...CYLINDRICAL_FACE,
+      axis: { origin: [0, 0, 0], direction: [0, 0, -1] },
+      axis_direction: [0, 0, 1],
+    }
+    expect(selectionValue('axis', [elementItem(edge)], false)).toMatchObject({
+      direction: [0, 1, 0],
+    })
+    expect(selectionValue('axis', [elementItem(face, 'Peg')], false)).toMatchObject({
+      direction: [0, 0, 1],
+    })
+  })
+
+  it('origin axes and sketch lines never carry a direction (features.md 2.5)', () => {
+    expect(selectionValue('axis', [originItem('X')], false)).toEqual({ kind: 'origin', axis: 'X' })
+    expect(selectionValue('axis', [sketchLineItem('f-sk1', 'e-1')], false)).toEqual({
+      kind: 'sketch_line',
+      sketch: 'f-sk1',
+      line: 'e-1',
+    })
+  })
+
+  it('a plane field keeps a face plane without direction or fallback (features.md 2.5)', () => {
+    const face: ElementDescriptor = {
+      ...TOP_FACE,
+      fallback: { origin: [0, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+    }
+    expect(selectionValue('plane', [elementItem(face)], false)).toEqual({
+      kind: 'face',
+      body: 'b-cube',
+      face: TOP_FACE.reference,
     })
   })
 
@@ -241,6 +327,23 @@ describe('itemsFromValue', () => {
     expect(items.map((item) => [item.key, item.kind, item.feature])).toEqual([
       ['region:f-sk1:e-1,e-2,e-3,e-4', 'sketch_region', 'f-sk1'],
     ])
+  })
+
+  it('reads an edge or round face axis that carries a direction (U-143)', () => {
+    const edge = itemsFromValue(
+      'axis',
+      { kind: 'edge', body: 'b-cube', edge: LEFT_TOP_EDGE.reference, direction: [0, 1, 0] },
+      state,
+    )
+    expect(edge.map((item) => [item.key, item.kind, item.body])).toEqual([
+      [`element:b-cube:${LEFT_TOP_EDGE.reference.q}`, 'edge', 'b-cube'],
+    ])
+    const face = itemsFromValue(
+      'axis',
+      { kind: 'face', body: 'b-peg', face: CYLINDRICAL_FACE.reference, direction: [0, 0, 1] },
+      state,
+    )
+    expect(face.map((item) => [item.kind, item.body])).toEqual([['face', 'b-peg']])
   })
 
   it('gives no items for an empty value', () => {
