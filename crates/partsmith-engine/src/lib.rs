@@ -22,6 +22,7 @@ mod error;
 mod events;
 mod exchange;
 mod fixes;
+mod frames;
 mod inspect;
 mod options;
 mod params;

@@ -17,8 +17,8 @@ use partsmith_model::FORMAT_VERSION;
 use serde_json::{Map, Value, json};
 
 use crate::common::{
-    Sent, apply, doc_handle, elements, get_document, headless_session, measure_body, number,
-    open_text, saved_text, send,
+    Sent, apply, doc_handle, element_named, elements, get_document, headless_session, measure_body,
+    number, open_text, saved_text, send,
 };
 
 /// The label of the `apply_edits` that makes a corpus edit.
@@ -748,11 +748,7 @@ pub fn r25() -> Scenario {
 /// (2) too.
 pub fn r26() -> Scenario {
     let features = block_then(vec![
-        sketch(
-            "f-sk2",
-            top_face_plane("b-1", block_top(), 30.0),
-            vec![circle("e-5", [40.0, 25.0], 10.0)],
-        ),
+        sketch_on_block_top(vec![circle("e-5", [40.0, 25.0], 10.0)]),
         extrude(
             "f-ext2",
             "b-1",
@@ -835,14 +831,60 @@ fn turned_over_top(features: Vec<Value>) -> Scenario {
 pub fn r32b() -> Scenario {
     turned_over_top(vec![
         sketch_on_block_top(vec![point("e-p1", [20.0, 10.0])]),
+        hole("f-hole1", "b-1", "f-sk2", &["e-p1"], "5", distance("10")),
+    ])
+}
+
+/// Corpus R32 (b) with a chamfered hole at the end of an arc (engine.md section 3.22): a face sketch `f-sk2` on
+/// BLOCK's top with its origin at the top's center (40, 25, 30) and the arc `e-5` of radius 5 about (5, 5) from 0 to
+/// 90 degrees, a hole `f-hole1` of diameter 3 and depth 5 at its start (10, 5), world (50, 30), and a chamfer `f-cha1`
+/// of 0.5 on the hole's rim `edge(f-ext1/end-cap|f-hole1/bore/e-5.start)`; then 'Extrude 1' reversed, which drills the
+/// hole from the bottom at world (50, 20), where the mirrored drawing puts the arc's start.
+pub fn r32b_chamfered_hole_at_an_arc_end() -> Scenario {
+    let arc = json!({
+        "id": "e-5", "type": "arc", "center": [5, 5], "radius": 5,
+        "start_angle": 0, "end_angle": std::f64::consts::FRAC_PI_2
+    });
+    turned_over_top(vec![
+        sketch(
+            "f-sk2",
+            face_plane(
+                "b-1",
+                block_top(),
+                [40.0, 25.0, 30.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ),
+            vec![arc],
+        ),
         hole(
             "f-hole1",
             "b-1",
             "f-sk2",
-            &["e-p1"],
-            "5",
-            distance("10"),
+            &["e-5.start"],
+            "3",
+            distance("5"),
         ),
+        chamfer(
+            "f-cha1",
+            "b-1",
+            vec![reference(
+                "edge(f-ext1/end-cap|f-hole1/bore/e-5.start)",
+                "circle|n=0,0,1|c=50,30,30|l=9.424778|adj=2,2",
+            )],
+            "0.5",
+        ),
+    ])
+}
+
+/// Corpus R32 (b) with BLOCK moved by (100, 0, 0) before its face sketch (features/sketch.md section 3.5): the sketch's
+/// fallback at z = 30 is in body coordinates, so the sketch stands at (100, 0, 30) and the point `e-p1` at world
+/// (120, 10); then 'Extrude 1' reversed.
+pub fn r32b_moved() -> Scenario {
+    turned_over_top(vec![
+        moved_by_100(),
+        sketch_on_block_top(vec![point("e-p1", [20.0, 10.0])]),
+        hole("f-hole1", "b-1", "f-sk2", &["e-p1"], "5", distance("10")),
     ])
 }
 
@@ -851,7 +893,8 @@ pub fn r32b() -> Scenario {
 /// vertical distance on `e-12` (which mirroring rewrites, sketch.md section 3.17), cut 5 into the block by `f-ext2`;
 /// then 'Extrude 1' reversed.
 pub fn r32b_pocket() -> Scenario {
-    let height = json!({"id": "c-11", "type": "vertical_distance", "line": "e-12", "expr": "10 mm"});
+    let height =
+        json!({"id": "c-11", "type": "vertical_distance", "line": "e-12", "expr": "10 mm"});
     turned_over_top(vec![
         with(
             sketch_on_block_top(rectangle(11, 10.0, 5.0, 30.0, 15.0)),
@@ -871,6 +914,75 @@ pub fn r32b_pocket() -> Scenario {
             json!(true),
         ),
     ])
+}
+
+/// The bosses on a moved box of the frame tests (engine.md tests 125 and 135, ADR 0023): a 20 x 30 x 40 box `f-box1`
+/// of `b-1`, centered on the Z axis from z = 0 to 40, the Move bodies `moves`, then a sketch `f-sk1` on `plane` with
+/// the square `e-1` to `e-4` from (95, -5) to (105, 5) and the free point `e-9` at (100, 0), joined 10 by `f-ext1`, then
+/// a sketch `f-sk3` on the end cap of `f-ext1` with the circle `e-10` of radius 2 at (100, 0), joined 5 by `f-ext3`.
+/// The fallback of `f-sk3`, origin `cap` with x axis (1, 0, 0) and normal `cap_normal`, is in body coordinates: the
+/// descriptor's fallback a host stores for that cap when `f-sk1` has no motion.
+pub fn bosses_on_a_moved_box(
+    moves: Vec<Value>,
+    plane: Value,
+    cap: [f64; 3],
+    cap_normal: [f64; 3],
+) -> String {
+    let mut first = rectangle(1, 95.0, -5.0, 105.0, 5.0);
+    first.push(point("e-9", [100.0, 0.0]));
+    let cap_plane = with(
+        face_plane(
+            "b-1",
+            reference(
+                "f-ext1/end-cap",
+                &format!(
+                    "plane|n=0,0,{}|c=100,0,{}|a=100|adj=4,4",
+                    fingerprint_number(cap_normal[2]),
+                    fingerprint_number(cap[2])
+                ),
+            ),
+            cap,
+            [1.0, 0.0, 0.0],
+            cap_normal,
+        ),
+        "fallback_frame",
+        json!("body"),
+    );
+    let mut features = vec![box_record("f-box1", "b-1", ["20", "30", "40"], None, "new")];
+    features.extend(moves);
+    features.extend([
+        sketch("f-sk1", plane, first),
+        extrude(
+            "f-ext1",
+            "b-1",
+            "f-sk1",
+            vec![rectangle_region(1, 95.0, -5.0, 105.0, 5.0)],
+            distance("10"),
+            "join",
+        ),
+        sketch("f-sk3", cap_plane, vec![circle("e-10", [100.0, 0.0], 2.0)]),
+        extrude(
+            "f-ext3",
+            "b-1",
+            "f-sk3",
+            vec![circle_region("e-10", [100.0, 0.0], 2.0)],
+            distance("5"),
+            "join",
+        ),
+    ]);
+    document(&["b-1"], &features)
+}
+
+/// The Move body `f-mv1` of `b-1` by (100, 0, 0), the move of engine.md tests 124, 125 and 135.
+pub fn moved_by_100() -> Value {
+    json!({"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]})
+}
+
+/// The x and y of the axis of the boss `f-ext3` of [`bosses_on_a_moved_box`].
+pub fn upper_boss_axis(session: &mut Session, doc: u64) -> [f64; 2] {
+    let wall = element_named(session, doc, "b-1", "f-ext3/lateral/e-10");
+    let origin = &wall["axis"]["origin"];
+    [number(&origin[0]), number(&origin[1])]
 }
 
 /// Corpus R33: a 20 x 20 x 40 box with a boss on its top (a face sketch `f-sk2` attached when the box was 10 tall, so

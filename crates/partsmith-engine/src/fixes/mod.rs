@@ -3,7 +3,9 @@
 //! applies them as one batch, refusing a fix that no longer applies.
 
 mod edits;
+mod frames;
 mod labels;
+mod renames;
 
 use partsmith_features::Fix;
 use partsmith_model::{Document, Id};

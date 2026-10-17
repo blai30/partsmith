@@ -99,27 +99,32 @@ fn encode(messages: &[MessageRef<'_>], buffers: &[Buffer]) -> Result<Vec<u8>, Fr
         messages,
         buffers: &table,
     };
-    let header = serde_json::to_vec(&header)
+    // The header is serialized straight into the frame after the prefix, which gets its length
+    // once it is known: one allocation and one copy of the header fewer than serializing it
+    // apart, although growing the frame may still move it.
+    let mut bytes = Vec::with_capacity(PREFIX_LENGTH);
+    bytes.extend_from_slice(&MAGIC);
+    bytes.resize(PREFIX_LENGTH, 0);
+    serde_json::to_writer(&mut bytes, &header)
         .expect("protocol messages always serialize: every map in them has string keys");
-    if header.len() > MAX_HEADER_LENGTH {
-        return Err(FrameError::HeaderTooLarge {
-            length: header.len(),
-        });
+    let length = bytes.len() - PREFIX_LENGTH;
+    if length > MAX_HEADER_LENGTH {
+        return Err(FrameError::HeaderTooLarge { length });
     }
     let header_length =
-        u32::try_from(header.len()).expect("a header within MAX_HEADER_LENGTH fits in a u32");
+        u32::try_from(length).expect("a header within MAX_HEADER_LENGTH fits in a u32");
+    bytes[MAGIC.len()..PREFIX_LENGTH].copy_from_slice(&header_length.to_le_bytes());
 
-    let buffer_start = PREFIX_LENGTH + header.len() + header_padding(header.len());
+    let buffer_start = PREFIX_LENGTH + length + header_padding(length);
     let section_length = offsets
         .last()
         .zip(buffers.last())
         .map_or(0, |(offset, buffer)| offset + buffer.byte_length());
 
     // Every byte not written below (padding and gaps) stays zero.
-    let mut bytes = vec![0; buffer_start + section_length];
-    bytes[..MAGIC.len()].copy_from_slice(&MAGIC);
-    bytes[MAGIC.len()..PREFIX_LENGTH].copy_from_slice(&header_length.to_le_bytes());
-    bytes[PREFIX_LENGTH..PREFIX_LENGTH + header.len()].copy_from_slice(&header);
+    let frame_length = buffer_start + section_length;
+    bytes.reserve_exact(frame_length - bytes.len());
+    bytes.resize(frame_length, 0);
     for (offset, buffer) in offsets.into_iter().zip(buffers) {
         let start = buffer_start + offset;
         buffer.write_to(&mut bytes[start..start + buffer.byte_length()]);

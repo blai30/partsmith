@@ -89,6 +89,12 @@ impl<'n> FaceName<'n> {
         }
     }
 
+    /// The name's own `#n` and `@` groups, as written: empty after a face-name generator, whose
+    /// groups belong to it. The name is `<feature>/<role>[/<generator>]` followed by them.
+    pub fn groups(&self) -> &'n str {
+        self.groups
+    }
+
     /// True for a fallback name: role `face`, with no meaning beyond geometric order (section
     /// 3.6.14).
     pub fn is_fallback(&self) -> bool {
@@ -251,6 +257,30 @@ mod tests {
             Some(FaceGenerator::List("edge(f-box1/front|f-box1/top)"))
         );
         assert_eq!(feature_and_instance(&parts), [("f-lp1", copy(1, 2))]);
+    }
+
+    #[test]
+    fn a_name_is_its_parts_followed_by_its_own_groups() {
+        let lateral = name("f-hole1/bore/e-5.start#2@f-lp1:2");
+        let fillet = name("f-fil1/fillet/edge(f-box1/front|f-box1/top)@f-mir1:1");
+        let rim = name("f-sh1/rim/f-ext1/end-cap#2");
+
+        assert_eq!(
+            lateral.face_name().expect("a face name").groups(),
+            "#2@f-lp1:2"
+        );
+        assert_eq!(
+            fillet.face_name().expect("a face name").groups(),
+            "@f-mir1:1"
+        );
+        assert_eq!(rim.face_name().expect("a face name").groups(), "");
+        assert_eq!(
+            name("f-box1/top")
+                .face_name()
+                .expect("a face name")
+                .groups(),
+            ""
+        );
     }
 
     #[test]

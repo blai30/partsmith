@@ -19,6 +19,26 @@
           "field": "/plane/face",
           "actions": [
             {
+              "label": "Attach to the top of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to the back side of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to the right side of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to the bottom of 'Box 1'",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to the front side of 'Box 1'",
+              "kind": "apply"
+            },
+            {
               "label": "Pick a face again",
               "kind": "pick"
             }

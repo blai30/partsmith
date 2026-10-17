@@ -1,21 +1,23 @@
 //! Acceptance tests 121 to 125 of `docs/spec/engine.md` section 6: `validate` reports feature messages with their own
 //! codes, actions and candidates (section 3.19 step 8), element lists carry short references and picks full ones,
 //! headless picks name their body, descriptors carry the fallback of a flat face in body coordinates and the axis
-//! direction of a line or round element (section 3.9), and drag commits write a face sketch's fallback in body
-//! coordinates with `fallback_frame: body` (section 3.6). A test named `tNNN` is section 6 test NNN.
+//! direction of a line or round element (section 3.9), and drag commits write a face sketch's fallback in the
+//! coordinates that keep the sketch's motion, body coordinates unless a world fallback lies on a moved face (section
+//! 3.6). A test named `tNNN` is section 6 test NNN.
 
 mod common;
 mod corpus;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, assert_near, assert_point3, doc_handle, elements, fixture,
-    get_document, headless_session, number, open, open_doc, open_text, point3, replace_once,
-    revision, saved_text, send, session,
+    GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, assert_bounding_box, assert_near, assert_placement,
+    assert_point2, assert_point3, doc_handle, elements, fixture, get_document, headless_session,
+    measure_body, number, open, open_doc, open_text, point3, replace_once, revision, saved_text,
+    send, session,
 };
 use corpus::{
-    Scenario, actions, block_then, box_record, datum_offset, datum_plane, distance, document,
-    edited_text, extrude, labels, linear_pattern, r03, record, rectangle, rectangle_region,
-    repairs, sketch, with, without_keys,
+    Scenario, actions, block_then, bosses_on_a_moved_box, box_record, datum_offset, datum_plane,
+    distance, document, edited_text, extrude, face_plane, labels, linear_pattern, moved_by_100,
+    r03, record, rectangle, rectangle_region, repairs, sketch, upper_boss_axis, with, without_keys,
 };
 use partsmith_engine::{Session, ValidateOptions, ValidationReport};
 use partsmith_print::Severity;
@@ -370,10 +372,6 @@ fn t123_a_headless_pick_of_a_body_without_geometry_is_body_empty() {
 const BOX_TOP: &str = "f-box1/top";
 /// The front top edge of `box.ptsm`, which runs along X before anything moves the box.
 const BOX_FRONT_TOP_EDGE: &str = "edge(f-box1/front|f-box1/top)";
-/// The unit vector along X.
-const X: [f64; 3] = [1.0, 0.0, 0.0];
-/// The unit vector along Z.
-const Z: [f64; 3] = [0.0, 0.0, 1.0];
 
 /// `box.ptsm` with `more` features after `f-box1`.
 fn box_then(more: Vec<Value>) -> String {
@@ -399,9 +397,13 @@ fn quarter_turn(feature: &str) -> Value {
     })
 }
 
-/// The Move body `f-mv1` of test 124, by (100, 0, 0).
-fn move_by_100() -> Value {
-    move_by("f-mv1", ["100 mm", "0 mm", "0 mm"])
+/// `box.ptsm` turned a quarter turn about the origin Z axis by `f-mv1`, then moved by (100, 0, 0) by `f-mv2`, so every
+/// face moves by p -> R p + t with t = (100, 0, 0).
+fn turned_and_moved_box() -> String {
+    box_then(vec![
+        quarter_turn("f-mv1"),
+        move_by("f-mv2", ["100 mm", "0 mm", "0 mm"]),
+    ])
 }
 
 /// The descriptors `list_elements` gives for `b-1` of the document `text`, opened in a fresh display session.
@@ -417,25 +419,6 @@ fn named<'a>(descriptors: &'a [Value], name: &str) -> &'a Value {
         .iter()
         .find(|descriptor| descriptor["name"] == name)
         .unwrap_or_else(|| panic!("b-1 has an element named {name}"))
-}
-
-/// Asserts that a `Placement` JSON value has this origin, x axis and normal within the geometry tolerance.
-fn assert_placement(
-    placement: &Value,
-    origin: [f64; 3],
-    x_axis: [f64; 3],
-    normal: [f64; 3],
-    what: &str,
-) {
-    assert!(placement.is_object(), "{what} is a placement: {placement}");
-    for (field, expected) in [("origin", origin), ("x_axis", x_axis), ("normal", normal)] {
-        assert_point3(
-            point3(&placement[field]),
-            expected,
-            GEOMETRY_TOLERANCE,
-            &format!("{what} {field}"),
-        );
-    }
 }
 
 /// A direction turned back by a quarter turn about Z: the inverse of the rotation (x, y, z) -> (-y, x, z).
@@ -467,24 +450,36 @@ fn has_an_axis(descriptor: &Value) -> bool {
 
 #[test]
 fn t124_a_moved_face_has_its_fallback_in_body_coordinates() {
-    let listed = descriptors(&box_then(vec![move_by_100()]));
+    let listed = descriptors(&box_then(vec![moved_by_100()]));
 
     let top = named(&listed, BOX_TOP);
 
     // The placement keeps its origin above the model origin (section 3.9); the fallback undoes the move.
-    assert_placement(&top["placement"], [0.0, 0.0, 40.0], X, Z, "placement");
-    assert_placement(&top["fallback"], [-100.0, 0.0, 40.0], X, Z, "fallback");
+    assert_placement(
+        &top["placement"],
+        [0.0, 0.0, 40.0],
+        X_AXIS,
+        Z_AXIS,
+        "placement",
+    );
+    assert_placement(
+        &top["fallback"],
+        [-100.0, 0.0, 40.0],
+        X_AXIS,
+        Z_AXIS,
+        "fallback",
+    );
 }
 
 #[test]
 fn t124_a_moved_line_edge_has_the_axis_direction_of_its_fingerprint() {
-    let listed = descriptors(&box_then(vec![move_by_100()]));
+    let listed = descriptors(&box_then(vec![moved_by_100()]));
 
     let edge = named(&listed, BOX_FRONT_TOP_EDGE);
 
     assert_point3(
         point3(&edge["axis_direction"]),
-        X,
+        X_AXIS,
         GEOMETRY_TOLERANCE,
         "axis direction",
     );
@@ -496,12 +491,18 @@ fn t124_a_turned_face_has_its_fallback_turned_back() {
 
     let top = named(&listed, BOX_TOP);
 
-    assert_placement(&top["placement"], [0.0, 0.0, 40.0], X, Z, "placement");
+    assert_placement(
+        &top["placement"],
+        [0.0, 0.0, 40.0],
+        X_AXIS,
+        Z_AXIS,
+        "placement",
+    );
     assert_placement(
         &top["fallback"],
         [0.0, 0.0, 40.0],
         [0.0, -1.0, 0.0],
-        Z,
+        Z_AXIS,
         "fallback",
     );
 }
@@ -513,11 +514,21 @@ fn t124_a_turned_line_edge_keeps_the_axis_direction_it_had_before_the_turn() {
     let edge = named(&listed, BOX_FRONT_TOP_EDGE);
 
     let direction = point3(&edge["direction"]);
-    assert_near(direction[0], 0.0, GEOMETRY_TOLERANCE, "the edge runs along Y");
-    assert_near(direction[1].abs(), 1.0, GEOMETRY_TOLERANCE, "the edge runs along Y");
+    assert_near(
+        direction[0],
+        0.0,
+        GEOMETRY_TOLERANCE,
+        "the edge runs along Y",
+    );
+    assert_near(
+        direction[1].abs(),
+        1.0,
+        GEOMETRY_TOLERANCE,
+        "the edge runs along Y",
+    );
     assert_point3(
         point3(&edge["axis_direction"]),
-        X,
+        X_AXIS,
         GEOMETRY_TOLERANCE,
         "axis direction",
     );
@@ -548,11 +559,14 @@ fn t124_round_faces_have_the_axis_direction_of_their_axis() {
         .filter(|descriptor| descriptor["surface"] == "cylinder")
         .collect();
 
-    assert!(!round.is_empty(), "circle.ptsm has a round face: {listed:?}");
+    assert!(
+        !round.is_empty(),
+        "circle.ptsm has a round face: {listed:?}"
+    );
     for face in round {
         assert_point3(
             point3(&face["axis_direction"]),
-            Z,
+            Z_AXIS,
             GEOMETRY_TOLERANCE,
             &format!("axis direction of {}", face["name"]),
         );
@@ -582,12 +596,8 @@ fn t124_only_flat_faces_have_a_fallback_and_only_lines_and_round_faces_an_axis_d
 
 #[test]
 fn t124_fallbacks_and_axis_directions_undo_the_motion_of_the_face() {
-    // A quarter turn about Z, then a move by (100, 0, 0): every face moves by p -> R p + t.
     let translation = [100.0, 0.0, 0.0];
-    let listed = descriptors(&box_then(vec![
-        quarter_turn("f-mv1"),
-        move_by("f-mv2", ["100 mm", "0 mm", "0 mm"]),
-    ]));
+    let listed = descriptors(&turned_and_moved_box());
     let to_body = |point: [f64; 3]| {
         turned_back([
             point[0] - translation[0],
@@ -636,7 +646,7 @@ fn t124_an_edge_along_y_before_the_turn_keeps_the_side_its_fingerprint_had_there
 
     assert_point3(
         fingerprint_direction(&edge["reference"]["fp"]),
-        X,
+        X_AXIS,
         GEOMETRY_TOLERANCE,
         "fingerprint direction after the turn",
     );
@@ -662,14 +672,26 @@ fn t124_a_face_of_a_pattern_copy_has_its_fallback_in_the_coordinates_of_the_orig
 
     let copy_top = named(&listed, "f-box1/top@f-lp1:1");
 
-    assert_placement(&copy_top["placement"], [0.0, 0.0, 10.0], X, Z, "placement");
-    assert_placement(&copy_top["fallback"], [-60.0, 0.0, 10.0], X, Z, "fallback");
+    assert_placement(
+        &copy_top["placement"],
+        [0.0, 0.0, 10.0],
+        X_AXIS,
+        Z_AXIS,
+        "placement",
+    );
+    assert_placement(
+        &copy_top["fallback"],
+        [-60.0, 0.0, 10.0],
+        X_AXIS,
+        Z_AXIS,
+        "fallback",
+    );
 }
 
 #[test]
 fn t124_a_pick_of_a_moved_element_equals_its_listed_entry() {
     let mut session = session();
-    let opened = open_text(&mut session, &box_then(vec![quarter_turn("f-mv1"), move_by_100()]));
+    let opened = open_text(&mut session, &turned_and_moved_box());
     let doc = doc_handle(&opened);
     let mesh_id = opened.body_mesh("b-1", "model")["mesh_id"].clone();
     let all = elements(&mut session, doc, "b-1", None);
@@ -692,7 +714,7 @@ fn t124_a_pick_of_a_moved_element_equals_its_listed_entry() {
 
 #[test]
 fn t124_a_headless_session_lists_the_same_fallbacks_and_axis_directions() {
-    let text = box_then(vec![quarter_turn("f-mv1"), move_by_100()]);
+    let text = turned_and_moved_box();
     let mut headless = headless_session();
     let doc = doc_handle(&open_text(&mut headless, &text));
 
@@ -713,7 +735,7 @@ fn moved_top() -> Value {
 fn face_sketch(face: Value, origin: [f64; 3], frame: Option<&str>) -> Value {
     let mut plane = json!({
         "kind": "face", "body": "b-1", "face": face,
-        "fallback": {"origin": origin, "x_axis": X, "normal": Z}
+        "fallback": {"origin": origin, "x_axis": X_AXIS, "normal": Z_AXIS}
     });
     if let Some(frame) = frame {
         plane["fallback_frame"] = json!(frame);
@@ -729,18 +751,28 @@ fn face_sketch(face: Value, origin: [f64; 3], frame: Option<&str>) -> Value {
 /// fallback at (0, 0, 40) in `frame`.
 fn sketch_on_moved_top(frame: Option<&str>) -> String {
     box_then(vec![
-        move_by_100(),
+        moved_by_100(),
         face_sketch(moved_top(), [0.0, 0.0, 40.0], frame),
     ])
 }
 
 /// Drags `e-1.end` of `f-sk1` to `to` in one frame, then ends the drag with `commit`; returns the end's reply.
 fn drag_and_end(session: &mut Session, doc: u64, to: [f64; 2], commit: bool) -> Sent {
+    drag(session, doc, "e-1.end", to);
+    end_drag(session, doc, commit)
+}
+
+/// One drag frame of `point` of `f-sk1` to `to`.
+fn drag(session: &mut Session, doc: u64, point: &str, to: [f64; 2]) {
     send(
         session,
-        json!({"type": "drag_sketch", "doc": doc, "feature": "f-sk1", "point": "e-1.end", "to": to}),
+        json!({"type": "drag_sketch", "doc": doc, "feature": "f-sk1", "point": point, "to": to}),
     )
     .ok();
+}
+
+/// Ends the drag of `f-sk1` with `commit`; returns the reply.
+fn end_drag(session: &mut Session, doc: u64, commit: bool) -> Sent {
     send(
         session,
         json!({"type": "end_sketch_drag", "doc": doc, "feature": "f-sk1", "commit": commit}),
@@ -767,7 +799,13 @@ fn t125_a_drag_commit_on_a_face_writes_the_resolved_placement_with_the_body_mark
     let (mut session, doc, _) = committed(&text);
 
     let plane = record(&mut session, doc, "f-sk1")["plane"].clone();
-    assert_placement(&plane["fallback"], [3.0, 4.0, 40.0], X, Z, "fallback");
+    assert_placement(
+        &plane["fallback"],
+        [3.0, 4.0, 40.0],
+        X_AXIS,
+        Z_AXIS,
+        "fallback",
+    );
     assert_eq!(plane["fallback_frame"], "body");
 }
 
@@ -776,17 +814,118 @@ fn t125_a_drag_commit_on_a_moved_face_keeps_its_body_fallback() {
     let (mut session, doc, _) = committed(&sketch_on_moved_top(Some("body")));
 
     let plane = record(&mut session, doc, "f-sk1")["plane"].clone();
-    assert_placement(&plane["fallback"], [0.0, 0.0, 40.0], X, Z, "fallback");
+    assert_placement(
+        &plane["fallback"],
+        [0.0, 0.0, 40.0],
+        X_AXIS,
+        Z_AXIS,
+        "fallback",
+    );
     assert_eq!(plane["fallback_frame"], "body");
 }
 
 #[test]
-fn t125_a_drag_commit_turns_a_world_fallback_into_body_coordinates() {
+fn t125_a_drag_commit_keeps_a_world_fallback_on_a_moved_face_in_world_coordinates() {
+    // Body coordinates would give the sketch the face's motion, which the faces built from it inherit.
     let (mut session, doc, _) = committed(&sketch_on_moved_top(None));
 
     let plane = record(&mut session, doc, "f-sk1")["plane"].clone();
-    assert_placement(&plane["fallback"], [-100.0, 0.0, 40.0], X, Z, "fallback");
+    assert_placement(
+        &plane["fallback"],
+        [0.0, 0.0, 40.0],
+        X_AXIS,
+        Z_AXIS,
+        "fallback",
+    );
+    assert!(plane.get("fallback_frame").is_none(), "{plane}");
+}
+
+#[test]
+fn t125_a_drag_commit_of_a_world_fallback_on_a_moved_face_moves_no_later_sketch() {
+    // `f-sk3` stores its fallback in the body coordinates of the cap `f-ext1` builds from `f-sk1`, whose motion is the
+    // identity while `f-sk1`'s fallback is in world coordinates. Body coordinates for `f-sk1` would give the cap the
+    // motion of the Move body, and the upper boss would land at x = 200, off the body.
+    let text = bosses_on_a_moved_box(
+        vec![moved_by_100()],
+        face_plane(
+            "b-1",
+            json!({"q": "f-box1/top", "fp": "plane|n=0,0,1|c=100,0,40|a=600|adj=4,4"}),
+            [0.0, 0.0, 40.0],
+            X_AXIS,
+            Z_AXIS,
+        ),
+        [0.0, 0.0, 50.0],
+        Z_AXIS,
+    );
+    let mut session = session();
+    let doc = doc_handle(&open_text(&mut session, &text));
+    assert_point2(
+        upper_boss_axis(&mut session, doc),
+        [100.0, 0.0],
+        GEOMETRY_TOLERANCE,
+        "boss axis before",
+    );
+
+    drag(&mut session, doc, "e-9", [101.0, 1.0]);
+    let ended = end_drag(&mut session, doc, true);
+
+    assert_eq!(ended.ok()["revision"], 1, "the commit is one edit");
+    for feature in ["f-sk1", "f-ext1", "f-sk3", "f-ext3"] {
+        assert_eq!(ended.feature_status(feature)["status"], "ok", "{feature}");
+    }
+    assert_point2(
+        upper_boss_axis(&mut session, doc),
+        [100.0, 0.0],
+        GEOMETRY_TOLERANCE,
+        "boss axis after",
+    );
+    assert_bounding_box(
+        &measure_body(&mut session, doc, "b-1")["bounding_box"],
+        [90.0, -15.0, 0.0],
+        [110.0, 15.0, 55.0],
+    );
+}
+
+#[test]
+fn t125_a_drag_commit_stores_the_placement_with_the_motion_of_the_run_that_placed_the_drag() {
+    // A focus change reruns the model without the Move body during the drag (section 3.5); the commit stores where the
+    // drag was placed, in the coordinates of the run that placed it, so the sketch stays on the moved top.
+    let mut session = session();
+    let doc = doc_handle(&open_text(&mut session, &sketch_on_moved_top(Some("body"))));
+    send(
+        &mut session,
+        json!({"type": "begin_transaction", "doc": doc, "label": "Edit sketch"}),
+    )
+    .ok();
+    drag(&mut session, doc, "e-1.end", [20.0, 5.0]);
+    send(
+        &mut session,
+        json!({"type": "set_focus", "doc": doc, "feature": "f-box1"}),
+    )
+    .ok();
+
+    end_drag(&mut session, doc, true).ok();
+    let committed = send(
+        &mut session,
+        json!({"type": "commit_transaction", "doc": doc}),
+    );
+
+    let plane = record(&mut session, doc, "f-sk1")["plane"].clone();
+    assert_placement(
+        &plane["fallback"],
+        [0.0, 0.0, 40.0],
+        X_AXIS,
+        Z_AXIS,
+        "fallback",
+    );
     assert_eq!(plane["fallback_frame"], "body");
+    assert_placement(
+        &committed.sketch_solution("f-sk1")["placement"],
+        [100.0, 0.0, 40.0],
+        X_AXIS,
+        Z_AXIS,
+        "placement after the transaction",
+    );
 }
 
 #[test]
@@ -795,7 +934,13 @@ fn t125_a_world_fallback_rebuilds_with_its_placement_unchanged_after_the_commit(
     let opened = open_text(&mut session, &sketch_on_moved_top(None));
     let doc = doc_handle(&opened);
     let before = opened.sketch_solution("f-sk1")["placement"].clone();
-    assert_placement(&before, [0.0, 0.0, 40.0], X, Z, "placement before the commit");
+    assert_placement(
+        &before,
+        [0.0, 0.0, 40.0],
+        X_AXIS,
+        Z_AXIS,
+        "placement before the commit",
+    );
 
     let ended = drag_and_end(&mut session, doc, [20.0, 5.0], true);
 
@@ -822,11 +967,17 @@ fn t125_a_body_fallback_places_the_sketch_on_the_moved_face_before_and_after_the
     let ended = drag_and_end(&mut session, doc, [20.0, 5.0], true);
 
     for (placement, what) in [
-        (&opened.sketch_solution("f-sk1")["placement"], "sketch_solved on open"),
+        (
+            &opened.sketch_solution("f-sk1")["placement"],
+            "sketch_solved on open",
+        ),
         (&solved.ok()["solution"]["placement"], "solve_sketch"),
-        (&ended.sketch_solution("f-sk1")["placement"], "sketch_solved after the commit"),
+        (
+            &ended.sketch_solution("f-sk1")["placement"],
+            "sketch_solved after the commit",
+        ),
     ] {
-        assert_placement(placement, [100.0, 0.0, 40.0], X, Z, what);
+        assert_placement(placement, [100.0, 0.0, 40.0], X_AXIS, Z_AXIS, what);
     }
 }
 
@@ -845,7 +996,10 @@ fn t125_a_drag_commit_changes_only_the_geometry_and_the_fallback() {
         without_keys(&before, &geometry_and_plane)
     );
     for field in ["kind", "body", "face"] {
-        assert_eq!(after["plane"][field], before["plane"][field], "plane {field}");
+        assert_eq!(
+            after["plane"][field], before["plane"][field],
+            "plane {field}"
+        );
     }
     let end = &after["entities"][0]["end"];
     assert_ne!(

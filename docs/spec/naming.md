@@ -198,6 +198,8 @@ impl<'n> FaceName<'n> {
     pub fn generator(&self) -> Option<FaceGenerator<'n>>;
     /// The sketch generator, when the face was made from a sketch entity or point.
     pub fn sketch_generator(&self) -> Option<&'n str>;
+    /// The name's own `#n` and `@` groups, as written: empty after a face-name generator, whose groups belong to it.
+    pub fn groups(&self) -> &'n str;
     /// True for a fallback name: role `face` (sections 3.1 and 3.6.14).
     pub fn is_fallback(&self) -> bool;
     /// True when the name has a `#n` group of its own, so it names a piece of a split face.

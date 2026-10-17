@@ -1,35 +1,42 @@
-//! Acceptance tests 126 to 134 of `docs/spec/engine.md` section 6, as far as phase 1 of the reference stability plan
-//! builds them: the labels and kinds of fix actions, `apply_fix` of each kind of fix phase 1 offers with its undo
-//! label, re-anchoring for `KeepMatch` and `KeepRegions`, timeline fixes, fixes inside a transaction, `stale_fix`, and
-//! actions that hold no session data (section 3.22). A test named `tNNN` is section 6 test NNN; a test with several
-//! documents is one test per document.
+//! Acceptance tests 126 to 135 of `docs/spec/engine.md` section 6, as far as phases 1 and 2 of the reference stability
+//! plan build them: the labels and kinds of fix actions, `apply_fix` of each kind of fix these phases offer with its
+//! undo label, re-anchoring for `KeepMatch` and `KeepRegions`, timeline fixes, fixes inside a transaction,
+//! `stale_fix`, actions that hold no session data, and the frame fixes `Attach` and `TurnDrawingBack` (section 3.22).
+//! A test named `tNNN` is section 6 test NNN; a test with several documents is one test per document.
 //!
 //! Scenarios come from `corpus`: each setup is opened with its references picked, and "after its edit" is the corpus
-//! edit applied as one `apply_edits` labeled `Edit`, so the actions it offers carry revision 1.
+//! edit applied as one `apply_edits` labeled `Edit`, so the actions it offers carry revision 1. Corpus R26 is made as
+//! test 136 makes it, in three `apply_edits` (`r26_recreated`), so its actions carry revision 3.
 //!
 //! Left for the phases that make the fixes they need: the actions of NC05 (`Use 2.3 mm`, and `Replace r * 2 with` of a
 //! too large radius, test 126), NC03 (`Turn on Reverse`), NC10 (`Replace hieght with height`), CUBE10's linear pattern
-//! without a target (`Set Operation to Join`), NC04 (`Put it in a new body`, `Attach`), NC07 (`Delete`, `Make ... a
-//! reference`) and NC01 (`Connect the ends`) in tests 126, 127 and 131, which phase 3 adds; corpus R26 and R32 (b)
-//! (`Attach to`, `Turn the drawing back`) in tests 126 and 135, which phase 2 adds; and test 132 with NC05's fix, which
+//! without a target (`Set Operation to Join`), NC04 (`Put it in a new body`, and `Attach 'Sketch 2' to`, the label of
+//! an `Attach` on another feature's message), NC07 (`Delete`, `Make ... a reference`) and NC01 (`Connect the ends`) in
+//! tests 126, 127 and 131, which phase 3 adds; and test 132 with NC05's fix, which
 //! `t132_a_fix_inside_a_transaction_joins_it` checks with a fix phase 1 offers.
 
 mod common;
 mod corpus;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, apply, assert_relative, doc_handle, get_document, measure_body,
-    number, open_text, revision, saved_text, send, session, set_rollback,
+    GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, apply, assert_bounding_box, assert_near,
+    assert_placement, assert_point2, assert_point3, assert_relative, doc_handle, element_named,
+    get_document, measure_body, number, open_text, point2, point3, revision, saved_text, send,
+    session, set_rollback,
 };
 use corpus::{
     EDIT_LABEL, action, actions, after_edit, apply_fix, back_line_notched, block_back_side,
-    block_edited, block_right_side, box_record, cube10, datum_offset, datum_on_a_split_side,
-    datum_on_face, document, document_with, edited_text, faces_of, features, fix_ref, labels,
-    linear_pattern, message, messages, nc11, parameter, picked_before, r03, r06a, r16, r23a, r28,
-    r50, r56b, r66, record, redrawn_beside_a_split, redrawn_beside_a_split_with_a_face_sketch,
-    repairs, right_side_redrawn_in_two, send_fix, statuses, two_areas, volume, without_keys,
+    block_edited, block_right_side, bosses_on_a_moved_box, box_record, cube10, datum_offset,
+    datum_on_a_split_side, datum_on_face, document, document_with, edited_text, face_plane,
+    faces_of, features, fix_ref, labels, linear_pattern, message, messages, moved_by_100, nc11,
+    parameter, picked_before, point, r03, r06a, r16, r23a, r26_recreated, r28, r32b,
+    r32b_chamfered_hole_at_an_arc_end, r32b_moved, r32b_pocket, r33, r50, r56b, r66, record,
+    redrawn_beside_a_split, redrawn_beside_a_split_with_a_face_sketch, reference, repairs,
+    right_side_redrawn_in_two, send_fix, sketch, statuses, two_areas, upper_boss_axis, volume,
+    without_keys,
 };
 use partsmith_engine::Session;
+use partsmith_sketch::{HintFrame, RegionRef, SketchParams, SketchPlane};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -314,10 +321,23 @@ fn t126_an_option_field_is_set_by_its_option_label() {
 fn t126_every_label_starts_with_a_verb_and_runs_as_its_kind() {
     let mut session = session();
     let mut all = Vec::new();
-    for scenario in [r66(), r06a(), r03(), r50(), r56b(), r23a(), r28(), nc11()] {
+    for scenario in [
+        r66(),
+        r06a(),
+        r03(),
+        r50(),
+        r56b(),
+        r23a(),
+        r28(),
+        nc11(),
+        r32b(),
+        r33(),
+    ] {
         let (_, edited) = after_edit(&mut session, &scenario);
         all.extend(statuses(&edited));
     }
+    let (_, recreated) = r26_recreated(&mut session);
+    all.extend(statuses(&recreated));
     for text in [
         patterned_cube(&[], "2.5"),
         patterned_cube(&[parameter("p-n", "n", "5")], "n / 2"),
@@ -338,6 +358,104 @@ fn t126_every_label_starts_with_a_verb_and_runs_as_its_kind() {
         assert!(VERBS.contains(&verb), "{label:?} starts with a verb");
         assert_eq!(offer["run"]["kind"], kind_of(label), "{offer}");
     }
+}
+
+/// The repair of `feature` in `sent` at `path`.
+fn repair_at(sent: &Sent, feature: &str, path: &str) -> Value {
+    repairs(sent, feature)
+        .into_iter()
+        .find(|repair| repair["path"] == path)
+        .unwrap_or_else(|| {
+            panic!(
+                "{feature} has a repair at {path}: {}",
+                sent.feature_status(feature)
+            )
+        })
+}
+
+/// The candidates of `feature`'s element repair at `path` in `sent`.
+fn candidates_at(sent: &Sent, feature: &str, path: &str) -> Vec<Value> {
+    repair_at(sent, feature, path)["candidates"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The `Attach` labels a sketch's own message offers for its candidates (section 3.22): `Attach to {description}`,
+/// those of candidates with `meaning` first (features/sketch.md section 3.5), each group in candidate order.
+fn attach_labels(candidates: &[Value]) -> Vec<String> {
+    let (with_meaning, without_meaning): (Vec<&Value>, Vec<&Value>) = candidates
+        .iter()
+        .partition(|candidate| candidate["meaning"] == true);
+    with_meaning
+        .into_iter()
+        .chain(without_meaning)
+        .map(|candidate| {
+            let description = candidate["description"]
+                .as_str()
+                .expect("candidates have descriptions");
+            format!("Attach to {description}")
+        })
+        .collect()
+}
+
+#[test]
+fn t126_r32b_a_face_that_turned_over_offers_turn_the_drawing_back_then_pick() {
+    let mut session = session();
+
+    let (_, edited) = after_edit(&mut session, &r32b());
+
+    let warning = message(&edited, "f-sk2", "sketch_turned_over");
+    assert_eq!(warning["field"], "/plane/face");
+    assert_eq!(
+        actions(&warning),
+        [
+            json!({
+                "label": "Turn the drawing back",
+                "run": {"kind": "apply", "fix": fix_ref("f-sk2", "sketch_turned_over", "/plane/face", 0, 1)}
+            }),
+            json!({
+                "label": "Pick a face again",
+                "run": {"kind": "pick", "feature": "f-sk2", "path": "/plane/face"}
+            })
+        ]
+    );
+}
+
+#[test]
+fn t126_r26_a_sketch_whose_face_is_gone_offers_attach_to_the_new_top_first() {
+    let mut session = session();
+
+    let (_, recreated) = r26_recreated(&mut session);
+
+    let warning = message(&recreated, "f-sk2", "plane_fallback");
+    let offered = labels(&warning);
+    assert_eq!(offered[0], "Attach to the top of 'Extrude 1'");
+    let candidates = candidates_at(&recreated, "f-sk2", "/plane/face");
+    let mut expected = attach_labels(&candidates);
+    expected.push("Pick a face again".to_owned());
+    assert_eq!(offered, expected);
+    for (index, attach) in actions(&warning).iter().take(candidates.len()).enumerate() {
+        let index = u32::try_from(index).expect("few actions");
+        assert_eq!(
+            attach["run"],
+            json!({"kind": "apply", "fix": fix_ref("f-sk2", "plane_fallback", "/plane/face", index, 3)})
+        );
+    }
+}
+
+#[test]
+fn t126_r33_a_sketch_placed_where_its_face_was_offers_attach_to_the_new_top_first() {
+    let mut session = session();
+
+    let (_, edited) = after_edit(&mut session, &r33());
+
+    let warning = message(&edited, "f-sk2", "plane_fallback");
+    let candidates = candidates_at(&edited, "f-sk2", "/plane/face");
+    assert_eq!(candidates[0]["reference"]["q"], "f-ext3/start-cap");
+    let mut expected = attach_labels(&candidates);
+    expected.push("Pick a face again".to_owned());
+    assert_eq!(labels(&warning), expected);
 }
 
 // Test 127: applying fixes.
@@ -1052,4 +1170,595 @@ fn t134_actions_and_repairs_are_equal_in_a_fresh_session() {
         without_keys(&Value::Array(statuses(&edited)), &session_data),
         without_keys(&fresh, &session_data)
     );
+}
+
+#[test]
+fn t134_r32b_turn_the_drawing_back_is_offered_alike_in_a_fresh_session() {
+    let mut first = session();
+    let (doc, edited) = after_edit(&mut first, &r32b());
+    let text = saved_text(&mut first, doc);
+    let mut second = session();
+
+    let reopened = open_text(&mut second, &text);
+
+    let session_data = ["revision", "mesh_id", "ghost", "cause"];
+    assert_eq!(
+        without_keys(&json!(messages(&edited, "f-sk2")), &session_data),
+        without_keys(&json!(messages(&reopened, "f-sk2")), &session_data)
+    );
+}
+
+// Test 135: frame fixes.
+
+/// The sketch params a sketch record holds: the record without its own fields.
+fn sketch_params(record: &Value) -> SketchParams {
+    let mut params = record.clone();
+    let fields = params.as_object_mut().expect("records are objects");
+    for own in ["id", "type", "name", "suppressed"] {
+        fields.remove(own);
+    }
+    serde_json::from_value(params)
+        .unwrap_or_else(|error| panic!("{record} holds sketch params: {error}"))
+}
+
+/// The region references a profile record stores.
+fn stored_regions(record: &Value) -> Vec<RegionRef> {
+    serde_json::from_value(record["profile"]["regions"].clone())
+        .unwrap_or_else(|error| panic!("{record} stores region references: {error}"))
+}
+
+/// Asserts that `plane` is a face plane on `face` of `b-1` whose fallback has `origin`, x axis (1, 0, 0) and `normal`
+/// in body coordinates (`fallback_frame: body`).
+fn assert_body_fallback(plane: &Value, face: &Value, origin: [f64; 3], normal: [f64; 3]) {
+    assert_eq!(plane["kind"], "face", "{plane}");
+    assert_eq!(plane["body"], "b-1", "{plane}");
+    assert_eq!(&plane["face"], face, "{plane}");
+    assert_placement(&plane["fallback"], origin, X_AXIS, normal, "fallback");
+    assert_eq!(plane["fallback_frame"], "body", "{plane}");
+}
+
+/// Asserts that `plane` is a face plane on `face` of `b-1` whose fallback has `origin`, x axis (1, 0, 0) and `normal`
+/// in world coordinates (no `fallback_frame`).
+fn assert_world_fallback(plane: &Value, face: &Value, origin: [f64; 3], normal: [f64; 3]) {
+    assert_eq!(plane["kind"], "face", "{plane}");
+    assert_eq!(plane["body"], "b-1", "{plane}");
+    assert_eq!(&plane["face"], face, "{plane}");
+    assert_placement(&plane["fallback"], origin, X_AXIS, normal, "fallback");
+    assert!(plane.get("fallback_frame").is_none(), "{plane}");
+}
+
+/// Asserts that every feature named is ok with no message.
+fn assert_ok_without_messages(sent: &Sent, features: &[&str]) {
+    for feature in features {
+        assert_eq!(sent.feature_status(feature)["status"], "ok", "{feature}");
+        assert_eq!(messages(sent, feature), Vec::<Value>::new(), "{feature}");
+    }
+}
+
+/// The `Attach` action of a sketch's own message for its first candidate, and that candidate's reference.
+fn first_attach(sent: &Sent, sketch: &str) -> (Value, Value) {
+    let candidates = candidates_at(sent, sketch, "/plane/face");
+    let first = &candidates[0];
+    let description = first["description"]
+        .as_str()
+        .expect("candidates have descriptions");
+    let attach = action(
+        &message(sent, sketch, "plane_fallback"),
+        &format!("Attach to {description}"),
+    );
+    (attach, first["reference"].clone())
+}
+
+#[test]
+fn t135_r32b_turn_the_drawing_back_drills_the_hole_where_it_was_drawn() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &r32b());
+    let before = saved_text(&mut session, doc);
+    let turn = action(
+        &message(&edited, "f-sk2", "sketch_turned_over"),
+        "Turn the drawing back",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &turn);
+
+    assert_ok_without_messages(&applied, &["f-sk2", "f-hole1"]);
+    // The bore's axis passes through world (20, 10), drilled from the bottom at z = -30 up to z = -20.
+    let bore = element_named(&mut session, doc, "b-1", "f-hole1/bore/e-p1");
+    let [x, y, _] = point3(&bore["axis"]["origin"]);
+    assert_near(x, 20.0, GEOMETRY_TOLERANCE, "bore axis x");
+    assert_near(y, 10.0, GEOMETRY_TOLERANCE, "bore axis y");
+    assert_near(
+        point3(&bore["axis"]["direction"])[2].abs(),
+        1.0,
+        GEOMETRY_TOLERANCE,
+        "the bore runs along Z",
+    );
+    assert_point3(
+        point3(&bore["centroid"]),
+        [20.0, 10.0, -25.0],
+        GEOMETRY_TOLERANCE,
+        "bore centroid",
+    );
+    let bottom = element_named(&mut session, doc, "b-1", "f-hole1/bottom/e-p1");
+    assert_point3(
+        point3(&bottom["centroid"]),
+        [20.0, 10.0, -20.0],
+        GEOMETRY_TOLERANCE,
+        "hole bottom",
+    );
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        119803.650459,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_undo_restores(&mut session, doc, &turn["label"], &before);
+}
+
+#[test]
+fn t135_r32b_turn_the_drawing_back_mirrors_the_drawing_and_stores_where_it_lies() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &r32b());
+    let sketch_before = record(&mut session, doc, "f-sk2");
+    let hole_before = record(&mut session, doc, "f-hole1");
+    let turn = action(
+        &message(&edited, "f-sk2", "sketch_turned_over"),
+        "Turn the drawing back",
+    );
+
+    apply_fix(&mut session, doc, &turn).ok();
+
+    let sketch_after = record(&mut session, doc, "f-sk2");
+    let position = point2(&sketch_after["entities"][0]["position"]);
+    assert_near(position[0], 20.0, GEOMETRY_TOLERANCE, "e-p1 u");
+    assert_near(position[1], -10.0, GEOMETRY_TOLERANCE, "e-p1 v");
+    // The placement on the turned-over face: origin (0, 0, -30), normal (0, 0, -1); nothing moved the block, so body
+    // coordinates are world coordinates.
+    assert_body_fallback(
+        &sketch_after["plane"],
+        &sketch_before["plane"]["face"],
+        [0.0, 0.0, -30.0],
+        [0.0, 0.0, -1.0],
+    );
+    assert_eq!(
+        record(&mut session, doc, "f-hole1"),
+        hole_before,
+        "a point entity is the same point on the mirrored drawing"
+    );
+}
+
+#[test]
+fn t135_turn_the_drawing_back_stores_the_mirrored_sketch_and_re_anchors_the_regions_it_profiles() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &r32b_pocket());
+    let before = saved_text(&mut session, doc);
+    let sketch_before = sketch_params(&record(&mut session, doc, "f-sk2"));
+    let regions_before = stored_regions(&record(&mut session, doc, "f-ext2"));
+    let turn = action(
+        &message(&edited, "f-sk2", "sketch_turned_over"),
+        "Turn the drawing back",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &turn);
+
+    let mirrored = sketch_before.mirrored();
+    let sketch_after = sketch_params(&record(&mut session, doc, "f-sk2"));
+    assert_eq!(sketch_after.entities, mirrored.entities);
+    assert_eq!(sketch_after.constraints, mirrored.constraints);
+    let SketchPlane::Face { fallback_frame, .. } = &sketch_after.plane else {
+        panic!("f-sk2 stays on a face: {:?}", sketch_after.plane);
+    };
+    assert_eq!(*fallback_frame, HintFrame::Body);
+    let expected: Vec<RegionRef> = regions_before
+        .iter()
+        .map(|region| sketch_before.mirrored_region(region))
+        .collect();
+    assert_eq!(
+        stored_regions(&record(&mut session, doc, "f-ext2")),
+        expected
+    );
+    // The mirrored reference names the region of the turned-back drawing by its key and outline.
+    let expected_json = serde_json::to_value(&expected[0]).expect("region references serialize");
+    let solved = applied.sketch_solution("f-sk2")["regions"]
+        .as_array()
+        .expect("solutions list their regions")
+        .iter()
+        .map(|region| region["reference"].clone())
+        .find(|reference| reference["key"] == expected_json["key"])
+        .unwrap_or_else(|| panic!("the turned-back drawing has the region {expected_json}"));
+    assert_eq!(solved["outline"], expected_json["outline"]);
+    assert_ok_without_messages(&applied, &["f-sk2", "f-ext2"]);
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        119000.0,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_undo_restores(&mut session, doc, &turn["label"], &before);
+}
+
+#[test]
+fn t135_turn_the_drawing_back_renames_the_references_to_a_hole_at_an_arc_end() {
+    // The mirrored drawing swaps the ends of the arc, so the hole drills at `e-5.end` and names its faces after it
+    // (features/hole.md section 3.4); the chamfer's reference to the rim is renamed in the same batch, so the chamfer
+    // keeps its edge.
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &r32b_chamfered_hole_at_an_arc_end());
+    assert_eq!(edited.feature_status("f-cha1")["status"], "ok");
+    let before = saved_text(&mut session, doc);
+    let turn = action(
+        &message(&edited, "f-sk2", "sketch_turned_over"),
+        "Turn the drawing back",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &turn);
+
+    assert_eq!(
+        record(&mut session, doc, "f-hole1")["points"],
+        json!(["e-5.end"])
+    );
+    assert_eq!(
+        record(&mut session, doc, "f-cha1")["edges"][0]["q"],
+        "edge(f-ext1/end-cap|f-hole1/bore/e-5.end)"
+    );
+    assert_ok_without_messages(&applied, &["f-sk2", "f-hole1", "f-cha1"]);
+    let bore = element_named(&mut session, doc, "b-1", "f-hole1/bore/e-5.end");
+    let [x, y, _] = point3(&bore["axis"]["origin"]);
+    assert_near(x, 50.0, GEOMETRY_TOLERANCE, "bore axis x");
+    assert_near(y, 30.0, GEOMETRY_TOLERANCE, "bore axis y");
+    assert_undo_restores(&mut session, doc, &turn["label"], &before);
+}
+
+#[test]
+fn t135_r26_attach_puts_the_sketch_on_the_new_top_in_body_coordinates() {
+    let mut session = session();
+    let (doc, recreated) = r26_recreated(&mut session);
+    let before = saved_text(&mut session, doc);
+    let (attach, top) = first_attach(&recreated, "f-sk2");
+    assert_eq!(attach["label"], "Attach to the top of 'Extrude 1'");
+    assert_eq!(top["q"], "f-ext3/end-cap");
+
+    let applied = apply_as_one_entry(&mut session, doc, &attach);
+
+    // The sketch stood at its saved position at z = 30; projected onto the new top, it stands at z = 80.
+    assert_body_fallback(
+        &record(&mut session, doc, "f-sk2")["plane"],
+        &top,
+        [0.0, 0.0, 80.0],
+        Z_AXIS,
+    );
+    assert_ok_without_messages(&applied, &["f-ext3", "f-sk2", "f-ext2"]);
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        323141.592654,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_bounding_box(
+        &measure_body(&mut session, doc, "b-1")["bounding_box"],
+        [0.0, 0.0, 0.0],
+        [80.0, 50.0, 90.0],
+    );
+    assert_undo_restores(&mut session, doc, &attach["label"], &before);
+}
+
+#[test]
+fn t135_r33_attach_projects_where_the_sketch_stands_onto_the_new_top() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &r33());
+    let before = saved_text(&mut session, doc);
+    let (attach, new_top) = first_attach(&edited, "f-sk2");
+    assert_eq!(new_top["q"], "f-ext3/start-cap");
+
+    let applied = apply_as_one_entry(&mut session, doc, &attach);
+
+    // The sketch stood where the top was before 'Extrude 1' cut it away, at z = 40; attached, it stands on the floor of
+    // the cut at z = 35, where the boss now joins the box.
+    assert_body_fallback(
+        &record(&mut session, doc, "f-sk2")["plane"],
+        &new_top,
+        [0.0, 0.0, 35.0],
+        Z_AXIS,
+    );
+    assert_ok_without_messages(&applied, &["f-sk2", "f-ext2"]);
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        14141.371669,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_bounding_box(
+        &measure_body(&mut session, doc, "b-1")["bounding_box"],
+        [-10.0, -10.0, 0.0],
+        [10.0, 10.0, 40.0],
+    );
+    assert_undo_restores(&mut session, doc, &attach["label"], &before);
+}
+
+/// features/sketch.md test 5 after a Move body: a sketch `f-sk1` on a face CUBE10 does not have, with the point `e-p1`,
+/// its fallback at (3, 4, 0) in `frame` (`None` writes no `fallback_frame`: world coordinates), with the cube moved by
+/// (100, 0, 0) before it.
+fn sketch_on_a_lost_face_of_the_moved_cube(frame: Option<&str>) -> String {
+    let mut plane = face_plane(
+        "b-1",
+        reference("f-box1/nothing", "plane|n=0,0,1|c=500,500,500|a=1"),
+        [3.0, 4.0, 0.0],
+        X_AXIS,
+        Z_AXIS,
+    );
+    if let Some(frame) = frame {
+        plane["fallback_frame"] = json!(frame);
+    }
+    document(
+        &["b-1"],
+        &[
+            cube10(),
+            moved_by_100(),
+            sketch("f-sk1", plane, vec![point("e-p1", [0.0, 0.0])]),
+        ],
+    )
+}
+
+#[test]
+fn t135_attach_to_a_face_with_the_sketch_s_motion_stores_the_fallback_in_body_coordinates() {
+    // The lost face moved with the cube, as the top did: the saved position (3, 4, 0) in body coordinates is world
+    // (103, 4, 0), which projects onto the moved top at (103, 4, 10), (3, 4, 10) before the move.
+    let mut session = session();
+    let opened = open_text(
+        &mut session,
+        &sketch_on_a_lost_face_of_the_moved_cube(Some("body")),
+    );
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let (attach, top) = first_attach(&opened, "f-sk1");
+    assert_eq!(top["q"], "f-box1/top");
+
+    let applied = apply_as_one_entry(&mut session, doc, &attach);
+
+    assert_body_fallback(
+        &record(&mut session, doc, "f-sk1")["plane"],
+        &top,
+        [3.0, 4.0, 10.0],
+        Z_AXIS,
+    );
+    assert_placement(
+        &applied.sketch_solution("f-sk1")["placement"],
+        [103.0, 4.0, 10.0],
+        X_AXIS,
+        Z_AXIS,
+        "placement",
+    );
+    assert_ok_without_messages(&applied, &["f-sk1"]);
+    assert_undo_restores(&mut session, doc, &attach["label"], &before);
+}
+
+#[test]
+fn t135_attach_of_a_world_fallback_to_a_moved_face_keeps_world_coordinates() {
+    // The sketch's fallback is in world coordinates, so it has no motion, while the moved top has the Move body's:
+    // body coordinates would give the sketch, and every face built from it, that motion. Projected onto the moved top,
+    // the sketch stands at world (3, 4, 10), stored as it is.
+    let mut session = session();
+    let opened = open_text(&mut session, &sketch_on_a_lost_face_of_the_moved_cube(None));
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let (attach, top) = first_attach(&opened, "f-sk1");
+    assert_eq!(top["q"], "f-box1/top");
+
+    let applied = apply_as_one_entry(&mut session, doc, &attach);
+
+    assert_world_fallback(
+        &record(&mut session, doc, "f-sk1")["plane"],
+        &top,
+        [3.0, 4.0, 10.0],
+        Z_AXIS,
+    );
+    assert_placement(
+        &applied.sketch_solution("f-sk1")["placement"],
+        [3.0, 4.0, 10.0],
+        X_AXIS,
+        Z_AXIS,
+        "placement",
+    );
+    assert_ok_without_messages(&applied, &["f-sk1"]);
+    assert_undo_restores(&mut session, doc, &attach["label"], &before);
+}
+
+#[test]
+fn t135_attach_is_offered_only_for_faces_that_keep_the_sketch_s_motion() {
+    // A taller box `f-box2` joined after the Move body has no motion, while the sketch's fallback is in body
+    // coordinates of the moved cube. Attaching to a face of `f-box2` would take the cube's motion from the sketch and
+    // from every face built from it, so only the faces of the cube are offered; every face stays a candidate.
+    let mut text: Value =
+        serde_json::from_str(&sketch_on_a_lost_face_of_the_moved_cube(Some("body")))
+            .expect("documents are JSON");
+    text["features"]
+        .as_array_mut()
+        .expect("documents list their features")
+        .insert(
+            2,
+            box_record(
+                "f-box2",
+                "b-1",
+                ["10", "10", "20"],
+                Some(["100", "8", "0"]),
+                "join",
+            ),
+        );
+    let mut session = session();
+    let opened = open_text(&mut session, &text.to_string());
+
+    let candidates = candidates_at(&opened, "f-sk1", "/plane/face");
+
+    let offered = labels(&message(&opened, "f-sk1", "plane_fallback"));
+    let queries: Vec<&str> = candidates
+        .iter()
+        .map(|candidate| {
+            candidate["reference"]["q"]
+                .as_str()
+                .expect("queries are text")
+        })
+        .collect();
+    assert!(
+        queries.iter().any(|query| query.starts_with("f-box1/")),
+        "{queries:?}"
+    );
+    assert!(
+        queries.iter().any(|query| query.starts_with("f-box2/")),
+        "{queries:?}"
+    );
+    for (candidate, query) in candidates.iter().zip(&queries) {
+        let label = format!(
+            "Attach to {}",
+            candidate["description"]
+                .as_str()
+                .expect("candidates have descriptions")
+        );
+        assert_eq!(
+            offered.contains(&label),
+            query.starts_with("f-box1/"),
+            "{label} for {query} in {offered:?}"
+        );
+    }
+}
+
+#[test]
+fn t135_attach_of_a_world_fallback_to_a_moved_face_moves_no_later_sketch() {
+    // `f-sk1` stands at its saved position in world coordinates; `f-sk3` stores its fallback in the body coordinates of
+    // the cap `f-ext1` builds from `f-sk1`, whose motion is the identity. Attached to the moved top in body coordinates,
+    // `f-sk1` would give that cap the Move body's motion, and the upper boss would land at x = 200, off the body.
+    let text = bosses_on_a_moved_box(
+        vec![moved_by_100()],
+        face_plane(
+            "b-1",
+            reference("f-box1/nothing", "plane|n=0,0,1|c=100,0,40|a=600"),
+            [0.0, 0.0, 40.0],
+            X_AXIS,
+            Z_AXIS,
+        ),
+        [0.0, 0.0, 50.0],
+        Z_AXIS,
+    );
+    let mut session = session();
+    let opened = open_text(&mut session, &text);
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    assert_point2(
+        upper_boss_axis(&mut session, doc),
+        [100.0, 0.0],
+        GEOMETRY_TOLERANCE,
+        "boss axis before",
+    );
+    let (attach, top) = first_attach(&opened, "f-sk1");
+    assert_eq!(top["q"], "f-box1/top");
+
+    let applied = apply_as_one_entry(&mut session, doc, &attach);
+
+    assert_world_fallback(
+        &record(&mut session, doc, "f-sk1")["plane"],
+        &top,
+        [0.0, 0.0, 40.0],
+        Z_AXIS,
+    );
+    assert_ok_without_messages(&applied, &["f-sk1", "f-ext1", "f-sk3", "f-ext3"]);
+    assert_point2(
+        upper_boss_axis(&mut session, doc),
+        [100.0, 0.0],
+        GEOMETRY_TOLERANCE,
+        "boss axis after",
+    );
+    assert_bounding_box(
+        &measure_body(&mut session, doc, "b-1")["bounding_box"],
+        [90.0, -15.0, 0.0],
+        [110.0, 15.0, 55.0],
+    );
+    assert_undo_restores(&mut session, doc, &attach["label"], &before);
+}
+
+#[test]
+fn t135_turning_back_a_world_fallback_on_a_moved_face_moves_no_later_sketch() {
+    // A half turn about X, then (100, 0, 0), turn the box's top over to z = -40, facing down, while `f-sk1`'s fallback
+    // in world coordinates faces up, so its drawing lies mirrored there. `f-sk3` stores its fallback in the body
+    // coordinates of the cap `f-ext1` builds from `f-sk1`, whose motion is the identity. Turned back in body
+    // coordinates, `f-sk1` would give that cap the motion of both moves, and the upper boss would land at x = 200.
+    let half_turn = json!({
+        "id": "f-mv0", "type": "move_body", "body": "b-1",
+        "rotation": {"axis": {"kind": "origin", "axis": "X"}, "angle": "180 deg"}
+    });
+    let text = bosses_on_a_moved_box(
+        vec![half_turn, moved_by_100()],
+        face_plane(
+            "b-1",
+            reference("f-box1/top", "plane|n=0,0,-1|c=100,0,-40|a=600|adj=4,4"),
+            [0.0, 0.0, 40.0],
+            X_AXIS,
+            Z_AXIS,
+        ),
+        [0.0, 0.0, -50.0],
+        [0.0, 0.0, -1.0],
+    );
+    let mut session = session();
+    let opened = open_text(&mut session, &text);
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    assert_point2(
+        upper_boss_axis(&mut session, doc),
+        [100.0, 0.0],
+        GEOMETRY_TOLERANCE,
+        "boss axis before",
+    );
+    let face = record(&mut session, doc, "f-sk1")["plane"]["face"].clone();
+    let turn = action(
+        &message(&opened, "f-sk1", "sketch_turned_over"),
+        "Turn the drawing back",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &turn);
+
+    assert_world_fallback(
+        &record(&mut session, doc, "f-sk1")["plane"],
+        &face,
+        [0.0, 0.0, -40.0],
+        [0.0, 0.0, -1.0],
+    );
+    assert_ok_without_messages(&applied, &["f-sk1", "f-ext1", "f-sk3", "f-ext3"]);
+    assert_point2(
+        upper_boss_axis(&mut session, doc),
+        [100.0, 0.0],
+        GEOMETRY_TOLERANCE,
+        "boss axis after",
+    );
+    assert_bounding_box(
+        &measure_body(&mut session, doc, "b-1")["bounding_box"],
+        [90.0, -15.0, -55.0],
+        [110.0, 15.0, 0.0],
+    );
+    assert_undo_restores(&mut session, doc, &turn["label"], &before);
+}
+
+#[test]
+fn t135_r32b_moved_turn_the_drawing_back_stores_the_placement_without_the_move() {
+    // Corpus R32 (b) with BLOCK moved by (100, 0, 0) before the sketch, whose fallback is in body coordinates: the
+    // placement on the turned-over face, origin (100, 0, -30) and normal (0, 0, -1), is stored with the Move body
+    // undone (features/sketch.md section 3.5), so the hole is drilled at world (120, 10).
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &r32b_moved());
+    let face = record(&mut session, doc, "f-sk2")["plane"]["face"].clone();
+    let turn = action(
+        &message(&edited, "f-sk2", "sketch_turned_over"),
+        "Turn the drawing back",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &turn);
+
+    assert_body_fallback(
+        &record(&mut session, doc, "f-sk2")["plane"],
+        &face,
+        [0.0, 0.0, -30.0],
+        [0.0, 0.0, -1.0],
+    );
+    assert_ok_without_messages(&applied, &["f-sk2", "f-hole1"]);
+    let bore = element_named(&mut session, doc, "b-1", "f-hole1/bore/e-p1");
+    let [x, y, _] = point3(&bore["axis"]["origin"]);
+    assert_near(x, 120.0, GEOMETRY_TOLERANCE, "bore axis x");
+    assert_near(y, 10.0, GEOMETRY_TOLERANCE, "bore axis y");
 }

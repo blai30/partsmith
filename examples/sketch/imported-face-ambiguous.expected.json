@@ -19,6 +19,30 @@
           "field": "/plane/face",
           "actions": [
             {
+              "label": "Attach to a face of 'Import 1' near (-5, 0, 5)",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to a face of 'Import 1' near (0, -5, 5)",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to a face of 'Import 1' near (0, 0, 0)",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to a face of 'Import 1' near (0, 0, 10)",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to a face of 'Import 1' near (0, 5, 5)",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach to a face of 'Import 1' near (5, 0, 5)",
+              "kind": "apply"
+            },
+            {
               "label": "Pick a face again",
               "kind": "pick"
             }

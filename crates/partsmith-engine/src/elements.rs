@@ -2,15 +2,16 @@
 
 use std::collections::BTreeMap;
 
-use partsmith_features::BodyState;
+use partsmith_features::{BodyState, PlacementExt};
 use partsmith_model::Id;
-use partsmith_naming::{ElementKind, ElementName, ElementSet, Reference};
+use partsmith_naming::{ElementKind, ElementName, ElementSet, Motion, Reference};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, SubShapeKind};
 use partsmith_protocol::{Axis, CurveKind, ElementDescriptor, SurfaceKind, Vec3};
 use partsmith_sketch::{OriginPlane, Placement};
 
 use crate::display::{ElementTable, TableEntry, slot};
 use crate::error::EngineError;
+use crate::frames::undoing;
 
 /// The geometry fields of one element (protocol.md section 2.4), as descriptors and
 /// measurements report them.
@@ -36,6 +37,18 @@ pub(crate) struct ElementFields {
     pub(crate) radius: Option<f64>,
     /// The sketch placement on a planar face.
     pub(crate) placement: Option<Placement>,
+}
+
+impl ElementFields {
+    /// True for the elements whose descriptor has an `axis_direction` (section 3.9): line edges,
+    /// and cylinder, cone and torus faces.
+    fn has_axis_direction(&self) -> bool {
+        self.curve == Some(CurveKind::Line)
+            || matches!(
+                self.surface,
+                Some(SurfaceKind::Cylinder | SurfaceKind::Cone | SurfaceKind::Torus)
+            )
+    }
 }
 
 /// The geometry fields of an element of `kind` with kernel geometry `geometry`.
@@ -159,7 +172,7 @@ pub(crate) fn describe(
     timeline: &BTreeMap<Id, usize>,
 ) -> Result<Vec<ElementDescriptor>, EngineError> {
     let shape = shape_of(state)?;
-    let describer = Describer::for_every_face(table, body, timeline);
+    let describer = Describer::for_every_face(table, state, body, timeline);
     let kinds = [ElementKind::Face, ElementKind::Edge, ElementKind::Vertex];
     let count = kinds.iter().map(|&kind| table.entries(kind).len()).sum();
     let mut descriptors = Vec::with_capacity(count);
@@ -195,7 +208,7 @@ pub(crate) fn describe_element(
     let geometry = shape_of(state)?
         .element(sub_shape_kind(kind), entry.index)
         .map_err(EngineError::unexpected)?;
-    Describer::for_one_element(table, body, timeline).descriptor(kind, entry, &geometry)
+    Describer::for_one_element(table, state, body, timeline).descriptor(kind, entry, &geometry)
 }
 
 /// The full reference a pick of the element named `name` stores: `Reference::from_element`
@@ -226,6 +239,8 @@ struct FaceFeature {
 struct Describer<'a> {
     /// The body state's element table, with its topology.
     table: &'a ElementTable,
+    /// The body state, whose naming map records how far its faces moved.
+    state: &'a BodyState,
     /// The body.
     body: &'a Id,
     /// The timeline position of every feature.
@@ -233,20 +248,29 @@ struct Describer<'a> {
     /// The feature of each face by display id, when every descriptor is built; empty when one
     /// element is described, which reads the features of its own faces only.
     face_features: Vec<Option<FaceFeature>>,
+    /// The motion that undoes how far each face moved, by display id (`None` for a face that did
+    /// not move), when every descriptor is built, so the edges of a face reuse it; empty when one
+    /// element is described.
+    face_undoings: Vec<Option<Motion>>,
 }
 
 impl<'a> Describer<'a> {
-    /// A describer for every element, which finds the feature of each face once.
+    /// A describer for every element, which finds the feature and the motion of each face once.
     fn for_every_face(
         table: &'a ElementTable,
+        state: &'a BodyState,
         body: &'a Id,
         timeline: &'a BTreeMap<Id, usize>,
     ) -> Describer<'a> {
-        let mut describer = Describer::for_one_element(table, body, timeline);
-        describer.face_features = table
-            .entries(ElementKind::Face)
+        let mut describer = Describer::for_one_element(table, state, body, timeline);
+        let faces = table.entries(ElementKind::Face);
+        describer.face_features = faces
             .iter()
             .map(|entry| describer.face_feature_of(&entry.name))
+            .collect();
+        describer.face_undoings = faces
+            .iter()
+            .map(|entry| undoing(&state.motion(&entry.name)))
             .collect();
         describer
     }
@@ -254,19 +278,23 @@ impl<'a> Describer<'a> {
     /// A describer for single elements.
     fn for_one_element(
         table: &'a ElementTable,
+        state: &'a BodyState,
         body: &'a Id,
         timeline: &'a BTreeMap<Id, usize>,
     ) -> Describer<'a> {
         Describer {
             table,
+            state,
             body,
             timeline,
             face_features: Vec::new(),
+            face_undoings: Vec::new(),
         }
     }
 
     /// The descriptor of one displayed element from its kernel geometry; its reference is its
-    /// name with its fingerprint at this state (section 3.9).
+    /// name with its fingerprint at this state, and its `fallback` and `axis_direction` are in
+    /// body coordinates (section 3.9).
     fn descriptor(
         &self,
         kind: ElementKind,
@@ -286,9 +314,11 @@ impl<'a> Describer<'a> {
             .topology()
             .fingerprint(kind, entry.index)
             .map_err(EngineError::unexpected)?;
+        let fields = element_fields(kind, geometry);
+        let (fallback, axis_direction) =
+            self.body_frames(kind, entry, faces, &fields, fingerprint.direction);
         let reference =
             Reference::new(entry.name.clone(), fingerprint).map_err(EngineError::unexpected)?;
-        let fields = element_fields(kind, geometry);
         Ok(ElementDescriptor {
             name: entry.name.as_str().to_owned(),
             kind,
@@ -305,10 +335,57 @@ impl<'a> Describer<'a> {
             axis: fields.axis,
             radius: fields.radius,
             placement: fields.placement,
-            fallback: None,
-            axis_direction: None,
+            fallback,
+            axis_direction,
             adjacent,
         })
+    }
+
+    /// The `fallback` of a flat face and the `axis_direction` of a line edge or a cylinder, cone
+    /// or torus face (section 3.9): its placement and its fingerprint's `direction` in body
+    /// coordinates, the motion of the element undone. `faces` are the kernel indices of the
+    /// faces of an edge.
+    fn body_frames(
+        &self,
+        kind: ElementKind,
+        entry: &TableEntry,
+        faces: &[u32],
+        fields: &ElementFields,
+        direction: Option<[f64; 3]>,
+    ) -> (Option<Placement>, Option<Vec3>) {
+        let axis = direction.filter(|_| fields.has_axis_direction());
+        if fields.placement.is_none() && axis.is_none() {
+            return (None, None);
+        }
+        let Some(undo) = self.undoing(kind, entry, faces) else {
+            return (fields.placement, axis);
+        };
+        (
+            fields.placement.map(|placement| placement.moved(&undo)),
+            axis.map(|axis| undo.apply_direction(axis)),
+        )
+    }
+
+    /// The motion that undoes how far an element moved (section 3.9), `None` when it did not
+    /// move: a face's own, and for an edge or vertex that of its first face term. Edge and vertex
+    /// names list the names of their adjacent faces in byte order (naming.md section 3.3, step 4)
+    /// and display ids follow that order, so the first term is the adjacent face with the
+    /// smallest display id; `faces` are the kernel indices of those faces.
+    fn undoing(&self, kind: ElementKind, entry: &TableEntry, faces: &[u32]) -> Option<Motion> {
+        let face = match kind {
+            ElementKind::Face => self.table.display_id(ElementKind::Face, entry.index),
+            ElementKind::Edge | ElementKind::Vertex => faces
+                .iter()
+                .filter_map(|&face| self.table.display_id(ElementKind::Face, face))
+                .min(),
+        };
+        if let Some(undo) = face.and_then(|id| self.face_undoings.get(id as usize)) {
+            return *undo;
+        }
+        let name = face
+            .and_then(|id| self.table.entries(ElementKind::Face).get(id as usize))
+            .map_or(&entry.name, |first| &first.name);
+        undoing(&self.state.motion(name))
     }
 
     /// The names of the displayed elements of a kind among some kernel indices, sorted and
@@ -485,6 +562,22 @@ mod tests {
                 ..ElementFields::default()
             }
         );
+    }
+
+    #[test]
+    fn only_line_edges_and_cylinder_cone_and_torus_faces_have_an_axis_direction() {
+        let has = |kind, geometry_kind| {
+            element_fields(kind, &geometry(geometry_kind)).has_axis_direction()
+        };
+
+        assert!(has(ElementKind::Edge, GeometryKind::Line));
+        assert!(has(ElementKind::Face, GeometryKind::Cylinder));
+        assert!(has(ElementKind::Face, GeometryKind::Cone));
+        assert!(has(ElementKind::Face, GeometryKind::Torus));
+        assert!(!has(ElementKind::Edge, GeometryKind::Circle));
+        assert!(!has(ElementKind::Face, GeometryKind::Plane));
+        assert!(!has(ElementKind::Face, GeometryKind::Sphere));
+        assert!(!has(ElementKind::Vertex, GeometryKind::Point));
     }
 
     #[test]

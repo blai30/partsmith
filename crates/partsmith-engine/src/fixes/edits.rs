@@ -63,11 +63,11 @@ impl FeatureView<'_> {
             Fix::Unsuppress { feature } => self.suppression(feature, false),
             Fix::Suppress { feature } => self.suppression(feature, true),
             Fix::Move { feature, place } => self.moved(feature, place),
+            Fix::Attach { sketch, body, face } => self.attached(sketch, body, face),
+            Fix::TurnDrawingBack { sketch } => self.turned_back(sketch),
             Fix::Pick { .. }
             | Fix::Show { .. }
             | Fix::NewBody
-            | Fix::Attach { .. }
-            | Fix::TurnDrawingBack { .. }
             | Fix::ConnectEnds { .. }
             | Fix::DeleteConstraint { .. }
             | Fix::MakeReference { .. }
@@ -282,7 +282,7 @@ impl FeatureView<'_> {
 
 /// One `update_feature` of `record` with its params changed by `change`, which says whether the
 /// change applied.
-fn updated(
+pub(super) fn updated(
     record: &FeatureRecord,
     change: impl FnOnce(&mut Value) -> bool,
 ) -> Result<Edit, EngineError> {

@@ -3,10 +3,9 @@
 
 use std::sync::Arc;
 
-use partsmith_features::{BodyState, DatumResult, OutputData, Registry};
+use partsmith_features::{DatumResult, OutputData, Registry};
 use partsmith_model::{Document, Edit, FeatureRecord, Id, canonical};
-use partsmith_naming::{Reference, Resolution, resolve};
-use partsmith_occt_sys::{GeometryKind, SubShapeKind};
+use partsmith_naming::Motion;
 use partsmith_protocol::{DocHandle, SketchSolution};
 use partsmith_sketch::{
     DimensionValues, NativeSolver, OriginPlane, Placement, PointRef, Region, RegionRef,
@@ -15,6 +14,7 @@ use partsmith_sketch::{
 use serde_json::Value;
 
 use crate::error::EngineError;
+use crate::frames::{FlatFace, kept_face_plane, placement_hint, sketch_motion};
 use crate::session::{Session, evaluate_in};
 use crate::sketch::{
     Drag, Solved, dimension_values, has_point, sketch_params, sketch_record, solve,
@@ -114,7 +114,8 @@ impl Session {
             });
         }
         let (values, placement) = sketch_inputs(&open.document, &open.computed, position, &params)?;
-        let drag = Drag::begin(params, values, placement, point.clone(), to)?;
+        let face_motion = stored_face_motion(&params.plane, &open.computed, position);
+        let drag = Drag::begin(params, values, placement, face_motion, point.clone(), to)?;
         let solved = drag.solved(feature);
         open.drags.insert(feature.clone(), drag);
         Ok(solved)
@@ -136,7 +137,8 @@ pub(crate) fn solve_in(
 }
 
 /// What the sketch at timeline position `position` is solved with: its driving dimensions
-/// evaluated in the document's context, and its plane resolved against the state before it.
+/// evaluated in the document's context, and its placement, where the latest run placed it when
+/// it built there on the same plane, else its plane resolved against the state before it.
 fn sketch_inputs(
     document: &Document,
     computed: &Computed,
@@ -144,13 +146,49 @@ fn sketch_inputs(
     params: &SketchParams,
 ) -> Result<(DimensionValues, Placement), EngineError> {
     let values = evaluate_in(document, computed, |scope| dimension_values(params, scope))?;
-    Ok((values, placement(&params.plane, computed, position)))
+    let placement = built_placement(document, computed, position, &params.plane)
+        .unwrap_or_else(|| placement(&params.plane, computed, position));
+    Ok((values, placement))
 }
 
-/// The placement of a sketch at timeline position `position`, resolved against the state
-/// before it (features/sketch.md section 3.3): an origin plane's placement, the datum's plane
-/// (the XY plane when the datum has no result), or the face's plane near the fallback (the
-/// fallback when the face does not resolve to one flat face).
+/// Where the sketch at timeline position `position` stands in the run of `computed`, when it
+/// built there on `plane`: its record's plane is `plane`. That is where the run placed it, by
+/// every step of features/sketch.md section 3.3 (a face that a later feature removed included).
+fn built_placement(
+    document: &Document,
+    computed: &Computed,
+    position: usize,
+    plane: &SketchPlane,
+) -> Option<Placement> {
+    let record = document.features.get(position)?;
+    let report = computed
+        .report
+        .features
+        .get(position)
+        .filter(|report| report.feature == record.id)?;
+    let OutputData::Sketch(result) = &built_output(report)?.data else {
+        return None;
+    };
+    let stored: SketchPlane = serde_json::from_value(record.params.get("plane")?.clone()).ok()?;
+    (stored == *plane).then_some(result.placement)
+}
+
+/// The motion of the face a sketch at timeline position `position` on `plane` is stored on, in
+/// the state just before it (`BodyState::motion` of its query); the identity for other planes.
+fn stored_face_motion(plane: &SketchPlane, computed: &Computed, position: usize) -> Motion {
+    match plane {
+        SketchPlane::Face { body, face, .. } => {
+            state_before(&computed.report, position, body).motion(&face.query)
+        }
+        SketchPlane::Origin { .. } | SketchPlane::Datum { .. } => Motion::IDENTITY,
+    }
+}
+
+/// The placement of a sketch at timeline position `position` on `plane`, resolved against the
+/// state before it (features/sketch.md section 3.3): an origin plane's placement, the datum's
+/// plane (the XY plane when the datum has no result), or the face's plane with the fallback as
+/// the hint, moved with the face when it is in body coordinates (that hint itself when the face
+/// does not resolve to one flat face).
 fn placement(plane: &SketchPlane, computed: &Computed, position: usize) -> Placement {
     match plane {
         SketchPlane::Origin { plane } => plane.placement(),
@@ -161,10 +199,13 @@ fn placement(plane: &SketchPlane, computed: &Computed, position: usize) -> Place
             body,
             face,
             fallback,
-            ..
+            fallback_frame,
         } => {
             let state = state_before(&computed.report, position, body);
-            face_placement(&state, face, fallback).unwrap_or(*fallback)
+            let hint = placement_hint(&state, face, fallback, *fallback_frame);
+            FlatFace::resolved(&state, face)
+                .and_then(|flat| flat.placement(&hint))
+                .unwrap_or(hint)
         }
     }
 }
@@ -176,32 +217,6 @@ pub(crate) fn datum_placement(computed: &Computed, feature: &Id) -> Option<Place
         OutputData::Datum(DatumResult::Plane { placement, .. }) => Some(*placement),
         _ => None,
     }
-}
-
-/// The placement on the face `face` of `state` near `fallback`, when the reference resolves and
-/// its first face is flat.
-fn face_placement(state: &BodyState, face: &Reference, fallback: &Placement) -> Option<Placement> {
-    let shape = state.shape()?;
-    let set = state.element_set().ok()?;
-    let Resolution::Resolved {
-        elements: names, ..
-    } = resolve(face, &set)
-    else {
-        return None;
-    };
-    let index = state.naming().index(names.first()?)?;
-    let geometry = shape.element(SubShapeKind::Face, index).ok()?;
-    if geometry.kind != GeometryKind::Plane {
-        return None;
-    }
-    let normal = geometry.direction?;
-    let centroid = geometry.centroid;
-    Placement::on_plane(
-        [centroid.x, centroid.y, centroid.z],
-        [normal.x, normal.y, normal.z],
-        fallback,
-    )
-    .ok()
 }
 
 /// Every region of a stored sketch in solved order, or `None` when its params are invalid, a
@@ -239,18 +254,17 @@ fn params_map(params: &SketchParams) -> Result<serde_json::Map<String, Value>, E
     }
 }
 
-/// The record a committed drag writes: the stored record with the last frame's entity geometry
-/// and, for a sketch on a face, the resolved placement as its fallback. None when that equals
-/// the stored geometry exactly.
+/// The record a committed drag writes (section 3.6): the stored record with the last frame's
+/// entity geometry and, for a sketch on a face, the placement the drag was placed at as its
+/// fallback, in the coordinates that keep the sketch's motion (`kept_face_plane`, with the motion
+/// of the stored face in the run that placed the drag): body coordinates, unless the fallback
+/// was in world coordinates on a face that moved. None when the geometry equals the stored
+/// geometry exactly, so nothing rewrites a fallback on its own.
 fn dragged_record(
     record: &FeatureRecord,
     drag: &Drag,
 ) -> Result<Option<FeatureRecord>, EngineError> {
-    let mut plane = drag.params.plane.clone();
-    if let SketchPlane::Face { fallback, .. } = &mut plane {
-        *fallback = drag.placement;
-    }
-    if drag.last.entities == drag.params.entities && plane == drag.params.plane {
+    if drag.last.entities == drag.params.entities {
         return Ok(None);
     }
     let mut updated = record.clone();
@@ -261,6 +275,147 @@ fn dragged_record(
         Ok::<(), EngineError>(())
     };
     set("entities", serde_json::to_value(&drag.last.entities))?;
-    set("plane", serde_json::to_value(&plane))?;
+    if let SketchPlane::Face {
+        body,
+        face,
+        fallback_frame,
+        ..
+    } = &drag.params.plane
+    {
+        let kept = sketch_motion(*fallback_frame, &drag.face_motion);
+        let plane = kept_face_plane(body, face, &drag.placement, &drag.face_motion, &kept)
+            .ok_or_else(|| EngineError::internal("a drag commit keeps its sketch's motion"))?;
+        set("plane", serde_json::to_value(&plane))?;
+    }
     Ok(Some(updated))
+}
+
+#[cfg(test)]
+mod tests {
+    use partsmith_sketch::HintFrame;
+    use serde_json::json;
+
+    use super::*;
+    use crate::SessionOptions;
+    use crate::test_support::id;
+
+    /// `box.ptsm` (a 20 x 30 x 40 box on XY) with `features` after its box.
+    fn box_then(features: Vec<Value>) -> String {
+        let mut document: Value = serde_json::from_str(include_str!("../tests/fixtures/box.ptsm"))
+            .expect("box.ptsm is JSON");
+        document["features"]
+            .as_array_mut()
+            .expect("documents list their features")
+            .extend(features);
+        document.to_string()
+    }
+
+    /// A face sketch `f-sk1` on the box's top holding one line, whose fallback has `origin`, x
+    /// axis (1, 0, 0) and normal (0, 0, 1) in body coordinates.
+    fn sketch_on_the_top(origin: [f64; 3]) -> Value {
+        json!({
+            "id": "f-sk1", "type": "sketch",
+            "plane": {
+                "kind": "face", "body": "b-1",
+                "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"},
+                "fallback": {"origin": origin, "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+                "fallback_frame": "body"
+            },
+            "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [10, 0]}]
+        })
+    }
+
+    /// A session with `text` open.
+    fn opened(text: &str) -> (Session, DocHandle) {
+        let mut session = Session::new(SessionOptions::headless());
+        let doc = session
+            .open_document(text, Vec::new())
+            .expect("the document opens")
+            .doc;
+        (session, doc)
+    }
+
+    /// The placement `solve_sketch` gives `f-sk1` with its fallback at `origin` in `frame`, a
+    /// candidate whose plane differs from the stored one, so the engine places it itself.
+    fn candidate_placement(text: &str, origin: [f64; 3], frame: HintFrame) -> Placement {
+        let (mut session, doc) = opened(text);
+        let mut candidate = {
+            let open = session.open(doc).expect("the document is open");
+            let (_, record) = sketch_record(&open.document, &id("f-sk1")).expect("a sketch");
+            sketch_params(&session.registry, &open.document, record).expect("valid params")
+        };
+        let SketchPlane::Face {
+            fallback,
+            fallback_frame,
+            ..
+        } = &mut candidate.plane
+        else {
+            panic!("f-sk1 is on a face");
+        };
+        fallback.origin = origin;
+        *fallback_frame = frame;
+
+        session
+            .solve_sketch(doc, &id("f-sk1"), Some(candidate))
+            .expect("the candidate solves")
+            .placement
+    }
+
+    /// The box moved by (100, 0, 0), then the face sketch on its top.
+    fn sketch_on_the_moved_top() -> String {
+        box_then(vec![
+            json!({
+                "id": "f-mv1", "type": "move_body", "body": "b-1",
+                "translation": ["100 mm", "0 mm", "0 mm"]
+            }),
+            sketch_on_the_top([0.0, 0.0, 40.0]),
+        ])
+    }
+
+    #[test]
+    fn a_candidate_hint_in_body_coordinates_moves_with_the_face() {
+        let placement =
+            candidate_placement(&sketch_on_the_moved_top(), [0.0, 5.0, 0.0], HintFrame::Body);
+
+        assert_eq!(placement.origin, [100.0, 5.0, 40.0]);
+        assert_eq!(placement.x_axis, [1.0, 0.0, 0.0]);
+        assert_eq!(placement.normal, [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn a_candidate_hint_in_world_coordinates_stays_where_it_is() {
+        let placement = candidate_placement(
+            &sketch_on_the_moved_top(),
+            [0.0, 5.0, 0.0],
+            HintFrame::World,
+        );
+
+        assert_eq!(placement.origin, [0.0, 5.0, 40.0]);
+    }
+
+    #[test]
+    fn a_stored_sketch_is_solved_where_the_run_placed_it() {
+        // A cut from z = 35 removes the top, so the run places the sketch where the top was just
+        // before the cut (z = 40), not at its saved position (z = 10), which a candidate on a
+        // face that does not resolve uses.
+        let text = box_then(vec![
+            json!({
+                "id": "f-box2", "type": "box", "body": "b-1",
+                "size": ["40 mm", "40 mm", "10 mm"], "position": ["0 mm", "0 mm", "35 mm"],
+                "op": "cut"
+            }),
+            sketch_on_the_top([0.0, 0.0, 10.0]),
+        ]);
+        let (mut session, doc) = opened(&text);
+
+        let solved = session
+            .solve_sketch(doc, &id("f-sk1"), None)
+            .expect("the sketch solves");
+
+        assert_eq!(solved.placement.origin, [0.0, 0.0, 40.0]);
+        assert_eq!(
+            candidate_placement(&text, [0.0, 0.0, 10.0], HintFrame::World).origin,
+            [0.0, 0.0, 10.0]
+        );
+    }
 }

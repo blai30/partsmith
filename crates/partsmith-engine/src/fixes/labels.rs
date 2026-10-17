@@ -30,8 +30,8 @@ pub(super) struct Labels<'a> {
 }
 
 impl Labels<'_> {
-    /// The offer of a fix, or None when no label can say exactly what it does, or when this
-    /// phase builds no edits for it.
+    /// The offer of a fix, or None when no label can say exactly what it does, when it would not
+    /// do exactly what its label says, or when this phase builds no edits for it.
     pub(super) fn offer<'m>(&self, fix: &'m Fix) -> Option<Offer<'m>> {
         let apply = |label: String| {
             Some(Offer {
@@ -71,6 +71,15 @@ impl Labels<'_> {
             }
             Fix::KeepRegions { .. } => apply("Keep these regions".to_string()),
             Fix::UseBody { body, .. } => apply(format!("Use body '{}'", self.body_name(body))),
+            // An attach that changed the sketch's motion would move what later features store on
+            // the faces built from it (section 3.22).
+            Fix::Attach { sketch, body, face } => {
+                if !self.feature.attach_keeps_motion(sketch, body, face) {
+                    return None;
+                }
+                apply(self.attach(sketch, face)?)
+            }
+            Fix::TurnDrawingBack { .. } => apply("Turn the drawing back".to_string()),
             Fix::Unsuppress { feature } => {
                 apply(format!("Unsuppress '{}'", self.feature.run.label(feature)))
             }
@@ -102,13 +111,10 @@ impl Labels<'_> {
                     entity: entity.clone(),
                 },
             }),
-            // Later phases of the reference stability plan build these fixes' edits: frames on
-            // the model (attaching a sketch, turning its drawing back), the sketch fixes of the
-            // newcomer errors (constraint titles, connecting ends), new bodies and renamed keys.
-            // Until then no message offers them.
+            // Later phases of the reference stability plan build these fixes' edits: the sketch
+            // fixes of the newcomer errors (constraint titles, connecting ends), new bodies and
+            // renamed keys. Until then no message offers them.
             Fix::NewBody
-            | Fix::Attach { .. }
-            | Fix::TurnDrawingBack { .. }
             | Fix::ConnectEnds { .. }
             | Fix::DeleteConstraint { .. }
             | Fix::MakeReference { .. }
@@ -222,6 +228,20 @@ impl Labels<'_> {
         Some(joined(&words))
     }
 
+    /// The label of an `Attach` fix (`attach_label`), with the description of the candidate in
+    /// the message's element repairs that stores `face`. None when no repair describes it.
+    fn attach(&self, sketch: &Id, face: &Reference) -> Option<String> {
+        let description = self.repairs.iter().find_map(|repair| match repair {
+            Repair::Element { candidates, .. } => candidates
+                .iter()
+                .find(|candidate| candidate.reference.query == face.query)
+                .map(|candidate| candidate.description.as_str()),
+            Repair::Region { .. } => None,
+        })?;
+        let other = (sketch != self.feature.id()).then(|| self.feature.run.label(sketch));
+        Some(attach_label(description, other.as_deref()))
+    }
+
     /// The words of the regions a fix stores at `pointer`: the description of the candidate set
     /// of the region repair there that has them, else the regions' own words.
     fn regions(&self, pointer: &str, regions: &[RegionRef]) -> Option<String> {
@@ -319,6 +339,15 @@ fn is_plain_value(expression: &str) -> bool {
     }
 }
 
+/// The label of an `Attach` fix (section 3.22): `Attach to {description}` on the sketch's own
+/// message, else `Attach '{sketch}' to {description}` with `other_sketch` the sketch's label.
+fn attach_label(description: &str, other_sketch: Option<&str>) -> String {
+    match other_sketch {
+        None => format!("Attach to {description}"),
+        Some(sketch) => format!("Attach '{sketch}' to {description}"),
+    }
+}
+
 /// `a face`, `an edge` or `a vertex`.
 fn element_noun(kind: ElementKind) -> &'static str {
     match kind {
@@ -355,6 +384,18 @@ mod tests {
         assert!(!is_plain_value("r * 2"));
         assert!(!is_plain_value("height"));
         assert!(!is_plain_value("2 *"));
+    }
+
+    #[test]
+    fn attach_labels_name_the_sketch_only_on_another_feature_s_message() {
+        assert_eq!(
+            attach_label("the top of 'Extrude 1'", None),
+            "Attach to the top of 'Extrude 1'"
+        );
+        assert_eq!(
+            attach_label("the top of 'Extrude 1'", Some("Sketch 2")),
+            "Attach 'Sketch 2' to the top of 'Extrude 1'"
+        );
     }
 
     #[test]

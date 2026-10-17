@@ -18,6 +18,10 @@ use serde_json::{Value, json};
 pub const GEOMETRY_TOLERANCE: f64 = 1e-6;
 /// Relative tolerance for `f32` buffer values (engine.md section 6).
 pub const BUFFER_TOLERANCE: f64 = 1e-5;
+/// The unit vector along X.
+pub const X_AXIS: [f64; 3] = [1.0, 0.0, 0.0];
+/// The unit vector along Z.
+pub const Z_AXIS: [f64; 3] = [0.0, 0.0, 1.0];
 
 /// The text of a fixture in `tests/fixtures/` (engine.md section 3.20).
 pub fn fixture(name: &str) -> String {
@@ -595,6 +599,25 @@ pub fn assert_point2(actual: [f64; 2], expected: [f64; 2], tolerance: f64, what:
             expected[axis],
             tolerance,
             &format!("{what} component {axis} (got {actual:?})"),
+        );
+    }
+}
+
+/// Asserts that a `Placement` JSON value has this origin, x axis and normal within the geometry tolerance.
+pub fn assert_placement(
+    placement: &Value,
+    origin: [f64; 3],
+    x_axis: [f64; 3],
+    normal: [f64; 3],
+    what: &str,
+) {
+    assert!(placement.is_object(), "{what} is a placement: {placement}");
+    for (field, expected) in [("origin", origin), ("x_axis", x_axis), ("normal", normal)] {
+        assert_point3(
+            point3(&placement[field]),
+            expected,
+            GEOMETRY_TOLERANCE,
+            &format!("{what} {field}"),
         );
     }
 }

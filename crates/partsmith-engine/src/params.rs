@@ -127,6 +127,31 @@ fn collect_value(
     }
 }
 
+/// Calls `visit` on every object, at any depth, of `value` whose `sketch` key names `sketch`:
+/// the objects through which a feature uses the regions (their `regions`) and points (their
+/// `points`) of that sketch, such as the profile of an extrude or the params of a hole (engine.md
+/// section 3.22). Stops at the first error `visit` returns.
+pub(crate) fn visit_sketch_uses<E>(
+    value: &mut Value,
+    sketch: &Id,
+    visit: &mut impl FnMut(&mut Map<String, Value>) -> Result<(), E>,
+) -> Result<(), E> {
+    match value {
+        Value::Object(members) => {
+            if members.get("sketch").and_then(Value::as_str) == Some(sketch.as_str()) {
+                visit(members)?;
+            }
+            members
+                .values_mut()
+                .try_for_each(|member| visit_sketch_uses(member, sketch, visit))
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .try_for_each(|item| visit_sketch_uses(item, sketch, visit)),
+        _ => Ok(()),
+    }
+}
+
 /// A key as a pointer's reference token: `~` written `~0` and `/` written `~1`.
 fn escaped(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
@@ -440,5 +465,52 @@ mod tests {
 
         assert!(set(&mut params, "/map/7", json!("b")));
         assert_eq!(params, json!({"map": {"7": "b"}}));
+    }
+
+    #[test]
+    fn the_uses_of_a_sketch_are_the_objects_that_name_it() {
+        let mut params = json!({
+            "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1"}]},
+            "axis": {"kind": "sketch_line", "sketch": "f-sk2", "line": "e-9"},
+            "steps": [{"sketch": "f-sk1", "points": ["e-2.start"]}],
+            "sketch": "f-sk3"
+        });
+        let mut visited = Vec::new();
+
+        visit_sketch_uses(
+            &mut params,
+            &Id::new("f-sk1").expect("a valid id"),
+            &mut |uses| {
+                visited.push(Value::Object(uses.clone()));
+                Ok::<(), ()>(())
+            },
+        )
+        .expect("the visit succeeds");
+
+        assert_eq!(
+            visited,
+            [
+                json!({"sketch": "f-sk1", "regions": [{"key": "e-1"}]}),
+                json!({"sketch": "f-sk1", "points": ["e-2.start"]})
+            ]
+        );
+    }
+
+    #[test]
+    fn a_visit_of_the_uses_of_a_sketch_stops_at_its_first_error() {
+        let mut params = json!({"a": {"sketch": "f-sk1"}, "b": [{"sketch": "f-sk1"}]});
+        let mut visits = 0;
+
+        let visited = visit_sketch_uses(
+            &mut params,
+            &Id::new("f-sk1").expect("a valid id"),
+            &mut |_| {
+                visits += 1;
+                Err("no")
+            },
+        );
+
+        assert_eq!(visited, Err("no"));
+        assert_eq!(visits, 1);
     }
 }

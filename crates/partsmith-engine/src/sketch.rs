@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use partsmith_features::{Registry, SketchResult};
 use partsmith_model::{Dimension, Document, FeatureRecord, Id, Scope};
+use partsmith_naming::Motion;
 use partsmith_protocol::{
     ConstraintSolveState, ConstraintState, RegionInfo, SketchSolution, SolvedEntity, SolvedPoint,
 };
@@ -307,6 +308,10 @@ pub(crate) struct Drag {
     values: DimensionValues,
     /// The sketch placement.
     pub(crate) placement: Placement,
+    /// The motion of the face a face sketch is stored on, in the run that gave `placement`
+    /// (`BodyState::motion` of its query in the state just before the sketch); the identity for
+    /// other planes. A commit stores the placement with it (section 3.6).
+    pub(crate) face_motion: Motion,
     /// The last frame's result.
     pub(crate) last: SolveResult,
 }
@@ -322,11 +327,13 @@ impl std::fmt::Debug for Drag {
 }
 
 impl Drag {
-    /// Begins a drag of `point` and solves its first frame at `to`.
+    /// Begins a drag of `point` and solves its first frame at `to`, with the sketch at `placement`
+    /// on a face whose motion is `face_motion` in the same run.
     pub(crate) fn begin(
         params: SketchParams,
         values: DimensionValues,
         placement: Placement,
+        face_motion: Motion,
         point: PointRef,
         to: [f64; 2],
     ) -> Result<Drag, EngineError> {
@@ -343,6 +350,7 @@ impl Drag {
             params,
             values,
             placement,
+            face_motion,
             last,
         })
     }
@@ -554,6 +562,7 @@ mod tests {
             drag_sketch(),
             DimensionValues::new(),
             OriginPlane::Xy.placement(),
+            Motion::IDENTITY,
             "e-1.end".parse().expect("a valid point"),
             [20.0, 5.0],
         )
