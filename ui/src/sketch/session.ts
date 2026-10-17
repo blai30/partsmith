@@ -5,7 +5,6 @@ import {
   changeSketchDimension,
   createSketchIds,
   selectInSketch,
-  sketchRecordOf,
   solutionOf,
   storedSketchParams,
 } from '../app/actions/sketch'
@@ -27,7 +26,7 @@ import type {
 } from '../generated/protocol'
 import { hasOpenPopover, isEditable } from '../layout/focus'
 import { MESSAGES } from '../messages'
-import { editingSession, type EditingSession } from '../state/selectors'
+import { editingSession, selectSketchRecord, type EditingSession } from '../state/selectors'
 import type { AppState, SelectionItem } from '../state/store'
 import { framedArea, type Camera, type ViewWindow } from '../viewport/camera'
 import type { ViewportController, ViewportHandle } from '../viewport/controller'
@@ -697,7 +696,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       return null
     }
     const pixelSize = centerPixelSize()
-    const record = sketchRecordOf(state, session.sketchId)
+    const record = selectSketchRecord(state, session.sketchId)
     return {
       solution: solved,
       project,

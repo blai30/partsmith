@@ -12,11 +12,10 @@ use feature_support::{
     assert_face_axis_through, assert_face_count, assert_face_in_plane, assert_face_names,
     assert_face_normal, assert_has_face, assert_median_build_within, assert_messages_pass_lint,
     assert_no_face, assert_unchanged, assert_volume, body_update, document_text, element_names,
-    face, face_names_with_prefix, keep_and_pick, line, load_example, message, output_body,
+    face, face_names_with_prefix, id, keep_and_pick, line, load_example, message, output_body,
     parse_document, successions, use_reference,
 };
 use partsmith_features::{BodyChange, Diagnosis, FeatureWarning, Fix};
-use partsmith_model::Id;
 use partsmith_naming::{ElementKind, Follow};
 
 /// `SK-RECT`: `RECT(0, 0, 80, 50)` on XY with id `f-sk1`.
@@ -602,7 +601,7 @@ fn t032_one_region_missing() {
         run.warning_fixes("f-ext1", "region_missing", &Diagnosis::default()),
         [
             Fix::Show {
-                feature: Id::new("f-sk1").expect("a valid id"),
+                feature: id("f-sk1"),
                 entity: None,
             },
             Fix::Pick {
@@ -939,7 +938,7 @@ fn block_run(lines: &[String], distance_expr: &str, others: &[&str]) -> Run {
 /// A diagnosis that names the sketch a followed or widened reference followed (recompute.md section 3.10).
 fn followed_in_the_sketch() -> Diagnosis {
     Diagnosis {
-        by: Some(Id::new("f-sk1").expect("a valid id")),
+        by: Some(id("f-sk1")),
         ..Diagnosis::default()
     }
 }

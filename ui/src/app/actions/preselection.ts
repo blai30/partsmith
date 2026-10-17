@@ -12,9 +12,10 @@ import {
 import { parentPath } from '../../inspector/param-path'
 import { acceptsTarget, selectionValue } from '../../inspector/selection-values'
 import { drawnPointItems, pointSelectionItem, regionSelectionItem } from '../../sketch/hit'
+import { selectSketchRecord } from '../../state/selectors'
 import type { AppState, CatalogFeature, SelectionItem } from '../../state/store'
 import { siblingPath, type Params } from './command-values'
-import { sketchFaceBody, sketchRecordOf } from './sketch'
+import { sketchFaceBody } from './sketch'
 
 // The selection fields of a feature command: which field takes picks, and how the selection fills
 // them when the command opens (ui.md 3.7 steps 4 and 5, 2.12).
@@ -89,7 +90,7 @@ export function takes(state: AppState, accepts: SelectionKind, item: SelectionIt
   if (accepts !== 'sketch' || item.kind !== 'feature') {
     return true
   }
-  return sketchRecordOf(state, item.feature) !== null
+  return selectSketchRecord(state, item.feature) !== null
 }
 
 /** The one closed region of a sketch, as an item, when it has exactly one. */
@@ -160,7 +161,7 @@ export function preselected(
     }
     const { accepts, multiple } = field.control
     const candidates = items.flatMap((item) => {
-      const sketch = item.kind === 'feature' ? sketchRecordOf(state, item.feature) : null
+      const sketch = item.kind === 'feature' ? selectSketchRecord(state, item.feature) : null
       const standIns = sketch === null ? null : sketchStandIns(state, sketch.id, accepts)
       return standIns === null
         ? [{ source: item.key, item }]

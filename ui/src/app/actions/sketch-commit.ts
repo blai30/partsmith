@@ -13,9 +13,10 @@ import { MESSAGES } from '../../messages'
 import { referencedEntities } from '../../sketch/constraints'
 import { failedSolveMessage } from '../../sketch/issues'
 import type { SketchChange, SketchCommitResult } from '../../sketch/session'
+import { selectSketchRecord } from '../../state/selectors'
 import type { App } from '../createApp'
 import { documentOf } from './edits'
-import { recordSketchEdit, sketchParamsOf, sketchRecordOf } from './sketch'
+import { recordSketchEdit, sketchParamsOf } from './sketch'
 
 // Committing a change of the edited sketch (ui.md 3.16.3): the candidate params are probed with the
 // solver, then applied as one undo entry.
@@ -107,7 +108,7 @@ async function commitNow(
   change: SketchChange,
 ): Promise<SketchCommitResult> {
   const document = documentOf(app)
-  const record = sketchRecordOf(app.store.getState(), sketchId)
+  const record = selectSketchRecord(app.store.getState(), sketchId)
   const params = record === null ? null : sketchParamsOf(record)
   if (document === null || sketchId === null || record === null || params === null) {
     return { outcome: 'failed', message: 'There is no sketch being edited.' }

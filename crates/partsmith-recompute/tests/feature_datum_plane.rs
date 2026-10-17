@@ -12,11 +12,10 @@ use feature_support::{
     AXIS_TOLERANCE, BOTH_TOPS, Run, assert_choice_between, assert_coordinates,
     assert_element_repair, assert_examples_canonical, assert_median_build_within,
     assert_messages_pass_lint, assert_moves, assert_placement, assert_translation, datum_motion,
-    datum_placement, keep_and_pick, l_shaped_body, link_ids, load_example, slotted_block,
+    datum_placement, id, keep_and_pick, l_shaped_body, link_ids, load_example, slotted_block,
     use_reference,
 };
 use partsmith_features::{Diagnosis, Fix};
-use partsmith_model::Id;
 use partsmith_naming::{Follow, Motion};
 
 /// A box of size 10 at position (3, 4, 0) in `b-1`: x from -2 to 8, y from -1 to 9, z from 0 to 10.
@@ -316,7 +315,7 @@ fn t018_a_shell_inserted_under_the_datums_face_keeps_it_on_the_rim() {
     );
     // Recompute's diagnosis names the shell whose rim the reference followed (recompute.md section 3.10).
     let diagnosis = Diagnosis {
-        by: Some(Id::new("f-sh1").expect("a valid id")),
+        by: Some(id("f-sh1")),
         ..Diagnosis::default()
     };
 

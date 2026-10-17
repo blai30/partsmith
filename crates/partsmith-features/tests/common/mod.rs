@@ -329,11 +329,11 @@ pub fn keep_and_pick(pointer: &str) -> Vec<Fix> {
 }
 
 /// What `face_placement` gives: the placement, or why the face cannot place it.
-pub type Placed = Result<Result<FacePlacement, FaceFallback>, FeatureError>;
+pub type FacePlacementResult = Result<Result<FacePlacement, FaceFallback>, FeatureError>;
 
 /// The placement of a face placement that used its face; fails the test when it fell back or failed.
 #[track_caller]
-pub fn placed(result: Placed) -> FacePlacement {
+pub fn placed(result: FacePlacementResult) -> FacePlacement {
     match result {
         Ok(Ok(placement)) => placement,
         Ok(Err(fallback)) => panic!("expected a placement, got the fallback {fallback:?}"),
@@ -343,7 +343,7 @@ pub fn placed(result: Placed) -> FacePlacement {
 
 /// The fallback of a face placement that could not use its face.
 #[track_caller]
-pub fn fallback(result: Placed) -> FaceFallback {
+pub fn fallback(result: FacePlacementResult) -> FaceFallback {
     match result {
         Ok(Err(fallback)) => fallback,
         Ok(Ok(placement)) => panic!(

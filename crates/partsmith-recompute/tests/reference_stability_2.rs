@@ -821,7 +821,8 @@ fn r33_a_sketch_whose_face_is_cut_away_keeps_its_last_placement() {
 /// candidates, then Pick.
 fn check_reattach_to_the_new_top(checks: &mut Checks, session: &Run) {
     let text = "The face this sketch is on, the top of 'Box 1', was cut away by 'Extrude 1', which comes before this sketch, so the sketch stays where that face was.";
-    let Some(message) = checks.the_only_message(session, "f-sk2", "plane_fallback", text, None)
+    let Some(message) =
+        checks.only_message_ignoring_fixes(session, "f-sk2", "plane_fallback", text, None)
     else {
         return;
     };

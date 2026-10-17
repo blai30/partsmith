@@ -21,7 +21,6 @@ use corpus::{
     without_keys,
 };
 use partsmith_engine::{Session, ValidateOptions, ValidationReport};
-use partsmith_naming::Fingerprint;
 use partsmith_print::Severity;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -431,10 +430,15 @@ fn turned_back(direction: [f64; 3]) -> [f64; 3] {
 /// The direction a fingerprint text writes after `n=` (naming.md section 3.7): first nonzero component positive.
 fn fingerprint_direction(fingerprint: &Value) -> [f64; 3] {
     let text = fingerprint.as_str().expect("fingerprints are text");
-    Fingerprint::parse(text)
-        .expect("descriptors write valid fingerprints")
-        .direction
-        .unwrap_or_else(|| panic!("{text} writes a direction"))
+    let field = text
+        .split('|')
+        .find_map(|part| part.strip_prefix("n="))
+        .unwrap_or_else(|| panic!("{text} writes a direction"));
+    let components: Vec<f64> = field
+        .split(',')
+        .map(|component| component.parse().expect("fingerprint numbers parse"))
+        .collect();
+    [components[0], components[1], components[2]]
 }
 
 /// Whether a descriptor is of a line edge or of a cylinder, cone or torus face, which have an axis direction.

@@ -417,7 +417,8 @@ fn t042_r33_a_sketch_is_placed_where_its_face_was_just_before_the_cut() {
     // Where the top was just before 'Extrude 1' removed it, never the fallback's z = 10.
     assert_sketch_on_top_plane(&session, "f-sk2", [0.0, 0.0, 40.0]);
     session.assert_warnings("f-sk2", &["plane_fallback"]);
-    assert_eq!(*session.plane_fallback("f-sk2").0, before_the_cut());
+    let (placed, ..) = session.plane_fallback("f-sk2");
+    assert_eq!(*placed, before_the_cut());
 }
 
 #[test]
@@ -465,7 +466,8 @@ fn t042_r33_a_lower_box_rebuilds_the_sketch_where_the_lower_top_was() {
     );
     assert_sketch_on_top_plane(&session, "f-sk2", [0.0, 0.0, 38.0]);
     session.assert_warnings("f-sk2", &["plane_fallback"]);
-    assert_eq!(*session.plane_fallback("f-sk2").0, before_the_cut());
+    let (placed, ..) = session.plane_fallback("f-sk2");
+    assert_eq!(*placed, before_the_cut());
 }
 
 // Test 43: memoized reasons follow the records they read (section 3.10, memoization).
@@ -2855,7 +2857,8 @@ fn a_sketch_placed_before_the_removal_names_the_remover_by_its_current_label() {
     );
 
     assert_all_reused(&session);
-    assert_eq!(*session.plane_fallback("f-sk2").0, before_the_cut());
+    let (placed, ..) = session.plane_fallback("f-sk2");
+    assert_eq!(*placed, before_the_cut());
     assert_ends_with(
         &message(&session, "f-sk2", "plane_fallback").text,
         "was cut away by 'Pocket', which comes before this sketch, so the sketch stays where that face was.",

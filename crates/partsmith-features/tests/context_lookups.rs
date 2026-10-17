@@ -20,8 +20,8 @@ use common::records::{
 };
 use common::timeline::{Timeline, stored};
 use common::{
-    ContextFixture, HALF_TURN_ABOUT_Z, NO_TURN, Placed, assert_vector_close, built_body,
-    empty_sketch_output, fallback, id, moved_state, placed,
+    ContextFixture, FacePlacementResult, HALF_TURN_ABOUT_Z, NO_TURN, assert_vector_close,
+    built_body, empty_sketch_output, fallback, id, moved_state, placed,
 };
 use partsmith_features::{
     AxisRef, BodyState, FacePlacement, FallbackCause, FeatureError, Noun, PlacementExt, PlaneRef,
@@ -283,7 +283,12 @@ fn reference_from(value: Value) -> Reference {
 }
 
 /// `face_placement` of `face` as the face of a sketch plane in `b-1` holding `state`, with `hint` in `frame`.
-fn place_in(state: BodyState, face: &Reference, hint: &Placement, frame: HintFrame) -> Placed {
+fn place_in(
+    state: BodyState,
+    face: &Reference,
+    hint: &Placement,
+    frame: HintFrame,
+) -> FacePlacementResult {
     let mut fixture = ContextFixture::new(Units::Mm, &[]);
     fixture.bodies.insert(id("b-1"), state);
     fixture
@@ -293,7 +298,7 @@ fn place_in(state: BodyState, face: &Reference, hint: &Placement, frame: HintFra
 
 /// `face_placement` of `face` as the face of a sketch plane in `b-1` holding `state`, with the tilted hint in world
 /// coordinates.
-fn face_placement(state: BodyState, face: &Reference) -> Placed {
+fn face_placement(state: BodyState, face: &Reference) -> FacePlacementResult {
     place_in(state, face, &tilted_hint(), HintFrame::World)
 }
 

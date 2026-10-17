@@ -10,22 +10,16 @@ use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_2, PI};
 
 use feature_support::{
-    Run, assert_messages_pass_lint, body_before, box_step_asset, pick, remove_entry,
+    Run, assert_messages_pass_lint, body_before, box_step_asset, id, pick, remove_entry,
     step_asset_name, use_reference,
 };
 use partsmith_features::{
     Because, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, Repair, describe_elements,
 };
-use partsmith_model::Id;
 use partsmith_naming::{ElementName, Fingerprint};
 use serde_json::{Value, json};
 
 // Records of the shared setups (reference stability corpus, "Shared setups"; features.md section 6.1).
-
-/// An id written in a test.
-fn id(text: &str) -> Id {
-    Id::new(text).expect("ids written in tests are valid")
-}
 
 /// A line entity.
 fn line(entity: &str, start: [f64; 2], end: [f64; 2]) -> Value {

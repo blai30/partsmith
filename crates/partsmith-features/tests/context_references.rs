@@ -22,8 +22,8 @@ use common::records::{
 };
 use common::timeline::{Timeline, stored, sub_shape_names};
 use common::{
-    Placed, assert_vector_close, id, keep_and_pick, pick, placed, pointer, use_reference,
-    warning_fixes,
+    FacePlacementResult, assert_vector_close, id, keep_and_pick, pick, placed, pointer,
+    use_reference, warning_fixes,
 };
 use partsmith_features::{
     BodyState, FeatureError, FeatureWarning, Fix, Loss, PlaneRef, Repair, Resolved, Severity,
@@ -1051,7 +1051,7 @@ fn right_side_hint() -> Placement {
 
 /// `face_placement` of `face` as the face of the plane of a sketch `f-sk9` on `b-1` at the end of `timeline`, with
 /// `hint` in world coordinates.
-fn place_sketch(timeline: &Timeline, face: &Reference, hint: &Placement) -> Placed {
+fn place_sketch(timeline: &Timeline, face: &Reference, hint: &Placement) -> FacePlacementResult {
     let fixture = timeline.fixture("f-sk9", "sketch");
     fixture
         .context()

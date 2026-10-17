@@ -68,10 +68,10 @@ export function selectEditedSketch(state: AppState): string | null | undefined {
   return state.context === 'sketch' && state.sketch !== null ? state.sketch.sketchId : undefined
 }
 
-/** The record of the sketch with this id, or null without a document or such a sketch. */
-export function selectSketchRecord(state: AppState, sketchId: string): FeatureRecord | null {
+/** The record of the sketch with this id, or null without an id, a document or such a sketch. */
+export function selectSketchRecord(state: AppState, sketchId: string | null): FeatureRecord | null {
   const recipe = state.document?.recipe
-  return recipe === undefined ? null : sketchRecord(recipe, sketchId)
+  return sketchId === null || recipe === undefined ? null : sketchRecord(recipe, sketchId)
 }
 
 /** The sketch whose plane is being picked again (3.16.1, re-attaching), or null. */
@@ -181,9 +181,7 @@ export function selectSketchToEdit(state: AppState): string | null {
   const sketchOnly =
     (selection.length === 1 && first.kind === 'feature') ||
     selection.every((item) => SKETCH_ITEM_KINDS.has(item.kind) && item.feature === sketchId)
-  return sketchOnly && sketchId !== null && selectSketchRecord(state, sketchId) !== null
-    ? sketchId
-    : null
+  return sketchOnly && selectSketchRecord(state, sketchId) !== null ? sketchId : null
 }
 
 /**

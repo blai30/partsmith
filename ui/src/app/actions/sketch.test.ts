@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Command, Edit, ElementDescriptor, Reference } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
+import { selectSketchRecord } from '../../state/selectors'
 import { currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
 import {
   CUBE_DOCUMENT,
@@ -22,7 +23,6 @@ import {
   finishSketch,
   setSketchTool,
   sketchFaceBody,
-  sketchRecordOf,
   startNewSketch,
   storedSketchParams,
 } from './sketch'
@@ -303,10 +303,10 @@ describe('sketch record readers', () => {
     features: [...(CUBE_DOCUMENT.features ?? []), FACE_SKETCH],
   })
 
-  it('sketchRecordOf finds a sketch record and is null for other features and no id', () => {
-    expect(sketchRecordOf(state, 'f-sk1')?.id).toBe('f-sk1')
-    expect(sketchRecordOf(state, 'f-ext1')).toBeNull()
-    expect(sketchRecordOf(state, null)).toBeNull()
+  it('selectSketchRecord finds a sketch record and is null for other features and no id', () => {
+    expect(selectSketchRecord(state, 'f-sk1')?.id).toBe('f-sk1')
+    expect(selectSketchRecord(state, 'f-ext1')).toBeNull()
+    expect(selectSketchRecord(state, null)).toBeNull()
   })
 
   it('storedSketchParams reads the stored plane, entities and constraints', () => {

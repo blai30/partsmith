@@ -119,11 +119,11 @@ impl BuildContext<'_> {
         frame: HintFrame,
     ) -> Result<Option<(Placement, Id)>, FeatureError> {
         let history = self.body_history(body)?;
-        let now = self.body(body)?.motion(&face.query);
         // An edge or vertex reference names no face that an earlier state could have.
         if face.query.kind() != ElementKind::Face {
             return Ok(None);
         }
+        let now = self.body(body)?.motion(&face.query);
         for (writer, state) in history.iter().rev() {
             let Some(plane) = plane_by_meaning(state, face)? else {
                 continue;

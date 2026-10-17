@@ -10,10 +10,9 @@ use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_count, assert_face_kind, assert_face_position, assert_has_face,
     assert_median_build_within, assert_solid_count, assert_unchanged, assert_volume, body_changes,
-    face, link_ids, load_example,
+    face, id, link_ids, load_example,
 };
 use partsmith_features::{Because, Diagnosis, Fix};
-use partsmith_model::Id;
 use partsmith_occt_sys::GeometryKind;
 
 /// The bodies of every boolean test.
@@ -279,7 +278,7 @@ fn t017_a_tool_whose_feature_is_suppressed() {
     );
     // Recompute's diagnosis finds the suppressed writer of b-2 (recompute.md section 3.10, `because`).
     let diagnosis = Diagnosis {
-        because: Some(Because::Suppressed(Id::new("f-box2").expect("a valid id"))),
+        because: Some(Because::Suppressed(id("f-box2"))),
         ..Diagnosis::default()
     };
 
@@ -292,7 +291,7 @@ fn t017_a_tool_whose_feature_is_suppressed() {
         run.error_fixes("f-bool1", &diagnosis),
         [
             Fix::Unsuppress {
-                feature: Id::new("f-box2").expect("a valid id")
+                feature: id("f-box2")
             },
             Fix::Pick {
                 pointer: "/tools/0".to_string()

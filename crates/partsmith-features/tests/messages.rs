@@ -875,7 +875,7 @@ fn a_missing_region_says_why_for_each_loss() {
             "f-ext1",
             &Diagnosis::default()
         ),
-        [show("f-sk1"), pick("/profile/regions/1"),]
+        [show("f-sk1"), pick("/profile/regions/1")]
     );
 }
 
@@ -924,7 +924,7 @@ fn a_profile_without_its_region_says_why() {
     );
     assert_eq!(
         fixes_labeled(&deleted, "f-ext1", &Diagnosis::default()),
-        [show("f-sk1"), pick("/profile/regions/0"),]
+        [show("f-sk1"), pick("/profile/regions/0")]
     );
 }
 
@@ -940,7 +940,7 @@ fn a_profile_whose_region_matches_several_areas_asks_which() {
     let fixes = fixes_labeled(&error, "f-ext1", &Diagnosis::default());
     assert_eq!(
         fixes[fixes.len().saturating_sub(2)..],
-        [show("f-sk1"), pick("/profile/regions/0"),]
+        [show("f-sk1"), pick("/profile/regions/0")]
     );
 }
 

@@ -99,7 +99,8 @@ fn encode(messages: &[MessageRef<'_>], buffers: &[Buffer]) -> Result<Vec<u8>, Fr
         messages,
         buffers: &table,
     };
-    // The header is serialized in place after the prefix, and its length is patched in afterwards.
+    // The header is serialized in place after the prefix, and its length is patched in afterwards,
+    // which saves a separate header buffer and its copy into the frame.
     let mut bytes = Vec::with_capacity(PREFIX_LENGTH);
     bytes.extend_from_slice(&MAGIC);
     bytes.resize(PREFIX_LENGTH, 0);

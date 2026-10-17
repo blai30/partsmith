@@ -200,7 +200,7 @@ function openPlanePicking(app: App, reattaching: string | null): void {
  * picking of a new sketch for that sketch, while repair mode shows its repair (3.7).
  */
 export async function reattachSketch(app: App, sketchId: string): Promise<void> {
-  if (sketchRecordOf(app.store.getState(), sketchId) === null) {
+  if (selectSketchRecord(app.store.getState(), sketchId) === null) {
     return
   }
   await leaveForPlanePicking(app)
@@ -555,14 +555,9 @@ export function createSketchIds(app: App): IdSource {
   }
 }
 
-/** The sketch record with this id in the recipe, or null. */
-export function sketchRecordOf(state: AppState, sketchId: string | null): FeatureRecord | null {
-  return sketchId === null ? null : selectSketchRecord(state, sketchId)
-}
-
 /** The params of the sketch with this id as the recipe stores them, or null. */
 export function storedSketchParams(state: AppState, sketchId: string | null): SketchParams | null {
-  const record = sketchRecordOf(state, sketchId)
+  const record = selectSketchRecord(state, sketchId)
   return record === null ? null : sketchParamsOf(record)
 }
 

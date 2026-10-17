@@ -42,8 +42,9 @@ pub struct ExactMessage<'a> {
 
 impl Checks {
     /// Checks that `feature` has exactly one message and that it has this code, rendered text and
-    /// root cause, and returns the message with the code, if there is one.
-    pub fn the_only_message<'r>(
+    /// root cause, but not its fixes, which the caller checks, and returns the message with the
+    /// code, if there is one.
+    pub fn only_message_ignoring_fixes<'r>(
         &mut self,
         run: &'r Run,
         feature: &str,
@@ -80,9 +81,13 @@ impl Checks {
 
     /// Checks that `feature` has exactly one message and that it is `expected`.
     pub fn only_message(&mut self, run: &Run, feature: &str, expected: ExactMessage<'_>) {
-        let Some(message) =
-            self.the_only_message(run, feature, expected.code, expected.text, expected.root)
-        else {
+        let Some(message) = self.only_message_ignoring_fixes(
+            run,
+            feature,
+            expected.code,
+            expected.text,
+            expected.root,
+        ) else {
             return;
         };
         self.check(
