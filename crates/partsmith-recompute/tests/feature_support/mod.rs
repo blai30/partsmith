@@ -18,7 +18,7 @@ use partsmith_features::{
     RenderContext, Repair, Severity, SketchResult,
 };
 use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit, Id};
-use partsmith_naming::{ElementKind, ElementName, Follow, Reference};
+use partsmith_naming::{ElementKind, ElementName, Follow, Motion, Reference};
 use partsmith_occt_sys::{
     ElementGeometry, GeometryKind, Plane, Shape, StepBody, SubShapeKind, Vector, make_box,
     write_step,
@@ -349,10 +349,19 @@ pub fn output_update<'r>(report: &'r Report, feature: &str, body: &str) -> &'r B
 
 /// The placement of the datum plane that `feature` produced.
 pub fn datum_plane<'r>(report: &'r Report, feature: &str) -> &'r Placement {
-    let OutputData::Datum(DatumResult::Plane(placement)) = &output(report, feature).data else {
+    let OutputData::Datum(DatumResult::Plane { placement, .. }) = &output(report, feature).data
+    else {
         panic!("{feature} did not output a datum plane");
     };
     placement
+}
+
+/// The motion of the datum plane that `feature` produced (features/datum_plane.md section 3.2 step 4).
+pub fn datum_motion<'r>(report: &'r Report, feature: &str) -> &'r Motion {
+    let OutputData::Datum(DatumResult::Plane { motion, .. }) = &output(report, feature).data else {
+        panic!("{feature} did not output a datum plane");
+    };
+    motion
 }
 
 /// Every feature's status and messages, for failure output.
@@ -857,6 +866,61 @@ pub fn vertex(state: &BodyState, name: &str) -> ElementGeometry {
     element(state, ElementKind::Vertex, name)
 }
 
+/// The geometry of the edge named `name`, for example `edge(f-box1/front|f-box1/top)`.
+pub fn edge(state: &BodyState, name: &str) -> ElementGeometry {
+    element(state, ElementKind::Edge, name)
+}
+
+/// Asserts that `motion` moves each point of `moves` from its first position to its second (absolute 1e-9), so a test
+/// checks a translation, rotation or reflection without comparing matrix entries bit for bit.
+pub fn assert_moves(motion: &Motion, moves: &[([f64; 3], [f64; 3])]) {
+    for (from, to) in moves {
+        assert_coordinates(
+            &format!("{from:?} moved by {motion:?}"),
+            motion.apply_point(*from),
+            *to,
+            AXIS_TOLERANCE,
+        );
+    }
+}
+
+/// Asserts that `motion` is the translation by `offset`: it moves the origin and the unit points by `offset`.
+pub fn assert_translation(motion: &Motion, offset: [f64; 3]) {
+    let moved = |point: [f64; 3]| [0, 1, 2].map(|axis| point[axis] + offset[axis]);
+    let points = [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ];
+    let moves: Vec<([f64; 3], [f64; 3])> = points.iter().map(|point| (*point, moved(*point))).collect();
+    assert_moves(motion, &moves);
+}
+
+/// Asserts that `motion` is the rotation by `turns` quarter turns counterclockwise about the world Z axis.
+pub fn assert_quarter_turns_about_z(motion: &Motion, turns: u32) {
+    let turned = |point: [f64; 3]| {
+        let mut point = point;
+        for _ in 0..turns {
+            point = [-point[1], point[0], point[2]];
+        }
+        point
+    };
+    let points = [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ];
+    let moves: Vec<([f64; 3], [f64; 3])> = points.iter().map(|point| (*point, turned(*point))).collect();
+    assert_moves(motion, &moves);
+}
+
+/// The JSON text of a stored reference, for a record written after a pick or a fix stored it.
+pub fn reference_json(reference: &Reference) -> String {
+    serde_json::to_string(reference).expect("references serialize")
+}
+
 /// Asserts that a face lies in the plane where coordinate `axis` (0 for x, 1 for y, 2 for z) equals
 /// `position`: a planar surface whose normal is parallel to that axis (either sign) and whose
 /// centroid lies on the plane. This is what a spec's "plane z=30" means.
@@ -1300,4 +1364,184 @@ pub fn assert_messages_pass_lint(run: &Run, feature: &str) {
             "the message {text:?} of {feature} breaks the message lint: {failures:?}"
         );
     }
+}
+
+// Helpers for the face sketches of features/sketch.md tests 20 to 29 and the copy, move and axis tests of the other
+// feature specs that build on them (frames on the model, ADR 0023).
+
+/// `PL(ox, oy, oz)` of features/sketch.md section 6 as JSON: origin `(ox, oy, oz)`, x axis +X, normal +Z.
+pub fn top_fallback(origin: [f64; 3]) -> String {
+    let [x, y, z] = origin;
+    format!(r#"{{"origin": [{x}, {y}, {z}], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}"#)
+}
+
+/// `FACE-SK2(face, fallback, frame, entities)` of features/sketch.md section 6 with `fallback` given as JSON: the sketch `f-sk2` on
+/// `face` of `b-1`, its `fallback_frame` left out for `None` (`world`, as every document written before file format
+/// version 2 has it).
+pub fn face_sketch_with(face: &str, fallback: &str, frame: Option<&str>, entities: &str) -> String {
+    let frame = frame
+        .map(|frame| format!(r#", "fallback_frame": "{frame}""#))
+        .unwrap_or_default();
+    format!(
+        r#"{{"id": "f-sk2", "type": "sketch", "plane": {{"kind": "face", "body": "b-1", "face": {face}, "fallback": {fallback}{frame}}}, "entities": {entities}}}"#
+    )
+}
+
+/// `FACE-SK2(face, PL(origin), frame, entities)` of features/sketch.md section 6.
+pub fn face_sketch(face: &str, origin: [f64; 3], frame: Option<&str>, entities: &str) -> String {
+    face_sketch_with(face, &top_fallback(origin), frame, entities)
+}
+
+/// The entities of a sketch with one point `e-p1` at `(x, y)`.
+pub fn one_point(position: [f64; 2]) -> String {
+    let [x, y] = position;
+    format!(r#"[{{"id": "e-p1", "type": "point", "position": [{x}, {y}]}}]"#)
+}
+
+/// The entities of a sketch with one circle `id` at `(x, y)` with radius `radius`.
+pub fn one_circle(id: &str, center: [f64; 2], radius: f64) -> String {
+    let [x, y] = center;
+    format!(r#"[{{"id": "{id}", "type": "circle", "center": [{x}, {y}], "radius": {radius}}}]"#)
+}
+
+/// A hole `f-hole1` in `b-1` at `e-p1` of `f-sk2` with this diameter and extent.
+pub fn hole_at_point(diameter: &str, extent: &str) -> String {
+    format!(
+        r#"{{"id": "f-hole1", "type": "hole", "body": "b-1", "sketch": "f-sk2", "points": ["e-p1"], "diameter": "{diameter}", "extent": {extent}}}"#
+    )
+}
+
+/// The through-all extent.
+pub const THROUGH_ALL: &str = r#"{"kind": "through_all"}"#;
+
+/// Asserts that the bore of `f-hole1` at `e-p1` has its axis through `point` at the end of the run.
+#[track_caller]
+pub fn assert_bore_through(run: &Run, point: [f64; 3]) {
+    assert_face_axis_through(&face(run.body("b-1"), "f-hole1/bore/e-p1"), point);
+}
+
+/// Asserts that the maximum z of `body`'s bounding box at the end of the run is `z`.
+#[track_caller]
+pub fn assert_top_at(run: &Run, body: &str, z: f64) {
+    let bounds = run
+        .shape(body)
+        .bounding_box()
+        .expect("the kernel bounds a non-empty shape");
+    assert_absolute("bounding box maximum z", bounds.max[2], z, LENGTH_TOLERANCE);
+}
+
+/// The L-shaped body of fillet.md test 4 in `body`: `f-box1` 40 x 20 x 10 (x -20..20, y -10..10) and `f-box2` 20 x 20
+/// x 10 joined on its right half (x 0..20, z 10..20). `f-box1/top` lies at z = 10, `f-box2/top` at z = 20, and the
+/// fronts merge into `f-box1/front`.
+pub fn l_shaped_body(body: &str) -> [String; 2] {
+    [
+        format!(
+            r#"{{"id": "f-box1", "type": "box", "body": "{body}", "size": ["40", "20", "10"], "op": "new"}}"#
+        ),
+        format!(
+            r#"{{"id": "f-box2", "type": "box", "body": "{body}", "size": ["20", "20", "10"], "position": ["10", "0", "10"], "op": "join"}}"#
+        ),
+    ]
+}
+
+/// The top of `l_shaped_body` stored with `f-box2/top` merged into `f-box1/top`: one reference that resolves to faces
+/// in two planes.
+pub const BOTH_TOPS: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=-10,0,10|a=400", "merged": {"f-box1/top": ["f-box2/top"]}}"#;
+
+/// The front top edge of `l_shaped_body` stored with `f-box2/top` merged into `f-box1/top`: one reference that
+/// resolves to two parallel edges at z = 10 and z = 20.
+pub const BOTH_FRONT_TOP_EDGES: &str = r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=-10,-10,10|l=20", "merged": {"f-box1/top": ["f-box2/top"]}}"#;
+
+/// The edges `BOTH_FRONT_TOP_EDGES` resolves to, in name order.
+pub const FRONT_TOP_EDGES_OF_BOTH_BOXES: [&str; 2] =
+    ["edge(f-box1/front|f-box1/top)", "edge(f-box1/front|f-box2/top)"];
+
+/// Asserts that `feature` failed with `code` (`not_coplanar` or `not_collinear`) about the reference of the param
+/// `field`, rendered `text`, and that its fixes are `UseReferences` with each element `names` gives, as a pick in
+/// `body` just before the feature stores it, then `Pick`, all at the JSON Pointer of the reference inside the param
+/// (`/base/face` for `base`, `/direction/axis/edge` for `direction.axis`). Feature specs name the param ("field
+/// `base`"); the error may also name the reference inside it, as `NotPlanar` does (features.md section 4.1).
+#[track_caller]
+pub fn assert_choice_between(
+    run: &Run,
+    feature: &str,
+    code: &str,
+    (field, reference_key): (&str, &str),
+    body: &str,
+    names: &[&str],
+    text: &str,
+) {
+    let error = run.assert_error(feature, code);
+    let path = &error
+        .field()
+        .unwrap_or_else(|| panic!("the error names no field: {error}"))
+        .path;
+    let reference_path = format!("{field}.{reference_key}");
+    assert!(
+        *path == field || *path == reference_path,
+        "the error is about {path}, expected {field} or {reference_path}"
+    );
+    assert_eq!(run.messages(feature), [text]);
+    let pointer = format!("/{}", reference_path.replace('.', "/"));
+    let mut expected: Vec<Fix> = names
+        .iter()
+        .map(|name| use_reference(&pointer, run.picked_before(feature, body, name)))
+        .collect();
+    expected.push(pick(&pointer));
+    assert_eq!(message(run, feature, code).fixes, expected);
+    assert_messages_pass_lint(run, feature);
+}
+
+/// The setup of corpus R38 in `b-1`: `RECT(0, 0, 40, 20)` with the shared point of `e-3`'s end and `e-4`'s start at
+/// (`lean`, 20) (0 before the corpus edit; -1 or 1 after it, so the left wall leans 1 mm either way), as `f-sk1` on XY,
+/// and `f-ext1`, its extrude of 10, op new.
+pub fn leaning_wall(lean: i32) -> [String; 2] {
+    let lines = [
+        line("e-1", [0, 0], [40, 0]),
+        line("e-2", [40, 0], [40, 20]),
+        line("e-3", [40, 20], [lean, 20]),
+        line("e-4", [lean, 20], [0, 0]),
+    ];
+    [
+        format!(
+            r#"{{"id": "f-sk1", "type": "sketch", "plane": {{"kind": "origin", "plane": "XY"}}, "entities": [{}]}}"#,
+            lines.join(", ")
+        ),
+        r#"{"id": "f-ext1", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=20,10|a=800"}]}, "extent": {"kind": "distance", "expr": "10"}, "op": "new"}"#.to_owned(),
+    ]
+}
+
+/// The left wall's bottom edge of `leaning_wall` as an axis of `b-1` (corpus R38), followed by `extra` members such as
+/// `, "direction": [0, 1, 0]`, or none.
+pub fn left_bottom_edge_axis(extra: &str) -> String {
+    format!(
+        r#"{{"kind": "edge", "body": "b-1", "edge": {{"q": "edge(f-ext1/lateral/e-4|f-ext1/start-cap)", "fp": "line|n=0,1,0|c=0,10,0|l=20|adj=2,2"}}{extra}}}"#
+    )
+}
+
+/// `LEAN(x)` of revolve.md test 28: the sketch `f-sk5` on XZ with `e-11` (-6, 0)-(-4, 0), `e-12` (-4, 0)-(x, 30),
+/// `e-13` (x, 30)-(-6, 30) and `e-14` (-6, 30)-(-6, 0), and `f-ext5`, its extrude of 10 into `b-2`: a wall in y -10..0
+/// whose face at y = 0 lies in the XZ plane and whose edge along `e-12` leans when `x` is not -4.
+pub fn lean(top_x: i32) -> [String; 2] {
+    let lines = [
+        line("e-11", [-6, 0], [-4, 0]),
+        line("e-12", [-4, 0], [top_x, 30]),
+        line("e-13", [top_x, 30], [-6, 30]),
+        line("e-14", [-6, 30], [-6, 0]),
+    ];
+    [
+        format!(
+            r#"{{"id": "f-sk5", "type": "sketch", "plane": {{"kind": "origin", "plane": "XZ"}}, "entities": [{}]}}"#,
+            lines.join(", ")
+        ),
+        r#"{"id": "f-ext5", "type": "extrude", "body": "b-2", "profile": {"sketch": "f-sk5", "regions": [{"key": "e-11,e-12,e-13,e-14", "fp": "c=-5,15|a=60"}]}, "extent": {"kind": "distance", "expr": "10"}, "op": "new"}"#.to_owned(),
+    ]
+}
+
+/// The edge of `lean` along `e-12` on the wall's face at y = 0, as an axis of `b-2`, followed by `extra` members such
+/// as `, "direction": [0, 0, 1]`, or none.
+pub fn lean_edge_axis(extra: &str) -> String {
+    format!(
+        r#"{{"kind": "edge", "body": "b-2", "edge": {{"q": "edge(f-ext5/lateral/e-12|f-ext5/start-cap)", "fp": "line|n=0,0,1|c=-4,0,15|l=30|adj=2,2"}}{extra}}}"#
+    )
 }

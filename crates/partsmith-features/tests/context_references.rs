@@ -23,11 +23,11 @@ use common::records::{
 use common::timeline::{Timeline, stored, sub_shape_names};
 use common::{assert_vector_close, id, keep_and_pick, pointer, warning_fixes};
 use partsmith_features::{
-    BodyState, FaceFallback, FeatureError, FeatureWarning, Fix, Loss, PlaneRef, Repair, Resolved,
-    Severity, WithWarnings,
+    BodyState, FaceFallback, FacePlacement, FeatureError, FeatureWarning, Fix, Loss, PlaneRef,
+    Repair, Resolved, Severity,
 };
 use partsmith_naming::{ElementKind, Follow, Lost, Reference, Resolution};
-use partsmith_sketch::Placement;
+use partsmith_sketch::{HintFrame, Placement};
 use serde_json::{Value, json};
 
 /// The back top edge of `BLOCK`, as the corpus stores it (R07, R66).
@@ -1056,16 +1056,27 @@ fn right_side_hint() -> Placement {
     }
 }
 
-/// `face_placement` of `face` as the face of the plane of a sketch `f-sk9` on `b-1` at the end of `timeline`.
+/// `face_placement` of `face` as the face of the plane of a sketch `f-sk9` on `b-1` at the end of `timeline`, with
+/// `hint` in world coordinates.
 fn place_sketch(
     timeline: &Timeline,
     face: &Reference,
     hint: &Placement,
-) -> Result<Result<WithWarnings<Placement>, FaceFallback>, FeatureError> {
+) -> Result<Result<FacePlacement, FaceFallback>, FeatureError> {
     let fixture = timeline.fixture("f-sk9", "sketch");
     fixture
         .context()
-        .face_placement("plane.face", &id("b-1"), face, hint)
+        .face_placement("plane.face", &id("b-1"), face, hint, HintFrame::World)
+}
+
+/// The placement of a face placement that used its face; fails the test when it fell back or failed.
+#[track_caller]
+fn placed(result: Result<Result<FacePlacement, FaceFallback>, FeatureError>) -> FacePlacement {
+    match result {
+        Ok(Ok(placement)) => placement,
+        Ok(Err(fallback)) => panic!("expected a placement, got the fallback {fallback:?}"),
+        Err(error) => panic!("expected a placement, got the error {error:?}"),
+    }
 }
 
 #[test]
@@ -1073,13 +1084,16 @@ fn a_face_placement_that_followed_a_change_carries_its_notice() {
     // Corpus R06a: e-2 deleted and drawn again in its place as e-9, under a sketch on the right side.
     let timeline = edited_block(&["e-2"], vec![line("e-9", [80.0, 0.0], [80.0, 50.0])]);
 
-    let placed = place_sketch(&timeline, &stored_pair(RIGHT_SIDE), &right_side_hint())
-        .expect("nothing fails")
-        .expect("the redrawn side places the sketch");
+    let placed = placed(place_sketch(
+        &timeline,
+        &stored_pair(RIGHT_SIDE),
+        &right_side_hint(),
+    ));
 
-    assert_vector_close(placed.value.origin, [80.0, 0.0, 0.0], "origin");
-    assert_vector_close(placed.value.x_axis, [0.0, 1.0, 0.0], "x axis");
-    assert_vector_close(placed.value.normal, [1.0, 0.0, 0.0], "normal");
+    assert_vector_close(placed.placement.origin, [80.0, 0.0, 0.0], "origin");
+    assert_vector_close(placed.placement.x_axis, [0.0, 1.0, 0.0], "x axis");
+    assert_vector_close(placed.placement.normal, [1.0, 0.0, 0.0], "normal");
+    assert!(!placed.turned_over);
     let [notice] = placed.warnings.as_slice() else {
         panic!("expected one notice, got {:?}", placed.warnings);
     };
@@ -1109,12 +1123,11 @@ fn a_face_placement_on_a_guessed_face_carries_its_warning() {
         normal: [0.0, 0.0, 1.0],
     };
 
-    let placed = place_sketch(&timeline, &guessed_top(), &hint)
-        .expect("nothing fails")
-        .expect("a guess places the sketch");
+    let placed = placed(place_sketch(&timeline, &guessed_top(), &hint));
 
-    assert_vector_close(placed.value.origin, [0.0, 0.0, 30.0], "origin");
-    assert_vector_close(placed.value.normal, [0.0, 0.0, 1.0], "normal");
+    assert_vector_close(placed.placement.origin, [0.0, 0.0, 30.0], "origin");
+    assert_vector_close(placed.placement.normal, [0.0, 0.0, 1.0], "normal");
+    assert!(!placed.turned_over);
     let [warning] = placed.warnings.as_slice() else {
         panic!("expected one warning, got {:?}", placed.warnings);
     };

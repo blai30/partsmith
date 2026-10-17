@@ -1,17 +1,19 @@
 //! Acceptance tests of the `chamfer` feature (docs/spec/features/chamfer.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/chamfer/`.
+//! `examples/chamfer/`; the documents of tests 15 and 16 (corpus R22) are written here until their
+//! examples exist.
 
 mod feature_support;
 
 use std::time::Duration;
 
 use feature_support::{
-    CUBE20, FRONT_TOP_EDGE, PLATE, PLATE_TOP_EDGES, Run, assert_bounding_box,
-    assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_count, assert_face_kind, assert_list_field, assert_median_build_within,
-    assert_messages_pass_lint, assert_unchanged, assert_volume, body_update, document, face,
-    face_names, load_example, message, suggested_limit,
+    CUBE20, FRONT_TOP_EDGE, LENGTH_TOLERANCE, PLATE, PLATE_TOP_EDGES, Run, assert_absolute,
+    assert_bounding_box, assert_coordinates, assert_element_repair, assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
+    assert_list_field, assert_median_build_within, assert_messages_pass_lint, assert_relative,
+    assert_unchanged, assert_volume, body_update, document, edge, face, face_names,
+    load_example, message, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
 use partsmith_model::{Document, Units};
@@ -86,7 +88,7 @@ fn t001_equal_distance() {
 }
 
 #[test]
-fn t002_two_distances_first_on_the_face_that_sorts_first() {
+fn t002_two_distances_first_on_the_first_face_of_the_stored_reference() {
     let run = Run::example("chamfer/two-distances.ptsm");
 
     run.assert_all_ok();
@@ -388,4 +390,149 @@ fn t014_distance_below_the_tolerance() {
         ]
     );
     assert_unchanged(&run, "f-cha1", "b-1");
+}
+
+// Tests 15 and 16 (corpus R22): the side of a two-distance chamfer follows the face the edge was picked from, whatever
+// names a join inserted before it gives the faces (section 3.3 step 4), with the join's id sorting before and after
+// `f-box1`.
+
+/// The chamfer of tests 15 and 16: 1 mm on the front and 3 mm on the top of `CUBE20`'s front top edge, as picked
+/// before the join was inserted.
+fn picked_side_chamfer() -> String {
+    chamfer_record(
+        &[r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2"}"#],
+        r#"{"kind": "two_distances", "expr": "1", "second_expr": "3"}"#,
+    )
+}
+
+/// `CUBE20`, the join `join` inserted before the chamfer, then the chamfer of tests 15 and 16.
+fn joined_then_chamfered(join: &str) -> Run {
+    Run::records(&["b-1"], &[CUBE20, join, &picked_side_chamfer()])
+}
+
+/// The box of test 15 with id `join_id`, joined beside `CUBE20` (x 10..30, y -20..20): the tops merge, the fronts do
+/// not.
+fn base_beside(join_id: &str) -> String {
+    format!(
+        r#"{{"id": "{join_id}", "type": "box", "body": "b-1", "size": ["20", "40", "20"], "position": ["20", "0", "0"], "op": "join"}}"#
+    )
+}
+
+/// The box of test 16 with id `join_id`, joined behind `CUBE20` (x -10..10, y 10..30): the tops merge.
+fn box_behind(join_id: &str) -> String {
+    format!(
+        r#"{{"id": "{join_id}", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "position": ["0", "20", "0"], "op": "join"}}"#
+    )
+}
+
+/// The name of the edge between two faces (naming.md section 3.6: adjacent face names, sorted).
+fn edge_between(first: &str, second: &str) -> String {
+    let (low, high) = if first <= second {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    format!("edge({low}|{high})")
+}
+
+/// Asserts test 15's sides: the chamfer face meets `f-box1/front` along z = 19 (1 mm down the front) and the merged
+/// top `top` along y = -7 (3 mm into the top), where the front top edge now has the name `edge_name`.
+#[track_caller]
+fn assert_picked_sides(run: &Run, top: &str, edge_name: &str) {
+    let body = run.body("b-1");
+    let chamfer = format!("f-cha1/chamfer/{edge_name}");
+    let on_front = edge(body, &edge_between("f-box1/front", &chamfer));
+    assert_absolute(
+        "z of the chamfer's edge on the front",
+        on_front.centroid.z,
+        19.0,
+        LENGTH_TOLERANCE,
+    );
+    assert_absolute(
+        "y of the chamfer's edge on the front",
+        on_front.centroid.y,
+        -10.0,
+        LENGTH_TOLERANCE,
+    );
+    let on_top = edge(body, &edge_between(top, &chamfer));
+    assert_absolute(
+        "y of the chamfer's edge on the top",
+        on_top.centroid.y,
+        -7.0,
+        LENGTH_TOLERANCE,
+    );
+    assert_absolute(
+        "z of the chamfer's edge on the top",
+        on_top.centroid.z,
+        20.0,
+        LENGTH_TOLERANCE,
+    );
+}
+
+#[test]
+fn t015_the_sides_survive_a_join_that_renames_the_top() {
+    // `f-base1` sorts before `f-box1`, so the merged top is `f-base1/top` and the edge's name now sorts the top first.
+    let run = joined_then_chamfered(&base_beside("f-base1"));
+
+    run.assert_ok("f-cha1");
+    assert_picked_sides(&run, "f-base1/top", "edge(f-base1/top|f-box1/front)");
+}
+
+#[test]
+fn t015_the_sides_do_not_depend_on_the_joins_id() {
+    let before = joined_then_chamfered(&base_beside("f-base1"));
+    // `f-side1` sorts after `f-box1`, so the merged top keeps the name `f-box1/top`.
+    let after = joined_then_chamfered(&base_beside("f-side1"));
+
+    after.assert_ok("f-cha1");
+    assert_picked_sides(&after, "f-box1/top", "edge(f-box1/front|f-box1/top)");
+    let renamed = face(
+        before.body("b-1"),
+        "f-cha1/chamfer/edge(f-base1/top|f-box1/front)",
+    );
+    let kept = face(
+        after.body("b-1"),
+        "f-cha1/chamfer/edge(f-box1/front|f-box1/top)",
+    );
+    assert_relative("chamfer face area", kept.measure, renamed.measure);
+    assert_coordinates(
+        "chamfer face centroid",
+        components_of(kept.centroid),
+        components_of(renamed.centroid),
+        LENGTH_TOLERANCE,
+    );
+    assert_relative(
+        "volume",
+        after.shape("b-1").volume().expect("the kernel measures the volume"),
+        before.shape("b-1").volume().expect("the kernel measures the volume"),
+    );
+}
+
+/// The coordinates of a kernel point.
+fn components_of(point: partsmith_occt_sys::Point) -> [f64; 3] {
+    [point.x, point.y, point.z]
+}
+
+#[test]
+fn t016_the_sides_survive_a_join_behind() {
+    // `f-a1` sorts before `f-box1`, so the merged top is `f-a1/top`.
+    let run = joined_then_chamfered(&box_behind("f-a1"));
+
+    run.assert_ok("f-cha1");
+    let body = run.body("b-1");
+    assert_face_area(&face(body, "f-box1/front"), 380.0);
+    assert_face_area(&face(body, "f-a1/top"), 740.0);
+    assert_volume(run.shape("b-1"), 15970.0);
+}
+
+#[test]
+fn t016_the_side_never_depends_on_the_inserted_features_id() {
+    // `f-rear1` sorts after `f-box1`, so the merged top keeps the name `f-box1/top`.
+    let run = joined_then_chamfered(&box_behind("f-rear1"));
+
+    run.assert_ok("f-cha1");
+    let body = run.body("b-1");
+    assert_face_area(&face(body, "f-box1/front"), 380.0);
+    assert_face_area(&face(body, "f-box1/top"), 740.0);
+    assert_volume(run.shape("b-1"), 15970.0);
 }

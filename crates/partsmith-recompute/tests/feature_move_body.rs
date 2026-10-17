@@ -1,16 +1,22 @@
 //! Acceptance tests of the `move_body` feature (docs/spec/features/move_body.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/move_body/`.
+//! `examples/move_body/`; the documents of tests 10 to 13 (frames on the model) are written here
+//! until their examples exist.
 
 mod feature_support;
 
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_normal, assert_face_position,
-    assert_median_build_within, assert_unchanged, assert_volume, body_changes, face, load_example,
+    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, THROUGH_ALL, assert_bore_through,
+    assert_bounding_box, assert_choice_between, assert_error_field, assert_examples_canonical,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_normal,
+    assert_face_position, assert_median_build_within, assert_quarter_turns_about_z,
+    assert_translation, assert_unchanged, assert_volume, body_changes, document, face,
+    face_sketch, hole_at_point, l_shaped_body, leaning_wall, left_bottom_edge_axis, load_example,
+    one_point, output_body,
 };
+use partsmith_naming::ElementName;
 use partsmith_occt_sys::GeometryKind;
 
 /// The bodies of every move body test.
@@ -160,4 +166,159 @@ fn t009_rotate_then_translate_builds_within_5_ms() {
     let document = load_example("move_body/rotate-translate.ptsm");
 
     assert_median_build_within(&document, "f-mv1", 21, Duration::from_millis(5));
+}
+
+// Tests 10 to 13: the output map is the input map `moved` by the transform, so face sketches and stored axis directions
+// move with the part, and an axis keeps the side the user picked (features.md sections 3.6 and 3.9).
+
+/// The document of features/sketch.md test 20 (corpus R32a) with `extra` as the members of the Move body inserted
+/// before the face sketch: a box 40 x 40 x 10, the move, a face sketch on the box's top in body coordinates with a
+/// point at (15, 15), and a hole through all at it.
+fn sketch_after_a_move_document(extra: &str) -> partsmith_model::Document {
+    document(
+        &BODIES,
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}"#,
+            &move_body(extra),
+            &face_sketch(
+                r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"}"#,
+                [0.0, 0.0, 10.0],
+                Some("body"),
+                &one_point([15.0, 15.0]),
+            ),
+            &hole_at_point("4", THROUGH_ALL),
+        ],
+    )
+}
+
+/// The motion of `f-box1/top` in b-1's state after `f-mv1`.
+fn top_motion_after_the_move(run: &Run) -> partsmith_naming::Motion {
+    let top = ElementName::parse("f-box1/top").expect("a valid name");
+    output_body(run, "f-mv1", "b-1").motion(&top)
+}
+
+#[test]
+fn t010_a_sketch_after_the_move_keeps_its_point_on_the_moved_face() {
+    let run = Run::new(sketch_after_a_move_document(
+        r#""translation": ["100", "0", "0"]"#,
+    ));
+
+    run.assert_all_ok();
+    assert_translation(&top_motion_after_the_move(&run), [100.0, 0.0, 0.0]);
+    assert_bore_through(&run, [115.0, 15.0, 0.0]);
+}
+
+#[test]
+fn t010_a_sketch_after_a_turn_keeps_its_point_on_the_turned_face() {
+    let run = Run::new(sketch_after_a_move_document(&format!(
+        r#""rotation": {}"#,
+        rotation_z("90 deg")
+    )));
+
+    run.assert_all_ok();
+    assert_quarter_turns_about_z(&top_motion_after_the_move(&run), 1);
+    assert_bore_through(&run, [-15.0, 15.0, 0.0]);
+}
+
+/// The R38 setup with its left wall leaning by `lean`, turned by 90 degrees about the wall's bottom edge.
+fn turned_about_leaning_wall(lean: i32) -> Run {
+    let [sketch, extrude] = leaning_wall(lean);
+    Run::records(
+        &BODIES,
+        &[
+            &sketch,
+            &extrude,
+            &move_body(&format!(
+                r#""rotation": {{"axis": {}, "angle": "90 deg"}}"#,
+                left_bottom_edge_axis("")
+            )),
+        ],
+    )
+}
+
+#[test]
+fn t011_the_part_turns_down_about_the_upright_wall() {
+    let run = turned_about_leaning_wall(0);
+
+    run.assert_all_ok();
+    assert_bounding_box(run.shape("b-1"), [0.0, 0.0, -40.0], [10.0, 20.0, 0.0]);
+}
+
+#[test]
+fn t011_an_axis_edge_that_leans_keeps_the_fingerprints_side() {
+    // The axis keeps the side of the fingerprint's +Y, (-0.049938, 0.998752, 0), so the part still turns down.
+    let run = turned_about_leaning_wall(-1);
+    run.assert_all_ok();
+    assert_bounding_box(
+        run.shape("b-1"),
+        [-1.0, -1.995012, -40.948846],
+        [10.087274, 20.499376, 0.0],
+    );
+
+    let run = turned_about_leaning_wall(1);
+    run.assert_all_ok();
+    assert_bounding_box(
+        run.shape("b-1"),
+        [0.0, -0.499376, -39.950094],
+        [11.08478, 21.945137, 0.0],
+    );
+}
+
+/// A box 10 x 10 x 10, a half turn about Z inserted later as `f-mv1`, and `f-mv2`, a quarter turn about the box's
+/// right top edge as picked before `f-mv1` was inserted, with the axis's `extra` members.
+fn quarter_turn_after_a_half_turn(extra: &str) -> Run {
+    Run::records(
+        &BODIES,
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}"#,
+            &move_body(&format!(r#""rotation": {}"#, rotation_z("180 deg"))),
+            &format!(
+                r#"{{"id": "f-mv2", "type": "move_body", "body": "b-1", "rotation": {{"axis": {{"kind": "edge", "body": "b-1", "edge": {{"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=5,0,10|l=10"}}{extra}}}, "angle": "90 deg"}}}}"#
+            ),
+        ],
+    )
+}
+
+#[test]
+fn t012_a_half_turn_before_the_move_turns_its_stored_axis() {
+    let run = quarter_turn_after_a_half_turn(r#", "direction": [0, 1, 0]"#);
+
+    run.assert_all_ok();
+    // The stored direction turns with the part to -Y, so the box turns over that edge to where it went before.
+    assert_bounding_box(run.shape("b-1"), [-5.0, -5.0, 10.0], [5.0, 5.0, 20.0]);
+}
+
+#[test]
+fn t012_without_a_stored_direction_the_fingerprint_keeps_its_side() {
+    let run = quarter_turn_after_a_half_turn("");
+
+    run.assert_all_ok();
+    // The fingerprint's +Y.
+    assert_bounding_box(run.shape("b-1"), [-15.0, -5.0, 0.0], [-5.0, 5.0, 10.0]);
+}
+
+#[test]
+fn t013_axis_edges_not_on_one_line() {
+    let [box_1, box_2] = l_shaped_body("b-1");
+    let run = Run::records(
+        &BODIES,
+        &[
+            &box_1,
+            &box_2,
+            &move_body(&format!(
+                r#""rotation": {{"axis": {{"kind": "edge", "body": "b-1", "edge": {BOTH_FRONT_TOP_EDGES}}}, "angle": "90 deg"}}"#
+            )),
+        ],
+    );
+
+    assert_choice_between(
+        &run,
+        "f-mv1",
+        "not_collinear",
+        ("rotation.axis", "edge"),
+        "b-1",
+        &FRONT_TOP_EDGES_OF_BOTH_BOXES,
+        "The edge selected for Rotation axis now matches 2 edges that do not lie on one line. Pick the one you mean.",
+    );
+    assert_unchanged(&run, "f-mv1", "b-1");
 }

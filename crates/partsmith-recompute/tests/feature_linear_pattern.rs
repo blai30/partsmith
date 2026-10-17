@@ -1,6 +1,7 @@
 //! Acceptance tests of the `linear_pattern` feature (docs/spec/features/linear_pattern.md section
 //! 6), run as documents through recompute (features.md section 6.1). Geometry documents are the
-//! examples in `examples/linear_pattern/`.
+//! examples in `examples/linear_pattern/`; the documents of tests 16 to 19 (frames on the model) are
+//! written here until their examples exist.
 
 mod feature_support;
 
@@ -9,11 +10,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_position, assert_has_face,
-    assert_median_build_within, assert_solid_count, assert_unchanged, assert_volume, body_changes,
-    document, face, link_ids,
+    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, THROUGH_ALL, assert_bore_through,
+    assert_bounding_box, assert_choice_between, assert_error_field, assert_examples_canonical,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_position, assert_has_face,
+    assert_median_build_within, assert_solid_count, assert_translation, assert_unchanged,
+    assert_volume, body_changes, document, face, face_sketch, hole_at_point, l_shaped_body,
+    leaning_wall, left_bottom_edge_axis, link_ids, one_point, output_body,
 };
+use partsmith_naming::ElementName;
 use partsmith_features::{
     BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, Values,
 };
@@ -342,5 +346,158 @@ fn t015_fractional_count_below_1() {
         ["Count must be at least 1, but it is 0.5. Use 1 or more."]
     );
     assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("1"));
+    assert_unchanged(&run, "f-lp1", "b-1");
+}
+
+// Tests 16 to 19: copies carry their transform as the motion of their faces, and an edge direction keeps the side the
+// user picked (features.md sections 3.6 and 3.9).
+
+/// The document of features/sketch.md test 27: a box 20 x 20 x 10, this pattern of it along X with count 2 and
+/// `spacing`, a face sketch on the copy's top in the coordinates of 'Box 1', and a hole through all at its point (5, 5).
+fn sketch_on_copy_document(spacing: &str) -> partsmith_model::Document {
+    document(
+        &BODIES,
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "op": "new"}"#,
+            &pattern(&direction(X, "2", spacing), ""),
+            &face_sketch(
+                r#"{"q": "f-box1/top@f-lp1:1", "fp": "plane|n=0,0,1|c=60,0,10|a=400|adj=4,4"}"#,
+                [0.0, 0.0, 10.0],
+                Some("body"),
+                &one_point([5.0, 5.0]),
+            ),
+            &hole_at_point("4", THROUGH_ALL),
+        ],
+    )
+}
+
+#[test]
+fn t016_a_sketch_on_a_copys_face_follows_the_spacing() {
+    for (spacing, offset) in [("60", 60.0), ("80", 80.0)] {
+        let run = Run::new(sketch_on_copy_document(spacing));
+
+        run.assert_all_ok();
+        let copy_top = ElementName::parse("f-box1/top@f-lp1:1").expect("a valid name");
+        assert_translation(
+            &output_body(&run, "f-lp1", "b-1").motion(&copy_top),
+            [offset, 0.0, 0.0],
+        );
+        assert_bore_through(&run, [offset + 5.0, 5.0, 0.0]);
+    }
+}
+
+/// The R38 setup with its left wall leaning by `lean`, and the pattern of test 17 along its bottom edge, with the
+/// axis's `extra` members.
+fn pattern_along_leaning_wall(lean: i32, extra: &str) -> Run {
+    let [sketch, extrude] = leaning_wall(lean);
+    Run::records(
+        &["b-1"],
+        &[
+            &sketch,
+            &extrude,
+            &pattern(&direction(&left_bottom_edge_axis(extra), "2", "30"), ""),
+        ],
+    )
+}
+
+#[test]
+fn t017_the_pattern_of_the_upright_wall_goes_along_the_edge() {
+    let run = pattern_along_leaning_wall(0, "");
+
+    run.assert_all_ok();
+    assert_bounding_box(run.shape("b-1"), [0.0, 0.0, 0.0], [40.0, 50.0, 10.0]);
+}
+
+#[test]
+fn t017_an_edge_direction_that_leans_keeps_its_side() {
+    for extra in ["", r#", "direction": [0, 1, 0]"#] {
+        let run = pattern_along_leaning_wall(-1, extra);
+        run.assert_all_ok();
+        // The copy is offset by (-1.498129, 29.962570, 0), along (-0.049938, 0.998752, 0).
+        assert_bounding_box(
+            run.shape("b-1"),
+            [-2.498129, 0.0, 0.0],
+            [40.0, 49.962570, 10.0],
+        );
+
+        let run = pattern_along_leaning_wall(1, extra);
+        run.assert_all_ok();
+        // Offset (1.498129, 29.962570, 0).
+        assert_bounding_box(
+            run.shape("b-1"),
+            [0.0, 0.0, 0.0],
+            [41.498129, 49.962570, 10.0],
+        );
+    }
+}
+
+/// `CUBE10`, a half turn of it about Z inserted before the pattern, and the pattern of test 18 along its front top
+/// edge as picked before the turn, with the axis's `extra` members.
+fn pattern_after_a_half_turn(extra: &str) -> Run {
+    Run::records(
+        &BODIES,
+        &[
+            CUBE10,
+            r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "180 deg"}}"#,
+            &pattern(
+                &direction(
+                    &format!(
+                        r#"{{"kind": "edge", "body": "b-1", "edge": {{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}}{extra}}}"#
+                    ),
+                    "2",
+                    "20",
+                ),
+                "",
+            ),
+        ],
+    )
+}
+
+#[test]
+fn t018_a_half_turn_of_the_part_turns_a_stored_direction() {
+    let run = pattern_after_a_half_turn(r#", "direction": [1, 0, 0]"#);
+
+    run.assert_all_ok();
+    // The stored direction turns with the part to -X.
+    assert_bounding_box(run.shape("b-1"), [-25.0, -5.0, 0.0], [5.0, 5.0, 10.0]);
+}
+
+#[test]
+fn t018_without_a_stored_direction_the_fingerprint_keeps_its_side() {
+    // As written before format version 2: the fingerprint's +X.
+    let run = pattern_after_a_half_turn("");
+
+    run.assert_all_ok();
+    assert_bounding_box(run.shape("b-1"), [-5.0, -5.0, 0.0], [25.0, 5.0, 10.0]);
+}
+
+#[test]
+fn t019_direction_edges_not_on_one_line() {
+    let [box_1, box_2] = l_shaped_body("b-1");
+    let run = Run::records(
+        &BODIES,
+        &[
+            &box_1,
+            &box_2,
+            &pattern(
+                &direction(
+                    &format!(r#"{{"kind": "edge", "body": "b-1", "edge": {BOTH_FRONT_TOP_EDGES}}}"#),
+                    "2",
+                    "50",
+                ),
+                "",
+            ),
+        ],
+    );
+
+    assert_choice_between(
+        &run,
+        "f-lp1",
+        "not_collinear",
+        ("direction.axis", "edge"),
+        "b-1",
+        &FRONT_TOP_EDGES_OF_BOTH_BOXES,
+        "The edge selected for Direction now matches 2 edges that do not lie on one line. Pick the one you mean.",
+    );
     assert_unchanged(&run, "f-lp1", "b-1");
 }

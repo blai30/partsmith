@@ -1,20 +1,23 @@
 //! Build context tests for body histories, element sets and motions (features.md sections 2.6 and 6.3, tests 25 and
-//! 26), and the faces a feature's naming rule names that a build did not make (`FeatureOutput::absent`, section 2.7).
+//! 26), placements before a removal (test 30), the motions Move body and copy features give faces (section 3.9), and
+//! the faces a feature's naming rule names that a build did not make (`FeatureOutput::absent`, section 2.7).
 
 mod common;
 
 use std::sync::Arc;
 
 use common::records::{
-    block, block_with, cube20, edited, fillet, line, rectangle, reference, sketch, xy,
+    ATTACHED_BOX_TOP, block, block_with, cube10, cube20, cut_through_the_top, edited, fillet,
+    line, linear_pattern, rectangle, reference, sketch, xy,
 };
-use common::timeline::Timeline;
-use common::{ContextFixture, built_body, id};
+use common::timeline::{Timeline, stored};
+use common::{ContextFixture, assert_vector_close, built_body, id};
 use partsmith_features::{Absence, BodyState, FeatureError};
-use partsmith_model::Units;
-use partsmith_naming::{ElementName, Motion};
+use partsmith_model::{Id, Units};
+use partsmith_naming::{ElementName, Motion, Reference};
 use partsmith_occt_sys::{Transform, transform};
-use serde_json::json;
+use partsmith_sketch::{HintFrame, Placement};
+use serde_json::{Value, json};
 
 /// The state that `f-box1` of features/box.md test 1 (a box 10 x 20 x 30 in `b-1`) gives its body.
 fn box_test_1() -> BodyState {
@@ -230,4 +233,215 @@ fn a_full_revolve_records_both_caps_absent() {
             ("f-rev1/start-cap".to_string(), true),
         ]
     );
+}
+
+// Placements before a removal (section 3.6, test 30, corpus R33).
+
+/// The fallback a sketch attached to the top of `f-box1` stored when the box was 10 tall: origin (0, 0, 10), x axis
+/// +X, normal +Z.
+fn attached_top_hint() -> Placement {
+    Placement {
+        origin: [0.0, 0.0, 10.0],
+        x_axis: [1.0, 0.0, 0.0],
+        normal: [0.0, 0.0, 1.0],
+    }
+}
+
+/// The R33 setup up to its cut, followed by `extra`.
+fn cut_through_the_top_then(extra: Vec<Value>) -> Timeline {
+    let mut features = cut_through_the_top();
+    features.extend(extra);
+    Timeline::run(&["b-1"], &features)
+}
+
+/// The Move body `f-mv1` of `b-1` by (100, 0, 0).
+fn move_by_100() -> Value {
+    json!({"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]})
+}
+
+/// `face_placement_before_removal` of `face` in `b-1` with the attached top's hint in `frame`, for a sketch `f-sk2`
+/// at the end of `timeline` (its states and writer chains).
+fn before_removal(
+    timeline: &Timeline,
+    face: &Reference,
+    frame: HintFrame,
+) -> Option<(Placement, Id)> {
+    let fixture = timeline.fixture("f-sk2", "sketch");
+    fixture
+        .context()
+        .face_placement_before_removal(&id("b-1"), face, &attached_top_hint(), frame)
+        .unwrap_or_else(|error| panic!("b-1 is declared: {error:?}"))
+}
+
+/// The top of `f-box1` as the R33 sketch stored it.
+fn attached_box_top() -> Reference {
+    stored(ATTACHED_BOX_TOP.0, ATTACHED_BOX_TOP.1)
+}
+
+#[test]
+fn t030_the_writer_chain_holds_the_box_before_its_cut() {
+    let timeline = cut_through_the_top_then(Vec::new());
+
+    let writers: Vec<String> = timeline
+        .chain("b-1")
+        .iter()
+        .map(|(writer, _)| writer.to_string())
+        .collect();
+
+    assert_eq!(writers, ["f-box1", "f-ext3"]);
+}
+
+#[test]
+fn t030_a_face_a_cut_removed_places_the_sketch_where_it_was_just_before_the_cut() {
+    let timeline = cut_through_the_top_then(Vec::new());
+
+    let (placement, writer) = before_removal(&timeline, &attached_box_top(), HintFrame::Body)
+        .expect("the box's state before the cut has its top");
+
+    assert_vector_close(placement.origin, [0.0, 0.0, 40.0], "origin");
+    assert_vector_close(placement.x_axis, [1.0, 0.0, 0.0], "x axis");
+    assert_vector_close(placement.normal, [0.0, 0.0, 1.0], "normal");
+    assert_eq!(writer, id("f-ext3"));
+}
+
+#[test]
+fn t030_a_move_body_after_the_removal_moves_the_placement_with_the_body() {
+    let timeline = cut_through_the_top_then(vec![move_by_100()]);
+    let writers: Vec<String> = timeline
+        .chain("b-1")
+        .iter()
+        .map(|(writer, _)| writer.to_string())
+        .collect();
+    assert_eq!(writers, ["f-box1", "f-ext3", "f-mv1"]);
+
+    let (placement, writer) = before_removal(&timeline, &attached_box_top(), HintFrame::Body)
+        .expect("the box's state before the cut has its top");
+
+    assert_vector_close(placement.origin, [100.0, 0.0, 40.0], "origin");
+    assert_vector_close(placement.x_axis, [1.0, 0.0, 0.0], "x axis");
+    assert_vector_close(placement.normal, [0.0, 0.0, 1.0], "normal");
+    assert_eq!(writer, id("f-ext3"));
+}
+
+#[test]
+fn t030_a_face_no_state_has_gives_none() {
+    let timeline = cut_through_the_top_then(Vec::new());
+
+    let placed = before_removal(
+        &timeline,
+        &stored("f-gone/top", "plane|n=0,0,1|c=0,0,10|a=400"),
+        HintFrame::Body,
+    );
+
+    assert_eq!(placed, None);
+}
+
+#[test]
+fn a_hint_in_world_coordinates_is_placed_before_the_removal_and_moved_with_the_body_since() {
+    // Section 3.6: the placement found in the state before the removal moves with the motion of the stored query's
+    // face since that state, whatever the hint's frame.
+    let timeline = cut_through_the_top_then(vec![move_by_100()]);
+
+    let (placement, writer) = before_removal(&timeline, &attached_box_top(), HintFrame::World)
+        .expect("the box's state before the cut has its top");
+
+    assert_vector_close(placement.origin, [100.0, 0.0, 40.0], "origin");
+    assert_eq!(writer, id("f-ext3"));
+}
+
+// The motions Move body and copy features give faces (section 3.9, naming.md sections 3.5.1 and 3.6.12).
+
+/// Asserts that `motion` moves each point of `moves` from its first position to its second.
+#[track_caller]
+fn assert_moves(motion: &Motion, moves: &[([f64; 3], [f64; 3])]) {
+    for (from, to) in moves {
+        assert_vector_close(motion.apply_point(*from), *to, &format!("{from:?} moved"));
+    }
+}
+
+#[test]
+fn a_move_body_moves_the_motion_of_every_face_and_of_names_it_never_saw() {
+    let timeline = Timeline::run(&["b-1"], &[cube10(), move_by_100()]);
+    let state = timeline.state("b-1");
+    let shift = [([0.0, 0.0, 0.0], [100.0, 0.0, 0.0]), ([1.0, 2.0, 3.0], [101.0, 2.0, 3.0])];
+
+    assert_moves(&state.motion(&name("f-box1/top")), &shift);
+    assert_moves(&state.motion(&name("f-gone/x")), &shift);
+}
+
+#[test]
+fn a_move_body_turn_moves_the_motion_of_its_faces() {
+    let timeline = Timeline::run(
+        &["b-1"],
+        &[
+            cube10(),
+            json!({"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "90 deg"}}),
+        ],
+    );
+
+    let motion = timeline.state("b-1").motion(&name("f-box1/top"));
+
+    assert_moves(&motion, &[([15.0, 15.0, 10.0], [-15.0, 15.0, 10.0])]);
+    assert!(motion.is_proper());
+}
+
+#[test]
+fn a_linear_pattern_copy_face_moves_by_its_copy_translation() {
+    let timeline = Timeline::run(&["b-1"], &[cube10(), linear_pattern("3", "20")]);
+    let state = timeline.state("b-1");
+
+    assert_eq!(state.motion(&name("f-box1/top")), Motion::IDENTITY);
+    assert_moves(
+        &state.motion(&name("f-box1/top@f-lp1:1")),
+        &[([0.0, 0.0, 10.0], [20.0, 0.0, 10.0])],
+    );
+    assert_moves(
+        &state.motion(&name("f-box1/top@f-lp1:2")),
+        &[([0.0, 0.0, 10.0], [40.0, 0.0, 10.0])],
+    );
+}
+
+#[test]
+fn a_copy_of_a_moved_body_has_the_source_motion_followed_by_the_copy_transform() {
+    let timeline = Timeline::run(
+        &["b-1"],
+        &[cube10(), move_by_100(), linear_pattern("2", "20")],
+    );
+
+    let motion = timeline.state("b-1").motion(&name("f-box1/top@f-lp1:1"));
+
+    assert_moves(&motion, &[([0.0, 0.0, 10.0], [120.0, 0.0, 10.0])]);
+}
+
+#[test]
+fn a_circular_pattern_copy_face_turns_with_its_copy() {
+    let timeline = Timeline::run(
+        &["b-1"],
+        &[
+            json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "2", "height": "5", "position": ["20", "0", "0"], "op": "new"}),
+            json!({"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {"kind": "origin", "axis": "Z"}, "count": "4"}),
+        ],
+    );
+
+    let motion = timeline.state("b-1").motion(&name("f-cyl1/top@f-cp1:1"));
+
+    assert_moves(&motion, &[([20.0, 0.0, 5.0], [0.0, 20.0, 5.0])]);
+    assert!(motion.is_proper());
+}
+
+#[test]
+fn a_mirror_image_face_has_the_reflection_as_its_motion() {
+    let timeline = Timeline::run(
+        &["b-1"],
+        &[
+            cube10(),
+            json!({"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "20"}),
+            json!({"id": "f-mir1", "type": "mirror", "body": "b-1", "plane": {"kind": "datum", "feature": "f-dp1"}}),
+        ],
+    );
+
+    let motion = timeline.state("b-1").motion(&name("f-box1/top@f-mir1:1"));
+
+    assert_moves(&motion, &[([1.0, 2.0, 10.0], [1.0, 2.0, 30.0])]);
+    assert!(!motion.is_proper(), "a reflection turns handedness");
 }

@@ -1,6 +1,7 @@
 //! Feature records of the specs' shared setups, as JSON: `BLOCK` and `SLOT(a, b)` (reference stability corpus,
-//! "Shared setups"), `CUBE10`, `CUBE20`, `BOX-BELOW`, builders for sketches, extrudes, fillets and shells, and the
-//! stored references of `BLOCK`'s elements that several tests pick.
+//! "Shared setups"), `CUBE10`, `CUBE20`, `BOX-BELOW`, the L-shaped body of features/fillet.md test 4, the setups of
+//! corpus R32b, R33 and R38, builders for sketches (`FACE-SK2` of features/sketch.md included), extrudes, fillets and
+//! shells, and the stored references of elements that several tests pick.
 
 use serde_json::{Value, json};
 
@@ -190,4 +191,109 @@ pub fn linear_pattern(count: &str, spacing: &str) -> Value {
         "body": "b-1",
         "direction": {"axis": {"kind": "origin", "axis": "X"}, "count": count, "spacing": spacing}
     })
+}
+
+/// The L-shaped body of features/fillet.md test 4 in `b-1`: `f-box1` 40 x 20 x 10 (x -20..20, y -10..10) and `f-box2`
+/// 20 x 20 x 10 joined on its right half (x 0..20, z 10..20). `f-box1/top` lies at z = 10, `f-box2/top` at z = 20, and
+/// the fronts merge into `f-box1/front`.
+pub fn l_shaped_body() -> Vec<Value> {
+    vec![
+        json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}),
+        box_record("f-box2", ["20", "20", "10"], ["10", "0", "10"], "join"),
+    ]
+}
+
+/// The top of `l_shaped_body` stored with `f-box2/top` merged into `f-box1/top`: one reference that now resolves to
+/// faces in two planes (features.md section 6.3 test 27).
+pub fn both_tops() -> Value {
+    json!({"q": "f-box1/top", "fp": "plane|n=0,0,1|c=-10,0,10|a=400", "merged": {"f-box1/top": ["f-box2/top"]}})
+}
+
+/// The front top edge of `l_shaped_body` stored with `f-box2/top` merged into `f-box1/top`: one reference that now
+/// resolves to two parallel edges at z = 10 and z = 20 (features.md section 6.3 test 27).
+pub fn both_front_top_edges() -> Value {
+    json!({"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=-10,-10,10|l=20", "merged": {"f-box1/top": ["f-box2/top"]}})
+}
+
+/// The setup of corpus R38 after its edit: `RECT(0, 0, 40, 20)` with the shared point of `e-3`'s end and `e-4`'s start
+/// moved to (`lean`, 20), so the left wall leans by `lean` mm, as `f-sk1` on XY, and `f-ext1`, its extrude of 10 into
+/// `b-1`, op new.
+pub fn leaning_wall(lean: f64) -> Vec<Value> {
+    let entities = vec![
+        line("e-1", [0.0, 0.0], [40.0, 0.0]),
+        line("e-2", [40.0, 0.0], [40.0, 20.0]),
+        line("e-3", [40.0, 20.0], [lean, 20.0]),
+        line("e-4", [lean, 20.0], [0.0, 0.0]),
+    ];
+    vec![
+        sketch("f-sk1", xy(), entities),
+        extrude(
+            "f-ext1",
+            "f-sk1",
+            vec![json!({"key": "e-1,e-2,e-3,e-4", "fp": "c=20,10|a=800"})],
+            distance("10"),
+            "new",
+        ),
+    ]
+}
+
+/// The left wall's bottom edge of `leaning_wall` as the corpus stores it (R38).
+pub const LEFT_BOTTOM_EDGE: (&str, &str) = (
+    "edge(f-ext1/lateral/e-4|f-ext1/start-cap)",
+    "line|n=0,1,0|c=0,10,0|l=20|adj=2,2",
+);
+
+/// The setup of corpus R33 up to its cut (features/sketch.md test 22): `f-box1` box 20 x 20 x 40 in `b-1`, `f-dp1` at
+/// z = 35, `f-sk3` on it with `RECT-11(-15, -15, 15, 15)`, and `f-ext3`, its cut of 10, which removes z 35..40 and so
+/// the top `f-box1/top`, leaving its own start cap as the new top at z = 35.
+pub fn cut_through_the_top() -> Vec<Value> {
+    let square = vec![
+        line("e-11", [-15.0, -15.0], [15.0, -15.0]),
+        line("e-12", [15.0, -15.0], [15.0, 15.0]),
+        line("e-13", [15.0, 15.0], [-15.0, 15.0]),
+        line("e-14", [-15.0, 15.0], [-15.0, -15.0]),
+    ];
+    vec![
+        json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "40"], "op": "new"}),
+        json!({"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "35"}),
+        sketch(
+            "f-sk3",
+            json!({"kind": "datum", "feature": "f-dp1"}),
+            square,
+        ),
+        extrude(
+            "f-ext3",
+            "f-sk3",
+            vec![json!({"key": "e-11,e-12,e-13,e-14", "fp": "c=0,0|a=900"})],
+            distance("10"),
+            "cut",
+        ),
+    ]
+}
+
+/// The top of `f-box1` as a sketch attached when the box was 10 tall stored it (corpus R33).
+pub const ATTACHED_BOX_TOP: (&str, &str) = ("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=400|adj=4,4");
+
+/// `FACE-SK2(face, fallback, frame, entities)` of features/sketch.md section 6: the sketch `f-sk2` on `face` of `b-1`
+/// with the fallback origin `origin`, x axis +X and normal +Z, in the coordinates `frame` names (`fallback_frame` left
+/// out for `None`, as for `world` before file format version 2).
+pub fn face_sketch(face: Value, origin: [f64; 3], frame: Option<&str>, entities: Vec<Value>) -> Value {
+    let mut plane = json!({
+        "kind": "face",
+        "body": "b-1",
+        "face": face,
+        "fallback": {"origin": origin, "x_axis": [1, 0, 0], "normal": [0, 0, 1]}
+    });
+    if let Some(frame) = frame {
+        plane["fallback_frame"] = json!(frame);
+    }
+    sketch("f-sk2", plane, entities)
+}
+
+/// `BLOCK` with `f-ext1` reversed (corpus R32b): x 0..80, y 0..50, z -30..0, its end cap the bottom at z = -30, facing
+/// -Z.
+pub fn reversed_block() -> Vec<Value> {
+    let mut features = block();
+    features[1]["reverse"] = json!(true);
+    features
 }

@@ -1,4 +1,7 @@
-//! Acceptance tests for build context lookups, origin planes, placement helpers, cancellation, shared constants, assets and face placements (features.md section 6.3, tests 6 to 9, 14, 16, 17 and 22).
+//! Acceptance tests for build context lookups, origin planes, placement helpers, cancellation, shared constants, assets,
+//! face placements, coplanar and collinear references, axis sides and face placements with frames (features.md section
+//! 6.3, tests 6 to 9, 14, 16, 17, 22 and 27 to 29), and small tests of the frame rules of section 3.6 those tests do
+//! not reach.
 
 // `FeatureError` keeps the payload types the spec gives, so test helpers that return it are larger
 // than clippy's threshold, as in the crate itself (see `lib.rs`).
@@ -11,15 +14,21 @@ mod common;
 
 use std::sync::Arc;
 
+use common::records::{
+    BLOCK_TOP, LEFT_BOTTOM_EDGE, block, both_front_top_edges, both_tops, cube10, l_shaped_body,
+    leaning_wall, reversed_block, slot,
+};
+use common::timeline::{Timeline, stored};
 use common::{ContextFixture, assert_vector_close, built_body, empty_sketch_output, id};
 use partsmith_features::{
-    BodyState, FaceFallback, FallbackCause, FeatureError, Noun, PlacementExt, PlaneRef,
-    WithWarnings,
+    AxisRef, BodyState, FaceFallback, FacePlacement, FallbackCause, FeatureError, Noun,
+    PlacementExt, PlaneRef,
 };
 use partsmith_model::Units;
-use partsmith_naming::{ElementName, Reference};
-use partsmith_sketch::{OriginPlane, Placement};
-use serde_json::json;
+use partsmith_naming::{ElementKind, ElementName, Motion, Reference};
+use partsmith_occt_sys::{Transform, transform};
+use partsmith_sketch::{HintFrame, OriginPlane, Placement};
+use serde_json::{Value, json};
 
 /// Asserts that `result` is an `UndeclaredDependency` error.
 #[track_caller]
@@ -233,6 +242,8 @@ fn t017_undeclared_asset_is_undeclared() {
     assert_undeclared(fixture.context().asset("asset", "b.step"));
 }
 
+// Face placements (section 3.6, test 22).
+
 /// The box of features/box.md test 1: 10 x 20 x 30 centered on the XY origin, top face at z = 30.
 fn box_test_1() -> BodyState {
     built_body(
@@ -256,51 +267,93 @@ fn tilted_hint() -> Placement {
     }
 }
 
-/// A stored reference from its query and fingerprint text.
-fn reference(query: &str, fingerprint: &str) -> Reference {
-    serde_json::from_value(json!({"q": query, "fp": fingerprint}))
-        .expect("references written in tests are valid")
+/// A placement with this origin, x axis +X and normal +Z: the fallback of a sketch on a top face.
+fn top_hint(origin: [f64; 3]) -> Placement {
+    Placement {
+        origin,
+        x_axis: [1.0, 0.0, 0.0],
+        normal: [0.0, 0.0, 1.0],
+    }
 }
 
-/// `face_placement` of `face` as the face of a sketch plane in `b-1` holding `state`, with the tilted hint.
-fn face_placement(
-    state: BodyState,
-    face: &Reference,
-) -> Result<Result<WithWarnings<Placement>, FaceFallback>, FeatureError> {
+/// A stored reference from its query and fingerprint text.
+fn reference(query: &str, fingerprint: &str) -> Reference {
+    stored(query, fingerprint)
+}
+
+/// A stored reference from its JSON form.
+fn reference_from(value: Value) -> Reference {
+    serde_json::from_value(value).expect("references written in tests are valid")
+}
+
+/// What `face_placement` gives: the placement, or why the face cannot place it.
+type Placed = Result<Result<FacePlacement, FaceFallback>, FeatureError>;
+
+/// `face_placement` of `face` as the face of a sketch plane in `b-1` holding `state`, with `hint` in `frame`.
+fn place_in(state: BodyState, face: &Reference, hint: &Placement, frame: HintFrame) -> Placed {
     let mut fixture = ContextFixture::new(Units::Mm, &[]);
     fixture.bodies.insert(id("b-1"), state);
     fixture
         .context()
-        .face_placement("plane.face", &id("b-1"), face, &tilted_hint())
+        .face_placement("plane.face", &id("b-1"), face, hint, frame)
+}
+
+/// `face_placement` of `face` as the face of a sketch plane in `b-1` holding `state`, with the tilted hint in world
+/// coordinates.
+fn face_placement(state: BodyState, face: &Reference) -> Placed {
+    place_in(state, face, &tilted_hint(), HintFrame::World)
+}
+
+/// The placement of a face placement that used its face; fails the test when it fell back or failed.
+#[track_caller]
+fn placed(result: Placed) -> FacePlacement {
+    match result {
+        Ok(Ok(placement)) => placement,
+        Ok(Err(fallback)) => panic!("expected a placement, got the fallback {fallback:?}"),
+        Err(error) => panic!("expected a placement, got the error {error:?}"),
+    }
+}
+
+/// The fallback of a face placement that could not use its face.
+#[track_caller]
+fn fallback(result: Placed) -> FaceFallback {
+    match result {
+        Ok(Err(fallback)) => fallback,
+        Ok(Ok(placement)) => panic!(
+            "expected a fallback, got the placement {:?}",
+            placement.placement
+        ),
+        Err(error) => panic!("expected a fallback, got the error {error:?}"),
+    }
+}
+
+/// Asserts a placement's origin, x axis and normal within `TOLERANCE`.
+#[track_caller]
+fn assert_placement(placement: &Placement, origin: [f64; 3], x_axis: [f64; 3], normal: [f64; 3]) {
+    assert_vector_close(placement.origin, origin, "origin");
+    assert_vector_close(placement.x_axis, x_axis, "x axis");
+    assert_vector_close(placement.normal, normal, "normal");
 }
 
 #[test]
 fn t022_flat_face_projects_the_hint_onto_its_plane() {
-    let placed = face_placement(
+    let placed = placed(face_placement(
         box_test_1(),
         &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
-    )
-    .expect("nothing fails")
-    .expect("the top face is flat");
+    ));
 
-    assert_vector_close(placed.value.origin, [1.0, 2.0, 30.0], "origin");
-    assert_vector_close(placed.value.x_axis, [1.0, 0.0, 0.0], "x axis");
-    assert_vector_close(placed.value.normal, [0.0, 0.0, 1.0], "normal");
+    assert_placement(
+        &placed.placement,
+        [1.0, 2.0, 30.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    assert!(!placed.turned_over, "the top faces the way the hint does");
     assert!(
         placed.warnings.is_empty(),
         "an exact match has no warning or notice: {:?}",
         placed.warnings
     );
-}
-
-/// The fallback of a face placement that could not use its face.
-fn fallback(
-    result: Result<Result<WithWarnings<Placement>, FaceFallback>, FeatureError>,
-) -> FaceFallback {
-    match result {
-        Ok(Err(fallback)) => fallback,
-        other => panic!("expected a fallback, got {other:?}"),
-    }
 }
 
 #[test]
@@ -347,10 +400,421 @@ fn t022_undeclared_body_is_undeclared() {
         &id("b-9"),
         &reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=200"),
         &tilted_hint(),
+        HintFrame::World,
     );
 
     assert!(
         matches!(result, Err(FeatureError::UndeclaredDependency { .. })),
-        "expected UndeclaredDependency, got {result:?}"
+        "expected UndeclaredDependency"
     );
+}
+
+// Coplanar and collinear references (section 3.6, test 27).
+
+#[test]
+fn t027_a_plane_on_faces_in_two_planes_is_not_coplanar() {
+    let timeline = Timeline::run(&["b-1"], &l_shaped_body());
+    let fixture = timeline.fixture("f-sk9", "sketch");
+
+    let result = fixture.context().plane(
+        "plane",
+        &PlaneRef::Face {
+            body: id("b-1"),
+            face: reference_from(both_tops()),
+        },
+    );
+
+    match result {
+        Err(FeatureError::NotCoplanar { field, body, faces }) => {
+            assert_eq!(field.label, "Plane");
+            assert!(
+                field.path == "plane" || field.path == "plane.face",
+                "the error is about the plane's face, not {}",
+                field.path
+            );
+            assert_eq!(body, id("b-1"));
+            // Both tops, as a pick stores them, in name order: neither is chosen by name order.
+            assert_eq!(
+                faces,
+                [
+                    timeline.picked("b-1", "f-box1/top"),
+                    timeline.picked("b-1", "f-box2/top"),
+                ]
+            );
+        }
+        Err(other) => panic!("expected NotCoplanar, got {other:?}"),
+        Ok(resolved) => panic!(
+            "faces in two planes place no plane, got {:?}",
+            resolved.value
+        ),
+    }
+}
+
+#[test]
+fn t027_a_face_placement_on_faces_in_two_planes_falls_back_with_both_as_candidates() {
+    let timeline = Timeline::run(&["b-1"], &l_shaped_body());
+    let fixture = timeline.fixture("f-sk9", "sketch");
+
+    let fallback = fallback(fixture.context().face_placement(
+        "plane.face",
+        &id("b-1"),
+        &reference_from(both_tops()),
+        &top_hint([0.0, 0.0, 10.0]),
+        HintFrame::World,
+    ));
+
+    assert_eq!(fallback.cause, FallbackCause::NotCoplanar);
+    let loss = fallback
+        .loss
+        .expect("faces in several planes carry an ambiguous loss");
+    assert!(loss.ambiguous, "{loss:?}");
+    let candidates: Vec<&Reference> = loss
+        .candidates
+        .iter()
+        .map(|candidate| &candidate.reference)
+        .collect();
+    assert_eq!(
+        candidates,
+        [
+            &timeline.picked("b-1", "f-box1/top"),
+            &timeline.picked("b-1", "f-box2/top"),
+        ]
+    );
+}
+
+#[test]
+fn t027_an_axis_on_parallel_edges_is_not_collinear() {
+    let timeline = Timeline::run(&["b-1"], &l_shaped_body());
+    let fixture = timeline.fixture("f-rev9", "revolve");
+    let axis: AxisRef = serde_json::from_value(
+        json!({"kind": "edge", "body": "b-1", "edge": both_front_top_edges()}),
+    )
+    .expect("the axis is valid");
+
+    let result = fixture.context().axis("axis", &axis);
+
+    match result {
+        Err(FeatureError::NotCollinear {
+            field,
+            body,
+            elements,
+            kind,
+        }) => {
+            assert_eq!(field.label, "Axis");
+            assert!(
+                field.path == "axis" || field.path == "axis.edge",
+                "the error is about the axis's edge, not {}",
+                field.path
+            );
+            assert_eq!(body, id("b-1"));
+            assert_eq!(kind, ElementKind::Edge);
+            // The edges at z = 10 and z = 20, as a pick stores them, in name order.
+            assert_eq!(
+                elements,
+                [
+                    timeline.picked("b-1", "edge(f-box1/front|f-box1/top)"),
+                    timeline.picked("b-1", "edge(f-box1/front|f-box2/top)"),
+                ]
+            );
+        }
+        Err(other) => panic!("expected NotCollinear, got {other:?}"),
+        Ok(resolved) => panic!(
+            "parallel edges make no axis, got {:?}",
+            resolved.value.direction
+        ),
+    }
+}
+
+#[test]
+fn t027_a_plane_on_a_face_split_into_coplanar_pieces_keeps_its_plane() {
+    // naming.md test 84: the slot splits the end cap into `f-ext1/end-cap#1` and `#2`.
+    let mut features = block();
+    features.extend(slot(30.0, 50.0));
+    let timeline = Timeline::run(&["b-1"], &features);
+    let fixture = timeline.fixture("f-dp9", "datum_plane");
+
+    let resolved = fixture
+        .context()
+        .plane(
+            "plane",
+            &PlaneRef::Face {
+                body: id("b-1"),
+                face: reference("f-ext1/end-cap", "plane|n=0,0,1|c=40,25,30|a=4000"),
+            },
+        )
+        .expect("both pieces lie in one plane");
+
+    assert_placement(
+        &resolved.value,
+        [0.0, 0.0, 30.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    assert!(
+        resolved.warnings.is_empty(),
+        "a split face keeps its plane without a warning: {:?}",
+        resolved.warnings
+    );
+}
+
+// Axis sides (section 3.6, test 28, corpus R38).
+
+/// Tolerance of the axis directions of test 28, which the spec gives to six decimals.
+const DIRECTION_TOLERANCE: f64 = 1e-6;
+
+/// The left wall's bottom edge of the R38 setup as an axis of `b-1`, with `direction` when given.
+fn left_bottom_edge_axis(direction: Option<[f64; 3]>) -> AxisRef {
+    let (query, fingerprint) = LEFT_BOTTOM_EDGE;
+    let mut value = json!({"kind": "edge", "body": "b-1", "edge": {"q": query, "fp": fingerprint}});
+    if let Some(direction) = direction {
+        value["direction"] = json!(direction);
+    }
+    serde_json::from_value(value).expect("the axis is valid")
+}
+
+/// The unit direction `ctx.axis` gives `axis` with `b-1` holding `state`.
+#[track_caller]
+fn axis_direction(state: BodyState, axis: &AxisRef) -> [f64; 3] {
+    let mut fixture = ContextFixture::new(Units::Mm, &[]);
+    fixture.bodies.insert(id("b-1"), state);
+    let resolved = fixture
+        .context()
+        .axis("axis", axis)
+        .unwrap_or_else(|error| panic!("the edge is an axis: {error:?}"));
+    let direction = resolved.value.direction;
+    [direction.x, direction.y, direction.z]
+}
+
+/// Asserts that two directions agree within `DIRECTION_TOLERANCE` per component.
+#[track_caller]
+fn assert_direction(actual: [f64; 3], expected: [f64; 3], what: &str) {
+    assert!(
+        actual
+            .iter()
+            .zip(expected)
+            .all(|(value, wanted)| (value - wanted).abs() <= DIRECTION_TOLERANCE),
+        "{what}: expected {expected:?} within {DIRECTION_TOLERANCE}, got {actual:?}"
+    );
+}
+
+/// The state of `b-1` after the R38 extrude whose left wall leans by `lean`.
+fn leaning_wall_state(lean: f64) -> BodyState {
+    Timeline::run(&["b-1"], &leaning_wall(lean)).state("b-1")
+}
+
+/// `state` with its shape transformed by the isometry (`matrix`, `translation`) and its naming map `moved` by it, as a
+/// Move body leaves a body (naming.md section 3.6.12).
+fn moved_state(state: &BodyState, matrix: [[f64; 3]; 3], translation: [f64; 3]) -> BodyState {
+    let rows = [0, 1, 2].map(|row| {
+        [
+            matrix[row][0],
+            matrix[row][1],
+            matrix[row][2],
+            translation[row],
+        ]
+    });
+    let moved = transform(
+        state.shape().expect("the body has a solid"),
+        &Transform { matrix: rows },
+    )
+    .expect("an isometry applies");
+    BodyState::new(
+        moved.shape,
+        Arc::new(state.naming().moved(&Motion::new(matrix, translation))),
+    )
+}
+
+/// The rotation by 180 degrees about the Z axis.
+const HALF_TURN_ABOUT_Z: [[f64; 3]; 3] = [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]];
+
+/// The identity matrix: a translation's rotation part.
+const NO_TURN: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+#[test]
+fn t028_a_wall_leaning_back_keeps_the_side_of_the_stored_direction() {
+    let direction = axis_direction(
+        leaning_wall_state(-1.0),
+        &left_bottom_edge_axis(Some([0.0, 1.0, 0.0])),
+    );
+
+    assert_direction(direction, [-0.049938, 0.998752, 0.0], "direction");
+}
+
+#[test]
+fn t028_a_wall_leaning_back_keeps_the_side_of_the_fingerprint_without_a_direction() {
+    let direction = axis_direction(leaning_wall_state(-1.0), &left_bottom_edge_axis(None));
+
+    assert_direction(direction, [-0.049938, 0.998752, 0.0], "direction");
+}
+
+#[test]
+fn t028_a_wall_leaning_forward_keeps_the_same_side() {
+    for direction in [Some([0.0, 1.0, 0.0]), None] {
+        let actual = axis_direction(leaning_wall_state(1.0), &left_bottom_edge_axis(direction));
+
+        assert_direction(
+            actual,
+            [0.049938, 0.998752, 0.0],
+            &format!("direction with stored direction {direction:?}"),
+        );
+    }
+}
+
+#[test]
+fn t028_a_stored_direction_against_the_fingerprint_wins() {
+    let direction = axis_direction(
+        leaning_wall_state(-1.0),
+        &left_bottom_edge_axis(Some([0.0, -1.0, 0.0])),
+    );
+
+    assert_direction(direction, [0.049938, -0.998752, 0.0], "direction");
+}
+
+#[test]
+fn t028_a_half_turn_of_the_part_turns_a_stored_direction_with_it() {
+    let turned = moved_state(&leaning_wall_state(-1.0), HALF_TURN_ABOUT_Z, [0.0; 3]);
+
+    let direction = axis_direction(turned, &left_bottom_edge_axis(Some([0.0, 1.0, 0.0])));
+
+    assert_direction(direction, [0.049938, -0.998752, 0.0], "direction");
+}
+
+#[test]
+fn t028_a_half_turn_of_the_part_keeps_the_fingerprint_side_without_a_direction() {
+    let turned = moved_state(&leaning_wall_state(-1.0), HALF_TURN_ABOUT_Z, [0.0; 3]);
+
+    let direction = axis_direction(turned, &left_bottom_edge_axis(None));
+
+    assert_direction(direction, [-0.049938, 0.998752, 0.0], "direction");
+}
+
+// Face placements with frames (section 3.6, test 29).
+
+/// The box `f-box1` 40 x 40 x 10 (top at z = 10) with its shape translated by (100, 0, 0) and its map `moved` by that
+/// translation.
+fn moved_box() -> BodyState {
+    let state = built_body(
+        json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}),
+    );
+    moved_state(&state, NO_TURN, [100.0, 0.0, 0.0])
+}
+
+/// The top of the 40 x 40 x 10 box as a pick stored it before the move.
+fn moved_box_top() -> Reference {
+    reference("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=1600")
+}
+
+#[test]
+fn t029_a_hint_in_body_coordinates_moves_with_its_face() {
+    let placed = placed(place_in(
+        moved_box(),
+        &moved_box_top(),
+        &top_hint([0.0, 0.0, 10.0]),
+        HintFrame::Body,
+    ));
+
+    assert_placement(
+        &placed.placement,
+        [100.0, 0.0, 10.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    assert!(!placed.turned_over);
+}
+
+#[test]
+fn t029_a_hint_in_world_coordinates_stays_where_it_is() {
+    let placed = placed(place_in(
+        moved_box(),
+        &moved_box_top(),
+        &top_hint([0.0, 0.0, 10.0]),
+        HintFrame::World,
+    ));
+
+    assert_placement(
+        &placed.placement,
+        [0.0, 0.0, 10.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    assert!(!placed.turned_over);
+}
+
+#[test]
+fn t029_a_face_that_turned_over_keeps_a_right_handed_placement() {
+    // Corpus R32b: BLOCK reversed, so its end cap is the bottom at z = -30, facing -Z.
+    let timeline = Timeline::run(&["b-1"], &reversed_block());
+    let fixture = timeline.fixture("f-sk9", "sketch");
+
+    let placed = placed(fixture.context().face_placement(
+        "plane.face",
+        &id("b-1"),
+        &reference(BLOCK_TOP.0, "plane|n=0,0,1|c=40,25,30|a=4000"),
+        &top_hint([0.0, 0.0, 30.0]),
+        HintFrame::Body,
+    ));
+
+    assert_placement(
+        &placed.placement,
+        [0.0, 0.0, -30.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0],
+    );
+    assert_vector_close(placed.placement.y_axis(), [0.0, -1.0, 0.0], "y axis");
+    assert!(placed.turned_over, "the end cap now faces the other way");
+    assert!(placed.warnings.is_empty(), "{:?}", placed.warnings);
+}
+
+/// `CUBE10` and its mirror image across a datum plane at z = 20 (features/mirror.md): the image's top,
+/// `f-box1/top@f-mir1:1`, lies at z = 30 facing -Z.
+fn cube_mirrored_above() -> Timeline {
+    Timeline::run(
+        &["b-1"],
+        &[
+            cube10(),
+            json!({"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "20"}),
+            json!({"id": "f-mir1", "type": "mirror", "body": "b-1", "plane": {"kind": "datum", "feature": "f-dp1"}}),
+        ],
+    )
+}
+
+/// `face_placement` on the top of the mirror image of `cube_mirrored_above`, with the hint of a sketch on the source's
+/// top in `frame`.
+fn place_on_mirror_image(frame: HintFrame) -> FacePlacement {
+    let timeline = cube_mirrored_above();
+    let fixture = timeline.fixture("f-sk9", "sketch");
+    placed(fixture.context().face_placement(
+        "plane.face",
+        &id("b-1"),
+        &reference("f-box1/top@f-mir1:1", "plane|n=0,0,-1|c=0,0,30|a=100"),
+        &top_hint([0.0, 0.0, 10.0]),
+        frame,
+    ))
+}
+
+#[test]
+fn a_mirror_image_under_a_hint_in_body_coordinates_does_not_turn_over() {
+    // features.md section 3.6: the reflection that makes the copy moves a hint in body coordinates as well.
+    let placed = place_on_mirror_image(HintFrame::Body);
+
+    assert_placement(
+        &placed.placement,
+        [0.0, 0.0, 30.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0],
+    );
+    assert!(!placed.turned_over);
+}
+
+#[test]
+fn a_mirror_image_under_a_hint_in_world_coordinates_turns_over() {
+    let placed = place_on_mirror_image(HintFrame::World);
+
+    assert_placement(
+        &placed.placement,
+        [0.0, 0.0, 30.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0],
+    );
+    assert!(placed.turned_over);
 }

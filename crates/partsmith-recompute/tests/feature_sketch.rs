@@ -1,22 +1,36 @@
 //! Acceptance tests of the `sketch` feature (docs/spec/features/sketch.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/sketch/`.
+//! `examples/sketch/`; the documents of tests 20 to 29 and 32 (frames on the model, phase 2 of the
+//! reference stability plan) are written here until their examples exist.
+//!
+//! Tests 20 to 29 and 32 check what the sketch feature and the features built on it compute: placements,
+//! motions, the sketch's own messages and fixes, codes of the messages of later features, geometry, and
+//! the document after a fix as the engine's `apply_fix` would write it. Left for the steps that build
+//! them: the texts and fixes of `hole_misses_body` (tests 21 and 24) and `no_effect` (test 23) and the
+//! `separate_solid` warnings of tests 22 and 28 (phase 3, features.md sections 3.5 and 3.15 and
+//! features/hole.md section 3.5.3), and the root of test 24's `hole_misses_body` under a drawing turned
+//! over (recompute.md test 72). Tests 30 and 31 (the modeling limit and the sketch crate's texts with
+//! values) belong to phase 3.
 
 mod feature_support;
 
 use std::time::Duration;
 
 use feature_support::{
-    AXIS_TOLERANCE, Run, assert_coordinates, assert_error_field, assert_examples_canonical,
-    assert_median_build_within, assert_placement, assert_relative, box_step_asset, document_text,
-    expression_uses, link_ids, load_example, message, parse_document, sketch_result,
-    step_asset_name,
+    AXIS_TOLERANCE, BOTH_TOPS, Run, THROUGH_ALL, assert_bore_through, assert_coordinates,
+    assert_error_field, assert_examples_canonical, assert_face_in_plane,
+    assert_median_build_within, assert_moves, assert_placement, assert_quarter_turns_about_z,
+    assert_relative, assert_solid_count, assert_top_at, assert_translation, assert_volume,
+    body_before, box_step_asset, datum_motion, document, document_text, expression_uses, face,
+    face_sketch, face_sketch_with, hole_at_point, l_shaped_body, link_ids, load_example, message,
+    one_circle, one_point, parse_document, reference_json, sketch_result, step_asset_name,
+    top_fallback,
 };
 use partsmith_features::{
     FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
 };
-use partsmith_model::{FeatureInspector, FieldUnit};
-use partsmith_naming::Motion;
+use partsmith_model::{FeatureInspector, FieldUnit, Id};
+use partsmith_naming::{Follow, Motion, Reference};
 use partsmith_sketch::{Placement, PointRef, SketchError};
 
 /// The four lines of `RECT(0, 0, 80, 50)` (features.md section 6.1).
@@ -513,4 +527,809 @@ fn t019_empty_body_under_a_face_plane() {
     let sketch = sketch_result(&run, "f-sk1");
     assert_eq!(sketch.placement, fallback([3.0, 4.0, 0.0]));
     assert_eq!(sketch.motion, Motion::IDENTITY);
+}
+
+// Tests 20 to 29 and 32: a sketch on a face when the face moves, turns over, splits, spreads over two planes, is
+// copied or is lost (spec sections 3.3 and 3.5, ADR 0023).
+
+/// An extrude `id` into `b-1` of the region `key` (with fingerprint `fingerprint`) of `sketch`, by `distance`, with
+/// `extra` members (or none) and `op`.
+fn extrude(id: &str, sketch: &str, region: (&str, &str), distance: &str, extra: &str, op: &str) -> String {
+    let (key, fingerprint) = region;
+    format!(
+        r#"{{"id": "{id}", "type": "extrude", "body": "b-1", "profile": {{"sketch": "{sketch}", "regions": [{{"key": "{key}", "fp": "{fingerprint}"}}]}}, "extent": {{"kind": "distance", "expr": "{distance}"}}{extra}, "op": "{op}"}}"#
+    )
+}
+
+/// `RECT-11(x0, y0, x1, y1)` of spec section 6 as entities: the lines `e-11` to `e-14`.
+fn rectangle_11(corner: [f64; 2], opposite: [f64; 2]) -> String {
+    let [x0, y0] = corner;
+    let [x1, y1] = opposite;
+    format!(
+        r#"[{{"id": "e-11", "type": "line", "start": [{x0}, {y0}], "end": [{x1}, {y0}]}}, {{"id": "e-12", "type": "line", "start": [{x1}, {y0}], "end": [{x1}, {y1}]}}, {{"id": "e-13", "type": "line", "start": [{x1}, {y1}], "end": [{x0}, {y1}]}}, {{"id": "e-14", "type": "line", "start": [{x0}, {y1}], "end": [{x0}, {y0}]}}]"#
+    )
+}
+
+/// The region of `RECT-11`.
+const RECTANGLE_11_KEY: &str = "e-11,e-12,e-13,e-14";
+
+/// A sketch `id` on the datum `datum` with these entities.
+fn sketch_on_datum(id: &str, datum: &str, entities: &str) -> String {
+    format!(
+        r#"{{"id": "{id}", "type": "sketch", "plane": {{"kind": "datum", "feature": "{datum}"}}, "entities": {entities}}}"#
+    )
+}
+
+/// A datum plane `f-dp1` at `offset` above XY.
+fn datum_above_xy(offset: &str) -> String {
+    format!(
+        r#"{{"id": "f-dp1", "type": "datum_plane", "base": {{"kind": "origin", "plane": "XY"}}, "offset": "{offset}"}}"#
+    )
+}
+
+/// `BLOCK` of spec section 6: `SK-RECT` and its extrude `f-ext1` of 30 into `b-1`, op new, with `extra` members of the
+/// extrude (or none).
+fn block(extra: &str) -> [String; 2] {
+    [
+        rectangle_sketch(),
+        extrude(
+            "f-ext1",
+            "f-sk1",
+            ("e-1,e-2,e-3,e-4", "c=40,25|a=4000"),
+            "30",
+            extra,
+            "new",
+        ),
+    ]
+}
+
+/// The end cap of `BLOCK` as a pick stored it (its top at z = 30).
+const BLOCK_TOP: &str =
+    r#"{"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}"#;
+
+/// The box 40 x 40 x 10 of test 20 (x -20..20, y -20..20, z 0..10).
+const BOX_40: &str =
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}"#;
+
+/// The top of `BOX_40` as a pick stored it.
+const BOX_40_TOP: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"}"#;
+
+/// The Move body `f-mv1` of test 20 by (100, 0, 0).
+const MOVE_BY_100: &str = r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]}"#;
+
+/// The Move body `f-mv1` of test 20's rotation variant: 90 degrees about the Z axis.
+const TURN_BY_90: &str = r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "90 deg"}}"#;
+
+/// The document of test 20 (corpus R32a) with the Move body `motion` and the sketch's fallback in `frame`.
+fn moved_box_document(motion: &str, frame: Option<&str>) -> partsmith_model::Document {
+    document(
+        &["b-1"],
+        &[
+            BOX_40,
+            motion,
+            &face_sketch(BOX_40_TOP, [0.0, 0.0, 10.0], frame, &one_point([15.0, 15.0])),
+            &hole_at_point("4", THROUGH_ALL),
+        ],
+    )
+}
+
+/// The only `plane_fallback` warning of `sketch`: where it placed the sketch, its cause and whether it has a loss.
+fn plane_fallback_of(run: &Run, sketch: &str) -> (Placed, FallbackCause, bool) {
+    run.assert_warnings(sketch, &["plane_fallback"]);
+    match &run.feature(sketch).warnings[0] {
+        FeatureWarning::PlaneFallback {
+            cause,
+            loss,
+            placed,
+            ..
+        } => (placed.clone(), *cause, loss.is_some()),
+        other => panic!("expected a plane fallback warning, got {other:?}"),
+    }
+}
+
+/// `Attach` of `f-sk2` to `face` of `b-1`.
+fn attach(face: Reference) -> Fix {
+    Fix::Attach {
+        sketch: Id::new("f-sk2").expect("a valid id"),
+        body: Id::new("b-1").expect("a valid id"),
+        face,
+    }
+}
+
+/// The faces of the `Attach` fixes of a message, by query, in order.
+fn attached_faces(fixes: &[Fix]) -> Vec<&str> {
+    fixes
+        .iter()
+        .filter_map(|fix| match fix {
+            Fix::Attach { face, .. } => Some(face.query.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn t020_the_part_moves_and_the_sketch_moves_with_its_face() {
+    let run = Run::new(moved_box_document(MOVE_BY_100, Some("body")));
+
+    run.assert_all_ok();
+    let sketch = sketch_result(&run, "f-sk2");
+    assert_placement(
+        &sketch.placement,
+        [100.0, 0.0, 10.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    assert_translation(&sketch.motion, [100.0, 0.0, 0.0]);
+    assert_coordinates(
+        "to_world([15, 15])",
+        sketch.to_world([15.0, 15.0]),
+        [115.0, 15.0, 10.0],
+        AXIS_TOLERANCE,
+    );
+    assert_bore_through(&run, [115.0, 15.0, 0.0]);
+    assert_volume(run.shape("b-1"), 15874.336294);
+}
+
+#[test]
+fn t020_the_part_turns_and_the_sketch_turns_with_its_face() {
+    let run = Run::new(moved_box_document(TURN_BY_90, Some("body")));
+
+    run.assert_all_ok();
+    let sketch = sketch_result(&run, "f-sk2");
+    assert_placement(
+        &sketch.placement,
+        [0.0, 0.0, 10.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    assert_quarter_turns_about_z(&sketch.motion, 1);
+    assert_coordinates(
+        "to_world([15, 15])",
+        sketch.to_world([15.0, 15.0]),
+        [-15.0, 15.0, 10.0],
+        AXIS_TOLERANCE,
+    );
+    assert_bore_through(&run, [-15.0, 15.0, 0.0]);
+    assert_volume(run.shape("b-1"), 15874.336294);
+}
+
+#[test]
+fn t021_a_fallback_in_world_coordinates_rebuilds_as_before() {
+    let document = moved_box_document(MOVE_BY_100, None);
+    let saved = partsmith_model::save(&document).expect("the document saves");
+    let run = Run::new(document);
+
+    run.assert_ok("f-sk2");
+    let sketch = sketch_result(&run, "f-sk2");
+    assert_placement(
+        &sketch.placement,
+        [0.0, 0.0, 10.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    assert_eq!(sketch.motion, Motion::IDENTITY);
+    assert_coordinates(
+        "to_world([15, 15])",
+        sketch.to_world([15.0, 15.0]),
+        [15.0, 15.0, 10.0],
+        AXIS_TOLERANCE,
+    );
+    // One point, so no `no_effect` (features.md section 3.15); the text is phase 3's.
+    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    assert_volume(run.shape("b-1"), 16000.0);
+    // Nothing is written back, and no `fallback_frame` is added.
+    assert_eq!(
+        partsmith_model::save(&run.document).expect("the document saves"),
+        saved
+    );
+    assert!(!saved.contains("fallback_frame"), "{saved}");
+}
+
+/// The document of test 22 (corpus R33): the box cut below a sketch attached to its top when it was 10 tall, and a
+/// boss on that sketch.
+fn cut_top_document() -> partsmith_model::Document {
+    document(
+        &["b-1"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "40"], "op": "new"}"#,
+            &datum_above_xy("35"),
+            &sketch_on_datum("f-sk3", "f-dp1", &rectangle_11([-15.0, -15.0], [15.0, 15.0])),
+            &extrude(
+                "f-ext3",
+                "f-sk3",
+                (RECTANGLE_11_KEY, "c=0,0|a=900"),
+                "10",
+                "",
+                "cut",
+            ),
+            &face_sketch(
+                r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=400|adj=4,4"}"#,
+                [0.0, 0.0, 10.0],
+                None,
+                &one_circle("e-5", [0.0, 0.0], 3.0),
+            ),
+            &extrude(
+                "f-ext2",
+                "f-sk2",
+                ("e-5", "c=0,0|a=28.274334"),
+                "5",
+                "",
+                "join",
+            ),
+        ],
+    )
+}
+
+#[test]
+fn t022_a_face_cut_away_before_the_sketch_keeps_it_where_the_face_was() {
+    let run = Run::new(cut_top_document());
+
+    let sketch = sketch_result(&run, "f-sk2");
+    assert_placement(
+        &sketch.placement,
+        [0.0, 0.0, 40.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    let (placed, cause, has_loss) = plane_fallback_of(&run, "f-sk2");
+    assert_eq!(
+        placed,
+        Placed::BeforeRemoval {
+            by: Id::new("f-ext3").expect("a valid id")
+        }
+    );
+    assert_eq!(cause, FallbackCause::Missing);
+    assert!(has_loss, "the warning carries the loss");
+    assert_eq!(
+        run.messages("f-sk2"),
+        [
+            "The face this sketch is on, the top of 'Box 1', was cut away by 'Extrude 1', which comes before this sketch, so the sketch stays where that face was."
+        ]
+    );
+    // The floor of the cut, the only candidate that faces the way the stored face did, comes first.
+    let fixes = &message(&run, "f-sk2", "plane_fallback").fixes;
+    assert_eq!(
+        fixes.first(),
+        Some(&attach(run.picked_before(
+            "f-sk2",
+            "b-1",
+            "f-ext3/start-cap"
+        ))),
+        "{fixes:?}"
+    );
+    assert_eq!(fixes.last(), Some(&pick_face()), "{fixes:?}");
+    assert_eq!(
+        attached_faces(fixes).len(),
+        fixes.len() - 1,
+        "every other fix attaches to a planar candidate: {fixes:?}"
+    );
+    // The boss stands at z 40..45, above the new top at z = 35, never inside the box.
+    run.assert_ok("f-ext3");
+    assert_top_at(&run, "b-1", 45.0);
+}
+
+#[test]
+fn t022_the_placement_is_read_from_the_run_and_nothing_is_written() {
+    let document = cut_top_document();
+    let saved = partsmith_model::save(&document).expect("the document saves");
+    let run = Run::new(document);
+    assert_eq!(
+        partsmith_model::save(&run.document).expect("the document saves"),
+        saved
+    );
+
+    let again = Run::new(parse_document(&saved));
+
+    assert_eq!(
+        sketch_result(&again, "f-sk2").placement,
+        sketch_result(&run, "f-sk2").placement
+    );
+}
+
+/// The document of test 23 (corpus R26, amended): `BLOCK` after `f-ext1` was deleted and `f-ext3`, 80 tall, added in
+/// its place, with the face sketch `f-sk2` given as a whole record.
+fn deleted_base_document(face_sketch_record: &str) -> partsmith_model::Document {
+    document(
+        &["b-1"],
+        &[
+            &rectangle_sketch(),
+            &extrude(
+                "f-ext3",
+                "f-sk1",
+                ("e-1,e-2,e-3,e-4", "c=40,25|a=4000"),
+                "80",
+                "",
+                "new",
+            ),
+            face_sketch_record,
+            &extrude(
+                "f-ext2",
+                "f-sk2",
+                ("e-5", "c=40,25|a=314.159265"),
+                "10",
+                "",
+                "join",
+            ),
+        ],
+    )
+}
+
+#[test]
+fn t023_a_face_whose_feature_was_deleted_uses_the_saved_position() {
+    let run = Run::new(deleted_base_document(&face_sketch(
+        BLOCK_TOP,
+        [0.0, 0.0, 30.0],
+        None,
+        &one_circle("e-5", [40.0, 25.0], 10.0),
+    )));
+
+    assert_eq!(
+        sketch_result(&run, "f-sk2").placement,
+        fallback([0.0, 0.0, 30.0])
+    );
+    assert_eq!(
+        plane_fallback_of(&run, "f-sk2"),
+        (Placed::Saved, FallbackCause::Missing, true)
+    );
+    assert_eq!(
+        run.messages("f-sk2"),
+        [
+            "The face this sketch is on, a face of a feature that is not in this document, is gone, so the sketch uses the position saved with it."
+        ]
+    );
+    // The candidate order of naming.md test 133: the top of 'Extrude 1' first, then the nearest faces.
+    let fixes = &message(&run, "f-sk2", "plane_fallback").fixes;
+    let mut expected: Vec<Fix> = [
+        "f-ext3/end-cap",
+        "f-ext3/lateral/e-1",
+        "f-ext3/lateral/e-3",
+        "f-ext3/start-cap",
+        "f-ext3/lateral/e-2",
+    ]
+    .iter()
+    .map(|name| attach(run.picked_before("f-sk2", "b-1", name)))
+    .collect();
+    expected.push(pick_face());
+    assert_eq!(fixes, &expected);
+    // The boss lies inside the taller block; the `no_effect` text with its cause is phase 3's.
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    assert_eq!(
+        message(&run, "f-ext2", "no_effect").root.as_ref().map(Id::as_str),
+        Some("f-sk2")
+    );
+    assert_volume(run.shape("b-1"), 320000.0);
+}
+
+#[test]
+fn t023_attaching_to_the_new_top_puts_the_boss_on_it() {
+    let before = Run::new(deleted_base_document(&face_sketch(
+        BLOCK_TOP,
+        [0.0, 0.0, 30.0],
+        None,
+        &one_circle("e-5", [40.0, 25.0], 10.0),
+    )));
+    // `Attach` stores the face as picked and the sketch's placement projected onto it, in body coordinates.
+    let new_top = reference_json(&before.picked_before("f-sk2", "b-1", "f-ext3/end-cap"));
+
+    let run = Run::new(deleted_base_document(&face_sketch(
+        &new_top,
+        [0.0, 0.0, 80.0],
+        Some("body"),
+        &one_circle("e-5", [40.0, 25.0], 10.0),
+    )));
+
+    run.assert_all_ok();
+    let shape = run.shape("b-1");
+    assert_solid_count(shape, 1);
+    assert_volume(shape, 323141.592654);
+    assert_top_at(&run, "b-1", 90.0);
+}
+
+/// The document of test 24 (corpus R32b): `BLOCK` reversed, a face sketch on its end cap given as a whole record, and
+/// a hole 10 deep at its point.
+fn turned_over_document(face_sketch_record: &str) -> partsmith_model::Document {
+    let [sketch, extrude] = block(r#", "reverse": true"#);
+    document(
+        &["b-1"],
+        &[
+            &sketch,
+            &extrude,
+            face_sketch_record,
+            &hole_at_point("5", r#"{"kind": "distance", "expr": "10"}"#),
+        ],
+    )
+}
+
+/// Asserts the outcome of test 24 before `TurnDrawingBack`: the sketch turned over and its hole beside the body.
+#[track_caller]
+fn assert_drawing_turned_over(run: &Run) {
+    let sketch = sketch_result(run, "f-sk2");
+    assert_placement(
+        &sketch.placement,
+        [0.0, 0.0, -30.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0],
+    );
+    assert_coordinates(
+        "y axis",
+        sketch.placement.y_axis(),
+        [0.0, -1.0, 0.0],
+        AXIS_TOLERANCE,
+    );
+    run.assert_warnings("f-sk2", &["sketch_turned_over"]);
+    assert_eq!(
+        run.messages("f-sk2"),
+        [
+            "The face this sketch is on, the top of 'Extrude 1', now faces the other way, so the drawing is mirrored on it."
+        ]
+    );
+    assert_eq!(
+        message(run, "f-sk2", "sketch_turned_over").fixes,
+        [
+            Fix::TurnDrawingBack {
+                sketch: Id::new("f-sk2").expect("a valid id")
+            },
+            pick_face(),
+        ]
+    );
+    assert_coordinates(
+        "to_world([20, 10])",
+        sketch.to_world([20.0, 10.0]),
+        [20.0, -10.0, -30.0],
+        AXIS_TOLERANCE,
+    );
+    // The point lies off the face; the text, fix and root of `hole_misses_body` come with phase 3 and recompute.
+    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    assert_volume(run.shape("b-1"), 120000.0);
+}
+
+#[test]
+fn t024_a_face_that_turned_over_mirrors_the_drawing_with_a_warning() {
+    let run = Run::new(turned_over_document(&face_sketch(
+        BLOCK_TOP,
+        [0.0, 0.0, 30.0],
+        None,
+        &one_point([20.0, 10.0]),
+    )));
+
+    assert_drawing_turned_over(&run);
+}
+
+#[test]
+fn t024_a_fallback_in_body_coordinates_turns_over_the_same_way() {
+    let run = Run::new(turned_over_document(&face_sketch(
+        BLOCK_TOP,
+        [0.0, 0.0, 30.0],
+        Some("body"),
+        &one_point([20.0, 10.0]),
+    )));
+
+    assert_drawing_turned_over(&run);
+}
+
+#[test]
+fn t024_turning_the_drawing_back_drills_the_hole_where_it_was_drawn() {
+    // `TurnDrawingBack` as one edit: the point mirrored across the sketch's x axis, the current frame stored as the
+    // fallback in body coordinates, the hole's points unchanged.
+    let run = Run::new(turned_over_document(&face_sketch_with(
+        BLOCK_TOP,
+        r#"{"origin": [0, 0, -30], "x_axis": [1, 0, 0], "normal": [0, 0, -1]}"#,
+        Some("body"),
+        &one_point([20.0, -10.0]),
+    )));
+
+    run.assert_all_ok();
+    assert_bore_through(&run, [20.0, 10.0, 0.0]);
+    // Drilled from z = -30 up to z = -20.
+    assert_face_in_plane(
+        &face(run.body("b-1"), "f-hole1/bottom/e-p1"),
+        2,
+        -20.0,
+    );
+    assert_volume(run.shape("b-1"), 119803.650459);
+}
+
+/// The document of test 25: `BLOCK`, the slot of naming.md test 84 cut into its top, and a face sketch on the top
+/// stored as `face`.
+fn slotted_block_document(face: &str) -> partsmith_model::Document {
+    let [sketch, extrude_1] = block("");
+    document(
+        &["b-1"],
+        &[
+            &sketch,
+            &extrude_1,
+            &datum_above_xy("30"),
+            &sketch_on_datum("f-sk3", "f-dp1", &rectangle_11([30.0, -1.0], [50.0, 51.0])),
+            &extrude(
+                "f-ext3",
+                "f-sk3",
+                (RECTANGLE_11_KEY, "c=40,25|a=1040"),
+                "5",
+                r#", "reverse": true"#,
+                "cut",
+            ),
+            &face_sketch(face, [0.0, 0.0, 30.0], Some("body"), &one_point([10.0, 10.0])),
+        ],
+    )
+}
+
+#[test]
+fn t025_a_face_split_into_coplanar_pieces_keeps_the_placement() {
+    let run = Run::new(slotted_block_document(BLOCK_TOP));
+
+    run.assert_ok("f-sk2");
+    assert!(run.messages("f-sk2").is_empty(), "{:?}", run.messages("f-sk2"));
+    assert_placement(
+        &sketch_result(&run, "f-sk2").placement,
+        [0.0, 0.0, 30.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+}
+
+#[test]
+fn t026_faces_in_two_planes_use_the_saved_position_and_offer_both() {
+    let [box_1, box_2] = l_shaped_body("b-1");
+    let run = Run::records(
+        &["b-1"],
+        &[
+            &box_1,
+            &box_2,
+            &format!(
+                r#"{{"id": "f-sk1", "type": "sketch", "plane": {{"kind": "face", "body": "b-1", "face": {BOTH_TOPS}, "fallback": {}}}, "entities": {RECTANGLE_ENTITIES}}}"#,
+                top_fallback([0.0, 0.0, 10.0])
+            ),
+        ],
+    );
+
+    assert_eq!(
+        plane_fallback_cause(&run),
+        (FallbackCause::NotCoplanar, true)
+    );
+    assert_eq!(
+        run.messages("f-sk1"),
+        [
+            "The face this sketch is on, the top of 'Box 1', now matches 2 faces that do not lie in one plane, so the sketch uses the position saved with it. Pick the one you mean."
+        ]
+    );
+    let attach_to = |name: &str| Fix::Attach {
+        sketch: Id::new("f-sk1").expect("a valid id"),
+        body: Id::new("b-1").expect("a valid id"),
+        face: run.picked_before("f-sk1", "b-1", name),
+    };
+    // Neither face is chosen by name order: both are offered, then Pick.
+    assert_eq!(
+        plane_fallback_fixes(&run),
+        [attach_to("f-box1/top"), attach_to("f-box2/top"), pick_face()]
+    );
+    assert_eq!(
+        sketch_result(&run, "f-sk1").placement,
+        fallback([0.0, 0.0, 10.0])
+    );
+}
+
+/// The document of test 27: a box, a linear pattern of it with `spacing`, a face sketch on the copy's top in body
+/// coordinates, and a hole through all at its point.
+fn pattern_copy_document(spacing: &str) -> partsmith_model::Document {
+    document(
+        &["b-1"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "op": "new"}"#,
+            &format!(
+                r#"{{"id": "f-lp1", "type": "linear_pattern", "body": "b-1", "direction": {{"axis": {{"kind": "origin", "axis": "X"}}, "count": "2", "spacing": "{spacing}"}}}}"#
+            ),
+            &face_sketch(
+                r#"{"q": "f-box1/top@f-lp1:1", "fp": "plane|n=0,0,1|c=60,0,10|a=400|adj=4,4"}"#,
+                [0.0, 0.0, 10.0],
+                Some("body"),
+                &one_point([5.0, 5.0]),
+            ),
+            &hole_at_point("4", THROUGH_ALL),
+        ],
+    )
+}
+
+#[test]
+fn t027_a_sketch_on_a_pattern_copy_follows_the_spacing() {
+    for (spacing, offset) in [("60", 60.0), ("80", 80.0)] {
+        let run = Run::new(pattern_copy_document(spacing));
+
+        run.assert_all_ok();
+        let sketch = sketch_result(&run, "f-sk2");
+        assert_placement(
+            &sketch.placement,
+            [offset, 0.0, 10.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        );
+        assert_translation(&sketch.motion, [offset, 0.0, 0.0]);
+        assert_bore_through(&run, [offset + 5.0, 5.0, 0.0]);
+        assert_volume(run.shape("b-1"), 7874.336294);
+    }
+}
+
+#[test]
+fn t028_a_shell_inserted_under_the_sketch_keeps_it_in_the_plane() {
+    // Corpus R34. The `separate_solid` warning of the boss over the tray's opening is phase 3's.
+    let run = Run::records(
+        &["b-1"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["200", "200", "30"], "op": "new"}"#,
+            r#"{"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2", "remove_faces": [{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=40000|adj=4,4"}]}"#,
+            &face_sketch(
+                r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=40000|adj=4,4"}"#,
+                [0.0, 0.0, 30.0],
+                None,
+                &one_circle("e-1", [0.0, 0.0], 10.0),
+            ),
+            &extrude(
+                "f-ext2",
+                "f-sk2",
+                ("e-1", "c=0,0|a=314.159265"),
+                "10",
+                "",
+                "join",
+            ),
+        ],
+    );
+
+    run.assert_followed("f-sk2", Follow::Continued, "/plane/face");
+    assert_eq!(
+        run.messages("f-sk2"),
+        [
+            "The top of 'Box 1' selected for Plane was removed by 'Shell 1', which left its rim in the same place, so the rim is used."
+        ]
+    );
+    let placement = &sketch_result(&run, "f-sk2").placement;
+    assert_coordinates("origin", placement.origin, [0.0, 0.0, 30.0], AXIS_TOLERANCE);
+    assert_coordinates("normal", placement.normal, [0.0, 0.0, 1.0], AXIS_TOLERANCE);
+    // The boss spans z 30..40, never on the tray floor at z = 2.
+    assert_top_at(&run, "b-1", 40.0);
+}
+
+/// The document of test 29 (corpus R57): a ring revolved with `extent`, a sketch on its start face stored when it
+/// turned 270 degrees, and a cut into the ring from it.
+fn revolved_ring_document(extent: &str) -> partsmith_model::Document {
+    document(
+        &["b-1"],
+        &[
+            r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XZ"}, "entities": [{"id": "e-1", "type": "line", "start": [10, 0], "end": [20, 0]}, {"id": "e-2", "type": "line", "start": [20, 0], "end": [20, 10]}, {"id": "e-3", "type": "line", "start": [20, 10], "end": [10, 10]}, {"id": "e-4", "type": "line", "start": [10, 10], "end": [10, 0]}]}"#,
+            &format!(
+                r#"{{"id": "f-rev1", "type": "revolve", "body": "b-1", "profile": {{"sketch": "f-sk1", "regions": [{{"key": "e-1,e-2,e-3,e-4", "fp": "c=15,5|a=100"}}]}}, "axis": {{"kind": "origin", "axis": "Z"}}, "extent": {extent}, "op": "new"}}"#
+            ),
+            &face_sketch_with(
+                r#"{"q": "f-rev1/start-cap", "fp": "plane|n=0,-1,0|c=15,0,5|a=100|adj=4,4"}"#,
+                r#"{"origin": [15, 0, 5], "x_axis": [1, 0, 0], "normal": [0, -1, 0]}"#,
+                None,
+                &one_circle("e-11", [0.0, 0.0], 2.0),
+            ),
+            &extrude(
+                "f-ext2",
+                "f-sk2",
+                ("e-11", "c=0,0|a=12.566371"),
+                "3",
+                r#", "reverse": true"#,
+                "cut",
+            ),
+        ],
+    )
+}
+
+/// Asserts the placement of test 29's sketch on the ring's start face: origin (15, 0, 5), normal -Y.
+#[track_caller]
+fn assert_on_ring_start(run: &Run) {
+    let placement = &sketch_result(run, "f-sk2").placement;
+    assert_coordinates("origin", placement.origin, [15.0, 0.0, 5.0], AXIS_TOLERANCE);
+    assert_coordinates("normal", placement.normal, [0.0, -1.0, 0.0], AXIS_TOLERANCE);
+}
+
+#[test]
+fn t029_a_revolve_that_turns_all_the_way_round_leaves_the_saved_position() {
+    let run = Run::new(revolved_ring_document(r#"{"kind": "full"}"#));
+
+    // No state of b-1 has the start face: 'Revolve 1' itself no longer makes it.
+    assert_on_ring_start(&run);
+    assert_eq!(
+        plane_fallback_of(&run, "f-sk2"),
+        (Placed::Saved, FallbackCause::Missing, true)
+    );
+    assert_eq!(
+        run.messages("f-sk2"),
+        [
+            "The face this sketch is on, the front side of 'Revolve 1', is no longer made by 'Revolve 1', which turns all the way round, so the sketch uses the position saved with it."
+        ]
+    );
+    // The round faces come first among the candidates but cannot hold a sketch, so they give no `Attach`.
+    assert_eq!(
+        message(&run, "f-sk2", "plane_fallback").fixes,
+        [
+            attach(run.picked_before("f-sk2", "b-1", "f-rev1/lateral/e-1")),
+            attach(run.picked_before("f-sk2", "b-1", "f-rev1/lateral/e-3")),
+            pick_face(),
+        ]
+    );
+    run.assert_ok("f-ext2");
+}
+
+#[test]
+fn t029_the_same_sketch_on_a_partial_turn_is_on_its_face() {
+    let run = Run::new(revolved_ring_document(
+        r#"{"kind": "angle", "expr": "270 deg"}"#,
+    ));
+
+    run.assert_all_ok();
+    assert_on_ring_start(&run);
+}
+
+#[test]
+fn t032_a_face_taken_by_its_position_among_pieces_is_a_guess() {
+    // Test 25's document with the left piece's name, without anchors, under the right piece's shape.
+    let run = Run::new(slotted_block_document(
+        r#"{"q": "f-ext1/end-cap#1", "fp": "plane|n=0,0,1|c=65,25,30|a=1500|adj=4,4"}"#,
+    ));
+
+    run.assert_warnings("f-sk2", &["reference_guessed"]);
+    assert_eq!(
+        message(&run, "f-sk2", "reference_guessed")
+            .pointer
+            .as_deref(),
+        Some("/plane/face")
+    );
+    let warning = run.warning("f-sk2", "reference_guessed");
+    let FeatureWarning::ReferenceGuessed { alternatives, .. } = warning else {
+        panic!("expected a guess, got {warning:?}");
+    };
+    let alternatives: Vec<&str> = alternatives
+        .iter()
+        .map(|alternative| alternative.reference.query.as_str())
+        .collect();
+    assert_eq!(alternatives, ["f-ext1/end-cap#2"]);
+    // Every piece of a flat face lies in its plane, so the placement is test 25's.
+    assert_placement(
+        &sketch_result(&run, "f-sk2").placement,
+        [0.0, 0.0, 30.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+}
+
+#[test]
+fn a_sketch_on_a_datum_takes_the_datums_motion() {
+    // Spec section 3.3 step 1: the sketch takes the datum's placement and motion (features/datum_plane.md test 19).
+    let run = Run::records(
+        &["b-1"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}"#,
+            r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "X"}, "angle": "180 deg"}}"#,
+            r#"{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=100"}}}"#,
+            &sketch_on_datum("f-sk2", "f-dp1", &one_point([1.0, 2.0])),
+        ],
+    );
+
+    run.assert_all_ok();
+    let sketch = sketch_result(&run, "f-sk2");
+    // The rotation of 180 degrees about X: (x, y, z) to (x, -y, -z).
+    assert_moves(&sketch.motion, &[([1.0, 2.0, 3.0], [1.0, -2.0, -3.0])]);
+    assert_moves(
+        datum_motion(&run.report, "f-dp1"),
+        &[([1.0, 2.0, 3.0], [1.0, -2.0, -3.0])],
+    );
+}
+
+/// The motion of `face` in `body` just before `feature`.
+fn motion_before(run: &Run, feature: &str, body: &str, face: &str) -> Motion {
+    body_before(run, feature, body).motion(
+        &partsmith_naming::ElementName::parse(face).expect("names written in tests are valid"),
+    )
+}
+
+#[test]
+fn a_face_sketch_in_body_coordinates_takes_the_motion_of_its_face() {
+    // Spec section 3.3 step 1: the motion of a face sketch is that of the stored query in the state before it.
+    let run = Run::new(moved_box_document(MOVE_BY_100, Some("body")));
+
+    assert_eq!(
+        sketch_result(&run, "f-sk2").motion,
+        motion_before(&run, "f-sk2", "b-1", "f-box1/top")
+    );
 }

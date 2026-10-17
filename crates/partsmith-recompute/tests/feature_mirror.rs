@@ -1,17 +1,22 @@
 //! Acceptance tests of the `mirror` feature (docs/spec/features/mirror.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/mirror/`.
+//! `examples/mirror/`; the document of test 13 (a sketch on the mirror image, ADR 0023) is written
+//! here until its example exists.
 
 mod feature_support;
 
 use std::time::Duration;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
-    assert_median_build_within, assert_solid_count, assert_unchanged, assert_volume, body_changes,
-    face, link_ids, load_example,
+    AXIS_TOLERANCE, Run, THROUGH_ALL, assert_bore_through, assert_bounding_box, assert_coordinates,
+    assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
+    assert_face_normal, assert_face_position, assert_has_face, assert_median_build_within,
+    assert_moves, assert_placement, assert_solid_count, assert_unchanged, assert_volume,
+    body_changes, document, face, face_sketch_with, hole_at_point, link_ids, load_example,
+    one_point, output_body, sketch_result,
 };
+use partsmith_naming::ElementName;
 use partsmith_occt_sys::GeometryKind;
 
 /// The bodies of every mirror test.
@@ -237,4 +242,84 @@ fn t012_join_apart_builds_within_15_ms() {
     let document = load_example("mirror/join-apart.ptsm");
 
     assert_median_build_within(&document, "f-mir1", 21, Duration::from_millis(15));
+}
+
+// Test 13: the reflection that makes the image is the motion of its faces, so a sketch whose fallback is in body
+// coordinates keeps its place and drawing on the image (features.md section 3.6, open issue 9).
+
+/// The document of test 13: a datum plane on YZ at `offset`, `BOX-R(10)`, its mirror image across the datum, a face
+/// sketch on the image's top with its fallback stored as its reflection, in the coordinates of 'Box 1', and a hole
+/// through all at its point (2, 3).
+fn sketch_on_image_document(offset: &str) -> partsmith_model::Document {
+    document(
+        &BODIES,
+        &[
+            &format!(
+                r#"{{"id": "f-dp1", "type": "datum_plane", "base": {{"kind": "origin", "plane": "YZ"}}, "offset": "{offset}"}}"#
+            ),
+            &box_r("10"),
+            &mirror(r#"{"kind": "datum", "feature": "f-dp1"}"#, ""),
+            &face_sketch_with(
+                r#"{"q": "f-box1/top@f-mir1:1", "fp": "plane|n=0,0,1|c=-10,0,10|a=100|adj=4,4"}"#,
+                r#"{"origin": [10, 0, 10], "x_axis": [-1, 0, 0], "normal": [0, 0, 1]}"#,
+                Some("body"),
+                &one_point([2.0, 3.0]),
+            ),
+            &hole_at_point("1", THROUGH_ALL),
+        ],
+    )
+}
+
+#[test]
+fn t013_a_sketch_on_the_mirror_image_keeps_its_place() {
+    let run = Run::new(sketch_on_image_document("0"));
+
+    // No `sketch_turned_over`: the reflection moves the hint with the face.
+    run.assert_all_ok();
+    let placement = &sketch_result(&run, "f-sk2").placement;
+    assert_placement(
+        placement,
+        [-10.0, 0.0, 10.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    // Right-handed: the y axis is the normal times the x axis.
+    assert_coordinates(
+        "y axis",
+        placement.y_axis(),
+        [0.0, 1.0, 0.0],
+        AXIS_TOLERANCE,
+    );
+    assert_bore_through(&run, [-8.0, 3.0, 0.0]);
+    assert_volume(run.shape("b-1"), 1992.146018);
+}
+
+#[test]
+fn t013_the_sketch_follows_the_mirror_plane() {
+    // The plane moves to x = -10 and the image to x -35..-25.
+    let run = Run::new(sketch_on_image_document("-10"));
+
+    run.assert_all_ok();
+    assert_placement(
+        &sketch_result(&run, "f-sk2").placement,
+        [-30.0, 0.0, 10.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    assert_bore_through(&run, [-28.0, 3.0, 0.0]);
+    assert_volume(run.shape("b-1"), 1992.146018);
+}
+
+#[test]
+fn the_image_faces_move_by_the_reflection() {
+    // Section 3.3 step 3: the image is named with the reflection, an improper motion, as its transform.
+    let run = Run::records(&BODIES, &[&box_r("10"), &mirror(YZ, "")]);
+
+    let image_top = ElementName::parse("f-box1/top@f-mir1:1").expect("a valid name");
+    let motion = output_body(&run, "f-mir1", "b-1").motion(&image_top);
+    assert_moves(
+        &motion,
+        &[([10.0, 0.0, 10.0], [-10.0, 0.0, 10.0]), ([12.0, 3.0, 4.0], [-12.0, 3.0, 4.0])],
+    );
+    assert!(!motion.is_proper(), "a reflection turns handedness");
 }

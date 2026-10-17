@@ -1,23 +1,30 @@
 //! Acceptance tests for messages, fixes, severities and details (features.md section 6.5, tests 3 to 7, 10, 11 and
-//! 14), for the rows of sections 4.1 and 4.2 that the reference stability plan's phase 1 implements: references,
-//! regions, `upstream_failed`, `body_empty`, `tool_empty`, `internal` and `name_too_deep`. Tests named `tNNN` are
-//! section 6.5 test NNN; the region rows have one rendering test each. Messages that need a run of a whole document
-//! are in `crates/partsmith-recompute/tests/feature_messages.rs`.
+//! 14), for the rows of sections 4.1 and 4.2 that the reference stability plan's phases 1 and 2 implement: references,
+//! regions, `upstream_failed`, `body_empty`, `tool_empty`, `internal` and `name_too_deep` (phase 1), and
+//! `not_coplanar`, `not_collinear`, `sketch_turned_over` and a `plane_fallback` placed before the removal of its face
+//! (phase 2, frames on the model). Tests named `tNNN` are section 6.5 test NNN; the region rows and the phase 2 rows
+//! have one rendering test each. Messages that need a run of a whole document are in
+//! `crates/partsmith-recompute/tests/feature_messages.rs`.
 
 mod common;
 
 use std::collections::BTreeMap;
 
 use common::lint::{assert_passes_lint, lint_failures};
-use common::records::{block, cube20, fillet, reference, shell, slot};
+use common::records::{
+    ATTACHED_BOX_TOP, BLOCK_TOP, block, both_front_top_edges, both_tops, circle, cube20,
+    cut_through_the_top, face_sketch, fillet, l_shaped_body, point, reference, reversed_block,
+    shell, slot,
+};
 use common::timeline::{Timeline, stored};
-use common::{LabelNames, field, id, render_context};
+use common::{LabelNames, assert_vector_close, field, id, render_context};
 use partsmith_features::{
     Because, BodyState, Diagnosis, Explanation, FallbackCause, FeatureError, FeatureWarning,
-    FieldRef, Fix, Loss, LossCandidate, Place, Placed, RegionLost, Severity,
+    FieldRef, Fix, Loss, LossCandidate, Place, Placed, RegionLost, Repair, Severity,
 };
 use partsmith_naming::{ElementKind, ElementName, Follow, Lost, Reference};
 use partsmith_sketch::{RegionLoss, RegionRef};
+use serde_json::json;
 
 /// The front top edge of `CUBE20` (features/fillet.md `E-FT`).
 const FRONT_TOP: (&str, &str) = (
@@ -1015,7 +1022,7 @@ fn a_profile_without_any_of_its_regions_says_why_for_all() {
     }
 }
 
-/// One sample of every error of the phase 1 rows, with the feature it is rendered on.
+/// One sample of every error of the phase 1 and phase 2 rows, with the feature it is rendered on.
 fn sample_errors() -> Vec<(FeatureError, &'static str)> {
     let lost = |position: usize, ambiguous: bool| Loss {
         position,
@@ -1114,10 +1121,51 @@ fn sample_errors() -> Vec<(FeatureError, &'static str)> {
             "f-hole1",
         ),
         (FeatureError::NameTooDeep { length: 16400 }, "f-fil1"),
+        (
+            FeatureError::NotCoplanar {
+                field: field("base", "Base plane"),
+                body: id("b-1"),
+                faces: vec![
+                    stored("f-box1/top", "plane|n=0,0,1|c=-10,0,10|a=400"),
+                    stored("f-box2/top", "plane|n=0,0,1|c=10,0,20|a=400"),
+                ],
+            },
+            "f-dp1",
+        ),
+        (
+            FeatureError::NotCollinear {
+                field: field("direction.axis", "Direction"),
+                body: id("b-1"),
+                elements: vec![
+                    stored(
+                        "edge(f-box1/front|f-box1/top)",
+                        "line|n=1,0,0|c=-10,-10,10|l=20",
+                    ),
+                    stored(
+                        "edge(f-box1/front|f-box2/top)",
+                        "line|n=1,0,0|c=10,-10,20|l=20",
+                    ),
+                ],
+                kind: ElementKind::Edge,
+            },
+            "f-ext1",
+        ),
+        (
+            FeatureError::NotCollinear {
+                field: field("axis", "Axis"),
+                body: id("b-2"),
+                elements: vec![
+                    stored("f-cyl2/side", "cylinder|n=0,0,1|c=-20,0,2.5|a=62.831853|r=2"),
+                    stored("f-cyl3/side", "cylinder|n=0,0,1|c=-30,0,2.5|a=62.831853|r=2"),
+                ],
+                kind: ElementKind::Face,
+            },
+            "f-ext1",
+        ),
     ]
 }
 
-/// One sample of every warning of the phase 1 rows, with the feature it is rendered on.
+/// One sample of every warning of the phase 1 and phase 2 rows, with the feature it is rendered on.
 fn sample_warnings() -> Vec<(FeatureWarning, &'static str)> {
     let reference: Reference = stored(FRONT_TOP.0, FRONT_TOP.1);
     let element = stored(
@@ -1339,6 +1387,14 @@ fn sample_warnings() -> Vec<(FeatureWarning, &'static str)> {
         samples.push((warning, "f-sk2"));
     }
     samples.push((followed(Follow::Continued, &vertex), "f-fil1"));
+    samples.push((
+        FeatureWarning::SketchTurnedOver {
+            field: field("plane.face", "Plane"),
+            body: id("b-1"),
+            reference: top.clone(),
+        },
+        "f-sk2",
+    ));
     for matches in [0, 1] {
         samples.push((
             FeatureWarning::ReferenceLost {
@@ -1534,7 +1590,7 @@ fn t011_values_have_no_detail() {
 }
 
 #[test]
-fn t014_every_phase_1_template_passes_the_message_lint() {
+fn t014_every_phase_1_and_phase_2_template_passes_the_message_lint() {
     let names = labels();
     let bodies: BTreeMap<partsmith_model::Id, BodyState> = BTreeMap::new();
     for diagnosis in sample_diagnoses() {
@@ -1594,4 +1650,260 @@ fn the_message_lint_rejects_ids_numbered_elements_ops_scores_and_the_repair_pane
     );
     assert_eq!(lint_failures("The `edges` field."), ["a backtick"]);
     assert_eq!(lint_failures("No such file (os error 2)."), ["os error"]);
+}
+
+// Frames on the model (phase 2): faces in several planes, edges and axes not on one line, a face that turned over, and
+// a sketch placed where its face was just before its removal (features.md sections 3.6, 4.1 and 4.2, features/sketch.md
+// section 3.5).
+
+/// `UseReferences` of one reference at `pointer`.
+fn use_reference(pointer: &str, reference: Reference) -> Fix {
+    Fix::UseReferences {
+        pointer: pointer.to_string(),
+        references: vec![reference],
+    }
+}
+
+/// `Pick` at `pointer`.
+fn pick(pointer: &str) -> Fix {
+    Fix::Pick {
+        pointer: pointer.to_string(),
+    }
+}
+
+/// Asserts that `repairs` is one ambiguous element repair at `pointer` in `body` whose candidates hold `references`, in
+/// order (section 4.2: `NotCoplanar` and `NotCollinear` repair as an ambiguous loss).
+#[track_caller]
+fn assert_ambiguous_repair(repairs: &[Repair], pointer: &str, body: &str, references: &[Reference]) {
+    let [
+        Repair::Element {
+            pointer: actual_pointer,
+            body: actual_body,
+            loss,
+        },
+    ] = repairs
+    else {
+        panic!("expected one element repair, got {repairs:?}");
+    };
+    assert_eq!(actual_pointer, pointer);
+    assert_eq!(actual_body.as_str(), body);
+    assert!(loss.ambiguous, "{loss:?}");
+    let candidates: Vec<&Reference> = loss
+        .candidates
+        .iter()
+        .map(|candidate| &candidate.reference)
+        .collect();
+    let expected: Vec<&Reference> = references.iter().collect();
+    assert_eq!(candidates, expected);
+}
+
+/// The L-shaped body of features/fillet.md test 4, then `feature`.
+fn l_shaped_body_then(feature: serde_json::Value) -> Timeline {
+    let mut features = l_shaped_body();
+    features.push(feature);
+    Timeline::run(&["b-1"], &features)
+}
+
+#[test]
+fn a_plane_on_faces_in_two_planes_offers_each_face_then_pick() {
+    // features/datum_plane.md test 16.
+    let timeline = l_shaped_body_then(json!({
+        "id": "f-dp1",
+        "type": "datum_plane",
+        "base": {"kind": "face", "body": "b-1", "face": both_tops()}
+    }));
+    let error = timeline.error("f-dp1");
+    let tops = [
+        timeline.picked_before("f-dp1", "b-1", "f-box1/top"),
+        timeline.picked_before("f-dp1", "b-1", "f-box2/top"),
+    ];
+
+    assert_eq!(error.code(), "not_coplanar");
+    assert_eq!(error.severity(), Severity::Error);
+    let text = timeline.render_error("f-dp1", &Diagnosis::default());
+    assert_eq!(
+        text,
+        "The face selected for Base plane now matches 2 faces that do not lie in one plane. Pick the one you mean."
+    );
+    assert_passes_lint(&text);
+    assert_eq!(
+        timeline.error_fixes("f-dp1", &Diagnosis::default()),
+        [
+            use_reference("/base/face", tops[0].clone()),
+            use_reference("/base/face", tops[1].clone()),
+            pick("/base/face"),
+        ]
+    );
+    assert_ambiguous_repair(&error.repairs(), "/base/face", "b-1", &tops);
+}
+
+#[test]
+fn an_axis_on_edges_not_on_one_line_offers_each_edge_then_pick() {
+    // features/linear_pattern.md test 19.
+    let timeline = l_shaped_body_then(json!({
+        "id": "f-lp1",
+        "type": "linear_pattern",
+        "body": "b-1",
+        "direction": {"axis": {"kind": "edge", "body": "b-1", "edge": both_front_top_edges()}, "count": "2", "spacing": "50"}
+    }));
+    let error = timeline.error("f-lp1");
+    let edges = [
+        timeline.picked_before("f-lp1", "b-1", "edge(f-box1/front|f-box1/top)"),
+        timeline.picked_before("f-lp1", "b-1", "edge(f-box1/front|f-box2/top)"),
+    ];
+
+    assert_eq!(error.code(), "not_collinear");
+    let text = timeline.render_error("f-lp1", &Diagnosis::default());
+    assert_eq!(
+        text,
+        "The edge selected for Direction now matches 2 edges that do not lie on one line. Pick the one you mean."
+    );
+    assert_passes_lint(&text);
+    assert_eq!(
+        timeline.error_fixes("f-lp1", &Diagnosis::default()),
+        [
+            use_reference("/direction/axis/edge", edges[0].clone()),
+            use_reference("/direction/axis/edge", edges[1].clone()),
+            pick("/direction/axis/edge"),
+        ]
+    );
+    assert_ambiguous_repair(&error.repairs(), "/direction/axis/edge", "b-1", &edges);
+}
+
+#[test]
+fn an_axis_on_round_faces_whose_axes_do_not_lie_on_one_line_says_so() {
+    // Two pegs of radius 2 in b-2, at x = -20 and x = -30, whose sides one stored face stands for.
+    let timeline = Timeline::run(
+        &["b-1", "b-2"],
+        &[
+            json!({"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "2", "height": "5", "position": ["20", "0", "0"], "op": "new"}),
+            json!({"id": "f-cyl2", "type": "cylinder", "body": "b-2", "radius": "2", "height": "5", "position": ["-20", "0", "0"], "op": "new"}),
+            json!({"id": "f-cyl3", "type": "cylinder", "body": "b-2", "radius": "2", "height": "5", "position": ["-30", "0", "0"], "op": "join"}),
+            json!({
+                "id": "f-cp1",
+                "type": "circular_pattern",
+                "body": "b-1",
+                "axis": {"kind": "face", "body": "b-2", "face": {"q": "f-cyl2/side", "fp": "cylinder|n=0,0,1|c=-20,0,2.5|a=62.831853|r=2", "merged": {"f-cyl2/side": ["f-cyl3/side"]}}},
+                "count": "3"
+            }),
+        ],
+    );
+    let sides = [
+        timeline.picked_before("f-cp1", "b-2", "f-cyl2/side"),
+        timeline.picked_before("f-cp1", "b-2", "f-cyl3/side"),
+    ];
+
+    assert_eq!(timeline.error("f-cp1").code(), "not_collinear");
+    let text = timeline.render_error("f-cp1", &Diagnosis::default());
+    assert_eq!(
+        text,
+        "The face selected for Axis now matches 2 faces whose axes do not lie on one line. Pick the one you mean."
+    );
+    assert_passes_lint(&text);
+    assert_eq!(
+        timeline.error_fixes("f-cp1", &Diagnosis::default()),
+        [
+            use_reference("/axis/face", sides[0].clone()),
+            use_reference("/axis/face", sides[1].clone()),
+            pick("/axis/face"),
+        ]
+    );
+}
+
+#[test]
+fn a_face_that_turned_over_warns_and_offers_to_turn_the_drawing_back() {
+    // features/sketch.md test 24 (corpus R32b): the end cap of the reversed BLOCK now faces -Z.
+    let mut features = reversed_block();
+    features.push(face_sketch(
+        reference(BLOCK_TOP.0, BLOCK_TOP.1),
+        [0.0, 0.0, 30.0],
+        None,
+        vec![point("e-p1", [20.0, 10.0])],
+    ));
+    let timeline = Timeline::run(&["b-1"], &features);
+
+    let [warning] = timeline.warnings("f-sk2") else {
+        panic!(
+            "expected one warning, got {:?}",
+            timeline.warnings("f-sk2")
+        );
+    };
+    assert!(
+        matches!(warning, FeatureWarning::SketchTurnedOver { body, .. } if *body == id("b-1")),
+        "{warning:?}"
+    );
+    assert_eq!(warning.code(), "sketch_turned_over");
+    assert_eq!(warning.severity(), Severity::Warning);
+    assert_eq!(
+        warning.field().map(FieldRef::pointer).as_deref(),
+        Some("/plane/face")
+    );
+    let text = timeline.render_warning("f-sk2", 0, &Diagnosis::default());
+    assert_eq!(
+        text,
+        "The face this sketch is on, the top of 'Extrude 1', now faces the other way, so the drawing is mirrored on it."
+    );
+    assert_passes_lint(&text);
+    assert_eq!(
+        timeline.warning_fixes("f-sk2", 0, &Diagnosis::default()),
+        [
+            Fix::TurnDrawingBack {
+                sketch: id("f-sk2")
+            },
+            pick("/plane/face"),
+        ]
+    );
+    // The placement stays right-handed, so the drawing lies mirrored: (20, 10) is at world (20, -10, -30).
+    let sketch = timeline.sketch("f-sk2");
+    assert_vector_close(sketch.placement.origin, [0.0, 0.0, -30.0], "origin");
+    assert_vector_close(sketch.placement.normal, [0.0, 0.0, -1.0], "normal");
+    assert_vector_close(sketch.to_world([20.0, 10.0]), [20.0, -10.0, -30.0], "the point");
+}
+
+#[test]
+fn a_sketch_whose_face_was_cut_away_stays_where_that_face_was_and_says_so() {
+    // features/sketch.md test 22 (corpus R33), without its boss: the cut removed the top the sketch was attached to.
+    let mut features = cut_through_the_top();
+    features.push(face_sketch(
+        reference(ATTACHED_BOX_TOP.0, ATTACHED_BOX_TOP.1),
+        [0.0, 0.0, 10.0],
+        None,
+        vec![circle("e-5", [0.0, 0.0], 3.0)],
+    ));
+    let timeline = Timeline::run(&["b-1"], &features);
+
+    let [warning] = timeline.warnings("f-sk2") else {
+        panic!(
+            "expected one warning, got {:?}",
+            timeline.warnings("f-sk2")
+        );
+    };
+    assert!(
+        matches!(
+            warning,
+            FeatureWarning::PlaneFallback {
+                cause: FallbackCause::Missing,
+                placed: Placed::BeforeRemoval { by },
+                loss: Some(_),
+                ..
+            } if *by == id("f-ext3")
+        ),
+        "{warning:?}"
+    );
+    let diagnosis = explained(
+        "was cut away by 'Extrude 1', which comes before this sketch",
+        None,
+        Vec::new(),
+        false,
+    );
+    let text = timeline.render_warning("f-sk2", 0, &diagnosis);
+    assert_eq!(
+        text,
+        "The face this sketch is on, the top of 'Box 1', was cut away by 'Extrude 1', which comes before this sketch, so the sketch stays where that face was."
+    );
+    assert_passes_lint(&text);
+    // Where the top was just before the cut, never the fallback's z = 10.
+    let sketch = timeline.sketch("f-sk2");
+    assert_vector_close(sketch.placement.origin, [0.0, 0.0, 40.0], "origin");
+    assert_vector_close(sketch.placement.normal, [0.0, 0.0, 1.0], "normal");
 }
