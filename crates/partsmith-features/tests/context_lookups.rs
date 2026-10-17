@@ -425,8 +425,15 @@ fn t027_a_plane_on_faces_in_two_planes_is_not_coplanar() {
     );
 
     match result {
-        Err(FeatureError::NotCoplanar { field, body, faces }) => {
+        Err(FeatureError::NotCoplanar {
+            field,
+            body,
+            reference,
+            faces,
+        }) => {
             assert_eq!(field.label, "Plane");
+            // The stored reference, for the repair's loss (features.md section 4.2).
+            assert_eq!(reference, reference_from(both_tops()));
             assert!(
                 field.path == "plane" || field.path == "plane.face",
                 "the error is about the plane's face, not {}",
@@ -497,10 +504,13 @@ fn t027_an_axis_on_parallel_edges_is_not_collinear() {
         Err(FeatureError::NotCollinear {
             field,
             body,
+            reference,
             elements,
             kind,
         }) => {
             assert_eq!(field.label, "Axis");
+            // The stored reference, for the repair's loss (features.md section 4.2).
+            assert_eq!(reference, reference_from(both_front_top_edges()));
             assert!(
                 field.path == "axis" || field.path == "axis.edge",
                 "the error is about the axis's edge, not {}",

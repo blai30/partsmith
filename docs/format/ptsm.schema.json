@@ -147,7 +147,7 @@
             "kind": {"type": "string", "const": "two_distances"}
           },
           "required": ["kind", "expr", "second_expr"],
-          "description": "`expr` on the first face and `second_expr` on the second face of each edge, where the first\nface is the one whose element name sorts first. Lengths, greater than 0. `flip` swaps them."
+          "description": "`expr` on the first face and `second_expr` on the second face of each edge (section 3.3).\nLengths, greater than 0. `flip` swaps them."
         }
       ],
       "description": "How far a chamfer cuts back on each face of an edge."

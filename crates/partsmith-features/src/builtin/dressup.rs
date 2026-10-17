@@ -43,6 +43,9 @@ pub(super) struct SelectedEdge {
     pub(super) index: u32,
     /// Kernel indices of the faces next to the edge, ascending.
     pub(super) faces: Vec<u32>,
+    /// The position in `edges` of the reference it was first resolved from (`Resolved::sources`), whose first face
+    /// term gives a two-distance chamfer its side (chamfer.md section 3.3 step 4).
+    pub(super) source: usize,
 }
 
 /// Resolves the `edges` references in `body`, which holds `shape` in `state`, and skips the smooth
@@ -63,12 +66,17 @@ pub(super) fn select_edges(
     };
     let resolved =
         context.resolve_all_usable("edges", body, edges, ElementKind::Edge, &has_corner)?;
-    let indices: Vec<u32> = resolved.elements.iter().map(|edge| edge.index).collect();
+    let indices: Vec<(u32, usize)> = resolved
+        .elements
+        .iter()
+        .zip(&resolved.sources)
+        .map(|(edge, &source)| (edge.index, source))
+        .collect();
     let mut selection = EdgeSelection {
         edges: Vec::new(),
         warnings: resolved.into_messages(),
     };
-    for index in indices {
+    for (index, source) in indices {
         if is_smooth(shape, &topology, index)? {
             selection.warnings.push(FeatureWarning::Ignored {
                 field: context.field("edges"),
@@ -78,6 +86,7 @@ pub(super) fn select_edges(
             selection.edges.push(SelectedEdge {
                 index,
                 faces: edge_topology(&topology, index)?.faces.clone(),
+                source,
             });
         }
     }
@@ -417,6 +426,7 @@ mod tests {
             .map(|name| SelectedEdge {
                 index: index(name),
                 faces: Vec::new(),
+                source: 0,
             })
             .collect();
 
@@ -432,6 +442,7 @@ mod tests {
         let edge = SelectedEdge {
             index: 99,
             faces: Vec::new(),
+            source: 0,
         };
 
         let error = sorted_by_name(&cube.naming, &[edge]).expect_err("edge 99 has no name");
@@ -630,6 +641,7 @@ mod tests {
                 edges: vec![SelectedEdge {
                     index: edge_between(&shape, front, top),
                     faces,
+                    source: 0,
                 }],
                 warnings: Vec::new(),
             }

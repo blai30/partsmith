@@ -2,6 +2,8 @@
 //! flat face (features/datum_plane.md).
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, SelectionKind};
+use partsmith_naming::Motion;
+use partsmith_sketch::{OriginPlane, Placement};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -71,12 +73,13 @@ impl Feature for DatumPlane {
     ) -> Result<FeatureOutput, FeatureError> {
         let base = context.plane("base", &params.base)?;
         let offset = context.eval_length("offset", &params.offset)?;
+        let motion = base_motion(context, &params.base, &base.value)?;
         let mut placement = base.value.offset(offset);
         if params.flip {
             placement = placement.flipped();
         }
         Ok(FeatureOutput::new(
-            OutputData::Datum(DatumResult::Plane(placement)),
+            OutputData::Datum(DatumResult::Plane { placement, motion }),
             base.warnings,
         ))
     }
@@ -95,6 +98,53 @@ impl Feature for DatumPlane {
     }
 }
 
+/// The motion a datum passes on (datum_plane.md section 3.2 step 4): the identity for an origin base, the base
+/// datum's own motion, and for a face base the rigid motion that takes `P0` to `placement`, the base placement of
+/// step 1, with `P0` the face placement rule on the face's plane mapped back by `m`, the motion of the stored
+/// query's face just before the datum. That is the part of the face's motion the datum's frame follows: none for a
+/// slide along the face, a turn for a face turned over. `placement` lies in the face's plane with its normal, so
+/// mapping it back gives that plane as the face's centroid and normal would.
+fn base_motion(
+    context: &BuildContext<'_>,
+    base: &PlaneRef,
+    placement: &Placement,
+) -> Result<Motion, FeatureError> {
+    let (body, face) = match base {
+        PlaneRef::Origin { .. } => return Ok(Motion::IDENTITY),
+        PlaneRef::Datum { feature } => {
+            return match context.datum("base.feature", feature)? {
+                DatumResult::Plane { motion, .. } => Ok(*motion),
+            };
+        }
+        PlaneRef::Face { body, face } => (body, face),
+    };
+    let motion = context.body(body)?.motion(&face.query);
+    if motion == Motion::IDENTITY {
+        return Ok(Motion::IDENTITY);
+    }
+    let back = motion.inverse();
+    let before = Placement::on_plane(
+        back.apply_point(placement.origin),
+        back.apply_direction(placement.normal),
+        &OriginPlane::Xy.placement(),
+    )
+    .map_err(|error| FeatureError::internal(format!("placing a datum plane failed: {error}")))?;
+    if before == *placement {
+        return Ok(Motion::IDENTITY);
+    }
+    Ok(frame(&before).inverse().then(&frame(placement)))
+}
+
+/// The rigid motion that takes the world frame to `placement`'s: +X to its x axis, +Y to its y axis, +Z to its
+/// normal and the world origin to its origin.
+fn frame(placement: &Placement) -> Motion {
+    let y_axis = placement.y_axis();
+    Motion::new(
+        [0, 1, 2].map(|row| [placement.x_axis[row], y_axis[row], placement.normal[row]]),
+        placement.origin,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use partsmith_model::FeatureRecord;
@@ -110,6 +160,18 @@ mod tests {
         Registry::with_builtins()
             .python(&record, &ScriptNames::default())
             .render(0)
+    }
+
+    #[test]
+    fn a_frame_takes_the_world_axes_to_the_placement_axes() {
+        // Origin (0, -5, 0), x axis +X, y axis +Z, normal -Y.
+        let placement = OriginPlane::Xz.placement().offset(5.0);
+
+        let motion = frame(&placement);
+
+        assert_eq!(motion.apply_point([0.0, 0.0, 0.0]), placement.origin);
+        assert_eq!(motion.apply_point([1.0, 2.0, 3.0]), [1.0, -8.0, 2.0]);
+        assert!(motion.is_proper());
     }
 
     #[test]

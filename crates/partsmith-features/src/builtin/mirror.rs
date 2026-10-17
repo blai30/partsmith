@@ -243,9 +243,10 @@ mod tests {
     fn a_datum_plane_places_the_mirror() {
         let plane = r#"{"kind": "datum", "feature": "f-dp1"}"#;
         let datum = crate::output::FeatureOutput::new(
-            OutputData::Datum(DatumResult::Plane(
-                partsmith_sketch::OriginPlane::Yz.placement().offset(20.0),
-            )),
+            OutputData::Datum(DatumResult::Plane {
+                placement: partsmith_sketch::OriginPlane::Yz.placement().offset(20.0),
+                motion: partsmith_naming::Motion::IDENTITY,
+            }),
             Vec::new(),
         );
 

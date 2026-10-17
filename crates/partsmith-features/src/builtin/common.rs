@@ -11,7 +11,7 @@ use partsmith_naming::{
 };
 use partsmith_occt_sys::{
     KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult,
-    Vector, compound,
+    Transform, Vector, compound,
 };
 use partsmith_sketch::{RegionRef, Succession};
 
@@ -314,6 +314,20 @@ pub(crate) fn unchanged(body: &Id, state: &BodyState, change: BodyChange) -> Bod
         change,
         measured: state.measurements(),
     }
+}
+
+/// The kernel transform `transform` as a naming motion: its linear part, then its translation. Copies and moves name
+/// their faces with it (features.md section 3.9).
+pub(crate) fn naming_motion(transform: &Transform) -> Motion {
+    let [first, second, third] = transform.matrix;
+    Motion::new(
+        [
+            [first[0], first[1], first[2]],
+            [second[0], second[1], second[2]],
+            [third[0], third[1], third[2]],
+        ],
+        [first[3], second[3], third[3]],
+    )
 }
 
 /// A body-updating output that records no absent face.

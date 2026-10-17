@@ -173,7 +173,7 @@ fn placement(plane: &SketchPlane, computed: &Computed, position: usize) -> Place
 pub(crate) fn datum_placement(computed: &Computed, feature: &Id) -> Option<Placement> {
     let (_, report) = computed.feature(feature)?;
     match &built_output(report)?.data {
-        OutputData::Datum(DatumResult::Plane(placement)) => Some(*placement),
+        OutputData::Datum(DatumResult::Plane { placement, .. }) => Some(*placement),
         _ => None,
     }
 }

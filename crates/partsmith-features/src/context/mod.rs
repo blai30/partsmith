@@ -9,7 +9,7 @@ mod regions;
 mod values;
 
 pub use body_state::BodyState;
-pub use placements::FaceFallback;
+pub use placements::{FaceFallback, FacePlacement};
 pub use references::Usable;
 pub use values::Values;
 pub(crate) use values::expected_dimension;

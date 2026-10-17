@@ -1125,6 +1125,7 @@ fn sample_errors() -> Vec<(FeatureError, &'static str)> {
             FeatureError::NotCoplanar {
                 field: field("base", "Base plane"),
                 body: id("b-1"),
+                reference: stored("f-box1/top", "plane|n=0,0,1|c=-10,0,10|a=400"),
                 faces: vec![
                     stored("f-box1/top", "plane|n=0,0,1|c=-10,0,10|a=400"),
                     stored("f-box2/top", "plane|n=0,0,1|c=10,0,20|a=400"),
@@ -1136,6 +1137,10 @@ fn sample_errors() -> Vec<(FeatureError, &'static str)> {
             FeatureError::NotCollinear {
                 field: field("direction.axis", "Direction"),
                 body: id("b-1"),
+                reference: stored(
+                    "edge(f-box1/front|f-box1/top)",
+                    "line|n=1,0,0|c=-10,-10,10|l=20",
+                ),
                 elements: vec![
                     stored(
                         "edge(f-box1/front|f-box1/top)",
@@ -1154,6 +1159,10 @@ fn sample_errors() -> Vec<(FeatureError, &'static str)> {
             FeatureError::NotCollinear {
                 field: field("axis", "Axis"),
                 body: id("b-2"),
+                reference: stored(
+                    "f-cyl2/side",
+                    "cylinder|n=0,0,1|c=-20,0,2.5|a=62.831853|r=2",
+                ),
                 elements: vec![
                     stored(
                         "f-cyl2/side",

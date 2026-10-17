@@ -42,6 +42,47 @@ pub struct LossCandidate {
 }
 
 impl Loss {
+    /// The loss repair mode shows for a reference at `position` of `body` that is still used, or that several
+    /// elements fit: ambiguous, with nothing lost and these candidates (section 4.2).
+    pub(crate) fn still_used(
+        position: usize,
+        body: &Id,
+        reference: &Reference,
+        candidates: Vec<LossCandidate>,
+    ) -> Loss {
+        Loss {
+            position,
+            body: body.clone(),
+            reference: reference.clone(),
+            kind: reference.query.kind(),
+            ambiguous: true,
+            lost: Lost::default(),
+            matches: candidates.len(),
+            candidates,
+        }
+    }
+
+    /// `still_used` with a candidate for each of `elements`, stored as picks store them, each of which fits the
+    /// reference: they keep its meaning and lie at their stored centroid's distance from the stored one. The
+    /// elements a widened reference covers, and the faces or edges of `NotCoplanar` and `NotCollinear`.
+    pub(crate) fn fitting(
+        position: usize,
+        body: &Id,
+        reference: &Reference,
+        elements: &[Reference],
+    ) -> Loss {
+        let candidates = elements
+            .iter()
+            .map(|element| LossCandidate {
+                reference: element.clone(),
+                meaning: true,
+                distance: centroid_distance(reference, element),
+                score: 1.0,
+            })
+            .collect();
+        Loss::still_used(position, body, reference, candidates)
+    }
+
     /// True when no part of the stored query is present: `lost.parts` holds every face of the query (section 4.4),
     /// so no candidate keeps a face of the lost element.
     pub(crate) fn every_part_lost(&self) -> bool {
@@ -50,6 +91,17 @@ impl Loss {
             .face_parts()
             .iter()
             .all(|part| self.lost.parts.contains(part))
+    }
+}
+
+/// The distance between the stored centroids of two references, 0 when either has none.
+fn centroid_distance(first: &Reference, second: &Reference) -> f64 {
+    match (first.fingerprint.centroid, second.fingerprint.centroid) {
+        (Some(first), Some(second)) => (0..3)
+            .map(|i| (first[i] - second[i]).powi(2))
+            .sum::<f64>()
+            .sqrt(),
+        _ => 0.0,
     }
 }
 

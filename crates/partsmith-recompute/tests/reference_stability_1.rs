@@ -82,7 +82,7 @@ fn sketch_output<'a>(run: &'a Run, feature: &str) -> Option<&'a SketchResult> {
 /// The placement of the datum plane `feature` produced, when it built.
 fn datum_output(run: &Run, feature: &str) -> Option<Placement> {
     match &run.feature(feature).output.as_deref()?.data {
-        OutputData::Datum(DatumResult::Plane(placement)) => Some(*placement),
+        OutputData::Datum(DatumResult::Plane { placement, .. }) => Some(*placement),
         _ => None,
     }
 }

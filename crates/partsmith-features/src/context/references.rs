@@ -64,6 +64,37 @@ impl BuildContext<'_> {
             usable,
         })
     }
+
+    /// `Reference::from_element` of each of `elements`, kernel elements of `kind` that a reference resolved to in
+    /// `body`, as a pick of each stores it, in name order: the faces of `NotCoplanar` and the elements of
+    /// `NotCollinear` (section 3.6), which no name order may decide between.
+    pub(super) fn picked_references(
+        &self,
+        body: &Id,
+        kind: ElementKind,
+        elements: &[SubShape],
+    ) -> Result<Vec<Reference>, FeatureError> {
+        let state = self.body(body)?;
+        let set = state.element_set()?;
+        let mut picked = elements
+            .iter()
+            .map(|element| {
+                state
+                    .naming()
+                    .name(kind, element.index)
+                    .and_then(|name| set.element(name))
+                    .map(|info| Reference::from_element(info, &set))
+                    .ok_or_else(|| {
+                        FeatureError::internal(format!(
+                            "the resolved {kind} {} has no element info",
+                            element.index
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<Reference>, FeatureError>>()?;
+        picked.sort_by(|first, second| first.query.cmp(&second.query));
+        Ok(picked)
+    }
 }
 
 /// What one entry of a reference field resolved to (section 3.8).
@@ -433,18 +464,7 @@ fn one_carrier(geometries: &[ElementGeometry]) -> bool {
         return false;
     }
     match first.kind {
-        GeometryKind::Line => {
-            let Some(direction) = first.direction else {
-                return false;
-            };
-            rest.iter().all(|other| {
-                other.direction.is_some_and(|other_direction| {
-                    parallel(direction, other_direction)
-                        && distance_to_line(other.centroid, first.centroid, direction)
-                            <= LINEAR_TOLERANCE
-                })
-            })
-        }
+        GeometryKind::Line => rest.iter().all(|other| collinear(first, other)),
         GeometryKind::Circle => same_round(first, rest, |other, center| {
             other.distance(center) <= LINEAR_TOLERANCE
         }),
@@ -456,21 +476,47 @@ fn one_carrier(geometries: &[ElementGeometry]) -> bool {
                 distance_to_line(other, center, direction) <= LINEAR_TOLERANCE
             })
         }
-        GeometryKind::Plane => {
-            let Some(normal) = first.direction else {
-                return false;
-            };
-            rest.iter().all(|other| {
-                other.direction.is_some_and(|other_normal| {
-                    normal.dot(other_normal) > 0.0
-                        && parallel(normal, other_normal)
-                        && offset(other.centroid, first.centroid).dot(normal).abs()
-                            <= LINEAR_TOLERANCE
-                })
-            })
+        GeometryKind::Plane => rest.iter().all(|other| coplanar(first, other)),
+        _ => false,
+    }
+}
+
+/// True when the line `other` lies on the line of `first` (section 3.6): directions within `ANGLE_TOLERANCE` up to
+/// sign, and `other`'s centroid within `LINEAR_TOLERANCE` of `first`'s line. False when either has no direction.
+pub(super) fn collinear(first: &ElementGeometry, other: &ElementGeometry) -> bool {
+    match (first.direction, other.direction) {
+        (Some(direction), Some(other_direction)) => {
+            parallel(direction, other_direction)
+                && distance_to_line(other.centroid, first.centroid, direction) <= LINEAR_TOLERANCE
         }
         _ => false,
     }
+}
+
+/// True when the plane `other` lies in the plane of `first` and faces the same way (section 3.6): outward normals
+/// within `ANGLE_TOLERANCE`, and `other`'s centroid within `LINEAR_TOLERANCE` of `first`'s plane. False when either
+/// has no normal.
+pub(super) fn coplanar(first: &ElementGeometry, other: &ElementGeometry) -> bool {
+    match (first.direction, other.direction) {
+        (Some(normal), Some(other_normal)) => {
+            normal.dot(other_normal) > 0.0
+                && parallel(normal, other_normal)
+                && offset(other.centroid, first.centroid).dot(normal).abs() <= LINEAR_TOLERANCE
+        }
+        _ => false,
+    }
+}
+
+/// True when the axis through `other_through` along `other_direction` lies on the axis through `through` along
+/// `direction` in the same sense (section 3.6): directions within `ANGLE_TOLERANCE` with a positive dot product,
+/// and `other_through` within `LINEAR_TOLERANCE` of the first axis.
+pub(super) fn same_axis(
+    (through, direction): (Point, Vector),
+    (other_through, other_direction): (Point, Vector),
+) -> bool {
+    direction.dot(other_direction) > 0.0
+        && parallel(direction, other_direction)
+        && distance_to_line(other_through, through, direction) <= LINEAR_TOLERANCE
 }
 
 /// True when every other circle or cylinder has a parallel axis, the first's radius, and a location `on_axis`

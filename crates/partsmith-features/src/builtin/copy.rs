@@ -4,10 +4,10 @@
 //! 3.5.1, 3.6.10 and 3.6.11).
 
 use partsmith_model::{FeatureManifest, FieldHint, Id};
-use partsmith_naming::{Instance, Motion};
+use partsmith_naming::Instance;
 use partsmith_occt_sys::{Shape, Transform, transform};
 
-use super::common::{bodies, options_hint, solid_body, unchanged};
+use super::common::{bodies, naming_motion, options_hint, solid_body, unchanged};
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning, FieldRef};
@@ -164,19 +164,6 @@ impl<'a> Source<'a> {
         warnings.extend(op_warnings);
         Ok(bodies(vec![update], warnings))
     }
-}
-
-/// The kernel transform `motion` as a naming motion: its linear part, then its translation.
-fn naming_motion(motion: &Transform) -> Motion {
-    let [first, second, third] = motion.matrix;
-    Motion::new(
-        [
-            [first[0], first[1], first[2]],
-            [second[0], second[1], second[2]],
-            [third[0], third[1], third[2]],
-        ],
-        [first[3], second[3], third[3]],
-    )
 }
 
 #[cfg(test)]

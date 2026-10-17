@@ -17,7 +17,7 @@ use partsmith_features::{
 use partsmith_model::{
     Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, OptionHint, SelectionKind,
 };
-use partsmith_naming::NamingMap;
+use partsmith_naming::{Motion, NamingMap};
 use partsmith_occt_sys::{Plane, make_box};
 use partsmith_sketch::Placement;
 use schemars::JsonSchema;
@@ -159,11 +159,14 @@ fn output(data: OutputData) -> FeatureOutput {
 
 /// A datum plane parallel to XY at height `z`.
 fn datum_at(z: f64) -> OutputData {
-    OutputData::Datum(DatumResult::Plane(Placement {
-        origin: [0.0, 0.0, z],
-        x_axis: [1.0, 0.0, 0.0],
-        normal: [0.0, 0.0, 1.0],
-    }))
+    OutputData::Datum(DatumResult::Plane {
+        placement: Placement {
+            origin: [0.0, 0.0, z],
+            x_axis: [1.0, 0.0, 0.0],
+            normal: [0.0, 0.0, 1.0],
+        },
+        motion: Motion::IDENTITY,
+    })
 }
 
 /// The naming map of an empty body.
@@ -341,7 +344,7 @@ impl Feature for TestDatum {
     ) -> Result<FeatureOutput, FeatureError> {
         let base_height = match &params.base {
             Some(base) => match context.datum("base", base)? {
-                DatumResult::Plane(placement) => placement.origin[2],
+                DatumResult::Plane { placement, .. } => placement.origin[2],
             },
             None => 0.0,
         };

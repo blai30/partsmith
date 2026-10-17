@@ -15,7 +15,7 @@ use partsmith_model::{
     Category, Document, Expr, FeatureManifest, FeatureRecord, FieldHint, FieldUnit, Id,
     SelectionKind,
 };
-use partsmith_naming::ElementName;
+use partsmith_naming::{ElementName, Motion};
 use partsmith_sketch::Placement;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -277,16 +277,19 @@ impl Feature for TestDatum {
     ) -> Result<FeatureOutput, FeatureError> {
         let base = match &params.base {
             Some(base) => match context.datum("base", base)? {
-                DatumResult::Plane(placement) => placement.origin[2],
+                DatumResult::Plane { placement, .. } => placement.origin[2],
             },
             None => 0.0,
         };
         let offset = context.eval_length("offset", &params.offset)?;
-        Ok(output(OutputData::Datum(DatumResult::Plane(Placement {
-            origin: [0.0, 0.0, base + offset],
-            x_axis: [1.0, 0.0, 0.0],
-            normal: [0.0, 0.0, 1.0],
-        }))))
+        Ok(output(OutputData::Datum(DatumResult::Plane {
+            placement: Placement {
+                origin: [0.0, 0.0, base + offset],
+                x_axis: [1.0, 0.0, 0.0],
+                normal: [0.0, 0.0, 1.0],
+            },
+            motion: Motion::IDENTITY,
+        })))
     }
 }
 

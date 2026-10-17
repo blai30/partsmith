@@ -1,7 +1,7 @@
 //! The `chamfer` feature: bevels edges of a body with a flat face (features/chamfer.md).
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_naming::{ElementKind, NamingMap, Reference, roles};
+use partsmith_naming::{ElementKind, ElementName, Follow, Reference, roles};
 use partsmith_occt_sys::{ChamferEdge, ChamferSize, chamfer};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,8 +14,8 @@ use super::dressup::{
     SelectedEdge, finish_blend, no_effect, run_or_search, select_edges, sorted_by_name,
 };
 use crate::{
-    BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun, PythonCall,
-    PythonNames, PythonValue,
+    BodyState, BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, FeatureWarning,
+    Noun, PythonCall, PythonNames, PythonValue,
 };
 
 /// Bevels edges of a body.
@@ -42,8 +42,8 @@ pub enum ChamferDistance {
         /// The distance on both faces.
         expr: Expr,
     },
-    /// `expr` on the first face and `second_expr` on the second face of each edge, where the first
-    /// face is the one whose element name sorts first. Lengths, greater than 0. `flip` swaps them.
+    /// `expr` on the first face and `second_expr` on the second face of each edge (section 3.3).
+    /// Lengths, greater than 0. `flip` swaps them.
     TwoDistances {
         /// The distance on the first face.
         expr: Expr,
@@ -60,7 +60,8 @@ pub enum ChamferDistance {
 enum Distances {
     /// The same distance on both faces.
     Equal(f64),
-    /// `on_first` on the face whose name sorts first, `on_other` on the other face (flip applied).
+    /// `on_first` on the first face of each edge (section 3.3 step 4), `on_other` on the other face
+    /// (flip applied).
     TwoDistances {
         /// The distance on the first face.
         on_first: f64,
@@ -78,16 +79,19 @@ impl Distances {
         }
     }
 
-    /// The kernel size of `edge` of a body named by `naming`. Two distances measure `on_first`
-    /// on the edge's face whose name sorts first (chamfer.md section 3.3 step 4); an equal
-    /// distance has no side.
-    fn size(self, edge: &SelectedEdge, naming: &NamingMap) -> Result<ChamferSize, FeatureError> {
+    /// The kernel size of an edge whose first face (chamfer.md section 3.3 step 4) `first_face`
+    /// gives: two distances measure `on_first` on it; an equal distance has no side, so it never
+    /// asks.
+    fn size(
+        self,
+        first_face: impl FnOnce() -> Result<u32, FeatureError>,
+    ) -> Result<ChamferSize, FeatureError> {
         Ok(match self {
             Distances::Equal(distance) => ChamferSize::Equal { distance },
             Distances::TwoDistances { on_first, on_other } => ChamferSize::TwoDistances {
                 distance: on_first,
                 other_distance: on_other,
-                face: first_face(naming, edge)?,
+                face: first_face()?,
             },
         })
     }
@@ -193,15 +197,15 @@ impl Feature for Chamfer {
         if selection.edges.is_empty() {
             return Ok(no_effect(&params.body, state, selection.warnings));
         }
-        let edges = sorted_by_name(state.naming(), &selection.edges)?
-            .into_iter()
-            .map(|edge| {
-                Ok(ChamferEdge {
-                    edge: edge.index,
-                    size: distances.size(edge, state.naming())?,
-                })
-            })
-            .collect::<Result<Vec<_>, FeatureError>>()?;
+        let mut warnings = selection.warnings;
+        let mut edges = Vec::with_capacity(selection.edges.len());
+        for edge in sorted_by_name(state.naming(), &selection.edges)? {
+            let size = distances.size(|| side_of(context, params, state, edge, &mut warnings))?;
+            edges.push(ChamferEdge {
+                edge: edge.index,
+                size,
+            });
+        }
         let larger = distances.larger();
         let result = run_or_search(
             context,
@@ -230,7 +234,7 @@ impl Feature for Chamfer {
             state,
             roles::CHAMFER,
             result,
-            selection.warnings,
+            warnings,
         )
     }
 
@@ -250,21 +254,112 @@ impl Feature for Chamfer {
     }
 }
 
-/// The face next to `edge` whose element name sorts first in byte order: a two-distance chamfer
-/// measures its first distance on it (chamfer.md section 3.3 step 4).
-fn first_face(naming: &NamingMap, edge: &SelectedEdge) -> Result<u32, FeatureError> {
-    edge.faces
+/// The face next to `edge` of `state` that a two-distance chamfer measures its first distance on
+/// (chamfer.md section 3.3 step 4), and whether it is the face the user picked the edge from: the
+/// adjacent face in the family of the first face term of `reference`, the stored reference the edge
+/// was resolved from, through canonical names (a face that kept the term's name, took it as an
+/// alias when a join merged it, or is a piece of it), so a later join that renames the faces never
+/// changes the side (corpus R22). When no adjacent face is, as for an edge reached by continuation
+/// or relation, the adjacent face whose element name sorts first in byte order.
+fn first_face(
+    state: &BodyState,
+    edge: &SelectedEdge,
+    reference: &Reference,
+) -> Result<(u32, bool), FeatureError> {
+    let naming = state.naming();
+    let mut faces: Vec<(&ElementName, u32)> = edge
+        .faces
         .iter()
         .filter_map(|&face| Some((naming.name(ElementKind::Face, face)?, face)))
-        .min()
-        .map(|(_, face)| face)
+        .collect();
+    faces.sort_unstable();
+    let set = state.element_set()?;
+    let family = reference
+        .query
+        .face_parts()
+        .first()
+        .map(|term| set.names().family(term, &reference.merged))
+        .unwrap_or_default();
+    if let Some(&(_, face)) = faces.iter().find(|(name, _)| family.contains(name)) {
+        return Ok((face, true));
+    }
+    faces
+        .first()
+        .map(|&(_, face)| (face, false))
         .ok_or_else(|| FeatureError::internal(format!("edge {} has no named face", edge.index)))
+}
+
+/// The first face of `edge` for two distances (chamfer.md section 3.3 step 4), with the notice of
+/// `side_notice` added to `warnings` when it is not the face the edge was picked from and the
+/// resolution said nothing about the edge's entry.
+fn side_of(
+    context: &BuildContext<'_>,
+    params: &ChamferParams,
+    state: &BodyState,
+    edge: &SelectedEdge,
+    warnings: &mut Vec<FeatureWarning>,
+) -> Result<u32, FeatureError> {
+    let reference = &params.edges[edge.source];
+    let (face, picked) = first_face(state, edge, reference)?;
+    if !picked && !mentions_entry(warnings, edge.source) {
+        warnings.push(side_notice(context, &params.body, state, edge, reference)?);
+    }
+    Ok(face)
+}
+
+/// True when `messages` say something about the entry at `position` of the edge list: a guess, a
+/// widening or a follow of its reference.
+fn mentions_entry(messages: &[FeatureWarning], position: usize) -> bool {
+    messages.iter().any(|message| match message {
+        FeatureWarning::ReferenceGuessed {
+            position: entry, ..
+        }
+        | FeatureWarning::ReferenceFollowed {
+            position: entry, ..
+        }
+        | FeatureWarning::ReferenceWidened {
+            position: entry, ..
+        } => *entry == position,
+        _ => false,
+    })
+}
+
+/// The notice a two-distance chamfer adds when an edge has no face of the one its reference was
+/// picked from and the resolution said nothing about it (chamfer.md section 3.3 step 4): the edge
+/// used only relates to the one stored, so the first distance falls on the face whose name sorts
+/// first.
+fn side_notice(
+    context: &BuildContext<'_>,
+    body: &Id,
+    state: &BodyState,
+    edge: &SelectedEdge,
+    reference: &Reference,
+) -> Result<FeatureWarning, FeatureError> {
+    let set = state.element_set()?;
+    let used = state
+        .naming()
+        .name(ElementKind::Edge, edge.index)
+        .and_then(|name| set.element(name))
+        .map(|info| Reference::from_element(info, &set))
+        .ok_or_else(|| {
+            FeatureError::internal(format!("the selected edge {} has no element", edge.index))
+        })?;
+    Ok(FeatureWarning::ReferenceFollowed {
+        field: context.field(&format!("edges[{}]", edge.source)),
+        position: edge.source,
+        body: body.clone(),
+        reference: reference.clone(),
+        elements: vec![used],
+        follow: Follow::Related,
+        via: Vec::new(),
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use partsmith_model::{FeatureRecord, Units};
-    use partsmith_naming::ElementName;
     use serde_json::json;
 
     use super::*;
@@ -335,7 +430,19 @@ mod tests {
         let edge = index("edge(f-box1/front|f-box1/top)");
         let topology = cube.shape.topology().expect("topology");
         let faces = topology.edges[edge as usize - 1].faces.clone();
-        (SelectedEdge { index: edge, faces }, index("f-box1/front"))
+        (
+            SelectedEdge {
+                index: edge,
+                faces,
+                source: 0,
+            },
+            index("f-box1/front"),
+        )
+    }
+
+    /// The state of a body holding `cube`.
+    fn cube_state(cube: &Tool) -> BodyState {
+        BodyState::new(cube.shape.clone(), Arc::new(cube.naming.clone()))
     }
 
     #[test]
@@ -461,13 +568,26 @@ mod tests {
     }
 
     #[test]
-    fn the_first_face_of_an_edge_is_the_one_whose_name_sorts_first() {
+    fn the_first_face_of_an_edge_is_the_first_face_term_of_its_reference() {
         let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
         let (edge, front) = front_top_edge(&cube);
 
-        let first = first_face(&cube.naming, &edge).expect("a face");
+        let first = first_face(&cube_state(&cube), &edge, &reference(FRONT_TOP)).expect("a face");
 
-        assert_eq!(first, front);
+        assert_eq!(first, (front, true));
+    }
+
+    #[test]
+    fn an_edge_without_a_face_of_its_reference_takes_the_face_whose_name_sorts_first() {
+        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let (edge, front) = front_top_edge(&cube);
+        let elsewhere = reference(
+            r#"{"q": "edge(f-box9/side|f-box9/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20"}"#,
+        );
+
+        let first = first_face(&cube_state(&cube), &edge, &elsewhere).expect("a face");
+
+        assert_eq!(first, (front, false));
     }
 
     #[test]
@@ -476,23 +596,52 @@ mod tests {
         let edge = SelectedEdge {
             index: 1,
             faces: vec![99],
+            source: 0,
         };
 
-        let error = first_face(&cube.naming, &edge).expect_err("face 99 has no name");
+        let error = first_face(&cube_state(&cube), &edge, &reference(FRONT_TOP))
+            .expect_err("face 99 has no name");
 
         assert_eq!(error.code(), "internal");
     }
 
     #[test]
+    fn the_side_notice_is_a_related_follow_of_its_entry() {
+        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
+        let state = cube_state(&cube);
+        let fixture = crate::test_support::Fixture::new("f-cha1").with_body("b-1", state.clone());
+        let (edge, _) = front_top_edge(&cube);
+        let edge = SelectedEdge { source: 1, ..edge };
+
+        let notice = side_notice(
+            &fixture.context(),
+            &id("b-1"),
+            &state,
+            &edge,
+            &reference(FRONT_TOP),
+        )
+        .expect("the edge is named");
+
+        assert!(
+            matches!(&notice, FeatureWarning::ReferenceFollowed { position: 1, follow: Follow::Related, elements, .. }
+                if elements.len() == 1 && elements[0].query.as_str() == "edge(f-box1/front|f-box1/top)"),
+            "{notice:?}"
+        );
+        assert!(mentions_entry(std::slice::from_ref(&notice), 1));
+        assert!(!mentions_entry(std::slice::from_ref(&notice), 0));
+        assert!(!mentions_entry(&[], 1));
+    }
+
+    #[test]
     fn two_distances_measure_the_first_on_the_first_face() {
         let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let (edge, front) = front_top_edge(&cube);
+        let (_, front) = front_top_edge(&cube);
         let distances = Distances::TwoDistances {
             on_first: 1.0,
             on_other: 3.0,
         };
 
-        let size = distances.size(&edge, &cube.naming).expect("sized");
+        let size = distances.size(|| Ok(front)).expect("sized");
 
         assert_eq!(
             size,
@@ -507,14 +656,8 @@ mod tests {
 
     #[test]
     fn an_equal_distance_reads_no_face() {
-        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let edge = SelectedEdge {
-            index: 1,
-            faces: Vec::new(),
-        };
-
         let size = Distances::Equal(2.0)
-            .size(&edge, &cube.naming)
+            .size(|| Err(FeatureError::internal("an equal distance asks for no face")))
             .expect("an equal distance has no side");
 
         assert_eq!(size, ChamferSize::Equal { distance: 2.0 });

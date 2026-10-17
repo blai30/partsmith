@@ -40,8 +40,8 @@ mod search;
 mod test_support;
 
 pub use context::{
-    BodyState, BuildContext, BuildInputs, CancelToken, FaceFallback, Resolved, ResolvedProfile,
-    Usable, Values, WithWarnings,
+    BodyState, BuildContext, BuildInputs, CancelToken, FaceFallback, FacePlacement, Resolved,
+    ResolvedProfile, Usable, Values, WithWarnings,
 };
 pub use deps::{AssetLink, Dependencies, ExprUse, Link};
 pub use error::{

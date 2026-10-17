@@ -10,7 +10,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, essential, manifest, selection_hint, solid_body, three_lengths, unchanged, unit_hint,
+    bodies, essential, manifest, naming_motion, selection_hint, solid_body, three_lengths,
+    unchanged, unit_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -106,8 +107,9 @@ impl Feature for MoveBody {
     }
 
     /// The kernel transform of the body by the rotation, then the translation. The naming map is
-    /// carried over unchanged, not rebuilt, so no `#n` group is renumbered by the motion
-    /// (move_body.md section 3.2, naming.md section 3.6.12).
+    /// carried over with every name, not rebuilt, so no `#n` group is renumbered by the motion,
+    /// and `moved` by the transform, so face sketches in body coordinates and stored axis
+    /// directions move with the part (move_body.md section 3.2, naming.md section 3.6.12).
     fn build(
         params: &MoveBodyParams,
         context: &BuildContext<'_>,
@@ -145,7 +147,7 @@ impl Feature for MoveBody {
         let update = BodyUpdate {
             body: params.body.clone(),
             shape: Some(moved.shape),
-            naming: Arc::clone(state.naming()),
+            naming: Arc::new(state.naming().moved(&naming_motion(&motion))),
             change: BodyChange::Modify,
             measured: Measurements::default(),
         };
@@ -187,7 +189,7 @@ fn is_whole_turns(angle: f64) -> bool {
 mod tests {
     use std::f64::consts::PI;
 
-    use partsmith_naming::ElementName;
+    use partsmith_naming::{ElementName, Motion};
     use partsmith_occt_sys::{GeometryKind, SubShapeKind};
     use serde_json::{Value, json};
 
@@ -267,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn a_translation_keeps_every_name() {
+    fn a_translation_keeps_every_name_and_moves_every_motion() {
         let before = cube();
         let output =
             run(&move_body(json!({"translation": ["5", "0", "0"]}))).expect("the move builds");
@@ -277,7 +279,12 @@ mod tests {
         assert_bounds(shape, [0.0, -5.0, 0.0], [10.0, 5.0, 10.0]);
         let moved = update(&output, "b-1");
         assert_eq!(moved.change, BodyChange::Modify);
-        assert_eq!(*moved.naming, **before[0].1.naming());
+        // move_body.md section 3.2 step 6: the input map `moved` by the transform.
+        let shift = Motion::new(
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [5.0, 0.0, 0.0],
+        );
+        assert_eq!(*moved.naming, before[0].1.naming().moved(&shift));
     }
 
     #[test]

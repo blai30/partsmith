@@ -10,7 +10,7 @@ mod render;
 mod warning;
 
 use partsmith_model::{Expr, ExprError, FieldUnit, Id, Units};
-use partsmith_naming::{ElementKind, NamingError};
+use partsmith_naming::{ElementKind, NamingError, Reference};
 use partsmith_occt_sys::KernelError;
 use partsmith_sketch::{SketchError, SolveIssue};
 
@@ -217,6 +217,32 @@ pub enum FeatureError {
     NotPlanar {
         /// The plane field.
         field: FieldRef,
+    },
+    /// A face reference used as a plane resolves to flat faces that do not lie in one plane (section 3.6), so no
+    /// name order decides between them.
+    NotCoplanar {
+        /// The plane param, for example `base`; its fixes and repair point at the reference inside it.
+        field: FieldRef,
+        /// The body of the faces.
+        body: Id,
+        /// The stored face reference.
+        reference: Reference,
+        /// The faces it resolves to, as picks store them, in name order.
+        faces: Vec<Reference>,
+    },
+    /// An edge or face reference used as an axis resolves to elements whose lines do not lie on one line (section
+    /// 3.6), so no name order decides between them.
+    NotCollinear {
+        /// The axis param, for example `direction.axis`; its fixes and repair point at the reference inside it.
+        field: FieldRef,
+        /// The body of the elements.
+        body: Id,
+        /// The stored edge or face reference.
+        reference: Reference,
+        /// The elements it resolves to, as picks store them, in name order.
+        elements: Vec<Reference>,
+        /// Edges, or faces whose axes are compared.
+        kind: ElementKind,
     },
     /// An edge used as an axis is not straight.
     NotStraight {
@@ -546,6 +572,32 @@ impl FeatureError {
                 "The face selected for {} is not flat. Pick a flat face, a datum plane or an origin plane.",
                 field.label
             ),
+            FeatureError::NotCoplanar { field, faces, .. } => format!(
+                "The face selected for {} now matches {} faces that do not lie in one plane. Pick the one you mean.",
+                field.label,
+                faces.len()
+            ),
+            FeatureError::NotCollinear {
+                field,
+                elements,
+                kind: ElementKind::Face,
+                ..
+            } => format!(
+                "The face selected for {} now matches {} faces whose axes do not lie on one line. Pick the one you mean.",
+                field.label,
+                elements.len()
+            ),
+            FeatureError::NotCollinear {
+                field,
+                elements,
+                kind,
+                ..
+            } => format!(
+                "The {kind} selected for {} now matches {} {} that do not lie on one line. Pick the one you mean.",
+                field.label,
+                elements.len(),
+                plural(*kind)
+            ),
             FeatureError::NotStraight { field } => format!(
                 "The edge selected for {} is not straight. Pick a straight edge, a sketch line or an origin axis.",
                 field.label
@@ -691,6 +743,8 @@ impl FeatureError {
             FeatureError::ReferenceNotFound { .. } => "reference_not_found",
             FeatureError::ProfileNotFound { .. } => "profile_not_found",
             FeatureError::NotPlanar { .. } => "not_planar",
+            FeatureError::NotCoplanar { .. } => "not_coplanar",
+            FeatureError::NotCollinear { .. } => "not_collinear",
             FeatureError::NotStraight { .. } => "not_straight",
             FeatureError::NoAxis { .. } => "no_axis",
             FeatureError::UnknownEntity { .. } => "unknown_entity",
@@ -737,6 +791,8 @@ impl FeatureError {
             | FeatureError::ReferenceNotFound { field, .. }
             | FeatureError::ProfileNotFound { field, .. }
             | FeatureError::NotPlanar { field }
+            | FeatureError::NotCoplanar { field, .. }
+            | FeatureError::NotCollinear { field, .. }
             | FeatureError::NotStraight { field }
             | FeatureError::NoAxis { field }
             | FeatureError::UnknownEntity { field, .. }
@@ -910,6 +966,15 @@ impl FeatureError {
                 }));
                 fixes
             }
+            FeatureError::NotCoplanar { field, faces, .. } => {
+                choice_fixes(&reference_pointer(field, ElementKind::Face), faces)
+            }
+            FeatureError::NotCollinear {
+                field,
+                elements,
+                kind,
+                ..
+            } => choice_fixes(&reference_pointer(field, *kind), elements),
             FeatureError::ProfileCrossesAxis | FeatureError::AxisNotInPlane => {
                 vec![Fix::pick("/axis")]
             }
@@ -962,7 +1027,7 @@ impl FeatureError {
     }
 
     /// Repair data of the error's lost references or regions: one per loss of `ReferencesNotFound` and
-    /// `ProfileNotFound`.
+    /// `ProfileNotFound`, and an ambiguous loss of the elements `NotCoplanar` and `NotCollinear` choose between.
     pub fn repairs(&self) -> Vec<Repair> {
         match self {
             FeatureError::ReferencesNotFound { field, losses, .. } => losses
@@ -972,6 +1037,25 @@ impl FeatureError {
             FeatureError::ReferenceNotFound { field, loss } => {
                 vec![Repair::element(field.pointer(), loss)]
             }
+            FeatureError::NotCoplanar {
+                field,
+                body,
+                reference,
+                faces,
+            } => vec![Repair::element(
+                reference_pointer(field, ElementKind::Face),
+                &Loss::fitting(0, body, reference, faces),
+            )],
+            FeatureError::NotCollinear {
+                field,
+                body,
+                reference,
+                elements,
+                kind,
+            } => vec![Repair::element(
+                reference_pointer(field, *kind),
+                &Loss::fitting(0, body, reference, elements),
+            )],
             FeatureError::ProfileNotFound {
                 field,
                 sketch,
@@ -1029,6 +1113,23 @@ fn body_empty_text(renderer: &Renderer<'_>, body: &Id, use_new: bool) -> String 
             renderer.this()
         ),
     }
+}
+
+/// The JSON Pointer of the stored reference inside a plane or axis param (section 4.1): `/base/face` for the faces
+/// of the plane `base`, `/direction/axis/edge` for the edges of the axis `direction.axis`.
+fn reference_pointer(param: &FieldRef, kind: ElementKind) -> String {
+    format!("{}/{kind}", param.pointer())
+}
+
+/// The fixes of a reference that several elements fit and no order may decide between (`not_coplanar`,
+/// `not_collinear`): `UseReferences` with each element at `pointer`, then `Pick`.
+fn choice_fixes(pointer: &str, elements: &[Reference]) -> Vec<Fix> {
+    let mut fixes: Vec<Fix> = elements
+        .iter()
+        .map(|element| Fix::use_reference(pointer, element))
+        .collect();
+    fixes.push(Fix::pick(pointer));
+    fixes
 }
 
 /// The field of the region list of a profile field: `profile.regions`.

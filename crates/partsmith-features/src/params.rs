@@ -1,7 +1,7 @@
 //! Param types shared by several features, and placement helpers (features.md section 2.5).
 
 use partsmith_model::Id;
-use partsmith_naming::Reference;
+use partsmith_naming::{Motion, Reference};
 use partsmith_occt_sys::{Plane, Point, Vector};
 use partsmith_sketch::{OriginPlane, Placement, RegionRef};
 use schemars::JsonSchema;
@@ -194,6 +194,9 @@ pub trait PlacementExt {
     fn local_to_world(&self, local: [f64; 3]) -> [f64; 3];
     /// The kernel `Plane` with the same origin, normal and x-axis.
     fn to_kernel(&self) -> Plane;
+    /// The same placement moved by a rigid motion: the origin by `Motion::apply_point`, the x-axis and the normal by
+    /// `Motion::apply_direction` (section 3.6, how a hint in body coordinates follows its face).
+    fn moved(&self, motion: &Motion) -> Placement;
 }
 
 impl PlacementExt for Placement {
@@ -226,6 +229,14 @@ impl PlacementExt for Placement {
             origin: point(self.origin),
             normal: vector(self.normal),
             x_axis: vector(self.x_axis),
+        }
+    }
+
+    fn moved(&self, motion: &Motion) -> Placement {
+        Placement {
+            origin: motion.apply_point(self.origin),
+            x_axis: motion.apply_direction(self.x_axis),
+            normal: motion.apply_direction(self.normal),
         }
     }
 }
@@ -358,6 +369,33 @@ mod tests {
         assert_eq!(OriginPlane::Xy.placement().to_kernel(), Plane::XY);
         assert_eq!(OriginPlane::Xz.placement().to_kernel(), Plane::XZ);
         assert_eq!(OriginPlane::Yz.placement().to_kernel(), Plane::YZ);
+    }
+
+    #[test]
+    fn moved_moves_the_origin_and_turns_the_axes() {
+        // A quarter turn about Z, then a shift by (100, 0, 0).
+        let motion = Motion::new(
+            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            [100.0, 0.0, 0.0],
+        );
+        let placement = Placement {
+            origin: [1.0, 2.0, 3.0],
+            x_axis: [1.0, 0.0, 0.0],
+            normal: [0.0, 0.0, 1.0],
+        };
+
+        let moved = placement.moved(&motion);
+
+        assert_eq!(moved.origin, [98.0, 1.0, 3.0]);
+        assert_eq!(moved.x_axis, [0.0, 1.0, 0.0]);
+        assert_eq!(moved.normal, [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn moved_by_the_identity_is_the_same_placement() {
+        let placement = OriginPlane::Xz.placement().offset(5.0);
+
+        assert_eq!(placement.moved(&Motion::IDENTITY), placement);
     }
 
     #[test]

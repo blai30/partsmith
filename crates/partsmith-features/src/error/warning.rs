@@ -3,7 +3,7 @@
 use std::fmt;
 
 use partsmith_model::{Id, Units};
-use partsmith_naming::{ElementKind, ElementName, Follow, Lost, Reference, piece_free_text};
+use partsmith_naming::{ElementKind, ElementName, Follow, Reference, piece_free_text};
 use partsmith_sketch::{RegionLoss, RegionRef, SolveIssue};
 
 use super::describe::{made_from_line, new_faces_are_flat, rim_generator};
@@ -162,6 +162,16 @@ pub enum FeatureWarning {
         /// Where the sketch was placed instead.
         placed: Placed,
     },
+    /// The face a sketch is on now faces the other way, so its placement stays right-handed and the drawing lies
+    /// mirrored on the face (features/sketch.md section 3.5, decision D3).
+    SketchTurnedOver {
+        /// The face field, `plane.face`.
+        field: FieldRef,
+        /// The body of the face.
+        body: Id,
+        /// The stored face reference.
+        reference: Reference,
+    },
     /// The feature left the body's volume unchanged.
     NoEffect {
         /// The body.
@@ -304,6 +314,12 @@ impl FeatureWarning {
                 placed,
                 ..
             } => plane_fallback_text(renderer, body, reference, loss.as_ref(), *cause, placed),
+            FeatureWarning::SketchTurnedOver {
+                body, reference, ..
+            } => format!(
+                "The face this sketch is on, {}, now faces the other way, so the drawing is mirrored on it.",
+                renderer.describe_reference(reference, body)
+            ),
             FeatureWarning::NoEffect { body } => format!(
                 "This feature does not change body '{}'. Check its position, size and direction.",
                 renderer.body(body)
@@ -356,6 +372,7 @@ impl FeatureWarning {
             FeatureWarning::RegionAmbiguous { .. } => "region_ambiguous",
             FeatureWarning::RegionMissing { .. } => "region_missing",
             FeatureWarning::PlaneFallback { .. } => "plane_fallback",
+            FeatureWarning::SketchTurnedOver { .. } => "sketch_turned_over",
             FeatureWarning::NoEffect { .. } => "no_effect",
             FeatureWarning::HoleMissesBody { .. } => "hole_misses_body",
             FeatureWarning::Ignored { .. } => "ignored",
@@ -378,6 +395,7 @@ impl FeatureWarning {
             | FeatureWarning::RegionAmbiguous { field, .. }
             | FeatureWarning::RegionMissing { field, .. }
             | FeatureWarning::PlaneFallback { field, .. }
+            | FeatureWarning::SketchTurnedOver { field, .. }
             | FeatureWarning::Ignored { field, .. } => Some(field),
             FeatureWarning::NoEffect { .. }
             | FeatureWarning::HoleMissesBody { .. }
@@ -451,6 +469,12 @@ impl FeatureWarning {
                 }
                 fixes
             }
+            FeatureWarning::SketchTurnedOver { .. } => vec![
+                Fix::TurnDrawingBack {
+                    sketch: context.feature.clone(),
+                },
+                Fix::pick(pointer()),
+            ],
             FeatureWarning::NoEffect { .. }
             | FeatureWarning::HoleMissesBody { .. }
             | FeatureWarning::Ignored { .. }
@@ -509,7 +533,7 @@ impl FeatureWarning {
                 ..
             } => Some(Repair::element(
                 pointer(),
-                &still_used(*position, body, reference, alternatives.clone()),
+                &Loss::still_used(*position, body, reference, alternatives.clone()),
             )),
             FeatureWarning::ReferenceWidened {
                 position,
@@ -517,21 +541,10 @@ impl FeatureWarning {
                 reference,
                 elements,
                 ..
-            } => {
-                let covered = elements
-                    .iter()
-                    .map(|element| LossCandidate {
-                        reference: element.clone(),
-                        meaning: true,
-                        distance: centroid_distance(reference, element),
-                        score: 1.0,
-                    })
-                    .collect();
-                Some(Repair::element(
-                    pointer(),
-                    &still_used(*position, body, reference, covered),
-                ))
-            }
+            } => Some(Repair::element(
+                pointer(),
+                &Loss::fitting(*position, body, reference, elements),
+            )),
             FeatureWarning::PlaneFallback { loss, .. } => {
                 loss.as_ref().map(|loss| Repair::element(pointer(), loss))
             }
@@ -558,6 +571,7 @@ impl FeatureWarning {
                 ..
             } => Some(Repair::region_lost(pointer(), sketch, region, loss)),
             FeatureWarning::ReferenceFollowed { .. }
+            | FeatureWarning::SketchTurnedOver { .. }
             | FeatureWarning::NoEffect { .. }
             | FeatureWarning::HoleMissesBody { .. }
             | FeatureWarning::Ignored { .. }
@@ -613,37 +627,6 @@ fn plane_fallback_text(
         FallbackCause::Missing | FallbackCause::NotPlanar => "",
     };
     format!("The face this sketch is on, {element}, {what}, so the sketch {position}.{pick}")
-}
-
-/// The loss repair mode shows for a reference that is still used: ambiguous, with nothing lost and these candidates,
-/// each of which fits.
-fn still_used(
-    position: usize,
-    body: &Id,
-    reference: &Reference,
-    candidates: Vec<LossCandidate>,
-) -> Loss {
-    Loss {
-        position,
-        body: body.clone(),
-        reference: reference.clone(),
-        kind: reference.query.kind(),
-        ambiguous: true,
-        lost: Lost::default(),
-        matches: candidates.len(),
-        candidates,
-    }
-}
-
-/// The distance between the stored centroids of two references, 0 when either has none.
-fn centroid_distance(first: &Reference, second: &Reference) -> f64 {
-    match (first.fingerprint.centroid, second.fingerprint.centroid) {
-        (Some(first), Some(second)) => (0..3)
-            .map(|i| (first[i] - second[i]).powi(2))
-            .sum::<f64>()
-            .sqrt(),
-        _ => 0.0,
-    }
 }
 
 /// `{Element}` of a stored reference and the descriptions of `others`, described in one call so that the clash
@@ -813,6 +796,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use partsmith_model::FeatureRecord;
+    use partsmith_naming::Lost;
     use serde_json::json;
 
     use super::*;

@@ -465,7 +465,10 @@ mod tests {
     #[test]
     fn outputs_without_bodies_have_no_updates_to_check() {
         let datum = FeatureOutput::new(
-            OutputData::Datum(DatumResult::Plane(OriginPlane::Xy.placement())),
+            OutputData::Datum(DatumResult::Plane {
+                placement: OriginPlane::Xy.placement(),
+                motion: partsmith_naming::Motion::IDENTITY,
+            }),
             Vec::new(),
         );
 

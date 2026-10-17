@@ -68,12 +68,6 @@ pub enum Absence {
 }
 
 /// The four kinds of feature output.
-// A sketch result is larger than a list of updates, but an output is built once and shared through an `Arc`, and
-// boxing would change the shape features.md section 2.7 gives.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "OutputData keeps the variants the spec gives; outputs are built once and shared"
-)]
 #[derive(Clone, Debug)]
 pub enum OutputData {
     /// New states of some written bodies, in `bodies_written` order, at most one per body.
@@ -137,8 +131,9 @@ pub enum BodyChange {
 pub struct SketchResult {
     /// Placement of the sketch plane in world space.
     pub placement: Placement,
-    /// The motion of the geometry the sketch is placed on (naming.md section 3.6, `new_motion`), which features
-    /// that build faces from the sketch name them with (features/sketch.md section 3.3).
+    /// The motion of the geometry the sketch is placed on (naming.md section 3.6, `new_motion`): the motion of its
+    /// face for a face plane with `fallback_frame: body`, the datum's motion for a datum plane, and the identity
+    /// otherwise (features/sketch.md section 3.3). Features that build faces from the sketch name them with it.
     pub motion: Motion,
     /// Solved entity geometry and solver status (sketch.md `SolveResult`).
     pub solved: SolveResult,
@@ -169,8 +164,15 @@ impl SketchResult {
 /// Construction geometry produced by a datum feature.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DatumResult {
-    /// A plane.
-    Plane(Placement),
+    /// A plane, with the motion of its frame: the part of the motion of the face it is placed on that the frame
+    /// follows (the identity when it is not placed on a face, and that datum's motion for a datum placed on another
+    /// datum), which sketches on it pass on as their own (features/datum_plane.md section 3.2 step 4).
+    Plane {
+        /// The plane's placement in world space.
+        placement: Placement,
+        /// The motion of its frame.
+        motion: Motion,
+    },
 }
 
 /// A shape a feature made, with names for its elements, before it is combined with a body.

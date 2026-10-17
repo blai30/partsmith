@@ -289,7 +289,13 @@ mod tests {
         let placement = partsmith_sketch::OriginPlane::Xy.placement().offset(z);
         (
             "f-dp1",
-            FeatureOutput::new(OutputData::Datum(DatumResult::Plane(placement)), Vec::new()),
+            FeatureOutput::new(
+                OutputData::Datum(DatumResult::Plane {
+                    placement,
+                    motion: partsmith_naming::Motion::IDENTITY,
+                }),
+                Vec::new(),
+            ),
         )
     }
 

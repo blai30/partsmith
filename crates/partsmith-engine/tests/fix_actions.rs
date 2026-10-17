@@ -171,7 +171,9 @@ fn t126_r06a_a_followed_reference_offers_keep_this_match_and_pick() {
 }
 
 #[test]
-fn t126_a_widened_face_of_a_datum_offers_use_only_and_pick_but_not_keep_all() {
+fn t126_a_face_of_a_datum_that_now_spreads_over_several_planes_offers_each_face_then_pick() {
+    // features.md section 3.6 (phase 2): the five faces of the notch do not lie in one plane, so the datum's base is
+    // `not_coplanar` with each face offered and no Keep all, instead of a widening that the first face decides.
     let mut session = session();
     let scenario = block_edited(
         vec![datum_on_face("f-dp1", "b-1", block_back_side(), "5")],
@@ -180,12 +182,16 @@ fn t126_a_widened_face_of_a_datum_offers_use_only_and_pick_but_not_keep_all() {
 
     let (_, edited) = after_edit(&mut session, &scenario);
 
-    let warning = message(&edited, "f-dp1", "reference_widened");
-    assert_eq!(warning["field"], "/base/face");
+    let error = message(&edited, "f-dp1", "not_coplanar");
+    assert_eq!(error["field"], "/base");
     assert_eq!(
-        labels(&warning),
+        labels(&error),
         [
-            "Use only the back side of 'Extrude 1' made from the line from (80, 50) to (50, 50) in 'Sketch 1'",
+            "Use the left side of 'Extrude 1' made from the line from (50, 50) to (50, 40) in 'Sketch 1' near (50, 45, 15)",
+            "Use the back side of 'Extrude 1' made from the line from (50, 40) to (30, 40) in 'Sketch 1' near (40, 40, 15)",
+            "Use the right side of 'Extrude 1' made from the line from (30, 40) to (30, 50) in 'Sketch 1' near (30, 45, 15)",
+            "Use the back side of 'Extrude 1' made from the line from (30, 50) to (0, 50) in 'Sketch 1'",
+            "Use the back side of 'Extrude 1' made from the line from (80, 50) to (50, 50) in 'Sketch 1'",
             "Pick a face again"
         ]
     );

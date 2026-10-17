@@ -1,19 +1,20 @@
 //! The `sketch` feature: places a sketch, evaluates its driving dimensions, solves it and outputs
 //! its geometry and closed regions (features/sketch.md).
 
-use partsmith_model::{Category, FeatureManifest, FieldUnit, SelectionKind};
-use partsmith_naming::Motion;
+use partsmith_model::{Category, FeatureManifest, FieldUnit, Id, SelectionKind};
+use partsmith_naming::{Motion, Reference};
 use partsmith_sketch::{
-    DimensionValues, NativeSolver, SketchParams, SketchPlane, SolveIssue, Solver, ValueKind,
-    build_profile,
+    DimensionValues, HintFrame, NativeSolver, Placement, SketchParams, SketchPlane, SolveIssue,
+    Solver, ValueKind, build_profile,
 };
 
 use super::common::{essential, hint, manifest, selection_hint};
-use crate::context::BuildContext;
+use crate::context::{BuildContext, WithWarnings};
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FeatureWarning, Placed};
+use crate::error::{FallbackCause, FeatureError, FeatureWarning, Placed};
 use crate::feature::Feature;
 use crate::output::{DatumResult, FeatureOutput, OutputData, SketchResult};
+use crate::params::PlacementExt;
 
 /// Field path of the face of a sketch on a face.
 const FACE_FIELD: &str = "plane.face";
@@ -94,34 +95,26 @@ impl Feature for SketchFeature {
         params: &SketchParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
-        let mut warnings = Vec::new();
-        let placement = match &params.plane {
-            SketchPlane::Origin { plane } => plane.placement(),
+        let (placement, motion, mut warnings) = match &params.plane {
+            SketchPlane::Origin { plane } => (plane.placement(), Motion::IDENTITY, Vec::new()),
             SketchPlane::Datum { feature } => match context.datum("plane", feature)? {
-                DatumResult::Plane(placement) => *placement,
+                DatumResult::Plane { placement, motion } => (*placement, *motion, Vec::new()),
             },
             SketchPlane::Face {
                 body,
                 face,
                 fallback,
-                ..
-            } => match context.face_placement(FACE_FIELD, body, face, fallback)? {
-                Ok(placed) => {
-                    warnings.extend(placed.warnings);
-                    placed.value
-                }
-                Err(face_fallback) => {
-                    warnings.push(FeatureWarning::PlaneFallback {
-                        field: context.field(FACE_FIELD),
-                        body: body.clone(),
-                        reference: face.clone(),
-                        loss: face_fallback.loss,
-                        cause: face_fallback.cause,
-                        placed: Placed::Saved,
-                    });
-                    *fallback
-                }
-            },
+                fallback_frame,
+            } => {
+                // A fallback in world coordinates does not follow the face's motion (naming.md section 3.6).
+                let motion = match fallback_frame {
+                    HintFrame::Body => context.body(body)?.motion(&face.query),
+                    HintFrame::World => Motion::IDENTITY,
+                };
+                let placed =
+                    face_sketch_placement(context, body, face, fallback, *fallback_frame, &motion)?;
+                (placed.value, motion, placed.warnings)
+            }
         };
         let values = driving_values(params, context)?;
         let solved = NativeSolver
@@ -147,13 +140,74 @@ impl Feature for SketchFeature {
         Ok(FeatureOutput::new(
             OutputData::Sketch(SketchResult {
                 placement,
-                motion: Motion::IDENTITY,
+                motion,
                 solved,
                 profile,
             }),
             warnings,
         ))
     }
+}
+
+/// The placement of a sketch on `face` of `body` (features/sketch.md section 3.3 step 1), with its stored
+/// `fallback` in the coordinates `frame` names and the sketch's `motion`, the first that applies: on the face, with
+/// its reference's warnings and notices and `SketchTurnedOver` when the face now faces the other way; for a missing
+/// face, where it was just before the earlier writer that removed it, moved with the body since; else the saved
+/// `fallback`, moved by `motion` for `HintFrame::Body`. The last two warn `PlaneFallback` with where the sketch was
+/// placed.
+fn face_sketch_placement(
+    context: &BuildContext<'_>,
+    body: &Id,
+    face: &Reference,
+    fallback: &Placement,
+    frame: HintFrame,
+    motion: &Motion,
+) -> Result<WithWarnings<Placement>, FeatureError> {
+    let face_fallback = match context.face_placement(FACE_FIELD, body, face, fallback, frame)? {
+        Ok(placed) => {
+            let mut warnings = placed.warnings;
+            if placed.turned_over {
+                warnings.push(FeatureWarning::SketchTurnedOver {
+                    field: context.field(FACE_FIELD),
+                    body: body.clone(),
+                    reference: face.clone(),
+                });
+            }
+            return Ok(WithWarnings {
+                value: placed.placement,
+                warnings,
+            });
+        }
+        Err(face_fallback) => face_fallback,
+    };
+    // An empty body has no loss and no earlier state with the face to look for.
+    let missing = face_fallback.cause == FallbackCause::Missing && face_fallback.loss.is_some();
+    let before_removal = if missing {
+        context.face_placement_before_removal(body, face, fallback, frame)?
+    } else {
+        None
+    };
+    let (value, placed) = match before_removal {
+        Some((placement, by)) => (placement, Placed::BeforeRemoval { by }),
+        None => {
+            let saved = match frame {
+                HintFrame::Body => fallback.moved(motion),
+                HintFrame::World => *fallback,
+            };
+            (saved, Placed::Saved)
+        }
+    };
+    Ok(WithWarnings {
+        value,
+        warnings: vec![FeatureWarning::PlaneFallback {
+            field: context.field(FACE_FIELD),
+            body: body.clone(),
+            reference: face.clone(),
+            loss: face_fallback.loss,
+            cause: face_fallback.cause,
+            placed,
+        }],
+    })
 }
 
 /// The values of the driving dimensions, keyed by constraint id. Reference dimensions are not

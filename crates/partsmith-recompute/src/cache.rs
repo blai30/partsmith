@@ -158,7 +158,10 @@ mod tests {
     #[test]
     fn built_outputs_without_bodies_have_no_states() {
         let built = Built::new(FeatureOutput::new(
-            OutputData::Datum(DatumResult::Plane(OriginPlane::Xy.placement())),
+            OutputData::Datum(DatumResult::Plane {
+                placement: OriginPlane::Xy.placement(),
+                motion: partsmith_naming::Motion::IDENTITY,
+            }),
             Vec::new(),
         ));
 
