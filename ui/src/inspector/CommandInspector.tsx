@@ -24,15 +24,15 @@ import { SeverityIcon } from '../print/SeverityIcon'
 import { MessageActions } from '../repair/MessageActions'
 import { selectRepairMode, type RepairView } from '../repair/repair'
 import { RepairCandidates } from '../repair/RepairCandidates'
-import { sameValue } from '../app/actions/command-values'
+import { differingFields } from '../app/actions/command-values'
 import type { ActiveCommand, CatalogFeature } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { ChoiceField } from './fields/ChoiceField'
 import { ExpressionField } from './fields/ExpressionField'
-import { fieldInputId, focusFieldInput } from './fields/field-id'
+import { fieldInputId, focusField } from './fields/field-id'
 import { SelectionField } from './fields/SelectionField'
 import { NumberField, SwitchField, TextValueField, UnsupportedField } from './fields/ValueFields'
-import { buildInspectorModel, fieldsOf, getParam, siblingsOf, type InspectorField } from './model'
+import { buildInspectorModel, fieldsOf, siblingsOf, type InspectorField } from './model'
 import { messagesByField, pointsInto } from './status'
 
 // The inspector of a feature command (ui.md 3.7): the status banner, the essential fields, the
@@ -220,9 +220,7 @@ function StatusBanner({
   function focusAfter(message: Diagnostic): () => void {
     return () => {
       const after = app.store.getState().command?.params ?? params
-      const changed = fields.find(
-        (field) => !sameValue(getParam(params, field.path), getParam(after, field.path)),
-      )
+      const [changed] = differingFields(fields, params, after)
       const path =
         changed === undefined
           ? (fieldOf(message)?.path ?? null)
@@ -230,7 +228,7 @@ function StatusBanner({
             ? (changed.attachedTo ?? changed.path)
             : changed.path
       if (path !== null) {
-        focusFieldInput(document.getElementById(fieldInputId(path)))
+        focusField(path)
       }
     }
   }
@@ -262,7 +260,7 @@ function StatusBanner({
                     if (field.control.type === 'selection') {
                       setActiveField(app, field.path)
                     }
-                    focusFieldInput(document.getElementById(fieldInputId(field.path)))
+                    focusField(field.path)
                   }}
                   className={clsx(
                     'rounded-xs text-left hover:underline',
@@ -287,7 +285,7 @@ function StatusBanner({
                       onClick={() => {
                         reverseAndUse(app, field.path, positive)
                         // Focus on the field, not on Reverse, so the next Enter confirms (3.5, 3.7).
-                        focusFieldInput(document.getElementById(fieldInputId(field.path)))
+                        focusField(field.path)
                       }}
                     >
                       {`Reverse and use ${positive}`}

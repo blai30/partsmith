@@ -12,7 +12,12 @@ import {
   sketchToScreen,
   timelineItem,
 } from './helpers'
-import { expectTimeline, timelineItems } from './support/documents'
+import {
+  expectOnlyNotification,
+  expectStatuses,
+  expectTimeline,
+  openProblems,
+} from './support/documents'
 import { dragTo, expectPreviewShown, fillInspector, timelineGap } from './support/modeling'
 import { app, clickAt, editSketchFromBrowser, expectNoHover, sketchHint } from './support/sketch'
 
@@ -45,29 +50,6 @@ function problemRow(page: Page, featureId: string): Locator {
   )
 }
 
-/** Opens the Problems panel with the problems button. */
-async function openProblems(page: Page): Promise<Locator> {
-  await page.getByTestId('timeline-problems').click()
-  const panel = page.getByTestId('problems-panel')
-  await expect(panel).toBeVisible()
-  return panel
-}
-
-/** Expects the timeline to hold these features in order with these statuses. */
-async function expectStatuses(
-  page: Page,
-  expected: readonly (readonly [label: string, status: string])[],
-): Promise<void> {
-  const items = timelineItems(page)
-  await expect(items).toHaveCount(expected.length)
-  await Promise.all(
-    expected.flatMap(([label, status], index) => [
-      expect(items.nth(index).getByRole('button')).toHaveAccessibleName(label),
-      expect(items.nth(index)).toHaveAttribute('data-status', status),
-    ]),
-  )
-}
-
 test.describe('lost references and their fixes', () => {
   test('E-109 corpus R03: a line deleted in a sketch session notifies once when the session ends', async ({
     page,
@@ -76,17 +58,15 @@ test.describe('lost references and their fixes', () => {
     await dropFile(page, 'bevel-corner.ptsm')
     await expectTimeline(page, ['Sketch 1', 'Extrude 1', 'Fillet 1'])
     await editSketchFromBrowser(page, 'Sketch 1')
-    const s = sketchToScreen(await canvas(page), [0, 0], [80, 50])
-    await clickAt(page, s.toPage([75, 45]))
+    const mapping = sketchToScreen(await canvas(page), [0, 0], [80, 50])
+    await clickAt(page, mapping.toPage([75, 45]))
     await expect(page.getByTestId('selection-title')).toHaveText('1 line')
     await page.keyboard.press('Delete')
     await expect(page.getByTestId('notification')).toHaveCount(0)
 
     await page.keyboard.press('ControlOrMeta+Enter')
     await expect(app(page)).toHaveAttribute('data-context', 'model')
-    const notifications = page.getByTestId('notification')
-    await expect(notifications).toHaveCount(1)
-    const lost = notifications.first()
+    const lost = await expectOnlyNotification(page)
     await expect(lost).toHaveAttribute('data-severity', 'warning')
     await expect(
       lost.getByText("'Fillet 1' lost the top edge of 'Extrude 1' along a line of 'Sketch 1'.", {
@@ -133,9 +113,7 @@ test.describe('lost references and their fixes', () => {
       .getByRole('menuitem', { name: 'Unsuppress', exact: true })
       .click()
     await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'error')
-    const notifications = page.getByTestId('notification')
-    await expect(notifications).toHaveCount(1)
-    const lost = notifications.first()
+    const lost = await expectOnlyNotification(page)
     await expect(lost).toHaveAttribute('data-severity', 'error')
     await expect(
       lost.getByText("'Fillet 1' lost the front top edge of 'Box 1'.", { exact: true }),
@@ -174,9 +152,7 @@ test.describe('lost references and their fixes', () => {
     await page.keyboard.press('Enter')
 
     await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'warning')
-    const notifications = page.getByTestId('notification')
-    await expect(notifications).toHaveCount(1)
-    const lost = notifications.first()
+    const lost = await expectOnlyNotification(page)
     await expect(lost).toHaveAttribute('data-severity', 'warning')
     await expect(
       lost.getByText(
@@ -217,9 +193,9 @@ test.describe('lost references and their fixes', () => {
     await dropFile(page, 'side-line.ptsm')
     await expectTimeline(page, ['Sketch 1', 'Extrude 1', 'Fillet 1'])
     await editSketchFromBrowser(page, 'Sketch 1')
-    const s = sketchToScreen(await canvas(page), [0, 0], [80, 50])
+    const mapping = sketchToScreen(await canvas(page), [0, 0], [80, 50])
     // Each step waits for the state it needs, so a busy machine cannot delete nothing and draw a second side.
-    const side = s.toPage([80, 25])
+    const side = mapping.toPage([80, 25])
     await expectHover(page, side.x, side.y, 'sketch_curve')
     await clickAt(page, side)
     await expect(page.getByTestId('selection-title')).toHaveText('1 line')
@@ -227,8 +203,8 @@ test.describe('lost references and their fixes', () => {
     await expectNoHover(page, side, 'sketch_curve')
     await page.keyboard.press('L')
     await expect(sketchHint(page)).toHaveText('Click to start a line.')
-    await clickAt(page, s.toPage([80, 0]))
-    await clickAt(page, s.toPage([80, 50]))
+    await clickAt(page, mapping.toPage([80, 0]))
+    await clickAt(page, mapping.toPage([80, 50]))
     await page.keyboard.press('Escape')
     await expectHover(page, side.x, side.y, 'sketch_curve')
     await page.keyboard.press('ControlOrMeta+Enter')

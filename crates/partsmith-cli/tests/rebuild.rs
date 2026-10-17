@@ -4,7 +4,7 @@ mod common;
 
 use common::{
     BOX, FILLET, Workspace, assert_json_close, assert_pretty_json_layout, assert_relative,
-    box_with_negative_length, number,
+    box_with_negative_length, entry, items, number,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -68,16 +68,6 @@ const BOX_JSON_REPORT: &str = r#"{
   ]
 }
 "#;
-
-/// The record with `key` equal to `value` in a JSON array.
-fn entry<'a>(array: &'a Value, key: &str, value: &str) -> &'a Value {
-    array
-        .as_array()
-        .unwrap_or_else(|| panic!("an array, got {array}"))
-        .iter()
-        .find(|item| item[key] == value)
-        .unwrap_or_else(|| panic!("an entry with {key} {value:?} in {array}"))
-}
 
 #[test]
 fn t026_rebuild_prints_feature_status_and_body_metrics() {
@@ -186,9 +176,7 @@ fn t032_rotated_box_has_overhang_findings() {
     let report = run.json();
     let body = entry(&report["checks"]["bodies"], "body", "b-1");
     let overhangs = entry(&body["report"]["checks"], "check", "overhangs");
-    let findings = overhangs["findings"]
-        .as_array()
-        .expect("findings is an array");
+    let findings = items(&overhangs["findings"]);
     assert!(!findings.is_empty(), "{overhangs}");
 }
 

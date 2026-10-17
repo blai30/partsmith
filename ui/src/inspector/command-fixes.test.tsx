@@ -19,7 +19,7 @@ import {
   type FrameQueue,
 } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
-import { currentDocument, startWithDocument, type FakeApp } from '../test/fakes/app'
+import { activeCommand, currentDocument, startWithDocument, type FakeApp } from '../test/fakes/app'
 import type { FakeFeatureStatus, FakeFix } from '../test/fakes/core'
 import { deferred } from '../test/fakes/deferred'
 import {
@@ -98,14 +98,6 @@ function field(path: string): HTMLElement {
     throw new Error(`No inspector field ${path}`)
   }
   return found
-}
-
-function command(fake: FakeApp) {
-  const active = fake.app.store.getState().command
-  if (active === null) {
-    throw new Error('No command is active.')
-  }
-  return active
 }
 
 /** The fix A0 of `R16-STATUS`: 'Fillet 1' takes C1. */
@@ -198,12 +190,12 @@ describe('a candidate in a command (3.7, U-128)', () => {
     const [first] = within(banner()).getAllByTestId('repair-candidate-button')
     await user.click(first ?? banner())
     await settleAll()
-    expect(command(fake).params['edges']).toEqual([R16_FRONT_CUT_EDGE])
+    expect(activeCommand(fake.app).params['edges']).toEqual([R16_FRONT_CUT_EDGE])
     await act(async () => {
       await undoCommandChange(fake.app)
       await settle()
     })
-    expect(command(fake).params['edges']).toEqual([R16_STORED_EDGE])
+    expect(activeCommand(fake.app).params['edges']).toEqual([R16_STORED_EDGE])
   })
 
   it('U-128 the fix joins the transaction: no undo entry of its own, and the edit stays open', async () => {
@@ -273,7 +265,7 @@ describe('a fix of a value in a command (3.7, U-87)', () => {
     expect(fake.transport.commandsOfType('apply_fix').map((sent) => sent.fix)).toEqual([
       SMALLER_FIX,
     ])
-    expect(command(fake).params['radius']).toBe('2.3 mm')
+    expect(activeCommand(fake.app).params['radius']).toBe('2.3 mm')
     expect(within(field('radius')).getByRole('combobox')).toHaveFocus()
   })
 })
@@ -338,7 +330,7 @@ describe('fixes during commands (3.7, U-107 and U-145)', () => {
     expect(fake.transport.commandsOfType('apply_fix').map((sent) => sent.fix)).toEqual([
       REVERSE_FIX,
     ])
-    expect(command(fake).params['reverse']).toBe(true)
+    expect(activeCommand(fake.app).params['reverse']).toBe(true)
     expect(within(field('extent.expr')).getByRole('combobox')).toHaveFocus()
   })
 
@@ -353,7 +345,7 @@ describe('fixes during commands (3.7, U-107 and U-145)', () => {
       await undoCommandChange(fake.app)
       await settle()
     })
-    expect(command(fake).params['reverse'] ?? false).toBe(false)
+    expect(activeCommand(fake.app).params['reverse'] ?? false).toBe(false)
     expect(fake.transport.commandsOfType('apply_edits').length).toBeGreaterThan(previews)
   })
 
@@ -374,7 +366,7 @@ describe('fixes during commands (3.7, U-107 and U-145)', () => {
       await undoCommandChange(fake.app)
       await settle()
     })
-    expect(command(fake).params['reverse'] ?? false).toBe(false)
+    expect(activeCommand(fake.app).params['reverse'] ?? false).toBe(false)
     expect(parameterExpression()).toBe('25 mm')
     await act(async () => {
       await cancelCommand(fake.app)

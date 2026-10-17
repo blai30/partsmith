@@ -2,9 +2,10 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
 // Helpers for the document, file, recovery, undo, notification and status bar tests (ui.md 6.5
-// E-1 to E-9, E-127 to E-129 and the tests of 3.19 to 3.22): the timeline as a whole,
-// notifications by message, the IndexedDB records of recent files and recovery, and the Web Locks
-// of running recovery sessions (2.15). The shared helpers of 6.3 are in ../helpers.ts.
+// E-1 to E-9, E-127 to E-129 and the tests of 3.19 to 3.22): the timeline as a whole and its
+// statuses, the Problems panel, notifications, the IndexedDB records of recent files and recovery,
+// and the Web Locks of running recovery sessions (2.15). The shared helpers of 6.3 are in
+// ../helpers.ts.
 
 /** One recovery entry in IndexedDB (ui.md 2.15), without its handle. */
 export type StoredRecovery = {
@@ -22,16 +23,42 @@ export function timelineItems(page: Page): Locator {
   return page.getByTestId('timeline-item')
 }
 
-/** Expects the timeline to hold exactly these features, in order, each with `data-status="ok"`. */
-export async function expectTimeline(page: Page, labels: readonly string[]): Promise<void> {
+/** Expects the timeline to hold exactly these features, in order, with these `data-status` values. */
+export async function expectStatuses(
+  page: Page,
+  expected: readonly (readonly [label: string, status: string])[],
+): Promise<void> {
   const items = timelineItems(page)
-  await expect(items).toHaveCount(labels.length)
+  await expect(items).toHaveCount(expected.length)
   await Promise.all(
-    labels.flatMap((label, index) => [
+    expected.flatMap(([label, status], index) => [
       expect(items.nth(index).getByRole('button')).toHaveAccessibleName(label),
-      expect(items.nth(index)).toHaveAttribute('data-status', 'ok'),
+      expect(items.nth(index)).toHaveAttribute('data-status', status),
     ]),
   )
+}
+
+/** Expects the timeline to hold exactly these features, in order, each with `data-status="ok"`. */
+export async function expectTimeline(page: Page, labels: readonly string[]): Promise<void> {
+  await expectStatuses(
+    page,
+    labels.map((label) => [label, 'ok'] as const),
+  )
+}
+
+/** Opens the Problems panel with the timeline's problems button (ui.md 3.9) and returns it. */
+export async function openProblems(page: Page): Promise<Locator> {
+  await page.getByTestId('timeline-problems').click()
+  const panel = page.getByTestId('problems-panel')
+  await expect(panel).toBeVisible()
+  return panel
+}
+
+/** Expects exactly one notification (ui.md 3.22) and returns it. */
+export async function expectOnlyNotification(page: Page): Promise<Locator> {
+  const notifications = page.getByTestId('notification')
+  await expect(notifications).toHaveCount(1)
+  return notifications.first()
 }
 
 /**

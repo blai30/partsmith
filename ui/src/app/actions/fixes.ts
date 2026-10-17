@@ -1,38 +1,32 @@
 import type {
-  BoundingBox,
   Cause,
+  FeatureRecord,
   FixAction,
   FixRef,
   Ghost,
-  MeshElement,
+  SolvedEntity,
 } from '../../generated/protocol'
 import { featureSelectionItem } from '../../inspector/selection-values'
 import { selectionFieldFor } from '../../inspector/status'
 import { MESSAGES } from '../../messages'
-import { ghostBuffer } from '../../repair/paint'
-import { selectRegionCandidates, selectRepairMode, type RepairMode } from '../../repair/repair'
+import { frameRepair } from '../../repair/frame'
+import { selectRepairMode } from '../../repair/repair'
 import { entitySelectionItem } from '../../sketch/hit'
-import { selectFeatureLabel, type FixPlace } from '../../state/selectors'
-import type { SelectionItem } from '../../state/store'
-import { extendBounds, type Vector3 } from '../../viewport/math'
-import { sketchBounds } from '../../viewport/sketch-drawables'
+import { selectFeatureLabel, selectFixBlock, type FixPlace } from '../../state/selectors'
+import type { Notification, SelectionItem } from '../../state/store'
+import { DEFAULT_FIT_MARGIN } from '../../viewport/camera'
 import type { App } from '../createApp'
+import { reportFailure } from '../report'
 import { applyFixInCommand, cancelCommandImplicitly, editFeature, setActiveField } from './command'
 import { undo } from './document'
 import { documentOf, refusedDuringCommand, runChange } from './edits'
-import { listedElements } from './element-lists'
+import { listedElementsOrNone } from './element-lists'
 import { announce, notify } from './notifications'
 import { elementSelectionItem } from './selection'
 import { recordSketchEdit } from './sketch'
 
 // The actions of messages and cause lines (ui.md 4.2: `runFixAction`), Copy details (4.1) and
 // "Show what '{label}' lost" (3.7: `showLost`, which opens repair mode and frames what was lost).
-
-/** The `fitBounds` margin of what a fix action or repair mode frames: content fills 80 percent of the view. */
-const FRAME_MARGIN = 0.1
-
-/** The share of the body's size on each axis that repair mode frames at least (3.7). */
-const LEAST_REPAIR_SHARE = 1 / 3
 
 /**
  * An `apply` action (4.2): offered by the command's own banner it joins the transaction (3.7);
@@ -83,20 +77,18 @@ async function pickAgain(app: App, feature: string, path: string): Promise<void>
  */
 async function shownItems(
   app: App,
-  feature: string,
-  entity: string | null,
+  record: FeatureRecord,
+  drawn: SolvedEntity | undefined,
 ): Promise<readonly SelectionItem[]> {
   const document = documentOf(app)
-  const record = document?.recipe.features?.find((candidate) => candidate.id === feature)
-  if (document === null || record === undefined) {
+  if (document === null) {
     return []
   }
+  const feature = record.id
   if (record.type === 'sketch') {
-    const entities = document.sketches[feature]?.solution.entities ?? []
-    const named = entities.filter((candidate) => candidate.id === entity)
-    return (named.length > 0 ? named : entities).map((candidate) =>
-      entitySelectionItem(feature, candidate),
-    )
+    const entities =
+      drawn === undefined ? (document.sketches[feature]?.solution.entities ?? []) : [drawn]
+    return entities.map((entity) => entitySelectionItem(feature, entity))
   }
   if (record.type === 'datum_plane') {
     return [
@@ -107,10 +99,11 @@ async function shownItems(
       ),
     ]
   }
-  const lists = Object.entries(document.meshes).map(([body, mesh]) =>
-    listedElements(app, body, 'face', mesh.meshId),
+  const faces = await Promise.all(
+    Object.entries(document.meshes).map(([body, mesh]) =>
+      listedElementsOrNone(app, body, 'face', mesh.meshId),
+    ),
   )
-  const faces = await Promise.all(lists.map((list) => list?.catch(() => []) ?? []))
   return faces
     .flat()
     .filter((face) => face.feature === feature)
@@ -122,7 +115,7 @@ function frameItems(app: App, items: readonly SelectionItem[]): void {
   const viewport = app.viewport()
   const bounds = items.length === 0 ? null : (viewport?.itemBounds(items) ?? null)
   if (viewport !== null && bounds !== null) {
-    viewport.zoomToBounds(bounds, FRAME_MARGIN)
+    viewport.zoomToBounds(bounds, DEFAULT_FIT_MARGIN)
   }
 }
 
@@ -164,7 +157,7 @@ async function show(
       : entitySelectionItem(feature, drawn)
   // One change, so the selection change does not clear what is shown.
   app.store.setState({ selection: [item], shown: { feature, entity, ghost } })
-  frameItems(app, await shownItems(app, feature, entity))
+  frameItems(app, await shownItems(app, record, drawn))
 }
 
 /**
@@ -195,6 +188,54 @@ export async function runFixAction(
       return
     case 'finish_transaction':
       return
+  }
+}
+
+/**
+ * Runs an action a button or a candidate marker offers at `place` (4.2) unless it waits now
+ * (`selectFixBlock`, 3.7), then calls `onRan`, for the focus rule of the banner (3.7).
+ */
+export function runOfferedFix(
+  app: App,
+  action: FixAction,
+  place: FixPlace,
+  {
+    cause,
+    onRan,
+  }: {
+    /** The cause line the action belongs to, whose ghost a `show` draws; absent for a message action. */
+    readonly cause?: Cause | undefined
+    readonly onRan?: (() => void) | undefined
+  } = {},
+): void {
+  if (selectFixBlock(app.store.getState(), action, place) !== null) {
+    return
+  }
+  runFixAction(app, action, place, cause)
+    .then(() => onRan?.())
+    .catch(reportFailure(`Running "${action.label}"`))
+}
+
+/** The actions a message or a cause line offers, in order: all but `finish_transaction` (4.2). */
+export function offeredActions(actions: readonly FixAction[]): readonly FixAction[] {
+  return actions.filter((action) => action.run.kind !== 'finish_transaction')
+}
+
+/**
+ * An action of a core error or of a cause line as a notification offers it (4.2); an `apply`
+ * edits the document, so it waits during a feature command (3.7).
+ */
+export function fixNotificationAction(
+  app: App,
+  action: FixAction,
+  cause?: Cause,
+): Notification['actions'][number] {
+  return {
+    label: action.label,
+    run: () => {
+      void runFixAction(app, action, 'notification', cause)
+    },
+    editsDocument: action.run.kind === 'apply',
   }
 }
 
@@ -231,109 +272,21 @@ export async function copyDetails(
 }
 
 /**
- * The centroid of each element in its body's model-layer mesh (3.7): the `centroid` of the
- * `list_elements` descriptor at its display id; null for none, for an element of a mesh the body
- * no longer shows, or when the list cannot be had.
+ * Shows repair mode for a feature whose Problems row takes focus (3.7, 3.9), unless a feature
+ * command is active or the feature has no repair.
  */
-export function elementCentroids(
-  app: App,
-  elements: readonly (MeshElement | null)[],
-): Promise<readonly (Vector3 | null)[]> {
-  return Promise.all(
-    elements.map(async (element) => {
-      if (element === null) {
-        return null
-      }
-      const listed = listedElements(app, element.body, element.kind, element.mesh_id)
-      const descriptors = await (listed ?? Promise.resolve([])).catch(() => [])
-      return descriptors[element.index]?.centroid ?? null
-    }),
-  )
-}
-
-/** The points of a flat `f32` list of world points, such as a ghost's (2.7); none without one. */
-function worldPoints(positions: Float32Array | undefined): Vector3[] {
-  if (positions === undefined) {
-    return []
-  }
-  const points: Vector3[] = []
-  for (let i = 0; i + 3 <= positions.length; i += 3) {
-    points.push([positions[i] ?? 0, positions[i + 1] ?? 0, positions[i + 2] ?? 0])
-  }
-  return points
-}
-
-/** A box grown about its center to at least `least` on each axis. */
-function grownTo(bounds: BoundingBox, least: readonly number[]): BoundingBox {
-  const axes = [0, 1, 2] as const
-  const half = axes.map(
-    (axis) => Math.max(bounds.max[axis] - bounds.min[axis], least[axis] ?? 0) / 2,
-  )
-  const center = axes.map((axis) => (bounds.min[axis] + bounds.max[axis]) / 2)
-  const along = (axis: 0 | 1 | 2, sign: number) => (center[axis] ?? 0) + sign * (half[axis] ?? 0)
-  return {
-    min: [along(0, -1), along(1, -1), along(2, -1)],
-    max: [along(0, 1), along(1, 1), along(2, 1)],
+export function focusRepair(app: App, featureId: string): void {
+  const state = app.store.getState()
+  const repairs = state.document?.featureStatus[featureId]?.repairs ?? []
+  if (state.command === null && repairs.length > 0) {
+    app.store.setState({ repair: { feature: featureId } })
   }
 }
 
-/** The points repair mode frames, and the box of which it frames at least a third on each axis (3.7). */
-type RepairFrame = {
-  readonly points: readonly Vector3[]
-  readonly around: { readonly min: readonly number[]; readonly max: readonly number[] } | null
-}
-
-/** The points that have a place, in order. */
-function placed(points: readonly (Vector3 | null)[]): Vector3[] {
-  return points.filter((point): point is Vector3 => point !== null)
-}
-
-/**
- * What repair mode frames (3.7): for an element repair the ghost's points, else the stored
- * centroid, with the candidates' markers, in the repair's body; for a region repair the
- * candidates' numbers in their sketch's drawing.
- */
-async function repairFrame(app: App, mode: RepairMode): Promise<RepairFrame> {
-  const { repair, candidates } = mode.view
-  const document = documentOf(app)
-  if (repair.kind === 'region') {
-    const solution = document?.sketches[repair.sketch]?.solution
-    return {
-      points: placed(selectRegionCandidates(app.store.getState())?.anchors ?? []),
-      around: solution === undefined ? null : sketchBounds(solution),
-    }
-  }
-  const ghost = worldPoints(ghostBuffer(app.store.getState(), repair))
-  const lost: Vector3[] =
-    ghost.length > 0
-      ? ghost
-      : repair.centroid === null || repair.centroid === undefined
-        ? []
-        : [repair.centroid]
-  const markers = await elementCentroids(
-    app,
-    candidates.map((candidate) => candidate.element),
-  )
-  return {
-    points: [...lost, ...placed(markers)],
-    around: document?.meshes[repair.body]?.boundingBox ?? null,
-  }
-}
-
-/** Frames what repair mode shows, grown about its center to at least a third of what is around it on each axis (3.7). */
-async function frameRepair(app: App, mode: RepairMode): Promise<void> {
-  const { points, around } = await repairFrame(app, mode)
-  const bounds = extendBounds(null, points)
-  const viewport = app.viewport()
-  if (bounds === null || viewport === null) {
-    return
-  }
-  const least = [0, 1, 2].map((axis) =>
-    around === null ? 0 : ((around.max[axis] ?? 0) - (around.min[axis] ?? 0)) * LEAST_REPAIR_SHARE,
-  )
-  viewport.zoomToBounds(
-    grownTo({ min: [...bounds.min], max: [...bounds.max] }, least),
-    FRAME_MARGIN,
+/** Ends the repair mode a feature's Problems row showed once focus leaves it (3.7, 3.9). */
+export function blurRepair(app: App, featureId: string): void {
+  app.store.setState((state) =>
+    state.command === null && state.repair?.feature === featureId ? { repair: null } : {},
   )
 }
 

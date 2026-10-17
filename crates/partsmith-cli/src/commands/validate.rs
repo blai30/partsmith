@@ -27,9 +27,6 @@ const LOST_REFERENCE_CODES: [&str; 7] = [
     "plane_fallback",
 ];
 
-/// How far the action and candidate lines of a feature message are indented under its line.
-const FOLLOW_UP_INDENT: usize = 2;
-
 /// The JSON report of `validate --json`.
 #[derive(Debug, Serialize)]
 struct Report {
@@ -161,10 +158,9 @@ fn write_human(
         Ok(report) if report.diagnostics.is_empty() => output.line(format_args!("{name}: ok")),
         Ok(report) => report.diagnostics.into_iter().try_for_each(|diagnostic| {
             output.line(diagnostic_line(name, &diagnostic))?;
+            // A diagnostic line has no indent.
             match diagnostic.feature {
-                Some(message) => {
-                    MessageMembers::from(*message).write_lines(output, FOLLOW_UP_INDENT)
-                }
+                Some(message) => MessageMembers::from(*message).write_lines(output, 0),
                 None => Ok(()),
             }
         }),
@@ -178,11 +174,10 @@ fn write_human(
 #[cfg(test)]
 mod tests {
     use partsmith_engine::FeatureMessage;
-    use partsmith_protocol::{Diagnostic, FixAction, FixKind};
+    use partsmith_protocol::Diagnostic;
 
     use super::*;
-    use crate::commands::test_support::{id, session};
-    use crate::output::capture;
+    use crate::test_support::{capture, id, pick_edge_again, session};
 
     fn diagnostic(severity: Severity, code: &str) -> ValidationDiagnostic {
         ValidationDiagnostic::new(severity, code, "Message.")
@@ -201,13 +196,7 @@ mod tests {
     fn lost_edge() -> ValidationDiagnostic {
         let projected = Diagnostic {
             field: Some("/edges/0".to_owned()),
-            actions: vec![FixAction {
-                label: "Pick an edge again".to_owned(),
-                run: FixKind::Pick {
-                    feature: id("f-fil1"),
-                    path: "/edges/0".to_owned(),
-                },
-            }],
+            actions: vec![pick_edge_again()],
             detail: Some("edges[0] resolution=missing".to_owned()),
             ..Diagnostic::new(Severity::Warning, "reference_missing", "The edge is gone.")
         };

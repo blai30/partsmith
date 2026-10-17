@@ -120,7 +120,7 @@ fn file_state(path: &Path, text: &str) -> Result<FileState, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::output::capture;
+    use crate::test_support::capture;
 
     fn files() -> Vec<(&'static str, String)> {
         vec![

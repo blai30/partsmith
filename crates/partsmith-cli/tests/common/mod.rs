@@ -148,6 +148,42 @@ pub fn run_in(directory: &Path, arguments: &[&str], input: Option<&[u8]>) -> Run
     }
 }
 
+/// The position of the line equal to `expected` in standard output.
+pub fn line_position(run: &Run, expected: &str) -> usize {
+    run.stdout_lines()
+        .iter()
+        .position(|line| *line == expected)
+        .unwrap_or_else(|| {
+            panic!(
+                "standard output has no line {expected:?}\n--- standard output ---\n{}",
+                run.stdout
+            )
+        })
+}
+
+/// The `count` lines of standard output right after the line equal to `expected`.
+pub fn lines_after<'a>(run: &'a Run, expected: &str, count: usize) -> Vec<&'a str> {
+    let start = line_position(run, expected) + 1;
+    let lines = run.stdout_lines();
+    assert!(
+        lines.len() >= start + count,
+        "standard output has {count} lines after {expected:?}\n--- standard output ---\n{}",
+        run.stdout
+    );
+    lines[start..start + count].to_vec()
+}
+
+/// The lines of standard output right after the line equal to `expected` that start with
+/// `prefix`, up to the first that does not.
+pub fn run_of_lines_after<'a>(run: &'a Run, expected: &str, prefix: &str) -> Vec<&'a str> {
+    let start = line_position(run, expected) + 1;
+    run.stdout_lines()[start..]
+        .iter()
+        .take_while(|line| line.starts_with(prefix))
+        .copied()
+        .collect()
+}
+
 /// A temporary working directory the binary runs in.
 pub struct Workspace {
     directory: TempDir,
@@ -434,6 +470,40 @@ pub fn number(value: &Value, what: &str) -> f64 {
     value
         .as_f64()
         .unwrap_or_else(|| panic!("{what} is a number, got {value}"))
+}
+
+/// The record with `key` equal to `value` in a JSON array.
+pub fn entry<'a>(array: &'a Value, key: &str, value: &str) -> &'a Value {
+    array
+        .as_array()
+        .unwrap_or_else(|| panic!("an array, got {array}"))
+        .iter()
+        .find(|item| item[key] == value)
+        .unwrap_or_else(|| panic!("an entry with {key} {value:?} in {array}"))
+}
+
+/// The members of a JSON object, in order.
+pub fn keys(object: &Value) -> Vec<&str> {
+    object
+        .as_object()
+        .unwrap_or_else(|| panic!("an object, got {object}"))
+        .keys()
+        .map(String::as_str)
+        .collect()
+}
+
+/// The items of a JSON array.
+pub fn items(array: &Value) -> &Vec<Value> {
+    array
+        .as_array()
+        .unwrap_or_else(|| panic!("an array, got {array}"))
+}
+
+/// A JSON string as `&str`.
+pub fn text(value: &Value) -> &str {
+    value
+        .as_str()
+        .unwrap_or_else(|| panic!("a string, got {value}"))
 }
 
 /// Panics unless standard output is pretty-printed JSON with 2-space indentation and a trailing

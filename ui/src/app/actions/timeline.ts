@@ -1,6 +1,5 @@
 import { createLatestOnly } from '../../core/queue'
-import type { Diagnostic, Edit, FeatureRecord } from '../../generated/protocol'
-import { suggestedRecord } from '../../inspector/status'
+import type { Edit, FeatureRecord } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { selectFeatureLabel } from '../../state/selectors'
 import type { App } from '../createApp'
@@ -248,31 +247,6 @@ export async function renameFeature(app: App, featureId: string, name: string): 
               feature: withOptional(record, 'name', trimmed === '' ? undefined : trimmed),
             },
           ],
-        }
-  })
-}
-
-/**
- * "Use {suggestion}" for a feature message at rest (4.2): one `update_feature` with the value at the
- * message's field replaced, labeled "Change {label}". Refused during a feature command (3.7), and
- * built from the record as it is when the edit is sent.
- */
-export async function applySuggestion(
-  app: App,
-  featureId: string,
-  message: Diagnostic,
-): Promise<boolean> {
-  if (refusedDuringCommand(app)) {
-    return false
-  }
-  return commitBuiltEdits(app, (document) => {
-    const record = document.recipe.features?.find((candidate) => candidate.id === featureId)
-    const updated = record === undefined ? null : suggestedRecord(record, message)
-    return updated === null
-      ? null
-      : {
-          label: `Change ${selectFeatureLabel(app.store.getState(), featureId)}`,
-          edits: [{ type: 'update_feature', feature: updated }],
         }
   })
 }

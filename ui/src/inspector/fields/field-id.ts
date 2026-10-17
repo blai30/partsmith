@@ -19,3 +19,8 @@ export function focusFieldInput(input: HTMLElement | null): void {
   const field = input.closest('[data-testid="inspector-field"]') ?? input
   field.scrollIntoView({ block: 'nearest' })
 }
+
+/** Focuses the input of the field at a param path, as `focusFieldInput` does; nothing when it is not shown. */
+export function focusField(path: string): void {
+  focusFieldInput(document.getElementById(fieldInputId(path)))
+}

@@ -224,10 +224,11 @@ def python_of(source: Callable[[Path], str | Path], directory: Path) -> str:
     return open_text(written, directory, "source.ptsm").to_python()
 
 
-# Warnings.
-
-
 # Requests.
+
+
+ORIGINAL_SESSION = partsmith._core.Session
+"""The extension's session class, which `RecordingSession` wraps."""
 
 
 class RecordingSession:
@@ -244,10 +245,6 @@ class RecordingSession:
         response = self._session.call(frame)
         self.exchanges.append((request_command(frame), response_message(response)["result"]))
         return response
-
-
-ORIGINAL_SESSION = partsmith._core.Session
-"""The extension's session class, which `RecordingSession` wraps."""
 
 
 # Tests.

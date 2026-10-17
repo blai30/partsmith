@@ -14,6 +14,8 @@ mod messages;
 mod output;
 mod rotation;
 mod status;
+#[cfg(test)]
+mod test_support;
 
 use std::any::Any;
 use std::env;
@@ -107,7 +109,7 @@ mod tests {
     fn failed_output(kind: io::ErrorKind, message: &str) -> (Status, String) {
         let error = io::Error::new(kind, message);
         let (status, _, stderr) =
-            output::capture(|output| Ok(standard_output_failed(&error, output)));
+            test_support::capture(|output| Ok(standard_output_failed(&error, output)));
         (status, stderr)
     }
 

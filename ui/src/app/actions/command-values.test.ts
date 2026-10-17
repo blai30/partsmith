@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { pointSelectionItem } from '../../sketch/hit'
 import { bodyItem } from '../../test/fakes/selection'
-import { propertyOf, sameValue, siblingPath, toggledValue, valueAt } from './command-values'
+import {
+  differingFields,
+  propertyOf,
+  sameValue,
+  siblingPath,
+  toggledValue,
+  valueAt,
+} from './command-values'
 
 describe('field paths', () => {
   it('siblingPath names a field beside another', () => {
@@ -22,6 +29,19 @@ describe('value reads', () => {
     expect(propertyOf('text', 'length')).toBeUndefined()
     expect(valueAt(value, ['regions', '1', 'key'])).toBe('r2')
     expect(valueAt(value, ['missing', '0'])).toBeUndefined()
+  })
+})
+
+describe('differingFields', () => {
+  it('keeps the fields whose values differ, in the order given', () => {
+    const fields = [{ path: 'radius' }, { path: 'extent.expr' }, { path: 'edges' }]
+    const before = { radius: '2 mm', extent: { expr: '5 mm' }, edges: ['a'] }
+    const after = { radius: '2 mm', extent: { expr: '8 mm' }, edges: ['b'] }
+    expect(differingFields(fields, before, after)).toEqual([
+      { path: 'extent.expr' },
+      { path: 'edges' },
+    ])
+    expect(differingFields(fields, before, before)).toEqual([])
   })
 })
 

@@ -47,3 +47,13 @@ export function listedElements(
   })
   return list
 }
+
+/** The elements `listedElements` gives, or none without them or when the list failed. */
+export function listedElementsOrNone(
+  app: App,
+  body: string,
+  kind: ElementKind,
+  meshId: number,
+): Promise<readonly ElementDescriptor[]> {
+  return (listedElements(app, body, kind, meshId) ?? Promise.resolve([])).catch(() => [])
+}

@@ -122,7 +122,7 @@ For a document at path `P`, the CLI reads every regular file in `P`'s directory 
         {
           "severity": "error",
           "code": "parse_error",
-          "message": "The file is not a valid Partsmith document: EOF while parsing an object at line 1 column 23.",
+          "message": "The file is not valid JSON at line 1, column 23.",
           "line": 1,
           "column": 23
         }

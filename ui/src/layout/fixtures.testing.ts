@@ -3,7 +3,7 @@
 // buffers and body_mesh events for the scene. Nothing here is part of the app.
 
 import type { BodyMeshData, CoreEvent } from '../core/events'
-import type { Document, ElementDescriptor } from '../generated/protocol'
+import type { Document, ElementDescriptor, FeatureStatus } from '../generated/protocol'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import type { ActiveCommand, AppState, CatalogFeature, DocumentState } from '../state/store'
 import { TEST_CATALOG, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
@@ -353,6 +353,22 @@ export function documentState(
   overrides: Partial<DocumentState> = {},
 ): DocumentState {
   return documentStateFor(recipe, overrides, { okStatuses: true })
+}
+
+/** `documentState` with these statuses in place of their features' ok ones. */
+export function documentWithStatuses(
+  recipe: Document,
+  statuses: readonly FeatureStatus[],
+  overrides: Partial<DocumentState> = {},
+): DocumentState {
+  const document = documentState(recipe, overrides)
+  return {
+    ...document,
+    featureStatus: {
+      ...document.featureStatus,
+      ...Object.fromEntries(statuses.map((status) => [status.id, status])),
+    },
+  }
 }
 
 /** cube.ptsm as the store holds it after opening: the cube's model-layer mesh and the sketch solution. */

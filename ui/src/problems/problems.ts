@@ -190,6 +190,23 @@ export function groupedRows(
   return { rows, notes }
 }
 
+/** The severity a problem shows (3.9): an error when any of its messages is one, else a warning, never info. */
+export function problemSeverity(messages: readonly Diagnostic[]): 'error' | 'warning' {
+  return messages.some((message) => message.severity === 'error') ? 'error' : 'warning'
+}
+
+/**
+ * The severity a top-level row shows (3.9): an error when its feature's status is one or when any
+ * message of the row or of the problems nested under it is, so a root whose own status is fine
+ * shows those of its nested features; else a warning.
+ */
+export function rowSeverity(row: ProblemRow, statuses: Statuses): 'error' | 'warning' {
+  if (row.feature !== null && statuses[row.feature]?.status === 'error') {
+    return 'error'
+  }
+  return problemSeverity([...row.messages, ...row.nested.flatMap((problem) => problem.messages)])
+}
+
 /** The repair a loss message describes: the one at its field, else the status's first (4.2). */
 function repairOf(status: FeatureStatus, message: Diagnostic): Repair | undefined {
   return status.repairs.find((repair) => repair.path === message.field) ?? status.repairs[0]

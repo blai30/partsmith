@@ -87,7 +87,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::commands::test_support::{BAD_ID, EMPTY, session};
+    use crate::test_support::{BAD_ID, EMPTY, session};
 
     fn canonical(session: &Session) -> String {
         session.format(EMPTY).expect("the document loads")

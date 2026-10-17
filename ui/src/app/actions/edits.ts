@@ -1,20 +1,17 @@
 import { CoreError } from '../../core/client'
 import type { TaskKind } from '../../core/queue'
 import { CoreFatalError } from '../../core/transport'
-import type { Cause, Edit, FeatureStatus } from '../../generated/protocol'
+import type { Edit, FeatureStatus } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
-import { changeNotifications, type ChangeNotice } from '../../problems/problems'
-import { selectFeatureLabel } from '../../state/selectors'
 import type { DocumentState, Notification } from '../../state/store'
 import type { App } from '../createApp'
-import { editFeature } from './command'
-import { undo } from './document'
-import { copyDetails, runFixAction, showLost } from './fixes'
+import { copyDetails, fixNotificationAction, offeredActions } from './fixes'
+import { reportChange } from './loss-notifications'
 import { notify } from './notifications'
 import { showProblemsAction } from './panels'
 
 // Helpers shared by the actions that change the document: labeled edits through the mutation
-// queue, and the error, loss and failure notifications of ui.md 4.2.
+// queue, the error notifications of ui.md 4.2, and the report of what a change broke.
 
 /** The open document, or null. */
 export function documentOf(app: App): DocumentState | null {
@@ -55,15 +52,7 @@ export type RefusalOptions = {
  * "Show problems" for a fix that no longer applies, and Copy details last when it has a `detail`.
  */
 function errorActions(app: App, error: CoreError): Notification['actions'] {
-  const own = error.actions
-    .filter((action) => action.run.kind !== 'finish_transaction')
-    .map((action) => ({
-      label: action.label,
-      run: () => {
-        void runFixAction(app, action, 'notification')
-      },
-      editsDocument: action.run.kind === 'apply',
-    }))
+  const own = offeredActions(error.actions).map((action) => fixNotificationAction(app, action))
   const details =
     error.detail === null
       ? []
@@ -71,6 +60,7 @@ function errorActions(app: App, error: CoreError): Notification['actions'] {
           {
             label: 'Copy details',
             run: () => {
+              // Not the error itself: its `cause` is `Error.cause`, not a cause line.
               void copyDetails(app, {
                 code: error.code,
                 message: error.message,
@@ -114,138 +104,6 @@ export function showCoreError(app: App, error: unknown, options: RefusalOptions 
 /** Statuses by feature id, to compare before and after a change. */
 function statusesOf(app: App): Readonly<Record<string, FeatureStatus>> {
   return documentOf(app)?.featureStatus ?? {}
-}
-
-function undoAction(app: App): Notification['actions'][number] {
-  return {
-    label: 'Undo',
-    run: () => {
-      void undo(app)
-    },
-  }
-}
-
-/** The first `apply` action of a cause line, offered by a loss notification (4.2), or none. */
-function causeRevert(app: App, cause: Cause | null): Notification['actions'] {
-  const revert = cause?.actions.find((action) => action.run.kind === 'apply')
-  return cause === null || revert === undefined
-    ? []
-    : [
-        {
-          label: revert.label,
-          run: () => {
-            void runFixAction(app, revert, 'notification', cause)
-          },
-          editsDocument: true,
-        },
-      ]
-}
-
-/** The notification of one notice of a change (4.2), or null when it names nothing to show. */
-function changeNotification(
-  app: App,
-  document: DocumentState,
-  notice: ChangeNotice,
-): Omit<Notification, 'id' | 'createdAt'> | null {
-  const state = app.store.getState()
-  if (notice.kind === 'failed') {
-    const [first] = notice.features
-    if (first === undefined) {
-      return null
-    }
-    if (notice.features.length > 1) {
-      return {
-        severity: 'error',
-        message: MESSAGES.features_failed(notice.features.length),
-        code: 'features_failed',
-        features: notice.features,
-        actions: [showProblemsAction(app), undoAction(app)],
-      }
-    }
-    const message = document.featureStatus[first]?.messages[0]?.message ?? ''
-    return {
-      severity: 'error',
-      message: MESSAGES.feature_failed(selectFeatureLabel(state, first), message).trimEnd(),
-      code: 'feature_failed',
-      features: notice.features,
-      actions: [
-        {
-          label: 'Edit',
-          run: () => {
-            void editFeature(app, first)
-          },
-        },
-        undoAction(app),
-      ],
-    }
-  }
-  const label = selectFeatureLabel(state, notice.root)
-  const shared = {
-    features: notice.features,
-    problems: notice.problems,
-    ...(notice.cause === null ? {} : { cause: notice.cause.text }),
-  }
-  if (notice.kind === 'check') {
-    const hasRepairs = (document.featureStatus[notice.root]?.repairs ?? []).length > 0
-    return {
-      ...shared,
-      severity: 'warning',
-      message: MESSAGES.feature_check(label),
-      code: 'feature_check',
-      actions: [
-        {
-          label: MESSAGES.check_feature(label),
-          run: () => {
-            void (hasRepairs ? showLost(app, notice.root) : editFeature(app, notice.root))
-          },
-        },
-        ...causeRevert(app, notice.cause),
-        undoAction(app),
-      ],
-    }
-  }
-  return {
-    ...shared,
-    severity: notice.severity,
-    message:
-      notice.failed === 0
-        ? MESSAGES.feature_lost(label, notice.description)
-        : MESSAGES.features_lost(label, notice.description, notice.failed),
-    code: notice.failed === 0 ? 'feature_lost' : 'features_lost',
-    // Never a candidate: a replacement cannot be judged without seeing it (4.2).
-    actions: [
-      {
-        label: MESSAGES.show_lost(label),
-        run: () => {
-          void showLost(app, notice.root)
-        },
-      },
-      ...causeRevert(app, notice.cause),
-      undoAction(app),
-    ],
-  }
-}
-
-/**
- * Shows the notifications of 4.2 for what a user change broke, from the statuses before it and
- * now (`changeNotifications`): one per root with a new loss, then one for the features newly in
- * error that none of those names. Returns how many it showed.
- */
-export function reportChange(app: App, before: Readonly<Record<string, FeatureStatus>>): number {
-  const document = documentOf(app)
-  if (document === null) {
-    return 0
-  }
-  const notices = changeNotifications(before, document.featureStatus, document.recipe)
-  let shown = 0
-  for (const notice of notices) {
-    const notification = changeNotification(app, document, notice)
-    if (notification !== null) {
-      notify(app, notification)
-      shown += 1
-    }
-  }
-  return shown
 }
 
 /** Labeled edits built from the document as it is when they are sent. */

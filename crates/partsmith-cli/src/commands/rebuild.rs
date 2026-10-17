@@ -19,9 +19,8 @@ use crate::output::{JsonDiagnostic, Output, count, human_number, wire_name};
 use crate::rotation;
 use crate::status::Status;
 
-/// How far the action and candidate lines of a message are indented: two spaces more than the
-/// message line.
-const FOLLOW_UP_INDENT: usize = 6;
+/// How far a message line is indented under its feature's line.
+const MESSAGE_INDENT: usize = 4;
 
 /// The report of one rebuild, printed as text or as the JSON document of section 3.3.
 #[derive(Debug, Serialize)]
@@ -360,13 +359,14 @@ impl Report {
             ))?;
             for message in &feature.messages {
                 output.line(format_args!(
-                    "    {}[{}] at {}: {}",
+                    "{:MESSAGE_INDENT$}{}[{}] at {}: {}",
+                    "",
                     wire_name(&message.severity),
                     message.code,
                     message.location,
                     message.message
                 ))?;
-                message.members.write_lines(output, FOLLOW_UP_INDENT)?;
+                message.members.write_lines(output, MESSAGE_INDENT)?;
             }
         }
         for body in &self.bodies {
@@ -424,12 +424,10 @@ fn human_point(point: Vec3) -> String {
 
 #[cfg(test)]
 mod tests {
-    use partsmith_protocol::{FixAction, FixKind};
     use serde_json::json;
 
     use super::*;
-    use crate::commands::test_support::id;
-    use crate::output::capture;
+    use crate::test_support::{candidate, capture, id, pick_edge_again};
 
     fn block() -> BodyMetrics {
         BodyMetrics {
@@ -469,14 +467,7 @@ mod tests {
             "reference": {"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-15,40|l=20"},
             "resolution": "missing",
             "description": "the front top edge of 'Box 1'",
-            "candidates": [{
-                "reference": {"q": query, "fp": "line|n=1,0,0|c=0,-10,15|l=20|adj=2,2"},
-                "description": "the front edge of the cut made by 'Extrude 1'",
-                "relation": "on the front side of 'Box 1', 5 mm from where it was",
-                "meaning": true,
-                "distance": 5.0,
-                "score": 0.9
-            }]
+            "candidates": [candidate(query, "on the front side of 'Box 1', 5 mm from where it was")]
         }))
         .expect("a valid element repair")
     }
@@ -485,13 +476,7 @@ mod tests {
     fn lost_edges() -> Diagnostic {
         Diagnostic {
             field: Some("/edges".to_owned()),
-            actions: vec![FixAction {
-                label: "Pick an edge again".to_owned(),
-                run: FixKind::Pick {
-                    feature: id("f-fil1"),
-                    path: "/edges/0".to_owned(),
-                },
-            }],
+            actions: vec![pick_edge_again()],
             ..Diagnostic::new(
                 Severity::Error,
                 "references_not_found",

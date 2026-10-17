@@ -9,7 +9,9 @@ mod common;
 use std::io::Read;
 use std::process::{Command, Stdio};
 
-use common::{BOX, Workspace, edited_fixture, fixture_text, set_printer};
+use common::{
+    BOX, Workspace, edited_fixture, entry, fixture_text, keys, lines_after, set_printer, text,
+};
 use serde_json::{Value, json};
 
 /// Bytes that are not UTF-8: the first byte can never start a UTF-8 character.
@@ -278,16 +280,6 @@ fn a_schema_name_with_an_out_dir_prints_the_schema() {
     assert!(!workspace.exists("s"), "printing writes no files");
 }
 
-/// The members of a JSON object, in order.
-fn keys(object: &Value) -> Vec<&str> {
-    object
-        .as_object()
-        .unwrap_or_else(|| panic!("an object, got {object}"))
-        .keys()
-        .map(String::as_str)
-        .collect()
-}
-
 /// The document of a linear pattern with no copies: `box.ptsm` followed by `f-lp1`, a linear pattern of the box
 /// with count 0, which fails with `out_of_range`, the suggested value `1` and its action `Use 1` (features.md
 /// section 4.4).
@@ -318,10 +310,7 @@ fn pattern_workspace() -> Workspace {
 /// The suggestion of the pattern's error, from `rebuild --json`.
 fn pattern_suggestion(workspace: &Workspace) -> String {
     let report = workspace.run(&["rebuild", "--json", PATTERN]).json();
-    report["features"][1]["messages"][0]["suggestion"]
-        .as_str()
-        .unwrap_or_else(|| panic!("the pattern error has a suggestion: {report}"))
-        .to_owned()
+    text(&report["features"][1]["messages"][0]["suggestion"]).to_owned()
 }
 
 #[test]
@@ -348,7 +337,7 @@ fn rebuild_json_gives_a_suggested_value_as_an_apply_action() {
     );
     assert_eq!(message["code"], "out_of_range");
     assert_eq!(message["field"], "/direction/count");
-    let suggestion = message["suggestion"].as_str().expect("a suggestion");
+    let suggestion = text(&message["suggestion"]);
     assert_eq!(
         message["actions"][0],
         json!({"label": format!("Use {suggestion}"), "kind": "apply"})
@@ -366,20 +355,13 @@ fn rebuild_prints_a_suggested_value_as_an_action_line() {
     let run = workspace.run(&["rebuild", PATTERN]);
 
     run.assert_code(1);
-    let lines = run.stdout_lines();
-    let feature = lines
-        .iter()
-        .position(|line| *line == "  f-lp1 linear_pattern error")
-        .unwrap_or_else(|| panic!("the pattern's status line\n{}", run.stdout));
+    let lines = lines_after(&run, "  f-lp1 linear_pattern error", 2);
     assert!(
-        lines[feature + 1].starts_with("    error[out_of_range] at /features/1/direction/count: "),
+        lines[0].starts_with("    error[out_of_range] at /features/1/direction/count: "),
         "{}",
         run.stdout
     );
-    assert_eq!(
-        lines[feature + 2],
-        format!("      suggested: Use {suggestion}")
-    );
+    assert_eq!(lines[1], format!("      suggested: Use {suggestion}"));
 }
 
 #[test]
@@ -401,12 +383,7 @@ fn validate_reports_the_action_of_a_feature_error() {
         })
         .unwrap_or_else(|| panic!("the pattern error's line\n{}", text.stdout));
     assert_eq!(lines[message + 1], format!("  suggested: Use {suggestion}"));
-    let diagnostic = report["files"][0]["diagnostics"]
-        .as_array()
-        .expect("diagnostics is an array")
-        .iter()
-        .find(|diagnostic| diagnostic["feature"] == "f-lp1")
-        .unwrap_or_else(|| panic!("a diagnostic of f-lp1 in {report}"));
+    let diagnostic = entry(&report["files"][0]["diagnostics"], "feature", "f-lp1");
     assert_eq!(diagnostic["code"], "out_of_range");
     assert_eq!(diagnostic["path"], "/features/1/direction/count");
     assert_eq!(diagnostic["field"], "/direction/count");

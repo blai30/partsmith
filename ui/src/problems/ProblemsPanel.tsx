@@ -2,23 +2,29 @@ import { clsx } from 'clsx/lite'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useId, useRef, useState, type FocusEvent } from 'react'
 import { editFeature } from '../app/actions/command'
-import { runFixAction, showLost } from '../app/actions/fixes'
+import { blurRepair, focusRepair, runFixAction } from '../app/actions/fixes'
 import { select } from '../app/actions/selection'
 import { useApp, useAppState } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import { useOverflowEdges } from '../components/overflow-edges'
-import type { Diagnostic, FeatureStatus, Severity } from '../generated/protocol'
+import type { Severity } from '../generated/protocol'
 import { featureSelectionItem } from '../inspector/selection-values'
 import { PanelHeader } from '../layout/PanelHeader'
-import { MESSAGES } from '../messages'
 import { SEVERITY_NAMES } from '../print/health'
 import { SeverityIcon } from '../print/SeverityIcon'
 import { MessageActions } from '../repair/MessageActions'
+import { ShowLostButton } from '../repair/ShowLostButton'
 import { selectFeatureLabel, selectProblems } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
-import type { NestedProblem, ProblemNote, ProblemRow } from './problems'
+import {
+  problemSeverity,
+  rowSeverity,
+  type NestedProblem,
+  type ProblemNote,
+  type ProblemRow,
+} from './problems'
 
 // The Problems panel (ui.md 3.9): one row per root cause in timeline order, the features that
 // failed because of it nested under it, then the document's diagnostics, each with the core's
@@ -26,17 +32,6 @@ import type { NestedProblem, ProblemNote, ProblemRow } from './problems'
 
 function StatusIcon({ severity }: { readonly severity: Severity }) {
   return <SeverityIcon severity={severity} label={SEVERITY_NAMES[severity]} className="mt-0.5" />
-}
-
-/**
- * The severity a row shows: its status's, else its worst message's, which for a root whose own
- * status is fine are those of the features nested under it.
- */
-function rowSeverity(status: FeatureStatus | undefined, messages: readonly Diagnostic[]): Severity {
-  if (status?.status === 'error' || messages.some((message) => message.severity === 'error')) {
-    return 'error'
-  }
-  return 'warning'
 }
 
 /** A feature's label as a button that selects it (3.9). */
@@ -71,7 +66,7 @@ function NestedRow({ problem }: { readonly problem: NestedProblem }) {
       data-nested="true"
       className="flex gap-2"
     >
-      <StatusIcon severity={rowSeverity(undefined, problem.messages)} />
+      <StatusIcon severity={problemSeverity(problem.messages)} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <FeatureLabel featureId={problem.feature} />
         {problem.messages.map((message, index) => (
@@ -105,20 +100,14 @@ function NestedRow({ problem }: { readonly problem: NestedProblem }) {
 function rowFocusHandlers(app: App, featureId: string) {
   return {
     onFocus: () => {
-      const state = app.store.getState()
-      const repairs = state.document?.featureStatus[featureId]?.repairs ?? []
-      if (state.command === null && repairs.length > 0) {
-        app.store.setState({ repair: { feature: featureId } })
-      }
+      focusRepair(app, featureId)
     },
     onBlur: (event: FocusEvent<HTMLElement>) => {
       const next = event.relatedTarget
       if (next instanceof Node && event.currentTarget.contains(next)) {
         return
       }
-      app.store.setState((state) =>
-        state.command === null && state.repair?.feature === featureId ? { repair: null } : {},
-      )
+      blurRepair(app, featureId)
     },
   }
 }
@@ -126,9 +115,8 @@ function rowFocusHandlers(app: App, featureId: string) {
 /** A top-level row of a feature: its problems with their fixes, then Show what it lost and Edit (3.9). */
 function FeatureRow({ row, featureId }: { readonly row: ProblemRow; readonly featureId: string }) {
   const app = useApp()
-  const status = useAppState((state) => state.document?.featureStatus[featureId])
+  const severity = useAppState((state) => rowSeverity(row, state.document?.featureStatus ?? {}))
   const label = useAppState((state) => selectFeatureLabel(state, featureId))
-  const hasRepairs = (status?.repairs ?? []).length > 0
   return (
     <li
       data-testid="problem-row"
@@ -137,12 +125,7 @@ function FeatureRow({ row, featureId }: { readonly row: ProblemRow; readonly fea
       {...rowFocusHandlers(app, featureId)}
     >
       <div className="flex gap-2">
-        <StatusIcon
-          severity={rowSeverity(status, [
-            ...row.messages,
-            ...row.nested.flatMap((problem) => problem.messages),
-          ])}
-        />
+        <StatusIcon severity={severity} />
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <FeatureLabel featureId={featureId} />
           {row.messages.map((message, index) => (
@@ -154,15 +137,7 @@ function FeatureRow({ row, featureId }: { readonly row: ProblemRow; readonly fea
             </div>
           ))}
           <div className="flex flex-wrap gap-2">
-            {hasRepairs ? (
-              <Button
-                onClick={() => {
-                  showLost(app, featureId).catch(reportFailure('Showing what was lost'))
-                }}
-              >
-                {MESSAGES.show_lost(label)}
-              </Button>
-            ) : null}
+            <ShowLostButton featureId={featureId} label={label} />
             <Button
               onClick={() => {
                 editFeature(app, featureId).catch(reportFailure('Editing the feature'))

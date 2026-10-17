@@ -1,4 +1,5 @@
 import type { SelectionKind } from '../../generated/protocol'
+import { getParam } from '../../inspector/model'
 import { parentPath } from '../../inspector/param-path'
 import { selectionValue } from '../../inspector/selection-values'
 import type { SelectionItem } from '../../state/store'
@@ -15,6 +16,17 @@ export function siblingPath(path: string, name: string): string {
 
 export function sameValue(first: unknown, second: unknown): boolean {
   return JSON.stringify(first) === JSON.stringify(second)
+}
+
+/** The fields whose values differ between two params, in the order given. */
+export function differingFields<Field extends { readonly path: string }>(
+  fields: readonly Field[],
+  before: Params,
+  after: Params,
+): Field[] {
+  return fields.filter(
+    (field) => !sameValue(getParam(before, field.path), getParam(after, field.path)),
+  )
 }
 
 /** A property of an object value, or undefined. */

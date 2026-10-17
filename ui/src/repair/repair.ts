@@ -8,11 +8,11 @@ import type {
   SketchSolution,
 } from '../generated/protocol'
 import { fieldPointer, pointsInto } from '../inspector/status'
-import { MESSAGES } from '../messages'
+import { capitalized, MESSAGES } from '../messages'
 import { sketchToWorld } from '../sketch/placement'
 import { memoized } from '../state/selectors'
 import type { AppState } from '../state/store'
-import type { Vector3 } from '../viewport/math'
+import { pointAt, type Vector3 } from '../viewport/math'
 
 // Repair mode's data (ui.md 3.7): the current repair of a feature and its numbered candidates, the
 // message action that stores each candidate, found by its label (open issue 18), and the outline
@@ -86,31 +86,25 @@ export function repairView(status: FeatureStatus, activePath: string | null): Re
       ? undefined
       : status.repairs.find((candidate) => pointsInto(candidate.path, fieldPointer(activePath)))) ??
     first
-  const described: readonly Omit<RepairCandidateView, 'number' | 'action'>[] =
-    repair.kind === 'element'
-      ? repair.candidates.map((candidate) => ({
-          description: candidate.description,
-          relation: candidate.relation,
-          element: candidate.element ?? null,
-        }))
-      : repair.candidates.map((candidate) => ({
-          description: candidate.description,
-          relation: '',
-          element: null,
-        }))
-  const candidates = described.map((candidate, index): RepairCandidateView => ({
+  const view = (
+    index: number,
+    description: string,
+    relation: string,
+    element: MeshElement | null,
+  ): RepairCandidateView => ({
     number: index + 1,
-    description: candidate.description,
-    relation: candidate.relation,
-    element: candidate.element,
-    action: candidateAction(status.messages, candidate.description),
-  }))
+    description,
+    relation,
+    element,
+    action: candidateAction(status.messages, description),
+  })
+  const candidates =
+    repair.kind === 'element'
+      ? repair.candidates.map((candidate, index) =>
+          view(index, candidate.description, candidate.relation, candidate.element ?? null),
+        )
+      : repair.candidates.map((candidate, index) => view(index, candidate.description, '', null))
   return { repair, candidates }
-}
-
-/** "the top edge" as "The top edge", for the start of a line or title (4.3). */
-export function capitalized(description: string): string {
-  return description.charAt(0).toUpperCase() + description.slice(1)
 }
 
 /** The title of a repair's ghost or ring (4.3): "(missing)" for a loss, "(check it)" while it is still used. */
@@ -121,9 +115,12 @@ export function repairTitle(repair: Repair): string {
     : MESSAGES.repair_check(description)
 }
 
-/** A point of a flat `f32` list of world points. */
-function pointAt(positions: Float32Array, index: number): readonly number[] {
-  return Array.from(positions.subarray(index * 3, index * 3 + 3))
+/** The ghost buffer an element repair names in the latest recompute, or undefined. */
+export function ghostBuffer(state: AppState, repair: Repair): Float32Array | undefined {
+  const ghost = repair.kind === 'element' ? (repair.ghost ?? null) : null
+  return ghost === null || ghost.frame !== 'world'
+    ? undefined
+    : state.document?.ghosts[ghost.positions]
 }
 
 /**
@@ -200,6 +197,9 @@ export const selectRepairMode: (state: AppState) => RepairMode | null = memoized
     return view === null ? null : { feature, repairs: status.repairs, view }
   },
 )
+
+/** The repair of a face, edge or vertex reference. */
+export type ElementRepair = Extract<Repair, { kind: 'element' }>
 
 /** The repair of a sketch region reference. */
 export type RegionRepair = Extract<Repair, { kind: 'region' }>

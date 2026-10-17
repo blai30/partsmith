@@ -1,7 +1,7 @@
 import type { FeatureStatus, SelectionKind } from '../../generated/protocol'
 import { getParam } from '../../inspector/model'
 import { selectionValue } from '../../inspector/selection-values'
-import { fieldForPointer, fieldPointer } from '../../inspector/status'
+import { fieldPointer, selectionFieldFor } from '../../inspector/status'
 import type { CatalogFeature, SelectionItem } from '../../state/store'
 import { propertyOf, sameValue, valueAt, type Params } from './command-values'
 
@@ -25,11 +25,8 @@ export function repairSlots(
   params: Params,
   status: FeatureStatus | undefined,
 ): readonly RepairSlot[] {
-  const paths = feature.manifest.fields
-    .filter((hint) => (hint.selection ?? null) !== null)
-    .map((hint) => hint.path)
   return (status?.repairs ?? []).flatMap((repair): RepairSlot[] => {
-    const field = fieldForPointer(paths, repair.path)
+    const field = selectionFieldFor(feature.manifest.fields, repair.path)?.path ?? null
     if (field === null) {
       return []
     }

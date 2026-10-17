@@ -31,7 +31,7 @@ const BOX_DOCUMENT: &str = r#"{
 "#;
 
 /// The header of an `engine_info` request with id 1 in protocol version 2, which this engine does not speak.
-const VERSION_2_HEADER: &str = r#"{"protocol_version":2,"messages":[{"kind":"request","id":1,"command":{"type":"engine_info"}}],"buffers":[]}"#;
+const PROTOCOL_VERSION_2_HEADER: &str = r#"{"protocol_version":2,"messages":[{"kind":"request","id":1,"command":{"type":"engine_info"}}],"buffers":[]}"#;
 
 #[test]
 fn t048_engine_info_through_call_reports_the_protocol_engine_and_format_versions() {
@@ -54,7 +54,7 @@ fn t050_bytes_that_are_not_a_frame_answer_malformed_frame_with_id_0() {
 
 #[test]
 fn t051_protocol_version_2_answers_version_mismatch_with_the_request_id() {
-    let request = frame_from_header(VERSION_2_HEADER);
+    let request = frame_from_header(PROTOCOL_VERSION_2_HEADER);
 
     let frame = response_frame(&call(&request));
 
@@ -103,7 +103,7 @@ fn bytes_after_the_frame_answer_malformed_frame_with_id_0() {
 
 #[test]
 fn version_mismatch_response_names_the_version_found() {
-    let request = frame_from_header(VERSION_2_HEADER);
+    let request = frame_from_header(PROTOCOL_VERSION_2_HEADER);
 
     let frame = response_frame(&call(&request));
 

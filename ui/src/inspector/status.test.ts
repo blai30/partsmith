@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Diagnostic, FeatureStatus, FieldHint, Repair } from '../generated/protocol'
-import {
-  fieldForPointer,
-  fieldPointer,
-  messagesByField,
-  repairField,
-  suggestedRecord,
-} from './status'
+import { fieldForPointer, fieldPointer, messagesByField, repairField } from './status'
 
 describe('fieldPointer', () => {
   it('turns a hint path into a JSON pointer', () => {
@@ -50,41 +44,6 @@ describe('messagesByField', () => {
     const byField = messagesByField(['radius'], [general, first, second])
     expect(byField.get('radius')).toBe(first)
     expect(byField.size).toBe(1)
-  })
-})
-
-function outOfRange(field: string | null, suggestion: string | null): Diagnostic {
-  return { severity: 'error', code: 'out_of_range', message: 'Too far.', field, suggestion }
-}
-
-describe('suggestedRecord', () => {
-  const record = {
-    id: 'f-ext1',
-    type: 'extrude',
-    extent: { kind: 'distance', expr: '30 mm' },
-    sizes: ['1 mm', '2 mm'],
-  }
-
-  it('replaces the value at a nested pointer and keeps the rest of the record', () => {
-    expect(suggestedRecord(record, outOfRange('/extent/expr', '20 mm'))).toEqual({
-      ...record,
-      extent: { kind: 'distance', expr: '20 mm' },
-    })
-  })
-
-  it('replaces an array element', () => {
-    expect(suggestedRecord(record, outOfRange('/sizes/1', '3 mm'))?.['sizes']).toEqual([
-      '1 mm',
-      '3 mm',
-    ])
-  })
-
-  it('is null without a suggestion, without a field, or for a path not in the record', () => {
-    expect(suggestedRecord(record, outOfRange('/extent/expr', null))).toBeNull()
-    expect(suggestedRecord(record, outOfRange(null, '20 mm'))).toBeNull()
-    expect(suggestedRecord(record, outOfRange('/missing/expr', '20 mm'))).toBeNull()
-    expect(suggestedRecord(record, outOfRange('/sizes/5', '3 mm'))).toBeNull()
-    expect(suggestedRecord(record, outOfRange('/id', 'f-other'))).toBeNull()
   })
 })
 

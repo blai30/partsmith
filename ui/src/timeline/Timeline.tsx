@@ -37,6 +37,7 @@ import { useUiRequest } from '../layout/requests'
 import { arrowTarget, rovingTabStop } from '../layout/roving'
 import { keepInViewHorizontally } from '../layout/scroll'
 import { counted } from '../messages'
+import { rowSeverity } from '../problems/problems'
 import { selectCommandBlock, selectProblemCount, selectProblems } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
 import { itemStatus, markerText, statusText } from './strip'
@@ -624,15 +625,10 @@ function ProblemsButton({ collapsed }: { readonly collapsed: boolean }) {
   const app = useApp()
   const count = useAppState(selectProblemCount)
   // The icon names the worst problem, as status icons do everywhere (3.24).
-  const error = useAppState((state) =>
-    selectProblems(state).rows.some(
-      (row) =>
-        (row.feature !== null && state.document?.featureStatus[row.feature]?.status === 'error') ||
-        [row, ...row.nested].some((problem) =>
-          problem.messages.some((message) => message.severity === 'error'),
-        ),
-    ),
-  )
+  const error = useAppState((state) => {
+    const statuses = state.document?.featureStatus ?? {}
+    return selectProblems(state).rows.some((row) => rowSeverity(row, statuses) === 'error')
+  })
   if (count === 0) {
     return null
   }

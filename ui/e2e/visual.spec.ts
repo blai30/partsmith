@@ -13,6 +13,7 @@ import {
   timelineItem,
   toScreen,
 } from './helpers'
+import { openProblems } from './support/documents'
 import { selectionField } from './support/modeling'
 import { chooseContext, expectCurrentReport } from './support/print'
 import { editSketchFromTimeline } from './support/sketch'
@@ -92,9 +93,7 @@ async function editSketch(page: Page, state: string, dof: string): Promise<void>
 async function editFailedFillet(page: Page): Promise<void> {
   await dropFile(page, 'fillet-error.ptsm')
   await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'error')
-  await page.getByTestId('timeline-problems').click()
-  const panel = page.getByTestId('problems-panel')
-  await expect(panel).toBeVisible()
+  const panel = await openProblems(page)
   await panel.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(inspector(page)).toHaveAccessibleName('Fillet 1')
   await expect(inspector(page)).toHaveAttribute('data-preview', 'failed')

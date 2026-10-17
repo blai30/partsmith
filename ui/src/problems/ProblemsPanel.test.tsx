@@ -3,10 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Diagnostic, Document, FeatureStatus, FixAction, FixRef } from '../generated/protocol'
-import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
+import { cubeDocumentState, documentWithStatuses, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
 import { INITIAL_STATE, type ActiveCommand, type DocumentState } from '../state/store'
+import { onlyNotification } from '../test/fakes/app'
 import { coreErrorFor } from '../test/fakes/core-api'
 import { CUBE_FEATURES_DOCUMENT } from '../test/fakes/documents'
 import {
@@ -73,15 +74,7 @@ function withProblems(
   statuses: readonly FeatureStatus[],
   diagnostics: DocumentState['diagnostics'] = [],
 ): DocumentState {
-  const document = documentState(CUBE_FEATURES_DOCUMENT)
-  return {
-    ...document,
-    featureStatus: {
-      ...document.featureStatus,
-      ...Object.fromEntries(statuses.map((status) => [status.id, status])),
-    },
-    diagnostics,
-  }
+  return documentWithStatuses(CUBE_FEATURES_DOCUMENT, statuses, { diagnostics })
 }
 
 const EXTRUDE_COMMAND: ActiveCommand = {
@@ -333,14 +326,7 @@ const CHAMFER_NOTE: FeatureStatus = {
 }
 
 function groupedDocument(statuses: readonly FeatureStatus[]): DocumentState {
-  const document = documentState(GROUPED_DOCUMENT)
-  return {
-    ...document,
-    featureStatus: {
-      ...document.featureStatus,
-      ...Object.fromEntries(statuses.map((status) => [status.id, status])),
-    },
-  }
+  return documentWithStatuses(GROUPED_DOCUMENT, statuses)
 }
 
 function problemRowsIn(panel: HTMLElement): HTMLElement[] {
@@ -461,11 +447,7 @@ describe('Problems grouped by root (3.9, U-129)', () => {
 
 describe('a candidate at rest (4.2, U-128)', () => {
   it('U-128 clicking A0 in the Problems panel calls applyFix with its FixRef outside a transaction', async () => {
-    const document = documentState(R16_DOCUMENT)
-    const { core, user, panel } = renderPanel({
-      ...document,
-      featureStatus: { ...document.featureStatus, 'f-fil1': R16_STATUS },
-    })
+    const { core, user, panel } = renderPanel(documentWithStatuses(R16_DOCUMENT, [R16_STATUS]))
     await user.click(within(panel).getByRole('button', { name: R16_USE_FRONT.label }))
     await waitFor(() => {
       expect(core.callsTo('applyFix')).toEqual([[1, r16Fix(0)]])
@@ -483,12 +465,9 @@ describe('fixes that no longer apply (4.2, U-128)', () => {
     const stale = await coreErrorFor({ code: 'stale_fix', message: STALE })
     core.stub('applyFix', () => Promise.reject(stale))
     await user.click(within(panel).getByRole('button', { name: 'Use 2.3 mm' }))
-    await waitFor(() => {
-      expect(app.store.getState().notifications).toHaveLength(1)
-    })
-    const [notification] = app.store.getState().notifications
+    const notification = await waitFor(() => onlyNotification(app))
     expect(notification).toMatchObject({ severity: 'error', message: STALE, code: 'stale_fix' })
-    expect(notification?.actions.map((action) => action.label)).toEqual(['Show problems'])
+    expect(notification.actions.map((action) => action.label)).toEqual(['Show problems'])
   })
 })
 

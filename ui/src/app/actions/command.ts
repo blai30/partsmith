@@ -54,10 +54,17 @@ import {
   replacedInList,
   type RepairSlot,
 } from './command-repairs'
-import { sameValue, siblingPath, toggledValue, type Params } from './command-values'
-import { commitEdits, documentOf, reportChange, showCoreError } from './edits'
+import {
+  differingFields,
+  sameValue,
+  siblingPath,
+  toggledValue,
+  type Params,
+} from './command-values'
+import { commitEdits, documentOf, showCoreError } from './edits'
 import { listedElements } from './element-lists'
 import { helperFor, helperOnFace, holeCenter } from './hole-placement'
+import { reportChange } from './loss-notifications'
 import { notify, showPickHint } from './notifications'
 import {
   firstEmptySelectionField,
@@ -1676,9 +1683,7 @@ export async function runInCommand(
 /** The paths of the command's fields whose values differ between two params, in display order. */
 function changedFields(session: CommandSession, before: Params, after: Params): string[] {
   const model = buildInspectorModel({ feature: session.feature, params: after, errors: {} })
-  return fieldsOf(model)
-    .map((field) => field.path)
-    .filter((path) => !sameValue(getParam(before, path), getParam(after, path)))
+  return differingFields(fieldsOf(model), before, after).map((field) => field.path)
 }
 
 /**

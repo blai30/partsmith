@@ -4,8 +4,6 @@ mod export;
 mod fmt;
 mod rebuild;
 mod schema;
-#[cfg(test)]
-mod test_support;
 mod validate;
 
 use std::io;
@@ -86,8 +84,8 @@ fn open(
 mod tests {
     use partsmith_engine::ValidateOptions;
 
-    use super::test_support::{BAD_ID, EMPTY, session};
     use super::*;
+    use crate::test_support::{BAD_ID, EMPTY, session};
 
     fn rejection(session: &Session, text: &str) -> EngineError {
         session.format(text).expect_err("the text does not load")

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Platform } from './app/createApp'
-import { counted, MESSAGES } from './messages'
+import { capitalized, counted, MESSAGES } from './messages'
 
 type Case = readonly [id: string, render: () => string, text: string]
 
@@ -409,6 +409,13 @@ describe('MESSAGES', () => {
     expect(MESSAGES.sketch_step_line_next(MAC)).toMatch(/press ↩ to stop\.$/)
     expect(MESSAGES.sketch_leave(MAC)).toBe('To leave the sketch, click Finish sketch or press ⌘↩.')
     expect(MESSAGES.sketch_free_placement(MAC)).toBe('Hold ⌘ to place freely.')
+  })
+})
+
+describe('capitalized', () => {
+  it('capitalizes the first letter and keeps the rest', () => {
+    expect(capitalized("the top edge of 'Extrude 1'")).toBe("The top edge of 'Extrude 1'")
+    expect(capitalized('')).toBe('')
   })
 })
 

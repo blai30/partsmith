@@ -1,6 +1,13 @@
 import type { BodyMeshData, CoreEvent, SketchDisplayData } from '../core/events'
 import { featureLabel, type WorldAxis } from '../core/labels'
-import type { BoundingBox, Body, DocHandle, Placement, SketchSolution } from '../generated/protocol'
+import type {
+  BoundingBox,
+  Body,
+  DocHandle,
+  ElementKind,
+  Placement,
+  SketchSolution,
+} from '../generated/protocol'
 import type { Rectangle } from '../inspector/placement'
 import { originItem } from '../inspector/selection-values'
 import { resolvedTheme } from '../layout/color-scheme'
@@ -89,6 +96,11 @@ import {
 
 // The scene (ui.md 2.11, 3.12): every drawable's CPU-side data, so a lost WebGL context can be
 // restored; pick id ranges and their targets; and the render frame for a camera and the store.
+
+/** The hover and pick key of a mesh element by display id: `mesh:{meshId}:{kind}:{index}` (3.6). */
+export function meshElementKey(meshId: number, kind: ElementKind, index: number): string {
+  return `mesh:${String(meshId)}:${kind}:${String(index)}`
+}
 
 /**
  * The edges around a hovered face, by display id, while a multiple edge field takes the face as
@@ -1065,8 +1077,8 @@ export function createScene(backend: RenderBackend): Scene {
     const ids = meshIds('model', model)
     const bodyKey = `body:${body.id}`
     const bodyHovered = hoverKeys.has(bodyKey)
-    const meshKey = (element: string, index: number): string =>
-      `mesh:${String(model.meshId)}:${element}:${String(index)}`
+    const meshKey = (element: ElementKind, index: number): string =>
+      meshElementKey(model.meshId, element, index)
     // A hovered face that stands for its edges lights them up instead of itself (3.7).
     const redirect =
       hoverEdges !== null &&

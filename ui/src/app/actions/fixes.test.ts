@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Cause, Edit, FeatureStatus, FixAction, Repair } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
+import { elementCentroids } from '../../repair/frame'
 import { selectRepairMode } from '../../repair/repair'
 import { createAppStore } from '../../state/store'
-import { activeCommand, actionLabels, createTestApp, runAction } from '../../test/fakes/app'
+import {
+  activeCommand,
+  actionLabels,
+  createTestApp,
+  onlyNotification,
+  runAction,
+} from '../../test/fakes/app'
 import { coreErrorFor, createFakeCoreApi, type FakeCoreApi } from '../../test/fakes/core-api'
 import {
   CUBE_DOCUMENT,
@@ -14,22 +21,27 @@ import {
 import {
   lostEdgeRepair,
   R16_DOCUMENT,
-  R16_EDGES,
-  R16_GHOST_POINTS,
   R16_MESH_ID,
   R16_REPAIR,
   R16_STATUS,
+  R16_STORE_CHANGES,
   r16Fix,
+  r16ListElements,
   SPLIT_SOLUTION,
   SPLIT_STATUS,
 } from '../../test/fakes/repairs'
 import { settle } from '../../test/fakes/settle'
 import { meshSummary, stateWithDocument } from '../../test/fakes/state'
-import { createFakeViewport, type FakeViewport } from '../../test/fakes/viewport'
+import {
+  createFakeViewport,
+  expectBoundsContain,
+  lastFramedBounds,
+  type FakeViewport,
+} from '../../test/fakes/viewport'
 import type { App } from '../createApp'
 import { editFeature, setActiveField } from './command'
 import { applyEdits } from './document'
-import { copyDetails, elementCentroids, runFixAction, showLost } from './fixes'
+import { blurRepair, copyDetails, focusRepair, runFixAction, showLost } from './fixes'
 
 // The actions of messages and cause lines (ui.md 4.2: runFixAction), Copy details (4.1) and
 // "Show what '{label}' lost" (3.7: showLost).
@@ -50,10 +62,7 @@ type Harness = { readonly app: App; readonly core: FakeCoreApi; readonly viewpor
 
 /** The R16 document after its edit, with 'Fillet 1' in `status`, a fake viewport and the edges of `b-1`. */
 function r16App(status: FeatureStatus = R16_STATUS): Harness {
-  const core = createFakeCoreApi({
-    listElements: (_documentHandle, _body, kind) =>
-      Promise.resolve(kind === 'edge' ? R16_EDGES : []),
-  })
+  const core = createFakeCoreApi({ listElements: r16ListElements })
   const viewport = createFakeViewport()
   const app = createTestApp({
     core,
@@ -62,11 +71,7 @@ function r16App(status: FeatureStatus = R16_STATUS): Harness {
       stateWithDocument(
         R16_DOCUMENT,
         {},
-        {
-          featureStatus: { [status.id]: status },
-          meshes: { 'b-1': meshSummary(R16_MESH_ID, { min: [-10, -10, 0], max: [10, 10, 20] }) },
-          ghosts: { 0: Float32Array.from(R16_GHOST_POINTS) },
-        },
+        { featureStatus: { [status.id]: status }, ...R16_STORE_CHANGES },
       ),
     ),
   })
@@ -228,12 +233,9 @@ describe('runFixAction (4.2)', () => {
       'panel',
     )
     await settle()
-    const notifications = app.store.getState().notifications
-    expect(notifications).toHaveLength(1)
-    expect(notifications[0]).toMatchObject({ severity: 'error', message, code: 'stale_fix' })
-    expect(notifications[0] === undefined ? [] : actionLabels(notifications[0])).toEqual([
-      'Show problems',
-    ])
+    const notification = onlyNotification(app)
+    expect(notification).toMatchObject({ severity: 'error', message, code: 'stale_fix' })
+    expect(actionLabels(notification)).toEqual(['Show problems'])
   })
 })
 
@@ -328,23 +330,14 @@ describe('showLost (3.7)', () => {
     const { app, viewport } = r16App()
     await showLost(app, 'f-fil1')
     await settle()
-    const [bounds, margin] = viewport.zoomToBounds.mock.calls.at(-1) ?? []
+    const { bounds, margin } = lastFramedBounds(viewport)
     expect(margin).toBe(0.1)
-    if (bounds === undefined) {
-      throw new Error('showLost framed nothing.')
-    }
-    const framed: readonly (readonly [number, number, number])[] = [
+    expectBoundsContain(bounds, [
       [-10, -10, 20],
       [10, -10, 20],
       [0, -10, 15],
       [0, -5, 20],
-    ]
-    for (const point of framed) {
-      for (const axis of [0, 1, 2] as const) {
-        expect(bounds.min[axis]).toBeLessThanOrEqual(point[axis])
-        expect(bounds.max[axis]).toBeGreaterThanOrEqual(point[axis])
-      }
-    }
+    ])
     for (const axis of [0, 1, 2] as const) {
       expect(bounds.max[axis] - bounds.min[axis]).toBeGreaterThanOrEqual(20 / 3 - 1e-9)
     }
@@ -357,10 +350,7 @@ describe('showLost (3.7)', () => {
     })
     await showLost(app, 'f-fil1')
     await settle()
-    const [bounds] = viewport.zoomToBounds.mock.calls.at(-1) ?? []
-    if (bounds === undefined) {
-      throw new Error('showLost framed nothing.')
-    }
+    const { bounds } = lastFramedBounds(viewport)
     const centroid = [0, -10, 20] as const
     for (const axis of [0, 1, 2] as const) {
       expect(bounds.min[axis]).toBeLessThanOrEqual(centroid[axis])
@@ -387,10 +377,7 @@ describe('showLost (3.7)', () => {
     await showLost(app, 'f-ext1')
     await settle()
     expect(activeCommand(app)).toMatchObject({ featureId: 'f-ext1', activeField: 'profile' })
-    const [bounds, margin] = viewport.zoomToBounds.mock.calls.at(-1) ?? []
-    if (bounds === undefined) {
-      throw new Error('showLost framed nothing.')
-    }
+    const { bounds, margin } = lastFramedBounds(viewport)
     // The numbers sit at (5, 0, 0) and (-5, 0, 0); the drawing is 20 mm across.
     const third = 20 / 3
     expect(bounds.min[0]).toBeCloseTo(-5, 9)
@@ -558,6 +545,29 @@ describe('the current repair follows the active field (3.7)', () => {
     expect(selectRepairMode(app.store.getState())?.view.repair.path).toBe('/profile/regions/0')
     setActiveField(app, 'body')
     expect(selectRepairMode(app.store.getState())?.view.repair.path).toBe('/body')
+  })
+})
+
+describe('repair mode from a focused Problems row (3.7, 3.9)', () => {
+  it("shows the feature's repairs while no command is active", () => {
+    const { app } = r16App()
+    focusRepair(app, 'f-fil1')
+    expect(app.store.getState().repair).toEqual({ feature: 'f-fil1' })
+  })
+
+  it('shows nothing for a feature without repairs', () => {
+    const { app } = r16App({ ...R16_STATUS, repairs: [] })
+    focusRepair(app, 'f-fil1')
+    expect(app.store.getState().repair).toBeNull()
+  })
+
+  it('ends only the repair mode of the feature that lost focus', () => {
+    const { app } = r16App()
+    focusRepair(app, 'f-fil1')
+    blurRepair(app, 'f-other')
+    expect(app.store.getState().repair).toEqual({ feature: 'f-fil1' })
+    blurRepair(app, 'f-fil1')
+    expect(app.store.getState().repair).toBeNull()
   })
 })
 

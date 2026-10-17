@@ -1,22 +1,23 @@
 import type { SketchDisplayData } from '../../core/events'
 import type {
+  Cause,
   Diagnostic,
+  DocHandle,
   Document,
   ElementDescriptor,
+  ElementKind,
   FeatureStatus,
   FixAction,
   FixRef,
   Reference,
   RegionInfo,
-  Repair,
   RepairCandidate,
   SketchSolution,
 } from '../../generated/protocol'
-import type { RegionRepair } from '../../repair/repair'
+import type { ElementRepair, RegionRepair } from '../../repair/repair'
+import type { DocumentState } from '../../state/store'
 import { CUBE_REGION, CUBE_SKETCH_SOLUTION, type FeatureRecord } from './documents'
-
-/** The repair of a face, edge or vertex reference. */
-export type ElementRepair = Extract<Repair, { kind: 'element' }>
+import { meshSummary } from './state'
 
 // Repair data for the repair mode, fix and loss tests (ui.md 6.4, U-127 on): corpus R16 after its
 // edit, whose fillet lost its edge to a rabbet cut, as `R16-STATUS` states it, and builders of
@@ -225,6 +226,35 @@ export const R16_EDGES: readonly ElementDescriptor[] = [
   edgeDescriptor(R16_TOP_CUT_EDGE, [0, -5, 20]),
 ]
 
+/** What the store holds besides the statuses in the R16 states the repair tests start from: `b-1`'s model mesh and the ghost buffer. */
+export const R16_STORE_CHANGES: Partial<DocumentState> = {
+  meshes: { 'b-1': meshSummary(R16_MESH_ID, { min: [-10, -10, 0], max: [10, 10, 20] }) },
+  ghosts: { 0: Float32Array.from(R16_GHOST_POINTS) },
+}
+
+/** A `listElements` that answers with R16's edges, and with no faces or vertices. */
+export function r16ListElements(
+  _documentHandle: DocHandle,
+  _body: string,
+  kind?: ElementKind,
+): Promise<readonly ElementDescriptor[]> {
+  return Promise.resolve(kind === 'edge' ? R16_EDGES : [])
+}
+
+// A lost edge of cube-features.ptsm after a line of 'Sketch 1' was deleted (U-132).
+
+/** The lost edge of 'Fillet 1' in cube-features.ptsm. */
+export const BEVEL_EDGE = "the top edge of 'Extrude 1' along a line of 'Sketch 1'"
+
+/** The cause line of a loss after the line from (80, 40) to (70, 50) of 'Sketch 1' was deleted. */
+export const LINE_DELETED: Cause = {
+  text: "This started after you deleted the line from (80, 40) to (70, 50) in 'Sketch 1'.",
+  actions: [
+    { label: 'Undo', run: { kind: 'undo' } },
+    { label: 'Show the line', run: { kind: 'show', feature: 'f-sk1', entity: 'e-5' } },
+  ],
+}
+
 /** An element repair of `f-fil1` at `/edges/0` lost in `b-cube`, with no ghost and no candidates unless given. */
 export function lostEdgeRepair(overrides: Partial<ElementRepair> = {}): ElementRepair {
   return {
@@ -237,6 +267,19 @@ export function lostEdgeRepair(overrides: Partial<ElementRepair> = {}): ElementR
     centroid: [0, 0, 20],
     candidates: [],
     ...overrides,
+  }
+}
+
+/** A lost region of 'Sketch 1' around (40, 25) at `path`, with no candidates. */
+export function regionRepair(path: string, description: string): RegionRepair {
+  return {
+    kind: 'region',
+    path,
+    sketch: 'f-sk1',
+    region: { key: 'e-1,e-2,e-3,e-4', fp: 'c=40,25|a=4000' },
+    resolution: 'missing',
+    description,
+    candidates: [],
   }
 }
 

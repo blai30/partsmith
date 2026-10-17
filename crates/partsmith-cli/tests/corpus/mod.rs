@@ -366,10 +366,10 @@ impl Scenario {
     /// The scenario's document after its edit: the picked setup opened in a headless session, the edit applied as
     /// one `apply_edits`, and the text `save_document` returns.
     pub fn edited_text(&self) -> String {
-        let mut engine = Engine::open(&self.setup);
-        let edits = engine.edits(&self.changes);
-        engine.apply("Edit", edits);
-        engine.saved_text()
+        let mut document = HeadlessDocument::open(&self.setup);
+        let edits = document.edits(&self.changes);
+        document.apply("Edit", edits);
+        document.saved_text()
     }
 }
 
@@ -687,19 +687,19 @@ pub fn r66() -> Scenario {
 
 /// The setup `text` with its references and regions stored as picks store them (module documentation), as saved.
 fn picked(text: &str) -> String {
-    let mut engine = Engine::open(&with_body_fallbacks(text));
-    let records = engine.features();
+    let mut document = HeadlessDocument::open(&with_body_fallbacks(text));
+    let records = document.features();
     let edits: Vec<Value> = records
         .iter()
         .filter_map(|record| {
-            let picked = engine.picked_record(record);
+            let picked = document.picked_record(record);
             (picked != *record).then(|| json!({"type": "update_feature", "feature": picked}))
         })
         .collect();
     if !edits.is_empty() {
-        engine.apply("Pick", edits);
+        document.apply("Pick", edits);
     }
-    engine.saved_text()
+    document.saved_text()
 }
 
 /// The text with every face plane's fallback marked `fallback_frame: body`: no setup here has a move or a copy before
@@ -787,20 +787,20 @@ fn set_pointer(target: &mut Value, pointer: &str, value: Value) {
 // The headless session.
 
 /// One document open in a headless session, driven with protocol commands as JSON (protocol.md section 2.5).
-struct Engine {
+struct HeadlessDocument {
     session: Session,
     doc: Value,
 }
 
-impl Engine {
+impl HeadlessDocument {
     /// Opens a `.ptsm` text without assets.
-    fn open(text: &str) -> Engine {
+    fn open(text: &str) -> HeadlessDocument {
         let mut session = Session::new(SessionOptions::headless());
         let opened = send(
             &mut session,
             json!({"type": "open_document", "text": text, "assets": []}),
         );
-        Engine {
+        HeadlessDocument {
             session,
             doc: opened["doc"].clone(),
         }

@@ -1,3 +1,4 @@
+import { expect } from 'vitest'
 import type { App, Platform } from '../../app/createApp'
 import { createCommandRegistry, type CommandRegistry } from '../../commands/registry'
 import type { CoreApi } from '../../core/api'
@@ -93,6 +94,17 @@ export function notificationWith(app: App, message: string | RegExp): Notificati
     throw new Error(`No notification matches ${String(message)}; shown: ${shown || 'none'}.`)
   }
   return found
+}
+
+/** The one shown notification: expects exactly one. */
+export function onlyNotification(app: App): Notification {
+  const notifications = app.store.getState().notifications
+  expect(notifications).toHaveLength(1)
+  const [notification] = notifications
+  if (notification === undefined) {
+    throw new Error('No notification is shown.')
+  }
+  return notification
 }
 
 /** The labels of a notification's actions, in order. */

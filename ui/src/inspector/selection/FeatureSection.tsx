@@ -1,6 +1,5 @@
 import { Shapes } from 'lucide-react'
 import { editFeature } from '../../app/actions/command'
-import { showLost } from '../../app/actions/fixes'
 import { setSuppressed } from '../../app/actions/timeline'
 import { useApp } from '../../app/AppProvider'
 import { reportFailure } from '../../app/report'
@@ -10,6 +9,7 @@ import { Tooltip } from '../../components/Tooltip'
 import { featureLabel } from '../../core/labels'
 import { MESSAGES } from '../../messages'
 import { MessageActions } from '../../repair/MessageActions'
+import { ShowLostButton } from '../../repair/ShowLostButton'
 import type { AppState, DocumentState, SelectionItem } from '../../state/store'
 import { COLOR_CLASSES } from '../../theme/roles'
 import { Row, Suggestions, Title } from './parts'
@@ -76,15 +76,7 @@ export function FeatureSection({
         </ul>
       )}
       <div className="flex flex-wrap gap-2">
-        {(status?.repairs ?? []).length === 0 ? null : (
-          <Button
-            onClick={() => {
-              showLost(app, featureId).catch(reportFailure('Showing what was lost'))
-            }}
-          >
-            {MESSAGES.show_lost(label)}
-          </Button>
-        )}
+        <ShowLostButton featureId={featureId} label={label} />
         {importFeature ? (
           <Tooltip label={MESSAGES.import_not_editable()}>
             <Button aria-disabled="true">Edit</Button>

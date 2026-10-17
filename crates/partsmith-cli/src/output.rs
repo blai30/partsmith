@@ -165,26 +165,12 @@ impl From<&CliError> for JsonDiagnostic {
     }
 }
 
-/// Runs `write` on an `Output` over memory, for tests: what it returned, then the text it wrote
-/// to standard output and to standard error.
-#[cfg(test)]
-pub fn capture<T>(write: impl FnOnce(&mut Output<'_>) -> io::Result<T>) -> (T, String, String) {
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    let mut output = Output::new(&mut stdout, &mut stderr);
-    let result = write(&mut output).expect("writing to memory succeeds");
-    (
-        result,
-        String::from_utf8(stdout).expect("UTF-8"),
-        String::from_utf8(stderr).expect("UTF-8"),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use partsmith_protocol::FeatureState;
 
     use super::*;
+    use crate::test_support::capture;
 
     fn diagnostic(
         line: Option<u32>,

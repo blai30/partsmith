@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Cause, Diagnostic, Document, FeatureStatus, Repair } from '../generated/protocol'
 import type { DocumentState } from '../state/store'
+import { BEVEL_EDGE, LINE_DELETED, regionRepair } from '../test/fakes/repairs'
 import { stateWithDocument } from '../test/fakes/state'
-import { changeNotifications, problemRows } from './problems'
+import {
+  changeNotifications,
+  problemRows,
+  problemSeverity,
+  rowSeverity,
+  type ProblemRow,
+} from './problems'
 
 // The Problems panel's rows grouped by root cause (ui.md 3.9) and the notifications a change
 // raises for new losses (4.2, 3.22), from statuses alone.
@@ -94,28 +101,6 @@ function elementRepair(path: string, description: string): Repair {
   }
 }
 
-function regionRepair(path: string, description: string): Repair {
-  return {
-    kind: 'region',
-    path,
-    sketch: 'f-sk1',
-    region: { key: 'e-1,e-2,e-3,e-4', fp: 'c=40,25|a=4000' },
-    resolution: 'missing',
-    description,
-    candidates: [],
-  }
-}
-
-const LINE_DELETED: Cause = {
-  text: "This started after you deleted the line from (80, 40) to (70, 50) in 'Sketch 1'.",
-  actions: [
-    { label: 'Undo', run: { kind: 'undo' } },
-    { label: 'Show the line', run: { kind: 'show', feature: 'f-sk1', entity: 'e-5' } },
-  ],
-}
-
-const BEVEL_EDGE = "the top edge of 'Extrude 1' along a line of 'Sketch 1'"
-
 /** U-132's 'Fillet 1' after the edit: a warning that its first edge is missing. */
 const FILLET_LOST = status(
   'f-fil1',
@@ -204,6 +189,51 @@ describe('problemRows (3.9)', () => {
       { feature: null, messages: [unused], nested: [] },
       { feature: null, messages: [profile], nested: [] },
     ])
+  })
+})
+
+describe('problemSeverity (3.9)', () => {
+  it('is an error when any message is one', () => {
+    expect(
+      problemSeverity([message('warning', 'no_effect'), message('error', 'upstream_failed')]),
+    ).toBe('error')
+  })
+
+  it('is a warning for warnings, info notices or no messages, never info', () => {
+    expect(problemSeverity([message('warning', 'no_effect')])).toBe('warning')
+    expect(problemSeverity([message('info', 'reference_followed')])).toBe('warning')
+    expect(problemSeverity([])).toBe('warning')
+  })
+})
+
+describe('rowSeverity (3.9)', () => {
+  const warning = message('warning', 'reference_guessed')
+  const error = message('error', 'upstream_failed', { root: 'f-sk2' })
+
+  function row(fields: Partial<ProblemRow> = {}): ProblemRow {
+    return { feature: 'f-ext2', messages: [warning], nested: [], ...fields }
+  }
+
+  it("is an error when the row's feature status is one, whatever its messages", () => {
+    expect(rowSeverity(row(), statuses(status('f-ext2', 'error', [warning])))).toBe('error')
+  })
+
+  it('is an error when a message of the row is one', () => {
+    expect(rowSeverity(row({ messages: [warning, error] }), okStatuses())).toBe('error')
+  })
+
+  it('is an error when a message of a nested problem is one, for a root whose status is fine', () => {
+    const nested = [{ feature: 'f-ext2', root: 'f-sk2', messages: [error] }]
+    expect(rowSeverity(row({ feature: 'f-sk2', messages: [], nested }), okStatuses())).toBe('error')
+  })
+
+  it('is a warning otherwise, also for a document diagnostic', () => {
+    expect(rowSeverity(row(), statuses(status('f-ext2', 'warning', [warning])))).toBe('warning')
+    expect(rowSeverity(row({ feature: null }), {})).toBe('warning')
+  })
+
+  it('reads a document diagnostic by its message alone', () => {
+    expect(rowSeverity(row({ feature: null, messages: [error] }), {})).toBe('error')
   })
 })
 

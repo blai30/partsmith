@@ -1,14 +1,14 @@
 import { clsx } from 'clsx/lite'
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { elementCentroids } from '../app/actions/fixes'
 import { useApp, useAppState } from '../app/AppProvider'
+import { capitalized } from '../messages'
 import { COLOR_CLASSES } from '../theme/roles'
 import type { Vector3 } from '../viewport/math'
 import { candidateHandlers } from './candidates'
-import { ghostBuffer } from './paint'
+import { candidatePoints } from './frame'
 import {
-  capitalized,
+  ghostBuffer,
   repairTitle,
   selectRegionCandidates,
   selectRepairMode,
@@ -22,7 +22,7 @@ import {
 // `paint.ts` places the ghosts and rings in each frame; the scene fills the candidate regions.
 
 /** The radius in CSS pixels of the ring at a stored centroid: 16 pixels across (3.7). */
-const MARKER_RADIUS = 8
+const CENTROID_RING_RADIUS = 8
 
 /** The centroids of the current repair's candidates, once listed (3.7); none until then. */
 function useCandidatePoints(
@@ -38,10 +38,7 @@ function useCandidatePoints(
       return undefined
     }
     let current = true
-    elementCentroids(
-      app,
-      candidates.map((candidate) => candidate.element),
-    ).then(
+    candidatePoints(app, candidates).then(
       (points) => {
         if (current) {
           setFound({ candidates, points })
@@ -92,7 +89,7 @@ function RepairShapes({ mode }: { readonly mode: RepairMode }) {
             data-x={centroid[0]}
             data-y={centroid[1]}
             data-z={centroid[2]}
-            r={MARKER_RADIUS}
+            r={CENTROID_RING_RADIUS}
             display="none"
             strokeDasharray="4 3"
             className={shape}

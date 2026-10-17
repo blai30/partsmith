@@ -1,11 +1,11 @@
 import { clsx } from 'clsx/lite'
 import { useApp, useAppState } from '../app/AppProvider'
 import { Tooltip } from '../components/Tooltip'
-import type { FixAction } from '../generated/protocol'
+import { capitalized } from '../messages'
 import { selectFixBlock } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
 import { candidateHandlers } from './candidates'
-import { capitalized, type RepairCandidateView } from './repair'
+import type { RepairCandidateView } from './repair'
 
 // The candidates of the current repair in the inspector banner (ui.md 3.7): numbered buttons
 // "{n}. {Description}" with the relation on a second line, in the order received; never a score.
@@ -15,7 +15,7 @@ function CandidateButton({
   onRan,
 }: {
   readonly candidate: RepairCandidateView
-  readonly onRan?: (action: FixAction) => void
+  readonly onRan?: (() => void) | undefined
 }) {
   const app = useApp()
   const action = candidate.action
@@ -58,16 +58,12 @@ export function RepairCandidates({
   onRan,
 }: {
   readonly candidates: readonly RepairCandidateView[]
-  readonly onRan?: (action: FixAction) => void
+  readonly onRan?: (() => void) | undefined
 }) {
   return (
     <div className="flex flex-col items-start gap-2">
       {candidates.map((candidate) => (
-        <CandidateButton
-          key={candidate.number}
-          candidate={candidate}
-          {...(onRan === undefined ? {} : { onRan })}
-        />
+        <CandidateButton key={candidate.number} candidate={candidate} onRan={onRan} />
       ))}
     </div>
   )

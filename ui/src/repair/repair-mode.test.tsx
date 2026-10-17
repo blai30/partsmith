@@ -5,7 +5,7 @@ import { editFeature } from '../app/actions/command'
 import type { App } from '../app/createApp'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Diagnostic, FeatureStatus } from '../generated/protocol'
-import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
+import { cubeDocumentState, documentWithStatuses, readyState } from '../layout/fixtures.testing'
 import {
   createModelApp,
   renderWithApp,
@@ -22,20 +22,20 @@ import {
   R16_CANDIDATE_TOP,
   R16_DOCUMENT,
   R16_EDGES,
-  R16_GHOST_POINTS,
   R16_MESH_ID,
   R16_MESSAGE,
   R16_REPAIR,
   R16_STATUS,
+  R16_STORE_CHANGES,
   r16Fix,
+  r16ListElements,
   SPLIT_DISPLAY,
   SPLIT_SOLUTION,
   SPLIT_STATUS,
-  type ElementRepair,
 } from '../test/fakes/repairs'
 import { settle } from '../test/fakes/settle'
-import { meshSummary } from '../test/fakes/state'
 import { COLOR_CLASSES } from '../theme/roles'
+import type { ElementRepair } from './repair'
 
 // Repair mode (ui.md 3.7, U-127 and U-149): while a feature with repairs is edited, the lost
 // element's ghost or ring with its title, numbered candidate markers at their elements, and the
@@ -78,12 +78,7 @@ afterEach(() => {
 
 /** The R16 document as the store holds it after its edit, with 'Fillet 1' in `status`. */
 function r16Document(status: FeatureStatus = R16_STATUS): DocumentState {
-  const document = documentState(R16_DOCUMENT, {
-    name: 'rabbet',
-    meshes: { 'b-1': meshSummary(R16_MESH_ID, { min: [-10, -10, 0], max: [10, 10, 20] }) },
-    ghosts: { 0: Float32Array.from(R16_GHOST_POINTS) },
-  })
-  return { ...document, featureStatus: { ...document.featureStatus, [status.id]: status } }
+  return documentWithStatuses(R16_DOCUMENT, [status], { name: 'rabbet', ...R16_STORE_CHANGES })
 }
 
 /** R16's status with its one repair changed. */
@@ -96,9 +91,7 @@ type Harness = { readonly app: App; readonly core: FakeCoreApi }
 /** The whole shell over the R16 document, with `f-fil1` edited. */
 async function editingFillet(status: FeatureStatus = R16_STATUS): Promise<Harness> {
   const { app, core } = createModelApp({ state: readyState(r16Document(status)) })
-  core.stub('listElements', (_documentHandle, _body, kind) =>
-    Promise.resolve(kind === 'edge' ? R16_EDGES : []),
-  )
+  core.stub('listElements', r16ListElements)
   renderWithApp(app)
   flush()
   await act(async () => {
@@ -359,9 +352,7 @@ function problemsShell(): Harness {
       panels: { ...INITIAL_STATE.panels, browserOpen: true, side: 'problems' },
     }),
   })
-  core.stub('listElements', (_documentHandle, _body, kind) =>
-    Promise.resolve(kind === 'edge' ? R16_EDGES : []),
-  )
+  core.stub('listElements', r16ListElements)
   renderWithApp(app)
   flush()
   return { app, core }

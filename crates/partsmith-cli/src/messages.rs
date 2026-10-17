@@ -11,6 +11,10 @@ use serde::Serialize;
 
 use crate::output::Output;
 
+/// How many spaces more than its message line the action and candidate lines are indented
+/// (cli.md section 2.2).
+const NESTED_INDENT: usize = 2;
+
 /// What a feature message adds to its severity, code and text in JSON reports, in the order of
 /// cli.md section 3.3, each member omitted when absent or empty. Text reports print its actions and
 /// candidates under the message (`write_lines`); its `detail` appears only in JSON. The CLI opens
@@ -72,9 +76,11 @@ impl MessageMembers {
         }
     }
 
-    /// Writes the lines under the message, each indented `indent` spaces: one `suggested: <label>`
-    /// per action in the order offered, then one `candidate: <q>, <relation>` per candidate.
-    pub fn write_lines(&self, output: &mut Output<'_>, indent: usize) -> io::Result<()> {
+    /// Writes the lines under the message whose line is indented `message_indent` spaces, each
+    /// indented two spaces more: one `suggested: <label>` per action in the order offered, then one
+    /// `candidate: <q>, <relation>` per candidate.
+    pub fn write_lines(&self, output: &mut Output<'_>, message_indent: usize) -> io::Result<()> {
+        let indent = message_indent + NESTED_INDENT;
         for action in &self.actions {
             output.line(format_args!("{:indent$}suggested: {}", "", action.label))?;
         }
@@ -120,23 +126,16 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::output::capture;
+    use crate::test_support::{candidate, capture, id, pick_edge_again};
 
-    fn id(text: &str) -> Id {
-        Id::new(text).expect("a valid id")
-    }
-
-    fn candidate(query: &str, relation: &str) -> RepairCandidate {
-        serde_json::from_value(json!({
-            "reference": {"q": query, "fp": "line|n=1,0,0|c=0,-10,15|l=20|adj=2,2"},
-            "description": "the front edge of the cut made by 'Extrude 1'",
-            "relation": relation,
-            "meaning": true,
-            "distance": 5.0,
-            "score": 0.9,
-            "element": {"body": "b-1", "mesh_id": 7, "kind": "edge", "index": 3}
-        }))
-        .expect("a valid candidate")
+    /// The candidate with this query and relation, with the mesh element a display session gives
+    /// it.
+    fn displayed_candidate(query: &str, relation: &str) -> RepairCandidate {
+        let element = json!({"body": "b-1", "mesh_id": 7, "kind": "edge", "index": 3});
+        RepairCandidate {
+            element: Some(serde_json::from_value(element).expect("a valid mesh element")),
+            ..candidate(query, relation)
+        }
     }
 
     fn apply(label: &str) -> FixAction {
@@ -155,30 +154,20 @@ mod tests {
         }
     }
 
-    fn pick(label: &str) -> FixAction {
-        FixAction {
-            label: label.to_owned(),
-            run: FixKind::Pick {
-                feature: id("f-fil1"),
-                path: "/edges/0".to_owned(),
-            },
-        }
-    }
-
     fn lost_edge() -> Diagnostic {
         Diagnostic {
             field: Some("/edges".to_owned()),
             actions: vec![
                 apply("Use the front edge of the cut made by 'Extrude 1'"),
-                pick("Pick an edge again"),
+                pick_edge_again(),
             ],
             detail: Some("edges[0] q=edge(f-box1/front|f-box1/top) resolution=missing".to_owned()),
             ..Diagnostic::new(Severity::Error, "references_not_found", "The edge is gone.")
         }
     }
 
-    fn lines(members: &MessageMembers, indent: usize) -> String {
-        let ((), stdout, stderr) = capture(|output| members.write_lines(output, indent));
+    fn lines(members: &MessageMembers, message_indent: usize) -> String {
+        let ((), stdout, stderr) = capture(|output| members.write_lines(output, message_indent));
         assert!(stderr.is_empty());
         stdout
     }
@@ -187,14 +176,14 @@ mod tests {
     fn actions_print_their_labels_then_candidates_their_query_and_relation() {
         let members = MessageMembers::new(
             lost_edge(),
-            vec![candidate(
+            vec![displayed_candidate(
                 "edge(f-box1/front|f-ext2/lateral/e-1)",
                 "on the front side of 'Box 1', 5 mm from where it was",
             )],
         );
 
         assert_eq!(
-            lines(&members, 6),
+            lines(&members, 4),
             "      suggested: Use the front edge of the cut made by 'Extrude 1'\n      suggested: Pick an edge again\n      candidate: edge(f-box1/front|f-ext2/lateral/e-1), on the front side of 'Box 1', 5 mm from where it was\n"
         );
     }
@@ -206,14 +195,14 @@ mod tests {
             Vec::new(),
         );
 
-        assert_eq!(lines(&members, 2), "");
+        assert_eq!(lines(&members, 0), "");
     }
 
     #[test]
     fn the_detail_is_never_printed() {
         let members = MessageMembers::new(lost_edge(), Vec::new());
 
-        assert!(!lines(&members, 2).contains("resolution="));
+        assert!(!lines(&members, 0).contains("resolution="));
     }
 
     #[test]
@@ -239,7 +228,7 @@ mod tests {
             FixKind::Undo,
             FixKind::FinishTransaction,
             apply("Use 2 mm").run,
-            pick("Pick an edge again").run,
+            pick_edge_again().run,
         ];
 
         for run in kinds {
@@ -252,7 +241,7 @@ mod tests {
     fn candidates_serialize_without_their_mesh_element() {
         let members = MessageMembers::new(
             lost_edge(),
-            vec![candidate("edge(f-box1/back|f-box1/top)", "near")],
+            vec![displayed_candidate("edge(f-box1/back|f-box1/top)", "near")],
         );
 
         let json = serde_json::to_value(&members.candidates[0]).expect("a candidate serializes");
@@ -310,7 +299,7 @@ mod tests {
                 root: Some(id("f-ext1")),
                 ..lost_edge()
             },
-            vec![candidate("edge(f-box1/back|f-box1/top)", "near")],
+            vec![displayed_candidate("edge(f-box1/back|f-box1/top)", "near")],
         );
 
         let json = serde_json::to_value(&members).expect("members serialize");

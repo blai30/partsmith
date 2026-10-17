@@ -19,6 +19,7 @@ import {
   runCommand,
   timelineItem,
 } from './helpers'
+import { openProblems } from './support/documents'
 import {
   chooseOption,
   dragTo,
@@ -335,11 +336,8 @@ test.describe('inspector, timeline and browser', () => {
     await openApp(page)
     await dropFile(page, 'fillet-error.ptsm')
     await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'error')
-    const problems = page.getByTestId('timeline-problems')
-    await expect(problems).toHaveText('1 problem')
-    await problems.click()
-    const panel = page.getByTestId('problems-panel')
-    await expect(panel).toBeVisible()
+    await expect(page.getByTestId('timeline-problems')).toHaveText('1 problem')
+    const panel = await openProblems(page)
     await expect(panel).toContainText('Fillet 1')
     await expect(panel).toContainText('Fillet radius')
     await panel.getByRole('button', { name: 'Edit', exact: true }).click()
@@ -832,8 +830,7 @@ test.describe('fixes and renames', () => {
   test('E-58 the suggestion of a failed fillet fixes it', async ({ page }) => {
     await openApp(page)
     await dropFile(page, 'fillet-error.ptsm')
-    await page.getByTestId('timeline-problems').click()
-    const panel = page.getByTestId('problems-panel')
+    const panel = await openProblems(page)
     await panel.getByRole('button', { name: 'Edit', exact: true }).click()
     await expect(inspector(page)).toHaveAccessibleName('Fillet 1')
     const use = inspector(page)

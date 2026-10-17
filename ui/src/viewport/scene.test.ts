@@ -44,7 +44,7 @@ import {
 } from './camera'
 import { dot, subtract } from './math'
 import { ORIGIN_PLANE_PLACEMENTS } from './planes'
-import { createScene, type Scene } from './scene'
+import { createScene, meshElementKey, type Scene } from './scene'
 import { EMPHASIS_LINE_WIDTH } from './webgl2/layout'
 
 const SIZE = { ...wholeCanvas({ width: 800, height: 600 }), pixelRatio: 1 }
@@ -166,6 +166,12 @@ describe('uploads', () => {
     expect(geometryOf(fixture.backend, CUBE_MESH.positions).elementIds).toBe(CUBE_MESH.faceIds)
     expect(geometryOf(fixture.backend, CUBE_MESH.edgePositions).kind).toBe('lines')
     expect(() => render(fixture, cubeState())).not.toThrow()
+  })
+})
+
+describe('meshElementKey (3.6)', () => {
+  it('keys a mesh element by mesh id, kind and display id', () => {
+    expect(meshElementKey(3, 'edge', 4)).toBe('mesh:3:edge:4')
   })
 })
 

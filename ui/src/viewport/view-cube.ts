@@ -1,4 +1,5 @@
 import type { WorldAxis } from '../core/labels'
+import { capitalized } from '../messages'
 import { rotationLookingAlong, standardViewRotation } from './camera'
 import { add, rotateVector, type Quaternion, type Vector3 } from './math'
 
@@ -26,10 +27,6 @@ const FACE_DIRECTIONS: Readonly<Record<CubeFace, Vector3>> = {
   right: [1, 0, 0],
   top: [0, 0, 1],
   bottom: [0, 0, -1],
-}
-
-function capitalized(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function part(faces: readonly CubeFace[]): ViewCubePart {

@@ -12,6 +12,8 @@ import {
   multiplyQuaternions,
   normalize,
   normalizeQuaternion,
+  pointAt,
+  pointsOf,
   quaternionFromAxisAngle,
   quaternionFromBasis,
   rotateVector,
@@ -61,6 +63,23 @@ describe('vectors', () => {
     expect(angleBetween([1, 0, 0], [0, 1, 0])).toBeCloseTo(Math.PI / 2, 15)
     expect(angleBetween([1, 0, 0], [1, 1e-9, 0])).toBeCloseTo(1e-9, 20)
     expect(angleBetween([1, 0, 0], [-1, 1e-9, 0])).toBeCloseTo(Math.PI - 1e-9, 15)
+  })
+})
+
+describe('points of a flat coordinate list', () => {
+  const buffer = Float32Array.from([1, 2, 3, 4, 5, 6, 7])
+
+  it('reads the point at an index', () => {
+    expect(pointAt(buffer, 0)).toEqual([1, 2, 3])
+    expect(pointAt(buffer, 1)).toEqual([4, 5, 6])
+  })
+
+  it('lists the whole points in order and leaves out a trailing partial one', () => {
+    expect(pointsOf(buffer)).toEqual([
+      [1, 2, 3],
+      [4, 5, 6],
+    ])
+    expect(pointsOf(new Float32Array(0))).toEqual([])
   })
 })
 

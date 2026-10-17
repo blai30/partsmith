@@ -309,7 +309,7 @@ mod tests {
     use partsmith_protocol::Severity;
 
     use super::*;
-    use crate::commands::test_support::id;
+    use crate::test_support::id;
 
     fn arguments(output: &str) -> ExportArguments {
         ExportArguments {

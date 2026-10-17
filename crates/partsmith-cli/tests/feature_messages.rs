@@ -4,7 +4,9 @@
 mod common;
 mod corpus;
 
-use common::{Run, Workspace, assert_json_close, number};
+use common::{
+    Workspace, assert_json_close, entry, items, keys, lines_after, number, run_of_lines_after, text,
+};
 use corpus::Scenario;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -23,76 +25,6 @@ fn workspace_with(name: &str, scenario: Scenario) -> Workspace {
     let workspace = Workspace::new();
     workspace.write(name, scenario.edited_text());
     workspace
-}
-
-/// The record with `key` equal to `value` in a JSON array.
-fn entry<'a>(array: &'a Value, key: &str, value: &str) -> &'a Value {
-    array
-        .as_array()
-        .unwrap_or_else(|| panic!("an array, got {array}"))
-        .iter()
-        .find(|item| item[key] == value)
-        .unwrap_or_else(|| panic!("an entry with {key} {value:?} in {array}"))
-}
-
-/// The members of a JSON object, in order.
-fn keys(object: &Value) -> Vec<&str> {
-    object
-        .as_object()
-        .unwrap_or_else(|| panic!("an object, got {object}"))
-        .keys()
-        .map(String::as_str)
-        .collect()
-}
-
-/// The items of a JSON array.
-fn items(array: &Value) -> &Vec<Value> {
-    array
-        .as_array()
-        .unwrap_or_else(|| panic!("an array, got {array}"))
-}
-
-/// A JSON string as `&str`.
-fn text(value: &Value) -> &str {
-    value
-        .as_str()
-        .unwrap_or_else(|| panic!("a string, got {value}"))
-}
-
-/// The position of the line equal to `expected` in standard output.
-fn line_position(run: &Run, expected: &str) -> usize {
-    run.stdout_lines()
-        .iter()
-        .position(|line| *line == expected)
-        .unwrap_or_else(|| {
-            panic!(
-                "standard output has no line {expected:?}\n--- standard output ---\n{}",
-                run.stdout
-            )
-        })
-}
-
-/// The `count` lines of standard output right after the line equal to `expected`.
-fn lines_after<'a>(run: &'a Run, expected: &str, count: usize) -> Vec<&'a str> {
-    let start = line_position(run, expected) + 1;
-    let lines = run.stdout_lines();
-    assert!(
-        lines.len() >= start + count,
-        "standard output has {count} lines after {expected:?}\n--- standard output ---\n{}",
-        run.stdout
-    );
-    lines[start..start + count].to_vec()
-}
-
-/// The lines of standard output right after the line equal to `expected` that start with `prefix`, up to the first
-/// that does not.
-fn run_of_lines_after<'a>(run: &'a Run, expected: &str, prefix: &str) -> Vec<&'a str> {
-    let start = line_position(run, expected) + 1;
-    run.stdout_lines()[start..]
-        .iter()
-        .take_while(|line| line.starts_with(prefix))
-        .copied()
-        .collect()
 }
 
 /// The diagnostic of `validate --json` of the only file whose `feature` is `feature`.

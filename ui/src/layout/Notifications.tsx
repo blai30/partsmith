@@ -1,16 +1,14 @@
 import { clsx } from 'clsx/lite'
 import { CircleCheck, X } from 'lucide-react'
 import { useRef } from 'react'
-import { refusedDuringCommand } from '../app/actions/edits'
 import { dismiss, pauseNotification, resumeNotification } from '../app/actions/notifications'
 import { useApp, useAppState } from '../app/AppProvider'
-import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
-import { Tooltip } from '../components/Tooltip'
 import { SeverityIcon } from '../print/SeverityIcon'
 import { selectCommandBlock } from '../state/selectors'
 import type { Notification, NotificationAction } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
+import { WaitingButton } from './WaitingButton'
 
 // Notifications (ui.md 3.22): a stack at the viewport's bottom-right, newest at the bottom. The
 // stack is the shell's last region, placed in the viewport's grid area, so it comes last in the tab
@@ -45,23 +43,17 @@ function NotificationButton({
 }) {
   const app = useApp()
   const commandBlock = useAppState(selectCommandBlock)
-  const blocked = action.editsDocument === true ? commandBlock : null
   return (
-    <Tooltip label={blocked}>
-      <Button
-        aria-disabled={blocked === null ? undefined : true}
-        onClick={() => {
-          if (blocked !== null) {
-            refusedDuringCommand(app)
-            return
-          }
-          dismiss(app, notification.id)
-          action.run()
-        }}
-      >
-        {action.label}
-      </Button>
-    </Tooltip>
+    <WaitingButton
+      blocked={action.editsDocument === true ? commandBlock : null}
+      refuses
+      onRun={() => {
+        dismiss(app, notification.id)
+        action.run()
+      }}
+    >
+      {action.label}
+    </WaitingButton>
   )
 }
 

@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import type { Cause, FixAction } from '../generated/protocol'
+import type { Cause } from '../generated/protocol'
 import { COLOR_CLASSES } from '../theme/roles'
 import type { FixPlace } from '../state/selectors'
 import { FixButtons } from './FixButtons'
@@ -14,7 +14,7 @@ export function CauseLine({
 }: {
   readonly cause: Cause
   readonly place: FixPlace
-  readonly onRan?: (action: FixAction) => void
+  readonly onRan?: (() => void) | undefined
 }) {
   return (
     <>
@@ -23,12 +23,7 @@ export function CauseLine({
       </p>
       {cause.actions.length === 0 ? null : (
         <div className="flex flex-wrap gap-2">
-          <FixButtons
-            actions={cause.actions}
-            cause={cause}
-            place={place}
-            {...(onRan === undefined ? {} : { onRan })}
-          />
+          <FixButtons actions={cause.actions} cause={cause} place={place} onRan={onRan} />
         </div>
       )}
     </>

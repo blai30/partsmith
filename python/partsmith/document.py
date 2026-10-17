@@ -221,11 +221,11 @@ class Document:
         """Applies edits as one undo entry."""
         return self._client.command("apply_edits", label=label, edits=edits)
 
-    def _apply_and_warn(self, function: str, label: str, edits: list[dict]) -> None:
+    def _apply_and_warn(self, call: str, label: str, edits: list[dict]) -> None:
         """Applies edits as one undo entry and warns about the problems they start (section 3.2)."""
         before = self._problems()
         self._apply(label, edits)
-        self._warn_new_problems(function, before)
+        self._warn_new_problems(call, before)
 
     def _problem_messages(self) -> Iterator[tuple[ProblemKey, dict, dict]]:
         """Every warning and error of the latest statuses, with its key and its feature's status."""
@@ -238,32 +238,32 @@ class Document:
         """The keys of every warning and error of the latest statuses."""
         return {key for key, _, _ in self._problem_messages()}
 
-    def _warn_new_problems(self, function: str, before: set[ProblemKey]) -> None:
+    def _warn_new_problems(self, call: str, before: set[ProblemKey]) -> None:
         """Emits a PartsmithWarning for each warning and error of the latest statuses whose key is
-        not in `before`, the problems before an edit that `function` made."""
+        not in `before`, the problems before an edit that `call` made."""
         for key, message, status in self._problem_messages():
             if key not in before:
-                warn(self._feature_message(PartsmithWarning, function, status["id"], message, status))
+                warn(self._feature_message(PartsmithWarning, call, status["id"], message, status))
 
-    def _add_feature(self, label: str, record: dict, edits_before: Sequence[dict] = ()) -> None:
+    def _add_feature(self, function: str, record: dict, edits_before: Sequence[dict] = ()) -> None:
         """Adds a feature at the end of the timeline, after `edits_before`, in one undo entry.
 
-        `label` is the name of the function that adds it. A feature that builds with status error
-        is undone and raises FeatureError with its error message; each warning of a feature that
-        builds with warnings becomes a PartsmithWarning.
+        `function` is the name of the function that adds it, which also labels the undo entry. A
+        feature that builds with status error is undone and raises FeatureError with its error
+        message; each warning of a feature that builds with warnings becomes a PartsmithWarning.
         """
-        function = f"{label}()"
+        call = f"{function}()"
         index = len(self._recipe["features"])
         edits = [*edits_before, {"type": "add_feature", "index": index, "feature": record}]
         try:
-            self._apply(label, edits)
+            self._apply(function, edits)
         except EngineError as error:
             # The registry rejects params it cannot read, and types it does not have, before the
             # feature exists (engine.md section 3.3). An opened document reports both as the
             # feature's error status, so a script reports them like a feature that fails.
             if error.code == "invalid_params":
                 rejected = FeatureError(
-                    f"{function}: {error}", feature_type=record["type"], feature=record["id"], code=error.code
+                    f"{call}: {error}", feature_type=record["type"], feature=record["id"], code=error.code
                 )
                 raise with_caller_note(rejected) from error
             raise
@@ -271,28 +271,28 @@ class Document:
         if status["status"] == "error":
             self._client.command("undo")
             error = self._feature_message(
-                FeatureError, function, record["id"], status["messages"][0], status, feature_type=record["type"]
+                FeatureError, call, record["id"], status["messages"][0], status, feature_type=record["type"]
             )
             raise with_caller_note(error)
         for message in status["messages"]:
             if message["severity"] == "warning":
-                warn(self._feature_message(PartsmithWarning, function, record["id"], message, status))
+                warn(self._feature_message(PartsmithWarning, call, record["id"], message, status))
 
     def _feature_message[Reported: (FeatureError, PartsmithWarning)](
         self,
-        kind: type[Reported],
-        function: str,
+        exception_type: type[Reported],
+        call: str,
         feature_id: str,
         message: dict,
         status: dict,
         **extra: str,
     ) -> Reported:
         """The FeatureError or PartsmithWarning of a feature message, with the diagnostic's
-        attributes and `extra` (section 4); its text starts with the call that failed, `function`."""
+        attributes and `extra` (section 4); its text starts with the call that failed, `call`."""
         field = message.get("field")
         cause = message.get("cause")
-        return kind(
-            f"{function}: {message['message']}",
+        return exception_type(
+            f"{call}: {message['message']}",
             code=message["code"],
             feature=feature_id,
             field=field,

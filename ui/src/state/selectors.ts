@@ -317,12 +317,11 @@ export type FixPlace = 'banner' | 'panel' | 'notification'
  * feature command; null when it can.
  */
 export function selectFixBlock(state: AppState, action: FixAction, place: FixPlace): string | null {
-  const command = state.command
-  if (action.run.kind !== 'apply' || command === null) {
+  if (action.run.kind !== 'apply') {
     return null
   }
-  if (place === 'banner') {
-    return command.preview === 'pending' ? MESSAGES.preview_pending() : null
+  if (place !== 'banner') {
+    return selectCommandBlock(state)
   }
-  return MESSAGES.finish_command_first(command.title)
+  return state.command?.preview === 'pending' ? MESSAGES.preview_pending() : null
 }

@@ -2,16 +2,26 @@ import { describe, expect, it } from 'vitest'
 import type { Cause, Diagnostic, Document, Edit, FixRef, Repair } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { lineEntity } from '../../sketch/fixtures.testing'
-import { actionLabels, runAction, startWithDocument, type FakeApp } from '../../test/fakes/app'
+import {
+  actionLabels,
+  onlyNotification,
+  runAction,
+  startWithDocument,
+  type FakeApp,
+} from '../../test/fakes/app'
 import type { FakeFeatureStatus } from '../../test/fakes/core'
 import {
   CUBE_FEATURES_DOCUMENT,
   CUBE_SKETCH_SOLUTION,
   CUBE_TOP_FRONT_EDGE,
 } from '../../test/fakes/documents'
-import { lostEdgeRepair } from '../../test/fakes/repairs'
+import { BEVEL_EDGE, LINE_DELETED, lostEdgeRepair, regionRepair } from '../../test/fakes/repairs'
 import { settle } from '../../test/fakes/settle'
-import { createFakeViewport } from '../../test/fakes/viewport'
+import {
+  createFakeViewport,
+  expectBoundsContain,
+  lastFramedBounds,
+} from '../../test/fakes/viewport'
 import { confirmCommand, editFeature, setCommandField } from './command'
 import { applyEdits, undo } from './document'
 import { commitSketchChange, enterSketch, finishSketch } from './sketch'
@@ -32,16 +42,6 @@ const DOCUMENT: Document = {
       entities: [],
       constraints: [],
     },
-  ],
-}
-
-const BEVEL_EDGE = "the top edge of 'Extrude 1' along a line of 'Sketch 1'"
-
-const LINE_DELETED: Cause = {
-  text: "This started after you deleted the line from (80, 40) to (70, 50) in 'Sketch 1'.",
-  actions: [
-    { label: 'Undo', run: { kind: 'undo' } },
-    { label: 'Show the line', run: { kind: 'show', feature: 'f-sk1', entity: 'e-5' } },
   ],
 }
 
@@ -138,8 +138,7 @@ describe('a notification for every new loss (4.2, U-132)', () => {
     statuses['f-fil1'] = filletLost()
     await applyEdits(fake.app, 'Delete', RADIUS_3)
     await settle()
-    expect(notifications(fake)).toHaveLength(1)
-    expect(notifications(fake)[0]).toMatchObject({
+    expect(onlyNotification(fake.app)).toMatchObject({
       severity: 'warning',
       code: 'feature_lost',
       message: MESSAGES.feature_lost('Fillet 1', BEVEL_EDGE),
@@ -207,16 +206,10 @@ describe('a notification for every new loss (4.2, U-132)', () => {
       editing: true,
       activeField: 'edges',
     })
-    const [bounds] = viewport.zoomToBounds.mock.calls.at(-1) ?? []
-    for (const point of [
+    expectBoundsContain(lastFramedBounds(viewport).bounds, [
       [0, -10, 20],
       [10, -10, 20],
-    ] as const) {
-      for (const axis of [0, 1, 2] as const) {
-        expect(bounds?.min[axis]).toBeLessThanOrEqual(point[axis])
-        expect(bounds?.max[axis]).toBeGreaterThanOrEqual(point[axis])
-      }
-    }
+    ])
   })
 })
 
@@ -254,8 +247,7 @@ describe('which losses are new (4.2, U-133)', () => {
     expect(notifications(fake)).toEqual([])
     await finishSketch(fake.app)
     await settle()
-    expect(notifications(fake)).toHaveLength(1)
-    expect(notifications(fake)[0]).toMatchObject({
+    expect(onlyNotification(fake.app)).toMatchObject({
       code: 'feature_lost',
       message: MESSAGES.feature_lost('Fillet 1', BEVEL_EDGE),
       problems: ['f-fil1 reference_missing /edges/0', 'f-fil1 reference_missing /edges/1'],
@@ -311,17 +303,13 @@ describe('what notifies (4.2, U-134)', () => {
       }
       await applyEdits(fake.app, 'Change Fillet 1', RADIUS_3)
       await settle()
-      expect(notifications(fake)).toHaveLength(1)
-      const [notification] = notifications(fake)
+      const notification = onlyNotification(fake.app)
       expect(notification).toMatchObject({
         severity: 'warning',
         code: 'feature_check',
         message: MESSAGES.feature_check('Fillet 1'),
       })
-      expect(notification === undefined ? [] : actionLabels(notification)).toEqual([
-        MESSAGES.check_feature('Fillet 1'),
-        'Undo',
-      ])
+      expect(actionLabels(notification)).toEqual([MESSAGES.check_feature('Fillet 1'), 'Undo'])
     },
   )
 
@@ -347,13 +335,9 @@ describe('what notifies (4.2, U-134)', () => {
     }
     await applyEdits(fake.app, 'Change Fillet 1', RADIUS_3)
     await settle()
-    expect(notifications(fake)).toHaveLength(1)
-    const [notification] = notifications(fake)
-    expect(notification?.message).toBe("'Sketch 2' lost the top of 'Extrude 1'.")
-    expect(notification === undefined ? [] : actionLabels(notification)).toEqual([
-      "Show what 'Sketch 2' lost",
-      'Undo',
-    ])
+    const notification = onlyNotification(fake.app)
+    expect(notification.message).toBe("'Sketch 2' lost the top of 'Extrude 1'.")
+    expect(actionLabels(notification)).toEqual(["Show what 'Sketch 2' lost", 'Undo'])
   })
 
   it.each(['reference_followed', 'region_split'])(
@@ -389,17 +373,7 @@ describe('one root, one notification (4.2, U-144)', () => {
         cause: BACK_LINE_DELETED,
       },
     ],
-    repairs: [
-      {
-        kind: 'region',
-        path: '/profile/regions/0',
-        sketch: 'f-sk1',
-        region: { key: 'e-1,e-2,e-3,e-4', fp: 'c=40,25|a=4000' },
-        resolution: 'missing',
-        description: REGION,
-        candidates: [],
-      },
-    ],
+    repairs: [regionRepair('/profile/regions/0', REGION)],
   }
   const FILLET_EMPTY: FakeFeatureStatus = {
     status: 'error',
@@ -421,8 +395,7 @@ describe('one root, one notification (4.2, U-144)', () => {
     statuses['f-fil1'] = FILLET_EMPTY
     await applyEdits(fake.app, 'Delete', RADIUS_3)
     await settle()
-    expect(notifications(fake)).toHaveLength(1)
-    expect(notifications(fake)[0]).toMatchObject({
+    expect(onlyNotification(fake.app)).toMatchObject({
       severity: 'error',
       code: 'features_lost',
       message:

@@ -55,6 +55,20 @@ export function angleBetween(first: Vector3, second: Vector3): number {
   return Math.atan2(length(cross(first, second)), dot(first, second))
 }
 
+/** The point at `index` of a flat list of x, y, z coordinates, such as a ghost's (2.7). */
+export function pointAt(buffer: Float32Array, index: number): Vector3 {
+  return [buffer[index * 3] ?? 0, buffer[index * 3 + 1] ?? 0, buffer[index * 3 + 2] ?? 0]
+}
+
+/** The points of a flat list of x, y, z coordinates, in order; a trailing partial point is left out. */
+export function pointsOf(buffer: Float32Array): Vector3[] {
+  const points: Vector3[] = []
+  for (let i = 0; (i + 1) * 3 <= buffer.length; i++) {
+    points.push(pointAt(buffer, i))
+  }
+  return points
+}
+
 /** The center of a box. */
 export function boundsCenter(bounds: Bounds): Vector3 {
   return scale(add(bounds.min, bounds.max), 0.5)
