@@ -1,16 +1,18 @@
 //! Acceptance tests of the `split_body` feature (docs/spec/features/split_body.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/split_body/`.
+//! `examples/split_body/`; the documents of tests 11 and 12 (planes on faces, features.md section
+//! 3.6) are written here until their examples exist.
 
 mod feature_support;
 
 use std::time::Duration;
 
 use feature_support::{
-    CUBE20, Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
-    assert_face_count, assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
-    assert_median_build_within, assert_solid_count, assert_unchanged, assert_volume, body_changes,
-    face, load_example,
+    BOTH_TOPS, CUBE20, Run, assert_bounding_box, assert_choice_between, assert_empty,
+    assert_error_field, assert_examples_canonical, assert_face_count, assert_face_kind,
+    assert_face_normal, assert_face_position, assert_has_face, assert_median_build_within,
+    assert_solid_count, assert_unchanged, assert_volume, body_changes, face, l_shaped_body,
+    load_example, slotted_block,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -224,4 +226,61 @@ fn t010_split_into_two_bodies_builds_within_15_ms() {
     let document = load_example("split_body/into-two-bodies.ptsm");
 
     assert_median_build_within(&document, "f-split1", 21, Duration::from_millis(15));
+}
+
+// Tests 11 and 12: a split plane on a face must lie in one plane, and a face split into coplanar pieces keeps it.
+
+#[test]
+fn t011_a_plane_face_in_two_planes() {
+    let [box_1, box_2] = l_shaped_body("b-1");
+    let run = Run::records(
+        &BODIES,
+        &[
+            &box_1,
+            &box_2,
+            &format!(
+                r#"{{"id": "f-split1", "type": "split_body", "body": "b-1", "plane": {{"kind": "face", "body": "b-1", "face": {BOTH_TOPS}}}, "target": "b-2"}}"#
+            ),
+        ],
+    );
+
+    assert_choice_between(
+        &run,
+        "f-split1",
+        "not_coplanar",
+        ("plane", "face"),
+        "b-1",
+        &["f-box1/top", "f-box2/top"],
+        "The face selected for Split plane now matches 2 faces that do not lie in one plane. Pick the one you mean.",
+    );
+    assert_unchanged(&run, "f-split1", "b-1");
+    assert_empty(&run, "b-2");
+}
+
+#[test]
+fn t012_a_plane_face_split_into_coplanar_pieces() {
+    // b-2 holds the slotted block moved down by 25, so its top, in two pieces, lies at z = 5.
+    let mut features: Vec<String> = vec![CUBE20.to_owned()];
+    features.extend(slotted_block("b-2"));
+    features.push(
+        r#"{"id": "f-mv1", "type": "move_body", "body": "b-2", "translation": ["0", "0", "-25"]}"#
+            .to_owned(),
+    );
+    features.push(
+        r#"{"id": "f-split1", "type": "split_body", "body": "b-1", "plane": {"kind": "face", "body": "b-2", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}}}"#
+            .to_owned(),
+    );
+    let features: Vec<&str> = features.iter().map(String::as_str).collect();
+    let run = Run::records(&BODIES, &features);
+
+    run.assert_ok("f-split1");
+    assert!(
+        run.messages("f-split1").is_empty(),
+        "{:?}",
+        run.messages("f-split1")
+    );
+    // The reference resolves to both pieces in the plane z = 5, so b-1 keeps the part above it, as test 2.
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_bounding_box(shape, [-10.0, -10.0, 5.0], [10.0, 10.0, 20.0]);
 }

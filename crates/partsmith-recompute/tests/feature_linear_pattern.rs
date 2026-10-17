@@ -17,11 +17,11 @@ use feature_support::{
     assert_volume, body_changes, document, face, face_sketch, hole_at_point, l_shaped_body,
     leaning_wall, left_bottom_edge_axis, link_ids, one_point, output_body,
 };
-use partsmith_naming::ElementName;
 use partsmith_features::{
     BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, Values,
 };
 use partsmith_model::{EmptyContext, Id, Scope, Units};
+use partsmith_naming::ElementName;
 use partsmith_occt_sys::GeometryKind;
 
 /// The bodies of every linear pattern test.
@@ -481,7 +481,9 @@ fn t019_direction_edges_not_on_one_line() {
             &box_2,
             &pattern(
                 &direction(
-                    &format!(r#"{{"kind": "edge", "body": "b-1", "edge": {BOTH_FRONT_TOP_EDGES}}}"#),
+                    &format!(
+                        r#"{{"kind": "edge", "body": "b-1", "edge": {BOTH_FRONT_TOP_EDGES}}}"#
+                    ),
                     "2",
                     "50",
                 ),

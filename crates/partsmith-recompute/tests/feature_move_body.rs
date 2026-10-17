@@ -12,9 +12,9 @@ use feature_support::{
     assert_bounding_box, assert_choice_between, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_normal,
     assert_face_position, assert_median_build_within, assert_quarter_turns_about_z,
-    assert_translation, assert_unchanged, assert_volume, body_changes, document, face,
-    face_sketch, hole_at_point, l_shaped_body, leaning_wall, left_bottom_edge_axis, load_example,
-    one_point, output_body,
+    assert_translation, assert_unchanged, assert_volume, body_changes, document, face, face_sketch,
+    hole_at_point, l_shaped_body, leaning_wall, left_bottom_edge_axis, load_example, one_point,
+    output_body,
 };
 use partsmith_naming::ElementName;
 use partsmith_occt_sys::GeometryKind;

@@ -1,6 +1,7 @@
 //! Acceptance tests of the `datum_plane` feature (docs/spec/features/datum_plane.md section 6),
 //! run as documents through recompute (features.md section 6.1). Geometry documents are the
-//! examples in `examples/datum_plane/`.
+//! examples in `examples/datum_plane/`; the documents of tests 16, 17 and 19 (frames on the model)
+//! are written here until their examples exist.
 
 mod feature_support;
 
@@ -8,13 +9,15 @@ use std::f64::consts::FRAC_1_SQRT_2;
 use std::time::Duration;
 
 use feature_support::{
-    AXIS_TOLERANCE, Run, assert_coordinates, assert_element_repair, assert_examples_canonical,
-    assert_median_build_within, assert_messages_pass_lint, assert_placement, datum_placement,
-    keep_and_pick, link_ids, load_example, use_reference,
+    AXIS_TOLERANCE, BOTH_TOPS, Run, assert_choice_between, assert_coordinates,
+    assert_element_repair, assert_examples_canonical, assert_median_build_within,
+    assert_messages_pass_lint, assert_moves, assert_placement, assert_translation, datum_motion,
+    datum_placement, keep_and_pick, l_shaped_body, link_ids, load_example, slotted_block,
+    use_reference,
 };
 use partsmith_features::{Diagnosis, Fix};
 use partsmith_model::Id;
-use partsmith_naming::Follow;
+use partsmith_naming::{Follow, Motion};
 
 /// A box of size 10 at position (3, 4, 0) in `b-1`: x from -2 to 8, y from -1 to 9, z from 0 to 10.
 const BOX_AT_3_4: &str = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "position": ["3", "4", "0"], "op": "new"}"#;
@@ -329,4 +332,159 @@ fn t018_a_shell_inserted_under_the_datums_face_keeps_it_on_the_rim() {
     let placement = datum_placement(&run, "f-dp1");
     assert_coordinates("origin", placement.origin, [0.0, 0.0, 28.0], AXIS_TOLERANCE);
     assert_coordinates("normal", placement.normal, [0.0, 0.0, 1.0], AXIS_TOLERANCE);
+}
+
+// Tests 16, 17 and 19: faces in two planes, a face split into coplanar pieces, and the motion a datum passes on
+// (section 3.2 steps 1 and 4).
+
+#[test]
+fn t016_faces_in_two_planes() {
+    let [box_1, box_2] = l_shaped_body("b-1");
+    let run = Run::records(
+        &["b-1"],
+        &[
+            &box_1,
+            &box_2,
+            &datum_plane(
+                &format!(r#"{{"kind": "face", "body": "b-1", "face": {BOTH_TOPS}}}"#),
+                "",
+            ),
+        ],
+    );
+
+    // Neither face is chosen by name order.
+    assert_choice_between(
+        &run,
+        "f-dp1",
+        "not_coplanar",
+        ("base", "face"),
+        "b-1",
+        &["f-box1/top", "f-box2/top"],
+        "The face selected for Base plane now matches 2 faces that do not lie in one plane. Pick the one you mean.",
+    );
+}
+
+#[test]
+fn t017_a_face_split_into_coplanar_pieces_keeps_its_plane() {
+    let mut features: Vec<String> = slotted_block("b-1").to_vec();
+    features.push(datum_plane(
+        r#"{"kind": "face", "body": "b-1", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}}"#,
+        r#", "offset": "5""#,
+    ));
+    let features: Vec<&str> = features.iter().map(String::as_str).collect();
+    let run = Run::records(&["b-1"], &features);
+
+    run.assert_ok("f-dp1");
+    assert!(
+        run.messages("f-dp1").is_empty(),
+        "{:?}",
+        run.messages("f-dp1")
+    );
+    assert_placement(
+        datum_placement(&run, "f-dp1"),
+        [0.0, 0.0, 35.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+}
+
+/// A box 10 x 10 x 10 in `b-1`, the Move body `f-mv1` with `extra` members, a datum plane on the box's top as picked
+/// before the move, and the records `after`.
+fn datum_on_moved_top_then(extra: &str, after: &[&str]) -> Run {
+    let mut features = vec![
+        r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}"#.to_owned(),
+        format!(r#"{{"id": "f-mv1", "type": "move_body", "body": "b-1", {extra}}}"#),
+        datum_plane(
+            r#"{"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=100"}}"#,
+            "",
+        ),
+    ];
+    features.extend(after.iter().map(|record| (*record).to_owned()));
+    let features: Vec<&str> = features.iter().map(String::as_str).collect();
+    Run::records(&["b-1"], &features)
+}
+
+/// `datum_on_moved_top_then` without further records.
+fn datum_on_moved_top(extra: &str) -> Run {
+    datum_on_moved_top_then(extra, &[])
+}
+
+/// A half turn about the X axis, as the members of a Move body.
+const HALF_TURN_ABOUT_X: &str =
+    r#""rotation": {"axis": {"kind": "origin", "axis": "X"}, "angle": "180 deg"}"#;
+
+/// The datum `f-dp2` of test 10: 5 above `f-dp1`.
+const DATUM_ON_DATUM: &str = r#"{"id": "f-dp2", "type": "datum_plane", "base": {"kind": "datum", "feature": "f-dp1"}, "offset": "5"}"#;
+
+#[test]
+fn t019_a_slide_along_the_face_does_not_move_the_datums_frame() {
+    let run = datum_on_moved_top(r#""translation": ["100", "0", "0"]"#);
+
+    run.assert_all_ok();
+    // As before this change: the face placement rule takes the origin and x axis from the world.
+    assert_placement(
+        datum_placement(&run, "f-dp1"),
+        [0.0, 0.0, 10.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+    // The identity: the frame P0 of the face mapped back by its motion is the frame P.
+    assert_translation(datum_motion(&run.report, "f-dp1"), [0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn t019_a_face_turned_over_turns_the_datum_and_its_motion() {
+    let run = datum_on_moved_top(HALF_TURN_ABOUT_X);
+
+    run.assert_all_ok();
+    // The top now lies at z = -10, facing -Z.
+    assert_placement(
+        datum_placement(&run, "f-dp1"),
+        [0.0, 0.0, -10.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0],
+    );
+    // The rotation of 180 degrees about X: (x, y, z) to (x, -y, -z).
+    assert_moves(
+        datum_motion(&run.report, "f-dp1"),
+        &[
+            ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            ([1.0, 2.0, 3.0], [1.0, -2.0, -3.0]),
+            ([0.0, 0.0, 10.0], [0.0, 0.0, -10.0]),
+        ],
+    );
+}
+
+#[test]
+fn t019_an_origin_base_and_a_datum_base_pass_on_their_motion() {
+    // Test 1's datum on XY passes on the identity, and f-dp2 of test 10 the motion of f-dp1.
+    let run = Run::records(
+        &[],
+        &[
+            &datum_plane(
+                r#"{"kind": "origin", "plane": "XY"}"#,
+                r#", "offset": "10""#,
+            ),
+            DATUM_ON_DATUM,
+        ],
+    );
+
+    run.assert_all_ok();
+    assert_eq!(*datum_motion(&run.report, "f-dp1"), Motion::IDENTITY);
+    assert_eq!(
+        datum_motion(&run.report, "f-dp2"),
+        datum_motion(&run.report, "f-dp1")
+    );
+}
+
+#[test]
+fn t019_a_datum_on_a_datum_on_a_turned_face_passes_on_the_turn() {
+    // Section 3.2 step 4: a datum base passes on that datum's motion.
+    let run = datum_on_moved_top_then(HALF_TURN_ABOUT_X, &[DATUM_ON_DATUM]);
+
+    run.assert_all_ok();
+    assert_eq!(
+        datum_motion(&run.report, "f-dp2"),
+        datum_motion(&run.report, "f-dp1")
+    );
 }

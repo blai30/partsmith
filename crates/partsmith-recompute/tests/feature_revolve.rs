@@ -1,18 +1,20 @@
 //! Acceptance tests of the `revolve` feature (docs/spec/features/revolve.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/revolve/`.
+//! `examples/revolve/`; the documents of tests 28 to 30 (frames on the model) are written here until
+//! their examples exist.
 
 mod feature_support;
 
 use std::time::Duration;
 
 use feature_support::{
-    Run, absent_faces, assert_bounding_box, assert_empty, assert_error_field,
+    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, absent_faces,
+    assert_absolute, assert_bounding_box, assert_choice_between, assert_empty, assert_error_field,
     assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
     assert_face_kind, assert_face_radius, assert_has_face, assert_median_build_within,
     assert_messages_pass_lint, assert_no_face, assert_unchanged, assert_volume, face,
-    face_names_with_prefix, keep_and_pick, line, link_ids, load_example, message, output_body,
-    successions,
+    face_names_with_prefix, keep_and_pick, l_shaped_body, lean, lean_edge_axis, line, link_ids,
+    load_example, message, output_body, successions,
 };
 use partsmith_features::{Diagnosis, Fix};
 use partsmith_naming::Follow;
@@ -732,4 +734,132 @@ fn t034_the_widened_face_offers_keep_all_use_only_the_first_line_and_pick() {
             },
         ],
     );
+}
+
+// Tests 28 to 30: an edge axis keeps the side the user picked, turns with the part when its direction is stored, and
+// edges that do not lie on one line are not decided by name order (features.md section 3.6).
+
+/// The wall `LEAN(top_x)` in b-2, `SK-RING`, and a quarter turn of it about the wall's edge with the axis's `extra`
+/// members (revolve test 28).
+fn quarter_turn_about_a_leaning_edge(top_x: i32, extra: &str) -> Run {
+    let [sketch, extrude] = lean(top_x);
+    Run::records(
+        &["b-1", "b-2"],
+        &[
+            &sketch,
+            &extrude,
+            RING_SKETCH,
+            &revolve(
+                RING_PROFILE,
+                &lean_edge_axis(extra),
+                &angle("90 deg"),
+                "new",
+            ),
+        ],
+    )
+}
+
+#[test]
+fn t028_an_upright_axis_edge_turns_toward_plus_y() {
+    let run = quarter_turn_about_a_leaning_edge(-4, r#", "direction": [0, 0, 1]"#);
+
+    run.assert_all_ok();
+    // The axis is +Z through (-4, 0, 0).
+    assert_bounding_box(run.shape("b-1"), [-4.0, 0.0, 0.0], [20.0, 24.0, 30.0]);
+}
+
+#[test]
+fn t028_an_axis_edge_that_leans_keeps_its_side() {
+    for extra in [r#", "direction": [0, 0, 1]"#, ""] {
+        for top_x in [-5, -3] {
+            let run = quarter_turn_about_a_leaning_edge(top_x, extra);
+
+            run.assert_all_ok();
+            // The axis keeps a positive z, so the turn still goes toward +Y.
+            let bounds = run
+                .shape("b-1")
+                .bounding_box()
+                .expect("the kernel bounds a non-empty shape");
+            assert_absolute(
+                &format!("minimum y with LEAN({top_x}) and axis members {extra:?}"),
+                bounds.min[1],
+                0.0,
+                LENGTH_TOLERANCE,
+            );
+            assert!(
+                bounds.max[1] > 20.0,
+                "with LEAN({top_x}) the turn goes toward +Y: {bounds:?}"
+            );
+        }
+    }
+}
+
+/// Test 16's document with a quarter turn in place of the full one, `f-mv1` turning b-2 by 180 degrees about X
+/// inserted before the revolve, and the edge axis with `extra` members.
+fn quarter_turn_after_turning_the_box(extra: &str) -> Run {
+    Run::records(
+        &["b-1", "b-2"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "position": ["0", "5", "0"], "op": "new"}"#,
+            r#"{"id": "f-mv1", "type": "move_body", "body": "b-2", "rotation": {"axis": {"kind": "origin", "axis": "X"}, "angle": "180 deg"}}"#,
+            RING_SKETCH,
+            &revolve(
+                RING_PROFILE,
+                &format!(
+                    r#"{{"kind": "edge", "body": "b-2", "edge": {{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-5,0,5|l=10"}}{extra}}}"#
+                ),
+                &angle("90 deg"),
+                "new",
+            ),
+        ],
+    )
+}
+
+#[test]
+fn t029_a_half_turn_of_the_part_turns_the_axis() {
+    let run = quarter_turn_after_turning_the_box(r#", "direction": [0, 0, 1]"#);
+
+    run.assert_all_ok();
+    // The edge still lies at x = -5, y = 0, and its stored direction moves with the part to -Z.
+    assert_bounding_box(run.shape("b-1"), [-5.0, -25.0, 0.0], [20.0, 0.0, 30.0]);
+}
+
+#[test]
+fn t029_without_a_stored_direction_the_fingerprint_keeps_its_side() {
+    // As written before format version 2: the fingerprint's +Z, as before this change.
+    let run = quarter_turn_after_turning_the_box("");
+
+    run.assert_all_ok();
+    assert_bounding_box(run.shape("b-1"), [-5.0, 0.0, 0.0], [20.0, 25.0, 30.0]);
+}
+
+#[test]
+fn t030_axis_edges_not_on_one_line() {
+    let [box_1, box_2] = l_shaped_body("b-2");
+    let run = Run::records(
+        &["b-1", "b-2"],
+        &[
+            &box_1,
+            &box_2,
+            RING_SKETCH,
+            &revolve(
+                RING_PROFILE,
+                &format!(r#"{{"kind": "edge", "body": "b-2", "edge": {BOTH_FRONT_TOP_EDGES}}}"#),
+                FULL,
+                "new",
+            ),
+        ],
+    );
+
+    // Neither edge is chosen by name order.
+    assert_choice_between(
+        &run,
+        "f-rev1",
+        "not_collinear",
+        ("axis", "edge"),
+        "b-2",
+        &FRONT_TOP_EDGES_OF_BOTH_BOXES,
+        "The edge selected for Axis now matches 2 edges that do not lie on one line. Pick the one you mean.",
+    );
+    assert_empty(&run, "b-1");
 }

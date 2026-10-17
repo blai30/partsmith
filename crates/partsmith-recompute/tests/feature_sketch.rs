@@ -6,10 +6,11 @@
 //! Tests 20 to 29 and 32 check what the sketch feature and the features built on it compute: placements,
 //! motions, the sketch's own messages and fixes, codes of the messages of later features, geometry, and
 //! the document after a fix as the engine's `apply_fix` would write it. Left for the steps that build
-//! them: the texts and fixes of `hole_misses_body` (tests 21 and 24) and `no_effect` (test 23) and the
-//! `separate_solid` warnings of tests 22 and 28 (phase 3, features.md sections 3.5 and 3.15 and
-//! features/hole.md section 3.5.3), and the root of test 24's `hole_misses_body` under a drawing turned
-//! over (recompute.md test 72). Tests 30 and 31 (the modeling limit and the sketch crate's texts with
+//! them: that `hole_misses_body` is the hole's only warning (one point, so no `no_effect`), its text
+//! and fixes (tests 21 and 24), the text and fix of `no_effect` (test 23) and the `separate_solid`
+//! warnings of tests 22 and 28 (phase 3: features.md sections 3.5 and 3.15 and the hole points of
+//! features/hole.md), and the root of test 24's `hole_misses_body` under a drawing turned over
+//! (recompute.md test 72). Tests 30 and 31 (the modeling limit and the sketch crate's texts with
 //! values) belong to phase 3.
 
 mod feature_support;
@@ -534,7 +535,14 @@ fn t019_empty_body_under_a_face_plane() {
 
 /// An extrude `id` into `b-1` of the region `key` (with fingerprint `fingerprint`) of `sketch`, by `distance`, with
 /// `extra` members (or none) and `op`.
-fn extrude(id: &str, sketch: &str, region: (&str, &str), distance: &str, extra: &str, op: &str) -> String {
+fn extrude(
+    id: &str,
+    sketch: &str,
+    region: (&str, &str),
+    distance: &str,
+    extra: &str,
+    op: &str,
+) -> String {
     let (key, fingerprint) = region;
     format!(
         r#"{{"id": "{id}", "type": "extrude", "body": "b-1", "profile": {{"sketch": "{sketch}", "regions": [{{"key": "{key}", "fp": "{fingerprint}"}}]}}, "extent": {{"kind": "distance", "expr": "{distance}"}}{extra}, "op": "{op}"}}"#
@@ -595,7 +603,8 @@ const BOX_40: &str =
 const BOX_40_TOP: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"}"#;
 
 /// The Move body `f-mv1` of test 20 by (100, 0, 0).
-const MOVE_BY_100: &str = r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]}"#;
+const MOVE_BY_100: &str =
+    r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]}"#;
 
 /// The Move body `f-mv1` of test 20's rotation variant: 90 degrees about the Z axis.
 const TURN_BY_90: &str = r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "90 deg"}}"#;
@@ -607,10 +616,35 @@ fn moved_box_document(motion: &str, frame: Option<&str>) -> partsmith_model::Doc
         &[
             BOX_40,
             motion,
-            &face_sketch(BOX_40_TOP, [0.0, 0.0, 10.0], frame, &one_point([15.0, 15.0])),
+            &face_sketch(
+                BOX_40_TOP,
+                [0.0, 0.0, 10.0],
+                frame,
+                &one_point([15.0, 15.0]),
+            ),
             &hole_at_point("4", THROUGH_ALL),
         ],
     )
+}
+
+/// Asserts that `f-hole1` warns `hole_misses_body`. That it is the only warning (one point, so no `no_effect`,
+/// features.md section 3.15) and its text, fixes and root come with phase 3 and recompute.md test 72.
+#[track_caller]
+fn assert_hole_misses_the_body(run: &Run) {
+    let report = run.feature("f-hole1");
+    assert!(
+        matches!(report.status, partsmith_recompute::Status::Warning),
+        "f-hole1 should warn: {:?}",
+        run.messages("f-hole1")
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code() == "hole_misses_body"),
+        "f-hole1 should miss the body: {:?}",
+        run.messages("f-hole1")
+    );
 }
 
 /// The only `plane_fallback` warning of `sketch`: where it placed the sketch, its cause and whether it has a loss.
@@ -714,8 +748,7 @@ fn t021_a_fallback_in_world_coordinates_rebuilds_as_before() {
         [15.0, 15.0, 10.0],
         AXIS_TOLERANCE,
     );
-    // One point, so no `no_effect` (features.md section 3.15); the text is phase 3's.
-    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    assert_hole_misses_the_body(&run);
     assert_volume(run.shape("b-1"), 16000.0);
     // Nothing is written back, and no `fallback_frame` is added.
     assert_eq!(
@@ -733,7 +766,11 @@ fn cut_top_document() -> partsmith_model::Document {
         &[
             r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "40"], "op": "new"}"#,
             &datum_above_xy("35"),
-            &sketch_on_datum("f-sk3", "f-dp1", &rectangle_11([-15.0, -15.0], [15.0, 15.0])),
+            &sketch_on_datum(
+                "f-sk3",
+                "f-dp1",
+                &rectangle_11([-15.0, -15.0], [15.0, 15.0]),
+            ),
             &extrude(
                 "f-ext3",
                 "f-sk3",
@@ -894,7 +931,10 @@ fn t023_a_face_whose_feature_was_deleted_uses_the_saved_position() {
     // The boss lies inside the taller block; the `no_effect` text with its cause is phase 3's.
     run.assert_warnings("f-ext2", &["no_effect"]);
     assert_eq!(
-        message(&run, "f-ext2", "no_effect").root.as_ref().map(Id::as_str),
+        message(&run, "f-ext2", "no_effect")
+            .root
+            .as_ref()
+            .map(Id::as_str),
         Some("f-sk2")
     );
     assert_volume(run.shape("b-1"), 320000.0);
@@ -978,8 +1018,8 @@ fn assert_drawing_turned_over(run: &Run) {
         [20.0, -10.0, -30.0],
         AXIS_TOLERANCE,
     );
-    // The point lies off the face; the text, fix and root of `hole_misses_body` come with phase 3 and recompute.
-    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    // The point lies off the face.
+    assert_hole_misses_the_body(run);
     assert_volume(run.shape("b-1"), 120000.0);
 }
 
@@ -1021,11 +1061,7 @@ fn t024_turning_the_drawing_back_drills_the_hole_where_it_was_drawn() {
     run.assert_all_ok();
     assert_bore_through(&run, [20.0, 10.0, 0.0]);
     // Drilled from z = -30 up to z = -20.
-    assert_face_in_plane(
-        &face(run.body("b-1"), "f-hole1/bottom/e-p1"),
-        2,
-        -20.0,
-    );
+    assert_face_in_plane(&face(run.body("b-1"), "f-hole1/bottom/e-p1"), 2, -20.0);
     assert_volume(run.shape("b-1"), 119803.650459);
 }
 
@@ -1048,7 +1084,12 @@ fn slotted_block_document(face: &str) -> partsmith_model::Document {
                 r#", "reverse": true"#,
                 "cut",
             ),
-            &face_sketch(face, [0.0, 0.0, 30.0], Some("body"), &one_point([10.0, 10.0])),
+            &face_sketch(
+                face,
+                [0.0, 0.0, 30.0],
+                Some("body"),
+                &one_point([10.0, 10.0]),
+            ),
         ],
     )
 }
@@ -1058,7 +1099,11 @@ fn t025_a_face_split_into_coplanar_pieces_keeps_the_placement() {
     let run = Run::new(slotted_block_document(BLOCK_TOP));
 
     run.assert_ok("f-sk2");
-    assert!(run.messages("f-sk2").is_empty(), "{:?}", run.messages("f-sk2"));
+    assert!(
+        run.messages("f-sk2").is_empty(),
+        "{:?}",
+        run.messages("f-sk2")
+    );
     assert_placement(
         &sketch_result(&run, "f-sk2").placement,
         [0.0, 0.0, 30.0],
@@ -1100,7 +1145,11 @@ fn t026_faces_in_two_planes_use_the_saved_position_and_offer_both() {
     // Neither face is chosen by name order: both are offered, then Pick.
     assert_eq!(
         plane_fallback_fixes(&run),
-        [attach_to("f-box1/top"), attach_to("f-box2/top"), pick_face()]
+        [
+            attach_to("f-box1/top"),
+            attach_to("f-box2/top"),
+            pick_face()
+        ]
     );
     assert_eq!(
         sketch_result(&run, "f-sk1").placement,

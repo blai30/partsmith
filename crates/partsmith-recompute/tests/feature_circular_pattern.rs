@@ -283,7 +283,8 @@ fn t012_the_sketch_follows_a_wider_angle() {
     for (axis, expected) in [-10.0, 17.320508, 5.0].into_iter().enumerate() {
         assert_absolute("placement origin", origin[axis], expected, LENGTH_TOLERANCE);
     }
-    assert_bore_through(&run, [-10.0, 17.320508075688772, 0.0]);
+    // Copy 2 sits at 120 degrees: (20 cos 120, 20 sin 120) = (-10, 10 sqrt 3).
+    assert_bore_through(&run, [-10.0, 10.0 * 3.0_f64.sqrt(), 0.0]);
     assert_volume(run.shape("b-1"), 184.568568);
 }
 

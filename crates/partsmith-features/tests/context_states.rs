@@ -7,8 +7,8 @@ mod common;
 use std::sync::Arc;
 
 use common::records::{
-    ATTACHED_BOX_TOP, block, block_with, cube10, cube20, cut_through_the_top, edited, fillet,
-    line, linear_pattern, rectangle, reference, sketch, xy,
+    ATTACHED_BOX_TOP, block, block_with, cube10, cube20, cut_through_the_top, edited, fillet, line,
+    linear_pattern, rectangle, reference, sketch, xy,
 };
 use common::timeline::{Timeline, stored};
 use common::{ContextFixture, assert_vector_close, built_body, id};
@@ -363,7 +363,10 @@ fn assert_moves(motion: &Motion, moves: &[([f64; 3], [f64; 3])]) {
 fn a_move_body_moves_the_motion_of_every_face_and_of_names_it_never_saw() {
     let timeline = Timeline::run(&["b-1"], &[cube10(), move_by_100()]);
     let state = timeline.state("b-1");
-    let shift = [([0.0, 0.0, 0.0], [100.0, 0.0, 0.0]), ([1.0, 2.0, 3.0], [101.0, 2.0, 3.0])];
+    let shift = [
+        ([0.0, 0.0, 0.0], [100.0, 0.0, 0.0]),
+        ([1.0, 2.0, 3.0], [101.0, 2.0, 3.0]),
+    ];
 
     assert_moves(&state.motion(&name("f-box1/top")), &shift);
     assert_moves(&state.motion(&name("f-gone/x")), &shift);

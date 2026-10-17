@@ -9,12 +9,11 @@ use std::time::Duration;
 
 use feature_support::{
     AXIS_TOLERANCE, Run, THROUGH_ALL, assert_bore_through, assert_bounding_box, assert_coordinates,
-    assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
-    assert_face_normal, assert_face_position, assert_has_face, assert_median_build_within,
-    assert_moves, assert_placement, assert_solid_count, assert_unchanged, assert_volume,
-    body_changes, document, face, face_sketch_with, hole_at_point, link_ids, load_example,
-    one_point, output_body, sketch_result,
+    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
+    assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
+    assert_median_build_within, assert_moves, assert_placement, assert_solid_count,
+    assert_unchanged, assert_volume, body_changes, document, face, face_sketch_with, hole_at_point,
+    link_ids, load_example, one_point, output_body, sketch_result,
 };
 use partsmith_naming::ElementName;
 use partsmith_occt_sys::GeometryKind;
@@ -319,7 +318,10 @@ fn the_image_faces_move_by_the_reflection() {
     let motion = output_body(&run, "f-mir1", "b-1").motion(&image_top);
     assert_moves(
         &motion,
-        &[([10.0, 0.0, 10.0], [-10.0, 0.0, 10.0]), ([12.0, 3.0, 4.0], [-12.0, 3.0, 4.0])],
+        &[
+            ([10.0, 0.0, 10.0], [-10.0, 0.0, 10.0]),
+            ([12.0, 3.0, 4.0], [-12.0, 3.0, 4.0]),
+        ],
     );
     assert!(!motion.is_proper(), "a reflection turns handedness");
 }

@@ -1708,6 +1708,8 @@ Messages below are templates, rendered with a `RenderContext` (section 2.8). `{l
 | `internal` | `Internal { message: String }` | `Partsmith hit a bug while building {this}. Suppress it or undo the last change to keep working, and report it with the details.` (`message` in `detail`) | `Suppress`, host Copy details |
 | `name_too_deep` | `NameTooDeep { length: usize }` | `{This} builds on a chain of rounded or beveled edges too long for Partsmith to name. Combine some of the fillets or chamfers into one.` (`length` in `detail`) | |
 
+The fixes and repair of `not_coplanar` and `not_collinear` point at the stored reference inside the plane or axis param (`/base/face`, `/direction/axis/edge`), which `UseReferences` replaces and `Pick` re-picks; feature specs name the param as their field ("field `base`"), as they name a list for its entries.
+
 Recompute raises `AssetMissing`, `UnknownFeature`, `ForwardReference`, `UpstreamFailed`, `UpstreamSuppressed` and `UnknownBody` before building (recompute.md section 3.3), with the field of the link that failed. A `NamingError::NameTooLong` from naming a feature's output (naming.md section 3.3 step 7) becomes `NameTooDeep`; any other `NamingError` is `Internal`. `Noun` renders `body`, `sketch`, `datum plane`, `region`, `point`, `line`, `face`, `edge`. `ElementKind` renders `face`, `edge`, `vertex`.
 
 `OutOfRange` messages, where `{b}` is the formatted bound, and `{name}` is the bound name followed by the bound in parentheses when `bound_name` is set (`the hole diameter (6 mm)`), else just `{b}`:

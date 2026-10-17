@@ -893,7 +893,8 @@ pub fn assert_translation(motion: &Motion, offset: [f64; 3]) {
         [0.0, 1.0, 0.0],
         [0.0, 0.0, 1.0],
     ];
-    let moves: Vec<([f64; 3], [f64; 3])> = points.iter().map(|point| (*point, moved(*point))).collect();
+    let moves: Vec<([f64; 3], [f64; 3])> =
+        points.iter().map(|point| (*point, moved(*point))).collect();
     assert_moves(motion, &moves);
 }
 
@@ -912,7 +913,10 @@ pub fn assert_quarter_turns_about_z(motion: &Motion, turns: u32) {
         [0.0, 1.0, 0.0],
         [0.0, 0.0, 1.0],
     ];
-    let moves: Vec<([f64; 3], [f64; 3])> = points.iter().map(|point| (*point, turned(*point))).collect();
+    let moves: Vec<([f64; 3], [f64; 3])> = points
+        .iter()
+        .map(|point| (*point, turned(*point)))
+        .collect();
     assert_moves(motion, &moves);
 }
 
@@ -1453,8 +1457,10 @@ pub const BOTH_TOPS: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=-10,0,
 pub const BOTH_FRONT_TOP_EDGES: &str = r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=-10,-10,10|l=20", "merged": {"f-box1/top": ["f-box2/top"]}}"#;
 
 /// The edges `BOTH_FRONT_TOP_EDGES` resolves to, in name order.
-pub const FRONT_TOP_EDGES_OF_BOTH_BOXES: [&str; 2] =
-    ["edge(f-box1/front|f-box1/top)", "edge(f-box1/front|f-box2/top)"];
+pub const FRONT_TOP_EDGES_OF_BOTH_BOXES: [&str; 2] = [
+    "edge(f-box1/front|f-box1/top)",
+    "edge(f-box1/front|f-box2/top)",
+];
 
 /// Asserts that `feature` failed with `code` (`not_coplanar` or `not_collinear`) about the reference of the param
 /// `field`, rendered `text`, and that its fixes are `UseReferences` with each element `names` gives, as a pick in
@@ -1544,4 +1550,39 @@ pub fn lean_edge_axis(extra: &str) -> String {
     format!(
         r#"{{"kind": "edge", "body": "b-2", "edge": {{"q": "edge(f-ext5/lateral/e-12|f-ext5/start-cap)", "fp": "line|n=0,0,1|c=-4,0,15|l=30|adj=2,2"}}{extra}}}"#
     )
+}
+
+/// The block and slot of datum_plane.md test 17 in `body`: `f-sk1` with `RECT(0, 0, 80, 50)`, `f-ext1`, its extrude of
+/// 30, `f-dp9` at z = 30, `f-sk9` on it with the slot x 30..50, y -1..51, and `f-ext9`, its cut of 5 reversed, which
+/// splits the end cap into `f-ext1/end-cap#1` and `#2` (naming.md test 84).
+pub fn slotted_block(body: &str) -> [String; 5] {
+    let rectangle = [
+        line("e-1", [0, 0], [80, 0]),
+        line("e-2", [80, 0], [80, 50]),
+        line("e-3", [80, 50], [0, 50]),
+        line("e-4", [0, 50], [0, 0]),
+    ];
+    let slot = [
+        line("e-11", [30, -1], [50, -1]),
+        line("e-12", [50, -1], [50, 51]),
+        line("e-13", [50, 51], [30, 51]),
+        line("e-14", [30, 51], [30, -1]),
+    ];
+    [
+        format!(
+            r#"{{"id": "f-sk1", "type": "sketch", "plane": {{"kind": "origin", "plane": "XY"}}, "entities": [{}]}}"#,
+            rectangle.join(", ")
+        ),
+        format!(
+            r#"{{"id": "f-ext1", "type": "extrude", "body": "{body}", "profile": {{"sketch": "f-sk1", "regions": [{{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}}]}}, "extent": {{"kind": "distance", "expr": "30"}}, "op": "new"}}"#
+        ),
+        r#"{"id": "f-dp9", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "30"}"#.to_owned(),
+        format!(
+            r#"{{"id": "f-sk9", "type": "sketch", "plane": {{"kind": "datum", "feature": "f-dp9"}}, "entities": [{}]}}"#,
+            slot.join(", ")
+        ),
+        format!(
+            r#"{{"id": "f-ext9", "type": "extrude", "body": "{body}", "profile": {{"sketch": "f-sk9", "regions": [{{"key": "e-11,e-12,e-13,e-14", "fp": "c=40,25|a=1040"}}]}}, "extent": {{"kind": "distance", "expr": "5"}}, "reverse": true, "op": "cut"}}"#
+        ),
+    ]
 }

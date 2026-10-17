@@ -12,8 +12,8 @@ use feature_support::{
     assert_bounding_box, assert_coordinates, assert_element_repair, assert_error_field,
     assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
     assert_list_field, assert_median_build_within, assert_messages_pass_lint, assert_relative,
-    assert_unchanged, assert_volume, body_update, document, edge, face, face_names,
-    load_example, message, suggested_limit,
+    assert_unchanged, assert_volume, body_update, document, edge, face, face_names, load_example,
+    message, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
 use partsmith_model::{Document, Units};
@@ -400,7 +400,9 @@ fn t014_distance_below_the_tolerance() {
 /// before the join was inserted.
 fn picked_side_chamfer() -> String {
     chamfer_record(
-        &[r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2"}"#],
+        &[
+            r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2"}"#,
+        ],
         r#"{"kind": "two_distances", "expr": "1", "second_expr": "3"}"#,
     )
 }
@@ -503,8 +505,14 @@ fn t015_the_sides_do_not_depend_on_the_joins_id() {
     );
     assert_relative(
         "volume",
-        after.shape("b-1").volume().expect("the kernel measures the volume"),
-        before.shape("b-1").volume().expect("the kernel measures the volume"),
+        after
+            .shape("b-1")
+            .volume()
+            .expect("the kernel measures the volume"),
+        before
+            .shape("b-1")
+            .volume()
+            .expect("the kernel measures the volume"),
     );
 }
 

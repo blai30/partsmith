@@ -1155,8 +1155,14 @@ fn sample_errors() -> Vec<(FeatureError, &'static str)> {
                 field: field("axis", "Axis"),
                 body: id("b-2"),
                 elements: vec![
-                    stored("f-cyl2/side", "cylinder|n=0,0,1|c=-20,0,2.5|a=62.831853|r=2"),
-                    stored("f-cyl3/side", "cylinder|n=0,0,1|c=-30,0,2.5|a=62.831853|r=2"),
+                    stored(
+                        "f-cyl2/side",
+                        "cylinder|n=0,0,1|c=-20,0,2.5|a=62.831853|r=2",
+                    ),
+                    stored(
+                        "f-cyl3/side",
+                        "cylinder|n=0,0,1|c=-30,0,2.5|a=62.831853|r=2",
+                    ),
                 ],
                 kind: ElementKind::Face,
             },
@@ -1674,7 +1680,12 @@ fn pick(pointer: &str) -> Fix {
 /// Asserts that `repairs` is one ambiguous element repair at `pointer` in `body` whose candidates hold `references`, in
 /// order (section 4.2: `NotCoplanar` and `NotCollinear` repair as an ambiguous loss).
 #[track_caller]
-fn assert_ambiguous_repair(repairs: &[Repair], pointer: &str, body: &str, references: &[Reference]) {
+fn assert_ambiguous_repair(
+    repairs: &[Repair],
+    pointer: &str,
+    body: &str,
+    references: &[Reference],
+) {
     let [
         Repair::Element {
             pointer: actual_pointer,
@@ -1823,10 +1834,7 @@ fn a_face_that_turned_over_warns_and_offers_to_turn_the_drawing_back() {
     let timeline = Timeline::run(&["b-1"], &features);
 
     let [warning] = timeline.warnings("f-sk2") else {
-        panic!(
-            "expected one warning, got {:?}",
-            timeline.warnings("f-sk2")
-        );
+        panic!("expected one warning, got {:?}", timeline.warnings("f-sk2"));
     };
     assert!(
         matches!(warning, FeatureWarning::SketchTurnedOver { body, .. } if *body == id("b-1")),
@@ -1857,7 +1865,11 @@ fn a_face_that_turned_over_warns_and_offers_to_turn_the_drawing_back() {
     let sketch = timeline.sketch("f-sk2");
     assert_vector_close(sketch.placement.origin, [0.0, 0.0, -30.0], "origin");
     assert_vector_close(sketch.placement.normal, [0.0, 0.0, -1.0], "normal");
-    assert_vector_close(sketch.to_world([20.0, 10.0]), [20.0, -10.0, -30.0], "the point");
+    assert_vector_close(
+        sketch.to_world([20.0, 10.0]),
+        [20.0, -10.0, -30.0],
+        "the point",
+    );
 }
 
 #[test]
@@ -1873,10 +1885,7 @@ fn a_sketch_whose_face_was_cut_away_stays_where_that_face_was_and_says_so() {
     let timeline = Timeline::run(&["b-1"], &features);
 
     let [warning] = timeline.warnings("f-sk2") else {
-        panic!(
-            "expected one warning, got {:?}",
-            timeline.warnings("f-sk2")
-        );
+        panic!("expected one warning, got {:?}", timeline.warnings("f-sk2"));
     };
     assert!(
         matches!(

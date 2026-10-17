@@ -277,7 +277,12 @@ pub const ATTACHED_BOX_TOP: (&str, &str) = ("f-box1/top", "plane|n=0,0,1|c=0,0,1
 /// `FACE-SK2(face, fallback, frame, entities)` of features/sketch.md section 6: the sketch `f-sk2` on `face` of `b-1`
 /// with the fallback origin `origin`, x axis +X and normal +Z, in the coordinates `frame` names (`fallback_frame` left
 /// out for `None`, as for `world` before file format version 2).
-pub fn face_sketch(face: Value, origin: [f64; 3], frame: Option<&str>, entities: Vec<Value>) -> Value {
+pub fn face_sketch(
+    face: Value,
+    origin: [f64; 3],
+    frame: Option<&str>,
+    entities: Vec<Value>,
+) -> Value {
     let mut plane = json!({
         "kind": "face",
         "body": "b-1",
