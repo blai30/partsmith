@@ -4,7 +4,7 @@ matrices in partsmith.selectors, on hand-made element descriptors."""
 import math
 
 import pytest
-from support import partsmith_warnings
+from support import descriptor, partsmith_warnings
 
 from partsmith import (
     Axis,
@@ -25,20 +25,6 @@ from partsmith import (
     rad,
 )
 from partsmith.selectors import _ElementTable, element_references, rotation_rows, single_element
-
-
-def descriptor(name: str, kind: str, centroid=(0.0, 0.0, 0.0), adjacent=(), **fields) -> dict:
-    """A protocol ElementDescriptor with a reference named after the element."""
-    return {
-        "name": name,
-        "kind": kind,
-        "body": "b-1",
-        "feature": "f-1",
-        "reference": {"q": name, "fp": f"fp-{name}"},
-        "centroid": list(centroid),
-        "adjacent": list(adjacent),
-        **fields,
-    }
 
 
 @pytest.fixture

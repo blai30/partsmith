@@ -4,6 +4,7 @@ import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Document, FeatureStatus } from '../generated/protocol'
 import type { InspectorField } from '../inspector/model'
 import { UnsupportedField } from '../inspector/fields/ValueFields'
+import { sketchSession } from '../sketch/fixtures.testing'
 import { clickAt, fixedViewport, nextFrame, pointerAt, VIEW_PIXELS } from '../sketch/view.testing'
 import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store'
 import { CUBE_DOCUMENT, CUBE_TOP_FRONT_EDGE } from '../test/fakes/documents'
@@ -308,16 +309,7 @@ describe('tabular and proportional figures (2.16.7, U-207)', () => {
       document: rectSketchDocumentState(),
       state: {
         context: 'sketch',
-        sketch: {
-          sketchId: 'f-sk1',
-          reattaching: null,
-          tool: null,
-          construction: false,
-          showConstraints: true,
-          selection: [],
-          dragging: false,
-          cameraBefore: null,
-        },
+        sketch: sketchSession(),
       },
     })
     const dimensions = screen.getAllByTestId('sketch-dimension')
@@ -335,16 +327,7 @@ describe('tabular and proportional figures (2.16.7, U-207)', () => {
     const { app } = createModelApp({
       state: readyState(rectSketchDocumentState(), {
         context: 'sketch',
-        sketch: {
-          sketchId: 'f-sk1',
-          reattaching: null,
-          tool: 'line',
-          construction: false,
-          showConstraints: true,
-          selection: [],
-          dragging: false,
-          cameraBefore: null,
-        },
+        sketch: sketchSession({ tool: 'line' }),
       }),
     })
     app.attachViewport(fixedViewport())
@@ -408,16 +391,7 @@ describe('no stray code face (2.16.7, U-208)', () => {
       document: rectSketchDocumentState(),
       state: {
         context: 'sketch',
-        sketch: {
-          sketchId: 'f-sk1',
-          reattaching: null,
-          tool: 'line',
-          construction: false,
-          showConstraints: true,
-          selection: [],
-          dragging: false,
-          cameraBefore: null,
-        },
+        sketch: sketchSession({ tool: 'line' }),
       },
     })
     await settle()

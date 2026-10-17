@@ -5,6 +5,7 @@ import type { App, Platform } from '../app/createApp'
 import { installShortcutDispatcher } from '../commands/dispatcher'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { MESSAGES } from '../messages'
+import { sketchSession } from '../sketch/fixtures.testing'
 import type { AppState } from '../state/store'
 import { MAC_WEB } from '../test/fakes/app'
 import { settle } from '../test/fakes/settle'
@@ -230,16 +231,7 @@ describe('the command palette (3.4)', () => {
   it('starts with the Sketch heading in sketch mode', async () => {
     const { user } = renderApp({
       context: 'sketch',
-      sketch: {
-        sketchId: 'f-sk1',
-        reattaching: null,
-        tool: null,
-        construction: false,
-        showConstraints: true,
-        selection: [],
-        dragging: false,
-        cameraBefore: null,
-      },
+      sketch: sketchSession(),
     })
     await openPalette(user)
     expect(screen.getAllByTestId('palette-heading')[0]).toHaveTextContent('Sketch')

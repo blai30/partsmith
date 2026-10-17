@@ -218,6 +218,11 @@ export function sketchSession(fields: Partial<SketchSession> = {}): SketchSessio
   }
 }
 
+/** A sketch session while a plane is picked for a new sketch, or for `reattaching` (3.16.1). */
+export function planePickingSession(reattaching: string | null = null): SketchSession {
+  return sketchSession({ sketchId: null, reattaching })
+}
+
 /** Constraints without their ids, for comparing constraints whose ids are generated. */
 export function withoutIds(constraints: readonly SketchConstraint[] | undefined): unknown[] {
   return (constraints ?? []).map(({ id: _id, ...rest }) => rest)

@@ -2,7 +2,8 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { commandComplete } from '../app/actions/command'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import type { ActiveCommand, AppState, SketchSession } from '../state/store'
+import { sketchSession } from '../sketch/fixtures.testing'
+import type { ActiveCommand, AppState } from '../state/store'
 import { deferred } from '../test/fakes/deferred'
 import { CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
 import { bodyItem, elementItem, sketchLineItem } from '../test/fakes/selection'
@@ -52,16 +53,7 @@ const INCOMPLETE_EXTRUDE: ActiveCommand = {
   preview: 'none',
 }
 
-const EDITING_SKETCH: SketchSession = {
-  sketchId: 'f-sk1',
-  reattaching: null,
-  tool: null,
-  construction: false,
-  showConstraints: true,
-  selection: [],
-  dragging: false,
-  cameraBefore: null,
-}
+const EDITING_SKETCH = sketchSession()
 
 function renderApp(state: Partial<AppState>) {
   return renderModelApp({ document: rectSketchDocumentState(), state })

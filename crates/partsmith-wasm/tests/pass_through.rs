@@ -176,8 +176,6 @@ struct SideBySide {
     reference: Session,
     /// The document each side opened last: the bridge's, then the reference session's.
     documents: Option<(Side, Side)>,
-    /// The bridge's latest response frame, as `ps_call` returned it.
-    bridge_bytes: Vec<u8>,
 }
 
 impl SideBySide {
@@ -189,7 +187,6 @@ impl SideBySide {
                 ..SessionOptions::default()
             }),
             documents: None,
-            bridge_bytes: Vec::new(),
         }
     }
 
@@ -200,7 +197,7 @@ impl SideBySide {
             &json!({"type": "open_document", "text": text, "assets": []}).to_string(),
         );
 
-        let (bridge, reference) = self.exchange(&request, &request);
+        let (_, bridge, reference) = self.exchange(&request, &request);
 
         if outcome_json(&bridge)["kind"] == "ok" {
             self.documents = Some((Side::opened(&bridge), Side::opened(&reference)));
@@ -210,6 +207,20 @@ impl SideBySide {
 
     /// Sends request `id` with the command `command` builds for each side's document, and returns the bridge's frame.
     fn send(&mut self, id: u64, command: impl Fn(&Side) -> Value) -> ResponseFrame {
+        self.send_with_bytes(id, command).1
+    }
+
+    /// Sends request `id` like [`SideBySide::send`], and returns the bridge's frame as `ps_call` returned it.
+    fn send_raw(&mut self, id: u64, command: impl Fn(&Side) -> Value) -> Vec<u8> {
+        self.send_with_bytes(id, command).0
+    }
+
+    /// Sends request `id` with the command `command` builds for each side's document, keeps each side's model meshes, and returns the bridge's frame as `ps_call` returned it and decoded.
+    fn send_with_bytes(
+        &mut self,
+        id: u64,
+        command: impl Fn(&Side) -> Value,
+    ) -> (Vec<u8>, ResponseFrame) {
         let (bridge_side, reference_side) = self
             .documents
             .as_ref()
@@ -217,23 +228,23 @@ impl SideBySide {
         let bridge_request = request_frame(id, &command(bridge_side).to_string());
         let reference_request = request_frame(id, &command(reference_side).to_string());
 
-        let (bridge, reference) = self.exchange(&bridge_request, &reference_request);
+        let (bytes, bridge, reference) = self.exchange(&bridge_request, &reference_request);
 
         if let Some((bridge_side, reference_side)) = &mut self.documents {
             bridge_side.record_meshes(&bridge);
             reference_side.record_meshes(&reference);
         }
-        bridge
+        (bytes, bridge)
     }
 
-    /// Sends `bridge_request` through `ps_call` and `reference_request` to the reference session, asserts that the answers are equal but for the session numbers, and returns both.
+    /// Sends `bridge_request` through `ps_call` and `reference_request` to the reference session, asserts that the answers are equal but for the session numbers, and returns the bridge's frame as `ps_call` returned it, then both decoded frames.
     fn exchange(
         &mut self,
         bridge_request: &[u8],
         reference_request: &[u8],
-    ) -> (ResponseFrame, ResponseFrame) {
-        self.bridge_bytes = through_ps_call(bridge_request);
-        let bridge = response_frame(&self.bridge_bytes);
+    ) -> (Vec<u8>, ResponseFrame, ResponseFrame) {
+        let bridge_bytes = through_ps_call(bridge_request);
+        let bridge = response_frame(&bridge_bytes);
         let reference = response_frame(&self.reference.call(reference_request));
 
         assert_eq!(
@@ -247,7 +258,7 @@ impl SideBySide {
             bridge.buffers.len(),
             reference.buffers.len()
         );
-        (bridge, reference)
+        (bridge_bytes, bridge, reference)
     }
 }
 
@@ -334,19 +345,28 @@ fn feature_repair(frame: &ResponseFrame, feature: &str, path: &str) -> Value {
     status_entry(frame, feature, "repairs", "path", path)
 }
 
-/// The labels of a message's actions, in order.
-fn labels(message: &Value) -> Vec<String> {
+/// The actions of a message, in order.
+fn actions(message: &Value) -> &[Value] {
     message["actions"]
         .as_array()
         .unwrap_or_else(|| panic!("the message has actions: {message}"))
+}
+
+/// The labels of a message's actions, in order.
+fn labels(message: &Value) -> Vec<&str> {
+    actions(message)
         .iter()
-        .map(|action| {
-            action["label"]
-                .as_str()
-                .expect("actions have labels")
-                .to_owned()
-        })
+        .map(|action| action["label"].as_str().expect("actions have labels"))
         .collect()
+}
+
+/// The action labeled `label` among a message's actions.
+fn action_labeled(message: &Value, label: &str) -> Value {
+    actions(message)
+        .iter()
+        .find(|action| action["label"] == label)
+        .unwrap_or_else(|| panic!("the message offers {label:?}: {message}"))
+        .clone()
 }
 
 /// The candidates of a repair.
@@ -366,14 +386,88 @@ fn save_document(side: &Side) -> Value {
     json!({"type": "save_document", "doc": side.doc})
 }
 
+/// The `get_document` command for the side's document.
+fn get_document(side: &Side) -> Value {
+    json!({"type": "get_document", "doc": side.doc})
+}
+
 /// The `begin_transaction` command labeled `label` for the side's document.
 fn begin_transaction(side: &Side, label: &str) -> Value {
     json!({"type": "begin_transaction", "doc": side.doc, "label": label})
 }
 
+/// The `list_elements` command for the faces of `b-1` of the side's document.
+fn list_faces(side: &Side) -> Value {
+    json!({"type": "list_elements", "doc": side.doc, "body": "b-1", "kind": "face"})
+}
+
 /// The `list_elements` command for the edges of `b-1` of the side's document.
 fn list_edges(side: &Side) -> Value {
     json!({"type": "list_elements", "doc": side.doc, "body": "b-1", "kind": "edge"})
+}
+
+/// The `pick_reference` command for the element of `kind` at `index` in the model mesh of `b-1` the side displays now.
+fn pick(side: &Side, kind: &str, index: usize) -> Value {
+    json!({
+        "type": "pick_reference",
+        "doc": side.doc,
+        "pick": {"mesh_id": side.model_mesh("b-1"), "kind": kind, "index": index}
+    })
+}
+
+/// The descriptors of a `list_elements` frame, in their order.
+fn listed(frame: &ResponseFrame) -> Vec<Value> {
+    ok_result(frame, "list_elements")["elements"]
+        .as_array()
+        .expect("list_elements lists elements")
+        .clone()
+}
+
+/// The position of the descriptor named `name` in a `list_elements` frame of one kind, which a pick of that kind names as its `index`.
+fn listed_index(frame: &ResponseFrame, name: &str) -> usize {
+    listed(frame)
+        .iter()
+        .position(|element| element["name"] == name)
+        .unwrap_or_else(|| panic!("the list has {name}"))
+}
+
+/// The element named `name` among `elements`, the descriptors of a `list_elements` result.
+fn named<'a>(elements: &'a [Value], name: &str) -> &'a Value {
+    elements
+        .iter()
+        .find(|element| element["name"] == name)
+        .unwrap_or_else(|| panic!("the list has {name}"))
+}
+
+/// The descriptor named `name` in a `list_elements` frame.
+fn listed_named(frame: &ResponseFrame, name: &str) -> Value {
+    named(&listed(frame), name).clone()
+}
+
+/// The record of `feature` that the bridge's document holds, read with `get_document` as request `id`.
+fn record(sides: &mut SideBySide, id: u64, feature: &str) -> Value {
+    let got = sides.send(id, get_document);
+    ok_result(&got, "get_document")["document"]["features"]
+        .as_array()
+        .expect("documents list their features")
+        .iter()
+        .find(|record| record["id"] == feature)
+        .unwrap_or_else(|| panic!("the document has {feature}"))
+        .clone()
+}
+
+/// The solution of `feature` in the frame's only `sketch_solved` event for it.
+fn sketch_solution(frame: &ResponseFrame, feature: &str) -> Value {
+    let solved: Vec<Value> = events_of(frame, "sketch_solved")
+        .into_iter()
+        .filter(|event| event["solution"]["feature"] == feature)
+        .collect();
+    assert_eq!(
+        solved.len(),
+        1,
+        "the frame solves {feature} once: {solved:?}"
+    );
+    solved[0]["solution"].clone()
 }
 
 /// The `fix` reference of `Use 3`, the second action of the fractional pattern's message, offered at revision 0.
@@ -392,6 +486,17 @@ fn at_version(text: &str, version: u32) -> String {
         "the text states its format version once"
     );
     text.replace(VERSION_2_LINE, &format!("  \"format_version\": {version},"))
+}
+
+/// The canonical text `save` writes for the document `text`.
+fn canonical(text: &str) -> String {
+    let loaded = load(text).unwrap_or_else(|error| panic!("the document loads: {error}"));
+    save(&loaded.document).unwrap_or_else(|error| panic!("the document saves: {error}"))
+}
+
+/// The canonical text of the document `text` as a file written at format version 1 holds it: only its `format_version` line differs.
+fn at_version_1(text: &str) -> String {
+    at_version(&canonical(text), 1)
 }
 
 /// E10 with its format version line set to `version`.
@@ -469,21 +574,10 @@ fn a_pick_with_its_full_reference_passes_through_unchanged() {
         3,
         |side| json!({"type": "set_focus", "doc": side.doc, "feature": "f-fil1"}),
     );
-    let listed = sides.send(4, list_edges);
-    let index = ok_result(&listed, "list_elements")["elements"]
-        .as_array()
-        .expect("list_elements lists elements")
-        .iter()
-        .position(|edge| edge["name"] == SPLIT_TOP_FRONT_EDGE)
-        .unwrap_or_else(|| panic!("the state before the fillet has {SPLIT_TOP_FRONT_EDGE}"));
+    let edges = sides.send(4, list_edges);
+    let index = listed_index(&edges, SPLIT_TOP_FRONT_EDGE);
 
-    let picked = sides.send(5, |side| {
-        json!({
-            "type": "pick_reference",
-            "doc": side.doc,
-            "pick": {"mesh_id": side.model_mesh("b-1"), "kind": "edge", "index": index}
-        })
-    });
+    let picked = sides.send(5, |side| pick(side, "edge", index));
 
     assert_eq!(
         ok_result(&picked, "pick_reference")["element"]["reference"],
@@ -580,14 +674,10 @@ fn short_references_in_element_lists_pass_through_unchanged() {
     let mut sides = SideBySide::new();
     sides.open(1, E10_TEXT);
 
-    let listed = sides.send(2, list_edges);
+    let elements = listed(&sides.send(2, list_edges));
 
-    let result = ok_result(&listed, "list_elements");
-    let elements = result["elements"]
-        .as_array()
-        .expect("list_elements lists elements");
     assert!(!elements.is_empty(), "E10's block has edges");
-    for element in elements {
+    for element in &elements {
         let mut keys: Vec<&str> = element["reference"]
             .as_object()
             .unwrap_or_else(|| panic!("each element has a reference: {element}"))
@@ -845,93 +935,6 @@ fn moved_box_with_a_face_sketch(frame: Option<&str>) -> String {
     serde_json::to_string_pretty(&document).expect("documents serialize")
 }
 
-/// The canonical text `save` writes for the document `text`.
-fn canonical(text: &str) -> String {
-    let loaded = load(text).unwrap_or_else(|error| panic!("the document loads: {error}"));
-    save(&loaded.document).unwrap_or_else(|error| panic!("the document saves: {error}"))
-}
-
-/// The canonical text of the document `text` as a file written at format version 1 holds it: only its `format_version` line differs.
-fn at_version_1(text: &str) -> String {
-    at_version(&canonical(text), 1)
-}
-
-/// The `list_elements` command for the faces of `b-1` of the side's document.
-fn list_faces(side: &Side) -> Value {
-    json!({"type": "list_elements", "doc": side.doc, "body": "b-1", "kind": "face"})
-}
-
-/// The `get_document` command for the side's document.
-fn get_document(side: &Side) -> Value {
-    json!({"type": "get_document", "doc": side.doc})
-}
-
-/// The descriptors of a `list_elements` frame, in their order.
-fn listed(frame: &ResponseFrame) -> Vec<Value> {
-    ok_result(frame, "list_elements")["elements"]
-        .as_array()
-        .expect("list_elements lists elements")
-        .clone()
-}
-
-/// The position of the descriptor named `name` in a `list_elements` frame of one kind, which a pick of that kind names as its `index`.
-fn listed_index(frame: &ResponseFrame, name: &str) -> usize {
-    listed(frame)
-        .iter()
-        .position(|element| element["name"] == name)
-        .unwrap_or_else(|| panic!("the list has {name}"))
-}
-
-/// The element named `name` among `elements`, the descriptors of a `list_elements` result.
-fn named<'a>(elements: &'a [Value], name: &str) -> &'a Value {
-    elements
-        .iter()
-        .find(|element| element["name"] == name)
-        .unwrap_or_else(|| panic!("the list has {name}"))
-}
-
-/// The descriptor named `name` in a `list_elements` frame.
-fn listed_named(frame: &ResponseFrame, name: &str) -> Value {
-    named(&listed(frame), name).clone()
-}
-
-/// The record of `feature` that the bridge's document holds, read with `get_document` as request `id`.
-fn record(sides: &mut SideBySide, id: u64, feature: &str) -> Value {
-    let got = sides.send(id, get_document);
-    ok_result(&got, "get_document")["document"]["features"]
-        .as_array()
-        .expect("documents list their features")
-        .iter()
-        .find(|record| record["id"] == feature)
-        .unwrap_or_else(|| panic!("the document has {feature}"))
-        .clone()
-}
-
-/// The solution of `feature` in the frame's only `sketch_solved` event for it.
-fn sketch_solution(frame: &ResponseFrame, feature: &str) -> Value {
-    let solved: Vec<Value> = events_of(frame, "sketch_solved")
-        .into_iter()
-        .filter(|event| event["solution"]["feature"] == feature)
-        .collect();
-    assert_eq!(
-        solved.len(),
-        1,
-        "the frame solves {feature} once: {solved:?}"
-    );
-    solved[0]["solution"].clone()
-}
-
-/// The action labeled `label` among a message's actions.
-fn action_labeled(message: &Value, label: &str) -> Value {
-    message["actions"]
-        .as_array()
-        .unwrap_or_else(|| panic!("the message has actions: {message}"))
-        .iter()
-        .find(|action| action["label"] == label)
-        .unwrap_or_else(|| panic!("the message offers {label:?}: {message}"))
-        .clone()
-}
-
 /// Asserts that `feature` has status ok and no message in the frame's `recomputed` event.
 #[track_caller]
 fn assert_ok_without_messages(frame: &ResponseFrame, feature: &str) {
@@ -940,8 +943,8 @@ fn assert_ok_without_messages(frame: &ResponseFrame, feature: &str) {
     assert_eq!(status["messages"], json!([]), "{status}");
 }
 
-/// The three components of a JSON vector.
-fn vector(value: &Value) -> [f64; 3] {
+/// The `N` components of a JSON vector.
+fn vector<const N: usize>(value: &Value) -> [f64; N] {
     let components: Vec<f64> = value
         .as_array()
         .unwrap_or_else(|| panic!("{value} is a vector"))
@@ -950,13 +953,13 @@ fn vector(value: &Value) -> [f64; 3] {
         .collect();
     components
         .try_into()
-        .unwrap_or_else(|components: Vec<f64>| panic!("{components:?} has three components"))
+        .unwrap_or_else(|components: Vec<f64>| panic!("{components:?} has {N} components"))
 }
 
 /// Asserts that each component of the JSON vector `actual` lies within [`GEOMETRY_TOLERANCE`] of `expected`.
 #[track_caller]
-fn assert_vector(actual: &Value, expected: [f64; 3], what: &str) {
-    let components = vector(actual);
+fn assert_vector<const N: usize>(actual: &Value, expected: [f64; N], what: &str) {
+    let components: [f64; N] = vector(actual);
     assert!(
         components
             .iter()
@@ -978,6 +981,12 @@ fn assert_placement(
     assert_vector(&placement["origin"], origin, &format!("{what} origin"));
     assert_vector(&placement["x_axis"], x_axis, &format!("{what} x axis"));
     assert_vector(&placement["normal"], normal, &format!("{what} normal"));
+}
+
+/// Asserts that the JSON placement `placement` lies level at `origin`: x axis along world X, normal along world Z.
+#[track_caller]
+fn assert_level_placement(placement: &Value, origin: [f64; 3], what: &str) {
+    assert_placement(placement, origin, X_AXIS, Z_AXIS, what);
 }
 
 /// The header of a frame as its bytes hold it, each object's keys in the order the frame writes them (the workspace builds `serde_json` with `preserve_order`).
@@ -1022,20 +1031,8 @@ fn engine_t124_a_moved_face_passes_through_with_its_fallback_in_body_coordinates
     let faces = sides.send(2, list_faces);
 
     let top = listed_named(&faces, BOX_TOP);
-    assert_placement(
-        &top["placement"],
-        [0.0, 0.0, 40.0],
-        X_AXIS,
-        Z_AXIS,
-        "placement",
-    );
-    assert_placement(
-        &top["fallback"],
-        [-100.0, 0.0, 40.0],
-        X_AXIS,
-        Z_AXIS,
-        "fallback",
-    );
+    assert_level_placement(&top["placement"], [0.0, 0.0, 40.0], "placement");
+    assert_level_placement(&top["fallback"], [-100.0, 0.0, 40.0], "fallback");
 }
 
 #[test]
@@ -1071,10 +1068,8 @@ fn engine_t124_descriptors_keep_their_key_order_through_ps_call() {
     let mut sides = SideBySide::new();
     sides.open(1, &moved_box());
 
-    sides.send(2, list_faces);
-    let face_keys = wire_keys(&sides.bridge_bytes, BOX_TOP);
-    sides.send(3, list_edges);
-    let edge_keys = wire_keys(&sides.bridge_bytes, BOX_FRONT_TOP_EDGE);
+    let face_keys = wire_keys(&sides.send_raw(2, list_faces), BOX_TOP);
+    let edge_keys = wire_keys(&sides.send_raw(3, list_edges), BOX_FRONT_TOP_EDGE);
 
     let order = ["placement", "fallback", "axis_direction", "adjacent"];
     assert_eq!(
@@ -1096,36 +1091,18 @@ fn engine_t124_a_pick_of_a_moved_face_passes_through_with_its_fallback() {
     let faces = sides.send(2, list_faces);
     let index = listed_index(&faces, BOX_TOP);
 
-    let picked = sides.send(3, |side| {
-        json!({
-            "type": "pick_reference",
-            "doc": side.doc,
-            "pick": {"mesh_id": side.model_mesh("b-1"), "kind": "face", "index": index}
-        })
-    });
+    let picked = sides.send(3, |side| pick(side, "face", index));
 
     let element = &ok_result(&picked, "pick_reference")["element"];
     assert_eq!(element["name"], BOX_TOP);
-    assert_placement(
-        &element["fallback"],
-        [-100.0, 0.0, 40.0],
-        X_AXIS,
-        Z_AXIS,
-        "fallback",
-    );
+    assert_level_placement(&element["fallback"], [-100.0, 0.0, 40.0], "fallback");
 }
 
 #[test]
 fn engine_t125_a_drag_commit_on_a_moved_face_passes_through_with_its_body_fallback() {
     let plane = plane_after_a_drag_commit(Some("body"));
 
-    assert_placement(
-        &plane["fallback"],
-        [0.0, 0.0, 40.0],
-        X_AXIS,
-        Z_AXIS,
-        "fallback",
-    );
+    assert_level_placement(&plane["fallback"], [0.0, 0.0, 40.0], "fallback");
     assert_eq!(plane["fallback_frame"], "body", "{plane}");
 }
 
@@ -1133,13 +1110,7 @@ fn engine_t125_a_drag_commit_on_a_moved_face_passes_through_with_its_body_fallba
 fn engine_t125_a_drag_commit_of_a_world_fallback_passes_through_in_world_coordinates() {
     let plane = plane_after_a_drag_commit(None);
 
-    assert_placement(
-        &plane["fallback"],
-        [0.0, 0.0, 40.0],
-        X_AXIS,
-        Z_AXIS,
-        "fallback",
-    );
+    assert_level_placement(&plane["fallback"], [0.0, 0.0, 40.0], "fallback");
     assert!(plane.get("fallback_frame").is_none(), "{plane}");
 }
 
@@ -1153,11 +1124,9 @@ fn engine_t125_solve_sketch_of_a_body_fallback_passes_through_placed_on_the_move
         |side| json!({"type": "solve_sketch", "doc": side.doc, "feature": "f-sk1"}),
     );
 
-    assert_placement(
+    assert_level_placement(
         &ok_result(&solved, "solve_sketch")["solution"]["placement"],
         [100.0, 0.0, 40.0],
-        X_AXIS,
-        Z_AXIS,
         "placement",
     );
 }
@@ -1187,22 +1156,14 @@ fn engine_t135_apply_fix_of_attach_passes_through_with_the_fallback_in_body_coor
 
     assert_eq!(ok_result(&applied, "apply_fix")["revision"], 1);
     assert_ok_without_messages(&applied, "f-sk1");
-    assert_placement(
+    assert_level_placement(
         &sketch_solution(&applied, "f-sk1")["placement"],
         [103.0, 4.0, 10.0],
-        X_AXIS,
-        Z_AXIS,
         "placement",
     );
     let plane = record(&mut sides, 3, "f-sk1")["plane"].clone();
     assert_eq!(plane["face"]["q"], "f-box1/top", "{plane}");
-    assert_placement(
-        &plane["fallback"],
-        [3.0, 4.0, 10.0],
-        X_AXIS,
-        Z_AXIS,
-        "fallback",
-    );
+    assert_level_placement(&plane["fallback"], [3.0, 4.0, 10.0], "fallback");
     assert_eq!(plane["fallback_frame"], "body", "{plane}");
 }
 
@@ -1238,14 +1199,10 @@ fn engine_t135_apply_fix_of_turn_the_drawing_back_passes_through_with_the_mirror
     assert_ok_without_messages(&applied, "f-hole1");
     let sketch = record(&mut sides, 3, "f-sk2");
     assert_eq!(sketch["entities"][0]["id"], "e-p1", "{sketch}");
-    let [x, y] = [0, 1].map(|axis| {
-        sketch["entities"][0]["position"][axis]
-            .as_f64()
-            .expect("positions hold numbers")
-    });
-    assert!(
-        (x - 20.0).abs() <= GEOMETRY_TOLERANCE && (y + 10.0).abs() <= GEOMETRY_TOLERANCE,
-        "e-p1 lies at (20, -10) on the mirrored drawing: {sketch}"
+    assert_vector(
+        &sketch["entities"][0]["position"],
+        [20.0, -10.0],
+        "e-p1 position",
     );
     let plane = &sketch["plane"];
     assert_placement(
@@ -1281,11 +1238,9 @@ fn file_format_t057_a_version_1_face_sketch_after_a_move_passes_through_in_world
     let opened = sides.open(1, &at_version_1(&moved_box_with_a_face_sketch(None)));
 
     assert_eq!(ok_result(&opened, "open_document")["migrated_from"], 1);
-    assert_placement(
+    assert_level_placement(
         &sketch_solution(&opened, "f-sk2")["placement"],
         [0.0, 0.0, 10.0],
-        X_AXIS,
-        Z_AXIS,
         "placement",
     );
     assert_eq!(feature_status(&opened, "f-hole1")["status"], "warning");
@@ -1312,11 +1267,9 @@ fn file_format_t057_a_body_fallback_after_a_move_passes_through_with_the_hole_on
 
     let opened = sides.open(1, &moved_box_with_a_face_sketch(Some("body")));
 
-    assert_placement(
+    assert_level_placement(
         &sketch_solution(&opened, "f-sk2")["placement"],
         [100.0, 0.0, 10.0],
-        X_AXIS,
-        Z_AXIS,
         "placement",
     );
     assert_ok_without_messages(&opened, "f-hole1");

@@ -14,7 +14,12 @@ import {
 import { MESSAGES } from './messages'
 import { DEFAULT_SETTINGS } from './settings/settings'
 import { INITIAL_STATE, type ActiveCommand, type AppState } from './state/store'
-import { solutionFor, solvedSketch } from './sketch/fixtures.testing'
+import {
+  planePickingSession,
+  sketchSession,
+  solutionFor,
+  solvedSketch,
+} from './sketch/fixtures.testing'
 import {
   clickAt,
   fixedViewport,
@@ -303,16 +308,7 @@ describe('the Esc ladder (3.5)', () => {
   it('U-69 exits the active sketch tool, and never leaves sketch mode', async () => {
     const { app, user } = renderApp({
       context: 'sketch',
-      sketch: {
-        sketchId: 'f-sk1',
-        reattaching: null,
-        tool: 'line',
-        construction: false,
-        showConstraints: true,
-        selection: [],
-        dragging: false,
-        cameraBefore: null,
-      },
+      sketch: sketchSession({ tool: 'line' }),
     })
     await user.keyboard('{Escape}')
     await settle()
@@ -327,16 +323,7 @@ describe('the Esc ladder (3.5)', () => {
   it('U-69 cancels the plane pick of a new sketch, back to Model', async () => {
     const { app, user } = renderApp({
       context: 'sketch',
-      sketch: {
-        sketchId: null,
-        reattaching: null,
-        tool: null,
-        construction: false,
-        showConstraints: true,
-        selection: [],
-        dragging: false,
-        cameraBefore: null,
-      },
+      sketch: planePickingSession(),
     })
     await user.keyboard('{Escape}')
     await settle()

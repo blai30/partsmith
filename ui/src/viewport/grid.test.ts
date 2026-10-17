@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Placement } from '../generated/protocol'
 import { cubeDocumentState, readyState } from '../layout/fixtures.testing'
-import { createAppStore, type AppState, type SketchSession } from '../state/store'
+import { sketchSession } from '../sketch/fixtures.testing'
+import { createAppStore, type AppState } from '../state/store'
 import { DEFAULT_CAMERA, visibleHeightAtTarget } from './camera'
 import {
   drawnGridSpacing,
@@ -14,16 +15,7 @@ import {
 
 const GROUND: Placement = { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, 0, 1] }
 
-const EDITING_SKETCH: SketchSession = {
-  sketchId: 'f-sk1',
-  reattaching: null,
-  tool: null,
-  construction: false,
-  showConstraints: true,
-  selection: [],
-  dragging: false,
-  cameraBefore: null,
-}
+const EDITING_SKETCH = sketchSession()
 
 function stateWith(overrides: Partial<AppState> = {}): AppState {
   return createAppStore(readyState(cubeDocumentState(), overrides)).getState()

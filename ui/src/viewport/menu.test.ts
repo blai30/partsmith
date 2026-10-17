@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { cubeDocumentState, readyState, rectSketchDocumentState } from '../layout/fixtures.testing'
 import { createModelApp } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
+import { sketchSession } from '../sketch/fixtures.testing'
 import { INITIAL_STATE, type ActiveCommand, type AppState } from '../state/store'
 import { CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
 import { bodyItem, elementItem, sketchLineItem } from '../test/fakes/selection'
@@ -79,16 +80,7 @@ describe('viewportMenuItems (U-122)', () => {
   it('U-122 in sketch mode with one line selected: Horizontal, Vertical, Fix, Construction, Delete, Finish sketch', () => {
     const app = appWith(rectSketchDocumentState(), {
       context: 'sketch',
-      sketch: {
-        sketchId: 'f-sk1',
-        reattaching: null,
-        tool: null,
-        construction: false,
-        showConstraints: true,
-        selection: [sketchLineItem('f-sk1', 'e-1')],
-        dragging: false,
-        cameraBefore: null,
-      },
+      sketch: sketchSession({ selection: [sketchLineItem('f-sk1', 'e-1')] }),
     })
     const items = viewportMenuItems(app)
     expect(labels(items)).toEqual([

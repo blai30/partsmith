@@ -16,6 +16,7 @@ import {
 import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
+import { planePickingSession, sketchSession } from '../sketch/fixtures.testing'
 import { INITIAL_STATE, type AppState } from '../state/store'
 import type { FakeBackend } from '../test/fakes/backend'
 import { bodyItem } from '../test/fakes/selection'
@@ -304,16 +305,7 @@ describe('the view cube and viewport controls (3.14)', () => {
   it('hides the selection filter in sketch mode', () => {
     const { viewport } = setUp({
       context: 'sketch',
-      sketch: {
-        sketchId: 'f-sk1',
-        reattaching: null,
-        tool: null,
-        construction: false,
-        showConstraints: true,
-        selection: [],
-        dragging: false,
-        cameraBefore: null,
-      },
+      sketch: sketchSession(),
     })
     expect(within(viewport).queryByRole('button', { name: 'Selection filter' })).toBeNull()
   })
@@ -425,16 +417,7 @@ describe('overlays', () => {
   it('labels the origin planes while a plane is picked, at the positive corner of each square (3.16.1)', () => {
     setUp({
       context: 'sketch',
-      sketch: {
-        sketchId: null,
-        reattaching: null,
-        tool: null,
-        construction: false,
-        showConstraints: true,
-        selection: [],
-        dragging: false,
-        cameraBefore: null,
-      },
+      sketch: planePickingSession(),
     })
     flush()
     const labels = screen.getAllByTestId('plane-label')
@@ -490,16 +473,7 @@ describe('overlays', () => {
     cleanup()
     setUp({
       context: 'sketch',
-      sketch: {
-        sketchId: 'f-sk1',
-        reattaching: null,
-        tool: null,
-        construction: false,
-        showConstraints: true,
-        selection: [],
-        dragging: false,
-        cameraBefore: null,
-      },
+      sketch: sketchSession(),
       view: { ...INITIAL_STATE.view, sessionVisible: { 'origin:Z': true } },
     })
     flush()

@@ -4,8 +4,7 @@
 use std::sync::Arc;
 
 use partsmith_features::{DatumResult, OutputData, Registry};
-use partsmith_model::{Document, Edit, FeatureRecord, Id, canonical};
-use partsmith_naming::Motion;
+use partsmith_model::{Document, Edit, FeatureRecord, Id};
 use partsmith_protocol::{DocHandle, SketchSolution};
 use partsmith_sketch::{
     DimensionValues, NativeSolver, OriginPlane, Placement, PointRef, Region, RegionRef,
@@ -14,12 +13,12 @@ use partsmith_sketch::{
 use serde_json::Value;
 
 use crate::error::EngineError;
-use crate::frames::{FlatFace, kept_face_plane, placement_hint, sketch_motion};
+use crate::frames::{face_placement, kept_face_plane, placement_hint, sketch_motion};
 use crate::session::{Session, evaluate_in};
 use crate::sketch::{
     Drag, Solved, dimension_values, has_point, sketch_params, sketch_record, solve,
 };
-use crate::state::{Computed, built_output, feature_label, state_before};
+use crate::state::{Computed, built_output, built_sketch, feature_label, state_before};
 
 impl Session {
     /// Solves the stored sketch or a candidate in its place; records nothing.
@@ -114,17 +113,16 @@ impl Session {
             });
         }
         let (values, placement) = sketch_inputs(&open.document, &open.computed, position, &params)?;
-        let face_motion = stored_face_motion(&params.plane, &open.computed, position);
-        let drag = Drag::begin(params, values, placement, face_motion, point.clone(), to)?;
+        let commit_plane = commit_plane(&params.plane, &placement, &open.computed, position)?;
+        let drag = Drag::begin(params, values, placement, commit_plane, point.clone(), to)?;
         let solved = drag.solved(feature);
         open.drags.insert(feature.clone(), drag);
         Ok(solved)
     }
 }
 
-/// Solves `params` of the sketch at timeline position `position` the way `solve_sketch` does:
-/// driving dimensions evaluated in the document's context, the plane resolved against the state
-/// before the sketch.
+/// Solves `params` of the sketch at timeline position `position` the way `solve_sketch` does,
+/// with the dimension values and placement `sketch_inputs` gives.
 pub(crate) fn solve_in(
     document: &Document,
     computed: &Computed,
@@ -166,22 +164,37 @@ fn built_placement(
         .features
         .get(position)
         .filter(|report| report.feature == record.id)?;
-    let OutputData::Sketch(result) = &built_output(report)?.data else {
-        return None;
-    };
+    let result = built_sketch(report)?;
     let stored: SketchPlane = serde_json::from_value(record.params.get("plane")?.clone()).ok()?;
     (stored == *plane).then_some(result.placement)
 }
 
-/// The motion of the face a sketch at timeline position `position` on `plane` is stored on, in
-/// the state just before it (`BodyState::motion` of its query); the identity for other planes.
-fn stored_face_motion(plane: &SketchPlane, computed: &Computed, position: usize) -> Motion {
-    match plane {
-        SketchPlane::Face { body, face, .. } => {
-            state_before(&computed.report, position, body).motion(&face.query)
-        }
-        SketchPlane::Origin { .. } | SketchPlane::Datum { .. } => Motion::IDENTITY,
-    }
+/// The plane a drag commit of the sketch at timeline position `position` on `plane` writes when
+/// the drag is placed at `placement` (section 3.6): for a face sketch, `placement` as its
+/// fallback in the coordinates that keep the sketch's motion (`kept_face_plane`, with the motion
+/// of the stored face in the state just before the sketch, `BodyState::motion` of its query):
+/// body coordinates, unless the fallback was in world coordinates on a face that moved. `None`
+/// for other planes, which a commit keeps.
+fn commit_plane(
+    plane: &SketchPlane,
+    placement: &Placement,
+    computed: &Computed,
+    position: usize,
+) -> Result<Option<SketchPlane>, EngineError> {
+    let SketchPlane::Face {
+        body,
+        face,
+        fallback_frame,
+        ..
+    } = plane
+    else {
+        return Ok(None);
+    };
+    let face_motion = state_before(&computed.report, position, body).motion(&face.query);
+    let kept = sketch_motion(*fallback_frame, &face_motion);
+    kept_face_plane(body, face, placement, &face_motion, &kept)
+        .map(Some)
+        .ok_or_else(|| EngineError::internal("a drag commit keeps its sketch's motion"))
 }
 
 /// The placement of a sketch at timeline position `position` on `plane`, resolved against the
@@ -203,9 +216,7 @@ fn placement(plane: &SketchPlane, computed: &Computed, position: usize) -> Place
         } => {
             let state = state_before(&computed.report, position, body);
             let hint = placement_hint(&state, face, fallback, *fallback_frame);
-            FlatFace::resolved(&state, face)
-                .and_then(|flat| flat.placement(&hint))
-                .unwrap_or(hint)
+            face_placement(&state, face, &hint).unwrap_or(hint)
         }
     }
 }
@@ -255,11 +266,9 @@ fn params_map(params: &SketchParams) -> Result<serde_json::Map<String, Value>, E
 }
 
 /// The record a committed drag writes (section 3.6): the stored record with the last frame's
-/// entity geometry and, for a sketch on a face, the placement the drag was placed at as its
-/// fallback, in the coordinates that keep the sketch's motion (`kept_face_plane`, with the motion
-/// of the stored face in the run that placed the drag): body coordinates, unless the fallback
-/// was in world coordinates on a face that moved. None when the geometry equals the stored
-/// geometry exactly, so nothing rewrites a fallback on its own.
+/// entity geometry and, for a sketch on a face, the drag's commit plane (`commit_plane`). None
+/// when the geometry equals the stored geometry exactly, so nothing rewrites a fallback on its
+/// own. Applying the edit normalizes its numbers.
 fn dragged_record(
     record: &FeatureRecord,
     drag: &Drag,
@@ -268,24 +277,15 @@ fn dragged_record(
         return Ok(None);
     }
     let mut updated = record.clone();
-    let mut set = |key: &str, value: Result<Value, serde_json::Error>| {
-        let mut value = value.map_err(EngineError::unexpected)?;
-        canonical::normalize_numbers(&mut value);
-        updated.params.insert(key.to_string(), value);
-        Ok::<(), EngineError>(())
-    };
-    set("entities", serde_json::to_value(&drag.last.entities))?;
-    if let SketchPlane::Face {
-        body,
-        face,
-        fallback_frame,
-        ..
-    } = &drag.params.plane
-    {
-        let kept = sketch_motion(*fallback_frame, &drag.face_motion);
-        let plane = kept_face_plane(body, face, &drag.placement, &drag.face_motion, &kept)
-            .ok_or_else(|| EngineError::internal("a drag commit keeps its sketch's motion"))?;
-        set("plane", serde_json::to_value(&plane))?;
+    updated.params.insert(
+        "entities".to_string(),
+        serde_json::to_value(&drag.last.entities).map_err(EngineError::unexpected)?,
+    );
+    if let Some(plane) = &drag.commit_plane {
+        updated.params.insert(
+            "plane".to_string(),
+            serde_json::to_value(plane).map_err(EngineError::unexpected)?,
+        );
     }
     Ok(Some(updated))
 }

@@ -13,6 +13,7 @@ import {
 } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
+import { sketchSession } from '../sketch/fixtures.testing'
 import {
   createAppStore,
   type ActiveCommand,
@@ -840,16 +841,7 @@ describe('the selection inspector (3.8)', () => {
       rectSketchDocumentState({ sketches: { 'f-sk1': { solution, display: null } } }),
       {
         context: 'sketch',
-        sketch: {
-          sketchId: 'f-sk1',
-          reattaching: null,
-          tool: null,
-          construction: false,
-          showConstraints: true,
-          selection: [sketchPointItem('f-sk1', 'e-p1')],
-          dragging: false,
-          cameraBefore: null,
-        },
+        sketch: sketchSession({ selection: [sketchPointItem('f-sk1', 'e-p1')] }),
       },
     )
     expect(within(inspector()).getByRole('switch', { name: 'Construction' })).not.toBeChecked()

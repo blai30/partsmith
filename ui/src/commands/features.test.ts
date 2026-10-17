@@ -13,6 +13,7 @@ import {
 } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
+import { sketchSession } from '../sketch/fixtures.testing'
 import type { DocumentState } from '../state/store'
 import { catalogOf, TEST_CATALOG, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
 import {
@@ -244,16 +245,7 @@ describe('running feature commands', () => {
     const { app, core } = createModelApp({
       state: readyState(rectSketchDocumentState(), {
         context: 'sketch',
-        sketch: {
-          sketchId: 'f-sk1',
-          reattaching: null,
-          tool: null,
-          construction: false,
-          showConstraints: true,
-          selection: [],
-          dragging: false,
-          cameraBefore: null,
-        },
+        sketch: sketchSession(),
       }),
     })
     await app.commands.run(app, 'feature.extrude', 'palette')
@@ -358,16 +350,7 @@ describe('availability reasons (2.10, U-98)', () => {
     const { app } = createModelApp({
       state: readyState(suppressedSketch, {
         context: 'sketch',
-        sketch: {
-          sketchId: 'f-sk1',
-          reattaching: null,
-          tool: null,
-          construction: false,
-          showConstraints: true,
-          selection: [],
-          dragging: false,
-          cameraBefore: null,
-        },
+        sketch: sketchSession(),
       }),
     })
     expect(app.commands.get('feature.extrude')?.availability(app)).toEqual({ state: 'enabled' })

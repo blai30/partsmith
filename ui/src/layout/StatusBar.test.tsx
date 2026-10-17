@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Document } from '../generated/protocol'
 import { MESSAGES } from '../messages'
+import { sketchSession } from '../sketch/fixtures.testing'
 import type { ActiveCommand, AppState, DocumentState } from '../state/store'
 import { CUBE_DOCUMENT, RECT_SKETCH_SOLUTION } from '../test/fakes/documents'
 import { settle } from '../test/fakes/settle'
@@ -223,16 +224,7 @@ describe('the status bar (3.21)', () => {
     renderApp(
       {
         context: 'sketch',
-        sketch: {
-          sketchId: 'f-sk1',
-          reattaching: null,
-          tool: null,
-          construction: false,
-          showConstraints: true,
-          selection: [],
-          dragging: false,
-          cameraBefore: null,
-        },
+        sketch: sketchSession(),
       },
       rectSketchDocumentState({ sketches: { 'f-sk1': { solution, display: null } } }),
     )

@@ -357,7 +357,7 @@ impl<'a> Describer<'a> {
         if fields.placement.is_none() && axis.is_none() {
             return (None, None);
         }
-        let Some(undo) = self.undoing(kind, entry, faces) else {
+        let Some(undo) = self.undoing_of(kind, entry, faces) else {
             return (fields.placement, axis);
         };
         (
@@ -371,7 +371,7 @@ impl<'a> Describer<'a> {
     /// names list the names of their adjacent faces in byte order (naming.md section 3.3, step 4)
     /// and display ids follow that order, so the first term is the adjacent face with the
     /// smallest display id; `faces` are the kernel indices of those faces.
-    fn undoing(&self, kind: ElementKind, entry: &TableEntry, faces: &[u32]) -> Option<Motion> {
+    fn undoing_of(&self, kind: ElementKind, entry: &TableEntry, faces: &[u32]) -> Option<Motion> {
         let face = match kind {
             ElementKind::Face => self.table.display_id(ElementKind::Face, entry.index),
             ElementKind::Edge | ElementKind::Vertex => faces

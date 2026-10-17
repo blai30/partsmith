@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use partsmith_model::Id;
 use partsmith_naming::{
-    Anchors, ElementKind, ElementName, FaceGenerator, Merged, MergedName, Reference,
+    Anchors, ElementKind, ElementName, FaceGenerator, Merged, MergedName, NamingError, Reference,
 };
 
 use crate::error::EngineError;
@@ -63,7 +63,8 @@ impl PointRenames {
         }
         match name.kind() {
             ElementKind::Face => self.face(name),
-            kind @ (ElementKind::Edge | ElementKind::Vertex) => self.list(kind, name),
+            ElementKind::Edge => self.by_face_terms(name, ElementName::edge),
+            ElementKind::Vertex => self.by_face_terms(name, ElementName::vertex),
         }
     }
 
@@ -92,9 +93,14 @@ impl PointRenames {
         ))
     }
 
-    /// An edge or vertex name renamed (`name`): its face terms renamed and sorted again, then its
-    /// own `#n` groups.
-    fn list(&self, kind: ElementKind, name: &ElementName) -> Result<ElementName, EngineError> {
+    /// An edge or vertex name renamed (`name`): its face terms renamed and put together again by
+    /// `join` (`ElementName::edge` or `ElementName::vertex`, which sort them), then its own `#n`
+    /// groups.
+    fn by_face_terms(
+        &self,
+        name: &ElementName,
+        join: impl FnOnce(&[ElementName]) -> Result<ElementName, NamingError>,
+    ) -> Result<ElementName, EngineError> {
         let base = name.split_base();
         let pieces = &name.as_str()[base.as_str().len()..];
         let faces = base
@@ -102,43 +108,38 @@ impl PointRenames {
             .iter()
             .map(|face| self.name(face))
             .collect::<Result<Vec<_>, _>>()?;
-        let renamed = match kind {
-            ElementKind::Vertex => ElementName::vertex(&faces),
-            ElementKind::Edge | ElementKind::Face => ElementName::edge(&faces),
-        }
-        .map_err(EngineError::unexpected)?;
+        let renamed = join(&faces).map_err(EngineError::unexpected)?;
         parsed(&format!("{renamed}{pieces}"))
     }
 
     /// Names renamed, sorted and distinct, as anchors list them.
     fn names(&self, names: &[ElementName]) -> Result<Vec<ElementName>, EngineError> {
-        let mut renamed = names
-            .iter()
-            .map(|name| self.name(name))
-            .collect::<Result<Vec<_>, _>>()?;
-        renamed.sort_unstable();
-        renamed.dedup();
-        Ok(renamed)
+        renamed_sorted(names, |name| self.name(name))
     }
 
     /// Merged names renamed, sorted and distinct, as references list them.
     fn merged_names(&self, former: &[MergedName]) -> Result<Vec<MergedName>, EngineError> {
-        let mut renamed = former
-            .iter()
-            .map(|merged| {
-                Ok(match merged {
-                    MergedName::Face(face) => MergedName::Face(self.name(face)?),
-                    MergedName::Copies { source, feature } => MergedName::Copies {
-                        source: self.name(source)?,
-                        feature: feature.clone(),
-                    },
-                })
+        renamed_sorted(former, |merged| {
+            Ok(match merged {
+                MergedName::Face(face) => MergedName::Face(self.name(face)?),
+                MergedName::Copies { source, feature } => MergedName::Copies {
+                    source: self.name(source)?,
+                    feature: feature.clone(),
+                },
             })
-            .collect::<Result<Vec<_>, EngineError>>()?;
-        renamed.sort_unstable();
-        renamed.dedup();
-        Ok(renamed)
+        })
     }
+}
+
+/// `items` each renamed by `rename`, sorted and distinct.
+fn renamed_sorted<T: Ord>(
+    items: &[T],
+    rename: impl Fn(&T) -> Result<T, EngineError>,
+) -> Result<Vec<T>, EngineError> {
+    let mut renamed = items.iter().map(rename).collect::<Result<Vec<_>, _>>()?;
+    renamed.sort_unstable();
+    renamed.dedup();
+    Ok(renamed)
 }
 
 /// The element name `text`, which a valid name gave apart or a rename put together.

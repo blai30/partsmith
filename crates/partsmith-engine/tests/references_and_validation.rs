@@ -9,17 +9,19 @@ mod common;
 mod corpus;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, assert_bounding_box, assert_near, assert_placement,
-    assert_point2, assert_point3, doc_handle, elements, fixture, get_document, headless_session,
-    measure_body, number, open, open_doc, open_text, point3, replace_once, revision, saved_text,
-    send, session,
+    GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, assert_bounding_box, assert_fallback, assert_near,
+    assert_placement, assert_point2, assert_point3, doc_handle, drag_sketch, elements,
+    end_sketch_drag, fixture, get_document, headless_session, measure_body, number, open, open_doc,
+    open_text, point3, replace_once, revision, saved_text, send, session,
 };
 use corpus::{
-    Scenario, actions, block_then, bosses_on_a_moved_box, box_record, datum_offset, datum_plane,
-    distance, document, edited_text, extrude, face_plane, labels, linear_pattern, moved_by_100,
-    r03, record, rectangle, rectangle_region, repairs, sketch, upper_boss_axis, with, without_keys,
+    Scenario, UPPER_BOSS_WALL, actions, axis_xy, block_then, bosses_on_a_moved_box, box_record,
+    datum_offset, datum_plane, distance, document, edited_text, extrude, face_plane, labels,
+    linear_pattern, moved_by_100, r03, record, rectangle, rectangle_region, repairs, sketch, with,
+    without_keys,
 };
 use partsmith_engine::{Session, ValidateOptions, ValidationReport};
+use partsmith_naming::Fingerprint;
 use partsmith_print::Severity;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -429,15 +431,10 @@ fn turned_back(direction: [f64; 3]) -> [f64; 3] {
 /// The direction a fingerprint text writes after `n=` (naming.md section 3.7): first nonzero component positive.
 fn fingerprint_direction(fingerprint: &Value) -> [f64; 3] {
     let text = fingerprint.as_str().expect("fingerprints are text");
-    let field = text
-        .split('|')
-        .find_map(|part| part.strip_prefix("n="))
-        .unwrap_or_else(|| panic!("{text} writes a direction"));
-    let components: Vec<f64> = field
-        .split(',')
-        .map(|component| component.parse().expect("fingerprint numbers parse"))
-        .collect();
-    [components[0], components[1], components[2]]
+    Fingerprint::parse(text)
+        .expect("descriptors write valid fingerprints")
+        .direction
+        .unwrap_or_else(|| panic!("{text} writes a direction"))
 }
 
 /// Whether a descriptor is of a line edge or of a cylinder, cone or torus face, which have an axis direction.
@@ -758,25 +755,8 @@ fn sketch_on_moved_top(frame: Option<&str>) -> String {
 
 /// Drags `e-1.end` of `f-sk1` to `to` in one frame, then ends the drag with `commit`; returns the end's reply.
 fn drag_and_end(session: &mut Session, doc: u64, to: [f64; 2], commit: bool) -> Sent {
-    drag(session, doc, "e-1.end", to);
-    end_drag(session, doc, commit)
-}
-
-/// One drag frame of `point` of `f-sk1` to `to`.
-fn drag(session: &mut Session, doc: u64, point: &str, to: [f64; 2]) {
-    send(
-        session,
-        json!({"type": "drag_sketch", "doc": doc, "feature": "f-sk1", "point": point, "to": to}),
-    )
-    .ok();
-}
-
-/// Ends the drag of `f-sk1` with `commit`; returns the reply.
-fn end_drag(session: &mut Session, doc: u64, commit: bool) -> Sent {
-    send(
-        session,
-        json!({"type": "end_sketch_drag", "doc": doc, "feature": "f-sk1", "commit": commit}),
-    )
+    drag_sketch(session, doc, "e-1.end", to).ok();
+    end_sketch_drag(session, doc, commit)
 }
 
 /// Opens `text` in a fresh display session, drags `e-1.end` to (20, 5) and commits; returns the session, the handle
@@ -798,30 +778,24 @@ fn t125_a_drag_commit_on_a_face_writes_the_resolved_placement_with_the_body_mark
 
     let (mut session, doc, _) = committed(&text);
 
-    let plane = record(&mut session, doc, "f-sk1")["plane"].clone();
-    assert_placement(
-        &plane["fallback"],
+    assert_fallback(
+        &record(&mut session, doc, "f-sk1")["plane"],
         [3.0, 4.0, 40.0],
-        X_AXIS,
         Z_AXIS,
-        "fallback",
+        Some("body"),
     );
-    assert_eq!(plane["fallback_frame"], "body");
 }
 
 #[test]
 fn t125_a_drag_commit_on_a_moved_face_keeps_its_body_fallback() {
     let (mut session, doc, _) = committed(&sketch_on_moved_top(Some("body")));
 
-    let plane = record(&mut session, doc, "f-sk1")["plane"].clone();
-    assert_placement(
-        &plane["fallback"],
+    assert_fallback(
+        &record(&mut session, doc, "f-sk1")["plane"],
         [0.0, 0.0, 40.0],
-        X_AXIS,
         Z_AXIS,
-        "fallback",
+        Some("body"),
     );
-    assert_eq!(plane["fallback_frame"], "body");
 }
 
 #[test]
@@ -829,15 +803,12 @@ fn t125_a_drag_commit_keeps_a_world_fallback_on_a_moved_face_in_world_coordinate
     // Body coordinates would give the sketch the face's motion, which the faces built from it inherit.
     let (mut session, doc, _) = committed(&sketch_on_moved_top(None));
 
-    let plane = record(&mut session, doc, "f-sk1")["plane"].clone();
-    assert_placement(
-        &plane["fallback"],
+    assert_fallback(
+        &record(&mut session, doc, "f-sk1")["plane"],
         [0.0, 0.0, 40.0],
-        X_AXIS,
         Z_AXIS,
-        "fallback",
+        None,
     );
-    assert!(plane.get("fallback_frame").is_none(), "{plane}");
 }
 
 #[test]
@@ -847,34 +818,28 @@ fn t125_a_drag_commit_of_a_world_fallback_on_a_moved_face_moves_no_later_sketch(
     // motion of the Move body, and the upper boss would land at x = 200, off the body.
     let text = bosses_on_a_moved_box(
         vec![moved_by_100()],
-        face_plane(
-            "b-1",
-            json!({"q": "f-box1/top", "fp": "plane|n=0,0,1|c=100,0,40|a=600|adj=4,4"}),
-            [0.0, 0.0, 40.0],
-            X_AXIS,
-            Z_AXIS,
-        ),
+        face_plane("b-1", moved_top(), [0.0, 0.0, 40.0], X_AXIS, Z_AXIS),
         [0.0, 0.0, 50.0],
         Z_AXIS,
     );
     let mut session = session();
     let doc = doc_handle(&open_text(&mut session, &text));
     assert_point2(
-        upper_boss_axis(&mut session, doc),
+        axis_xy(&mut session, doc, UPPER_BOSS_WALL),
         [100.0, 0.0],
         GEOMETRY_TOLERANCE,
         "boss axis before",
     );
 
-    drag(&mut session, doc, "e-9", [101.0, 1.0]);
-    let ended = end_drag(&mut session, doc, true);
+    drag_sketch(&mut session, doc, "e-9", [101.0, 1.0]).ok();
+    let ended = end_sketch_drag(&mut session, doc, true);
 
     assert_eq!(ended.ok()["revision"], 1, "the commit is one edit");
     for feature in ["f-sk1", "f-ext1", "f-sk3", "f-ext3"] {
         assert_eq!(ended.feature_status(feature)["status"], "ok", "{feature}");
     }
     assert_point2(
-        upper_boss_axis(&mut session, doc),
+        axis_xy(&mut session, doc, UPPER_BOSS_WALL),
         [100.0, 0.0],
         GEOMETRY_TOLERANCE,
         "boss axis after",
@@ -897,28 +862,25 @@ fn t125_a_drag_commit_stores_the_placement_with_the_motion_of_the_run_that_place
         json!({"type": "begin_transaction", "doc": doc, "label": "Edit sketch"}),
     )
     .ok();
-    drag(&mut session, doc, "e-1.end", [20.0, 5.0]);
+    drag_sketch(&mut session, doc, "e-1.end", [20.0, 5.0]).ok();
     send(
         &mut session,
         json!({"type": "set_focus", "doc": doc, "feature": "f-box1"}),
     )
     .ok();
 
-    end_drag(&mut session, doc, true).ok();
+    end_sketch_drag(&mut session, doc, true).ok();
     let committed = send(
         &mut session,
         json!({"type": "commit_transaction", "doc": doc}),
     );
 
-    let plane = record(&mut session, doc, "f-sk1")["plane"].clone();
-    assert_placement(
-        &plane["fallback"],
+    assert_fallback(
+        &record(&mut session, doc, "f-sk1")["plane"],
         [0.0, 0.0, 40.0],
-        X_AXIS,
         Z_AXIS,
-        "fallback",
+        Some("body"),
     );
-    assert_eq!(plane["fallback_frame"], "body");
     assert_placement(
         &committed.sketch_solution("f-sk1")["placement"],
         [100.0, 0.0, 40.0],

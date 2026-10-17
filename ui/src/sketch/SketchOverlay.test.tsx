@@ -5,7 +5,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { SketchConstraint } from '../generated/protocol'
 import { COLOR_CLASSES } from '../theme/roles'
-import { circleEntity, lineEntity, SKETCH_ID, solutionFor, solvedSketch } from './fixtures.testing'
+import {
+  circleEntity,
+  lineEntity,
+  planePickingSession,
+  SKETCH_ID,
+  solutionFor,
+  solvedSketch,
+} from './fixtures.testing'
 import type { SketchToolId } from './session'
 import { SketchOverlay } from './SketchOverlay'
 import { standardViewRotation, type Camera } from '../viewport/camera'
@@ -76,16 +83,7 @@ describe('SketchOverlay in sketch mode (3.2, 3.16.3)', () => {
   it('shows the plane picking header without an overlay while a plane is picked', () => {
     const harness = sketchHarness({
       state: {
-        sketch: {
-          sketchId: null,
-          reattaching: null,
-          tool: null,
-          construction: false,
-          showConstraints: true,
-          selection: [],
-          dragging: false,
-          cameraBefore: null,
-        },
+        sketch: planePickingSession(),
       },
     })
     renderOverlay(harness)

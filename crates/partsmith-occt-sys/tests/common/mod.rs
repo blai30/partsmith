@@ -73,6 +73,39 @@ pub fn cube_d() -> Primitive {
     cube_at(7.0, 7.0, 7.0)
 }
 
+/// The 20 mm cube of tests 131 to 134, from (-10,-10,0) to (10,10,20).
+pub fn cube_20() -> Primitive {
+    make_box(&xy_plane_at(-10.0, -10.0, 0.0), 20.0, 20.0, 20.0).expect("the 20 mm cube builds")
+}
+
+/// The edge of the 20 mm cube between the faces with roles `first` and `second`.
+pub fn cube_edge(cube: &Primitive, first: PrimitiveFace, second: PrimitiveFace) -> u32 {
+    edge_between(
+        &cube.shape,
+        face_with_role(cube, first),
+        face_with_role(cube, second),
+    )
+}
+
+/// The 20 mm cube with its front edges parallel to Z rounded at `front` and its back ones at
+/// `back`.
+pub fn cube_with_vertical_rounds(front: f64, back: f64) -> Shape {
+    let cube = cube_20();
+    let edges = [
+        (PrimitiveFace::Front, PrimitiveFace::Left, front),
+        (PrimitiveFace::Front, PrimitiveFace::Right, front),
+        (PrimitiveFace::Back, PrimitiveFace::Left, back),
+        (PrimitiveFace::Back, PrimitiveFace::Right, back),
+    ]
+    .map(|(first, second, radius)| EdgeRadius {
+        edge: cube_edge(&cube, first, second),
+        radius,
+    });
+    fillet(&cube.shape, &edges)
+        .expect("the vertical edges round")
+        .shape
+}
+
 /// `L` of test 102: a 40 x 20 x 10 box fused with a 20 x 20 x 10 box standing on its right
 /// half (volume 12000, 8 faces), with the index of `STEP`, the top of the low half.
 pub fn l_body() -> (Shape, u32) {

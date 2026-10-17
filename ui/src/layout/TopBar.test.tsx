@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from '../settings/settings'
-import { INITIAL_STATE, type AppState, type SketchSession } from '../state/store'
+import { sketchSession } from '../sketch/fixtures.testing'
+import { INITIAL_STATE, type AppState } from '../state/store'
 import { catalogOf, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
 import { CUBE_TOP_FACE, RECT_REGION } from '../test/fakes/documents'
 import { featureItem, regionItem } from '../test/fakes/selection'
@@ -30,16 +31,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const EDITING_SKETCH: SketchSession = {
-  sketchId: 'f-sk1',
-  reattaching: null,
-  tool: null,
-  construction: false,
-  showConstraints: true,
-  selection: [],
-  dragging: false,
-  cameraBefore: null,
-}
+const EDITING_SKETCH = sketchSession()
 
 function renderApp(state: Partial<AppState> = {}, document = cubeDocumentState()) {
   const test = renderModelApp({ document, state })

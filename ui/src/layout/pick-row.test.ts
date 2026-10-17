@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MESSAGES } from '../messages'
-import type { ActiveCommand, SketchSession } from '../state/store'
+import { planePickingSession } from '../sketch/fixtures.testing'
+import type { ActiveCommand } from '../state/store'
 import { MAC_WEB } from '../test/fakes/app'
 import { CUBE_DOCUMENT, featuresOf, type FeatureRecord } from '../test/fakes/documents'
 import { bodyItem, datumItem, originItem } from '../test/fakes/selection'
@@ -76,16 +77,7 @@ describe('pickRow', () => {
 })
 
 /** Sketch mode while a plane is picked for a new sketch (3.16.1). */
-const PLANE_PICKING: SketchSession = {
-  sketchId: null,
-  reattaching: null,
-  tool: null,
-  construction: false,
-  showConstraints: true,
-  selection: [],
-  dragging: false,
-  cameraBefore: null,
-}
+const PLANE_PICKING = planePickingSession()
 
 /** The plane of the sketch the one `applyEdits` call added. */
 function addedSketchPlane(calls: readonly (readonly unknown[])[]): unknown {
@@ -157,7 +149,7 @@ function reattachingApp(after: readonly FeatureRecord[] = []) {
   return createModelApp({
     state: readyState(documentState(recipe, { name: 'cube' }), {
       context: 'sketch',
-      sketch: { ...PLANE_PICKING, reattaching: 'f-sk2' },
+      sketch: planePickingSession('f-sk2'),
     }),
   })
 }

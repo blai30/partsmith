@@ -293,14 +293,16 @@ def test_a_sketch_on_a_face_of_a_part_that_did_not_move_stores_its_placement_in_
     assert plane["fallback_frame"] == "body"
 
 
-def moved_top_sketch_plane(units: str = "mm", **motion: object) -> dict:
+def moved_top_sketch_plane(
+    units: str = "mm", fallback: Placement | None = None, fallback_frame: str | None = None, **motion: object
+) -> dict:
     """The stored plane of a sketch on the top of a 20 x 30 x 40 box (in `units`) moved by `move(**motion)`, attached
-    by selecting the face."""
+    by selecting the face, with `fallback` and `fallback_frame` given to `Sketch`."""
     document = Document(units=units)
     with Part("P"):
         box(20, 30, 40)
         move(**motion)
-        with Sketch(faces().top()) as sketch:
+        with Sketch(faces().top(), fallback=fallback, fallback_frame=fallback_frame) as sketch:
             Point(0, 0)
     return stored_feature(document, sketch.id)["plane"]
 
@@ -346,29 +348,19 @@ def test_a_sketch_on_a_face_element_and_on_its_selection_store_the_same_plane():
 
 @pytest.mark.parametrize("frame", [None, "world"])
 def test_a_given_fallback_on_a_moved_face_is_stored_as_given_in_world_coordinates(frame):
-    document = Document()
-    with Part("P"):
-        box(20, 30, 40)
-        move(translate=(100, 0, 0))
-        placement = Placement((100, 0, 40), (1, 0, 0), (0, 0, 1))
-        with Sketch(faces().top(), fallback=placement, fallback_frame=frame) as sketch:
-            Point(0, 0)
+    placement = Placement((100, 0, 40), (1, 0, 0), (0, 0, 1))
 
-    plane = stored_feature(document, sketch.id)["plane"]
+    plane = moved_top_sketch_plane(fallback=placement, fallback_frame=frame, translate=(100, 0, 0))
+
     assert plane["fallback"] == {"origin": [100, 0, 40], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}
     assert "fallback_frame" not in plane
 
 
 def test_a_given_fallback_on_a_moved_face_with_the_body_frame_is_stored_as_given():
-    document = Document()
-    with Part("P"):
-        box(20, 30, 40)
-        move(translate=(100, 0, 0))
-        placement = Placement((5, 0, 40), (0, 1, 0), (0, 0, 1))
-        with Sketch(faces().top(), fallback=placement, fallback_frame="body") as sketch:
-            Point(0, 0)
+    placement = Placement((5, 0, 40), (0, 1, 0), (0, 0, 1))
 
-    plane = stored_feature(document, sketch.id)["plane"]
+    plane = moved_top_sketch_plane(fallback=placement, fallback_frame="body", translate=(100, 0, 0))
+
     assert plane["fallback"] == {"origin": [5, 0, 40], "x_axis": [0, 1, 0], "normal": [0, 0, 1]}
     assert plane["fallback_frame"] == "body"
 

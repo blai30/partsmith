@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use partsmith_features::{OutputData, Registry};
+use partsmith_features::Registry;
 use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName};
 use partsmith_protocol::{
@@ -21,7 +21,7 @@ use crate::error::EngineError;
 use crate::session::Session;
 use crate::sketch::{DATUM_PLANE_TYPE, SKETCH_TYPE, Solved, built, sketch_params};
 use crate::sketching::{datum_placement, solve_in};
-use crate::state::{BodyView, built_output, display_bodies, preview_bodies};
+use crate::state::{BodyView, built_sketch, display_bodies, preview_bodies};
 use crate::status::{DisplayFailure, document_diagnostics, feature_statuses, parameter_values};
 use crate::triangulate::fill_regions;
 
@@ -233,9 +233,7 @@ fn event_solution(registry: &Registry, open: &OpenDocument, position: usize) -> 
     let report = open.computed.report.features.get(position)?;
     match report.status {
         Status::Ok | Status::Warning => {
-            let OutputData::Sketch(result) = &built_output(report)?.data else {
-                return None;
-            };
+            let result = built_sketch(report)?;
             let params = sketch_params(registry, &open.document, record).ok()?;
             Some(built(&record.id, &params, result))
         }

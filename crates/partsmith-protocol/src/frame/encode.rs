@@ -99,23 +99,25 @@ fn encode(messages: &[MessageRef<'_>], buffers: &[Buffer]) -> Result<Vec<u8>, Fr
         messages,
         buffers: &table,
     };
-    // The header is serialized straight into the frame after the prefix, which gets its length
-    // once it is known: one allocation and one copy of the header fewer than serializing it
-    // apart, although growing the frame may still move it.
+    // The header is serialized in place after the prefix, and its length is patched in afterwards.
     let mut bytes = Vec::with_capacity(PREFIX_LENGTH);
     bytes.extend_from_slice(&MAGIC);
     bytes.resize(PREFIX_LENGTH, 0);
     serde_json::to_writer(&mut bytes, &header)
         .expect("protocol messages always serialize: every map in them has string keys");
-    let length = bytes.len() - PREFIX_LENGTH;
-    if length > MAX_HEADER_LENGTH {
-        return Err(FrameError::HeaderTooLarge { length });
+    let header_length = bytes.len() - PREFIX_LENGTH;
+    if header_length > MAX_HEADER_LENGTH {
+        return Err(FrameError::HeaderTooLarge {
+            length: header_length,
+        });
     }
-    let header_length =
-        u32::try_from(length).expect("a header within MAX_HEADER_LENGTH fits in a u32");
-    bytes[MAGIC.len()..PREFIX_LENGTH].copy_from_slice(&header_length.to_le_bytes());
+    bytes[MAGIC.len()..PREFIX_LENGTH].copy_from_slice(
+        &u32::try_from(header_length)
+            .expect("a header within MAX_HEADER_LENGTH fits in a u32")
+            .to_le_bytes(),
+    );
 
-    let buffer_start = PREFIX_LENGTH + length + header_padding(length);
+    let buffer_start = PREFIX_LENGTH + header_length + header_padding(header_length);
     let section_length = offsets
         .last()
         .zip(buffers.last())

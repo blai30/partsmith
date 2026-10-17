@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Diagnostic, FeatureStatus } from '../generated/protocol'
 import { DEFAULT_SETTINGS } from '../settings/settings'
+import { planePickingSession, sketchSession } from '../sketch/fixtures.testing'
 import {
   CUBE_DOCUMENT,
   CUBE_FEATURES_DOCUMENT,
@@ -20,7 +21,7 @@ import {
   selectProblems,
   selectUnsaved,
 } from './selectors'
-import type { ActiveCommand, AppState, DocumentState, PrintState, SketchSession } from './store'
+import type { ActiveCommand, AppState, DocumentState, PrintState } from './store'
 
 describe('selectEmptyState (3.2)', () => {
   const COMMAND: ActiveCommand = {
@@ -39,16 +40,7 @@ describe('selectEmptyState (3.2)', () => {
     future: [],
     preview: 'none',
   }
-  const PICKING_PLANE: SketchSession = {
-    sketchId: null,
-    reattaching: null,
-    tool: null,
-    construction: false,
-    showConstraints: true,
-    selection: [],
-    dragging: false,
-    cameraBefore: null,
-  }
+  const PICKING_PLANE = planePickingSession()
 
   it('U-95 is true for a ready core with a recipe without features, no command and no sketch session', () => {
     expect(selectEmptyState(stateWithDocument(emptyDocument()))).toBe(true)
@@ -151,16 +143,7 @@ describe('selectActiveFeatureIds', () => {
 })
 
 describe('editingSession and selectEditedSketch', () => {
-  const SESSION: SketchSession = {
-    sketchId: 'f-sk1',
-    reattaching: null,
-    tool: null,
-    construction: false,
-    showConstraints: true,
-    selection: [],
-    dragging: false,
-    cameraBefore: null,
-  }
+  const SESSION = sketchSession()
 
   it('give the edited sketch in sketch mode', () => {
     const state = stateWithDocument(CUBE_DOCUMENT, { context: 'sketch', sketch: SESSION })

@@ -12,6 +12,7 @@ import { BROWSER_PANEL_ID } from '../layout/panel-ids'
 import { createModelApp, stubMatchMedia } from '../layout/test-app.testing'
 import { onUiRequest, type UiRequest } from '../layout/requests'
 import { MESSAGES } from '../messages'
+import { sketchSession } from '../sketch/fixtures.testing'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import type { ActiveCommand, AppContext, AppState } from '../state/store'
 import { LINUX_WEB, MAC_WEB } from '../test/fakes/app'
@@ -377,16 +378,7 @@ describe('running built-in commands', () => {
     const { app } = createModelApp({
       state: readyState(rectSketchDocumentState(), {
         context: 'sketch',
-        sketch: {
-          sketchId: 'f-sk1',
-          reattaching: null,
-          tool: null,
-          construction: false,
-          showConstraints: true,
-          selection: [],
-          dragging: false,
-          cameraBefore: null,
-        },
+        sketch: sketchSession(),
       }),
     })
     await app.commands.run(app, 'sketch.finish', 'shortcut')

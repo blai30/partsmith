@@ -9,11 +9,11 @@ use std::f64::consts::PI;
 use common::{
     POINT_TOLERANCE, UP, assert_argument_error, assert_bounds, assert_invalid_input,
     assert_leaves_unchanged, assert_near, assert_parallel, assert_point_near, assert_relative,
-    assert_vector_near, box_primitive, box_with_displaced_corner, cube_a, cube_at,
-    cylinder_primitive, edge_at, edge_between, face_direction, face_groups, face_with_role,
-    faces_of_kind, generated_faces, geometry, index_from_position, l_body, l_body_with_round, line,
-    planar_face, rectangle_profile, region, swept_face, top_front_edge, volume, xy_plane_at,
-    z_axis,
+    assert_vector_near, box_primitive, box_with_displaced_corner, cube_20, cube_a, cube_at,
+    cube_edge, cube_with_vertical_rounds, cylinder_primitive, edge_at, edge_between,
+    face_direction, face_groups, face_with_role, faces_of_kind, generated_faces, geometry,
+    index_from_position, l_body, l_body_with_round, line, planar_face, rectangle_profile, region,
+    swept_face, top_front_edge, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
     ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
@@ -869,39 +869,6 @@ fn t103_wall_thicker_than_a_cylinder_radius_fails() {
 
 /// The radius of the rounds of `RC`.
 const ROUND_RADIUS: f64 = 2.0;
-
-/// The 20 mm cube of test 131, from (-10,-10,0) to (10,10,20).
-fn cube_20() -> Primitive {
-    make_box(&xy_plane_at(-10.0, -10.0, 0.0), 20.0, 20.0, 20.0).expect("the 20 mm cube builds")
-}
-
-/// The edge of the 20 mm cube between the faces with roles `first` and `second`.
-fn cube_edge(cube: &Primitive, first: PrimitiveFace, second: PrimitiveFace) -> u32 {
-    edge_between(
-        &cube.shape,
-        face_with_role(cube, first),
-        face_with_role(cube, second),
-    )
-}
-
-/// The 20 mm cube with its front edges parallel to Z rounded at `front` and its back ones at
-/// `back`.
-fn cube_with_vertical_rounds(front: f64, back: f64) -> Shape {
-    let cube = cube_20();
-    let edges = [
-        (PrimitiveFace::Front, PrimitiveFace::Left, front),
-        (PrimitiveFace::Front, PrimitiveFace::Right, front),
-        (PrimitiveFace::Back, PrimitiveFace::Left, back),
-        (PrimitiveFace::Back, PrimitiveFace::Right, back),
-    ]
-    .map(|(first, second, radius)| EdgeRadius {
-        edge: cube_edge(&cube, first, second),
-        radius,
-    });
-    fillet(&cube.shape, &edges)
-        .expect("the vertical edges round")
-        .shape
-}
 
 /// `RC` of test 131: the 20 mm cube with its 4 edges parallel to Z rounded at radius 2 (volume
 /// 7680 + 80 pi, 10 faces), and the index of its top face `RT`.

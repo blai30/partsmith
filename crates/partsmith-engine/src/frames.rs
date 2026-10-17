@@ -1,7 +1,7 @@
 //! Frames on the model (ADR 0023): placements and directions in body coordinates, which a
 //! descriptor's `fallback` and `axis_direction` are in (engine.md section 3.9), the face plane a
 //! drag commit or a fix stores, in the coordinates that keep the sketch's motion (sections 3.6 and
-//! 3.22), and the flat face a sketch is placed on.
+//! 3.22), and the placement of a sketch on a flat face.
 
 use partsmith_features::{BodyState, PlacementExt};
 use partsmith_model::Id;
@@ -84,43 +84,33 @@ pub(crate) fn placement_hint(
     }
 }
 
-/// The first face a reference resolves to in a body state, when it is flat: its centroid and
-/// outward unit normal, which the face placement rule places a sketch with.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct FlatFace {
-    /// The area centroid.
-    centroid: [f64; 3],
-    /// The outward unit normal.
-    normal: [f64; 3],
-}
-
-impl FlatFace {
-    /// The first face `face` resolves to in `state`, when it resolves and that face is flat.
-    pub(crate) fn resolved(state: &BodyState, face: &Reference) -> Option<FlatFace> {
-        let shape = state.shape()?;
-        let set = state.element_set().ok()?;
-        let Resolution::Resolved { elements, .. } = resolve(face, &set) else {
-            return None;
-        };
-        let index = state.naming().index(elements.first()?)?;
-        let geometry = shape.element(SubShapeKind::Face, index).ok()?;
-        if geometry.kind != GeometryKind::Plane {
-            return None;
-        }
-        let normal = geometry.direction?;
-        let centroid = geometry.centroid;
-        Some(FlatFace {
-            centroid: [centroid.x, centroid.y, centroid.z],
-            normal: [normal.x, normal.y, normal.z],
-        })
+/// The face placement rule (features.md section 3.6) on the first face `face` resolves to in
+/// `state`, when it resolves and that face is flat: the plane through its area centroid with its
+/// outward unit normal, its origin and x axis taken from `hint` (`Placement::on_plane`), so the
+/// placement is right-handed.
+pub(crate) fn face_placement(
+    state: &BodyState,
+    face: &Reference,
+    hint: &Placement,
+) -> Option<Placement> {
+    let shape = state.shape()?;
+    let set = state.element_set().ok()?;
+    let Resolution::Resolved { elements, .. } = resolve(face, &set) else {
+        return None;
+    };
+    let index = state.naming().index(elements.first()?)?;
+    let geometry = shape.element(SubShapeKind::Face, index).ok()?;
+    if geometry.kind != GeometryKind::Plane {
+        return None;
     }
-
-    /// The face placement rule (features.md section 3.6): the plane through the centroid with the
-    /// outward normal, its origin and x axis taken from `hint` (`Placement::on_plane`), so the
-    /// placement is right-handed.
-    pub(crate) fn placement(&self, hint: &Placement) -> Option<Placement> {
-        Placement::on_plane(self.centroid, self.normal, hint).ok()
-    }
+    let normal = geometry.direction?;
+    let centroid = geometry.centroid;
+    Placement::on_plane(
+        [centroid.x, centroid.y, centroid.z],
+        [normal.x, normal.y, normal.z],
+        hint,
+    )
+    .ok()
 }
 
 #[cfg(test)]

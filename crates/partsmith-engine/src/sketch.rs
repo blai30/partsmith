@@ -5,14 +5,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use partsmith_features::{Registry, SketchResult};
 use partsmith_model::{Dimension, Document, FeatureRecord, Id, Scope};
-use partsmith_naming::Motion;
 use partsmith_protocol::{
     ConstraintSolveState, ConstraintState, RegionInfo, SketchSolution, SolvedEntity, SolvedPoint,
 };
 use partsmith_sketch::{
     DimensionValues, DragSession, DragTarget, EntityState, Geometry, NativeDragSession,
     NativeSolver, Placement, PointRef, PointRole, Profile, Region, SketchEntity, SketchParams,
-    SolveResult, Solver, ValueKind, build_profile,
+    SketchPlane, SolveResult, Solver, ValueKind, build_profile,
 };
 
 use crate::diagnostics::{feature_error_detail, render_feature_error};
@@ -308,10 +307,10 @@ pub(crate) struct Drag {
     values: DimensionValues,
     /// The sketch placement.
     pub(crate) placement: Placement,
-    /// The motion of the face a face sketch is stored on, in the run that gave `placement`
-    /// (`BodyState::motion` of its query in the state just before the sketch); the identity for
-    /// other planes. A commit stores the placement with it (section 3.6).
-    pub(crate) face_motion: Motion,
+    /// The plane a commit of a face sketch writes (section 3.6): `placement` as its fallback, in
+    /// the coordinates that keep the sketch's motion in the run that gave `placement`; `None` for
+    /// other planes, which a commit keeps.
+    pub(crate) commit_plane: Option<SketchPlane>,
     /// The last frame's result.
     pub(crate) last: SolveResult,
 }
@@ -328,12 +327,12 @@ impl std::fmt::Debug for Drag {
 
 impl Drag {
     /// Begins a drag of `point` and solves its first frame at `to`, with the sketch at `placement`
-    /// on a face whose motion is `face_motion` in the same run.
+    /// and `commit_plane` the plane a commit writes.
     pub(crate) fn begin(
         params: SketchParams,
         values: DimensionValues,
         placement: Placement,
-        face_motion: Motion,
+        commit_plane: Option<SketchPlane>,
         point: PointRef,
         to: [f64; 2],
     ) -> Result<Drag, EngineError> {
@@ -350,7 +349,7 @@ impl Drag {
             params,
             values,
             placement,
-            face_motion,
+            commit_plane,
             last,
         })
     }
@@ -393,7 +392,7 @@ mod tests {
     use partsmith_model::{EmptyContext, ParameterValues, Units};
     use partsmith_sketch::{
         Alignment, ConstraintKind, DimensionExpr, DistanceTarget, OriginPlane, SketchConstraint,
-        SketchPlane, SketchStatus,
+        SketchStatus,
     };
 
     use super::*;
@@ -562,7 +561,7 @@ mod tests {
             drag_sketch(),
             DimensionValues::new(),
             OriginPlane::Xy.placement(),
-            Motion::IDENTITY,
+            None,
             "e-1.end".parse().expect("a valid point"),
             [20.0, 5.0],
         )

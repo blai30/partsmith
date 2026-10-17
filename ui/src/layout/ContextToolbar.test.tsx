@@ -2,7 +2,8 @@ import { cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import type { AppState, SketchSession } from '../state/store'
+import { sketchSession } from '../sketch/fixtures.testing'
+import type { AppState } from '../state/store'
 import { cubeDocumentState, readyState } from './fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
 
@@ -93,16 +94,7 @@ const MODEL_TOOLS = [
   'Boolean',
 ]
 
-const EDITING_SKETCH: SketchSession = {
-  sketchId: 'f-sk1',
-  reattaching: null,
-  tool: null,
-  construction: false,
-  showConstraints: true,
-  selection: [],
-  dragging: false,
-  cameraBefore: null,
-}
+const EDITING_SKETCH = sketchSession()
 
 describe('the context toolbar fits its width (3.2)', () => {
   it('shows every label when the labeled toolbar fits', () => {

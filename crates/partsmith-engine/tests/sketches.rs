@@ -3,31 +3,15 @@
 mod common;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_near, assert_point2,
-    assert_point3, get_document, number, open, open_doc, point2, point3, send, session,
+    GEOMETRY_TOLERANCE, apply, assert_bounding_box, assert_near, assert_point2, assert_point3,
+    drag_sketch, end_sketch_drag, get_document, number, open, open_doc, point2, point3, send,
+    session,
 };
-use partsmith_engine::Session;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 /// Tolerance for solved sketch coordinates in tests 41 to 45 and 52.
 const SKETCH_TOLERANCE: f64 = 1e-9;
-
-/// One `drag_sketch` frame of `drag.ptsm`'s `f-sk1`.
-fn drag(session: &mut Session, doc: u64, point: &str, to: [f64; 2]) -> Sent {
-    send(
-        session,
-        json!({"type": "drag_sketch", "doc": doc, "feature": "f-sk1", "point": point, "to": to}),
-    )
-}
-
-/// Ends the drag of `f-sk1`.
-fn end_drag(session: &mut Session, doc: u64, commit: bool) -> Sent {
-    send(
-        session,
-        json!({"type": "end_sketch_drag", "doc": doc, "feature": "f-sk1", "commit": commit}),
-    )
-}
 
 /// The solved position of a point address in a `SketchSolution`.
 fn solved_point(solution: &Value, point: &str) -> [f64; 2] {
@@ -128,7 +112,7 @@ fn t043_a_drag_frame_follows_the_constraints_and_records_nothing() {
     let doc = open_doc(&mut session, "drag.ptsm");
     let before = get_document(&mut session, doc);
 
-    let frame = drag(&mut session, doc, "e-1.end", [20.0, 5.0]);
+    let frame = drag_sketch(&mut session, doc, "e-1.end", [20.0, 5.0]);
 
     let end = solved_point(&frame.ok()["solution"], "e-1.end");
     assert_point2(end, [20.0, 0.0], SKETCH_TOLERANCE, "e-1.end");
@@ -144,9 +128,9 @@ fn t043_a_drag_frame_follows_the_constraints_and_records_nothing() {
 fn t044_a_second_frame_continues_the_drag() {
     let mut session = session();
     let doc = open_doc(&mut session, "drag.ptsm");
-    drag(&mut session, doc, "e-1.end", [20.0, 5.0]).ok();
+    drag_sketch(&mut session, doc, "e-1.end", [20.0, 5.0]).ok();
 
-    let frame = drag(&mut session, doc, "e-1.end", [30.0, -5.0]);
+    let frame = drag_sketch(&mut session, doc, "e-1.end", [30.0, -5.0]);
 
     let end = solved_point(&frame.ok()["solution"], "e-1.end");
     assert_point2(end, [30.0, 0.0], SKETCH_TOLERANCE, "e-1.end");
@@ -156,10 +140,10 @@ fn t044_a_second_frame_continues_the_drag() {
 fn t045_committing_a_drag_is_one_undoable_edit_labeled_drag() {
     let mut session = session();
     let doc = open_doc(&mut session, "drag.ptsm");
-    drag(&mut session, doc, "e-1.end", [20.0, 5.0]).ok();
-    drag(&mut session, doc, "e-1.end", [30.0, -5.0]).ok();
+    drag_sketch(&mut session, doc, "e-1.end", [20.0, 5.0]).ok();
+    drag_sketch(&mut session, doc, "e-1.end", [30.0, -5.0]).ok();
 
-    let ended = end_drag(&mut session, doc, true);
+    let ended = end_sketch_drag(&mut session, doc, true);
 
     assert_eq!(ended.ok()["revision"], 1);
     let after = get_document(&mut session, doc);
@@ -179,9 +163,9 @@ fn t046_ending_a_drag_without_commit_changes_nothing() {
     let mut session = session();
     let doc = open_doc(&mut session, "drag.ptsm");
     let before = get_document(&mut session, doc);
-    drag(&mut session, doc, "e-1.end", [20.0, 5.0]).ok();
+    drag_sketch(&mut session, doc, "e-1.end", [20.0, 5.0]).ok();
 
-    let ended = end_drag(&mut session, doc, false);
+    let ended = end_sketch_drag(&mut session, doc, false);
 
     assert_eq!(ended.ok()["revision"], 0);
     assert_eq!(get_document(&mut session, doc), before);
@@ -192,7 +176,7 @@ fn t047_ending_without_a_drag_fails() {
     let mut session = session();
     let doc = open_doc(&mut session, "drag.ptsm");
 
-    let ended = end_drag(&mut session, doc, true);
+    let ended = end_sketch_drag(&mut session, doc, true);
 
     assert_eq!(ended.error_code(), "no_drag");
 }
@@ -220,7 +204,7 @@ fn t049_dragging_an_unknown_point_fails() {
     let mut session = session();
     let doc = open_doc(&mut session, "drag.ptsm");
 
-    let sent = drag(&mut session, doc, "e-9.end", [1.0, 1.0]);
+    let sent = drag_sketch(&mut session, doc, "e-9.end", [1.0, 1.0]);
 
     assert_eq!(sent.error_code(), "unknown_point");
 }
@@ -229,7 +213,7 @@ fn t049_dragging_an_unknown_point_fails() {
 fn t050_a_recipe_change_discards_the_drag() {
     let mut session = session();
     let doc = open_doc(&mut session, "drag.ptsm");
-    drag(&mut session, doc, "e-1.end", [20.0, 5.0]).ok();
+    drag_sketch(&mut session, doc, "e-1.end", [20.0, 5.0]).ok();
     apply(
         &mut session,
         doc,
@@ -238,7 +222,7 @@ fn t050_a_recipe_change_discards_the_drag() {
     )
     .ok();
 
-    let ended = end_drag(&mut session, doc, true);
+    let ended = end_sketch_drag(&mut session, doc, true);
 
     assert_eq!(ended.error_code(), "no_drag");
 }

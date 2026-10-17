@@ -292,6 +292,11 @@ pub(super) fn updated(
             "a fix names a field its feature's record does not have",
         ));
     }
+    update_feature(record, params)
+}
+
+/// One `update_feature` of `record` with `params`, which are an object.
+pub(super) fn update_feature(record: &FeatureRecord, params: Value) -> Result<Edit, EngineError> {
     let Value::Object(params) = params else {
         return Err(EngineError::internal("feature params are an object"));
     };

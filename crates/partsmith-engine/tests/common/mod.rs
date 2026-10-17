@@ -433,6 +433,22 @@ pub fn set_rollback(feature: Option<&str>) -> Value {
     }
 }
 
+/// One `drag_sketch` frame of the sketch `f-sk1`: `point` dragged to `to`.
+pub fn drag_sketch(session: &mut Session, doc: u64, point: &str, to: [f64; 2]) -> Sent {
+    send(
+        session,
+        json!({"type": "drag_sketch", "doc": doc, "feature": "f-sk1", "point": point, "to": to}),
+    )
+}
+
+/// Ends the drag of the sketch `f-sk1` with `commit`.
+pub fn end_sketch_drag(session: &mut Session, doc: u64, commit: bool) -> Sent {
+    send(
+        session,
+        json!({"type": "end_sketch_drag", "doc": doc, "feature": "f-sk1", "commit": commit}),
+    )
+}
+
 /// The `list_elements` result elements.
 pub fn elements(session: &mut Session, doc: u64, body: &str, kind: Option<&str>) -> Vec<Value> {
     let mut command = json!({"type": "list_elements", "doc": doc, "body": body});
@@ -619,6 +635,17 @@ pub fn assert_placement(
             GEOMETRY_TOLERANCE,
             &format!("{what} {field}"),
         );
+    }
+}
+
+/// Asserts that a face `SketchPlane` JSON value has a fallback with this origin, x axis (1, 0, 0) and normal within the
+/// geometry tolerance, in `frame`: `Some("body")` for `fallback_frame: body`, `None` for no `fallback_frame` (world
+/// coordinates).
+pub fn assert_fallback(plane: &Value, origin: [f64; 3], normal: [f64; 3], frame: Option<&str>) {
+    assert_placement(&plane["fallback"], origin, X_AXIS, normal, "fallback");
+    match frame {
+        Some(frame) => assert_eq!(plane["fallback_frame"], frame, "{plane}"),
+        None => assert!(plane.get("fallback_frame").is_none(), "{plane}"),
     }
 }
 

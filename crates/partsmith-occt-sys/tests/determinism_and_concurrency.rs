@@ -1,6 +1,6 @@
 //! Acceptance tests for thread safety and determinism (kernel spec sections 3.10, 3.11 and tests
-//! 90 to 92, 104 to 107, 131 and 134). The WebAssembly build has no threads and cannot start
-//! processes, so the threaded tests and test 107 are ignored or left out there.
+//! 90 to 92, 104 to 107, 131, 132 and 134). The WebAssembly build has no threads and cannot
+//! start processes, so the threaded tests and test 107 are ignored or left out there.
 
 mod common;
 
@@ -8,20 +8,49 @@ use std::f64::consts::{FRAC_PI_2, TAU};
 use std::thread;
 
 use common::{
-    OPT, UP, box_primitive, box_with_displaced_corner, cube_a, cube_b, cube_c, edge_between,
-    face_with_role, l_body, l_body_with_round, planar_face, rectangle_profile,
-    rectangle_with_hole_profile, ring_profile, top_front_edge, xy_plane_at, z_axis,
+    OPT, UP, box_primitive, box_with_displaced_corner, cube_20, cube_a, cube_b, cube_c,
+    cube_with_vertical_rounds, edge_between, face_with_role, l_body, l_body_with_round,
+    planar_face, rectangle_profile, rectangle_with_hole_profile, ring_profile, top_front_edge,
+    xy_plane_at, z_axis,
 };
 use partsmith_mesh::Mesh;
 use partsmith_occt_sys::{
-    ChamferEdge, ChamferSize, Color, EdgeRadius, ElementGeometry, KernelError, OpResult, Plane,
-    Point, PrimitiveFace, Shape, StepBody, SubShapeKind, Topology, Transform, Vector, chamfer,
-    common, compound, cut, extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_sphere,
+    ChamferEdge, ChamferSize, Color, EdgeRadius, ElementGeometry, OpResult, Plane, Point,
+    PrimitiveFace, Shape, StepBody, SubShapeKind, Topology, Transform, Vector, chamfer, common,
+    compound, cut, extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_sphere,
     make_torus, read_step, revolve, section, shell, split, transform, write_step,
 };
 
 /// Number of threads in the concurrency tests.
 const THREADS: usize = 8;
+
+/// Runs on each thread in tests 90 and 134.
+const RUNS_PER_THREAD: usize = 20;
+
+/// Calls `run` from `THREADS` threads at once, `RUNS_PER_THREAD` times on each, and asserts that
+/// every call gives what a call on this thread alone gives.
+fn assert_same_on_every_thread<T: PartialEq + Send>(run: impl Fn() -> T + Sync) {
+    let reference = run();
+
+    let results: Vec<Vec<T>> = thread::scope(|scope| {
+        let handles: Vec<_> = (0..THREADS)
+            .map(|_| scope.spawn(|| (0..RUNS_PER_THREAD).map(|_| run()).collect()))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("the thread finishes"))
+            .collect()
+    });
+
+    for (thread_number, runs) in results.iter().enumerate() {
+        for (run_number, result) in runs.iter().enumerate() {
+            assert!(
+                *result == reference,
+                "thread {thread_number} run {run_number} differs from the single-threaded run"
+            );
+        }
+    }
+}
 
 /// Everything test 90 computes from one shape.
 #[derive(Debug, PartialEq)]
@@ -99,26 +128,8 @@ fn t090_shared_fillet_result_measures_identically_on_every_thread() {
     let rounded = fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }])
         .expect("TF is filleted")
         .shape;
-    let reference = measure(&rounded);
 
-    let results: Vec<Vec<Measurements>> = thread::scope(|scope| {
-        let handles: Vec<_> = (0..THREADS)
-            .map(|_| scope.spawn(|| (0..20).map(|_| measure(&rounded)).collect()))
-            .collect();
-        handles
-            .into_iter()
-            .map(|handle| handle.join().expect("the thread finishes"))
-            .collect()
-    });
-
-    for (thread_number, runs) in results.iter().enumerate() {
-        for (run, measurements) in runs.iter().enumerate() {
-            assert!(
-                *measurements == reference,
-                "thread {thread_number} run {run} differs from the single-threaded run"
-            );
-        }
-    }
+    assert_same_on_every_thread(|| measure(&rounded));
 }
 
 #[test]
@@ -154,72 +165,23 @@ fn t091_concurrent_step_round_trips_match_single_threaded_ones() {
     }
 }
 
-/// Test 134's body: a 20 mm cube with the corner (-10, -10, 0) fused with a 20 x 40 x 20 box
-/// with the corner (10, -20, 0), so their tops merge into one face and their fronts do not.
-fn cube_beside_a_wider_box() -> Shape {
-    let cube =
-        make_box(&xy_plane_at(-10.0, -10.0, 0.0), 20.0, 20.0, 20.0).expect("the cube builds");
+/// `CB` of test 134: a 20 mm cube with the corner (-10, -10, 0) fused with a 20 x 40 x 20 box
+/// with the corner (10, -20, 0), so their tops merge into one face and their fronts do not. Also
+/// returns the cube's front and `E`, its edge with the merged top, which ends at the wider box's
+/// side.
+fn cube_beside_a_wider_box() -> (Shape, u32, u32) {
     let wider = make_box(&xy_plane_at(10.0, -20.0, 0.0), 20.0, 40.0, 20.0).expect("the box builds");
-    fuse(&cube.shape, &[wider.shape])
+    let body = fuse(&cube_20().shape, &[wider.shape])
         .expect("the boxes fuse")
-        .shape
-}
-
-/// The cube's front in `cube_beside_a_wider_box`, and its edge with the merged top, which ends at
-/// the wider box's side.
-fn front_and_top_edge(body: &Shape) -> (u32, u32) {
+        .shape;
     let front = planar_face(
-        body,
+        &body,
         Vector::new(0.0, -1.0, 0.0),
         Point::new(0.0, -10.0, 10.0),
     );
-    let top = planar_face(body, UP, Point::new(40.0 / 3.0, 0.0, 20.0));
-    (front, edge_between(body, front, top))
-}
-
-/// Test 134's chamfer: 1 mm on the cube's front and 3 mm on the merged top.
-fn chamfer_beside_a_wider_box(body: &Shape) -> Result<Outcome, KernelError> {
-    let (front, edge) = front_and_top_edge(body);
-    let size = ChamferSize::TwoDistances {
-        distance: 1.0,
-        other_distance: 3.0,
-        face: front,
-    };
-    chamfer(body, &[ChamferEdge { edge, size }]).map(|result| Outcome::of_result(&result))
-}
-
-/// Test 134's fillet: the same edge rounded with radius 2.
-fn fillet_beside_a_wider_box(body: &Shape) -> Result<Outcome, KernelError> {
-    let (_, edge) = front_and_top_edge(body);
-    fillet(body, &[EdgeRadius { edge, radius: 2.0 }]).map(|result| Outcome::of_result(&result))
-}
-
-/// Runs `blend` on `body` from `THREADS` threads at once, 20 times on each, and asserts that every
-/// run gives the outcome of a run on this thread alone.
-fn assert_same_on_every_thread(body: &Shape, blend: fn(&Shape) -> Result<Outcome, KernelError>) {
-    let reference = blend(body).expect("the single-threaded blend builds");
-
-    let results: Vec<Vec<Result<Outcome, KernelError>>> = thread::scope(|scope| {
-        let handles: Vec<_> = (0..THREADS)
-            .map(|_| scope.spawn(|| (0..20).map(|_| blend(body)).collect()))
-            .collect();
-        handles
-            .into_iter()
-            .map(|handle| handle.join().expect("the thread finishes"))
-            .collect()
-    });
-
-    for (thread_number, runs) in results.iter().enumerate() {
-        for (run, outcome) in runs.iter().enumerate() {
-            match outcome {
-                Ok(outcome) => assert!(
-                    *outcome == reference,
-                    "thread {thread_number} run {run} differs from the single-threaded run"
-                ),
-                Err(error) => panic!("thread {thread_number} run {run} failed: {error:?}"),
-            }
-        }
-    }
+    let top = planar_face(&body, UP, Point::new(40.0 / 3.0, 0.0, 20.0));
+    let edge = edge_between(&body, front, top);
+    (body, front, edge)
 }
 
 #[test]
@@ -228,7 +190,18 @@ fn assert_same_on_every_thread(body: &Shape, blend: fn(&Shape) -> Result<Outcome
     ignore = "the WebAssembly build has no threads"
 )]
 fn t134_chamfers_built_on_every_thread_match_a_single_threaded_one() {
-    assert_same_on_every_thread(&cube_beside_a_wider_box(), chamfer_beside_a_wider_box);
+    // 1 mm on the cube's front and 3 mm on the merged top.
+    let (body, front, edge) = cube_beside_a_wider_box();
+    let size = ChamferSize::TwoDistances {
+        distance: 1.0,
+        other_distance: 3.0,
+        face: front,
+    };
+    let edges = [ChamferEdge { edge, size }];
+
+    assert_same_on_every_thread(|| {
+        Outcome::of_result(&chamfer(&body, &edges).expect("CB chamfers"))
+    });
 }
 
 #[test]
@@ -237,7 +210,10 @@ fn t134_chamfers_built_on_every_thread_match_a_single_threaded_one() {
     ignore = "the WebAssembly build has no threads"
 )]
 fn t134_fillets_built_on_every_thread_match_a_single_threaded_one() {
-    assert_same_on_every_thread(&cube_beside_a_wider_box(), fillet_beside_a_wider_box);
+    let (body, _, edge) = cube_beside_a_wider_box();
+    let edges = [EdgeRadius { edge, radius: 2.0 }];
+
+    assert_same_on_every_thread(|| Outcome::of_result(&fillet(&body, &edges).expect("CB fillets")));
 }
 
 #[test]
@@ -326,10 +302,10 @@ fn results_do_not_depend_on_earlier_operations() {
 /// Runs of each operation in tests 104 to 106.
 const REPEATS: usize = 4;
 
-/// What every run of an operation must reproduce exactly (section 3.11): the BRep bytes of its
-/// shape, the bits of the shape's volume and center of mass, its topology, and the rest of its
-/// output (history, roles, sides, meshes, bytes) in `Debug` form, which prints every `f64` so
-/// that it reads back to the same bits.
+/// What every run of an operation must reproduce exactly (sections 3.10 and 3.11): the BRep
+/// bytes of its shape, the bits of the shape's volume and center of mass, its topology, and the
+/// rest of its output (history, roles, sides, meshes, bytes) in `Debug` form, which prints every
+/// `f64` so that it reads back to the same bits.
 #[derive(Debug, PartialEq)]
 struct Outcome {
     brep: Vec<u8>,
@@ -479,25 +455,10 @@ fn l_shell_fallback() -> Outcome {
 
 // Test 131: walls thicker than the rounds, whose inner offsets vanish.
 
-/// `RC` of test 131: a 20 mm cube from (-10,-10,0) with its 4 edges parallel to Z rounded at
-/// radius 2, and the index of its top face.
+/// `RC` of test 131: the 20 mm cube with its 4 edges parallel to Z rounded at radius 2, and the
+/// index of its top face.
 fn rounded_cube() -> (Shape, u32) {
-    let cube =
-        make_box(&xy_plane_at(-10.0, -10.0, 0.0), 20.0, 20.0, 20.0).expect("the 20 mm cube builds");
-    let face = |role| face_with_role(&cube, role);
-    let edges = [
-        (PrimitiveFace::Front, PrimitiveFace::Left),
-        (PrimitiveFace::Front, PrimitiveFace::Right),
-        (PrimitiveFace::Back, PrimitiveFace::Left),
-        (PrimitiveFace::Back, PrimitiveFace::Right),
-    ]
-    .map(|(first, second)| EdgeRadius {
-        edge: edge_between(&cube.shape, face(first), face(second)),
-        radius: 2.0,
-    });
-    let rounded = fillet(&cube.shape, &edges)
-        .expect("the vertical edges round")
-        .shape;
+    let rounded = cube_with_vertical_rounds(2.0, 2.0);
     let top = planar_face(&rounded, UP, Point::new(0.0, 0.0, 20.0));
     (rounded, top)
 }

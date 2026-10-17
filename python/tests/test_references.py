@@ -188,7 +188,7 @@ def edge_axis_text(directory: Path) -> str:
         with Sketch(Plane.XY, id="f-sk1") as sketch:
             rectangle_lines(1, 0, 0, 40, 20)
         extrude(sketch, 10, id="f-ext1")
-        # Unpacked, not indexed: indexing a selection warns (section 3.6).
+        # Unpacking checks that the selection holds exactly this one edge.
         [left_wall_bottom] = edges().bottom().min(Axis.X)
         linear_pattern(left_wall_bottom, 2, 30, id="f-lp1")
     return document.to_text()

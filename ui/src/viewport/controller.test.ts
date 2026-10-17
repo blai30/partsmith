@@ -35,12 +35,8 @@ import {
 import { onUiRequest } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
-import {
-  INITIAL_STATE,
-  type AppState,
-  type DocumentState,
-  type SketchSession,
-} from '../state/store'
+import { planePickingSession } from '../sketch/fixtures.testing'
+import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import type { FakeCoreApi } from '../test/fakes/core-api'
 import { deferred } from '../test/fakes/deferred'
@@ -1257,19 +1253,30 @@ function attachCall(sketch2: FeatureRecord, plane: SketchPlane): unknown[] {
   return [1, "Attach 'Sketch 2'", [{ type: 'update_feature', feature: { ...sketch2, plane } }]]
 }
 
-describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
-  const PLANE_PICKING_SESSION: SketchSession = {
-    sketchId: null,
-    reattaching: null,
-    tool: null,
-    construction: false,
-    showConstraints: true,
-    selection: [],
-    dragging: false,
-    cameraBefore: null,
-  }
+/** Re-attaching `sketch2`, the last feature but `after`, by a click on `face` (3.16.1). */
+async function attachByClick(
+  sketch2: FeatureRecord,
+  face: ElementDescriptor,
+  after: readonly FeatureRecord[] = [],
+): Promise<Fixture> {
+  const fixture = setUp({
+    document: documentState(
+      { ...CUBE_DOCUMENT, features: [...featuresOf(CUBE_DOCUMENT), sketch2, ...after] },
+      { name: 'cube', meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) } },
+    ),
+    state: { context: 'sketch', sketch: planePickingSession('f-sk2') },
+    prepare: (core) => {
+      core.stub('pickReference', () => Promise.resolve(face))
+    },
+  })
+  pickElement(fixture, 'face', 0)
+  click(fixture.canvas, 400, 300)
+  await settle()
+  return fixture
+}
 
-  const PLANE_PICKING: Partial<AppState> = { context: 'sketch', sketch: PLANE_PICKING_SESSION }
+describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
+  const PLANE_PICKING: Partial<AppState> = { context: 'sketch', sketch: planePickingSession() }
 
   /** The top's placement after a Move body by (100, 0, 0), and its fallback in body coordinates. */
   const MOVED_TOP_PLACEMENT: Placement = {
@@ -1336,28 +1343,6 @@ describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
       },
     ])
   })
-
-  /** Re-attaching `sketch2`, the last feature but `after`, by a click on `face` (3.16.1). */
-  async function attachByClick(
-    sketch2: FeatureRecord,
-    face: ElementDescriptor,
-    after: readonly FeatureRecord[] = [],
-  ): Promise<Fixture> {
-    const fixture = setUp({
-      document: documentState(
-        { ...CUBE_DOCUMENT, features: [...featuresOf(CUBE_DOCUMENT), sketch2, ...after] },
-        { name: 'cube', meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) } },
-      ),
-      state: { context: 'sketch', sketch: { ...PLANE_PICKING_SESSION, reattaching: 'f-sk2' } },
-      prepare: (core) => {
-        core.stub('pickReference', () => Promise.resolve(face))
-      },
-    })
-    pickElement(fixture, 'face', 0)
-    click(fixture.canvas, 400, 300)
-    await settle()
-    return fixture
-  }
 
   it("U-146 re-attaching 'Sketch 2' with its fallback in body coordinates: a picked flat face commits one update labeled \"Attach 'Sketch 2'\" with its full reference and its descriptor's fallback in body coordinates", async () => {
     const sketch2 = lostFaceSketch('body')

@@ -4,20 +4,20 @@
 //! the sketch stands in the coordinates that keep its motion (`kept_face_plane`): body
 //! coordinates, unless that would give the faces built from the sketch another motion.
 
-use partsmith_features::{OutputData, SketchResult};
+use partsmith_features::SketchResult;
 use partsmith_model::{Edit, FeatureRecord, Id};
 use partsmith_naming::{Motion, Reference};
 use partsmith_sketch::{Placement, PointRef, RegionRef, SketchParams, SketchPlane};
 use serde_json::{Map, Value};
 
-use super::edits::updated;
+use super::edits::{update_feature, updated};
 use super::renames::PointRenames;
 use crate::error::EngineError;
-use crate::frames::{FlatFace, keeping_frame, kept_face_plane};
+use crate::frames::{face_placement, keeping_frame, kept_face_plane};
 use crate::params::{set, stored_references, visit_sketch_uses};
 use crate::run::FeatureView;
 use crate::sketch::sketch_params;
-use crate::state::built_output;
+use crate::state::built_sketch;
 
 impl FeatureView<'_> {
     /// The edits of `Attach` (section 3.22): one `update_feature` of `sketch` with its plane on
@@ -30,14 +30,19 @@ impl FeatureView<'_> {
         body: &Id,
         face: &Reference,
     ) -> Result<Vec<Edit>, EngineError> {
-        let sketch = self.sketch_view(sketch)?;
-        let standing = standing(&sketch)?;
-        let state = sketch.state_before(body);
-        let placement = FlatFace::resolved(&state, face)
-            .and_then(|flat| flat.placement(&standing.placement))
+        let view = self.sketch_view(sketch)?;
+        let standing = standing(&view)?;
+        let state = view.state_before(body);
+        let placement = face_placement(&state, face, &standing.placement)
             .ok_or_else(|| EngineError::internal("an attach names no flat face"))?;
-        let plane = kept_plane(body, face, &placement, &state.motion(&face.query), standing)?;
-        Ok(vec![updated(sketch.record, |params| {
+        let plane = kept_plane_params(
+            body,
+            face,
+            &placement,
+            &state.motion(&face.query),
+            &standing.motion,
+        )?;
+        Ok(vec![updated(view.record, |params| {
             set(params, "/plane", plane)
         })?])
     }
@@ -69,7 +74,7 @@ impl FeatureView<'_> {
         };
         let standing = standing(&view)?;
         let motion = view.state_before(body).motion(&face.query);
-        let plane = kept_plane(body, face, &standing.placement, &motion, standing)?;
+        let plane = kept_plane_params(body, face, &standing.placement, &motion, &standing.motion)?;
         let mirrored = drawing.mirrored();
         let entities = json(serde_json::to_value(&mirrored.entities))?;
         let constraints = json(serde_json::to_value(&mirrored.constraints))?;
@@ -103,24 +108,20 @@ impl FeatureView<'_> {
 /// built from it inherit. A frame fix is offered only by a message of a run in which its sketch
 /// built.
 fn standing<'v>(sketch: &FeatureView<'v>) -> Result<&'v SketchResult, EngineError> {
-    match built_output(sketch.report).map(|output| &output.data) {
-        Some(OutputData::Sketch(result)) => Ok(result),
-        _ => Err(EngineError::internal(
-            "a frame fix names a sketch that did not build",
-        )),
-    }
+    built_sketch(sketch.report)
+        .ok_or_else(|| EngineError::internal("a frame fix names a sketch that did not build"))
 }
 
 /// The plane a frame fix stores, as params JSON: `placement` on `face` of `body`, whose motion is
-/// `face_motion`, in the coordinates that keep the motion of the sketch `standing` describes.
-fn kept_plane(
+/// `face_motion`, in the coordinates that keep the sketch's motion `kept`.
+fn kept_plane_params(
     body: &Id,
     face: &Reference,
     placement: &Placement,
     face_motion: &Motion,
-    standing: &SketchResult,
+    kept: &Motion,
 ) -> Result<Value, EngineError> {
-    let plane = kept_face_plane(body, face, placement, face_motion, &standing.motion)
+    let plane = kept_face_plane(body, face, placement, face_motion, kept)
         .ok_or_else(|| EngineError::internal("a frame fix changes its sketch's motion"))?;
     json(serde_json::to_value(plane))
 }
@@ -170,15 +171,10 @@ fn turned_back_record(
     for (from, to) in swapped {
         renames.add(&record.id, from, to);
     }
-    Ok(match params {
-        Value::Object(params) if params != record.params => Some(Edit::UpdateFeature {
-            feature: FeatureRecord {
-                params,
-                ..record.clone()
-            },
-        }),
-        _ => None,
-    })
+    if params.as_object() == Some(&record.params) {
+        return Ok(None);
+    }
+    update_feature(record, params).map(Some)
 }
 
 /// Rewrites each entry of the list at `key` of `members` that `mirror` gives a mirrored value;

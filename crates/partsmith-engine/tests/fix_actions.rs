@@ -19,20 +19,20 @@ mod common;
 mod corpus;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, apply, assert_bounding_box, assert_near,
-    assert_placement, assert_point2, assert_point3, assert_relative, doc_handle, element_named,
-    get_document, measure_body, number, open_text, point2, point3, revision, saved_text, send,
-    session, set_rollback,
+    GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, apply, assert_bounding_box, assert_fallback,
+    assert_near, assert_placement, assert_point2, assert_point3, assert_relative, doc_handle,
+    element_named, get_document, measure_body, number, open_text, point2, point3, revision,
+    saved_text, send, session, set_rollback,
 };
 use corpus::{
-    EDIT_LABEL, action, actions, after_edit, apply_fix, back_line_notched, block_back_side,
-    block_edited, block_right_side, bosses_on_a_moved_box, box_record, cube10, datum_offset,
-    datum_on_a_split_side, datum_on_face, document, document_with, edited_text, face_plane,
-    faces_of, features, fix_ref, labels, linear_pattern, message, messages, moved_by_100, nc11,
-    parameter, picked_before, point, r03, r06a, r16, r23a, r26_recreated, r28, r32b,
-    r32b_chamfered_hole_at_an_arc_end, r32b_moved, r32b_pocket, r33, r50, r56b, r66, record,
-    redrawn_beside_a_split, redrawn_beside_a_split_with_a_face_sketch, reference, repairs,
-    right_side_redrawn_in_two, send_fix, sketch, statuses, two_areas, upper_boss_axis, volume,
+    EDIT_LABEL, UPPER_BOSS_WALL, action, actions, after_edit, apply_fix, axis_xy,
+    back_line_notched, block_back_side, block_edited, block_right_side, bosses_on_a_moved_box,
+    box_record, cube10, datum_offset, datum_on_a_split_side, datum_on_face, document,
+    document_with, edited_text, face_plane, faces_of, features, fix_ref, labels, linear_pattern,
+    message, messages, moved_by_100, nc11, parameter, picked_before, point, r03, r06a, r16, r23a,
+    r26_recreated, r28, r32b, r32b_chamfered_hole_at_an_arc_end, r32b_moved, r32b_pocket, r33, r50,
+    r56b, r66, record, redrawn_beside_a_split, redrawn_beside_a_split_with_a_face_sketch,
+    reference, repairs, right_side_redrawn_in_two, send_fix, sketch, statuses, two_areas, volume,
     without_keys,
 };
 use partsmith_engine::Session;
@@ -381,8 +381,8 @@ fn candidates_at(sent: &Sent, feature: &str, path: &str) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// The `Attach` labels a sketch's own message offers for its candidates (section 3.22): `Attach to {description}`,
-/// those of candidates with `meaning` first (features/sketch.md section 3.5), each group in candidate order.
+/// The `Attach` labels a sketch's own message offers for its candidates (`attach_label`), those of candidates with
+/// `meaning` first (features/sketch.md section 3.5), each group in candidate order.
 fn attach_labels(candidates: &[Value]) -> Vec<String> {
     let (with_meaning, without_meaning): (Vec<&Value>, Vec<&Value>) = candidates
         .iter()
@@ -390,13 +390,16 @@ fn attach_labels(candidates: &[Value]) -> Vec<String> {
     with_meaning
         .into_iter()
         .chain(without_meaning)
-        .map(|candidate| {
-            let description = candidate["description"]
-                .as_str()
-                .expect("candidates have descriptions");
-            format!("Attach to {description}")
-        })
+        .map(attach_label)
         .collect()
+}
+
+/// The label of the `Attach` a sketch's own message offers for `candidate` (section 3.22): `Attach to {description}`.
+fn attach_label(candidate: &Value) -> String {
+    let description = candidate["description"]
+        .as_str()
+        .expect("candidates have descriptions");
+    format!("Attach to {description}")
 }
 
 #[test]
@@ -1208,23 +1211,18 @@ fn stored_regions(record: &Value) -> Vec<RegionRef> {
 }
 
 /// Asserts that `plane` is a face plane on `face` of `b-1` whose fallback has `origin`, x axis (1, 0, 0) and `normal`
-/// in body coordinates (`fallback_frame: body`).
-fn assert_body_fallback(plane: &Value, face: &Value, origin: [f64; 3], normal: [f64; 3]) {
+/// in `frame` (`assert_fallback`: `Some("body")` for body coordinates, `None` for world coordinates).
+fn assert_face_plane(
+    plane: &Value,
+    face: &Value,
+    origin: [f64; 3],
+    normal: [f64; 3],
+    frame: Option<&str>,
+) {
     assert_eq!(plane["kind"], "face", "{plane}");
     assert_eq!(plane["body"], "b-1", "{plane}");
     assert_eq!(&plane["face"], face, "{plane}");
-    assert_placement(&plane["fallback"], origin, X_AXIS, normal, "fallback");
-    assert_eq!(plane["fallback_frame"], "body", "{plane}");
-}
-
-/// Asserts that `plane` is a face plane on `face` of `b-1` whose fallback has `origin`, x axis (1, 0, 0) and `normal`
-/// in world coordinates (no `fallback_frame`).
-fn assert_world_fallback(plane: &Value, face: &Value, origin: [f64; 3], normal: [f64; 3]) {
-    assert_eq!(plane["kind"], "face", "{plane}");
-    assert_eq!(plane["body"], "b-1", "{plane}");
-    assert_eq!(&plane["face"], face, "{plane}");
-    assert_placement(&plane["fallback"], origin, X_AXIS, normal, "fallback");
-    assert!(plane.get("fallback_frame").is_none(), "{plane}");
+    assert_fallback(plane, origin, normal, frame);
 }
 
 /// Asserts that every feature named is ok with no message.
@@ -1239,12 +1237,9 @@ fn assert_ok_without_messages(sent: &Sent, features: &[&str]) {
 fn first_attach(sent: &Sent, sketch: &str) -> (Value, Value) {
     let candidates = candidates_at(sent, sketch, "/plane/face");
     let first = &candidates[0];
-    let description = first["description"]
-        .as_str()
-        .expect("candidates have descriptions");
     let attach = action(
         &message(sent, sketch, "plane_fallback"),
-        &format!("Attach to {description}"),
+        &attach_label(first),
     );
     (attach, first["reference"].clone())
 }
@@ -1263,10 +1258,13 @@ fn t135_r32b_turn_the_drawing_back_drills_the_hole_where_it_was_drawn() {
 
     assert_ok_without_messages(&applied, &["f-sk2", "f-hole1"]);
     // The bore's axis passes through world (20, 10), drilled from the bottom at z = -30 up to z = -20.
+    assert_point2(
+        axis_xy(&mut session, doc, "f-hole1/bore/e-p1"),
+        [20.0, 10.0],
+        GEOMETRY_TOLERANCE,
+        "bore axis",
+    );
     let bore = element_named(&mut session, doc, "b-1", "f-hole1/bore/e-p1");
-    let [x, y, _] = point3(&bore["axis"]["origin"]);
-    assert_near(x, 20.0, GEOMETRY_TOLERANCE, "bore axis x");
-    assert_near(y, 10.0, GEOMETRY_TOLERANCE, "bore axis y");
     assert_near(
         point3(&bore["axis"]["direction"])[2].abs(),
         1.0,
@@ -1314,11 +1312,12 @@ fn t135_r32b_turn_the_drawing_back_mirrors_the_drawing_and_stores_where_it_lies(
     assert_near(position[1], -10.0, GEOMETRY_TOLERANCE, "e-p1 v");
     // The placement on the turned-over face: origin (0, 0, -30), normal (0, 0, -1); nothing moved the block, so body
     // coordinates are world coordinates.
-    assert_body_fallback(
+    assert_face_plane(
         &sketch_after["plane"],
         &sketch_before["plane"]["face"],
         [0.0, 0.0, -30.0],
         [0.0, 0.0, -1.0],
+        Some("body"),
     );
     assert_eq!(
         record(&mut session, doc, "f-hole1"),
@@ -1359,12 +1358,12 @@ fn t135_turn_the_drawing_back_stores_the_mirrored_sketch_and_re_anchors_the_regi
     );
     // The mirrored reference names the region of the turned-back drawing by its key and outline.
     let expected_json = serde_json::to_value(&expected[0]).expect("region references serialize");
-    let solved = applied.sketch_solution("f-sk2")["regions"]
-        .as_array()
-        .expect("solutions list their regions")
-        .iter()
-        .map(|region| region["reference"].clone())
-        .find(|reference| reference["key"] == expected_json["key"])
+    let key = expected_json["key"]
+        .as_str()
+        .expect("region references have a key");
+    let solved = solved_regions(&applied, "f-sk2", &[key]);
+    let solved = solved
+        .first()
         .unwrap_or_else(|| panic!("the turned-back drawing has the region {expected_json}"));
     assert_eq!(solved["outline"], expected_json["outline"]);
     assert_ok_without_messages(&applied, &["f-sk2", "f-ext2"]);
@@ -1402,10 +1401,12 @@ fn t135_turn_the_drawing_back_renames_the_references_to_a_hole_at_an_arc_end() {
         "edge(f-ext1/end-cap|f-hole1/bore/e-5.end)"
     );
     assert_ok_without_messages(&applied, &["f-sk2", "f-hole1", "f-cha1"]);
-    let bore = element_named(&mut session, doc, "b-1", "f-hole1/bore/e-5.end");
-    let [x, y, _] = point3(&bore["axis"]["origin"]);
-    assert_near(x, 50.0, GEOMETRY_TOLERANCE, "bore axis x");
-    assert_near(y, 30.0, GEOMETRY_TOLERANCE, "bore axis y");
+    assert_point2(
+        axis_xy(&mut session, doc, "f-hole1/bore/e-5.end"),
+        [50.0, 30.0],
+        GEOMETRY_TOLERANCE,
+        "bore axis",
+    );
     assert_undo_restores(&mut session, doc, &turn["label"], &before);
 }
 
@@ -1421,11 +1422,12 @@ fn t135_r26_attach_puts_the_sketch_on_the_new_top_in_body_coordinates() {
     let applied = apply_as_one_entry(&mut session, doc, &attach);
 
     // The sketch stood at its saved position at z = 30; projected onto the new top, it stands at z = 80.
-    assert_body_fallback(
+    assert_face_plane(
         &record(&mut session, doc, "f-sk2")["plane"],
         &top,
         [0.0, 0.0, 80.0],
         Z_AXIS,
+        Some("body"),
     );
     assert_ok_without_messages(&applied, &["f-ext3", "f-sk2", "f-ext2"]);
     assert_relative(
@@ -1454,11 +1456,12 @@ fn t135_r33_attach_projects_where_the_sketch_stands_onto_the_new_top() {
 
     // The sketch stood where the top was before 'Extrude 1' cut it away, at z = 40; attached, it stands on the floor of
     // the cut at z = 35, where the boss now joins the box.
-    assert_body_fallback(
+    assert_face_plane(
         &record(&mut session, doc, "f-sk2")["plane"],
         &new_top,
         [0.0, 0.0, 35.0],
         Z_AXIS,
+        Some("body"),
     );
     assert_ok_without_messages(&applied, &["f-sk2", "f-ext2"]);
     assert_relative(
@@ -1515,11 +1518,12 @@ fn t135_attach_to_a_face_with_the_sketch_s_motion_stores_the_fallback_in_body_co
 
     let applied = apply_as_one_entry(&mut session, doc, &attach);
 
-    assert_body_fallback(
+    assert_face_plane(
         &record(&mut session, doc, "f-sk1")["plane"],
         &top,
         [3.0, 4.0, 10.0],
         Z_AXIS,
+        Some("body"),
     );
     assert_placement(
         &applied.sketch_solution("f-sk1")["placement"],
@@ -1546,11 +1550,12 @@ fn t135_attach_of_a_world_fallback_to_a_moved_face_keeps_world_coordinates() {
 
     let applied = apply_as_one_entry(&mut session, doc, &attach);
 
-    assert_world_fallback(
+    assert_face_plane(
         &record(&mut session, doc, "f-sk1")["plane"],
         &top,
         [3.0, 4.0, 10.0],
         Z_AXIS,
+        None,
     );
     assert_placement(
         &applied.sketch_solution("f-sk1")["placement"],
@@ -1607,12 +1612,7 @@ fn t135_attach_is_offered_only_for_faces_that_keep_the_sketch_s_motion() {
         "{queries:?}"
     );
     for (candidate, query) in candidates.iter().zip(&queries) {
-        let label = format!(
-            "Attach to {}",
-            candidate["description"]
-                .as_str()
-                .expect("candidates have descriptions")
-        );
+        let label = attach_label(candidate);
         assert_eq!(
             offered.contains(&label),
             query.starts_with("f-box1/"),
@@ -1643,7 +1643,7 @@ fn t135_attach_of_a_world_fallback_to_a_moved_face_moves_no_later_sketch() {
     let doc = doc_handle(&opened);
     let before = saved_text(&mut session, doc);
     assert_point2(
-        upper_boss_axis(&mut session, doc),
+        axis_xy(&mut session, doc, UPPER_BOSS_WALL),
         [100.0, 0.0],
         GEOMETRY_TOLERANCE,
         "boss axis before",
@@ -1653,15 +1653,16 @@ fn t135_attach_of_a_world_fallback_to_a_moved_face_moves_no_later_sketch() {
 
     let applied = apply_as_one_entry(&mut session, doc, &attach);
 
-    assert_world_fallback(
+    assert_face_plane(
         &record(&mut session, doc, "f-sk1")["plane"],
         &top,
         [0.0, 0.0, 40.0],
         Z_AXIS,
+        None,
     );
     assert_ok_without_messages(&applied, &["f-sk1", "f-ext1", "f-sk3", "f-ext3"]);
     assert_point2(
-        upper_boss_axis(&mut session, doc),
+        axis_xy(&mut session, doc, UPPER_BOSS_WALL),
         [100.0, 0.0],
         GEOMETRY_TOLERANCE,
         "boss axis after",
@@ -1701,7 +1702,7 @@ fn t135_turning_back_a_world_fallback_on_a_moved_face_moves_no_later_sketch() {
     let doc = doc_handle(&opened);
     let before = saved_text(&mut session, doc);
     assert_point2(
-        upper_boss_axis(&mut session, doc),
+        axis_xy(&mut session, doc, UPPER_BOSS_WALL),
         [100.0, 0.0],
         GEOMETRY_TOLERANCE,
         "boss axis before",
@@ -1714,15 +1715,16 @@ fn t135_turning_back_a_world_fallback_on_a_moved_face_moves_no_later_sketch() {
 
     let applied = apply_as_one_entry(&mut session, doc, &turn);
 
-    assert_world_fallback(
+    assert_face_plane(
         &record(&mut session, doc, "f-sk1")["plane"],
         &face,
         [0.0, 0.0, -40.0],
         [0.0, 0.0, -1.0],
+        None,
     );
     assert_ok_without_messages(&applied, &["f-sk1", "f-ext1", "f-sk3", "f-ext3"]);
     assert_point2(
-        upper_boss_axis(&mut session, doc),
+        axis_xy(&mut session, doc, UPPER_BOSS_WALL),
         [100.0, 0.0],
         GEOMETRY_TOLERANCE,
         "boss axis after",
@@ -1750,15 +1752,18 @@ fn t135_r32b_moved_turn_the_drawing_back_stores_the_placement_without_the_move()
 
     let applied = apply_as_one_entry(&mut session, doc, &turn);
 
-    assert_body_fallback(
+    assert_face_plane(
         &record(&mut session, doc, "f-sk2")["plane"],
         &face,
         [0.0, 0.0, -30.0],
         [0.0, 0.0, -1.0],
+        Some("body"),
     );
     assert_ok_without_messages(&applied, &["f-sk2", "f-hole1"]);
-    let bore = element_named(&mut session, doc, "b-1", "f-hole1/bore/e-p1");
-    let [x, y, _] = point3(&bore["axis"]["origin"]);
-    assert_near(x, 120.0, GEOMETRY_TOLERANCE, "bore axis x");
-    assert_near(y, 10.0, GEOMETRY_TOLERANCE, "bore axis y");
+    assert_point2(
+        axis_xy(&mut session, doc, "f-hole1/bore/e-p1"),
+        [120.0, 10.0],
+        GEOMETRY_TOLERANCE,
+        "bore axis",
+    );
 }

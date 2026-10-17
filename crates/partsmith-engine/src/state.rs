@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use partsmith_features::{BodyState, BodyUpdate, CancelToken, FeatureOutput, OutputData, Registry};
+use partsmith_features::{
+    BodyState, BodyUpdate, CancelToken, FeatureOutput, OutputData, Registry, SketchResult,
+};
 use partsmith_model::{Body, Document, Id};
 use partsmith_occt_sys::Shape;
 use partsmith_print::PrinterValues;
@@ -112,6 +114,14 @@ pub(crate) fn body_updates(report: &FeatureReport) -> &[BodyUpdate] {
     match built_output(report).map(|output| &output.data) {
         Some(OutputData::Bodies(updates)) => updates,
         _ => &[],
+    }
+}
+
+/// The result of a sketch that built; `None` for every other feature and status.
+pub(crate) fn built_sketch(report: &FeatureReport) -> Option<&SketchResult> {
+    match &built_output(report)?.data {
+        OutputData::Sketch(result) => Some(result),
+        _ => None,
     }
 }
 

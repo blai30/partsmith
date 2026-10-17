@@ -63,7 +63,8 @@ Plane.YZ = Plane("YZ")
 
 
 class Placement:
-    """A plane frame in model coordinates (protocol Placement).
+    """A plane frame (protocol Placement) in model coordinates, or in a part's body coordinates for
+    an element's `fallback` and for a sketch fallback given with `fallback_frame="body"`.
 
     `origin` holds raw lengths (plain numbers in document units), `x_axis` and `normal` unit
     vectors. Placements the engine reports hold millimeters.
@@ -80,7 +81,7 @@ class Placement:
     @classmethod
     def _from_protocol(cls, data: dict) -> Placement:
         """A placement the engine reported, in millimeters."""
-        # The engine's vectors need no argument checks; element lists build one or two per flat face.
+        # The engine's vectors need no argument checks; element lists build two per flat face (placement and fallback).
         placement = cls.__new__(cls)
         placement.origin = triple(data["origin"])
         placement.x_axis = triple(data["x_axis"])

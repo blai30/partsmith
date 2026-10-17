@@ -978,10 +978,12 @@ pub fn moved_by_100() -> Value {
     json!({"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]})
 }
 
-/// The x and y of the axis of the boss `f-ext3` of [`bosses_on_a_moved_box`].
-pub fn upper_boss_axis(session: &mut Session, doc: u64) -> [f64; 2] {
-    let wall = element_named(session, doc, "b-1", "f-ext3/lateral/e-10");
-    let origin = &wall["axis"]["origin"];
+/// The round wall of the boss `f-ext3` of [`bosses_on_a_moved_box`].
+pub const UPPER_BOSS_WALL: &str = "f-ext3/lateral/e-10";
+
+/// The x and y of the axis origin of the element of `b-1` named `element`.
+pub fn axis_xy(session: &mut Session, doc: u64, element: &str) -> [f64; 2] {
+    let origin = &element_named(session, doc, "b-1", element)["axis"]["origin"];
     [number(&origin[0]), number(&origin[1])]
 }
 

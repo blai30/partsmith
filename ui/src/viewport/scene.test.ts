@@ -11,6 +11,7 @@ import {
   rectSketchDocumentState,
 } from '../layout/fixtures.testing'
 import { DEFAULT_SETTINGS } from '../settings/settings'
+import { sketchSession } from '../sketch/fixtures.testing'
 import {
   createAppStore,
   type ActiveCommand,
@@ -18,7 +19,6 @@ import {
   type DocumentState,
   type HelperSketch,
   type SelectionItem,
-  type SketchSession,
 } from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import {
@@ -922,16 +922,7 @@ function gridDraws(frame: RenderFrame): readonly DrawCall[] {
 }
 
 describe('the grid (3.12)', () => {
-  const EDITING: SketchSession = {
-    sketchId: 'f-sk1',
-    reattaching: null,
-    tool: null,
-    construction: false,
-    showConstraints: true,
-    selection: [],
-    dragging: false,
-    cameraBefore: null,
-  }
+  const EDITING = sketchSession()
 
   it('draws minor lines at 35 and major lines at 70 percent, 1 pixel wide, depth-tested and never picked', () => {
     const fixture = cubeScene()
@@ -1110,16 +1101,7 @@ describe('axis colors (3.12, 3.16.2, U-183)', () => {
     'origin:XZ': true,
     'origin:YZ': true,
   }
-  const EDITING_SKETCH: SketchSession = {
-    sketchId: 'f-sk1',
-    reattaching: null,
-    tool: null,
-    construction: false,
-    showConstraints: true,
-    selection: [],
-    dragging: false,
-    cameraBefore: null,
-  }
+  const EDITING_SKETCH = sketchSession()
 
   function originState(theme: 'light' | 'dark', overrides: Partial<AppState> = {}): AppState {
     const base = cubeState()

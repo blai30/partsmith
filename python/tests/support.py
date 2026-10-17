@@ -77,6 +77,20 @@ def placement_json(placement: Placement) -> dict:
     return {"origin": list(placement.origin), "x_axis": list(placement.x_axis), "normal": list(placement.normal)}
 
 
+def descriptor(name: str, kind: str, centroid=(0.0, 0.0, 0.0), adjacent=(), **fields) -> dict:
+    """A protocol ElementDescriptor with a reference named after the element."""
+    return {
+        "name": name,
+        "kind": kind,
+        "body": "b-1",
+        "feature": "f-1",
+        "reference": {"q": name, "fp": f"fp-{name}"},
+        "centroid": list(centroid),
+        "adjacent": list(adjacent),
+        **fields,
+    }
+
+
 def partsmith_warnings(action: Callable[[], object]) -> list[warnings.WarningMessage]:
     """The PartsmithWarnings that `action()` emits."""
     with warnings.catch_warnings(record=True) as caught:

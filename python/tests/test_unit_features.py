@@ -1,7 +1,7 @@
 """Unit tests of the feature records partsmith.features builds and of their argument checks."""
 
 import pytest
-from support import reference_json, stored_feature
+from support import descriptor, reference_json, stored_feature
 
 from partsmith import (
     Axis,
@@ -450,27 +450,21 @@ def test_an_element_without_an_axis_direction_stores_no_direction():
     table = _ElementTable(
         part,
         [
-            {
-                "name": "ball",
-                "kind": "face",
-                "body": part.id,
-                "feature": "f-1",
-                "reference": {"q": "f-1/ball", "fp": "sphere|c=0,0,0|r=5"},
-                "surface": "sphere",
-                "centroid": [0.0, 0.0, 0.0],
-                "adjacent": [],
-            },
-            {
-                "name": "e-1",
-                "kind": "edge",
-                "body": part.id,
-                "feature": "f-1",
-                "reference": {"q": "edge(f-1/a|f-1/b)", "fp": "line|n=0,0,1"},
-                "curve": "line",
-                "centroid": [0.0, 0.0, 0.0],
-                "direction": [0.0, 0.0, 1.0],
-                "adjacent": [],
-            },
+            descriptor(
+                "ball",
+                "face",
+                body=part.id,
+                reference={"q": "f-1/ball", "fp": "sphere|c=0,0,0|r=5"},
+                surface="sphere",
+            ),
+            descriptor(
+                "e-1",
+                "edge",
+                body=part.id,
+                reference={"q": "edge(f-1/a|f-1/b)", "fp": "line|n=0,0,1"},
+                curve="line",
+                direction=[0.0, 0.0, 1.0],
+            ),
         ],
         revision=0,
     )
