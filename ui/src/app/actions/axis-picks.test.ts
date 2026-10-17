@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { ElementDescriptor } from '../../generated/protocol'
-import { CYLINDRICAL_FACE, cubeDocumentState, readyState } from '../../layout/fixtures.testing'
+import {
+  cubeDocumentState,
+  DIRECTED_CYLINDRICAL_FACE,
+  readyState,
+} from '../../layout/fixtures.testing'
 import { createModelApp } from '../../layout/test-app.testing'
 import { CUBE_TOP_FRONT_EDGE } from '../../test/fakes/documents'
 import { elementItem } from '../../test/fakes/selection'
@@ -12,9 +16,6 @@ import { capturePick, setActiveField, startFeatureCommand } from './command'
 
 /** The cube's top front edge with the axis direction the engine reports for it (engine.md 3.9). */
 const DIRECTED_EDGE: ElementDescriptor = { ...CUBE_TOP_FRONT_EDGE, axis_direction: [1, 0, 0] }
-
-/** The peg's side with its axis direction in body coordinates. */
-const DIRECTED_FACE: ElementDescriptor = { ...CYLINDRICAL_FACE, axis_direction: [0, 0, 1] }
 
 /** A command of `featureType` on cube.ptsm with its Axis field active. */
 async function axisCommand(featureType: string) {
@@ -38,11 +39,11 @@ describe('axis picks store the picked direction (2.12, U-143)', () => {
 
   it("U-143 a round face picked for Circular pattern's Axis stores its axis_direction as direction", async () => {
     const app = await axisCommand('circular_pattern')
-    await capturePick(app, elementItem(DIRECTED_FACE, 'Peg'))
+    await capturePick(app, elementItem(DIRECTED_CYLINDRICAL_FACE, 'Peg'))
     expect(app.store.getState().command?.params['axis']).toEqual({
       kind: 'face',
       body: 'b-peg',
-      face: DIRECTED_FACE.reference,
+      face: DIRECTED_CYLINDRICAL_FACE.reference,
       direction: [0, 0, 1],
     })
   })

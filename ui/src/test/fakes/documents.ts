@@ -327,6 +327,16 @@ export const CUBE_TOP_FACE: ElementDescriptor = {
   ],
 }
 
+/**
+ * The cube's top after a Move body by (100, 0, 0): its world placement at (100, 0, 20), and the same
+ * fallback in body coordinates as before the move (engine.md 3.9).
+ */
+export const CUBE_TOP_FACE_MOVED: ElementDescriptor = {
+  ...CUBE_TOP_FACE,
+  centroid: [100, 0, 20],
+  placement: { origin: [100, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+}
+
 /** The front face of the cube (cube.ptsm), facing -Y. */
 export const CUBE_FRONT_FACE: ElementDescriptor = {
   name: 'f-ext1/side-0',

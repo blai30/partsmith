@@ -7,8 +7,9 @@ import { COLOR_CLASSES } from '../theme/roles'
 import { candidateHandlers } from './candidates'
 import type { RepairCandidateView } from './repair'
 
-// The candidates of the current repair in the inspector banner (ui.md 3.7): numbered buttons
-// "{n}. {Description}" with the relation on a second line, in the order received; never a score.
+// The candidates of the current repair in the inspector banner (ui.md 3.7) and, while a sketch is
+// re-attached, the sketch header (3.16.1): numbered buttons "{n}. {Description}" with the relation
+// on a second line, in the order received; never a score.
 
 function CandidateButton({
   candidate,

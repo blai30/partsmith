@@ -811,6 +811,16 @@ describe('sketches and datum planes', () => {
   })
 })
 
+/** A Hole command whose Points field takes the picks. */
+const HOLE_POINTS_COMMAND: ActiveCommand = {
+  ...FILLET_EDGES_COMMAND,
+  featureType: 'hole',
+  featureId: 'f-hole1',
+  title: 'Hole',
+  params: {},
+  activeField: 'points',
+}
+
 describe('sketch point entities', () => {
   const POINT_SOLUTION: SketchSolution = {
     ...RECT_SKETCH_SOLUTION,
@@ -819,14 +829,6 @@ describe('sketch point entities', () => {
       { id: 'e-p1', type: 'point', position: [10, 5], constrained: 'under_constrained' },
     ],
     points: [...RECT_SKETCH_SOLUTION.points, { point: 'e-p1', at: [10, 5] }],
-  }
-  const HOLE_POINTS_COMMAND: ActiveCommand = {
-    ...FILLET_EDGES_COMMAND,
-    featureType: 'hole',
-    featureId: 'f-hole1',
-    title: 'Hole',
-    params: {},
-    activeField: 'points',
   }
 
   function pointTarget(overrides: Partial<AppState>): SelectionItem | null {
@@ -883,12 +885,8 @@ describe("a hole's helper points on a moved face (3.7)", () => {
     applied: false,
   }
   const HOLE_COMMAND: ActiveCommand = {
-    ...FILLET_EDGES_COMMAND,
-    featureType: 'hole',
-    featureId: 'f-hole1',
-    title: 'Hole',
+    ...HOLE_POINTS_COMMAND,
     params: { points: ['e-p1'], sketch: 'f-help1', body: 'b-cube' },
-    activeField: 'points',
     helper: HELPER,
   }
 

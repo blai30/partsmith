@@ -8,6 +8,7 @@ import {
   emptyDocument,
   withFeatureChanges,
 } from '../test/fakes/documents'
+import { lostEdgeRepair } from '../test/fakes/repairs'
 import { checkResult, finding, printReport, stateWithDocument } from '../test/fakes/state'
 import {
   editingSession,
@@ -17,8 +18,11 @@ import {
   selectFeatureLabel,
   selectHealthBadge,
   selectOriginVisible,
+  selectPointsIntoSketchPlane,
   selectProblemCount,
   selectProblems,
+  selectReattachingSketch,
+  selectSketchFaceLost,
   selectUnsaved,
 } from './selectors'
 import type { ActiveCommand, AppState, DocumentState, PrintState } from './store'
@@ -164,6 +168,53 @@ describe('editingSession and selectEditedSketch', () => {
     const state = stateWithDocument(CUBE_DOCUMENT, { sketch: SESSION })
     expect(editingSession(state)).toBeNull()
     expect(selectEditedSketch(state)).toBeUndefined()
+  })
+})
+
+/** cube.ptsm with a warning on `feature` whose one repair is at `path`. */
+function withRepairAt(feature: string, path: string): AppState {
+  return stateWithDocument(
+    CUBE_DOCUMENT,
+    {},
+    {
+      featureStatus: {
+        [feature]: {
+          id: feature,
+          status: 'warning',
+          messages: [],
+          repairs: [lostEdgeRepair({ path })],
+        },
+      },
+    },
+  )
+}
+
+describe('re-attaching selectors (3.16.1)', () => {
+  it('selectReattachingSketch gives the re-attached sketch in sketch mode only', () => {
+    const session = planePickingSession('f-sk1')
+    expect(
+      selectReattachingSketch(
+        stateWithDocument(CUBE_DOCUMENT, { context: 'sketch', sketch: session }),
+      ),
+    ).toBe('f-sk1')
+    expect(
+      selectReattachingSketch(stateWithDocument(CUBE_DOCUMENT, { sketch: session })),
+    ).toBeNull()
+  })
+
+  it("selectPointsIntoSketchPlane is true for a sketch's plane and the pointers in it", () => {
+    const state = stateWithDocument(CUBE_DOCUMENT)
+    expect(selectPointsIntoSketchPlane(state, 'f-sk1', '/plane')).toBe(true)
+    expect(selectPointsIntoSketchPlane(state, 'f-sk1', '/plane/face')).toBe(true)
+    expect(selectPointsIntoSketchPlane(state, 'f-sk1', '/planes')).toBe(false)
+    expect(selectPointsIntoSketchPlane(state, 'f-ext1', '/plane')).toBe(false)
+  })
+
+  it('selectSketchFaceLost is true for a sketch with a repair in its plane', () => {
+    expect(selectSketchFaceLost(withRepairAt('f-sk1', '/plane/face'), 'f-sk1')).toBe(true)
+    expect(selectSketchFaceLost(withRepairAt('f-sk1', '/entities/0'), 'f-sk1')).toBe(false)
+    expect(selectSketchFaceLost(stateWithDocument(CUBE_DOCUMENT), 'f-sk1')).toBe(false)
+    expect(selectSketchFaceLost(withRepairAt('f-ext1', '/plane'), 'f-ext1')).toBe(false)
   })
 })
 

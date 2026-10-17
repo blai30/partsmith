@@ -18,7 +18,7 @@ import { CONSTRAINT_ICONS } from '../commands/icons'
 import type { WorldAxis } from '../core/labels'
 import type { ConstraintSolveState, SketchSolution } from '../generated/protocol'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
-import { selectEditedSketch } from '../state/selectors'
+import { selectEditedSketch, selectSketchRecord } from '../state/selectors'
 import { AXIS_ROLES, COLOR_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
 import { useCanvasLayer } from '../viewport/canvas-layer'
 import { hideLabelsUnderCards, positionElement } from '../viewport/overlay'
@@ -276,9 +276,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
   const ringTitles = useAppState(
     useShallow((state) => ringTitlesOf(state.document?.sketches[sketchId]?.solution)),
   )
-  const record = useAppState(
-    (state) => state.document?.recipe.features?.find((feature) => feature.id === sketchId) ?? null,
-  )
+  const record = useAppState((state) => selectSketchRecord(state, sketchId))
   const showConstraints = useAppState((state) => state.sketch?.showConstraints ?? true)
   const selection = useAppState((state) => state.sketch?.selection ?? null)
   const theme = useResolvedTheme()
@@ -286,7 +284,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
   const colors = VIEWPORT_COLORS[theme]
 
   const constraints = useMemo(
-    () => (record?.type === 'sketch' ? (sketchParamsOf(record)?.constraints ?? []) : []),
+    () => (record === null ? [] : (sketchParamsOf(record)?.constraints ?? [])),
     [record],
   )
   const glyphConstraints = useMemo(() => constraints.filter(hasGlyph), [constraints])

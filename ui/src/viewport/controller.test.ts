@@ -10,10 +10,7 @@ import type {
   ElementDescriptor,
   ElementRef,
   FeatureRecord,
-  HintFrame,
-  Placement,
   Resolution,
-  SketchPlane,
 } from '../generated/protocol'
 import {
   bodyMeshEvent,
@@ -41,13 +38,13 @@ import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import type { FakeCoreApi } from '../test/fakes/core-api'
 import { deferred } from '../test/fakes/deferred'
 import {
-  CUBE_DOCUMENT,
   CUBE_FEATURES_DOCUMENT,
   CUBE_FRONT_FACE,
   CUBE_TOP_FACE,
+  CUBE_TOP_FACE_MOVED,
   CUBE_TOP_FRONT_EDGE,
-  featuresOf,
 } from '../test/fakes/documents'
+import { attachCall, cubeWithSketch, lostFaceSketch } from '../test/fakes/repairs'
 import { bodyItem, elementItem, featureItem } from '../test/fakes/selection'
 import { stubResizeObserver, type FakeResizeObservers } from '../test/fakes/resize-observer'
 import { settle } from '../test/fakes/settle'
@@ -1230,29 +1227,6 @@ describe('clicks into a command (3.7)', () => {
   })
 })
 
-/** 'Sketch 2', a circle on a face the cube lost, with its fallback in `frame` coordinates. */
-function lostFaceSketch(frame: HintFrame): FeatureRecord {
-  return {
-    id: 'f-sk2',
-    type: 'sketch',
-    plane: {
-      kind: 'face',
-      body: 'b-cube',
-      face: { q: 'f-gone/top', fp: 'plane|n=0,0,1|c=0,0,40|a=400|adj=4,4' },
-      fallback: { origin: [0, 0, 40], x_axis: [1, 0, 0], normal: [0, 0, 1] },
-      // World coordinates, the default, are written without the frame.
-      ...(frame === 'body' ? { fallback_frame: 'body' } : {}),
-    },
-    entities: [{ id: 'e-1', type: 'circle', center: [0, 0], radius: 3 }],
-    constraints: [],
-  }
-}
-
-/** The one `applyEdits` call of an attach: "Attach 'Sketch 2'" storing `plane` in `sketch2`. */
-function attachCall(sketch2: FeatureRecord, plane: SketchPlane): unknown[] {
-  return [1, "Attach 'Sketch 2'", [{ type: 'update_feature', feature: { ...sketch2, plane } }]]
-}
-
 /** Re-attaching `sketch2`, the last feature but `after`, by a click on `face` (3.16.1). */
 async function attachByClick(
   sketch2: FeatureRecord,
@@ -1260,10 +1234,10 @@ async function attachByClick(
   after: readonly FeatureRecord[] = [],
 ): Promise<Fixture> {
   const fixture = setUp({
-    document: documentState(
-      { ...CUBE_DOCUMENT, features: [...featuresOf(CUBE_DOCUMENT), sketch2, ...after] },
-      { name: 'cube', meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) } },
-    ),
+    document: documentState(cubeWithSketch(sketch2, after), {
+      name: 'cube',
+      meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },
+    }),
     state: { context: 'sketch', sketch: planePickingSession('f-sk2') },
     prepare: (core) => {
       core.stub('pickReference', () => Promise.resolve(face))
@@ -1275,27 +1249,16 @@ async function attachByClick(
   return fixture
 }
 
-describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
+describe('clicks while a plane is picked for a new or re-attached sketch (3.16.1)', () => {
   const PLANE_PICKING: Partial<AppState> = { context: 'sketch', sketch: planePickingSession() }
-
-  /** The top's placement after a Move body by (100, 0, 0), and its fallback in body coordinates. */
-  const MOVED_TOP_PLACEMENT: Placement = {
-    origin: [100, 0, 20],
-    x_axis: [1, 0, 0],
-    normal: [0, 0, 1],
-  }
-  const MOVED_TOP_FALLBACK: Placement = { origin: [0, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] }
 
   /** The cube's top after a Move body by (100, 0, 0), with its full reference (engine.md 3.9). */
   const MOVED_TOP_FACE: ElementDescriptor = {
-    ...CUBE_TOP_FACE,
+    ...CUBE_TOP_FACE_MOVED,
     reference: {
       ...CUBE_TOP_FACE.reference,
       merged: { 'f-ext1/end-cap': ['f-ext2/end-cap'] },
     },
-    centroid: [100, 0, 20],
-    placement: MOVED_TOP_PLACEMENT,
-    fallback: MOVED_TOP_FALLBACK,
   }
 
   it('starts the sketch on a flat face', async () => {
@@ -1352,7 +1315,7 @@ describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
         kind: 'face',
         body: 'b-cube',
         face: MOVED_TOP_FACE.reference,
-        fallback: MOVED_TOP_FALLBACK,
+        fallback: { origin: [0, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
         fallback_frame: 'body',
       }),
     ])
@@ -1368,7 +1331,7 @@ describe('clicks while a plane is picked for a new sketch (3.16.1)', () => {
         kind: 'face',
         body: 'b-cube',
         face: MOVED_TOP_FACE.reference,
-        fallback: MOVED_TOP_PLACEMENT,
+        fallback: { origin: [100, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
       }),
     ])
     expect(fixture.app.store.getState().sketch).toMatchObject({ sketchId: 'f-sk2' })

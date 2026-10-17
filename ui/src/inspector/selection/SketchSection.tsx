@@ -12,6 +12,7 @@ import { useApp } from '../../app/AppProvider'
 import { reportFailure } from '../../app/report'
 import { CONSTRAINT_ICONS } from '../../commands/icons'
 import { Button } from '../../components/Button'
+import { sketchRecord } from '../../core/recipe'
 import { Switch } from '../../components/Switch'
 import { ExpressionInput } from '../../expression/ExpressionInput'
 import type { SketchConstraint, SketchSolution } from '../../generated/protocol'
@@ -201,8 +202,8 @@ export function SketchSection({
   const app = useApp()
   const sketchId = state.sketch?.sketchId ?? null
   const solution = sketchId === null ? null : (document.sketches[sketchId]?.solution ?? null)
-  const record = document.recipe.features?.find((feature) => feature.id === sketchId)
-  const params = record === undefined ? null : sketchParamsOf(record)
+  const record = sketchId === null ? null : sketchRecord(document.recipe, sketchId)
+  const params = record === null ? null : sketchParamsOf(record)
   const [only] = items
   const constraintId =
     items.length === 1 && only?.sketchItem?.kind === 'constraint'

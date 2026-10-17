@@ -198,13 +198,11 @@ async function applyCandidate(
   if (document === null) {
     return { outcome: 'failed', message: 'There is no document open.' }
   }
-  // The plane is kept as stored: only an attach, a committed drag and the core's fixes write a
-  // face sketch's fallback, which `solution.placement`, in world coordinates, cannot give (3.16.3).
+  // The plane goes as stored (3.16.3).
   const edit: Edit = {
     type: 'update_feature',
     feature: {
       ...record,
-      plane: candidate.plane,
       entities: solvedEntities(candidate.entities ?? [], solution),
       constraints: [...(candidate.constraints ?? [])],
     },

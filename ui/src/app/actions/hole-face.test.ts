@@ -6,6 +6,7 @@ import {
   CUBE_DOCUMENT,
   CUBE_FRONT_FACE,
   CUBE_TOP_FACE,
+  CUBE_TOP_FACE_MOVED,
   featuresOf,
 } from '../../test/fakes/documents'
 import { elementItem } from '../../test/fakes/selection'
@@ -31,17 +32,6 @@ async function holeOnCube(): Promise<FakeApp> {
 }
 
 const TOP = elementItem(CUBE_TOP_FACE, 'Cube')
-
-/**
- * The cube's top after a Move body by (100, 0, 0): its world placement at (100, 0, 20), and the
- * same placement in body coordinates as its fallback (engine.md 3.9).
- */
-const MOVED_TOP_FACE: ElementDescriptor = {
-  ...CUBE_TOP_FACE,
-  centroid: [100, 0, 20],
-  placement: { origin: [100, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
-  fallback: { origin: [0, 0, 20], x_axis: [1, 0, 0], normal: [0, 0, 1] },
-}
 
 describe('placing holes on a face (U-100)', () => {
   it('U-100 gives the command a helper sketch on the face with a point where the ray met it', async () => {
@@ -110,23 +100,23 @@ describe('placing holes on a face (U-100)', () => {
 
   it("U-100 on a face moved by a Move body, stores the descriptor's fallback and places the center in the face's world placement", async () => {
     const fake = await holeOnCube()
-    await capturePick(fake.app, elementItem(MOVED_TOP_FACE, 'Cube'), rayAt(103, 4))
+    await capturePick(fake.app, elementItem(CUBE_TOP_FACE_MOVED, 'Cube'), rayAt(103, 4))
     const { helper } = activeCommand(fake.app)
     expect(helper?.params.plane).toEqual({
       kind: 'face',
       body: 'b-cube',
-      face: MOVED_TOP_FACE.reference,
-      fallback: MOVED_TOP_FACE.fallback,
+      face: CUBE_TOP_FACE_MOVED.reference,
+      fallback: CUBE_TOP_FACE_MOVED.fallback,
       fallback_frame: 'body',
     })
-    expect(helper?.placement).toEqual(MOVED_TOP_FACE.placement)
+    expect(helper?.placement).toEqual(CUBE_TOP_FACE_MOVED.placement)
     const [entity] = helper?.params.entities ?? []
     expect(entity?.type === 'point' ? entity.position : null).toEqual([3, 4])
   })
 
   it('U-100 places a second center on a moved face in its world placement too', async () => {
     const fake = await holeOnCube()
-    const moved = elementItem(MOVED_TOP_FACE, 'Cube')
+    const moved = elementItem(CUBE_TOP_FACE_MOVED, 'Cube')
     await capturePick(fake.app, moved, rayAt(103, 4))
     await capturePick(fake.app, moved, rayAt(98, 1))
     const entities = activeCommand(fake.app).helper?.params.entities ?? []

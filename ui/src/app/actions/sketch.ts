@@ -1,9 +1,7 @@
 import { generateId, usedIds } from '../../core/ids'
-import { comesAfter, markerPosition, sketchRecord } from '../../core/recipe'
 import type {
   FeatureRecord,
   FeatureStatus,
-  HintFrame,
   ProfileFinding,
   SketchConstraint,
   SketchEntity,
@@ -33,13 +31,13 @@ import { constraintTool } from '../../sketch/tools'
 import {
   editingSession,
   selectFeatureLabel,
-  selectReattachedSketch,
+  selectReattachingSketch,
   selectSketchFaceLost,
+  selectSketchRecord,
 } from '../../state/selectors'
 import type {
   AppState,
   AppStore,
-  DocumentState,
   Notification,
   SelectionItem,
   SketchSession,
@@ -49,16 +47,19 @@ import { addScaled, cross } from '../../viewport/math'
 import type { App } from '../createApp'
 import { cancelCommandImplicitly } from './command'
 import { coreRedo, coreUndo } from './document'
-import { commitBuiltEdits, commitEdits, documentOf, showCoreError } from './edits'
+import { documentOf, showCoreError } from './edits'
 import { reportChange } from './loss-notifications'
-import { dismiss, notify, showPickHint } from './notifications'
+import { dismiss, notify } from './notifications'
 import { select, toggledByKey } from './selection'
 import { commitSketchChange } from './sketch-commit'
+import { createSketchOn, pickPlane, sketchPlaneOf } from './sketch-plane'
 
-export { commitSketchChange }
+export { commitSketchChange, createSketchOn, pickPlane, sketchPlaneOf }
 
-// Sketch mode (ui.md 3.16): entering, leaving and navigating it (3.16.1, 3.16.11, 3.20), and the
-// changes its tools commit: geometry, constraints, dimensions, construction and deletion.
+// Sketch mode (ui.md 3.16): entering, leaving and navigating it (3.16.1, 3.16.11, 3.20), plane
+// picking for a new sketch or for re-attaching one whose face is lost (3.16.1; `sketch-plane.ts`
+// places the sketch on the picked plane), and the changes its tools commit: geometry, constraints,
+// dimensions, construction and deletion.
 
 /** One step of the sketch view history (3.20): a camera to go back to, or a committed sketch edit. */
 type HistoryEntry =
@@ -78,7 +79,10 @@ const sessionRecords = new WeakMap<AppStore, SketchModeRecord>()
 /** The `fitBounds` margin of a framed sketch or profile issue: content fills 80 percent of the view. */
 const SKETCH_FRAME_MARGIN = 0.1
 
-/** A fresh session on a sketch, or plane picking for a new one (no camera to go back to yet). */
+/**
+ * A fresh session on a sketch, or plane picking for a new one (no camera to go back to yet), with
+ * nothing re-attached; plane picking for re-attaching a sketch sets `reattaching` (3.16.1).
+ */
 function sketchSession(sketchId: string | null, cameraBefore: Camera | null): SketchSession {
   return {
     sketchId,
@@ -163,48 +167,6 @@ async function stepSketchHistory(app: App, direction: 'undo' | 'redo'): Promise<
   return true
 }
 
-/**
- * The sketch.md plane of a plane-like selection item, or null for anything else (3.16.1). A flat
- * face gives its full reference and, as the fallback, its descriptor's `fallback`: the placement in
- * body coordinates (`fallback_frame: body`), so the sketch keeps its place on the face when a Move
- * body or a copy moves the face later (features/sketch.md section 2); with `frame` `world`, its
- * descriptor's `placement` in world coordinates, without `fallback_frame`.
- */
-export function sketchPlaneOf(item: SelectionItem, frame: HintFrame = 'body'): SketchPlane | null {
-  if (
-    item.kind === 'origin_plane' &&
-    (item.origin === 'XY' || item.origin === 'XZ' || item.origin === 'YZ')
-  ) {
-    return { kind: 'origin', plane: item.origin }
-  }
-  if (item.kind === 'datum_plane' && item.feature !== null) {
-    return { kind: 'datum', feature: item.feature }
-  }
-  const element = item.element
-  if (item.kind !== 'face' || element?.surface !== 'plane') {
-    return null
-  }
-  const fallback = frame === 'body' ? element.fallback : element.placement
-  if (fallback === undefined || fallback === null) {
-    return null
-  }
-  const face = { kind: 'face' as const, body: element.body, face: element.reference, fallback }
-  return frame === 'body' ? { ...face, fallback_frame: 'body' } : face
-}
-
-/**
- * The coordinates a re-attached sketch stores a face's placement in (3.16.1): world coordinates
- * when its stored plane gives it no motion (an origin plane, or a face whose fallback is in world
- * coordinates), which keeps it without one, so the faces built from it and what later features
- * store on them stay in place (engine.md section 3.22); else body coordinates, as a new sketch
- * stores them (engine.md open issue 16).
- */
-function frameKeepingMotion(stored: SketchPlane): HintFrame {
-  const withoutMotion =
-    stored.kind === 'origin' || (stored.kind === 'face' && stored.fallback_frame !== 'body')
-  return withoutMotion ? 'world' : 'body'
-}
-
 /** Ends a command or the edit of a sketch before plane picking starts (3.16.1). */
 async function leaveForPlanePicking(app: App): Promise<void> {
   if (app.store.getState().command !== null) {
@@ -251,122 +213,8 @@ export async function reattachSketch(app: App, sketchId: string): Promise<void> 
  */
 export async function enterAttachedSketch(app: App): Promise<void> {
   const state = app.store.getState()
-  const sketchId = selectReattachedSketch(state)
+  const sketchId = selectReattachingSketch(state)
   if (sketchId !== null && !selectSketchFaceLost(state, sketchId)) {
-    await enterSketch(app, sketchId)
-  }
-}
-
-/**
- * The plane or face picked while a plane is picked (3.16.1): a new sketch on it, or, while a
- * sketch is re-attached, that sketch's new plane.
- */
-export async function pickPlane(app: App, item: SelectionItem): Promise<void> {
-  const reattaching = selectReattachedSketch(app.store.getState())
-  await (reattaching === null ? createSketchOn(app, item) : attachSketch(app, reattaching, item))
-}
-
-/** Stores whose sketch is being added or attached, so a second plane pick in the meantime does nothing. */
-const placingSketch = new WeakSet<AppStore>()
-
-/**
- * Runs `place` with the sketch plane of a picked item, once at a time per store; an item that is
- * not plane-like (`sketchPlane` null) shows `pick_plane` in the sketch hint instead (3.16.1).
- */
-async function placeSketch(
-  app: App,
-  sketchPlane: SketchPlane | null,
-  place: (sketchPlane: SketchPlane, document: DocumentState) => Promise<void>,
-): Promise<void> {
-  const document = documentOf(app)
-  if (document === null || placingSketch.has(app.store)) {
-    return
-  }
-  if (sketchPlane === null) {
-    showPickHint(app, MESSAGES.pick_plane(), null)
-    return
-  }
-  placingSketch.add(app.store)
-  try {
-    await place(sketchPlane, document)
-  } finally {
-    placingSketch.delete(app.store)
-  }
-}
-
-/**
- * Adds an empty sketch on a plane-like item in one edit labeled "New sketch", then edits it. A
- * double-click on a plane, or on Sketch with a plane selected, adds one sketch.
- */
-export async function createSketchOn(app: App, plane: SelectionItem): Promise<void> {
-  await placeSketch(app, sketchPlaneOf(plane), (sketchPlane, document) =>
-    addSketchOn(app, document, sketchPlane),
-  )
-}
-
-/**
- * Stores a plane-like item as a sketch's plane in one edit labeled "Attach '{label}'", then edits
- * the sketch (3.16.1). The entities keep their sketch coordinates, so the drawing lands on the new
- * plane as it lay on the old one. A face is stored in the coordinates that keep the sketch's motion
- * where its stored plane tells it (`frameKeepingMotion`); what a feature after the sketch made is
- * refused with `attach_after`, since the sketch is built before it.
- */
-async function attachSketch(app: App, sketchId: string, item: SelectionItem): Promise<void> {
-  const state = app.store.getState()
-  const stored = storedSketchParams(state, sketchId)?.plane
-  if (stored === undefined) {
-    return
-  }
-  const sketchPlane = sketchPlaneOf(item, frameKeepingMotion(stored))
-  const maker = sketchPlane === null ? null : makerAfter(state, sketchId, item)
-  if (maker !== null) {
-    const message = MESSAGES.attach_after(
-      selectFeatureLabel(state, sketchId),
-      selectFeatureLabel(state, maker),
-    )
-    showPickHint(app, message, null)
-    return
-  }
-  await placeSketch(app, sketchPlane, async (plane) => {
-    const label = MESSAGES.attach_label(selectFeatureLabel(app.store.getState(), sketchId))
-    const attached = await commitBuiltEdits(app, (document) => {
-      const record = sketchRecord(document.recipe, sketchId)
-      return record === null
-        ? null
-        : { label, edits: [{ type: 'update_feature', feature: { ...record, plane } }] }
-    })
-    if (attached) {
-      await enterSketch(app, sketchId)
-    }
-  })
-}
-
-/** The feature that made a picked item when it comes after the sketch in the timeline, else null. */
-function makerAfter(state: AppState, sketchId: string, item: SelectionItem): string | null {
-  const recipe = state.document?.recipe
-  const maker = item.feature
-  return recipe !== undefined && maker !== null && comesAfter(recipe, maker, sketchId)
-    ? maker
-    : null
-}
-
-async function addSketchOn(
-  app: App,
-  document: DocumentState,
-  sketchPlane: SketchPlane,
-): Promise<void> {
-  const taken = usedIds(document.recipe)
-  const sketchId = generateId('f', (id) => taken.has(id))
-  // A new feature goes in front of the rollback marker, so it is active (3.7).
-  const index = markerPosition(document.recipe.features ?? [], document.recipe.rollback ?? null)
-  const added = await commitEdits(app, 'New sketch', [
-    {
-      type: 'add_feature',
-      index,
-      feature: { id: sketchId, type: 'sketch', plane: sketchPlane, entities: [], constraints: [] },
-    },
-  ])
-  if (added) {
     await enterSketch(app, sketchId)
   }
 }
@@ -709,8 +557,7 @@ export function createSketchIds(app: App): IdSource {
 
 /** The sketch record with this id in the recipe, or null. */
 export function sketchRecordOf(state: AppState, sketchId: string | null): FeatureRecord | null {
-  const recipe = state.document?.recipe
-  return sketchId === null || recipe === undefined ? null : sketchRecord(recipe, sketchId)
+  return sketchId === null ? null : selectSketchRecord(state, sketchId)
 }
 
 /** The params of the sketch with this id as the recipe stores them, or null. */

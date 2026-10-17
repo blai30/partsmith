@@ -5,6 +5,7 @@ import {
   CORNER_VERTEX,
   cubeDocumentState,
   CYLINDRICAL_FACE,
+  DIRECTED_CYLINDRICAL_FACE,
   readyState,
 } from '../layout/fixtures.testing'
 import { createAppStore } from '../state/store'
@@ -116,8 +117,7 @@ describe('selectionValue', () => {
   })
 
   it('U-143 a cylindrical face with axis_direction [0, 0, 1] gives {kind: face, body, face, direction: [0, 0, 1]}', () => {
-    const face = { ...CYLINDRICAL_FACE, axis_direction: [0, 0, 1] as [number, number, number] }
-    expect(selectionValue('axis', [elementItem(face, 'Peg')], false)).toEqual({
+    expect(selectionValue('axis', [elementItem(DIRECTED_CYLINDRICAL_FACE, 'Peg')], false)).toEqual({
       kind: 'face',
       body: 'b-peg',
       face: CYLINDRICAL_FACE.reference,

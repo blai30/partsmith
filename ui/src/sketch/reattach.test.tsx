@@ -1,5 +1,5 @@
 import { act, screen, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runFixAction, showLost } from '../app/actions/fixes'
 import { reattachSketch, startNewSketch } from '../app/actions/sketch'
@@ -7,7 +7,6 @@ import type { App } from '../app/createApp'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type {
   Diagnostic,
-  Document,
   FeatureStatus,
   FixAction,
   FixRef,
@@ -26,14 +25,9 @@ import {
 } from '../layout/test-app.testing'
 import type { ElementRepair } from '../repair/repair'
 import type { DocumentState } from '../state/store'
-import type { FakeBackend } from '../test/fakes/backend'
 import { coreErrorFor, type FakeCoreApi } from '../test/fakes/core-api'
-import {
-  CUBE_DOCUMENT,
-  CUBE_SKETCH_SOLUTION,
-  featuresOf,
-  type FeatureRecord,
-} from '../test/fakes/documents'
+import { CUBE_SKETCH_SOLUTION, type FeatureRecord } from '../test/fakes/documents'
+import { attachCall, cubeWithSketch } from '../test/fakes/repairs'
 import { settle } from '../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
 
@@ -43,17 +37,9 @@ import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
 // new plane in one undo entry labeled "Attach '{label}'".
 
 // The WebGL2 backend cannot run in jsdom; the viewport gets a FakeBackend instead.
-const created = vi.hoisted(() => ({ backends: [] as FakeBackend[] }))
-
 vi.mock('../viewport/webgl2/backend', async () => {
   const fakes = await import('../test/fakes/backend')
-  return {
-    createWebGl2Backend: () => {
-      const backend = fakes.createFakeBackend()
-      created.backends.push(backend)
-      return backend
-    },
-  }
+  return { createWebGl2Backend: () => fakes.createFakeBackend() }
 })
 
 let restoreSize: () => void
@@ -65,7 +51,6 @@ beforeEach(() => {
   restoreSize = stubElementSize(HTMLCanvasElement.prototype, { width: 800, height: 600 })
   stubMatchMedia({ reducedMotion: true })
   frames = stubAnimationFrames()
-  created.backends.length = 0
 })
 
 afterEach(() => {
@@ -93,7 +78,7 @@ const SKETCH_2: FeatureRecord = {
 }
 
 /** cube.ptsm with 'Sketch 2' at the end. */
-const DOCUMENT: Document = { ...CUBE_DOCUMENT, features: [...featuresOf(CUBE_DOCUMENT), SKETCH_2] }
+const DOCUMENT = cubeWithSketch(SKETCH_2)
 
 /** A FixRef of the `plane_fallback` message of 'Sketch 2'. */
 function attachFix(index: number): FixRef {
@@ -210,8 +195,20 @@ async function run(action: () => Promise<void>): Promise<void> {
   flush()
 }
 
+/** Lets the shell's requests and renders settle after a click or a key. */
+async function settleShell(): Promise<void> {
+  await run(() => Promise.resolve())
+}
+
 function header(): HTMLElement {
   return screen.getByTestId('sketch-header')
+}
+
+/** Clicks candidate button `number` of the header, counted from 1, and lets the shell settle. */
+async function clickCandidate(user: UserEvent, number: number): Promise<void> {
+  const button = within(header()).getAllByTestId('repair-candidate-button')[number - 1]
+  await user.click(button ?? document.body)
+  await settleShell()
 }
 
 describe('re-attaching a sketch (3.16.1, U-146)', () => {
@@ -261,18 +258,9 @@ describe('re-attaching a sketch (3.16.1, U-146)', () => {
     const user = userEvent.setup()
     await run(() => reattachSketch(app, 'f-sk2'))
     await user.click(within(header()).getByRole('button', { name: /Top plane \(XY\)/ }))
-    await run(() => Promise.resolve())
+    await settleShell()
     expect(core.callsTo('applyEdits')).toEqual([
-      [
-        1,
-        "Attach 'Sketch 2'",
-        [
-          {
-            type: 'update_feature',
-            feature: { ...SKETCH_2, plane: { kind: 'origin', plane: 'XY' } },
-          },
-        ],
-      ],
+      attachCall(SKETCH_2, { kind: 'origin', plane: 'XY' }),
     ])
     expect(core.callsTo('applyFix')).toEqual([])
     const state = app.store.getState()
@@ -284,9 +272,7 @@ describe('re-attaching a sketch (3.16.1, U-146)', () => {
     const { app, core } = shell()
     const user = userEvent.setup()
     await run(() => reattachSketch(app, 'f-sk2'))
-    const [first] = within(header()).getAllByTestId('repair-candidate-button')
-    await user.click(first ?? document.body)
-    await run(() => Promise.resolve())
+    await clickCandidate(user, 1)
     expect(core.callsTo('applyFix')).toEqual([[1, attachFix(0)]])
     expect(core.callsTo('applyEdits')).toEqual([])
   })
@@ -312,9 +298,7 @@ describe('re-attaching a sketch (3.16.1, U-146)', () => {
       return Promise.resolve(4)
     })
     await run(() => reattachSketch(app, 'f-sk2'))
-    const [first] = within(header()).getAllByTestId('repair-candidate-button')
-    await user.click(first ?? document.body)
-    await run(() => Promise.resolve())
+    await clickCandidate(user, 1)
     expect(core.callsTo('applyFix')).toEqual([[1, attachFix(0)]])
     expect(app.store.getState().context).toBe('sketch')
     expect(app.store.getState().sketch).toMatchObject({ sketchId: 'f-sk2', reattaching: null })
@@ -330,9 +314,7 @@ describe('re-attaching a sketch (3.16.1, U-146)', () => {
     })
     core.stub('applyFix', () => Promise.reject(stale))
     await run(() => reattachSketch(app, 'f-sk2'))
-    const [first] = within(header()).getAllByTestId('repair-candidate-button')
-    await user.click(first ?? document.body)
-    await run(() => Promise.resolve())
+    await clickCandidate(user, 1)
     expect(app.store.getState().sketch).toMatchObject({ sketchId: null, reattaching: 'f-sk2' })
     expect(app.store.getState().notifications.map((notification) => notification.code)).toEqual([
       'stale_fix',
@@ -345,7 +327,7 @@ describe('re-attaching a sketch (3.16.1, U-146)', () => {
     await run(() => reattachSketch(app, 'f-sk2'))
     expect(app.store.getState().sketch?.reattaching).toBe('f-sk2')
     await user.keyboard('{Escape}')
-    await run(() => Promise.resolve())
+    await settleShell()
     expect(app.store.getState().context).toBe('model')
     expect(app.store.getState().sketch).toBeNull()
     expect(core.callsTo('applyEdits')).toEqual([])

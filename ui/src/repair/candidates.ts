@@ -6,7 +6,8 @@ import type { HoverTarget } from '../state/store'
 import { meshElementKey } from '../viewport/keys'
 import type { RepairCandidateView } from './repair'
 
-// What a candidate's button in the banner and its marker on the model do (ui.md 3.7).
+// What a candidate's button and its marker on the model do (ui.md 3.7): the button shows in the
+// inspector banner (3.7) and, while a sketch is re-attached, the sketch header (3.16.1).
 
 /** The hover target of a candidate's element: the mesh key the scene draws hovered (3.6). */
 function elementHover(element: MeshElement): HoverTarget {

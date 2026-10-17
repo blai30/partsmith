@@ -192,6 +192,12 @@ export const CYLINDRICAL_FACE: ElementDescriptor = {
   adjacent: [],
 }
 
+/** The peg's side with its axis direction in body coordinates (engine.md 3.9). */
+export const DIRECTED_CYLINDRICAL_FACE: ElementDescriptor = {
+  ...CYLINDRICAL_FACE,
+  axis_direction: [0, 0, 1],
+}
+
 /** A corner of the cube. */
 export const CORNER_VERTEX: ElementDescriptor = {
   name: 'vertex(f-ext1/end-cap|f-ext1/side-0|f-ext1/side-1)',

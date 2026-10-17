@@ -9,14 +9,22 @@ import type {
   FeatureStatus,
   FixAction,
   FixRef,
+  HintFrame,
   Reference,
   RegionInfo,
   RepairCandidate,
+  SketchPlane,
   SketchSolution,
 } from '../../generated/protocol'
 import type { ElementRepair, RegionRepair } from '../../repair/repair'
 import type { DocumentState } from '../../state/store'
-import { CUBE_REGION, CUBE_SKETCH_SOLUTION, type FeatureRecord } from './documents'
+import {
+  CUBE_DOCUMENT,
+  CUBE_REGION,
+  CUBE_SKETCH_SOLUTION,
+  featuresOf,
+  type FeatureRecord,
+} from './documents'
 import { meshSummary } from './state'
 
 // Repair data for the repair mode, fix and loss tests (ui.md 6.4, U-127 on): corpus R16 after its
@@ -268,6 +276,39 @@ export function lostEdgeRepair(overrides: Partial<ElementRepair> = {}): ElementR
     candidates: [],
     ...overrides,
   }
+}
+
+// 'Sketch 2' on a face cube.ptsm lost, for re-attaching it (3.16.1, U-146).
+
+/** 'Sketch 2', a circle on a face the cube lost, with its fallback in `frame` coordinates. */
+export function lostFaceSketch(frame: HintFrame = 'body'): FeatureRecord {
+  return {
+    id: 'f-sk2',
+    type: 'sketch',
+    plane: {
+      kind: 'face',
+      body: 'b-cube',
+      face: { q: 'f-gone/top', fp: 'plane|n=0,0,1|c=0,0,40|a=400|adj=4,4' },
+      fallback: { origin: [0, 0, 40], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+      // World coordinates, the default, are written without the frame.
+      ...(frame === 'body' ? { fallback_frame: 'body' } : {}),
+    },
+    entities: [{ id: 'e-1', type: 'circle', center: [0, 0], radius: 3 }],
+    constraints: [],
+  }
+}
+
+/** cube.ptsm with `sketch` after its features, followed by the features `after`. */
+export function cubeWithSketch(
+  sketch: FeatureRecord,
+  after: readonly FeatureRecord[] = [],
+): Document {
+  return { ...CUBE_DOCUMENT, features: [...featuresOf(CUBE_DOCUMENT), sketch, ...after] }
+}
+
+/** The one `applyEdits` call of an attach: "Attach 'Sketch 2'" storing `plane` in `sketch`. */
+export function attachCall(sketch: FeatureRecord, plane: SketchPlane): unknown[] {
+  return [1, "Attach 'Sketch 2'", [{ type: 'update_feature', feature: { ...sketch, plane } }]]
 }
 
 /** A lost region of 'Sketch 1' around (40, 25) at `path`, with no candidates. */

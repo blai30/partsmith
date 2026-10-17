@@ -15,8 +15,8 @@ import { entitySelectionItem } from '../../sketch/hit'
 import {
   selectFeatureLabel,
   selectFixBlock,
-  selectIsSketchPlane,
-  selectReattachedSketch,
+  selectPointsIntoSketchPlane,
+  selectReattachingSketch,
   selectSketchFaceLost,
   type FixPlace,
 } from '../../state/selectors'
@@ -68,7 +68,7 @@ async function applyFix(app: App, fix: FixRef, place: FixPlace): Promise<void> {
  */
 async function pickAgain(app: App, feature: string, path: string): Promise<void> {
   const state = app.store.getState()
-  if (selectIsSketchPlane(state, feature, path)) {
+  if (selectPointsIntoSketchPlane(state, feature, path)) {
     await reattachSketch(app, feature)
     return
   }
@@ -317,7 +317,7 @@ export async function showLost(app: App, featureId: string): Promise<void> {
     : editFeature(app, featureId))
   const state = app.store.getState()
   const opened =
-    state.command?.featureId === featureId || selectReattachedSketch(state) === featureId
+    state.command?.featureId === featureId || selectReattachingSketch(state) === featureId
   const mode = opened ? selectRepairMode(state) : null
   if (mode !== null) {
     await frameRepair(app, mode)

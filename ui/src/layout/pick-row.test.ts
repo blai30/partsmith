@@ -3,7 +3,8 @@ import { MESSAGES } from '../messages'
 import { planePickingSession } from '../sketch/fixtures.testing'
 import type { ActiveCommand } from '../state/store'
 import { MAC_WEB } from '../test/fakes/app'
-import { CUBE_DOCUMENT, featuresOf, type FeatureRecord } from '../test/fakes/documents'
+import type { FeatureRecord } from '../test/fakes/documents'
+import { attachCall, cubeWithSketch, lostFaceSketch } from '../test/fakes/repairs'
 import { bodyItem, datumItem, originItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { cubeDocumentState, documentState, readyState } from './fixtures.testing'
@@ -129,25 +130,12 @@ describe('pickRow while a plane is picked (3.16.1)', () => {
 })
 
 /** 'Sketch 2', a circle on a face the cube lost, with its fallback in body coordinates. */
-const SKETCH_2: FeatureRecord = {
-  id: 'f-sk2',
-  type: 'sketch',
-  plane: {
-    kind: 'face',
-    body: 'b-cube',
-    face: { q: 'f-gone/top', fp: 'plane|n=0,0,1|c=0,0,40|a=400|adj=4,4' },
-    fallback: { origin: [0, 0, 40], x_axis: [1, 0, 0], normal: [0, 0, 1] },
-    fallback_frame: 'body',
-  },
-  entities: [{ id: 'e-1', type: 'circle', center: [0, 0], radius: 3 }],
-  constraints: [],
-}
+const SKETCH_2 = lostFaceSketch()
 
 /** Re-attaching 'Sketch 2' at the end of cube.ptsm, before the features `after` (3.16.1). */
 function reattachingApp(after: readonly FeatureRecord[] = []) {
-  const recipe = { ...CUBE_DOCUMENT, features: [...featuresOf(CUBE_DOCUMENT), SKETCH_2, ...after] }
   return createModelApp({
-    state: readyState(documentState(recipe, { name: 'cube' }), {
+    state: readyState(documentState(cubeWithSketch(SKETCH_2, after), { name: 'cube' }), {
       context: 'sketch',
       sketch: planePickingSession('f-sk2'),
     }),
@@ -160,16 +148,7 @@ describe('pickRow while a sketch is re-attached (3.16.1)', () => {
     pickRow(app, originItem('XY'), false)
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([
-      [
-        1,
-        "Attach 'Sketch 2'",
-        [
-          {
-            type: 'update_feature',
-            feature: { ...SKETCH_2, plane: { kind: 'origin', plane: 'XY' } },
-          },
-        ],
-      ],
+      attachCall(SKETCH_2, { kind: 'origin', plane: 'XY' }),
     ])
     expect(app.store.getState().sketch).toMatchObject({ sketchId: 'f-sk2', reattaching: null })
   })

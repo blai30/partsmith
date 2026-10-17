@@ -10,7 +10,7 @@ import type {
 import { fieldPointer, pointsInto } from '../inspector/status'
 import { capitalized, MESSAGES } from '../messages'
 import { sketchToWorld } from '../sketch/placement'
-import { memoized, selectReattachedSketch } from '../state/selectors'
+import { memoized, selectReattachingSketch } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { pointAt, type Vector3 } from '../viewport/math'
 
@@ -179,7 +179,7 @@ export const selectRepairMode: (state: AppState) => RepairMode | null = memoized
     const command = state.command
     const feature =
       command === null
-        ? (selectReattachedSketch(state) ?? state.repair?.feature ?? null)
+        ? (selectReattachingSketch(state) ?? state.repair?.feature ?? null)
         : command.editing
           ? command.featureId
           : null

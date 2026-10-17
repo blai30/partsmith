@@ -1,6 +1,6 @@
 import { featureLabel } from '../core/labels'
 import { activeFeatures, sketchRecord } from '../core/recipe'
-import type { FixAction } from '../generated/protocol'
+import type { FeatureRecord, FixAction } from '../generated/protocol'
 import { pointsInto } from '../inspector/status'
 import { MESSAGES } from '../messages'
 import { isCheckHidden } from '../print/checks'
@@ -68,8 +68,14 @@ export function selectEditedSketch(state: AppState): string | null | undefined {
   return state.context === 'sketch' && state.sketch !== null ? state.sketch.sketchId : undefined
 }
 
+/** The record of the sketch with this id, or null without a document or such a sketch. */
+export function selectSketchRecord(state: AppState, sketchId: string): FeatureRecord | null {
+  const recipe = state.document?.recipe
+  return recipe === undefined ? null : sketchRecord(recipe, sketchId)
+}
+
 /** The sketch whose plane is being picked again (3.16.1, re-attaching), or null. */
-export function selectReattachedSketch(state: AppState): string | null {
+export function selectReattachingSketch(state: AppState): string | null {
   return state.context === 'sketch' ? (state.sketch?.reattaching ?? null) : null
 }
 
@@ -77,19 +83,21 @@ export function selectReattachedSketch(state: AppState): string | null {
 const SKETCH_PLANE_POINTER = '/plane'
 
 /** Whether the feature is a sketch and the pointer lies in its plane, such as `/plane/face` (3.16.1). */
-export function selectIsSketchPlane(state: AppState, feature: string, pointer: string): boolean {
-  const recipe = state.document?.recipe
-  return (
-    recipe !== undefined &&
-    sketchRecord(recipe, feature) !== null &&
-    pointsInto(pointer, SKETCH_PLANE_POINTER)
-  )
+export function selectPointsIntoSketchPlane(
+  state: AppState,
+  feature: string,
+  pointer: string,
+): boolean {
+  return selectSketchRecord(state, feature) !== null && pointsInto(pointer, SKETCH_PLANE_POINTER)
 }
 
 /** Whether a sketch's face is lost: its status has a repair in its plane (3.16.1). */
 export function selectSketchFaceLost(state: AppState, sketchId: string): boolean {
+  if (selectSketchRecord(state, sketchId) === null) {
+    return false
+  }
   const repairs = state.document?.featureStatus[sketchId]?.repairs ?? []
-  return repairs.some((repair) => selectIsSketchPlane(state, sketchId, repair.path))
+  return repairs.some((repair) => pointsInto(repair.path, SKETCH_PLANE_POINTER))
 }
 
 /**
@@ -173,8 +181,9 @@ export function selectSketchToEdit(state: AppState): string | null {
   const sketchOnly =
     (selection.length === 1 && first.kind === 'feature') ||
     selection.every((item) => SKETCH_ITEM_KINDS.has(item.kind) && item.feature === sketchId)
-  const record = state.document?.recipe.features?.find((feature) => feature.id === sketchId)
-  return sketchOnly && record?.type === 'sketch' ? record.id : null
+  return sketchOnly && sketchId !== null && selectSketchRecord(state, sketchId) !== null
+    ? sketchId
+    : null
 }
 
 /**

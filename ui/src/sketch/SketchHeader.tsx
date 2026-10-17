@@ -14,6 +14,7 @@ import { reportFailure } from '../app/report'
 import { Button } from '../components/Button'
 import { Popover } from '../components/Popover'
 import { originPlaneName, originPlaneView, type OriginPlane } from '../core/labels'
+import { sketchRecord } from '../core/recipe'
 import type {
   ProfileFinding,
   SketchConstraint,
@@ -28,7 +29,7 @@ import { RepairCandidates } from '../repair/RepairCandidates'
 import {
   selectEditedSketch,
   selectFeatureLabel,
-  selectReattachedSketch,
+  selectReattachingSketch,
   selectSketchDof,
   type SketchDof,
 } from '../state/selectors'
@@ -104,7 +105,7 @@ export function SketchHeader({ hint = null, freePlacement = false }: SketchHeade
  */
 function PlanePicking() {
   const app = useApp()
-  const reattaching = useAppState(selectReattachedSketch)
+  const reattaching = useAppState(selectReattachingSketch)
   const label = useAppState((state) =>
     reattaching === null ? null : selectFeatureLabel(state, reattaching),
   )
@@ -338,9 +339,8 @@ function SketchProblems({ sketchId }: { readonly sketchId: string }) {
   const app = useApp()
   const document = useAppState((state) => state.document)
   const solution = document?.sketches[sketchId]?.solution ?? null
-  const record = document?.recipe.features?.find((feature) => feature.id === sketchId)
-  const constraints =
-    (record?.type === 'sketch' ? sketchParamsOf(record)?.constraints : undefined) ?? []
+  const record = document === null ? null : sketchRecord(document.recipe, sketchId)
+  const constraints = (record === null ? undefined : sketchParamsOf(record)?.constraints) ?? []
   const units = document?.recipe.units ?? 'mm'
   const problems = constraints.flatMap((constraint): ConstraintProblem[] => {
     if (solution?.conflicting.includes(constraint.id) === true) {
