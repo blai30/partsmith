@@ -8,13 +8,12 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, THROUGH_ALL, assert_bore_through,
+    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_bore_through,
     assert_bounding_box, assert_choice_between, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_normal,
     assert_face_position, assert_median_build_within, assert_quarter_turns_about_z,
-    assert_translation, assert_unchanged, assert_volume, body_changes, document, face, face_sketch,
-    hole_at_point, l_shaped_body, leaning_wall, left_bottom_edge_axis, load_example, one_point,
-    output_body,
+    assert_translation, assert_unchanged, assert_volume, body_changes, face, l_shaped_body,
+    leaning_wall, left_bottom_edge_axis, load_example, moved_box_document, output_body,
 };
 use partsmith_naming::ElementName;
 use partsmith_occt_sys::GeometryKind;
@@ -172,23 +171,9 @@ fn t009_rotate_then_translate_builds_within_5_ms() {
 // move with the part, and an axis keeps the side the user picked (features.md sections 3.6 and 3.9).
 
 /// The document of features/sketch.md test 20 (corpus R32a) with `extra` as the members of the Move body inserted
-/// before the face sketch: a box 40 x 40 x 10, the move, a face sketch on the box's top in body coordinates with a
-/// point at (15, 15), and a hole through all at it.
+/// before the face sketch, whose fallback is in body coordinates.
 fn sketch_after_a_move_document(extra: &str) -> partsmith_model::Document {
-    document(
-        &BODIES,
-        &[
-            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}"#,
-            &move_body(extra),
-            &face_sketch(
-                r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"}"#,
-                [0.0, 0.0, 10.0],
-                Some("body"),
-                &one_point([15.0, 15.0]),
-            ),
-            &hole_at_point("4", THROUGH_ALL),
-        ],
-    )
+    moved_box_document(&move_body(extra), Some("body"))
 }
 
 /// The motion of `f-box1/top` in b-1's state after `f-mv1`.

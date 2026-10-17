@@ -5,15 +5,17 @@
 
 mod feature_support;
 
+use std::f64::consts::FRAC_1_SQRT_2;
 use std::time::Duration;
 
 use feature_support::{
-    CUBE20, FRONT_TOP_EDGE, LENGTH_TOLERANCE, PLATE, PLATE_TOP_EDGES, Run, assert_absolute,
-    assert_bounding_box, assert_coordinates, assert_element_repair, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
-    assert_list_field, assert_median_build_within, assert_messages_pass_lint, assert_relative,
-    assert_unchanged, assert_volume, body_update, document, edge, face, face_names, load_example,
-    message, suggested_limit,
+    CUBE20, FRONT_TOP_EDGE, LENGTH_TOLERANCE, MOVE_BY_100, PLATE, PLATE_TOP_EDGES, Run,
+    assert_absolute, assert_bounding_box, assert_coordinates, assert_element_repair,
+    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
+    assert_face_kind, assert_list_field, assert_median_build_within, assert_messages_pass_lint,
+    assert_moved_by_100, assert_placement, assert_relative, assert_unchanged, assert_volume,
+    body_update, document, edge, face, face_names, face_sketch, load_example, message, one_point,
+    sketch_result, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError, FeatureWarning, IgnoredReason};
 use partsmith_model::{Document, Units};
@@ -543,4 +545,48 @@ fn t016_the_side_never_depends_on_the_inserted_features_id() {
     assert_face_area(&face(body, "f-box1/front"), 380.0);
     assert_face_area(&face(body, "f-box1/top"), 740.0);
     assert_volume(run.shape("b-1"), 15970.0);
+}
+
+/// `CUBE20` moved by `MOVE_BY_100`, then its front top edge chamfered at 2 mm, and `extra` records after it.
+fn chamfered_after_a_move(extra: &[&str]) -> Run {
+    let chamfer = chamfer_record(&[FRONT_TOP_EDGE], &equal_distance("2"));
+    let mut records = vec![CUBE20, MOVE_BY_100, &chamfer];
+    records.extend_from_slice(extra);
+    Run::records(&["b-1"], &records)
+}
+
+#[test]
+fn a_beveled_face_moves_with_the_part() {
+    let run = chamfered_after_a_move(&[]);
+
+    run.assert_all_ok();
+    assert_moved_by_100(
+        &run,
+        "f-cha1",
+        "b-1",
+        "f-cha1/chamfer/edge(f-box1/front|f-box1/top)",
+    );
+}
+
+#[test]
+fn a_sketch_on_the_beveled_face_stays_on_it_after_the_move() {
+    // The bevel runs from (y, z) = (-10, 18) to (-8, 20) in body coordinates; the fallback at its middle in body
+    // coordinates is moved by the beveled face's motion (features.md section 3.6).
+    let bevel = r#"{"q": "f-cha1/chamfer/edge(f-box1/front|f-box1/top)", "fp": "plane|n=0,-0.707107,0.707107|c=0,-9,19|a=56.568542"}"#;
+    let sketch = face_sketch(
+        bevel,
+        [0.0, -9.0, 19.0],
+        Some("body"),
+        &one_point([0.0, 0.0]),
+    );
+
+    let run = chamfered_after_a_move(&[&sketch]);
+
+    run.assert_all_ok();
+    assert_placement(
+        &sketch_result(&run, "f-sk2").placement,
+        [100.0, -9.0, 19.0],
+        [1.0, 0.0, 0.0],
+        [0.0, -FRAC_1_SQRT_2, FRAC_1_SQRT_2],
+    );
 }

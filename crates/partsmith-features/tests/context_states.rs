@@ -337,6 +337,21 @@ fn t030_a_face_no_state_has_gives_none() {
 }
 
 #[test]
+fn the_walk_before_a_removal_reads_only_the_names_of_a_state_without_the_face() {
+    // Section 3.6: the state the cut left has no face of the top's family and no rim, so the walk passes it without
+    // computing its elements (topology and fingerprints), which no feature after the cut needed.
+    let timeline = cut_through_the_top_then(vec![move_by_100()]);
+    let (writer, cut) = &timeline.chain("b-1")[2];
+    assert_eq!(writer, &id("f-mv1"));
+    assert!(!cut.elements_computed());
+
+    before_removal(&timeline, &attached_box_top(), HintFrame::Body)
+        .expect("the box's state before the cut has its top");
+
+    assert!(!cut.elements_computed());
+}
+
+#[test]
 fn a_hint_in_world_coordinates_is_placed_before_the_removal_and_moved_with_the_body_since() {
     // Section 3.6: the placement found in the state before the removal moves with the motion of the stored query's
     // face since that state, whatever the hint's frame.

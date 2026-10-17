@@ -741,6 +741,85 @@ pub fn split_then_fillet(flip: bool) -> Vec<Value> {
     ]
 }
 
+/// R32 (b): BLOCK, extruded in reverse when `reverse` (its end cap is then the bottom at z = -30,
+/// facing -Z), and a sketch `f-sk2` with `entities` on its end cap.
+pub fn block_with_end_cap_sketch(reverse: bool, entities: Vec<Value>) -> Vec<Value> {
+    let mut features = block();
+    if reverse {
+        features = edited(&features, "f-ext1", reversed);
+    }
+    features.push(sketch(
+        "f-sk2",
+        top_face_plane("b-1", block_top(), 30.0),
+        entities,
+    ));
+    features
+}
+
+/// R32 (b) setup (features/sketch.md test 24 when `reverse`): `block_with_end_cap_sketch` with a
+/// point `e-p1` at (20,10) and a 5 mm hole `f-hole1` 10 deep there.
+pub fn block_with_hole_on_end_cap(reverse: bool) -> Vec<Value> {
+    let mut features = block_with_end_cap_sketch(reverse, vec![point("e-p1", [20.0, 10.0])]);
+    features.push(hole(
+        "f-hole1",
+        "b-1",
+        "f-sk2",
+        &["e-p1"],
+        "5",
+        distance("10"),
+    ));
+    features
+}
+
+/// R33: the top of the 20 x 20 x 40 box as picked when it was 10 tall.
+pub fn tall_box_top() -> Value {
+    reference("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=400|adj=4,4")
+}
+
+/// R33 setup: a 20 x 20 x 40 box `f-box1`, these features inserted after it, then a sketch `f-sk2`
+/// on its top (attached when it was 10 tall) with a circle `e-5` of radius 3 and its boss `f-ext2`
+/// of 5, op join.
+pub fn tall_box_with_boss(inserted: Vec<Value>) -> Vec<Value> {
+    let mut features = vec![box_record("f-box1", "b-1", ["20", "20", "40"], None, "new")];
+    features.extend(inserted);
+    features.push(sketch(
+        "f-sk2",
+        top_face_plane("b-1", tall_box_top(), 10.0),
+        vec![circle("e-5", [0.0, 0.0], 3.0)],
+    ));
+    features.push(extrude(
+        "f-ext2",
+        "b-1",
+        "f-sk2",
+        vec![circle_region("e-5", [0.0, 0.0], 3.0)],
+        distance("5"),
+        "join",
+    ));
+    features
+}
+
+/// R33's edit, inserted before the sketch: a datum `f-dp1` XY offset 35, a sketch `f-sk3` on it
+/// with a square x -15..15, y -15..15 and its cut `f-ext3` of 10 ('Extrude 1'), which removes
+/// z 35..40 of the box and with it the top.
+pub fn top_cut() -> Vec<Value> {
+    vec![
+        datum_offset("f-dp1", "XY", "35"),
+        sketch(
+            "f-sk3",
+            datum_plane("f-dp1"),
+            rectangle(1, -15.0, -15.0, 15.0, 15.0),
+        ),
+        extrude(
+            "f-ext3",
+            "b-1",
+            "f-sk3",
+            vec![rectangle_region(1, -15.0, -15.0, 15.0, 15.0)],
+            distance("10"),
+            "cut",
+        ),
+    ]
+}
+
 /// R36 and R53 (a): the top of the 80 x 50 x 30 box.
 pub fn tray_top() -> Value {
     reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4")

@@ -32,7 +32,7 @@ A face can also turn over: a reversed extrude (R32b) makes its outward normal po
 
 ## Consequences
 
-- The study expects phase 2 to take the corpus from 112 to 119 passing tests and the silent wrong results from 4 to 0, with no test that builds correctly before it failing after.
+- The study expects phase 2 to take the corpus from 112 to 118 passing tests (R32b passes in phase 3, once the hole's message names the turned-over sketch) and the silent wrong results from 4 to 0, with no test that builds correctly before it failing after.
 - The corpus amends two expectations: R32b warns `sketch_turned_over` and, after Turn the drawing back, drills at (20, 10); after R26's delete the sketch uses its saved position with a true message, and the engine's cause line offers "Keep the sketch where it was".
 - `fallback_frame` and `direction` are optional fields of file format version 2 (ADR 0025). A version 1 document rebuilds with the same placements, volumes and statuses, which a recompute test checks.
 - A sketch on a reversed extrude cap now warns instead of silently mirroring or missing; a sketch on a mirror copy face keeps its placement, also when the mirror plane moves; a reference that resolves to faces in several planes or edges on several lines asks instead of letting name order decide.

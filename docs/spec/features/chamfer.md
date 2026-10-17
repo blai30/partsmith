@@ -46,7 +46,8 @@ pub struct ChamferParams {
 pub enum ChamferDistance {
     /// `expr` on both faces. Length, greater than 0.
     Equal { expr: Expr },
-    /// `expr` on the first face and `second_expr` on the second face of each edge (section 3.3).
+    /// `expr` on the first face and `second_expr` on the second face of each edge, where the first
+    /// face is the first face of the edge's stored reference (section 3.3).
     /// Lengths, greater than 0. `flip` swaps them; default false, omitted when false.
     TwoDistances { expr: Expr, second_expr: Expr, flip: bool },
 }

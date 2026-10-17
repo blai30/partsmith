@@ -898,6 +898,18 @@ pub fn assert_translation(motion: &Motion, offset: [f64; 3]) {
     assert_moves(motion, &moves);
 }
 
+/// Asserts that the face `face` of `body` after `feature` has the motion of `MOVE_BY_100` earlier in the run, the
+/// translation (100, 0, 0): the body's base motion, which a fillet, chamfer, shell or split body gives the faces it
+/// makes, so they move with the part like the faces it keeps (features.md section 3.9).
+#[track_caller]
+pub fn assert_moved_by_100(run: &Run, feature: &str, body: &str, face: &str) {
+    let name = ElementName::parse(face).expect("names written in tests are valid");
+    assert_translation(
+        &output_body(run, feature, body).motion(&name),
+        [100.0, 0.0, 0.0],
+    );
+}
+
 /// Asserts that `motion` is the rotation by `turns` quarter turns counterclockwise about the world Z axis.
 pub fn assert_quarter_turns_about_z(motion: &Motion, turns: u32) {
     let turned = |point: [f64; 3]| {
@@ -1417,6 +1429,34 @@ pub fn hole_at_point(diameter: &str, extent: &str) -> String {
 
 /// The through-all extent.
 pub const THROUGH_ALL: &str = r#"{"kind": "through_all"}"#;
+
+/// The Move body `f-mv1` of features/sketch.md test 20: b-1 moved by (100, 0, 0).
+pub const MOVE_BY_100: &str =
+    r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]}"#;
+
+/// The Move body `f-mv1` of features/sketch.md test 20's rotation variant (corpus R32a): b-1 turned by 90 degrees about
+/// the world Z axis.
+pub const TURN_BY_90: &str = r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "90 deg"}}"#;
+
+/// The document of features/sketch.md test 20 (corpus R32a) with the Move body record `motion`: a box 40 x 40 x 10
+/// (x -20..20, y -20..20, z 0..10), the move, `f-sk2` on the box's top with its fallback in `frame` and a point `e-p1`
+/// at (15, 15), and a hole `f-hole1` of diameter 4 through all at the point.
+pub fn moved_box_document(motion: &str, frame: Option<&str>) -> Document {
+    document(
+        &["b-1"],
+        &[
+            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}"#,
+            motion,
+            &face_sketch(
+                r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"}"#,
+                [0.0, 0.0, 10.0],
+                frame,
+                &one_point([15.0, 15.0]),
+            ),
+            &hole_at_point("4", THROUGH_ALL),
+        ],
+    )
+}
 
 /// Asserts that the bore of `f-hole1` at `e-p1` has its axis through `point` at the end of the run.
 #[track_caller]

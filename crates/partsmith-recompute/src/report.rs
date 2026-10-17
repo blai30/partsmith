@@ -154,8 +154,8 @@ pub struct Message {
     pub detail: Option<String>,
     /// The first failing feature of an `upstream_failed` chain, of a loss whose reason is
     /// `UpstreamFailed`, or of the feature a `body_empty` or `tool_empty` names as failed; or the
-    /// sketch that lost its face under a `no_effect` or `hole_misses_body`. Hosts group one root
-    /// cause as one problem (section 3.10).
+    /// sketch that lost its face, or whose face turned over, under a `no_effect` or
+    /// `hole_misses_body`. Hosts group one root cause as one problem (section 3.10).
     pub root: Option<Id>,
     /// Why the reference the text names (its first loss) was lost, or which feature a followed or
     /// widened reference followed (section 3.10). None for messages without a diagnosed loss or

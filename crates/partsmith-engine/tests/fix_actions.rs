@@ -187,9 +187,9 @@ fn t126_a_face_of_a_datum_that_now_spreads_over_several_planes_offers_each_face_
     assert_eq!(
         labels(&error),
         [
-            "Use the left side of 'Extrude 1' made from the line from (50, 50) to (50, 40) in 'Sketch 1' near (50, 45, 15)",
-            "Use the back side of 'Extrude 1' made from the line from (50, 40) to (30, 40) in 'Sketch 1' near (40, 40, 15)",
-            "Use the right side of 'Extrude 1' made from the line from (30, 40) to (30, 50) in 'Sketch 1' near (30, 45, 15)",
+            "Use the left side of 'Extrude 1'",
+            "Use the back side of 'Extrude 1' made from the line from (50, 40) to (30, 40) in 'Sketch 1'",
+            "Use the right side of 'Extrude 1'",
             "Use the back side of 'Extrude 1' made from the line from (30, 50) to (0, 50) in 'Sketch 1'",
             "Use the back side of 'Extrude 1' made from the line from (80, 50) to (50, 50) in 'Sketch 1'",
             "Pick a face again"

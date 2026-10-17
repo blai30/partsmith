@@ -2,8 +2,8 @@
 
 use partsmith_model::{Id, LINEAR_TOLERANCE};
 use partsmith_naming::{
-    ElementInfo, ElementKind, GeometryKind as NameGeometry, MatchMethod, Motion, Reference,
-    Resolution,
+    ElementInfo, ElementKind, ElementName, GeometryKind as NameGeometry, MatchMethod, Motion,
+    Reference, Resolution, roles,
 };
 use partsmith_occt_sys::{
     Axis, ElementGeometry, GeometryKind, Point, Shape, SubShape, SubShapeKind, Vector,
@@ -428,7 +428,7 @@ fn plane_by_meaning(
     let Some(shape) = state.shape() else {
         return Ok(None);
     };
-    if face.query.kind() != ElementKind::Face {
+    if face.query.kind() != ElementKind::Face || !may_resolve_by_meaning(state, face) {
         return Ok(None);
     }
     let set = state.element_set()?;
@@ -457,6 +457,25 @@ fn plane_by_meaning(
         FacePlane::Flat(plane) => Some(plane),
         FacePlane::NotPlanar | FacePlane::NotCoplanar => None,
     })
+}
+
+/// False when the names of `state` alone show that the face query of `face` cannot resolve there by meaning: no face
+/// of its family is there, which steps 1 and 2 of naming.md section 3.9 need, and no shell rim, which step 3 needs to
+/// continue it. It spares the walk before a removal the element sets, topology and fingerprints, of the states after
+/// the removal, which no other feature may have built.
+fn may_resolve_by_meaning(state: &BodyState, face: &Reference) -> bool {
+    let is_rim = |name: &ElementName| {
+        name.face_name()
+            .is_some_and(|parts| parts.role() == roles::RIM)
+    };
+    !state
+        .name_set()
+        .family(&face.query, &face.merged)
+        .is_empty()
+        || state
+            .naming()
+            .names(ElementKind::Face)
+            .any(|(_, name)| is_rim(name))
 }
 
 /// The hint of a face reference resolved in `state`, in world coordinates (section 3.6): a hint in body coordinates

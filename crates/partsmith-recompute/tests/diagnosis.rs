@@ -1,6 +1,7 @@
-//! Statuses and the loss diagnosis of recompute.md sections 3.5, 3.6 and 3.10: tests 41, 43 to 68, 71 and 73 of
-//! section 6, as far as phase 1 of the reference stability plan builds them, plus small tests of the rules those scenarios do not
-//! reach. A test named `tNNN` is section 6 test NNN; a test with several scenarios is one test per scenario.
+//! Statuses and the loss diagnosis of recompute.md sections 3.5, 3.6 and 3.10: tests 41 to 68 and 71 to 73 of
+//! section 6, as far as phases 1 and 2 of the reference stability plan build them, plus small tests of the rules those
+//! scenarios do not reach. A test named `tNNN` is section 6 test NNN; a test with several scenarios is one test per
+//! scenario.
 //!
 //! Each test runs the scenario of the reference stability corpus or the newcomer error corpus it names as a document of
 //! features.md section 6.1. The setup runs with its references picked as the corpus's "Picked references" rule says
@@ -8,13 +9,16 @@
 //! `Message::root`; a text the spec gives as an ending is compared by its end, whose start, the element's description,
 //! features.md section 6.5 test 15 tests.
 //!
-//! Left for the phases that build what they need: test 42 (a sketch placed where its face was just before its removal,
-//! phase 2; the writer chains it reads are tested in `timeline.rs`), test 60 (b) (a hole that skips a deleted point,
-//! phase 3), the `no_effect` and `separate_solid` texts of test 66 (phase 3) and its sketch placed where the cut face
-//! was (corpus R33, phase 2), and test 72 (a drawing turned over, phase 2). Test 69 is the corpus
-//! (`reference_stability_{1,2,3}.rs`) and test 70 the newcomer error corpus (phase 3). A sketch whose face is lost
-//! carries the loss in its `plane_fallback` warning (features/sketch.md section 3.5), so tests 57 (R57), 66 (R26) and 73
-//! (R55) check its reason here; its `Attach` fixes are in `Message::fixes`, which the engine offers from phase 2.
+//! Phase 2 adds test 42 (a sketch placed where its face was just before its removal, read from the writer chains whose
+//! entries `timeline.rs` tests), test 66's sketch placed where the cut face was (corpus R33) and test 72 (a drawing
+//! turned over, corpus R32 (b)) with its statuses and roots. Left for the phases that build what they need: test 60 (b)
+//! (a hole that skips a deleted point, phase 3), the `no_effect` and `separate_solid` texts and fixes of test 66
+//! (phase 3), and test 72's hole text, single message and `Show` fix, which need the hole's rendering of
+//! `Diagnosis::turned_over` by coordinates and the one-point rule (features.md sections 3.15 and 4.2, phase 3 step 4),
+//! written and ignored until then. Test 69 is the corpus (`reference_stability_{1,2,3}.rs`) and test 70 the newcomer
+//! error corpus (phase 3).
+//! A sketch whose face is lost carries the loss in its `plane_fallback` warning (features/sketch.md section 3.5), so
+//! tests 57 (R57), 66 (R26 and R33) and 73 (R55) check its reason here; its `Attach` fixes are in `Message::fixes`.
 
 mod feature_support;
 #[path = "stability_common/mod.rs"]
@@ -23,10 +27,10 @@ mod stability_common;
 use std::f64::consts::FRAC_PI_2;
 
 use feature_support::{
-    Assets, Run, assert_volume, body_before, element_names, face_names_with_prefix, keep_match,
-    message, pick, remove_entry, use_reference,
+    Assets, Run, assert_placement, assert_volume, body_before, element_names,
+    face_names_with_prefix, keep_match, message, pick, remove_entry, sketch_result, use_reference,
 };
-use partsmith_features::{Absence, FieldRef, Fix, Place, Repair};
+use partsmith_features::{Absence, FeatureWarning, FieldRef, Fix, Place, Placed, Repair};
 use partsmith_model::{Document, EmptyContext};
 use partsmith_naming::{ElementKind, ElementName, Instance};
 use partsmith_recompute::{
@@ -35,17 +39,18 @@ use partsmith_recompute::{
 use serde_json::{Value, json};
 use stability_common::{
     angle, arc, asset_name, block, block_back_top, block_front_right_vertical, block_front_top,
-    block_right_top, block_top, boolean, boolean_boss, boss_base_ring, boss_on_chamfer_datum,
-    boss_top_rim, box_below, box_corner_edge, box_record, chamfer, chamfer_face, circle,
-    circle_region, constrained_sketch, counterbore, cube10, cube20, cube20_bottom_front,
-    cube20_front_top, datum_offset, datum_on_face, datum_plane, distance, document_of, edit,
-    edit_document, edited, edited_document, extrude, fillet, filleted_boss, full_turn, hole, id,
-    import, insert_before, line, linear_pattern, move_before, move_to_end, notched_back_outline,
-    origin_plane, pegs, plate_bytes, point, rectangle, rectangle_region, reference, region,
-    reversed, revolve_about_box_edge, rounded_outline, rounded_plate, run, run_edited,
-    run_with_assets, saved, shell, show, size_constraint, sketch, slotted_cube, split,
-    split_then_fillet, suppressed, symmetric, symmetric_boss, three_quarter_ring, through_all,
-    top_face_plane, unsuppress, unsuppressed, with, without,
+    block_right_top, block_top, block_with_end_cap_sketch, block_with_hole_on_end_cap, boolean,
+    boolean_boss, boss_base_ring, boss_on_chamfer_datum, boss_top_rim, box_below, box_corner_edge,
+    box_record, chamfer, chamfer_face, circle, circle_region, constrained_sketch, counterbore,
+    cube10, cube20, cube20_bottom_front, cube20_front_top, datum_offset, datum_on_face,
+    datum_plane, distance, document_of, edit, edit_document, edited, edited_document, extrude,
+    fillet, filleted_boss, full_turn, hole, id, import, insert_before, line, linear_pattern,
+    move_before, move_to_end, notched_back_outline, origin_plane, pegs, plate_bytes, point,
+    rectangle, rectangle_region, reference, region, reversed, revolve_about_box_edge,
+    rounded_outline, rounded_plate, run, run_edited, run_with_assets, saved, shell, show,
+    size_constraint, sketch, slotted_cube, split, split_then_fillet, suppressed, symmetric,
+    symmetric_boss, tall_box_with_boss, three_quarter_ring, through_all, top_cut, top_face_plane,
+    unsuppress, unsuppressed, with, without,
 };
 
 // Ids, names and fixes.
@@ -381,6 +386,108 @@ fn t041_a_warning_beside_a_notice_makes_the_status_warning_and_comes_first() {
             ("reference_followed", Some("/edges/0"))
         ]
     );
+}
+
+// Test 42: writer chains reach the build (section 3.5), with corpus R33.
+
+/// Corpus R33 run as its setup, then edited as an open session does: the box cut below its top by 'Extrude 1'
+/// (`top_cut`), which gives the document of features/sketch.md test 22 with the setup's picks.
+fn cut_below_the_sketch() -> Run {
+    let mut session = run(&["b-1"], &tall_box_with_boss(Vec::new()));
+    edit(&mut session, &["b-1"], &tall_box_with_boss(top_cut()));
+    session
+}
+
+/// Where the `plane_fallback` warning of `feature` says the sketch was placed.
+fn placed_of(run: &Run, feature: &str) -> Placed {
+    run.feature(feature)
+        .warnings
+        .iter()
+        .find_map(|warning| match warning {
+            FeatureWarning::PlaneFallback { placed, .. } => Some(placed.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{feature} has no plane_fallback warning; {}", run.summary()))
+}
+
+/// Asserts that the sketch `f-sk2` lies on the XY frame lifted to height `z`.
+#[track_caller]
+fn assert_sketch_at(run: &Run, z: f64) {
+    assert_placement(
+        &sketch_result(run, "f-sk2").placement,
+        [0.0, 0.0, z],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    );
+}
+
+/// `Placed::BeforeRemoval` by the cut `f-ext3` of corpus R33.
+fn before_the_cut() -> Placed {
+    Placed::BeforeRemoval { by: id("f-ext3") }
+}
+
+#[test]
+fn t042_r33_a_sketch_is_placed_where_its_face_was_just_before_the_cut() {
+    let session = cut_below_the_sketch();
+
+    // The writer chain of b-1 before the sketch: 'Box 1' on the empty body, then 'Extrude 1' on the box 'Box 1' left.
+    assert!(body_before(&session, "f-box1", "b-1").is_empty());
+    let box_left = body_before(&session, "f-ext3", "b-1")
+        .shape()
+        .expect("the box is built before the cut");
+    assert_volume(box_left, 16000.0);
+    // Where the top was just before 'Extrude 1' removed it, never the fallback's z = 10.
+    assert_sketch_at(&session, 40.0);
+    session.assert_warnings("f-sk2", &["plane_fallback"]);
+    assert_eq!(placed_of(&session, "f-sk2"), before_the_cut());
+}
+
+#[test]
+fn t042_r33_a_feature_of_another_body_inserted_before_the_sketch_leaves_it_reused() {
+    let mut session = cut_below_the_sketch();
+    let key = session.feature("f-sk2").key;
+    let placement = sketch_result(&session, "f-sk2").placement;
+
+    edit(
+        &mut session,
+        &["b-1", "b-2"],
+        &insert_before(
+            &tall_box_with_boss(top_cut()),
+            "f-sk2",
+            vec![box_record("f-box9", "b-2", ["1", "1", "1"], None, "new")],
+        ),
+    );
+
+    let sketch = session.feature("f-sk2");
+    assert!(
+        sketch.timing.from_cache,
+        "f-sk2 was built again; {}",
+        session.summary()
+    );
+    assert_eq!(sketch.key, key);
+    assert_eq!(sketch_result(&session, "f-sk2").placement, placement);
+}
+
+#[test]
+fn t042_r33_a_lower_box_rebuilds_the_sketch_where_the_lower_top_was() {
+    let mut session = cut_below_the_sketch();
+
+    edit(
+        &mut session,
+        &["b-1"],
+        &edited(&tall_box_with_boss(top_cut()), "f-box1", |record| {
+            with(record, "size", json!(["20", "20", "38"]))
+        }),
+    );
+
+    assert!(
+        !session.feature("f-sk2").timing.from_cache,
+        "f-sk2 was reused; {}",
+        session.summary()
+    );
+    assert_sketch_at(&session, 38.0);
+    session.assert_warnings("f-sk2", &["plane_fallback"]);
+    assert_eq!(placed_of(&session, "f-sk2"), before_the_cut());
 }
 
 // Test 43: memoized reasons follow the records they read (section 3.10, memoization).
@@ -2735,6 +2842,48 @@ fn t065_a_body_no_feature_writes() {
     );
 }
 
+// Test 66: lost faces (section 3.10), with corpus R33; corpus R26's `no_effect` root is checked with the `lost_face`
+// rule after test 73.
+
+#[test]
+fn t066_r33_a_sketch_whose_face_was_cut_away_names_the_cut() {
+    let session = cut_below_the_sketch();
+
+    let fallback = message(&session, "f-sk2", "plane_fallback");
+    assert_eq!(
+        fallback.reason,
+        Some(LossReason::Removed {
+            by: id("f-ext3"),
+            how: Removal::CutAway
+        })
+    );
+    assert_ends_with(
+        &fallback.text,
+        "was cut away by 'Extrude 1', which comes before this sketch, so the sketch stays where that face was.",
+    );
+    assert_eq!(fallback.root, None);
+}
+
+#[test]
+fn a_sketch_placed_before_the_removal_names_the_remover_by_its_current_label() {
+    let mut session = cut_below_the_sketch();
+
+    edit(
+        &mut session,
+        &["b-1"],
+        &edited(&tall_box_with_boss(top_cut()), "f-ext3", |record| {
+            with(record, "name", json!("Pocket"))
+        }),
+    );
+
+    assert_all_reused(&session);
+    assert_eq!(placed_of(&session, "f-sk2"), before_the_cut());
+    assert_ends_with(
+        &message(&session, "f-sk2", "plane_fallback").text,
+        "was cut away by 'Pocket', which comes before this sketch, so the sketch stays where that face was.",
+    );
+}
+
 // Test 67 (a): an ambiguous loss names the change by meaning (corpus R63 (a)); (b) is with test 62.
 
 /// Corpus R63 (a)'s setup: BOX-BELOW, holes of 6 through all at `e-p1` (0, 0) and `e-p2` (10, 10) of type
@@ -2864,6 +3013,75 @@ fn t068_a_message_keeps_every_loss_and_its_fixes_in_loss_order() {
         "{:?}",
         error.fixes
     );
+}
+
+// Test 72: a sketch whose face turned over is the root of what it causes (corpus R32 (b), section 3.10 `turned_over`).
+
+/// Corpus R32 (b) with these sketch points and hole points, run as its setup (BLOCK and the sketch on its end cap),
+/// then edited on the setup's recompute: BLOCK extruded in reverse, so the end cap faces -Z at z = -30.
+fn turned_over_end_cap(points: &[Value], drilled: &[&str]) -> Run {
+    let with_points = |reverse: bool| {
+        let features = edited(&block_with_hole_on_end_cap(reverse), "f-sk2", |record| {
+            with(record, "entities", json!(points))
+        });
+        edited(&features, "f-hole1", |record| {
+            with(record, "points", json!(drilled))
+        })
+    };
+    let mut session = run(&["b-1"], &with_points(false));
+    edit(&mut session, &["b-1"], &with_points(true));
+    session
+}
+
+/// Corpus R32 (b) after its edit (the document of features/sketch.md test 24): the point `e-p1` at (20, 10) on the
+/// end cap that turned over, and its hole.
+fn turned_over_hole() -> Run {
+    turned_over_end_cap(&[point("e-p1", [20.0, 10.0])], &["e-p1"])
+}
+
+#[test]
+fn t072_r32b_the_hole_beside_the_body_has_the_turned_over_sketch_as_root() {
+    let session = turned_over_hole();
+
+    session.assert_warnings("f-sk2", &["sketch_turned_over"]);
+    let turned_over = message(&session, "f-sk2", "sketch_turned_over");
+    assert_eq!(turned_over.root, None);
+    assert_eq!(turned_over.reason, None);
+    assert!(
+        matches!(session.feature("f-hole1").status, Status::Warning),
+        "{}",
+        session.summary()
+    );
+    let missed = message(&session, "f-hole1", "hole_misses_body");
+    assert_eq!(missed.root, Some(id("f-sk2")));
+    assert_eq!(missed.reason, None);
+    assert_volume(session.shape("b-1"), 120000.0);
+}
+
+#[test]
+#[ignore = "phase 3 step 4: hole_misses_body by coordinates with turned_over, and no no_effect for one point (features.md sections 3.15 and 4.2)"]
+fn t072_r32b_the_hole_message_says_the_drawing_lies_mirrored_and_shows_the_sketch() {
+    let session = turned_over_hole();
+
+    // One point, so its `hole_misses_body` is the hole's only message (no `no_effect`).
+    let messages = &session.feature("f-hole1").messages;
+    assert_eq!(messages.len(), 1, "{:?}", session.messages("f-hole1"));
+    let missed = &messages[0];
+    assert_eq!(missed.code, "hole_misses_body");
+    assert_eq!(
+        missed.text,
+        "The hole at (20, 10) in 'Sketch 2' does not touch body 'Body 1' because the drawing of 'Sketch 2' lies mirrored on its face. Fix 'Sketch 2' first."
+    );
+    assert_eq!(missed.fixes, [show("f-sk2")]);
+}
+
+#[test]
+fn t072_r32b_without_reverse_every_feature_is_ok() {
+    let mut session = turned_over_hole();
+
+    edit(&mut session, &["b-1"], &block_with_hole_on_end_cap(false));
+
+    session.assert_all_ok();
 }
 
 // Test 73: the fixes of `ComesLater` never leave a record above a feature it uses (section 3.10, `fixes`), with corpus
@@ -3090,6 +3308,69 @@ fn a_no_effect_under_a_sketch_that_lost_its_face_has_that_sketch_as_root() {
         "The face this sketch is on, a face of a feature that is not in this document, is gone, so the sketch uses the position saved with it."
     );
     assert_eq!(message(&run, "f-ext2", "no_effect").root, Some(id("f-sk2")));
+}
+
+// The root of every `no_effect` and `hole_misses_body` under a sketch whose face turned over (section 3.10,
+// `turned_over`; the `no_effect` text is phase 3's).
+
+#[test]
+fn every_message_of_a_hole_under_a_turned_over_sketch_has_that_sketch_as_root() {
+    // Both points lie off the end cap once the drawing is mirrored on it.
+    let session = turned_over_end_cap(
+        &[point("e-p1", [20.0, 10.0]), point("e-p2", [60.0, 40.0])],
+        &["e-p1", "e-p2"],
+    );
+
+    let messages = &session.feature("f-hole1").messages;
+    assert!(messages.len() >= 2, "{:?}", session.messages("f-hole1"));
+    for message in messages {
+        assert_eq!(message.root, Some(id("f-sk2")), "{message:?}");
+    }
+}
+
+#[test]
+fn a_no_effect_under_a_sketch_whose_face_turned_over_has_that_sketch_as_root() {
+    // BLOCK with a cut of a circle at (20, 10) on its end cap, drilled down into the block; once BLOCK is extruded in
+    // reverse the circle lies mirrored at (20, -10), beside the block, and the cut changes nothing.
+    let pocket = |reverse: bool| {
+        let mut features =
+            block_with_end_cap_sketch(reverse, vec![circle("e-5", [20.0, 10.0], 3.0)]);
+        features.push(reversed(extrude(
+            "f-ext2",
+            "b-1",
+            "f-sk2",
+            vec![circle_region("e-5", [20.0, 10.0], 3.0)],
+            distance("5"),
+            "cut",
+        )));
+        features
+    };
+    let mut session = run(&["b-1"], &pocket(false));
+    session.assert_all_ok();
+
+    edit(&mut session, &["b-1"], &pocket(true));
+
+    session.assert_warnings("f-sk2", &["sketch_turned_over"]);
+    assert_eq!(
+        message(&session, "f-ext2", "no_effect").root,
+        Some(id("f-sk2"))
+    );
+    assert_volume(session.shape("b-1"), 120000.0);
+}
+
+#[test]
+fn the_root_under_a_turned_over_sketch_is_found_again_for_results_from_the_cache() {
+    let mut session = turned_over_hole();
+    let first = all_messages(&session.report);
+
+    session.rerun(&Assets::new());
+
+    assert_all_reused(&session);
+    assert_eq!(all_messages(&session.report), first);
+    assert_eq!(
+        message(&session, "f-hole1", "hole_misses_body").root,
+        Some(id("f-sk2"))
+    );
 }
 
 // Messages without a diagnosed loss or follow carry no reason (section 2, `Message::reason`).

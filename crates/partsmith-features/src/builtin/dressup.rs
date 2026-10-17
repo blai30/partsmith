@@ -7,15 +7,15 @@ use std::sync::Arc;
 
 use partsmith_model::Id;
 use partsmith_naming::{
-    EdgeInfo, ElementInfo, ElementKind, ElementName, FaceSource, Generator, Motion, NamingMap,
-    Reference, Successions, TopologyInfo, roles,
+    EdgeInfo, ElementInfo, ElementKind, ElementName, FaceSource, Generator, NamingMap, Reference,
+    Successions, TopologyInfo, roles,
 };
 use partsmith_occt_sys::{
     Continuity, EdgeNormals, InputHistory, KernelError, KernelErrorKind, OpResult, Shape,
     SubShapeKind, Vector,
 };
 
-use super::common::{bodies, check_canceled, face_name, unchanged};
+use super::common::{bodies, body_base_motion, check_canceled, face_name, unchanged};
 use crate::{
     BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
     IgnoredReason, Measurements, Named, name_shape, too_large_search,
@@ -308,6 +308,7 @@ pub(super) fn finish_blend(
 /// names of the body faces it descends from; a face generated from body edges is named
 /// `<feature>/<role>/<smallest edge name>`, one generated from body vertices
 /// `<feature>/corner/<smallest vertex name>`, and any other face falls back to `<feature>/face`.
+/// The new faces take the body's base motion (features.md section 3.9).
 fn name_blend(
     feature: &Id,
     role: &str,
@@ -334,7 +335,7 @@ fn name_blend(
         faces,
         &[input],
         &Successions::default(),
-        &Motion::IDENTITY,
+        &body_base_motion(feature, input)?,
     )
 }
 

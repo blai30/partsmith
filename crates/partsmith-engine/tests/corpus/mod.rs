@@ -743,6 +743,45 @@ pub fn r25() -> Scenario {
     )
 }
 
+/// Corpus R26: BLOCK and a boss on its top (a face sketch `f-sk2` on the top with a circle `e-5` at (40, 25) of radius
+/// 10, extruded 10 by `f-ext2` with Operation Join); edit (1) makes 'Extrude 1' 80 tall. [`r26_recreated`] makes edit
+/// (2) too.
+pub fn r26() -> Scenario {
+    let features = block_then(vec![
+        sketch(
+            "f-sk2",
+            top_face_plane("b-1", block_top(), 30.0),
+            vec![circle("e-5", [40.0, 25.0], 10.0)],
+        ),
+        extrude(
+            "f-ext2",
+            "b-1",
+            "f-sk2",
+            vec![circle_region("e-5", [40.0, 25.0], 10.0)],
+            distance("10"),
+            "join",
+        ),
+    ]);
+    Scenario::new(
+        &document(&["b-1"], &features),
+        vec![Change::Set("f-ext1", "/extent/expr", json!("80"))],
+    )
+}
+
+/// Corpus R26 after its edits as engine.md test 136 applies them, three `apply_edits`: edit (1) ([`after_edit`] of
+/// [`r26`], revision 1); `f-ext1` deleted (revision 2); then `f-ext3`, the same extrude 80 tall, added at its place
+/// (revision 3), which makes it 'Extrude 1'. Returns the handle and the reply of the add.
+pub fn r26_recreated(session: &mut Session) -> (u64, Sent) {
+    let (doc, _) = after_edit(session, &r26());
+    let recreated = with(record(session, doc, "f-ext1"), "id", json!("f-ext3"));
+    let deletion = edits(session, doc, &[Change::Remove(vec!["f-ext1"])]);
+    apply(session, doc, Some("Delete"), Value::Array(deletion)).ok();
+    let addition = edits(session, doc, &[Change::InsertAt(1, vec![recreated])]);
+    let added = apply(session, doc, Some("Add"), Value::Array(addition));
+    added.ok();
+    (doc, added)
+}
+
 /// Corpus R28: BLOCK, a boss on a datum at its top, a fillet of 2 on the boss's top rim, then the fillet dragged
 /// directly after 'Extrude 1'.
 pub fn r28() -> Scenario {
@@ -774,6 +813,110 @@ pub fn r28() -> Scenario {
     Scenario::new(
         &document(&["b-1"], &features),
         vec![Change::Move("f-fil1", 2)],
+    )
+}
+
+/// A face sketch `f-sk2` on BLOCK's top, with its fallback at z = 30, holding `entities`.
+fn sketch_on_block_top(entities: Vec<Value>) -> Value {
+    sketch("f-sk2", top_face_plane("b-1", block_top(), 30.0), entities)
+}
+
+/// BLOCK followed by `features`, then 'Extrude 1' reversed, so BLOCK's top turns over to the bottom at z = -30, facing
+/// -Z (corpus R32 (b)'s edit).
+fn turned_over_top(features: Vec<Value>) -> Scenario {
+    Scenario::new(
+        &document(&["b-1"], &block_then(features)),
+        vec![Change::Set("f-ext1", "/reverse", json!(true))],
+    )
+}
+
+/// Corpus R32 (b): BLOCK, a face sketch `f-sk2` on its top with the point `e-p1` at (20, 10), and a hole `f-hole1` of
+/// diameter 5 and depth 10 there; then 'Extrude 1' reversed.
+pub fn r32b() -> Scenario {
+    turned_over_top(vec![
+        sketch_on_block_top(vec![point("e-p1", [20.0, 10.0])]),
+        hole(
+            "f-hole1",
+            "b-1",
+            "f-sk2",
+            &["e-p1"],
+            "5",
+            distance("10"),
+        ),
+    ])
+}
+
+/// Corpus R32 (b) with a pocket in place of the hole (the region re-anchoring of `TurnDrawingBack`, engine.md section
+/// 3.22): the rectangle `e-11` to `e-14` from (10, 5) to (30, 15) on BLOCK's top, held 10 tall by the line form of a
+/// vertical distance on `e-12` (which mirroring rewrites, sketch.md section 3.17), cut 5 into the block by `f-ext2`;
+/// then 'Extrude 1' reversed.
+pub fn r32b_pocket() -> Scenario {
+    let height = json!({"id": "c-11", "type": "vertical_distance", "line": "e-12", "expr": "10 mm"});
+    turned_over_top(vec![
+        with(
+            sketch_on_block_top(rectangle(11, 10.0, 5.0, 30.0, 15.0)),
+            "constraints",
+            json!([height]),
+        ),
+        with(
+            extrude(
+                "f-ext2",
+                "b-1",
+                "f-sk2",
+                vec![rectangle_region(11, 10.0, 5.0, 30.0, 15.0)],
+                distance("5"),
+                "cut",
+            ),
+            "reverse",
+            json!(true),
+        ),
+    ])
+}
+
+/// Corpus R33: a 20 x 20 x 40 box with a boss on its top (a face sketch `f-sk2` attached when the box was 10 tall, so
+/// its fallback is at z = 10, with a circle `e-5` at (0, 0) of radius 3, extruded 5 by `f-ext2` with Operation Join);
+/// then a cut inserted before the sketch (`f-dp1` at z = 35, `f-sk3` with a 30 x 30 square on it, `f-ext3` cutting
+/// z 35..40), which removes the top and makes its own start cap the new top at z = 35. The cut is then 'Extrude 1'.
+pub fn r33() -> Scenario {
+    let features = vec![
+        box_record("f-box1", "b-1", ["20", "20", "40"], None, "new"),
+        sketch(
+            "f-sk2",
+            top_face_plane(
+                "b-1",
+                reference("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=400|adj=4,4"),
+                10.0,
+            ),
+            vec![circle("e-5", [0.0, 0.0], 3.0)],
+        ),
+        extrude(
+            "f-ext2",
+            "b-1",
+            "f-sk2",
+            vec![circle_region("e-5", [0.0, 0.0], 3.0)],
+            distance("5"),
+            "join",
+        ),
+    ];
+    let cut = vec![
+        datum_offset("f-dp1", "XY", "35"),
+        sketch(
+            "f-sk3",
+            datum_plane("f-dp1"),
+            rectangle(11, -15.0, -15.0, 15.0, 15.0),
+        ),
+        extrude(
+            "f-ext3",
+            "b-1",
+            "f-sk3",
+            vec![rectangle_region(11, -15.0, -15.0, 15.0, 15.0)],
+            distance("10"),
+            "cut",
+        ),
+    ];
+    Scenario::new(
+        &document(&["b-1"], &features),
+        vec![Change::InsertBefore("f-sk2", cut)],
     )
 }
 

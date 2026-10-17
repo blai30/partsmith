@@ -7,15 +7,16 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    BOX_BELOW, LENGTH_TOLERANCE, Run, absent_faces, assert_bounding_box, assert_coordinates,
-    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
-    assert_face_in_plane, assert_face_kind, assert_face_radius, assert_has_face,
-    assert_median_build_within, assert_no_face, assert_solid_count, assert_unchanged,
-    assert_volume, body_update, document, face, face_names_with_prefix, load_example, output_body,
-    vertex,
+    BOX_BELOW, LENGTH_TOLERANCE, MOVE_BY_100, Run, absent_faces, assert_bounding_box,
+    assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_count, assert_face_in_plane, assert_face_kind, assert_face_radius, assert_has_face,
+    assert_median_build_within, assert_no_face, assert_solid_count, assert_translation,
+    assert_unchanged, assert_volume, body_update, document, face, face_names_with_prefix,
+    load_example, moved_box_document, output_body, sketch_result, vertex,
 };
 use partsmith_features::{BodyChange, Bound, FeatureError};
 use partsmith_model::Document;
+use partsmith_naming::ElementName;
 use partsmith_occt_sys::GeometryKind;
 
 /// `SK-PTS`: the points `e-p1` (0, 0), `e-p2` (10, 10) and `e-p3` (100, 0) on XY.
@@ -672,4 +673,15 @@ fn t036_a_hole_that_starts_inside_the_body_ends_outside() {
         absent_faces(&run, "f-hole1"),
         [("f-hole1/bottom/e-p1".to_string(), "EndOutside".to_string())]
     );
+}
+
+#[test]
+fn t037_the_holes_faces_move_with_the_part() {
+    let run = Run::new(moved_box_document(MOVE_BY_100, Some("body")));
+
+    run.assert_all_ok();
+    let bore = ElementName::parse("f-hole1/bore/e-p1").expect("a valid name");
+    let motion = output_body(&run, "f-hole1", "b-1").motion(&bore);
+    assert_translation(&motion, [100.0, 0.0, 0.0]);
+    assert_eq!(motion, sketch_result(&run, "f-sk2").motion);
 }

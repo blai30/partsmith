@@ -2,11 +2,11 @@
 //!
 //! After the run, each error, warning and notice is explained from what the feature cannot know
 //! from its own inputs: why each lost reference was lost, which feature a followed reference
-//! followed, the root of a failure chain, why a body is empty and which sketch lost its face. The
-//! explanation is a features `Diagnosis` the message renders with, plus the message's `root` and
-//! `reason`; it reads names only, through `BodyState::name_set`, and is never stored in a cached
-//! error or warning. Reasons, `after` and `by` are memoized in the cache entry of the feature's key
-//! with the observations they were computed from.
+//! followed, the root of a failure chain, why a body is empty and which sketch lost its face or
+//! had its face turn over. The explanation is a features `Diagnosis` the message renders with,
+//! plus the message's `root` and `reason`; it reads names only, through `BodyState::name_set`,
+//! and is never stored in a cached error or warning. Reasons, `after` and `by` are memoized in the
+//! cache entry of the feature's key with the observations they were computed from.
 
 mod explain;
 mod face_name;
@@ -298,17 +298,7 @@ impl Explainer<'_> {
             }
             Problem::Warning(
                 FeatureWarning::NoEffect { .. } | FeatureWarning::HoleMissesBody { .. },
-            ) => {
-                let lost_face = self.lost_face();
-                Diagnosed {
-                    root: lost_face.clone(),
-                    diagnosis: Diagnosis {
-                        lost_face,
-                        ..Diagnosis::default()
-                    },
-                    reason: None,
-                }
-            }
+            ) => self.sketch_root().unwrap_or_default(),
             _ => Diagnosed::default(),
         }
     }
@@ -460,17 +450,32 @@ impl Explainer<'_> {
             .map(|later| Because::ComesLater(view.id(later).clone()))
     }
 
-    /// The sketch the feature reads, when its report in this run has a `PlaneFallback` warning: the
-    /// sketch lost its face (section 3.10, `lost_face`).
-    fn lost_face(&self) -> Option<Id> {
+    /// The explanation of a `NoEffect` or `HoleMissesBody` of the feature when the sketch it reads
+    /// lost its face in this run (a `PlaneFallback` warning, `lost_face`) or its face turned over
+    /// (a `SketchTurnedOver` warning, `turned_over`): the diagnosis names that sketch, and it is
+    /// the message's root (section 3.10). A sketch gives at most one of the two warnings, since it
+    /// either is on its face or falls back.
+    fn sketch_root(&self) -> Option<Diagnosed> {
         let view = self.view;
         let sketch = view.first_sketch(self.explained)?;
-        let position = view.position(sketch)?;
-        view.report(position)
+        let turned_over = view
+            .report(view.position(sketch)?)
             .warnings
             .iter()
-            .any(|warning| matches!(warning, FeatureWarning::PlaneFallback { .. }))
-            .then(|| sketch.clone())
+            .find_map(|warning| match warning {
+                FeatureWarning::PlaneFallback { .. } => Some(false),
+                FeatureWarning::SketchTurnedOver { .. } => Some(true),
+                _ => None,
+            })?;
+        Some(Diagnosed {
+            diagnosis: Diagnosis {
+                lost_face: (!turned_over).then(|| sketch.clone()),
+                turned_over: turned_over.then(|| sketch.clone()),
+                ..Diagnosis::default()
+            },
+            root: Some(sketch.clone()),
+            reason: None,
+        })
     }
 }
 

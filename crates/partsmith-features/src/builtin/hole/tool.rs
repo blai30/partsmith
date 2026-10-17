@@ -109,12 +109,14 @@ impl Frame {
 }
 
 /// The tool of one hole: the full revolution of its half cross-section about its axis, with every
-/// face named `<feature>/<role>/<point>`.
+/// face named `<feature>/<role>/<point>` and given `motion`, the point sketch's (features.md
+/// section 3.9).
 pub(super) fn hole_tool(
     feature: &Id,
     point: &PointRef,
     frame: &Frame,
     section: &[(Role, [f64; 2])],
+    motion: &Motion,
 ) -> Result<Tool, FeatureError> {
     let mut curves = Vec::with_capacity(section.len());
     let mut start = [0.0, 0.0];
@@ -149,14 +151,7 @@ pub(super) fn hole_tool(
             face_name(feature, word, Some(Generator::Sketch(&point_text))).map(FaceSource::New)
         })
         .collect::<Result<Vec<_>, FeatureError>>()?;
-    let naming = name_shape(
-        &sweep.shape,
-        faces,
-        &[],
-        &Successions::default(),
-        &Motion::IDENTITY,
-    )?
-    .naming;
+    let naming = name_shape(&sweep.shape, faces, &[], &Successions::default(), motion)?.naming;
     Ok(Tool {
         shape: sweep.shape,
         naming,

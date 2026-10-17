@@ -11,12 +11,13 @@ use std::path::Path;
 use std::time::Duration;
 
 use feature_support::{
-    CUBE20, Run, assert_bounding_box, assert_element_repair, assert_error_field,
+    CUBE20, MOVE_BY_100, Run, assert_bounding_box, assert_element_repair, assert_error_field,
     assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
     assert_face_normal, assert_face_position, assert_face_radius, assert_has_face,
-    assert_list_field, assert_median_build_within, assert_solid_count, assert_unchanged,
-    assert_volume, body_update, document, face, face_index, face_names_with_prefix, load_example,
-    median_failed_build_time, parse_document, suggested_limit,
+    assert_list_field, assert_median_build_within, assert_moved_by_100, assert_solid_count,
+    assert_unchanged, assert_volume, body_update, document, face, face_index,
+    face_names_with_prefix, load_example, median_failed_build_time, parse_document,
+    suggested_limit,
 };
 use feature_support::{assert_messages_pass_lint, message};
 use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, FieldRef, Fix};
@@ -821,4 +822,14 @@ fn t023_ui_fixture_with_a_shell_after_a_fillet() {
     assert_face_count(shape, 15);
     assert_solid_count(shape, 1);
     assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
+}
+
+#[test]
+fn the_rim_and_inside_faces_move_with_the_part() {
+    let top = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=400"}"#;
+    let run = Run::records(&["b-1"], &[CUBE20, MOVE_BY_100, &shell_record("2", &[top])]);
+
+    run.assert_all_ok();
+    assert_moved_by_100(&run, "f-sh1", "b-1", "f-sh1/rim/f-box1/top");
+    assert_moved_by_100(&run, "f-sh1", "b-1", "f-sh1/inner/f-box1/bottom");
 }

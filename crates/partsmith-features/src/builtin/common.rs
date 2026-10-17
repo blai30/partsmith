@@ -7,7 +7,8 @@ use partsmith_model::{
     SelectionKind,
 };
 use partsmith_naming::{
-    ElementKind, ElementName, FaceSource, Generator, Motion, Reference, Successions, roles,
+    ElementKind, ElementName, FaceSource, Generator, Motion, NamingMap, Reference, Successions,
+    roles,
 };
 use partsmith_occt_sys::{
     KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult,
@@ -328,6 +329,13 @@ pub(crate) fn naming_motion(transform: &Transform) -> Motion {
         ],
         [first[3], second[3], third[3]],
     )
+}
+
+/// The base motion of `input`, the naming map of the body a fillet, chamfer, shell or split body makes its new faces
+/// on, which those faces take (features.md section 3.9): the motion of a name the map never saw, the feature's own
+/// `<feature>/face`.
+pub(crate) fn body_base_motion(feature: &Id, input: &NamingMap) -> Result<Motion, FeatureError> {
+    Ok(input.motion(&face_name(feature, roles::FACE, None)?))
 }
 
 /// A body-updating output that records no absent face.

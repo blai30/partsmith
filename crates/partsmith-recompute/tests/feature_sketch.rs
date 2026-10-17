@@ -18,14 +18,14 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    AXIS_TOLERANCE, BOTH_TOPS, Run, THROUGH_ALL, assert_bore_through, assert_coordinates,
-    assert_error_field, assert_examples_canonical, assert_face_in_plane,
+    AXIS_TOLERANCE, BOTH_TOPS, MOVE_BY_100, Run, THROUGH_ALL, TURN_BY_90, assert_bore_through,
+    assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_in_plane,
     assert_median_build_within, assert_moves, assert_placement, assert_quarter_turns_about_z,
     assert_relative, assert_solid_count, assert_top_at, assert_translation, assert_volume,
     body_before, box_step_asset, datum_motion, document, document_text, expression_uses, face,
     face_sketch, face_sketch_with, hole_at_point, l_shaped_body, link_ids, load_example, message,
-    one_circle, one_point, parse_document, reference_json, sketch_result, step_asset_name,
-    top_fallback,
+    moved_box_document, one_circle, one_point, parse_document, reference_json, sketch_result,
+    step_asset_name, top_fallback,
 };
 use partsmith_features::{
     FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
@@ -594,38 +594,6 @@ fn block(extra: &str) -> [String; 2] {
 /// The end cap of `BLOCK` as a pick stored it (its top at z = 30).
 const BLOCK_TOP: &str =
     r#"{"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}"#;
-
-/// The box 40 x 40 x 10 of test 20 (x -20..20, y -20..20, z 0..10).
-const BOX_40: &str =
-    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "op": "new"}"#;
-
-/// The top of `BOX_40` as a pick stored it.
-const BOX_40_TOP: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"}"#;
-
-/// The Move body `f-mv1` of test 20 by (100, 0, 0).
-const MOVE_BY_100: &str =
-    r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]}"#;
-
-/// The Move body `f-mv1` of test 20's rotation variant: 90 degrees about the Z axis.
-const TURN_BY_90: &str = r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "90 deg"}}"#;
-
-/// The document of test 20 (corpus R32a) with the Move body `motion` and the sketch's fallback in `frame`.
-fn moved_box_document(motion: &str, frame: Option<&str>) -> partsmith_model::Document {
-    document(
-        &["b-1"],
-        &[
-            BOX_40,
-            motion,
-            &face_sketch(
-                BOX_40_TOP,
-                [0.0, 0.0, 10.0],
-                frame,
-                &one_point([15.0, 15.0]),
-            ),
-            &hole_at_point("4", THROUGH_ALL),
-        ],
-    )
-}
 
 /// Asserts that `f-hole1` warns `hole_misses_body`. That it is the only warning (one point, so no `no_effect`,
 /// features.md section 3.15) and its text, fixes and root come with phase 3 and recompute.md test 72.

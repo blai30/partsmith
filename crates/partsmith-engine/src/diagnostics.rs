@@ -185,7 +185,9 @@ impl FeatureView<'_> {
 
     /// The words of a loss's stored element, its candidates and the faces they keep, from one
     /// `describe_elements` call in the state the reference was resolved in (section 3.4), so
-    /// that elements that would read the same get their entity or position clause.
+    /// that elements that would read the same get their entity or position clause. A kept face
+    /// that is itself a candidate is described once, with the candidate's words, since one
+    /// element named twice is no clash (features.md section 3.12).
     fn repair_words(
         &self,
         body: &Id,
@@ -193,9 +195,15 @@ impl FeatureView<'_> {
         loss: &Loss,
         kept: &[Option<ElementName>],
     ) -> RepairWords {
+        let candidate_position = |face: &ElementName| {
+            loss.candidates
+                .iter()
+                .position(|candidate| &candidate.reference.query == face)
+        };
         let mut kept_faces: Vec<(ElementName, Fingerprint)> = Vec::new();
         for face in kept.iter().flatten() {
-            if kept_faces.iter().all(|(known, _)| known != face)
+            if candidate_position(face).is_none()
+                && kept_faces.iter().all(|(known, _)| known != face)
                 && let Some(fingerprint) = face_fingerprint(state, face)
             {
                 kept_faces.push((face.clone(), fingerprint));
@@ -224,14 +232,24 @@ impl FeatureView<'_> {
             units,
         )
         .into_iter();
+        let stored = words.next().unwrap_or_default();
+        let candidates: Vec<String> = words.by_ref().take(loss.candidates.len()).collect();
+        let mut kept_words: BTreeMap<ElementName, String> = kept_faces
+            .into_iter()
+            .map(|(face, _)| face)
+            .zip(words)
+            .collect();
+        for face in kept.iter().flatten() {
+            if let Some(words) =
+                candidate_position(face).and_then(|position| candidates.get(position))
+            {
+                kept_words.insert(face.clone(), words.clone());
+            }
+        }
         RepairWords {
-            stored: words.next().unwrap_or_default(),
-            candidates: words.by_ref().take(loss.candidates.len()).collect(),
-            kept: kept_faces
-                .into_iter()
-                .map(|(face, _)| face)
-                .zip(words)
-                .collect(),
+            stored,
+            candidates,
+            kept: kept_words,
         }
     }
 

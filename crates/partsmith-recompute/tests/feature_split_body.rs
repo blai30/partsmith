@@ -8,11 +8,11 @@ mod feature_support;
 use std::time::Duration;
 
 use feature_support::{
-    BOTH_TOPS, CUBE20, Run, assert_bounding_box, assert_choice_between, assert_empty,
+    BOTH_TOPS, CUBE20, MOVE_BY_100, Run, assert_bounding_box, assert_choice_between, assert_empty,
     assert_error_field, assert_examples_canonical, assert_face_count, assert_face_kind,
     assert_face_normal, assert_face_position, assert_has_face, assert_median_build_within,
-    assert_solid_count, assert_unchanged, assert_volume, body_changes, face, l_shaped_body,
-    load_example, slotted_block,
+    assert_moved_by_100, assert_solid_count, assert_unchanged, assert_volume, body_changes, face,
+    l_shaped_body, load_example, slotted_block,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -283,4 +283,22 @@ fn t012_a_plane_face_split_into_coplanar_pieces() {
     let shape = run.shape("b-1");
     assert_volume(shape, 6000.0);
     assert_bounding_box(shape, [-10.0, -10.0, 5.0], [10.0, 10.0, 20.0]);
+}
+
+#[test]
+fn the_cut_faces_move_with_the_part() {
+    // Split body step 5: the section faces take the body's base motion.
+    let run = Run::records(
+        &BODIES,
+        &[
+            CUBE20,
+            MOVE_BY_100,
+            &datum_plane("5"),
+            &split(r#""target": "b-2""#),
+        ],
+    );
+
+    run.assert_all_ok();
+    assert_moved_by_100(&run, "f-split1", "b-1", "f-split1/split-positive");
+    assert_moved_by_100(&run, "f-split1", "b-2", "f-split1/split-negative");
 }

@@ -4,14 +4,14 @@
 use std::sync::Arc;
 
 use partsmith_model::{Category, FeatureManifest, Id, SelectionKind};
-use partsmith_naming::{FaceSource, Motion, NamingMap, Successions, roles};
+use partsmith_naming::{FaceSource, NamingMap, Successions, roles};
 use partsmith_occt_sys::{PlaneSide, Shape, SplitResult, SubShapeKind, split};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, essential, face_name, flag, hint, is_false, manifest, part, selection_hint,
-    single_or_compound, solid_body, target_hint,
+    bodies, body_base_motion, essential, face_name, flag, hint, is_false, manifest, part,
+    selection_hint, single_or_compound, solid_body, target_hint,
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -186,8 +186,9 @@ fn sides(pieces: &SplitResult, threshold: f64) -> Result<(Side, Side), FeatureEr
 
 /// Names every face of the whole split result (naming.md section 3.6.13): a face descending from
 /// input faces keeps their names, a section face is `<id>/split-positive` or `<id>/split-negative`
-/// by the side of the piece it bounds, and anything else gets the fallback `<id>/face`. Pieces of
-/// one face on both sides are numbered together.
+/// by the side of the piece it bounds, and anything else gets the fallback `<id>/face`, each new
+/// face with the body's base motion (features.md section 3.9). Pieces of one face on both sides
+/// are numbered together.
 fn name_pieces(
     context: &BuildContext<'_>,
     pieces: &SplitResult,
@@ -221,7 +222,7 @@ fn name_pieces(
         faces,
         &[input],
         &Successions::default(),
-        &Motion::IDENTITY,
+        &body_base_motion(feature, input)?,
     )?;
     Ok(named.naming)
 }

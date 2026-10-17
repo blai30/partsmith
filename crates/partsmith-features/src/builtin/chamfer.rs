@@ -42,7 +42,8 @@ pub enum ChamferDistance {
         /// The distance on both faces.
         expr: Expr,
     },
-    /// `expr` on the first face and `second_expr` on the second face of each edge (section 3.3).
+    /// `expr` on the first face and `second_expr` on the second face of each edge, where the first
+    /// face is the first face of the edge's stored reference (features/chamfer.md section 3.3).
     /// Lengths, greater than 0. `flip` swaps them.
     TwoDistances {
         /// The distance on the first face.
@@ -77,23 +78,6 @@ impl Distances {
             Distances::Equal(distance) => distance,
             Distances::TwoDistances { on_first, on_other } => on_first.max(on_other),
         }
-    }
-
-    /// The kernel size of an edge whose first face (chamfer.md section 3.3 step 4) `first_face`
-    /// gives: two distances measure `on_first` on it; an equal distance has no side, so it never
-    /// asks.
-    fn size(
-        self,
-        first_face: impl FnOnce() -> Result<u32, FeatureError>,
-    ) -> Result<ChamferSize, FeatureError> {
-        Ok(match self {
-            Distances::Equal(distance) => ChamferSize::Equal { distance },
-            Distances::TwoDistances { on_first, on_other } => ChamferSize::TwoDistances {
-                distance: on_first,
-                other_distance: on_other,
-                face: first_face()?,
-            },
-        })
     }
 }
 
@@ -200,7 +184,19 @@ impl Feature for Chamfer {
         let mut warnings = selection.warnings;
         let mut edges = Vec::with_capacity(selection.edges.len());
         for edge in sorted_by_name(state.naming(), &selection.edges)? {
-            let size = distances.size(|| side_of(context, params, state, edge, &mut warnings))?;
+            // An equal distance has no side; two distances measure `on_first` on the edge's first face.
+            let size = match distances {
+                Distances::Equal(distance) => ChamferSize::Equal { distance },
+                Distances::TwoDistances { on_first, on_other } => {
+                    let (face, notice) = side_of(context, params, state, edge, &warnings)?;
+                    warnings.extend(notice);
+                    ChamferSize::TwoDistances {
+                        distance: on_first,
+                        other_distance: on_other,
+                        face,
+                    }
+                }
+            };
             edges.push(ChamferEdge {
                 edge: edge.index,
                 size,
@@ -290,21 +286,23 @@ fn first_face(
 }
 
 /// The first face of `edge` for two distances (chamfer.md section 3.3 step 4), with the notice of
-/// `side_notice` added to `warnings` when it is not the face the edge was picked from and the
-/// resolution said nothing about the edge's entry.
+/// `side_notice` when it is not the face the edge was picked from and none of the `messages` so far
+/// says anything about the edge's entry.
 fn side_of(
     context: &BuildContext<'_>,
     params: &ChamferParams,
     state: &BodyState,
     edge: &SelectedEdge,
-    warnings: &mut Vec<FeatureWarning>,
-) -> Result<u32, FeatureError> {
+    messages: &[FeatureWarning],
+) -> Result<(u32, Option<FeatureWarning>), FeatureError> {
     let reference = &params.edges[edge.source];
     let (face, picked) = first_face(state, edge, reference)?;
-    if !picked && !mentions_entry(warnings, edge.source) {
-        warnings.push(side_notice(context, &params.body, state, edge, reference)?);
-    }
-    Ok(face)
+    let notice = if picked || mentions_entry(messages, edge.source) {
+        None
+    } else {
+        Some(side_notice(context, &params.body, state, edge, reference)?)
+    };
+    Ok((face, notice))
 }
 
 /// True when `messages` say something about the entry at `position` of the edge list: a guess, a
@@ -633,34 +631,14 @@ mod tests {
     }
 
     #[test]
-    fn two_distances_measure_the_first_on_the_first_face() {
-        let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
-        let (_, front) = front_top_edge(&cube);
+    fn the_search_scales_the_larger_distance() {
         let distances = Distances::TwoDistances {
             on_first: 1.0,
             on_other: 3.0,
         };
 
-        let size = distances.size(|| Ok(front)).expect("sized");
-
-        assert_eq!(
-            size,
-            ChamferSize::TwoDistances {
-                distance: 1.0,
-                other_distance: 3.0,
-                face: front
-            }
-        );
         assert_eq!(distances.larger(), 3.0);
-    }
-
-    #[test]
-    fn an_equal_distance_reads_no_face() {
-        let size = Distances::Equal(2.0)
-            .size(|| Err(FeatureError::internal("an equal distance asks for no face")))
-            .expect("an equal distance has no side");
-
-        assert_eq!(size, ChamferSize::Equal { distance: 2.0 });
+        assert_eq!(Distances::Equal(2.0).larger(), 2.0);
     }
 
     #[test]

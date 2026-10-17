@@ -9,12 +9,12 @@ use std::f64::consts::PI;
 use std::time::Duration;
 
 use feature_support::{
-    CUBE20, FRONT_TOP_EDGE, PLATE, PLATE_TOP_EDGES, Run, assert_bounding_box,
+    CUBE20, FRONT_TOP_EDGE, MOVE_BY_100, PLATE, PLATE_TOP_EDGES, Run, assert_bounding_box,
     assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_count, assert_face_kind, assert_face_radius, assert_list_field,
-    assert_median_build_within, assert_messages_pass_lint, assert_same_body, assert_unchanged,
-    assert_volume, body_update, document, face, face_names_with_prefix, load_example,
-    median_failed_build_time, message, output_body, suggested_limit, use_reference,
+    assert_median_build_within, assert_messages_pass_lint, assert_moved_by_100, assert_same_body,
+    assert_unchanged, assert_volume, body_update, document, face, face_names_with_prefix,
+    load_example, median_failed_build_time, message, output_body, suggested_limit, use_reference,
 };
 use partsmith_features::{
     BodyChange, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, IgnoredReason,
@@ -491,4 +491,20 @@ fn t018_edge_order_does_not_matter() {
         second.volume().expect("a volume").to_bits()
     );
     assert_eq!(listed.body("b-1").naming(), reversed.body("b-1").naming());
+}
+
+#[test]
+fn a_rounded_face_moves_with_the_part() {
+    let run = Run::records(
+        &["b-1"],
+        &[CUBE20, MOVE_BY_100, &fillet_record(&[FRONT_TOP_EDGE], "2")],
+    );
+
+    run.assert_all_ok();
+    assert_moved_by_100(
+        &run,
+        "f-fil1",
+        "b-1",
+        "f-fil1/fillet/edge(f-box1/front|f-box1/top)",
+    );
 }

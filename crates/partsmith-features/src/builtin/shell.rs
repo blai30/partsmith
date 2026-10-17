@@ -2,14 +2,14 @@
 //! removing faces (features/shell.md).
 
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_naming::{ElementKind, FaceSource, Motion, NamingMap, Reference, Successions, roles};
+use partsmith_naming::{ElementKind, FaceSource, NamingMap, Reference, Successions, roles};
 use partsmith_occt_sys::{KernelError, OpResult, Shape, SubShapeKind, compound, shell};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    body_hint, essential, manifest, positive_length, references, selection_hint, solid_body,
-    unit_hint,
+    body_base_motion, body_hint, essential, manifest, positive_length, references, selection_hint,
+    solid_body, unit_hint,
 };
 use super::dressup::{
     FaceOrigins, add_origins, from_body, modified, names_of_faces, new_face, run_or_search,
@@ -217,7 +217,7 @@ fn shell_solids(solids: &[BodySolid], thickness: f64) -> Result<Hollow, KernelEr
 /// Names the hollow body (naming.md section 3.6.7): the rim where a removed face was is
 /// `<feature>/rim/<face>`; kept faces keep their names; an inner offset face, or a join filling
 /// the gap at a concave edge or vertex, is `<feature>/inner/<element>`; anything else falls back
-/// to `<feature>/face`.
+/// to `<feature>/face`. The new faces take the body's base motion (features.md section 3.9).
 fn name_shell(
     feature: &Id,
     input: &NamingMap,
@@ -265,7 +265,7 @@ fn name_shell(
         faces,
         &[input],
         &Successions::default(),
-        &Motion::IDENTITY,
+        &body_base_motion(feature, input)?,
     )
 }
 
@@ -303,7 +303,7 @@ fn face_source(
 #[cfg(test)]
 mod tests {
     use partsmith_model::FeatureRecord;
-    use partsmith_naming::ElementName;
+    use partsmith_naming::{ElementName, Motion};
     use partsmith_occt_sys::fuse;
     use serde_json::json;
 

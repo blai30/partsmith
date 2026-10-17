@@ -23,7 +23,7 @@ use partsmith_naming::MatchMethod;
 use partsmith_sketch::{HintFrame, Placement, SketchParams, SketchPlane};
 use serde_json::{Value, json};
 use stability_support_2::feature_support::{
-    Assets, Run, body_before, datum_placement, pick, sketch_result,
+    Assets, Run, body_before, datum_placement, parse_document, pick, sketch_result,
 };
 use stability_support_2::*;
 
@@ -653,29 +653,6 @@ fn r32a_variant_a_sketch_keeps_its_place_on_a_face_that_turns() {
     );
 }
 
-/// R32 (b) setup: BLOCK, extruded in reverse when `reverse`, a sketch on its end cap with a point at
-/// (20,10) and a 5 mm hole 10 deep there.
-fn block_with_hole_on_end_cap(reverse: bool) -> Vec<Value> {
-    let mut features = block();
-    if reverse {
-        features = edited(&features, "f-ext1", reversed);
-    }
-    features.push(sketch(
-        "f-sk2",
-        top_face_plane("b-1", block_top(), 30.0),
-        vec![point("e-p1", [20.0, 10.0])],
-    ));
-    features.push(hole(
-        "f-hole1",
-        "b-1",
-        "f-sk2",
-        &["e-p1"],
-        "5",
-        distance("10"),
-    ));
-    features
-}
-
 #[test]
 fn r32b_a_sketch_keeps_its_place_on_a_face_that_turns_over() {
     let mut checks = Checks::new();
@@ -787,32 +764,6 @@ fn turned_drawing_back(document: &Document, sketch: &str, placement: Placement) 
     turned
 }
 
-/// R33: the top of the box as picked when it was 10 tall.
-fn tall_box_top() -> Value {
-    reference("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=400|adj=4,4")
-}
-
-/// R33 setup: a 20 x 20 x 40 box, these features inserted after it, then a sketch on its top
-/// (attached when it was 10 tall) with a boss.
-fn tall_box_with_boss(inserted: Vec<Value>) -> Vec<Value> {
-    let mut features = vec![box_record("f-box1", "b-1", ["20", "20", "40"], None, "new")];
-    features.extend(inserted);
-    features.push(sketch(
-        "f-sk2",
-        top_face_plane("b-1", tall_box_top(), 10.0),
-        vec![circle("e-5", [0.0, 0.0], 3.0)],
-    ));
-    features.push(extrude(
-        "f-ext2",
-        "b-1",
-        "f-sk2",
-        vec![circle_region("e-5", [0.0, 0.0], 3.0)],
-        distance("5"),
-        "join",
-    ));
-    features
-}
-
 #[test]
 fn r33_a_sketch_whose_face_is_cut_away_keeps_its_last_placement() {
     let mut checks = Checks::new();
@@ -827,24 +778,10 @@ fn r33_a_sketch_whose_face_is_cut_away_keeps_its_last_placement() {
         1e-9,
     );
 
-    let cut = vec![
-        datum_offset("f-dp1", "XY", "35"),
-        sketch(
-            "f-sk3",
-            datum_plane("f-dp1"),
-            rectangle(1, -15.0, -15.0, 15.0, 15.0),
-        ),
-        extrude(
-            "f-ext3",
-            "b-1",
-            "f-sk3",
-            vec![rectangle_region(1, -15.0, -15.0, 15.0, 15.0)],
-            distance("10"),
-            "cut",
-        ),
-    ];
-    edit(&mut session, &["b-1"], &tall_box_with_boss(cut));
+    edit(&mut session, &["b-1"], &tall_box_with_boss(top_cut()));
     checks.note(diagnose(&session, "f-sk2", "b-1", &tall_box_top()));
+    // Placed where the top was just before 'Extrude 1' cut it away (decision D3), never at the
+    // attach-time fallback (z = 10).
     checks.status(&session, "f-sk2", "warning");
     checks.sketch_placement(
         &session,
@@ -854,11 +791,77 @@ fn r33_a_sketch_whose_face_is_cut_away_keeps_its_last_placement() {
         [0.0, 0.0, 1.0],
         1e-9,
     );
-    checks.message_names(&session, "f-sk2", &["'Box 1'", "'Extrude 1'"]);
-    checks.plain_words(&session, "f-sk2");
+    check_reattach_to_the_new_top(&mut checks, &session);
     checks.built(&session, "f-ext2");
     checks.top_z(&session, "b-1", 45.0);
+
+    // The placement is read from the run: the run writes nothing to the document, and the saved
+    // document opened fresh places the sketch the same way.
+    let text = saved(&session.document);
+    let fresh = Run::new(parse_document(&text));
+    checks.check(
+        saved(&fresh.document) == text,
+        "running the document changed its saved text",
+    );
+    checks.sketch_placement(
+        &fresh,
+        "f-sk2",
+        [0.0, 0.0, 40.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        1e-9,
+    );
+    checks.top_z(&fresh, "b-1", 45.0);
     checks.finish();
+}
+
+/// R33: checks that the sketch's only message is the `plane_fallback` that features/sketch.md
+/// test 22 renders, offering the new top at z = 35 (the floor of the cut, the only candidate that
+/// faces the way the stored face did) as the first one-click re-attach, then the other planar
+/// candidates, then Pick.
+fn check_reattach_to_the_new_top(checks: &mut Checks, session: &Run) {
+    let messages = &session.feature("f-sk2").messages;
+    checks.check(
+        messages.len() == 1,
+        format!(
+            "f-sk2 should have exactly one message, plane_fallback: {:?}",
+            session.messages("f-sk2")
+        ),
+    );
+    let Some(message) = messages.first() else {
+        return;
+    };
+    let text = "The face this sketch is on, the top of 'Box 1', was cut away by 'Extrude 1', which comes before this sketch, so the sketch stays where that face was.";
+    checks.check(
+        message.code == "plane_fallback" && message.text == text,
+        format!(
+            "f-sk2's message is {} {:?}, expected plane_fallback {text:?}",
+            message.code, message.text
+        ),
+    );
+    checks.check(
+        message.root.is_none(),
+        format!("f-sk2's plane_fallback has root {:?}", message.root),
+    );
+    let new_top = Fix::Attach {
+        sketch: id("f-sk2"),
+        body: id("b-1"),
+        face: session.picked_before("f-sk2", "b-1", "f-ext3/start-cap"),
+    };
+    let fixes = &message.fixes;
+    let between_are_attaches = fixes.len() >= 2
+        && fixes[1..fixes.len() - 1]
+            .iter()
+            .all(|fix| matches!(fix, Fix::Attach { .. }));
+    checks.check(
+        fixes.first() == Some(&new_top)
+            && fixes.last() == Some(&pick("/plane/face"))
+            && between_are_attaches,
+        format!(
+            "f-sk2's plane_fallback offers {fixes:?}, expected Attach to the new top first, then \
+             Attach to other faces, then Pick"
+        ),
+    );
 }
 
 /// R34: the top of the 200 x 200 x 30 plate.

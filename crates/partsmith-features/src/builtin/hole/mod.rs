@@ -14,7 +14,7 @@ mod tool;
 
 use partsmith_mesh::BoundingBox;
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_naming::{ElementName, Generator, roles};
+use partsmith_naming::{ElementName, Generator, Motion, roles};
 use partsmith_occt_sys::{Point, Vector};
 use partsmith_sketch::{PointRef, PointRole};
 use schemars::JsonSchema;
@@ -216,6 +216,7 @@ impl Feature for Hole {
             points,
             plane.x_axis,
             direction,
+            &sketch.motion,
             &body_bounds,
         )?;
         let decision = cut_candidates(context, &params.body, state, body, &drilling.candidates)?;
@@ -378,15 +379,16 @@ fn absent_ends(ends: &[ToolEnds], overlaps: &[bool], output: &FeatureOutput) -> 
         .collect()
 }
 
-/// The tool of each point, kept as a candidate when its bounding box meets `body_bounds`
-/// (features/hole.md section 3.3 steps 4 and 5). A through-all hole whose body lies behind its
-/// point gets no tool.
+/// The tool of each point, its faces with the point sketch's `motion`, kept as a candidate when
+/// its bounding box meets `body_bounds` (features/hole.md section 3.3 steps 4, 5 and 7). A
+/// through-all hole whose body lies behind its point gets no tool.
 fn drill_candidates<'a>(
     context: &BuildContext<'_>,
     size: &HoleSize,
     points: Vec<(&'a PointRef, Point)>,
     radial: Vector,
     direction: Vector,
+    motion: &Motion,
     body_bounds: &BoundingBox,
 ) -> Result<Drilling<'a>, FeatureError> {
     let mut drilling = Drilling {
@@ -406,7 +408,13 @@ fn drill_candidates<'a>(
         };
         let mut candidate = None;
         if let Some(length) = length {
-            let tool = hole_tool(context.feature(), point, &frame, &size.section(length))?;
+            let tool = hole_tool(
+                context.feature(),
+                point,
+                &frame,
+                &size.section(length),
+                motion,
+            )?;
             let bounds = tool.shape.bounding_box()?;
             if bounds.intersects(body_bounds) {
                 candidate = Some(drilling.candidates.len());
