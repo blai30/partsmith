@@ -1,149 +1,313 @@
 //! Acceptance tests for the value types, constants and errors (kernel spec sections 2.1, 2.13,
-//! 4 and tests 1 to 4, 87 to 89 and 93).
+//! 4 and tests 1 to 4, 87 to 89, 93 and 127 to 130).
 
 mod common;
 
 use std::f64::consts::FRAC_PI_2;
 
-use common::{assert_point_near, assert_vector_near, z_axis};
+use common::lint::assert_passes_lint;
+use common::{assert_point_near, assert_vector_near, box_primitive, z_axis};
+use partsmith_mesh::TessellationTolerance;
 use partsmith_occt_sys::{
-    KernelError, KernelErrorKind, LINEAR_TOLERANCE, OCCT_VERSION, Operation, Plane, Point, Point2,
-    Shape, Transform, Vector,
+    Color, KernelError, KernelErrorKind, LINEAR_TOLERANCE, OCCT_VERSION, Operation, Plane, Point,
+    Point2, Shape, StepBody, Transform, Vector, write_step,
 };
 
-/// Every operation with its display name and its `Failed` sentence (section 4.3).
-const OPERATION_SENTENCES: [(Operation, &str, &str); 25] = [
-    (
-        Operation::MakeBox,
-        "make_box",
-        "The box could not be built.",
-    ),
-    (
-        Operation::MakeCylinder,
-        "make_cylinder",
-        "The cylinder could not be built.",
-    ),
-    (
-        Operation::MakeSphere,
-        "make_sphere",
-        "The sphere could not be built.",
-    ),
-    (
-        Operation::MakeCone,
-        "make_cone",
-        "The cone could not be built.",
-    ),
-    (
-        Operation::MakeTorus,
-        "make_torus",
-        "The torus could not be built.",
-    ),
-    (
-        Operation::MakeProfile,
-        "make_profile",
-        "The sketch profile could not be turned into a face. Check that the region is closed and does not cross itself.",
-    ),
-    (
-        Operation::Extrude,
-        "extrude",
-        "The extrusion failed. Check that the profile is a closed region that does not cross itself.",
-    ),
-    (
-        Operation::Revolve,
-        "revolve",
-        "The revolution failed. Check that the profile is a closed region on one side of the axis.",
-    ),
-    (
-        Operation::Fuse,
-        "fuse",
-        "Joining the bodies failed. Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this. Move one body slightly and try again.",
-    ),
-    (
-        Operation::Cut,
-        "cut",
-        "Cutting failed. Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this. Move the tool slightly and try again.",
-    ),
-    (
-        Operation::Common,
-        "common",
-        "Intersecting the bodies failed. Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this. Move one body slightly and try again.",
-    ),
-    (
-        Operation::Fillet,
-        "fillet",
-        "The fillet failed. The radius is probably too large for the selected edges or the faces next to them. Try a smaller radius.",
-    ),
-    (
-        Operation::Chamfer,
-        "chamfer",
-        "The chamfer failed. The distance is probably too large for the selected edges or the faces next to them. Try a smaller distance.",
-    ),
-    (
-        Operation::Shell,
-        "shell",
-        "The shell failed. The wall is probably too thick for the thinnest part of the body or for a tightly curved face. Try a thinner wall.",
-    ),
-    (Operation::Transform, "transform", "Moving the body failed."),
-    (
-        Operation::Split,
-        "split",
-        "Splitting the body failed. Try moving the split plane slightly.",
-    ),
-    (
-        Operation::Section,
-        "section",
-        "The cross-section could not be computed.",
-    ),
-    (
-        Operation::Compound,
-        "compound",
-        "The bodies could not be grouped.",
-    ),
-    (
-        Operation::Measure,
-        "measure",
-        "The body could not be measured.",
-    ),
-    (
-        Operation::Query,
-        "query",
-        "The selected geometry could not be measured.",
-    ),
-    (
-        Operation::Tessellate,
-        "tessellate",
-        "The body could not be meshed for display or export.",
-    ),
-    (
-        Operation::WriteStep,
-        "write_step",
-        "The STEP file could not be written.",
-    ),
-    (
-        Operation::ReadStep,
-        "read_step",
-        "The STEP file could not be read.",
-    ),
-    (
-        Operation::WriteBrep,
-        "write_brep",
-        "The geometry could not be saved to the cache.",
-    ),
-    (
-        Operation::ReadBrep,
-        "read_brep",
-        "The cached geometry could not be read, so it will be rebuilt.",
-    ),
+/// The texts of section 4.3 for one operation.
+struct OperationTexts {
+    /// The operation.
+    operation: Operation,
+    /// How it displays.
+    name: &'static str,
+    /// The hint of a `Failed`, `InvalidResult` or `EmptyResult` error.
+    hint: &'static str,
+    /// What the user message says could not be built, for the operations that build geometry for
+    /// features; the others use the hint as their user message.
+    noun: Option<&'static str>,
+}
+
+/// The hint of the primitives.
+const PRIMITIVE_HINT: &str =
+    "Its sizes passed every check, so this is likely a bug; report it with the details.";
+/// The hint of extrude and revolve.
+const SWEEP_HINT: &str = "Report it with the details if the profile and the sizes look right.";
+/// The hint of the booleans.
+const BOOLEAN_HINT: &str = "Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this; move one of them slightly.";
+/// The hint of every `InvalidInput` error.
+const INVALID_INPUT_HINT: &str = "It rejected the shapes or values it was given, which is likely a bug; report it with the details.";
+/// The hint of every `Internal` error.
+const INTERNAL_HINT: &str = "It hit an unexpected problem; report it with the details.";
+/// The user message of every `Internal` error.
+const INTERNAL_MESSAGE: &str = "Partsmith's geometry kernel hit an unexpected problem.";
+/// The hint and user message of `read_step` with `EmptyResult`.
+const NO_SOLID_IN_STEP: &str = "The STEP file contains no solid bodies.";
+/// The kinds whose texts the operation tables of section 4.3 give.
+const BUILD_FAILURES: [KernelErrorKind; 3] = [
+    KernelErrorKind::Failed,
+    KernelErrorKind::InvalidResult,
+    KernelErrorKind::EmptyResult,
+];
+/// Every kind but `InvalidInput`, whose user message is the facade's own sentence.
+const KINDS_WITH_OWN_TEXTS: [KernelErrorKind; 5] = [
+    KernelErrorKind::Failed,
+    KernelErrorKind::InvalidResult,
+    KernelErrorKind::EmptyResult,
+    KernelErrorKind::ReadFailed,
+    KernelErrorKind::Internal,
+];
+/// What no hint or user message may contain (test 130).
+const KERNEL_WORDS: [&str; 5] = [
+    "StdFail_NotDone",
+    "BRep_API",
+    "std::exception",
+    "OCCT",
+    "exception",
 ];
 
-/// An error with the given operation and kind and fixed exception and message.
-fn error(operation: Operation, kind: KernelErrorKind) -> KernelError {
+/// Every operation with its texts (section 4.3).
+const OPERATION_TEXTS: [OperationTexts; 25] = [
+    OperationTexts {
+        operation: Operation::MakeBox,
+        name: "make_box",
+        hint: PRIMITIVE_HINT,
+        noun: Some("box"),
+    },
+    OperationTexts {
+        operation: Operation::MakeCylinder,
+        name: "make_cylinder",
+        hint: PRIMITIVE_HINT,
+        noun: Some("cylinder"),
+    },
+    OperationTexts {
+        operation: Operation::MakeSphere,
+        name: "make_sphere",
+        hint: PRIMITIVE_HINT,
+        noun: Some("sphere"),
+    },
+    OperationTexts {
+        operation: Operation::MakeCone,
+        name: "make_cone",
+        hint: PRIMITIVE_HINT,
+        noun: Some("cone"),
+    },
+    OperationTexts {
+        operation: Operation::MakeTorus,
+        name: "make_torus",
+        hint: PRIMITIVE_HINT,
+        noun: Some("torus"),
+    },
+    OperationTexts {
+        operation: Operation::MakeProfile,
+        name: "make_profile",
+        hint: "The closed shape could not be turned into a face; report it with the details if the sketch shows no problem.",
+        noun: Some("profile"),
+    },
+    OperationTexts {
+        operation: Operation::Extrude,
+        name: "extrude",
+        hint: SWEEP_HINT,
+        noun: Some("extrusion"),
+    },
+    OperationTexts {
+        operation: Operation::Revolve,
+        name: "revolve",
+        hint: SWEEP_HINT,
+        noun: Some("revolution"),
+    },
+    OperationTexts {
+        operation: Operation::Fuse,
+        name: "fuse",
+        hint: BOOLEAN_HINT,
+        noun: Some("join"),
+    },
+    OperationTexts {
+        operation: Operation::Cut,
+        name: "cut",
+        hint: BOOLEAN_HINT,
+        noun: Some("cut"),
+    },
+    OperationTexts {
+        operation: Operation::Common,
+        name: "common",
+        hint: BOOLEAN_HINT,
+        noun: Some("intersection"),
+    },
+    OperationTexts {
+        operation: Operation::Fillet,
+        name: "fillet",
+        hint: "A smaller radius may work.",
+        noun: Some("fillet"),
+    },
+    OperationTexts {
+        operation: Operation::Chamfer,
+        name: "chamfer",
+        hint: "A smaller distance may work.",
+        noun: Some("chamfer"),
+    },
+    OperationTexts {
+        operation: Operation::Shell,
+        name: "shell",
+        hint: "A thinner wall may work.",
+        noun: Some("shell"),
+    },
+    OperationTexts {
+        operation: Operation::Transform,
+        name: "transform",
+        hint: "Report it with the details.",
+        noun: Some("moved or copied body"),
+    },
+    OperationTexts {
+        operation: Operation::Split,
+        name: "split",
+        hint: "Try moving the split plane slightly.",
+        noun: Some("split"),
+    },
+    OperationTexts {
+        operation: Operation::Section,
+        name: "section",
+        hint: "The cross-section could not be computed.",
+        noun: None,
+    },
+    OperationTexts {
+        operation: Operation::Compound,
+        name: "compound",
+        hint: "The solids could not be grouped into one body; report it with the details.",
+        noun: None,
+    },
+    OperationTexts {
+        operation: Operation::Measure,
+        name: "measure",
+        hint: "The body could not be measured; report it with the details.",
+        noun: None,
+    },
+    OperationTexts {
+        operation: Operation::Query,
+        name: "query",
+        hint: "The faces and edges of the body could not be read; report it with the details.",
+        noun: None,
+    },
+    OperationTexts {
+        operation: Operation::Tessellate,
+        name: "tessellate",
+        hint: "The body could not be meshed for display or export.",
+        noun: None,
+    },
+    OperationTexts {
+        operation: Operation::WriteStep,
+        name: "write_step",
+        hint: "The STEP file could not be written.",
+        noun: None,
+    },
+    OperationTexts {
+        operation: Operation::ReadStep,
+        name: "read_step",
+        hint: "The STEP file could not be read.",
+        noun: None,
+    },
+    OperationTexts {
+        operation: Operation::WriteBrep,
+        name: "write_brep",
+        hint: "The geometry could not be saved to the cache.",
+        noun: None,
+    },
+    OperationTexts {
+        operation: Operation::ReadBrep,
+        name: "read_brep",
+        hint: "The cached geometry could not be read, so it will be rebuilt.",
+        noun: None,
+    },
+];
+
+impl OperationTexts {
+    /// The hint section 4.3 gives an error of this operation with a kind among `BUILD_FAILURES`.
+    fn hint_for(&self, kind: KernelErrorKind) -> &'static str {
+        if self.operation == Operation::ReadStep && kind == KernelErrorKind::EmptyResult {
+            NO_SOLID_IN_STEP
+        } else {
+            self.hint
+        }
+    }
+
+    /// The user message section 4.3 gives an error of this operation with a kind among
+    /// `BUILD_FAILURES`.
+    fn user_message_for(&self, kind: KernelErrorKind) -> String {
+        let hint = self.hint_for(kind);
+        match self.noun {
+            Some(noun) => format!("Partsmith's geometry kernel could not build the {noun}. {hint}"),
+            None => hint.to_owned(),
+        }
+    }
+}
+
+/// An error with the exception and message of tests 127 and 130.
+fn not_done(operation: Operation, kind: KernelErrorKind) -> KernelError {
     KernelError {
         operation,
         kind,
         exception: "StdFail_NotDone".to_owned(),
-        message: "raw kernel text".to_owned(),
+        message: "BRep_API: command not done".to_owned(),
     }
+}
+
+/// An error with the given parts.
+fn kernel_error(
+    operation: Operation,
+    kind: KernelErrorKind,
+    exception: &str,
+    message: &str,
+) -> KernelError {
+    KernelError {
+        operation,
+        kind,
+        exception: exception.to_owned(),
+        message: message.to_owned(),
+    }
+}
+
+/// Asserts the rules of test 130 for a hint or user message: the message lint, a final period, and
+/// no exception name or kernel text.
+#[track_caller]
+fn assert_plain_message(text: &str) {
+    assert_passes_lint(text);
+    assert!(text.ends_with('.'), "{text:?} does not end with a period");
+    for word in KERNEL_WORDS {
+        assert!(!text.contains(word), "{text:?} contains {word:?}");
+    }
+}
+
+/// The user messages of the checks hosts show (section 4.2), from the calls that raise them.
+fn host_check_messages() -> Vec<String> {
+    let block = box_primitive().shape;
+    let nothing = write_step(&[]).expect_err("there are no bodies");
+    let no_solid = write_step(&[StepBody {
+        shape: Shape::empty(),
+        name: "Bracket".to_owned(),
+        color: None,
+    }])
+    .expect_err("the body has no solid");
+    let bad_color = write_step(&[StepBody {
+        shape: block.clone(),
+        name: "Bracket".to_owned(),
+        color: Some(Color {
+            red: 1.5,
+            green: 0.5,
+            blue: 0.5,
+        }),
+    }])
+    .expect_err("1.5 is out of range");
+    let bad_tolerance = block
+        .tessellate(&TessellationTolerance {
+            chord_deviation: 0.0,
+            angular_deviation: 0.5,
+        })
+        .expect_err("a chord deviation of 0 is rejected");
+    [nothing, no_solid, bad_color, bad_tolerance]
+        .iter()
+        .map(|error| {
+            assert_eq!(error.kind, KernelErrorKind::InvalidInput, "{error:?}");
+            error.user_message()
+        })
+        .collect()
 }
 
 #[test]
@@ -234,45 +398,45 @@ fn t004_apply_vector_ignores_translation() {
 }
 
 #[test]
-fn t087_failed_error_displays_the_operation_sentence() {
-    let failure = KernelError {
-        operation: Operation::Fillet,
-        kind: KernelErrorKind::Failed,
-        exception: "StdFail_NotDone".to_owned(),
-        message: String::new(),
-    };
+fn t087_failed_fillet_displays_the_fillet_message() {
+    let failure = kernel_error(
+        Operation::Fillet,
+        KernelErrorKind::Failed,
+        "StdFail_NotDone",
+        "",
+    );
 
     assert_eq!(
         failure.to_string(),
-        "The fillet failed. The radius is probably too large for the selected edges or the faces next to them. Try a smaller radius."
+        "Partsmith's geometry kernel could not build the fillet. A smaller radius may work."
     );
 }
 
 #[test]
-fn t087_internal_error_displays_exception_and_message() {
-    let failure = KernelError {
-        operation: Operation::Fillet,
-        kind: KernelErrorKind::Internal,
-        exception: "std::exception".to_owned(),
-        message: "bad".to_owned(),
-    };
-
-    assert_eq!(
-        failure.to_string(),
-        "The geometry kernel failed unexpectedly (std::exception: bad). Please report this with the model file."
+fn t087_internal_error_displays_an_unexpected_problem() {
+    let failure = kernel_error(
+        Operation::Fillet,
+        KernelErrorKind::Internal,
+        "std::exception",
+        "bad",
     );
+
+    assert_eq!(failure.to_string(), INTERNAL_MESSAGE);
 }
 
 #[test]
-fn t087_empty_extrusion_names_the_extrusion() {
-    let failure = KernelError {
-        operation: Operation::Extrude,
-        kind: KernelErrorKind::EmptyResult,
-        exception: "Partsmith_EmptyResult".to_owned(),
-        message: String::new(),
-    };
+fn t087_empty_extrusion_displays_the_extrusion_message() {
+    let failure = kernel_error(
+        Operation::Extrude,
+        KernelErrorKind::EmptyResult,
+        "Partsmith_EmptyResult",
+        "",
+    );
 
-    assert_eq!(failure.to_string(), "The extrusion produced no solid.");
+    assert_eq!(
+        failure.to_string(),
+        "Partsmith's geometry kernel could not build the extrusion. Report it with the details if the profile and the sizes look right."
+    );
 }
 
 #[test]
@@ -297,111 +461,328 @@ fn t093_constants_hold_the_pinned_version_and_tolerance() {
 
 #[test]
 fn every_operation_displays_its_snake_case_name() {
-    for (operation, name, _) in OPERATION_SENTENCES {
-        assert_eq!(operation.to_string(), name);
+    for texts in &OPERATION_TEXTS {
+        assert_eq!(texts.operation.to_string(), texts.name);
     }
 }
 
 #[test]
-fn failed_errors_display_the_sentence_of_their_operation() {
-    for (operation, _, sentence) in OPERATION_SENTENCES {
-        let failure = error(operation, KernelErrorKind::Failed);
+fn t127_failures_have_the_hint_of_their_operation() {
+    for texts in &OPERATION_TEXTS {
+        for kind in BUILD_FAILURES {
+            let failure = not_done(texts.operation, kind);
 
-        assert_eq!(failure.user_message(), sentence, "{operation:?}");
-        assert_eq!(failure.to_string(), sentence, "{operation:?}");
+            assert_eq!(failure.hint(), texts.hint_for(kind), "{failure:?}");
+        }
     }
 }
 
 #[test]
-fn invalid_results_display_the_sentence_of_their_operation() {
-    for (operation, _, sentence) in OPERATION_SENTENCES {
-        let failure = error(operation, KernelErrorKind::InvalidResult);
+fn t127_failures_have_the_user_message_of_their_operation() {
+    for texts in &OPERATION_TEXTS {
+        for kind in BUILD_FAILURES {
+            let failure = not_done(texts.operation, kind);
 
-        assert_eq!(failure.user_message(), sentence, "{operation:?}");
+            assert_eq!(
+                failure.user_message(),
+                texts.user_message_for(kind),
+                "{failure:?}"
+            );
+            assert_eq!(failure.to_string(), failure.user_message(), "{failure:?}");
+        }
     }
 }
 
 #[test]
-fn empty_results_name_what_produced_no_solid() {
-    let nouns = [
-        (Operation::MakeBox, "box"),
-        (Operation::MakeCylinder, "cylinder"),
-        (Operation::MakeSphere, "sphere"),
-        (Operation::MakeCone, "cone"),
-        (Operation::MakeTorus, "torus"),
-        (Operation::Extrude, "extrusion"),
-        (Operation::Revolve, "revolution"),
-        (Operation::Fillet, "fillet"),
-        (Operation::Chamfer, "chamfer"),
-        (Operation::Shell, "shell"),
-        (Operation::Transform, "transform"),
-        (Operation::Split, "split"),
-    ];
-    for (operation, noun) in nouns {
-        let failure = error(operation, KernelErrorKind::EmptyResult);
+fn t127_empty_step_import_says_the_file_has_no_solids() {
+    let failure = not_done(Operation::ReadStep, KernelErrorKind::EmptyResult);
+
+    assert_eq!(failure.hint(), NO_SOLID_IN_STEP);
+    assert_eq!(failure.user_message(), NO_SOLID_IN_STEP);
+}
+
+#[test]
+fn t127_texts_named_in_the_spec() {
+    let box_failure = not_done(Operation::MakeBox, KernelErrorKind::Failed);
+    assert_eq!(
+        box_failure.hint(),
+        "Its sizes passed every check, so this is likely a bug; report it with the details."
+    );
+    assert_eq!(
+        box_failure.user_message(),
+        "Partsmith's geometry kernel could not build the box. Its sizes passed every check, so this is likely a bug; report it with the details."
+    );
+    assert_eq!(
+        not_done(Operation::Cut, KernelErrorKind::InvalidResult).hint(),
+        "Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this; move one of them slightly."
+    );
+    assert_eq!(
+        not_done(Operation::Transform, KernelErrorKind::Failed).user_message(),
+        "Partsmith's geometry kernel could not build the moved or copied body. Report it with the details."
+    );
+    assert_eq!(
+        not_done(Operation::Split, KernelErrorKind::EmptyResult).hint(),
+        "Try moving the split plane slightly."
+    );
+    let query_failure = not_done(Operation::Query, KernelErrorKind::Failed);
+    let query_text =
+        "The faces and edges of the body could not be read; report it with the details.";
+    assert_eq!(query_failure.hint(), query_text);
+    assert_eq!(query_failure.user_message(), query_text);
+}
+
+#[test]
+fn t128_invalid_input_shows_its_sentence_with_a_bug_hint() {
+    let sentence = "A box needs a length, width and height greater than 0 mm.";
+    let failure = kernel_error(
+        Operation::MakeBox,
+        KernelErrorKind::InvalidInput,
+        "",
+        sentence,
+    );
+
+    assert_eq!(failure.user_message(), sentence);
+    assert_eq!(failure.to_string(), sentence);
+    assert_eq!(failure.hint(), INVALID_INPUT_HINT);
+}
+
+#[test]
+fn t128_internal_error_reports_an_unexpected_problem() {
+    let failure = kernel_error(
+        Operation::Fillet,
+        KernelErrorKind::Internal,
+        "std::exception",
+        "bad",
+    );
+
+    assert_eq!(failure.user_message(), INTERNAL_MESSAGE);
+    assert_eq!(failure.hint(), INTERNAL_HINT);
+}
+
+#[test]
+fn t128_unreadable_step_bytes_say_the_file_is_not_step() {
+    let failure = not_done(Operation::ReadStep, KernelErrorKind::ReadFailed);
+
+    assert_eq!(failure.hint(), "The file is not a valid STEP file.");
+    assert_eq!(failure.user_message(), "The file is not a valid STEP file.");
+}
+
+#[test]
+fn t128_unreadable_brep_bytes_say_the_cache_will_be_rebuilt() {
+    let failure = not_done(Operation::ReadBrep, KernelErrorKind::ReadFailed);
+    let text = "The cached geometry could not be read, so it will be rebuilt.";
+
+    assert_eq!(failure.hint(), text);
+    assert_eq!(failure.user_message(), text);
+}
+
+#[test]
+fn t128_read_failure_of_a_fuse_reads_as_a_failed_fuse() {
+    let read_failure = not_done(Operation::Fuse, KernelErrorKind::ReadFailed);
+    let failure = not_done(Operation::Fuse, KernelErrorKind::Failed);
+
+    assert_eq!(read_failure.hint(), failure.hint());
+    assert_eq!(read_failure.user_message(), failure.user_message());
+}
+
+#[test]
+fn invalid_input_reads_the_same_for_every_operation() {
+    let sentence = "The fillet radius must be greater than 0 mm.";
+
+    for texts in &OPERATION_TEXTS {
+        let failure = kernel_error(
+            texts.operation,
+            KernelErrorKind::InvalidInput,
+            "Partsmith_InvalidInput",
+            sentence,
+        );
+
+        assert_eq!(failure.user_message(), sentence, "{failure:?}");
+        assert_eq!(failure.hint(), INVALID_INPUT_HINT, "{failure:?}");
+    }
+}
+
+#[test]
+fn internal_errors_read_the_same_for_every_operation() {
+    for texts in &OPERATION_TEXTS {
+        for (exception, message) in [("std::exception", "bad"), ("unknown", "")] {
+            let failure = kernel_error(
+                texts.operation,
+                KernelErrorKind::Internal,
+                exception,
+                message,
+            );
+
+            assert_eq!(failure.user_message(), INTERNAL_MESSAGE, "{failure:?}");
+            assert_eq!(failure.hint(), INTERNAL_HINT, "{failure:?}");
+        }
+    }
+}
+
+#[test]
+fn read_failures_of_other_operations_read_as_failures() {
+    let other_operations = OPERATION_TEXTS
+        .iter()
+        .filter(|texts| !matches!(texts.operation, Operation::ReadStep | Operation::ReadBrep));
+
+    for texts in other_operations {
+        let failure = not_done(texts.operation, KernelErrorKind::ReadFailed);
 
         assert_eq!(
+            failure.hint(),
+            texts.hint_for(KernelErrorKind::Failed),
+            "{failure:?}"
+        );
+        assert_eq!(
             failure.user_message(),
-            format!("The {noun} produced no solid.")
+            texts.user_message_for(KernelErrorKind::Failed),
+            "{failure:?}"
         );
     }
 }
 
 #[test]
-fn empty_step_import_says_the_file_has_no_solids() {
-    let failure = error(Operation::ReadStep, KernelErrorKind::EmptyResult);
+fn t129_detail_names_the_operation_kind_exception_and_message() {
+    let invalid_input = kernel_error(
+        Operation::MakeBox,
+        KernelErrorKind::InvalidInput,
+        "",
+        "A box needs a length, width and height greater than 0 mm.",
+    );
+    let internal = kernel_error(
+        Operation::Fillet,
+        KernelErrorKind::Internal,
+        "std::exception",
+        "bad",
+    );
 
     assert_eq!(
-        failure.user_message(),
-        "The STEP file contains no solid bodies."
+        invalid_input.detail(),
+        "make_box invalid_input: A box needs a length, width and height greater than 0 mm."
+    );
+    assert_eq!(internal.detail(), "fillet internal: std::exception: bad");
+    assert_eq!(
+        not_done(Operation::MakeBox, KernelErrorKind::Failed).detail(),
+        "make_box failed: StdFail_NotDone: BRep_API: command not done"
+    );
+    assert_eq!(
+        kernel_error(Operation::Fuse, KernelErrorKind::Failed, "", "").detail(),
+        "fuse failed"
     );
 }
 
 #[test]
-fn unreadable_step_bytes_say_the_file_is_not_step() {
-    let failure = error(Operation::ReadStep, KernelErrorKind::ReadFailed);
+fn detail_writes_every_kind_in_snake_case() {
+    let cases = [
+        (
+            kernel_error(
+                Operation::Shell,
+                KernelErrorKind::InvalidResult,
+                "Partsmith_InvalidResult",
+                "",
+            ),
+            "shell invalid_result: Partsmith_InvalidResult",
+        ),
+        (
+            kernel_error(
+                Operation::Extrude,
+                KernelErrorKind::EmptyResult,
+                "Partsmith_EmptyResult",
+                "",
+            ),
+            "extrude empty_result: Partsmith_EmptyResult",
+        ),
+        (
+            kernel_error(
+                Operation::ReadStep,
+                KernelErrorKind::ReadFailed,
+                "Partsmith_ReadError",
+                "no entity",
+            ),
+            "read_step read_failed: Partsmith_ReadError: no entity",
+        ),
+    ];
 
-    assert_eq!(failure.user_message(), "The file is not a valid STEP file.");
+    for (failure, detail) in cases {
+        assert_eq!(failure.detail(), detail, "{failure:?}");
+    }
 }
 
 #[test]
-fn unreadable_brep_bytes_say_the_cache_will_be_rebuilt() {
-    let failure = error(Operation::ReadBrep, KernelErrorKind::ReadFailed);
+fn detail_of_a_shim_check_keeps_the_facade_sentence() {
+    let sentence = "The profile region crosses itself or has a hole outside its outer boundary.";
+    let failure = kernel_error(
+        Operation::MakeProfile,
+        KernelErrorKind::InvalidInput,
+        "Partsmith_InvalidInput",
+        sentence,
+    );
 
     assert_eq!(
-        failure.user_message(),
-        "The cached geometry could not be read, so it will be rebuilt."
+        failure.detail(),
+        format!("make_profile invalid_input: Partsmith_InvalidInput: {sentence}")
     );
 }
 
 #[test]
-fn internal_error_without_message_shows_only_the_exception() {
-    let failure = KernelError {
-        operation: Operation::Cut,
-        kind: KernelErrorKind::Internal,
-        exception: "unknown".to_owned(),
-        message: String::new(),
-    };
+fn t130_hints_and_user_messages_pass_the_message_lint() {
+    for texts in &OPERATION_TEXTS {
+        for kind in KINDS_WITH_OWN_TEXTS {
+            let failure = not_done(texts.operation, kind);
 
-    assert_eq!(
-        failure.user_message(),
-        "The geometry kernel failed unexpectedly (unknown). Please report this with the model file."
-    );
+            assert_plain_message(&failure.hint());
+            assert_plain_message(&failure.user_message());
+        }
+        assert_plain_message(&not_done(texts.operation, KernelErrorKind::InvalidInput).hint());
+    }
 }
 
 #[test]
-fn invalid_input_displays_its_message_unchanged() {
-    let failure = KernelError {
-        operation: Operation::MakeBox,
-        kind: KernelErrorKind::InvalidInput,
-        exception: String::new(),
-        message: "A box needs a length, width and height greater than 0 mm.".to_owned(),
-    };
+fn t130_host_check_messages_pass_the_message_lint() {
+    let messages = host_check_messages();
 
     assert_eq!(
-        failure.to_string(),
-        "A box needs a length, width and height greater than 0 mm."
+        messages,
+        [
+            "There is nothing to export.",
+            "Body \"Bracket\" has no solid to export.",
+            "Color components must be between 0 and 1.",
+            "Mesh tolerances must be greater than 0, with an angle of at most 90 degrees.",
+        ]
     );
+    for message in &messages {
+        assert_plain_message(message);
+    }
+}
+
+#[test]
+fn t130_every_hint_is_one_sentence() {
+    let kinds = [
+        KernelErrorKind::InvalidInput,
+        KernelErrorKind::Failed,
+        KernelErrorKind::InvalidResult,
+        KernelErrorKind::EmptyResult,
+        KernelErrorKind::ReadFailed,
+        KernelErrorKind::Internal,
+    ];
+
+    for texts in &OPERATION_TEXTS {
+        for kind in kinds {
+            let hint = not_done(texts.operation, kind).hint();
+
+            assert_eq!(
+                hint.matches('.').count(),
+                1,
+                "{:?} {kind:?}: {hint:?}",
+                texts.operation
+            );
+            assert!(
+                hint.ends_with('.'),
+                "{:?} {kind:?}: {hint:?}",
+                texts.operation
+            );
+        }
+    }
 }
 
 /// Compiles only when `T` implements `std::error::Error`.

@@ -1,11 +1,9 @@
 //! The edit set that renames a parameter everywhere (model.md section 3.13).
 
-use std::mem;
-
-use serde_json::Value;
-
 use crate::names::validate_parameter_name;
-use crate::{Document, Edit, EditError, Expr, FeatureInspector, Id, Parameter, RecordKind};
+use crate::{
+    Document, Edit, EditError, Expr, ExprLink, FeatureInspector, Id, Parameter, RecordKind,
+};
 
 impl Document {
     /// The edits that rename parameter `id` to `new_name` and rewrite every expression that uses
@@ -66,29 +64,20 @@ impl Document {
             let Ok(links) = inspector.inspect(feature) else {
                 continue;
             };
-            let changes: Vec<(String, Expr, Expr)> = links
+            let changes: Vec<(ExprLink, Expr)> = links
                 .expressions
                 .into_iter()
                 .filter_map(|link| {
                     let rewritten = rewrite(&link.expr);
-                    (rewritten != link.expr).then_some((link.pointer, link.expr, rewritten))
+                    (rewritten != link.expr).then_some((link, rewritten))
                 })
                 .collect();
             if changes.is_empty() {
                 continue;
             }
             let mut updated = feature.clone();
-            let mut params = Value::Object(mem::take(&mut updated.params));
-            for (pointer, old, new) in changes {
-                if let Some(slot) = params.pointer_mut(&pointer)
-                    && slot.as_str() == Some(old.as_str())
-                {
-                    *slot = Value::String(new.as_str().to_string());
-                }
-            }
-            // Only string slots are replaced, so the params stay an object.
-            if let Value::Object(params) = params {
-                updated.params = params;
+            for (link, rewritten) in &changes {
+                link.replace_in(&mut updated.params, rewritten);
             }
             edits.push(Edit::UpdateFeature { feature: updated });
         }
@@ -98,10 +87,10 @@ impl Document {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::*;
-    use crate::{ExprLink, FeatureLinks, FeatureRecord};
+    use crate::{FeatureLinks, FeatureRecord, FieldUnit};
 
     fn id(text: &str) -> Id {
         Id::new(text).expect("valid id")
@@ -119,6 +108,7 @@ mod tests {
                 expressions: vec![ExprLink {
                     pointer: self.pointer.to_string(),
                     expr: Expr::new(self.source),
+                    unit: FieldUnit::Scalar,
                 }],
                 ..FeatureLinks::default()
             })

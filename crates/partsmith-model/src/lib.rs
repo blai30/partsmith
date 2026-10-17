@@ -17,6 +17,7 @@
 //! `docs/spec/file-format.md`.
 
 pub mod canonical;
+mod change_units;
 mod document;
 mod edit;
 mod expr;
@@ -38,8 +39,8 @@ pub use edit::{Edit, EditError, RecordKind, Step, Transaction, TransactionError}
 pub use expr::{
     Arity, BinaryOperator, Dimension, EmptyContext, EvaluationContext, Expr, ExprError,
     ExprErrorKind, ExprNode, ExprNodeKind, Function, MAX_EXPRESSION_DEPTH, MAX_EXPRESSION_LENGTH,
-    MismatchOperation, ParameterValues, ParsedExpr, Quantity, References, RenameError, Scope, Span,
-    Unit,
+    MismatchOperation, ParameterValues, ParsedExpr, Quantity, References, RenameError,
+    SUGGESTION_DISTANCE, Scope, Span, Unit, edit_distance,
 };
 pub use file::{
     FILE_EXTENSION, FORMAT, FORMAT_VERSION, FeatureParamsSchema, LoadError, Loaded, MIGRATIONS,

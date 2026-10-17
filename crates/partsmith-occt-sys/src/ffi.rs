@@ -26,6 +26,7 @@ pub(crate) mod bridge {
     #[derive(Debug, Clone, Copy)]
     enum ElementKind {
         Solid,
+        Shell,
         Face,
         Edge,
         Vertex,

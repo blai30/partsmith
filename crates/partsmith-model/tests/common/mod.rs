@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use partsmith_model::{
     Body, Document, Expr, ExprError, ExprErrorKind, ExprLink, FORMAT_VERSION, FeatureInspector,
-    FeatureLinks, FeatureRecord, Id, Parameter, ParameterValues, Quantity, Scope, Span, Units,
-    load, save,
+    FeatureLinks, FeatureRecord, FieldUnit, Id, Parameter, ParameterValues, Quantity, Scope, Span,
+    Units, load, save,
 };
 use serde_json::{Map, Value};
 
@@ -164,9 +164,17 @@ pub fn feature_mut<'a>(document: &'a mut Document, id_text: &str) -> &'a mut Fea
         .expect("the fixture has this feature")
 }
 
+/// The params keys whose string arrays hold the TestInspector's expressions, each with the unit of its links, in link order.
+const EXPRESSION_KEYS: [(&str, FieldUnit); 4] = [
+    ("exprs", FieldUnit::Scalar),
+    ("lengths", FieldUnit::Length),
+    ("angles", FieldUnit::Angle),
+    ("counts", FieldUnit::Count),
+];
+
 /// The TestInspector of model.md section 6.
 ///
-/// Params with the key `invalid` are rejected with "Bad params.". Otherwise the links are: `bodies` from the string param `body`, `features` from the string array `uses`, `declared_ids` from the string array `declares`, and `expressions` from the string array `exprs` with pointers `/exprs/<index>`. Absent keys give empty lists.
+/// Params with the key `invalid` are rejected with "Bad params.". Otherwise the links are: `bodies` from the string param `body`, `features` from the string array `uses`, `declared_ids` from the string array `declares`, and `expressions` from the string array `exprs` (unit `Scalar`), then from the string arrays `lengths`, `angles` and `counts` (units `Length`, `Angle` and `Count`), each with the pointer `/<key>/<index>`. Absent keys give empty lists.
 pub struct TestInspector;
 
 impl FeatureInspector for TestInspector {
@@ -186,11 +194,16 @@ impl FeatureInspector for TestInspector {
             .into_iter()
             .map(|(_, text)| parse_id(&text))
             .collect::<Result<Vec<Id>, String>>()?;
-        let expressions = string_items(feature, "exprs")
+        let expressions = EXPRESSION_KEYS
             .into_iter()
-            .map(|(index, source)| ExprLink {
-                pointer: format!("/exprs/{index}"),
-                expr: Expr::new(source),
+            .flat_map(|(key, unit)| {
+                string_items(feature, key)
+                    .into_iter()
+                    .map(move |(index, source)| ExprLink {
+                        pointer: format!("/{key}/{index}"),
+                        expr: Expr::new(source),
+                        unit,
+                    })
             })
             .collect();
         Ok(FeatureLinks {

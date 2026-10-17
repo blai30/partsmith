@@ -16,9 +16,9 @@ use partsmith_budgets::{Report, median_time_of};
 use partsmith_mesh::TessellationTolerance;
 use partsmith_occt_sys::{
     Axis, EdgeRadius, GeometryKind, PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane,
-    Point, Point2, Shape, StepBody, SubShapeKind, TaggedCurve, Transform, Vector, cut, extrude,
-    fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere, make_torus,
-    read_step, shell, transform, write_step,
+    Point, Point2, PrimitiveFace, Shape, StepBody, SubShapeKind, TaggedCurve, Transform, Vector,
+    cut, extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere,
+    make_torus, read_step, shell, transform, write_step,
 };
 
 /// Times each operation runs; the median counts.
@@ -208,16 +208,16 @@ fn rounded_cube() -> Shape {
         .shape
 }
 
-/// `PLATE` of spec section 5: a 200 x 200 x 10 box with 194 through holes of radius 4 cut in one
-/// call (200 faces, 594 edges, 396 vertices).
-fn plate() -> Shape {
-    let block = make_box(&placed(0.0, 0.0, -5.0), 200.0, 200.0, 10.0)
+/// A `size` x `size` x 10 box (origin (0,0,-5)) with `holes` through holes of radius 4 cut in
+/// one call, in rows of `columns` holes 13.5 mm apart from (10, 10).
+fn holed_plate(size: f64, holes: u32, columns: u32) -> Shape {
+    let block = make_box(&placed(0.0, 0.0, -5.0), size, size, 10.0)
         .expect("the plate builds")
         .shape;
-    let holes: Vec<Shape> = (0..194)
+    let tools: Vec<Shape> = (0..holes)
         .map(|position| {
-            let column = f64::from(position % 14);
-            let row = f64::from(position / 14);
+            let column = f64::from(position % columns);
+            let row = f64::from(position / columns);
             make_cylinder(
                 &placed(10.0 + 13.5 * column, 10.0 + 13.5 * row, -10.0),
                 4.0,
@@ -227,9 +227,84 @@ fn plate() -> Shape {
             .shape
         })
         .collect();
-    let plate = cut(&block, &holes).expect("the holes cut").shape;
-    assert_eq!(plate.count(SubShapeKind::Face), 200);
+    let plate = cut(&block, &tools).expect("the holes cut").shape;
+    assert_eq!(plate.count(SubShapeKind::Face), holes + 6);
     plate
+}
+
+/// `PLATE` of spec section 5: a 200 x 200 x 10 box with 194 through holes of radius 4 cut in one
+/// call (200 faces, 594 edges, 396 vertices).
+fn plate() -> Shape {
+    holed_plate(200.0, 194, 14)
+}
+
+/// `PLATE1000` of spec section 5: `PLATE` grown to a 440 x 440 x 10 box with 994 holes (1,000
+/// faces, 2,994 edges, 1,996 vertices).
+fn plate_1000() -> Shape {
+    holed_plate(440.0, 994, 32)
+}
+
+/// `STAIR` of spec test 119: a 40 x 20 x 10 block from (-20,-10,0) with a step 2.4 mm deep cut
+/// over x from 0 to 20.
+fn stair() -> Shape {
+    let block = make_box(&placed(-20.0, -10.0, 0.0), 40.0, 20.0, 10.0)
+        .expect("the block builds")
+        .shape;
+    let step = make_box(&placed(0.0, -15.0, 7.6), 20.0, 30.0, 5.0)
+        .expect("the step tool builds")
+        .shape;
+    cut(&block, &[step]).expect("the step is cut").shape
+}
+
+/// The result of spec test 44: a 10 x 20 x 30 box with its edge between `Top` and `Front`
+/// rounded at radius 2.
+fn rounded_top_front() -> Shape {
+    let block = make_box(&Plane::XY, 10.0, 20.0, 30.0).expect("the box builds");
+    let role_face = |role| {
+        let position = block
+            .faces
+            .iter()
+            .position(|face| *face == role)
+            .expect("the box has every role");
+        u32::try_from(position + 1).expect("a box has 6 faces")
+    };
+    let mut wanted = [
+        role_face(PrimitiveFace::Top),
+        role_face(PrimitiveFace::Front),
+    ];
+    wanted.sort_unstable();
+    let topology = block.shape.topology().expect("topology can be queried");
+    let position = topology
+        .edges
+        .iter()
+        .position(|edge| edge.faces == wanted)
+        .expect("Top and Front share an edge");
+    let edge = u32::try_from(position + 1).expect("a box has 12 edges");
+    fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }])
+        .expect("the edge rounds")
+        .shape
+}
+
+/// The slowest median time of `width_across` over every face of `shape` across each of its edges
+/// that is not degenerated.
+fn slowest_width_across(shape: &Shape) -> Duration {
+    let topology = shape.topology().expect("topology can be queried");
+    let mut slowest = Duration::ZERO;
+    for (position, face) in topology.faces.iter().enumerate() {
+        let face_index = u32::try_from(position + 1).expect("benchmark shapes have few faces");
+        for &edge in &face.edges {
+            if topology.edges[edge as usize - 1].degenerate {
+                continue;
+            }
+            // A failed query returns early, so its time would say nothing about the budget.
+            shape
+                .width_across(face_index, edge)
+                .expect("the width is measured");
+            let time = median_time_of(RUNS, || shape.width_across(face_index, edge));
+            slowest = slowest.max(time);
+        }
+    }
+    slowest
 }
 
 /// `L` of spec test 102: a 40 x 20 x 10 box fused with a 20 x 20 x 10 box standing on its right
@@ -412,6 +487,33 @@ fn main() -> ExitCode {
         || {
             let plate = plate();
             median_time_of(RUNS, || plate.tessellate(&engine_tolerance(0.05)))
+        },
+    );
+    report.measure(
+        "width_across, any face across any of its edges, STAIR and test 44",
+        milliseconds(5),
+        || slowest_width_across(&stair()).max(slowest_width_across(&rounded_top_front())),
+    );
+    report.measure(
+        "element_display, one hole wall of PLATE1000 at 0.05 mm and 5 degrees",
+        milliseconds(5),
+        || {
+            let plate = plate_1000();
+            let position = plate
+                .elements(SubShapeKind::Face)
+                .expect("faces can be queried")
+                .iter()
+                .position(|face| face.kind == GeometryKind::Cylinder)
+                .expect("PLATE1000 has hole walls");
+            let wall = u32::try_from(position + 1).expect("PLATE1000 has 1,000 faces");
+            let tolerance = engine_tolerance(0.05);
+            // A failed display returns early, so its time would say nothing about the budget.
+            plate
+                .element_display(SubShapeKind::Face, wall, &tolerance)
+                .expect("the hole wall displays");
+            median_time_of(RUNS, || {
+                plate.element_display(SubShapeKind::Face, wall, &tolerance)
+            })
         },
     );
     report.measure(

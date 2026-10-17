@@ -3,7 +3,10 @@
 use std::borrow::Borrow;
 use std::fmt;
 
-use super::{Arity, Dimension, Function, MAX_EXPRESSION_DEPTH, MAX_EXPRESSION_LENGTH, Span, Unit};
+use super::suggestion::suggestion;
+use super::{
+    Arity, Dimension, Expr, Function, MAX_EXPRESSION_DEPTH, MAX_EXPRESSION_LENGTH, Span, Unit,
+};
 use crate::names::NameError;
 
 /// An expression error with the source range it points at.
@@ -20,6 +23,36 @@ impl ExprError {
     /// An error of `kind` at `span`.
     pub(crate) fn new(kind: ExprErrorKind, span: Span) -> ExprError {
         ExprError { kind, span }
+    }
+
+    /// For `UnknownName` with a suggestion, `source` with every reference to the unknown name
+    /// replaced by the suggested one (expressions.md section 3.18); `None` for every other error.
+    /// `source` is the expression that gave the error.
+    pub fn corrected(&self, source: &Expr) -> Option<Expr> {
+        let ExprErrorKind::UnknownName {
+            name,
+            suggestion: Some(suggestion),
+        } = &self.kind
+        else {
+            return None;
+        };
+        source.rename_parameter(name, suggestion).ok()
+    }
+
+    /// The error with the suggestion of an `UnknownName` chosen among `candidates`, the parameter
+    /// names it could have meant (expressions.md section 3.18); other errors are returned as they are.
+    pub(crate) fn suggesting_among<'a>(
+        mut self,
+        candidates: impl IntoIterator<Item = &'a str>,
+    ) -> ExprError {
+        if let ExprErrorKind::UnknownName {
+            name,
+            suggestion: chosen,
+        } = &mut self.kind
+        {
+            *chosen = suggestion(name, candidates);
+        }
+        self
     }
 }
 
@@ -85,6 +118,8 @@ pub enum ExprErrorKind {
     UnknownName {
         /// The name.
         name: String,
+        /// The one parameter name close to it, if there is exactly one (expressions.md section 3.18).
+        suggestion: Option<String>,
     },
     /// A dotted name the evaluation context does not know.
     UnknownValue {
@@ -205,9 +240,19 @@ impl fmt::Display for ExprErrorKind {
                 arity,
                 found,
             } => write!(formatter, "{function}() takes {arity}, but got {found}."),
-            ExprErrorKind::UnknownName { name } => write!(
+            ExprErrorKind::UnknownName {
+                name,
+                suggestion: None,
+            } => write!(
                 formatter,
                 "Unknown name '{name}'. Check the spelling, or add a parameter named {name}."
+            ),
+            ExprErrorKind::UnknownName {
+                name,
+                suggestion: Some(suggestion),
+            } => write!(
+                formatter,
+                "'{name}' is not a parameter. Did you mean '{suggestion}'?"
             ),
             ExprErrorKind::UnknownValue { name } => write!(
                 formatter,

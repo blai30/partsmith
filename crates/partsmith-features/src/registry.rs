@@ -265,6 +265,7 @@ impl FeatureInspector for Registry {
                     .map(|expression| ExprLink {
                         pointer: pointer(&expression.field),
                         expr: expression.expr,
+                        unit: expression.kind,
                     })
                     .collect(),
             })

@@ -16,6 +16,7 @@ fn t035_unknown_name() {
         result,
         ExprErrorKind::UnknownName {
             name: "wal".to_string(),
+            suggestion: None,
         },
         0,
         3,
@@ -248,6 +249,7 @@ fn t052_the_first_error_in_evaluation_order_wins() {
         eval("wal + 1/0"),
         ExprErrorKind::UnknownName {
             name: "wal".to_string(),
+            suggestion: None,
         },
         0,
         3,

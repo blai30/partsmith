@@ -11,9 +11,9 @@ use common::{
     assert_leaves_unchanged, assert_near, assert_parallel, assert_point_near, assert_relative,
     assert_vector_near, box_primitive, box_with_displaced_corner, cube_20, cube_a, cube_at,
     cube_edge, cube_with_vertical_rounds, cylinder_primitive, edge_at, edge_between,
-    face_direction, face_groups, face_with_role, faces_of_kind, generated_faces, geometry,
-    index_from_position, l_body, l_body_with_round, line, planar_face, rectangle_profile, region,
-    swept_face, top_front_edge, volume, xy_plane_at, z_axis,
+    face_direction, face_groups, face_with_role, faces_of_kind, fillet_top_front, generated_faces,
+    geometry, index_from_position, l_body, l_body_with_round, line, planar_face, rectangle_profile,
+    region, swept_face, top_front_edge, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
     ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
@@ -22,18 +22,16 @@ use partsmith_occt_sys::{
     shell, transform,
 };
 
-const FILLET_FAILED: &str = "The fillet failed. The radius is probably too large for the selected edges or the faces next to them. Try a smaller radius.";
-const SHELL_FAILED: &str = "The shell failed. The wall is probably too thick for the thinnest part of the body or for a tightly curved face. Try a thinner wall.";
+/// The fillet message of section 4.3 (test 46).
+const FILLET_FAILED: &str =
+    "Partsmith's geometry kernel could not build the fillet. A smaller radius may work.";
+/// The shell message of section 4.3 (tests 53, 102 and 103).
+const SHELL_FAILED: &str =
+    "Partsmith's geometry kernel could not build the shell. A thinner wall may work.";
 
 /// Every edge of BOX with the same radius.
 fn all_edges(radius: f64) -> Vec<EdgeRadius> {
     (1..=12).map(|edge| EdgeRadius { edge, radius }).collect()
-}
-
-/// Test 44: BOX with `TF` rounded at radius 2.
-fn fillet_top_front(block: &Primitive) -> OpResult {
-    let edge = top_front_edge(block);
-    fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("TF is filleted")
 }
 
 /// Test 51: BOX shelled with its `Top` removed and a 1 mm wall.

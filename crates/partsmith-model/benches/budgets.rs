@@ -15,8 +15,9 @@ use std::time::Duration;
 use partsmith_budgets::{Report, median_mean_time, median_time, median_time_of};
 use partsmith_model::{
     Body, Dimension, Document, Edit, EmptyContext, Expr, ExprLink, FeatureInspector, FeatureLinks,
-    FeatureParamsSchema, FeatureRecord, Id, IdGenerator, IdKind, OpaqueFeatures, Parameter,
-    ParameterValues, Quantity, Scope, SequentialIds, UndoLog, Units, load, ptsm_schema_text, save,
+    FeatureParamsSchema, FeatureRecord, FieldUnit, Id, IdGenerator, IdKind, OpaqueFeatures,
+    Parameter, ParameterValues, Quantity, Scope, SequentialIds, UndoLog, Units, load,
+    ptsm_schema_text, save,
 };
 use serde_json::{Map, Value, json};
 
@@ -42,6 +43,10 @@ const BUDGET_DOCUMENT_SIZE: usize = 1_000_000;
 const DECLARED_ID_COUNT: usize = 10;
 /// Feature params schemas for the `ptsm_schema_text` budget.
 const SCHEMA_COUNT: usize = 30;
+/// Length expressions per feature of the document units benchmark document.
+const LENGTH_COUNT: usize = 10;
+/// Parameters in each chain of the document units benchmark document; the first is a bare number.
+const CHAIN_LENGTH: usize = 10;
 
 /// A 100-character expression with 5 parameter references (expressions.md section 5).
 const EXPRESSION: &str = "(wall + clearance) * 2 + max(inner_width, 40 mm) - sqrt(hole ^ 2 + 9 mm ^ 2) / 2 + depth * 0.5 + 1mm";
@@ -187,6 +192,7 @@ impl LinkedFeatures {
                     expressions: vec![ExprLink {
                         pointer: "/extent/expr".to_string(),
                         expr: Expr::new(format!("length_{position} + 2 mm")),
+                        unit: FieldUnit::Length,
                     }],
                 };
                 (feature.id.clone(), links)
@@ -202,6 +208,83 @@ impl FeatureInspector for LinkedFeatures {
             .get(&feature.id)
             .cloned()
             .ok_or_else(|| "Unknown feature.".to_string())
+    }
+}
+
+/// The document of the units budget (model.md section 5). Its 1,000 parameters form chains of
+/// 10: the first of each chain is a bare number and every other one the previous one plus 0.5.
+/// Its 1,000 features have 10 `lengths` each: bare numbers, a number with a unit, sizes made from
+/// parameters of every chain, and a factor made from a parameter of every fourth chain, which
+/// keeps those chains' bare numbers from being rewritten.
+fn units_document() -> Document {
+    let mut document = Document::new(Units::Mm);
+    document.parameters = (0..PARAMETER_COUNT)
+        .map(|i| {
+            let expr = if i % CHAIN_LENGTH == 0 {
+                (i / CHAIN_LENGTH + 1).to_string()
+            } else {
+                format!("size_{} + 0.5", i - 1)
+            };
+            Parameter::new(
+                numbered_id(IdKind::Parameter, i + 1),
+                format!("size_{i}"),
+                expr,
+            )
+        })
+        .collect();
+    let body = numbered_id(IdKind::Body, 1);
+    document.bodies = vec![Body::new(body.clone(), "Body")];
+    let chains = PARAMETER_COUNT / CHAIN_LENGTH;
+    document.features = (0..FEATURE_COUNT)
+        .map(|i| {
+            let size = |factor: usize| format!("size_{}", i * factor % PARAMETER_COUNT);
+            let factor_chain = i % (chains / 4) * 4;
+            let lengths: [String; LENGTH_COUNT] = [
+                (i % 50 + 1).to_string(),
+                format!(" {} ", i % 30 + 2),
+                format!("-{}", i % 7 + 1),
+                format!("{} mm", i % 40 + 1),
+                size(1),
+                format!("{} + 0.5", size(7)),
+                format!("2 * {}", size(13)),
+                format!("max({}, 3 mm)", size(3)),
+                format!("{} / 2", size(11)),
+                format!("40 mm * size_{} / 10", factor_chain * CHAIN_LENGTH + 5),
+            ];
+            let mut record = FeatureRecord::new(numbered_id(IdKind::Feature, i + 1), "box");
+            record.params = object(json!({"body": body, "lengths": lengths}));
+            record
+        })
+        .collect();
+    document
+}
+
+/// The TestInspector of model.md section 6, reduced to what the units budget reads: one
+/// `Length` link per string of the array param `lengths`, with the pointer `/lengths/<index>`,
+/// read from the params on every call.
+struct Lengths;
+
+impl FeatureInspector for Lengths {
+    fn inspect(&self, feature: &FeatureRecord) -> Result<FeatureLinks, String> {
+        let expressions = feature
+            .params
+            .get("lengths")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .filter_map(|(index, item)| {
+                item.as_str().map(|source| ExprLink {
+                    pointer: format!("/lengths/{index}"),
+                    expr: Expr::new(source),
+                    unit: FieldUnit::Length,
+                })
+            })
+            .collect();
+        Ok(FeatureLinks {
+            expressions,
+            ..FeatureLinks::default()
+        })
     }
 }
 
@@ -469,6 +552,29 @@ fn main() -> ExitCode {
             })
         },
     );
+
+    let units = units_document();
+    let mut kept = units.clone();
+    let mut kept_log = UndoLog::new();
+    kept_log
+        .commit(
+            &mut kept,
+            "Change units to in",
+            units.units_edits(Units::In, true, &Lengths),
+        )
+        .expect("the benchmark units edits apply");
+    assert!(
+        units.bare_numbers(&Lengths) > 0 && kept.bare_numbers(&Lengths) == 0,
+        "Keep sizes rewrites every bare number of the benchmark document"
+    );
+    report.measure(
+        "units_edits(In, true), 1,000 parameters, 1,000 features of 10 lengths",
+        milliseconds(10),
+        || median_time_of(RUNS, || units.units_edits(Units::In, true, &Lengths)),
+    );
+    report.measure("bare_numbers, same document", milliseconds(10), || {
+        median_time_of(RUNS, || units.bare_numbers(&Lengths))
+    });
 
     // expressions.md section 5.
     assert_eq!(

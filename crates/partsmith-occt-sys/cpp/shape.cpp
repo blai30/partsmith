@@ -33,6 +33,7 @@ TopTools_IndexedMapOfShape index_map(const TopoDS_Shape &shape, TopAbs_ShapeEnum
 Shape::Shape(TopoDS_Shape shape)
     : shape_(std::move(shape)),
       solids_(index_map(shape_, TopAbs_SOLID)),
+      shells_(index_map(shape_, TopAbs_SHELL)),
       faces_(index_map(shape_, TopAbs_FACE)),
       edges_(index_map(shape_, TopAbs_EDGE)),
       vertices_(index_map(shape_, TopAbs_VERTEX)) {}
@@ -41,6 +42,8 @@ const TopTools_IndexedMapOfShape &Shape::map(ElementKind kind) const {
   switch (kind) {
     case ElementKind::Solid:
       return solids_;
+    case ElementKind::Shell:
+      return shells_;
     case ElementKind::Face:
       return faces_;
     case ElementKind::Edge:
@@ -73,6 +76,8 @@ TopAbs_ShapeEnum shape_enum(ElementKind kind) {
   switch (kind) {
     case ElementKind::Solid:
       return TopAbs_SOLID;
+    case ElementKind::Shell:
+      return TopAbs_SHELL;
     case ElementKind::Face:
       return TopAbs_FACE;
     case ElementKind::Edge:
@@ -156,8 +161,8 @@ namespace {
 
 // Raises StdFail_NotDone unless `copy` has as many elements of each kind as `shape`.
 void require_same_counts(const Shape &shape, const Shape &copy, const char *algorithm) {
-  for (ElementKind kind :
-       {ElementKind::Solid, ElementKind::Face, ElementKind::Edge, ElementKind::Vertex}) {
+  for (ElementKind kind : {ElementKind::Solid, ElementKind::Shell, ElementKind::Face,
+                           ElementKind::Edge, ElementKind::Vertex}) {
     if (copy.map(kind).Extent() != shape.map(kind).Extent()) {
       raise_not_done(std::string(algorithm) + " changed the element counts");
     }

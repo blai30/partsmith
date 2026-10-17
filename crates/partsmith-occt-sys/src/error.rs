@@ -4,7 +4,9 @@ use std::fmt;
 
 use thiserror::Error;
 
-/// A failure in the kernel facade. `Display` writes [`KernelError::user_message`].
+/// A failure in the kernel facade. `Display` writes [`KernelError::user_message`]; features show
+/// [`KernelError::hint`] after their own sentence and keep [`KernelError::detail`] for reports
+/// (section 4.3).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{}", self.user_message())]
 pub struct KernelError {
@@ -21,7 +23,8 @@ pub struct KernelError {
 /// Classification of a failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KernelErrorKind {
-    /// The arguments were rejected before or while building; `message` is already user-facing.
+    /// The arguments were rejected before or while building; `message` is the facade's sentence
+    /// of section 4.2.
     InvalidInput,
     /// The kernel could not perform the operation.
     Failed,
@@ -122,47 +125,39 @@ impl Operation {
         }
     }
 
-    /// The sentence shown when the operation fails or gives an invalid result (section 4.3).
-    fn failure_sentence(self) -> &'static str {
+    /// The hint of a failure, an invalid result or an empty result of this operation (section
+    /// 4.3): true whenever the kernel fails in it, without blaming input checked before.
+    fn failure_hint(self) -> &'static str {
         match self {
-            Operation::MakeBox => "The box could not be built.",
-            Operation::MakeCylinder => "The cylinder could not be built.",
-            Operation::MakeSphere => "The sphere could not be built.",
-            Operation::MakeCone => "The cone could not be built.",
-            Operation::MakeTorus => "The torus could not be built.",
+            Operation::MakeBox
+            | Operation::MakeCylinder
+            | Operation::MakeSphere
+            | Operation::MakeCone
+            | Operation::MakeTorus => {
+                "Its sizes passed every check, so this is likely a bug; report it with the details."
+            }
             Operation::MakeProfile => {
-                "The sketch profile could not be turned into a face. Check that the region is closed and does not cross itself."
+                "The closed shape could not be turned into a face; report it with the details if the sketch shows no problem."
             }
-            Operation::Extrude => {
-                "The extrusion failed. Check that the profile is a closed region that does not cross itself."
+            Operation::Extrude | Operation::Revolve => {
+                "Report it with the details if the profile and the sizes look right."
             }
-            Operation::Revolve => {
-                "The revolution failed. Check that the profile is a closed region on one side of the axis."
+            Operation::Fuse | Operation::Cut | Operation::Common => {
+                "Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this; move one of them slightly."
             }
-            Operation::Fuse => {
-                "Joining the bodies failed. Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this. Move one body slightly and try again."
-            }
-            Operation::Cut => {
-                "Cutting failed. Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this. Move the tool slightly and try again."
-            }
-            Operation::Common => {
-                "Intersecting the bodies failed. Bodies that touch only along an edge or at a point, or faces that almost coincide, often cause this. Move one body slightly and try again."
-            }
-            Operation::Fillet => {
-                "The fillet failed. The radius is probably too large for the selected edges or the faces next to them. Try a smaller radius."
-            }
-            Operation::Chamfer => {
-                "The chamfer failed. The distance is probably too large for the selected edges or the faces next to them. Try a smaller distance."
-            }
-            Operation::Shell => {
-                "The shell failed. The wall is probably too thick for the thinnest part of the body or for a tightly curved face. Try a thinner wall."
-            }
-            Operation::Transform => "Moving the body failed.",
-            Operation::Split => "Splitting the body failed. Try moving the split plane slightly.",
+            Operation::Fillet => "A smaller radius may work.",
+            Operation::Chamfer => "A smaller distance may work.",
+            Operation::Shell => "A thinner wall may work.",
+            Operation::Transform => "Report it with the details.",
+            Operation::Split => "Try moving the split plane slightly.",
             Operation::Section => "The cross-section could not be computed.",
-            Operation::Compound => "The bodies could not be grouped.",
-            Operation::Measure => "The body could not be measured.",
-            Operation::Query => "The selected geometry could not be measured.",
+            Operation::Compound => {
+                "The solids could not be grouped into one body; report it with the details."
+            }
+            Operation::Measure => "The body could not be measured; report it with the details.",
+            Operation::Query => {
+                "The faces and edges of the body could not be read; report it with the details."
+            }
             Operation::Tessellate => "The body could not be meshed for display or export.",
             Operation::WriteStep => "The STEP file could not be written.",
             Operation::ReadStep => "The STEP file could not be read.",
@@ -171,22 +166,49 @@ impl Operation {
         }
     }
 
-    /// The noun of `The <noun> produced no solid.`, for operations that must produce a solid.
-    fn result_noun(self) -> Option<&'static str> {
+    /// What the user message of a failure says could not be built, for the operations that
+    /// build geometry for features (section 4.3); the others show their hint alone.
+    fn noun(self) -> Option<&'static str> {
         match self {
             Operation::MakeBox => Some("box"),
             Operation::MakeCylinder => Some("cylinder"),
             Operation::MakeSphere => Some("sphere"),
             Operation::MakeCone => Some("cone"),
             Operation::MakeTorus => Some("torus"),
+            Operation::MakeProfile => Some("profile"),
             Operation::Extrude => Some("extrusion"),
             Operation::Revolve => Some("revolution"),
+            Operation::Fuse => Some("join"),
+            Operation::Cut => Some("cut"),
+            Operation::Common => Some("intersection"),
             Operation::Fillet => Some("fillet"),
             Operation::Chamfer => Some("chamfer"),
             Operation::Shell => Some("shell"),
-            Operation::Transform => Some("transform"),
+            Operation::Transform => Some("moved or copied body"),
             Operation::Split => Some("split"),
-            _ => None,
+            Operation::Section
+            | Operation::Compound
+            | Operation::Measure
+            | Operation::Query
+            | Operation::Tessellate
+            | Operation::WriteStep
+            | Operation::ReadStep
+            | Operation::WriteBrep
+            | Operation::ReadBrep => None,
+        }
+    }
+}
+
+impl KernelErrorKind {
+    /// The snake_case name, as the detail writes it.
+    fn name(self) -> &'static str {
+        match self {
+            KernelErrorKind::InvalidInput => "invalid_input",
+            KernelErrorKind::Failed => "failed",
+            KernelErrorKind::InvalidResult => "invalid_result",
+            KernelErrorKind::EmptyResult => "empty_result",
+            KernelErrorKind::ReadFailed => "read_failed",
+            KernelErrorKind::Internal => "internal",
         }
     }
 }
@@ -209,6 +231,18 @@ const READ_ERROR_EXCEPTION: &str = "Partsmith_ReadError";
 const STD_EXCEPTION: &str = "std::exception";
 /// Exception type the shim reports for anything that is not a `std::exception`.
 const UNKNOWN_EXCEPTION: &str = "unknown";
+
+/// The hint of every `InvalidInput` error: features check what they pass first, so a rejection
+/// that reaches them means Partsmith's own checks disagree (section 4.3).
+const INVALID_INPUT_HINT: &str = "It rejected the shapes or values it was given, which is likely a bug; report it with the details.";
+/// The hint of every `Internal` error.
+const INTERNAL_HINT: &str = "It hit an unexpected problem; report it with the details.";
+/// The user message of every `Internal` error.
+const INTERNAL_MESSAGE: &str = "Partsmith's geometry kernel hit an unexpected problem.";
+/// The hint of STEP bytes that do not parse.
+const NOT_STEP_HINT: &str = "The file is not a valid STEP file.";
+/// The hint of a STEP file without solids.
+const NO_SOLID_IN_STEP_HINT: &str = "The STEP file contains no solid bodies.";
 
 impl KernelError {
     /// An `InvalidInput` error raised by a Rust argument check: empty `exception`.
@@ -263,33 +297,54 @@ impl KernelError {
         }
     }
 
-    /// The plain-language message for makers (section 4.3).
+    /// The whole plain-language message, for hosts that show a kernel error without a sentence of
+    /// their own (section 4.3).
     pub fn user_message(&self) -> String {
         match self.kind {
             KernelErrorKind::InvalidInput => self.message.clone(),
-            KernelErrorKind::Failed | KernelErrorKind::InvalidResult => {
-                self.operation.failure_sentence().to_owned()
-            }
-            KernelErrorKind::EmptyResult => match (self.operation, self.operation.result_noun()) {
-                (Operation::ReadStep, _) => "The STEP file contains no solid bodies.".to_owned(),
-                (_, Some(noun)) => format!("The {noun} produced no solid."),
-                (_, None) => self.operation.failure_sentence().to_owned(),
+            KernelErrorKind::Internal => INTERNAL_MESSAGE.to_owned(),
+            KernelErrorKind::Failed
+            | KernelErrorKind::InvalidResult
+            | KernelErrorKind::EmptyResult
+            | KernelErrorKind::ReadFailed => match self.operation.noun() {
+                Some(noun) => format!(
+                    "Partsmith's geometry kernel could not build the {noun}. {}",
+                    self.static_hint()
+                ),
+                None => self.hint(),
             },
-            KernelErrorKind::ReadFailed => match self.operation {
-                Operation::ReadStep => "The file is not a valid STEP file.".to_owned(),
-                _ => self.operation.failure_sentence().to_owned(),
-            },
-            KernelErrorKind::Internal => {
-                let details = if self.message.is_empty() {
-                    self.exception.clone()
-                } else {
-                    format!("{}: {}", self.exception, self.message)
-                };
-                format!(
-                    "The geometry kernel failed unexpectedly ({details}). Please report this with the model file."
-                )
+        }
+    }
+
+    /// One sentence that follows a feature's own sentence, "Partsmith's geometry kernel could not
+    /// build {this}." (section 4.3).
+    pub fn hint(&self) -> String {
+        self.static_hint().to_owned()
+    }
+
+    /// The hint of [`KernelError::hint`]: every hint is a fixed sentence. A read failure of an
+    /// operation other than `read_step` and `read_brep` reads as its failure.
+    fn static_hint(&self) -> &'static str {
+        match (self.kind, self.operation) {
+            (KernelErrorKind::InvalidInput, _) => INVALID_INPUT_HINT,
+            (KernelErrorKind::Internal, _) => INTERNAL_HINT,
+            (KernelErrorKind::ReadFailed, Operation::ReadStep) => NOT_STEP_HINT,
+            (KernelErrorKind::EmptyResult, Operation::ReadStep) => NO_SOLID_IN_STEP_HINT,
+            (_, operation) => operation.failure_hint(),
+        }
+    }
+
+    /// The technical text for reports: the operation, the kind, then the exception and the
+    /// message when they are not empty; never shown as the message (section 4.3).
+    pub fn detail(&self) -> String {
+        let mut detail = format!("{} {}", self.operation, self.kind.name());
+        for part in [&self.exception, &self.message] {
+            if !part.is_empty() {
+                detail.push_str(": ");
+                detail.push_str(part);
             }
         }
+        detail
     }
 }
 
@@ -371,7 +426,20 @@ mod tests {
     }
 
     #[test]
-    fn empty_result_without_noun_uses_the_failure_sentence() {
+    fn failure_without_noun_shows_its_hint_alone() {
+        let error = KernelError {
+            operation: Operation::Tessellate,
+            kind: KernelErrorKind::Failed,
+            exception: String::new(),
+            message: String::new(),
+        };
+
+        assert_eq!(error.user_message(), error.hint());
+        assert_eq!(error.hint(), Operation::Tessellate.failure_hint());
+    }
+
+    #[test]
+    fn failure_with_noun_names_what_could_not_be_built() {
         let error = KernelError {
             operation: Operation::Fuse,
             kind: KernelErrorKind::EmptyResult,
@@ -379,7 +447,19 @@ mod tests {
             message: String::new(),
         };
 
-        assert_eq!(error.user_message(), Operation::Fuse.failure_sentence());
+        assert_eq!(
+            error.user_message(),
+            format!(
+                "Partsmith's geometry kernel could not build the join. {}",
+                Operation::Fuse.failure_hint()
+            )
+        );
+    }
+
+    #[test]
+    fn kinds_have_snake_case_names() {
+        assert_eq!(KernelErrorKind::InvalidInput.name(), "invalid_input");
+        assert_eq!(KernelErrorKind::ReadFailed.name(), "read_failed");
     }
 
     #[test]

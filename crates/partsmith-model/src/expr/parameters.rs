@@ -3,6 +3,7 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
 
+use super::evaluate::evaluate_without_suggestion;
 use super::{EvaluationContext, ExprError, ExprErrorKind, ParsedExpr, Quantity, Scope, Span};
 use crate::{Parameter, Units};
 
@@ -73,13 +74,19 @@ pub(crate) struct ParameterGraph<'a> {
     dependencies: Vec<Vec<usize>>,
 }
 
+/// The position of the first parameter with each name, the one every lookup of the name finds.
+pub(crate) fn first_positions(parameters: &[Parameter]) -> BTreeMap<&str, usize> {
+    let mut positions = BTreeMap::new();
+    for (position, parameter) in parameters.iter().enumerate() {
+        positions.entry(parameter.name.as_str()).or_insert(position);
+    }
+    positions
+}
+
 impl<'a> ParameterGraph<'a> {
     /// Parses every parameter and links each to the parameters it names.
     pub(crate) fn new(parameters: &'a [Parameter]) -> ParameterGraph<'a> {
-        let mut positions = BTreeMap::new();
-        for (position, parameter) in parameters.iter().enumerate() {
-            positions.entry(parameter.name.as_str()).or_insert(position);
-        }
+        let positions = first_positions(parameters);
         let parsed: Vec<_> = parameters
             .iter()
             .map(|parameter| parameter.expr.parse())
@@ -205,7 +212,10 @@ pub(crate) fn evaluate_parameters(
             parameters: &known,
             context,
         };
-        let result = tree.evaluate(&scope, None);
+        // The suggestion for an unknown name is chosen among every other parameter, not only those
+        // evaluated so far, so it does not depend on the evaluation order.
+        let result = evaluate_without_suggestion(&tree.root, &scope, None)
+            .map_err(|error| error.suggesting_among(other_names(parameters, position)));
         if graph.is_first_with_name(parameters, position) {
             known.insert(parameters[position].name.clone(), result.clone());
         }
@@ -222,6 +232,15 @@ pub(crate) fn evaluate_parameters(
             ),
         })
         .collect()
+}
+
+/// The names of every parameter except the one at `position`.
+fn other_names(parameters: &[Parameter], position: usize) -> impl Iterator<Item = &str> {
+    parameters
+        .iter()
+        .enumerate()
+        .filter(move |&(other, _)| other != position)
+        .map(|(_, parameter)| parameter.name.as_str())
 }
 
 /// The pending nodes in dependency order (each after every pending node it depends on), ties

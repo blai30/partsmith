@@ -112,6 +112,7 @@ fn t072_unknown_name_fails_the_parameter_and_its_dependents() {
         result_of(&values, "a"),
         ExprErrorKind::UnknownName {
             name: "wal".to_string(),
+            suggestion: None,
         },
         0,
         3,

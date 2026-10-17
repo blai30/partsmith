@@ -77,7 +77,7 @@ enum class ElementKind : std::uint8_t;
 enum class ContinuityType : std::uint8_t;
 enum class ShapeType : std::uint8_t;
 
-// An immutable B-rep shape with its solid, face, edge and vertex index maps, built once.
+// An immutable B-rep shape with its solid, shell, face, edge and vertex index maps, built once.
 class Shape {
  public:
   explicit Shape(TopoDS_Shape shape);
@@ -85,6 +85,7 @@ class Shape {
   // The index map of sub-shapes of one kind (TopExp::MapShapes order, 1-based).
   const TopTools_IndexedMapOfShape &map(ElementKind kind) const;
   const TopTools_IndexedMapOfShape &solids() const { return solids_; }
+  const TopTools_IndexedMapOfShape &shells() const { return shells_; }
   const TopTools_IndexedMapOfShape &faces() const { return faces_; }
   const TopTools_IndexedMapOfShape &edges() const { return edges_; }
   const TopTools_IndexedMapOfShape &vertices() const { return vertices_; }
@@ -92,6 +93,7 @@ class Shape {
  private:
   const TopoDS_Shape shape_;
   const TopTools_IndexedMapOfShape solids_;
+  const TopTools_IndexedMapOfShape shells_;
   const TopTools_IndexedMapOfShape faces_;
   const TopTools_IndexedMapOfShape edges_;
   const TopTools_IndexedMapOfShape vertices_;

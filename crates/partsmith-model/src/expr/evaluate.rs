@@ -58,8 +58,20 @@ pub struct Scope<'a> {
     pub context: &'a dyn EvaluationContext,
 }
 
-/// Evaluates `root`, then fits the result to the field's `expected` dimension (expressions.md section 3.10).
+/// Evaluates `root`, then fits the result to the field's `expected` dimension (expressions.md
+/// section 3.10). An unknown name gets its suggestion among the scope's parameters (section 3.18).
 pub(super) fn evaluate(
+    root: &ExprNode,
+    scope: &Scope<'_>,
+    expected: Option<Dimension>,
+) -> Result<Quantity, ExprError> {
+    evaluate_without_suggestion(root, scope, expected)
+        .map_err(|error| error.suggesting_among(scope.parameters.iter().map(|(name, _)| name)))
+}
+
+/// `evaluate`, but an unknown name gets no suggestion, so the caller can choose one among other
+/// candidates (expressions.md section 3.13).
+pub(super) fn evaluate_without_suggestion(
     root: &ExprNode,
     scope: &Scope<'_>,
     expected: Option<Dimension>,
@@ -98,7 +110,12 @@ fn evaluate_node(node: &ExprNode, scope: &Scope<'_>) -> Result<Quantity, ExprErr
             Some(Err(_)) => {
                 return Err(error(ExprErrorKind::DependsOnFailed { name: name.clone() }));
             }
-            None => return Err(error(ExprErrorKind::UnknownName { name: name.clone() })),
+            None => {
+                return Err(error(ExprErrorKind::UnknownName {
+                    name: name.clone(),
+                    suggestion: None,
+                }));
+            }
         },
         ExprNodeKind::Value(name) => scope
             .context

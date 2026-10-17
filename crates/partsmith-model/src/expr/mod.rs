@@ -7,9 +7,12 @@ mod function;
 mod lexer;
 mod parameters;
 mod parser;
+mod sizes;
+mod suggestion;
 mod unit;
 
 use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -21,7 +24,8 @@ pub(crate) use error::{cycle_sentence, join_list};
 pub use evaluate::{EmptyContext, EvaluationContext, Scope};
 pub use function::{Arity, Function};
 pub use parameters::ParameterValues;
-pub(crate) use parameters::{ParameterGraph, evaluate_parameters};
+pub(crate) use parameters::{ParameterGraph, evaluate_parameters, first_positions};
+pub use suggestion::{SUGGESTION_DISTANCE, edit_distance};
 pub use unit::Unit;
 
 use crate::names::validate_parameter_name;
@@ -83,6 +87,36 @@ impl Expr {
         });
         renamed.push_str(&self.0[copied_up_to..]);
         Ok(Expr(renamed))
+    }
+
+    /// True when the expression is a number without a unit, optionally negated (expressions.md section 3.17).
+    pub fn is_bare_number(&self) -> bool {
+        self.parse()
+            .is_ok_and(|tree| tree.bare_number_end(&self.0).is_some())
+    }
+
+    /// For a bare number, the same text with `unit` written after the number; `None` otherwise
+    /// (expressions.md section 3.17).
+    pub fn with_unit(&self, unit: Unit) -> Option<Expr> {
+        let end = self.parse().ok()?.bare_number_end(&self.0)?;
+        Some(self.with_unit_at(end, unit))
+    }
+
+    /// The parameter names every occurrence of which stands where a plain value is promoted as a
+    /// whole (expressions.md section 3.19).
+    pub fn promoted_names(&self) -> Result<BTreeSet<String>, ExprError> {
+        let tree = self.parse()?;
+        // Whether every occurrence seen so far of each name is promoted.
+        let mut names: BTreeMap<&str, bool> = BTreeMap::new();
+        tree.visit_parameters(&mut |name, promoting| {
+            let promoted = names.entry(name).or_insert(true);
+            *promoted &= promoting;
+        });
+        Ok(names
+            .into_iter()
+            .filter(|&(_, promoted)| promoted)
+            .map(|(name, _)| name.to_string())
+            .collect())
     }
 }
 

@@ -1,5 +1,5 @@
-//! Acceptance tests for tessellation into `partsmith_mesh::Mesh` (kernel spec sections 2.11, 3.7
-//! and tests 71 to 77 and 113).
+//! Acceptance tests for tessellation into `partsmith_mesh::Mesh` and the display geometry of one
+//! element (kernel spec sections 2.11, 3.7 and tests 71 to 77, 113 and 122 to 126).
 
 mod common;
 
@@ -7,12 +7,17 @@ use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;
 
 use common::{
-    OPT, ORIGIN, POINT_TOLERANCE, assert_argument_error, assert_closed, assert_point_near,
-    assert_relative, assert_same_points, box_corners, box_primitive, cylinder_primitive,
-    directed_edge_uses, geometry, mesh_face_ids, sphere_primitive, weld_exactly,
+    OPT, ORIGIN, POINT_TOLERANCE, UP, assert_argument_error, assert_closed, assert_invalid_input,
+    assert_near, assert_point_near, assert_relative, assert_same_points, box_corners,
+    box_primitive, cylinder_primitive, degenerated_edges, directed_edge_uses, edge_between,
+    face_with_role, generated_faces, geometry, mesh_face_ids, rectangle_profile, seam_edge,
+    sphere_primitive, top_front_edge, weld_exactly,
 };
 use partsmith_mesh::{Mesh, TessellationTolerance};
-use partsmith_occt_sys::{KernelError, Operation, Point, Shape, SubShapeKind, shell};
+use partsmith_occt_sys::{
+    ElementDisplay, KernelError, Operation, Plane, Point, Primitive, PrimitiveFace, Shape,
+    SubShapeKind, Transform, Vector, shell, transform,
+};
 
 const TOLERANCE_MESSAGE: &str =
     "Mesh tolerances must be greater than 0, with an angle of at most 90 degrees.";
@@ -390,5 +395,559 @@ mod environment {
                 .unwrap_or_else(|| panic!("the child wrote its meshes: {stdout:?}"));
             assert_eq!(line, expected, "CSF_MeshAlgo={algorithm}");
         }
+    }
+}
+
+// Display geometry of one element (section 3.7, item 9).
+
+/// The display geometry of one element with `OPT`.
+fn display(shape: &Shape, kind: SubShapeKind, index: u32) -> ElementDisplay {
+    shape
+        .element_display(kind, index, &OPT)
+        .unwrap_or_else(|error| panic!("{kind:?} {index} displays: {error:?}"))
+}
+
+/// The points of a face's triangles, three per triangle.
+fn display_triangles(shape: &Shape, face: u32) -> Vec<Point> {
+    match display(shape, SubShapeKind::Face, face) {
+        ElementDisplay::Triangles(points) => points,
+        other => panic!("face {face} displays as {other:?}"),
+    }
+}
+
+/// The points of an edge's polyline.
+fn display_polyline(shape: &Shape, edge: u32) -> Vec<Point> {
+    match display(shape, SubShapeKind::Edge, edge) {
+        ElementDisplay::Polyline(points) => points,
+        other => panic!("edge {edge} displays as {other:?}"),
+    }
+}
+
+/// The element display error for `kind` and `index` with `tolerance`.
+fn display_error(
+    shape: &Shape,
+    kind: SubShapeKind,
+    index: u32,
+    tolerance: &TessellationTolerance,
+) -> KernelError {
+    shape
+        .element_display(kind, index, tolerance)
+        .expect_err("the element cannot be displayed")
+}
+
+/// The normal of a triangle by its winding, `(p1 - p0) x (p2 - p0)`, not normalized.
+fn winding_normal(triangle: &[Point]) -> [f64; 3] {
+    let first = [
+        triangle[1].x - triangle[0].x,
+        triangle[1].y - triangle[0].y,
+        triangle[1].z - triangle[0].z,
+    ];
+    let second = [
+        triangle[2].x - triangle[0].x,
+        triangle[2].y - triangle[0].y,
+        triangle[2].z - triangle[0].z,
+    ];
+    [
+        first[1] * second[2] - first[2] * second[1],
+        first[2] * second[0] - first[0] * second[2],
+        first[0] * second[1] - first[1] * second[0],
+    ]
+}
+
+/// The length of a vector given by its components.
+fn length(components: [f64; 3]) -> f64 {
+    components
+        .iter()
+        .map(|component| component * component)
+        .sum::<f64>()
+        .sqrt()
+}
+
+/// The centroid of a triangle.
+fn triangle_centroid(triangle: &[Point]) -> Point {
+    Point::new(
+        (triangle[0].x + triangle[1].x + triangle[2].x) / 3.0,
+        (triangle[0].y + triangle[1].y + triangle[2].y) / 3.0,
+        (triangle[0].z + triangle[1].z + triangle[2].z) / 3.0,
+    )
+}
+
+/// The total area of triangles given three points each.
+fn total_area(points: &[Point]) -> f64 {
+    points
+        .chunks_exact(3)
+        .map(|triangle| length(winding_normal(triangle)) / 2.0)
+        .sum()
+}
+
+/// Asserts that triangles come three points each and that each one's normal by winding is the
+/// unit `direction` within `POINT_TOLERANCE`.
+fn assert_wound_along(points: &[Point], direction: Vector, what: &str) {
+    assert_eq!(points.len() % 3, 0, "{what}: three points per triangle");
+    for (position, triangle) in points.chunks_exact(3).enumerate() {
+        let normal = winding_normal(triangle);
+        let normal_length = length(normal);
+        assert!(normal_length > 0.0, "{what}: triangle {position} is flat");
+        let unit = Vector::new(
+            normal[0] / normal_length,
+            normal[1] / normal_length,
+            normal[2] / normal_length,
+        );
+        assert!(
+            (unit.x - direction.x).abs() <= POINT_TOLERANCE
+                && (unit.y - direction.y).abs() <= POINT_TOLERANCE
+                && (unit.z - direction.z).abs() <= POINT_TOLERANCE,
+            "{what}: triangle {position} faces {unit:?}, not {direction:?}"
+        );
+    }
+}
+
+/// True when `value` lies in `[low, high]` within `POINT_TOLERANCE`.
+fn within(value: f64, low: f64, high: f64) -> bool {
+    value >= low - POINT_TOLERANCE && value <= high + POINT_TOLERANCE
+}
+
+/// The distance of a point from the Z axis.
+fn distance_from_z_axis(point: Point) -> f64 {
+    (point.x * point.x + point.y * point.y).sqrt()
+}
+
+/// Asserts that `moved` holds the points of `original` in the same order, each moved by
+/// `offset` within `POINT_TOLERANCE`.
+fn assert_moved_in_order(moved: &[Point], original: &[Point], offset: Vector, what: &str) {
+    assert_eq!(moved.len(), original.len(), "{what}: point count");
+    for (position, (moved, original)) in moved.iter().zip(original).enumerate() {
+        assert_point_near(
+            *moved,
+            original.offset(offset),
+            POINT_TOLERANCE,
+            &format!("{what}: point {position}"),
+        );
+    }
+}
+
+/// The edge of the cylinder of test 10 between its `Side` and `Top`.
+fn cylinder_top_rim(cylinder: &Primitive) -> u32 {
+    edge_between(
+        &cylinder.shape,
+        face_with_role(cylinder, PrimitiveFace::Side),
+        face_with_role(cylinder, PrimitiveFace::Top),
+    )
+}
+
+/// The elements of BOX and of the cylinder of test 10 that tests 122 to 124 display.
+fn displayed_elements(block: &Primitive, cylinder: &Primitive) -> Vec<(Shape, SubShapeKind, u32)> {
+    let mut elements = vec![
+        (
+            block.shape.clone(),
+            SubShapeKind::Face,
+            face_with_role(block, PrimitiveFace::Top),
+        ),
+        (
+            block.shape.clone(),
+            SubShapeKind::Face,
+            face_with_role(block, PrimitiveFace::Bottom),
+        ),
+        (
+            block.shape.clone(),
+            SubShapeKind::Edge,
+            top_front_edge(block),
+        ),
+        (
+            cylinder.shape.clone(),
+            SubShapeKind::Face,
+            face_with_role(cylinder, PrimitiveFace::Side),
+        ),
+        (
+            cylinder.shape.clone(),
+            SubShapeKind::Edge,
+            cylinder_top_rim(cylinder),
+        ),
+    ];
+    for vertex in 1..=8 {
+        elements.push((block.shape.clone(), SubShapeKind::Vertex, vertex));
+    }
+    elements
+}
+
+#[test]
+fn t122_box_top_displays_as_two_triangles_on_the_top() {
+    let block = box_primitive();
+
+    let points = display_triangles(&block.shape, face_with_role(&block, PrimitiveFace::Top));
+
+    assert_eq!(points.len(), 6);
+    for point in &points {
+        assert_near(point.z, 30.0, POINT_TOLERANCE, "z of a Top point");
+        assert!(
+            within(point.x, 0.0, 10.0) && within(point.y, 0.0, 20.0),
+            "{point:?} lies outside Top"
+        );
+    }
+    assert_wound_along(&points, UP, "Top");
+    assert_relative(total_area(&points), 200.0, 1e-9, "Top area");
+}
+
+#[test]
+fn t122_box_bottom_is_wound_downward() {
+    let block = box_primitive();
+
+    let points = display_triangles(&block.shape, face_with_role(&block, PrimitiveFace::Bottom));
+
+    assert_wound_along(&points, Vector::new(0.0, 0.0, -1.0), "Bottom");
+}
+
+#[test]
+fn t122_cylinder_side_displays_on_the_cylinder_wound_outward() {
+    let cylinder = cylinder_primitive();
+    let side = face_with_role(&cylinder, PrimitiveFace::Side);
+
+    let points = display_triangles(&cylinder.shape, side);
+
+    assert!(!points.is_empty());
+    assert_eq!(points.len() % 3, 0, "three points per triangle");
+    for point in &points {
+        assert_near(
+            distance_from_z_axis(*point),
+            5.0,
+            POINT_TOLERANCE,
+            "distance of a Side point from the axis",
+        );
+        assert!(within(point.z, 0.0, 10.0), "{point:?} lies outside Side");
+    }
+    for (position, triangle) in points.chunks_exact(3).enumerate() {
+        let normal = winding_normal(triangle);
+        let centroid = triangle_centroid(triangle);
+        let outward = normal[0] * centroid.x + normal[1] * centroid.y;
+        assert!(outward > 0.0, "triangle {position} faces inward");
+    }
+    let exact_area = 314.1592653589793;
+    let area = total_area(&points);
+    assert!(
+        area >= 0.99 * exact_area && area <= exact_area * (1.0 + 1e-9),
+        "Side area {area}"
+    );
+}
+
+#[test]
+fn t123_box_edge_displays_from_its_first_vertex_to_its_last() {
+    let block = box_primitive();
+    let edge = top_front_edge(&block);
+
+    let points = display_polyline(&block.shape, edge);
+
+    assert_same_points(
+        &points,
+        &[Point::new(0.0, 0.0, 30.0), Point::new(10.0, 0.0, 30.0)],
+        POINT_TOLERANCE,
+        "TF",
+    );
+    let direction = geometry(&block.shape, SubShapeKind::Edge, edge)
+        .direction
+        .expect("a line has a direction");
+    let along = (points[1].x - points[0].x) * direction.x
+        + (points[1].y - points[0].y) * direction.y
+        + (points[1].z - points[0].z) * direction.z;
+    assert!(along > 0.0, "TF runs against its direction: {points:?}");
+}
+
+#[test]
+fn t123_cylinder_rim_displays_as_a_closed_polyline() {
+    let cylinder = cylinder_primitive();
+
+    let points = display_polyline(&cylinder.shape, cylinder_top_rim(&cylinder));
+
+    assert!(points.len() >= 4, "{} points", points.len());
+    let (first, last) = (points[0], points[points.len() - 1]);
+    assert!(
+        first.x.to_bits() == last.x.to_bits()
+            && first.y.to_bits() == last.y.to_bits()
+            && first.z.to_bits() == last.z.to_bits(),
+        "the rim ends at {last:?}, not at its first point {first:?}"
+    );
+    for point in &points {
+        assert_near(point.z, 10.0, POINT_TOLERANCE, "z of a rim point");
+        assert_near(
+            distance_from_z_axis(*point),
+            5.0,
+            POINT_TOLERANCE,
+            "distance of a rim point from the axis",
+        );
+    }
+    for segment in points.windows(2) {
+        let middle = Point::new(
+            (segment[0].x + segment[1].x) / 2.0,
+            (segment[0].y + segment[1].y) / 2.0,
+            (segment[0].z + segment[1].z) / 2.0,
+        );
+        assert!(
+            distance_from_z_axis(middle) >= 4.99,
+            "the segment {segment:?} strays more than the chord deviation from the rim"
+        );
+    }
+}
+
+#[test]
+fn t124_box_vertices_display_at_their_positions() {
+    let shape = box_primitive().shape;
+
+    for vertex in 1..=8 {
+        assert_eq!(
+            display(&shape, SubShapeKind::Vertex, vertex),
+            ElementDisplay::Position(geometry(&shape, SubShapeKind::Vertex, vertex).centroid),
+            "vertex {vertex}"
+        );
+    }
+}
+
+#[test]
+fn t124_moved_box_displays_the_same_points_moved() {
+    let block = box_primitive();
+    let top = face_with_role(&block, PrimitiveFace::Top);
+    let edge = top_front_edge(&block);
+    let offset = Vector::new(50.0, 0.0, 0.0);
+
+    let moved = transform(&block.shape, &Transform::translation(offset))
+        .expect("BOX moves")
+        .shape;
+
+    assert_moved_in_order(
+        &display_triangles(&moved, top),
+        &display_triangles(&block.shape, top),
+        offset,
+        "moved Top",
+    );
+    assert_moved_in_order(
+        &display_polyline(&moved, edge),
+        &display_polyline(&block.shape, edge),
+        offset,
+        "moved TF",
+    );
+}
+
+#[test]
+fn t125_display_is_repeatable() {
+    let block = box_primitive();
+    let cylinder = cylinder_primitive();
+
+    for (shape, kind, index) in displayed_elements(&block, &cylinder) {
+        assert_eq!(
+            display(&shape, kind, index),
+            display(&shape, kind, index),
+            "{kind:?} {index}"
+        );
+    }
+}
+
+#[test]
+fn t125_display_leaves_shapes_and_their_meshes_unchanged() {
+    let block = box_primitive();
+    let cylinder = cylinder_primitive();
+    let shapes = [block.shape.clone(), cylinder.shape.clone()];
+    let bytes_before: Vec<Vec<u8>> = shapes
+        .iter()
+        .map(|shape| shape.to_brep().expect("BRep bytes"))
+        .collect();
+    let meshes_before: Vec<Mesh> = shapes.iter().map(mesh_of).collect();
+
+    for (shape, kind, index) in displayed_elements(&block, &cylinder) {
+        display(&shape, kind, index);
+    }
+
+    for (position, shape) in shapes.iter().enumerate() {
+        assert!(
+            shape.to_brep().expect("BRep bytes") == bytes_before[position],
+            "displaying changed the bytes of shape {position}"
+        );
+        assert!(
+            mesh_of(shape) == meshes_before[position],
+            "displaying changed the mesh of shape {position}"
+        );
+    }
+}
+
+#[test]
+fn t126_solids_and_shells_cannot_be_displayed() {
+    let shape = box_primitive().shape;
+
+    for kind in [SubShapeKind::Solid, SubShapeKind::Shell] {
+        assert_argument_error(
+            &display_error(&shape, kind, 1, &OPT),
+            Operation::Tessellate,
+            "Only faces, edges and vertices can be queried.",
+        );
+    }
+}
+
+#[test]
+fn t126_missing_face_cannot_be_displayed() {
+    assert_argument_error(
+        &display_error(&box_primitive().shape, SubShapeKind::Face, 7, &OPT),
+        Operation::Tessellate,
+        "Face 7 does not exist in this body.",
+    );
+}
+
+#[test]
+fn t126_zero_chord_deviation_is_rejected() {
+    let tolerance = TessellationTolerance {
+        chord_deviation: 0.0,
+        angular_deviation: 0.5,
+    };
+
+    assert_argument_error(
+        &display_error(&box_primitive().shape, SubShapeKind::Face, 1, &tolerance),
+        Operation::Tessellate,
+        TOLERANCE_MESSAGE,
+    );
+}
+
+#[test]
+fn t126_degenerated_edges_cannot_be_displayed() {
+    let sphere = sphere_primitive().shape;
+    let degenerated = degenerated_edges(&sphere);
+    assert_eq!(degenerated.len(), 2);
+
+    for edge in degenerated {
+        assert_invalid_input(
+            &display_error(&sphere, SubShapeKind::Edge, edge, &OPT),
+            Operation::Tessellate,
+            &format!("Edge {edge} is a degenerated edge, so it has no curve to measure or draw."),
+        );
+    }
+}
+
+#[test]
+fn missing_edges_and_vertices_cannot_be_displayed() {
+    let shape = box_primitive().shape;
+    let missing = [
+        (SubShapeKind::Face, 0, "Face 0 does not exist in this body."),
+        (
+            SubShapeKind::Edge,
+            13,
+            "Edge 13 does not exist in this body.",
+        ),
+        (
+            SubShapeKind::Vertex,
+            9,
+            "Vertex 9 does not exist in this body.",
+        ),
+    ];
+
+    for (kind, index, message) in missing {
+        assert_argument_error(
+            &display_error(&shape, kind, index, &OPT),
+            Operation::Tessellate,
+            message,
+        );
+    }
+}
+
+#[test]
+fn display_tolerance_follows_the_tessellation_rule() {
+    let shape = box_primitive().shape;
+    let too_wide = TessellationTolerance {
+        chord_deviation: 0.01,
+        angular_deviation: 1.6,
+    };
+    let not_finite = TessellationTolerance {
+        chord_deviation: f64::NAN,
+        angular_deviation: 0.5,
+    };
+    let right_angle = TessellationTolerance {
+        chord_deviation: 0.01,
+        angular_deviation: FRAC_PI_2,
+    };
+
+    assert_argument_error(
+        &display_error(&shape, SubShapeKind::Face, 1, &too_wide),
+        Operation::Tessellate,
+        TOLERANCE_MESSAGE,
+    );
+    assert_argument_error(
+        &display_error(&shape, SubShapeKind::Face, 1, &not_finite),
+        Operation::Tessellate,
+        "A value is not a finite number.",
+    );
+    assert!(
+        shape
+            .element_display(SubShapeKind::Face, 1, &right_angle)
+            .is_ok(),
+        "90 degrees is allowed"
+    );
+}
+
+#[test]
+fn cylinder_seam_displays_although_meshes_leave_it_out() {
+    let cylinder = cylinder_primitive();
+
+    let points = display_polyline(&cylinder.shape, seam_edge(&cylinder.shape));
+
+    assert_same_points(
+        &points,
+        &[Point::new(5.0, 0.0, 0.0), Point::new(5.0, 0.0, 10.0)],
+        POINT_TOLERANCE,
+        "seam",
+    );
+}
+
+#[test]
+fn lone_face_displays_its_whole_area() {
+    let profile = rectangle_profile();
+
+    let points = display_triangles(&profile.shape, 1);
+
+    assert_wound_along(&points, UP, "RECT");
+    assert_relative(total_area(&points), 4000.0, 1e-9, "RECT area");
+}
+
+#[test]
+fn mirrored_box_top_stays_wound_outward() {
+    let block = box_primitive();
+    let top = face_with_role(&block, PrimitiveFace::Top);
+
+    let mirrored = transform(&block.shape, &Transform::mirror(&Plane::YZ))
+        .expect("BOX mirrors")
+        .shape;
+
+    let points = display_triangles(&mirrored, top);
+    assert_wound_along(&points, UP, "mirrored Top");
+    for point in &points {
+        assert!(
+            within(point.x, -10.0, 0.0),
+            "{point:?} is not mirrored through YZ"
+        );
+    }
+}
+
+#[test]
+fn inner_face_of_a_hollow_box_is_wound_into_the_cavity() {
+    let block = box_primitive();
+    let bottom = face_with_role(&block, PrimitiveFace::Bottom);
+    let hollow = shell(&block.shape, &[], 1.0).expect("the box is hollowed");
+    let inner = generated_faces(&hollow.history.inputs[0].faces[bottom as usize - 1]);
+    assert_eq!(inner.len(), 1);
+
+    let points = display_triangles(&hollow.shape, inner[0]);
+
+    assert_wound_along(&points, UP, "inner bottom");
+    assert_relative(total_area(&points), 8.0 * 18.0, 1e-9, "inner bottom area");
+}
+
+#[test]
+fn moved_box_vertices_display_at_their_moved_positions() {
+    let moved = transform(
+        &box_primitive().shape,
+        &Transform::translation(Vector::new(50.0, 0.0, 0.0)),
+    )
+    .expect("BOX moves")
+    .shape;
+
+    for vertex in 1..=8 {
+        assert_eq!(
+            display(&moved, SubShapeKind::Vertex, vertex),
+            ElementDisplay::Position(geometry(&moved, SubShapeKind::Vertex, vertex).centroid),
+            "vertex {vertex}"
+        );
     }
 }

@@ -699,7 +699,8 @@ mod tests {
     fn expression_codes_are_snake_case_kinds() {
         assert_eq!(
             expression_code(&ExprErrorKind::UnknownName {
-                name: "width".to_string()
+                name: "width".to_string(),
+                suggestion: None
             }),
             "unknown_name"
         );

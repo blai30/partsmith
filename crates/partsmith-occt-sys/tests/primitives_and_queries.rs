@@ -1,5 +1,6 @@
-//! Acceptance tests for primitives, element geometry and topology (kernel spec sections 2.2,
-//! 2.4, 2.10, 3.4.1, 3.6 and tests 5 to 14, 64 to 67, 69, 70, 95 to 101, 108, 109, 112 and 116).
+//! Acceptance tests for primitives, element geometry, topology, solid and shell counts and widths
+//! across edges (kernel spec sections 2.2, 2.4, 2.10, 3.4.1, 3.6 and tests 5 to 14, 64 to 67, 69,
+//! 70, 95 to 101, 108, 109, 112 and 116 to 121).
 
 mod common;
 
@@ -9,15 +10,17 @@ use std::sync::OnceLock;
 use common::{
     BOUNDS_TOLERANCE, ORIGIN, POINT_TOLERANCE, UP, arc, assert_argument_error, assert_bounds,
     assert_invalid_input, assert_near, assert_parallel, assert_point_near, assert_relative,
-    assert_same_points, assert_vector_near, box_corners, box_primitive, cylinder_primitive,
-    edge_between, face_direction, face_with_role, faces_of_kind, generated_faces, geometry,
-    index_from_position, line, rectangle_curves, rectangle_profile, region, sphere_primitive,
-    top_front_edge, volume, xy_plane_at,
+    assert_same_points, assert_vector_near, box_corners, box_primitive, cube_a, cube_at,
+    cylinder_primitive, degenerated_edges, edge_between, face_direction, face_with_role,
+    faces_of_kind, fillet_top_front, generated_faces, geometry, index_from_position, line,
+    planar_face, rectangle_curves, rectangle_profile, region, seam_edge, sphere_primitive, stair,
+    top_front_edge, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
-    Continuity, EdgeNormals, EdgeRadius, GeometryKind, Operation, Plane, Point, PrimitiveFace,
-    Shape, ShapeKind, SubShapeKind, Topology, Transform, Vector, compound, cut, fillet, fuse,
-    make_box, make_cone, make_cylinder, make_profile, make_torus, section, shell, transform,
+    Continuity, EdgeNormals, EdgeRadius, GeometryKind, LINEAR_TOLERANCE, Operation, Plane, Point,
+    PrimitiveFace, Shape, ShapeKind, SubShapeKind, Topology, Transform, Vector, compound, cut,
+    fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_torus, section, shell,
+    transform,
 };
 
 const BOX_MESSAGE: &str = "A box needs a length, width and height greater than 0 mm.";
@@ -687,20 +690,6 @@ fn tagged_edge(edge_tags: &[u32], tag: u32) -> u32 {
     index_from_position(position)
 }
 
-/// The single seam edge of a shape.
-fn seam_edge(shape: &Shape) -> u32 {
-    let topology = shape.topology().expect("topology");
-    let seams: Vec<u32> = topology
-        .edges
-        .iter()
-        .enumerate()
-        .filter(|(_, edge)| edge.seam)
-        .map(|(position, _)| index_from_position(position))
-        .collect();
-    assert_eq!(seams.len(), 1, "the shape has one seam");
-    seams[0]
-}
-
 #[test]
 fn t095_box_edge_has_the_normals_of_its_two_faces() {
     let primitive = box_primitive();
@@ -1043,14 +1032,7 @@ fn t101_edge_normals_of_missing_edges_are_rejected() {
 #[test]
 fn t101_degenerated_edges_have_no_middle_point() {
     let shape = sphere_primitive().shape;
-    let topology = shape.topology().expect("topology");
-    let degenerated: Vec<u32> = topology
-        .edges
-        .iter()
-        .enumerate()
-        .filter(|(_, edge)| edge.degenerate)
-        .map(|(position, _)| index_from_position(position))
-        .collect();
+    let degenerated = degenerated_edges(&shape);
     assert_eq!(degenerated.len(), 2);
 
     for edge in degenerated {
@@ -1642,5 +1624,557 @@ fn t116_volume_adds_numeric_faces_to_exact_ones() {
         expected,
         1e-9,
         "volume of the rounded box",
+    );
+}
+
+// Solids and shells (section 3.6, item 6).
+
+/// `CUP` of test 118: a 30 mm cube with a 10 x 10 pocket open at the top from z = 10.
+fn cup() -> Shape {
+    let cube = make_box(&Plane::XY, 30.0, 30.0, 30.0)
+        .expect("the cube builds")
+        .shape;
+    let pocket = make_box(&xy_plane_at(10.0, 10.0, 10.0), 10.0, 10.0, 30.0)
+        .expect("the pocket tool builds")
+        .shape;
+    cut(&cube, &[pocket]).expect("the pocket is cut").shape
+}
+
+/// `R` of test 118: `CUP` closed by `LID`, a 30 x 30 x 10 box on its top.
+fn closed_cup() -> Shape {
+    let lid = make_box(&xy_plane_at(0.0, 0.0, 30.0), 30.0, 30.0, 10.0).expect("LID builds");
+    fuse(&cup(), &[lid.shape]).expect("LID fuses").shape
+}
+
+/// The closed hollow of test 52: BOX shelled 1 mm with no face removed.
+fn closed_hollow_box() -> Shape {
+    shell(&box_primitive().shape, &[], 1.0)
+        .expect("BOX shells closed")
+        .shape
+}
+
+/// Asserts the number of solids and of shells of a shape.
+#[track_caller]
+fn assert_solids_and_shells(shape: &Shape, solids: u32, shells: u32) {
+    assert_eq!(
+        shape.count(SubShapeKind::Solid),
+        solids,
+        "solids of {shape:?}"
+    );
+    assert_eq!(
+        shape.count(SubShapeKind::Shell),
+        shells,
+        "shells of {shape:?}"
+    );
+}
+
+#[test]
+fn t117_box_has_one_solid_of_one_shell() {
+    assert_solids_and_shells(&box_primitive().shape, 1, 1);
+}
+
+#[test]
+fn t117_open_shell_has_one_shell() {
+    let block = box_primitive();
+    let top = face_with_role(&block, PrimitiveFace::Top);
+
+    let open = shell(&block.shape, &[top], 1.0).expect("BOX shells open");
+
+    assert_solids_and_shells(&open.shape, 1, 1);
+}
+
+#[test]
+fn t117_closed_hollow_has_an_inner_shell() {
+    assert_solids_and_shells(&closed_hollow_box(), 1, 2);
+}
+
+#[test]
+fn t117_separate_cubes_are_two_solids_of_one_shell_each() {
+    let far_cube = cube_at(20.0, 0.0, 0.0).shape;
+
+    let joined = fuse(&cube_a().shape, &[far_cube]).expect("the cubes fuse");
+
+    assert_solids_and_shells(&joined.shape, 2, 2);
+}
+
+#[test]
+fn t117_shapes_without_solids_have_no_shells() {
+    // Test 41: a cut that removes all of A.
+    let larger = make_box(&xy_plane_at(-5.0, -5.0, -5.0), 20.0, 20.0, 20.0)
+        .expect("the larger box builds")
+        .shape;
+    let emptied = cut(&cube_a().shape, &[larger]).expect("the cut runs");
+
+    assert_solids_and_shells(&emptied.shape, 0, 0);
+    assert_solids_and_shells(&Shape::empty(), 0, 0);
+}
+
+#[test]
+fn t117_shells_cannot_be_queried_as_elements() {
+    let error = box_primitive()
+        .shape
+        .element(SubShapeKind::Shell, 1)
+        .expect_err("shells are not elements");
+
+    assert_argument_error(
+        &error,
+        Operation::Query,
+        "Only faces, edges and vertices can be queried.",
+    );
+}
+
+#[test]
+fn t118_cup_is_one_solid_of_one_shell() {
+    let cup = cup();
+
+    assert_solids_and_shells(&cup, 1, 1);
+    assert_relative(volume(&cup), 25000.0, 1e-9, "CUP volume");
+}
+
+#[test]
+fn t118_lid_closes_the_pocket_into_a_cavity() {
+    let closed = closed_cup();
+
+    assert!(closed.is_valid().expect("validity check"));
+    assert_relative(volume(&closed), 34000.0, 1e-9, "R volume");
+    assert_eq!(closed.count(SubShapeKind::Face), 12);
+    assert_solids_and_shells(&closed, 1, 2);
+}
+
+#[test]
+fn t118_the_solid_holds_both_shells() {
+    let closed = closed_cup();
+    let solids = closed.solids().expect("the solids of R");
+    assert_eq!(solids.len(), 1);
+
+    let mut located = closed
+        .locate(&solids[0], SubShapeKind::Shell)
+        .expect("the shells of the solid are located");
+
+    located.sort_unstable();
+    assert_eq!(located, [Some(1), Some(2)]);
+}
+
+#[test]
+fn t118_moved_and_reloaded_cavity_keeps_both_shells() {
+    let closed = closed_cup();
+
+    let moved =
+        transform(&closed, &Transform::translation(Vector::new(1.0, 2.0, 3.0))).expect("R moves");
+    let reloaded = Shape::from_brep(&closed.to_brep().expect("BRep bytes")).expect("R reloads");
+
+    assert_solids_and_shells(&moved.shape, 1, 2);
+    assert_solids_and_shells(&reloaded, 1, 2);
+}
+
+#[test]
+fn t118_vent_through_the_lid_opens_the_cavity() {
+    let vent = make_box(&xy_plane_at(14.0, 14.0, 25.0), 2.0, 2.0, 20.0)
+        .expect("the vent builds")
+        .shape;
+
+    let vented = cut(&closed_cup(), &[vent]).expect("the vent is cut");
+
+    assert_relative(volume(&vented.shape), 33960.0, 1e-9, "vented volume");
+    assert_solids_and_shells(&vented.shape, 1, 1);
+}
+
+#[test]
+fn shell_kind_sorts_between_solids_and_faces() {
+    assert!(SubShapeKind::Solid < SubShapeKind::Shell);
+    assert!(SubShapeKind::Shell < SubShapeKind::Face);
+}
+
+#[test]
+fn lone_face_has_no_shell() {
+    assert_solids_and_shells(&rectangle_profile().shape, 0, 0);
+}
+
+#[test]
+fn box_locates_its_own_shell_and_not_another_one() {
+    let block = box_primitive().shape;
+    let other = box_primitive().shape;
+
+    assert_eq!(
+        block.locate(&block, SubShapeKind::Shell).expect("located"),
+        [Some(1)]
+    );
+    assert_eq!(
+        block.locate(&other, SubShapeKind::Shell).expect("located"),
+        [None]
+    );
+}
+
+#[test]
+fn shells_cannot_be_listed_as_elements() {
+    let error = box_primitive()
+        .shape
+        .elements(SubShapeKind::Shell)
+        .expect_err("shells are not elements");
+
+    assert_argument_error(
+        &error,
+        Operation::Query,
+        "Only faces, edges and vertices can be queried.",
+    );
+}
+
+#[test]
+fn mirrored_closed_hollow_keeps_its_inner_shell() {
+    let mirrored = transform(&closed_hollow_box(), &Transform::mirror(&Plane::YZ))
+        .expect("the hollow box mirrors");
+
+    assert_solids_and_shells(&mirrored.shape, 1, 2);
+}
+
+#[test]
+fn compound_counts_the_shells_of_every_solid() {
+    let grouped = compound(&[box_primitive().shape, closed_hollow_box()]).expect("grouped");
+
+    assert_solids_and_shells(&grouped.shape, 2, 3);
+}
+
+// Width across (section 3.6, item 7).
+
+/// The faces and edges of `STAIR` that test 119 names.
+struct StairElements {
+    /// The top, facing +Z, centroid (-10, 0, 10).
+    top: u32,
+    /// The step's wall, facing +X, centroid (0, 0, 8.8), 20 x 2.4.
+    riser: u32,
+    /// The step's floor, facing +Z, centroid (10, 0, 7.6).
+    tread: u32,
+    /// The bottom, facing -Z.
+    bottom: u32,
+    /// The edge between `top` and `riser`.
+    upper: u32,
+    /// The edge between `riser` and `tread`.
+    lower: u32,
+}
+
+/// Finds the elements of test 119 in `STAIR` or a shape with its indices.
+fn stair_elements(stair: &Shape) -> StairElements {
+    let top = planar_face(stair, UP, Point::new(-10.0, 0.0, 10.0));
+    let riser = planar_face(stair, Vector::new(1.0, 0.0, 0.0), Point::new(0.0, 0.0, 8.8));
+    let tread = planar_face(stair, UP, Point::new(10.0, 0.0, 7.6));
+    let bottom = planar_face(stair, Vector::new(0.0, 0.0, -1.0), ORIGIN);
+    StairElements {
+        top,
+        riser,
+        tread,
+        bottom,
+        upper: edge_between(stair, top, riser),
+        lower: edge_between(stair, riser, tread),
+    }
+}
+
+/// The width of a face across an edge.
+fn width(shape: &Shape, face: u32, edge: u32) -> f64 {
+    shape
+        .width_across(face, edge)
+        .unwrap_or_else(|error| panic!("face {face} across edge {edge}: {error:?}"))
+}
+
+#[test]
+fn t119_stair_is_the_block_with_a_step() {
+    let stair = stair();
+    let elements = stair_elements(&stair);
+
+    assert!(stair.is_valid().expect("validity check"));
+    assert_relative(volume(&stair), 7040.0, 1e-9, "STAIR volume");
+    assert_eq!(stair.count(SubShapeKind::Face), 8);
+    assert_relative(
+        geometry(&stair, SubShapeKind::Face, elements.riser).measure,
+        48.0,
+        1e-9,
+        "RISER area",
+    );
+}
+
+#[test]
+fn t119_riser_is_as_wide_as_the_step_is_deep() {
+    let stair = stair();
+    let elements = stair_elements(&stair);
+
+    assert_near(
+        width(&stair, elements.riser, elements.upper),
+        2.4,
+        1e-6,
+        "RISER across UPPER",
+    );
+    assert_near(
+        width(&stair, elements.riser, elements.lower),
+        2.4,
+        1e-6,
+        "RISER across LOWER",
+    );
+}
+
+#[test]
+fn t119_top_and_tread_are_20_mm_across_the_step() {
+    let stair = stair();
+    let elements = stair_elements(&stair);
+
+    assert_near(
+        width(&stair, elements.top, elements.upper),
+        20.0,
+        1e-6,
+        "TOP across UPPER",
+    );
+    assert_near(
+        width(&stair, elements.tread, elements.lower),
+        20.0,
+        1e-6,
+        "TREAD across LOWER",
+    );
+}
+
+#[test]
+fn t119_face_that_does_not_touch_the_edge_is_measured_to_its_farthest_point() {
+    let stair = stair();
+    let elements = stair_elements(&stair);
+
+    assert_near(
+        width(&stair, elements.bottom, elements.upper),
+        22.360679774997898,
+        1e-6,
+        "BOTTOM across UPPER",
+    );
+}
+
+#[test]
+fn t119_widths_are_repeatable_and_leave_the_shape_unchanged() {
+    let stair = stair();
+    let elements = stair_elements(&stair);
+    let bytes = stair.to_brep().expect("BRep bytes");
+    let pairs = [
+        (elements.riser, elements.upper),
+        (elements.top, elements.upper),
+        (elements.riser, elements.lower),
+        (elements.tread, elements.lower),
+        (elements.bottom, elements.upper),
+    ];
+
+    for (face, edge) in pairs {
+        let first = width(&stair, face, edge);
+        let second = width(&stair, face, edge);
+
+        assert_eq!(
+            first.to_bits(),
+            second.to_bits(),
+            "face {face} across edge {edge}: {first} then {second}"
+        );
+    }
+    assert!(
+        stair.to_brep().expect("BRep bytes") == bytes,
+        "measuring changed STAIR"
+    );
+}
+
+#[test]
+fn t120_round_is_measured_to_its_far_side() {
+    let block = box_primitive();
+    let rounded = fillet_top_front(&block);
+    let input = &rounded.history.inputs[0];
+    let rounds = generated_faces(&input.edges[top_front_edge(&block) as usize - 1]);
+    assert_eq!(rounds.len(), 1);
+    let round = rounds[0];
+    let round_geometry = geometry(&rounded.shape, SubShapeKind::Face, round);
+    assert_eq!(round_geometry.kind, GeometryKind::Cylinder);
+    assert_near(
+        round_geometry.radius.expect("a cylinder has a radius"),
+        2.0,
+        POINT_TOLERANCE,
+        "ROUND radius",
+    );
+    let top = &input.faces[face_with_role(&block, PrimitiveFace::Top) as usize - 1];
+    assert_eq!(top.modified.len(), 1);
+    let trimmed_top = top.modified[0];
+    let edge = edge_between(&rounded.shape, round, trimmed_top);
+    let edge_geometry = geometry(&rounded.shape, SubShapeKind::Edge, edge);
+    assert_eq!(edge_geometry.kind, GeometryKind::Line);
+    assert_point_near(
+        edge_geometry.centroid,
+        Point::new(5.0, 2.0, 30.0),
+        POINT_TOLERANCE,
+        "G",
+    );
+
+    assert_near(
+        width(&rounded.shape, round, edge),
+        2.8284271247461903,
+        1e-6,
+        "ROUND across G",
+    );
+    assert_near(
+        width(&rounded.shape, trimmed_top, edge),
+        18.0,
+        1e-6,
+        "TOP2 across G",
+    );
+}
+
+#[test]
+fn t121_width_across_a_missing_face_is_rejected() {
+    let stair = stair();
+    let elements = stair_elements(&stair);
+
+    let error = stair
+        .width_across(9, elements.upper)
+        .expect_err("STAIR has 8 faces");
+
+    assert_argument_error(
+        &error,
+        Operation::Query,
+        "Face 9 does not exist in this body.",
+    );
+}
+
+#[test]
+fn t121_width_across_a_missing_edge_is_rejected() {
+    let stair = stair();
+    let elements = stair_elements(&stair);
+
+    let error = stair
+        .width_across(elements.top, 0)
+        .expect_err("index 0 is never valid");
+
+    assert_argument_error(
+        &error,
+        Operation::Query,
+        "Edge 0 does not exist in this body.",
+    );
+}
+
+#[test]
+fn t121_width_across_a_degenerated_edge_is_rejected() {
+    let sphere = sphere_primitive().shape;
+    let degenerated = degenerated_edges(&sphere);
+    assert_eq!(degenerated.len(), 2);
+
+    for edge in degenerated {
+        let error = sphere
+            .width_across(1, edge)
+            .expect_err("a degenerated edge has no curve");
+
+        assert_invalid_input(
+            &error,
+            Operation::Query,
+            &format!("Edge {edge} is a degenerated edge, so it has no curve to measure or draw."),
+        );
+    }
+}
+
+#[test]
+fn box_faces_are_measured_to_their_opposite_side() {
+    let block = box_primitive();
+    let edge = top_front_edge(&block);
+
+    assert_near(
+        width(
+            &block.shape,
+            face_with_role(&block, PrimitiveFace::Top),
+            edge,
+        ),
+        20.0,
+        1e-6,
+        "Top across TF",
+    );
+    assert_near(
+        width(
+            &block.shape,
+            face_with_role(&block, PrimitiveFace::Front),
+            edge,
+        ),
+        30.0,
+        1e-6,
+        "Front across TF",
+    );
+}
+
+#[test]
+fn cylinder_side_is_its_diameter_across_its_seam() {
+    // The middles of the two circles lie opposite the seam (section 3.6, item 5.2).
+    let cylinder = cylinder_primitive();
+    let side = face_with_role(&cylinder, PrimitiveFace::Side);
+
+    assert_near(
+        width(&cylinder.shape, side, seam_edge(&cylinder.shape)),
+        10.0,
+        1e-6,
+        "Side across the seam",
+    );
+}
+
+#[test]
+fn cylinder_side_is_its_height_across_a_rim() {
+    let cylinder = cylinder_primitive();
+    let side = face_with_role(&cylinder, PrimitiveFace::Side);
+    let top = face_with_role(&cylinder, PrimitiveFace::Top);
+    let rim = edge_between(&cylinder.shape, side, top);
+
+    assert_near(
+        width(&cylinder.shape, side, rim),
+        10.0,
+        1e-6,
+        "Side across the top rim",
+    );
+}
+
+#[test]
+fn disc_is_never_measured_wider_than_it_is() {
+    // The farthest point of the top disc from its rim is its center, 5 mm away, which no sample
+    // hits: the cell centers of the 8 x 8 grid nearest to it lie 0.88 mm from it.
+    let cylinder = cylinder_primitive();
+    let side = face_with_role(&cylinder, PrimitiveFace::Side);
+    let top = face_with_role(&cylinder, PrimitiveFace::Top);
+    let rim = edge_between(&cylinder.shape, side, top);
+
+    let measured = width(&cylinder.shape, top, rim);
+
+    assert!(
+        measured > 4.0 && measured <= 5.0 + LINEAR_TOLERANCE,
+        "Top across its rim: {measured}"
+    );
+}
+
+#[test]
+fn lone_face_is_measured_across_its_edge() {
+    let profile = rectangle_profile();
+    let bottom_line = profile
+        .edge_tags
+        .iter()
+        .position(|tag| *tag == 1)
+        .map(index_from_position)
+        .expect("the line tagged 1 is an edge");
+
+    assert_near(
+        width(&profile.shape, 1, bottom_line),
+        50.0,
+        1e-6,
+        "RECT across its bottom line",
+    );
+}
+
+#[test]
+fn moved_shape_is_measured_like_the_unmoved_one() {
+    let stair = stair();
+    let elements = stair_elements(&stair);
+    let motion = Transform::translation(Vector::new(5.0, 7.0, 3.0))
+        .then(&Transform::rotation(&z_axis(), 0.3));
+
+    let moved = transform(&stair, &motion).expect("STAIR moves").shape;
+
+    assert_near(
+        width(&moved, elements.riser, elements.upper),
+        2.4,
+        1e-6,
+        "moved RISER across UPPER",
+    );
+    assert_near(
+        width(&moved, elements.bottom, elements.upper),
+        22.360679774997898,
+        1e-6,
+        "moved BOTTOM across UPPER",
     );
 }

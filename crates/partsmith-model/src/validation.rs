@@ -286,7 +286,7 @@ fn expression_problems(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ExprLink, FeatureLinks, FeatureRecord, OpaqueFeatures, Parameter};
+    use crate::{ExprLink, FeatureLinks, FeatureRecord, FieldUnit, OpaqueFeatures, Parameter};
 
     fn id(text: &str) -> Id {
         Id::new(text).expect("valid id")
@@ -302,6 +302,7 @@ mod tests {
                 expressions: vec![ExprLink {
                     pointer: "/x".to_string(),
                     expr: Expr::new("mm + 1"),
+                    unit: FieldUnit::Length,
                 }],
                 ..FeatureLinks::default()
             })

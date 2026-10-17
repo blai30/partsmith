@@ -35,6 +35,9 @@ pub enum ShapeKind {
 pub enum SubShapeKind {
     /// Solids.
     Solid,
+    /// Shells: the outer shell of each solid and one inner shell per closed cavity (section 3.6,
+    /// item 6).
+    Shell,
     /// Faces.
     Face,
     /// Edges.
@@ -60,6 +63,7 @@ impl SubShapeKind {
     pub(crate) fn to_ffi(self) -> sys::ElementKind {
         match self {
             SubShapeKind::Solid => sys::ElementKind::Solid,
+            SubShapeKind::Shell => sys::ElementKind::Shell,
             SubShapeKind::Face => sys::ElementKind::Face,
             SubShapeKind::Edge => sys::ElementKind::Edge,
             SubShapeKind::Vertex => sys::ElementKind::Vertex,
@@ -72,6 +76,7 @@ impl SubShapeKind {
     ) -> Result<SubShapeKind, KernelError> {
         match kind {
             sys::ElementKind::Solid => Ok(SubShapeKind::Solid),
+            sys::ElementKind::Shell => Ok(SubShapeKind::Shell),
             sys::ElementKind::Face => Ok(SubShapeKind::Face),
             sys::ElementKind::Edge => Ok(SubShapeKind::Edge),
             sys::ElementKind::Vertex => Ok(SubShapeKind::Vertex),
@@ -87,6 +92,7 @@ impl SubShapeKind {
     pub(crate) fn noun(self) -> &'static str {
         match self {
             SubShapeKind::Solid => "Solid",
+            SubShapeKind::Shell => "Shell",
             SubShapeKind::Face => "Face",
             SubShapeKind::Edge => "Edge",
             SubShapeKind::Vertex => "Vertex",

@@ -593,7 +593,8 @@ fn t016_extrude_inspect() {
             features: vec![id("f-sk1")],
             expressions: vec![ExprLink {
                 pointer: "/extent/expr".to_string(),
-                expr: Expr::new("30 mm")
+                expr: Expr::new("30 mm"),
+                unit: FieldUnit::Length
             }],
         })
     );
@@ -659,11 +660,13 @@ fn t016_inspect_lists_written_then_read_bodies_features_and_expression_pointers(
             expressions: vec![
                 ExprLink {
                     pointer: "/extent/expr".to_string(),
-                    expr: Expr::new("20 mm")
+                    expr: Expr::new("20 mm"),
+                    unit: FieldUnit::Length
                 },
                 ExprLink {
                     pointer: "/extent/opposite_expr".to_string(),
-                    expr: Expr::new("width")
+                    expr: Expr::new("width"),
+                    unit: FieldUnit::Length
                 },
             ],
         })

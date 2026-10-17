@@ -1,16 +1,19 @@
 //! Fixtures and assertion helpers shared by the kernel acceptance tests (kernel spec section 6).
+//! `lint` holds the message lint of the error guidelines.
 
 // Each test binary uses only some of these helpers.
 #![allow(dead_code)]
+
+pub mod lint;
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use partsmith_mesh::{Mesh, Point3, TessellationTolerance};
 use partsmith_occt_sys::{
     Axis, EdgeRadius, ElementFate, ElementGeometry, GeometryKind, KernelError, KernelErrorKind,
-    Operation, PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane, Point, Point2,
-    Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace, SweepResult, TaggedCurve, Vector,
-    fillet, fuse, make_box, make_cylinder, make_profile, make_sphere,
+    OpResult, Operation, PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane, Point,
+    Point2, Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace, SweepResult, TaggedCurve,
+    Vector, cut, fillet, fuse, make_box, make_cylinder, make_profile, make_sphere,
 };
 
 /// Default tolerance for points and vectors: "vectors and points compare within 1e-9" (section 6).
@@ -181,6 +184,18 @@ pub fn edge_at(shape: &Shape, centroid: Point) -> u32 {
     edges[0]
 }
 
+/// `STAIR` of test 119: the block of newcomer error corpus scenario NC05 (x from -20 to 20, y from
+/// -10 to 10, z from 0 to 10) with a step 2.4 mm deep cut over x from 0 to 20.
+pub fn stair() -> Shape {
+    let block = make_box(&xy_plane_at(-20.0, -10.0, 0.0), 40.0, 20.0, 10.0)
+        .expect("the block builds")
+        .shape;
+    let step = make_box(&xy_plane_at(0.0, -15.0, 7.6), 20.0, 30.0, 5.0)
+        .expect("the step tool builds")
+        .shape;
+    cut(&block, &[step]).expect("the step is cut").shape
+}
+
 /// Test 132: `L` of test 102 with its vertical edge at x = -20, y = -10 (between the low box's
 /// front and left faces) rounded at `radius`, with the indices of its top face at z = 20 and of
 /// `STEP`.
@@ -302,6 +317,39 @@ pub fn top_front_edge(primitive: &Primitive) -> u32 {
         face_with_role(primitive, PrimitiveFace::Top),
         face_with_role(primitive, PrimitiveFace::Front),
     )
+}
+
+/// Test 44: BOX with `TF` rounded at radius 2.
+pub fn fillet_top_front(block: &Primitive) -> OpResult {
+    let edge = top_front_edge(block);
+    fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("TF is filleted")
+}
+
+/// The single seam edge of a shape.
+pub fn seam_edge(shape: &Shape) -> u32 {
+    let topology = shape.topology().expect("topology");
+    let seams: Vec<u32> = topology
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(_, edge)| edge.seam)
+        .map(|(position, _)| index_from_position(position))
+        .collect();
+    assert_eq!(seams.len(), 1, "the shape has one seam");
+    seams[0]
+}
+
+/// The degenerated edges of a shape (a sphere's poles), ascending.
+pub fn degenerated_edges(shape: &Shape) -> Vec<u32> {
+    shape
+        .topology()
+        .expect("topology of a valid shape")
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(_, edge)| edge.degenerate)
+        .map(|(position, _)| index_from_position(position))
+        .collect()
 }
 
 // Fixtures: profiles.
