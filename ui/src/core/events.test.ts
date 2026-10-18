@@ -117,7 +117,7 @@ describe('decodeEvent', () => {
     })
   })
 
-  it('document_changed maps every field and turns absent options into null', () => {
+  it('U-147 document_changed maps every field, bare_numbers as bareNumbers, and turns absent options into null', () => {
     const document = emptyDocument('in')
     const { event, buffers } = received({
       type: 'document_changed',
@@ -129,6 +129,7 @@ describe('decodeEvent', () => {
       transaction_open: true,
       transaction: 'Fillet',
       focus: 'f-fil1',
+      bare_numbers: 4,
     })
     expect(decodeEvent(event, buffers)).toEqual({
       type: 'document_changed',
@@ -141,6 +142,7 @@ describe('decodeEvent', () => {
       transactionOpen: true,
       transaction: 'Fillet',
       focus: 'f-fil1',
+      bareNumbers: 4,
     })
   })
 

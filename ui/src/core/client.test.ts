@@ -62,6 +62,7 @@ function documentChanged(revision: number): ProtocolEvent {
     dirty: true,
     undo: 'Change height',
     transaction_open: false,
+    bare_numbers: 0,
   }
 }
 

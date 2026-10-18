@@ -4,6 +4,7 @@ import {
   CUBE_DOCUMENT,
   CUBE_TOP_FACE,
   documentText,
+  NC09_DOCUMENT,
   RECT_SKETCH_DOCUMENT,
   RECT_SKETCH_SOLUTION,
 } from '../test/fakes/documents'
@@ -142,6 +143,31 @@ describe('createCoreApi', () => {
       .catch((error: unknown) => error)
     expect(refused).toBeInstanceOf(CoreError)
     expect(refused).toMatchObject({ code: 'stale_fix' })
+  })
+
+  it('setDocumentUnits sends set_document_units with keep_sizes and resolves the revision and kept (2.6)', async () => {
+    const { api, transport } = await setUp()
+    const { documentHandle } = await api.openDocument(documentText(NC09_DOCUMENT))
+    await expect(api.setDocumentUnits(documentHandle, 'in', true)).resolves.toEqual({
+      revision: 1,
+      kept: 4,
+    })
+    expect(lastCommand(transport)).toEqual({
+      type: 'set_document_units',
+      doc: 1,
+      units: 'in',
+      keep_sizes: true,
+    })
+    await expect(api.setDocumentUnits(documentHandle, 'cm', false)).resolves.toEqual({
+      revision: 2,
+      kept: 0,
+    })
+    expect(lastCommand(transport)).toEqual({
+      type: 'set_document_units',
+      doc: 1,
+      units: 'cm',
+      keep_sizes: false,
+    })
   })
 
   it('maps the transaction commands', async () => {
@@ -381,7 +407,7 @@ describe('createCoreApi', () => {
 })
 
 describe('rebuildsDocument and rebuiltDocument', () => {
-  it('count edits, fixes, transactions, undo and opening as rebuilds, but not saving, exporting or queries', () => {
+  it('count edits, fixes, transactions, undo, opening and units as rebuilds, but not saving, exporting or queries', () => {
     const rebuilding: readonly Command[] = [
       { type: 'apply_edits', doc: 1, label: 'Rename', edits: [...RENAME_EDITS] },
       {
@@ -392,6 +418,7 @@ describe('rebuildsDocument and rebuiltDocument', () => {
       { type: 'commit_transaction', doc: 1 },
       { type: 'undo', doc: 1 },
       { type: 'open_document', text: '{}' },
+      { type: 'set_document_units', doc: 1, units: 'in', keep_sizes: true },
     ]
     const quiet: readonly Command[] = [
       { type: 'save_document', doc: 1 },
@@ -400,7 +427,7 @@ describe('rebuildsDocument and rebuiltDocument', () => {
       { type: 'export', doc: 1, format: { kind: 'step' } },
       { type: 'engine_info' },
     ]
-    expect(rebuilding.map(rebuildsDocument)).toEqual([true, true, true, true, true])
+    expect(rebuilding.map(rebuildsDocument)).toEqual([true, true, true, true, true, true])
     expect(quiet.map(rebuildsDocument)).toEqual([false, false, false, false, false])
   })
 

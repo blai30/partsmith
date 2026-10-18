@@ -199,6 +199,7 @@ export function documentState(options: {
     datums: {},
     meshes: {},
     lastRebuildMilliseconds: null,
+    bareNumbers: 0,
     ghosts: {},
   }
 }
@@ -280,6 +281,7 @@ export function createFakeCore(methods: Partial<CoreApi>): CoreApi {
     closeDocument: unexpected('closeDocument'),
     applyEdits: unexpected('applyEdits'),
     applyFix: unexpected('applyFix'),
+    setDocumentUnits: unexpected('setDocumentUnits'),
     renameParameter: unexpected('renameParameter'),
     beginTransaction: unexpected('beginTransaction'),
     setFocus: unexpected('setFocus'),

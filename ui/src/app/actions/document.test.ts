@@ -22,6 +22,8 @@ import {
   documentFile,
   documentText,
   bodiesOf,
+  featuresOf,
+  NC09_DOCUMENT,
 } from '../../test/fakes/documents'
 import { createFakeFileHandle } from '../../test/fakes/files'
 import { elementItem } from '../../test/fakes/selection'
@@ -36,6 +38,7 @@ import {
   redo,
   save,
   saveAs,
+  setKeepSizes,
   setUnits,
   startCore,
   undo,
@@ -816,20 +819,75 @@ describe('undo and redo (3.20)', () => {
   })
 })
 
-describe('setUnits', () => {
-  it('commits set_units labeled "Change units to {unit}" and explains what changed', async () => {
+describe('setUnits (3.21, U-138)', () => {
+  it('sends set_document_units without keep_sizes when no number lacks a unit, and explains what changed', async () => {
     const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    expect(currentDocument(fake.app).bareNumbers).toBe(0)
     await setUnits(fake.app, 'cm')
     await settle()
-    expect(fake.transport.commandsOfType('apply_edits')).toEqual([
+    expect(fake.transport.commandsOfType('set_document_units')).toEqual([
       {
-        type: 'apply_edits',
+        type: 'set_document_units',
         doc: currentDocument(fake.app).documentHandle,
-        label: 'Change units to cm',
-        edits: [{ type: 'set_units', units: 'cm' }],
+        units: 'cm',
+        keep_sizes: false,
       },
     ])
+    expect(fake.transport.commandsOfType('apply_edits')).toEqual([])
     expect(currentDocument(fake.app).recipe.units).toBe('cm')
+    expect(currentDocument(fake.app).undoLabel).toBe('Change units to cm')
     expect(notificationWith(fake.app, MESSAGES.units_changed('cm')).severity).toBe('info')
+  })
+
+  it('U-138 keeps sizes while Keep sizes is on and numbers lack a unit: they get the old unit', async () => {
+    const fake = await startWithDocument('nc09.ptsm', NC09_DOCUMENT)
+    expect(currentDocument(fake.app).bareNumbers).toBe(4)
+    expect(fake.app.store.getState().keepSizes).toBe(true)
+    await setUnits(fake.app, 'in')
+    await settle()
+    expect(fake.transport.commandsOfType('set_document_units')).toMatchObject([
+      { units: 'in', keep_sizes: true },
+    ])
+    const recipe = currentDocument(fake.app).recipe
+    expect(recipe.units).toBe('in')
+    expect(featuresOf(recipe)[0]?.['size']).toEqual(['40 mm', '20 mm', '10 mm'])
+    expect(featuresOf(recipe)[1]?.['radius']).toBe('2 mm')
+    expect(currentDocument(fake.app).bareNumbers).toBe(0)
+    expect(currentDocument(fake.app).undoLabel).toBe('Change units to in')
+  })
+
+  it('U-138 sends keep_sizes false once Keep sizes is turned off, and the numbers keep no unit', async () => {
+    const fake = await startWithDocument('nc09.ptsm', NC09_DOCUMENT)
+    setKeepSizes(fake.app, false)
+    expect(fake.app.store.getState().keepSizes).toBe(false)
+    await setUnits(fake.app, 'in')
+    await settle()
+    expect(fake.transport.commandsOfType('set_document_units')).toMatchObject([
+      { units: 'in', keep_sizes: false },
+    ])
+    expect(featuresOf(currentDocument(fake.app).recipe)[1]?.['radius']).toBe('2')
+    expect(currentDocument(fake.app).bareNumbers).toBe(4)
+  })
+
+  it('U-138 one undo restores the units and the numbers without a unit', async () => {
+    const fake = await startWithDocument('nc09.ptsm', NC09_DOCUMENT)
+    await setUnits(fake.app, 'in')
+    await settle()
+    await undo(fake.app)
+    await settle()
+    const recipe = currentDocument(fake.app).recipe
+    expect(recipe.units).toBe('mm')
+    expect(featuresOf(recipe)[0]?.['size']).toEqual(['40', '20', '10'])
+    expect(currentDocument(fake.app).bareNumbers).toBe(4)
+  })
+
+  it('setKeepSizes lasts for the session: a new document keeps the choice', async () => {
+    const fake = await startWithDocument('nc09.ptsm', NC09_DOCUMENT)
+    setKeepSizes(fake.app, false)
+    await newDocument(fake.app)
+    await settle()
+    expect(fake.app.store.getState().keepSizes).toBe(false)
+    setKeepSizes(fake.app, true)
+    expect(fake.app.store.getState().keepSizes).toBe(true)
   })
 })

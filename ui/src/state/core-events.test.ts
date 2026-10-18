@@ -27,6 +27,7 @@ function documentChanged(
   revision: number,
   document: Document = CUBE_DOCUMENT,
   handle = 1,
+  bareNumbers = 0,
 ): CoreEvent {
   return {
     type: 'document_changed',
@@ -39,6 +40,7 @@ function documentChanged(
     transactionOpen: false,
     transaction: null,
     focus: null,
+    bareNumbers,
   }
 }
 
@@ -168,6 +170,15 @@ describe('applyCoreEvent', () => {
     expect(store.getState().document?.ghosts).toEqual({ 0: ghost })
     applyCoreEvent(store, recomputed(4))
     expect(store.getState().document?.ghosts).toEqual({})
+  })
+
+  it('U-147 bareNumbers follows each document_changed (2.8, 3.21)', () => {
+    const store = createAppStore()
+    applyCoreEvent(store, documentChanged(0, CUBE_DOCUMENT, 1, 4))
+    adoptDocument(store, 1, DETAILS)
+    expect(store.getState().document?.bareNumbers).toBe(4)
+    applyCoreEvent(store, documentChanged(1, CUBE_DOCUMENT, 1, 0))
+    expect(store.getState().document?.bareNumbers).toBe(0)
   })
 
   it('stores a print report with the revision it describes', () => {

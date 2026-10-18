@@ -1,18 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import type { ProfileFinding } from '../generated/protocol'
+import type { Diagnostic, ProfileFinding } from '../generated/protocol'
 import { lineEntity, solutionFor } from './fixtures.testing'
 import {
-  failedSolveMessage,
+  findingMessage,
   findingPoints,
   issueRings,
-  messageNumber,
   openEnds,
   outlineCount,
   outlineProblems,
-  profileFindingMessage,
 } from './issues'
 
-// The solver's and profile check's messages (sketch.md 4.2, 4.3) and the rings of 3.16.2.
+// The profile findings of a solution: their messages, which the core renders (sketch.md 4.3,
+// ui.md 2.14), the open ends they count and the rings of 3.16.2.
 
 const OPEN: ProfileFinding = { type: 'open_endpoint', entity: 'e-1', point: [10, 0.1234567] }
 const OVERLAP: ProfileFinding = {
@@ -28,16 +27,12 @@ const CROSSING: ProfileFinding = {
 }
 const EMPTY: ProfileFinding = { type: 'zero_length', entity: 'e-5' }
 
-describe('profile findings', () => {
-  it('words each finding as the sketch crate does', () => {
-    expect(profileFindingMessage(OPEN)).toBe(
-      'The end of e-1 at (10, 0.123457) is not connected to other geometry. Connect it with a coincident constraint, or delete the curve if it is not needed.',
-    )
-    expect(profileFindingMessage(EMPTY)).toBe(
-      'e-5 has no length and is ignored for profiles. Delete it.',
-    )
-  })
+/** A finding message as the core renders it for the finding at `index` (engine.md 3.6). */
+function findingDiagnostic(index: number, code: string, message: string): Diagnostic {
+  return { severity: 'warning', code, message, field: `/profile_findings/${String(index)}` }
+}
 
+describe('profile findings', () => {
   it('rings every finding but zero-length curves, where the finding is', () => {
     expect(
       issueRings(solutionFor([], { profile_findings: [OPEN, OVERLAP, CROSSING, EMPTY] })),
@@ -57,22 +52,37 @@ describe('profile findings', () => {
   })
 })
 
-describe('failed solves', () => {
-  it('names one or more conflicting constraints, else did not converge', () => {
-    expect(failedSolveMessage(solutionFor([], { failed: true, conflicting: ['c-1'] }))).toBe(
-      'Constraint c-1 cannot be satisfied. Delete it or change a dimension.',
-    )
-    expect(failedSolveMessage(solutionFor([], { failed: true, conflicting: ['c-1', 'c-2'] }))).toBe(
-      'Constraints c-1, c-2 conflict: they cannot all be satisfied at once. Delete one of them or change a dimension.',
-    )
-    expect(failedSolveMessage(solutionFor([], { failed: true }))).toMatch(
-      /^The sketch could not be solved from its current shape\./,
-    )
+describe('findingMessage (2.14)', () => {
+  const SOLVE_ISSUE: Diagnostic = {
+    severity: 'error',
+    code: 'sketch_not_solved',
+    message:
+      "'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.",
+  }
+  const FIRST = findingDiagnostic(
+    0,
+    'open_endpoint',
+    'The end of the line from (0, 0) to (10, 0.123457) at (10, 0.123457) is not connected to other geometry.',
+  )
+  const SECOND = findingDiagnostic(
+    1,
+    'overlap',
+    'The line from (0, 0) to (4, 2) and the line from (4, 2) to (0, 0) overlap between (0, 0) and (4, 2).',
+  )
+
+  it("returns the core's message whose field is the finding's position, after the solve issues", () => {
+    const solution = solutionFor([], {
+      profile_findings: [OPEN, OVERLAP],
+      messages: [SOLVE_ISSUE, FIRST, SECOND],
+    })
+    expect(findingMessage(solution, 0)).toEqual(FIRST)
+    expect(findingMessage(solution, 1)).toEqual(SECOND)
   })
 
-  it('writes numbers rounded to 6 decimals with a rounded zero as 0', () => {
-    expect(messageNumber(-0.0000001)).toBe('0')
-    expect(messageNumber(2.5)).toBe('2.5')
+  it('is null for a finding the solution has no message for', () => {
+    const solution = solutionFor([], { profile_findings: [OPEN], messages: [SOLVE_ISSUE] })
+    expect(findingMessage(solution, 0)).toBeNull()
+    expect(findingMessage(solution, 3)).toBeNull()
   })
 })
 
@@ -90,16 +100,16 @@ const GAP: ProfileFinding = {
   connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
 }
 
-describe('paired open ends (2.14, 3.16.2)', () => {
+describe('paired open ends (2.14, 3.16.2, U-140)', () => {
   const solution = solutionFor(GAP_ENTITIES, { profile_findings: [GAP] })
 
-  it('counts a finding with connect as two open ends', () => {
+  it('U-140 counts a finding with connect as two open ends', () => {
     expect(openEnds(solution)).toBe(2)
     expect(outlineCount(solution)).toBe(2)
     expect(outlineProblems(solution)).toBe('2 open ends')
   })
 
-  it('rings both ends of a finding with connect', () => {
+  it('U-140 rings both ends of a finding with connect', () => {
     expect(issueRings(solution)).toEqual([
       { at: [0, 0.3], title: 'Open end' },
       { at: [0, 0], title: 'Open end' },

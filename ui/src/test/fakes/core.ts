@@ -418,6 +418,67 @@ function defaultSolution(feature: FeatureRecord): SketchSolution {
   }
 }
 
+/** A number without a unit, optionally negated, as model.md 3.12 reads a bare number. */
+const BARE_NUMBER = /^\s*-?\d+(?:\.\d+)?\s*$/
+
+/** The value with `change` applied to every string in it, at any depth. */
+function mapStrings(value: unknown, change: (text: string) => string): unknown {
+  if (typeof value === 'string') {
+    return change(value)
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => mapStrings(item, change))
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, mapStrings(item, change)]),
+    )
+  }
+  return value
+}
+
+/**
+ * The recipe with `change` applied to every parameter expression and every string of the feature
+ * records. The fake counts each of them that is a bare number as unit-dependent (model.md
+ * `bare_numbers`): it knows no counts or angles, so tests of the units use lengths only.
+ */
+function mapExpressions(recipe: Document, change: (text: string) => string): Document {
+  return {
+    ...recipe,
+    parameters: parametersOf(recipe).map((parameter) => ({
+      ...parameter,
+      expr: change(parameter.expr),
+    })),
+    features: featuresOf(recipe).map((feature) => {
+      const { id, type, ...params } = feature
+      return { id, type, ...(mapStrings(params, change) as Record<string, unknown>) }
+    }),
+  }
+}
+
+/** How many expressions of the recipe are bare numbers, which `document_changed` reports. */
+function bareNumbers(recipe: Document): number {
+  let count = 0
+  mapExpressions(recipe, (text) => {
+    if (BARE_NUMBER.test(text)) {
+      count += 1
+    }
+    return text
+  })
+  return count
+}
+
+/** The recipe with `unit` after every bare number (`20` becomes `20 mm`), as Keep sizes writes it. */
+function withUnitOnBareNumbers(recipe: Document, unit: string): Document {
+  return mapExpressions(recipe, (text) => {
+    if (!BARE_NUMBER.test(text)) {
+      return text
+    }
+    const number = text.trimEnd()
+    return `${number} ${unit}${text.slice(number.length)}`
+  })
+}
+
 function documentChanged(entry: DocumentEntry): ProtocolEvent {
   const undo = entry.undo.at(-1)?.label ?? null
   const redo = entry.redo.at(-1)?.label ?? null
@@ -432,6 +493,7 @@ function documentChanged(entry: DocumentEntry): ProtocolEvent {
     transaction_open: entry.transaction !== null,
     ...(entry.transaction === null ? {} : { transaction: entry.transaction.label }),
     ...(entry.focus === null ? {} : { focus: entry.focus }),
+    bare_numbers: bareNumbers(entry.recipe),
   }
 }
 
@@ -690,6 +752,20 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return changed(entry, { type: 'apply_fix', revision: entry.revision })
   }
 
+  /** engine.md 3.25: one undo entry labeled with the unit; no change for the current units. */
+  function setDocumentUnits(command: CommandOfType<'set_document_units'>): FakeReply {
+    const entry = entryFor(command.doc)
+    if (entry.recipe.units === command.units) {
+      return { result: { type: 'set_document_units', revision: entry.revision, kept: 0 } }
+    }
+    const keepSizes = command.keep_sizes === true
+    const kept = keepSizes ? bareNumbers(entry.recipe) : 0
+    const recipe = keepSizes ? withUnitOnBareNumbers(entry.recipe, entry.recipe.units) : entry.recipe
+    const label = entry.transaction === null ? `Change units to ${command.units}` : null
+    commitChange(entry, label, { ...recipe, units: command.units })
+    return changed(entry, { type: 'set_document_units', revision: entry.revision, kept })
+  }
+
   function renameParameter(command: CommandOfType<'rename_parameter'>): FakeReply {
     const entry = entryFor(command.doc)
     const parameter = parametersOf(entry.recipe).find(
@@ -831,6 +907,8 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         return applyEdits(command)
       case 'apply_fix':
         return applyFix(command)
+      case 'set_document_units':
+        return setDocumentUnits(command)
       case 'rename_parameter':
         return renameParameter(command)
       case 'begin_transaction': {

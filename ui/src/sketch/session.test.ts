@@ -592,7 +592,7 @@ describe('dimension tool (3.16.7)', () => {
     expect(harness.applied).toEqual([])
   })
 
-  it('editing a stored dimension commits "Change dimension", or shows dimension_unsolvable', async () => {
+  it('editing a stored dimension commits "Change dimension", or keeps the editor open when the sketch cannot take it', async () => {
     const stored: SketchConstraint = { id: 'c-1', type: 'distance', line: 'e-1', expr: '20' }
     const failing = { value: false }
     const harness = sketchHarness({
@@ -611,7 +611,9 @@ describe('dimension tool (3.16.7)', () => {
     failing.value = true
     sketch.setEditorText('-5')
     await sketch.commitEditor()
-    expect(sketch.getModel().editor).toMatchObject({ problem: 'unsolvable', text: '-5' })
+    expect(sketch.getModel().editor).toMatchObject({ mode: 'edit', text: '-5' })
+    await settleCommits()
+    expect(harness.applied).toEqual([])
 
     failing.value = false
     sketch.setEditorText('30')

@@ -379,3 +379,27 @@ export const CUBE_TOP_FRONT_EDGE: ElementDescriptor = {
     'vertex(f-ext1/end-cap|f-ext1/side-0|f-ext1/side-3)',
   ],
 }
+
+/**
+ * nc09.ptsm (newcomer error corpus NC09): `f-box1` 40 by 20 by 10 and `f-fil1` of radius 2 on its
+ * front top edge, four numbers without a unit in a millimeter document.
+ */
+export const NC09_DOCUMENT: Document = {
+  format: 'partsmith',
+  format_version: 2,
+  units: 'mm',
+  parameters: [],
+  bodies: [{ id: 'b-1', name: 'Body 1' }],
+  features: [
+    { id: 'f-box1', type: 'box', body: 'b-1', size: ['40', '20', '10'], op: 'new' },
+    {
+      id: 'f-fil1',
+      type: 'fillet',
+      body: 'b-1',
+      edges: [
+        { q: 'edge(f-box1/front|f-box1/top)', fp: 'line|n=1,0,0|c=0,-10,10|l=40|adj=2,2' },
+      ],
+      radius: '2',
+    },
+  ],
+}

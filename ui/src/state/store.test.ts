@@ -71,6 +71,10 @@ describe('INITIAL_STATE', () => {
   it('has no notifications', () => {
     expect(INITIAL_STATE.notifications).toEqual([])
   })
+
+  it('U-138 has Keep sizes on (3.21)', () => {
+    expect(INITIAL_STATE.keepSizes).toBe(true)
+  })
 })
 
 describe('createAppStore', () => {

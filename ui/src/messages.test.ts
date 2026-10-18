@@ -174,11 +174,6 @@ const CASES: readonly Case[] = [
     'Other dimensions and constraints already set this size. Add it as a reference dimension that only shows the measurement?',
   ],
   [
-    'dimension_unsolvable',
-    () => MESSAGES.dimension_unsolvable(),
-    'The sketch cannot be solved with this value. Check for dimensions that cannot all be true at once.',
-  ],
-  [
     'cannot_dimension',
     () => MESSAGES.cannot_dimension('a point', 'a circle'),
     'Partsmith cannot dimension a point and a circle. Pick two points, a point and a line, two lines, or one circle or arc.',
@@ -372,6 +367,17 @@ const CASES: readonly Case[] = [
   ],
   ['cause_ghost', () => MESSAGES.cause_ghost(), 'Before this change'],
   [
+    'needs_closed_shape',
+    () => MESSAGES.needs_closed_shape('Sketch 1', 2),
+    "'Sketch 1' has no closed shape: 2 ends are not connected.",
+  ],
+  [
+    'keep_sizes',
+    () => MESSAGES.keep_sizes('mm', 4),
+    'Keep sizes: add mm to the 4 numbers without a unit',
+  ],
+  ['field_limit', () => MESSAGES.field_limit('2.3 mm'), 'Largest that works: 2.3 mm'],
+  [
     'reattach_prompt',
     () => MESSAGES.reattach_prompt('Sketch 2'),
     "Pick a plane or a flat face for 'Sketch 2'",
@@ -398,7 +404,21 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(100)
+    expect(CASES).toHaveLength(102)
+  })
+
+  it('U-73 has no dimension_unsolvable: an edited dimension shows the probe message (3.16.7)', () => {
+    expect(Object.keys(MESSAGES)).not.toContain('dimension_unsolvable')
+  })
+
+  it('U-140 needs_closed_shape counts one open end in the singular', () => {
+    expect(MESSAGES.needs_closed_shape('Sketch 2', 1)).toBe(
+      "'Sketch 2' has no closed shape: 1 end is not connected.",
+    )
+  })
+
+  it('U-138 keep_sizes counts one number in the singular, with the current unit', () => {
+    expect(MESSAGES.keep_sizes('in', 1)).toBe('Keep sizes: add in to the 1 number without a unit')
   })
 
   it('U-73 recovered_more counts one other document in the singular', () => {

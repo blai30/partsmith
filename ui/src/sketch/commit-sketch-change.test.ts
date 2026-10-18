@@ -3,7 +3,13 @@ import { commitSketchChange, deleteSketchItems } from '../app/actions/sketch'
 import { startSketchDrag } from '../app/actions/sketch-drag'
 import type { App } from '../app/createApp'
 import type { CoreApi, SolvedSketch } from '../core/api'
-import type { Edit, SketchConstraint, SketchParams, SketchSolution } from '../generated/protocol'
+import type {
+  Diagnostic,
+  Edit,
+  SketchConstraint,
+  SketchParams,
+  SketchSolution,
+} from '../generated/protocol'
 import { createAppStore } from '../state/store'
 import { coreErrorFor } from '../test/fakes/core-api'
 import { createTestApp } from '../test/fakes/test-app'
@@ -24,9 +30,25 @@ import {
 import type { SketchChange } from './session'
 import { sketchHarness } from './view.testing'
 
-// sketch.md 4.2: the message of a solve that did not converge.
-const NOT_CONVERGED =
-  'The sketch could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape and try again.'
+// sketch.md 4.2: the messages of a solve that did not converge and of a conflict, as the core
+// renders them into the solution (engine.md 3.6).
+const NOT_SOLVED: Diagnostic = {
+  severity: 'error',
+  code: 'sketch_not_solved',
+  message:
+    "'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.",
+}
+const CONFLICT: Diagnostic = {
+  severity: 'error',
+  code: 'sketch_conflict',
+  message: "In 'Sketch 1', Vertical on the line from (0, 0) to (10, 0) cannot hold together with Horizontal on the line from (0, 0) to (10, 0).",
+}
+const REDUNDANT: Diagnostic = {
+  severity: 'warning',
+  code: 'redundant_constraints',
+  message:
+    "In 'Sketch 1', Horizontal on the line from (0, 0) to (10, 0) is already implied by the other constraints.",
+}
 
 // The stored sketch: a horizontal line e-1.
 const STORED_LINE = lineEntity('e-1', [0, 0], [10, 0])
@@ -185,14 +207,74 @@ describe('commitSketchChange', () => {
   })
 
   it('U-61 a solution with failed true returns failed with the solver message and calls no applyEdits', async () => {
-    const failed = solutionFor([STORED_LINE, NEW_LINE], { failed: true })
+    const failed = solutionFor([STORED_LINE, NEW_LINE], {
+      failed: true,
+      messages: [NOT_SOLVED],
+    })
     const applyEdits = revision(5)
     const app = appWith({ solveSketch: answers(failed), applyEdits })
 
     const result = await commitSketchChange(app, 'Line', LINE_CHANGE)
 
-    expect(result).toEqual({ outcome: 'failed', message: NOT_CONVERGED })
+    expect(result).toEqual({ outcome: 'failed', message: NOT_SOLVED.message })
     expect(applyEdits).not.toHaveBeenCalled()
+  })
+
+  it("a failed solution's message is its first error, after any warning (3.16.3)", async () => {
+    const failed = solutionFor([STORED_LINE, NEW_LINE], {
+      failed: true,
+      messages: [REDUNDANT, NOT_SOLVED],
+    })
+    const app = appWith({ solveSketch: answers(failed), applyEdits: revision(5) })
+
+    const result = await commitSketchChange(app, 'Line', LINE_CHANGE)
+
+    expect(result).toEqual({ outcome: 'failed', message: NOT_SOLVED.message })
+  })
+
+  it("over_constrained carries the probe's first sketch_conflict message (2.14)", async () => {
+    const conflicting = solutionFor([STORED_LINE], {
+      status: 'conflicting',
+      conflicting: ['c-1', 'c-3'],
+      messages: [CONFLICT],
+    })
+    const vertical: SketchConstraint = { id: 'c-3', type: 'vertical', line: 'e-1' }
+    const app = appWith({ solveSketch: answers(conflicting), applyEdits: revision(5) })
+
+    const result = await commitSketchChange(app, 'Vertical', {
+      add: { entities: [], constraints: [vertical] },
+      requested: ['c-3'],
+      inferred: [],
+    })
+
+    expect(result).toMatchObject({ outcome: 'over_constrained', message: CONFLICT.message })
+  })
+
+  it("over_constrained carries the probe's redundant_constraints message, or null without one (2.14)", async () => {
+    const again: SketchConstraint = { id: 'c-4', type: 'horizontal', line: 'e-1' }
+    const change: SketchChange = {
+      add: { entities: [], constraints: [again] },
+      requested: ['c-4'],
+      inferred: [],
+    }
+    const redundant = solutionFor([STORED_LINE], {
+      status: 'redundant',
+      redundant: ['c-4'],
+      messages: [REDUNDANT],
+    })
+    const withMessage = appWith({ solveSketch: answers(redundant), applyEdits: revision(5) })
+    expect(await commitSketchChange(withMessage, 'Horizontal', change)).toMatchObject({
+      outcome: 'over_constrained',
+      redundant: true,
+      message: REDUNDANT.message,
+    })
+
+    const silent = solutionFor([STORED_LINE], { status: 'redundant', redundant: ['c-4'] })
+    const withoutMessage = appWith({ solveSketch: answers(silent), applyEdits: revision(5) })
+    expect(await commitSketchChange(withoutMessage, 'Horizontal', change)).toMatchObject({
+      outcome: 'over_constrained',
+      message: null,
+    })
   })
 
   it('U-61 an invalid_params CoreError returns failed with the core message and calls no applyEdits', async () => {

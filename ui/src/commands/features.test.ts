@@ -1,6 +1,11 @@
 import { ArrowUpFromLine, Layers2, PencilRuler, Shapes } from 'lucide-react'
 import { describe, expect, it } from 'vitest'
-import type { CatalogEntry } from '../generated/protocol'
+import type {
+  CatalogEntry,
+  Document,
+  ProfileFinding,
+  SketchEntity,
+} from '../generated/protocol'
 import { screen, within } from '@testing-library/react'
 import { editFeature } from '../app/actions/command'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
@@ -13,16 +18,28 @@ import {
 } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import { MESSAGES } from '../messages'
-import { sketchSession } from '../sketch/fixtures.testing'
+import {
+  lineEntity,
+  pointEntity,
+  sketchSession,
+  solutionFor,
+  solvedSketch,
+} from '../sketch/fixtures.testing'
 import type { DocumentState } from '../state/store'
 import { catalogOf, TEST_CATALOG, TEST_CATALOG_ENTRIES } from '../test/fakes/catalog'
 import {
   CUBE_FEATURES_DOCUMENT,
   emptyDocument,
+  featuresOf,
   RECT_REGION,
+  RECT_SKETCH_DOCUMENT,
+  RECT_SKETCH_SOLUTION,
   TWO_BODIES_DOCUMENT,
   withFeatureChanges,
+  type FeatureRecord,
 } from '../test/fakes/documents'
+import { actionLabels, onlyNotification, runAction } from '../test/fakes/test-app'
+import { createFakeViewport, expectBoundsContain, lastFramedBounds } from '../test/fakes/viewport'
 import { settle } from '../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
 import { FEATURE_DESCRIPTIONS } from './descriptions'
@@ -358,5 +375,170 @@ describe('availability reasons (2.10, U-98)', () => {
       recipe: { ...rectSketchDocumentState().recipe, rollback: 'f-sk1' },
     })
     expect(availabilityIn(rolledBack, 'extrude')?.state).toBe('disabled')
+  })
+})
+
+// Newcomer error corpus NC01 (ui.md 2.10, U-140): BLOCK's outline with a 0.3 mm gap at the origin,
+// whose one open_endpoint finding stands for two open ends.
+const NC01_LINES = [
+  lineEntity('e-1', [0, 0], [80, 0]),
+  lineEntity('e-2', [80, 0], [80, 50]),
+  lineEntity('e-3', [80, 50], [0, 50]),
+  lineEntity('e-4', [0, 50], [0, 0.3]),
+]
+const NC01_GAP: ProfileFinding = {
+  type: 'open_endpoint',
+  entity: 'e-4',
+  point: [0, 0.3],
+  connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
+}
+
+/** An unpaired open end of `entity` at `point`. */
+function openEnd(entity: string, point: [number, number]): ProfileFinding {
+  return { type: 'open_endpoint', entity, point }
+}
+
+/** A sketch record on XY with these entities. */
+function sketchOf(id: string, entities: readonly SketchEntity[]): FeatureRecord {
+  return {
+    id,
+    type: 'sketch',
+    plane: { kind: 'origin', plane: 'XY' },
+    entities: [...entities],
+    constraints: [],
+  }
+}
+
+/** A recipe of these sketches and nothing else. */
+function sketchesRecipe(sketches: readonly FeatureRecord[]): Document {
+  return { ...emptyDocument(), features: [...sketches] }
+}
+
+/** A document whose sketches have no region and these findings, by sketch id. */
+function openSketches(
+  sketches: readonly (readonly [id: string, entities: readonly SketchEntity[], findings: readonly ProfileFinding[]])[],
+): DocumentState {
+  return documentState(sketchesRecipe(sketches.map(([id, entities]) => sketchOf(id, entities))), {
+    sketches: Object.fromEntries(
+      sketches.map(([id, entities, findings]) => [
+        id,
+        solvedSketch(solutionFor(entities, { feature: id, profile_findings: [...findings] })),
+      ]),
+    ),
+  })
+}
+
+const NC01_STATE = openSketches([['f-sk1', NC01_LINES, [NC01_GAP]]])
+const NC01_REASON = "'Sketch 1' has no closed shape: 2 ends are not connected."
+
+describe('an open outline names its sketch (2.10, U-140)', () => {
+  it('U-140 disables extrude and revolve with needs_closed_shape and the action "Show \'Sketch 1\'"', () => {
+    for (const type of ['extrude', 'revolve']) {
+      expect(availabilityIn(NC01_STATE, type)).toMatchObject({
+        state: 'disabled',
+        reason: NC01_REASON,
+        code: 'needs_closed_shape',
+        action: { label: "Show 'Sketch 1'" },
+      })
+    }
+  })
+
+  it('U-140 running it shows the reason as an info notification with the Show action', async () => {
+    const { app } = createModelApp({ state: readyState(NC01_STATE) })
+    await app.commands.run(app, 'feature.extrude', 'toolbar')
+    const notification = onlyNotification(app)
+    expect(notification).toMatchObject({
+      severity: 'info',
+      message: NC01_REASON,
+      code: 'needs_closed_shape',
+    })
+    expect(actionLabels(notification)).toEqual(["Show 'Sketch 1'"])
+    expect(app.store.getState().command).toBeNull()
+  })
+
+  it('U-140 "Show \'Sketch 1\'" enters the sketch and frames both open ends', async () => {
+    const { app } = createModelApp({ state: readyState(NC01_STATE) })
+    const viewport = createFakeViewport()
+    app.attachViewport(viewport)
+    await app.commands.run(app, 'feature.extrude', 'toolbar')
+    runAction(onlyNotification(app), "Show 'Sketch 1'")
+    await settle()
+    expect(app.store.getState().context).toBe('sketch')
+    expect(app.store.getState().sketch?.sketchId).toBe('f-sk1')
+    const { bounds } = lastFramedBounds(viewport)
+    expectBoundsContain(bounds, [
+      [0, 0.3, 0],
+      [0, 0, 0],
+    ])
+    // The open ends, not the whole sketch: the far corner stays out of the frame.
+    expect(bounds.max[0]).toBeLessThan(80)
+  })
+
+  it('U-140 names the sketch with the fewest open ends', () => {
+    const state = openSketches([
+      [
+        'f-sk1',
+        [lineEntity('e-1', [0, 0], [10, 0]), lineEntity('e-2', [0, 20], [10, 20])],
+        [openEnd('e-1', [0, 0]), openEnd('e-1', [10, 0]), openEnd('e-2', [0, 20]), openEnd('e-2', [10, 20])],
+      ],
+      ['f-sk2', NC01_LINES, [NC01_GAP]],
+    ])
+    expect(availabilityIn(state, 'extrude')).toMatchObject({
+      reason: "'Sketch 2' has no closed shape: 2 ends are not connected.",
+      action: { label: "Show 'Sketch 2'" },
+    })
+  })
+
+  it('U-140 names the later sketch among sketches with as many open ends', () => {
+    const state = openSketches([
+      ['f-sk1', NC01_LINES, [NC01_GAP]],
+      ['f-sk2', NC01_LINES, [NC01_GAP]],
+    ])
+    expect(availabilityIn(state, 'extrude')).toMatchObject({
+      reason: "'Sketch 2' has no closed shape: 2 ends are not connected.",
+    })
+  })
+
+  it('U-140 counts one open end in the singular', () => {
+    const state = openSketches([
+      ['f-sk1', [lineEntity('e-1', [0, 0], [10, 0])], [openEnd('e-1', [10, 0])]],
+    ])
+    expect(availabilityIn(state, 'extrude')).toMatchObject({
+      reason: "'Sketch 1' has no closed shape: 1 end is not connected.",
+      code: 'needs_closed_shape',
+    })
+  })
+
+  it('U-140 a sketch with no region and no open end (only points) asks for a closed shape', () => {
+    const state = openSketches([['f-sk1', [pointEntity('e-p1', [5, 5])], []]])
+    expect(availabilityIn(state, 'extrude')).toEqual({
+      state: 'disabled',
+      reason: 'Draw a closed shape in a sketch first.',
+      code: 'needs_sketch_region',
+    })
+  })
+
+  it('U-140 leaves out a suppressed sketch with open ends', () => {
+    const suppressed = {
+      ...NC01_STATE,
+      recipe: withFeatureChanges(NC01_STATE.recipe, 'f-sk1', { suppressed: true }),
+    }
+    expect(availabilityIn(suppressed, 'extrude')).toMatchObject({ code: 'needs_sketch_region' })
+  })
+
+  it('U-140 enables extrude once any active sketch has a region', () => {
+    const [rectangle] = featuresOf(RECT_SKETCH_DOCUMENT)
+    if (rectangle === undefined) {
+      throw new Error('rect-sketch.ptsm has no sketch.')
+    }
+    const closed: DocumentState = {
+      ...NC01_STATE,
+      recipe: sketchesRecipe([...featuresOf(NC01_STATE.recipe), { ...rectangle, id: 'f-sk2' }]),
+      sketches: {
+        ...NC01_STATE.sketches,
+        'f-sk2': solvedSketch({ ...RECT_SKETCH_SOLUTION, feature: 'f-sk2' }),
+      },
+    }
+    expect(availabilityIn(closed, 'extrude')).toEqual({ state: 'enabled' })
   })
 })

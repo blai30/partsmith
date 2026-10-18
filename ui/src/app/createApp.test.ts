@@ -42,7 +42,15 @@ function renamed(name: string): Document {
 }
 
 function documentChanged(doc: number, revision: number, document: Document): ProtocolEvent {
-  return { type: 'document_changed', doc, revision, document, dirty: true, transaction_open: false }
+  return {
+    type: 'document_changed',
+    doc,
+    revision,
+    document,
+    dirty: true,
+    transaction_open: false,
+    bare_numbers: 0,
+  }
 }
 
 /** What a `document_changed` the test delivers says about the document. */
@@ -66,6 +74,7 @@ async function deliverChange(fake: FakeApp, change: Change): Promise<void> {
     dirty: change.dirty,
     transaction_open: change.transactionOpen,
     transaction: change.transactionOpen ? 'Box' : null,
+    bare_numbers: 0,
   }
   fake.transport.handle('evaluate', (command, core) => ({
     ...core.reply(command),

@@ -147,7 +147,7 @@ describe('the status bar (3.21)', () => {
     expect(screen.getByTestId('status-recompute')).toHaveTextContent('Rebuilt in 1.0 s')
   })
 
-  it('changes units from the units menu with "Change units to {unit}" and the units_changed notification', async () => {
+  it('changes units from the units menu with set_document_units and the units_changed notification', async () => {
     const { app, core, user } = renderApp()
     const units = screen.getByTestId('status-units')
     expect(units).toHaveTextContent('mm')
@@ -164,12 +164,19 @@ describe('the status bar (3.21)', () => {
     )
     await user.click(within(menu).getByRole('menuitemradio', { name: 'in' }))
     await settle()
-    expect(core.callsTo('applyEdits')).toEqual([
-      [1, 'Change units to in', [{ type: 'set_units', units: 'in' }]],
-    ])
+    expect(core.callsTo('setDocumentUnits')).toEqual([[1, 'in', false]])
+    expect(core.callsTo('applyEdits')).toEqual([])
     expect(
       app.store.getState().notifications.map((notification) => notification.message),
     ).toContain(MESSAGES.units_changed('in'))
+  })
+
+  it('choosing the current unit changes nothing', async () => {
+    const { core, user } = renderApp()
+    await user.click(screen.getByTestId('status-units'))
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitemradio', { name: 'mm' }))
+    await settle()
+    expect(core.callsTo('setDocumentUnits')).toEqual([])
   })
 
   it('shows "{default name} (default)" without a printer and the profile name with one', () => {
@@ -187,7 +194,7 @@ describe('the status bar (3.21)', () => {
     expect(screen.getByTestId('printer-menu')).toBeVisible()
   })
 
-  it('disables units and printer with finish_command_first during a feature command, and a click says why', async () => {
+  it('U-138 disables units and printer with finish_command_first during a feature command, and a click says why', async () => {
     const { app, user } = renderApp({ command: EXTRUDE_COMMAND })
     const reason = MESSAGES.finish_command_first('Extrude')
     const units = screen.getByTestId('status-units')
@@ -243,5 +250,102 @@ describe('the status bar (3.21)', () => {
   it('shows no sketch DOF outside sketch mode', () => {
     renderApp()
     expect(screen.queryByTestId('status-dof')).toBeNull()
+  })
+})
+
+/** The cube document state with `count` numbers without a unit (3.21). */
+function withBareNumbers(count: number): DocumentState {
+  return cubeDocumentState({ bareNumbers: count })
+}
+
+describe('Keep sizes in the units menu (3.21, U-138)', () => {
+  it('U-138 offers Keep sizes, checked, with the count and the current unit, and sends keep_sizes true', async () => {
+    const { core, user } = renderApp({}, withBareNumbers(4))
+    await user.click(screen.getByTestId('status-units'))
+    const menu = screen.getByRole('menu')
+    const keep = within(menu).getByTestId('keep-sizes')
+    expect(keep).toHaveAttribute('role', 'menuitemcheckbox')
+    expect(keep).toHaveAttribute('aria-checked', 'true')
+    expect(keep).toHaveTextContent('Keep sizes: add mm to the 4 numbers without a unit')
+    await user.click(within(menu).getByRole('menuitemradio', { name: 'in' }))
+    await settle()
+    expect(core.callsTo('setDocumentUnits')).toEqual([[1, 'in', true]])
+  })
+
+  it('U-138 lists Keep sizes after the four units', async () => {
+    const { user } = renderApp({}, withBareNumbers(4))
+    await user.click(screen.getByTestId('status-units'))
+    const items = [...screen.getByRole('menu').querySelectorAll('[role^="menuitem"]')]
+    expect(items.map((item) => item.getAttribute('role'))).toEqual([
+      'menuitemradio',
+      'menuitemradio',
+      'menuitemradio',
+      'menuitemradio',
+      'menuitemcheckbox',
+    ])
+  })
+
+  it('U-138 unchecking Keep sizes keeps the menu open, and the next unit sends keep_sizes false', async () => {
+    const { app, core, user } = renderApp({}, withBareNumbers(4))
+    await user.click(screen.getByTestId('status-units'))
+    await user.click(screen.getByTestId('keep-sizes'))
+    const menu = screen.getByRole('menu')
+    expect(menu).toBeVisible()
+    expect(within(menu).getByTestId('keep-sizes')).toHaveAttribute('aria-checked', 'false')
+    expect(app.store.getState().keepSizes).toBe(false)
+    await user.click(within(menu).getByRole('menuitemradio', { name: 'cm' }))
+    await settle()
+    expect(core.callsTo('setDocumentUnits')).toEqual([[1, 'cm', false]])
+  })
+
+  it('U-138 shows Keep sizes unchecked while keepSizes is off', async () => {
+    const { user } = renderApp({ keepSizes: false }, withBareNumbers(4))
+    await user.click(screen.getByTestId('status-units'))
+    expect(screen.getByTestId('keep-sizes')).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('U-138 reads "the 1 number" for one number without a unit', async () => {
+    const { user } = renderApp({}, withBareNumbers(1))
+    await user.click(screen.getByTestId('status-units'))
+    expect(screen.getByTestId('keep-sizes')).toHaveTextContent(
+      'Keep sizes: add mm to the 1 number without a unit',
+    )
+  })
+
+  it('U-138 names the current unit of an inch document', async () => {
+    const document = cubeDocumentState({
+      recipe: { ...CUBE_DOCUMENT, units: 'in' },
+      bareNumbers: 2,
+    })
+    const { user } = renderApp({}, document)
+    await user.click(screen.getByTestId('status-units'))
+    expect(screen.getByTestId('keep-sizes')).toHaveTextContent(
+      'Keep sizes: add in to the 2 numbers without a unit',
+    )
+  })
+
+  it('U-138 has no Keep sizes without numbers lacking a unit, and then sends keep_sizes false', async () => {
+    const { core, user } = renderApp({}, withBareNumbers(0))
+    await user.click(screen.getByTestId('status-units'))
+    expect(screen.queryByTestId('keep-sizes')).toBeNull()
+    await user.click(within(screen.getByRole('menu')).getByRole('menuitemradio', { name: 'in' }))
+    await settle()
+    expect(core.callsTo('setDocumentUnits')).toEqual([[1, 'in', false]])
+  })
+
+  it('U-138 the palette command document.units.in sends the current keepSizes', async () => {
+    const { app, core } = renderApp({}, withBareNumbers(4))
+    await app.commands.run(app, 'document.units.in', 'palette')
+    await settle()
+    expect(core.callsTo('setDocumentUnits')).toEqual([[1, 'in', true]])
+    act(() => {
+      app.store.setState({ keepSizes: false })
+    })
+    await app.commands.run(app, 'document.units.cm', 'palette')
+    await settle()
+    expect(core.callsTo('setDocumentUnits')).toEqual([
+      [1, 'in', true],
+      [1, 'cm', false],
+    ])
   })
 })

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { App } from '../app/createApp'
 import type { AppContext } from '../state/store'
 import { createTestApp, LINUX_WEB, MAC_WEB, WINDOWS_DESKTOP } from '../test/fakes/test-app'
 import {
@@ -135,6 +136,42 @@ describe('run', () => {
     expect(app.store.getState().notifications).toEqual([
       expect.objectContaining({ severity: 'info', message: 'Nothing to undo.' }),
     ])
+  })
+
+  it("U-140 a disabled command's notification carries its code and the availability's action (2.10)", async () => {
+    const registry = createCommandRegistry()
+    const show = vi.fn<(app: App) => void>()
+    registry.register(
+      command('feature.extrude', {
+        availability: {
+          state: 'disabled',
+          reason: "'Sketch 1' has no closed shape: 2 ends are not connected.",
+          code: 'needs_closed_shape',
+          action: { label: "Show 'Sketch 1'", run: show },
+        },
+      }),
+    )
+    const app = createTestApp({ commands: registry })
+    await registry.run(app, 'feature.extrude', 'shortcut')
+    const [notification] = app.store.getState().notifications
+    expect(notification).toMatchObject({
+      severity: 'info',
+      message: "'Sketch 1' has no closed shape: 2 ends are not connected.",
+      code: 'needs_closed_shape',
+    })
+    expect(notification?.actions.map((action) => action.label)).toEqual(["Show 'Sketch 1'"])
+    notification?.actions[0]?.run()
+    expect(show).toHaveBeenCalledExactlyOnceWith(app)
+  })
+
+  it('a disabled command without an action shows no button', async () => {
+    const registry = createCommandRegistry()
+    registry.register(
+      command('edit.undo', { availability: { state: 'disabled', reason: 'Nothing to undo.' } }),
+    )
+    const app = createTestApp({ commands: registry })
+    await registry.run(app, 'edit.undo', 'palette')
+    expect(app.store.getState().notifications[0]?.actions).toEqual([])
   })
 
   it('runs an enabled command with the app and the invocation source', async () => {

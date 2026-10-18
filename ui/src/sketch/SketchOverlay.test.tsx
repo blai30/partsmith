@@ -3,7 +3,7 @@ import { Profiler } from 'react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
-import type { SketchConstraint } from '../generated/protocol'
+import type { Diagnostic, SketchConstraint } from '../generated/protocol'
 import { COLOR_CLASSES } from '../theme/roles'
 import {
   circleEntity,
@@ -42,6 +42,30 @@ afterEach(() => {
 const BASE = lineEntity('e-1', [0, 0], [20, 0])
 const HORIZONTAL: SketchConstraint = { id: 'c-1', type: 'horizontal', line: 'e-1' }
 const LENGTH: SketchConstraint = { id: 'c-2', type: 'distance', line: 'e-1', expr: '20' }
+
+// Messages the core renders into a probe's solution (sketch.md 4.2, engine.md 3.6).
+const NOT_SOLVED: Diagnostic = {
+  severity: 'error',
+  code: 'sketch_not_solved',
+  message:
+    "'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.",
+}
+const CONFLICT: Diagnostic = {
+  severity: 'error',
+  code: 'sketch_conflict',
+  message: "In 'Sketch 1', Distance 30 mm cannot hold together with Distance 40 mm.",
+}
+
+/** Whether the candidate's length c-2 is a driving dimension of `expr`. */
+function drivenTo(constraints: readonly SketchConstraint[] | undefined, expr: string): boolean {
+  const length = constraints?.find((constraint) => constraint.id === 'c-2')
+  return (
+    length !== undefined &&
+    'expr' in length &&
+    length.expr === expr &&
+    !('driving' in length && length.driving === false)
+  )
+}
 
 /** Renders the overlay inside the test view's viewport region, beside its canvas. */
 function renderOverlay(
@@ -278,6 +302,35 @@ describe('SketchOverlay annotations (3.16.2)', () => {
     })
     await nextFrame()
     expect(screen.getByTestId('constraint-glyph')).toHaveAttribute('data-state', 'conflicting')
+  })
+
+  it('U-140 rings both open ends of a finding with connect, at the gap of NC01', () => {
+    const lines = [lineEntity('e-1', [0, 0], [20, 0]), lineEntity('e-4', [0, 10], [0, 0.3])]
+    const harness = sketchHarness({
+      entities: lines,
+      solution: solutionFor(lines, {
+        profile_findings: [
+          {
+            type: 'open_endpoint',
+            entity: 'e-4',
+            point: [0, 0.3],
+            connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
+          },
+        ],
+      }),
+    })
+    renderOverlay(harness)
+    const rings = screen.getAllByTestId('profile-issue')
+    expect(rings).toHaveLength(2)
+    const [gapEnd, otherEnd] = rings.map((ring) => [
+      Number(ring.getAttribute('cx')),
+      Number(ring.getAttribute('cy')),
+    ])
+    // (0, 0.3) and (0, 0) in the test view: 0.3 mm is 2.4 pixels.
+    expect(gapEnd?.[0]).toBeCloseTo(512)
+    expect(gapEnd?.[1]).toBeCloseTo(509.6)
+    expect(otherEnd?.[0]).toBeCloseTo(512)
+    expect(otherEnd?.[1]).toBeCloseTo(512)
   })
 
   it('rings profile issues with their titles', () => {
@@ -633,6 +686,67 @@ describe('SketchOverlay dimension editor (3.16.7)', () => {
     expect(screen.getByRole('group', { name: 'Change dimension' })).toBeInTheDocument()
     await user.keyboard('{Escape}')
     expect(screen.queryByTestId('dimension-editor')).toBeNull()
+  })
+
+  it("an edited dimension the sketch cannot take keeps the text and shows the probe's message, with Add reference and Cancel (3.16.7)", async () => {
+    const harness = sketchHarness({
+      entities: [BASE],
+      constraints: [LENGTH],
+      solve: (candidate) =>
+        solutionFor(
+          candidate.entities ?? [],
+          drivenTo(candidate.constraints, '80') ? { failed: true, messages: [NOT_SOLVED] } : {},
+        ),
+    })
+    renderOverlay(harness)
+    const user = userEvent.setup()
+    await user.dblClick(screen.getByTestId('sketch-dimension'))
+    const input = screen.getByRole('textbox', { name: 'Dimension value' })
+    await user.clear(input)
+    await user.type(input, '80')
+    await user.keyboard('{Enter}')
+    await act(settleCommits)
+    const alert = within(screen.getByTestId('dimension-editor')).getByRole('alert')
+    expect(alert).toHaveTextContent(NOT_SOLVED.message)
+    expect(within(alert).getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+    expect(input).toHaveValue('80')
+    expect(harness.applied).toEqual([])
+
+    await user.click(within(alert).getByRole('button', { name: 'Add reference' }))
+    await act(settleCommits)
+    expect(harness.applied.map((entry) => entry.label)).toEqual(['Change dimension'])
+    const [edit] = harness.applied[0]?.edits ?? []
+    const stored = edit?.type === 'update_feature' ? edit.feature['constraints'] : undefined
+    expect(stored).toEqual([{ ...LENGTH, expr: '80', driving: false }])
+  })
+
+  it("an edited dimension that conflicts shows the probe's conflict message, and Cancel closes the editor (3.16.7)", async () => {
+    const harness = sketchHarness({
+      entities: [BASE],
+      constraints: [LENGTH],
+      solve: (candidate) =>
+        solutionFor(
+          candidate.entities ?? [],
+          drivenTo(candidate.constraints, '30')
+            ? { status: 'conflicting', conflicting: ['c-2'], messages: [CONFLICT] }
+            : {},
+        ),
+    })
+    renderOverlay(harness)
+    const user = userEvent.setup()
+    await user.dblClick(screen.getByTestId('sketch-dimension'))
+    const input = screen.getByRole('textbox', { name: 'Dimension value' })
+    await user.clear(input)
+    await user.type(input, '30')
+    await user.keyboard('{Enter}')
+    await act(settleCommits)
+    const alert = within(screen.getByTestId('dimension-editor')).getByRole('alert')
+    expect(alert).toHaveTextContent(CONFLICT.message)
+    expect(within(alert).getByRole('button', { name: 'Add reference' })).toBeInTheDocument()
+    await user.click(within(alert).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByTestId('dimension-editor')).toBeNull()
+    await act(settleCommits)
+    expect(harness.applied).toEqual([])
   })
 
   it('Enter on a focused label opens the editor', async () => {

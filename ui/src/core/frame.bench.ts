@@ -39,6 +39,7 @@ const messages: Message[] = [
     document: benchmarkDocument(),
     dirty: false,
     transaction_open: false,
+    bare_numbers: 0,
   },
   { kind: 'response', id: 1, result: { kind: 'ok', type: 'undo', revision: 1, label: 'Edit' } },
 ]
