@@ -34,7 +34,6 @@ import {
   selectSketchDof,
   type SketchDof,
 } from '../state/selectors'
-import type { AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { TopCenterSlot } from '../viewport/TopCenterSlot'
 import { constraintTitle } from './constraints'
@@ -168,14 +167,6 @@ function PlanePicking() {
   )
 }
 
-/** The number the outline summary counts, for the header's `data-outline` (3.16.8). */
-function selectOutlineCount(sketchId: string): (state: AppState) => number {
-  return (state) => {
-    const solution = state.document?.sketches[sketchId]?.solution
-    return solution === undefined ? 0 : outlineCount(solution)
-  }
-}
-
 function EditingHeader({ sketchId }: { readonly sketchId: string }) {
   // Compared by value: a drag replaces the solution every frame without changing these counts.
   const dof = useAppState(useShallow(selectSketchDof))
@@ -184,7 +175,11 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
     const solution = state.document?.sketches[sketchId]?.solution
     return solution === undefined ? null : outlineProblems(solution)
   })
-  const outlineNumber = useAppState(selectOutlineCount(sketchId))
+  // The number the outline summary counts, for `data-outline` (3.16.8).
+  const outlineSize = useAppState((state) => {
+    const solution = state.document?.sketches[sketchId]?.solution
+    return solution === undefined ? 0 : outlineCount(solution)
+  })
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const popoverId = useId()
@@ -206,7 +201,7 @@ function EditingHeader({ sketchId }: { readonly sketchId: string }) {
         data-card=""
         data-state={dof?.state}
         data-dof={dof === null ? undefined : String(dof.dof)}
-        data-outline={String(outlineNumber)}
+        data-outline={String(outlineSize)}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={popoverId}
@@ -338,6 +333,41 @@ function freeGeometry(solution: SketchSolution): string {
     .join(', ')
 }
 
+/** One outline problem: the core's sentence with Show, which frames it, and its fixes (2.14, 3.16.8). */
+function OutlineFinding({
+  solution,
+  finding,
+  index,
+}: {
+  readonly solution: SketchSolution
+  readonly finding: ProfileFinding
+  readonly index: number
+}) {
+  const app = useApp()
+  // The core's sentence and fixes, such as "Connect the ends (0.3 mm apart)" (2.14).
+  const message = findingMessage(solution, index)
+  return (
+    <li className="flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-3">
+        <span className="min-w-0 text-sm">{message?.message}</span>
+        <Button
+          aria-label={message === null ? 'Show' : `Show: ${message.message}`}
+          onClick={() => {
+            showSketchFinding(app, finding)
+          }}
+        >
+          Show
+        </Button>
+      </div>
+      {message?.actions === undefined || message.actions.length === 0 ? null : (
+        <div className="flex flex-wrap gap-2">
+          <FixButtons actions={message.actions} place="panel" />
+        </div>
+      )}
+    </li>
+  )
+}
+
 /** The conflicting and extra constraints, the outline problems and the free geometry of the sketch. */
 function SketchProblems({ sketchId }: { readonly sketchId: string }) {
   const app = useApp()
@@ -354,7 +384,6 @@ function SketchProblems({ sketchId }: { readonly sketchId: string }) {
       ? [{ constraint, conflicting: false }]
       : []
   })
-  const findings: readonly ProfileFinding[] = solution?.profile_findings ?? []
   const free = solution !== null && solution.dof > 0 ? freeGeometry(solution) : ''
 
   return (
@@ -398,38 +427,17 @@ function SketchProblems({ sketchId }: { readonly sketchId: string }) {
           </ul>
         </section>
       ) : null}
-      {findings.length > 0 ? (
+      {solution !== null && solution.profile_findings.length > 0 ? (
         <section aria-label="Outline" className="flex flex-col gap-2">
           <h2 className={clsx('text-xs font-medium', COLOR_CLASSES.textMuted.foreground)}>
             Outline
           </h2>
           <ul className="flex flex-col gap-2">
-            {findings.map((finding, index) => {
-              // The core's sentence and fixes, such as "Connect the ends (0.3 mm apart)" (2.14).
-              const message = solution === null ? null : findingMessage(solution, index)
-              return (
-                // Findings have no ids; their order is stable for one solution (sketch.md 3.13.7).
-                // oxlint-disable-next-line react/no-array-index-key
-                <li key={index} className="flex flex-col gap-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="min-w-0 text-sm">{message?.message}</span>
-                    <Button
-                      aria-label={message === null ? 'Show' : `Show: ${message.message}`}
-                      onClick={() => {
-                        showSketchFinding(app, finding)
-                      }}
-                    >
-                      Show
-                    </Button>
-                  </div>
-                  {message?.actions === undefined || message.actions.length === 0 ? null : (
-                    <div className="flex flex-wrap gap-2">
-                      <FixButtons actions={message.actions} place="panel" />
-                    </div>
-                  )}
-                </li>
-              )
-            })}
+            {solution.profile_findings.map((finding, index) => (
+              // Findings have no ids; their order is stable for one solution (sketch.md 3.13.7).
+              // oxlint-disable-next-line react/no-array-index-key
+              <OutlineFinding key={index} solution={solution} finding={finding} index={index} />
+            ))}
           </ul>
         </section>
       ) : null}

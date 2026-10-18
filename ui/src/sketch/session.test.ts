@@ -550,7 +550,7 @@ describe('dimension tool (3.16.7)', () => {
     clickAt(canvas(), [10, 0])
     clickAt(canvas(), [10, -4])
     await sketch.commitEditor()
-    expect(sketch.getModel().editor?.problem).toBe('over_constrained')
+    expect(sketch.getModel().editor?.problem?.kind).toBe('over_constrained')
     expect(harness.applied).toEqual([])
 
     await sketch.commitEditor({ reference: true })
@@ -655,8 +655,7 @@ describe('dimension tool (3.16.7)', () => {
     sketch.setEditorText('30')
     await sketch.commitEditor()
     expect(sketch.getModel().editor).toMatchObject({
-      problem: 'cannot_take',
-      message: MESSAGES.dimension_over_constrained(),
+      problem: { kind: 'cannot_take', message: MESSAGES.dimension_over_constrained() },
     })
     await settleCommits()
     expect(harness.applied).toEqual([])

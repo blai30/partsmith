@@ -53,7 +53,7 @@ import { rovingTabStop } from '../layout/roving'
 import { useOverlayDismiss } from '../layout/use-overlay-dismiss'
 import { SEVERITY_NAMES } from '../print/health'
 import { SeverityIcon } from '../print/SeverityIcon'
-import { selectCommandBlock } from '../state/selectors'
+import { selectCommandBlock, selectDocumentUnits } from '../state/selectors'
 import type { AppState, OriginName, SelectionItem } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
 import { AXIS_ROLES, COLOR_CLASSES } from '../theme/roles'
@@ -508,7 +508,7 @@ function ParameterRow({
 }) {
   const app = useApp()
   const value = useAppState((state) => state.document?.parameterValues[parameter.id])
-  const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
+  const units = useAppState(selectDocumentUnits)
   const text = `${parameter.name} = ${parameter.expr}`
   const evaluated = isPlainNumber(parameter.expr) ? null : formatParameterValue(value, units)
   return (

@@ -20,6 +20,7 @@ import type { Dimension, FieldUnit, Units } from '../generated/protocol'
 import type { InspectorField } from '../inspector/model'
 import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
+import { selectDocumentUnits } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
 import {
   completionAt,
@@ -180,7 +181,7 @@ export function ExpressionInput({
   const app = useApp()
   const input = useRef<HTMLInputElement>(null)
   const listId = useId()
-  const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
+  const units = useAppState(selectDocumentUnits)
   const evaluated = useExpression(value, unit, label)
   const state = optional && value.trim() === '' ? EMPTY : evaluated
   const errorId = `${id}-error`

@@ -1,13 +1,13 @@
 /// <reference lib="dom" />
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import {
-  bodyRow,
   canvas,
   download,
   dropFile,
   inspector,
   inspectorField,
   inspectorInput,
+  modelTool,
   notification,
   openApp,
   runCommand,
@@ -22,7 +22,12 @@ import {
   openProblems,
   problemRow,
 } from './support/documents'
-import { expectPreviewShown, fillInspector } from './support/modeling'
+import {
+  editFeatureFromTimeline,
+  expectBodySize,
+  expectPreviewShown,
+  fillInspector,
+} from './support/modeling'
 import { app, clickAt, dimensionLabel, editSketchFromBrowser, sketchHeader } from './support/sketch'
 
 // The newcomer error corpus with the real core and UI (ui.md 6.5, E-110 to E-121; the newcomer
@@ -30,27 +35,6 @@ import { app, clickAt, dimensionLabel, editSketchFromBrowser, sketchHeader } fro
 // (reference-stability-and-errors.md 10.5) has no cause lines and no uses yet: phase 4 adds the
 // cause line of NC11 and its "Used by" item, used mark and sketch hint to E-120 (10.6), and NC08's
 // cause line is checked by engine.md test 150 only (ui.md open issue 24).
-
-/** The Extrude button of the Model toolbar. */
-function extrudeTool(page: Page): Locator {
-  return page
-    .getByRole('toolbar', { name: 'Model tools' })
-    .getByRole('button', { name: 'Extrude', exact: true })
-}
-
-/** Double-clicks a timeline item, which opens its feature command (ui.md 3.9). */
-async function editFromTimeline(page: Page, label: string): Promise<void> {
-  await timelineItem(page, label).getByRole('button', { name: label, exact: true }).dblclick()
-  await expect(inspector(page)).toHaveAccessibleName(label)
-  await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
-}
-
-/** Selects a body by its browser row and expects its size (ui.md 3.8). */
-async function expectBodySize(page: Page, name: string, size: string): Promise<void> {
-  await bodyRow(page, name).click()
-  await expect(page.getByTestId('selection-title')).toHaveText(name)
-  await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', size)
-}
 
 /** Expects `names` to hold `expected` in this order, whatever else it holds. */
 function expectInOrder(names: readonly string[], expected: readonly string[]): void {
@@ -68,9 +52,9 @@ test.describe('newcomer errors', () => {
   }) => {
     await openApp(page)
     await dropFile(page, 'nc01.ptsm')
-    await expect(extrudeTool(page)).toHaveAttribute('aria-disabled', 'true')
+    await expect(modelTool(page, 'Extrude')).toHaveAttribute('aria-disabled', 'true')
     // Playwright waits for aria-disabled controls to become enabled; this click is the point.
-    await extrudeTool(page).click({ force: true })
+    await modelTool(page, 'Extrude').click({ force: true })
     const reason = notification(
       page,
       'info',
@@ -100,7 +84,7 @@ test.describe('newcomer errors', () => {
     await page.keyboard.press('ControlOrMeta+Enter')
     await expect(app(page)).toHaveAttribute('data-context', 'model')
     await expect(page.getByTestId('selection-title')).toHaveText('1 region')
-    await expect(extrudeTool(page)).not.toHaveAttribute('aria-disabled', 'true')
+    await expect(modelTool(page, 'Extrude')).not.toHaveAttribute('aria-disabled', 'true')
   })
 
   test('E-111 NC02, join buried in the body: Attach puts the sketch on the top', async ({
@@ -128,7 +112,7 @@ test.describe('newcomer errors', () => {
   }) => {
     await openApp(page)
     await dropFile(page, 'nc03.ptsm')
-    await editFromTimeline(page, 'Extrude 2')
+    await editFeatureFromTimeline(page, 'Extrude 2')
     await fillInspector(page, 'Distance', '5')
     await expectPreviewShown(page)
     const banner = inspector(page).getByTestId('inspector-error')
@@ -170,7 +154,7 @@ test.describe('newcomer errors', () => {
   }) => {
     await openApp(page)
     await dropFile(page, 'nc05.ptsm')
-    await editFromTimeline(page, 'Fillet 1')
+    await editFeatureFromTimeline(page, 'Fillet 1')
     const radius = inspectorField(page, 'radius')
     await expect(radius.getByTestId('field-error')).toHaveText(
       "Fillet radius 3 mm is too large for the selected edges: the largest that works is about 2.3 mm. The top edge of the cut made by 'Box 2' lies next to a wall of the cut made by 'Box 2', which is only 2.4 mm across.",
@@ -184,7 +168,7 @@ test.describe('newcomer errors', () => {
     await expectPreviewShown(page)
     await page.keyboard.press('Enter')
     await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'ok')
-    await editFromTimeline(page, 'Fillet 1')
+    await editFeatureFromTimeline(page, 'Fillet 1')
     await expect(inspectorInput(page, 'Radius')).toHaveValue('2.3 mm')
   })
 

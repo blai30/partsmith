@@ -5,6 +5,7 @@ import { showPickHint } from '../app/actions/notifications'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { BoundingBox, Diagnostic, FeatureStatus, FixRef } from '../generated/protocol'
 import {
+  activeCommandWith,
   CYLINDRICAL_FACE,
   cubeDocumentState,
   documentState,
@@ -25,7 +26,6 @@ import {
   CUBE_FRONT_FACE,
   CUBE_TOP_FACE,
   CUBE_TOP_FRONT_EDGE,
-  featuresOf,
   RECT_REGION,
   RECT_SKETCH_SOLUTION,
   TWO_BODIES_DOCUMENT,
@@ -47,6 +47,7 @@ import { createFakeViewport } from '../test/fakes/viewport'
 import { hasTabularFigures, isCode } from '../test/type-roles'
 import { COLOR_CLASSES } from '../theme/roles'
 import { Inspector } from './Inspector'
+import { FILLET_EDGES, hasRoleClasses, inspectorField } from './inspector.testing'
 import type { Rectangle } from './placement'
 
 beforeEach(installPopoverPolyfill)
@@ -61,41 +62,23 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const FILLET_EDGES = featuresOf(CUBE_FEATURES_DOCUMENT)[2]?.edges as readonly unknown[]
-
-const EDIT_FILLET: ActiveCommand = {
+const EDIT_FILLET = activeCommandWith({
   featureType: 'fillet',
   featureId: 'f-fil1',
   editing: true,
   title: 'Fillet 1',
   params: { body: 'b-cube', edges: FILLET_EDGES, radius: '2 mm' },
-  activeField: null,
-  fieldErrors: {},
   applied: true,
-  newBody: null,
-  helper: null,
-  changedPaths: [],
-  history: [],
-  future: [],
   preview: 'shown',
-}
+})
 
-const NEW_EXTRUDE: ActiveCommand = {
+const NEW_EXTRUDE = activeCommandWith({
   featureType: 'extrude',
   featureId: 'f-0123456789ab',
-  editing: false,
   title: 'Extrude',
   params: { extent: { kind: 'distance', expr: '10 mm' }, op: 'new' },
   activeField: 'profile',
-  fieldErrors: {},
-  applied: false,
-  newBody: null,
-  helper: null,
-  changedPaths: [],
-  history: [],
-  future: [],
-  preview: 'none',
-}
+})
 
 function filletDocument(filletStatus: FeatureStatus | null = null): DocumentState {
   const document = documentState(CUBE_FEATURES_DOCUMENT, {
@@ -119,27 +102,10 @@ function inspector(): HTMLElement {
   return screen.getByTestId('inspector')
 }
 
-function field(path: string): HTMLElement {
-  const found = within(inspector())
-    .getAllByTestId('inspector-field')
-    .find((element) => element.getAttribute('data-path') === path)
-  if (found === undefined) {
-    throw new Error(`No inspector field ${path}`)
-  }
-  return found
-}
-
 function fieldPaths(): (string | null)[] {
   return within(inspector())
     .getAllByTestId('inspector-field')
     .map((element) => element.getAttribute('data-path'))
-}
-
-function hasRoleClasses(element: HTMLElement, classes: string): boolean {
-  const names = classes.split(' ')
-  return [element, ...element.querySelectorAll('*')].some((candidate) =>
-    names.every((name) => candidate.classList.contains(name)),
-  )
 }
 
 function status(
@@ -200,15 +166,17 @@ describe('the command inspector (3.7)', () => {
 
   it('shows a selection field with its count, an expression field with its result', async () => {
     renderInspector(filletDocument(), { command: EDIT_FILLET })
-    const edges = within(field('edges')).getByTestId('selection-field')
+    const edges = within(inspectorField('edges')).getByTestId('selection-field')
     expect(edges).toHaveAttribute('role', 'button')
     expect(edges).toHaveAttribute('data-count', '4')
     expect(edges).toHaveAttribute('data-active', 'false')
     expect(edges).toHaveTextContent('4 edges')
     await waitFor(() => {
-      expect(within(field('radius')).getByTestId('expression-result')).toHaveTextContent('= 2 mm')
+      expect(within(inspectorField('radius')).getByTestId('expression-result')).toHaveTextContent(
+        '= 2 mm',
+      )
     })
-    const radius = within(field('radius')).getByRole('combobox', { name: 'Radius' })
+    const radius = within(inspectorField('radius')).getByRole('combobox', { name: 'Radius' })
     expect(radius).toHaveClass('tabular-nums')
     expect(radius).not.toHaveClass('font-mono')
   })
@@ -219,25 +187,27 @@ describe('the command inspector (3.7)', () => {
       params: { extent: { kind: 'distance', expr: '30 mm' }, op: 'new' },
     }
     renderInspector(rectSketchDocumentState(), { command })
-    const distance = within(field('extent.expr')).getByRole('combobox', { name: 'Distance' })
+    const distance = within(inspectorField('extent.expr')).getByRole('combobox', {
+      name: 'Distance',
+    })
     expect(hasTabularFigures(distance)).toBe(true)
     expect(isCode(distance)).toBe(false)
   })
 
   it('makes a selection field active on click and empties it with its clear button', async () => {
     const { app, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
-    const edges = within(field('edges')).getByTestId('selection-field')
+    const edges = within(inspectorField('edges')).getByTestId('selection-field')
     await user.click(edges)
     expect(app.store.getState().command?.activeField).toBe('edges')
     expect(edges).toHaveAttribute('data-active', 'true')
     expect(hasRoleClasses(edges, COLOR_CLASSES.accent.border)).toBe(true)
-    await user.click(within(field('edges')).getByRole('button', { name: 'Clear Edges' }))
+    await user.click(within(inspectorField('edges')).getByRole('button', { name: 'Clear Edges' }))
     expect(app.store.getState().command?.params.edges ?? []).toEqual([])
   })
 
   it('shows "Select regions" in an empty required selection field, dashed in the accent', () => {
     renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
-    const profile = within(field('profile')).getByTestId('selection-field')
+    const profile = within(inspectorField('profile')).getByTestId('selection-field')
     expect(profile).toHaveTextContent('Select regions')
     expect(profile).toHaveAttribute('data-count', '0')
     expect(profile).toHaveAttribute('data-active', 'true')
@@ -251,17 +221,17 @@ describe('the command inspector (3.7)', () => {
     act(() => {
       showPickHint(app, hint, 'profile')
     })
-    const profile = within(field('profile')).getByTestId('selection-field')
-    const shown = within(field('profile')).getByText(hint)
+    const profile = within(inspectorField('profile')).getByTestId('selection-field')
+    const shown = within(inspectorField('profile')).getByText(hint)
     expect(hasRoleClasses(shown, COLOR_CLASSES.textMuted.foreground)).toBe(true)
     // The field's help (2.12) describes the box too, after the hint.
     const help = 'The closed sketch shapes to extrude. Click inside a shape to add it.'
     expect(profile).toHaveAccessibleDescription(`${hint} ${help}`)
-    expect(within(field('profile')).getByTestId('field-error')).toHaveTextContent('')
+    expect(within(inspectorField('profile')).getByTestId('field-error')).toHaveTextContent('')
     act(() => {
       vi.advanceTimersByTime(3_000)
     })
-    expect(within(field('profile')).queryByText(hint)).toBeNull()
+    expect(within(inspectorField('profile')).queryByText(hint)).toBeNull()
     expect(profile).toHaveAccessibleDescription(help)
   })
 
@@ -275,7 +245,7 @@ describe('the command inspector (3.7)', () => {
 
   it('hovering a selection box marks its field hovered, so the viewport highlights its items (3.7)', async () => {
     const { app, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
-    const edges = within(field('edges')).getByTestId('selection-field')
+    const edges = within(inspectorField('edges')).getByTestId('selection-field')
     await user.hover(edges)
     expect(app.store.getState().command?.hoveredField).toBe('edges')
     await user.unhover(edges)
@@ -302,7 +272,7 @@ describe('the command inspector (3.7)', () => {
 
   it('shows a choice of up to 4 options as a segmented radio group', async () => {
     const { app, user } = renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
-    const extent = within(field('extent.kind')).getByRole('radiogroup')
+    const extent = within(inspectorField('extent.kind')).getByRole('radiogroup')
     expect(within(extent).getAllByRole('radio')).toHaveLength(4)
     expect(within(extent).getByRole('radio', { name: 'Distance' })).toBeChecked()
     await user.click(within(extent).getByRole('radio', { name: 'Symmetric' }))
@@ -326,7 +296,7 @@ describe('the command inspector (3.7)', () => {
       })
     try {
       const { app, user } = renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
-      const extent = within(field('extent.kind'))
+      const extent = within(inspectorField('extent.kind'))
       expect(extent.queryByRole('radiogroup')).toBeNull()
       const select = extent.getByRole('combobox', { name: 'Extent' })
       expect(
@@ -350,7 +320,7 @@ describe('the command inspector (3.7)', () => {
 
   it('writes a typed expression into the command params', async () => {
     const { app, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
-    const radius = within(field('radius')).getByRole('combobox', { name: 'Radius' })
+    const radius = within(inspectorField('radius')).getByRole('combobox', { name: 'Radius' })
     await user.clear(radius)
     await user.type(radius, '3 mm')
     await waitFor(() => {
@@ -381,9 +351,11 @@ describe('the command inspector (3.7)', () => {
 
   it('confirms with Enter in an expression field when complete', async () => {
     const { core, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
-    const radius = within(field('radius')).getByRole('combobox', { name: 'Radius' })
+    const radius = within(inspectorField('radius')).getByRole('combobox', { name: 'Radius' })
     await waitFor(() => {
-      expect(within(field('radius')).getByTestId('expression-result')).toHaveTextContent('= 2 mm')
+      expect(within(inspectorField('radius')).getByTestId('expression-result')).toHaveTextContent(
+        '= 2 mm',
+      )
     })
     await user.click(radius)
     await user.keyboard('{Enter}')
@@ -397,7 +369,7 @@ describe('the command inspector (3.7)', () => {
       command: { ...EDIT_FILLET, params: { radius: '2 mm' } },
     })
     await user.click(within(inspector()).getByTestId('inspector-more'))
-    await user.click(within(field('body')).getByRole('button', { name: /Choose/ }))
+    await user.click(within(inspectorField('body')).getByRole('button', { name: /Choose/ }))
     await user.click(screen.getByRole('menuitem', { name: /Cube/ }))
     expect(app.store.getState().command?.params.body).toBe('b-cube')
   })
@@ -409,17 +381,19 @@ describe('help on hover (2.10, 3.7)', () => {
 
   it('marks a label with help with cursor-help and describes its control with the help', () => {
     renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
-    const operation = field('op')
+    const operation = inspectorField('op')
     expect(within(operation).getByText('Operation')).toHaveClass('cursor-help')
     expect(within(operation).getByRole('radiogroup')).toHaveAccessibleDescription(OPERATION_HELP)
-    expect(within(field('profile')).getByTestId('selection-field')).toHaveAccessibleDescription(
+    expect(
+      within(inspectorField('profile')).getByTestId('selection-field'),
+    ).toHaveAccessibleDescription(
       'The closed sketch shapes to extrude. Click inside a shape to add it.',
     )
   })
 
   it('shows the help in a tooltip when the pointer rests on the label', async () => {
     const { user } = renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
-    await user.hover(within(field('op')).getByText('Operation'))
+    await user.hover(within(inspectorField('op')).getByText('Operation'))
     await waitFor(() => {
       expect(screen.getByRole('tooltip')).toHaveTextContent('Intersect keeps only the overlap')
     })
@@ -427,7 +401,7 @@ describe('help on hover (2.10, 3.7)', () => {
 
   it('gives a field without help no tooltip and no cue', () => {
     renderInspector(rectSketchDocumentState(), { command: NEW_EXTRUDE })
-    const distance = field('extent.expr')
+    const distance = inspectorField('extent.expr')
     expect(within(distance).getByText('Distance')).not.toHaveClass('cursor-help')
     expect(within(distance).getByRole('combobox')).not.toHaveAccessibleDescription(/Extrude/)
   })
@@ -442,7 +416,7 @@ describe('help on hover (2.10, 3.7)', () => {
         params: { body: 'b-cube', remove_faces: [], thickness: '2 mm' },
       },
     })
-    expect(within(field('thickness')).getByRole('combobox')).toHaveAccessibleDescription(
+    expect(within(inspectorField('thickness')).getByRole('combobox')).toHaveAccessibleDescription(
       /a multiple of the nozzle width prints best/,
     )
   })
@@ -459,7 +433,7 @@ describe('help on hover (2.10, 3.7)', () => {
 describe('the regions a profile field can choose (3.7)', () => {
   it('leaves out a sketch that is hidden by default because a feature uses it', () => {
     renderInspector(cubeDocumentState(), { command: NEW_EXTRUDE })
-    expect(within(field('profile')).queryByRole('button', { name: /Choose/ })).toBeNull()
+    expect(within(inspectorField('profile')).queryByRole('button', { name: /Choose/ })).toBeNull()
   })
 
   it('lists the regions of a sketch shown this session', async () => {
@@ -467,7 +441,7 @@ describe('the regions a profile field can choose (3.7)', () => {
       command: NEW_EXTRUDE,
       view: { ...createAppStore().getState().view, sessionVisible: { 'feature:f-sk1': true } },
     })
-    await user.click(within(field('profile')).getByRole('button', { name: /Choose/ }))
+    await user.click(within(inspectorField('profile')).getByRole('button', { name: /Choose/ }))
     expect(screen.getByRole('menuitem', { name: /^Region 1 \(/ })).toBeInTheDocument()
   })
 })
@@ -478,7 +452,7 @@ describe('feature status in the inspector (3.7, 4.2)', () => {
       command: { ...EDIT_FILLET, preview: 'failed' },
     })
     await waitFor(() => {
-      expect(within(field('radius')).getByTestId('field-error')).toHaveTextContent(
+      expect(within(inspectorField('radius')).getByTestId('field-error')).toHaveTextContent(
         TOO_LARGE.message,
       )
     })
@@ -545,7 +519,7 @@ describe('feature status in the inspector (3.7, 4.2)', () => {
     expect(banner).toHaveTextContent(followed.message)
     expect(within(banner).getByRole('button', { name: 'Keep this match' })).toBeInTheDocument()
     // The field's error is a live region that stays mounted (see the pick hint test above): empty.
-    expect(within(field('edges')).getByTestId('field-error')).toHaveTextContent('')
+    expect(within(inspectorField('edges')).getByTestId('field-error')).toHaveTextContent('')
   })
 
   it('U-87 maps a message with field /edges/1 to the edges field', () => {
@@ -556,7 +530,9 @@ describe('feature status in the inspector (3.7, 4.2)', () => {
       field: '/edges/1',
     }
     renderInspector(filletDocument(status([lost], 'warning')), { command: EDIT_FILLET })
-    expect(within(field('edges')).getByTestId('field-error')).toHaveTextContent(lost.message)
+    expect(within(inspectorField('edges')).getByTestId('field-error')).toHaveTextContent(
+      lost.message,
+    )
   })
 
   it('shows errors in an alert banner on the error background', () => {

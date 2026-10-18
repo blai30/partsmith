@@ -37,25 +37,12 @@ export function worldToSketch(placement: Placement, world: Vector3): Vector2 {
   return [dot(offset, placement.x_axis), dot(offset, placementYAxis(placement))]
 }
 
-/** The model-space box around sketch points, each widened by `padding` mm. */
-export function worldBounds(
-  placement: Placement,
-  points: readonly Vector2[],
-  padding: number,
-): BoundingBox | null {
+/** The model-space box around sketch points, or null without points. */
+export function worldBounds(placement: Placement, points: readonly Vector2[]): BoundingBox | null {
   if (points.length === 0) {
     return null
   }
-  const corners = points.flatMap((point): Vector3[] =>
-    [
-      [-1, -1],
-      [1, -1],
-      [-1, 1],
-      [1, 1],
-    ].map(([x = 0, y = 0]) =>
-      sketchToWorld(placement, [point[0] + x * padding, point[1] + y * padding]),
-    ),
-  )
+  const corners = points.map((point) => sketchToWorld(placement, point))
   const axis = (index: 0 | 1 | 2, pick: (...values: number[]) => number): number =>
     pick(...corners.map((corner) => corner[index]))
   return {

@@ -41,7 +41,7 @@ function profileIssuePosition(finding: ProfileFinding): Vector2 | null {
 }
 
 /** The sketch points a finding is about, for framing it. */
-export function findingPoints(finding: ProfileFinding): readonly Vector2[] {
+function findingPoints(finding: ProfileFinding): readonly Vector2[] {
   switch (finding.type) {
     case 'open_endpoint':
     case 'self_intersection':
@@ -76,9 +76,12 @@ function pairedEnd(solution: SketchSolution, finding: ProfileFinding): Vector2 |
  * The points that frame a finding (3.16.8 "Show"): its own points and, for a finding with
  * `connect`, the solved position of its second end.
  */
-export function framedPoints(solution: SketchSolution, finding: ProfileFinding): Vector2[] {
+export function framedPoints(
+  solution: SketchSolution,
+  finding: ProfileFinding,
+): readonly Vector2[] {
   const second = pairedEnd(solution, finding)
-  return second === null ? [...findingPoints(finding)] : [...findingPoints(finding), second]
+  return second === null ? findingPoints(finding) : [...findingPoints(finding), second]
 }
 
 /**
@@ -92,38 +95,48 @@ export function issueRings(solution: SketchSolution): readonly IssueRing[] {
     if (at === null || title === null) {
       return []
     }
-    const rings: IssueRing[] = [{ at, title }]
     const second = pairedEnd(solution, finding)
-    if (second !== null) {
-      rings.push({ at: second, title })
-    }
-    return rings
+    return second === null
+      ? [{ at, title }]
+      : [
+          { at, title },
+          { at: second, title },
+        ]
   })
 }
 
 /**
- * The open ends of the solution's outline: an `open_endpoint` finding counts 1, or 2 when it has
- * `connect` (it stands for two ends, sketch.md 4.3).
+ * The open ends a finding stands for: 1 for an `open_endpoint` finding, or 2 when it has `connect`
+ * (sketch.md 4.3); 0 for other findings.
  */
-export function openEnds(solution: SketchSolution): number {
-  return solution.profile_findings.reduce((count, finding) => {
-    if (finding.type !== 'open_endpoint') {
-      return count
-    }
-    return count + (connection(finding) === null ? 1 : 2)
-  }, 0)
+function openEndsOf(finding: ProfileFinding): number {
+  if (finding.type !== 'open_endpoint') {
+    return 0
+  }
+  return connection(finding) === null ? 1 : 2
 }
 
-function onlyOpenEnds(solution: SketchSolution): boolean {
-  return solution.profile_findings.every((finding) => finding.type === 'open_endpoint')
+/** The open ends of the solution's outline. */
+export function openEnds(solution: SketchSolution): number {
+  return solution.profile_findings.reduce((count, finding) => count + openEndsOf(finding), 0)
 }
 
 /**
- * The number the outline summary counts, and the header's `data-outline` (3.16.8): the open ends
- * when every finding is `open_endpoint`, else the number of findings; 0 without findings.
+ * What the outline summary counts (3.16.8): the open ends when every finding is `open_endpoint`,
+ * else the findings; a count of 0 without findings.
  */
+function outlineTally(solution: SketchSolution): {
+  readonly count: number
+  readonly unit: 'open end' | 'outline problem'
+} {
+  return solution.profile_findings.every((finding) => finding.type === 'open_endpoint')
+    ? { count: openEnds(solution), unit: 'open end' }
+    : { count: solution.profile_findings.length, unit: 'outline problem' }
+}
+
+/** The number the outline summary counts, and the header's `data-outline` (3.16.8). */
 export function outlineCount(solution: SketchSolution): number {
-  return onlyOpenEnds(solution) ? openEnds(solution) : solution.profile_findings.length
+  return outlineTally(solution).count
 }
 
 /**
@@ -131,9 +144,6 @@ export function outlineCount(solution: SketchSolution): number {
  * "{n} outline problems"; null without profile findings.
  */
 export function outlineProblems(solution: SketchSolution): string | null {
-  const count = outlineCount(solution)
-  if (count === 0) {
-    return null
-  }
-  return counted(count, onlyOpenEnds(solution) ? 'open end' : 'outline problem')
+  const { count, unit } = outlineTally(solution)
+  return count === 0 ? null : counted(count, unit)
 }

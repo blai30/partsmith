@@ -3,13 +3,17 @@
 
 import type { CoreApi, SolvedSketch } from '../core/api'
 import type {
+  Diagnostic,
   Document,
+  FixAction,
+  ProfileFinding,
   SketchConstraint,
   SketchEntity,
   SketchParams,
   SketchSolution,
 } from '../generated/protocol'
 import type { DocumentState, SelectionItem, SketchSession } from '../state/store'
+import { documentStateFor } from '../test/fakes/state'
 import { pointOnCircle, type Vector2 } from './geometry'
 import type { SolvedEntity } from './operands'
 import type { IdSource } from './recipes'
@@ -145,6 +149,46 @@ export function solvedSketch(solution: SketchSolution): SolvedSketch {
   return { solution, display: null }
 }
 
+// Newcomer error corpus NC01 (ui.md 2.10, U-140): BLOCK's 80 by 50 outline with a 0.3 mm gap at
+// the origin. Its one open_endpoint finding pairs the end of e-4 at (0, 0.3) with the start of e-1
+// at (0, 0), so it stands for two open ends (sketch.md 4.3).
+export const NC01_LINES = [
+  lineEntity('e-1', [0, 0], [80, 0]),
+  lineEntity('e-2', [80, 0], [80, 50]),
+  lineEntity('e-3', [80, 50], [0, 50]),
+  lineEntity('e-4', [0, 50], [0, 0.3]),
+]
+export const NC01_GAP: ProfileFinding = {
+  type: 'open_endpoint',
+  entity: 'e-4',
+  point: [0, 0.3],
+  connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
+}
+
+/** The core's message of a solve of `f-sk1` that did not converge (sketch.md 4.2, engine.md 3.6). */
+export const NOT_SOLVED_MESSAGE: Diagnostic = {
+  severity: 'error',
+  code: 'sketch_not_solved',
+  message:
+    "'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.",
+}
+
+/** A finding message as the core renders it for the finding at `index` (engine.md 3.6). */
+export function findingDiagnostic(
+  index: number,
+  code: string,
+  message: string,
+  actions?: FixAction[],
+): Diagnostic {
+  const diagnostic: Diagnostic = {
+    severity: 'warning',
+    code,
+    message,
+    field: `/profile_findings/${String(index)}`,
+  }
+  return actions === undefined ? diagnostic : { ...diagnostic, actions }
+}
+
 /** The `sketch` feature record `f-sk1`, on the XY plane unless `plane` says otherwise. */
 export function sketchRecord(
   options: {
@@ -173,35 +217,19 @@ export function recipeWith(features: FeatureRecord[]): Document {
   }
 }
 
+/** The document "Sketch test" of these features, with nothing computed but these sketches. */
 export function documentState(options: {
   readonly features: FeatureRecord[]
   readonly sketches?: Readonly<Record<string, SolvedSketch>>
   readonly revision?: number
   readonly undoLabel?: string | null
 }): DocumentState {
-  return {
-    documentHandle: DOCUMENT_HANDLE,
+  return documentStateFor(recipeWith(options.features), {
     name: 'Sketch test',
-    file: null,
     revision: options.revision ?? 1,
-    recipe: recipeWith(options.features),
-    dirty: false,
-    localUnsaved: false,
-    recoveryId: 'session-1',
     undoLabel: options.undoLabel ?? null,
-    redoLabel: null,
-    transactionOpen: false,
-    focus: null,
-    featureStatus: {},
-    parameterValues: {},
-    diagnostics: [],
     sketches: options.sketches ?? {},
-    datums: {},
-    meshes: {},
-    lastRebuildMilliseconds: null,
-    bareNumbers: 0,
-    ghosts: {},
-  }
+  })
 }
 
 /** A sketch session editing `f-sk1` with no tool active. */

@@ -20,6 +20,7 @@ import {
   curveItem,
   documentState,
   lineEntity,
+  NOT_SOLVED_MESSAGE,
   sketchRecord,
   sketchSession,
   solutionFor,
@@ -30,14 +31,8 @@ import {
 import type { SketchChange } from './session'
 import { sketchHarness } from './view.testing'
 
-// sketch.md 4.2: the messages of a solve that did not converge and of a conflict, as the core
-// renders them into the solution (engine.md 3.6).
-const NOT_SOLVED: Diagnostic = {
-  severity: 'error',
-  code: 'sketch_not_solved',
-  message:
-    "'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.",
-}
+// sketch.md 4.2: the messages of a conflict and of a redundant constraint, as the core renders
+// them into the solution (engine.md 3.6).
 const CONFLICT: Diagnostic = {
   severity: 'error',
   code: 'sketch_conflict',
@@ -210,27 +205,27 @@ describe('commitSketchChange', () => {
   it('U-61 a solution with failed true returns failed with the solver message and calls no applyEdits', async () => {
     const failed = solutionFor([STORED_LINE, NEW_LINE], {
       failed: true,
-      messages: [NOT_SOLVED],
+      messages: [NOT_SOLVED_MESSAGE],
     })
     const applyEdits = revision(5)
     const app = appWith({ solveSketch: answers(failed), applyEdits })
 
     const result = await commitSketchChange(app, 'Line', LINE_CHANGE)
 
-    expect(result).toEqual({ outcome: 'failed', message: NOT_SOLVED.message })
+    expect(result).toEqual({ outcome: 'failed', message: NOT_SOLVED_MESSAGE.message })
     expect(applyEdits).not.toHaveBeenCalled()
   })
 
   it("a failed solution's message is its first error, after any warning (3.16.3)", async () => {
     const failed = solutionFor([STORED_LINE, NEW_LINE], {
       failed: true,
-      messages: [REDUNDANT, NOT_SOLVED],
+      messages: [REDUNDANT, NOT_SOLVED_MESSAGE],
     })
     const app = appWith({ solveSketch: answers(failed), applyEdits: revision(5) })
 
     const result = await commitSketchChange(app, 'Line', LINE_CHANGE)
 
-    expect(result).toEqual({ outcome: 'failed', message: NOT_SOLVED.message })
+    expect(result).toEqual({ outcome: 'failed', message: NOT_SOLVED_MESSAGE.message })
   })
 
   it("over_constrained carries the probe's first sketch_conflict message (2.14)", async () => {

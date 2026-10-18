@@ -2,12 +2,13 @@ import { cleanup, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Diagnostic, Document, FeatureStatus, FixRef } from '../generated/protocol'
-import { documentState, readyState } from '../layout/fixtures.testing'
+import { activeCommandWith, documentWithStatuses, readyState } from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import type { ActiveCommand, DocumentState } from '../state/store'
 import { CUBE_FEATURES_DOCUMENT, CUBE_TOP_FRONT_EDGE, featuresOf } from '../test/fakes/documents'
 import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
 import { COLOR_CLASSES } from '../theme/roles'
+import { FILLET_EDGES, hasRoleClasses, inspectorField } from './inspector.testing'
 
 // Limits under fields (ui.md 3.7, U-139): while a fillet, chamfer or shell command's preview
 // status has a "too large" message with a suggestion, the field the message is about shows
@@ -25,27 +26,17 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const FILLET_EDGES = featuresOf(CUBE_FEATURES_DOCUMENT)[2]?.edges as readonly unknown[]
-
 /** A command editing a feature of cube-features.ptsm with these params, its preview failed. */
 function editing(featureType: string, featureId: string, title: string, params: object) {
-  const command: ActiveCommand = {
+  return activeCommandWith({
     featureType,
     featureId,
     editing: true,
     title,
     params: { body: 'b-cube', ...params },
-    activeField: null,
-    fieldErrors: {},
     applied: true,
-    newBody: null,
-    helper: null,
-    changedPaths: [],
-    history: [],
-    future: [],
     preview: 'failed',
-  }
-  return command
+  })
 }
 
 function editingFillet(radius: string): ActiveCommand {
@@ -62,13 +53,12 @@ function previewing(
   status: FeatureStatus,
   recipe: Document = CUBE_FEATURES_DOCUMENT,
 ): DocumentState {
-  const document = documentState(recipe, {
+  return documentWithStatuses(recipe, [status], {
     name: 'cube-features',
     meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },
     focus: status.id,
     transactionOpen: true,
   })
-  return { ...document, featureStatus: { ...document.featureStatus, [status.id]: status } }
 }
 
 function renderCommand(command: ActiveCommand, document: DocumentState): void {
@@ -76,26 +66,9 @@ function renderCommand(command: ActiveCommand, document: DocumentState): void {
   renderWithApp(test.app)
 }
 
-function field(path: string): HTMLElement {
-  const found = within(screen.getByTestId('inspector'))
-    .getAllByTestId('inspector-field')
-    .find((element) => element.getAttribute('data-path') === path)
-  if (found === undefined) {
-    throw new Error(`No inspector field ${path}`)
-  }
-  return found
-}
-
 /** The expression input of a field, a combobox while it offers parameter names (2.13). */
 function input(path: string, label: string): HTMLElement {
-  return within(field(path)).getByRole('combobox', { name: label })
-}
-
-function hasRoleClasses(element: Element, classes: string): boolean {
-  const names = classes.split(' ')
-  return [element, ...element.querySelectorAll('*')].some((candidate) =>
-    names.every((name) => candidate.classList.contains(name)),
-  )
+  return within(inspectorField(path)).getByRole('combobox', { name: label })
 }
 
 /** Whether the element has warningMark's border classes and none of errorMark's. */
@@ -130,7 +103,7 @@ const FILLET_TOO_LARGE: Diagnostic = {
 describe('limits under fields (3.7, U-139)', () => {
   it('U-139 shows "Largest that works: 2.3 mm" under the radius field error, in warningText', () => {
     renderCommand(editingFillet('3 mm'), previewing(failing('f-fil1', [FILLET_TOO_LARGE])))
-    const radius = field('radius')
+    const radius = inspectorField('radius')
     const limit = within(radius).getByTestId('field-limit')
     expect(limit).toHaveTextContent('Largest that works: 2.3 mm')
     expect(hasRoleClasses(limit, COLOR_CLASSES.warningText.foreground)).toBe(true)
@@ -155,13 +128,15 @@ describe('limits under fields (3.7, U-139)', () => {
     renderCommand(editingFillet('3 mm'), previewing(failing('f-fil1', [FILLET_TOO_LARGE])))
     const banner = screen.getByTestId('inspector-error')
     expect(within(banner).getByRole('button', { name: 'Use 2.3 mm' })).toBeInTheDocument()
-    expect(within(field('radius')).queryByRole('button', { name: 'Use 2.3 mm' })).toBeNull()
+    expect(
+      within(inspectorField('radius')).queryByRole('button', { name: 'Use 2.3 mm' }),
+    ).toBeNull()
   })
 
   it('U-139 shows no limit for a message without a suggestion, and keeps the errorMark border', () => {
     const { suggestion: _suggestion, ...withoutSuggestion } = FILLET_TOO_LARGE
     renderCommand(editingFillet('3 mm'), previewing(failing('f-fil1', [withoutSuggestion])))
-    expect(within(field('radius')).queryByTestId('field-limit')).toBeNull()
+    expect(within(inspectorField('radius')).queryByTestId('field-limit')).toBeNull()
     const radius = input('radius', 'Radius')
     for (const name of COLOR_CLASSES.errorMark.border.split(' ')) {
       expect(radius).toHaveClass(name)
@@ -172,14 +147,14 @@ describe('limits under fields (3.7, U-139)', () => {
     const inches = { ...CUBE_FEATURES_DOCUMENT, units: 'in' } as const
     const message: Diagnostic = { ...FILLET_TOO_LARGE, suggestion: '2 mm' }
     renderCommand(editingFillet('2'), previewing(failing('f-fil1', [message]), inches))
-    expect(within(field('radius')).queryByTestId('field-limit')).toBeNull()
+    expect(within(inspectorField('radius')).queryByTestId('field-limit')).toBeNull()
   })
 
   it('U-139 shows the limit in an inch document for a value with its unit', () => {
     const inches = { ...CUBE_FEATURES_DOCUMENT, units: 'in' } as const
     const message: Diagnostic = { ...FILLET_TOO_LARGE, suggestion: '1.9 in' }
     renderCommand(editingFillet('2 in'), previewing(failing('f-fil1', [message]), inches))
-    expect(within(field('radius')).getByTestId('field-limit')).toHaveTextContent(
+    expect(within(inspectorField('radius')).getByTestId('field-limit')).toHaveTextContent(
       'Largest that works: 1.9 in',
     )
   })
@@ -205,7 +180,7 @@ describe('limits under fields (3.7, U-139)', () => {
       thickness: '30 mm',
     })
     renderCommand(command, previewing(failing('f-sh1', [tooThick])))
-    expect(within(field('thickness')).getByTestId('field-limit')).toHaveTextContent(
+    expect(within(inspectorField('thickness')).getByTestId('field-limit')).toHaveTextContent(
       'Largest that works: 9.5 mm',
     )
     expect(hasWarningBorder(input('thickness', 'Thickness'))).toBe(true)
@@ -228,7 +203,7 @@ describe('limits under fields (3.7, U-139)', () => {
       editing: false,
     }
     renderCommand(command, previewing(failing('f-cha9', [tooLarge])))
-    expect(within(field('distance.expr')).getByTestId('field-limit')).toHaveTextContent(
+    expect(within(inspectorField('distance.expr')).getByTestId('field-limit')).toHaveTextContent(
       'Largest that works: 9.9 mm',
     )
     expect(hasWarningBorder(input('distance.expr', 'Distance'))).toBe(true)
@@ -243,6 +218,6 @@ describe('limits under fields (3.7, U-139)', () => {
       suggestion: '1 mm',
     }
     renderCommand(editingFillet('-1 mm'), previewing(failing('f-fil1', [outOfRange])))
-    expect(within(field('radius')).queryByTestId('field-limit')).toBeNull()
+    expect(within(inspectorField('radius')).queryByTestId('field-limit')).toBeNull()
   })
 })

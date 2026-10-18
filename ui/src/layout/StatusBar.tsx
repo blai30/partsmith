@@ -13,7 +13,7 @@ import { MESSAGES } from '../messages'
 import { HealthBadge } from '../print/HealthBadge'
 import { PrinterMenu } from '../print/PrinterMenu'
 import { printerLabel } from '../print/printer'
-import { selectHealthBadge, selectSketchDof } from '../state/selectors'
+import { selectDocumentUnits, selectHealthBadge, selectSketchDof } from '../state/selectors'
 import type { AppState, CoreState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { useCommandViews } from './use-commands'
@@ -115,9 +115,7 @@ function SketchDof() {
 function GridSpacing() {
   const text = useAppState((state) => {
     const spacing = state.view.gridSpacing
-    return spacing === null
-      ? null
-      : formatQuantity(spacing, 'length', state.document?.recipe.units ?? 'mm')
+    return spacing === null ? null : formatQuantity(spacing, 'length', selectDocumentUnits(state))
   })
   if (text === null) {
     return null
@@ -227,23 +225,18 @@ function UnitsButton() {
       }
     },
   }))
+  const keepSizesEntry: MenuEntry = {
+    kind: 'checkbox',
+    label: MESSAGES.keep_sizes(units, bareNumbers),
+    testId: 'keep-sizes',
+    checked: keepSizes,
+    keepsOpen: true,
+    onSelect: () => {
+      setKeepSizes(app, !keepSizes)
+    },
+  }
   // Keep sizes is offered only while some number has no unit, whose size the change would alter.
-  const entries: MenuEntry[] =
-    bareNumbers > 0
-      ? [
-          ...unitEntries,
-          {
-            kind: 'checkbox',
-            label: MESSAGES.keep_sizes(units, bareNumbers),
-            testId: 'keep-sizes',
-            checked: keepSizes,
-            keepsOpen: true,
-            onSelect: () => {
-              setKeepSizes(app, !keepSizes)
-            },
-          },
-        ]
-      : unitEntries
+  const entries = [...unitEntries, ...(bareNumbers > 0 ? [keepSizesEntry] : [])]
   return (
     <>
       <Tooltip label={reason === null ? 'Units' : `Units: ${reason}`}>

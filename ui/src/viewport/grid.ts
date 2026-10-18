@@ -1,4 +1,5 @@
 import type { Placement, Units } from '../generated/protocol'
+import { selectDocumentUnits } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { visibleHeightAtTarget, type Camera } from './camera'
 import { boundsDiagonal, type Bounds, type Vector3 } from './math'
@@ -62,7 +63,7 @@ export function drawnGridSpacing(state: AppState, camera: Camera, height: number
   }
   return gridSpacing(
     millimetersPerPixelAtTarget(camera, height, state.settings.uiScale),
-    state.document?.recipe.units ?? 'mm',
+    selectDocumentUnits(state),
   )
 }
 

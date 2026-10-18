@@ -453,12 +453,16 @@ export function inspectorInput(page: Page, label: string): Locator {
     .or(panel.getByRole('textbox', { name: label, exact: true }))
 }
 
-/** Clicks a button of the Model tools toolbar. */
-export async function clickTool(page: Page, title: string): Promise<void> {
-  await page
+/** A button of the Model tools toolbar, by its title. */
+export function modelTool(page: Page, title: string): Locator {
+  return page
     .getByRole('toolbar', { name: 'Model tools' })
     .getByRole('button', { name: title, exact: true })
-    .click()
+}
+
+/** Clicks a button of the Model tools toolbar. */
+export async function clickTool(page: Page, title: string): Promise<void> {
+  await modelTool(page, title).click()
 }
 
 /** The timeline item of a feature, by its label (the accessible name of its button). */

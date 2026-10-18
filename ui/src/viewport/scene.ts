@@ -15,6 +15,7 @@ import { bedOutline } from '../print/bed'
 import { overhangAnalysis, overhangFields } from '../print/overhang'
 import { selectRegionCandidates } from '../repair/repair'
 import { regionSelectionItem } from '../sketch/hit'
+import { selectDocumentUnits } from '../state/selectors'
 import type { AppState, HelperSketch, SelectionItem } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
 import {
@@ -798,7 +799,7 @@ export function createScene(backend: RenderBackend): Scene {
     if (section === null) {
       return null
     }
-    const units = state.document?.recipe.units ?? 'mm'
+    const units = selectDocumentUnits(state)
     const offset =
       sectionOffsets.get(section.offset) ?? sectionOffsetMillimeters(section.offset, units) ?? 0
     return sectionFrameClip(section, offset)

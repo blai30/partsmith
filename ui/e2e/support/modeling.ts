@@ -1,16 +1,21 @@
 /// <reference lib="dom" />
 import { expect, type Locator, type Page } from '@playwright/test'
-import { inspector, inspectorField, inspectorInput } from '../helpers'
+import {
+  bodyRow,
+  inspector,
+  inspectorField,
+  inspectorInput,
+  modelTool,
+  timelineItem,
+} from '../helpers'
 
 // Helpers for the modeling end-to-end tests: the Model toolbar's groups, inspector fields and
-// choices, previews and timeline labels. The shared helpers of ui.md 6.3 are in ../helpers.ts.
+// choices, previews, body sizes, editing from the timeline and timeline labels. The shared helpers
+// of ui.md 6.3 are in ../helpers.ts.
 
 /** Opens a toolbar group ("Shapes", "Pattern") and runs one of its commands. */
 export async function runFromGroup(page: Page, group: string, title: string): Promise<void> {
-  await page
-    .getByRole('toolbar', { name: 'Model tools' })
-    .getByRole('button', { name: group, exact: true })
-    .click()
+  await modelTool(page, group).click()
   await page.getByRole('menuitem', { name: title }).first().click()
 }
 
@@ -40,6 +45,20 @@ export async function chooseOption(page: Page, label: string, option: string): P
 /** Waits until the command's preview is drawn for its latest params. */
 export async function expectPreviewShown(page: Page): Promise<void> {
   await expect(inspector(page)).toHaveAttribute('data-preview', 'shown', { timeout: 15_000 })
+}
+
+/** Selects a body by its browser row and expects its size (ui.md 3.8). */
+export async function expectBodySize(page: Page, name: string, size: string): Promise<void> {
+  await bodyRow(page, name).click()
+  await expect(page.getByTestId('selection-title')).toHaveText(name)
+  await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', size)
+}
+
+/** Double-clicks a feature's timeline item, which opens its feature command (ui.md 3.9). */
+export async function editFeatureFromTimeline(page: Page, label: string): Promise<void> {
+  await timelineItem(page, label).getByRole('button', { name: label, exact: true }).dblclick()
+  await expect(inspector(page)).toHaveAccessibleName(label)
+  await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
 }
 
 /** The labels of the timeline items, in order. */

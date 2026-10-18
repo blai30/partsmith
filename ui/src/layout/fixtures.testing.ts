@@ -412,20 +412,34 @@ export function readyState(
   }
 }
 
+/**
+ * A feature command with these fields; the rest are those of a new command that has applied
+ * nothing yet: no active field, no errors, no created body or helper, no history, no preview.
+ */
+export function activeCommandWith(
+  fields: Pick<ActiveCommand, 'featureType' | 'featureId' | 'title' | 'params'> &
+    Partial<ActiveCommand>,
+): ActiveCommand {
+  return {
+    editing: false,
+    activeField: null,
+    fieldErrors: {},
+    applied: false,
+    newBody: null,
+    helper: null,
+    changedPaths: [],
+    history: [],
+    future: [],
+    preview: 'none',
+    ...fields,
+  }
+}
+
 /** A Fillet command with its edges field active and nothing picked yet. */
-export const FILLET_EDGES_COMMAND: ActiveCommand = {
+export const FILLET_EDGES_COMMAND = activeCommandWith({
   featureType: 'fillet',
   featureId: 'f-fil9',
-  editing: false,
   title: 'Fillet',
   params: { radius: '2 mm' },
   activeField: 'edges',
-  fieldErrors: {},
-  applied: false,
-  newBody: null,
-  helper: null,
-  changedPaths: [],
-  history: [],
-  future: [],
-  preview: 'none',
-}
+})

@@ -27,7 +27,12 @@ import type {
 } from '../generated/protocol'
 import { hasOpenPopover, isEditable } from '../layout/focus'
 import { MESSAGES } from '../messages'
-import { editingSession, selectSketchRecord, type EditingSession } from '../state/selectors'
+import {
+  editingSession,
+  selectDocumentUnits,
+  selectSketchRecord,
+  type EditingSession,
+} from '../state/selectors'
 import type { AppState, SelectionItem } from '../state/store'
 import { framedArea, type Camera, type ViewWindow } from '../viewport/camera'
 import type { ViewportController, ViewportHandle } from '../viewport/controller'
@@ -190,23 +195,14 @@ export type DrawInputModel = {
   readonly error: string | null
 }
 
-/** Why the dimension editor stays open after Enter (3.16.7). */
-export type DimensionProblem = 'over_constrained' | 'cannot_take'
-
-/** A dimension editor's problem and message (3.16.7). */
-type EditorProblem = {
-  readonly problem: DimensionProblem | null
-  readonly message: string | null
-}
-
-/** The editor without its problem, and without the sentence that belonged to it. */
-function withoutProblem<Open extends EditorProblem>(open: Open): Open {
-  return {
-    ...open,
-    problem: null,
-    message: open.problem === 'cannot_take' ? null : open.message,
-  }
-}
+/**
+ * Why the dimension editor stays open after Enter with Add reference and Cancel (3.16.7): a new
+ * driving dimension the other constraints already set (`dimension_over_constrained`), or an edited
+ * value the sketch cannot take, with its sentence (`refusedDimensionMessage`).
+ */
+export type DimensionProblem =
+  | { readonly kind: 'over_constrained' }
+  | { readonly kind: 'cannot_take'; readonly message: string }
 
 /** The open dimension editor (3.16.7). */
 export type DimensionEditorModel = {
@@ -218,13 +214,9 @@ export type DimensionEditorModel = {
   /** The Diameter | Radius choice of a new dimension on a circle or arc, else null. */
   readonly round: 'diameter' | 'radius' | null
   readonly reference: boolean
-  /**
-   * Why the editor stays open with Add reference and Cancel: a new driving dimension the other
-   * constraints already set (`dimension_over_constrained`), or an edited value the sketch cannot
-   * take, whose sentence is `message` (`refusedDimensionMessage`).
-   */
+  /** Why the editor stays open with Add reference and Cancel, or null. */
   readonly problem: DimensionProblem | null
-  /** The sentence of `cannot_take`; otherwise why the core refused a new dimension, shown under the input; or null. */
+  /** Why the core refused a new dimension, shown under the input, or null. */
   readonly message: string | null
   readonly busy: boolean
 }
@@ -531,7 +523,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
   }
 
   function documentUnits(): Units {
-    return store.getState().document?.recipe.units ?? 'mm'
+    return selectDocumentUnits(store.getState())
   }
 
   /** The stored constraint with this id of the edited sketch. */
@@ -1056,7 +1048,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       editor = {
         ...editor,
         busy: false,
-        problem: result.outcome === 'over_constrained' ? 'over_constrained' : null,
+        problem: result.outcome === 'over_constrained' ? { kind: 'over_constrained' } : null,
         message: result.outcome === 'failed' ? result.message : null,
       }
       refresh()
@@ -1078,8 +1070,8 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     editor = {
       ...editor,
       busy: false,
-      problem: 'cannot_take',
-      message: refusedDimensionMessage(result),
+      problem: { kind: 'cannot_take', message: refusedDimensionMessage(result) },
+      message: null,
     }
     refresh()
   }
@@ -1543,7 +1535,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     },
     setEditorReference(reference) {
       if (editor !== null && editor.reference !== reference) {
-        editor = { ...withoutProblem(editor), reference }
+        editor = { ...editor, problem: null, reference }
         refresh()
       }
     },
@@ -1559,7 +1551,8 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       // A value the user has not changed follows the choice.
       const untouched = editor.text === formatNumber(before.value, 'length', units)
       editor = {
-        ...withoutProblem(editor),
+        ...editor,
+        problem: null,
         draft,
         text: untouched ? formatNumber(after.value, 'length', units) : editor.text,
       }

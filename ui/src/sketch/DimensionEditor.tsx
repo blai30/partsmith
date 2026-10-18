@@ -6,6 +6,7 @@ import { SegmentedControl } from '../components/SegmentedControl'
 import { ExpressionInput } from '../expression/ExpressionInput'
 import { MESSAGES } from '../messages'
 import { COLOR_CLASSES } from '../theme/roles'
+import { ReferenceOffer } from './ReferenceOffer'
 import type { DimensionEditorModel, SketchController } from './session'
 
 // The dimension editor (ui.md 3.16.7): the value of a new or stored dimension as an expression,
@@ -63,8 +64,7 @@ export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
         unit={editor.unit}
         value={editor.text}
         selectOnFocus
-        // A refusal's sentence goes to the alert below instead.
-        error={editor.problem === null ? editor.message : null}
+        error={editor.message}
         onChange={(value) => {
           controller.setEditorText(value)
         }}
@@ -96,32 +96,22 @@ export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
         </Button>
       </div>
       {editor.problem === null ? null : (
-        <div role="alert" className="flex flex-col gap-2 text-sm">
-          {editor.problem === 'over_constrained' ? (
+        <ReferenceOffer
+          onAddReference={() => {
+            controller
+              .commitEditor({ reference: true })
+              .catch(reportFailure('Committing the dimension'))
+          }}
+          onCancel={() => {
+            controller.closeEditor()
+          }}
+        >
+          {editor.problem.kind === 'over_constrained' ? (
             <p>{MESSAGES.dimension_over_constrained()}</p>
           ) : (
-            <p className={COLOR_CLASSES.errorText.foreground}>{editor.message}</p>
+            <p className={COLOR_CLASSES.errorText.foreground}>{editor.problem.message}</p>
           )}
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="primary"
-              onClick={() => {
-                controller
-                  .commitEditor({ reference: true })
-                  .catch(reportFailure('Committing the dimension'))
-              }}
-            >
-              Add reference
-            </Button>
-            <Button
-              onClick={() => {
-                controller.closeEditor()
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
+        </ReferenceOffer>
       )}
     </fieldset>
   )

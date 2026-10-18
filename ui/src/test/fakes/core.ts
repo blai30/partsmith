@@ -437,11 +437,29 @@ function mapStrings(value: unknown, change: (text: string) => string): unknown {
   return value
 }
 
-/**
- * The recipe with `change` applied to every parameter expression and every string of the feature
- * records. The fake counts each of them that is a bare number as unit-dependent (model.md
- * `bare_numbers`): it knows no counts or angles, so tests of the units use lengths only.
- */
+/** Every string in the value, at any depth, in order. */
+function stringsIn(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return [value]
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap(stringsIn)
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.values(value).flatMap(stringsIn)
+  }
+  return []
+}
+
+/** Every parameter expression of the recipe and every string of its feature records but ids and types. */
+function expressionTexts(recipe: Document): string[] {
+  return [
+    ...parametersOf(recipe).map((parameter) => parameter.expr),
+    ...featuresOf(recipe).flatMap(({ id: _id, type: _type, ...params }) => stringsIn(params)),
+  ]
+}
+
+/** The recipe with `change` applied to each of its `expressionTexts`. */
 function mapExpressions(recipe: Document, change: (text: string) => string): Document {
   return {
     ...recipe,
@@ -455,16 +473,13 @@ function mapExpressions(recipe: Document, change: (text: string) => string): Doc
   }
 }
 
-/** How many expressions of the recipe are bare numbers, which `document_changed` reports. */
+/**
+ * How many expressions of the recipe are bare numbers, which `document_changed` reports. The fake
+ * counts each one as unit-dependent (model.md `bare_numbers`): it knows no counts or angles, so
+ * tests of the units use lengths only.
+ */
 function bareNumbers(recipe: Document): number {
-  let count = 0
-  mapExpressions(recipe, (text) => {
-    if (BARE_NUMBER.test(text)) {
-      count += 1
-    }
-    return text
-  })
-  return count
+  return expressionTexts(recipe).filter((text) => BARE_NUMBER.test(text)).length
 }
 
 /** The recipe with `unit` after every bare number (`20` becomes `20 mm`), as Keep sizes writes it. */

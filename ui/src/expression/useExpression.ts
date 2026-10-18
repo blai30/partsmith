@@ -5,6 +5,7 @@ import { createLatestOnly } from '../core/queue'
 import type { DocHandle, Dimension, FieldUnit, Units } from '../generated/protocol'
 import { MESSAGES } from '../messages'
 import { measureTiming, TIMING_NAMES } from '../performance/marks'
+import { selectDocumentUnits } from '../state/selectors'
 import { convertForField } from './evaluate'
 import type { ExpressionState } from './ExpressionInput'
 import { utf16Range } from './span'
@@ -95,7 +96,7 @@ export function useExpression(
   const app = useApp()
   const documentHandle = useAppState((state) => state.document?.documentHandle ?? null)
   const revision = useAppState((state) => state.document?.revision ?? null)
-  const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
+  const units = useAppState(selectDocumentUnits)
   const [evaluated, setEvaluated] = useState<Evaluated | null>(null)
   const empty = text.trim() === ''
   // The last text submitted, the one whose result is awaited for ps:expression, and whether the

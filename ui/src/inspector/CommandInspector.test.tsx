@@ -3,7 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type { Diagnostic, FeatureStatus, FixAction, FixRef } from '../generated/protocol'
-import { cubeDocumentState, documentState, readyState } from '../layout/fixtures.testing'
+import {
+  activeCommandWith,
+  cubeDocumentState,
+  documentState,
+  readyState,
+} from '../layout/fixtures.testing'
 import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-app.testing'
 import type { ActiveCommand, AppState, DocumentState } from '../state/store'
 import { CUBE_REGION, CUBE_TOP_FRONT_EDGE, emptyDocument } from '../test/fakes/documents'
@@ -11,6 +16,7 @@ import { elementItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { startFeatureCommand } from '../app/actions/command'
 import { COLOR_CLASSES } from '../theme/roles'
+import { inspectorField } from './inspector.testing'
 
 // The command inspector of the one-interface amendments (ui.md 3.7, 4.2): the inline Reverse, its
 // fixes, what "More options" hides, created bodies in their fields and where focus starts.
@@ -30,10 +36,9 @@ afterEach(() => {
 const PROFILE = { sketch: 'f-sk1', regions: [CUBE_REGION.reference] }
 
 function command(fields: Partial<ActiveCommand>): ActiveCommand {
-  return {
+  return activeCommandWith({
     featureType: 'extrude',
     featureId: 'f-ext9',
-    editing: false,
     title: 'Extrude',
     params: {
       profile: PROFILE,
@@ -41,17 +46,10 @@ function command(fields: Partial<ActiveCommand>): ActiveCommand {
       op: 'join',
       body: 'b-cube',
     },
-    activeField: null,
-    fieldErrors: {},
     applied: true,
-    newBody: null,
-    helper: null,
-    changedPaths: [],
-    history: [],
-    future: [],
     preview: 'failed',
     ...fields,
-  }
+  })
 }
 
 function withStatus(id: string, messages: readonly Diagnostic[]): DocumentState {
@@ -79,16 +77,6 @@ function inspector(): HTMLElement {
   return screen.getByTestId('inspector')
 }
 
-function field(path: string): HTMLElement {
-  const found = within(inspector())
-    .getAllByTestId('inspector-field')
-    .find((element) => element.getAttribute('data-path') === path)
-  if (found === undefined) {
-    throw new Error(`No inspector field ${path}`)
-  }
-  return found
-}
-
 const OUT_OF_RANGE: Diagnostic = {
   severity: 'error',
   code: 'out_of_range',
@@ -109,7 +97,7 @@ describe('the inline Reverse (2.12, 3.7)', () => {
       }),
       cubeDocumentState(),
     )
-    const distance = field('extent.expr')
+    const distance = inspectorField('extent.expr')
     const reverse = within(distance).getByRole('button', { name: 'Reverse' })
     expect(within(distance).getByTestId('inspector-field')).toHaveAttribute('data-path', 'reverse')
     expect(reverse).toHaveAttribute('aria-pressed', 'false')
@@ -145,7 +133,7 @@ describe('Reverse fixes (4.2, U-107)', () => {
       extent: { kind: 'distance', expr: '5 mm' },
     })
     expect(app.store.getState().command?.changedPaths).toContain('reverse')
-    expect(within(field('extent.expr')).getByRole('combobox')).toHaveFocus()
+    expect(within(inspectorField('extent.expr')).getByRole('combobox')).toHaveFocus()
   })
 
   it('U-107 offers no such fix for an expression that is not a plain number', () => {
@@ -266,7 +254,7 @@ describe('a status message about a field takes the user to it (4.2)', () => {
     )
     const banner = within(inspector()).getByTestId('inspector-error')
     await user.click(within(banner).getByRole('button', { name: message.message }))
-    expect(within(field('op')).getByRole('radio', { checked: true })).toHaveFocus()
+    expect(within(inspectorField('op')).getByRole('radio', { checked: true })).toHaveFocus()
   })
 
   it('moves focus to a switch such as Keep tools', async () => {
@@ -287,7 +275,7 @@ describe('a status message about a field takes the user to it (4.2)', () => {
     )
     const banner = within(inspector()).getByTestId('inspector-error')
     await user.click(within(banner).getByRole('button', { name: message.message }))
-    expect(within(field('keep_tools')).getByRole('switch')).toHaveFocus()
+    expect(within(inspectorField('keep_tools')).getByRole('switch')).toHaveFocus()
   })
 })
 
@@ -321,7 +309,7 @@ describe('More options shows what it hides (3.7, U-117)', () => {
 
 /** The axis letter in the inspector field at a path. */
 function letterOf(path: string): HTMLElement {
-  return within(field(path)).getByTestId('axis-letter')
+  return within(inspectorField(path)).getByTestId('axis-letter')
 }
 
 describe('axis letters in fields (3.7, U-181)', () => {
@@ -343,7 +331,7 @@ describe('axis letters in fields (3.7, U-181)', () => {
     )
     for (const [index, axis] of (['X', 'Y', 'Z'] as const).entries()) {
       const path = `translation[${String(index)}]`
-      const input = within(field(path)).getByRole('combobox', { name: `Move ${axis}` })
+      const input = within(inspectorField(path)).getByRole('combobox', { name: `Move ${axis}` })
       expect(input).toHaveClass('pl-6')
       const letter = letterOf(path)
       expect(letter).toHaveTextContent(axis)
@@ -381,7 +369,9 @@ describe('axis letters in fields (3.7, U-181)', () => {
       cubeDocumentState(),
     )
     await user.click(within(inspector()).getByTestId('inspector-more'))
-    const input = within(field('position[0]')).getByRole('combobox', { name: 'Position X' })
+    const input = within(inspectorField('position[0]')).getByRole('combobox', {
+      name: 'Position X',
+    })
     expect(input).toHaveClass('pl-6')
     for (const path of ['position[0]', 'position[1]', 'position[2]']) {
       const letter = letterOf(path)
@@ -393,7 +383,7 @@ describe('axis letters in fields (3.7, U-181)', () => {
 
   it('U-181 gives a field without an axis no letter and no letter padding', () => {
     renderCommand(command({}), cubeDocumentState())
-    const distance = field('extent.expr')
+    const distance = inspectorField('extent.expr')
     expect(within(distance).queryByTestId('axis-letter')).toBeNull()
     expect(within(distance).getByRole('combobox', { name: 'Distance' })).not.toHaveClass('pl-6')
   })
@@ -418,8 +408,12 @@ describe('created bodies in their fields (2.12, U-105)', () => {
       }),
       cubeDocumentState(),
     )
-    expect(within(field('target')).getByTestId('selection-field')).toHaveTextContent('Body 1 (new)')
-    await user.click(within(field('target')).getByRole('button', { name: 'Choose Target body' }))
+    expect(within(inspectorField('target')).getByTestId('selection-field')).toHaveTextContent(
+      'Body 1 (new)',
+    )
+    await user.click(
+      within(inspectorField('target')).getByRole('button', { name: 'Choose Target body' }),
+    )
     const menu = screen.getByRole('menu', { name: 'Choose Target body' })
     expect(
       within(menu)
@@ -437,7 +431,7 @@ describe('where focus starts (3.7 step 5, U-104)', () => {
     renderWithApp(test.app)
     await startFeatureCommand(test.app, 'fillet')
     await settle()
-    const radius = within(field('radius')).getByRole('combobox', { name: 'Radius' })
+    const radius = within(inspectorField('radius')).getByRole('combobox', { name: 'Radius' })
     expect(radius).toHaveFocus()
     expect(test.app.store.getState().command?.activeField).toBe('edges')
   })
@@ -448,7 +442,7 @@ describe('where focus starts (3.7 step 5, U-104)', () => {
     await startFeatureCommand(test.app, 'box')
     await settle()
     expect(test.app.store.getState().command?.activeField).toBeNull()
-    const length = within(field('size[0]')).getByRole('combobox', { name: 'Length' })
+    const length = within(inspectorField('size[0]')).getByRole('combobox', { name: 'Length' })
     expect(length).toHaveFocus()
     expect(length).toHaveProperty('selectionStart', 0)
     expect(length).toHaveProperty('selectionEnd', length.getAttribute('value')?.length ?? 0)
@@ -463,11 +457,11 @@ describe('where focus starts (3.7 step 5, U-104)', () => {
     renderWithApp(test.app)
     await startFeatureCommand(test.app, 'fillet')
     await settle()
-    const radius = within(field('radius')).getByRole('combobox', { name: 'Radius' })
+    const radius = within(inspectorField('radius')).getByRole('combobox', { name: 'Radius' })
     expect(radius).toHaveFocus()
     const focused = focus.mock.contexts.lastIndexOf(radius)
     expect(focus.mock.calls[focused]).toEqual([{ preventScroll: true }])
-    const scrolled = scroll.mock.contexts.lastIndexOf(field('radius'))
+    const scrolled = scroll.mock.contexts.lastIndexOf(inspectorField('radius'))
     expect(scroll.mock.calls[scrolled]).toEqual([{ block: 'nearest' }])
   })
 
@@ -476,8 +470,8 @@ describe('where focus starts (3.7 step 5, U-104)', () => {
     renderWithApp(test.app)
     await startFeatureCommand(test.app, 'fillet')
     await settle()
-    expect(within(field('edges')).getByTestId('selection-field')).toHaveFocus()
-    expect(within(field('edges')).getByTestId('selection-field')).toHaveTextContent(
+    expect(within(inspectorField('edges')).getByTestId('selection-field')).toHaveFocus()
+    expect(within(inspectorField('edges')).getByTestId('selection-field')).toHaveTextContent(
       'Select edges or a face',
     )
   })

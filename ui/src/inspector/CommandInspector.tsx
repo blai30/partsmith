@@ -25,6 +25,7 @@ import { MessageActions } from '../repair/MessageActions'
 import { selectRepairMode, type RepairView } from '../repair/repair'
 import { RepairCandidates } from '../repair/RepairCandidates'
 import { differingFields } from '../app/actions/command-values'
+import { selectDocumentUnits } from '../state/selectors'
 import type { ActiveCommand, CatalogFeature } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { ChoiceField } from './fields/ChoiceField'
@@ -320,7 +321,7 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
   const body = useRef<HTMLDivElement>(null)
   useOverflowEdges(body)
   const status = useAppState((state) => state.document?.featureStatus[command.featureId])
-  const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
+  const units = useAppState(selectDocumentUnits)
   const expanded = useAppState((state) => state.settings.moreExpanded[command.featureType] === true)
   const startParams = useAppState(commandStartParams)
   const model = buildInspectorModel({

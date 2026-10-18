@@ -2,6 +2,7 @@ import { generateId, usedIds } from '../../core/ids'
 import type {
   FeatureRecord,
   FeatureStatus,
+  Placement,
   ProfileFinding,
   SketchConstraint,
   SketchEntity,
@@ -24,7 +25,7 @@ import {
 import { drawnPointItems, regionSelectionItem } from '../../sketch/hit'
 import type { Vector2 } from '../../sketch/geometry'
 import { framedPoints, outlineProblems } from '../../sketch/issues'
-import { worldBounds } from '../../sketch/placement'
+import { placementYAxis, worldBounds } from '../../sketch/placement'
 import { isReservedReference } from '../../sketch/refs'
 import type { IdSource } from '../../sketch/recipes'
 import type {
@@ -49,7 +50,7 @@ import type {
   SketchSession,
 } from '../../state/store'
 import { cameraAfterSketch, type Camera, type Vector3 } from '../../viewport/camera'
-import { addScaled, cross } from '../../viewport/math'
+import type { ViewportHandle } from '../../viewport/controller'
 import type { App } from '../createApp'
 import { cancelCommandImplicitly } from './command'
 import { coreRedo, coreUndo } from './document'
@@ -265,6 +266,20 @@ function sketchExtent(
   return { min: [Math.min(...xs), Math.min(...ys)], max: [Math.max(...xs), Math.max(...ys)] }
 }
 
+/** Zooms the view to a box in sketch coordinates, from `min` to `max`, with the sketch frame margin. */
+function zoomToSketchBox(
+  viewport: ViewportHandle,
+  placement: Placement,
+  min: Vector2,
+  max: Vector2,
+): void {
+  const corners: Vector2[] = [min, [max[0], min[1]], [min[0], max[1]], max]
+  const bounds = worldBounds(placement, corners)
+  if (bounds !== null) {
+    viewport.zoomToBounds(bounds, SKETCH_FRAME_MARGIN)
+  }
+}
+
 /** Whether a sketch's constraints refer to its origin or an axis (sketch.md's reserved names). */
 function refersToOrigin(constraints: readonly SketchConstraint[]): boolean {
   return constraints.some((constraint) =>
@@ -281,25 +296,13 @@ function lookAtSketch(app: App, sketchId: string, solution: SketchSolution): voi
   if (viewport === null) {
     return
   }
-  const { origin, x_axis: xAxis, normal } = solution.placement
-  const yAxis = cross(normal, xAxis)
-  viewport.lookAlong(normal, yAxis, origin)
+  const { placement } = solution
+  viewport.lookAlong(placement.normal, placementYAxis(placement), placement.origin)
   const constraints = storedSketchParams(app.store.getState(), sketchId)?.constraints ?? []
   const extent = sketchExtent(solution, refersToOrigin(constraints))
-  if (extent === null) {
-    return
+  if (extent !== null) {
+    zoomToSketchBox(viewport, placement, extent.min, extent.max)
   }
-  const corners: Vector3[] = [
-    [extent.min[0], extent.min[1]],
-    [extent.max[0], extent.min[1]],
-    [extent.min[0], extent.max[1]],
-    [extent.max[0], extent.max[1]],
-  ].map(([x, y]) => addScaled(addScaled(origin, xAxis, x ?? 0), yAxis, y ?? 0))
-  const along = (axis: 0 | 1 | 2, pick: (...values: number[]) => number): number =>
-    pick(...corners.map((corner) => corner[axis]))
-  const min: [number, number, number] = [along(0, Math.min), along(1, Math.min), along(2, Math.min)]
-  const max: [number, number, number] = [along(0, Math.max), along(1, Math.max), along(2, Math.max)]
-  viewport.zoomToBounds({ min, max }, SKETCH_FRAME_MARGIN)
 }
 
 /**
@@ -854,16 +857,7 @@ function frameSketchPoints(app: App, solution: SketchSolution, points: readonly 
     extent === null ? 0 : PROBLEM_FRAME_SHARE * (extent.max[axis] - extent.min[axis])
   const [left, right] = grownRange(points, 0, least(0))
   const [bottom, top] = grownRange(points, 1, least(1))
-  const corners: Vector2[] = [
-    [left, bottom],
-    [right, bottom],
-    [left, top],
-    [right, top],
-  ]
-  const bounds = worldBounds(solution.placement, corners, 0)
-  if (bounds !== null) {
-    viewport.zoomToBounds(bounds, SKETCH_FRAME_MARGIN)
-  }
+  zoomToSketchBox(viewport, solution.placement, [left, bottom], [right, top])
 }
 
 /** Frames a profile issue of the edited sketch in the view (3.16.8 "Show"). */

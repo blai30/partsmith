@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import type { Diagnostic, ProfileFinding } from '../generated/protocol'
-import { lineEntity, solutionFor } from './fixtures.testing'
+import type { ProfileFinding } from '../generated/protocol'
+import {
+  findingDiagnostic,
+  NC01_GAP,
+  NC01_LINES,
+  NOT_SOLVED_MESSAGE,
+  solutionFor,
+} from './fixtures.testing'
 import {
   findingMessage,
-  findingPoints,
   framedPoints,
   issueRings,
   openEnds,
@@ -28,11 +33,6 @@ const CROSSING: ProfileFinding = {
 }
 const EMPTY: ProfileFinding = { type: 'zero_length', entity: 'e-5' }
 
-/** A finding message as the core renders it for the finding at `index` (engine.md 3.6). */
-function findingDiagnostic(index: number, code: string, message: string): Diagnostic {
-  return { severity: 'warning', code, message, field: `/profile_findings/${String(index)}` }
-}
-
 describe('profile findings', () => {
   it('rings every finding but zero-length curves, where the finding is', () => {
     expect(
@@ -45,21 +45,15 @@ describe('profile findings', () => {
   })
 
   it('names the points a finding is about', () => {
-    expect(findingPoints(OVERLAP)).toEqual([
+    expect(framedPoints(solutionFor([]), OVERLAP)).toEqual([
       [0, 0],
       [4, 2],
     ])
-    expect(findingPoints(EMPTY)).toEqual([])
+    expect(framedPoints(solutionFor([]), EMPTY)).toEqual([])
   })
 })
 
 describe('findingMessage (2.14)', () => {
-  const SOLVE_ISSUE: Diagnostic = {
-    severity: 'error',
-    code: 'sketch_not_solved',
-    message:
-      "'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.",
-  }
   const FIRST = findingDiagnostic(
     0,
     'open_endpoint',
@@ -74,14 +68,14 @@ describe('findingMessage (2.14)', () => {
   it("returns the core's message whose field is the finding's position, after the solve issues", () => {
     const solution = solutionFor([], {
       profile_findings: [OPEN, OVERLAP],
-      messages: [SOLVE_ISSUE, FIRST, SECOND],
+      messages: [NOT_SOLVED_MESSAGE, FIRST, SECOND],
     })
     expect(findingMessage(solution, 0)).toEqual(FIRST)
     expect(findingMessage(solution, 1)).toEqual(SECOND)
   })
 
   it('is null for a finding the solution has no message for', () => {
-    const solution = solutionFor([], { profile_findings: [OPEN], messages: [SOLVE_ISSUE] })
+    const solution = solutionFor([], { profile_findings: [OPEN], messages: [NOT_SOLVED_MESSAGE] })
     expect(findingMessage(solution, 0)).toBeNull()
     expect(findingMessage(solution, 3)).toBeNull()
   })
@@ -91,18 +85,8 @@ function open(point: [number, number]): ProfileFinding {
   return { type: 'open_endpoint', entity: 'e-1', point }
 }
 
-// The 0.3 mm gap of newcomer error corpus NC01: one finding for the end of e-4 at (0, 0.3), paired
-// with the start of e-1 at (0, 0) (sketch.md 4.3).
-const GAP_ENTITIES = [lineEntity('e-1', [0, 0], [80, 0]), lineEntity('e-4', [0, 50], [0, 0.3])]
-const GAP: ProfileFinding = {
-  type: 'open_endpoint',
-  entity: 'e-4',
-  point: [0, 0.3],
-  connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
-}
-
 describe('paired open ends (2.14, 3.16.2, U-140)', () => {
-  const solution = solutionFor(GAP_ENTITIES, { profile_findings: [GAP] })
+  const solution = solutionFor(NC01_LINES, { profile_findings: [NC01_GAP] })
 
   it('U-140 counts a finding with connect as two open ends', () => {
     expect(openEnds(solution)).toBe(2)
@@ -111,7 +95,7 @@ describe('paired open ends (2.14, 3.16.2, U-140)', () => {
   })
 
   it('frames both ends of a finding with connect, and one end without (3.16.8)', () => {
-    expect(framedPoints(solution, GAP)).toEqual([
+    expect(framedPoints(solution, NC01_GAP)).toEqual([
       [0, 0.3],
       [0, 0],
     ])
@@ -133,7 +117,7 @@ describe('paired open ends (2.14, 3.16.2, U-140)', () => {
       entities: ['e-1', 'e-4'],
       point: [1, 1],
     }
-    const mixed = solutionFor(GAP_ENTITIES, { profile_findings: [GAP, crossing] })
+    const mixed = solutionFor(NC01_LINES, { profile_findings: [NC01_GAP, crossing] })
 
     expect(outlineCount(mixed)).toBe(2)
     expect(outlineProblems(mixed)).toBe('2 outline problems')

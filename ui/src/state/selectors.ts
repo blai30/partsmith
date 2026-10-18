@@ -1,6 +1,6 @@
 import { featureLabel } from '../core/labels'
 import { activeFeatures, sketchRecord } from '../core/recipe'
-import type { FeatureRecord, FixAction } from '../generated/protocol'
+import type { FeatureRecord, FixAction, Units } from '../generated/protocol'
 import { pointsInto } from '../inspector/status'
 import { MESSAGES } from '../messages'
 import { isCheckHidden } from '../print/checks'
@@ -34,6 +34,11 @@ export function memoized<Inputs extends unknown[], Result>(
     last = { inputs, result }
     return result
   }
+}
+
+/** The document's units, which its bare numbers take and values show in, or mm without a document. */
+export function selectDocumentUnits(state: AppState): Units {
+  return state.document?.recipe.units ?? 'mm'
 }
 
 /** The display label of a feature (features.md 3.12), or its id when there is no document. */

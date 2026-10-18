@@ -53,7 +53,7 @@ export const MESSAGES = {
     `Partsmith kept unsaved changes to ${name} from ${time}.`,
   /** `count` is the number of other entries still waiting to be offered (3.19). */
   recovered_more: (name: string, time: string, count: number) =>
-    `Partsmith kept unsaved changes to ${name} from ${time}, and to ${String(count)} other ${count === 1 ? 'document' : 'documents'}.`,
+    `Partsmith kept unsaved changes to ${name} from ${time}, and to ${counted(count, 'other document')}.`,
   nothing_to_export: () => 'There is no visible body with geometry to export.',
   exported: (file: string) => `Exported ${file}.`,
   /** `failed` is the text of `export_failed_feature` or `export_failed_features`. */
@@ -146,7 +146,7 @@ export const MESSAGES = {
   cause_ghost: () => 'Before this change',
   /** `openEnds` counts the open ends of the sketch's outline (`openEnds`, 2.14). */
   needs_closed_shape: (sketch: string, openEnds: number) =>
-    `'${sketch}' has no closed shape: ${openEnds === 1 ? '1 end is' : `${String(openEnds)} ends are`} not connected.`,
+    `'${sketch}' has no closed shape: ${counted(openEnds, 'end')} ${openEnds === 1 ? 'is' : 'are'} not connected.`,
   reattach_prompt: (label: string) => `Pick a plane or a flat face for '${label}'`,
   attach_label: (label: string) => `Attach '${label}'`,
   attach_after: (label: string, feature: string) =>

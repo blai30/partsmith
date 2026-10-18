@@ -216,7 +216,8 @@ function MenuList({
       openSubmenu(index, source !== 'pointer')
       return
     }
-    // Space checks a checkbox or radio item without closing the menu (WAI-ARIA menu pattern).
+    // Space checks a checkbox or radio item without closing the menu (WAI-ARIA menu pattern), and
+    // a checkbox that `keepsOpen` stays open however it is chosen (3.21 Keep sizes).
     if ((source === 'space' && entry.kind !== 'item') || keepsOpen(entry)) {
       entry.onSelect()
       return

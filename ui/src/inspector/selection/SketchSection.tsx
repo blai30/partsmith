@@ -25,6 +25,7 @@ import {
   isDimension,
   type ConstraintType,
 } from '../../sketch/constraints'
+import { ReferenceOffer } from '../../sketch/ReferenceOffer'
 import type { AppState, DocumentState, SelectionItem } from '../../state/store'
 import { entitySize, entitySizeDimension, type EntitySize } from '../entity-size'
 import { InspectorCommandButton, Title } from './parts'
@@ -161,27 +162,17 @@ function SizeField({
         }}
       />
       {problem?.kind === 'over_constrained' ? (
-        <div role="alert" className="flex flex-col gap-2 text-sm">
+        <ReferenceOffer
+          onAddReference={() => {
+            commit(text, true)
+          }}
+          onCancel={() => {
+            setText(size.text)
+            setProblem(null)
+          }}
+        >
           <p>{MESSAGES.dimension_over_constrained()}</p>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="primary"
-              onClick={() => {
-                commit(text, true)
-              }}
-            >
-              Add reference
-            </Button>
-            <Button
-              onClick={() => {
-                setText(size.text)
-                setProblem(null)
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
+        </ReferenceOffer>
       ) : null}
     </div>
   )

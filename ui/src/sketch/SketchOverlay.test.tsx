@@ -8,6 +8,8 @@ import { COLOR_CLASSES } from '../theme/roles'
 import {
   circleEntity,
   lineEntity,
+  NC01_GAP,
+  NOT_SOLVED_MESSAGE,
   planePickingSession,
   SKETCH_ID,
   solutionFor,
@@ -43,13 +45,7 @@ const BASE = lineEntity('e-1', [0, 0], [20, 0])
 const HORIZONTAL: SketchConstraint = { id: 'c-1', type: 'horizontal', line: 'e-1' }
 const LENGTH: SketchConstraint = { id: 'c-2', type: 'distance', line: 'e-1', expr: '20' }
 
-// Messages the core renders into a probe's solution (sketch.md 4.2, engine.md 3.6).
-const NOT_SOLVED: Diagnostic = {
-  severity: 'error',
-  code: 'sketch_not_solved',
-  message:
-    "'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.",
-}
+// A conflict message the core renders into a probe's solution (sketch.md 4.2, engine.md 3.6).
 const CONFLICT: Diagnostic = {
   severity: 'error',
   code: 'sketch_conflict',
@@ -309,14 +305,7 @@ describe('SketchOverlay annotations (3.16.2)', () => {
     const harness = sketchHarness({
       entities: lines,
       solution: solutionFor(lines, {
-        profile_findings: [
-          {
-            type: 'open_endpoint',
-            entity: 'e-4',
-            point: [0, 0.3],
-            connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
-          },
-        ],
+        profile_findings: [NC01_GAP],
       }),
     })
     renderOverlay(harness)
@@ -695,7 +684,9 @@ describe('SketchOverlay dimension editor (3.16.7)', () => {
       solve: (candidate) =>
         solutionFor(
           candidate.entities ?? [],
-          drivenTo(candidate.constraints, '80') ? { failed: true, messages: [NOT_SOLVED] } : {},
+          drivenTo(candidate.constraints, '80')
+            ? { failed: true, messages: [NOT_SOLVED_MESSAGE] }
+            : {},
         ),
     })
     renderOverlay(harness)
@@ -707,7 +698,7 @@ describe('SketchOverlay dimension editor (3.16.7)', () => {
     await user.keyboard('{Enter}')
     await act(settleCommits)
     const alert = within(screen.getByTestId('dimension-editor')).getByRole('alert')
-    expect(alert).toHaveTextContent(NOT_SOLVED.message)
+    expect(alert).toHaveTextContent(NOT_SOLVED_MESSAGE.message)
     expect(within(alert).getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     expect(input).toHaveValue('80')
     expect(harness.applied).toEqual([])

@@ -41,6 +41,7 @@ import {
   r16Fix,
 } from '../test/fakes/repairs'
 import { settle } from '../test/fakes/settle'
+import { inspectorField } from './inspector.testing'
 
 // Fixes inside a feature command (ui.md 3.7, 4.2; U-128, U-87, U-107 and U-145): an apply action
 // of the banner joins the transaction through apply_fix, waits while the preview is pending, and
@@ -88,16 +89,6 @@ function inspector(): HTMLElement {
 
 function banner(): HTMLElement {
   return within(inspector()).getByTestId('inspector-error')
-}
-
-function field(path: string): HTMLElement {
-  const found = within(inspector())
-    .getAllByTestId('inspector-field')
-    .find((element) => element.getAttribute('data-path') === path)
-  if (found === undefined) {
-    throw new Error(`No inspector field ${path}`)
-  }
-  return found
 }
 
 /** The fix A0 of `R16-STATUS`: 'Fillet 1' takes C1. */
@@ -266,7 +257,7 @@ describe('a fix of a value in a command (3.7, U-87)', () => {
       SMALLER_FIX,
     ])
     expect(activeCommand(fake.app).params['radius']).toBe('2.3 mm')
-    expect(within(field('radius')).getByRole('combobox')).toHaveFocus()
+    expect(within(inspectorField('radius')).getByRole('combobox')).toHaveFocus()
   })
 })
 
@@ -331,7 +322,7 @@ describe('fixes during commands (3.7, U-107 and U-145)', () => {
       REVERSE_FIX,
     ])
     expect(activeCommand(fake.app).params['reverse']).toBe(true)
-    expect(within(field('extent.expr')).getByRole('combobox')).toHaveFocus()
+    expect(within(inspectorField('extent.expr')).getByRole('combobox')).toHaveFocus()
   })
 
   it('U-145 Mod+Z after the fix sets Reverse back and previews again', async () => {

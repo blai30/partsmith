@@ -41,9 +41,14 @@ describe('sketch and model space', () => {
     expect(worldToSketch(FRONT_PLANE, [2, 7, 8])).toEqual([2, 3])
   })
 
-  it('boxes padded sketch points in model space', () => {
-    expect(worldBounds(FRONT_PLANE, [[0, 0]], 1)).toEqual({ min: [-1, 0, 4], max: [1, 0, 6] })
-    expect(worldBounds(FRONT_PLANE, [], 1)).toBeNull()
+  it('boxes sketch points in model space', () => {
+    expect(
+      worldBounds(FRONT_PLANE, [
+        [-1, -1],
+        [1, 1],
+      ]),
+    ).toEqual({ min: [-1, 0, 4], max: [1, 0, 6] })
+    expect(worldBounds(FRONT_PLANE, [])).toBeNull()
   })
 })
 

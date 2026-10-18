@@ -21,6 +21,7 @@ import { PanelHeader } from '../layout/PanelHeader'
 import { useUiRequest } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { SeverityIcon } from '../print/SeverityIcon'
+import { selectDocumentUnits } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
 
 // The Parameters panel (ui.md 3.11): one row per parameter with its name, expression, value and
@@ -334,7 +335,7 @@ export function ParametersPanel() {
   const titleId = useId()
   const parameters = useAppState((state) => state.document?.recipe.parameters)
   const values = useAppState((state) => state.document?.parameterValues)
-  const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
+  const units = useAppState(selectDocumentUnits)
   const commandTitle = useAppState((state) => state.command?.title ?? null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const body = useRef<HTMLDivElement>(null)

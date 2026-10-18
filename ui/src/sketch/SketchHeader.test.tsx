@@ -4,13 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import { installPopoverPolyfill, isPopoverOpen } from '../components/popover-polyfill.testing'
 import type { CoreApi } from '../core/api'
-import type {
-  Diagnostic,
-  FixRef,
-  ProfileFinding,
-  SketchEntity,
-  SketchSolution,
-} from '../generated/protocol'
+import type { FixRef, ProfileFinding, SketchEntity, SketchSolution } from '../generated/protocol'
 import { createAppStore, type AppState, type SketchSession } from '../state/store'
 import { createTestApp } from '../test/fakes/test-app'
 import {
@@ -18,7 +12,10 @@ import {
   circleEntity,
   createFakeCore,
   documentState,
+  findingDiagnostic,
   lineEntity,
+  NC01_GAP,
+  NC01_LINES,
   sketchRecord,
   sketchSession,
   solutionFor,
@@ -32,28 +29,14 @@ import { settleCommits, sketchHarness } from './view.testing'
 const LINE = lineEntity('e-1', [0, 0], [10, 0])
 
 // The core's message of the open end of LINE (sketch.md 4.3, engine.md 3.6).
-const OPEN_END_MESSAGE: Diagnostic = {
-  severity: 'warning',
-  code: 'open_endpoint',
-  message:
-    'The end of the line from (0, 0) to (10, 0) at (10, 0) is not connected to other geometry.',
-  field: '/profile_findings/0',
-}
+const OPEN_END_MESSAGE = findingDiagnostic(
+  0,
+  'open_endpoint',
+  'The end of the line from (0, 0) to (10, 0) at (10, 0) is not connected to other geometry.',
+)
 
-// The 0.3 mm gap of newcomer error corpus NC01, its one finding, and the finding's message with
-// its fix "Connect the ends" as the core offers it for the stored sketch.
-const GAP_LINES = [
-  lineEntity('e-1', [0, 0], [80, 0]),
-  lineEntity('e-2', [80, 0], [80, 50]),
-  lineEntity('e-3', [80, 50], [0, 50]),
-  lineEntity('e-4', [0, 50], [0, 0.3]),
-]
-const GAP: ProfileFinding = {
-  type: 'open_endpoint',
-  entity: 'e-4',
-  point: [0, 0.3],
-  connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
-}
+// The message of the NC01 gap with its fix "Connect the ends" as the core offers it for the
+// stored sketch.
 const CONNECT_FIX: FixRef = {
   feature: SKETCH_ID,
   code: 'open_endpoint',
@@ -62,14 +45,12 @@ const CONNECT_FIX: FixRef = {
   index: 0,
   revision: 1,
 }
-const GAP_MESSAGE: Diagnostic = {
-  severity: 'warning',
-  code: 'open_endpoint',
-  message:
-    'The end of the line from (0, 50) to (0, 0.3) at (0, 0.3) is not connected to other geometry.',
-  field: '/profile_findings/0',
-  actions: [{ label: 'Connect the ends (0.3 mm apart)', run: { kind: 'apply', fix: CONNECT_FIX } }],
-}
+const GAP_MESSAGE = findingDiagnostic(
+  0,
+  'open_endpoint',
+  'The end of the line from (0, 50) to (0, 0.3) at (0, 0.3) is not connected to other geometry.',
+  [{ label: 'Connect the ends (0.3 mm apart)', run: { kind: 'apply', fix: CONNECT_FIX } }],
+)
 
 /** Renders the header in sketch mode on f-sk1 with these entities and this solution. */
 function renderHeader(entities: SketchEntity[], solution: SketchSolution): HTMLElement {
@@ -231,14 +212,10 @@ describe('SketchHeader outline (3.16.8)', () => {
   })
 
   it('counts the 0.3 mm gap of NC01, one finding with connect, as " · 2 open ends" and data-outline 2', () => {
-    const lines = [lineEntity('e-1', [0, 0], [80, 0]), lineEntity('e-4', [0, 50], [0, 0.3])]
-    const gap: ProfileFinding = {
-      type: 'open_endpoint',
-      entity: 'e-4',
-      point: [0, 0.3],
-      connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
-    }
-    const header = renderHeader(lines, solutionFor(lines, { profile_findings: [gap] }))
+    const header = renderHeader(
+      NC01_LINES,
+      solutionFor(NC01_LINES, { profile_findings: [NC01_GAP] }),
+    )
     expect(header).toHaveAttribute('data-outline', '2')
     expect(header).toHaveTextContent('· 2 open ends')
   })
@@ -506,9 +483,9 @@ describe('sketch problems actions (3.16.8)', () => {
   it("U-140 lists each finding with the core's message and its actions, and an action calls applyFix", async () => {
     const applyFix = vi.fn<CoreApi['applyFix']>().mockResolvedValue(2)
     const harness = sketchHarness({
-      entities: GAP_LINES,
-      solution: solutionFor(GAP_LINES, {
-        profile_findings: [GAP],
+      entities: NC01_LINES,
+      solution: solutionFor(NC01_LINES, {
+        profile_findings: [NC01_GAP],
         messages: [GAP_MESSAGE],
       }),
       core: { applyFix },

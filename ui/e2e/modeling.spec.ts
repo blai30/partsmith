@@ -13,6 +13,7 @@ import {
   inspector,
   inspectorField,
   inspectorInput,
+  modelTool,
   notification,
   openApp,
   originRow,
@@ -23,6 +24,7 @@ import { openProblems } from './support/documents'
 import {
   chooseOption,
   dragTo,
+  expectBodySize,
   expectPreviewShown,
   fillInspector,
   runFromGroup,
@@ -38,13 +40,6 @@ import {
 async function clickCanvas(page: Page, dxInHeights: number, dyInHeights: number): Promise<void> {
   const box = await canvas(page)
   await page.mouse.click(box.cx + dxInHeights * box.H, box.cy + dyInHeights * box.H)
-}
-
-/** Selects a body by its browser row and expects its size. */
-async function expectBodySize(page: Page, name: string, size: string): Promise<void> {
-  await bodyRow(page, name).click()
-  await expect(page.getByTestId('selection-title')).toHaveText(name)
-  await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', size)
 }
 
 /** Expects the timeline to hold items with these labels, in order. */
@@ -897,9 +892,7 @@ test.describe('one interface for everyone', () => {
 
   test('E-66 disabled feature commands say what is missing', async ({ page }) => {
     await openApp(page)
-    const extrude = page
-      .getByRole('toolbar', { name: 'Model tools' })
-      .getByRole('button', { name: 'Extrude', exact: true })
+    const extrude = modelTool(page, 'Extrude')
     await expect(extrude).toHaveAttribute('aria-disabled', 'true')
     // Playwright waits for aria-disabled controls to become enabled; this click is the point.
     await extrude.click({ force: true })
@@ -1142,10 +1135,7 @@ test.describe('one interface for everyone', () => {
   test('E-84 descriptions and field help on hover, and in the palette footer', async ({ page }) => {
     await openApp(page)
     await dropFile(page, 'cube.ptsm')
-    await page
-      .getByRole('toolbar', { name: 'Model tools' })
-      .getByRole('button', { name: 'Shell', exact: true })
-      .hover()
+    await modelTool(page, 'Shell').hover()
     await expect(page.getByRole('tooltip').filter({ hasText: 'Hollows out a body' })).toBeVisible()
     await page.keyboard.press('e')
     await expect(inspector(page)).toHaveAccessibleName('Extrude')

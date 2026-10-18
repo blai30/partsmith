@@ -1,6 +1,6 @@
 import { ArrowUpFromLine, Layers2, PencilRuler, Shapes } from 'lucide-react'
 import { describe, expect, it } from 'vitest'
-import type { CatalogEntry, Document, ProfileFinding, SketchEntity } from '../generated/protocol'
+import type { CatalogEntry, ProfileFinding, SketchEntity } from '../generated/protocol'
 import { screen, within } from '@testing-library/react'
 import { editFeature } from '../app/actions/command'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
@@ -15,7 +15,11 @@ import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-ap
 import { MESSAGES } from '../messages'
 import {
   lineEntity,
+  NC01_GAP,
+  NC01_LINES,
   pointEntity,
+  recipeWith,
+  sketchRecord,
   sketchSession,
   solutionFor,
   solvedSketch,
@@ -373,21 +377,6 @@ describe('availability reasons (2.10, U-98)', () => {
   })
 })
 
-// Newcomer error corpus NC01 (ui.md 2.10, U-140): BLOCK's outline with a 0.3 mm gap at the origin,
-// whose one open_endpoint finding stands for two open ends.
-const NC01_LINES = [
-  lineEntity('e-1', [0, 0], [80, 0]),
-  lineEntity('e-2', [80, 0], [80, 50]),
-  lineEntity('e-3', [80, 50], [0, 50]),
-  lineEntity('e-4', [0, 50], [0, 0.3]),
-]
-const NC01_GAP: ProfileFinding = {
-  type: 'open_endpoint',
-  entity: 'e-4',
-  point: [0, 0.3],
-  connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
-}
-
 /** An unpaired open end of `entity` at `point`. */
 function openEnd(entity: string, point: [number, number]): ProfileFinding {
   return { type: 'open_endpoint', entity, point }
@@ -395,18 +384,7 @@ function openEnd(entity: string, point: [number, number]): ProfileFinding {
 
 /** A sketch record on XY with these entities. */
 function sketchOf(id: string, entities: readonly SketchEntity[]): FeatureRecord {
-  return {
-    id,
-    type: 'sketch',
-    plane: { kind: 'origin', plane: 'XY' },
-    entities: [...entities],
-    constraints: [],
-  }
-}
-
-/** A recipe of these sketches and nothing else. */
-function sketchesRecipe(sketches: readonly FeatureRecord[]): Document {
-  return { ...emptyDocument(), features: [...sketches] }
+  return { ...sketchRecord({ entities: [...entities] }), id }
 }
 
 /** A document whose sketches have no region and these findings, by sketch id. */
@@ -417,7 +395,7 @@ function openSketches(
     findings: readonly ProfileFinding[],
   ])[],
 ): DocumentState {
-  return documentState(sketchesRecipe(sketches.map(([id, entities]) => sketchOf(id, entities))), {
+  return documentState(recipeWith(sketches.map(([id, entities]) => sketchOf(id, entities))), {
     sketches: Object.fromEntries(
       sketches.map(([id, entities, findings]) => [
         id,
@@ -553,7 +531,7 @@ describe('an open outline names its sketch (2.10, U-140)', () => {
     }
     const closed: DocumentState = {
       ...NC01_STATE,
-      recipe: sketchesRecipe([...featuresOf(NC01_STATE.recipe), { ...rectangle, id: 'f-sk2' }]),
+      recipe: recipeWith([...featuresOf(NC01_STATE.recipe), { ...rectangle, id: 'f-sk2' }]),
       sketches: {
         ...NC01_STATE.sketches,
         'f-sk2': solvedSketch({ ...RECT_SKETCH_SOLUTION, feature: 'f-sk2' }),

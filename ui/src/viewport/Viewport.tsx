@@ -15,6 +15,7 @@ import { MESSAGES } from '../messages'
 import { requestUi } from '../layout/requests'
 import { markTiming, TIMING_NAMES } from '../performance/marks'
 import { focusedFindingPoint } from '../print/health'
+import { selectDocumentUnits } from '../state/selectors'
 import type { AppState, SectionState, ViewState } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
 import { AXIS_ROLES, COLOR_CLASSES } from '../theme/roles'
@@ -51,7 +52,7 @@ export type ViewportProps = {
 /** The offset text a section starts with: the visible center along the plane normal (3.15). */
 function defaultOffsetText(state: AppState, scene: Scene, plane: SectionPlane): string {
   const offset = defaultSectionOffset(plane, scene.visibleBounds(state))
-  return formatNumber(offset, 'length', state.document?.recipe.units ?? 'mm')
+  return formatNumber(offset, 'length', selectDocumentUnits(state))
 }
 
 function setSection(app: App, change: (section: SectionState) => SectionState | null): void {
@@ -68,9 +69,7 @@ function setView(app: App, change: Partial<ViewState>): void {
 /** The drawn grid's minor spacing in the document unit, or empty when no grid is drawn (3.12). */
 function gridSpacingText(state: AppState): string {
   const spacing = state.view.gridSpacing
-  return spacing === null
-    ? ''
-    : formatNumber(spacing, 'length', state.document?.recipe.units ?? 'mm')
+  return spacing === null ? '' : formatNumber(spacing, 'length', selectDocumentUnits(state))
 }
 
 const AXIS_LABELS = ['X', 'Y', 'Z'] as const

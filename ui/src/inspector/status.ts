@@ -84,7 +84,7 @@ const LIMIT_CODES: ReadonlySet<string> = new Set([
  */
 export function fieldLimit(
   message: Diagnostic | undefined,
-  text: unknown,
+  value: unknown,
   units: Units,
 ): string | null {
   if (message === undefined || !LIMIT_CODES.has(message.code)) {
@@ -94,6 +94,6 @@ export function fieldLimit(
   if (suggestion === null) {
     return null
   }
-  const keepsSize = units !== 'mm' && typeof text === 'string' && isNumberWithoutUnit(text)
+  const keepsSize = units !== 'mm' && typeof value === 'string' && isNumberWithoutUnit(value)
   return keepsSize ? null : suggestion
 }

@@ -2,6 +2,7 @@ import type { App } from '../app/createApp'
 import { createLatestOnly, type LatestOnly } from '../core/queue'
 import { formatNumber, formatQuantity, MILLIMETERS_PER_UNIT } from '../expression/format'
 import type { DocHandle, Units } from '../generated/protocol'
+import { selectDocumentUnits } from '../state/selectors'
 import type { AppState, AppStore, SelectionItem } from '../state/store'
 
 // Measurements of the selection (ui.md 3.8): selecting something measures it, with no tool and no
@@ -117,7 +118,7 @@ export function selectionMeasurements(
   items: readonly SelectionItem[],
 ): readonly MeasureRow[] {
   const state = app.store.getState()
-  const units = state.document?.recipe.units ?? 'mm'
+  const units = selectDocumentUnits(state)
   const [only] = items
   if (items.length !== 1 || only === undefined) {
     return []
