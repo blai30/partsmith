@@ -176,21 +176,21 @@ impl Geometry {
 
     /// True when every coordinate, radius and angle is finite.
     pub(crate) fn is_finite(&self) -> bool {
-        self.numbers().iter().all(|value| value.is_finite())
-    }
-
-    /// Every number of the geometry, for finiteness checks.
-    fn numbers(&self) -> Vec<f64> {
         match self {
-            Geometry::Point { position } => position.to_vec(),
-            Geometry::Line { start, end } => vec![start[0], start[1], end[0], end[1]],
-            Geometry::Circle { center, radius } => vec![center[0], center[1], *radius],
+            Geometry::Point { position } => position.iter().all(|value| value.is_finite()),
+            Geometry::Line { start, end } => start.iter().chain(end).all(|value| value.is_finite()),
+            Geometry::Circle { center, radius } => {
+                center.iter().chain([radius]).all(|value| value.is_finite())
+            }
             Geometry::Arc {
                 center,
                 radius,
                 start_angle,
                 end_angle,
-            } => vec![center[0], center[1], *radius, *start_angle, *end_angle],
+            } => center
+                .iter()
+                .chain([radius, start_angle, end_angle])
+                .all(|value| value.is_finite()),
         }
     }
 

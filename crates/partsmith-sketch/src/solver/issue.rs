@@ -31,17 +31,17 @@ pub enum SolveIssue {
 impl SolveIssue {
     /// The message (section 4.2). A conflict lists its constraints newest first, in reverse document order.
     pub fn render(&self, context: &MessageContext<'_>) -> String {
-        let sketch = context.label;
+        let label = context.label;
         match self {
             SolveIssue::Conflicting { constraints } => {
                 let newest_first: Vec<&Id> = constraints.iter().rev().collect();
                 match context.titles(&newest_first).split_first() {
-                    Some((only, [])) => format!("In '{sketch}', {only} cannot hold."),
+                    Some((only, [])) => format!("In '{label}', {only} cannot hold."),
                     Some((first, others)) => format!(
-                        "In '{sketch}', {first} cannot hold together with {}.",
+                        "In '{label}', {first} cannot hold together with {}.",
                         joined(others)
                     ),
-                    None => format!("In '{sketch}', the constraints cannot all hold."),
+                    None => format!("In '{label}', the constraints cannot all hold."),
                 }
             }
             SolveIssue::Redundant {
@@ -52,11 +52,11 @@ impl SolveIssue {
                 let title = context.title_or(constraint, Some(type_name));
                 let verb = if *dimension { "set" } else { "hold" };
                 format!(
-                    "In '{sketch}', {title} is not needed: the other constraints already {verb} it."
+                    "In '{label}', {title} is not needed: the other constraints already {verb} it."
                 )
             }
             SolveIssue::NotConverged => format!(
-                "'{sketch}' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape."
+                "'{label}' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape."
             ),
         }
     }

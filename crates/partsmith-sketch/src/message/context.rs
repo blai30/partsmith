@@ -35,7 +35,7 @@ pub struct MessageContext<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DimensionEntities {
     /// `Distance 40 mm`.
-    Left,
+    Omitted,
     /// `Distance 40 mm on the line from (0, 0) to (40, 0)`.
     Named,
 }
@@ -54,7 +54,7 @@ impl MessageContext<'_> {
     pub fn title(&self, constraint: &Id) -> Option<String> {
         self.sketch
             .constraint(constraint)
-            .map(|found| self.title_of(found, DimensionEntities::Left, None))
+            .map(|found| self.title_of(found, DimensionEntities::Omitted, None))
     }
 
     /// The words for an entity, or for one this context does not have: its kind when it is known ("a circle of
@@ -112,7 +112,7 @@ impl MessageContext<'_> {
         left_out: &str,
     ) -> String {
         match self.sketch.constraint(constraint) {
-            Some(found) => self.title_of(found, DimensionEntities::Left, Some(left_out)),
+            Some(found) => self.title_of(found, DimensionEntities::Omitted, Some(left_out)),
             None => type_words(type_name),
         }
     }

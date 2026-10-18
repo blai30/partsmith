@@ -1,7 +1,7 @@
 //! Bare numbers and promoted names: what keeps a size when the document units change
 //! (expressions.md sections 3.17 and 3.19).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{BinaryOperator, Expr, ExprError, ExprNode, ExprNodeKind, Function, ParsedExpr, Unit};
 
@@ -15,20 +15,6 @@ impl ParsedExpr {
             return None;
         }
         plain_literal(&self.root).map(|number| number.span.end)
-    }
-
-    /// Each parameter name of the tree once, in first-use order, with true when every occurrence
-    /// of it stands in a promoting position (expressions.md section 3.19).
-    pub(crate) fn promotions(&self) -> Vec<(&str, bool)> {
-        let mut promotions: Vec<(&str, bool)> = Vec::new();
-        self.visit_parameters(&mut |name, promoting| match promotions
-            .iter_mut()
-            .find(|(seen, _)| *seen == name)
-        {
-            Some((_, promoted)) => *promoted &= promoting,
-            None => promotions.push((name, promoting)),
-        });
-        promotions
     }
 
     /// Calls `visit` with every occurrence of a parameter name, in source order, and whether it
@@ -55,9 +41,14 @@ impl Expr {
     /// The parameter names every occurrence of which stands where a plain value is promoted as a
     /// whole (expressions.md section 3.19).
     pub fn promoted_names(&self) -> Result<BTreeSet<String>, ExprError> {
-        Ok(self
-            .parse()?
-            .promotions()
+        let tree = self.parse()?;
+        // Whether every occurrence seen so far of each name is promoted.
+        let mut names: BTreeMap<&str, bool> = BTreeMap::new();
+        tree.visit_parameters(&mut |name, promoting| {
+            let promoted = names.entry(name).or_insert(true);
+            *promoted &= promoting;
+        });
+        Ok(names
             .into_iter()
             .filter(|&(_, promoted)| promoted)
             .map(|(name, _)| name.to_string())

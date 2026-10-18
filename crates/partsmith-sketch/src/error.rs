@@ -201,7 +201,7 @@ impl SketchError {
     /// The message (section 4.1).
     pub fn render(&self, context: &MessageContext<'_>) -> String {
         // The title of the constraint that starts the sentence.
-        let title_of = |constraint: &Id, type_name: Option<&str>| {
+        let sentence_title = |constraint: &Id, type_name: Option<&str>| {
             capitalized(&context.title_or(constraint, type_name))
         };
         match self {
@@ -221,7 +221,7 @@ impl SketchError {
             ),
             SketchError::UnknownEntity { constraint, .. } => format!(
                 "{} refers to geometry that is not in this sketch. Delete the constraint.",
-                title_of(constraint, None)
+                sentence_title(constraint, None)
             ),
             SketchError::ReservedMisuse {
                 constraint,
@@ -249,7 +249,7 @@ impl SketchError {
                 kind,
             } => format!(
                 "{} uses a point that {} does not have: {}.",
-                title_of(constraint, None),
+                sentence_title(constraint, None),
                 context.entity_or_kind(&point.entity, Some(*kind)),
                 points_of(*kind)
             ),
@@ -261,7 +261,7 @@ impl SketchError {
                 expected,
             } => format!(
                 "{} cannot use {}: it needs {expected}.",
-                title_of(constraint, Some(type_name)),
+                sentence_title(constraint, Some(type_name)),
                 context.entity_or_kind(entity, Some(*found))
             ),
             SketchError::SameEntity {
@@ -270,7 +270,7 @@ impl SketchError {
                 entity,
             } => format!(
                 "{} uses {} twice. Pick two different ones.",
-                title_of(constraint, Some(type_name)),
+                sentence_title(constraint, Some(type_name)),
                 context.entity_or_kind(entity, None)
             ),
             SketchError::SamePoint {
@@ -279,7 +279,7 @@ impl SketchError {
                 point,
             } => format!(
                 "{} uses {} twice. Pick two different ones.",
-                title_of(constraint, Some(type_name)),
+                sentence_title(constraint, Some(type_name)),
                 context.point_words(point)
             ),
             SketchError::PointOnOwnEntity {
@@ -289,7 +289,7 @@ impl SketchError {
                 ..
             } => format!(
                 "{} uses a point of {} itself. Pick a point of another entity.",
-                title_of(constraint, Some(type_name)),
+                sentence_title(constraint, Some(type_name)),
                 context.entity_or_kind(entity, None)
             ),
             SketchError::MissingValue {
@@ -301,7 +301,7 @@ impl SketchError {
                 type_name,
             } => format!(
                 "{} has no value it can use. Check its expression.",
-                title_of(constraint, Some(type_name))
+                sentence_title(constraint, Some(type_name))
             ),
             SketchError::ValueNotPositive {
                 type_name,
