@@ -37,6 +37,7 @@ import type {
 import { constraintTool } from '../../sketch/tools'
 import {
   editingSession,
+  selectDocumentUnits,
   selectFeatureLabel,
   selectReattachingSketch,
   selectSketchFaceLost,
@@ -705,7 +706,7 @@ function conflictList(app: App, sketchId: string | null, ids: readonly string[])
   const stored =
     sketchId === null ? new Map<string, SketchConstraint>() : storedConstraints(app, sketchId)
   const solution = sketchId === null ? null : solutionOf(app, sketchId)
-  const units = documentOf(app)?.recipe.units ?? 'mm'
+  const units = selectDocumentUnits(app.store.getState())
   return joinTitles(
     ids.map((id) => {
       const constraint = stored.get(id)
@@ -943,7 +944,7 @@ export async function addSketchShape(
       const added = change.add?.constraints.find(
         (constraint) => constraint.id === result.constraint,
       )
-      const units = documentOf(app)?.recipe.units ?? 'mm'
+      const units = selectDocumentUnits(app.store.getState())
       const solution = sketchId === null ? null : solutionOf(app, sketchId)
       const title = added === undefined ? label : constraintTitle(added, solution, units)
       showOverConstrained(app, sketchId, title, result)

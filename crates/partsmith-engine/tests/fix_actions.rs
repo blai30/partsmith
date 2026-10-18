@@ -281,9 +281,9 @@ fn t126_nc11_one_root_cause_offers_show_and_never_pick_downstream() {
 fn t126_a_count_that_is_not_whole_offers_the_whole_numbers_around_it() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &patterned_cube(&[], "2.5"));
+    let sent = open_text(&mut session, &patterned_cube(&[], "2.5"));
 
-    let error = message(&opened, "f-lp1", "not_whole_number");
+    let error = message(&sent, "f-lp1", "not_whole_number");
     assert_eq!(labels(&error), ["Use 2", "Use 3"]);
 }
 
@@ -291,12 +291,12 @@ fn t126_a_count_that_is_not_whole_offers_the_whole_numbers_around_it() {
 fn t126_a_field_that_holds_a_formula_is_replaced() {
     let mut session = session();
 
-    let opened = open_text(
+    let sent = open_text(
         &mut session,
         &patterned_cube(&[parameter("p-n", "n", "5")], "n / 2"),
     );
 
-    let error = message(&opened, "f-lp1", "not_whole_number");
+    let error = message(&sent, "f-lp1", "not_whole_number");
     assert_eq!(
         labels(&error),
         ["Replace n / 2 with 2", "Replace n / 2 with 3"]
@@ -307,9 +307,9 @@ fn t126_a_field_that_holds_a_formula_is_replaced() {
 fn t126_an_option_field_is_set_by_its_option_label() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &box_joining_nothing());
+    let sent = open_text(&mut session, &box_joining_nothing());
 
-    let error = message(&opened, "f-box1", "body_empty");
+    let error = message(&sent, "f-box1", "body_empty");
     assert_eq!(labels(&error), ["Set Operation to New body"]);
 }
 
@@ -560,9 +560,9 @@ fn solve_stored(session: &mut Session, doc: u64, feature: &str) -> Sent {
 fn t126_nc05_a_fillet_too_large_offers_the_largest_radius_that_works() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &nc05());
+    let sent = open_text(&mut session, &nc05());
 
-    let error = message(&opened, "f-fil1", "fillet_too_large");
+    let error = message(&sent, "f-fil1", "fillet_too_large");
     assert_eq!(labels(&error), ["Use 2.3 mm"]);
 }
 
@@ -570,9 +570,9 @@ fn t126_nc05_a_fillet_too_large_offers_the_largest_radius_that_works() {
 fn t126_a_too_large_radius_that_holds_a_formula_offers_to_replace_it_with_the_suggestion() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &fillet_with_a_formula_radius());
+    let sent = open_text(&mut session, &fillet_with_a_formula_radius());
 
-    let error = message(&opened, "f-fil1", "fillet_too_large");
+    let error = message(&sent, "f-fil1", "fillet_too_large");
     let suggestion = error["suggestion"]
         .as_str()
         .expect("a too large radius has a suggestion (test 107)");
@@ -586,9 +586,9 @@ fn t126_a_too_large_radius_that_holds_a_formula_offers_to_replace_it_with_the_su
 fn t126_nc03_a_cut_that_points_away_offers_turn_on_reverse() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &nc03());
+    let sent = open_text(&mut session, &nc03());
 
-    let warning = message(&opened, "f-ext2", "no_effect");
+    let warning = message(&sent, "f-ext2", "no_effect");
     assert_eq!(labels(&warning), ["Turn on Reverse"]);
 }
 
@@ -596,9 +596,9 @@ fn t126_nc03_a_cut_that_points_away_offers_turn_on_reverse() {
 fn t126_a_pattern_into_a_new_body_without_a_target_offers_join_then_pick() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &pattern_into_a_new_body_without_a_target());
+    let sent = open_text(&mut session, &pattern_into_a_new_body_without_a_target());
 
-    let error = message(&opened, "f-lp1", "target_required");
+    let error = message(&sent, "f-lp1", "target_required");
     assert_eq!(
         labels(&error),
         ["Set Operation to Join", "Pick a body again"]
@@ -609,9 +609,9 @@ fn t126_a_pattern_into_a_new_body_without_a_target_offers_join_then_pick() {
 fn t126_nc10_a_misspelled_parameter_offers_the_near_match() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &nc10());
+    let sent = open_text(&mut session, &nc10());
 
-    let error = message(&opened, "f-ext1", "expression");
+    let error = message(&sent, "f-ext1", "expression");
     assert_eq!(labels(&error), ["Replace hieght with height"]);
 }
 
@@ -619,9 +619,9 @@ fn t126_nc10_a_misspelled_parameter_offers_the_near_match() {
 fn t126_nc04_a_floating_join_offers_a_new_body_then_attach_naming_the_sketch() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &nc04());
+    let sent = open_text(&mut session, &nc04());
 
-    let warning = message(&opened, "f-ext2", "separate_solid");
+    let warning = message(&sent, "f-ext2", "separate_solid");
     assert_eq!(
         labels(&warning),
         [
@@ -653,9 +653,9 @@ fn t126_nc07_a_conflict_offers_delete_and_make_a_reference_per_constraint_newest
 fn t126_nc01_an_open_end_of_the_stored_sketch_offers_to_connect_the_ends() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &nc01());
+    let sent = open_text(&mut session, &nc01());
 
-    let finding = solution_message(opened.sketch_solution("f-sk1"), "open_endpoint");
+    let finding = solution_message(sent.sketch_solution("f-sk1"), "open_endpoint");
     assert_eq!(finding["field"], "/profile_findings/0");
     assert_eq!(
         actions(&finding),
@@ -669,8 +669,8 @@ fn t126_nc01_an_open_end_of_the_stored_sketch_offers_to_connect_the_ends() {
 #[test]
 fn t126_nc01_a_drag_frame_and_a_candidate_solve_offer_no_action() {
     let mut session = session();
-    let opened = open_text(&mut session, &nc01());
-    let doc = doc_handle(&opened);
+    let sent = open_text(&mut session, &nc01());
+    let doc = doc_handle(&sent);
     let candidate = serde_json::to_value(sketch_params(&record(&mut session, doc, "f-sk1")))
         .expect("sketch params serialize");
 
@@ -702,9 +702,9 @@ fn t126_nc01_solving_a_suppressed_sketch_offers_no_action() {
 fn t126_dimensions_whose_titles_read_the_same_are_labeled_with_their_lines() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &two_spans_that_cannot_reach_across());
+    let sent = open_text(&mut session, &two_spans_that_cannot_reach_across());
 
-    let error = message(&opened, "f-sk1", "sketch_conflict");
+    let error = message(&sent, "f-sk1", "sketch_conflict");
     assert_eq!(
         error["message"],
         "In 'Sketch 1', Horizontal distance 50 mm cannot hold together with Horizontal distance 30 mm on the line from (30, 0) to (60, 0), Horizontal distance 30 mm on the line from (0, 0) to (30, 0) and Coincident between the line from (0, 0) to (30, 0) and the line from (30, 0) to (60, 0)."
@@ -727,9 +727,9 @@ fn t126_dimensions_whose_titles_read_the_same_are_labeled_with_their_lines() {
 fn t126_through_all_with_operation_new_body_offers_only_join() {
     let mut session = session();
 
-    let opened = open_text(&mut session, &through_all_as_a_new_body_into_the_block());
+    let sent = open_text(&mut session, &through_all_as_a_new_body_into_the_block());
 
-    let error = message(&opened, "f-ext2", "body_not_empty");
+    let error = message(&sent, "f-ext2", "body_not_empty");
     assert_eq!(
         error["message"],
         "Body 'Body 1' already has a solid here, so Operation New body cannot start it. Set Operation to Join."
@@ -754,11 +754,11 @@ fn t126_every_newcomer_label_starts_with_a_verb_and_runs_as_its_kind() {
     }
     let (_, edited) = after_edit(&mut session, &nc07());
     all.extend(statuses(&edited));
-    let opened = open_text(&mut session, &nc01());
+    let sent = open_text(&mut session, &nc01());
 
     let mut offered = status_actions(&all);
     offered.extend(
-        solution_messages(opened.sketch_solution("f-sk1"))
+        solution_messages(sent.sketch_solution("f-sk1"))
             .iter()
             .flat_map(actions),
     );
@@ -863,10 +863,8 @@ fn t127_r56b_use_body_resolves_the_edge_in_the_other_body() {
 #[test]
 fn t127_use_3_sets_a_whole_count() {
     let mut session = session();
-    let opened = open_text(&mut session, &patterned_cube(&[], "2.5"));
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
-    let use_three = action(&message(&opened, "f-lp1", "not_whole_number"), "Use 3");
+    let (doc, sent, before) = opened(&mut session, &patterned_cube(&[], "2.5"));
+    let use_three = action(&message(&sent, "f-lp1", "not_whole_number"), "Use 3");
 
     let applied = apply_as_one_entry(&mut session, doc, &use_three);
 
@@ -888,11 +886,9 @@ fn t127_use_3_sets_a_whole_count() {
 fn t127_replacing_a_formula_writes_the_value() {
     let text = patterned_cube(&[parameter("p-n", "n", "5")], "n / 2");
     let mut session = session();
-    let opened = open_text(&mut session, &text);
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
+    let (doc, sent, before) = opened(&mut session, &text);
     let replace = action(
-        &message(&opened, "f-lp1", "not_whole_number"),
+        &message(&sent, "f-lp1", "not_whole_number"),
         "Replace n / 2 with 3",
     );
 
@@ -909,11 +905,9 @@ fn t127_replacing_a_formula_writes_the_value() {
 #[test]
 fn t127_set_operation_to_new_body_starts_the_body() {
     let mut session = session();
-    let opened = open_text(&mut session, &box_joining_nothing());
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
+    let (doc, sent, before) = opened(&mut session, &box_joining_nothing());
     let set_new = action(
-        &message(&opened, "f-box1", "body_empty"),
+        &message(&sent, "f-box1", "body_empty"),
         "Set Operation to New body",
     );
 
@@ -1154,10 +1148,10 @@ fn t127_nc04_put_it_in_a_new_body_skips_a_body_id_the_document_uses() {
         .expect("NC04 lists its bodies")
         .push(json!({"id": "b-000000000001", "name": "Spare"}));
     let mut session = session();
-    let opened = open_text(&mut session, &nc04.to_string());
-    let doc = doc_handle(&opened);
+    let sent = open_text(&mut session, &nc04.to_string());
+    let doc = doc_handle(&sent);
     let put = action(
-        &message(&opened, "f-ext2", "separate_solid"),
+        &message(&sent, "f-ext2", "separate_solid"),
         "Put it in a new body",
     );
 
@@ -1200,10 +1194,10 @@ fn t127_through_all_set_operation_to_join_goes_through_the_block() {
 #[test]
 fn t127_deleting_one_of_two_dimensions_that_read_the_same_deletes_the_one_its_label_names() {
     let mut session = session();
-    let opened = open_text(&mut session, &two_spans_that_cannot_reach_across());
-    let doc = doc_handle(&opened);
+    let sent = open_text(&mut session, &two_spans_that_cannot_reach_across());
+    let doc = doc_handle(&sent);
     let delete = action(
-        &message(&opened, "f-sk1", "sketch_conflict"),
+        &message(&sent, "f-sk1", "sketch_conflict"),
         "Delete Horizontal distance 30 mm on the line from (30, 0) to (60, 0)",
     );
 
@@ -1772,10 +1766,9 @@ fn assert_stale(session: &mut Session, doc: u64, sent: &Sent, revision_before: u
 /// `FixRef` (revision 0).
 fn opened_r16() -> (Session, u64, Value) {
     let mut session = session();
-    let opened = open_text(&mut session, &edited_text(&r16()));
-    let doc = doc_handle(&opened);
-    let first =
-        actions(&message(&opened, "f-fil1", "references_not_found"))[0]["run"]["fix"].clone();
+    let sent = open_text(&mut session, &edited_text(&r16()));
+    let doc = doc_handle(&sent);
+    let first = actions(&message(&sent, "f-fil1", "references_not_found"))[0]["run"]["fix"].clone();
     assert_eq!(first["revision"], 0);
     (session, doc, first)
 }
@@ -2272,13 +2265,11 @@ fn t135_attach_to_a_face_with_the_sketch_s_motion_stores_the_fallback_in_body_co
     // The lost face moved with the cube, as the top did: the saved position (3, 4, 0) in body coordinates is world
     // (103, 4, 0), which projects onto the moved top at (103, 4, 10), (3, 4, 10) before the move.
     let mut session = session();
-    let opened = open_text(
+    let (doc, sent, before) = opened(
         &mut session,
         &sketch_on_a_lost_face_of_the_moved_cube(Some("body")),
     );
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
-    let (attach, top) = first_attach(&opened, "f-sk1");
+    let (attach, top) = first_attach(&sent, "f-sk1");
     assert_eq!(top["q"], "f-box1/top");
 
     let applied = apply_as_one_entry(&mut session, doc, &attach);
@@ -2307,10 +2298,8 @@ fn t135_attach_of_a_world_fallback_to_a_moved_face_keeps_world_coordinates() {
     // body coordinates would give the sketch, and every face built from it, that motion. Projected onto the moved top,
     // the sketch stands at world (3, 4, 10), stored as it is.
     let mut session = session();
-    let opened = open_text(&mut session, &sketch_on_a_lost_face_of_the_moved_cube(None));
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
-    let (attach, top) = first_attach(&opened, "f-sk1");
+    let (doc, sent, before) = opened(&mut session, &sketch_on_a_lost_face_of_the_moved_cube(None));
+    let (attach, top) = first_attach(&sent, "f-sk1");
     assert_eq!(top["q"], "f-box1/top");
 
     let applied = apply_as_one_entry(&mut session, doc, &attach);
@@ -2355,11 +2344,11 @@ fn t135_attach_is_offered_only_for_faces_that_keep_the_sketch_s_motion() {
             ),
         );
     let mut session = session();
-    let opened = open_text(&mut session, &text.to_string());
+    let sent = open_text(&mut session, &text.to_string());
 
-    let candidates = candidates_at(&opened, "f-sk1", "/plane/face");
+    let candidates = candidates_at(&sent, "f-sk1", "/plane/face");
 
-    let offered = labels(&message(&opened, "f-sk1", "plane_fallback"));
+    let offered = labels(&message(&sent, "f-sk1", "plane_fallback"));
     let queries: Vec<&str> = candidates
         .iter()
         .map(|candidate| {
@@ -2404,16 +2393,14 @@ fn t135_attach_of_a_world_fallback_to_a_moved_face_moves_no_later_sketch() {
         Z_AXIS,
     );
     let mut session = session();
-    let opened = open_text(&mut session, &text);
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
+    let (doc, sent, before) = opened(&mut session, &text);
     assert_point2(
         axis_xy(&mut session, doc, UPPER_BOSS_WALL),
         [100.0, 0.0],
         GEOMETRY_TOLERANCE,
         "boss axis before",
     );
-    let (attach, top) = first_attach(&opened, "f-sk1");
+    let (attach, top) = first_attach(&sent, "f-sk1");
     assert_eq!(top["q"], "f-box1/top");
 
     let applied = apply_as_one_entry(&mut session, doc, &attach);
@@ -2463,9 +2450,7 @@ fn t135_turning_back_a_world_fallback_on_a_moved_face_moves_no_later_sketch() {
         [0.0, 0.0, -1.0],
     );
     let mut session = session();
-    let opened = open_text(&mut session, &text);
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
+    let (doc, sent, before) = opened(&mut session, &text);
     assert_point2(
         axis_xy(&mut session, doc, UPPER_BOSS_WALL),
         [100.0, 0.0],
@@ -2474,7 +2459,7 @@ fn t135_turning_back_a_world_fallback_on_a_moved_face_moves_no_later_sketch() {
     );
     let face = record(&mut session, doc, "f-sk1")["plane"]["face"].clone();
     let turn = action(
-        &message(&opened, "f-sk1", "sketch_turned_over"),
+        &message(&sent, "f-sk1", "sketch_turned_over"),
         "Turn the drawing back",
     );
 

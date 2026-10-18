@@ -30,11 +30,11 @@ use partsmith_recompute::Message;
 use partsmith_sketch::{DimensionValues, MessageContext, ProfileFinding, SketchFix, SketchParams};
 use serde_json::{Value, json};
 use stability_common::{
-    above_the_block, attach_sketch_2_to_the_top, block, block_back_top, block_outline, block_top,
-    box_record, coincident, constrained_sketch, cube20_front_top, distance, document_in, edit,
+    block, block_back_top, block_outline, block_top, box_record, circle, circle_region, coincident,
+    constrained_sketch, cube20_front_top, datum_offset, datum_plane, distance, document_in, edit,
     edited, extrude, fillet, followed_by, hole, id, line, line_distance, origin_plane, point,
     rectangle, rectangle_region, reference, run, run_picked, run_then_edit, shell, show, sketch,
-    small_circle_extrude, small_circle_sketch, through_all, top_face_plane, volume_of, with,
+    through_all, top_face_plane, volume_of, with,
 };
 
 // Messages and fixes.
@@ -72,6 +72,15 @@ fn assert_quiet(run: &Run, features: &[&str]) {
     }
 }
 
+/// [Attach 'Sketch 2' to the top of 'Extrude 1'], with the top as a pick just before `f-ext2` stores it.
+fn attach_sketch_2_to_the_top(run: &Run) -> Fix {
+    Fix::Attach {
+        sketch: id("f-sk2"),
+        body: id("b-1"),
+        face: run.picked_before("f-ext2", "b-1", "f-ext1/end-cap"),
+    }
+}
+
 /// The message of a profile finding of `sketch` (sketch.md section 4.3), rendered as hosts render it: with the
 /// sketch's label, its stored params, its solved entities and measured values in this run, no dimension values (NC01's
 /// sketch has no dimensions) and the document units.
@@ -94,6 +103,39 @@ fn finding_text(run: &Run, sketch: &str, finding: &ProfileFinding) -> String {
 }
 
 // Setups (the corpus's "Shared setups" and the scenarios' own records).
+
+/// The sketch `f-sk2` of NC02 to NC04 on `plane`: the circle `e-5` at (40, 25) of radius 5.
+fn small_circle_sketch(plane: Value) -> Value {
+    sketch("f-sk2", plane, vec![circle("e-5", [40.0, 25.0], 5.0)])
+}
+
+/// `f-ext2`, the circle of [`small_circle_sketch`] extruded `depth` with `op`.
+fn small_circle_extrude(depth: &str, op: &str) -> Value {
+    extrude(
+        "f-ext2",
+        "b-1",
+        "f-sk2",
+        vec![circle_region("e-5", [40.0, 25.0], 5.0)],
+        distance(depth),
+        op,
+    )
+}
+
+/// NC03 (op cut) and NC04 (op join): BLOCK, the datum `f-dp1` XY offset 40 and the circle of `f-sk2` on it extruded
+/// `depth` up by `f-ext2` with `op`, above the block.
+fn above_the_block(depth: &str, op: &str) -> Run {
+    run(
+        &["b-1"],
+        &followed_by(
+            block(),
+            vec![
+                datum_offset("f-dp1", "XY", "40"),
+                small_circle_sketch(datum_plane("f-dp1")),
+                small_circle_extrude(depth, op),
+            ],
+        ),
+    )
+}
 
 /// `f-sk1` of NC07 with these constraints: the 40 x 20 rectangle `e-1` to `e-4` of loose lines, and `f-ext1`, its region
 /// extruded 10, op new.

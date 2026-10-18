@@ -43,7 +43,8 @@ use crate::params::BodyOp;
 /// Why a feature could not be built. Stores ids and internal-unit numbers, never display names, formatted values or
 /// diagnoses, so a cached error renders correctly after a rename, a units change or an edit elsewhere in the
 /// timeline. `Display` renders the message with ids in place of names, values in millimeters, `this feature` for
-/// `{this}` and no diagnosis. Each variant has a sample in the message lint's `tests/common/samples.rs`.
+/// `{this}` and no diagnosis. Each variant has a sample in this crate's `tests/common/samples.rs`, which section 6.5
+/// test 14 lints.
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 #[error("{}", self.plain_text())]
 #[non_exhaustive]
@@ -721,14 +722,15 @@ impl FeatureError {
             FeatureError::SketchInvalid { error, values } => renderer
                 .in_this_sketch(values, |context| error.render(context))
                 .unwrap_or_else(|| error.to_string()),
-            FeatureError::SketchConflict { .. } | FeatureError::SketchNotSolved => self
-                .solve_issue()
-                .map(|(issue, values)| {
-                    renderer
-                        .in_this_sketch(values, |context| issue.render(context))
-                        .unwrap_or_else(|| issue.to_string())
-                })
-                .unwrap_or_default(),
+            FeatureError::SketchConflict {
+                constraints,
+                values,
+            } => solve_issue_text(renderer, &conflicting(constraints), values),
+            FeatureError::SketchNotSolved => solve_issue_text(
+                renderer,
+                &SolveIssue::NotConverged,
+                &DimensionValues::new(),
+            ),
             FeatureError::Kernel { error } => format!(
                 "Partsmith's geometry kernel could not build {}. {}",
                 this(),
@@ -780,25 +782,6 @@ impl FeatureError {
             FeatureError::Canceled => {
                 format!("Recompute was canceled before {} finished.", this())
             }
-        }
-    }
-
-    /// The solver's issue of `SketchConflict` and `SketchNotSolved` (sketch.md section 4.2), with the driving dimension
-    /// values it renders with: those of the solve for a conflict, none for a solve that did not converge.
-    fn solve_issue(&self) -> Option<(SolveIssue, &DimensionValues)> {
-        static NO_VALUES: DimensionValues = DimensionValues::new();
-        match self {
-            FeatureError::SketchConflict {
-                constraints,
-                values,
-            } => Some((
-                SolveIssue::Conflicting {
-                    constraints: constraints.clone(),
-                },
-                values,
-            )),
-            FeatureError::SketchNotSolved => Some((SolveIssue::NotConverged, &NO_VALUES)),
-            _ => None,
         }
     }
 
@@ -1141,10 +1124,11 @@ impl FeatureError {
             FeatureError::SketchInvalid { error, .. } => {
                 sketch_fixes(context.feature, error.fixes())
             }
-            FeatureError::SketchConflict { .. } => renderer
+            FeatureError::SketchConflict { constraints, .. } => renderer
                 .stored_sketch()
-                .zip(self.solve_issue())
-                .map(|(params, (issue, _))| sketch_fixes(context.feature, issue.fixes(&params)))
+                .map(|params| {
+                    sketch_fixes(context.feature, conflicting(constraints).fixes(&params))
+                })
                 .unwrap_or_default(),
             FeatureError::ShellRemovesAll { .. } => vec![Fix::pick("/remove_faces")],
             FeatureError::ProfileCrossesAxis | FeatureError::AxisNotInPlane => {
@@ -1200,9 +1184,10 @@ impl FeatureError {
             FeatureError::UnknownEntity { entity, .. } => Some(entity.clone()),
             FeatureError::NameTooDeep { length } => Some(length.to_string()),
             FeatureError::SketchInvalid { error, .. } => Some(error.to_string()),
-            FeatureError::SketchConflict { .. } | FeatureError::SketchNotSolved => {
-                self.solve_issue().map(|(issue, _)| issue.to_string())
+            FeatureError::SketchConflict { constraints, .. } => {
+                Some(conflicting(constraints).to_string())
             }
+            FeatureError::SketchNotSolved => Some(SolveIssue::NotConverged.to_string()),
             FeatureError::ReferencesNotFound { field, losses, .. } => Some(
                 losses
                     .iter()
@@ -1277,6 +1262,25 @@ impl From<NamingError> for FeatureError {
             error => FeatureError::internal(format!("naming the result failed: {error}")),
         }
     }
+}
+
+/// The solver's issue of `SketchConflict` (sketch.md section 4.2).
+fn conflicting(constraints: &[Id]) -> SolveIssue {
+    SolveIssue::Conflicting {
+        constraints: constraints.to_vec(),
+    }
+}
+
+/// The text of a solver issue of this sketch, rendered with the driving dimension `values` of the solve, or the issue's
+/// `Display` text when the names do not know the sketch.
+fn solve_issue_text(
+    renderer: &Renderer<'_>,
+    issue: &SolveIssue,
+    values: &DimensionValues,
+) -> String {
+    renderer
+        .in_this_sketch(values, |context| issue.render(context))
+        .unwrap_or_else(|| issue.to_string())
 }
 
 /// The sketch crate's fixes as fixes of `sketch` (section 4.2).

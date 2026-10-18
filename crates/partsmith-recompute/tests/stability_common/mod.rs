@@ -3,10 +3,10 @@
 //! docs/design/reference-stability-corpus.md), by the loss diagnosis tests (`diagnosis.rs`,
 //! recompute.md section 6), which run the corpus's scenarios, and by the newcomer error corpus
 //! (`newcomer_errors.rs`, test 70): the feature records (`records.rs`, with the shared setups and
-//! their picked references), documents, runs and edits, the NC03 and NC04 setup, fixes, the
-//! picks of the corpus's "Picked references" rule, run readers, resolver diagnostics and checks
-//! that are the same in all of them. Each includes it with `#[path]` beside its own
-//! `feature_support`; the corpus thirds re-export it.
+//! their picked references), documents, runs and edits, fixes, the picks of the corpus's "Picked
+//! references" rule, run readers, resolver diagnostics and checks that are the same in all of
+//! them. Each includes it with `#[path]` beside its own `feature_support`; the corpus thirds
+//! re-export it.
 //! The first third checks against body states with its own `Expectations` at the corpus's exact
 //! 1e-6 mm instead of `Checks`, which reads the run.
 //!
@@ -66,16 +66,6 @@ pub fn show(feature: &str) -> Fix {
     Fix::Show {
         feature: id(feature),
         entity: None,
-    }
-}
-
-/// [Attach 'Sketch 2' to the top of 'Extrude 1'] of NC02 and NC04, with the top as a pick just
-/// before `f-ext2` stores it.
-pub fn attach_sketch_2_to_the_top(run: &Run) -> Fix {
-    Fix::Attach {
-        sketch: id("f-sk2"),
-        body: id("b-1"),
-        face: run.picked_before("f-ext2", "b-1", "f-ext1/end-cap"),
     }
 }
 
@@ -146,22 +136,6 @@ pub fn run_then_edit(bodies: &[&str], setup: &[Value], edited: &[Value]) -> Run 
     let mut session = run(bodies, setup);
     edit(&mut session, bodies, edited);
     session
-}
-
-/// NC03 (op cut) and NC04 (op join): BLOCK, the datum `f-dp1` XY offset 40 and the circle of
-/// `f-sk2` on it extruded `depth` up by `f-ext2` with `op`, above the block.
-pub fn above_the_block(depth: &str, op: &str) -> Run {
-    run(
-        &["b-1"],
-        &followed_by(
-            block(),
-            vec![
-                datum_offset("f-dp1", "XY", "40"),
-                small_circle_sketch(datum_plane("f-dp1")),
-                small_circle_extrude(depth, op),
-            ],
-        ),
-    )
 }
 
 // STEP assets.

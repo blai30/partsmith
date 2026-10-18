@@ -10,11 +10,10 @@ use std::collections::BTreeMap;
 use common::{
     NoNames, Probe, Slab, evaluate, extrude_record, field, id, link_pairs, params_text, pick,
     record, record_text, rectangle_profile, rectangle_sketch_record, render_error, slab_manifest,
-    slab_record, use_triples,
+    slab_record, use_triples, with_render_context,
 };
 use partsmith_features::{
-    Diagnosis, DocumentNames, FeatureError, FieldRef, FieldUnit, Fix, Registry, RenderContext,
-    Validated,
+    Diagnosis, DocumentNames, FeatureError, FieldRef, FieldUnit, Fix, Registry, Validated,
 };
 use partsmith_model::{
     Document, Expr, ExprLink, FeatureInspector, FeatureLinks, FeatureRecord, Units,
@@ -324,16 +323,13 @@ fn rendered_in_document(error: &FeatureError, invalid: &FeatureRecord) -> (Strin
         registry: &registry,
         outputs: &outputs,
     };
-    let bodies = BTreeMap::new();
-    let diagnosis = Diagnosis::default();
-    let context = RenderContext {
-        feature: &invalid.id,
-        names: &names,
-        units: Units::Mm,
-        bodies: &bodies,
-        diagnosis: &diagnosis,
-    };
-    (error.render(&context), error.fixes(&context))
+    with_render_context(
+        &names,
+        invalid.id.as_str(),
+        Units::Mm,
+        &Diagnosis::default(),
+        |context| (error.render(context), error.fixes(context)),
+    )
 }
 
 #[test]

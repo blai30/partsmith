@@ -15,7 +15,8 @@ use partsmith_occt_sys::{
     SubShapeKind,
 };
 
-use super::common::{angle_between, bodies, check_canceled, face_name, name_on_body, unchanged};
+use super::common::{bodies, check_canceled, face_name, name_on_body, unchanged};
+use crate::params::angle_between;
 use crate::{
     BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
     IgnoredReason, Limit, Measurements, Named, NoEffectHow, too_large_search,

@@ -24,7 +24,10 @@ use common::samples::{
     region_field, region_missing, region_split, tool_empty,
 };
 use common::timeline::{Timeline, stored};
-use common::{assert_vector_close, field, id, pick, show, use_reference, with_standard_labels};
+use common::{
+    assert_vector_close, field, id, labeled_error, labeled_error_fixes, labeled_warning,
+    labeled_warning_fixes, pick, show, use_reference, with_standard_labels,
+};
 use partsmith_features::{
     Because, Diagnosis, FallbackCause, FeatureError, FeatureWarning, FieldRef, Fix, Loss,
     LossCandidate, Place, Placed, Repair, Severity,
@@ -433,42 +436,6 @@ fn t004_several_losses_list_their_fixes_in_loss_order() {
     assert_eq!(fixes.last(), Some(&pick("/edges/1")));
 }
 
-/// `error` rendered on `feature` with the standard labels and `diagnosis`.
-fn render_labeled(error: &FeatureError, feature: &str, diagnosis: &Diagnosis) -> String {
-    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
-        error.render(context)
-    })
-}
-
-/// The fixes of `error` on `feature` with the standard labels and `diagnosis`.
-fn fixes_labeled(error: &FeatureError, feature: &str, diagnosis: &Diagnosis) -> Vec<Fix> {
-    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
-        error.fixes(context)
-    })
-}
-
-/// `warning` rendered on `feature` with the standard labels and `diagnosis`.
-fn render_warning_labeled(
-    warning: &FeatureWarning,
-    feature: &str,
-    diagnosis: &Diagnosis,
-) -> String {
-    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
-        warning.render(context)
-    })
-}
-
-/// The fixes of `warning` on `feature` with the standard labels and `diagnosis`.
-fn warning_fixes_labeled(
-    warning: &FeatureWarning,
-    feature: &str,
-    diagnosis: &Diagnosis,
-) -> Vec<Fix> {
-    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
-        warning.fixes(context)
-    })
-}
-
 /// A diagnosis naming the root of an upstream chain.
 fn rooted(root: &str) -> Diagnosis {
     Diagnosis {
@@ -492,11 +459,11 @@ fn t005_an_upstream_failure_names_the_failing_feature() {
     };
 
     assert_eq!(
-        render_labeled(&error, "f-ext1", &Diagnosis::default()),
+        labeled_error(&error, "f-ext1", &Diagnosis::default()),
         "'Sketch 1' has an error, so this extrude cannot use it. Fix 'Sketch 1' first."
     );
     assert_eq!(
-        fixes_labeled(&error, "f-ext1", &Diagnosis::default()),
+        labeled_error_fixes(&error, "f-ext1", &Diagnosis::default()),
         [show("f-sk1")]
     );
 }
@@ -508,11 +475,11 @@ fn t005_an_upstream_chain_names_its_root() {
     };
 
     assert_eq!(
-        render_labeled(&error, "f-ext1", &rooted("f-dp1")),
+        labeled_error(&error, "f-ext1", &rooted("f-dp1")),
         "'Sketch 1' cannot be built because 'Datum plane 1' has an error, so this extrude cannot use it either. Fix 'Datum plane 1' first."
     );
     assert_eq!(
-        fixes_labeled(&error, "f-ext1", &rooted("f-dp1")),
+        labeled_error_fixes(&error, "f-ext1", &rooted("f-dp1")),
         [show("f-dp1")]
     );
 }
@@ -522,11 +489,11 @@ fn t006_a_body_whose_maker_failed() {
     let diagnosis = because(Because::Failed(id("f-ext1")));
 
     assert_eq!(
-        render_labeled(&fillet_body_empty(false), "f-fil1", &diagnosis),
+        labeled_error(&fillet_body_empty(false), "f-fil1", &diagnosis),
         "Body 'Body 1' is empty here because 'Extrude 1', which makes it, failed. Fix 'Extrude 1' first."
     );
     assert_eq!(
-        fixes_labeled(&fillet_body_empty(false), "f-fil1", &diagnosis),
+        labeled_error_fixes(&fillet_body_empty(false), "f-fil1", &diagnosis),
         [show("f-ext1")]
     );
 }
@@ -536,11 +503,11 @@ fn t006_a_body_whose_maker_is_suppressed() {
     let diagnosis = because(Because::Suppressed(id("f-ext1")));
 
     assert_eq!(
-        render_labeled(&fillet_body_empty(false), "f-fil1", &diagnosis),
+        labeled_error(&fillet_body_empty(false), "f-fil1", &diagnosis),
         "Body 'Body 1' is empty here because 'Extrude 1', which makes it, is suppressed."
     );
     assert_eq!(
-        fixes_labeled(&fillet_body_empty(false), "f-fil1", &diagnosis),
+        labeled_error_fixes(&fillet_body_empty(false), "f-fil1", &diagnosis),
         [Fix::Unsuppress {
             feature: id("f-ext1")
         }]
@@ -552,11 +519,11 @@ fn t006_a_body_whose_maker_comes_later() {
     let diagnosis = because(Because::ComesLater(id("f-ext1")));
 
     assert_eq!(
-        render_labeled(&fillet_body_empty(false), "f-fil1", &diagnosis),
+        labeled_error(&fillet_body_empty(false), "f-fil1", &diagnosis),
         "Body 'Body 1' is empty here because 'Extrude 1', which makes it, now comes after this fillet."
     );
     assert_eq!(
-        fixes_labeled(&fillet_body_empty(false), "f-fil1", &diagnosis),
+        labeled_error_fixes(&fillet_body_empty(false), "f-fil1", &diagnosis),
         [Fix::Move {
             feature: id("f-fil1"),
             place: Place::Below(id("f-ext1")),
@@ -573,11 +540,11 @@ fn t006_a_body_used_as_a_tool() {
     });
 
     assert_eq!(
-        render_labeled(&fillet_body_empty(false), "f-fil1", &diagnosis),
+        labeled_error(&fillet_body_empty(false), "f-fil1", &diagnosis),
         "Body 'Body 1' is empty here because 'Boolean 1' uses it as a tool, which empties it."
     );
     assert_eq!(
-        fixes_labeled(&fillet_body_empty(false), "f-fil1", &diagnosis),
+        labeled_error_fixes(&fillet_body_empty(false), "f-fil1", &diagnosis),
         [Fix::UseBody {
             field: field("body", "Body"),
             body: id("b-2"),
@@ -588,11 +555,11 @@ fn t006_a_body_used_as_a_tool() {
 #[test]
 fn t006_a_body_nothing_makes() {
     assert_eq!(
-        render_labeled(&fillet_body_empty(false), "f-fil1", &Diagnosis::default()),
+        labeled_error(&fillet_body_empty(false), "f-fil1", &Diagnosis::default()),
         "Body 'Body 1' has no solid at this point, so this fillet has nothing to work on. Pick a body that has a solid."
     );
     assert_eq!(
-        fixes_labeled(&fillet_body_empty(false), "f-fil1", &Diagnosis::default()),
+        labeled_error_fixes(&fillet_body_empty(false), "f-fil1", &Diagnosis::default()),
         []
     );
 }
@@ -602,10 +569,10 @@ fn t006_a_body_nothing_makes_yet_offers_operation_new_body() {
     let error = fillet_body_empty(true);
 
     assert_eq!(
-        render_labeled(&error, "f-ext1", &Diagnosis::default()),
+        labeled_error(&error, "f-ext1", &Diagnosis::default()),
         "Body 'Body 1' has no solid yet at this point, so there is nothing to add to. Set Operation to New body to start it here."
     );
-    let fixes = fixes_labeled(&error, "f-ext1", &Diagnosis::default());
+    let fixes = labeled_error_fixes(&error, "f-ext1", &Diagnosis::default());
     assert!(
         matches!(
             fixes.as_slice(),
@@ -620,11 +587,11 @@ fn t006_an_empty_tool_whose_maker_is_suppressed() {
     let diagnosis = because(Because::Suppressed(id("f-box2")));
 
     assert_eq!(
-        render_labeled(&tool_empty(), "f-bool1", &diagnosis),
+        labeled_error(&tool_empty(), "f-bool1", &diagnosis),
         "Body 'Body 2' is empty here because 'Box 2', which makes it, is suppressed, so it cannot be used as a tool."
     );
     assert_eq!(
-        fixes_labeled(&tool_empty(), "f-bool1", &diagnosis),
+        labeled_error_fixes(&tool_empty(), "f-bool1", &diagnosis),
         [
             Fix::Unsuppress {
                 feature: id("f-box2")
@@ -638,11 +605,11 @@ fn t006_an_empty_tool_whose_maker_is_suppressed() {
 fn t006_an_empty_tool_nothing_makes() {
     // features/boolean.md test 9.
     assert_eq!(
-        render_labeled(&tool_empty(), "f-bool1", &Diagnosis::default()),
+        labeled_error(&tool_empty(), "f-bool1", &Diagnosis::default()),
         "Body 'Body 2' is empty here, so it cannot be used as a tool."
     );
     assert_eq!(
-        fixes_labeled(&tool_empty(), "f-bool1", &Diagnosis::default()),
+        labeled_error_fixes(&tool_empty(), "f-bool1", &Diagnosis::default()),
         [pick("/tools/0")]
     );
 }
@@ -654,7 +621,7 @@ fn t007_a_bug_while_building() {
     };
 
     assert_eq!(
-        render_labeled(&error, "f-sh1", &Diagnosis::default()),
+        labeled_error(&error, "f-sh1", &Diagnosis::default()),
         "Partsmith hit a bug while building this shell. Suppress it or undo the last change to keep working, and report it with the details."
     );
     assert_eq!(
@@ -662,7 +629,7 @@ fn t007_a_bug_while_building() {
         Some("called Option::unwrap() on a None value")
     );
     assert_eq!(
-        fixes_labeled(&error, "f-sh1", &Diagnosis::default()),
+        labeled_error_fixes(&error, "f-sh1", &Diagnosis::default()),
         [Fix::Suppress {
             feature: id("f-sh1")
         }]
@@ -676,7 +643,7 @@ fn t007_an_undeclared_read_is_a_bug() {
     };
 
     assert_eq!(
-        render_labeled(&error, "f-hole1", &Diagnosis::default()),
+        labeled_error(&error, "f-hole1", &Diagnosis::default()),
         "Partsmith hit a bug in this hole, so it was not built. Suppress it to keep working, and report it with the details."
     );
     assert_eq!(error.detail().as_deref(), Some("body b-9"));
@@ -688,17 +655,20 @@ fn t007_a_name_too_deep_to_build() {
 
     assert_eq!(error.code(), "name_too_deep");
     assert_eq!(
-        render_labeled(&error, "f-fil1", &Diagnosis::default()),
+        labeled_error(&error, "f-fil1", &Diagnosis::default()),
         "This fillet builds on a chain of rounded or beveled edges too long for Partsmith to name. Combine some of the fillets or chamfers into one."
     );
     assert_eq!(error.detail().as_deref(), Some("16400"));
-    assert_eq!(fixes_labeled(&error, "f-fil1", &Diagnosis::default()), []);
+    assert_eq!(
+        labeled_error_fixes(&error, "f-fil1", &Diagnosis::default()),
+        []
+    );
 }
 
 #[test]
 fn a_split_region_renders_as_a_notice_of_its_parts() {
     assert_eq!(
-        render_warning_labeled(&region_split(), "f-ext1", &Diagnosis::default()),
+        labeled_warning(&region_split(), "f-ext1", &Diagnosis::default()),
         "The region of 'Sketch 1' selected for Profile is now split in 2 parts by other curves of the sketch, and all of them are used. Remove a part from the profile to leave it out."
     );
     assert_eq!(region_split().severity(), Severity::Info);
@@ -715,7 +685,7 @@ fn a_resized_region_renders_its_parts_and_asks_for_a_check() {
     };
 
     assert_eq!(
-        render_warning_labeled(&warning, "f-ext1", &Diagnosis::default()),
+        labeled_warning(&warning, "f-ext1", &Diagnosis::default()),
         "The region of 'Sketch 1' selected for Profile is now 2 parts whose outline runs along other curves of the sketch, so it covers a different area than when it was picked. Check the profile, then keep it or pick it again."
     );
 }
@@ -730,7 +700,7 @@ fn a_remapped_region_says_its_outline_was_drawn_again() {
     };
 
     assert_eq!(
-        render_warning_labeled(&warning, "f-ext1", &Diagnosis::default()),
+        labeled_warning(&warning, "f-ext1", &Diagnosis::default()),
         "The outline of the region of 'Sketch 1' selected for Profile was drawn again, so the region with the same size and place is used. Check it, then keep it or pick it again."
     );
 }
@@ -746,7 +716,7 @@ fn an_ambiguous_region_says_how_many_areas_match() {
     };
 
     assert_eq!(
-        render_warning_labeled(&warning, "f-ext1", &Diagnosis::default()),
+        labeled_warning(&warning, "f-ext1", &Diagnosis::default()),
         "The region of 'Sketch 1' selected for Profile now matches 2 separate areas, so it was skipped. Pick the one you mean."
     );
 }
@@ -763,14 +733,14 @@ fn a_missing_region_says_why_for_each_loss() {
     ];
     for (loss, reason) in cases {
         assert_eq!(
-            render_warning_labeled(&region_missing(loss), "f-ext1", &Diagnosis::default()),
+            labeled_warning(&region_missing(loss), "f-ext1", &Diagnosis::default()),
             format!(
                 "The region of 'Sketch 1' selected for Profile is gone because {reason}, so it was skipped."
             )
         );
     }
     assert_eq!(
-        warning_fixes_labeled(
+        labeled_warning_fixes(
             &region_missing(RegionLoss::Redrawn),
             "f-ext1",
             &Diagnosis::default()
@@ -792,15 +762,15 @@ fn a_profile_without_its_region_says_why() {
     let redrawn = profile_not_found(vec![lost_region(0, Some(RegionLoss::Redrawn), Vec::new())]);
 
     assert_eq!(
-        render_labeled(&deleted, "f-ext1", &Diagnosis::default()),
+        labeled_error(&deleted, "f-ext1", &Diagnosis::default()),
         "The region of 'Sketch 1' selected for Profile is gone because part of its outline was deleted."
     );
     assert_eq!(
-        render_labeled(&redrawn, "f-ext1", &Diagnosis::default()),
+        labeled_error(&redrawn, "f-ext1", &Diagnosis::default()),
         "The region of 'Sketch 1' selected for Profile is gone because its outline was drawn again."
     );
     assert_eq!(
-        fixes_labeled(&deleted, "f-ext1", &Diagnosis::default()),
+        labeled_error_fixes(&deleted, "f-ext1", &Diagnosis::default()),
         [show("f-sk1"), pick("/profile/regions/0")]
     );
 }
@@ -810,11 +780,11 @@ fn a_profile_whose_region_matches_several_areas_asks_which() {
     let error = profile_not_found(vec![lost_region(0, None, vec![vec![0], vec![1]])]);
 
     assert_eq!(
-        render_labeled(&error, "f-ext1", &Diagnosis::default()),
+        labeled_error(&error, "f-ext1", &Diagnosis::default()),
         "The region of 'Sketch 1' selected for Profile now matches 2 separate areas. Pick the one you mean."
     );
     // The `UseRegions` of each set need the sketch's result, which these names do not have; the last two fixes do not.
-    let fixes = fixes_labeled(&error, "f-ext1", &Diagnosis::default());
+    let fixes = labeled_error_fixes(&error, "f-ext1", &Diagnosis::default());
     assert_eq!(
         fixes[fixes.len().saturating_sub(2)..],
         [show("f-sk1"), pick("/profile/regions/0")]
@@ -860,7 +830,7 @@ fn a_profile_without_any_of_its_regions_says_why_for_all() {
     ];
     for (regions, reasons) in cases {
         assert_eq!(
-            render_labeled(&profile_not_found(regions), "f-ext1", &Diagnosis::default()),
+            labeled_error(&profile_not_found(regions), "f-ext1", &Diagnosis::default()),
             format!(
                 "None of the 2 regions of 'Sketch 1' selected for Profile are left, because {reasons}."
             )

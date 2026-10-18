@@ -26,8 +26,6 @@ use partsmith_occt_sys::{
 
 /// Times each operation runs; the median counts.
 const RUNS: usize = 7;
-/// The sweep direction of every extrusion.
-const UP: Vector = Vector::new(0.0, 0.0, 1.0);
 
 /// A duration of whole milliseconds.
 fn milliseconds(count: u64) -> Duration {
@@ -123,7 +121,7 @@ fn part() -> Shape {
         point(80.0, 50.0),
         point(0.0, 50.0),
     ]);
-    let block = extrude(&profile(rectangle), UP, 0.0, 30.0)
+    let block = extrude(&profile(rectangle), common::UP, 0.0, 30.0)
         .expect("the block extrudes")
         .shape;
     let vertical: Vec<EdgeRadius> = block
@@ -167,14 +165,14 @@ fn part() -> Shape {
             ),
         ],
     };
-    let slot = extrude(&profile(slot_outline), UP, -1.0, 31.0)
+    let slot = extrude(&profile(slot_outline), common::UP, -1.0, 31.0)
         .expect("the slot extrudes")
         .shape;
     let drilled = cut(&rounded, &[hole, slot])
         .expect("the hole and slot cut")
         .shape;
 
-    let top = planar_face(&drilled, UP, 30.0);
+    let top = planar_face(&drilled, common::UP, 30.0);
     shell(&drilled, &[top], 2.0).expect("the part shells").shape
 }
 
@@ -307,7 +305,7 @@ fn main() -> ExitCode {
     });
     report.measure("extrude, 100-edge profile", milliseconds(15), || {
         let outline = profile(hundred_gon.clone());
-        median_time_of(RUNS, || extrude(&outline, UP, 0.0, 10.0))
+        median_time_of(RUNS, || extrude(&outline, common::UP, 0.0, 10.0))
     });
 
     let (first, second) = (common::cube_a().shape, common::cube_b().shape);
@@ -348,7 +346,7 @@ fn main() -> ExitCode {
         median_time_of(RUNS, || fillet(&block, &every_edge))
     });
     report.measure("shell, box", milliseconds(20), || {
-        let top = planar_face(&block, UP, 30.0);
+        let top = planar_face(&block, common::UP, 30.0);
         median_time_of(RUNS, || shell(&block, &[top], 1.0))
     });
     report.measure(
@@ -358,7 +356,7 @@ fn main() -> ExitCode {
             let rounded = fillet(&block, &every_edge)
                 .expect("every edge rounds")
                 .shape;
-            let top = planar_face(&rounded, UP, 30.0);
+            let top = planar_face(&rounded, common::UP, 30.0);
             // A failed shell returns early, so its time would say nothing about the budget.
             shell(&rounded, &[top], 0.5).expect("the rounded box shells open");
             median_time_of(RUNS, || shell(&rounded, &[top], 0.5))
@@ -367,7 +365,7 @@ fn main() -> ExitCode {
     report.measure("transform, rigid", Duration::from_micros(100), || {
         let axis = Axis {
             origin: Point::new(0.0, 0.0, 0.0),
-            direction: UP,
+            direction: common::UP,
         };
         let motion = Transform::translation(Vector::new(1.0, 2.0, 3.0))
             .then(&Transform::rotation(&axis, 0.5));
@@ -377,9 +375,14 @@ fn main() -> ExitCode {
         "elements(Face) and topology(), 200 faces",
         milliseconds(10),
         || {
-            let prism = extrude(&profile(polygon(&regular_polygon(198))), UP, 0.0, 10.0)
-                .expect("the prism extrudes")
-                .shape;
+            let prism = extrude(
+                &profile(polygon(&regular_polygon(198))),
+                common::UP,
+                0.0,
+                10.0,
+            )
+            .expect("the prism extrudes")
+            .shape;
             assert_eq!(prism.count(SubShapeKind::Face), 200);
             median_time_of(RUNS, || {
                 (prism.elements(SubShapeKind::Face), prism.topology())
@@ -463,7 +466,7 @@ fn main() -> ExitCode {
         milliseconds(40),
         || {
             let rounded = rounded_cube();
-            let top = planar_face(&rounded, UP, 20.0);
+            let top = planar_face(&rounded, common::UP, 20.0);
             // A failed shell returns early, so its time would say nothing about the budget.
             shell(&rounded, &[top], 3.0).expect("the rounded cube shells past its rounds");
             median_time_of(RUNS, || shell(&rounded, &[top], 3.0))
@@ -474,7 +477,7 @@ fn main() -> ExitCode {
         milliseconds(200),
         || {
             let rounded = rounded_cube();
-            let top = planar_face(&rounded, UP, 20.0);
+            let top = planar_face(&rounded, common::UP, 20.0);
             shell(&rounded, &[top], 2.0).expect("the rounded cube shells as thick as its rounds");
             median_time_of(RUNS, || shell(&rounded, &[top], 2.0))
         },
@@ -484,7 +487,7 @@ fn main() -> ExitCode {
         milliseconds(600),
         || {
             let rounded = rounded_cube();
-            let top = planar_face(&rounded, UP, 20.0);
+            let top = planar_face(&rounded, common::UP, 20.0);
             let succeeds = |thickness| shell(&rounded, &[top], thickness).is_ok();
             let largest = too_large_search(12.0, succeeds).expect("a thinner wall fits");
             assert!(

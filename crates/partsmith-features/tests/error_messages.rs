@@ -17,7 +17,10 @@ use common::samples::{
     phase_3_errors, profile_sketch, shell_too_thick, target,
 };
 use common::timeline::Timeline;
-use common::{field, id, pick, remove_entry, set_field, suppress, use_value, with_standard_labels};
+use common::{
+    field, id, labeled_error, labeled_error_fixes, pick, remove_entry, set_field, suppress,
+    use_value, with_standard_labels,
+};
 use partsmith_features::{
     Bound, Diagnosis, FeatureError, FieldUnit, Fix, Limit, Noun, Place, Severity,
 };
@@ -26,16 +29,12 @@ use serde_json::{Value, json};
 
 /// `error` rendered on `feature` with the standard labels in a millimeter document, without a diagnosis.
 fn rendered(error: &FeatureError, feature: &str) -> String {
-    with_standard_labels(feature, Units::Mm, &Diagnosis::default(), |context| {
-        error.render(context)
-    })
+    labeled_error(error, feature, &Diagnosis::default())
 }
 
 /// The fixes of `error` on `feature` with the standard labels in a millimeter document, without a diagnosis.
 fn fixes_of(error: &FeatureError, feature: &str) -> Vec<Fix> {
-    with_standard_labels(feature, Units::Mm, &Diagnosis::default(), |context| {
-        error.fixes(context)
-    })
+    labeled_error_fixes(error, feature, &Diagnosis::default())
 }
 
 /// `SetField` of Operation to `op` (features.md section 4.1: "Set Operation to Join").
@@ -903,7 +902,8 @@ fn a_bare_thickness_in_an_inch_document_says_what_it_means_in_place_of_the_round
     assert_eq!(error.suggestion(Units::In).as_deref(), Some("2 mm"));
 }
 
-// The samples of the rows above; the message lint renders them with every other sample (section 6.5 test 14).
+// Display texts and severities of the samples of these rows (`tests/common/samples.rs`); the message lint renders them
+// with every other sample (section 6.5 test 14).
 
 #[test]
 fn the_display_of_every_phase_3_error_has_no_kernel_text() {

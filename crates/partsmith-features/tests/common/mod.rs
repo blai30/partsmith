@@ -331,6 +331,38 @@ pub fn with_standard_labels<T>(
     )
 }
 
+/// `error` rendered on `feature` with the standard labels and `diagnosis`, in a millimeter document.
+pub fn labeled_error(error: &FeatureError, feature: &str, diagnosis: &Diagnosis) -> String {
+    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
+        error.render(context)
+    })
+}
+
+/// The fixes of `error` on `feature` with the standard labels and `diagnosis`, in a millimeter document.
+pub fn labeled_error_fixes(error: &FeatureError, feature: &str, diagnosis: &Diagnosis) -> Vec<Fix> {
+    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
+        error.fixes(context)
+    })
+}
+
+/// `warning` rendered on `feature` with the standard labels and `diagnosis`, in a millimeter document.
+pub fn labeled_warning(warning: &FeatureWarning, feature: &str, diagnosis: &Diagnosis) -> String {
+    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
+        warning.render(context)
+    })
+}
+
+/// The fixes of `warning` on `feature` with the standard labels and `diagnosis`, in a millimeter document.
+pub fn labeled_warning_fixes(
+    warning: &FeatureWarning,
+    feature: &str,
+    diagnosis: &Diagnosis,
+) -> Vec<Fix> {
+    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
+        warning.fixes(context)
+    })
+}
+
 /// An error rendered on `feature` with `names`, no body states and no diagnosis, in a millimeter document.
 pub fn render_error(error: &FeatureError, feature: &str, names: &dyn Names) -> String {
     with_render_context(

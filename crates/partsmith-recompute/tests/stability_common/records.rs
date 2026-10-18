@@ -1,7 +1,7 @@
 //! Feature records as `.ptsm` JSON for the corpus scenarios: sketch entities, regions, planes,
 //! feature records, the corpus's shared setups (BLOCK, SLOT, CUBE20, CUBE10 and BOX-BELOW) with
 //! their picked references, the setups more than one test file runs (PEGS of R23 to the notched
-//! outline of R66), the small circle of NC02 to NC04, and edits of feature lists.
+//! outline of R66), and edits of feature lists.
 
 use std::f64::consts::{FRAC_PI_2, PI};
 
@@ -985,25 +985,6 @@ pub fn notched_back_outline() -> Vec<Value> {
         line("e-12", [30.0, 40.0], [30.0, 50.0]),
         line("e-13", [30.0, 50.0], [0.0, 50.0]),
     ]
-}
-
-// Records of the newcomer error corpus.
-
-/// The sketch `f-sk2` of NC02 to NC04 on `plane`: the circle `e-5` at (40, 25) of radius 5.
-pub fn small_circle_sketch(plane: Value) -> Value {
-    sketch("f-sk2", plane, vec![circle("e-5", [40.0, 25.0], 5.0)])
-}
-
-/// `f-ext2`, the circle of [`small_circle_sketch`] extruded `depth` with `op`.
-pub fn small_circle_extrude(depth: &str, op: &str) -> Value {
-    extrude(
-        "f-ext2",
-        "b-1",
-        "f-sk2",
-        vec![circle_region("e-5", [40.0, 25.0], 5.0)],
-        distance(depth),
-        op,
-    )
 }
 
 // Editing feature lists.

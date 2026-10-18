@@ -9,12 +9,10 @@ use partsmith_naming::{ElementKind, GeometryKind, Reference};
 use partsmith_occt_sys::{InputHistory, OpResult, Shape, SubShapeKind, common};
 use partsmith_sketch::Placement;
 
-use crate::builtin::common::angle_between;
 use crate::context::{BodyState, BuildContext};
 use crate::error::{FeatureError, NoEffectHow};
 use crate::output::{Tool, VOLUME_TOLERANCE};
-use crate::params::BodyOp;
-use crate::vector;
+use crate::params::{BodyOp, angle_between, vector};
 
 /// How far a direction may be from a world axis, per component, for boxes to be compared along it (section 3.15).
 const AXIS_TOLERANCE: f64 = 1e-9;
@@ -248,16 +246,5 @@ mod tests {
 
         assert_eq!(overlap(&first, &second, 0), -2.0);
         assert_eq!(overlap(&first, &second, 1), 0.5);
-    }
-
-    #[test]
-    fn small_angles_are_measured_accurately() {
-        let tilted = [1e-10_f64.sin(), 0.0, 1e-10_f64.cos()];
-
-        assert!((angle_between(vector(tilted), vector([0.0, 0.0, 1.0])) - 1e-10).abs() < 1e-20);
-        assert_eq!(
-            angle_between(vector([0.0, 0.0, 1.0]), vector([0.0, 0.0, 1.0])),
-            0.0
-        );
     }
 }

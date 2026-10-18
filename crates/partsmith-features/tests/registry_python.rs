@@ -63,6 +63,54 @@ fn probe_record(name: Option<&str>, suppressed: bool) -> FeatureRecord {
     probe
 }
 
+/// The extrude record of `extrude_record` with a `two_sides` extent, which has no dedicated form (test 23).
+fn two_sides_extrude() -> FeatureRecord {
+    let mut two_sides = extrude_record();
+    two_sides.params.insert(
+        "extent".to_string(),
+        json!({"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}),
+    );
+    two_sides
+}
+
+/// The box record with two sizes of features.md section 6.2 test 23, whose params are invalid.
+fn invalid_box() -> FeatureRecord {
+    record(json!({
+        "id": "f-box1",
+        "type": "box",
+        "body": "b-1",
+        "size": ["1", "2"],
+        "op": "new"
+    }))
+}
+
+/// A slab record with a `two_sides` extent, for which the slab's hook returns None.
+fn two_sides_slab() -> FeatureRecord {
+    let mut two_sides = slab_record();
+    two_sides.params.insert(
+        "extent".to_string(),
+        json!({"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}),
+    );
+    two_sides
+}
+
+/// A probe record without `count`, whose params do not deserialize.
+fn probe_without_count() -> FeatureRecord {
+    let mut invalid = probe_record(None, false);
+    invalid.params.shift_remove("count");
+    invalid
+}
+
+/// A slab record without regions, whose params fail `validate`.
+fn slab_without_regions() -> FeatureRecord {
+    let mut empty = slab_record();
+    empty.params.insert(
+        "profile".to_string(),
+        json!({"sketch": "f-sk1", "regions": []}),
+    );
+    empty
+}
+
 /// The record of unregistered type `gear_demo` of features.md section 6.2 test 19.
 fn gear_demo_record() -> FeatureRecord {
     record(json!({
@@ -396,13 +444,41 @@ fn t022_dedicated_form_omits_suppressed_when_false() {
 }
 
 #[test]
+fn t022_python_dedicated_is_the_dedicated_box_form() {
+    let registry = Registry::with_builtins();
+
+    for dedicated in [
+        dedicated_box_record("new", None, false),
+        dedicated_box_record("join", None, false),
+        dedicated_box_record("new", Some("Base"), true),
+    ] {
+        assert_eq!(
+            registry.python_dedicated(&dedicated, &ScriptNames),
+            Some(registry.python(&dedicated, &ScriptNames))
+        );
+    }
+}
+
+#[test]
+fn t022_python_dedicated_is_the_dedicated_form() {
+    let registry = test_registry();
+
+    for dedicated in [
+        probe_record(None, false),
+        probe_record(Some("Base"), true),
+        probe_record(Some("Base"), false),
+    ] {
+        assert_eq!(
+            registry.python_dedicated(&dedicated, &ScriptNames),
+            Some(registry.python(&dedicated, &ScriptNames))
+        );
+    }
+}
+
+#[test]
 fn t023_extrude_with_two_sides_uses_the_generic_form() {
     let registry = Registry::with_builtins();
-    let mut two_sides = extrude_record();
-    two_sides.params.insert(
-        "extent".to_string(),
-        json!({"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}),
-    );
+    let two_sides = two_sides_extrude();
 
     assert_eq!(
         registry.python(&two_sides, &ScriptNames),
@@ -413,13 +489,7 @@ fn t023_extrude_with_two_sides_uses_the_generic_form() {
 #[test]
 fn t023_box_with_invalid_params_uses_the_generic_form() {
     let registry = Registry::with_builtins();
-    let invalid = record(json!({
-        "id": "f-box1",
-        "type": "box",
-        "body": "b-1",
-        "size": ["1", "2"],
-        "op": "new"
-    }));
+    let invalid = invalid_box();
 
     assert_eq!(
         registry.python(&invalid, &ScriptNames),
@@ -450,13 +520,23 @@ fn t023_sketch_uses_the_generic_form() {
 }
 
 #[test]
+fn t023_records_of_the_generic_form_have_no_dedicated_form() {
+    let registry = Registry::with_builtins();
+
+    for generic in [
+        two_sides_extrude(),
+        invalid_box(),
+        gear_demo_record(),
+        rectangle_sketch_record(),
+    ] {
+        assert_eq!(registry.python_dedicated(&generic, &ScriptNames), None);
+    }
+}
+
+#[test]
 fn t023_hook_returning_none_uses_the_generic_form() {
     let registry = test_registry();
-    let mut two_sides = slab_record();
-    two_sides.params.insert(
-        "extent".to_string(),
-        json!({"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}),
-    );
+    let two_sides = two_sides_slab();
 
     assert_eq!(
         registry.python(&two_sides, &ScriptNames),
@@ -467,8 +547,7 @@ fn t023_hook_returning_none_uses_the_generic_form() {
 #[test]
 fn t023_params_that_do_not_deserialize_use_the_generic_form() {
     let registry = test_registry();
-    let mut invalid = probe_record(None, false);
-    invalid.params.shift_remove("count");
+    let invalid = probe_without_count();
 
     assert_eq!(
         registry.python(&invalid, &ScriptNames),
@@ -479,16 +558,25 @@ fn t023_params_that_do_not_deserialize_use_the_generic_form() {
 #[test]
 fn t023_params_that_fail_validate_use_the_generic_form() {
     let registry = test_registry();
-    let mut empty = slab_record();
-    empty.params.insert(
-        "profile".to_string(),
-        json!({"sketch": "f-sk1", "regions": []}),
-    );
+    let empty = slab_without_regions();
 
     assert_eq!(
         registry.python(&empty, &ScriptNames),
         registry.python_generic(&empty)
     );
+}
+
+#[test]
+fn t023_records_the_hooks_cannot_express_have_no_dedicated_form() {
+    let registry = test_registry();
+
+    for generic in [
+        two_sides_slab(),
+        probe_without_count(),
+        slab_without_regions(),
+    ] {
+        assert_eq!(registry.python_dedicated(&generic, &ScriptNames), None);
+    }
 }
 
 #[test]

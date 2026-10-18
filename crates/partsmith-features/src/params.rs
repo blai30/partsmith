@@ -251,8 +251,16 @@ pub fn vector([x, y, z]: [f64; 3]) -> Vector {
     Vector::new(x, y, z)
 }
 
+/// The angle in radians between two vectors, in [0, pi], accurate for small angles too. Built on the public kernel
+/// `Vector` only, so the built-ins share it with the body rules (section 2.11).
+pub(crate) fn angle_between(first: Vector, second: Vector) -> f64 {
+    first.cross(second).length().atan2(first.dot(second))
+}
+
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::PI;
+
     use serde_json::json;
 
     use super::*;
@@ -406,5 +414,25 @@ mod tests {
     #[test]
     fn vectors_take_components_in_x_y_z_order() {
         assert_eq!(vector([0.0, 0.5, -1.0]), Vector::new(0.0, 0.5, -1.0));
+    }
+
+    #[test]
+    fn the_angle_between_vectors_ignores_their_lengths() {
+        let up = Vector::new(0.0, 0.0, 2.0);
+
+        assert_eq!(angle_between(up, up), 0.0);
+        assert!((angle_between(up, Vector::new(0.0, 0.0, -1.0)) - PI).abs() < 1e-12);
+        assert!((angle_between(up, Vector::new(3.0, 0.0, 0.0)) - PI / 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn small_angles_are_measured_accurately() {
+        let tilted = [1e-10_f64.sin(), 0.0, 1e-10_f64.cos()];
+
+        assert!((angle_between(vector(tilted), vector([0.0, 0.0, 1.0])) - 1e-10).abs() < 1e-20);
+        assert_eq!(
+            angle_between(vector([0.0, 0.0, 1.0]), vector([0.0, 0.0, 1.0])),
+            0.0
+        );
     }
 }

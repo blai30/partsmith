@@ -1501,9 +1501,9 @@ fn extrude(feature: &str, sketch: &str, regions: Value, distance: &str, op: &str
     })
 }
 
-/// The fillet `feature` of `b-1` of radius `radius` on the one edge `edge`.
-fn fillet(feature: &str, edge: Value, radius: &str) -> Value {
-    json!({"id": feature, "type": "fillet", "body": "b-1", "edges": [edge], "radius": radius})
+/// The fillet `f-fil1` of `b-1` of radius `radius` on the one edge `edge`.
+fn fillet(edge: Value, radius: &str) -> Value {
+    json!({"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [edge], "radius": radius})
 }
 
 /// BLOCK of the newcomer error corpus with 'Extrude 1' extruded `distance`: the 80 x 50 rectangle `e-1` to `e-4` of `f-sk1` on XY, extruded by `f-ext1` into `b-1` (x 0..80, y 0..50, z 0..30 at distance 30).
@@ -1560,7 +1560,6 @@ fn fillet_on_a_low_step() -> String {
             box_feature("f-box1", ["40", "20", "10"], None, "new"),
             box_feature("f-box2", ["20", "30", "5"], Some(["10", "0", "7.6"]), "cut"),
             fillet(
-                "f-fil1",
                 json!({"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,10|l=20|adj=2,2"}),
                 "3",
             ),
@@ -1598,7 +1597,6 @@ fn numbers_without_units() -> String {
         vec![
             box_feature("f-box1", ["40", "20", "10"], None, "new"),
             fillet(
-                "f-fil1",
                 json!({"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,10|l=40|adj=2,2"}),
                 "2",
             ),
@@ -1613,7 +1611,6 @@ fn cube_with_a_bare_radius() -> String {
         vec![
             box_feature("f-box1", ["20 mm", "20 mm", "20 mm"], None, "new"),
             fillet(
-                "f-fil1",
                 json!({"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2"}),
                 "2",
             ),

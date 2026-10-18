@@ -21,7 +21,7 @@ use super::{candidate_detail, loss_detail, sketch_fixes};
 /// Something a feature built around: a lost, guessed, followed or widened reference, a region that matched in
 /// another way, an unchanged body. Stores ids, never display names, so it renders correctly after a rename. `Display`
 /// renders the message with ids in place of names, values in millimeters and no diagnosis. Each variant has a sample in
-/// the message lint's `tests/common/samples.rs`.
+/// this crate's `tests/common/samples.rs`, which section 6.5 test 14 lints.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum FeatureWarning {

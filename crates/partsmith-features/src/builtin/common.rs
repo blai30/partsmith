@@ -355,11 +355,6 @@ pub(crate) fn without_separate_solids(warnings: Vec<FeatureWarning>) -> Vec<Feat
         .collect()
 }
 
-/// The angle in radians between two vectors, in [0, pi], accurate for small angles too.
-pub(crate) fn angle_between(first: Vector, second: Vector) -> f64 {
-    first.cross(second).length().atan2(first.dot(second))
-}
-
 /// An update that keeps a body's state exactly: the same shape and naming map, with what has been
 /// measured on it.
 pub(crate) fn unchanged(body: &Id, state: &BodyState, change: BodyChange) -> BodyUpdate {
@@ -752,8 +747,6 @@ pub(crate) fn call(
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::PI;
-
     use partsmith_occt_sys::{Plane, make_box, make_cylinder};
     use partsmith_sketch::RegionFingerprint;
 
@@ -966,14 +959,5 @@ mod tests {
         };
 
         assert_eq!(profile_arguments(&profile, &names), None);
-    }
-
-    #[test]
-    fn the_angle_between_vectors_ignores_their_lengths() {
-        let up = Vector::new(0.0, 0.0, 2.0);
-
-        assert_eq!(angle_between(up, up), 0.0);
-        assert!((angle_between(up, Vector::new(0.0, 0.0, -1.0)) - PI).abs() < 1e-12);
-        assert!((angle_between(up, Vector::new(3.0, 0.0, 0.0)) - PI / 2.0).abs() < 1e-12);
     }
 }

@@ -12,33 +12,22 @@ use common::samples::{
     block_top, hole_misses, lost_face, no_effect, phase_3_warnings, point_missing, separate_solid,
     turned_over, unknown_params,
 };
-use common::{field, id, pick, remove_entry, show, with_standard_labels};
+use common::{
+    field, id, labeled_warning, labeled_warning_fixes, pick, remove_entry, show,
+    with_standard_labels,
+};
 use partsmith_features::{Diagnosis, FeatureWarning, Fix, IgnoredReason, NoEffectHow, Severity};
 use partsmith_model::{Id, Units};
 use partsmith_naming::Reference;
 
-/// `warning` rendered on `feature` in a millimeter document with `diagnosis`.
-fn rendered_with(warning: &FeatureWarning, feature: &str, diagnosis: &Diagnosis) -> String {
-    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
-        warning.render(context)
-    })
-}
-
-/// `warning` rendered on `feature` in a millimeter document without a diagnosis.
+/// `warning` rendered on `feature` with the standard labels in a millimeter document, without a diagnosis.
 fn rendered(warning: &FeatureWarning, feature: &str) -> String {
-    rendered_with(warning, feature, &Diagnosis::default())
+    labeled_warning(warning, feature, &Diagnosis::default())
 }
 
-/// The fixes of `warning` on `feature` in a millimeter document with `diagnosis`.
-fn fixes_with(warning: &FeatureWarning, feature: &str, diagnosis: &Diagnosis) -> Vec<Fix> {
-    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
-        warning.fixes(context)
-    })
-}
-
-/// The fixes of `warning` on `feature` in a millimeter document without a diagnosis.
+/// The fixes of `warning` on `feature` with the standard labels in a millimeter document, without a diagnosis.
 fn fixes_of(warning: &FeatureWarning, feature: &str) -> Vec<Fix> {
-    fixes_with(warning, feature, &Diagnosis::default())
+    labeled_warning_fixes(warning, feature, &Diagnosis::default())
 }
 
 /// `Attach 'Sketch 2' to {face}`.
@@ -263,12 +252,12 @@ fn a_join_whose_sketch_lost_its_face_names_the_sketch_as_the_root() {
     let warning = no_effect(NoEffectHow::Inside, Some(block_top()));
 
     assert_eq!(
-        rendered_with(&warning, "f-ext2", &lost_face()),
+        labeled_warning(&warning, "f-ext2", &lost_face()),
         "This extrude adds nothing to body 'Body 1' because 'Sketch 2' lost the face it was on. Fix 'Sketch 2' first."
     );
     // One root cause, one problem: Show the sketch instead of the attach or Reverse fixes.
     assert_eq!(
-        fixes_with(&warning, "f-ext2", &lost_face()),
+        labeled_warning_fixes(&warning, "f-ext2", &lost_face()),
         [show("f-sk2")]
     );
 }
@@ -283,12 +272,12 @@ fn a_cut_whose_sketch_lost_its_face_changes_nothing_in_the_body() {
         let warning = no_effect(how, None);
 
         assert_eq!(
-            rendered_with(&warning, "f-ext2", &lost_face()),
+            labeled_warning(&warning, "f-ext2", &lost_face()),
             "This extrude changes nothing in body 'Body 1' because 'Sketch 2' lost the face it was on. Fix 'Sketch 2' first.",
             "{warning:?}"
         );
         assert_eq!(
-            fixes_with(&warning, "f-ext2", &lost_face()),
+            labeled_warning_fixes(&warning, "f-ext2", &lost_face()),
             [show("f-sk2")]
         );
     }
@@ -297,7 +286,7 @@ fn a_cut_whose_sketch_lost_its_face_changes_nothing_in_the_body() {
 #[test]
 fn an_intersection_whose_sketch_lost_its_face_changes_nothing_in_the_body() {
     assert_eq!(
-        rendered_with(
+        labeled_warning(
             &no_effect(NoEffectHow::Covers, None),
             "f-rev1",
             &lost_face()
@@ -311,11 +300,11 @@ fn a_join_whose_sketch_turned_over_names_the_mirrored_drawing() {
     let warning = no_effect(NoEffectHow::Inside, Some(block_top()));
 
     assert_eq!(
-        rendered_with(&warning, "f-ext2", &turned_over()),
+        labeled_warning(&warning, "f-ext2", &turned_over()),
         "This extrude adds nothing to body 'Body 1' because the drawing of 'Sketch 2' lies mirrored on its face. Fix 'Sketch 2' first."
     );
     assert_eq!(
-        fixes_with(&warning, "f-ext2", &turned_over()),
+        labeled_warning_fixes(&warning, "f-ext2", &turned_over()),
         [show("f-sk2")]
     );
 }
@@ -323,7 +312,7 @@ fn a_join_whose_sketch_turned_over_names_the_mirrored_drawing() {
 #[test]
 fn a_cut_whose_sketch_turned_over_changes_nothing_in_the_body() {
     assert_eq!(
-        rendered_with(
+        labeled_warning(
             &no_effect(NoEffectHow::Beside, None),
             "f-ext2",
             &turned_over()
@@ -405,11 +394,11 @@ fn separate_pieces_keep_their_message_and_fixes_when_the_sketch_lost_its_face() 
     let warning = separate_solid(Some(block_top()));
 
     assert_eq!(
-        rendered_with(&warning, "f-ext2", &lost_face()),
+        labeled_warning(&warning, "f-ext2", &lost_face()),
         "This extrude does not touch body 'Body 1', so the body now has 2 separate pieces."
     );
     assert_eq!(
-        fixes_with(&warning, "f-ext2", &lost_face()),
+        labeled_warning_fixes(&warning, "f-ext2", &lost_face()),
         [Fix::NewBody, attach_sketch_2(block_top())]
     );
 }
@@ -464,11 +453,11 @@ fn a_hole_whose_sketch_lost_its_face_names_the_sketch_as_the_root() {
     let warning = hole_misses("f-sk2", [20.0, 10.0], true);
 
     assert_eq!(
-        rendered_with(&warning, "f-hole1", &lost_face()),
+        labeled_warning(&warning, "f-hole1", &lost_face()),
         "The hole at (20, 10) in 'Sketch 2' does not touch body 'Body 1' because 'Sketch 2' lost the face it was on. Fix 'Sketch 2' first."
     );
     assert_eq!(
-        fixes_with(&warning, "f-hole1", &lost_face()),
+        labeled_warning_fixes(&warning, "f-hole1", &lost_face()),
         [show("f-sk2")]
     );
 }
@@ -478,11 +467,11 @@ fn a_hole_whose_sketch_turned_over_names_the_mirrored_drawing() {
     let warning = hole_misses("f-sk2", [20.0, 10.0], true);
 
     assert_eq!(
-        rendered_with(&warning, "f-hole1", &turned_over()),
+        labeled_warning(&warning, "f-hole1", &turned_over()),
         "The hole at (20, 10) in 'Sketch 2' does not touch body 'Body 1' because the drawing of 'Sketch 2' lies mirrored on its face. Fix 'Sketch 2' first."
     );
     assert_eq!(
-        fixes_with(&warning, "f-hole1", &turned_over()),
+        labeled_warning_fixes(&warning, "f-hole1", &turned_over()),
         [show("f-sk2")]
     );
 }

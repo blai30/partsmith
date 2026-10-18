@@ -9,7 +9,7 @@ use common::samples::fillet_failure;
 use common::{NoNames, field, hint, id, manifest, use_value, with_render_context};
 use partsmith_features::{
     Bound, Diagnosis, DocumentNames, FeatureError, FieldRef, FieldUnit, Fix, Names, Registry,
-    RenderContext, format_value,
+    format_value,
 };
 use partsmith_model::{Body, Document, Expr, FeatureRecord, Units};
 use partsmith_occt_sys::{KernelError, Operation};
@@ -215,16 +215,13 @@ fn rendered_on_box(error: &FeatureError, document: &Document) -> String {
         registry: &registry,
         outputs: &outputs,
     };
-    let feature = id("f-box1");
-    let bodies = BTreeMap::new();
-    let diagnosis = Diagnosis::default();
-    error.render(&RenderContext {
-        feature: &feature,
-        names: &names,
-        units: Units::Mm,
-        bodies: &bodies,
-        diagnosis: &diagnosis,
-    })
+    with_render_context(
+        &names,
+        "f-box1",
+        Units::Mm,
+        &Diagnosis::default(),
+        |context| error.render(context),
+    )
 }
 
 /// `BodyNotEmpty` of features.md section 6.3 test 12: Operation New body on `b-1`, without a target field.

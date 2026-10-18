@@ -102,14 +102,13 @@ impl Session {
             feature,
             &params,
         )?;
-        if stored
-            && open
-                .computed
-                .report
-                .features
-                .get(position)
-                .is_some_and(|report| ran(report.status))
-        {
+        let ran_in_run = open
+            .computed
+            .report
+            .features
+            .get(position)
+            .is_some_and(|report| ran(report.status));
+        if stored && ran_in_run {
             offer_finding_fixes(&mut solved.solution, open.revision, open.document.units);
         }
         Ok(solved)
