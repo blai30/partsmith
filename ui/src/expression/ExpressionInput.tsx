@@ -64,8 +64,9 @@ export type ExpressionInputProps = {
   /** A message about the value from elsewhere (a feature status), shown while the text itself is not invalid. */
   readonly error?: string | null
   /**
-   * The largest value that works (3.7), shown under the error as `field_limit` with the
-   * `warningMark` border in place of the `errorMark` one, or null.
+   * The largest value that works (3.7), shown under the error as `field_limit`, which describes
+   * the input after the error, with the `warningMark` border in place of the `errorMark` one, or
+   * null.
    */
   readonly limit?: string | null
   /** The field's hover help (3.7): a tooltip on the label and a description of the input, or null. */
@@ -183,6 +184,7 @@ export function ExpressionInput({
   const evaluated = useExpression(value, unit, label)
   const state = optional && value.trim() === '' ? EMPTY : evaluated
   const errorId = `${id}-error`
+  const limitId = `${id}-limit`
   const helpId = `${id}-help`
   const invalid = state.state === 'invalid'
   const message = invalid ? state.message : (error ?? '')
@@ -427,7 +429,11 @@ export function ExpressionInput({
                 : optionId(suggestions.active)
             }
             aria-invalid={message !== '' ? true : undefined}
-            aria-describedby={describedBy(errorId, help === null ? null : helpId)}
+            aria-describedby={describedBy(
+              errorId,
+              shownLimit === null ? null : limitId,
+              help === null ? null : helpId,
+            )}
             onChange={(event) => {
               change(event.currentTarget.value, event.currentTarget.selectionStart)
             }}
@@ -543,6 +549,7 @@ export function ExpressionInput({
       </p>
       {shownLimit === null ? null : (
         <p
+          id={limitId}
           data-testid="field-limit"
           className={clsx('text-xs', COLOR_CLASSES.warningText.foreground)}
         >

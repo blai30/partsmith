@@ -91,11 +91,11 @@ test.describe('newcomer errors', () => {
       .getByRole('button', { name: 'Connect the ends (0.3 mm apart)', exact: true })
       .click()
     await expect(sketchHeader(page)).toHaveAttribute('data-outline', '0')
-    // An open popover takes only Mod+K (2.10 dispatch rule 3), so it is closed first if the fix
-    // left it open.
-    if (await problems.isVisible()) {
-      await page.keyboard.press('Escape')
-    }
+    // The popover stays open, without the finding (3.16.8). An open popover takes only Mod+K (2.10
+    // dispatch rule 3), so Esc closes it before the sketch is finished.
+    await expect(problems).toBeVisible()
+    await expect(problems).not.toContainText('is not connected to other geometry')
+    await page.keyboard.press('Escape')
     await expect(problems).toBeHidden()
     await page.keyboard.press('ControlOrMeta+Enter')
     await expect(app(page)).toHaveAttribute('data-context', 'model')
@@ -314,7 +314,7 @@ test.describe('newcomer errors', () => {
     ])
     await editSketchFromBrowser(page, 'Sketch 1')
     const mapping = sketchToScreen(await canvas(page), [0, 0], [80, 50])
-    // The back line, left of the sketch header chip that sits above its middle (3.2).
+    // The back line, at its middle.
     await clickAt(page, mapping.toPage([40, 50]))
     await expect(page.getByTestId('selection-title')).toHaveText('1 line')
     await page.keyboard.press('Delete')

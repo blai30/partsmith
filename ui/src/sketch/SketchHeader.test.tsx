@@ -2,7 +2,7 @@ import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
-import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
+import { installPopoverPolyfill, isPopoverOpen } from '../components/popover-polyfill.testing'
 import type { CoreApi } from '../core/api'
 import type {
   Diagnostic,
@@ -528,6 +528,8 @@ describe('sketch problems actions (3.16.8)', () => {
     )
     await act(settleCommits)
     expect(applyFix).toHaveBeenCalledExactlyOnceWith(1, CONNECT_FIX)
+    // The popover stays open after a fix (3.16.8).
+    expect(isPopoverOpen(screen.getByRole('dialog', { name: 'Sketch problems' }))).toBe(true)
   })
 
   it('U-140 "Show" of a finding with connect frames both of its ends', async () => {

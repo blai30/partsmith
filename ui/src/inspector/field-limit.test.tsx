@@ -139,6 +139,13 @@ describe('limits under fields (3.7, U-139)', () => {
     expect(error.compareDocumentPosition(limit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('describes the radius input with its error and then its limit, for assistive technology (3.7)', () => {
+    renderCommand(editingFillet('3 mm'), previewing(failing('f-fil1', [FILLET_TOO_LARGE])))
+    expect(input('radius', 'Radius')).toHaveAccessibleDescription(
+      /which is only 2\.4 mm across\. Largest that works: 2\.3 mm/,
+    )
+  })
+
   it('U-139 gives the field the warningMark border instead of errorMark', () => {
     renderCommand(editingFillet('3 mm'), previewing(failing('f-fil1', [FILLET_TOO_LARGE])))
     expect(hasWarningBorder(input('radius', 'Radius'))).toBe(true)

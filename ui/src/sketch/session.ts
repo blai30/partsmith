@@ -4,6 +4,7 @@ import {
   applySketchConstraints,
   changeSketchDimension,
   createSketchIds,
+  refusedDimensionMessage,
   selectInSketch,
   solutionOf,
   storedSketchParams,
@@ -218,9 +219,9 @@ export type DimensionEditorModel = {
   readonly round: 'diameter' | 'radius' | null
   readonly reference: boolean
   /**
-   * Why the editor stays open with Add reference and Cancel: a driving dimension the other
+   * Why the editor stays open with Add reference and Cancel: a new driving dimension the other
    * constraints already set (`dimension_over_constrained`), or an edited value the sketch cannot
-   * take, whose sentence is `message`.
+   * take, whose sentence is `message` (`refusedDimensionMessage`).
    */
   readonly problem: DimensionProblem | null
   /** The sentence of `cannot_take`; otherwise why the core refused a new dimension, shown under the input; or null. */
@@ -1072,11 +1073,14 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       closeEditor()
       return
     }
-    // Nothing was applied: the editor keeps the text and says why (3.16.7).
-    editor =
-      result.message === null
-        ? { ...editor, busy: false, problem: 'over_constrained' }
-        : { ...editor, busy: false, problem: 'cannot_take', message: result.message }
+    // Nothing was applied: the editor keeps the text and says why, as the selection inspector
+    // does for the same refusal (3.16.7).
+    editor = {
+      ...editor,
+      busy: false,
+      problem: 'cannot_take',
+      message: refusedDimensionMessage(result),
+    }
     refresh()
   }
 

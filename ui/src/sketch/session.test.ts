@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setSketchTool } from '../app/actions/sketch'
 import type { CoreApi } from '../core/api'
 import type { Edit, SketchConstraint, SketchSolution } from '../generated/protocol'
+import { MESSAGES } from '../messages'
 import { LINUX_WEB, MAC_WEB } from '../test/fakes/test-app'
 import {
   DOCUMENT_HANDLE,
@@ -632,6 +633,33 @@ describe('dimension tool (3.16.7)', () => {
     await settleCommits()
     expect(harness.applied.map((entry) => entry.label)).toEqual(['Change dimension'])
     expect(constraintsOf(appliedSketch(harness))).toEqual([{ ...stored, expr: '30' }])
+  })
+
+  it('an edited dimension refused without a message says what the selection inspector says for it (refusedDimensionMessage)', async () => {
+    const stored: SketchConstraint = { id: 'c-1', type: 'distance', line: 'e-1', expr: '20' }
+    const harness = sketchHarness({
+      entities: [BASE],
+      constraints: [stored],
+      // The probe of 30 over-constrains c-1 and carries no message.
+      solve: (candidate) =>
+        solutionFor(candidate.entities ?? [], {
+          conflicting: (candidate.constraints ?? []).some(
+            (constraint) => 'expr' in constraint && constraint.expr === '30',
+          )
+            ? ['c-1']
+            : [],
+        }),
+    })
+    const sketch = start(harness)
+    sketch.editDimension('c-1')
+    sketch.setEditorText('30')
+    await sketch.commitEditor()
+    expect(sketch.getModel().editor).toMatchObject({
+      problem: 'cannot_take',
+      message: MESSAGES.dimension_over_constrained(),
+    })
+    await settleCommits()
+    expect(harness.applied).toEqual([])
   })
 })
 

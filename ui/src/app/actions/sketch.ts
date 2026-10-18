@@ -923,9 +923,9 @@ export function changeSketchDimension(
 }
 
 /**
- * The sentence a refused dimension change shows (3.16.7): the probe's message, the one the sketch
- * would report once stored, or `dimension_over_constrained` for an over-constrained probe without
- * one.
+ * The sentence a refused dimension change shows in the dimension editor and the selection
+ * inspector alike (3.16.7): the probe's message, the one the sketch would report once stored, or
+ * `dimension_over_constrained` for an over-constrained probe without one.
  */
 export function refusedDimensionMessage(result: RefusedSketchCommit): string {
   return result.message ?? MESSAGES.dimension_over_constrained()

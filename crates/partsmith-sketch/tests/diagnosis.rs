@@ -534,24 +534,36 @@ fn triangle_of_lines(third: f64) -> Sketch {
 
 #[test]
 fn t251_a_side_no_triangle_can_have_fails_and_is_diagnosed_where_it_was_given() {
-    let sketch = triangle_of_lines(80.0);
+    // 80 mm is the spec's side. The iterations end near a different degenerate shape for each
+    // side, whose nearly dependent rows called some sides conflicting there (section 3.8).
+    for third in [80.0, 1.0, 5.0, 71.0, 75.0, 90.0, 150.0, 500.0, 1000.0] {
+        let sketch = triangle_of_lines(third);
 
-    let result = sketch.solve();
+        let result = sketch.solve();
 
-    assert!(result.failed);
-    assert_bitwise(&result.entities, &sketch.params.entities, "entities");
-    assert!(
-        result.redundant.is_empty(),
-        "redundant: {:?}",
-        result.redundant
-    );
-    assert!(
-        result.conflicting.is_empty(),
-        "conflicting: {:?}",
-        result.conflicting
-    );
-    assert_eq!(result.dof, 3);
-    assert_eq!(result.status, SketchStatus::UnderConstrained);
+        assert!(result.failed, "side {third}");
+        assert_bitwise(
+            &result.entities,
+            &sketch.params.entities,
+            &format!("side {third}: entities"),
+        );
+        assert!(
+            result.redundant.is_empty(),
+            "side {third}: redundant {:?}",
+            result.redundant
+        );
+        assert!(
+            result.conflicting.is_empty(),
+            "side {third}: conflicting {:?}",
+            result.conflicting
+        );
+        assert_eq!(result.dof, 3, "side {third}");
+        assert_eq!(
+            result.status,
+            SketchStatus::UnderConstrained,
+            "side {third}"
+        );
+    }
 }
 
 #[test]

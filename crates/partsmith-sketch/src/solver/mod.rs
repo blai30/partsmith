@@ -346,65 +346,6 @@ mod tests {
         assert_eq!(second.entities, first.entities);
     }
 
-    /// NC08's triangle with Distance 30 mm and 40 mm on two sides and `third` mm on the last.
-    fn triangle_with_third_side(third: f64) -> (SketchParams, DimensionValues) {
-        let sketch: SketchParams = serde_json::from_str(&format!(
-            r#"{{
-              "plane": {{"kind": "origin", "plane": "XY"}},
-              "entities": [
-                {{"id": "e-1", "type": "line", "start": [0, 0], "end": [30, 0]}},
-                {{"id": "e-2", "type": "line", "start": [30, 0], "end": [30, 40]}},
-                {{"id": "e-3", "type": "line", "start": [30, 40], "end": [0, 0]}}
-              ],
-              "constraints": [
-                {{"id": "c-1", "type": "distance", "line": "e-1", "expr": "30 mm"}},
-                {{"id": "c-2", "type": "distance", "line": "e-2", "expr": "40 mm"}},
-                {{"id": "c-3", "type": "distance", "line": "e-3", "expr": "{third} mm"}},
-                {{"id": "c-4", "type": "coincident", "points": ["e-1.end", "e-2.start"]}},
-                {{"id": "c-5", "type": "coincident", "points": ["e-2.end", "e-3.start"]}},
-                {{"id": "c-6", "type": "coincident", "points": ["e-3.end", "e-1.start"]}}
-              ]
-            }}"#
-        ))
-        .expect("valid sketch");
-        let values: DimensionValues = [("c-1", 30.0), ("c-2", 40.0), ("c-3", third)]
-            .into_iter()
-            .map(|(constraint, value)| (id(constraint), value))
-            .collect();
-        (sketch, values)
-    }
-
-    #[test]
-    fn a_failed_component_is_diagnosed_where_it_was_given_whatever_side_no_triangle_can_have() {
-        // Section 3.8: the iterations end near a degenerate shape whose rows are nearly dependent,
-        // so a diagnosis there called some of these sides conflicting and others not.
-        for third in [1.0, 5.0, 71.0, 75.0, 80.0, 90.0, 150.0, 500.0, 1000.0] {
-            let (sketch, values) = triangle_with_third_side(third);
-
-            let result = NativeSolver
-                .solve(&sketch, &values)
-                .expect("the sketch is valid");
-
-            assert!(result.failed, "side {third}");
-            assert!(
-                result.conflicting.is_empty(),
-                "side {third}: {:?}",
-                result.conflicting
-            );
-            assert!(
-                result.redundant.is_empty(),
-                "side {third}: {:?}",
-                result.redundant
-            );
-            assert_eq!(result.dof, 3, "side {third}");
-            assert_eq!(
-                result.status,
-                SketchStatus::UnderConstrained,
-                "side {third}"
-            );
-        }
-    }
-
     #[test]
     fn solved_arc_angles_stay_below_a_full_turn() {
         // The start angle is a hair below 0; adding 2*pi to it rounds to exactly 2*pi.
