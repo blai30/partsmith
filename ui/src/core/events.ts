@@ -30,6 +30,8 @@ export type CoreEvent =
       readonly transactionOpen: boolean
       readonly transaction: string | null
       readonly focus: string | null
+      /** `bare_numbers`: expressions that are numbers without a unit, for Keep sizes (3.21). */
+      readonly bareNumbers: number
     }
   | {
       readonly type: 'recomputed'
@@ -218,6 +220,7 @@ export function decodeEvent(event: Event, buffers: readonly BufferView[]): CoreE
         transactionOpen: event.transaction_open,
         transaction: event.transaction ?? null,
         focus: event.focus ?? null,
+        bareNumbers: event.bare_numbers,
       }
     case 'recomputed':
       return {

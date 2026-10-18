@@ -25,6 +25,7 @@ import { originItem } from '../inspector/selection-values'
 import { focusLost, focusView } from '../layout/focus'
 import { counted, MESSAGES } from '../messages'
 import { selectRepairMode } from '../repair/repair'
+import { FixButtons } from '../repair/FixButtons'
 import { RepairCandidates } from '../repair/RepairCandidates'
 import {
   selectEditedSketch,
@@ -38,7 +39,7 @@ import { COLOR_CLASSES } from '../theme/roles'
 import { TopCenterSlot } from '../viewport/TopCenterSlot'
 import { constraintTitle } from './constraints'
 import { entitySelectionItem } from './hit'
-import { outlineCount, outlineProblems, profileFindingMessage } from './issues'
+import { findingMessage, outlineCount, outlineProblems } from './issues'
 import { sketchStepHint, type SketchOverlayModel } from './session'
 
 // The sketch header and hint (ui.md 3.16.1, 3.16.3, 3.16.8): the sketch's name and constraint
@@ -404,20 +405,28 @@ function SketchProblems({ sketchId }: { readonly sketchId: string }) {
           </h2>
           <ul className="flex flex-col gap-2">
             {findings.map((finding, index) => {
-              const message = profileFindingMessage(finding)
+              // The core's sentence and fixes, such as "Connect the ends (0.3 mm apart)" (2.14).
+              const message = solution === null ? null : findingMessage(solution, index)
               return (
                 // Findings have no ids; their order is stable for one solution (sketch.md 3.13.7).
                 // oxlint-disable-next-line react/no-array-index-key
-                <li key={index} className="flex items-start justify-between gap-3">
-                  <span className="min-w-0 text-sm">{message}</span>
-                  <Button
-                    aria-label={`Show: ${message}`}
-                    onClick={() => {
-                      showSketchFinding(app, finding)
-                    }}
-                  >
-                    Show
-                  </Button>
+                <li key={index} className="flex flex-col gap-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="min-w-0 text-sm">{message?.message}</span>
+                    <Button
+                      aria-label={message === null ? 'Show' : `Show: ${message.message}`}
+                      onClick={() => {
+                        showSketchFinding(app, finding)
+                      }}
+                    >
+                      Show
+                    </Button>
+                  </div>
+                  {message?.actions === undefined || message.actions.length === 0 ? null : (
+                    <div className="flex flex-wrap gap-2">
+                      <FixButtons actions={message.actions} place="panel" />
+                    </div>
+                  )}
                 </li>
               )
             })}

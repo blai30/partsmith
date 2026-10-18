@@ -1,11 +1,6 @@
 import { ArrowUpFromLine, Layers2, PencilRuler, Shapes } from 'lucide-react'
 import { describe, expect, it } from 'vitest'
-import type {
-  CatalogEntry,
-  Document,
-  ProfileFinding,
-  SketchEntity,
-} from '../generated/protocol'
+import type { CatalogEntry, Document, ProfileFinding, SketchEntity } from '../generated/protocol'
 import { screen, within } from '@testing-library/react'
 import { editFeature } from '../app/actions/command'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
@@ -416,7 +411,11 @@ function sketchesRecipe(sketches: readonly FeatureRecord[]): Document {
 
 /** A document whose sketches have no region and these findings, by sketch id. */
 function openSketches(
-  sketches: readonly (readonly [id: string, entities: readonly SketchEntity[], findings: readonly ProfileFinding[]])[],
+  sketches: readonly (readonly [
+    id: string,
+    entities: readonly SketchEntity[],
+    findings: readonly ProfileFinding[],
+  ])[],
 ): DocumentState {
   return documentState(sketchesRecipe(sketches.map(([id, entities]) => sketchOf(id, entities))), {
     sketches: Object.fromEntries(
@@ -465,13 +464,29 @@ describe('an open outline names its sketch (2.10, U-140)', () => {
     await settle()
     expect(app.store.getState().context).toBe('sketch')
     expect(app.store.getState().sketch?.sketchId).toBe('f-sk1')
+    // The two ends, grown to a fifth of the 80 by 50 sketch about their center (3.16.8).
     const { bounds } = lastFramedBounds(viewport)
     expectBoundsContain(bounds, [
       [0, 0.3, 0],
       [0, 0, 0],
     ])
-    // The open ends, not the whole sketch: the far corner stays out of the frame.
-    expect(bounds.max[0]).toBeLessThan(80)
+    expect(bounds.min[0]).toBeCloseTo(-8)
+    expect(bounds.max[0]).toBeCloseTo(8)
+    expect(bounds.min[1]).toBeCloseTo(-4.85)
+    expect(bounds.max[1]).toBeCloseTo(5.15)
+  })
+
+  it("U-140 the toolbar's Extrude is aria-disabled with the reason as its description (4.2)", () => {
+    installPopoverPolyfill()
+    stubMatchMedia()
+    const { app } = createModelApp({ state: readyState(NC01_STATE) })
+    renderWithApp(app)
+    const extrude = within(screen.getByRole('toolbar', { name: 'Model tools' })).getByRole(
+      'button',
+      { name: 'Extrude' },
+    )
+    expect(extrude).toHaveAttribute('aria-disabled', 'true')
+    expect(extrude).toHaveAccessibleDescription(expect.stringContaining(NC01_REASON))
   })
 
   it('U-140 names the sketch with the fewest open ends', () => {
@@ -479,7 +494,12 @@ describe('an open outline names its sketch (2.10, U-140)', () => {
       [
         'f-sk1',
         [lineEntity('e-1', [0, 0], [10, 0]), lineEntity('e-2', [0, 20], [10, 20])],
-        [openEnd('e-1', [0, 0]), openEnd('e-1', [10, 0]), openEnd('e-2', [0, 20]), openEnd('e-2', [10, 20])],
+        [
+          openEnd('e-1', [0, 0]),
+          openEnd('e-1', [10, 0]),
+          openEnd('e-2', [0, 20]),
+          openEnd('e-2', [10, 20]),
+        ],
       ],
       ['f-sk2', NC01_LINES, [NC01_GAP]],
     ])

@@ -27,8 +27,13 @@ export type Availability =
       readonly reason: string
       /** The 4.3 message id of the reason, which its notification carries as `data-code` (2.8). */
       readonly code?: MessageId
+      /** The one action of the reason's notification, such as "Show 'Sketch 1'" (2.10). */
+      readonly action?: AvailabilityAction
     }
   | { readonly state: 'hidden' }
+
+/** What a disabled command's notification offers to do about its reason (2.10). */
+export type AvailabilityAction = { readonly label: string; readonly run: (app: App) => void }
 
 /** An availability that says why its command cannot run. */
 export type DisabledAvailability = Extract<Availability, { readonly state: 'disabled' }>
@@ -121,15 +126,29 @@ function onHost(definition: CommandDefinition, platform: Platform): boolean {
   return definition.host === undefined || definition.host === platform.host
 }
 
-/** Says why a command or control cannot act now, as an info notification carrying the reason's code (2.8). */
+/**
+ * Says why a command or control cannot act now, as an info notification carrying the reason's code
+ * (2.8) and the availability's action, when it has one (2.10).
+ */
 export function explainDisabled(
   app: App,
-  disabled: Pick<DisabledAvailability, 'reason' | 'code'>,
+  disabled: Pick<DisabledAvailability, 'reason' | 'code' | 'action'>,
 ): void {
+  const action = disabled.action
   notify(app, {
     severity: 'info',
     message: disabled.reason,
-    actions: [],
+    actions:
+      action === undefined
+        ? []
+        : [
+            {
+              label: action.label,
+              run: () => {
+                action.run(app)
+              },
+            },
+          ],
     ...(disabled.code === undefined ? {} : { code: disabled.code }),
   })
 }

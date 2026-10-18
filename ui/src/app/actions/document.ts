@@ -23,6 +23,7 @@ import {
   documentOf,
   mutate,
   refusedDuringCommand,
+  runChange,
   showCoreError,
   type StoppedNotice,
 } from './edits'
@@ -589,12 +590,24 @@ export async function coreRedo(app: App): Promise<void> {
   }
 }
 
-/** Changes the document units and explains what that means for typed numbers (3.21); refused during a feature command (3.7). */
+/**
+ * Changes the document units and explains what that means for typed numbers (3.21): one undo entry
+ * through `set_document_units`, keeping sizes while Keep sizes is on and numbers lack a unit.
+ * Choosing the current units changes nothing; refused during a feature command (3.7).
+ */
 export async function setUnits(app: App, units: Units): Promise<void> {
   if (refusedDuringCommand(app)) {
     return
   }
-  if (await commitEdits(app, `Change units to ${units}`, [{ type: 'set_units', units }])) {
+  const { sent } = await runChange(app, async (document) => {
+    if (document.recipe.units === units) {
+      return false
+    }
+    const keepSizes = app.store.getState().keepSizes && document.bareNumbers > 0
+    await app.core.setDocumentUnits(document.documentHandle, units, keepSizes)
+    return true
+  })
+  if (sent) {
     notify(app, {
       severity: 'info',
       message: MESSAGES.units_changed(units),
@@ -602,4 +615,9 @@ export async function setUnits(app: App, units: Units): Promise<void> {
       code: 'units_changed',
     })
   }
+}
+
+/** Turns Keep sizes of the units control on or off for the rest of the session (3.21). */
+export function setKeepSizes(app: App, keepSizes: boolean): void {
+  app.store.setState({ keepSizes })
 }

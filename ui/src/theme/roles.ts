@@ -136,7 +136,11 @@ export const COLOR_CLASSES = {
   errorText: { foreground: 'text-red-700 dark:text-red-300' },
   errorSubtle: { background: 'bg-red-50 dark:bg-red-950' },
   errorFill: { background: 'bg-red-600', foreground: 'text-white' },
-  warningMark: { fill: 'fill-yellow-400', foreground: 'text-zinc-950' },
+  warningMark: {
+    fill: 'fill-yellow-400',
+    foreground: 'text-zinc-950',
+    border: 'border-yellow-800 dark:border-yellow-300',
+  },
   warningText: { foreground: 'text-yellow-800 dark:text-yellow-300' },
   warningSubtle: { background: 'bg-yellow-50 dark:bg-yellow-950' },
   warningFill: { background: 'bg-yellow-400', foreground: 'text-zinc-950' },

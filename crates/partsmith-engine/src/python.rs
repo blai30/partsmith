@@ -337,6 +337,19 @@ struct Requests {
     entities: BTreeSet<(Id, Id)>,
 }
 
+impl Requests {
+    /// True when nothing is requested.
+    fn is_empty(&self) -> bool {
+        self.features.is_empty() && self.entities.is_empty()
+    }
+
+    /// Adds the requests of `other`.
+    fn extend(&mut self, other: Requests) {
+        self.features.extend(other.features);
+        self.entities.extend(other.entities);
+    }
+}
+
 impl Names<'_> {
     /// The timeline position of `feature` when it comes before the current feature.
     fn earlier(&self, feature: &Id) -> Option<usize> {
@@ -471,8 +484,20 @@ fn plan(registry: &Registry, names: &Names<'_>, position: usize) -> Plan {
         }
         return Plan::Sketch(Box::new(params));
     }
-    registry.python(record, names);
+    record_call(registry, names, record);
     Plan::Call
+}
+
+/// Records what the registry's call of `record` refers to. A hook that gives up after looking up
+/// some names leaves the generic form, which refers to none of them, so their requests are dropped
+/// (rule 7).
+fn record_call(registry: &Registry, names: &Names<'_>, record: &FeatureRecord) {
+    let earlier = names.requests.take();
+    let call = registry.python(record, names);
+    let lookups = names.requests.replace(earlier);
+    if !lookups.is_empty() && call != registry.python_generic(record) {
+        names.requests.borrow_mut().extend(lookups);
+    }
 }
 
 /// The params of a sketch that can be written as a block: valid params, a plane with a variable

@@ -70,8 +70,6 @@ export const MESSAGES = {
     `${title} is already implied by other constraints, so it was not added.`,
   dimension_over_constrained: () =>
     'Other dimensions and constraints already set this size. Add it as a reference dimension that only shows the measurement?',
-  dimension_unsolvable: () =>
-    'The sketch cannot be solved with this value. Check for dimensions that cannot all be true at once.',
   cannot_dimension: (first: string, second: string) =>
     `Partsmith cannot dimension ${first} and ${second}. Pick two points, a point and a line, two lines, or one circle or arc.`,
   arc_collinear: () =>
@@ -146,10 +144,17 @@ export const MESSAGES = {
   repair_missing: (description: string) => `${description} (missing)`,
   repair_check: (description: string) => `${description} (check it)`,
   cause_ghost: () => 'Before this change',
+  /** `openEnds` counts the open ends of the sketch's outline (`openEnds`, 2.14). */
+  needs_closed_shape: (sketch: string, openEnds: number) =>
+    `'${sketch}' has no closed shape: ${openEnds === 1 ? '1 end is' : `${String(openEnds)} ends are`} not connected.`,
   reattach_prompt: (label: string) => `Pick a plane or a flat face for '${label}'`,
   attach_label: (label: string) => `Attach '${label}'`,
   attach_after: (label: string, feature: string) =>
     `'${label}' cannot be placed on '${feature}', which comes after it. Pick an origin plane, or a flat face or datum plane made before '${label}'.`,
+  /** `unit` is the current unit and `count` the document's `bareNumbers` (3.21). */
+  keep_sizes: (unit: string, count: number) =>
+    `Keep sizes: add ${unit} to the ${counted(count, 'number')} without a unit`,
+  field_limit: (suggestion: string) => `Largest that works: ${suggestion}`,
   preview_pending: () => 'Wait for the preview to update.',
   details_copied: () => 'Details copied.',
   details_not_copied: () =>

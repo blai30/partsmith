@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isPlainNumber, stepExpression } from './step'
+import { isNumberWithoutUnit, isPlainNumber, stepExpression } from './step'
 
 describe('stepExpression', () => {
   it('U-40 10 up gives 11', () => {
@@ -111,5 +111,18 @@ describe('isPlainNumber', () => {
 
   it.each(['10 ft', 'mm', '1e3', '10 mm mm', '--1', 'size'])('is false for %j', (text) => {
     expect(isPlainNumber(text)).toBe(false)
+  })
+})
+
+describe('isNumberWithoutUnit', () => {
+  it.each(['20', ' -2.5 ', '+3', '.5'])(
+    'is true for %j, whose meaning the units decide',
+    (text) => {
+      expect(isNumberWithoutUnit(text)).toBe(true)
+    },
+  )
+
+  it.each(['20 mm', '2in', '45 deg', 'wall', '2*5', ''])('is false for %j', (text) => {
+    expect(isNumberWithoutUnit(text)).toBe(false)
   })
 })

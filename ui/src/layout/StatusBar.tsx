@@ -1,7 +1,7 @@
 import { clsx } from 'clsx/lite'
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type Ref } from 'react'
-import { setUnits } from '../app/actions/document'
+import { setKeepSizes, setUnits } from '../app/actions/document'
 import { openPrintHealth, setPrinter } from '../app/actions/print'
 import { useApp, useAppState } from '../app/AppProvider'
 import { reportFailure } from '../app/report'
@@ -9,6 +9,7 @@ import { explainDisabled, type DisabledAvailability } from '../commands/registry
 import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
 import { DOCUMENT_UNITS, formatQuantity } from '../expression/format'
+import { MESSAGES } from '../messages'
 import { HealthBadge } from '../print/HealthBadge'
 import { PrinterMenu } from '../print/PrinterMenu'
 import { printerLabel } from '../print/printer'
@@ -206,6 +207,8 @@ function useDisabled(commandId: string): DisabledAvailability | null {
 function UnitsButton() {
   const app = useApp()
   const units = useAppState((state) => state.document?.recipe.units ?? null)
+  const bareNumbers = useAppState((state) => state.document?.bareNumbers ?? 0)
+  const keepSizes = useAppState((state) => state.keepSizes)
   // Every unit command shares one availability rule.
   const disabled = useDisabled('document.units.mm')
   const reason = disabled?.reason ?? null
@@ -214,7 +217,7 @@ function UnitsButton() {
   if (units === null) {
     return null
   }
-  const entries: MenuEntry[] = DOCUMENT_UNITS.map((unit) => ({
+  const unitEntries: MenuEntry[] = DOCUMENT_UNITS.map((unit) => ({
     kind: 'radio',
     label: unit,
     checked: unit === units,
@@ -224,6 +227,23 @@ function UnitsButton() {
       }
     },
   }))
+  // Keep sizes is offered only while some number has no unit, whose size the change would alter.
+  const entries: MenuEntry[] =
+    bareNumbers > 0
+      ? [
+          ...unitEntries,
+          {
+            kind: 'checkbox',
+            label: MESSAGES.keep_sizes(units, bareNumbers),
+            testId: 'keep-sizes',
+            checked: keepSizes,
+            keepsOpen: true,
+            onSelect: () => {
+              setKeepSizes(app, !keepSizes)
+            },
+          },
+        ]
+      : unitEntries
   return (
     <>
       <Tooltip label={reason === null ? 'Units' : `Units: ${reason}`}>

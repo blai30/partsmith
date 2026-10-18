@@ -72,8 +72,8 @@ const PALETTE_TABLE: readonly (readonly [step: string, tailwind: string, hex: st
   ['amber-800', 'oklch(47.3% 0.137 46.201)', '#973c00'],
 ]
 
-// Table of ui.md 2.16.3: role, facet, classes. The `warningMark` border and background facets,
-// which the drop warning and the upper limit of a field bring (3.7, 3.9), are not in roles.ts yet.
+// Table of ui.md 2.16.3: role, facet, classes. The `warningMark` background facet, which the drop
+// warning brings (3.9), is not in roles.ts yet; its border facet is the field limit's (3.7).
 const CLASS_TABLE: readonly (readonly [role: string, facet: string, classes: string])[] = [
   ['stage', 'background', 'bg-zinc-100 dark:bg-zinc-950'],
   ['surface', 'background', 'bg-white dark:bg-zinc-900'],
@@ -133,6 +133,7 @@ const CLASS_TABLE: readonly (readonly [role: string, facet: string, classes: str
   ['errorFill', 'foreground', 'text-white'],
   ['warningMark', 'fill', 'fill-yellow-400'],
   ['warningMark', 'foreground', 'text-zinc-950'],
+  ['warningMark', 'border', 'border-yellow-800 dark:border-yellow-300'],
   ['warningText', 'foreground', 'text-yellow-800 dark:text-yellow-300'],
   ['warningSubtle', 'background', 'bg-yellow-50 dark:bg-yellow-950'],
   ['warningFill', 'background', 'bg-yellow-400'],

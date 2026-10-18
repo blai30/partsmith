@@ -592,6 +592,17 @@ describe('dimension tool (3.16.7)', () => {
     expect(harness.applied).toEqual([])
   })
 
+  it('editing a stored dimension clears the sketch selection, so the selection inspector does not open over the editor', () => {
+    const stored: SketchConstraint = { id: 'c-1', type: 'distance', line: 'e-1', expr: '20' }
+    const harness = sketchHarness({ entities: [BASE], constraints: [stored] })
+    const sketch = start(harness)
+    sketch.selectConstraint('c-1', false)
+    expect(harness.app.store.getState().sketch?.selection).toHaveLength(1)
+    sketch.editDimension('c-1')
+    expect(sketch.getModel().editor).toMatchObject({ mode: 'edit', text: '20' })
+    expect(harness.app.store.getState().sketch?.selection).toEqual([])
+  })
+
   it('editing a stored dimension commits "Change dimension", or keeps the editor open when the sketch cannot take it', async () => {
     const stored: SketchConstraint = { id: 'c-1', type: 'distance', line: 'e-1', expr: '20' }
     const failing = { value: false }

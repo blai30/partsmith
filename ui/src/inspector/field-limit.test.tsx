@@ -58,7 +58,10 @@ function failing(feature: string, messages: readonly Diagnostic[]): FeatureStatu
 }
 
 /** cube-features.ptsm focused on `status`'s feature in a transaction, as during its command. */
-function previewing(status: FeatureStatus, recipe: Document = CUBE_FEATURES_DOCUMENT): DocumentState {
+function previewing(
+  status: FeatureStatus,
+  recipe: Document = CUBE_FEATURES_DOCUMENT,
+): DocumentState {
   const document = documentState(recipe, {
     name: 'cube-features',
     meshes: { 'b-cube': meshSummary(1, CUBE_BOUNDS) },
@@ -95,14 +98,13 @@ function hasRoleClasses(element: Element, classes: string): boolean {
   )
 }
 
-/** Expects the input's border to be warningMark's, and none of errorMark's classes. */
-function expectWarningBorder(element: HTMLElement): void {
-  for (const name of COLOR_CLASSES.warningMark.border.split(' ')) {
-    expect(element).toHaveClass(name)
-  }
-  for (const name of COLOR_CLASSES.errorMark.border.split(' ')) {
-    expect(element).not.toHaveClass(name)
-  }
+/** Whether the element has warningMark's border classes and none of errorMark's. */
+function hasWarningBorder(element: HTMLElement): boolean {
+  const has = (name: string) => element.classList.contains(name)
+  return (
+    COLOR_CLASSES.warningMark.border.split(' ').every(has) &&
+    !COLOR_CLASSES.errorMark.border.split(' ').some(has)
+  )
 }
 
 function fixOf(feature: string, code: string, path: string): FixRef {
@@ -118,7 +120,10 @@ const FILLET_TOO_LARGE: Diagnostic = {
   field: '/radius',
   suggestion: '2.3 mm',
   actions: [
-    { label: 'Use 2.3 mm', run: { kind: 'apply', fix: fixOf('f-fil1', 'fillet_too_large', '/radius') } },
+    {
+      label: 'Use 2.3 mm',
+      run: { kind: 'apply', fix: fixOf('f-fil1', 'fillet_too_large', '/radius') },
+    },
   ],
 }
 
@@ -136,7 +141,7 @@ describe('limits under fields (3.7, U-139)', () => {
 
   it('U-139 gives the field the warningMark border instead of errorMark', () => {
     renderCommand(editingFillet('3 mm'), previewing(failing('f-fil1', [FILLET_TOO_LARGE])))
-    expectWarningBorder(input('radius', 'Radius'))
+    expect(hasWarningBorder(input('radius', 'Radius'))).toBe(true)
   })
 
   it("U-139 keeps the message's actions in the banner, not under the field", () => {
@@ -196,7 +201,7 @@ describe('limits under fields (3.7, U-139)', () => {
     expect(within(field('thickness')).getByTestId('field-limit')).toHaveTextContent(
       'Largest that works: 9.5 mm',
     )
-    expectWarningBorder(input('thickness', 'Thickness'))
+    expect(hasWarningBorder(input('thickness', 'Thickness'))).toBe(true)
   })
 
   it('U-139 shows the limit of chamfer_too_large under Distance', () => {
@@ -219,7 +224,7 @@ describe('limits under fields (3.7, U-139)', () => {
     expect(within(field('distance.expr')).getByTestId('field-limit')).toHaveTextContent(
       'Largest that works: 9.9 mm',
     )
-    expectWarningBorder(input('distance.expr', 'Distance'))
+    expect(hasWarningBorder(input('distance.expr', 'Distance'))).toBe(true)
   })
 
   it('U-139 shows no limit for another message with a suggestion, such as an out of range value', () => {

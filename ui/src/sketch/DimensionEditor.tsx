@@ -63,7 +63,8 @@ export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
         unit={editor.unit}
         value={editor.text}
         selectOnFocus
-        error={editor.message}
+        // A refusal's sentence goes to the alert below instead.
+        error={editor.problem === null ? editor.message : null}
         onChange={(value) => {
           controller.setEditorText(value)
         }}
@@ -94,9 +95,13 @@ export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
           Reference
         </Button>
       </div>
-      {editor.problem === 'over_constrained' ? (
+      {editor.problem === null ? null : (
         <div role="alert" className="flex flex-col gap-2 text-sm">
-          <p>{MESSAGES.dimension_over_constrained()}</p>
+          {editor.problem === 'over_constrained' ? (
+            <p>{MESSAGES.dimension_over_constrained()}</p>
+          ) : (
+            <p className={COLOR_CLASSES.errorText.foreground}>{editor.message}</p>
+          )}
           <div className="flex justify-end gap-2">
             <Button
               variant="primary"
@@ -117,12 +122,7 @@ export function DimensionEditor({ controller, editor }: DimensionEditorProps) {
             </Button>
           </div>
         </div>
-      ) : null}
-      {editor.problem === 'unsolvable' ? (
-        <p role="alert" className={clsx('text-sm', COLOR_CLASSES.errorText.foreground)}>
-          {MESSAGES.dimension_unsolvable()}
-        </p>
-      ) : null}
+      )}
     </fieldset>
   )
 }

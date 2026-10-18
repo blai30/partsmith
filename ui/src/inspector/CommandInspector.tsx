@@ -33,7 +33,7 @@ import { fieldInputId, focusField } from './fields/field-id'
 import { SelectionField } from './fields/SelectionField'
 import { NumberField, SwitchField, TextValueField, UnsupportedField } from './fields/ValueFields'
 import { buildInspectorModel, fieldsOf, siblingsOf, type InspectorField } from './model'
-import { messagesByField, pointsInto } from './status'
+import { fieldLimit, messagesByField, pointsInto } from './status'
 
 // The inspector of a feature command (ui.md 3.7): the status banner, the essential fields, the
 // rest behind "More options", and Cancel and OK.
@@ -63,11 +63,14 @@ function FieldControl({
   field,
   params,
   statusMessage,
+  limit,
   trailing,
 }: {
   readonly field: InspectorField
   readonly params: Readonly<Record<string, unknown>>
   readonly statusMessage: string | null
+  /** The largest value that works, under an expression field (3.7), or null. */
+  readonly limit: string | null
   readonly trailing: ReactNode
 }) {
   const control = field.control
@@ -78,6 +81,7 @@ function FieldControl({
           field={field}
           unit={control.unit}
           statusMessage={statusMessage}
+          limit={limit}
           trailing={trailing}
         />
       )
@@ -316,6 +320,7 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
   const body = useRef<HTMLDivElement>(null)
   useOverflowEdges(body)
   const status = useAppState((state) => state.document?.featureStatus[command.featureId])
+  const units = useAppState((state) => state.document?.recipe.units ?? 'mm')
   const expanded = useAppState((state) => state.settings.moreExpanded[command.featureType] === true)
   const startParams = useAppState(commandStartParams)
   const model = buildInspectorModel({
@@ -348,6 +353,8 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
   const complete = model.complete
   const statusMessageOf = (field: InspectorField): string | null =>
     byField.get(field.path)?.message ?? null
+  const limitOf = (field: InspectorField): string | null =>
+    fieldLimit(byField.get(field.path), field.value, units)
 
   const renderField = (field: InspectorField) =>
     // An inline toggle renders in the row of the field it attaches to.
@@ -362,6 +369,7 @@ export function CommandInspector({ command, feature }: CommandInspectorProps) {
           field={field}
           params={command.params}
           statusMessage={statusMessageOf(field)}
+          limit={limitOf(field)}
           trailing={toggles
             .filter((toggle) => toggle.attachedTo === field.path)
             .map((toggle) => (

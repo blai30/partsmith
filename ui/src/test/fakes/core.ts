@@ -445,13 +445,12 @@ function mapStrings(value: unknown, change: (text: string) => string): unknown {
 function mapExpressions(recipe: Document, change: (text: string) => string): Document {
   return {
     ...recipe,
-    parameters: parametersOf(recipe).map((parameter) => ({
-      ...parameter,
-      expr: change(parameter.expr),
-    })),
+    parameters: parametersOf(recipe).map((parameter) =>
+      Object.assign({}, parameter, { expr: change(parameter.expr) }),
+    ),
     features: featuresOf(recipe).map((feature) => {
       const { id, type, ...params } = feature
-      return { id, type, ...(mapStrings(params, change) as Record<string, unknown>) }
+      return Object.assign({ id, type }, mapStrings(params, change))
     }),
   }
 }
@@ -760,7 +759,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     }
     const keepSizes = command.keep_sizes === true
     const kept = keepSizes ? bareNumbers(entry.recipe) : 0
-    const recipe = keepSizes ? withUnitOnBareNumbers(entry.recipe, entry.recipe.units) : entry.recipe
+    const recipe = keepSizes
+      ? withUnitOnBareNumbers(entry.recipe, entry.recipe.units)
+      : entry.recipe
     const label = entry.transaction === null ? `Change units to ${command.units}` : null
     commitChange(entry, label, { ...recipe, units: command.units })
     return changed(entry, { type: 'set_document_units', revision: entry.revision, kept })

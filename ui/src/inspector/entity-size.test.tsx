@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import type { App } from '../app/createApp'
 import type { CoreApi } from '../core/api'
-import type { Edit, SketchConstraint, SketchEntity } from '../generated/protocol'
+import type { Diagnostic, Edit, SketchConstraint, SketchEntity } from '../generated/protocol'
 import {
   arcEntity,
   circleEntity,
@@ -232,6 +232,13 @@ const DIMENSION_ITEM: SelectionItem = {
   origin: null,
 }
 
+/** The probe's conflict message, as the core renders it into the solution (sketch.md 4.2). */
+const CONFLICT: Diagnostic = {
+  severity: 'error',
+  code: 'sketch_conflict',
+  message: "In 'Sketch 1', Distance 45 mm cannot hold together with Distance 30 mm.",
+}
+
 /** A solver that reports every driving dimension it is asked about as conflicting. */
 function conflictingSolver(): CoreApi['solveSketch'] {
   return (_document, _feature, candidate) =>
@@ -239,13 +246,18 @@ function conflictingSolver(): CoreApi['solveSketch'] {
       solvedSketch(
         candidate === undefined
           ? SOLUTION
-          : { ...SOLUTION, status: 'conflicting', conflicting: ['c-1', 'c-9'] },
+          : {
+              ...SOLUTION,
+              status: 'conflicting',
+              conflicting: ['c-1', 'c-9'],
+              messages: [CONFLICT],
+            },
       ),
     )
 }
 
 describe('a dimension in the selection inspector (3.8, 3.16.7)', () => {
-  it('a value the sketch cannot take keeps the text, shows dimension_unsolvable and commits nothing', async () => {
+  it("a value the sketch cannot take keeps the text, shows the probe's message and commits nothing (3.16.7)", async () => {
     const applyEdits = vi.fn<CoreApi['applyEdits']>().mockResolvedValue(2)
     const app = sketchApp([WIDTH], { solveSketch: conflictingSolver(), applyEdits })
     render(
@@ -258,9 +270,7 @@ describe('a dimension in the selection inspector (3.8, 3.16.7)', () => {
     await user.clear(field)
     await user.type(field, '45{Enter}')
     await waitFor(() => {
-      expect(screen.getByTestId('field-error')).toHaveTextContent(
-        'The sketch cannot be solved with this value. Check for dimensions that cannot all be true at once.',
-      )
+      expect(screen.getByTestId('field-error')).toHaveTextContent(CONFLICT.message)
     })
     expect(field).toHaveValue('45')
     expect(applyEdits).not.toHaveBeenCalled()
@@ -279,9 +289,7 @@ describe('a dimension in the selection inspector (3.8, 3.16.7)', () => {
     )
     await userEvent.setup().click(screen.getByRole('switch', { name: 'Reference' }))
     await waitFor(() => {
-      expect(screen.getByTestId('field-error')).toHaveTextContent(
-        'The sketch cannot be solved with this value.',
-      )
+      expect(screen.getByTestId('field-error')).toHaveTextContent(CONFLICT.message)
     })
     expect(applyEdits).not.toHaveBeenCalled()
   })

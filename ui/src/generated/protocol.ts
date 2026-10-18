@@ -123,6 +123,20 @@ type: "apply_fix"
  */
 doc: DocHandle
 /**
+ * The new document units.
+ */
+units: Units
+/**
+ * Append the old unit to every number without a unit whose meaning the units decide, so no size changes.
+ */
+keep_sizes?: boolean
+type: "set_document_units"
+} | {
+/**
+ * The document.
+ */
+doc: DocHandle
+/**
  * Undo label of the transaction.
  */
 label: string
@@ -1092,6 +1106,16 @@ type: "rename_parameter"
 revision: number
 type: "apply_fix"
 } | {
+/**
+ * The revision after the change, unchanged when the units were already `units`.
+ */
+revision: number
+/**
+ * How many expressions and parameters got the old unit.
+ */
+kept: number
+type: "set_document_units"
+} | {
 type: "begin_transaction"
 } | {
 type: "set_focus"
@@ -1747,6 +1771,10 @@ transaction?: (string | null)
  * The focused feature.
  */
 focus?: (Id | null)
+/**
+ * How many expressions and parameters are numbers without a unit whose meaning the document units decide (model.md `bare_numbers`), so hosts can offer Keep sizes with its count (engine.md section 3.25).
+ */
+bare_numbers: number
 type: "document_changed"
 } | {
 /**

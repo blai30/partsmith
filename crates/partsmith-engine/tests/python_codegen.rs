@@ -1,4 +1,4 @@
-//! Python export: acceptance test 96 of `docs/spec/engine.md` section 6, plus the code generation tests of `docs/spec/python-api.md` section 6 whose checks are about the generated text (python-api.md says they also run from Rust here). Tests named `python_api_tNNN_` carry python-api.md's test number.
+//! Python export: acceptance test 96 of `docs/spec/engine.md` section 6, plus the code generation tests of `docs/spec/python-api.md` section 6 whose checks are about the generated text (python-api.md says they also run from Rust here). Tests named `python_api_tNNN_` carry python-api.md's test number; tests without a number are regression tests for its section 3.8 rules.
 
 mod common;
 
@@ -460,4 +460,66 @@ fn python_api_t085_reserved_sketch_references_keep_the_sketch_block() {
         "the script ends with:\n{ending}\ngot:\n{script}"
     );
     assert!(!script.contains("feature(\"sketch\""), "{script}");
+}
+
+/// A box with a through hole at the points `e-p1` and `e-p2` of a sketch that holds `entities`.
+fn hole_document(entities: Value) -> String {
+    document_text(
+        "mm",
+        json!([]),
+        json!([{"id": "b-1", "name": "Body 1"}]),
+        json!([
+            {"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"},
+            {"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": entities, "constraints": []},
+            {"id": "f-hole1", "type": "hole", "body": "b-1", "sketch": "f-sk1", "points": ["e-p1", "e-p2"], "diameter": "6", "extent": {"kind": "through_all"}}
+        ]),
+    )
+}
+
+#[test]
+fn a_hole_names_its_points_by_their_variables() {
+    let text = hole_document(json!([
+        {"id": "e-p1", "type": "point", "position": [0, 0]},
+        {"id": "e-p2", "type": "point", "position": [10, 10]}
+    ]));
+
+    let script = script_of(&text);
+
+    let timeline = r#"with body_1:
+    box(40, 40, 10, position=(0, 0, -10), id="f-box1")
+    with Sketch(Plane.XY, id="f-sk1"):
+        point_1 = Point(0, 0, id="e-p1")
+        point_2 = Point(10, 10, id="e-p2")
+    hole([point_1, point_2], 6, id="f-hole1")
+"#;
+    assert!(
+        script.ends_with(timeline),
+        "the script ends with:\n{timeline}\ngot:\n{script}"
+    );
+}
+
+#[test]
+fn a_hole_with_a_deleted_point_gives_its_other_point_no_variable() {
+    let text = hole_document(json!([{"id": "e-p1", "type": "point", "position": [0, 0]}]));
+
+    let script = script_of(&text);
+
+    let timeline = r#"with body_1:
+    box(40, 40, 10, position=(0, 0, -10), id="f-box1")
+    with Sketch(Plane.XY, id="f-sk1"):
+        Point(0, 0, id="e-p1")
+    feature(
+        "hole",
+        id="f-hole1",
+        body="b-1",
+        sketch="f-sk1",
+        points=["e-p1", "e-p2"],
+        diameter="6",
+        extent={"kind": "through_all"},
+    )
+"#;
+    assert!(
+        script.ends_with(timeline),
+        "the script ends with:\n{timeline}\ngot:\n{script}"
+    );
 }

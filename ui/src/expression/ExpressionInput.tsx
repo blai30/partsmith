@@ -19,6 +19,7 @@ import { HelpLabel } from '../components/HelpLabel'
 import type { Dimension, FieldUnit, Units } from '../generated/protocol'
 import type { InspectorField } from '../inspector/model'
 import { requestUi } from '../layout/requests'
+import { MESSAGES } from '../messages'
 import { COLOR_CLASSES } from '../theme/roles'
 import {
   completionAt,
@@ -29,7 +30,7 @@ import {
 } from './completion'
 import { formatEvaluated } from './evaluate'
 import { formatQuantity } from './format'
-import { isPlainNumber, stepExpression } from './step'
+import { isNumberWithoutUnit, stepExpression } from './step'
 import { useExpression } from './useExpression'
 
 // A text field for an expression (ui.md 2.13, 3.7): live validation through the core, the value
@@ -62,6 +63,11 @@ export type ExpressionInputProps = {
   readonly hideLabel?: boolean
   /** A message about the value from elsewhere (a feature status), shown while the text itself is not invalid. */
   readonly error?: string | null
+  /**
+   * The largest value that works (3.7), shown under the error as `field_limit` with the
+   * `warningMark` border in place of the `errorMark` one, or null.
+   */
+  readonly limit?: string | null
   /** The field's hover help (3.7): a tooltip on the label and a description of the input, or null. */
   readonly help?: string | null
   /** Offers "Add parameter {name}" for a name the text uses that no parameter has (command and selection inspectors, 3.7). */
@@ -87,9 +93,6 @@ export type ExpressionInputProps = {
 
 const EMPTY: ExpressionState = { state: 'empty' }
 const PENDING: ExpressionState = { state: 'pending' }
-
-/** A unit word at the end of a plain number. */
-const UNIT_WORD = /(?:mm|cm|m|in|deg|rad)\s*$/
 
 /** The unit an arrow step uses for parameter expressions: the typed word decides. */
 function stepUnit(unit: FieldUnit | 'any', text: string): FieldUnit {
@@ -124,7 +127,7 @@ function resultText(
   if (state.state !== 'valid') {
     return ''
   }
-  if (isPlainNumber(text) && !UNIT_WORD.test(text)) {
+  if (isNumberWithoutUnit(text)) {
     return unitSymbol(unit, units)
   }
   const value =
@@ -136,6 +139,14 @@ function resultText(
 
 function sameState(first: ExpressionState, second: ExpressionState): boolean {
   return JSON.stringify(first) === JSON.stringify(second)
+}
+
+/** The input's border: `warningMark` under a limit (3.7), `errorMark` with a message, else the control's. */
+function fieldBorder(message: string, limit: string | null): string {
+  if (limit !== null) {
+    return COLOR_CLASSES.warningMark.border
+  }
+  return message === '' ? COLOR_CLASSES.borderControl.border : COLOR_CLASSES.errorMark.border
 }
 
 /** The completion list's state: what it offers and the option the arrow keys chose, if any. */
@@ -152,6 +163,7 @@ export function ExpressionInput({
   selectOnFocus = false,
   hideLabel = false,
   error = null,
+  limit = null,
   help = null,
   offerParameter = false,
   completion = true,
@@ -174,6 +186,8 @@ export function ExpressionInput({
   const helpId = `${id}-help`
   const invalid = state.state === 'invalid'
   const message = invalid ? state.message : (error ?? '')
+  // The limit belongs to the status of the latest valid text.
+  const shownLimit = invalid ? null : limit
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null)
   const list = useRef<HTMLUListElement>(null)
   // The caret to restore after an inserted name re-renders the text.
@@ -443,7 +457,7 @@ export function ExpressionInput({
               COLOR_CLASSES.field.background,
               COLOR_CLASSES.text.foreground,
               COLOR_CLASSES.focusRing.outline,
-              message !== '' ? COLOR_CLASSES.errorMark.border : COLOR_CLASSES.borderControl.border,
+              fieldBorder(message, shownLimit),
             )}
           />
           {axis === null ? null : (
@@ -527,6 +541,14 @@ export function ExpressionInput({
       >
         {message}
       </p>
+      {shownLimit === null ? null : (
+        <p
+          data-testid="field-limit"
+          className={clsx('text-xs', COLOR_CLASSES.warningText.foreground)}
+        >
+          {MESSAGES.field_limit(shownLimit)}
+        </p>
+      )}
       {missingName === null ? null : (
         <Button
           className="self-start"

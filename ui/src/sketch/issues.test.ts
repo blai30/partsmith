@@ -4,6 +4,7 @@ import { lineEntity, solutionFor } from './fixtures.testing'
 import {
   findingMessage,
   findingPoints,
+  framedPoints,
   issueRings,
   openEnds,
   outlineCount,
@@ -107,6 +108,16 @@ describe('paired open ends (2.14, 3.16.2, U-140)', () => {
     expect(openEnds(solution)).toBe(2)
     expect(outlineCount(solution)).toBe(2)
     expect(outlineProblems(solution)).toBe('2 open ends')
+  })
+
+  it('frames both ends of a finding with connect, and one end without (3.16.8)', () => {
+    expect(framedPoints(solution, GAP)).toEqual([
+      [0, 0.3],
+      [0, 0],
+    ])
+    expect(
+      framedPoints(solution, { type: 'open_endpoint', entity: 'e-4', point: [0, 0.3] }),
+    ).toEqual([[0, 0.3]])
   })
 
   it('U-140 rings both ends of a finding with connect', () => {

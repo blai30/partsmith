@@ -1,9 +1,13 @@
 import { startFeatureCommand } from '../app/actions/command'
+import { showOpenEnds } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
+import { reportFailure } from '../app/report'
 import { activeFeatures } from '../core/recipe'
-import type { Category } from '../generated/protocol'
+import type { Category, FeatureRecord } from '../generated/protocol'
 import { MESSAGES } from '../messages'
-import type { AppContext, AppState, Catalog, CatalogFeature } from '../state/store'
+import { openEnds } from '../sketch/issues'
+import { selectFeatureLabel } from '../state/selectors'
+import type { AppContext, AppState, Catalog, CatalogFeature, DocumentState } from '../state/store'
 import { FEATURE_DESCRIPTIONS } from './descriptions'
 import { featureIcon } from './icons'
 import { keywordsFor } from './keywords'
@@ -12,6 +16,7 @@ import {
   type Availability,
   type CommandCategory,
   type CommandDefinition,
+  type DisabledAvailability,
 } from './registry'
 
 // One command per catalog feature type (ui.md 2.10).
@@ -44,46 +49,78 @@ const ALL_CONTEXTS: readonly AppContext[] = ['model', 'sketch', 'print']
 /** Types without a command: STEP import has no UI in M1 (2.10). */
 const WITHOUT_COMMAND: ReadonlySet<string> = new Set(['import'])
 
-/** Whether some active sketch (not suppressed, not rolled back) has a closed region, or the edited one does. */
-function hasSketchRegion(state: AppState): boolean {
-  const document = state.document
-  if (document === null) {
-    return false
-  }
-  const active = activeFeatures(document.recipe)
+/**
+ * The sketches whose regions a new Extrude or Revolve can use, in timeline order: the active ones
+ * (not suppressed, not rolled back) and the one being edited in a sketch session (2.10).
+ */
+function usableSketches(state: AppState, document: DocumentState): readonly FeatureRecord[] {
   const edited = state.context === 'sketch' ? (state.sketch?.sketchId ?? null) : null
-  const hasRegion = (id: string) => (document.sketches[id]?.solution.regions.length ?? 0) > 0
-  return (
-    (edited !== null && hasRegion(edited)) ||
-    active.some(
-      (feature) =>
-        feature.type === 'sketch' && feature.suppressed !== true && hasRegion(feature.id),
-    )
+  const active = new Set(activeFeatures(document.recipe).map((feature) => feature.id))
+  return (document.recipe.features ?? []).filter(
+    (feature) =>
+      feature.type === 'sketch' &&
+      (feature.id === edited || (active.has(feature.id) && feature.suppressed !== true)),
   )
 }
 
-/** How many bodies have model-layer geometry. */
-function solidCount(state: AppState): number {
-  return Object.keys(state.document?.meshes ?? {}).length
+/** A sketch without a region whose outline has open ends, and how many (2.14 `openEnds`). */
+type OpenSketch = { readonly id: string; readonly openEnds: number }
+
+/**
+ * Why Extrude and Revolve cannot start (2.10), or null when a usable sketch has a region. A usable
+ * sketch whose outline has open ends is named, the one with the fewest (the latest in timeline
+ * order among equals), with "Show '{sketch}'", which edits it and frames its open ends.
+ */
+function needsClosedShape(state: AppState, document: DocumentState): DisabledAvailability | null {
+  let fewest: OpenSketch | null = null
+  for (const sketch of usableSketches(state, document)) {
+    const solution = document.sketches[sketch.id]?.solution ?? null
+    if (solution === null) {
+      continue
+    }
+    if (solution.regions.length > 0) {
+      return null
+    }
+    const ends = openEnds(solution)
+    if (ends > 0 && (fewest === null || ends <= fewest.openEnds)) {
+      fewest = { id: sketch.id, openEnds: ends }
+    }
+  }
+  if (fewest === null) {
+    return disabledWith('needs_sketch_region', MESSAGES.needs_sketch_region())
+  }
+  const { id } = fewest
+  const label = selectFeatureLabel(state, id)
+  return {
+    ...disabledWith('needs_closed_shape', MESSAGES.needs_closed_shape(label, fewest.openEnds)),
+    action: {
+      label: `Show '${label}'`,
+      run: (app) => {
+        showOpenEnds(app, id).catch(reportFailure(`Showing the open ends of ${id}`))
+      },
+    },
+  }
 }
 
-/** The 4.3 messages that say what a new feature still needs. */
-type Requirement = 'needs_sketch_region' | 'needs_solid' | 'needs_two_bodies'
+/** How many bodies have model-layer geometry. */
+function solidCount(document: DocumentState): number {
+  return Object.keys(document.meshes).length
+}
 
-function needsSolid(state: AppState): Requirement | null {
-  return solidCount(state) === 0 ? 'needs_solid' : null
+function needsSolid(_state: AppState, document: DocumentState): DisabledAvailability | null {
+  return solidCount(document) === 0 ? disabledWith('needs_solid', MESSAGES.needs_solid()) : null
 }
 
 /**
- * What a new feature of each type needs before it can start (2.10), as the id of the reason shown
- * while it is missing; types without an entry are always available. Editing a feature is never
- * affected.
+ * What a new feature of each type needs before it can start (2.10): the reason shown while it is
+ * missing, or null once it is there; types without an entry are always available. Editing a
+ * feature is never affected.
  */
 export const FEATURE_REQUIREMENTS: Readonly<
-  Record<string, (state: AppState) => Requirement | null>
+  Record<string, (state: AppState, document: DocumentState) => DisabledAvailability | null>
 > = {
-  extrude: (state) => (hasSketchRegion(state) ? null : 'needs_sketch_region'),
-  revolve: (state) => (hasSketchRegion(state) ? null : 'needs_sketch_region'),
+  extrude: needsClosedShape,
+  revolve: needsClosedShape,
   hole: needsSolid,
   fillet: needsSolid,
   chamfer: needsSolid,
@@ -93,7 +130,8 @@ export const FEATURE_REQUIREMENTS: Readonly<
   circular_pattern: needsSolid,
   move_body: needsSolid,
   split_body: needsSolid,
-  boolean: (state) => (solidCount(state) < 2 ? 'needs_two_bodies' : null),
+  boolean: (_state, document) =>
+    solidCount(document) < 2 ? disabledWith('needs_two_bodies', MESSAGES.needs_two_bodies()) : null,
 }
 
 /** A feature command is available while the core runs with a document open and its type's requirement is met. */
@@ -103,8 +141,7 @@ function availabilityFor(type: string): (app: App) => Availability {
     if (state.core.status !== 'ready' || state.document === null) {
       return disabledWith('core_not_running', MESSAGES.core_not_running())
     }
-    const missing = FEATURE_REQUIREMENTS[type]?.(state) ?? null
-    return missing === null ? { state: 'enabled' } : disabledWith(missing, MESSAGES[missing]())
+    return FEATURE_REQUIREMENTS[type]?.(state, state.document) ?? { state: 'enabled' }
   }
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Diagnostic, FeatureStatus, FieldHint, Repair } from '../generated/protocol'
-import { fieldForPointer, fieldPointer, messagesByField, repairField } from './status'
+import { fieldForPointer, fieldLimit, fieldPointer, messagesByField, repairField } from './status'
 
 describe('fieldPointer', () => {
   it('turns a hint path into a JSON pointer', () => {
@@ -89,5 +89,37 @@ describe('repairField (4.2)', () => {
     expect(repairField(fields, statusWith([]))).toBeNull()
     expect(repairField(fields, undefined)).toBeNull()
     expect(repairField(fields, statusWith([{ ...lostEdge, path: '/radius' }]))).toBeNull()
+  })
+})
+
+describe('fieldLimit (3.7)', () => {
+  const tooLarge: Diagnostic = {
+    severity: 'error',
+    code: 'fillet_too_large',
+    message: 'Fillet radius 3 mm is too large for the selected edges.',
+    field: '/radius',
+    suggestion: '2.3 mm',
+  }
+
+  it.each(['fillet_too_large', 'chamfer_too_large', 'shell_too_thick'])(
+    'is the suggestion of %s',
+    (code) => {
+      expect(fieldLimit({ ...tooLarge, code }, '3 mm', 'mm')).toBe('2.3 mm')
+    },
+  )
+
+  it('is null without a message, a suggestion or a "too large" code', () => {
+    const { suggestion: _suggestion, ...withoutSuggestion } = tooLarge
+    expect(fieldLimit(undefined, '3 mm', 'mm')).toBeNull()
+    expect(fieldLimit(withoutSuggestion, '3 mm', 'mm')).toBeNull()
+    expect(fieldLimit({ ...tooLarge, suggestion: null }, '3 mm', 'mm')).toBeNull()
+    expect(fieldLimit({ ...tooLarge, code: 'out_of_range' }, '3 mm', 'mm')).toBeNull()
+  })
+
+  it('is null for a number without a unit in a document whose units are not mm', () => {
+    expect(fieldLimit({ ...tooLarge, suggestion: '2 mm' }, '2', 'in')).toBeNull()
+    expect(fieldLimit({ ...tooLarge, suggestion: '1.9 in' }, '2 in', 'in')).toBe('1.9 in')
+    expect(fieldLimit(tooLarge, '3', 'mm')).toBe('2.3 mm')
+    expect(fieldLimit({ ...tooLarge, suggestion: '1.9 in' }, 'r * 2', 'in')).toBe('1.9 in')
   })
 })

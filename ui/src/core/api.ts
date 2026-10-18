@@ -65,6 +65,15 @@ export type CoreApi = {
   ): Promise<number>
   /** `apply_fix`: applies one fix a diagnostic offered (engine.md 3.22); resolves with the new revision. */
   applyFix(documentHandle: DocHandle, fix: FixRef): Promise<number>
+  /**
+   * `set_document_units` (engine.md 3.25): with `keepSizes`, the numbers without a unit get the old
+   * unit so no size changes; `kept` is how many did.
+   */
+  setDocumentUnits(
+    documentHandle: DocHandle,
+    units: Units,
+    keepSizes: boolean,
+  ): Promise<{ revision: number; kept: number }>
   renameParameter(documentHandle: DocHandle, parameter: string, name: string): Promise<number>
   beginTransaction(documentHandle: DocHandle, label: string): Promise<void>
   setFocus(documentHandle: DocHandle, feature: string | null): Promise<void>
@@ -122,6 +131,7 @@ const REBUILDING_COMMANDS: ReadonlySet<Command['type']> = new Set([
   'open_document',
   'apply_edits',
   'apply_fix',
+  'set_document_units',
   'rename_parameter',
   'set_focus',
   'commit_transaction',
@@ -248,6 +258,15 @@ export function createCoreApi(client: CoreClient): CoreApi {
     },
     async applyFix(documentHandle, fix) {
       return (await call({ type: 'apply_fix', doc: documentHandle, fix })).result.revision
+    },
+    async setDocumentUnits(documentHandle, units, keepSizes) {
+      const { result } = await call({
+        type: 'set_document_units',
+        doc: documentHandle,
+        units,
+        keep_sizes: keepSizes,
+      })
+      return { revision: result.revision, kept: result.kept }
     },
     async renameParameter(documentHandle, parameter, name) {
       const { result } = await call({

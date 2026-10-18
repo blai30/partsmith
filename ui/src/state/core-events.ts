@@ -73,6 +73,7 @@ function newDocumentState(
     datums: {},
     meshes: {},
     lastRebuildMilliseconds: null,
+    bareNumbers: 0,
     ghosts: {},
   }
 }
@@ -106,6 +107,7 @@ function applied(document: DocumentState, event: CoreEvent): DocumentState | nul
         redoLabel: event.redo,
         transactionOpen: event.transactionOpen,
         focus: event.focus,
+        bareNumbers: event.bareNumbers,
         // Results of bodies and features the recipe no longer has are gone.
         meshes: filtered(document.meshes, (body) => bodies.has(body)),
         sketches: filtered(document.sketches, (feature) => features.has(feature)),

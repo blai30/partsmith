@@ -6,6 +6,7 @@ import {
   commitSketchChange,
   createSketchIds,
   deleteSketchItems,
+  refusedDimensionMessage,
   sketchParamsOf,
 } from '../../app/actions/sketch'
 import { useApp } from '../../app/AppProvider'
@@ -34,7 +35,7 @@ import { InspectorCommandButton, Title } from './parts'
 /**
  * The selection inspector's fields of one dimension (3.8): its value, committed on Enter, and the
  * Reference switch, both as "Change dimension". A driving value is probed first (3.16.7): when the
- * sketch cannot take it, the text stays and the field shows `dimension_unsolvable`.
+ * sketch cannot take it, the text stays and the field shows the probe's message.
  */
 function DimensionFields({
   constraint,
@@ -47,7 +48,7 @@ function DimensionFields({
   const change = (changed: SketchConstraint): void => {
     changeSketchDimension(app, changed)
       .then((result) => {
-        setError(result.outcome === 'committed' ? null : MESSAGES.dimension_unsolvable())
+        setError(result.outcome === 'committed' ? null : refusedDimensionMessage(result))
       })
       .catch(reportFailure('Changing the dimension'))
   }
@@ -131,10 +132,7 @@ function SizeField({
         } else if (result.outcome === 'over_constrained' && size.dimension === null) {
           setProblem({ kind: 'over_constrained' })
         } else {
-          setProblem({
-            kind: 'message',
-            message: result.outcome === 'failed' ? result.message : MESSAGES.dimension_unsolvable(),
-          })
+          setProblem({ kind: 'message', message: refusedDimensionMessage(result) })
         }
       })
       .catch(reportFailure('Changing the size'))

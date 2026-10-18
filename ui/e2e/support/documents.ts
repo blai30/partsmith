@@ -61,6 +61,36 @@ export async function expectOnlyNotification(page: Page): Promise<Locator> {
   return notifications.first()
 }
 
+/** The accessible names of the buttons inside `locator`, in document order. */
+export function buttonNames(locator: Locator): Promise<string[]> {
+  return locator
+    .getByRole('button')
+    .evaluateAll((buttons) =>
+      buttons.map((button) =>
+        (button.getAttribute('aria-label') ?? button.textContent ?? '').trim(),
+      ),
+    )
+}
+
+/** The action buttons of a notification: every button but Dismiss (ui.md 3.22). */
+export async function notificationActions(notification: Locator): Promise<string[]> {
+  return (await buttonNames(notification)).filter((name) => name !== 'Dismiss')
+}
+
+/** The top-level Problems row of a feature (ui.md 3.9). */
+export function problemRow(page: Page, featureId: string): Locator {
+  return page.locator(
+    `[data-testid=problem-row][data-feature-id="${featureId}"]:not([data-nested="true"])`,
+  )
+}
+
+/** The Problems row of a feature nested under its root's row (ui.md 3.9). */
+export function nestedProblemRow(page: Page, featureId: string): Locator {
+  return page.locator(
+    `[data-testid=problem-row][data-feature-id="${featureId}"][data-nested="true"]`,
+  )
+}
+
 /**
  * Runs a read-only IndexedDB request on one object store of the app's database (ui.md 2.15) and
  * returns its result, or null while the database or the record does not exist. The database is

@@ -306,6 +306,31 @@ describe('Menu keys and pointer details', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('a click on a checkbox item that keeps the menu open toggles it without closing (3.21)', async () => {
+    const onKeep = vi.fn<() => void>()
+    const onOpenChange = vi.fn<(open: boolean) => void>()
+    const { user } = await openMenu(
+      [
+        { kind: 'radio', label: 'mm', checked: true, onSelect: vi.fn<() => void>() },
+        { kind: 'checkbox', label: 'Keep', checked: true, keepsOpen: true, onSelect: onKeep },
+      ],
+      onOpenChange,
+    )
+    await user.click(screen.getByRole('menuitemcheckbox', { name: 'Keep' }))
+    expect(onKeep).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    await user.keyboard('{Enter}')
+    expect(onKeep).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('menu', { name: 'Document' })).toBeInTheDocument()
+  })
+
+  it("puts an entry's testId on its item", async () => {
+    await openMenu([
+      { kind: 'item', label: 'New', testId: 'new-item', onSelect: vi.fn<() => void>() },
+    ])
+    expect(screen.getByTestId('new-item')).toBe(item('New'))
+  })
+
   it('Tab closes the menu', async () => {
     const onOpenChange = vi.fn<(open: boolean) => void>()
     const { user } = await openMenu(documentEntries(handlers()), onOpenChange)

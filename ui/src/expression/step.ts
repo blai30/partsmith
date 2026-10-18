@@ -63,6 +63,11 @@ export function isPlainNumber(text: string): boolean {
   return parsePlainNumber(text) !== null
 }
 
+/** True for a plain number without a unit word, whose meaning the document units decide (model.md 3.12). */
+export function isNumberWithoutUnit(text: string): boolean {
+  return parsePlainNumber(text)?.word === ''
+}
+
 /** The text after an arrow-key step, or null when text is not a plain number. */
 export function stepExpression(
   text: string,

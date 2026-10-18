@@ -17,6 +17,8 @@ import type { Placement } from './placement'
 type EntryBase = {
   readonly label: string
   readonly disabled?: boolean
+  /** A `data-testid` for the item (ui.md 6.1), such as `keep-sizes`. */
+  readonly testId?: string
 }
 
 /** One entry of a menu, in display order. */
@@ -32,6 +34,8 @@ export type MenuEntry =
       readonly kind: 'checkbox'
       readonly checked: boolean
       readonly onSelect: () => void
+      /** Toggling it by any means keeps the menu open, for an option of the menu's other choices (3.21 Keep sizes). */
+      readonly keepsOpen?: boolean
     })
   | (EntryBase & {
       readonly kind: 'radio'
@@ -131,6 +135,11 @@ type MenuListProps = {
   readonly testId?: string | undefined
 }
 
+/** Whether choosing the entry leaves its menu open. */
+function keepsOpen(entry: ChoiceEntry): boolean {
+  return entry.kind === 'checkbox' && entry.keepsOpen === true
+}
+
 function roleOf(entry: FocusableEntry): 'menuitem' | 'menuitemcheckbox' | 'menuitemradio' {
   switch (entry.kind) {
     case 'checkbox':
@@ -208,7 +217,7 @@ function MenuList({
       return
     }
     // Space checks a checkbox or radio item without closing the menu (WAI-ARIA menu pattern).
-    if (source === 'space' && entry.kind !== 'item') {
+    if ((source === 'space' && entry.kind !== 'item') || keepsOpen(entry)) {
       entry.onSelect()
       return
     }
@@ -423,6 +432,7 @@ function MenuItem({
       id={id}
       type="button"
       role={roleOf(entry)}
+      data-testid={entry.testId}
       tabIndex={-1}
       aria-checked={entry.kind === 'checkbox' || entry.kind === 'radio' ? entry.checked : undefined}
       aria-disabled={disabled ? true : undefined}

@@ -53,6 +53,8 @@ export type AppState = {
   readonly pickHint: PickHint | null
   /** The feature type of the last feature command started in this session, which Repeat starts again (3.5); null before any. */
   readonly lastFeatureType: string | null
+  /** The Keep sizes option of the units control (3.21): session state, on until the user turns it off. */
+  readonly keepSizes: boolean
   /** The feature whose Problems row shows repair mode at rest (3.7, 3.9), or null; during a feature command repair mode follows the command. */
   readonly repair: RepairFocus | null
   /** What the last `show` action selected, with the cause's ghost it draws (4.2), or null; cleared when the selection changes. */
@@ -115,6 +117,8 @@ export type DocumentState = {
   /** Model-layer mesh metadata by body id; buffers live in the scene, not the store. */
   readonly meshes: Readonly<Record<string, MeshSummary>>
   readonly lastRebuildMilliseconds: number | null
+  /** `bare_numbers` of the latest `document_changed`: expressions that are numbers without a unit (3.21). */
+  readonly bareNumbers: number
   /** The ghost buffers of the latest `recomputed` (2.7), by buffer index. */
   readonly ghosts: Readonly<Record<number, Float32Array>>
 }
@@ -386,6 +390,7 @@ export const INITIAL_STATE: AppState = {
   announcement: null,
   pickHint: null,
   lastFeatureType: null,
+  keepSizes: true,
   repair: null,
   shown: null,
 }

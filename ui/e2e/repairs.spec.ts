@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import {
   canvas,
   download,
@@ -13,10 +13,13 @@ import {
   timelineItem,
 } from './helpers'
 import {
+  buttonNames,
   expectOnlyNotification,
   expectStatuses,
   expectTimeline,
+  notificationActions,
   openProblems,
+  problemRow,
 } from './support/documents'
 import { dragTo, expectPreviewShown, fillInspector, timelineGap } from './support/modeling'
 import { app, clickAt, editSketchFromBrowser, expectNoHover, sketchHint } from './support/sketch'
@@ -26,29 +29,6 @@ import { app, clickAt, editSketchFromBrowser, expectNoHover, sketchHint } from '
 // and notes. Phase 1 of the plan (reference-stability-and-errors.md 10.3) has no cause lines,
 // ghosts or uses yet: phase 4 adds the cause lines and their reverts, the repair ghost, the drop
 // hint and the used marks of these tests (10.6).
-
-/** The accessible names of the buttons inside `locator`, in document order. */
-function buttonNames(locator: Locator): Promise<string[]> {
-  return locator
-    .getByRole('button')
-    .evaluateAll((buttons) =>
-      buttons.map((button) =>
-        (button.getAttribute('aria-label') ?? button.textContent ?? '').trim(),
-      ),
-    )
-}
-
-/** The action buttons of a notification: every button but Dismiss (3.22). */
-async function notificationActions(notification: Locator): Promise<string[]> {
-  return (await buttonNames(notification)).filter((name) => name !== 'Dismiss')
-}
-
-/** The top-level Problems row of a feature (3.9). */
-function problemRow(page: Page, featureId: string): Locator {
-  return page.locator(
-    `[data-testid=problem-row][data-feature-id="${featureId}"]:not([data-nested="true"])`,
-  )
-}
 
 test.describe('lost references and their fixes', () => {
   test('E-109 corpus R03: a line deleted in a sketch session notifies once when the session ends', async ({

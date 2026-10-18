@@ -2,6 +2,7 @@ import type { SolvedSketch } from '../../core/api'
 import { CoreError } from '../../core/client'
 import { CoreFatalError } from '../../core/transport'
 import type {
+  Diagnostic,
   DocHandle,
   Edit,
   FeatureRecord,
@@ -11,7 +12,6 @@ import type {
 } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { referencedEntities } from '../../sketch/constraints'
-import { failedSolveMessage } from '../../sketch/issues'
 import type { SketchChange, SketchCommitResult } from '../../sketch/session'
 import { selectSketchRecord } from '../../state/selectors'
 import type { App } from '../createApp'
@@ -69,6 +69,33 @@ function solvedEntities(
     const { constrained: _constrained, ...geometry } = match
     return geometry
   })
+}
+
+/** The codes of a probe's messages about constraints that over-constrain the sketch (sketch.md 4.2). */
+const OVER_CONSTRAINED_CODES: ReadonlySet<string> = new Set([
+  'sketch_conflict',
+  'redundant_constraints',
+])
+
+/** The text of the first of a solution's messages that `matches`, or null. */
+function firstMessage(
+  solution: SketchSolution,
+  matches: (message: Diagnostic) => boolean,
+): string | null {
+  return solution.messages.find(matches)?.message ?? null
+}
+
+/**
+ * Why a failed solve cannot be committed (3.16.3 step 4): its first error, which the core renders
+ * in the document units (`sketch_not_solved` or `sketch_conflict`, sketch.md 4.2). A failed
+ * solution always has one (engine.md 3.6), so one without is a bug.
+ */
+function failedSolveMessage(solution: SketchSolution): string {
+  const message = firstMessage(solution, (candidate) => candidate.severity === 'error')
+  if (message === null) {
+    throw new Error(`The failed solution of ${solution.feature} has no error message.`)
+  }
+  return message
 }
 
 /** How many times a probe superseded by another solve of the same sketch is sent again. */
@@ -161,6 +188,7 @@ async function probe(app: App, label: string, current: Probe): Promise<SketchCom
       constraint: refused,
       conflicting: conflicting ? solution.conflicting.filter((id) => id !== refused) : [],
       redundant: !conflicting,
+      message: firstMessage(solution, (message) => OVER_CONSTRAINED_CODES.has(message.code)),
     }
   }
   const dropped = new Set(

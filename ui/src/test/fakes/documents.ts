@@ -396,9 +396,7 @@ export const NC09_DOCUMENT: Document = {
       id: 'f-fil1',
       type: 'fillet',
       body: 'b-1',
-      edges: [
-        { q: 'edge(f-box1/front|f-box1/top)', fp: 'line|n=1,0,0|c=0,-10,10|l=40|adj=2,2' },
-      ],
+      edges: [{ q: 'edge(f-box1/front|f-box1/top)', fp: 'line|n=1,0,0|c=0,-10,10|l=40|adj=2,2' }],
       radius: '2',
     },
   ],

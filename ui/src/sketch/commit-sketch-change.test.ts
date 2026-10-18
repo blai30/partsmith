@@ -41,7 +41,8 @@ const NOT_SOLVED: Diagnostic = {
 const CONFLICT: Diagnostic = {
   severity: 'error',
   code: 'sketch_conflict',
-  message: "In 'Sketch 1', Vertical on the line from (0, 0) to (10, 0) cannot hold together with Horizontal on the line from (0, 0) to (10, 0).",
+  message:
+    "In 'Sketch 1', Vertical on the line from (0, 0) to (10, 0) cannot hold together with Horizontal on the line from (0, 0) to (10, 0).",
 }
 const REDUNDANT: Diagnostic = {
   severity: 'warning',

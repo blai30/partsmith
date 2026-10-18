@@ -1,4 +1,5 @@
-import type { Diagnostic, FeatureStatus, FieldHint } from '../generated/protocol'
+import { isNumberWithoutUnit } from '../expression/step'
+import type { Diagnostic, FeatureStatus, FieldHint, Units } from '../generated/protocol'
 
 // Mapping a feature status message to the inspector field it is about (ui.md 3.7): a hint path
 // `a.b[1]` is the JSON pointer `/a/b/1`; a message's `field` maps to the field whose pointer equals
@@ -66,4 +67,33 @@ export function messagesByField(
     }
   }
   return byField
+}
+
+/** The codes whose `suggestion` is the largest value the core's search found to work (features.md 4.3). */
+const LIMIT_CODES: ReadonlySet<string> = new Set([
+  'fillet_too_large',
+  'chamfer_too_large',
+  'shell_too_thick',
+])
+
+/**
+ * The largest value that works for a field (3.7, limits under fields): the `suggestion` of the
+ * "too large" message the field shows, or null. In a document whose units are not mm, a number
+ * without a unit gets none: there the suggestion is that number in mm, which keeps the size the
+ * user meant (features.md 4.4), not a limit.
+ */
+export function fieldLimit(
+  message: Diagnostic | undefined,
+  text: unknown,
+  units: Units,
+): string | null {
+  if (message === undefined || !LIMIT_CODES.has(message.code)) {
+    return null
+  }
+  const suggestion = message.suggestion ?? null
+  if (suggestion === null) {
+    return null
+  }
+  const keepsSize = units !== 'mm' && typeof text === 'string' && isNumberWithoutUnit(text)
+  return keepsSize ? null : suggestion
 }

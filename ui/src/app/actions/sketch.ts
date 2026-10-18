@@ -22,11 +22,17 @@ import {
   type ConstraintType,
 } from '../../sketch/constraints'
 import { drawnPointItems, regionSelectionItem } from '../../sketch/hit'
-import { findingPoints, outlineProblems } from '../../sketch/issues'
+import type { Vector2 } from '../../sketch/geometry'
+import { framedPoints, outlineProblems } from '../../sketch/issues'
 import { worldBounds } from '../../sketch/placement'
 import { isReservedReference } from '../../sketch/refs'
 import type { IdSource } from '../../sketch/recipes'
-import type { SketchChange, SketchCommitResult, SketchToolId } from '../../sketch/session'
+import type {
+  RefusedSketchCommit,
+  SketchChange,
+  SketchCommitResult,
+  SketchToolId,
+} from '../../sketch/session'
 import { constraintTool } from '../../sketch/tools'
 import {
   editingSession,
@@ -817,26 +823,72 @@ async function replaceConstraints(
   showSketchRefusal(app, result)
 }
 
-/** Share of the sketch's size that pads a framed profile issue, and the least padding in mm. */
-const FINDING_PADDING_SHARE = 0.15
-const MINIMUM_FINDING_PADDING = 2
+/** The least share of the sketch's size, on each axis, that framing sketch problems shows (3.16.8). */
+const PROBLEM_FRAME_SHARE = 1 / 5
+
+/** The range of the points along a sketch axis, grown about its center to at least `least`. */
+function grownRange(
+  points: readonly Vector2[],
+  axis: 0 | 1,
+  least: number,
+): readonly [number, number] {
+  const values = points.map((point) => point[axis])
+  const low = Math.min(...values)
+  const high = Math.max(...values)
+  const center = (low + high) / 2
+  const half = Math.max(high - low, least) / 2
+  return [center - half, center + half]
+}
+
+/**
+ * Frames points of a sketch (3.16.8 "Show"): their box in the sketch plane, grown about its center
+ * to at least a fifth of the size of the sketch's entity bounds on each axis.
+ */
+function frameSketchPoints(app: App, solution: SketchSolution, points: readonly Vector2[]): void {
+  const viewport = app.viewport()
+  if (viewport === null || points.length === 0) {
+    return
+  }
+  const extent = sketchExtent(solution)
+  const least = (axis: 0 | 1): number =>
+    extent === null ? 0 : PROBLEM_FRAME_SHARE * (extent.max[axis] - extent.min[axis])
+  const [left, right] = grownRange(points, 0, least(0))
+  const [bottom, top] = grownRange(points, 1, least(1))
+  const corners: Vector2[] = [
+    [left, bottom],
+    [right, bottom],
+    [left, top],
+    [right, top],
+  ]
+  const bounds = worldBounds(solution.placement, corners, 0)
+  if (bounds !== null) {
+    viewport.zoomToBounds(bounds, SKETCH_FRAME_MARGIN)
+  }
+}
 
 /** Frames a profile issue of the edited sketch in the view (3.16.8 "Show"). */
 export function showSketchFinding(app: App, finding: ProfileFinding): void {
   const sketchId = editingSession(app.store.getState())?.sketchId ?? null
   const solution = sketchId === null ? null : solutionOf(app, sketchId)
-  const viewport = app.viewport()
-  if (solution === null || viewport === null) {
+  if (solution !== null) {
+    frameSketchPoints(app, solution, framedPoints(solution, finding))
+  }
+}
+
+/**
+ * "Show '{sketch}'" of the Extrude and Revolve reason (2.10): edits the sketch and frames all its
+ * open ends, as the sketch problems popover's Show frames one finding (3.16.8).
+ */
+export async function showOpenEnds(app: App, sketchId: string): Promise<void> {
+  await enterSketch(app, sketchId)
+  const solution = solutionOf(app, sketchId)
+  if (solution === null) {
     return
   }
-  const extent = sketchExtent(solution)
-  const size =
-    extent === null ? 0 : Math.hypot(extent.max[0] - extent.min[0], extent.max[1] - extent.min[1])
-  const padding = Math.max(MINIMUM_FINDING_PADDING, FINDING_PADDING_SHARE * size)
-  const bounds = worldBounds(solution.placement, findingPoints(finding), padding)
-  if (bounds !== null) {
-    viewport.zoomToBounds(bounds, SKETCH_FRAME_MARGIN)
-  }
+  const points = solution.profile_findings
+    .filter((finding) => finding.type === 'open_endpoint')
+    .flatMap((finding) => framedPoints(solution, finding))
+  frameSketchPoints(app, solution, points)
 }
 
 // Dimensions (3.16.7).
@@ -868,6 +920,15 @@ export function changeSketchDimension(
     requested: isDriving(dimension) ? [dimension.id] : [],
     inferred: [],
   })
+}
+
+/**
+ * The sentence a refused dimension change shows (3.16.7): the probe's message, the one the sketch
+ * would report once stored, or `dimension_over_constrained` for an over-constrained probe without
+ * one.
+ */
+export function refusedDimensionMessage(result: RefusedSketchCommit): string {
+  return result.message ?? MESSAGES.dimension_over_constrained()
 }
 
 /** Commits a drawing tool's shape; a refusal is shown, and resolves whether it was added. */

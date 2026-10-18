@@ -584,13 +584,13 @@ describe('running built-in commands', () => {
     ])
   })
 
-  it('changes units with "Change units to {unit}" and the units_changed notification', async () => {
+  it('changes units with set_document_units and the units_changed notification (3.21)', async () => {
     const { app, core } = cubeApp()
     await app.commands.run(app, 'document.units.in', 'palette')
     await settle()
-    expect(core.callsTo('applyEdits')).toEqual([
-      [1, 'Change units to in', [{ type: 'set_units', units: 'in' }]],
-    ])
+    // No number of the cube lacks a unit, so Keep sizes does not apply (U-138).
+    expect(core.callsTo('setDocumentUnits')).toEqual([[1, 'in', false]])
+    expect(core.callsTo('applyEdits')).toEqual([])
     expect(
       app.store.getState().notifications.map((notification) => notification.message),
     ).toContain(MESSAGES.units_changed('in'))

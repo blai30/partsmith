@@ -3,7 +3,14 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProvider } from '../app/AppProvider'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import type { ProfileFinding, SketchEntity, SketchSolution } from '../generated/protocol'
+import type { CoreApi } from '../core/api'
+import type {
+  Diagnostic,
+  FixRef,
+  ProfileFinding,
+  SketchEntity,
+  SketchSolution,
+} from '../generated/protocol'
 import { createAppStore, type AppState, type SketchSession } from '../state/store'
 import { createTestApp } from '../test/fakes/test-app'
 import {
@@ -23,6 +30,46 @@ import { SketchHeader } from './SketchHeader'
 import { settleCommits, sketchHarness } from './view.testing'
 
 const LINE = lineEntity('e-1', [0, 0], [10, 0])
+
+// The core's message of the open end of LINE (sketch.md 4.3, engine.md 3.6).
+const OPEN_END_MESSAGE: Diagnostic = {
+  severity: 'warning',
+  code: 'open_endpoint',
+  message:
+    'The end of the line from (0, 0) to (10, 0) at (10, 0) is not connected to other geometry.',
+  field: '/profile_findings/0',
+}
+
+// The 0.3 mm gap of newcomer error corpus NC01, its one finding, and the finding's message with
+// its fix "Connect the ends" as the core offers it for the stored sketch.
+const GAP_LINES = [
+  lineEntity('e-1', [0, 0], [80, 0]),
+  lineEntity('e-2', [80, 0], [80, 50]),
+  lineEntity('e-3', [80, 50], [0, 50]),
+  lineEntity('e-4', [0, 50], [0, 0.3]),
+]
+const GAP: ProfileFinding = {
+  type: 'open_endpoint',
+  entity: 'e-4',
+  point: [0, 0.3],
+  connect: { first: 'e-4.end', second: 'e-1.start', gap: 0.3 },
+}
+const CONNECT_FIX: FixRef = {
+  feature: SKETCH_ID,
+  code: 'open_endpoint',
+  field: '/profile_findings/0',
+  cause: false,
+  index: 0,
+  revision: 1,
+}
+const GAP_MESSAGE: Diagnostic = {
+  severity: 'warning',
+  code: 'open_endpoint',
+  message:
+    'The end of the line from (0, 50) to (0, 0.3) at (0, 0.3) is not connected to other geometry.',
+  field: '/profile_findings/0',
+  actions: [{ label: 'Connect the ends (0.3 mm apart)', run: { kind: 'apply', fix: CONNECT_FIX } }],
+}
 
 /** Renders the header in sketch mode on f-sk1 with these entities and this solution. */
 function renderHeader(entities: SketchEntity[], solution: SketchSolution): HTMLElement {
@@ -440,6 +487,7 @@ describe('sketch problems actions (3.16.8)', () => {
       entities: [LINE],
       solution: solutionFor([LINE], {
         profile_findings: [{ type: 'open_endpoint', entity: 'e-1', point: [10, 0] }],
+        messages: [OPEN_END_MESSAGE],
       }),
     })
     render(
@@ -453,6 +501,76 @@ describe('sketch problems actions (3.16.8)', () => {
     })
     await userEvent.click(within(outline).getByRole('button', { name: /^Show: / }))
     expect(harness.app.viewport()?.zoomToBounds).toHaveBeenCalledTimes(1)
+  })
+
+  it("U-140 lists each finding with the core's message and its actions, and an action calls applyFix", async () => {
+    const applyFix = vi.fn<CoreApi['applyFix']>().mockResolvedValue(2)
+    const harness = sketchHarness({
+      entities: GAP_LINES,
+      solution: solutionFor(GAP_LINES, {
+        profile_findings: [GAP],
+        messages: [GAP_MESSAGE],
+      }),
+      core: { applyFix },
+    })
+    render(
+      <AppProvider app={harness.app}>
+        <SketchHeader />
+      </AppProvider>,
+    )
+    await userEvent.click(screen.getByTestId('sketch-header'))
+    const outline = within(screen.getByTestId('sketch-problems')).getByRole('region', {
+      name: 'Outline',
+    })
+    expect(outline).toHaveTextContent(GAP_MESSAGE.message)
+    await userEvent.click(
+      within(outline).getByRole('button', { name: 'Connect the ends (0.3 mm apart)' }),
+    )
+    await act(settleCommits)
+    expect(applyFix).toHaveBeenCalledExactlyOnceWith(1, CONNECT_FIX)
+  })
+
+  it('U-140 "Show" of a finding with connect frames both of its ends', async () => {
+    // A 4 mm square whose last side stops 1.9 mm short of the first: the frame spans both ends
+    // and grows to a fifth of the sketch's 4 mm only where it is smaller, across the gap.
+    const square = [
+      lineEntity('e-1', [0, 0], [4, 0]),
+      lineEntity('e-2', [4, 0], [4, 4]),
+      lineEntity('e-3', [4, 4], [0, 4]),
+      lineEntity('e-4', [0, 4], [0, 1.9]),
+    ]
+    const gap: ProfileFinding = {
+      type: 'open_endpoint',
+      entity: 'e-4',
+      point: [0, 1.9],
+      connect: { first: 'e-4.end', second: 'e-1.start', gap: 1.9 },
+    }
+    const harness = sketchHarness({
+      entities: square,
+      solution: solutionFor(square, {
+        profile_findings: [gap],
+        messages: [{ ...GAP_MESSAGE, actions: [] }],
+      }),
+    })
+    render(
+      <AppProvider app={harness.app}>
+        <SketchHeader />
+      </AppProvider>,
+    )
+    await userEvent.click(screen.getByTestId('sketch-header'))
+    const outline = within(screen.getByTestId('sketch-problems')).getByRole('region', {
+      name: 'Outline',
+    })
+    await userEvent.click(within(outline).getByRole('button', { name: /^Show/ }))
+    const zoom = vi.mocked(harness.app.viewport()?.zoomToBounds)
+    const [bounds] = zoom?.mock.calls.at(-1) ?? []
+    expect(bounds).toBeDefined()
+    expect(bounds?.min[0]).toBeCloseTo(-0.4)
+    expect(bounds?.max[0]).toBeCloseTo(0.4)
+    expect(bounds?.min[1]).toBeCloseTo(0)
+    expect(bounds?.max[1]).toBeCloseTo(1.9)
+    expect(bounds?.min[2]).toBeCloseTo(0)
+    expect(bounds?.max[2]).toBeCloseTo(0)
   })
 
   it('"Select them" puts the free geometry in the sketch selection', async () => {

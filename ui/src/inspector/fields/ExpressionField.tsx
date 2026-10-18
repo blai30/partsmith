@@ -16,6 +16,8 @@ export type ExpressionFieldProps = {
   readonly unit: FieldUnit
   /** A feature status message about this field, shown under it (3.7). */
   readonly statusMessage: string | null
+  /** The largest value that works, shown under the message (3.7), or null. */
+  readonly limit?: string | null
   /** An inline toggle at the end of the row, such as Reverse (3.7). */
   readonly trailing?: ReactNode
 }
@@ -25,6 +27,7 @@ export function ExpressionField({
   field,
   unit,
   statusMessage,
+  limit = null,
   trailing = null,
 }: ExpressionFieldProps) {
   const app = useApp()
@@ -37,6 +40,7 @@ export function ExpressionField({
       unit={unit}
       optional={!field.required}
       error={statusMessage}
+      limit={limit}
       help={field.help}
       offerParameter
       trailing={trailing}
