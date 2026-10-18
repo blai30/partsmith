@@ -9,17 +9,16 @@ use std::f64::consts::FRAC_1_SQRT_2;
 use std::time::Duration;
 
 use feature_support::{
-    CUBE20, FRONT_TOP_EDGE, LENGTH_TOLERANCE, MOVE_BY_100, PLATE, PLATE_TOP_EDGES, Run,
-    assert_absolute, assert_bounding_box, assert_coordinates, assert_element_repair,
-    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
-    assert_face_kind, assert_list_field, assert_median_build_within, assert_messages_pass_lint,
-    assert_moved_by_100, assert_placement, assert_relative, assert_unchanged, assert_volume,
-    body_update, document, edge, face, face_names, face_sketch, load_example, message, one_point,
-    point_components, remove_entry, sketch_result, suggested_limit,
+    CUBE20, FRONT_TOP_EDGE, LENGTH_TOLERANCE, MOVE_BY_100, PLATE, PLATE_TOP_EDGES, RISER_EDGE,
+    RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_absolute, assert_bounding_box,
+    assert_coordinates, assert_element_repair, assert_error_field, assert_examples_canonical,
+    assert_face_area, assert_face_count, assert_face_kind, assert_limiting_face, assert_list_field,
+    assert_median_build_within, assert_messages_pass_lint, assert_moved_by_100, assert_placement,
+    assert_relative, assert_skipped_as_smooth, assert_unchanged, assert_volume, body_update,
+    document, edge, face, face_names, face_sketch, load_example, message, one_point,
+    point_components, remove_entry, set_field, sketch_result, suggested_limit,
 };
-use partsmith_features::{
-    BodyChange, FeatureError, FeatureWarning, FieldRef, Fix, IgnoredReason, Limit,
-};
+use partsmith_features::{BodyChange, FeatureError, Fix};
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
 
@@ -53,62 +52,9 @@ fn equal_distance(expr: &str) -> String {
     format!(r#"{{"kind": "equal", "expr": "{expr}"}}"#)
 }
 
-/// Asserts that a skipped edge's warning is `Ignored` with the reason `SmoothEdge`.
-#[track_caller]
-fn assert_skipped_as_smooth(warning: &FeatureWarning) {
-    assert!(
-        matches!(
-            warning,
-            FeatureWarning::Ignored {
-                reason: IgnoredReason::SmoothEdge,
-                ..
-            }
-        ),
-        "expected the edge to be skipped as smooth, got {warning:?}"
-    );
-}
-
 /// "Use {value}": `SetField` of the equal distance to the expression `value`.
 fn use_distance(value: &str) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: FieldRef {
-            path: "distance.expr".to_string(),
-            label: "Distance".to_string(),
-        },
-        value: serde_json::json!(value),
-    }
-}
-
-/// Asserts that a "too large" error measured the face `face` across the edge `edge` at `position` of Edges, 2.4 mm
-/// across, as its `limit`, and whether the other edges were verified to work without that edge (features.md section
-/// 4.3).
-#[track_caller]
-fn assert_limiting_face(
-    error: &FeatureError,
-    position: usize,
-    edge: &str,
-    face: &str,
-    removable: bool,
-) {
-    let FeatureError::ChamferTooLarge { limit, .. } = error else {
-        panic!("expected ChamferTooLarge, got {error:?}");
-    };
-    let Some(Limit::Face {
-        position: found_position,
-        edge: found_edge,
-        face: found_face,
-        width,
-        removable: found_removable,
-    }) = limit
-    else {
-        panic!("expected a limiting face, got {limit:?}");
-    };
-    assert_eq!(*found_position, position, "the limiting edge's entry");
-    assert_eq!(found_edge.query.to_string(), edge);
-    assert_eq!(found_face.query.to_string(), face);
-    assert!((width - 2.4).abs() <= 1e-5, "width {width}");
-    assert_eq!(*found_removable, removable, "removable");
+    set_field("distance.expr", "Distance", serde_json::json!(value))
 }
 
 /// Test 6: the plate with its four top edges chamfered at the equal distance `distance`.
@@ -654,29 +600,11 @@ fn a_sketch_on_the_beveled_face_stays_on_it_after_the_move() {
     );
 }
 
-/// `STEP` of fillet.md tests 19 to 22 (newcomer error corpus NC05): a 40 x 20 x 10 box with a step 2.4 mm deep over
-/// x 0..20 whose riser `f-box2/left` lies at x = 0 (volume 7040).
-const STEP: [&str; 2] = [
-    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}"#,
-    r#"{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "30", "5"], "position": ["10", "0", "7.6"], "op": "cut"}"#,
-];
-
-/// `E-RISER`: the edge between the top of 'Box 1' and the riser of `STEP`.
-const RISER_EDGE: &str =
-    r#"{"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,10|l=20|adj=2,2"}"#;
-
-/// The bottom left edge of `STEP`, which the riser does not limit.
-const BOTTOM_LEFT_EDGE: &str =
-    r#"{"q": "edge(f-box1/bottom|f-box1/left)", "fp": "line|n=0,1,0|c=-20,0,0|l=20|adj=2,2"}"#;
-
 /// `STEP` with `CHA(edges, {"kind": "equal", "expr": distance})`.
 fn step_run(edges: &[&str], distance: &str) -> Run {
     let chamfer = chamfer_record(edges, &equal_distance(distance));
     Run::records(&["b-1"], &[STEP[0], STEP[1], &chamfer])
 }
-
-/// The sentence of NC05 that names the riser as the limit.
-const RISER_SENTENCE: &str = "The top edge of the cut made by 'Box 2' lies next to a wall of the cut made by 'Box 2', which is only 2.4 mm across.";
 
 /// Asserts the error of test 17, also the error of test 18: `chamfer_too_large` with a largest working distance in
 /// [2, 2.4) and the riser as the limit, rendered with its limit `{s}`, which this returns.
@@ -726,7 +654,7 @@ fn t017_the_limiting_face_is_named() {
 
 #[test]
 fn t018_the_edge_that_limits_it_can_be_removed_when_the_others_work() {
-    let run = step_run(&[RISER_EDGE, BOTTOM_LEFT_EDGE], "3");
+    let run = step_run(&[RISER_EDGE, STEP_BOTTOM_LEFT_EDGE], "3");
 
     let limit = assert_riser_limits(&run, true);
 
@@ -741,7 +669,7 @@ fn t018_the_edge_that_limits_it_can_be_removed_when_the_others_work() {
 
 #[test]
 fn t018_removing_the_limiting_edge_chamfers_the_other_at_the_requested_distance() {
-    let run = step_run(&[BOTTOM_LEFT_EDGE], "3");
+    let run = step_run(&[STEP_BOTTOM_LEFT_EDGE], "3");
 
     run.assert_all_ok();
     // The stepped body's 7040 less 3 x 3 / 2 x 20.

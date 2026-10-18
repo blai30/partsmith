@@ -21,8 +21,9 @@ use std::time::Duration;
 
 use partsmith_features::{
     BodyState, BodyUpdate, CancelToken, DatumResult, Dependencies, Diagnosis, DocumentNames,
-    FallbackCause, FeatureError, FeatureOutput, FeatureWarning, FieldRef, Fix, Link, Loss, Names,
-    OutputData, Placed, Registry, RenderContext, Repair, Severity, SketchResult,
+    FallbackCause, FeatureError, FeatureOutput, FeatureWarning, FieldRef, Fix, IgnoredReason,
+    Limit, Link, Loss, Names, OutputData, Placed, Registry, RenderContext, Repair, Severity,
+    SketchResult,
 };
 use partsmith_message_lint::lint_failures;
 use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit, Id};
@@ -33,6 +34,7 @@ use partsmith_occt_sys::{
 };
 use partsmith_recompute::{BodyReport, FeatureReport, Input, Message, Recompute, Report, Status};
 use partsmith_sketch::Placement;
+use serde_json::Value;
 
 /// Relative tolerance for volumes and areas (features.md section 6.1).
 pub const MEASURE_TOLERANCE: f64 = 1e-6;
@@ -63,6 +65,24 @@ pub const PLATE_TOP_EDGES: [&str; 4] = [
     r#"{"q": "edge(f-box1/left|f-box1/top)", "fp": "line|n=0,1,0|c=-10,0,2.4|l=20"}"#,
     r#"{"q": "edge(f-box1/right|f-box1/top)", "fp": "line|n=0,1,0|c=10,0,2.4|l=20"}"#,
 ];
+
+/// `STEP` of fillet.md tests 19 to 22 and chamfer.md tests 17 and 18 (newcomer error corpus NC05): a 40 x 20 x 10 box
+/// with a step 2.4 mm deep over x 0..20 whose riser `f-box2/left` lies at x = 0 (volume 7040).
+pub const STEP: [&str; 2] = [
+    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}"#,
+    r#"{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "30", "5"], "position": ["10", "0", "7.6"], "op": "cut"}"#,
+];
+
+/// `E-RISER`: the edge between the top of 'Box 1' and the riser of `STEP`.
+pub const RISER_EDGE: &str =
+    r#"{"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,10|l=20|adj=2,2"}"#;
+
+/// The bottom left edge of `STEP`, which the riser does not limit.
+pub const STEP_BOTTOM_LEFT_EDGE: &str =
+    r#"{"q": "edge(f-box1/bottom|f-box1/left)", "fp": "line|n=0,1,0|c=-20,0,0|l=20|adj=2,2"}"#;
+
+/// The sentence of NC05 that names the riser of `STEP` as the limit.
+pub const RISER_SENTENCE: &str = "The top edge of the cut made by 'Box 2' lies next to a wall of the cut made by 'Box 2', which is only 2.4 mm across.";
 
 /// `BOX-BELOW`: a box in `b-1` spanning [-20,-20,-10]-[20,20,0], volume 16000.
 pub const BOX_BELOW: &str = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "0", "-10"], "op": "new"}"#;
@@ -478,6 +498,16 @@ pub fn assert_solid_count(shape: &Shape, expected: usize) {
     assert_eq!(solids.len(), expected, "solid count of {shape:?}");
 }
 
+/// Asserts the number of shells of a body's shape: one outer shell per solid and one per closed
+/// cavity (kernel.md section 3.6 item 6).
+pub fn assert_shell_count(shape: &Shape, expected: u32) {
+    assert_eq!(
+        shape.count(SubShapeKind::Shell),
+        expected,
+        "shell count of {shape:?}"
+    );
+}
+
 /// Asserts the shape's tight bounding box, minimum then maximum corner (absolute 1e-5 mm).
 pub fn assert_bounding_box(shape: &Shape, min: [f64; 3], max: [f64; 3]) {
     let bounds = shape
@@ -768,6 +798,54 @@ pub fn assert_element_repair(repair: Option<Repair>, pointer: &str, body: &str) 
         }
         other => panic!("expected element repair data, got {other:?}"),
     }
+}
+
+/// Asserts that a skipped edge's warning is `Ignored` with the reason `SmoothEdge`.
+#[track_caller]
+pub fn assert_skipped_as_smooth(warning: &FeatureWarning) {
+    assert!(
+        matches!(
+            warning,
+            FeatureWarning::Ignored {
+                reason: IgnoredReason::SmoothEdge,
+                ..
+            }
+        ),
+        "expected the edge to be skipped as smooth, got {warning:?}"
+    );
+}
+
+/// Asserts that a "too large" error measured the face `face` across the edge `edge` at `position` of Edges, 2.4 mm
+/// across, as its `limit`, and whether the other edges were verified to work without that edge (features.md section
+/// 4.3).
+#[track_caller]
+pub fn assert_limiting_face(
+    error: &FeatureError,
+    position: usize,
+    edge: &str,
+    face: &str,
+    removable: bool,
+) {
+    let (FeatureError::FilletTooLarge { limit, .. } | FeatureError::ChamferTooLarge { limit, .. }) =
+        error
+    else {
+        panic!("expected a too large error, got {error:?}");
+    };
+    let Some(Limit::Face {
+        position: found_position,
+        edge: found_edge,
+        face: found_face,
+        width,
+        removable: found_removable,
+    }) = limit
+    else {
+        panic!("expected a limiting face, got {limit:?}");
+    };
+    assert_eq!(*found_position, position, "the limiting edge's entry");
+    assert_eq!(found_edge.query.to_string(), edge);
+    assert_eq!(found_face.query.to_string(), face);
+    assert!((width - 2.4).abs() <= 1e-5, "width {width}");
+    assert_eq!(*found_removable, removable, "removable");
 }
 
 /// `value` rounded down to two significant digits, as suggested limits are (features.md section 3.12).
@@ -1257,6 +1335,24 @@ pub fn pick(pointer: &str) -> Fix {
     Fix::Pick {
         pointer: pointer.to_owned(),
     }
+}
+
+/// `SetField` of this feature's field `path`, labeled `label`, to `value`.
+pub fn set_field(path: &str, label: &str, value: Value) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field: FieldRef {
+            path: path.to_owned(),
+            label: label.to_owned(),
+        },
+        value,
+    }
+}
+
+/// `SetField` of `reverse` to `on`: "Turn on Reverse" for true, "Turn off Reverse" for false
+/// (engine.md section 3.22).
+pub fn set_reverse(on: bool) -> Fix {
+    set_field("reverse", "Reverse", Value::Bool(on))
 }
 
 /// `KeepMatch` of the reference at `pointer`.

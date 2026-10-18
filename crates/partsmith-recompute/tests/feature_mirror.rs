@@ -13,9 +13,9 @@ use feature_support::{
     assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
     assert_median_build_within, assert_moves, assert_sketch_on_top_plane, assert_solid_count,
     assert_unchanged, assert_volume, body_changes, document, face, face_motion, face_sketch_with,
-    hole_at_point, link_ids, load_example, message, one_point, pick, sketch_result,
+    hole_at_point, link_ids, load_example, message, one_point, pick, set_field, sketch_result,
 };
-use partsmith_features::{FeatureWarning, FieldRef, Fix, NoEffectHow};
+use partsmith_features::{FeatureWarning, NoEffectHow};
 use partsmith_occt_sys::GeometryKind;
 use serde_json::json;
 
@@ -355,16 +355,4 @@ fn the_image_faces_move_by_the_reflection() {
         ],
     );
     assert!(!motion.is_proper(), "a reflection turns handedness");
-}
-
-/// `SetField` of the mirror's field `path` to `value`.
-fn set_field(path: &str, label: &str, value: serde_json::Value) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: FieldRef {
-            path: path.to_string(),
-            label: label.to_string(),
-        },
-        value,
-    }
 }

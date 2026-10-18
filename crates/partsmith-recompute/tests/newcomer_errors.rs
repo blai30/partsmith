@@ -21,18 +21,20 @@ use std::f64::consts::PI;
 
 use feature_support::{
     Assets, Run, assert_bounding_box, assert_face_count, assert_messages_pass_lint, assert_volume,
-    face_names_with_prefix, pick, round_down_to_two_significant_digits, sketch_result,
+    face_names_with_prefix, pick, round_down_to_two_significant_digits, set_field, set_reverse,
+    sketch_result,
 };
-use partsmith_features::{FeatureError, FieldRef, Fix};
+use partsmith_features::{FeatureError, Fix};
 use partsmith_model::{Document, Units};
 use partsmith_recompute::Message;
 use partsmith_sketch::{DimensionValues, MessageContext, ProfileFinding, SketchFix, SketchParams};
 use serde_json::{Value, json};
 use stability_common::{
-    block, block_back_top, block_outline, block_top, box_record, circle, circle_region,
-    constrained_sketch, cube20_front_top, datum_offset, datum_plane, distance, document_in, edit,
-    edited, extrude, fillet, hole, id, line, origin_plane, point, rectangle, rectangle_region,
-    reference, run, run_picked, shell, show, sketch, through_all, top_face_plane, with,
+    above_the_block, attach_sketch_2_to_the_top, block, block_back_top, block_outline, block_top,
+    box_record, coincident, constrained_sketch, cube20_front_top, distance, document_in, edit,
+    edited, extrude, fillet, followed_by, hole, id, line, line_distance, origin_plane, point,
+    rectangle, rectangle_region, reference, run, run_picked, run_then_edit, shell, show, sketch,
+    small_circle_extrude, small_circle_sketch, through_all, top_face_plane, volume_of, with,
 };
 
 // Messages and fixes.
@@ -70,29 +72,9 @@ fn assert_quiet(run: &Run, features: &[&str]) {
     }
 }
 
-/// `SetField` of this feature's field `path`, labeled `label`, to `value`.
-fn set_field(path: &str, label: &str, value: Value) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: FieldRef {
-            path: path.to_owned(),
-            label: label.to_owned(),
-        },
-        value,
-    }
-}
-
-/// [Attach 'Sketch 2' to the top of 'Extrude 1'], with the top as a pick just before `f-ext2` stores it.
-fn attach_sketch_2_to_the_top(run: &Run) -> Fix {
-    Fix::Attach {
-        sketch: id("f-sk2"),
-        body: id("b-1"),
-        face: run.picked_before("f-ext2", "b-1", "f-ext1/end-cap"),
-    }
-}
-
 /// The message of a profile finding of `sketch` (sketch.md section 4.3), rendered as hosts render it: with the
-/// sketch's label, its stored params, its solved entities and measured values in this run, and the document units.
+/// sketch's label, its stored params, its solved entities and measured values in this run, no dimension values (NC01's
+/// sketch has no dimensions) and the document units.
 fn finding_text(run: &Run, sketch: &str, finding: &ProfileFinding) -> String {
     let record = run.record(sketch);
     let params: SketchParams = serde_json::from_value(Value::Object(record.params.clone()))
@@ -112,53 +94,6 @@ fn finding_text(run: &Run, sketch: &str, finding: &ProfileFinding) -> String {
 }
 
 // Setups (the corpus's "Shared setups" and the scenarios' own records).
-
-/// BLOCK with `others` after it.
-fn block_then(others: Vec<Value>) -> Vec<Value> {
-    let mut features = block();
-    features.extend(others);
-    features
-}
-
-/// The sketch `f-sk2` of NC02 to NC04 on `plane`: the circle `e-5` at (40, 25) of radius 5.
-fn small_circle_sketch(plane: Value) -> Value {
-    sketch("f-sk2", plane, vec![circle("e-5", [40.0, 25.0], 5.0)])
-}
-
-/// `f-ext2`, the circle of [`small_circle_sketch`] extruded `depth` with `op`.
-fn small_circle_extrude(depth: &str, op: &str) -> Value {
-    extrude(
-        "f-ext2",
-        "b-1",
-        "f-sk2",
-        vec![circle_region("e-5", [40.0, 25.0], 5.0)],
-        distance(depth),
-        op,
-    )
-}
-
-/// NC03 (op cut) and NC04 (op join): BLOCK, the datum `f-dp1` XY offset 40 and the circle of `f-sk2` on it extruded
-/// `depth` up by `f-ext2` with `op`, above the block.
-fn above_the_block(depth: &str, op: &str) -> Run {
-    run(
-        &["b-1"],
-        &block_then(vec![
-            datum_offset("f-dp1", "XY", "40"),
-            small_circle_sketch(datum_plane("f-dp1")),
-            small_circle_extrude(depth, op),
-        ]),
-    )
-}
-
-/// A Distance constraint on the length of a line.
-fn line_distance(constraint: &str, line: &str, expr: &str) -> Value {
-    json!({"id": constraint, "type": "distance", "line": line, "expr": expr})
-}
-
-/// A coincident constraint between two points.
-fn coincident(constraint: &str, first: &str, second: &str) -> Value {
-    json!({"id": constraint, "type": "coincident", "points": [first, second]})
-}
 
 /// `f-sk1` of NC07 with these constraints: the 40 x 20 rectangle `e-1` to `e-4` of loose lines, and `f-ext1`, its region
 /// extruded 10, op new.
@@ -225,14 +160,9 @@ fn switched_to_inches(run: &Run, keep_sizes: bool) -> Document {
     document
 }
 
-/// The value of the param `key` of `feature` in `document`.
-fn param<'d>(document: &'d Document, feature: &str, key: &str) -> &'d Value {
-    let record = document
-        .features
-        .iter()
-        .find(|record| record.id.as_str() == feature)
-        .unwrap_or_else(|| panic!("the document has no feature {feature}"));
-    record
+/// The value of the param `key` of `feature` in the document of `run`.
+fn param<'r>(run: &'r Run, feature: &str, key: &str) -> &'r Value {
+    run.record(feature)
         .params
         .get(key)
         .unwrap_or_else(|| panic!("{feature} has no param {key}"))
@@ -258,15 +188,15 @@ fn nc01_an_open_outline_has_no_region_and_one_finding_that_connects_the_ends() {
         finding_text(&run, "f-sk1", finding),
         "The end of the line from (0, 50) to (0, 0.3) at (0, 0.3) is not connected to other geometry."
     );
-    let point = |text: &str| {
+    let point_ref = |text: &str| {
         text.parse()
             .expect("point references written in tests are valid")
     };
     assert_eq!(
         finding.fixes(),
         [SketchFix::ConnectEnds {
-            first: point("e-4.end"),
-            second: point("e-1.start"),
+            first: point_ref("e-4.end"),
+            second: point_ref("e-1.start"),
         }]
     );
     // The engine labels the fix with the gap: Connect the ends (0.3 mm apart).
@@ -290,10 +220,13 @@ fn nc01_an_open_outline_has_no_region_and_one_finding_that_connects_the_ends() {
 fn nc02_a_join_buried_in_the_body_offers_to_attach_its_sketch_to_the_top() {
     let run = run(
         &["b-1"],
-        &block_then(vec![
-            small_circle_sketch(origin_plane("XY")),
-            small_circle_extrude("10", "join"),
-        ]),
+        &followed_by(
+            block(),
+            vec![
+                small_circle_sketch(origin_plane("XY")),
+                small_circle_extrude("10", "join"),
+            ],
+        ),
     );
 
     run.assert_warnings("f-ext2", &["no_effect"]);
@@ -325,7 +258,7 @@ fn nc03_a_cut_that_points_away_offers_turn_on_reverse() {
         "f-ext2",
         "no_effect",
         POINTS_AWAY,
-        &[set_field("reverse", "Reverse", json!(true))],
+        &[set_reverse(true)],
         None,
     );
     assert_quiet(&run, &["f-sk1", "f-ext1", "f-dp1", "f-sk2"]);
@@ -449,14 +382,9 @@ fn nc06_a_shell_thicker_than_the_fillets_builds_with_sharp_inner_corners() {
 
 #[test]
 fn nc07_a_constraint_conflict_offers_to_delete_or_relax_either_dimension() {
-    let mut session = run(
+    let session = run_then_edit(
         &["b-1"],
         &constrained_rectangle(vec![line_distance("c-1", "e-1", "40 mm")]),
-    );
-
-    edit(
-        &mut session,
-        &["b-1"],
         &constrained_rectangle(vec![
             line_distance("c-1", "e-1", "40 mm"),
             line_distance("c-2", "e-1", "30 mm"),
@@ -530,16 +458,12 @@ fn nc09_keep_sizes_adds_the_old_unit_to_the_four_numbers_and_keeps_the_volume() 
     assert_eq!(kept.document.units, Units::In);
     assert_eq!(kept.document.bare_numbers(registry.as_ref()), 0);
     assert_eq!(
-        param(&kept.document, "f-box1", "size"),
+        param(&kept, "f-box1", "size"),
         &json!(["40 mm", "20 mm", "10 mm"])
     );
-    assert_eq!(param(&kept.document, "f-fil1", "radius"), &json!("2 mm"));
+    assert_eq!(param(&kept, "f-fil1", "radius"), &json!("2 mm"));
     kept.assert_all_quiet();
-    let before = setup
-        .shape("b-1")
-        .volume()
-        .expect("the kernel measures the volume");
-    assert_volume(kept.shape("b-1"), before);
+    assert_volume(kept.shape("b-1"), volume_of(&setup, "b-1"));
 }
 
 #[test]
@@ -549,7 +473,7 @@ fn nc09_without_keep_sizes_the_four_numbers_mean_inches() {
     let switched = Run::new(switched_to_inches(&setup, false));
 
     assert_eq!(
-        param(&switched.document, "f-box1", "size"),
+        param(&switched, "f-box1", "size"),
         &json!(["40", "20", "10"])
     );
     // The box is 1016 x 508 x 254 mm and the radius 50.8 mm, which still fits, so every size is 25.4 times larger.
@@ -559,11 +483,10 @@ fn nc09_without_keep_sizes_the_four_numbers_mean_inches() {
         [-508.0, -254.0, 0.0],
         [508.0, 254.0, 254.0],
     );
-    let before = setup
-        .shape("b-1")
-        .volume()
-        .expect("the kernel measures the volume");
-    assert_volume(switched.shape("b-1"), before * 25.4_f64.powi(3));
+    assert_volume(
+        switched.shape("b-1"),
+        volume_of(&setup, "b-1") * 25.4_f64.powi(3),
+    );
 }
 
 #[test]
@@ -624,7 +547,10 @@ fn nc10_a_misspelled_parameter_offers_the_near_match() {
 
 #[test]
 fn nc11_a_deleted_sketch_line_fails_the_profile_and_empties_the_body_of_the_fillet() {
-    let features = block_then(vec![fillet("f-fil1", "b-1", vec![block_back_top()], "2")]);
+    let features = followed_by(
+        block(),
+        vec![fillet("f-fil1", "b-1", vec![block_back_top()], "2")],
+    );
     let mut session = run(&["b-1"], &features);
     session.assert_all_quiet();
 
@@ -672,14 +598,17 @@ fn nc11_a_deleted_sketch_line_fails_the_profile_and_empties_the_body_of_the_fill
 fn nc12_a_hole_beside_the_body_offers_no_reverse() {
     let run = run(
         &["b-1"],
-        &block_then(vec![
-            sketch(
-                "f-sk2",
-                top_face_plane("b-1", block_top(), 30.0),
-                vec![point("e-p1", [95.0, 25.0])],
-            ),
-            hole("f-hole1", "b-1", "f-sk2", &["e-p1"], "5", through_all()),
-        ]),
+        &followed_by(
+            block(),
+            vec![
+                sketch(
+                    "f-sk2",
+                    top_face_plane("b-1", block_top(), 30.0),
+                    vec![point("e-p1", [95.0, 25.0])],
+                ),
+                hole("f-hole1", "b-1", "f-sk2", &["e-p1"], "5", through_all()),
+            ],
+        ),
     );
 
     run.assert_warnings("f-hole1", &["hole_misses_body"]);

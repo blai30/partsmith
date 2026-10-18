@@ -19,8 +19,8 @@ use feature_support::{
     face_names_with_prefix, load_example, median_failed_build_time, parse_document,
     suggested_limit,
 };
-use feature_support::{assert_messages_pass_lint, id, message, pick};
-use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, FieldRef, Fix, Limit};
+use feature_support::{assert_messages_pass_lint, id, message, pick, set_field};
+use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, Fix, Limit};
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::{GeometryKind, SubShapeKind};
 
@@ -273,14 +273,11 @@ fn assert_too_thick(
     assert_eq!(run.messages("f-sh1"), [expected.as_str()]);
     assert_eq!(
         message(run, "f-sh1", "shell_too_thick").fixes,
-        vec![Fix::SetField {
-            feature: None,
-            field: FieldRef {
-                path: "thickness".to_string(),
-                label: "Thickness".to_string(),
-            },
-            value: serde_json::Value::String(format!("{limit} mm")),
-        }],
+        vec![set_field(
+            "thickness",
+            "Thickness",
+            serde_json::Value::String(format!("{limit} mm"))
+        )],
         "shell_too_thick offers its limit"
     );
     assert_eq!(error.suggestion(Units::Mm), Some(format!("{limit} mm")));

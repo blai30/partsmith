@@ -15,11 +15,10 @@ use feature_support::{
     assert_face_area, assert_face_count, assert_face_kind, assert_face_position,
     assert_face_translated, assert_has_face, assert_median_build_within, assert_solid_count,
     assert_unchanged, assert_volume, body_changes, document, edge_axis, face, l_shaped_body,
-    leaning_wall_pattern, link_ids, sketch_on_pattern_copy_document, turn,
+    leaning_wall_pattern, link_ids, set_field, sketch_on_pattern_copy_document, turn,
 };
 use partsmith_features::{
-    BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, FieldRef, Fix,
-    Values,
+    BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, Values,
 };
 use partsmith_model::{EmptyContext, Id, Scope, Units};
 use partsmith_occt_sys::GeometryKind;
@@ -190,14 +189,7 @@ fn t006_fractional_count() {
         run.messages("f-lp1"),
         ["Count must be a whole number, but it is 2.5."]
     );
-    let use_count = |value: &str| Fix::SetField {
-        feature: None,
-        field: FieldRef {
-            path: "direction.count".to_string(),
-            label: "Count".to_string(),
-        },
-        value: serde_json::json!(value),
-    };
+    let use_count = |value: &str| set_field("direction.count", "Count", serde_json::json!(value));
     assert_eq!(
         run.feature("f-lp1").messages[0].fixes,
         [use_count("2"), use_count("3")]

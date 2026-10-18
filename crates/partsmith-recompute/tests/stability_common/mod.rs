@@ -1,8 +1,9 @@
 //! Helpers shared by the three thirds of the reference stability corpus (`stability_support_1`,
 //! `stability_support_2` and `stability_support_3`, R01 to R66 of
-//! docs/design/reference-stability-corpus.md) and by the loss diagnosis tests (`diagnosis.rs`,
-//! recompute.md section 6), which run the corpus's scenarios: the feature records (`records.rs`,
-//! with the shared setups and their picked references), documents, runs and edits, fixes, the
+//! docs/design/reference-stability-corpus.md), by the loss diagnosis tests (`diagnosis.rs`,
+//! recompute.md section 6), which run the corpus's scenarios, and by the newcomer error corpus
+//! (`newcomer_errors.rs`, test 70): the feature records (`records.rs`, with the shared setups and
+//! their picked references), documents, runs and edits, the NC03 and NC04 setup, fixes, the
 //! picks of the corpus's "Picked references" rule, run readers, resolver diagnostics and checks
 //! that are the same in all of them. Each includes it with `#[path]` beside its own
 //! `feature_support`; the corpus thirds re-export it.
@@ -68,6 +69,16 @@ pub fn show(feature: &str) -> Fix {
     }
 }
 
+/// [Attach 'Sketch 2' to the top of 'Extrude 1'] of NC02 and NC04, with the top as a pick just
+/// before `f-ext2` stores it.
+pub fn attach_sketch_2_to_the_top(run: &Run) -> Fix {
+    Fix::Attach {
+        sketch: id("f-sk2"),
+        body: id("b-1"),
+        face: run.picked_before("f-ext2", "b-1", "f-ext1/end-cap"),
+    }
+}
+
 // Documents and runs.
 
 /// A document in `units` with these parameter records, test bodies and feature records
@@ -126,6 +137,31 @@ pub fn edit(run: &mut Run, bodies: &[&str], features: &[Value]) {
 pub fn edit_document(run: &mut Run, document: Document, assets: &Assets) {
     run.document = with_picks(&run.document, &document);
     run.rerun(assets);
+}
+
+/// Runs the setup made of these test bodies and the feature records `setup`, then its edit made of
+/// the same bodies and the feature records `edited` on the same recompute, with the setup's picks
+/// carried over ([`edit`]): the same-session edit of an open document.
+pub fn run_then_edit(bodies: &[&str], setup: &[Value], edited: &[Value]) -> Run {
+    let mut session = run(bodies, setup);
+    edit(&mut session, bodies, edited);
+    session
+}
+
+/// NC03 (op cut) and NC04 (op join): BLOCK, the datum `f-dp1` XY offset 40 and the circle of
+/// `f-sk2` on it extruded `depth` up by `f-ext2` with `op`, above the block.
+pub fn above_the_block(depth: &str, op: &str) -> Run {
+    run(
+        &["b-1"],
+        &followed_by(
+            block(),
+            vec![
+                datum_offset("f-dp1", "XY", "40"),
+                small_circle_sketch(datum_plane("f-dp1")),
+                small_circle_extrude(depth, op),
+            ],
+        ),
+    )
 }
 
 // STEP assets.
@@ -775,6 +811,19 @@ impl Checks {
             actual == expected,
             format!(
                 "{feature} should be {expected}, but it is {actual} with {:?}",
+                run.messages(feature)
+            ),
+        );
+    }
+
+    /// Checks that `feature` has the status warning and messages of exactly these codes, in order.
+    pub fn warnings(&mut self, run: &Run, feature: &str, expected: &[&str]) {
+        let actual_status = status(run, feature);
+        let actual_codes = codes(run, feature);
+        self.check(
+            actual_status == "warning" && actual_codes == expected,
+            format!(
+                "{feature} should warn {expected:?} only, but it is {actual_status} with {:?}",
                 run.messages(feature)
             ),
         );

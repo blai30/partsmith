@@ -1682,14 +1682,7 @@ fn r61c_both_picked_edges_fused_into_one_are_rounded_once() {
     // Before the edit the second box does not touch the first, so the body has two pieces (features.md section 3.5,
     // `SeparateSolid`, newcomer error corpus NC04).
     checks.status(&session, "f-box1", "ok");
-    checks.status(&session, "f-box2", "warning");
-    checks.check(
-        codes(&session, "f-box2") == ["separate_solid"],
-        format!(
-            "f-box2 should warn separate_solid only, but has {:?}",
-            codes(&session, "f-box2")
-        ),
-    );
+    checks.warnings(&session, "f-box2", &["separate_solid"]);
     checks.status(&session, "f-fil1", "ok");
 
     edit(&mut session, &["b-1"], &features("20"));

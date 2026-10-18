@@ -265,7 +265,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::test_support::{datum, document, id, input, registry};
+    use crate::test_support::{datum, document, id, input, registry, unknown_params};
 
     fn recompute() -> Recompute {
         Recompute::new(Arc::new(registry()))
@@ -331,13 +331,7 @@ mod tests {
 
         let feature = &report.features[0];
         assert_eq!(feature.status, Status::Warning);
-        assert_eq!(
-            feature.warnings,
-            [FeatureWarning::UnknownParams {
-                keys: vec!["zoom".to_string()],
-                suggestions: Vec::new(),
-            }]
-        );
+        assert_eq!(feature.warnings, [unknown_params(&["zoom"])]);
         assert_eq!(feature.messages[0].severity, Severity::Warning);
     }
 

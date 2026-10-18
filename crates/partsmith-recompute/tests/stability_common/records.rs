@@ -1,7 +1,7 @@
 //! Feature records as `.ptsm` JSON for the corpus scenarios: sketch entities, regions, planes,
 //! feature records, the corpus's shared setups (BLOCK, SLOT, CUBE20, CUBE10 and BOX-BELOW) with
 //! their picked references, the setups more than one test file runs (PEGS of R23 to the notched
-//! outline of R66), and edits of feature lists.
+//! outline of R66), the small circle of NC02 to NC04, and edits of feature lists.
 
 use std::f64::consts::{FRAC_PI_2, PI};
 
@@ -86,6 +86,16 @@ pub fn rectangle(first: usize, x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Value>
 /// A dimensional constraint (`radius` or `diameter`) on a circle or arc.
 pub fn size_constraint(constraint: &str, kind: &str, curve: &str, expr: &str) -> Value {
     json!({"id": constraint, "type": kind, "curve": curve, "expr": expr})
+}
+
+/// A Distance constraint on the length of a line.
+pub fn line_distance(constraint: &str, line: &str, expr: &str) -> Value {
+    json!({"id": constraint, "type": "distance", "line": line, "expr": expr})
+}
+
+/// A coincident constraint between two points.
+pub fn coincident(constraint: &str, first: &str, second: &str) -> Value {
+    json!({"id": constraint, "type": "coincident", "points": [first, second]})
 }
 
 /// A region reference with this key and the fingerprint of a region with this centroid and area.
@@ -977,7 +987,32 @@ pub fn notched_back_outline() -> Vec<Value> {
     ]
 }
 
+// Records of the newcomer error corpus.
+
+/// The sketch `f-sk2` of NC02 to NC04 on `plane`: the circle `e-5` at (40, 25) of radius 5.
+pub fn small_circle_sketch(plane: Value) -> Value {
+    sketch("f-sk2", plane, vec![circle("e-5", [40.0, 25.0], 5.0)])
+}
+
+/// `f-ext2`, the circle of [`small_circle_sketch`] extruded `depth` with `op`.
+pub fn small_circle_extrude(depth: &str, op: &str) -> Value {
+    extrude(
+        "f-ext2",
+        "b-1",
+        "f-sk2",
+        vec![circle_region("e-5", [40.0, 25.0], 5.0)],
+        distance(depth),
+        op,
+    )
+}
+
 // Editing feature lists.
+
+/// The features with `more` appended.
+pub fn followed_by(mut features: Vec<Value>, more: Vec<Value>) -> Vec<Value> {
+    features.extend(more);
+    features
+}
 
 /// The record `feature` of `features`.
 fn record_in(features: &[Value], feature: &str) -> Value {

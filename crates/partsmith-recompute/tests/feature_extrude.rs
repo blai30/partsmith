@@ -13,11 +13,11 @@ use feature_support::{
     assert_face_normal, assert_has_face, assert_median_build_within, assert_messages_pass_lint,
     assert_no_face, assert_solid_count, assert_unchanged, assert_volume, body_update,
     document_text, element_names, face, face_names_with_prefix, id, keep_and_pick, line,
-    load_example, message, output_body, parse_document, pick, reference_json, successions,
-    top_fallback, use_reference,
+    load_example, message, output_body, parse_document, pick, reference_json, set_field,
+    set_reverse, successions, top_fallback, use_reference,
 };
 use partsmith_features::{
-    BodyChange, Bound, Diagnosis, FeatureError, FeatureWarning, FieldRef, Fix, NoEffectHow,
+    BodyChange, Bound, Diagnosis, FeatureError, FeatureWarning, Fix, NoEffectHow,
 };
 use partsmith_naming::{ElementKind, Follow};
 
@@ -382,7 +382,7 @@ fn t022_through_all_pointing_away() {
     );
     assert_eq!(
         message(&run, "f-ext1", "through_all_misses").fixes,
-        [turn_on_reverse()]
+        [set_reverse(true)]
     );
     assert_volume(run.shape("b-1"), 16000.0);
 }
@@ -1344,23 +1344,6 @@ fn a_new_extrude_records_nothing_absent() {
     assert!(absent_faces(&run, "f-ext1").is_empty());
 }
 
-/// `SetField` of this feature's field `path` to `value`.
-fn set_field(path: &str, label: &str, value: serde_json::Value) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: FieldRef {
-            path: path.to_string(),
-            label: label.to_string(),
-        },
-        value,
-    }
-}
-
-/// "Turn on Reverse": `SetField` of `reverse` to true (engine.md section 3.22 labels it).
-fn turn_on_reverse() -> Fix {
-    set_field("reverse", "Reverse", serde_json::json!(true))
-}
-
 /// The circle `e-5` at (40, 25) with radius 5, the boss or cut of tests 52 to 54.
 const SMALL_CIRCLE: &str = r#"{"id": "e-5", "type": "circle", "center": [40, 25], "radius": 5}"#;
 
@@ -1504,7 +1487,7 @@ fn t053_a_cut_that_points_away_offers_reverse_when_reversed_it_reaches_the_body(
     );
     assert_eq!(
         message(&run, "f-ext2", "no_effect").fixes,
-        [turn_on_reverse()]
+        [set_reverse(true)]
     );
     assert_volume(run.shape("b-1"), 120000.0);
 }
@@ -1588,11 +1571,6 @@ fn t054_attaching_the_floating_sketch_to_the_top_joins_the_boss() {
 /// The datum `f-dp1` at z = 30, in the plane of the top of `BLOCK`.
 const DATUM_ON_THE_TOP: &str = r#"{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "30"}"#;
 
-/// "Turn off Reverse": `SetField` of `reverse` to false (engine.md section 3.22 labels it).
-fn turn_off_reverse() -> Fix {
-    set_field("reverse", "Reverse", serde_json::json!(false))
-}
-
 #[test]
 fn t058_a_reversed_join_from_the_top_offers_to_turn_reverse_off() {
     let sketch = small_circle_sketch(ON_THE_DATUM);
@@ -1609,7 +1587,7 @@ fn t058_a_reversed_join_from_the_top_offers_to_turn_reverse_off() {
     // only turning Reverse off helps (features.md section 3.15).
     assert_eq!(
         message(&run, "f-ext2", "no_effect").fixes,
-        [turn_off_reverse()]
+        [set_reverse(false)]
     );
     assert_volume(run.shape("b-1"), 120000.0);
     assert_messages_pass_lint(&run, "f-ext2");

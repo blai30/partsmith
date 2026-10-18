@@ -13,9 +13,9 @@ use feature_support::{
     assert_median_build_within, assert_messages_pass_lint, assert_no_face, assert_solid_count,
     assert_translation, assert_unchanged, assert_volume, body_update, document, face, face_motion,
     face_names_with_prefix, id, load_example, message, moved_box_document, output_body, pick,
-    remove_entry, sketch_result, vertex,
+    remove_entry, set_reverse, sketch_result, vertex,
 };
-use partsmith_features::{BodyChange, Bound, FeatureError, FeatureWarning, FieldRef, Fix};
+use partsmith_features::{BodyChange, Bound, FeatureError, FeatureWarning};
 use partsmith_model::Document;
 use partsmith_occt_sys::GeometryKind;
 use partsmith_recompute::Message;
@@ -147,19 +147,6 @@ fn t006_two_points() {
     assert_face_count(shape, 8);
     assert_has_face(run.body("b-1"), "f-hole1/bore/e-p1");
     assert_has_face(run.body("b-1"), "f-hole1/bore/e-p2");
-}
-
-/// `SetField` of `reverse` to `value`: "Turn on Reverse" for true, "Turn off Reverse" for false (engine.md section
-/// 3.22).
-fn set_reverse(value: bool) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: FieldRef {
-            path: "reverse".to_string(),
-            label: "Reverse".to_string(),
-        },
-        value: serde_json::json!(value),
-    }
 }
 
 /// The messages of `f-hole1` in order: its error, then its warnings.

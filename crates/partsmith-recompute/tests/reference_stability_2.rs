@@ -1643,14 +1643,7 @@ fn r41_lowering_a_pattern_count_says_which_copy_is_gone() {
 
     let after = run_edited(&before, &["b-1"], &cubes("2"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &edges[1]));
-    checks.status(&after, "f-fil1", "warning");
-    checks.check(
-        codes(&after, "f-fil1") == ["reference_missing"],
-        format!(
-            "f-fil1 should warn reference_missing only, codes {:?}",
-            codes(&after, "f-fil1")
-        ),
-    );
+    checks.warnings(&after, "f-fil1", &["reference_missing"]);
     checks.repair_at(&after, "f-fil1", "/edges/1");
     // recompute.md test 61's text; the changed Count is the engine twin's cause line.
     checks.message_names(

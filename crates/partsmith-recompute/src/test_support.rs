@@ -166,6 +166,15 @@ pub(crate) fn region_split() -> FeatureWarning {
     }
 }
 
+/// The `unknown_params` warning of the unknown setting keys `keys`, without suggestions
+/// (features.md section 4.2), severity warning.
+pub(crate) fn unknown_params(keys: &[&str]) -> FeatureWarning {
+    FeatureWarning::UnknownParams {
+        keys: keys.iter().map(ToString::to_string).collect(),
+        suggestions: Vec::new(),
+    }
+}
+
 /// Calls `check` with the view of a run of the datums `f-1` to `f-3` where every record is ok, in
 /// a document with `members` (such as `rollback` or `bodies`) replacing or adding top-level
 /// members.

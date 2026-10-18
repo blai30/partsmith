@@ -11,11 +11,10 @@ use std::f64::consts::{FRAC_PI_2, PI};
 
 use feature_support::{
     Run, assert_messages_pass_lint, body_before, box_step_asset, document_text, id, parse_document,
-    pick, remove_entry, step_asset_name, use_reference,
+    pick, remove_entry, set_field, set_reverse, step_asset_name, use_reference,
 };
 use partsmith_features::{
-    Because, Diagnosis, Explanation, FeatureError, FeatureWarning, FieldRef, Fix, Repair,
-    describe_elements,
+    Because, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, Repair, describe_elements,
 };
 use partsmith_naming::{ElementName, Fingerprint};
 use serde_json::{Value, json};
@@ -1485,18 +1484,6 @@ fn t008_both_settings_list_together_with_the_one_rename() {
 // Test 15, the rows of the feature rules (sections 3.15 and 4.3): newcomer error corpus NC02 to NC05 and NC12, and
 // corpus R26 and R48.
 
-/// `SetField` of this feature's field `path`, labeled `label`, to `value`.
-fn set_field(path: &str, label: &str, value: Value) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: FieldRef {
-            path: path.to_string(),
-            label: label.to_string(),
-        },
-        value,
-    }
-}
-
 /// `f-sk2` with the circle `e-5` at (40, 25), radius 5, on `plane` (NC02 to NC04).
 fn small_circle_sketch(plane: Value) -> Value {
     json!({"id": "f-sk2", "type": "sketch", "plane": plane, "entities": [{"id": "e-5", "type": "circle", "center": [40, 25], "radius": 5}]})
@@ -1571,7 +1558,7 @@ fn t015_nc03_a_cut_that_points_away() {
     );
     assert_eq!(
         run.warning_fixes("f-ext2", "no_effect", &diagnosis),
-        [set_field("reverse", "Reverse", json!(true))]
+        [set_reverse(true)]
     );
     assert_messages_pass_lint(&run, "f-ext2");
 }

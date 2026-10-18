@@ -9,18 +9,18 @@ use std::f64::consts::PI;
 use std::time::Duration;
 
 use feature_support::{
-    CUBE20, FRONT_TOP_EDGE, MOVE_BY_100, PLATE, PLATE_TOP_EDGES, Run, assert_bounding_box,
-    assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_radius, assert_list_field,
-    assert_median_build_within, assert_messages_pass_lint, assert_moved_by_100, assert_same_body,
+    CUBE20, FRONT_TOP_EDGE, MOVE_BY_100, PLATE, PLATE_TOP_EDGES, RISER_EDGE, RISER_SENTENCE, Run,
+    STEP, STEP_BOTTOM_LEFT_EDGE, assert_bounding_box, assert_element_repair, assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
+    assert_face_radius, assert_limiting_face, assert_list_field, assert_median_build_within,
+    assert_messages_pass_lint, assert_moved_by_100, assert_same_body, assert_skipped_as_smooth,
     assert_unchanged, assert_volume, body_update, document, document_text, face,
     face_names_with_prefix, id, load_example, median_failed_build_time, message, output_body,
-    parse_document, remove_entry, round_down_to_two_significant_digits, suggested_limit,
+    parse_document, remove_entry, round_down_to_two_significant_digits, set_field, suggested_limit,
     use_reference,
 };
 use partsmith_features::{
-    BodyChange, Diagnosis, Explanation, FeatureError, FeatureWarning, FieldRef, Fix, IgnoredReason,
-    Limit, NoEffectHow,
+    BodyChange, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, NoEffectHow,
 };
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
@@ -66,64 +66,9 @@ fn plate_document(radius: &str) -> Document {
     document(&["b-1"], &[PLATE, &fillet_record(&PLATE_TOP_EDGES, radius)])
 }
 
-/// Asserts that a skipped edge's warning is `Ignored` with the reason `SmoothEdge`.
-#[track_caller]
-fn assert_skipped_as_smooth(warning: &FeatureWarning) {
-    assert!(
-        matches!(
-            warning,
-            FeatureWarning::Ignored {
-                reason: IgnoredReason::SmoothEdge,
-                ..
-            }
-        ),
-        "expected the edge to be skipped as smooth, got {warning:?}"
-    );
-}
-
 /// "Use {value}": `SetField` of the radius to the expression `value`.
 fn use_radius(value: &str) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: FieldRef {
-            path: "radius".to_string(),
-            label: "Radius".to_string(),
-        },
-        value: serde_json::json!(value),
-    }
-}
-
-/// Asserts that a "too large" error measured the face `face` across the edge `edge` at `position` of Edges, 2.4 mm
-/// across, as its `limit`, and whether the other edges were verified to work without that edge (features.md section
-/// 4.3).
-#[track_caller]
-fn assert_limiting_face(
-    error: &FeatureError,
-    position: usize,
-    edge: &str,
-    face: &str,
-    removable: bool,
-) {
-    let (FeatureError::FilletTooLarge { limit, .. } | FeatureError::ChamferTooLarge { limit, .. }) =
-        error
-    else {
-        panic!("expected a too large error, got {error:?}");
-    };
-    let Some(Limit::Face {
-        position: found_position,
-        edge: found_edge,
-        face: found_face,
-        width,
-        removable: found_removable,
-    }) = limit
-    else {
-        panic!("expected a limiting face, got {limit:?}");
-    };
-    assert_eq!(*found_position, position, "the limiting edge's entry");
-    assert_eq!(found_edge.query.to_string(), edge);
-    assert_eq!(found_face.query.to_string(), face);
-    assert!((width - 2.4).abs() <= 1e-5, "width {width}");
-    assert_eq!(*found_removable, removable, "removable");
+    set_field("radius", "Radius", serde_json::json!(value))
 }
 
 /// `names` with `prefix` put in front of each, sorted by byte order.
@@ -630,29 +575,11 @@ fn a_rounded_face_moves_with_the_part() {
     );
 }
 
-/// `STEP` of tests 19 to 22 (newcomer error corpus NC05): a 40 x 20 x 10 box with a step 2.4 mm deep over x 0..20
-/// whose riser `f-box2/left` lies at x = 0 (volume 7040).
-const STEP: [&str; 2] = [
-    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}"#,
-    r#"{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "30", "5"], "position": ["10", "0", "7.6"], "op": "cut"}"#,
-];
-
-/// `E-RISER`: the edge between the top of 'Box 1' and the riser of `STEP`.
-const RISER_EDGE: &str =
-    r#"{"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,10|l=20|adj=2,2"}"#;
-
-/// The bottom left edge of `STEP`, which the riser does not limit.
-const BOTTOM_LEFT_EDGE: &str =
-    r#"{"q": "edge(f-box1/bottom|f-box1/left)", "fp": "line|n=0,1,0|c=-20,0,0|l=20|adj=2,2"}"#;
-
 /// `STEP` with `FIL(edges, radius)`.
 fn step_run(edges: &[&str], radius: &str) -> Run {
     let fillet = fillet_record(edges, radius);
     Run::records(&["b-1"], &[STEP[0], STEP[1], &fillet])
 }
-
-/// The sentence of NC05 that names the riser as the limit.
-const RISER_SENTENCE: &str = "The top edge of the cut made by 'Box 2' lies next to a wall of the cut made by 'Box 2', which is only 2.4 mm across.";
 
 #[test]
 fn t019_the_limiting_face_is_named() {
@@ -689,7 +616,7 @@ fn t019_the_suggested_radius_builds() {
 
 #[test]
 fn t020_the_edge_that_limits_it_can_be_removed_when_the_others_work() {
-    let run = step_run(&[RISER_EDGE, BOTTOM_LEFT_EDGE], "3");
+    let run = step_run(&[RISER_EDGE, STEP_BOTTOM_LEFT_EDGE], "3");
 
     let error = run.assert_error("f-fil1", "fillet_too_large");
     // One more attempt at 3 mm without `edges[0]` works.
@@ -717,7 +644,7 @@ fn t020_the_edge_that_limits_it_can_be_removed_when_the_others_work() {
 fn t020_an_edge_that_two_entries_select_is_not_removable() {
     // Removing `edges[0]` would leave `edges[1]` selecting the riser's edge, so the fillet would fail again
     // (features.md section 4.3).
-    let run = step_run(&[RISER_EDGE, RISER_EDGE, BOTTOM_LEFT_EDGE], "3");
+    let run = step_run(&[RISER_EDGE, RISER_EDGE, STEP_BOTTOM_LEFT_EDGE], "3");
 
     let error = run.assert_error("f-fil1", "fillet_too_large");
     assert_limiting_face(
@@ -735,7 +662,7 @@ fn t020_an_edge_that_two_entries_select_is_not_removable() {
 
 #[test]
 fn t020_removing_the_limiting_edge_rounds_the_other_at_the_requested_radius() {
-    let run = step_run(&[BOTTOM_LEFT_EDGE], "3");
+    let run = step_run(&[STEP_BOTTOM_LEFT_EDGE], "3");
 
     run.assert_all_ok();
     assert_volume(run.shape("b-1"), 7001.371669);

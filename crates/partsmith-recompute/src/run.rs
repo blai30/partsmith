@@ -385,7 +385,7 @@ mod tests {
     use partsmith_features::{BodyChange, BodyUpdate, Measurements};
 
     use super::*;
-    use crate::test_support::{datum_at, id, region_split};
+    use crate::test_support::{datum_at, id, region_split, unknown_params};
 
     fn link(body: &str) -> Link {
         Link {
@@ -480,14 +480,6 @@ mod tests {
         assert_eq!(panic_message(number.as_ref()), "unknown panic");
     }
 
-    /// `UnknownParams`, a warning of severity warning.
-    fn unknown_params() -> FeatureWarning {
-        FeatureWarning::UnknownParams {
-            keys: vec!["thin".to_string()],
-            suggestions: Vec::new(),
-        }
-    }
-
     #[test]
     fn info_notices_leave_the_status_ok() {
         assert_eq!(status(None, &[]), Status::Ok);
@@ -497,7 +489,7 @@ mod tests {
     #[test]
     fn a_warning_beside_notices_makes_the_status_warning() {
         assert_eq!(
-            status(None, &[region_split(), unknown_params()]),
+            status(None, &[region_split(), unknown_params(&["thin"])]),
             Status::Warning
         );
     }

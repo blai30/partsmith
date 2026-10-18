@@ -6,15 +6,14 @@
 
 mod common;
 
-use common::feature_support::{Run, body_update};
+use common::feature_support::{Run, assert_shell_count, body_update, set_field};
 use common::{
     Harness, all_element_names, assert_bounding_box, assert_solid_count, assert_volume, bodies,
     document, error_code, face_count, feature_report, final_state, first_message, message_texts,
     owned, shape, state_before, status, suppressed, warning_codes,
 };
-use partsmith_features::{Bound, FeatureError, FieldRef, Fix, topology_info};
+use partsmith_features::{Bound, FeatureError, Fix, topology_info};
 use partsmith_model::Document;
-use partsmith_occt_sys::SubShapeKind;
 use partsmith_recompute::Report;
 use serde_json::{Value, json};
 
@@ -321,12 +320,6 @@ fn t011_a_no_effect_update_carries_the_body_measurements() {
     );
 }
 
-/// The shells of a body that holds a solid: one outer shell per solid and one per closed cavity
-/// (kernel.md section 3.6 item 6).
-fn shell_count(report: &Report, feature: &str, body: &str) -> u32 {
-    shape(state_before(report, feature, body)).count(SubShapeKind::Shell)
-}
-
 /// Features.md section 6.4 test 12: a 30 mm box, a pocket 10 x 10 open at the top cut from z = 10,
 /// a 30 x 30 x 10 lid joined over it, then `more`.
 fn lidded_pocket(more: &[Value]) -> Document {
@@ -360,7 +353,7 @@ fn t012_a_lid_over_an_open_pocket_closes_a_hollow() {
     assert_eq!(status(&report, "f-box2"), "ok");
     let pocketed = state_before(&report, "f-box3", "b-1");
     assert_volume(shape(pocketed), 25000.0);
-    assert_eq!(shell_count(&report, "f-box3", "b-1"), 1);
+    assert_shell_count(shape(pocketed), 1);
     assert_eq!(status(&report, "f-box3"), "warning");
     assert_eq!(warning_codes(&report, "f-box3"), vec!["closed_void"]);
     assert_eq!(
@@ -373,7 +366,7 @@ fn t012_a_lid_over_an_open_pocket_closes_a_hollow() {
     let lidded = final_state(&report, "b-1");
     assert_volume(shape(lidded), 34000.0);
     assert_solid_count(shape(lidded), 1);
-    assert_eq!(shape(lidded).count(SubShapeKind::Shell), 2);
+    assert_shell_count(shape(lidded), 2);
 }
 
 #[test]
@@ -393,7 +386,7 @@ fn t012_a_vent_through_the_lid_opens_the_hollow_without_a_warning() {
     assert!(message_texts(&report, "f-box4").is_empty());
     let vented = final_state(&report, "b-1");
     assert_volume(shape(vented), 33960.0);
-    assert_eq!(shape(vented).count(SubShapeKind::Shell), 1);
+    assert_shell_count(shape(vented), 1);
 }
 
 #[test]
@@ -485,18 +478,6 @@ fn assert_out_of_range(report: &Report, feature: &str, path: &str, bound: Bound)
     assert_eq!(*found, bound);
 }
 
-/// "Use {value}": `SetField` of this feature's `path` to the expression `value`.
-fn use_value(path: &str, label: &str, value: &str) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: FieldRef {
-            path: path.to_string(),
-            label: label.to_string(),
-        },
-        value: json!(value),
-    }
-}
-
 /// `SK-RECT` of features/extrude.md and an extrude of its rectangle by `distance`, op new.
 fn rectangle_extrude(distance: &str) -> Vec<Value> {
     vec![
@@ -530,7 +511,7 @@ fn t015_a_box_size_beyond_the_modeling_limit_is_out_of_range() {
     let message = first_message(&report, "f-box1");
     assert_eq!(
         message.fixes,
-        [use_value("size[0]", "Length", "1000000 mm")]
+        [set_field("size[0]", "Length", json!("1000000 mm"))]
     );
     assert_eq!(message.suggestion.as_deref(), Some("1000000 mm"));
     // No kernel call is made: the message is the range check's, never a kernel text.
@@ -600,7 +581,7 @@ fn t015_a_move_beyond_the_modeling_limit_is_out_of_range() {
     );
     assert_eq!(
         first_message(&report, "f-mv1").fixes,
-        [use_value("translation[0]", "Move X", "-1000000 mm")]
+        [set_field("translation[0]", "Move X", json!("-1000000 mm"))]
     );
 }
 

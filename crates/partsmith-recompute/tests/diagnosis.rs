@@ -47,14 +47,14 @@ use stability_common::{
     boss_top_rim, box_below, box_corner_edge, box_record, chamfer, chamfer_face, circle,
     circle_region, constrained_sketch, counterbore, cube10, cube20, cube20_bottom_front,
     cube20_front_top, datum_offset, datum_on_face, datum_plane, distance, document_of, edit,
-    edit_document, edited, edited_document, extrude, fillet, filleted_boss, full_turn, hole, id,
-    import, insert_before, line, linear_pattern, move_before, move_to_end, notched_back_outline,
-    origin_plane, pegs, plate_bytes, point, rectangle, rectangle_region, reference, region,
-    reversed, revolve_about_box_edge, rounded_outline, rounded_plate, run, run_edited,
-    run_with_assets, saved, shell, show, size_constraint, sketch, slotted_cube, split,
-    split_then_fillet, suppressed, symmetric, symmetric_boss, tall_box_with_boss,
-    three_quarter_ring, through_all, top_cut, top_face_plane, unsuppress, unsuppressed, with,
-    without,
+    edit_document, edited, edited_document, extrude, fillet, filleted_boss, followed_by, full_turn,
+    hole, id, import, insert_before, line, linear_pattern, move_before, move_to_end,
+    notched_back_outline, origin_plane, pegs, plate_bytes, point, rectangle, rectangle_region,
+    reference, region, reversed, revolve_about_box_edge, rounded_outline, rounded_plate, run,
+    run_edited, run_then_edit, run_with_assets, saved, shell, show, size_constraint, sketch,
+    slotted_cube, split, split_then_fillet, suppressed, symmetric, symmetric_boss,
+    tall_box_with_boss, three_quarter_ring, through_all, top_cut, top_face_plane, unsuppress,
+    unsuppressed, with, without,
 };
 
 // Ids, names and fixes.
@@ -253,12 +253,6 @@ fn run_until(recompute: &mut Recompute, document: &Document, stop_at: &str) -> R
 
 // Edits of feature lists.
 
-/// The features with `more` appended.
-fn followed_by(mut features: Vec<Value>, more: Vec<Value>) -> Vec<Value> {
-    features.extend(more);
-    features
-}
-
 /// The features with the entities of `f-sk1` replaced by `outline` (an edit of the base outline).
 fn with_outline(features: &[Value], outline: Vec<Value>) -> Vec<Value> {
     edited(features, "f-sk1", |record| {
@@ -397,9 +391,11 @@ fn t041_a_warning_beside_a_notice_makes_the_status_warning_and_comes_first() {
 /// Corpus R33 run as its setup, then edited as an open session does: the box cut below its top by 'Extrude 1'
 /// (`top_cut`), which gives the document of features/sketch.md test 22 with the setup's picks.
 fn cut_below_the_sketch() -> Run {
-    let mut session = run(&["b-1"], &tall_box_with_boss(Vec::new()));
-    edit(&mut session, &["b-1"], &tall_box_with_boss(top_cut()));
-    session
+    run_then_edit(
+        &["b-1"],
+        &tall_box_with_boss(Vec::new()),
+        &tall_box_with_boss(top_cut()),
+    )
 }
 
 /// `Placed::BeforeRemoval` by the cut `f-ext3` of corpus R33.
@@ -583,13 +579,7 @@ fn t044_the_states_the_diagnosis_walks_compute_no_element_infos() {
 
 /// Corpus R23 (b) after its edit: the sketch and extrude of the first peg deleted.
 fn r23b() -> Run {
-    let mut session = run(&["b-1"], &pegs());
-    edit(
-        &mut session,
-        &["b-1"],
-        &without(&pegs(), &["f-sk1", "f-ext1"]),
-    );
-    session
+    run_then_edit(&["b-1"], &pegs(), &without(&pegs(), &["f-sk1", "f-ext1"]))
 }
 
 #[test]
@@ -788,9 +778,11 @@ fn fillet_above_boss(edge: Value) -> Vec<Value> {
 
 /// Corpus R28 with the fillet on `edge`, after its edit in the same session.
 fn r28(edge: Value) -> Run {
-    let mut session = run(&["b-1"], &filleted_boss(edge.clone()));
-    edit(&mut session, &["b-1"], &fillet_above_boss(edge));
-    session
+    run_then_edit(
+        &["b-1"],
+        &filleted_boss(edge.clone()),
+        &fillet_above_boss(edge),
+    )
 }
 
 /// Corpus R28 after its edit with the rollback marker at 'Datum plane 1', so 'Extrude 2' is after it.
@@ -989,9 +981,7 @@ fn conflicting_radius() -> Vec<Value> {
 
 /// Corpus R47's setup with a boss of 10, then edited to `features` in the same session.
 fn r47(features: &[Value]) -> Run {
-    let mut session = run(&["b-1"], &boss_beside_hole(Vec::new(), "10"));
-    edit(&mut session, &["b-1"], features);
-    session
+    run_then_edit(&["b-1"], &boss_beside_hole(Vec::new(), "10"), features)
 }
 
 #[test]
@@ -1098,17 +1088,15 @@ fn now_in_body_2(by: &str, by_suppressed: bool) -> LossReason {
 
 /// Corpus R31 (a) after its edit: a split at z = 5 inserted before the chamfer.
 fn r31a() -> Run {
-    let mut session = run(&["b-1", "b-2"], &chamfered_bottom_edge());
-    edit(
-        &mut session,
+    run_then_edit(
         &["b-1", "b-2"],
+        &chamfered_bottom_edge(),
         &insert_before(
             &chamfered_bottom_edge(),
             "f-cha1",
             vec![datum_offset("f-dp1", "XY", "5"), split(false)],
         ),
-    );
-    session
+    )
 }
 
 #[test]
@@ -1188,13 +1176,11 @@ fn boolean_on_top(target: &str, tool: &str) -> Vec<Value> {
 
 /// Corpus R56 (a) after its edit: the boolean suppressed.
 fn r56a() -> Run {
-    let mut session = run(&["b-1", "b-2"], &boolean_on_top("b-1", "b-2"));
-    edit(
-        &mut session,
+    run_then_edit(
         &["b-1", "b-2"],
+        &boolean_on_top("b-1", "b-2"),
         &edited(&boolean_on_top("b-1", "b-2"), "f-bool1", suppressed),
-    );
-    session
+    )
 }
 
 #[test]
@@ -1255,9 +1241,11 @@ fn boss_ring(body: &str, op: &str) -> Vec<Value> {
 
 /// Corpus R56 (c) after its edit: the boss made as a new body 'Body 2'.
 fn r56c() -> Run {
-    let mut session = run(&["b-1", "b-2"], &boss_ring("b-1", "join"));
-    edit(&mut session, &["b-1", "b-2"], &boss_ring("b-2", "new"));
-    session
+    run_then_edit(
+        &["b-1", "b-2"],
+        &boss_ring("b-1", "join"),
+        &boss_ring("b-2", "new"),
+    )
 }
 
 #[test]
@@ -1377,9 +1365,7 @@ fn a_memoized_reason_follows_the_order_of_the_bodies() {
 
 /// Corpus R16 after its edit: the rabbet cut before the fillet.
 fn r16() -> Run {
-    let mut session = run(&["b-1"], &filleted_cube());
-    edit(&mut session, &["b-1"], &rabbeted_cube());
-    session
+    run_then_edit(&["b-1"], &filleted_cube(), &rabbeted_cube())
 }
 
 #[test]
@@ -1525,9 +1511,7 @@ fn stepped_block(step: &str) -> Vec<Value> {
 
 /// Corpus R13 after its edit: the step made as tall as the block.
 fn r13() -> Run {
-    let mut session = run(&["b-1"], &stepped_block("20"));
-    edit(&mut session, &["b-1"], &stepped_block("30"));
-    session
+    run_then_edit(&["b-1"], &stepped_block("20"), &stepped_block("30"))
 }
 
 #[test]
@@ -1638,10 +1622,9 @@ fn r18a() -> Run {
             "2",
         )],
     );
-    let mut session = run(&["b-1"], &features);
-    edit(
-        &mut session,
+    run_then_edit(
         &["b-1"],
+        &features,
         &insert_before(
             &features,
             "f-cha1",
@@ -1652,23 +1635,20 @@ fn r18a() -> Run {
                 "5",
             )],
         ),
-    );
-    session
+    )
 }
 
 /// Corpus R18 (b) after its edit: a chamfer of 2 on CUBE20's front top edge inserted before the fillet of that edge.
 fn r18b() -> Run {
-    let mut session = run(&["b-1"], &filleted_cube());
-    edit(
-        &mut session,
+    run_then_edit(
         &["b-1"],
+        &filleted_cube(),
         &insert_before(
             &filleted_cube(),
             "f-fil1",
             vec![chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2")],
         ),
-    );
-    session
+    )
 }
 
 #[test]
@@ -1829,9 +1809,11 @@ fn slotted_block(x0: f64, x1: f64) -> Vec<Value> {
 
 /// Corpus R10 (a) after its edit: the slot moved to x 50..81, over the right-hand piece's front top edge.
 fn r10a() -> Run {
-    let mut session = run(&["b-1"], &slotted_block(30.0, 50.0));
-    edit(&mut session, &["b-1"], &slotted_block(50.0, 81.0));
-    session
+    run_then_edit(
+        &["b-1"],
+        &slotted_block(30.0, 50.0),
+        &slotted_block(50.0, 81.0),
+    )
 }
 
 #[test]
@@ -1971,9 +1953,7 @@ fn pocket(square: bool, depth: &str) -> Vec<Value> {
 
 /// Corpus R12 after its edit: the pocket, round or square, made `depth` deep instead of 5.
 fn r12(square: bool, depth: &str) -> Run {
-    let mut session = run(&["b-1"], &pocket(square, "5"));
-    edit(&mut session, &["b-1"], &pocket(square, depth));
-    session
+    run_then_edit(&["b-1"], &pocket(square, "5"), &pocket(square, depth))
 }
 
 /// Checks corpus R12 with the pocket made `depth` deep: the floor edge is no longer made by the cut, which goes all
@@ -2036,9 +2016,7 @@ fn t057_r12_a_square_pocket_made_through_40() {
 
 /// Corpus R30 (a) after its edit: the symmetric boss made a cut.
 fn r30a() -> Run {
-    let mut session = run(&["b-1"], &symmetric_boss("join"));
-    edit(&mut session, &["b-1"], &symmetric_boss("cut"));
-    session
+    run_then_edit(&["b-1"], &symmetric_boss("join"), &symmetric_boss("cut"))
 }
 
 #[test]
@@ -2064,9 +2042,11 @@ fn t057_r30a_a_cut_whose_end_reaches_the_outside_no_longer_makes_its_rim() {
 
 /// Corpus R57 after its edit: the revolve of 270 degrees made a full turn.
 fn r57() -> Run {
-    let mut session = run(&["b-1"], &three_quarter_ring(angle("270 deg")));
-    edit(&mut session, &["b-1"], &three_quarter_ring(full_turn()));
-    session
+    run_then_edit(
+        &["b-1"],
+        &three_quarter_ring(angle("270 deg")),
+        &three_quarter_ring(full_turn()),
+    )
 }
 
 #[test]
@@ -2184,13 +2164,11 @@ fn r01() -> Run {
             "1",
         )],
     );
-    let mut session = run(&["b-1"], &features);
-    edit(
-        &mut session,
+    run_then_edit(
         &["b-1"],
+        &features,
         &with_outline(&features, corner_cut_outline()),
-    );
-    session
+    )
 }
 
 #[test]
@@ -2246,13 +2224,11 @@ fn rounded_corner_outline() -> Vec<Value> {
 
 /// Corpus R64 after its edit: the corner of BLOCK's outline rounded by an arc.
 fn r64() -> Run {
-    let mut session = run(&["b-1"], &shelled_block());
-    edit(
-        &mut session,
+    run_then_edit(
         &["b-1"],
+        &shelled_block(),
         &with_outline(&shelled_block(), rounded_corner_outline()),
-    );
-    session
+    )
 }
 
 #[test]
@@ -2323,15 +2299,13 @@ fn t058_r64_suppressing_the_fillet_leaves_every_other_feature_ok() {
 /// Corpus R28's setup with the fillet on the ring where the boss meets BLOCK's top, and the boss's datum then raised to
 /// z = 35, so the boss floats above the block and nothing lies between the faces of the ring.
 fn boss_lifted() -> Run {
-    let mut session = run(&["b-1"], &filleted_boss(boss_base_ring()));
-    edit(
-        &mut session,
+    run_then_edit(
         &["b-1"],
+        &filleted_boss(boss_base_ring()),
         &edited(&filleted_boss(boss_base_ring()), "f-dp1", |record| {
             with(record, "offset", json!("35"))
         }),
-    );
-    session
+    )
 }
 
 #[test]
@@ -2396,13 +2370,11 @@ fn beveled_block() -> Vec<Value> {
 
 /// Corpus R03 after its edit: the bevel line deleted from the outline.
 fn r03() -> Run {
-    let mut session = run(&["b-1"], &beveled_block());
-    edit(
-        &mut session,
+    run_then_edit(
         &["b-1"],
+        &beveled_block(),
         &with_outline(&beveled_block(), rectangle(1, 0.0, 0.0, 80.0, 50.0)),
-    );
-    session
+    )
 }
 
 #[test]
@@ -2441,13 +2413,11 @@ fn t059_r03_an_edge_whose_sketch_line_was_deleted_is_skipped() {
 
 /// Corpus R51 after its edit: the back right arc deleted from the outline.
 fn r51() -> Run {
-    let mut session = run(&["b-1"], &rounded_plate(true));
-    edit(
-        &mut session,
+    run_then_edit(
         &["b-1"],
+        &rounded_plate(true),
         &with_outline(&rounded_plate(true), rounded_outline(false)),
-    );
-    session
+    )
 }
 
 #[test]
@@ -2502,12 +2472,11 @@ fn two_holes(sketch_points: Vec<Value>, points: &[&str]) -> Vec<Value> {
 
 /// Corpus R43's setup, then edited in the same session to `sketch_points` in the sketch and `points` in the hole.
 fn r43(sketch_points: Vec<Value>, points: &[&str]) -> Run {
-    let mut session = run(
+    run_then_edit(
         &["b-1"],
         &two_holes(vec![point_p1(), point_p2()], &["e-p1", "e-p2"]),
-    );
-    edit(&mut session, &["b-1"], &two_holes(sketch_points, points));
-    session
+        &two_holes(sketch_points, points),
+    )
 }
 
 /// Corpus R43 (a) after its edit: `e-p2` removed from the hole's points.
@@ -2596,9 +2565,11 @@ fn third_copy_gone() -> LossReason {
 
 /// Corpus R41 with the fillet on `edges`, after its edit: the pattern's count lowered from 3 to 2.
 fn r41(edges: Vec<Value>) -> Run {
-    let mut session = run(&["b-1"], &patterned_cubes("3", edges.clone()));
-    edit(&mut session, &["b-1"], &patterned_cubes("2", edges));
-    session
+    run_then_edit(
+        &["b-1"],
+        &patterned_cubes("3", edges.clone()),
+        &patterned_cubes("2", edges),
+    )
 }
 
 #[test]
@@ -3233,9 +3204,7 @@ fn t068_a_message_keeps_every_loss_and_its_fixes_in_loss_order() {
 /// the sketch on its end cap), then is edited on the setup's recompute with BLOCK reversed, so the end cap faces -Z at
 /// z = -30.
 fn turned_over(features: impl Fn(bool) -> Vec<Value>) -> Run {
-    let mut session = run(&["b-1"], &features(false));
-    edit(&mut session, &["b-1"], &features(true));
-    session
+    run_then_edit(&["b-1"], &features(false), &features(true))
 }
 
 /// Corpus R32 (b) after its edit (the document of features/sketch.md test 24): the point `e-p1` at (20, 10) on the

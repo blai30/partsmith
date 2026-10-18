@@ -364,7 +364,7 @@ mod tests {
     use partsmith_model::{FeatureRecord, Units};
 
     use super::*;
-    use crate::test_support::{id, region_split};
+    use crate::test_support::{id, region_split, unknown_params};
 
     /// Names that know body `b-1` as `Bracket` and feature `f-1` as `Base`.
     struct Bracket;
@@ -503,14 +503,7 @@ mod tests {
     #[test]
     fn problems_list_the_error_then_warnings_then_notices() {
         let error = FeatureError::UpstreamFailed { feature: id("f-1") };
-        let warnings = [
-            region_split(),
-            no_effect(),
-            FeatureWarning::UnknownParams {
-                keys: vec!["taper".to_string()],
-                suggestions: Vec::new(),
-            },
-        ];
+        let warnings = [region_split(), no_effect(), unknown_params(&["taper"])];
 
         let codes: Vec<&str> = problems(Some(&error), &warnings)
             .into_iter()

@@ -9,9 +9,9 @@ use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_face_normal,
     assert_face_position, assert_median_build_within, assert_messages_pass_lint,
-    assert_solid_count, assert_volume, face, link_ids, load_example, message,
+    assert_solid_count, assert_volume, face, link_ids, load_example, message, set_field,
 };
-use partsmith_features::{FieldRef, Fix};
+use partsmith_features::Fix;
 use partsmith_occt_sys::GeometryKind;
 
 /// Asserts a flat face of `f-box1` in `b-1`: its area, the position of its plane along `axis`
@@ -295,14 +295,11 @@ fn t013_a_size_beyond_the_modeling_limit() {
     );
     assert_eq!(
         message(&run, "f-box1", "out_of_range").fixes,
-        [Fix::SetField {
-            feature: None,
-            field: FieldRef {
-                path: "size[0]".to_string(),
-                label: "Length".to_string(),
-            },
-            value: serde_json::json!("1000000 mm"),
-        }]
+        [set_field(
+            "size[0]",
+            "Length",
+            serde_json::json!("1000000 mm")
+        )]
     );
     assert_empty(&run, "b-1");
 }
