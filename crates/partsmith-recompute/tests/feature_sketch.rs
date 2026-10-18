@@ -1216,7 +1216,9 @@ fn t029_a_revolve_that_turns_all_the_way_round_leaves_the_saved_position() {
             pick_face(),
         ]
     );
-    run.assert_ok("f-ext2");
+    // The full ring has no start face to open the cut, so the cut lies inside the material and seals a hollow
+    // (features.md section 3.5, `ClosedVoid`; features/sketch.md test 29).
+    run.assert_warnings("f-ext2", &["closed_void"]);
 }
 
 #[test]

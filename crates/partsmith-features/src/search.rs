@@ -6,10 +6,18 @@ use crate::error::FeatureError;
 /// Number of bisection attempts. Fixed, so the result does not depend on the machine.
 const ATTEMPTS: usize = 10;
 
+/// The share of the requested value below which a working value is not a useful limit.
+const USEFUL_SHARE: f64 = 0.1;
+
+/// The smallest working value in millimeters that is a useful limit.
+const USEFUL_MINIMUM: f64 = 0.05;
+
 /// Searches (0, `requested`) for the largest value at which `succeeds` holds, by bisection:
 /// `lo = 0`, `hi = requested`; for 10 attempts, `mid = (lo + hi) / 2`; on success `lo = mid` and
 /// `max = mid`, otherwise `hi = mid`. Returns the largest attempted value that succeeded, or None
-/// if none did. Checks cancellation before each attempt.
+/// if none did or it lies below 10 percent of `requested` or below 0.05 mm: such a limit is not a
+/// useful fix and usually means the failure is not about size. Checks cancellation before each
+/// attempt.
 pub fn too_large_search(
     context: &BuildContext<'_>,
     requested: f64,
@@ -28,7 +36,7 @@ pub fn too_large_search(
             high = middle;
         }
     }
-    Ok(largest)
+    Ok(largest.filter(|&largest| largest >= USEFUL_SHARE * requested && largest >= USEFUL_MINIMUM))
 }
 
 #[cfg(test)]
@@ -61,6 +69,32 @@ mod tests {
         let largest = too_large_search(&fixture.context(), 3.0, |_| false).expect("not canceled");
 
         assert_eq!(largest, None);
+    }
+
+    #[test]
+    fn a_working_value_below_a_tenth_of_the_request_counts_as_none() {
+        let fixture = Fixture::new("f-fil1");
+
+        let largest =
+            too_large_search(&fixture.context(), 3.0, |value| value < 0.25).expect("not canceled");
+
+        assert_eq!(largest, None);
+    }
+
+    #[test]
+    fn a_working_value_below_the_useful_minimum_counts_as_none() {
+        let fixture = Fixture::new("f-fil1");
+
+        let small = too_large_search(&fixture.context(), 0.06, |value| value < 0.045)
+            .expect("not canceled");
+        let useful =
+            too_large_search(&fixture.context(), 0.08, |value| value < 0.06).expect("not canceled");
+
+        assert_eq!(small, None);
+        assert!(
+            useful.is_some_and(|value| (0.05..0.06).contains(&value)),
+            "got {useful:?}"
+        );
     }
 
     #[test]

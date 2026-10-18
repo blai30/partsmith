@@ -14,7 +14,7 @@ mod tool;
 
 use partsmith_mesh::BoundingBox;
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_naming::{ElementName, Generator, Motion, roles};
+use partsmith_naming::{ElementName, Generator, roles};
 use partsmith_occt_sys::{Point, Vector};
 use partsmith_sketch::{PointRef, PointRole};
 use schemars::JsonSchema;
@@ -30,9 +30,12 @@ use super::common::{
 };
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FeatureWarning, Noun};
+use crate::error::{FeatureError, FeatureWarning, NoEffectHow, Noun};
 use crate::feature::Feature;
-use crate::output::{Absence, AbsentFace, BodyChange, FeatureOutput, SketchResult, Tool, apply_op};
+use crate::output::{
+    Absence, AbsentFace, BodyChange, Direction, FeatureOutput, SketchResult, Tool, apply_op,
+    reverse_hits,
+};
 use crate::params::{BodyOp, PlacementExt};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
@@ -208,25 +211,60 @@ impl Feature for Hole {
         } else {
             plane.normal.scaled(-1.0)
         };
-        let points = distinct_points(params, context, sketch)?;
+        let points = distinct_points(params, context, sketch, &mut warnings)?;
         let body_bounds = body.bounding_box()?;
-        let drilling = drill_candidates(
+        let drill = |direction: Vector, point: &PointRef, position: Point| {
+            let length = size.depth.or_else(|| {
+                size.through_length(farthest_corner(&body_bounds, position, direction))
+            });
+            let frame = Frame {
+                position,
+                radial: plane.x_axis,
+                direction,
+            };
+            length
+                .map(|length| {
+                    hole_tool(
+                        context.feature(),
+                        point,
+                        &frame,
+                        &size.section(length),
+                        &sketch.motion,
+                    )
+                })
+                .transpose()
+        };
+        let drilling = drill_candidates(context, &points, &body_bounds, |point, position| {
+            drill(direction, point, position)
+        })?;
+        let along = Direction {
+            direction: [direction.x, direction.y, direction.z],
+            sketch: Some(&params.sketch),
+        };
+        let decision = cut_candidates(
             context,
-            &size,
-            points,
-            plane.x_axis,
-            direction,
-            &sketch.motion,
-            &body_bounds,
+            &params.body,
+            state,
+            body,
+            &drilling.candidates,
+            Some(along),
         )?;
-        let decision = cut_candidates(context, &params.body, state, body, &drilling.candidates)?;
-        for (point, candidate) in &drilling.points {
-            if !candidate.is_some_and(|position| decision.overlaps[position]) {
-                warnings.push(FeatureWarning::HoleMissesBody {
-                    point: point.to_string(),
-                    body: params.body.clone(),
-                });
+        for (point, candidate) in points.iter().zip(&drilling.points) {
+            if candidate.is_some_and(|position| decision.overlaps[position]) {
+                continue;
             }
+            // On this warning path only, the hole drilled the other way decides whether Reverse is a fix that works.
+            let reverse_hits = match drill(direction.scaled(-1.0), point.point, point.world)? {
+                Some(reversed) => reverse_hits(context, &params.body, &[reversed])?,
+                None => false,
+            };
+            warnings.push(FeatureWarning::HoleMissesBody {
+                sketch: params.sketch.clone(),
+                point: point.point.to_string(),
+                position: point.local,
+                body: params.body.clone(),
+                reverse_hits,
+            });
         }
         let overlaps = decision.overlaps.clone();
         let mut output = finish(
@@ -235,7 +273,11 @@ impl Feature for Hole {
             state,
             drilling.candidates,
             decision,
-            warnings,
+            Finish {
+                direction: along,
+                entries: params.points.len(),
+                warnings,
+            },
         )?;
         output.absent = absent_ends(&drilling.ends, &overlaps, &output);
         Ok(output)
@@ -298,34 +340,64 @@ fn python_point(sketch: &Id, point: &PointRef, names: &dyn PythonNames) -> Optio
     Some(PythonValue::Name(format!("{variable}.{role}")))
 }
 
-/// Each distinct point of `params.points`, in order, with its world position on `sketch`; a point
-/// the sketch does not have is `UnknownEntity` at its entry (features/hole.md section 3.3 step 4).
+/// One distinct point of a hole, where it lies in its sketch and in the world.
+struct HolePoint<'a> {
+    /// The point reference.
+    point: &'a PointRef,
+    /// Its sketch coordinates.
+    local: [f64; 2],
+    /// Its world position.
+    world: Point,
+}
+
+/// Each distinct point of `params.points`, in order, with its position on `sketch`. A point the
+/// sketch no longer has is skipped with a `PointMissing` warning, so one deleted point never fails
+/// the other holes; when none is left, the first is `UnknownEntity` at its entry (features/hole.md
+/// section 3.3 step 4).
 fn distinct_points<'a>(
     params: &'a HoleParams,
     context: &BuildContext<'_>,
     sketch: &SketchResult,
-) -> Result<Vec<(&'a PointRef, Point)>, FeatureError> {
-    let mut points: Vec<(&PointRef, Point)> = Vec::new();
+    warnings: &mut Vec<FeatureWarning>,
+) -> Result<Vec<HolePoint<'a>>, FeatureError> {
+    let mut points: Vec<HolePoint<'a>> = Vec::new();
     for (index, point) in params.points.iter().enumerate() {
-        let position = sketch
-            .point(point)
-            .ok_or_else(|| FeatureError::UnknownEntity {
+        let Some(local) = sketch.point(point) else {
+            warnings.push(FeatureWarning::PointMissing {
                 field: context.field(&format!("points[{index}]")),
+                position: index,
                 sketch: params.sketch.clone(),
-                entity: point.to_string(),
-                noun: Noun::Point,
-            })?;
-        if !points.iter().any(|(used, _)| *used == point) {
-            points.push((point, crate::point(sketch.to_world(position))));
+                point: point.to_string(),
+            });
+            continue;
+        };
+        if !points.iter().any(|used| used.point == point) {
+            points.push(HolePoint {
+                point,
+                local,
+                world: crate::point(sketch.to_world(local)),
+            });
         }
+    }
+    if points.is_empty() {
+        let first = params
+            .points
+            .first()
+            .ok_or_else(|| FeatureError::internal("a hole without points passed validation"))?;
+        return Err(FeatureError::UnknownEntity {
+            field: context.field("points[0]"),
+            sketch: params.sketch.clone(),
+            entity: first.to_string(),
+            noun: Noun::Point,
+        });
     }
     Ok(points)
 }
 
 /// The tools of a hole's points that may overlap the body.
-struct Drilling<'a> {
-    /// Each point with the position in `candidates` of its tool, when it has one.
-    points: Vec<(&'a PointRef, Option<usize>)>,
+struct Drilling {
+    /// For each point, the position in `candidates` of its tool, when it has one.
+    points: Vec<Option<usize>>,
     /// The tools whose bounding boxes meet the body's, in point order.
     candidates: Vec<Candidate>,
     /// The end and entry faces of each candidate's tool, in the same order.
@@ -379,68 +451,66 @@ fn absent_ends(ends: &[ToolEnds], overlaps: &[bool], output: &FeatureOutput) -> 
         .collect()
 }
 
-/// The tool of each point, its faces with the point sketch's `motion`, kept as a candidate when
-/// its bounding box meets `body_bounds` (features/hole.md section 3.3 steps 4, 5 and 7). A
-/// through-all hole whose body lies behind its point gets no tool.
-fn drill_candidates<'a>(
+/// The tool `drill` builds for each point (its faces with the point sketch's motion), kept as a
+/// candidate when its bounding box meets `body_bounds` (features/hole.md section 3.3 steps 4, 5
+/// and 7). A through-all hole whose body lies behind its point gets no tool.
+fn drill_candidates(
     context: &BuildContext<'_>,
-    size: &HoleSize,
-    points: Vec<(&'a PointRef, Point)>,
-    radial: Vector,
-    direction: Vector,
-    motion: &Motion,
+    points: &[HolePoint<'_>],
     body_bounds: &BoundingBox,
-) -> Result<Drilling<'a>, FeatureError> {
+    drill: impl Fn(&PointRef, Point) -> Result<Option<Tool>, FeatureError>,
+) -> Result<Drilling, FeatureError> {
     let mut drilling = Drilling {
         points: Vec::with_capacity(points.len()),
         candidates: Vec::new(),
         ends: Vec::new(),
     };
-    for (point, position) in points {
+    for point in points {
         check_canceled(context)?;
-        let length = size
-            .depth
-            .or_else(|| size.through_length(farthest_corner(body_bounds, position, direction)));
-        let frame = Frame {
-            position,
-            radial,
-            direction,
-        };
         let mut candidate = None;
-        if let Some(length) = length {
-            let tool = hole_tool(
-                context.feature(),
-                point,
-                &frame,
-                &size.section(length),
-                motion,
-            )?;
+        if let Some(tool) = drill(point.point, point.world)? {
             let bounds = tool.shape.bounding_box()?;
             if bounds.intersects(body_bounds) {
                 candidate = Some(drilling.candidates.len());
                 drilling
                     .ends
-                    .push(ToolEnds::of(context.feature(), point, &tool)?);
+                    .push(ToolEnds::of(context.feature(), point.point, &tool)?);
                 drilling.candidates.push(Candidate { tool, bounds });
             }
         }
-        drilling.points.push((point, candidate));
+        drilling.points.push(candidate);
     }
     Ok(drilling)
 }
 
+/// What `finish` adds to the hole's output besides the decision's cut.
+struct Finish<'a> {
+    /// The drilling direction with the point sketch, for the body rules.
+    direction: Direction<'a>,
+    /// The number of entries of `points`, which decides whether `NoEffect` repeats the misses.
+    entries: usize,
+    /// The warnings raised so far.
+    warnings: Vec<FeatureWarning>,
+}
+
 /// The output once `decision` says which candidates overlap the body, after the warnings raised
 /// so far (features/hole.md section 3.3 step 6): the decision's cut when it is the result, else
-/// the body cut again with the overlapping tools only, or the body unchanged with `NoEffect` when
-/// none overlaps.
+/// the body cut again with the overlapping tools only, or the body unchanged when none overlaps,
+/// with `NoEffect` (`Missed`) when `points` holds two or more entries; a single point's
+/// `HoleMissesBody` already says why (features.md section 3.15).
 fn finish(
     context: &BuildContext<'_>,
     body: &Id,
     state: &BodyState,
     candidates: Vec<Candidate>,
     decision: Decision,
-    mut warnings: Vec<FeatureWarning>,
+    finish: Finish<'_>,
 ) -> Result<FeatureOutput, FeatureError> {
+    let Finish {
+        direction,
+        entries,
+        mut warnings,
+    } = finish;
     let outcome = match decision.result {
         Some(result) => result,
         None => {
@@ -451,13 +521,20 @@ fn finish(
                 .map(|(candidate, _)| candidate.tool)
                 .collect();
             if tools.is_empty() {
-                warnings.push(FeatureWarning::NoEffect { body: body.clone() });
+                if entries >= 2 {
+                    warnings.push(FeatureWarning::NoEffect {
+                        body: body.clone(),
+                        how: NoEffectHow::Missed,
+                        reverse_hits: false,
+                        attach: None,
+                    });
+                }
                 return Ok(bodies(
                     vec![unchanged(body, state, BodyChange::Cut)],
                     warnings,
                 ));
             }
-            apply_op(context, body, BodyOp::Cut, tools)
+            apply_op(context, body, BodyOp::Cut, tools, Some(direction))
         }
     };
     let (update, op_warnings) = outcome?;

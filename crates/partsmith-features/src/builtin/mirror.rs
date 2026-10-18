@@ -100,6 +100,7 @@ impl Feature for Mirror {
             params.target.as_ref(),
             vec![image],
             plane.warnings,
+            Vec::new(),
         )
     }
 

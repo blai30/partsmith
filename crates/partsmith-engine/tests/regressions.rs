@@ -77,10 +77,10 @@ fn validate_reports_a_hole_at_an_unknown_sketch_point_without_rebuild() {
             Some("/features/2/points/1".to_string())
         )]
     );
-    assert!(
-        report.diagnostics[0].message.contains("e-p9"),
-        "{}",
-        report.diagnostics[0].message
+    // Features.md section 4.1, `unknown_entity`: the message names the field; the entity id is for the detail.
+    assert_eq!(
+        report.diagnostics[0].message,
+        "'Sketch 1' no longer has the point picked for Points. Pick a point of 'Sketch 1' again."
     );
 }
 

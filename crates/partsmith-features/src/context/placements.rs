@@ -45,6 +45,7 @@ impl BuildContext<'_> {
                     }),
                     FacePlane::NotPlanar => Err(FeatureError::NotPlanar {
                         field: self.field(&face_field),
+                        element: face.clone(),
                     }),
                     FacePlane::NotCoplanar => Err(FeatureError::NotCoplanar {
                         field: self.field(field),
@@ -165,6 +166,7 @@ impl BuildContext<'_> {
                     .collect::<Option<Vec<(Point, Vector)>>>()
                     .ok_or_else(|| FeatureError::NotStraight {
                         field: self.field(&edge_field),
+                        element: edge.clone(),
                     })?;
                 let (first, rest) = split_first(&lines)?;
                 if !rest.iter().all(|other| same_line(*first, *other)) {
@@ -196,6 +198,7 @@ impl BuildContext<'_> {
                     .collect::<Option<Vec<(Point, Vector)>>>()
                     .ok_or_else(|| FeatureError::NoAxis {
                         field: self.field(&face_field),
+                        element: face.clone(),
                     })?;
                 let (first, rest) = split_first(&axes)?;
                 if !rest.iter().all(|other| same_axis(*first, *other)) {
@@ -697,7 +700,9 @@ mod tests {
             .plane("plane", &plane)
             .expect_err("a cylinder is round");
 
-        assert!(matches!(error, FeatureError::NotPlanar { field } if field.path == "plane.face"));
+        assert!(
+            matches!(error, FeatureError::NotPlanar { field, element } if field.path == "plane.face" && element.query.to_string() == "f-cyl1/side")
+        );
     }
 
     /// A placement that is not an origin plane, so the face placement rule visibly uses it.
@@ -900,7 +905,9 @@ mod tests {
             .axis("axis", &axis)
             .expect_err("a circle is round");
 
-        assert!(matches!(error, FeatureError::NotStraight { field } if field.path == "axis.edge"));
+        assert!(
+            matches!(error, FeatureError::NotStraight { field, element } if field.path == "axis.edge" && element.query.to_string() == "edge(f-cyl1/side|f-cyl1/top)")
+        );
     }
 
     #[test]
@@ -938,7 +945,9 @@ mod tests {
             .axis("axis", &axis)
             .expect_err("a plane has no axis");
 
-        assert!(matches!(error, FeatureError::NoAxis { field } if field.path == "axis.face"));
+        assert!(
+            matches!(error, FeatureError::NoAxis { field, element } if field.path == "axis.face" && element.query.to_string() == "f-box1/top")
+        );
     }
 
     #[test]

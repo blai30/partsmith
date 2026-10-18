@@ -10,7 +10,10 @@ use super::common::{
     body_hint, essential, manifest, positive_length, references, require_selection, selection_hint,
     solid_body, unit_hint,
 };
-use super::dressup::{finish_blend, no_effect, run_or_search, select_edges, sorted_by_name};
+use super::dressup::{
+    SelectedEdge, face_limit, finish_blend, kept_edges, no_effect, run_or_search, select_edges,
+    sorted_by_name,
+};
 use crate::{
     BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Noun, PythonCall,
     PythonNames, PythonValue,
@@ -67,27 +70,41 @@ impl Feature for Fillet {
         let radius = positive_length(context, "radius", &params.radius)?;
         let selection = select_edges(context, &params.body, state, shape, &params.edges)?;
         if selection.edges.is_empty() {
-            return Ok(no_effect(&params.body, state, selection.warnings));
+            return Ok(no_effect(
+                context,
+                &params.body,
+                state,
+                params.edges.len(),
+                selection.warnings,
+            ));
         }
         let edges = sorted_by_name(state.naming(), &selection.edges)?;
+        let rounded = |edges: &[&SelectedEdge], radius: f64| {
+            let requests: Vec<EdgeRadius> = edges
+                .iter()
+                .map(|edge| EdgeRadius {
+                    edge: edge.index,
+                    radius,
+                })
+                .collect();
+            fillet(shape, &requests)
+        };
         let result = run_or_search(
             context,
             radius,
-            |radius| {
-                let edges: Vec<EdgeRadius> = edges
-                    .iter()
-                    .map(|edge| EdgeRadius {
-                        edge: edge.index,
-                        radius,
-                    })
-                    .collect();
-                fillet(shape, &edges)
-            },
-            |max, cause| FeatureError::FilletTooLarge {
-                field: context.field("radius"),
-                radius,
-                max,
-                cause,
+            |radius| rounded(&edges, radius),
+            |max, cause| {
+                let limit = face_limit(state, shape, &edges, radius, |keep| {
+                    rounded(&kept_edges(&edges, keep), radius).is_ok()
+                })?;
+                Ok(FeatureError::FilletTooLarge {
+                    field: context.field("radius"),
+                    expr: params.radius.clone(),
+                    radius,
+                    max,
+                    limit,
+                    cause,
+                })
             },
         )?;
         finish_blend(
@@ -246,8 +263,10 @@ mod tests {
     fn a_too_large_radius_suggests_the_largest_that_works() {
         let error = FeatureError::FilletTooLarge {
             field: FieldRef::new("radius", &Fillet::manifest()),
+            expr: Expr::new("3"),
             radius: 3.0,
             max: Some(2.396),
+            limit: None,
             cause: partsmith_occt_sys::KernelError {
                 operation: partsmith_occt_sys::Operation::Fillet,
                 kind: partsmith_occt_sys::KernelErrorKind::Failed,

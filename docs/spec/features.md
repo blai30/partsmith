@@ -936,6 +936,10 @@ pub trait Names {
     /// parameters (dotted names do not resolve), for element descriptions (section 3.12); None when it does not
     /// evaluate, and outside a document, which the provided method returns.
     fn value(&self, expr: &Expr, unit: FieldUnit) -> Option<f64> { None }
+    /// The manifest of the feature's type, for the fixes that depend on a field's hint (`invalid_params` offers `Pick`
+    /// for a field whose hint has a selection, section 4.1); None for an unknown type, and outside a document, which
+    /// the provided method returns.
+    fn manifest(&self, feature: &Id) -> Option<&FeatureManifest> { None }
 }
 
 /// `Names` for a document, using the registry for default feature labels and type labels.

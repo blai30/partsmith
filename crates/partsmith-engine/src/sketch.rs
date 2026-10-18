@@ -96,7 +96,7 @@ fn rejected_record(
     document: &Document,
     record: &FeatureRecord,
 ) -> EngineError {
-    if let FeatureError::SketchInvalid { error } = error
+    if let FeatureError::SketchInvalid { error, .. } = error
         && let Ok(params) = serde_json::from_value(serde_json::Value::Object(record.params.clone()))
     {
         return SketchWords::of(registry, document, &record.id).invalid(

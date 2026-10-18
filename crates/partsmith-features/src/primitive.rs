@@ -5,6 +5,7 @@ use partsmith_sketch::Placement;
 use schemars::Schema;
 use serde_json::Value;
 
+use crate::builtin::common::signed_length;
 use crate::context::{BuildContext, WithWarnings};
 use crate::deps::Dependencies;
 use crate::error::FeatureError;
@@ -64,7 +65,7 @@ impl PrimitivePlacement<'_> {
         let plane = context.plane("plane", self.plane)?;
         let mut offset = [0.0; 3];
         for ((value, field), expr) in offset.iter_mut().zip(POSITION_FIELDS).zip(self.position) {
-            *value = context.eval_length(field, expr)?;
+            *value = signed_length(context, field, expr)?;
         }
         Ok(WithWarnings {
             value: Placement {

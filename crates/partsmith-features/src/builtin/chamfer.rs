@@ -11,7 +11,8 @@ use super::common::{
     require_selection, selection_hint, solid_body, unit_hint,
 };
 use super::dressup::{
-    SelectedEdge, finish_blend, no_effect, run_or_search, select_edges, sorted_by_name,
+    SelectedEdge, face_limit, finish_blend, kept_edges, no_effect, run_or_search, select_edges,
+    sorted_by_name,
 };
 use crate::{
     BodyState, BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, FeatureWarning,
@@ -179,37 +180,49 @@ impl Feature for Chamfer {
         };
         let selection = select_edges(context, &params.body, state, shape, &params.edges)?;
         if selection.edges.is_empty() {
-            return Ok(no_effect(&params.body, state, selection.warnings));
+            return Ok(no_effect(
+                context,
+                &params.body,
+                state,
+                params.edges.len(),
+                selection.warnings,
+            ));
         }
         let mut warnings = selection.warnings;
-        let edges = chamfer_edges(
-            context,
-            params,
-            state,
-            distances,
-            sorted_by_name(state.naming(), &selection.edges)?,
-            &mut warnings,
-        )?;
+        let sorted = sorted_by_name(state.naming(), &selection.edges)?;
+        let edges = chamfer_edges(context, params, state, distances, &sorted, &mut warnings)?;
         let larger = distances.larger();
+        let beveled = |edges: &[&ChamferEdge], value: f64| {
+            let factor = value / larger;
+            let scaled_edges: Vec<ChamferEdge> = edges
+                .iter()
+                .map(|edge| ChamferEdge {
+                    edge: edge.edge,
+                    size: scaled(edge.size, factor),
+                })
+                .collect();
+            chamfer(shape, &scaled_edges)
+        };
+        let requests: Vec<&ChamferEdge> = edges.iter().collect();
         let result = run_or_search(
             context,
             larger,
-            |value| {
-                let factor = value / larger;
-                let scaled_edges: Vec<ChamferEdge> = edges
-                    .iter()
-                    .map(|edge| ChamferEdge {
-                        edge: edge.edge,
-                        size: scaled(edge.size, factor),
-                    })
-                    .collect();
-                chamfer(shape, &scaled_edges)
-            },
-            |max, cause| FeatureError::ChamferTooLarge {
-                field: context.field(field),
-                distance: larger,
-                max,
-                cause,
+            |value| beveled(&requests, value),
+            |max, cause| {
+                let limit = face_limit(state, shape, &sorted, larger, |keep| {
+                    beveled(&kept_edges(&requests, keep), larger).is_ok()
+                })?;
+                Ok(FeatureError::ChamferTooLarge {
+                    field: context.field(field),
+                    expr: match &params.distance {
+                        ChamferDistance::Equal { expr } => Some(expr.clone()),
+                        ChamferDistance::TwoDistances { .. } => None,
+                    },
+                    distance: larger,
+                    max,
+                    limit,
+                    cause,
+                })
             },
         )?;
         finish_blend(
@@ -246,11 +259,11 @@ fn chamfer_edges(
     params: &ChamferParams,
     state: &BodyState,
     distances: Distances,
-    edges: Vec<&SelectedEdge>,
+    edges: &[&SelectedEdge],
     warnings: &mut Vec<FeatureWarning>,
 ) -> Result<Vec<ChamferEdge>, FeatureError> {
     let mut requests = Vec::with_capacity(edges.len());
-    for edge in edges {
+    for &edge in edges {
         let size = match distances {
             Distances::Equal(distance) => ChamferSize::Equal { distance },
             Distances::TwoDistances { on_first, on_other } => {
@@ -718,10 +731,13 @@ mod tests {
             message: String::new(),
         };
         let manifest = Chamfer::manifest();
+        // Only an equal distance has one expression to replace (features.md section 4.4).
         let too_large = |field: &str| FeatureError::ChamferTooLarge {
             field: FieldRef::new(field, &manifest),
+            expr: (field == "distance.expr").then(|| Expr::new("3")),
             distance: 3.0,
             max: Some(2.396),
+            limit: None,
             cause: cause.clone(),
         };
 

@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use partsmith_model::Id;
+use partsmith_model::{Id, LINEAR_TOLERANCE};
 use partsmith_naming::{
     EdgeInfo, ElementInfo, ElementKind, ElementName, FaceSource, Generator, NamingMap, Reference,
     TopologyInfo, roles,
@@ -18,7 +18,7 @@ use partsmith_occt_sys::{
 use super::common::{bodies, check_canceled, face_name, name_on_body, unchanged};
 use crate::{
     BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
-    IgnoredReason, Measurements, Named, too_large_search,
+    IgnoredReason, Limit, Measurements, Named, NoEffectHow, too_large_search,
 };
 
 /// Largest angle in radians between the outward normals of an edge's two faces at the edge's
@@ -76,10 +76,19 @@ pub(super) fn select_edges(
         edges: Vec::new(),
         warnings: resolved.into_messages(),
     };
-    for (index, source) in resolved_edges {
+    for &(index, source) in &resolved_edges {
         if is_smooth(shape, &topology, index)? {
+            // The entry of a reference that resolved to this edge alone, which its fix removes, else the whole list.
+            let alone = resolved_edges
+                .iter()
+                .all(|&(other, from)| other == index || from != source);
+            let field = if alone {
+                format!("edges[{source}]")
+            } else {
+                "edges".to_string()
+            };
             selection.warnings.push(FeatureWarning::Ignored {
-                field: context.field("edges"),
+                field: context.field(&field),
                 reason: IgnoredReason::SmoothEdge,
             });
         } else {
@@ -141,24 +150,103 @@ fn angle_between(first: Vector, second: Vector) -> f64 {
 }
 
 /// Runs a fillet, chamfer or shell `operation` at the `requested` value. When the kernel fails for
-/// any reason other than invalid input, searches for the largest value that works (features.md
-/// section 4.3) and returns the error `too_large` makes from that value and the first failure.
-/// Invalid input is reported as the kernel's error.
+/// any reason other than invalid input or an internal error, searches for the largest value that
+/// works (features.md section 4.3) and returns the error `too_large` makes from that value and the
+/// first failure, measuring what limits it on this failure path only. Invalid input and internal
+/// errors are reported as the kernel's error: the input was checked first, so they are not about
+/// size.
 pub(super) fn run_or_search<T>(
     context: &BuildContext<'_>,
     requested: f64,
     operation: impl Fn(f64) -> Result<T, KernelError>,
-    too_large: impl FnOnce(Option<f64>, KernelError) -> FeatureError,
+    too_large: impl FnOnce(Option<f64>, KernelError) -> Result<FeatureError, FeatureError>,
 ) -> Result<T, FeatureError> {
     check_canceled(context)?;
     match operation(requested) {
         Ok(result) => Ok(result),
-        Err(error) if error.kind == KernelErrorKind::InvalidInput => Err(FeatureError::from(error)),
+        Err(error)
+            if matches!(
+                error.kind,
+                KernelErrorKind::InvalidInput | KernelErrorKind::Internal
+            ) =>
+        {
+            Err(FeatureError::from(error))
+        }
         Err(cause) => {
             let max = too_large_search(context, requested, |value| operation(value).is_ok())?;
-            Err(too_large(max, cause))
+            Err(too_large(max, cause)?)
         }
     }
+}
+
+/// The narrowest face next to a selected edge of a fillet or chamfer, measured on its failure path
+/// (features.md section 4.3), when it is narrower than `requested`: the kernel's `width_across` of
+/// each face of each of `edges`, which come in name order, the faces of an edge in name order too,
+/// so ties go to the edge and then the face whose names sort first. When another reference
+/// resolved, `works_without` tries the operation at `requested` without the edges of the limiting
+/// edge's reference (`keep` false for them, in the order of `edges`), which decides `removable`.
+pub(super) fn face_limit(
+    state: &BodyState,
+    shape: &Shape,
+    edges: &[&SelectedEdge],
+    requested: f64,
+    works_without: impl FnOnce(&[bool]) -> bool,
+) -> Result<Option<Limit>, FeatureError> {
+    let naming = state.naming();
+    let mut narrowest: Option<(f64, &SelectedEdge, u32)> = None;
+    for &edge in edges {
+        let mut faces: Vec<(&ElementName, u32)> = edge
+            .faces
+            .iter()
+            .filter_map(|&face| Some((naming.name(ElementKind::Face, face)?, face)))
+            .collect();
+        faces.sort();
+        for (_, face) in faces {
+            // A face the kernel cannot measure across the edge states no limit.
+            let Ok(width) = shape.width_across(face, edge.index) else {
+                continue;
+            };
+            if narrowest.is_none_or(|(least, _, _)| width < least - LINEAR_TOLERANCE) {
+                narrowest = Some((width, edge, face));
+            }
+        }
+    }
+    let Some((width, edge, face)) = narrowest.filter(|(width, _, _)| *width < requested) else {
+        return Ok(None);
+    };
+    let keep: Vec<bool> = edges
+        .iter()
+        .map(|other| other.source != edge.source)
+        .collect();
+    let removable = keep.contains(&true) && works_without(&keep);
+    Ok(Some(Limit::Face {
+        position: edge.source,
+        edge: picked(state, ElementKind::Edge, edge.index)?,
+        face: picked(state, ElementKind::Face, face)?,
+        width,
+        removable,
+    }))
+}
+
+/// The items of `items` whose entry of `keep` is true, for an attempt without some edges.
+pub(super) fn kept_edges<T: Copy>(items: &[T], keep: &[bool]) -> Vec<T> {
+    items
+        .iter()
+        .zip(keep)
+        .filter(|(_, kept)| **kept)
+        .map(|(item, _)| *item)
+        .collect()
+}
+
+/// The element of `kind` at kernel `index` of `state` as a pick stores it (`Reference::from_element`).
+fn picked(state: &BodyState, kind: ElementKind, index: u32) -> Result<Reference, FeatureError> {
+    let set = state.element_set()?;
+    state
+        .naming()
+        .name(kind, index)
+        .and_then(|name| set.element(name))
+        .map(|info| Reference::from_element(info, &set))
+        .ok_or_else(|| FeatureError::internal(format!("the {kind} {index} has no element")))
 }
 
 /// Where one face of a fillet, chamfer or shell result comes from, as elements of the input body
@@ -378,14 +466,27 @@ pub(super) fn sorted_by_name<'a>(
     Ok(named.into_iter().map(|(_, edge)| edge).collect())
 }
 
-/// The output of a fillet or chamfer left with no edge to work on: `body` keeps its `state`, and a
-/// `NoEffect` warning follows the other warnings (fillet.md section 3.3 step 4).
+/// The output of a fillet or chamfer left with no edge to work on: `body` keeps its `state`, and
+/// when the `edges` field holds two or more `entries` a `NoEffect` warning follows the other
+/// warnings; a single skipped edge is reported by its `Ignored` warning alone (fillet.md section
+/// 3.3 step 4, features.md section 3.15).
 pub(super) fn no_effect(
+    context: &BuildContext<'_>,
     body: &Id,
     state: &BodyState,
+    entries: usize,
     mut warnings: Vec<FeatureWarning>,
 ) -> FeatureOutput {
-    warnings.push(FeatureWarning::NoEffect { body: body.clone() });
+    if entries >= 2 {
+        warnings.push(FeatureWarning::NoEffect {
+            body: body.clone(),
+            how: NoEffectHow::Skipped {
+                field: context.field("edges"),
+            },
+            reverse_hits: false,
+            attach: None,
+        });
+    }
     bodies(vec![unchanged(body, state, BodyChange::Modify)], warnings)
 }
 
@@ -869,7 +970,7 @@ mod tests {
                 attempts.set(attempts.get() + 1);
                 Err::<(), _>(kernel_error(KernelErrorKind::InvalidInput))
             },
-            |_, _| FeatureError::internal("not expected"),
+            |_, _| Ok(FeatureError::internal("not expected")),
         )
         .expect_err("invalid input fails");
 
@@ -894,7 +995,7 @@ mod tests {
             },
             |max, cause| {
                 largest.set(max);
-                FeatureError::from(cause)
+                Ok(FeatureError::from(cause))
             },
         )
         .expect_err("the requested value fails");
@@ -912,7 +1013,7 @@ mod tests {
         let fixture = Fixture::new("f-fil1");
 
         let value = run_or_search(&fixture.context(), 3.0, Ok, |_, _| {
-            FeatureError::internal("not expected")
+            Ok(FeatureError::internal("not expected"))
         })
         .expect("works");
 
@@ -1061,12 +1162,21 @@ mod tests {
     fn an_unchanged_body_keeps_its_state_and_warns() {
         let cube = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
         let state = BodyState::new(cube.shape, Arc::new(cube.naming));
+        let fixture = Fixture::new("f-fil1");
 
-        let output = no_effect(&id("b-1"), &state, Vec::new());
+        let output = no_effect(&fixture.context(), &id("b-1"), &state, 2, Vec::new());
 
+        // Two entries that were all skipped (features.md section 3.15).
         assert_eq!(
             output.warnings,
-            [FeatureWarning::NoEffect { body: id("b-1") }]
+            [FeatureWarning::NoEffect {
+                body: id("b-1"),
+                how: NoEffectHow::Skipped {
+                    field: fixture.context().field("edges"),
+                },
+                reverse_hits: false,
+                attach: None,
+            }]
         );
         let crate::OutputData::Bodies(updates) = output.data else {
             panic!("a body update");

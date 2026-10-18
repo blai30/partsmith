@@ -334,7 +334,8 @@ mod tests {
         assert_eq!(
             feature.warnings,
             [FeatureWarning::UnknownParams {
-                keys: vec!["zoom".to_string()]
+                keys: vec!["zoom".to_string()],
+                suggestions: Vec::new(),
             }]
         );
         assert_eq!(feature.messages[0].severity, Severity::Warning);

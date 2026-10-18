@@ -250,7 +250,8 @@ fn t091_a_missing_asset_fails_the_import_feature() {
             .iter()
             .any(|message| message["message"]
                 .as_str()
-                .is_some_and(|text| text.contains("is missing"))),
+                .is_some_and(|text| text.contains("is not in this document's assets folder"))),
+        // Features.md section 4.1, `asset_missing`.
         "a message says the asset is missing: {status}"
     );
 }

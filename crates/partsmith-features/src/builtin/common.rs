@@ -16,9 +16,11 @@ use partsmith_occt_sys::{
 };
 use partsmith_sketch::{RegionRef, Succession};
 
-use crate::context::{BodyState, BuildContext, ResolvedProfile};
-use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, Noun};
-use crate::output::{BodyChange, BodyUpdate, FeatureOutput, OutputData, Tool, apply_op};
+use crate::context::{BodyState, BuildContext, MODEL_LIMIT, ResolvedProfile};
+use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, NoEffectHow, Noun};
+use crate::output::{
+    BodyChange, BodyUpdate, FeatureOutput, OutputData, Tool, apply_op, reverse_hits,
+};
 use crate::params::{BodyOp, CopyOp, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 use crate::{Named, name_shape};
@@ -184,8 +186,33 @@ pub(crate) fn check_range(
     }
 }
 
-/// The declared length at `field` when it satisfies `bound`, else `OutOfRange` (features.md section
-/// 4.1).
+/// The length `value` at `field` when it lies within the modeling limit, else `OutOfRange` with `AtMost(MODEL_LIMIT)`,
+/// or `AtLeast(-MODEL_LIMIT)` below it (features.md section 3.4). Callers check the field's own bounds first, so a
+/// field that must be positive never meets the lower limit.
+pub(crate) fn within_model_limit(
+    context: &BuildContext<'_>,
+    field: &str,
+    value: f64,
+) -> Result<f64, FeatureError> {
+    let bound = if value > MODEL_LIMIT {
+        Bound::AtMost(MODEL_LIMIT)
+    } else if value < -MODEL_LIMIT {
+        Bound::AtLeast(-MODEL_LIMIT)
+    } else {
+        return Ok(value);
+    };
+    Err(out_of_range(
+        context,
+        field,
+        FieldUnit::Length,
+        value,
+        bound,
+        None,
+    ))
+}
+
+/// The declared length at `field` when it satisfies `bound` and the modeling limit, else `OutOfRange` (features.md
+/// sections 3.4 and 4.1).
 pub(crate) fn length_in_range(
     context: &BuildContext<'_>,
     field: &str,
@@ -193,7 +220,18 @@ pub(crate) fn length_in_range(
     bound: Bound,
 ) -> Result<f64, FeatureError> {
     let value = context.eval_length(field, expr)?;
-    check_range(context, field, FieldUnit::Length, value, bound, None)
+    check_range(context, field, FieldUnit::Length, value, bound, None)?;
+    within_model_limit(context, field, value)
+}
+
+/// The declared length at `field`, which may be negative, within the modeling limit (features.md section 3.4).
+pub(crate) fn signed_length(
+    context: &BuildContext<'_>,
+    field: &str,
+    expr: &Expr,
+) -> Result<f64, FeatureError> {
+    let value = context.eval_length(field, expr)?;
+    within_model_limit(context, field, value)
 }
 
 /// The declared angle at `field` when it satisfies `bound`, else `OutOfRange` (features.md section
@@ -208,7 +246,8 @@ pub(crate) fn angle_in_range(
     check_range(context, field, FieldUnit::Angle, value, bound, None)
 }
 
-/// The declared lengths at three fields, such as the coordinates of a position, in field order.
+/// The declared lengths at three fields, such as the coordinates of a position, in field order, each of which may be
+/// negative, within the modeling limit (features.md section 3.4).
 pub(crate) fn three_lengths(
     context: &BuildContext<'_>,
     fields: [&str; 3],
@@ -216,7 +255,7 @@ pub(crate) fn three_lengths(
 ) -> Result<[f64; 3], FeatureError> {
     let mut lengths = [0.0; 3];
     for ((length, field), expr) in lengths.iter_mut().zip(fields).zip(exprs) {
-        *length = context.eval_length(field, expr)?;
+        *length = signed_length(context, field, expr)?;
     }
     Ok(lengths)
 }
@@ -227,8 +266,8 @@ pub(crate) fn is_positive_length(length: f64) -> bool {
     length >= LINEAR_TOLERANCE
 }
 
-/// The declared length at `field`, which must be greater than 0. A value below `LINEAR_TOLERANCE`
-/// is `OutOfRange` (`GreaterThan(0)`) like 0, so it never reaches the kernel (features.md section
+/// The declared length at `field`, which must be greater than 0 and within the modeling limit. A value below
+/// `LINEAR_TOLERANCE` is `OutOfRange` (`GreaterThan(0)`) like 0, so it never reaches the kernel (features.md section
 /// 3.4).
 pub(crate) fn positive_length(
     context: &BuildContext<'_>,
@@ -237,7 +276,7 @@ pub(crate) fn positive_length(
 ) -> Result<f64, FeatureError> {
     let value = context.eval_length(field, expr)?;
     if is_positive_length(value) {
-        Ok(value)
+        within_model_limit(context, field, value)
     } else {
         Err(out_of_range(
             context,
@@ -363,9 +402,32 @@ pub(crate) fn apply_tool(
     tool: Tool,
     mut warnings: Vec<FeatureWarning>,
 ) -> Result<FeatureOutput, FeatureError> {
-    let (update, op_warnings) = apply_op(context, body, op, vec![tool])?;
+    let (update, op_warnings) = apply_op(context, body, op, vec![tool], None)?;
     warnings.extend(op_warnings);
     Ok(bodies(vec![update], warnings))
+}
+
+/// The body rules' warnings with `reverse_hits` set on a `NoEffect` whose tools miss the body (`Away`, `Short`,
+/// `Beside`): `reversed` builds the tools the other way round, only on this warning path, and `reverse_hits` checks
+/// that they reach it (features.md section 3.15).
+pub(crate) fn reverse_checked(
+    context: &BuildContext<'_>,
+    body: &Id,
+    mut warnings: Vec<FeatureWarning>,
+    reversed: impl FnOnce() -> Result<Vec<Tool>, FeatureError>,
+) -> Result<Vec<FeatureWarning>, FeatureError> {
+    let missed = warnings.iter_mut().find_map(|warning| match warning {
+        FeatureWarning::NoEffect {
+            how: NoEffectHow::Away { .. } | NoEffectHow::Short { .. } | NoEffectHow::Beside,
+            reverse_hits,
+            ..
+        } => Some(reverse_hits),
+        _ => None,
+    });
+    if let Some(hits) = missed {
+        *hits = reverse_hits(context, body, &reversed()?)?;
+    }
+    Ok(warnings)
 }
 
 /// One solid as it is, several grouped in order into one compound (kernel `compound`).

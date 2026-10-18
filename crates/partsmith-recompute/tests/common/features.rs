@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 
 use partsmith_features::{
     AssetLink, BodyChange, BodyState, BodyUpdate, BuildContext, DatumResult, Dependencies, ExprUse,
-    Feature, FeatureError, FeatureOutput, FeatureWarning, Link, Measurements, OutputData, Registry,
+    Feature, FeatureError, FeatureOutput, FeatureWarning, Link, Measurements, NoEffectHow,
+    OutputData, Registry,
 };
 use partsmith_model::{
     Category, Expr, FeatureManifest, FieldHint, FieldUnit, Id, OptionHint, SelectionKind,
@@ -428,6 +429,7 @@ impl Feature for TestBlock {
                 if !before.is_empty() {
                     return Err(FeatureError::BodyNotEmpty {
                         body: params.body.clone(),
+                        target: None,
                     });
                 }
                 (size.powi(3), BodyChange::New)
@@ -460,7 +462,7 @@ impl Feature for TestBlock {
 }
 
 /// `test_probe`: reads `body`. Fails with `BodyEmpty` when the body is empty, else outputs
-/// nothing with a `NoEffect` warning for the body. Declares `bodies_read [body]`.
+/// nothing with a `NoEffect` warning (`Inside`) for the body. Declares `bodies_read [body]`.
 pub struct TestProbe;
 
 impl Feature for TestProbe {
@@ -493,6 +495,9 @@ impl Feature for TestProbe {
             OutputData::Nothing,
             vec![FeatureWarning::NoEffect {
                 body: params.body.clone(),
+                how: NoEffectHow::Inside,
+                reverse_hits: false,
+                attach: None,
             }],
         ))
     }

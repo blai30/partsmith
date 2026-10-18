@@ -209,8 +209,9 @@ fn t015_unknown_keys_warn_and_do_not_change_keys() {
     assert_eq!(warning_codes(&report, "f-ext1"), vec!["unknown_params"]);
     assert_eq!(
         message_texts(&report, "f-ext1"),
+        // Features.md section 4.2, `unknown_params` without a near match.
         owned(&[
-            "This feature has settings this version of Partsmith does not know ('taper'). They are ignored and kept in the file."
+            "This extrude has settings Partsmith does not know ('taper'). They are kept in the file and ignored."
         ])
     );
     assert_eq!(keys(&report), keys(&first));
@@ -227,18 +228,15 @@ fn t016_cached_warnings_render_with_current_names() {
     let second = harness.run(&load(&document));
 
     assert_eq!(status(&first, "f-box9"), "warning");
+    // Features.md section 3.15: a primitive has no direction, so a cut that misses lies beside the body.
     assert_eq!(
         message_texts(&first, "f-box9"),
-        owned(&[
-            "This feature does not change body 'Body 2'. Check its position, size and direction."
-        ])
+        owned(&["This cut does not touch body 'Body 2': it lies beside it."])
     );
     assert!(feature_report(&second, "f-box9").timing.from_cache);
     assert_eq!(
         message_texts(&second, "f-box9"),
-        owned(&[
-            "This feature does not change body 'Lid'. Check its position, size and direction."
-        ])
+        owned(&["This cut does not touch body 'Lid': it lies beside it."])
     );
 }
 
@@ -558,8 +556,9 @@ fn the_unknown_params_warning_is_added_to_reused_results() {
     assert_eq!(warning_codes(&tapered, "f-d1"), vec!["unknown_params"]);
     assert_eq!(
         message_texts(&tapered, "f-d1"),
+        // Features.md section 4.2, `unknown_params` without a near match.
         owned(&[
-            "This feature has settings this version of Partsmith does not know ('taper'). They are ignored and kept in the file."
+            "This test datum has settings Partsmith does not know ('taper'). They are kept in the file and ignored."
         ])
     );
     assert_eq!(
@@ -588,9 +587,10 @@ fn recompute_warnings_follow_the_output_warnings() {
     );
     assert_eq!(
         message_texts(&report, "f-p"),
+        // Features.md sections 3.15 and 4.2.
         owned(&[
-            "This feature does not change body 'Body 1'. Check its position, size and direction.",
-            "This feature has settings this version of Partsmith does not know ('zoom', 'tint'). They are ignored and kept in the file."
+            "This test probe adds nothing to body 'Body 1': it lies entirely inside the body.",
+            "This test probe has settings Partsmith does not know ('zoom', 'tint'). They are kept in the file and ignored."
         ])
     );
 }
@@ -607,18 +607,17 @@ fn cached_warnings_render_with_current_names() {
     body_record(&mut document, "b-1")["name"] = json!("Lid");
     let second = harness.run(&load(&document));
 
+    // Features.md section 3.15, `Inside`.
     assert_eq!(
         message_texts(&first, "f-p"),
         owned(&[
-            "This feature does not change body 'Body 1'. Check its position, size and direction."
+            "This test probe adds nothing to body 'Body 1': it lies entirely inside the body."
         ])
     );
     assert_eq!(reused(&second), owned(&["f-a", "f-p"]));
     assert_eq!(
         message_texts(&second, "f-p"),
-        owned(&[
-            "This feature does not change body 'Lid'. Check its position, size and direction."
-        ])
+        owned(&["This test probe adds nothing to body 'Lid': it lies entirely inside the body."])
     );
 }
 
@@ -648,7 +647,8 @@ fn messages_carry_code_severity_pointer_and_no_suggestion_for_these_problems() {
     assert_eq!(error.pointer.as_deref(), Some("/body"));
     assert_eq!(
         error.text,
-        "Body 'b-9' does not exist in this document. Pick an existing body for Body."
+        // Features.md section 4.1, `unknown_body`.
+        "Body names a body that is not in this document. Pick a body for Body."
     );
     assert_eq!(error.suggestion, None);
     assert!(messages(&report, "f-a").is_empty());

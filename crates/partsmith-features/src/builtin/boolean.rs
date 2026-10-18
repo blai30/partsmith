@@ -12,7 +12,7 @@ use super::common::{
 };
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FieldRef, Noun};
+use crate::error::{FeatureError, FeatureWarning, FieldRef, Noun};
 use crate::feature::Feature;
 use crate::output::{BodyChange, FeatureOutput, Tool, apply_op};
 use crate::params::BodyOp;
@@ -133,7 +133,13 @@ impl Feature for Boolean {
                 naming: NamingMap::clone(state.naming()),
             });
         }
-        let (update, warnings) = apply_op(context, &params.target, params.op.body_op(), tools)?;
+        let (update, warnings) =
+            apply_op(context, &params.target, params.op.body_op(), tools, None)?;
+        // Joining separate bodies is what a boolean is asked for, so it reports no separate pieces (section 3.5).
+        let warnings: Vec<FeatureWarning> = warnings
+            .into_iter()
+            .filter(|warning| !matches!(warning, FeatureWarning::SeparateSolid { .. }))
+            .collect();
         let mut updates = vec![update];
         if !params.keep_tools {
             let empty = BodyState::empty();
@@ -421,9 +427,15 @@ mod tests {
 
         let output = run(&boolean(json!(["b-2"]), "cut"), bodies).expect("the cut builds");
 
+        // A boolean has no direction, so a cut that misses lies beside the body (features.md section 3.15).
         assert_eq!(
             output.warnings,
-            [FeatureWarning::NoEffect { body: id("b-1") }]
+            [FeatureWarning::NoEffect {
+                body: id("b-1"),
+                how: crate::NoEffectHow::Beside,
+                reverse_hits: false,
+                attach: None,
+            }]
         );
         let kept = update(&output, "b-1");
         assert_eq!(kept.change, BodyChange::Cut);

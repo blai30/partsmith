@@ -15,7 +15,7 @@ use super::common::{
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FeatureWarning};
+use crate::error::{FeatureError, FeatureWarning, NoEffectHow};
 use crate::feature::Feature;
 use crate::output::{BodyChange, BodyUpdate, FeatureOutput, Measurements};
 use crate::params::AxisRef;
@@ -132,6 +132,9 @@ impl Feature for MoveBody {
         if turns_nothing && translation.iter().all(|value| value.abs() <= NOTHING_MOVES) {
             warnings.push(FeatureWarning::NoEffect {
                 body: params.body.clone(),
+                how: NoEffectHow::NotMoved,
+                reverse_hits: false,
+                attach: None,
             });
             return Ok(bodies(
                 vec![unchanged(&params.body, state, BodyChange::Modify)],
@@ -332,9 +335,15 @@ mod tests {
         let output =
             build::<MoveBody>("f-mv1", &params, state.clone(), Vec::new()).expect("nothing moves");
 
+        // Features.md section 3.15, `NotMoved`.
         assert_eq!(
             output.warnings,
-            [FeatureWarning::NoEffect { body: id("b-1") }]
+            [FeatureWarning::NoEffect {
+                body: id("b-1"),
+                how: NoEffectHow::NotMoved,
+                reverse_hits: false,
+                attach: None,
+            }]
         );
         let kept = &updates(&output)[0];
         assert_eq!(kept.change, BodyChange::Modify);

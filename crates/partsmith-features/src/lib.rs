@@ -21,6 +21,7 @@
     reason = "FeatureError keeps the payload types the spec gives; errors end a build"
 )]
 
+mod body_rules;
 pub mod builtin;
 pub mod context;
 pub mod deps;
@@ -40,21 +41,22 @@ mod search;
 mod test_support;
 
 pub use context::{
-    BodyState, BuildContext, BuildInputs, CancelToken, FaceFallback, FacePlacement, Resolved,
-    ResolvedProfile, Usable, Values, WithWarnings,
+    BodyState, BuildContext, BuildInputs, CancelToken, FaceFallback, FacePlacement, MODEL_LIMIT,
+    Resolved, ResolvedProfile, Usable, Values, WithWarnings,
 };
 pub use deps::{AssetLink, Dependencies, ExprUse, Link};
 pub use error::{
     Because, Bound, Diagnosis, DocumentNames, Explanation, FallbackCause, FeatureError,
-    FeatureWarning, FieldRef, Fix, IgnoredReason, Loss, LossCandidate, Names, Noun, Place, Placed,
-    RegionLost, RenderContext, Repair, Severity, describe_copy, describe_elements, describe_face,
-    format_value, joined, made_from_line, sketch_coordinates,
+    FeatureWarning, FieldRef, Fix, IgnoredReason, Limit, Loss, LossCandidate, Names, NoEffectHow,
+    Noun, Place, Placed, RegionLost, RenderContext, Repair, Severity, describe_copy,
+    describe_elements, describe_face, format_value, joined, made_from_line, sketch_coordinates,
 };
 pub use feature::{FEATURE_API_VERSION, Feature};
 pub use naming::{Named, modified_sources, name_by_history, name_shape, topology_info};
 pub use output::{
-    Absence, AbsentFace, BodyChange, BodyUpdate, DatumResult, FeatureOutput, Measurements,
-    OutputData, SketchResult, Tool, VOLUME_TOLERANCE, apply_op, apply_op_result,
+    Absence, AbsentFace, BodyChange, BodyUpdate, DatumResult, Direction, FeatureOutput,
+    Measurements, OutputData, SketchResult, Tool, VOLUME_TOLERANCE, apply_op, apply_op_result,
+    reverse_hits,
 };
 pub use params::{
     AxisRef, BodyOp, CopyOp, OriginAxis, PlacementExt, PlaneRef, ProfileRef, point, vector,

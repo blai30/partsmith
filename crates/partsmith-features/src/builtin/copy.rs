@@ -10,7 +10,7 @@ use partsmith_occt_sys::{Shape, Transform, transform};
 use super::common::{bodies, naming_motion, options_hint, solid_body, unchanged};
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FeatureWarning, FieldRef};
+use crate::error::{FeatureError, FeatureWarning, FieldRef, NoEffectHow};
 use crate::output::{BodyChange, FeatureOutput, Tool, apply_op};
 use crate::params::{BodyOp, CopyOp};
 
@@ -121,8 +121,9 @@ impl<'a> Source<'a> {
     /// 3.5 and 3.10): fused into the source with op join, fused with each other into the empty
     /// `target` with op new. With op new a target that holds a solid is `BodyNotEmpty`, with or
     /// without copies. Without copies the destination keeps its state and the feature warns
-    /// `NoEffect`: the source gets an unchanged update with op join, and the empty target gets no
-    /// update with op new.
+    /// `NoEffect` with `NoCopies` of `ones`, the count fields that are 1: the source gets an
+    /// unchanged update with op join, and the empty target gets no update with op new. Separate
+    /// copies are what a copy feature makes, so the join reports no `SeparateSolid` (section 3.5).
     pub(super) fn place(
         &self,
         context: &BuildContext<'_>,
@@ -130,6 +131,7 @@ impl<'a> Source<'a> {
         target: Option<&Id>,
         copies: Vec<Tool>,
         mut warnings: Vec<FeatureWarning>,
+        ones: Vec<FieldRef>,
     ) -> Result<FeatureOutput, FeatureError> {
         let destination = match op {
             CopyOp::Join => self.body,
@@ -142,6 +144,7 @@ impl<'a> Source<'a> {
                 if !context.body(target)?.is_empty() {
                     return Err(FeatureError::BodyNotEmpty {
                         body: target.clone(),
+                        target: Some(context.field("target")),
                     });
                 }
                 target
@@ -150,6 +153,9 @@ impl<'a> Source<'a> {
         if copies.is_empty() {
             warnings.push(FeatureWarning::NoEffect {
                 body: destination.clone(),
+                how: NoEffectHow::NoCopies { fields: ones },
+                reverse_hits: false,
+                attach: None,
             });
             let updates = match op {
                 CopyOp::Join => vec![unchanged(self.body, self.state, BodyChange::Join)],
@@ -161,8 +167,12 @@ impl<'a> Source<'a> {
             CopyOp::Join => BodyOp::Join,
             CopyOp::New => BodyOp::New,
         };
-        let (update, op_warnings) = apply_op(context, destination, body_op, copies)?;
-        warnings.extend(op_warnings);
+        let (update, op_warnings) = apply_op(context, destination, body_op, copies, None)?;
+        warnings.extend(
+            op_warnings
+                .into_iter()
+                .filter(|warning| !matches!(warning, FeatureWarning::SeparateSolid { .. })),
+        );
         Ok(bodies(vec![update], warnings))
     }
 }
@@ -209,9 +219,10 @@ mod tests {
         let error = validate_target(CopyOp::New, &id("b-1"), None, &manifest_with_target())
             .expect_err("op new needs a target");
 
+        // Features.md section 4.1, `target_required`.
         assert_eq!(
             error.to_string(),
-            "Op new puts the copies into another body. Pick an empty body for Target body."
+            "Operation New body puts the copies into another body, so Target body needs an empty body. Pick one, or set Operation to Join."
         );
     }
 
@@ -227,7 +238,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "Target body is only used with op new. Remove it, or set the op to new."
+            "Target body is used only when Operation is New body. Clear Target body, or set Operation to New body."
         );
     }
 
@@ -334,7 +345,7 @@ mod tests {
         let copies = vec![named_box("f-box9", [20.0, 0.0, 0.0], 10.0)];
 
         let output = source
-            .place(&context, CopyOp::Join, None, copies, Vec::new())
+            .place(&context, CopyOp::Join, None, copies, Vec::new(), Vec::new())
             .expect("the copies join");
 
         let updates = updates(&output);
@@ -352,16 +363,20 @@ mod tests {
         let source = Source::new(&context, &body).expect("the body holds a solid");
 
         let output = source
-            .place(&context, CopyOp::Join, None, Vec::new(), Vec::new())
+            .place(
+                &context,
+                CopyOp::Join,
+                None,
+                Vec::new(),
+                Vec::new(),
+                vec![count()],
+            )
             .expect("no copies is not an error");
 
         let update = update(&output, "b-1");
         assert!(std::sync::Arc::ptr_eq(&update.naming, state.naming()));
         assert_eq!(update.change, BodyChange::Join);
-        assert_eq!(
-            output.warnings,
-            [FeatureWarning::NoEffect { body: id("b-1") }]
-        );
+        assert_eq!(output.warnings, [no_copies("b-1")]);
     }
 
     #[test]
@@ -380,14 +395,12 @@ mod tests {
                 Some(&id("b-2")),
                 Vec::new(),
                 Vec::new(),
+                vec![count()],
             )
             .expect("no copies is not an error");
 
         assert!(updates(&output).is_empty());
-        assert_eq!(
-            output.warnings,
-            [FeatureWarning::NoEffect { body: id("b-2") }]
-        );
+        assert_eq!(output.warnings, [no_copies("b-2")]);
     }
 
     #[test]
@@ -405,12 +418,10 @@ mod tests {
             Some(&id("b-2")),
             Vec::new(),
             Vec::new(),
+            vec![count()],
         );
 
-        assert_eq!(
-            result.map(|_| ()),
-            Err(FeatureError::BodyNotEmpty { body: id("b-2") })
-        );
+        assert_eq!(result.map(|_| ()), Err(target_not_empty(&context)));
     }
 
     #[test]
@@ -423,11 +434,43 @@ mod tests {
         let source = Source::new(&context, &body).expect("the body holds a solid");
         let copies = vec![named_box("f-box9", [20.0, 0.0, 0.0], 10.0)];
 
-        let result = source.place(&context, CopyOp::New, Some(&id("b-2")), copies, Vec::new());
-
-        assert_eq!(
-            result.map(|_| ()),
-            Err(FeatureError::BodyNotEmpty { body: id("b-2") })
+        let result = source.place(
+            &context,
+            CopyOp::New,
+            Some(&id("b-2")),
+            copies,
+            Vec::new(),
+            Vec::new(),
         );
+
+        assert_eq!(result.map(|_| ()), Err(target_not_empty(&context)));
+    }
+
+    /// The count field of a pattern, which is 1 when the pattern makes no copies.
+    fn count() -> FieldRef {
+        FieldRef {
+            path: "count".to_string(),
+            label: "Count".to_string(),
+        }
+    }
+
+    /// `NoEffect` of a pattern whose count is 1 on `body` (features.md section 3.15).
+    fn no_copies(body: &str) -> FeatureWarning {
+        FeatureWarning::NoEffect {
+            body: id(body),
+            how: NoEffectHow::NoCopies {
+                fields: vec![count()],
+            },
+            reverse_hits: false,
+            attach: None,
+        }
+    }
+
+    /// `BodyNotEmpty` of the target `b-2`, which names the target field (features.md section 4.1).
+    fn target_not_empty(context: &BuildContext<'_>) -> FeatureError {
+        FeatureError::BodyNotEmpty {
+            body: id("b-2"),
+            target: Some(context.field("target")),
+        }
     }
 }

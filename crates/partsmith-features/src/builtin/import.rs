@@ -11,7 +11,7 @@ use super::common::{
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FeatureWarning};
+use crate::error::{FeatureError, FeatureWarning, FieldRef};
 use crate::feature::Feature;
 use crate::name_shape;
 use crate::output::{FeatureOutput, Tool};
@@ -63,7 +63,7 @@ impl Feature for Import {
             Ok(())
         } else {
             Err(FeatureError::InvalidParams {
-                field: None,
+                field: Some(FieldRef::new("asset", &Import::manifest())),
                 detail:
                     "'asset' must name a file in the assets folder, such as <64 hex digits>.step"
                         .to_string(),
@@ -217,10 +217,11 @@ mod tests {
             .validate_and_canonicalize(&record)
             .expect_err("box.step is not an asset name");
 
+        // Features/import.md test 5: the error names the asset field.
         assert_eq!(
             error,
             FeatureError::InvalidParams {
-                field: None,
+                field: Some(FieldRef::new("asset", &Import::manifest())),
                 detail:
                     "'asset' must name a file in the assets folder, such as <64 hex digits>.step"
                         .to_string()
@@ -309,7 +310,11 @@ mod tests {
         )
         .expect_err("the bytes are not STEP");
 
-        assert_eq!(error.to_string(), "The file is not a valid STEP file.");
+        // Features.md section 4.1, `kernel`: the kernel's hint follows what could not be built.
+        assert_eq!(
+            error.to_string(),
+            "Partsmith's geometry kernel could not build this feature. The file is not a valid STEP file."
+        );
     }
 
     #[test]

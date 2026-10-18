@@ -31,6 +31,10 @@ use references::Outcome;
 /// Largest distance from a whole number that a count may have (section 3.4).
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
 
+/// The largest length in millimeters, in absolute value, that a feature passes to the kernel (section 3.4, the
+/// modeling limit): a larger length is `OutOfRange` on its field before any kernel work.
+pub const MODEL_LIMIT: f64 = 1_000_000.0;
+
 /// Everything a `BuildContext` is made from. Recompute fills it with only what the feature declared.
 #[derive(Clone, Copy, Debug)]
 pub struct BuildInputs<'a> {

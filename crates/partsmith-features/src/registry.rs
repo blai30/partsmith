@@ -9,7 +9,7 @@ use std::sync::Arc;
 use partsmith_model::canonical;
 use partsmith_model::{
     Document, ExprLink, FeatureInspector, FeatureLinks, FeatureManifest, FeatureParamsSchema,
-    FeatureRecord, Id, is_valid_feature_type,
+    FeatureRecord, Id, SUGGESTION_DISTANCE, edit_distance, is_valid_feature_type,
 };
 use schemars::Schema;
 use serde_json::{Map, Value};
@@ -18,8 +18,8 @@ use crate::builtin::BUILTINS;
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::deserializer::from_params;
-use crate::error::FeatureError;
 use crate::error::field::pointer;
+use crate::error::{FeatureError, FieldRef};
 use crate::feature::Feature;
 use crate::output::FeatureOutput;
 use crate::python::{PythonCall, PythonNames, PythonValue, is_keyword_name};
@@ -41,6 +41,8 @@ struct Registered {
     feature: Arc<dyn DynFeature>,
     /// Its params schema, titled with the manifest label.
     schema: Schema,
+    /// The top-level params keys of the schema, which unknown keys are matched against (section 3.2).
+    known_keys: Vec<String>,
 }
 
 impl fmt::Debug for Registry {
@@ -100,11 +102,13 @@ impl Registry {
                 .entry(name.clone())
                 .or_insert_with(|| definition.clone());
         }
+        let known_keys = schema::known_keys(params_schema.as_value());
         self.features.insert(
             type_name,
             Registered {
                 feature: Arc::from(feature),
                 schema: params_schema,
+                known_keys,
             },
         );
         Ok(())
@@ -122,12 +126,24 @@ impl Registry {
         self.features.keys().map(String::as_str)
     }
 
-    /// Validates the record's params and returns the record with canonical params plus the unknown keys (section 3.2).
+    /// Validates the record's params and returns the record with canonical params plus the unknown keys and their
+    /// near matches (section 3.2).
     pub fn validate_and_canonicalize(
         &self,
         record: &FeatureRecord,
     ) -> Result<Validated, FeatureError> {
-        let canonical = self.feature(record)?.canonicalize(&record.params)?;
+        let feature = self.feature(record)?;
+        let canonical = feature.canonicalize(&record.params)?;
+        let suggestions = self
+            .features
+            .get(&record.kind)
+            .map_or_else(Vec::new, |registered| {
+                near_matches(
+                    &canonical.unknown_keys,
+                    &registered.known_keys,
+                    feature.manifest(),
+                )
+            });
         Ok(Validated {
             record: FeatureRecord {
                 id: record.id.clone(),
@@ -137,6 +153,7 @@ impl Registry {
                 params: canonical.params,
             },
             unknown_keys: canonical.unknown_keys,
+            suggestions,
         })
     }
 
@@ -227,6 +244,27 @@ impl Registry {
                 type_name: record.kind.clone(),
             })
     }
+}
+
+/// For each unknown key within `SUGGESTION_DISTANCE` of exactly one known top-level key, the key and that known field,
+/// in the order of `unknown` (section 3.2).
+fn near_matches(
+    unknown: &[String],
+    known: &[String],
+    manifest: &FeatureManifest,
+) -> Vec<(String, FieldRef)> {
+    unknown
+        .iter()
+        .filter_map(|key| {
+            let mut near = known
+                .iter()
+                .filter(|known| edit_distance(key, known) <= SUGGESTION_DISTANCE);
+            let only = near.next()?;
+            near.next()
+                .is_none()
+                .then(|| (key.clone(), FieldRef::new(only, manifest)))
+        })
+        .collect()
 }
 
 /// Registers every built-in feature type through `Registry::register`, exactly as a plugin would.
@@ -325,6 +363,9 @@ pub struct Validated {
     pub record: FeatureRecord,
     /// Keys the feature type does not know. They are kept in `record.params` and ignored by `build`.
     pub unknown_keys: Vec<String>,
+    /// For each unknown key that nearly matches exactly one known key (section 3.2), the key and that known field, in
+    /// the order of `unknown_keys`.
+    pub suggestions: Vec<(String, FieldRef)>,
 }
 
 /// A registration failure. These are programming errors in a feature, not user errors.

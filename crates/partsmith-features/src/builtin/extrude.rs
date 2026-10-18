@@ -8,16 +8,16 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    THROUGH_ALL_MARGIN, apply_tool, body_hint, body_op_hint, call, essential, face_name,
+    THROUGH_ALL_MARGIN, bodies, body_hint, body_op_hint, call, essential, face_name,
     farthest_corner, flag, has_face, hint, is_false, is_positive_length, length_in_range, manifest,
     op_keyword, options_hint, positive_length, profile_arguments, require_selection, result_faces,
-    selection_hint, swept_tool, unit_hint,
+    reverse_checked, selection_hint, swept_tool, unit_hint,
 };
-use crate::context::BuildContext;
+use crate::context::{BuildContext, ResolvedProfile};
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError, Noun};
 use crate::feature::Feature;
-use crate::output::{Absence, AbsentFace, FeatureOutput};
+use crate::output::{Absence, AbsentFace, Direction, FeatureOutput, apply_op, reverse_hits};
 use crate::params::{BodyOp, PlacementExt, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
@@ -149,7 +149,7 @@ impl Feature for Extrude {
         } else {
             plane.normal
         };
-        let (start, end) = interval(params, context, plane.origin, direction)?;
+        let (start, end) = interval(params, context, &profile, plane.origin, direction)?;
         let tool = swept_tool(context, &profile, |faces| {
             extrude(faces, direction, start, end)
         })?;
@@ -157,8 +157,24 @@ impl Feature for Extrude {
             BodyOp::Cut => Some(CutCaps::of(context.feature(), &tool.naming)?),
             _ => None,
         };
-        let messages = profile.into_messages();
-        let mut output = apply_tool(context, &params.body, params.op, tool, messages)?;
+        let along = Direction {
+            direction: [direction.x, direction.y, direction.z],
+            sketch: Some(&params.profile.sketch),
+        };
+        let (update, mut op_warnings) =
+            apply_op(context, &params.body, params.op, vec![tool], Some(along))?;
+        // A symmetric extrusion is the same either way round, so it has no Reverse to offer.
+        if !symmetric {
+            op_warnings = reverse_checked(context, &params.body, op_warnings, || {
+                let back = direction.scaled(-1.0);
+                Ok(vec![swept_tool(context, &profile, |faces| {
+                    extrude(faces, back, start, end)
+                })?])
+            })?;
+        }
+        let mut messages = profile.into_messages();
+        messages.extend(op_warnings);
+        let mut output = bodies(vec![update], messages);
         if let Some(caps) = caps {
             output.absent = caps.absent_from(&output);
         }
@@ -192,10 +208,12 @@ impl Feature for Extrude {
 }
 
 /// The interval `[start, end]` swept along `direction`, measured from the sketch plane through
-/// `origin` (features/extrude.md section 3.3).
+/// `origin` (features/extrude.md section 3.3); `profile` is swept the other way round to check
+/// Reverse when through all points away from the body.
 fn interval(
     params: &ExtrudeParams,
     context: &BuildContext<'_>,
+    profile: &ResolvedProfile<'_>,
     origin: Point,
     direction: Vector,
 ) -> Result<(f64, f64), FeatureError> {
@@ -223,7 +241,9 @@ fn interval(
         }
         ExtrudeExtent::ThroughAll => {
             if params.op == BodyOp::New {
-                return Err(FeatureError::ThroughAllNeedsBody);
+                return Err(FeatureError::ThroughAllNeedsBody {
+                    body: params.body.clone(),
+                });
             }
             let state = context.body(&params.body)?;
             let Some(shape) = state.shape() else {
@@ -233,10 +253,21 @@ fn interval(
                     use_new: true,
                 });
             };
-            let reach = farthest_corner(&shape.bounding_box()?, origin, direction);
+            let bounds = shape.bounding_box()?;
+            let reach = farthest_corner(&bounds, origin, direction);
             if reach <= 0.0 {
+                let back = direction.scaled(-1.0);
+                let back_reach = farthest_corner(&bounds, origin, back);
+                // Only a reversed sweep that shares volume with the body makes Turn on Reverse a fix that works.
+                let reverse_hits = back_reach > 0.0 && {
+                    let tool = swept_tool(context, profile, |faces| {
+                        extrude(faces, back, 0.0, back_reach + THROUGH_ALL_MARGIN)
+                    })?;
+                    reverse_hits(context, &params.body, &[tool])?
+                };
                 return Err(FeatureError::ThroughAllMisses {
                     body: params.body.clone(),
+                    reverse_hits,
                 });
             }
             Ok((0.0, reach + THROUGH_ALL_MARGIN))

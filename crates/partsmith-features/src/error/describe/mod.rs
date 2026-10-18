@@ -40,6 +40,19 @@ pub fn describe_elements(
     names: &dyn Names,
     units: Units,
 ) -> Vec<String> {
+    describe_in(elements, Some(body), state, before, names, units)
+}
+
+/// `describe_elements` for elements whose body may be unknown, as for elements a message stores without their body
+/// when no declared body holds them: they then read as their own feature's, never as the faces of a cut boolean.
+pub(crate) fn describe_in(
+    elements: &[(&ElementName, &Fingerprint)],
+    body: Option<&Id>,
+    state: Option<&BodyState>,
+    before: Option<&Id>,
+    names: &dyn Names,
+    units: Units,
+) -> Vec<String> {
     let faces = Faces::of(state);
     let describer = Describer {
         body,
@@ -94,8 +107,8 @@ fn give_clauses(descriptions: &mut [Description]) {
 
 /// Describes elements of one body state with the document's names.
 struct Describer<'a> {
-    /// The body whose state is described.
-    body: &'a Id,
+    /// The body whose state is described, when it is known.
+    body: Option<&'a Id>,
     /// The feature just before which the state is; None for the end of the timeline.
     before: Option<&'a Id>,
     /// The faces of the state by name.
@@ -273,7 +286,7 @@ pub fn describe_face(
     };
     let faces = Faces::of(state);
     let describer = Describer {
-        body,
+        body: Some(body),
         before,
         faces: &faces,
         names,

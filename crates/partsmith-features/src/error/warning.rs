@@ -4,18 +4,19 @@ use std::fmt;
 
 use partsmith_model::{Id, Units};
 use partsmith_naming::{ElementKind, ElementName, Follow, Reference, piece_free_text};
-use partsmith_sketch::{RegionLoss, RegionRef, SolveIssue};
+use partsmith_sketch::{DimensionValues, RegionLoss, RegionRef, SolveIssue};
 
+use super::body_rules;
 use super::describe::{made_from_line, new_faces_are_flat, rim_generator};
 use super::field::FieldRef;
 use super::fix::Fix;
 use super::loss::{Loss, LossCandidate, Repair, Severity};
-use super::message::{FallbackCause, IgnoredReason, Placed, plural};
+use super::message::{FallbackCause, IgnoredReason, NoEffectHow, Placed, plural};
 use super::render::{
     Entry, RenderContext, Renderer, candidate_fixes, joined, loss_fixes, lost_reference_text,
     plain_text, region_gone_text, region_matches_text, selected_for,
 };
-use super::{candidate_detail, loss_detail};
+use super::{candidate_detail, loss_detail, sketch_fixes};
 
 /// Something a feature built around: a lost, guessed, followed or widened reference, a region that matched in
 /// another way, an unchanged body. Stores ids, never display names, so it renders correctly after a rename. `Display`
@@ -172,17 +173,54 @@ pub enum FeatureWarning {
         /// The stored face reference.
         reference: Reference,
     },
-    /// The feature left the body's volume unchanged.
+    /// The feature left the body unchanged (section 3.15).
     NoEffect {
+        /// The body.
+        body: Id,
+        /// Why nothing changed.
+        how: NoEffectHow,
+        /// True when the feature's tools built the other way round reach the body, so Turn on Reverse is offered.
+        reverse_hits: bool,
+        /// The sketch and the face of the body the attach rule found for it, for the `Attach` fix.
+        attach: Option<(Id, Reference)>,
+    },
+    /// A join by a solid feature added a piece that does not touch the body (section 3.15).
+    SeparateSolid {
+        /// The body.
+        body: Id,
+        /// The number of separate pieces the body has now.
+        pieces: usize,
+        /// The sketch and the face of the body the attach rule found for it, for the `Attach` fix.
+        attach: Option<(Id, Reference)>,
+    },
+    /// A join or cut closed a hollow inside the body, which prints as a sealed cavity (section 3.15).
+    ClosedVoid {
         /// The body.
         body: Id,
     },
     /// A hole does not touch its body.
     HoleMissesBody {
-        /// The sketch point of the hole.
+        /// The point sketch.
+        sketch: Id,
+        /// The point reference, for reports only.
         point: String,
+        /// The point's sketch coordinates in millimeters.
+        position: [f64; 2],
         /// The body.
         body: Id,
+        /// True when the hole drilled the other way reaches the body, so Turn on Reverse is offered.
+        reverse_hits: bool,
+    },
+    /// A hole point was deleted from its sketch, so the hole skipped it (features/hole.md section 3.3).
+    PointMissing {
+        /// The point entry, for example `points[1]`.
+        field: FieldRef,
+        /// The entry's position in the point list.
+        position: usize,
+        /// The point sketch.
+        sketch: Id,
+        /// The stored point reference, for reports only.
+        point: String,
     },
     /// Part of the input was ignored.
     Ignored {
@@ -195,11 +233,15 @@ pub enum FeatureWarning {
     UnknownParams {
         /// The unknown keys in their original order.
         keys: Vec<String>,
+        /// Each unknown key that nearly matches a known field, with that field (`Validated::suggestions`).
+        suggestions: Vec<(String, FieldRef)>,
     },
     /// Sketch constraints repeat what others determine.
     RedundantConstraints {
         /// The `SolveIssue::Redundant` issues.
         issues: Vec<SolveIssue>,
+        /// The driving dimension values of the solve, so the messages name dimensions by title and value.
+        values: DimensionValues,
     },
     /// The kernel skipped or repaired content of an imported file.
     ImportWarning {
@@ -320,13 +362,28 @@ impl FeatureWarning {
                 "The face this sketch is on, {}, now faces the other way, so the drawing is mirrored on it.",
                 renderer.describe_reference(reference, body)
             ),
-            FeatureWarning::NoEffect { body } => format!(
-                "This feature does not change body '{}'. Check its position, size and direction.",
-                renderer.body(body)
+            FeatureWarning::NoEffect { body, how, .. } => {
+                body_rules::no_effect_text(renderer, body, how)
+            }
+            FeatureWarning::SeparateSolid { body, pieces, .. } => {
+                body_rules::separate_solid_text(renderer, body, *pieces)
+            }
+            FeatureWarning::ClosedVoid { body } => format!(
+                "{} closes a hollow inside {}, which will print as a sealed cavity. Check the order of the features if that is not intended.",
+                renderer.this_title(),
+                renderer.body_phrase(body)
             ),
-            FeatureWarning::HoleMissesBody { point, body } => format!(
-                "The hole at point '{point}' does not touch body '{}'. Move the point, or turn on Reverse.",
-                renderer.body(body)
+            FeatureWarning::HoleMissesBody {
+                sketch,
+                position,
+                body,
+                reverse_hits,
+                ..
+            } => body_rules::hole_misses_text(renderer, sketch, *position, body, *reverse_hits),
+            FeatureWarning::PointMissing { sketch, .. } => format!(
+                "{} no longer makes the hole at a point that was deleted from {}, so it was skipped.",
+                renderer.this_title(),
+                renderer.quoted_feature(sketch)
             ),
             FeatureWarning::Ignored {
                 field,
@@ -342,14 +399,11 @@ impl FeatureWarning {
                 "{} is ignored because the hole goes through all.",
                 field.label
             ),
-            FeatureWarning::UnknownParams { keys } => {
-                let keys: Vec<String> = keys.iter().map(|key| format!("'{key}'")).collect();
-                format!(
-                    "This feature has settings this version of Partsmith does not know ({}). They are ignored and kept in the file.",
-                    keys.join(", ")
-                )
+            FeatureWarning::UnknownParams { keys, suggestions } => {
+                unknown_params_text(renderer, keys, suggestions)
             }
-            FeatureWarning::RedundantConstraints { issues } => renderer.sketch_message(
+            FeatureWarning::RedundantConstraints { issues, values } => renderer.sketch_message(
+                values,
                 |context| {
                     issues
                         .iter()
@@ -385,7 +439,10 @@ impl FeatureWarning {
             FeatureWarning::PlaneFallback { .. } => "plane_fallback",
             FeatureWarning::SketchTurnedOver { .. } => "sketch_turned_over",
             FeatureWarning::NoEffect { .. } => "no_effect",
+            FeatureWarning::SeparateSolid { .. } => "separate_solid",
+            FeatureWarning::ClosedVoid { .. } => "closed_void",
             FeatureWarning::HoleMissesBody { .. } => "hole_misses_body",
+            FeatureWarning::PointMissing { .. } => "point_missing",
             FeatureWarning::Ignored { .. } => "ignored",
             FeatureWarning::UnknownParams { .. } => "unknown_params",
             FeatureWarning::RedundantConstraints { .. } => "redundant_constraints",
@@ -407,8 +464,11 @@ impl FeatureWarning {
             | FeatureWarning::RegionMissing { field, .. }
             | FeatureWarning::PlaneFallback { field, .. }
             | FeatureWarning::SketchTurnedOver { field, .. }
+            | FeatureWarning::PointMissing { field, .. }
             | FeatureWarning::Ignored { field, .. } => Some(field),
             FeatureWarning::NoEffect { .. }
+            | FeatureWarning::SeparateSolid { .. }
+            | FeatureWarning::ClosedVoid { .. }
             | FeatureWarning::HoleMissesBody { .. }
             | FeatureWarning::UnknownParams { .. }
             | FeatureWarning::RedundantConstraints { .. }
@@ -486,11 +546,46 @@ impl FeatureWarning {
                 },
                 Fix::pick(pointer()),
             ],
-            FeatureWarning::NoEffect { .. }
-            | FeatureWarning::HoleMissesBody { .. }
+            FeatureWarning::NoEffect {
+                body,
+                how,
+                reverse_hits,
+                attach,
+            } => body_rules::no_effect_fixes(&renderer, body, how, *reverse_hits, attach.as_ref()),
+            FeatureWarning::SeparateSolid { body, attach, .. } => {
+                body_rules::separate_solid_fixes(body, attach.as_ref())
+            }
+            FeatureWarning::HoleMissesBody { reverse_hits, .. } => {
+                body_rules::hole_misses_fixes(&renderer, *reverse_hits)
+            }
+            FeatureWarning::PointMissing { .. } => vec![
+                Fix::RemoveEntry { pointer: pointer() },
+                Fix::pick(pointer()),
+            ],
+            // Only an entry the reference resolved to alone is removed: a reference that also names other edges
+            // is the whole field, which the fix would empty (section 4.2).
+            FeatureWarning::Ignored {
+                field,
+                reason: IgnoredReason::SmoothEdge,
+            } if field.path.ends_with(']') => vec![Fix::RemoveEntry { pointer: pointer() }],
+            FeatureWarning::UnknownParams { suggestions, .. } => suggestions
+                .iter()
+                .map(|(key, field)| Fix::RenameKey {
+                    from: key.clone(),
+                    to: field.path.clone(),
+                })
+                .collect(),
+            FeatureWarning::RedundantConstraints { issues, .. } => renderer
+                .stored_sketch()
+                .map(|params| {
+                    issues
+                        .iter()
+                        .flat_map(|issue| sketch_fixes(context.feature, issue.fixes(&params)))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            FeatureWarning::ClosedVoid { .. }
             | FeatureWarning::Ignored { .. }
-            | FeatureWarning::UnknownParams { .. }
-            | FeatureWarning::RedundantConstraints { .. }
             | FeatureWarning::ImportWarning { .. } => Vec::new(),
         }
     }
@@ -527,6 +622,8 @@ impl FeatureWarning {
                 }
                 Some(detail)
             }
+            FeatureWarning::PointMissing { point, .. }
+            | FeatureWarning::HoleMissesBody { point, .. } => Some(point.clone()),
             _ => None,
         }
     }
@@ -584,7 +681,10 @@ impl FeatureWarning {
             FeatureWarning::ReferenceFollowed { .. }
             | FeatureWarning::SketchTurnedOver { .. }
             | FeatureWarning::NoEffect { .. }
+            | FeatureWarning::SeparateSolid { .. }
+            | FeatureWarning::ClosedVoid { .. }
             | FeatureWarning::HoleMissesBody { .. }
+            | FeatureWarning::PointMissing { .. }
             | FeatureWarning::Ignored { .. }
             | FeatureWarning::UnknownParams { .. }
             | FeatureWarning::RedundantConstraints { .. }
@@ -612,10 +712,12 @@ fn plane_fallback_text(
     let element = renderer.describe_reference(reference, body);
     let what = match (cause, loss) {
         (FallbackCause::Missing, Some(loss)) => renderer.reason(loss),
-        (FallbackCause::Missing, None) => format!(
-            "is gone because body '{}' is empty here",
-            renderer.body(body)
-        ),
+        (FallbackCause::Missing, None) => {
+            format!(
+                "is gone because {} is empty here",
+                renderer.body_phrase(body)
+            )
+        }
         (FallbackCause::NotPlanar, _) => "is no longer flat".to_string(),
         (FallbackCause::Ambiguous, Some(loss)) => renderer.ambiguity(loss),
         (FallbackCause::Ambiguous, None) => "now matches several faces".to_string(),
@@ -638,6 +740,26 @@ fn plane_fallback_text(
         FallbackCause::Missing | FallbackCause::NotPlanar => "",
     };
     format!("The face this sketch is on, {element}, {what}, so the sketch {position}.{pick}")
+}
+
+/// The text of unknown params keys (section 4.2, `unknown_params`): the near match of one key, else the keys.
+fn unknown_params_text(
+    renderer: &Renderer<'_>,
+    keys: &[String],
+    suggestions: &[(String, FieldRef)],
+) -> String {
+    if let ([key], [(_, field)], Some(type_label)) = (keys, suggestions, renderer.type_label()) {
+        return format!(
+            "'{key}' is not a {type_label} setting, so it is ignored. Did you mean {}?",
+            field.label
+        );
+    }
+    let keys: Vec<String> = keys.iter().map(|key| format!("'{key}'")).collect();
+    format!(
+        "{} has settings Partsmith does not know ({}). They are kept in the file and ignored.",
+        renderer.this_title(),
+        keys.join(", ")
+    )
 }
 
 /// `{Element}` of a stored reference and the descriptions of `others`, described in one call so that the clash
@@ -1119,13 +1241,15 @@ mod tests {
 
     #[test]
     fn unknown_params_quote_each_key() {
+        // Section 4.2, `unknown_params`, without a near match.
         let warning = FeatureWarning::UnknownParams {
             keys: vec!["taper_angle".to_string(), "thin".to_string()],
+            suggestions: Vec::new(),
         };
 
         assert_eq!(
             warning.to_string(),
-            "This feature has settings this version of Partsmith does not know ('taper_angle', 'thin'). They are ignored and kept in the file."
+            "This feature has settings Partsmith does not know ('taper_angle', 'thin'). They are kept in the file and ignored."
         );
         assert_eq!(warning.field(), None);
         assert_eq!(warning.suggestion(Units::Mm), None);
@@ -1153,6 +1277,7 @@ mod tests {
         };
         let warning = FeatureWarning::RedundantConstraints {
             issues: vec![issue("c-3"), issue("c-9")],
+            values: DimensionValues::new(),
         };
 
         assert_eq!(
@@ -1227,6 +1352,7 @@ mod tests {
                     dimension: true,
                 },
             ],
+            values: DimensionValues::new(),
         };
 
         assert_eq!(
@@ -1271,11 +1397,17 @@ mod tests {
             bodies: &bodies,
             diagnosis: &diagnosis,
         };
-        let warning = FeatureWarning::NoEffect { body: id("b-1") };
+        // Section 3.15: a cut beside the body, on a feature whose type the names do not know.
+        let warning = FeatureWarning::NoEffect {
+            body: id("b-1"),
+            how: NoEffectHow::Beside,
+            reverse_hits: false,
+            attach: None,
+        };
 
         assert_eq!(
             warning.render(&context),
-            "This feature does not change body 'Bracket'. Check its position, size and direction."
+            "This cut does not touch body 'Bracket': it lies beside it."
         );
     }
 }

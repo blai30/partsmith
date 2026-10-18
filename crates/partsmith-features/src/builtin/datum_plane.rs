@@ -7,7 +7,9 @@ use partsmith_sketch::{OriginPlane, Placement};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{call, essential, flag, hint, is_false, manifest, selection_hint, unit_hint};
+use super::common::{
+    call, essential, flag, hint, is_false, manifest, selection_hint, signed_length, unit_hint,
+};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
 use crate::error::FeatureError;
@@ -72,7 +74,7 @@ impl Feature for DatumPlane {
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let base = context.plane("base", &params.base)?;
-        let offset = context.eval_length("offset", &params.offset)?;
+        let offset = signed_length(context, "offset", &params.offset)?;
         let motion = base_motion(context, &params.base, &base.value)?;
         let mut placement = base.value.offset(offset);
         if params.flip {

@@ -1,18 +1,21 @@
 //! Errors and warnings of features, the parts of their messages, element descriptions, fixes and repair data
 //! (features.md sections 2.8, 3.12 and 4).
 
+mod body_rules;
 pub(crate) mod describe;
 pub(crate) mod field;
 mod fix;
 mod loss;
 mod message;
 mod render;
+mod too_large;
 mod warning;
 
 use partsmith_model::{Expr, ExprError, FieldUnit, Id, Units};
 use partsmith_naming::{ElementKind, NamingError, Reference};
 use partsmith_occt_sys::KernelError;
-use partsmith_sketch::{SketchError, SolveIssue};
+use partsmith_sketch::{DimensionValues, SketchError, SketchFix, SolveIssue};
+use serde_json::Value;
 
 pub use describe::{
     describe_copy, describe_elements, describe_face, made_from_line, sketch_coordinates,
@@ -21,16 +24,19 @@ pub use field::FieldRef;
 pub use fix::{Fix, Place};
 pub use loss::{Loss, LossCandidate, RegionLost, Repair, Severity};
 pub use message::{
-    Bound, DocumentNames, FallbackCause, IgnoredReason, Names, Noun, Placed, format_value,
+    Bound, DocumentNames, FallbackCause, IgnoredReason, Names, NoEffectHow, Noun, Placed,
+    format_value,
 };
 pub use render::{Because, Diagnosis, Explanation, RenderContext, joined};
+pub use too_large::Limit;
 pub use warning::FeatureWarning;
 
-use message::{plural, suggested_limit};
+use message::{format_value_apart, plural};
 use render::{
     Entry, Renderer, capitalized, entry_pointer, loss_fixes, lost_reference_text, region_gone_text,
-    region_matches_text, region_reasons,
+    region_matches_text, region_reasons, selected_for,
 };
+use too_large::{Subject, TooLarge};
 
 use crate::params::BodyOp;
 
@@ -150,6 +156,8 @@ pub enum FeatureError {
     },
     /// A referenced feature is suppressed.
     UpstreamSuppressed {
+        /// The field naming it.
+        field: FieldRef,
         /// The feature.
         feature: Id,
     },
@@ -160,10 +168,12 @@ pub enum FeatureError {
         /// The asset file name.
         asset: String,
     },
-    /// Op new on a body that already has a solid.
+    /// A body that must be empty already has a solid: op new on it, or the target of a copy or split.
     BodyNotEmpty {
         /// The body.
         body: Id,
+        /// The target field that names it; None for Operation New body.
+        target: Option<FieldRef>,
     },
     /// A body that must hold a solid is empty. Recompute's diagnosis says why.
     BodyEmpty {
@@ -215,8 +225,10 @@ pub enum FeatureError {
     },
     /// A face used as a plane is not flat.
     NotPlanar {
-        /// The plane field.
+        /// The plane's face field.
         field: FieldRef,
+        /// The face that is not flat, by name and fingerprint, for its description.
+        element: Reference,
     },
     /// A face reference used as a plane resolves to flat faces that do not lie in one plane (section 3.6), so no
     /// name order decides between them.
@@ -246,13 +258,17 @@ pub enum FeatureError {
     },
     /// An edge used as an axis is not straight.
     NotStraight {
-        /// The axis field.
+        /// The axis's edge field.
         field: FieldRef,
+        /// The edge that is not straight, by name and fingerprint, for its description.
+        element: Reference,
     },
     /// A face used as an axis has no axis.
     NoAxis {
-        /// The axis field.
+        /// The axis's face field.
         field: FieldRef,
+        /// The face without an axis, by name and fingerprint, for its description.
+        element: Reference,
     },
     /// A sketch has no entity with this id.
     UnknownEntity {
@@ -274,15 +290,20 @@ pub enum FeatureError {
         /// The entity.
         entity: Id,
     },
-    /// The sketch params fail the sketch crate's validation.
+    /// The sketch params fail the sketch crate's validation, or the solver rejects a value.
     SketchInvalid {
         /// The sketch crate's error.
         error: SketchError,
+        /// The driving dimension values the solve got, empty when it did not run, so the message names dimensions
+        /// by title and value.
+        values: DimensionValues,
     },
     /// Sketch constraints conflict.
     SketchConflict {
         /// The conflicting constraints in document order.
         constraints: Vec<Id>,
+        /// The driving dimension values of the solve.
+        values: DimensionValues,
     },
     /// The sketch solver did not converge.
     SketchNotSolved,
@@ -293,43 +314,62 @@ pub enum FeatureError {
         #[from]
         error: KernelError,
     },
-    /// A fillet radius is too large.
+    /// A fillet radius is too large (section 4.3).
     FilletTooLarge {
         /// The radius field.
         field: FieldRef,
+        /// The radius expression.
+        expr: Expr,
         /// The requested radius in millimeters.
         radius: f64,
-        /// The largest radius that worked in the search, if any (section 4.3).
+        /// The largest radius that worked in the search, when it is a useful one.
         max: Option<f64>,
+        /// The narrowest face next to a selected edge, when it is narrower than the radius.
+        limit: Option<Limit>,
         /// The first kernel failure.
         #[source]
         cause: KernelError,
     },
-    /// A chamfer distance is too large.
+    /// A chamfer distance is too large (section 4.3).
     ChamferTooLarge {
-        /// The distance field.
+        /// The distance field: `distance.expr` for an equal distance, `distance` for two distances.
         field: FieldRef,
+        /// The equal distance's expression; None for two distances.
+        expr: Option<Expr>,
         /// The requested (larger) distance in millimeters.
         distance: f64,
-        /// The largest distance that worked in the search, if any (section 4.3).
+        /// The largest distance that worked in the search, when it is a useful one.
         max: Option<f64>,
+        /// The narrowest face next to a selected edge, when it is narrower than the distance.
+        limit: Option<Limit>,
         /// The first kernel failure.
         #[source]
         cause: KernelError,
     },
-    /// A shell thickness is too large.
+    /// A shell thickness is too large (section 4.3).
     ShellTooThick {
         /// The thickness field.
         field: FieldRef,
+        /// The thickness expression.
+        expr: Expr,
         /// The body.
         body: Id,
         /// The requested thickness in millimeters.
         thickness: f64,
-        /// The largest thickness that worked in the search, if any (section 4.3).
+        /// The largest thickness that worked in the search, when it is a useful one.
         max: Option<f64>,
+        /// The round faces of the body smaller than the wall, made by one feature.
+        limit: Option<Limit>,
         /// The first kernel failure.
         #[source]
         cause: KernelError,
+    },
+    /// A shell would remove every face of a solid of the body, which leaves nothing to hollow.
+    ShellRemovesAll {
+        /// The body.
+        body: Id,
+        /// That solid's number of faces.
+        count: usize,
     },
     /// A revolve profile crosses its axis.
     ProfileCrossesAxis,
@@ -339,9 +379,14 @@ pub enum FeatureError {
     ThroughAllMisses {
         /// The body.
         body: Id,
+        /// True when through all the other way round reaches the body, so Turn on Reverse is offered.
+        reverse_hits: bool,
     },
-    /// Through all with op new.
-    ThroughAllNeedsBody,
+    /// Through all with op new, or on a body without a solid.
+    ThroughAllNeedsBody {
+        /// The body.
+        body: Id,
+    },
     /// Both sides of a two-sided extrusion are 0.
     BothSidesZero,
     /// Both cone radii are 0.
@@ -392,6 +437,7 @@ impl FeatureError {
 
     /// The message rendered by `renderer`.
     fn text(&self, renderer: &Renderer<'_>) -> String {
+        let this = || renderer.this();
         match self {
             FeatureError::UpstreamFailed { feature } => {
                 let feature = renderer.quoted_feature(feature);
@@ -400,18 +446,18 @@ impl FeatureError {
                         let root = renderer.quoted_feature(root);
                         format!(
                             "{feature} cannot be built because {root} has an error, so {} cannot use it either. Fix {root} first.",
-                            renderer.this()
+                            this()
                         )
                     }
                     None => format!(
                         "{feature} has an error, so {} cannot use it. Fix {feature} first.",
-                        renderer.this()
+                        this()
                     ),
                 })
             }
             FeatureError::UndeclaredDependency { .. } => format!(
                 "Partsmith hit a bug in {}, so it was not built. Suppress it to keep working, and report it with the details.",
-                renderer.this()
+                this()
             ),
             FeatureError::BodyEmpty { body, use_new, .. } => {
                 body_empty_text(renderer, body, *use_new)
@@ -477,32 +523,40 @@ impl FeatureError {
             },
             FeatureError::Internal { .. } => format!(
                 "Partsmith hit a bug while building {}. Suppress it or undo the last change to keep working, and report it with the details.",
-                renderer.this()
+                this()
             ),
             FeatureError::NameTooDeep { .. } => format!(
                 "{} builds on a chain of rounded or beveled edges too long for Partsmith to name. Combine some of the fillets or chamfers into one.",
                 renderer.this_title()
             ),
             FeatureError::UnknownType { type_name } => format!(
-                "This document uses a feature type '{type_name}' that this version of Partsmith does not have. Update Partsmith, or delete the feature."
+                "This document has a feature of type '{type_name}', which this version of Partsmith does not have. Update Partsmith, or delete the feature."
             ),
-            FeatureError::InvalidParams { detail, .. } => format!(
-                "This feature's settings are invalid: {detail}. Fix the setting, or delete and recreate the feature."
+            FeatureError::InvalidParams {
+                field: Some(field), ..
+            } => format!(
+                "{label} of {} cannot be read, so it was not built. Set {label} again.",
+                this(),
+                label = field.label
+            ),
+            FeatureError::InvalidParams { field: None, .. } => format!(
+                "The settings of {} cannot be read, so it was not built. Edit it to set them again, or delete it.",
+                this()
             ),
             FeatureError::EmptySelection { field, noun } => {
                 format!("Select at least one {noun} for {}.", field.label)
             }
             FeatureError::TargetRequired { field } => format!(
-                "Op new puts the copies into another body. Pick an empty body for {}.",
+                "Operation New body puts the copies into another body, so {} needs an empty body. Pick one, or set Operation to Join.",
                 field.label
             ),
             FeatureError::TargetNotAllowed { field } => format!(
-                "{} is only used with op new. Remove it, or set the op to new.",
-                field.label
+                "{label} is used only when Operation is New body. Clear {label}, or set Operation to New body.",
+                label = field.label
             ),
             FeatureError::SameBody { field, body } => format!(
-                "Body '{}' cannot be used twice here. Pick a different body for {}.",
-                renderer.body(body),
+                "{} cannot be used twice here. Pick a different body for {}.",
+                renderer.body_subject(body),
                 field.label
             ),
             FeatureError::Expression { field, error, .. } => format!("{}: {error}", field.label),
@@ -514,63 +568,74 @@ impl FeatureError {
                 bound_name,
             } => out_of_range(renderer, field, *kind, *value, *bound, bound_name.as_deref()),
             FeatureError::NotWholeNumber { field, value } => format!(
-                "{} must be a whole number, but it is {}. Use {} or {}.",
+                "{} must be a whole number, but it is {}.",
                 field.label,
-                renderer.value(FieldUnit::Scalar, *value),
-                renderer.value(FieldUnit::Count, value.floor()),
-                renderer.value(FieldUnit::Count, value.ceil())
+                renderer.value(FieldUnit::Scalar, *value)
             ),
-            FeatureError::UnknownBody { field, body } => format!(
-                "Body '{}' does not exist in this document. Pick an existing body for {}.",
-                renderer.body(body),
-                field.label
+            FeatureError::UnknownBody { field, .. } => format!(
+                "{label} names a body that is not in this document. Pick a body for {label}.",
+                label = field.label
             ),
-            FeatureError::UnknownFeature { field, feature } => format!(
-                "Feature '{}' does not exist in this document. Pick another one for {}.",
-                renderer.feature_label(feature),
-                field.label
+            FeatureError::UnknownFeature { field, .. } => format!(
+                "{label} names a feature that is not in this document. Pick another one for {label}.",
+                label = field.label
             ),
             FeatureError::WrongFeatureType {
                 field,
                 feature,
                 expected,
-            } => format!(
-                "'{}' is not a {expected}. Pick a {expected} for {}.",
-                renderer.feature_label(feature),
+            } => capitalized(&format!(
+                "{} is not a {expected}. Pick a {expected} for {}.",
+                renderer.quoted_feature(feature),
                 field.label
-            ),
-            FeatureError::ForwardReference { field, feature } => format!(
-                "'{}' comes later in the timeline than this feature. Move it above this feature, or pick something earlier for {}.",
-                renderer.feature_label(feature),
-                field.label
-            ),
-            FeatureError::UpstreamSuppressed { feature } => {
-                let feature = renderer.feature_label(feature);
+            )),
+            FeatureError::ForwardReference { field, feature } => {
+                let feature = renderer.quoted_feature(feature);
                 format!(
-                    "'{feature}' is suppressed, so this feature cannot use it. Unsuppress '{feature}', or pick something else."
+                    "{} uses {feature}, which comes after {this}. Move {this} below {feature}, or pick something earlier.",
+                    field.label,
+                    this = this()
                 )
             }
-            FeatureError::AssetMissing { asset, .. } => format!(
-                "The imported file assets/{asset} is missing. Put it next to the document in the assets folder."
+            FeatureError::UpstreamSuppressed { feature, .. } => {
+                let feature = renderer.quoted_feature(feature);
+                capitalized(&format!(
+                    "{feature} is suppressed, so {} cannot use it. Unsuppress {feature}, or pick something else.",
+                    this()
+                ))
+            }
+            FeatureError::AssetMissing { .. } => format!(
+                "The STEP file of {} is not in this document's assets folder. Copy the assets folder that came with the document next to it, or import the file again.",
+                this()
             ),
-            FeatureError::BodyNotEmpty { body } => format!(
-                "Body '{}' already has a solid at this point, so op new cannot start it. Use join, cut or intersect, or pick an empty body.",
-                renderer.body(body)
+            FeatureError::BodyNotEmpty { body, target: None } => format!(
+                "{} already has a solid here, so Operation New body cannot start it. Set Operation to Join, or put {} in a new body.",
+                renderer.body_subject(body),
+                this()
+            ),
+            FeatureError::BodyNotEmpty {
+                body,
+                target: Some(target),
+            } => format!(
+                "{} already has a solid here, so {} cannot put its result there. Pick an empty body for {}.",
+                renderer.body_subject(body),
+                this(),
+                target.label
             ),
             FeatureError::EmptyResult {
                 body,
                 op: BodyOp::Intersect,
             } => format!(
-                "The shapes do not overlap body '{}', so the intersection is empty. Move them so they overlap the body.",
-                renderer.body(body)
+                "The shapes do not overlap {}, so the intersection is empty. Move them so they overlap it.",
+                renderer.body_phrase(body)
             ),
             FeatureError::EmptyResult { body, .. } => format!(
-                "This cut removes all of body '{}'. Make the cut smaller, or change its position or direction.",
-                renderer.body(body)
+                "This cut removes all of {}. Make it smaller, or change its position or direction.",
+                renderer.body_phrase(body)
             ),
-            FeatureError::NotPlanar { field } => format!(
-                "The face selected for {} is not flat. Pick a flat face, a datum plane or an origin plane.",
-                field.label
+            FeatureError::NotPlanar { field, element } => format!(
+                "{} is not flat. Pick a flat face, a datum plane or an origin plane.",
+                stored_element(renderer, element, &field.label)
             ),
             FeatureError::NotCoplanar { field, faces, .. } => format!(
                 "The face selected for {} now matches {} faces that do not lie in one plane. Pick the one you mean.",
@@ -598,111 +663,105 @@ impl FeatureError {
                 elements.len(),
                 plural(*kind)
             ),
-            FeatureError::NotStraight { field } => format!(
-                "The edge selected for {} is not straight. Pick a straight edge, a sketch line or an origin axis.",
-                field.label
+            FeatureError::NotStraight { field, element } => format!(
+                "{} is not straight. Pick a straight edge, a sketch line or an origin axis.",
+                stored_element(renderer, element, &field.label)
             ),
-            FeatureError::NoAxis { field } => format!(
-                "The face selected for {} has no axis. Pick a cylindrical or conical face, a straight edge, a sketch line or an origin axis.",
-                field.label
+            FeatureError::NoAxis { field, element } => format!(
+                "{} has no axis. Pick a round face, a straight edge, a sketch line or an origin axis.",
+                stored_element(renderer, element, &field.label)
             ),
             FeatureError::UnknownEntity {
                 field,
                 sketch,
-                entity,
                 noun,
-            } => format!(
-                "'{}' has no {noun} '{entity}'. Re-pick it for {}.",
-                renderer.feature_label(sketch),
-                field.label
-            ),
+                ..
+            } => {
+                let sketch = renderer.quoted_feature(sketch);
+                capitalized(&format!(
+                    "{sketch} no longer has the {noun} picked for {}. Pick a {noun} of {sketch} again.",
+                    field.label
+                ))
+            }
             FeatureError::NotALine {
                 field,
                 sketch,
                 entity,
-            } => format!(
-                "'{entity}' in '{}' is not a line with length. Pick a line for {}.",
-                renderer.feature_label(sketch),
-                field.label
-            ),
-            FeatureError::SketchInvalid { error } => {
-                renderer.sketch_message(|context| error.render(context), || error.to_string())
+            } => {
+                let words = renderer.sketch_message_of(
+                    sketch,
+                    &DimensionValues::new(),
+                    |context| context.entity(entity).unwrap_or_default(),
+                    String::new,
+                );
+                let entity = if words.is_empty() {
+                    "an entity".to_string()
+                } else {
+                    words
+                };
+                format!(
+                    "{} in {}, picked for {}, is not a line with length. Pick a line.",
+                    capitalized(&entity),
+                    renderer.quoted_feature(sketch),
+                    field.label
+                )
             }
-            FeatureError::SketchConflict { constraints } => {
+            FeatureError::SketchInvalid { error, values } => renderer.sketch_message(
+                values,
+                |context| error.render(context),
+                || error.to_string(),
+            ),
+            FeatureError::SketchConflict {
+                constraints,
+                values,
+            } => {
                 let issue = SolveIssue::Conflicting {
                     constraints: constraints.clone(),
                 };
-                renderer.sketch_message(|context| issue.render(context), || issue.to_string())
+                renderer.sketch_message(values, |context| issue.render(context), || issue.to_string())
             }
             FeatureError::SketchNotSolved => {
                 let issue = SolveIssue::NotConverged;
-                renderer.sketch_message(|context| issue.render(context), || issue.to_string())
-            }
-            FeatureError::Kernel { error } => error.user_message(),
-            FeatureError::FilletTooLarge {
-                radius, max: Some(max), ..
-            } => {
-                let max = renderer.limit(*max);
-                format!(
-                    "Fillet radius {} is too large for the selected edges. The largest radius that works is about {max}. Try {max} or less.",
-                    renderer.length(*radius)
+                renderer.sketch_message(
+                    &DimensionValues::new(),
+                    |context| issue.render(context),
+                    || issue.to_string(),
                 )
             }
-            FeatureError::FilletTooLarge {
-                radius, max: None, ..
-            } => format!(
-                "Fillet radius {} does not work on the selected edges, even when smaller. Check for edges next to very small faces, or fillet fewer edges at once.",
-                renderer.length(*radius)
+            FeatureError::Kernel { error } => format!(
+                "Partsmith's geometry kernel could not build {}. {}",
+                this(),
+                error.hint()
             ),
-            FeatureError::ChamferTooLarge {
-                distance,
-                max: Some(max),
-                ..
-            } => {
-                let max = renderer.limit(*max);
-                format!(
-                    "Chamfer distance {} is too large for the selected edges. The largest distance that works is about {max}. Try {max} or less.",
-                    renderer.length(*distance)
-                )
-            }
-            FeatureError::ChamferTooLarge {
-                distance,
-                max: None,
-                ..
-            } => format!(
-                "Chamfer distance {} does not work on the selected edges, even when smaller. Check for edges next to very small faces, or chamfer fewer edges at once.",
-                renderer.length(*distance)
-            ),
-            FeatureError::ShellTooThick {
-                body,
-                thickness,
-                max: Some(max),
-                ..
-            } => {
-                let max = renderer.limit(*max);
-                format!(
-                    "Shell thickness {} is too thick for body '{}'. The thickest wall that works is about {max}. Try {max} or less.",
-                    renderer.length(*thickness),
-                    renderer.body(body)
-                )
-            }
-            FeatureError::ShellTooThick {
-                body,
-                thickness,
-                max: None,
-                ..
-            } => format!(
-                "Shell thickness {} does not work on body '{}', even when thinner. Check for very small faces, or remove different faces.",
-                renderer.length(*thickness),
-                renderer.body(body)
+            FeatureError::FilletTooLarge { .. }
+            | FeatureError::ChamferTooLarge { .. }
+            | FeatureError::ShellTooThick { .. } => self
+                .too_large()
+                .map(|too_large| too_large.text(renderer))
+                .unwrap_or_default(),
+            FeatureError::ShellRemovesAll { body, count } => format!(
+                "{} would remove all {count} faces of {}, which leaves nothing to hollow. Remove at most {} faces, or leave Faces to remove empty for a closed hollow.",
+                renderer.this_title(),
+                renderer.body_phrase(body),
+                count.saturating_sub(1)
             ),
             FeatureError::ProfileCrossesAxis => "The profile crosses the revolve axis. Move the profile to one side of the axis, or pick another axis.".to_string(),
             FeatureError::AxisNotInPlane => "The revolve axis does not lie in the sketch plane. Pick a line in the sketch, or an axis that lies in the sketch plane.".to_string(),
-            FeatureError::ThroughAllMisses { body } => format!(
-                "Through all points away from body '{}', so there is nothing to go through. Turn on Reverse, or use a distance.",
-                renderer.body(body)
+            FeatureError::ThroughAllMisses { body, reverse_hits } => {
+                let what = format!(
+                    "Through all points away from {}, so there is nothing to go through.",
+                    renderer.body_phrase(body)
+                );
+                if *reverse_hits {
+                    what
+                } else {
+                    format!("{what} Point it at the body, or use a distance.")
+                }
+            }
+            FeatureError::ThroughAllNeedsBody { body } => format!(
+                "Through all goes through an existing solid, and {} has none here. Use a distance instead.",
+                renderer.body_phrase(body)
             ),
-            FeatureError::ThroughAllNeedsBody => "Through all needs a body that already has a solid. Use a distance when the op is new.".to_string(),
             FeatureError::BothSidesZero => {
                 "Both sides of the extrusion are 0. Give at least one side a distance.".to_string()
             }
@@ -710,16 +769,70 @@ impl FeatureError {
                 "Cone bottom and top radius cannot both be 0. Give one of them a size.".to_string()
             }
             FeatureError::PlaneMissesBody { body } => format!(
-                "The split plane does not pass through body '{}'. Move the plane so it cuts through the body.",
-                renderer.body(body)
+                "The split plane does not pass through {}. Move the plane so it cuts through the body.",
+                renderer.body_phrase(body)
             ),
             FeatureError::TooManyInstances { count, limit } => format!(
-                "This pattern would make {count} instances; the limit is {limit}. Use fewer instances."
+                "{} would make {count} copies, more than the limit of {limit}. Lower Count.",
+                renderer.this_title()
             ),
             FeatureError::Canceled => {
-                "Recompute was canceled before this feature finished.".to_string()
+                format!("Recompute was canceled before {} finished.", this())
             }
         }
+    }
+
+    /// The "too large" view of `FilletTooLarge`, `ChamferTooLarge` and `ShellTooThick` (section 4.3).
+    fn too_large(&self) -> Option<TooLarge<'_>> {
+        Some(match self {
+            FeatureError::FilletTooLarge {
+                field,
+                expr,
+                radius,
+                max,
+                limit,
+                ..
+            } => TooLarge {
+                subject: Subject::Fillet,
+                field,
+                expr: Some(expr),
+                requested: *radius,
+                max: *max,
+                limit: limit.as_ref(),
+            },
+            FeatureError::ChamferTooLarge {
+                field,
+                expr,
+                distance,
+                max,
+                limit,
+                ..
+            } => TooLarge {
+                subject: Subject::Chamfer,
+                field,
+                expr: expr.as_ref(),
+                requested: *distance,
+                max: *max,
+                limit: limit.as_ref(),
+            },
+            FeatureError::ShellTooThick {
+                field,
+                expr,
+                body,
+                thickness,
+                max,
+                limit,
+                ..
+            } => TooLarge {
+                subject: Subject::Shell { body },
+                field,
+                expr: Some(expr),
+                requested: *thickness,
+                max: *max,
+                limit: limit.as_ref(),
+            },
+            _ => return None,
+        })
     }
 
     /// Stable snake_case code, for example "body_not_empty".
@@ -763,10 +876,11 @@ impl FeatureError {
             FeatureError::FilletTooLarge { .. } => "fillet_too_large",
             FeatureError::ChamferTooLarge { .. } => "chamfer_too_large",
             FeatureError::ShellTooThick { .. } => "shell_too_thick",
+            FeatureError::ShellRemovesAll { .. } => "shell_removes_all",
             FeatureError::ProfileCrossesAxis => "profile_crosses_axis",
             FeatureError::AxisNotInPlane => "axis_not_in_plane",
             FeatureError::ThroughAllMisses { .. } => "through_all_misses",
-            FeatureError::ThroughAllNeedsBody => "through_all_needs_body",
+            FeatureError::ThroughAllNeedsBody { .. } => "through_all_needs_body",
             FeatureError::BothSidesZero => "both_sides_zero",
             FeatureError::ConeRadiiZero => "cone_radii_zero",
             FeatureError::PlaneMissesBody { .. } => "plane_misses_body",
@@ -791,37 +905,38 @@ impl FeatureError {
             | FeatureError::UnknownFeature { field, .. }
             | FeatureError::WrongFeatureType { field, .. }
             | FeatureError::ForwardReference { field, .. }
+            | FeatureError::UpstreamSuppressed { field, .. }
             | FeatureError::AssetMissing { field, .. }
             | FeatureError::BodyEmpty { field, .. }
             | FeatureError::ToolEmpty { field, .. }
             | FeatureError::ReferencesNotFound { field, .. }
             | FeatureError::ReferenceNotFound { field, .. }
             | FeatureError::ProfileNotFound { field, .. }
-            | FeatureError::NotPlanar { field }
+            | FeatureError::NotPlanar { field, .. }
             | FeatureError::NotCoplanar { field, .. }
             | FeatureError::NotCollinear { field, .. }
-            | FeatureError::NotStraight { field }
-            | FeatureError::NoAxis { field }
+            | FeatureError::NotStraight { field, .. }
+            | FeatureError::NoAxis { field, .. }
             | FeatureError::UnknownEntity { field, .. }
             | FeatureError::NotALine { field, .. }
             | FeatureError::FilletTooLarge { field, .. }
             | FeatureError::ChamferTooLarge { field, .. }
             | FeatureError::ShellTooThick { field, .. } => Some(field),
             FeatureError::InvalidParams { field, .. } => field.as_ref(),
+            FeatureError::BodyNotEmpty { target, .. } => target.as_ref(),
             FeatureError::UnknownType { .. }
             | FeatureError::UndeclaredDependency { .. }
             | FeatureError::UpstreamFailed { .. }
-            | FeatureError::UpstreamSuppressed { .. }
-            | FeatureError::BodyNotEmpty { .. }
             | FeatureError::EmptyResult { .. }
             | FeatureError::SketchInvalid { .. }
             | FeatureError::SketchConflict { .. }
             | FeatureError::SketchNotSolved
             | FeatureError::Kernel { .. }
+            | FeatureError::ShellRemovesAll { .. }
             | FeatureError::ProfileCrossesAxis
             | FeatureError::AxisNotInPlane
             | FeatureError::ThroughAllMisses { .. }
-            | FeatureError::ThroughAllNeedsBody
+            | FeatureError::ThroughAllNeedsBody { .. }
             | FeatureError::BothSidesZero
             | FeatureError::ConeRadiiZero
             | FeatureError::PlaneMissesBody { .. }
@@ -833,20 +948,13 @@ impl FeatureError {
     }
 
     /// A replacement expression for `field()` that fixes the problem, in display units, when the feature computed a
-    /// limit: the value of the first own `SetField` of `fixes` (section 4.4).
+    /// limit (section 4.4): the bare number in millimeters or the suggested limit of a "too large" error with a
+    /// `max`, and the bound of an `AtLeast` or `AtMost` range.
     pub fn suggestion(&self, units: Units) -> Option<String> {
         match self {
-            FeatureError::FilletTooLarge { max: Some(max), .. }
-            | FeatureError::ShellTooThick { max: Some(max), .. } => {
-                Some(suggested_limit(*max, units))
-            }
-            // Only an equal-distance chamfer (field `distance.expr`) has one value to replace; a
-            // two-distance chamfer (field `distance`) scales both distances.
-            FeatureError::ChamferTooLarge {
-                field,
-                max: Some(max),
-                ..
-            } if field.path == "distance.expr" => Some(suggested_limit(*max, units)),
+            FeatureError::FilletTooLarge { .. }
+            | FeatureError::ChamferTooLarge { .. }
+            | FeatureError::ShellTooThick { .. } => self.too_large()?.suggestion(units),
             FeatureError::OutOfRange {
                 kind,
                 bound: Bound::AtLeast(limit) | Bound::AtMost(limit),
@@ -860,41 +968,69 @@ impl FeatureError {
     pub fn fixes(&self, context: &RenderContext<'_>) -> Vec<Fix> {
         let renderer = Renderer::new(context);
         let this = || context.feature.clone();
+        let operation = |op: &str| set_field(renderer.own_field("op", "Operation"), op);
         match self {
             FeatureError::EmptySelection { field, .. }
             | FeatureError::SameBody { field, .. }
             | FeatureError::UnknownBody { field, .. }
             | FeatureError::UnknownFeature { field, .. }
             | FeatureError::WrongFeatureType { field, .. }
-            | FeatureError::NotPlanar { field }
-            | FeatureError::NotStraight { field }
-            | FeatureError::NoAxis { field }
+            | FeatureError::NotPlanar { field, .. }
+            | FeatureError::NotStraight { field, .. }
+            | FeatureError::NoAxis { field, .. }
             | FeatureError::UnknownEntity { field, .. }
-            | FeatureError::NotALine { field, .. } => vec![Fix::pick(field.pointer())],
-            // A "too large" error with a `max` offers it (section 4.3); its other fixes come with the
-            // limit search of phase 3.
-            FeatureError::OutOfRange { field, .. }
-            | FeatureError::FilletTooLarge { field, .. }
-            | FeatureError::ChamferTooLarge { field, .. }
-            | FeatureError::ShellTooThick { field, .. } => self
-                .suggestion(context.units)
-                .map(|value| Fix::SetField {
+            | FeatureError::NotALine { field, .. }
+            | FeatureError::BodyNotEmpty {
+                target: Some(field),
+                ..
+            } => vec![Fix::pick(field.pointer())],
+            FeatureError::InvalidParams {
+                field: Some(field), ..
+            } => {
+                let selects = renderer
+                    .manifest()
+                    .and_then(|manifest| FieldRef::hint(&field.path, manifest))
+                    .is_some_and(|hint| hint.selection.is_some());
+                if selects {
+                    vec![Fix::pick(field.pointer())]
+                } else {
+                    Vec::new()
+                }
+            }
+            FeatureError::TargetRequired { field } => {
+                vec![operation("join"), Fix::pick(field.pointer())]
+            }
+            FeatureError::TargetNotAllowed { field } => vec![
+                operation("new"),
+                Fix::SetField {
                     feature: None,
                     field: field.clone(),
-                    value: serde_json::Value::String(value),
-                })
+                    value: Value::Null,
+                },
+            ],
+            FeatureError::Expression { field, expr, error } => error
+                .corrected(expr)
+                .map(|corrected| set_field(field.clone(), corrected.as_str()))
                 .into_iter()
                 .collect(),
+            FeatureError::OutOfRange { field, .. } => self
+                .suggestion(context.units)
+                .map(|value| set_field(field.clone(), &value))
+                .into_iter()
+                .collect(),
+            FeatureError::FilletTooLarge { .. }
+            | FeatureError::ChamferTooLarge { .. }
+            | FeatureError::ShellTooThick { .. } => self
+                .too_large()
+                .map(|too_large| too_large.fixes(&renderer, context.feature))
+                .unwrap_or_default(),
             FeatureError::NotWholeNumber { field, value } => [value.floor(), value.ceil()]
                 .into_iter()
-                .map(|whole| Fix::SetField {
-                    feature: None,
-                    field: field.clone(),
-                    value: serde_json::Value::String(format_value(
-                        FieldUnit::Count,
-                        whole,
-                        context.units,
-                    )),
+                .map(|whole| {
+                    set_field(
+                        field.clone(),
+                        &format_value(FieldUnit::Count, whole, context.units),
+                    )
                 })
                 .collect(),
             FeatureError::ForwardReference { field, feature } => vec![
@@ -909,23 +1045,22 @@ impl FeatureError {
                     context.diagnosis.root.as_ref().unwrap_or(feature),
                 )]
             }
-            FeatureError::UpstreamSuppressed { feature } => vec![Fix::Unsuppress {
-                feature: feature.clone(),
-            }],
+            FeatureError::UpstreamSuppressed { field, feature } => vec![
+                Fix::Unsuppress {
+                    feature: feature.clone(),
+                },
+                Fix::pick(field.pointer()),
+            ],
+            FeatureError::BodyNotEmpty { target: None, .. } => {
+                vec![operation("join"), Fix::NewBody]
+            }
             FeatureError::UndeclaredDependency { .. }
             | FeatureError::Kernel { .. }
             | FeatureError::Internal { .. } => vec![Fix::Suppress { feature: this() }],
             FeatureError::BodyEmpty { field, use_new, .. } => {
                 let fixes = renderer.empty_fixes(field);
                 if fixes.is_empty() && *use_new {
-                    vec![Fix::SetField {
-                        feature: None,
-                        field: FieldRef {
-                            path: "op".to_string(),
-                            label: "Operation".to_string(),
-                        },
-                        value: serde_json::Value::String("new".to_string()),
-                    }]
+                    vec![operation("new")]
                 } else {
                     fixes
                 }
@@ -982,11 +1117,38 @@ impl FeatureError {
                 kind,
                 ..
             } => choice_fixes(&reference_pointer(field, *kind), elements),
+            FeatureError::SketchInvalid { error, .. } => {
+                sketch_fixes(context.feature, error.fixes())
+            }
+            FeatureError::SketchConflict { constraints, .. } => {
+                let issue = SolveIssue::Conflicting {
+                    constraints: constraints.clone(),
+                };
+                renderer
+                    .stored_sketch()
+                    .map(|params| sketch_fixes(context.feature, issue.fixes(&params)))
+                    .unwrap_or_default()
+            }
+            FeatureError::ShellRemovesAll { .. } => vec![Fix::pick("/remove_faces")],
             FeatureError::ProfileCrossesAxis | FeatureError::AxisNotInPlane => {
                 vec![Fix::pick("/axis")]
             }
+            FeatureError::ThroughAllMisses {
+                reverse_hits: true, ..
+            } => vec![body_rules::reverse_fix(&renderer)],
             FeatureError::PlaneMissesBody { .. } => vec![Fix::pick("/plane")],
-            _ => Vec::new(),
+            FeatureError::UnknownType { .. }
+            | FeatureError::InvalidParams { field: None, .. }
+            | FeatureError::AssetMissing { .. }
+            | FeatureError::EmptyResult { .. }
+            | FeatureError::SketchNotSolved
+            | FeatureError::ThroughAllMisses { .. }
+            | FeatureError::ThroughAllNeedsBody { .. }
+            | FeatureError::BothSidesZero
+            | FeatureError::ConeRadiiZero
+            | FeatureError::TooManyInstances { .. }
+            | FeatureError::Canceled
+            | FeatureError::NameTooDeep { .. } => Vec::new(),
         }
     }
 
@@ -1013,14 +1175,21 @@ impl FeatureError {
                 max: None,
                 cause: error,
                 ..
-            } => Some(error.to_string()),
+            } => Some(error.detail()),
             FeatureError::Internal { message } => Some(message.clone()),
             FeatureError::InvalidParams { detail, .. } => Some(detail.clone()),
             FeatureError::UndeclaredDependency { what } => Some(what.clone()),
-            FeatureError::AssetMissing { asset, .. } => Some(asset.clone()),
+            FeatureError::AssetMissing { asset, .. } => Some(format!("assets/{asset}")),
             FeatureError::UnknownEntity { entity, .. } => Some(entity.clone()),
             FeatureError::NameTooDeep { length } => Some(length.to_string()),
-            FeatureError::SketchInvalid { error } => Some(error.to_string()),
+            FeatureError::SketchInvalid { error, .. } => Some(error.to_string()),
+            FeatureError::SketchConflict { constraints, .. } => Some(
+                SolveIssue::Conflicting {
+                    constraints: constraints.clone(),
+                }
+                .to_string(),
+            ),
+            FeatureError::SketchNotSolved => Some(SolveIssue::NotConverged.to_string()),
             FeatureError::ReferencesNotFound { field, losses, .. } => Some(
                 losses
                     .iter()
@@ -1095,6 +1264,44 @@ impl From<NamingError> for FeatureError {
             error => FeatureError::internal(format!("naming the result failed: {error}")),
         }
     }
+}
+
+/// `SetField` of a field of this feature to an expression.
+fn set_field(field: FieldRef, value: &str) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field,
+        value: Value::String(value.to_string()),
+    }
+}
+
+/// The sketch crate's fixes as fixes of `sketch` (section 4.2).
+pub(crate) fn sketch_fixes(sketch: &Id, fixes: Vec<SketchFix>) -> Vec<Fix> {
+    fixes
+        .into_iter()
+        .map(|fix| match fix {
+            SketchFix::DeleteConstraint { constraint } => Fix::DeleteConstraint {
+                sketch: sketch.clone(),
+                constraint,
+            },
+            SketchFix::MakeReference { constraint } => Fix::MakeReference {
+                sketch: sketch.clone(),
+                constraint,
+            },
+            SketchFix::ConnectEnds { first, second } => Fix::ConnectEnds {
+                sketch: sketch.clone(),
+                first,
+                second,
+            },
+        })
+        .collect()
+}
+
+/// `{Element}` of an element a message stores without its body: its capitalized description, in the declared body
+/// that holds it, followed by ` selected for {label}`.
+fn stored_element(renderer: &Renderer<'_>, element: &Reference, label: &str) -> String {
+    let words = renderer.describe_stored(&[element]);
+    selected_for(&words[0], label)
 }
 
 /// The text of an empty body (section 4.1, `body_empty`).
@@ -1200,7 +1407,8 @@ pub(crate) fn candidate_detail(candidates: &[LossCandidate]) -> String {
         .join(",")
 }
 
-/// The `OutOfRange` message for one bound (section 4.1).
+/// The `OutOfRange` message for one bound (section 4.1). Next to a strict bound the value is written with the
+/// digits that tell it apart from the bound (section 3.12).
 fn out_of_range(
     renderer: &Renderer<'_>,
     field: &FieldRef,
@@ -1210,8 +1418,13 @@ fn out_of_range(
     bound_name: Option<&str>,
 ) -> String {
     let label = &field.label;
-    let value = renderer.value(kind, value);
     let limit = renderer.value(kind, bound.value());
+    let value = match bound {
+        Bound::GreaterThan(strict) | Bound::LessThan(strict) => {
+            format_value_apart(kind, value, strict, renderer.units())
+        }
+        Bound::AtLeast(_) | Bound::AtMost(_) => renderer.value(kind, value),
+    };
     let name = match bound_name {
         Some(bound_name) => format!("{bound_name} ({limit})"),
         None => limit.clone(),
@@ -1320,6 +1533,7 @@ mod tests {
 
     #[test]
     fn empty_result_of_intersect_and_cut() {
+        // Section 4.1, `empty_result`.
         let intersect = FeatureError::EmptyResult {
             body: id("b-1"),
             op: BodyOp::Intersect,
@@ -1331,11 +1545,11 @@ mod tests {
 
         assert_eq!(
             render(&intersect),
-            "The shapes do not overlap body 'b-1', so the intersection is empty. Move them so they overlap the body."
+            "The shapes do not overlap body 'b-1', so the intersection is empty. Move them so they overlap it."
         );
         assert_eq!(
             render(&cut),
-            "This cut removes all of body 'b-1'. Make the cut smaller, or change its position or direction."
+            "This cut removes all of body 'b-1'. Make it smaller, or change its position or direction."
         );
     }
 
@@ -1395,18 +1609,22 @@ mod tests {
 
     #[test]
     fn shell_too_thick_without_a_limit() {
+        // Section 4.3: without round faces the message says Partsmith could not tell why.
         let error = FeatureError::ShellTooThick {
             field: field("thickness", "Thickness"),
+            expr: Expr::new("2 mm"),
             body: id("b-1"),
             thickness: 2.0,
             max: None,
+            limit: None,
             cause: kernel_error(),
         };
 
         assert_eq!(
             render(&error),
-            "Shell thickness 2 mm does not work on body 'b-1', even when thinner. Check for very small faces, or remove different faces."
+            "Shell thickness 2 mm does not work on body 'b-1', even when thinner. Partsmith could not tell why."
         );
+        assert_eq!(error.detail(), Some(kernel_error().detail()));
         assert_eq!(error.suggestion(Units::Mm), None);
     }
 
@@ -1414,9 +1632,11 @@ mod tests {
     fn shell_too_thick_suggests_its_limit() {
         let error = FeatureError::ShellTooThick {
             field: field("thickness", "Thickness"),
+            expr: Expr::new("2 mm"),
             body: id("b-1"),
             thickness: 2.0,
             max: Some(1.4375),
+            limit: None,
             cause: kernel_error(),
         };
 
@@ -1436,7 +1656,15 @@ mod tests {
         let source = std::error::Error::source(&error).expect("the kernel error is the source");
 
         assert_eq!(source.to_string(), kernel_error().to_string());
-        assert_eq!(render(&error), kernel_error().user_message());
+        // Section 4.1, `kernel`: the kernel's hint follows, its text goes to the detail.
+        assert_eq!(
+            render(&error),
+            format!(
+                "Partsmith's geometry kernel could not build this feature. {}",
+                kernel_error().hint()
+            )
+        );
+        assert_eq!(error.detail(), Some(kernel_error().detail()));
     }
 
     #[test]
@@ -1462,25 +1690,49 @@ mod tests {
 
     #[test]
     fn display_uses_ids_and_millimeters() {
-        let error = FeatureError::ThroughAllMisses { body: id("b-7") };
+        // Section 4.1, `through_all_misses`, when reversing misses too.
+        let error = FeatureError::ThroughAllMisses {
+            body: id("b-7"),
+            reverse_hits: false,
+        };
 
         assert_eq!(
             error.to_string(),
-            "Through all points away from body 'b-7', so there is nothing to go through. Turn on Reverse, or use a distance."
+            "Through all points away from body 'b-7', so there is nothing to go through. Point it at the body, or use a distance."
         );
     }
 
     #[test]
-    fn not_whole_number_names_both_neighbors() {
+    fn not_whole_number_offers_both_neighbors() {
+        // Section 4.1, `not_whole_number`: the neighbors are the fixes, no longer part of the text.
         let error = FeatureError::NotWholeNumber {
             field: field("count", "Count"),
             value: -2.5,
         };
+        let feature = id("f-pat1");
+        let bodies = std::collections::BTreeMap::new();
+        let diagnosis = Diagnosis::default();
+        let context = RenderContext {
+            feature: &feature,
+            names: &message::IdNames,
+            units: Units::Mm,
+            bodies: &bodies,
+            diagnosis: &diagnosis,
+        };
 
         assert_eq!(
             render(&error),
-            "Count must be a whole number, but it is -2.5. Use -3 or -2."
+            "Count must be a whole number, but it is -2.5."
         );
+        let values: Vec<Value> = error
+            .fixes(&context)
+            .into_iter()
+            .filter_map(|fix| match fix {
+                Fix::SetField { value, .. } => Some(value),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(values, [Value::from("-3"), Value::from("-2")]);
     }
 
     #[test]

@@ -223,7 +223,22 @@ impl Feature for LinearPattern {
                 copies.push(source.copy(context, &Transform::translation(offset), instance)?);
             }
         }
-        source.place(context, params.op, params.target.as_ref(), copies, warnings)
+        // The count fields that are 1, which `NoCopies` names when no direction makes a copy.
+        let mut ones = Vec::new();
+        if first.count == 1 {
+            ones.push(context.field("direction.count"));
+        }
+        if params.second_direction.is_some() && second.count == 1 {
+            ones.push(context.field("second_direction.count"));
+        }
+        source.place(
+            context,
+            params.op,
+            params.target.as_ref(),
+            copies,
+            warnings,
+            ones,
+        )
     }
 
     /// `linear_pattern(direction, count, spacing, second=(axis, count, spacing), into=...)`
@@ -275,6 +290,7 @@ mod tests {
 
     use super::*;
     use crate::context::BodyState;
+    use crate::error::FieldRef;
     use crate::output::BodyChange;
     use crate::registry::Registry;
     use crate::test_support::{
@@ -452,7 +468,10 @@ mod tests {
 
         assert_eq!(
             result.map(|_| ()),
-            Err(FeatureError::BodyNotEmpty { body: id("b-2") })
+            Err(FeatureError::BodyNotEmpty {
+                body: id("b-2"),
+                target: Some(FieldRef::new("target", &LinearPattern::manifest())),
+            })
         );
     }
 

@@ -9,7 +9,7 @@ use super::tool::Role;
 use super::{HoleExtent, HoleParams, HoleType};
 use crate::builtin::common::{
     THROUGH_ALL_MARGIN, angle_in_range, check_range, is_positive_length, out_of_range,
-    positive_length,
+    positive_length, within_model_limit,
 };
 use crate::context::BuildContext;
 use crate::error::{Bound, FeatureError, FeatureWarning, IgnoredReason};
@@ -70,6 +70,7 @@ impl HoleSize {
                 None,
             ));
         }
+        within_model_limit(context, "diameter", diameter)?;
         let depth = match &params.extent {
             HoleExtent::Distance { expr } => Some(positive_length(context, "extent.expr", expr)?),
             HoleExtent::ThroughAll => None,
@@ -78,7 +79,7 @@ impl HoleSize {
             let head_diameter = context.eval_length(field, expr)?;
             // The step in from the head radius to the bore radius is a segment of its own.
             if is_positive_length((head_diameter - diameter) / 2.0) {
-                Ok(head_diameter)
+                within_model_limit(context, field, head_diameter)
             } else {
                 Err(out_of_range(
                     context,
@@ -370,9 +371,10 @@ mod tests {
             "extent": {"kind": "distance", "expr": "5"}
         }));
 
+        // Features.md section 3.12: next to a strict bound the value gets the digits that tell it apart.
         assert_eq!(
             error.to_string(),
-            "Counterbore depth must be less than the hole depth (5 mm), but it is 5 mm. Use a value less than 5 mm."
+            "Counterbore depth must be less than the hole depth (5 mm), but it is 4.9999999 mm. Use a value less than 5 mm."
         );
     }
 
@@ -383,9 +385,10 @@ mod tests {
             "extent": {"kind": "distance", "expr": "5"}
         }));
 
+        // Features.md section 3.12: next to a strict bound the value gets the digits that tell it apart.
         assert_eq!(
             error.to_string(),
-            "Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 16 mm. Use a value less than 16 mm."
+            "Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 15.9999999 mm. Use a value less than 16 mm."
         );
     }
 }

@@ -1,8 +1,10 @@
 //! The `shell` feature: hollows a body inward to a wall thickness, optionally opening it by
 //! removing faces (features/shell.md).
 
+use std::collections::BTreeMap;
+
 use partsmith_model::{Category, Expr, FeatureManifest, FieldUnit, Id, SelectionKind};
-use partsmith_naming::{ElementKind, FaceSource, NamingMap, Reference, roles};
+use partsmith_naming::{ElementKind, FaceSource, GeometryKind, NamingMap, Reference, roles};
 use partsmith_occt_sys::{KernelError, OpResult, Shape, SubShapeKind, compound, shell};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -16,8 +18,8 @@ use super::dressup::{
     smallest_name,
 };
 use crate::{
-    BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Named, PythonCall,
-    PythonNames, PythonValue,
+    BodyState, BuildContext, Dependencies, Feature, FeatureError, FeatureOutput, Limit, Named,
+    PythonCall, PythonNames, PythonValue,
 };
 
 /// Hollows a body inward to a wall thickness.
@@ -85,16 +87,30 @@ impl Feature for Shell {
             (faces, resolved.into_messages())
         };
         let solids = body_solids(shape, &removed)?;
+        // Nothing would be left to hollow, and the kernel's failure would read as a wall that is too thick.
+        if let Some(solid) = solids
+            .iter()
+            .find(|solid| solid.remove.len() == solid.faces.len())
+        {
+            return Err(FeatureError::ShellRemovesAll {
+                body: params.body.clone(),
+                count: solid.faces.len(),
+            });
+        }
         let hollow = run_or_search(
             context,
             thickness,
             |thickness| shell_solids(&solids, thickness),
-            |max, cause| FeatureError::ShellTooThick {
-                field: context.field("thickness"),
-                body: params.body.clone(),
-                thickness,
-                max,
-                cause,
+            |max, cause| {
+                Ok(FeatureError::ShellTooThick {
+                    field: context.field("thickness"),
+                    expr: params.thickness.clone(),
+                    body: params.body.clone(),
+                    thickness,
+                    max,
+                    limit: round_faces(context, &params.body, state, thickness, max)?,
+                    cause,
+                })
             },
         )?;
         let named = name_shell(
@@ -119,6 +135,64 @@ impl Feature for Shell {
         call.positional = vec![faces, PythonValue::expression(&params.thickness, names)];
         Some(call)
     }
+}
+
+/// The round faces of the body that may stop a wall of `thickness` (features.md section 4.3): the cylinders, spheres
+/// and tori whose radius is smaller than the wall and, when a wall of `max` worked, larger than `max`, grouped by the
+/// feature id that starts their names. The group with the smallest radius is the limit, ties by feature id in byte
+/// order; `fillet` says that its faces are rounds of a fillet that wrote the body before the shell.
+fn round_faces(
+    context: &BuildContext<'_>,
+    body: &Id,
+    state: &BodyState,
+    thickness: f64,
+    max: Option<f64>,
+) -> Result<Option<Limit>, FeatureError> {
+    let elements = state.elements()?;
+    // For each feature, the smallest radius of its round faces and whether every one of them is a fillet's round.
+    let mut groups: BTreeMap<&str, (f64, bool)> = BTreeMap::new();
+    for info in elements.iter() {
+        let round = matches!(
+            info.fingerprint.kind,
+            GeometryKind::Cylinder | GeometryKind::Sphere | GeometryKind::Torus
+        );
+        let Some(radius) = info.fingerprint.radius.filter(|_| round) else {
+            continue;
+        };
+        if radius >= thickness || max.is_some_and(|max| radius <= max) {
+            continue;
+        }
+        let Some(face) = info.name.face_name() else {
+            continue;
+        };
+        let rounds = face.role() == roles::FILLET;
+        groups
+            .entry(face.feature())
+            .and_modify(|(smallest, all_rounds)| {
+                *smallest = smallest.min(radius);
+                *all_rounds &= rounds;
+            })
+            .or_insert((radius, rounds));
+    }
+    // Byte order of the map, so the first of equally small groups is the one whose id sorts first.
+    let Some((feature, (radius, rounds))) = groups
+        .into_iter()
+        .reduce(|best, next| if next.1.0 < best.1.0 { next } else { best })
+    else {
+        return Ok(None);
+    };
+    let feature = Id::new(feature).map_err(|error| {
+        FeatureError::internal(format!("a face name starts with no feature id: {error}"))
+    })?;
+    let wrote_before = context
+        .body_history(body)?
+        .iter()
+        .any(|(writer, _)| *writer == feature);
+    Ok(Some(Limit::RoundFaces {
+        fillet: rounds && wrote_before,
+        feature,
+        radius,
+    }))
 }
 
 /// One solid of the body to shell, with the body index of each of its elements.

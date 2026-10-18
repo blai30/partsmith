@@ -164,10 +164,11 @@ fn t020_a_failing_feature_does_not_stop_the_run() {
         .clone()
         .expect("the fillet error suggests a radius");
     assert!(suggestion.ends_with(" mm"), "suggestion {suggestion}");
+    // Features.md section 4.3: the limit, then the face that limits it.
     assert_eq!(
         message.text,
         format!(
-            "Fillet radius 3 mm is too large for the selected edges. The largest radius that works is about {suggestion}. Try {suggestion} or less."
+            "Fillet radius 3 mm is too large for the selected edges: the largest that works is about {suggestion}. The back top edge of 'Box 1' lies next to the back side of 'Box 1', which is only 2.4 mm across."
         )
     );
     assert_eq!(status(&report, "f-cha1"), "ok");
@@ -612,7 +613,8 @@ fn an_unknown_type_is_an_error_without_key_that_writes_nothing() {
     assert_eq!(
         message_texts(&report, "f-g"),
         owned(&[
-            "This document uses a feature type 'gear_demo' that this version of Partsmith does not have. Update Partsmith, or delete the feature."
+            // Features.md section 4.1, `unknown_type`.
+            "This document has a feature of type 'gear_demo', which this version of Partsmith does not have. Update Partsmith, or delete the feature."
         ])
     );
     assert_eq!(key(&report, "f-g"), None);
@@ -639,7 +641,8 @@ fn invalid_params_are_an_error_without_key() {
     assert_eq!(
         message_texts(&report, "f-bad"),
         owned(&[
-            "This feature's settings are invalid: the setting 'size' is missing. Fix the setting, or delete and recreate the feature."
+            // Features.md section 4.1, `invalid_params` with the missing field.
+            "Size of this test block cannot be read, so it was not built. Set Size again."
         ])
     );
     assert_eq!(key(&report, "f-bad"), None);
@@ -659,7 +662,8 @@ fn a_link_to_an_unknown_feature_fails_with_its_field() {
     assert_eq!(message.pointer.as_deref(), Some("/base"));
     assert_eq!(
         message.text,
-        "Feature 'f-nope' does not exist in this document. Pick another one for Base."
+        // Features.md section 4.1, `unknown_feature`.
+        "Base names a feature that is not in this document. Pick another one for Base."
     );
     assert!(feature_report(&report, "f-d1").output.is_none());
 }
@@ -684,7 +688,8 @@ fn a_link_to_a_later_feature_or_to_itself_is_a_forward_reference() {
     );
     assert_eq!(
         first_message(&report, "f-d1").text,
-        "'Test datum 2' comes later in the timeline than this feature. Move it above this feature, or pick something earlier for Base."
+        // Features.md section 4.1, `forward_reference`.
+        "Base uses 'Test datum 2', which comes after this test datum. Move this test datum below 'Test datum 2', or pick something earlier."
     );
     assert_eq!(status(&report, "f-d2"), "ok");
     assert_eq!(error_code(&report, "f-d3"), "forward_reference");
@@ -703,7 +708,8 @@ fn a_link_to_a_suppressed_feature_reports_upstream_suppressed() {
     assert_eq!(
         message_texts(&report, "f-d2"),
         owned(&[
-            "'Test datum 1' is suppressed, so this feature cannot use it. Unsuppress 'Test datum 1', or pick something else."
+            // Features.md section 4.1, `upstream_suppressed`.
+            "'Test datum 1' is suppressed, so this test datum cannot use it. Unsuppress 'Test datum 1', or pick something else."
         ])
     );
 }
@@ -761,7 +767,8 @@ fn a_link_to_an_unknown_body_fails_with_its_field() {
     );
     assert_eq!(
         first_message(&report, "f-p").text,
-        "Body 'b-9' does not exist in this document. Pick an existing body for Body."
+        // Features.md section 4.1, `unknown_body`.
+        "Body names a body that is not in this document. Pick a body for Body."
     );
 }
 
@@ -781,7 +788,8 @@ fn a_missing_asset_fails_before_building_and_is_not_cached() {
     assert_eq!(message.pointer.as_deref(), Some("/asset"));
     assert_eq!(
         message.text,
-        "The imported file assets/a.step is missing. Put it next to the document in the assets folder."
+        // Features.md section 4.1, `asset_missing`.
+        "The STEP file of this test asset is not in this document's assets folder. Copy the assets folder that came with the document next to it, or import the file again."
     );
     assert!(key(&missing, "f-a1").is_some());
     assert_eq!(harness.cache_len(), 0);

@@ -10,7 +10,7 @@ use partsmith_occt_sys::{OpResult, Shape, common, compound, cut};
 use crate::builtin::common::check_canceled;
 use crate::context::{BodyState, BuildContext};
 use crate::error::{FeatureError, FeatureWarning};
-use crate::output::{BodyUpdate, Tool, VOLUME_TOLERANCE, apply_op_result};
+use crate::output::{BodyUpdate, Direction, Tool, VOLUME_TOLERANCE, apply_op_result};
 use crate::params::BodyOp;
 
 /// A hole tool whose bounding box meets the body's, so only a kernel boolean can tell whether it
@@ -43,6 +43,7 @@ pub(super) fn cut_candidates(
     state: &BodyState,
     shape: &Shape,
     candidates: &[Candidate],
+    direction: Option<Direction<'_>>,
 ) -> Result<Decision, FeatureError> {
     if candidates.is_empty() {
         return Ok(Decision {
@@ -65,7 +66,7 @@ pub(super) fn cut_candidates(
     if overlaps.iter().all(|overlaps| *overlaps) {
         // The usual case: the body rules name the cut once, and their `NoEffect` is step 5's
         // unchanged volume.
-        let outcome = apply_op_result(context, body, BodyOp::Cut, &tools, result);
+        let outcome = apply_op_result(context, body, BodyOp::Cut, &tools, result, direction);
         if outcome
             .as_ref()
             .is_ok_and(|(_, warnings)| has_no_effect(warnings))
@@ -95,7 +96,8 @@ pub(super) fn cut_candidates(
         overlaps[position] = volume > VOLUME_TOLERANCE * before;
     }
     let every_one = overlaps.iter().all(|overlaps| *overlaps);
-    let result = every_one.then(|| apply_op_result(context, body, BodyOp::Cut, &tools, result));
+    let result =
+        every_one.then(|| apply_op_result(context, body, BodyOp::Cut, &tools, result, direction));
     Ok(Decision { overlaps, result })
 }
 
@@ -287,8 +289,15 @@ mod tests {
         let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
         let fixture = Fixture::new("f-hole1").with_body("b-1", state.clone());
         let shape = state.shape().expect("a solid");
-        cut_candidates(&fixture.context(), &id("b-1"), &state, shape, candidates)
-            .expect("the candidates are decided")
+        cut_candidates(
+            &fixture.context(),
+            &id("b-1"),
+            &state,
+            shape,
+            candidates,
+            None,
+        )
+        .expect("the candidates are decided")
     }
 
     #[test]

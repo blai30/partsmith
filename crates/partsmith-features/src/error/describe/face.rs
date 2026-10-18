@@ -308,15 +308,11 @@ impl FaceReader<'_, '_> {
     /// `the cut made by 'Boolean 1'` when the faces of `feature` in the element read as faces a cut leaves (section
     /// 3.12): the tool faces of a cut boolean in the body described, else the faces of a cutting `maker`.
     fn cut(&self, maker: &Maker<'_>, feature: &str) -> Option<String> {
-        let boolean = if self.all_in_state(feature) {
-            cut_boolean(
-                self.describer.names,
-                feature,
-                self.describer.body,
-                self.describer.before,
-            )
-        } else {
-            None
+        let boolean = match self.describer.body {
+            Some(body) if self.all_in_state(feature) => {
+                cut_boolean(self.describer.names, feature, body, self.describer.before)
+            }
+            _ => None,
         };
         let cutter = match boolean {
             Some(boolean) => Maker::of(self.describer.names, boolean.as_str()).quoted(),

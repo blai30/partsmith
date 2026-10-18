@@ -180,6 +180,7 @@ impl<'a> Timeline<'a> {
             }
             if matches!(self.steps[upstream].kind, StepKind::Suppressed(_)) {
                 return Err(FeatureError::UpstreamSuppressed {
+                    field: field(&link.field),
                     feature: link.id.clone(),
                 });
             }

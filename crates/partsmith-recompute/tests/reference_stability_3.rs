@@ -354,7 +354,9 @@ fn r48_switching_units_with_bare_numbers_explains_the_unit_change() {
         reference_warnings.is_empty(),
         format!("f-fil1 has reference warnings {reference_warnings:?}"),
     );
-    checks.message_names(&session, "f-fil1", &["unit", "2 in", "mm"]);
+    // The bare-number sentence of features.md section 4.3 names the unit the number takes; the millimeters it was
+    // meant in come with the fix Use 2 mm.
+    checks.message_names(&session, "f-fil1", &["no unit", "2 in"]);
     checks.suggests(&session, "f-fil1", "2 mm");
 
     let fixed = slotted_block_with_fillet("2 mm");
@@ -1677,7 +1679,18 @@ fn r61c_both_picked_edges_fused_into_one_are_rounded_once() {
         ]
     };
     let mut session = run(&["b-1"], &features("30"));
-    checks.all_ok(&session);
+    // Before the edit the second box does not touch the first, so the body has two pieces (features.md section 3.5,
+    // `SeparateSolid`, newcomer error corpus NC04).
+    checks.status(&session, "f-box1", "ok");
+    checks.status(&session, "f-box2", "warning");
+    checks.check(
+        codes(&session, "f-box2") == ["separate_solid"],
+        format!(
+            "f-box2 should warn separate_solid only, but has {:?}",
+            codes(&session, "f-box2")
+        ),
+    );
+    checks.status(&session, "f-fil1", "ok");
 
     edit(&mut session, &["b-1"], &features("20"));
     checks.note(diagnose(&session, "f-fil1", "b-1", &edges[1]));

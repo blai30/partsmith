@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use partsmith_features::{Dependencies, FeatureError, Link, Registry};
+use partsmith_features::{Dependencies, FeatureError, FieldRef, Link, Registry};
 use partsmith_model::FeatureRecord;
 use serde_json::{Map, Value};
 
@@ -17,6 +17,8 @@ pub(crate) struct Valid {
     pub(crate) params: Map<String, Value>,
     /// Keys the feature type does not know, in their original order.
     pub(crate) unknown_keys: Vec<String>,
+    /// Each unknown key that nearly matches one known key, with that field (`Validated::suggestions`).
+    pub(crate) suggestions: Vec<(String, FieldRef)>,
     /// What the record declares it reads and defines.
     pub(crate) dependencies: Dependencies,
     /// The known canonical params written compactly, for its cache key.
@@ -57,6 +59,7 @@ fn check(registry: &Registry, record: &FeatureRecord) -> Checked {
         params_text: params_text(&validated.record.params, &validated.unknown_keys),
         params: validated.record.params,
         unknown_keys: validated.unknown_keys,
+        suggestions: validated.suggestions,
         dependencies,
         parameter_names: parameter_names.into_iter().collect(),
         value_names: value_names.into_iter().collect(),

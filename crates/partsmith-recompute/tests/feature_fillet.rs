@@ -321,9 +321,11 @@ fn t008_radius_too_large() {
     );
     // The four side faces tie at 2.4 mm across their top edges, and `edge(f-box1/back|f-box1/top)` sorts first;
     // without it the other three edges fail as well, so its removal is not offered.
+    // `position` is the entry of the edge's reference in Edges (features.md section 2.8, `Limit::Face`): E-BT is
+    // entry 1 of [E-FT, E-BT, E-LT, E-RT].
     assert_limiting_face(
         error,
-        0,
+        1,
         "edge(f-box1/back|f-box1/top)",
         "f-box1/back",
         false,

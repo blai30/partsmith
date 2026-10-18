@@ -3,11 +3,11 @@
 
 use std::collections::BTreeMap;
 
-use partsmith_model::{FieldUnit, Id, Units};
+use partsmith_model::{FeatureManifest, FeatureRecord, FieldUnit, Id, Units};
 use partsmith_naming::{ElementName, Fingerprint, Reference};
-use partsmith_sketch::{DimensionValues, MessageContext, RegionLoss};
+use partsmith_sketch::{DimensionValues, MessageContext, RegionLoss, SketchParams};
 
-use super::describe::{describe_elements, describe_face, stored_params};
+use super::describe::{describe_elements, describe_face, describe_in, stored_params};
 use super::field::FieldRef;
 use super::fix::{Fix, Place};
 use super::loss::{Loss, LossCandidate, RegionLost};
@@ -151,19 +151,46 @@ impl<'a> Renderer<'a> {
         )
     }
 
-    /// The body's current name, or its id, for the messages of section 4 that still name unknown ids by their id.
-    pub(crate) fn body(&self, body: &Id) -> String {
-        self.names
-            .body_name(body)
-            .unwrap_or_else(|| body.to_string())
+    /// `body '{body}'` inside a sentence, or `a body that is not in this document` (section 3.12).
+    pub(crate) fn body_phrase(&self, body: &Id) -> String {
+        self.names.body_name(body).map_or_else(
+            || "a body that is not in this document".to_string(),
+            |name| format!("body '{name}'"),
+        )
     }
 
-    /// The feature's current label, or its id, for the messages of section 4 that still name unknown ids by their
-    /// id.
-    pub(crate) fn feature_label(&self, feature: &Id) -> String {
-        self.names
-            .feature_label(feature)
-            .unwrap_or_else(|| feature.to_string())
+    /// The manifest of the feature the message is on, when the names know it.
+    pub(crate) fn manifest(&self) -> Option<&'a FeatureManifest> {
+        self.feature
+            .and_then(|feature| self.names.manifest(feature))
+    }
+
+    /// The feature's record, when the names know it.
+    pub(crate) fn record(&self, feature: &Id) -> Option<&'a FeatureRecord> {
+        self.names.feature_record(feature)
+    }
+
+    /// The record of the feature the message is on, when the names know it.
+    pub(crate) fn this_record(&self) -> Option<&'a FeatureRecord> {
+        self.feature.and_then(|feature| self.record(feature))
+    }
+
+    /// The manifest label of the type of the feature the message is on, when the names know it.
+    pub(crate) fn type_label(&self) -> Option<String> {
+        self.feature
+            .and_then(|feature| self.names.type_label(feature))
+    }
+
+    /// The field at `path` of the feature the message is on, labeled from its manifest, or `label` when the names
+    /// know no manifest: the shared fields every built-in labels alike (`op` Operation, `reverse` Reverse).
+    pub(crate) fn own_field(&self, path: &str, label: &str) -> FieldRef {
+        self.manifest().map_or_else(
+            || FieldRef {
+                path: path.to_string(),
+                label: label.to_string(),
+            },
+            |manifest| FieldRef::new(path, manifest),
+        )
     }
 
     /// A value in display units.
@@ -181,32 +208,86 @@ impl<'a> Renderer<'a> {
         suggested_limit(millimeters, self.units)
     }
 
-    /// A message of the sketch crate (sketch.md section 4) about the sketch this message is on, rendered with the
-    /// sketch's label, its stored params, its solved entities and measured values in the run when it built, and the
-    /// document units (section 4.2), without dimension values, which the variants do not carry; `detail` when the
-    /// sketch's params cannot be read, as for `Display`.
+    /// Document units.
+    pub(crate) fn units(&self) -> Units {
+        self.units
+    }
+
+    /// A message of the sketch crate (sketch.md section 4) about the sketch this message is on, rendered as
+    /// `sketch_message_of` renders it.
     pub(crate) fn sketch_message(
         &self,
+        values: &DimensionValues,
         message: impl FnOnce(&MessageContext<'_>) -> String,
         detail: impl FnOnce() -> String,
     ) -> String {
-        let Some(sketch) = self.feature else {
-            return detail();
-        };
+        match self.feature {
+            Some(sketch) => self.sketch_message_of(sketch, values, message, detail),
+            None => detail(),
+        }
+    }
+
+    /// A message of the sketch crate (sketch.md section 4) about `sketch`, rendered with the sketch's label, its
+    /// stored params, its solved entities and measured values in the run when it built, the dimension `values` the
+    /// message carries, and the document units (section 4.2); `detail` when the sketch's params cannot be read, as
+    /// for `Display`.
+    pub(crate) fn sketch_message_of(
+        &self,
+        sketch: &Id,
+        values: &DimensionValues,
+        message: impl FnOnce(&MessageContext<'_>) -> String,
+        detail: impl FnOnce() -> String,
+    ) -> String {
         let Some(params) = stored_params(self.names, sketch) else {
             return detail();
         };
         let result = self.names.sketch_result(sketch);
-        let label = self.feature_label(sketch);
-        let values = DimensionValues::new();
+        let Some(label) = self.names.feature_label(sketch) else {
+            return detail();
+        };
         message(&MessageContext {
             label: &label,
             sketch: &params,
             solved: result.map(|result| result.solved.entities.as_slice()),
-            values: &values,
+            values,
             measured: result.map(|result| &result.solved.measured),
             units: self.units,
         })
+    }
+
+    /// The stored params of the sketch the message is on, when the names know its record.
+    pub(crate) fn stored_sketch(&self) -> Option<SketchParams> {
+        stored_params(self.names, self.feature?)
+    }
+
+    /// The declared body whose state has an element named `name`: the body of an element a message stores without
+    /// its body, as the edge and face a "too large" limit names and a face or edge of a plane or axis that is not
+    /// flat, straight or round.
+    pub(crate) fn body_holding(&self, name: &ElementName) -> Option<&'a Id> {
+        self.bodies
+            .iter()
+            .find(|(_, state)| state.naming().index(name).is_some())
+            .map(|(body, _)| body)
+    }
+
+    /// The words for stored elements a message keeps without their body, in one call (section 3.12), in the
+    /// declared body that holds the first of them.
+    pub(crate) fn describe_stored(&self, references: &[&Reference]) -> Vec<String> {
+        let body = references
+            .first()
+            .and_then(|reference| self.body_holding(&reference.query));
+        let elements: Vec<(&ElementName, &Fingerprint)> = references
+            .iter()
+            .map(|reference| (&reference.query, &reference.fingerprint))
+            .collect();
+        describe_in(
+            &elements,
+            body,
+            body.and_then(|body| self.bodies.get(body)),
+            self.feature,
+            self.names,
+            self.units,
+        )
     }
 
     /// The state of a declared body just before the feature, when the context has it.

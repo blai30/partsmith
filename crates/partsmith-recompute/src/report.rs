@@ -360,7 +360,7 @@ pub(crate) fn problems<'a>(
 mod tests {
     use std::collections::BTreeMap;
 
-    use partsmith_features::{Diagnosis, Names, SketchResult};
+    use partsmith_features::{Diagnosis, Names, NoEffectHow, SketchResult};
     use partsmith_model::{FeatureRecord, Units};
 
     use super::*;
@@ -432,7 +432,8 @@ mod tests {
         assert_eq!(message.pointer.as_deref(), Some("/body"));
         assert_eq!(
             message.text,
-            "Body 'b-9' does not exist in this document. Pick an existing body for Body."
+            // Features.md section 4.1, `unknown_body`.
+            "Body names a body that is not in this document. Pick a body for Body."
         );
         assert_eq!(message.suggestion, None);
         assert!(message.repairs.is_empty());
@@ -446,18 +447,29 @@ mod tests {
         assert_eq!((message.root, message.reason), (None, None));
     }
 
+    /// `NoEffect` of a cut beside `b-1`.
+    fn no_effect() -> FeatureWarning {
+        FeatureWarning::NoEffect {
+            body: id("b-1"),
+            how: NoEffectHow::Beside,
+            reverse_hits: false,
+            attach: None,
+        }
+    }
+
     #[test]
     fn warning_messages_render_body_names() {
-        let warning = FeatureWarning::NoEffect { body: id("b-1") };
+        let warning = no_effect();
 
         let message = rendered(Problem::Warning(&warning));
 
         assert_eq!(message.severity, Severity::Warning);
         assert_eq!(message.code, "no_effect");
         assert_eq!(message.pointer, None);
+        // Features.md section 3.15: a cut beside the body, on a feature whose type the names do not know.
         assert_eq!(
             message.text,
-            "This feature does not change body 'Bracket'. Check its position, size and direction."
+            "This cut does not touch body 'Bracket': it lies beside it."
         );
     }
 
@@ -493,9 +505,10 @@ mod tests {
         let error = FeatureError::UpstreamFailed { feature: id("f-1") };
         let warnings = [
             region_split(),
-            FeatureWarning::NoEffect { body: id("b-1") },
+            no_effect(),
             FeatureWarning::UnknownParams {
                 keys: vec!["taper".to_string()],
+                suggestions: Vec::new(),
             },
         ];
 

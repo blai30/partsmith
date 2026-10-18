@@ -5,15 +5,29 @@ use std::fmt;
 use std::sync::Arc;
 
 use partsmith_model::{
-    Dimension, Document, EmptyContext, Expr, FeatureRecord, FieldUnit, Id, Quantity, Scope, Units,
+    Dimension, Document, EmptyContext, Expr, FeatureManifest, FeatureRecord, FieldUnit, Id,
+    Quantity, Scope, Units,
 };
 use partsmith_naming::ElementKind;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::field::FieldRef;
 use crate::context::expected_dimension;
 use crate::output::{AbsentFace, FeatureOutput, OutputData, SketchResult};
 use crate::registry::Registry;
+
+/// The magnitude in display units from which a value is written in exponent form (section 3.12).
+const EXPONENT_FORM_FROM: f64 = 1e15;
+
+/// The most significant digits of a value in exponent form (section 3.12).
+const EXPONENT_FORM_DIGITS: usize = 6;
+
+/// The decimals a value is usually written with (expressions.md section 3.16).
+const USUAL_DECIMALS: usize = 6;
+
+/// The most significant digits of a value written apart from a strict bound (section 3.12).
+const APART_DIGITS: i32 = 15;
 
 /// A limit in a range error.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -103,13 +117,48 @@ pub enum FallbackCause {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Placed {
     /// On the face as it was just before `by`, the earlier writer of the body that removed it, moved with the body
-    /// since. Phase 2's placement before removal places a sketch there.
+    /// since.
     BeforeRemoval {
         /// The writer that removed the face.
         by: Id,
     },
     /// At the position saved with the sketch (`fallback`).
     Saved,
+}
+
+/// Why a join, cut, intersect or other feature changed nothing (section 3.15).
+#[derive(Clone, Debug, PartialEq)]
+pub enum NoEffectHow {
+    /// A join whose tool lies entirely inside the body.
+    Inside,
+    /// A cut or intersect whose tool starts `gap` mm beyond the body along the feature's direction.
+    Away {
+        /// How far beyond the body the tool starts, in millimeters.
+        gap: f64,
+    },
+    /// A cut or intersect whose tool ends `gap` mm short of the body along the feature's direction.
+    Short {
+        /// How far short of the body the tool ends, in millimeters.
+        gap: f64,
+    },
+    /// Any other cut or intersect that changes nothing, or one without a direction.
+    Beside,
+    /// An intersect whose shape covers the whole body.
+    Covers,
+    /// A fillet or chamfer whose every edge selected for `field`, two or more, was skipped.
+    Skipped {
+        /// The edge list.
+        field: FieldRef,
+    },
+    /// A hole whose every point, two or more, misses the body.
+    Missed,
+    /// A pattern whose every count is 1.
+    NoCopies {
+        /// Its count fields.
+        fields: Vec<FieldRef>,
+    },
+    /// A move body that moves by zero and turns by whole turns or not at all.
+    NotMoved,
 }
 
 /// Looks up what messages need about the document: names, types, records and sketch results (section 3.12).
@@ -150,6 +199,13 @@ pub trait Names {
     /// evaluate, and outside a document.
     fn value(&self, expr: &Expr, unit: FieldUnit) -> Option<f64> {
         let _ = (expr, unit);
+        None
+    }
+
+    /// The manifest of the feature's type when the feature exists and its type is known, for the fixes that read a
+    /// field's hint (section 4.1, `invalid_params`); none outside a document, which the provided method returns.
+    fn manifest(&self, feature: &Id) -> Option<&FeatureManifest> {
+        let _ = feature;
         None
     }
 }
@@ -218,6 +274,13 @@ impl Names for DocumentNames<'_> {
             .ok()
             .map(|quantity| quantity.value)
     }
+
+    fn manifest(&self, feature: &Id) -> Option<&FeatureManifest> {
+        let record = self.document.feature(feature)?;
+        self.registry
+            .get(&record.kind)
+            .map(|registered| registered.manifest())
+    }
 }
 
 /// `Names` that names every body and feature by its id and knows no types, records or sketch results. `Display`
@@ -249,8 +312,14 @@ impl Names for IdNames {
 /// Formats a value in display units for messages and suggestions (section 3.12).
 ///
 /// Lengths and angles render as `Quantity::display` does (6 decimals, trimmed, with the unit);
-/// plain numbers and counts render the same way without a unit, so a whole count is an integer.
+/// plain numbers and counts render the same way without a unit, so a whole count is an integer. A
+/// value whose magnitude in display units is at least 1e15 is written in exponent form with at
+/// most 6 significant digits, `1e200 mm`, never as hundreds of digits.
 pub fn format_value(kind: FieldUnit, value: f64, units: Units) -> String {
+    let number = display_number(kind, value, units);
+    if number.abs() >= EXPONENT_FORM_FROM {
+        return with_unit_label(kind, exponent_form(number), units);
+    }
     let quantity = match kind {
         FieldUnit::Length => Quantity::length(value),
         FieldUnit::Angle => Quantity::angle(value),
@@ -259,22 +328,117 @@ pub fn format_value(kind: FieldUnit, value: f64, units: Units) -> String {
     quantity.display(units)
 }
 
+/// `value` as `format_value` writes it, with more decimals when it would read like `bound`: the fewest that tell
+/// it apart, up to 15 significant digits (section 3.12, "Values next to a strict bound"), so a message never says
+/// that a value is out of range while showing the bound itself.
+pub(crate) fn format_value_apart(kind: FieldUnit, value: f64, bound: f64, units: Units) -> String {
+    let usual = format_value(kind, value, units);
+    if usual != format_value(kind, bound, units) {
+        return usual;
+    }
+    let number = display_number(kind, value, units);
+    let limit = display_number(kind, bound, units);
+    if number == 0.0 || !number.is_finite() {
+        return usual;
+    }
+    let magnitude = number.abs().log10().floor();
+    // The decimals that keep the value within the significant digits; `magnitude` is a small whole number.
+    let most = usize::try_from(APART_DIGITS - 1 - magnitude as i32).unwrap_or(0);
+    (USUAL_DECIMALS + 1..=most)
+        .map(|decimals| (fixed(number, decimals), fixed(limit, decimals)))
+        .find(|(value, limit)| value != limit)
+        .map_or(usual, |(value, _)| with_unit_label(kind, value, units))
+}
+
+/// The value in display units: millimeters, radians and plain numbers divided by the display factor.
+fn display_number(kind: FieldUnit, value: f64, units: Units) -> f64 {
+    value / dimension_of(kind).display_factor(units)
+}
+
+/// The dimension values of a field unit have.
+fn dimension_of(kind: FieldUnit) -> Dimension {
+    match kind {
+        FieldUnit::Length => Dimension::LENGTH,
+        FieldUnit::Angle => Dimension::ANGLE,
+        FieldUnit::Scalar | FieldUnit::Count => Dimension::NONE,
+    }
+}
+
+/// `number`, already in display units, followed by the unit of `kind` as `Quantity::display` writes it.
+fn with_unit_label(kind: FieldUnit, number: String, units: Units) -> String {
+    match kind {
+        FieldUnit::Length | FieldUnit::Angle => {
+            format!("{number} {}", dimension_of(kind).unit_label(units))
+        }
+        FieldUnit::Scalar | FieldUnit::Count => number,
+    }
+}
+
+/// `number` in exponent form with at most 6 significant digits and no trailing zeros: `1e200`, `-1.5e20`.
+fn exponent_form(number: f64) -> String {
+    let text = format!(
+        "{number:.precision$e}",
+        precision = EXPONENT_FORM_DIGITS - 1
+    );
+    let (mantissa, exponent) = text
+        .split_once('e')
+        .expect("scientific notation always has an exponent");
+    let mantissa = if mantissa.contains('.') {
+        mantissa.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        mantissa
+    };
+    format!("{mantissa}e{exponent}")
+}
+
+/// `number` with `decimals` decimals, trailing zeros removed, and negative zero written as 0.
+fn fixed(number: f64, decimals: usize) -> String {
+    let text = format!("{number:.decimals$}");
+    let trimmed = if text.contains('.') {
+        text.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        &text
+    };
+    if trimmed == "-0" {
+        "0".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// The text of a computed length limit (section 3.12): the value in display units rounded down to
 /// two significant digits, then formatted, so it never suggests more than what worked.
 pub(crate) fn suggested_limit(millimeters: f64, units: Units) -> String {
     let factor = Dimension::LENGTH.display_factor(units);
-    let truncated = round_down_to_two_digits(millimeters / factor);
+    let truncated = round_to_two_digits(millimeters / factor, Rounding::Down);
     format_value(FieldUnit::Length, truncated * factor, units)
 }
 
-/// `value` rounded toward zero to two significant digits. Zero, negative and non-finite values
-/// are returned unchanged.
+/// A length in display units rounded up to two significant digits, then formatted: the radius that a shell's
+/// fix of a fillet's rounds asks for, which is never below the value it was computed from (section 4.3).
+pub(crate) fn rounded_up_length(millimeters: f64, units: Units) -> String {
+    let factor = Dimension::LENGTH.display_factor(units);
+    let rounded = round_to_two_digits(millimeters / factor, Rounding::Up);
+    format_value(FieldUnit::Length, rounded * factor, units)
+}
+
+/// Which way a value is rounded to two significant digits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Rounding {
+    /// Toward zero.
+    Down,
+    /// Away from zero.
+    Up,
+}
+
+/// `value` rounded to two significant digits, toward zero or away from it. Zero, negative and
+/// non-finite values are returned unchanged.
 ///
 /// The digits are cut from the shortest decimal text that reads back as `value`, so a value
 /// already at two digits keeps them (2.3, although 2.3 / 0.1 is 22.999999999999996 in binary),
-/// and the result never exceeds `value`: the cut text is at most that decimal, and reading
-/// decimals rounds monotonically.
-fn round_down_to_two_digits(value: f64) -> f64 {
+/// and the result never passes `value` the wrong way: the cut text is that decimal shortened or
+/// raised in its last kept digit, and reading decimals rounds monotonically.
+fn round_to_two_digits(value: f64, rounding: Rounding) -> f64 {
     if !(value.is_finite() && value > 0.0) {
         return value;
     }
@@ -286,13 +450,20 @@ fn round_down_to_two_digits(value: f64) -> f64 {
     let exponent: i32 = exponent
         .parse()
         .expect("the exponent of scientific notation is an integer");
-    let digits: String = mantissa
+    let digits: Vec<u32> = mantissa
         .chars()
-        .filter(char::is_ascii_digit)
-        .take(2)
+        .filter_map(|character| character.to_digit(10))
         .collect();
-    let shift = i32::try_from(digits.len()).expect("at most two digits") - 1;
-    format!("{digits}e{}", exponent - shift)
+    let kept = digits.len().min(2);
+    let mut leading = digits[..kept]
+        .iter()
+        .fold(0_u32, |number, digit| number * 10 + digit);
+    let dropped = digits[kept..].iter().any(|digit| *digit != 0);
+    if rounding == Rounding::Up && dropped {
+        leading += 1;
+    }
+    let shift = i32::try_from(kept).expect("at most two digits") - 1;
+    format!("{leading}e{}", exponent - shift)
         .parse()
         .expect("digits followed by an exponent are a number")
 }
@@ -377,8 +548,56 @@ mod tests {
             99.99999999999,
             1e-7,
         ] {
-            assert!(round_down_to_two_digits(value) <= value, "value {value}");
+            assert!(
+                round_to_two_digits(value, Rounding::Down) <= value,
+                "value {value}"
+            );
+            assert!(
+                round_to_two_digits(value, Rounding::Up) >= value,
+                "value {value}"
+            );
         }
+    }
+
+    #[test]
+    fn lengths_round_up_to_two_significant_digits() {
+        assert_eq!(rounded_up_length(3.15, Units::Mm), "3.2 mm");
+        assert_eq!(rounded_up_length(3.1, Units::Mm), "3.1 mm");
+        assert_eq!(rounded_up_length(99.5, Units::Mm), "100 mm");
+        assert_eq!(rounded_up_length(25.4 * 0.123, Units::In), "0.13 in");
+    }
+
+    #[test]
+    fn huge_values_are_written_in_exponent_form() {
+        assert_eq!(
+            format_value(FieldUnit::Length, 1e200, Units::Mm),
+            "1e200 mm"
+        );
+        assert_eq!(format_value(FieldUnit::Count, 1e20, Units::Mm), "1e20");
+        assert_eq!(
+            format_value(FieldUnit::Length, -1.5e20, Units::Mm),
+            "-1.5e20 mm"
+        );
+    }
+
+    #[test]
+    fn a_value_reading_like_its_bound_gets_the_digits_that_tell_it_apart() {
+        assert_eq!(
+            format_value_apart(FieldUnit::Length, 1e-7, 0.0, Units::Mm),
+            "0.0000001 mm"
+        );
+        assert_eq!(
+            format_value_apart(FieldUnit::Length, 6.0000001, 6.0, Units::Mm),
+            "6.0000001 mm"
+        );
+        assert_eq!(
+            format_value_apart(FieldUnit::Length, 0.0, 0.0, Units::Mm),
+            "0 mm"
+        );
+        assert_eq!(
+            format_value_apart(FieldUnit::Length, 4.0, 5.0, Units::Mm),
+            "4 mm"
+        );
     }
 
     #[test]

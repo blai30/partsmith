@@ -491,7 +491,8 @@ fn t022_zero_depth_with_a_counterbore() {
     assert_error_field(error, "extent.expr");
     assert_eq!(
         run.messages("f-hole1"),
-        ["Depth must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."],
+        // Features/hole.md test 22: a depth of exactly 0 reads as 0.
+        ["Depth must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."],
     );
     assert_unchanged(&run, "f-hole1", "b-1");
 }

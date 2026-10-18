@@ -253,9 +253,19 @@ mod tests {
         let zero = cylinder_error("0");
 
         assert_eq!(tiny.code(), "out_of_range");
-        assert_eq!(tiny.to_string(), zero.to_string());
+        // The same field and bound as 0 (features.md section 3.4, the positive length rule).
+        let bound = |error: &FeatureError| match error {
+            FeatureError::OutOfRange { field, bound, .. } => Some((field.clone(), *bound)),
+            _ => None,
+        };
+        assert_eq!(bound(&tiny), bound(&zero));
+        // Features.md section 3.12: next to a strict bound the value gets the digits that tell it apart.
         assert_eq!(
             tiny.to_string(),
+            "Radius must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+        );
+        assert_eq!(
+            zero.to_string(),
             "Radius must be greater than 0 mm, but it is 0 mm. Use a value greater than 0 mm."
         );
     }

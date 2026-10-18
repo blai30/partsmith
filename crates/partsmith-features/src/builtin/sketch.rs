@@ -4,11 +4,11 @@
 use partsmith_model::{Category, FeatureManifest, FieldUnit, Id, SelectionKind};
 use partsmith_naming::{Motion, Reference};
 use partsmith_sketch::{
-    DimensionValues, HintFrame, NativeSolver, Placement, SketchParams, SketchPlane, SolveIssue,
-    Solver, ValueKind, build_profile,
+    ConstraintKind, DimensionValues, HintFrame, NativeSolver, Placement, SketchConstraint,
+    SketchParams, SketchPlane, SolveIssue, Solver, ValueKind, build_profile,
 };
 
-use super::common::{essential, hint, manifest, selection_hint};
+use super::common::{essential, hint, manifest, selection_hint, within_model_limit};
 use crate::context::{BuildContext, FaceFallback, WithWarnings};
 use crate::deps::Dependencies;
 use crate::error::{FallbackCause, FeatureError, FeatureWarning, Placed};
@@ -57,7 +57,10 @@ impl Feature for SketchFeature {
     fn validate(params: &SketchParams) -> Result<(), FeatureError> {
         params
             .validate()
-            .map_err(|error| FeatureError::SketchInvalid { error })
+            .map_err(|error| FeatureError::SketchInvalid {
+                error,
+                values: DimensionValues::new(),
+            })
     }
 
     fn dependencies(params: &SketchParams) -> Dependencies {
@@ -120,12 +123,17 @@ impl Feature for SketchFeature {
             }
         };
         let values = driving_values(params, context)?;
-        let solved = NativeSolver
-            .solve(params, &values)
-            .map_err(|error| FeatureError::SketchInvalid { error })?;
+        let solved =
+            NativeSolver
+                .solve(params, &values)
+                .map_err(|error| FeatureError::SketchInvalid {
+                    error,
+                    values: values.clone(),
+                })?;
         if !solved.conflicting.is_empty() {
             return Err(FeatureError::SketchConflict {
                 constraints: solved.conflicting.clone(),
+                values,
             });
         }
         if solved.failed {
@@ -137,7 +145,7 @@ impl Feature for SketchFeature {
                 .into_iter()
                 .filter(|issue| matches!(issue, SolveIssue::Redundant { .. }))
                 .collect();
-            warnings.push(FeatureWarning::RedundantConstraints { issues });
+            warnings.push(FeatureWarning::RedundantConstraints { issues, values });
         }
         let profile = build_profile(&solved.entities);
         Ok(FeatureOutput::new(
@@ -225,12 +233,29 @@ fn driving_values(
         }
         let field = dimension_field(index);
         let value = match kind {
-            ValueKind::Length => context.eval_length(&field, &dimension.expr)?,
+            ValueKind::Length => {
+                let length = context.eval_length(&field, &dimension.expr)?;
+                // A length that is not positive where the solver needs a positive one meets the solver's own bound
+                // first (features/sketch.md section 3.3 step 2).
+                if length > 0.0 || is_signed(constraint) {
+                    within_model_limit(context, &field, length)?
+                } else {
+                    length
+                }
+            }
             ValueKind::Angle => context.eval_angle(&field, &dimension.expr)?,
         };
         values.insert(constraint.id.clone(), value);
     }
     Ok(values)
+}
+
+/// True for the dimensions whose value may be negative: horizontal and vertical distances, which are signed extents.
+fn is_signed(constraint: &SketchConstraint) -> bool {
+    matches!(
+        constraint.kind,
+        ConstraintKind::HorizontalDistance { .. } | ConstraintKind::VerticalDistance { .. }
+    )
 }
 
 #[cfg(test)]

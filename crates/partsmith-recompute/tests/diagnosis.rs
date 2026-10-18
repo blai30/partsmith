@@ -2000,7 +2000,9 @@ fn t057_r57_a_revolve_that_turns_all_the_way_round_no_longer_makes_its_caps() {
             pick("/plane/face")
         ]
     );
-    session.assert_ok("f-ext2");
+    // The full ring has no start face to open the cut, so it seals a hollow (features.md section 3.5,
+    // `ClosedVoid`; features/sketch.md test 29).
+    session.assert_warnings("f-ext2", &["closed_void"]);
 
     edit(
         &mut session,
@@ -3033,7 +3035,6 @@ fn t072_r32b_the_hole_beside_the_body_has_the_turned_over_sketch_as_root() {
 }
 
 #[test]
-#[ignore = "phase 3 step 4: hole_misses_body by coordinates with turned_over, and no no_effect for one point (features.md sections 3.15 and 4.2)"]
 fn t072_r32b_the_hole_message_says_the_drawing_lies_mirrored_and_shows_the_sketch() {
     let session = turned_over_hole();
 

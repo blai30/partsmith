@@ -392,11 +392,12 @@ fn t022_axis_entity_is_not_a_line() {
     );
 
     run.assert_error("f-rev1", "not_a_line");
-    // The entity is named by its kind and coordinates (features.md section 4.1, sketch.md section 4).
+    // The entity is named by its kind and coordinates, with its radius in document units (features.md section 4.1,
+    // sketch.md section 4 and test 241).
     assert_eq!(
         run.messages("f-rev1"),
         [
-            "The circle at (50, 50) with radius 1 in 'Sketch 1', picked for Axis, is not a line with length. Pick a line."
+            "The circle at (50, 50) with radius 1 mm in 'Sketch 1', picked for Axis, is not a line with length. Pick a line."
         ],
     );
     assert_messages_pass_lint(&run, "f-rev1");

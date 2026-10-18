@@ -312,6 +312,7 @@ fn report(
     if !step.valid.unknown_keys.is_empty() {
         warnings.push(FeatureWarning::UnknownParams {
             keys: step.valid.unknown_keys.clone(),
+            suggestions: step.valid.suggestions.clone(),
         });
     }
     FeatureReport {
@@ -483,6 +484,7 @@ mod tests {
     fn unknown_params() -> FeatureWarning {
         FeatureWarning::UnknownParams {
             keys: vec!["thin".to_string()],
+            suggestions: Vec::new(),
         }
     }
 

@@ -106,6 +106,7 @@ impl Feature for SplitBody {
         {
             return Err(FeatureError::BodyNotEmpty {
                 body: target.clone(),
+                target: Some(context.field("target")),
             });
         }
         let whole = name_pieces(context, &pieces, state.naming())?;
@@ -443,7 +444,14 @@ mod tests {
         )
         .expect_err("b-2 holds a solid");
 
-        assert_eq!(error, FeatureError::BodyNotEmpty { body: id("b-2") });
+        // Features.md section 4.1: the error names the target field.
+        assert_eq!(
+            error,
+            FeatureError::BodyNotEmpty {
+                body: id("b-2"),
+                target: Some(FieldRef::new("target", &SplitBody::manifest())),
+            }
+        );
     }
 
     #[test]

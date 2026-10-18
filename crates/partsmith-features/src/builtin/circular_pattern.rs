@@ -150,6 +150,7 @@ impl Feature for CircularPattern {
             params.target.as_ref(),
             copies,
             axis.warnings,
+            vec![context.field("count")],
         )
     }
 
@@ -197,6 +198,7 @@ mod tests {
 
     use super::*;
     use crate::context::BodyState;
+    use crate::error::FieldRef;
     use crate::output::BodyChange;
     use crate::test_support::{
         assert_bounds, assert_volume, box_body, build, face_names, id, named_primitive,
@@ -358,7 +360,10 @@ mod tests {
 
         assert_eq!(
             result.map(|_| ()),
-            Err(FeatureError::BodyNotEmpty { body: id("b-2") })
+            Err(FeatureError::BodyNotEmpty {
+                body: id("b-2"),
+                target: Some(FieldRef::new("target", &CircularPattern::manifest())),
+            })
         );
     }
 

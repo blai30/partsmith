@@ -3,15 +3,17 @@
 use std::sync::Arc;
 
 use partsmith_model::Id;
-use partsmith_naming::{ElementName, Motion, NamingMap, TopologyInfo};
+use partsmith_naming::{ElementName, Motion, NamingMap, Reference, TopologyInfo};
 use partsmith_occt_sys::{
     InputHistory, KernelError, OpResult, Shape, SubShapeKind, common, cut, fuse,
 };
 use partsmith_sketch::{ORIGIN, Placement, PointRef, PointRole, Profile, SolveResult};
 
-use crate::context::BuildContext;
+pub use crate::body_rules::reverse_hits;
+use crate::body_rules::{attach_face, inner_shells, no_effect_how};
+use crate::context::{BodyState, BuildContext};
 use crate::error::FeatureError;
-use crate::error::FeatureWarning;
+use crate::error::{FeatureWarning, NoEffectHow};
 use crate::naming::{has_element_counts, name_by_history};
 use crate::params::BodyOp;
 
@@ -184,15 +186,27 @@ pub struct Tool {
     pub naming: NamingMap,
 }
 
+/// What `apply_op` needs to say why a directed feature changed nothing and to offer Attach (section 3.15).
+#[derive(Clone, Copy, Debug)]
+pub struct Direction<'a> {
+    /// The unit direction d: an extrude's direction after `reverse`.
+    pub direction: [f64; 3],
+    /// The sketch the profile comes from, for the Attach fix, or None.
+    pub sketch: Option<&'a Id>,
+}
+
 /// Applies `op` with `tools` to `body` with the shared body semantics (section 3.5). At least one tool.
 /// New with several tools fuses them (kernel `fuse(tools[0], rest)`). Join, Cut and Intersect pass every tool to one
 /// kernel `fuse`, `cut` or `common` call; Intersect keeps what lies inside the body and every tool. No tool is a bug
-/// in the feature and returns `Internal`. Returns the update and any NoEffect warning.
+/// in the feature and returns `Internal`. Returns the update and the warnings of the body rules (`NoEffect` with why
+/// nothing changed, `ClosedVoid`, `SeparateSolid`, section 3.5); `direction` is the feature's direction for the
+/// `NoEffect` and attach rules of section 3.15, None for a feature without one.
 pub fn apply_op(
     context: &BuildContext<'_>,
     body: &Id,
     op: BodyOp,
     tools: Vec<Tool>,
+    direction: Option<Direction<'_>>,
 ) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError> {
     if tools.is_empty() {
         return Err(FeatureError::internal("apply_op needs at least one tool"));
@@ -201,7 +215,10 @@ pub fn apply_op(
     let boolean: KernelBoolean = match op {
         BodyOp::New => {
             if !state.is_empty() {
-                return Err(FeatureError::BodyNotEmpty { body: body.clone() });
+                return Err(FeatureError::BodyNotEmpty {
+                    body: body.clone(),
+                    target: None,
+                });
             }
             let (shape, naming, topology) = combine_tools(context, tools)?;
             let update = BodyUpdate {
@@ -230,7 +247,7 @@ pub fn apply_op(
     context.check_canceled()?;
     let tool_shapes: Vec<Shape> = tools.iter().map(|tool| tool.shape.clone()).collect();
     let result = boolean(target, &tool_shapes)?;
-    apply_op_result(context, body, op, &tools, result)
+    apply_op_result(context, body, op, &tools, result, direction)
 }
 
 /// Applies the body semantics of `op` (section 3.5) to `result`, the kernel `fuse`, `cut` or
@@ -245,6 +262,7 @@ pub fn apply_op_result(
     op: BodyOp,
     tools: &[Tool],
     result: OpResult,
+    direction: Option<Direction<'_>>,
 ) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError> {
     let change = match op {
         BodyOp::New => {
@@ -300,10 +318,30 @@ pub fn apply_op_result(
             change,
             measured: state.measurements(),
         };
-        return Ok((
-            update,
-            vec![FeatureWarning::NoEffect { body: body.clone() }],
-        ));
+        let how = no_effect_how(op, target, tools, direction.map(|given| given.direction))?;
+        let attach = match how {
+            NoEffectHow::Inside => attach_to(state, direction)?,
+            _ => None,
+        };
+        let warning = FeatureWarning::NoEffect {
+            body: body.clone(),
+            how,
+            reverse_hits: false,
+            attach,
+        };
+        return Ok((update, vec![warning]));
+    }
+    let mut warnings = Vec::new();
+    if op != BodyOp::Intersect && inner_shells(&result.shape) > inner_shells(target) {
+        warnings.push(FeatureWarning::ClosedVoid { body: body.clone() });
+    }
+    let pieces = result.shape.count(SubShapeKind::Solid);
+    if op == BodyOp::Join && pieces > target.count(SubShapeKind::Solid) {
+        warnings.push(FeatureWarning::SeparateSolid {
+            body: body.clone(),
+            pieces: pieces as usize,
+            attach: attach_to(state, direction)?,
+        });
     }
     let mut inputs: Vec<&NamingMap> = vec![state.naming()];
     inputs.extend(tools.iter().map(|tool| &tool.naming));
@@ -318,7 +356,23 @@ pub fn apply_op_result(
             volume: Some(after),
         },
     };
-    Ok((update, Vec::new()))
+    Ok((update, warnings))
+}
+
+/// The feature's profile sketch and the attach face of the body before it (section 3.15), for a feature with a
+/// direction and a profile sketch when the attach rule finds a face.
+fn attach_to(
+    state: &BodyState,
+    direction: Option<Direction<'_>>,
+) -> Result<Option<(Id, Reference)>, FeatureError> {
+    let Some(Direction {
+        direction,
+        sketch: Some(sketch),
+    }) = direction
+    else {
+        return Ok(None);
+    };
+    Ok(attach_face(state, direction)?.map(|face| (sketch.clone(), face)))
 }
 
 /// True when `input` has one entry per face, edge and vertex of `shape`.
@@ -368,7 +422,7 @@ mod tests {
         tools: Vec<Tool>,
     ) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError> {
         let fixture = Fixture::new("f-op1").with_body("b-1", state);
-        apply_op(&fixture.context(), &id("b-1"), op, tools)
+        apply_op(&fixture.context(), &id("b-1"), op, tools, None)
     }
 
     fn shape(update: &BodyUpdate) -> &Shape {
@@ -419,7 +473,10 @@ mod tests {
 
         assert_eq!(
             result.map(|_| ()),
-            Err(FeatureError::BodyNotEmpty { body: id("b-1") })
+            Err(FeatureError::BodyNotEmpty {
+                body: id("b-1"),
+                target: None
+            })
         );
     }
 
@@ -456,7 +513,15 @@ mod tests {
         assert_eq!(update.change, BodyChange::Join);
         assert!((volume(shape(&update)) - 2000.0).abs() < 1e-6);
         assert_eq!(shape(&update).count(SubShapeKind::Face), 12);
-        assert!(warnings.is_empty());
+        // Features.md section 3.5: a join whose tool does not touch the body leaves separate pieces.
+        assert_eq!(
+            warnings,
+            [FeatureWarning::SeparateSolid {
+                body: id("b-1"),
+                pieces: 2,
+                attach: None,
+            }]
+        );
     }
 
     #[test]
@@ -541,7 +606,16 @@ mod tests {
         assert_eq!(update.change, BodyChange::Cut);
         assert!(Arc::ptr_eq(&update.naming, body.naming()));
         assert_eq!(shape(&update).count(SubShapeKind::Face), 6);
-        assert_eq!(warnings, [FeatureWarning::NoEffect { body: id("b-1") }]);
+        // Section 3.15: a cut without a direction lies beside the body.
+        assert_eq!(
+            warnings,
+            [FeatureWarning::NoEffect {
+                body: id("b-1"),
+                how: NoEffectHow::Beside,
+                reverse_hits: false,
+                attach: None,
+            }]
+        );
     }
 
     #[test]
@@ -555,7 +629,15 @@ mod tests {
         )
         .expect("the join builds");
 
-        assert_eq!(warnings, [FeatureWarning::NoEffect { body: id("b-1") }]);
+        assert_eq!(
+            warnings,
+            [FeatureWarning::NoEffect {
+                body: id("b-1"),
+                how: NoEffectHow::Inside,
+                reverse_hits: false,
+                attach: None,
+            }]
+        );
     }
 
     #[test]
@@ -588,7 +670,15 @@ mod tests {
         assert_eq!(update.change, BodyChange::Join);
         assert!((volume(shape(&update)) - 3000.0).abs() < 1e-6);
         assert_eq!(shape(&update).count(SubShapeKind::Solid), 3);
-        assert!(warnings.is_empty());
+        // Features.md section 3.5: tools that do not touch the body leave separate pieces.
+        assert_eq!(
+            warnings,
+            [FeatureWarning::SeparateSolid {
+                body: id("b-1"),
+                pieces: 3,
+                attach: None,
+            }]
+        );
     }
 
     #[test]
@@ -658,7 +748,13 @@ mod tests {
         let fixture = Fixture::new("f-op1");
         let tool = named_box("f-box1", [0.0, 0.0, 0.0], 10.0);
 
-        let result = apply_op(&fixture.context(), &id("b-9"), BodyOp::New, vec![tool]);
+        let result = apply_op(
+            &fixture.context(),
+            &id("b-9"),
+            BodyOp::New,
+            vec![tool],
+            None,
+        );
 
         assert_eq!(
             result.map(|_| ()).map_err(|error| error.code()),
@@ -672,7 +768,13 @@ mod tests {
         fixture.cancel.cancel();
         let tool = named_box("f-box2", [5.0, 0.0, 0.0], 10.0);
 
-        let result = apply_op(&fixture.context(), &id("b-1"), BodyOp::Join, vec![tool]);
+        let result = apply_op(
+            &fixture.context(),
+            &id("b-1"),
+            BodyOp::Join,
+            vec![tool],
+            None,
+        );
 
         assert_eq!(result.map(|_| ()), Err(FeatureError::Canceled));
     }
@@ -745,9 +847,15 @@ mod tests {
         )
         .expect("the kernel cuts");
 
-        let (update, warnings) =
-            apply_op_result(&fixture.context(), &id("b-1"), BodyOp::Cut, &tools, result)
-                .expect("the rules apply");
+        let (update, warnings) = apply_op_result(
+            &fixture.context(),
+            &id("b-1"),
+            BodyOp::Cut,
+            &tools,
+            result,
+            None,
+        )
+        .expect("the rules apply");
         let (expected, _) = apply(state, BodyOp::Cut, tools).expect("cut builds");
 
         assert_eq!(update.change, BodyChange::Cut);
@@ -767,7 +875,7 @@ mod tests {
         let target = state.shape().expect("a solid");
         let with_one = || cut(target, std::slice::from_ref(&tools[0].shape)).expect("cuts");
         let apply_result = |op, result| {
-            apply_op_result(&fixture.context(), &id("b-1"), op, &tools, result)
+            apply_op_result(&fixture.context(), &id("b-1"), op, &tools, result, None)
                 .map(|_| ())
                 .map_err(|error| error.code())
         };

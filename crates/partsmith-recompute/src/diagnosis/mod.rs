@@ -297,7 +297,9 @@ impl Explainer<'_> {
                 }
             }
             Problem::Warning(
-                FeatureWarning::NoEffect { .. } | FeatureWarning::HoleMissesBody { .. },
+                FeatureWarning::NoEffect { .. }
+                | FeatureWarning::HoleMissesBody { .. }
+                | FeatureWarning::SeparateSolid { .. },
             ) => self.sketch_root().unwrap_or_default(),
             _ => Diagnosed::default(),
         }
@@ -450,10 +452,10 @@ impl Explainer<'_> {
             .map(|later| Because::ComesLater(view.id(later).clone()))
     }
 
-    /// The explanation of a `NoEffect` or `HoleMissesBody` of the feature when the sketch it reads
-    /// lost its face in this run (a `PlaneFallback` warning, `lost_face`) or its face turned over
-    /// (a `SketchTurnedOver` warning, `turned_over`): the diagnosis names that sketch, and it is
-    /// the message's root (section 3.10). A sketch gives at most one of the two warnings, since it
+    /// The explanation of a `NoEffect`, `HoleMissesBody` or `SeparateSolid` of the feature when the
+    /// sketch it reads lost its face in this run (a `PlaneFallback` warning, `lost_face`) or its face
+    /// turned over (a `SketchTurnedOver` warning, `turned_over`): the diagnosis names that sketch,
+    /// and it is the message's root (section 3.10). A sketch gives at most one of the two warnings, since it
     /// either is on its face or falls back.
     fn sketch_root(&self) -> Option<Diagnosed> {
         let view = self.view;

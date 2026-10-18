@@ -14,15 +14,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    apply_tool, body_hint, body_op_hint, call, essential, face_name, flag, hint, is_false,
-    manifest, op_keyword, options_hint, out_of_range, profile_arguments, require_selection,
+    bodies, body_hint, body_op_hint, call, essential, face_name, flag, hint, is_false, manifest,
+    op_keyword, options_hint, out_of_range, profile_arguments, require_selection, reverse_checked,
     selection_hint, swept_tool, unit_hint,
 };
 use crate::context::{BuildContext, ResolvedProfile};
 use crate::deps::Dependencies;
 use crate::error::{Bound, FeatureError, Noun};
 use crate::feature::Feature;
-use crate::output::{Absence, AbsentFace, FeatureOutput};
+use crate::output::{Absence, AbsentFace, FeatureOutput, apply_op};
 use crate::params::{AxisRef, BodyOp, PlacementExt, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
 
@@ -130,9 +130,22 @@ impl Feature for Revolve {
         let turn = turn(params, context)?;
         let angle = turn.sweep_angle(params.reverse);
         let tool = swept_tool(context, &profile, |faces| revolve(faces, &axis, angle))?;
+        // A revolve has no straight direction, so a cut that changes nothing lies beside the body.
+        let (update, mut op_warnings) =
+            apply_op(context, &params.body, params.op, vec![tool], None)?;
+        // A full turn ignores Reverse, so it has none to offer.
+        if turn != Turn::Full {
+            op_warnings = reverse_checked(context, &params.body, op_warnings, || {
+                let back = turn.sweep_angle(!params.reverse);
+                Ok(vec![swept_tool(context, &profile, |faces| {
+                    revolve(faces, &axis, back)
+                })?])
+            })?;
+        }
         let mut messages = profile.into_messages();
         messages.extend(resolved_axis.warnings);
-        let mut output = apply_tool(context, &params.body, params.op, tool, messages)?;
+        messages.extend(op_warnings);
+        let mut output = bodies(vec![update], messages);
         if turn == Turn::Full {
             output.absent = full_turn_caps(context.feature())?;
         }
