@@ -18,8 +18,10 @@
 //! descriptions and candidates; causes and ghosts come with phase 4, and so do the rows of
 //! `list_uses` and ghost capture.
 //!
-//! Phase 3 adds two more: `set_document_units` with `keep_sizes` on the reference part, inside a
-//! transaction, each sample after an untimed new lid width and switching between mm and in; and
+//! Phase 3 adds two more: `set_document_units` with `keep_sizes` from mm to in, inside a
+//! transaction, on the reference part with the lengths of its last five features written without a
+//! unit, so that Keep sizes rewrites them and their features build again; each sample comes after
+//! an untimed new lid width and those records written without a unit again in mm. And
 //! `bare_numbers` of the 300-feature memory document after one `update_feature`. `Session::call`
 //! cannot time `bare_numbers` alone, so that row times, in a headless session, `apply_edits` of
 //! one `update_feature` that gives a suppressed box a new size without a unit: the batch, a
@@ -209,6 +211,44 @@ fn largest_radius_fix(answer: &Answer) -> Value {
         .find(|action| action["run"]["kind"] == "apply")
         .map(|action| action["run"]["fix"].clone())
         .unwrap_or_else(|| panic!("the lid fillet offers no fix: {status}"))
+}
+
+/// The reference part's text with every length of its last five features written without a unit
+/// (`6 mm` becomes `6`), the `update_feature` edits that write those records so again, and the
+/// number of lengths written so: the numbers Keep sizes rewrites when the units change.
+fn with_bare_last_five(text: &str) -> (String, Vec<Value>, usize) {
+    let mut document: Value = serde_json::from_str(text).expect("the reference part is JSON");
+    let features = document["features"]
+        .as_array_mut()
+        .expect("the reference part lists its features");
+    let first = features.len().saturating_sub(5);
+    let mut edits = Vec::new();
+    let mut lengths = 0;
+    for record in &mut features[first..] {
+        let written = without_millimeters(record);
+        if written > 0 {
+            lengths += written;
+            edits.push(json!({"type": "update_feature", "feature": record.clone()}));
+        }
+    }
+    (document.to_string(), edits, lengths)
+}
+
+/// Writes every string of `value` that is a number of millimeters as the number alone, and
+/// returns how many it wrote.
+fn without_millimeters(value: &mut Value) -> usize {
+    match value {
+        Value::String(text) => match text.strip_suffix(" mm") {
+            Some(number) if number.parse::<f64>().is_ok() => {
+                *text = number.to_owned();
+                1
+            }
+            _ => 0,
+        },
+        Value::Array(items) => items.iter_mut().map(without_millimeters).sum(),
+        Value::Object(fields) => fields.values_mut().map(without_millimeters).sum(),
+        _ => 0,
+    }
 }
 
 /// The lid count parameter the loss row adds, with `expr`.
@@ -562,24 +602,35 @@ fn main() -> ExitCode {
                 })
             });
             report.measure(reference_operations[7], Duration::from_millis(100), || {
+                let (bare, rewrites, lengths) = with_bare_last_five(&text);
+                assert!(lengths > 0, "the last five features hold lengths");
                 let mut driver = Driver::new();
-                let doc = driver.open(&text).doc();
+                let doc = driver.open(&bare).doc();
                 driver
                     .send(json!({"type": "begin_transaction", "doc": doc, "label": "Units"}))
                     .ok();
                 median(RUNS, |sample| {
-                    // A new lid width per sample, so the switched document is never a cached result.
+                    // A new lid width per sample, so no record Keep sizes rewrites is a cached
+                    // result, and the lengths without a unit again, for Keep sizes to rewrite.
                     let width = format!("{} mm", 24.5 + 0.5 * sample as f64);
+                    let mut edits = vec![last_five_edit(&bare, &width)];
+                    edits.extend(rewrites.iter().cloned());
+                    driver
+                        .send(json!({"type": "apply_edits", "doc": doc, "edits": edits}))
+                        .ok();
+                    let (time, answer) = driver.timed(json!({
+                        "type": "set_document_units", "doc": doc, "units": "in", "keep_sizes": true
+                    }));
+                    assert_eq!(
+                        answer.ok()["kept"],
+                        lengths,
+                        "Keep sizes rewrites the lengths of the last five features"
+                    );
                     driver
                         .send(json!({
-                            "type": "apply_edits", "doc": doc, "edits": [last_five_edit(&text, &width)]
+                            "type": "set_document_units", "doc": doc, "units": "mm", "keep_sizes": false
                         }))
                         .ok();
-                    let units = if sample % 2 == 0 { "in" } else { "mm" };
-                    let (time, answer) = driver.timed(json!({
-                        "type": "set_document_units", "doc": doc, "units": units, "keep_sizes": true
-                    }));
-                    answer.ok();
                     time
                 })
             });

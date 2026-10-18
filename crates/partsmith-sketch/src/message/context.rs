@@ -117,9 +117,9 @@ impl MessageContext<'_> {
         }
     }
 
-    /// The titles of the constraints one message names, in the given order. Each dimension title among titles
-    /// that would read the same names its entities (section 4).
-    pub(crate) fn titles(&self, constraints: &[&Id]) -> Vec<String> {
+    /// The titles of the constraints one message names, in the given order, which hosts also label that message's
+    /// fixes with. Each dimension title among titles that would read the same names its entities (section 4).
+    pub fn titles(&self, constraints: &[&Id]) -> Vec<String> {
         let plain: Vec<String> = constraints
             .iter()
             .map(|constraint| self.title_or(constraint, None))

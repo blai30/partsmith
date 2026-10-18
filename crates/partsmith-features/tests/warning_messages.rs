@@ -832,6 +832,18 @@ fn no_warning_has_a_suggestion() {
 }
 
 #[test]
+fn of_these_warnings_only_a_deleted_point_has_a_detail() {
+    // Section 2.8: `PointMissing` gives the point's reference; every other warning here has no detail.
+    for (warning, _) in sample_warnings() {
+        let expected = match &warning {
+            FeatureWarning::PointMissing { point, .. } => Some(point.clone()),
+            _ => None,
+        };
+        assert_eq!(warning.detail(), expected, "{warning:?}");
+    }
+}
+
+#[test]
 fn the_body_warnings_name_no_field() {
     for warning in [
         no_effect(NoEffectHow::Inside, None),

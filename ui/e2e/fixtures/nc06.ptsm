@@ -1,0 +1,33 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["40 mm", "40 mm", "20 mm"], "op": "new"},
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-20,-20,10|l=20|adj=2,2"},
+        {"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=20,-20,10|l=20|adj=2,2"},
+        {"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-20,20,10|l=20|adj=2,2"},
+        {"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=20,20,10|l=20|adj=2,2"}
+      ],
+      "radius": "1 mm"
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "body": "b-1",
+      "thickness": "2 mm",
+      "remove_faces": [
+        {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=1599.141593|adj=8,8"}
+      ]
+    }
+  ]
+}

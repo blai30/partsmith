@@ -271,6 +271,7 @@ fn operation_new_body_on_a_body_with_a_solid_offers_join_or_a_new_body() {
     let error = FeatureError::BodyNotEmpty {
         body: id("b-1"),
         target: None,
+        new_body: true,
     };
 
     assert_eq!(
@@ -284,10 +285,26 @@ fn operation_new_body_on_a_body_with_a_solid_offers_join_or_a_new_body() {
 }
 
 #[test]
+fn operation_new_body_that_needs_the_body_s_solid_offers_only_join() {
+    let error = FeatureError::BodyNotEmpty {
+        body: id("b-1"),
+        target: None,
+        new_body: false,
+    };
+
+    assert_eq!(
+        rendered(&error, "f-ext1"),
+        "Body 'Body 1' already has a solid here, so Operation New body cannot start it. Set Operation to Join."
+    );
+    assert_eq!(fixes_of(&error, "f-ext1"), [set_operation("join")]);
+}
+
+#[test]
 fn a_target_with_a_solid_asks_for_an_empty_target() {
     let error = FeatureError::BodyNotEmpty {
         body: id("b-2"),
         target: Some(target()),
+        new_body: false,
     };
 
     assert_eq!(
@@ -1096,6 +1113,7 @@ fn sample_errors() -> Vec<(FeatureError, &'static str)> {
             FeatureError::BodyNotEmpty {
                 body: id("b-1"),
                 target: None,
+                new_body: true,
             },
             "f-ext1",
         ),
@@ -1103,6 +1121,7 @@ fn sample_errors() -> Vec<(FeatureError, &'static str)> {
             FeatureError::BodyNotEmpty {
                 body: id("b-2"),
                 target: Some(target()),
+                new_body: false,
             },
             "f-split1",
         ),

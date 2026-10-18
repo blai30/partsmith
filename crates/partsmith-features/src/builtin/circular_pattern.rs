@@ -363,6 +363,7 @@ mod tests {
             Err(FeatureError::BodyNotEmpty {
                 body: id("b-2"),
                 target: Some(FieldRef::new("target", &CircularPattern::manifest())),
+                new_body: false,
             })
         );
     }

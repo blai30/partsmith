@@ -10,8 +10,20 @@
     {
       "id": "f-box2",
       "type": "box",
-      "status": "ok",
-      "messages": []
+      "status": "warning",
+      "messages": [
+        {
+          "severity": "warning",
+          "code": "separate_solid",
+          "message": "This box does not touch body 'Body 1', so the body now has 2 separate pieces.",
+          "actions": [
+            {
+              "label": "Put it in a new body",
+              "kind": "apply"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "f-sh1",
@@ -25,11 +37,11 @@
     {
       "id": "b-1",
       "name": "Body 1",
-      "volume": 6783.999999999997,
-      "area": 7103.999999999999,
+      "volume": 6783.999999999999,
+      "area": 7104.0,
       "center_of_mass": [
         25.0,
-        -1.0054850034341044e-16,
+        -1.2568562542926305e-16,
         8.641509433962263
       ],
       "bounding_box": {

@@ -132,8 +132,25 @@
     {
       "id": "f-ext2",
       "type": "extrude",
-      "status": "ok",
-      "messages": []
+      "status": "warning",
+      "messages": [
+        {
+          "severity": "warning",
+          "code": "separate_solid",
+          "message": "This extrude does not touch body 'Body 1', so the body now has 2 separate pieces.",
+          "actions": [
+            {
+              "label": "Put it in a new body",
+              "kind": "apply"
+            },
+            {
+              "label": "Attach 'Sketch 2' to the floor of the cut made by 'Extrude 1'",
+              "kind": "apply"
+            }
+          ],
+          "root": "f-sk2"
+        }
+      ]
     }
   ],
   "parameters": [],

@@ -15,7 +15,7 @@
         {
           "severity": "warning",
           "code": "no_effect",
-          "message": "This feature does not change body 'Body 1'. Check its position, size and direction."
+          "message": "This move body leaves body 'Body 1' where it is, because its move is 0 and it turns by whole turns or not at all."
         }
       ]
     }

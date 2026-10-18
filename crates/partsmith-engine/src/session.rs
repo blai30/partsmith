@@ -26,6 +26,7 @@ use crate::profiles::{Profiles, tolerance};
 use crate::state::{self, Computed};
 use crate::status::{feature_statuses, parameter_values};
 use crate::types::{Asset, EngineInfo, Opened, Saved};
+use crate::units::Inspections;
 
 /// Bytes of one cached recompute result the engine assumes when it turns its byte budget into
 /// recompute's entry limit (recompute evicts by entry count in M1, recompute.md section 1), so
@@ -56,6 +57,9 @@ pub struct Session {
     pub(crate) next_mesh_id: u64,
     /// Element tables and display meshes.
     pub(crate) cache: DisplayCache,
+    /// The registry's inspection of the feature records of every document, memoized by content
+    /// (section 3.25).
+    pub(crate) inspections: Inspections,
 }
 
 impl std::fmt::Debug for Session {
@@ -88,6 +92,7 @@ impl Session {
             next_handle: 1,
             next_mesh_id: 1,
             cache: DisplayCache::new(options.cache_budget),
+            inspections: Inspections::default(),
         }
     }
 

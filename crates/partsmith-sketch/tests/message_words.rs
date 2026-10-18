@@ -439,6 +439,25 @@ fn only_the_titles_that_would_read_the_same_name_their_entities() {
 }
 
 #[test]
+fn the_titles_of_one_message_name_the_entities_of_dimensions_that_read_the_same() {
+    let sketch = two_lines_of_equal_length().with("c-3", horizontal("e-1"));
+    let context = context(&sketch);
+
+    let titles = context.titles(&[&id("c-2"), &id("c-3"), &id("c-1")]);
+    let alone = context.titles(&[&id("c-2")]);
+
+    assert_eq!(
+        titles,
+        [
+            "Distance 40 mm on the line from (0, 10) to (40, 10)",
+            "Horizontal on the line from (0, 0) to (40, 0)",
+            "Distance 40 mm on the line from (0, 0) to (40, 0)"
+        ]
+    );
+    assert_eq!(alone, ["Distance 40 mm"]);
+}
+
+#[test]
 fn a_title_alone_in_its_message_does_not_name_its_entities() {
     let sketch = two_lines_of_equal_length();
     let issue = SolveIssue::Redundant {

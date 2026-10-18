@@ -218,6 +218,7 @@ pub fn apply_op(
                 return Err(FeatureError::BodyNotEmpty {
                     body: body.clone(),
                     target: None,
+                    new_body: true,
                 });
             }
             let (shape, naming, topology) = combine_tools(context, tools)?;
@@ -518,7 +519,8 @@ mod tests {
             result.map(|_| ()),
             Err(FeatureError::BodyNotEmpty {
                 body: id("b-1"),
-                target: None
+                target: None,
+                new_body: true
             })
         );
     }

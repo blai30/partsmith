@@ -18,6 +18,7 @@ use crate::analysis::{bed_transforms, rotation};
 use crate::assets::asset_name;
 use crate::display::MeshKey;
 use crate::error::EngineError;
+use crate::ids::NewIds;
 use crate::profiles::{is_valid_tolerance, tolerance};
 use crate::session::Session;
 use crate::state::{self, BodyView, display_bodies, select_bodies};
@@ -102,7 +103,10 @@ impl Session {
         bytes: Vec<u8>,
         name: Option<&str>,
     ) -> Result<Imported, EngineError> {
-        let open = self.open(doc)?;
+        let open = self
+            .documents
+            .get(&doc)
+            .ok_or(EngineError::UnknownDocument { doc })?;
         let step = read_step(&bytes).map_err(|error| EngineError::ImportFailed {
             detail: error.to_string(),
         })?;
@@ -117,7 +121,6 @@ impl Session {
             .unwrap_or_else(|| DEFAULT_IMPORT_NAME.to_string());
         let color = first.and_then(|solid| solid.color);
         let asset = asset_name(&bytes, "step");
-        let used = open.document.used_ids(&*self.registry);
         let body_index = open.document.bodies.len();
         let feature_index = open
             .document
@@ -125,16 +128,13 @@ impl Session {
             .as_ref()
             .and_then(|marker| open.document.feature_index(marker))
             .unwrap_or(open.document.features.len());
-        let body_id = self
-            .ids
-            .generate(IdKind::Body, &|id: &Id| used.contains(id))
-            .map_err(EngineError::unexpected)?;
-        let feature_id = self
-            .ids
-            .generate(IdKind::Feature, &|id: &Id| {
-                used.contains(id) || *id == body_id
-            })
-            .map_err(EngineError::unexpected)?;
+        let mut ids = NewIds::new(
+            &mut *self.ids,
+            &open.document,
+            self.inspections.with(&self.registry),
+        );
+        let body_id = ids.next(IdKind::Body)?;
+        let feature_id = ids.next(IdKind::Feature)?;
         let mut body = Body::new(body_id.clone(), body_name);
         body.color = color;
         let mut record = FeatureRecord::new(feature_id.clone(), IMPORT_TYPE);

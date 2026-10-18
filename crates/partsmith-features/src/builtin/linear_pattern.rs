@@ -471,6 +471,7 @@ mod tests {
             Err(FeatureError::BodyNotEmpty {
                 body: id("b-2"),
                 target: Some(FieldRef::new("target", &LinearPattern::manifest())),
+                new_body: false,
             })
         );
     }

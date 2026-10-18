@@ -8,17 +8,14 @@ use partsmith_protocol::{DocHandle, FixAction, FixKind, FixRef, SketchSolution, 
 use partsmith_sketch::{ConstraintKind, PointRef, ProfileFinding, SketchConstraint, SketchFix};
 use serde_json::Value;
 
-use super::NewIds;
 use super::edits::updated;
 use crate::counts::saturating_u32;
 use crate::error::EngineError;
+use crate::ids::NewIds;
 use crate::params::{set, value_at};
 use crate::session::Session;
-use crate::sketch::{finding_code, sketch_record};
+use crate::sketch::{finding_code, finding_field, sketch_record};
 use crate::sketching::stored_solution;
-
-/// The pointer of the profile findings of a solution, whose entries finding messages name.
-const FINDINGS: &str = "/profile_findings/";
 
 /// One action a finding offers, which connects two open ends: its label and the ends.
 struct FindingOffer {
@@ -72,15 +69,18 @@ fn gap(points: &[SolvedPoint], first: &PointRef, second: &PointRef) -> Option<f6
     Some((first[0] - second[0]).hypot(first[1] - second[1]))
 }
 
-/// The position in `profile_findings` that the field of a finding message names.
-fn finding_index(field: Option<&str>) -> Option<usize> {
-    field?.strip_prefix(FINDINGS)?.parse().ok()
-}
-
-/// True when `field` names a profile finding of a sketch's solution, whose fixes `apply_fix`
-/// finds in that solution rather than in the feature statuses.
-pub(super) fn is_finding_field(field: Option<&str>) -> bool {
-    finding_index(field).is_some()
+/// The finding of `findings` whose message has the field `field` and the code `code`, exactly as
+/// the solution's messages give them (`finding_field`, `finding_code`).
+fn finding_with<'f>(
+    findings: &'f [ProfileFinding],
+    field: &str,
+    code: &str,
+) -> Option<&'f ProfileFinding> {
+    findings
+        .iter()
+        .enumerate()
+        .find(|(index, finding)| finding_field(*index) == field && finding_code(finding) == code)
+        .map(|(_, finding)| finding)
 }
 
 /// Gives each finding message of `solution`, a solution of the stored sketch at `revision`, its
@@ -95,8 +95,10 @@ pub(crate) fn offer_finding_fixes(solution: &mut SketchSolution, revision: u64, 
         ..
     } = solution;
     for message in messages {
-        let Some(finding) =
-            finding_index(message.field.as_deref()).and_then(|index| profile_findings.get(index))
+        let Some(finding) = message
+            .field
+            .as_deref()
+            .and_then(|field| finding_with(profile_findings, field, &message.code))
         else {
             continue;
         };
@@ -136,16 +138,21 @@ impl Session {
             sketch_record(&open.document, &fix.feature).map_err(|_| EngineError::StaleFix)?;
         let solved = stored_solution(&self.registry, &open.document, &open.computed, position)
             .ok_or(EngineError::StaleFix)?;
-        let finding = finding_index(fix.field.as_deref())
-            .and_then(|index| solved.solution.profile_findings.get(index))
-            .filter(|finding| finding_code(finding) == fix.code)
+        let finding = fix
+            .field
+            .as_deref()
+            .and_then(|field| finding_with(&solved.solution.profile_findings, field, &fix.code))
             .ok_or(EngineError::StaleFix)?;
         let index = usize::try_from(fix.index).map_err(|_| EngineError::StaleFix)?;
         let offer = finding_offers(finding, &solved.solution.points, open.document.units)
             .into_iter()
             .nth(index)
             .ok_or(EngineError::StaleFix)?;
-        let mut ids = NewIds::new(&mut *self.ids, &open.document, &self.registry);
+        let mut ids = NewIds::new(
+            &mut *self.ids,
+            &open.document,
+            self.inspections.with(&self.registry),
+        );
         let edit = connected(record, &offer.first, &offer.second, &mut ids)?;
         self.apply_batch(doc, &offer.label, vec![edit])
     }
@@ -229,10 +236,18 @@ mod tests {
     }
 
     #[test]
-    fn finding_fields_name_their_position() {
-        assert_eq!(finding_index(Some("/profile_findings/2")), Some(2));
-        assert_eq!(finding_index(Some("/edges/0")), None);
-        assert_eq!(finding_index(None), None);
-        assert!(is_finding_field(Some("/profile_findings/0")));
+    fn a_finding_is_found_by_the_exact_field_and_code_of_its_message() {
+        let finding = ProfileFinding::ZeroLength {
+            entity: "e-1".parse().expect("a valid id"),
+        };
+        let findings = [finding.clone()];
+
+        let found = |field: &str, code: &str| finding_with(&findings, field, code).cloned();
+
+        assert_eq!(found("/profile_findings/0", "zero_length"), Some(finding));
+        assert_eq!(found("/profile_findings/0", "open_endpoint"), None);
+        assert_eq!(found("/profile_findings/1", "zero_length"), None);
+        assert_eq!(found("/profile_findings/+0", "zero_length"), None);
+        assert_eq!(found("/profile_findings/00", "zero_length"), None);
     }
 }

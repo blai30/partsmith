@@ -253,6 +253,7 @@ fn interval(
                     FeatureError::BodyNotEmpty {
                         body: params.body.clone(),
                         target: None,
+                        new_body: false,
                     }
                 });
             }

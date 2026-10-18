@@ -25,6 +25,7 @@ use crate::sketching::{datum_placement, stored_solution};
 use crate::state::{BodyView, display_bodies, preview_bodies};
 use crate::status::{DisplayFailure, document_diagnostics, feature_statuses, parameter_values};
 use crate::triangulate::fill_regions;
+use crate::units::Inspections;
 
 /// Events and the buffers they reference, collected for one reply.
 #[derive(Debug, Default)]
@@ -138,6 +139,7 @@ impl Session {
             registry,
             next_mesh_id,
             display,
+            inspections,
             ..
         } = self;
         let open = documents
@@ -146,7 +148,7 @@ impl Session {
         let revision = open.revision;
         // The one step that can fail comes before anything is recorded as emitted, so a failed
         // pass leaves every layer as the host last saw it.
-        document_changed(registry, open, doc, output)?;
+        document_changed(registry, inspections, open, doc, output)?;
         // Meshes are built and given their ids before the statuses, so `recomputed` can report
         // the bodies that could not be displayed and name the mesh elements of candidates.
         let meshes = display.then(|| {
@@ -196,12 +198,13 @@ impl Session {
 /// Emits `document_changed` when any of its fields changed.
 fn document_changed(
     registry: &Registry,
+    inspections: &mut Inspections,
     open: &mut OpenDocument,
     doc: DocHandle,
     output: &mut Output,
 ) -> Result<(), EngineError> {
     let changed = Changed {
-        bare_numbers: open.bare_numbers(registry),
+        bare_numbers: open.bare_numbers(registry, inspections),
         revision: open.revision,
         dirty: open.dirty()?,
         undo: open.undo.undo_label().map(str::to_string),

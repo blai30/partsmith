@@ -28,14 +28,16 @@ use common::{
 use corpus::{
     EDIT_LABEL, UPPER_BOSS_WALL, action, actions, after_edit, apply_as_one_entry, apply_fix,
     assert_undo_restores, axis_xy, back_line_notched, block_back_side, block_edited,
-    block_right_side, bosses_on_a_moved_box, box_record, cube10, datum_offset,
-    datum_on_a_split_side, datum_on_face, document, document_with, edited_text, face_names,
-    face_plane, faces_of, features, fix_ref, labels, linear_pattern, message, messages,
-    moved_by_100, nc01, nc03, nc04, nc05, nc07, nc10, nc11, parameter, picked_before, point, r03,
-    r06a, r16, r23a, r26_recreated, r28, r32b, r32b_chamfered_hole_at_an_arc_end, r32b_moved,
-    r32b_pocket, r33, r50, r56b, r66, record, redrawn_beside_a_split,
+    block_right_side, block_then, bosses_on_a_moved_box, box_record, coincident,
+    constrained_sketch, cube10, datum_offset, datum_on_a_split_side, datum_on_face, document,
+    document_with, edited_text, extrude, face_names, face_plane, faces_of, features, fix_ref,
+    labels, line, linear_pattern, message, messages, moved_by_100, nc01, nc03, nc04, nc05, nc07,
+    nc10, nc11, origin_plane, parameter, picked_before, point, r03, r06a, r16, r23a, r26_recreated,
+    r28, r32b, r32b_chamfered_hole_at_an_arc_end, r32b_moved, r32b_pocket, r33, r50, r56b, r66,
+    record, rectangle, rectangle_region, redrawn_beside_a_split,
     redrawn_beside_a_split_with_a_face_sketch, reference, repairs, right_side_redrawn_in_two,
-    send_fix, shell_with_a_misspelled_key, sketch, statuses, two_areas, volume, with, without_keys,
+    send_fix, shell_with_a_misspelled_key, sketch, statuses, through_all, two_areas, volume, with,
+    without_keys,
 };
 use partsmith_engine::Session;
 use partsmith_sketch::{HintFrame, RegionRef, SketchParams, SketchPlane};
@@ -478,6 +480,75 @@ fn solution_message(solution: &Value, code: &str) -> Value {
     found[0].clone()
 }
 
+/// BLOCK and `f-ext2`, which extrudes the rectangle (60, 10)-(100, 40) of `f-sk2` on XY Through all with Operation
+/// New body into `b-1`, which holds the block: half of it lies over the block, the other half beside it.
+fn through_all_as_a_new_body_into_the_block() -> String {
+    let outline = rectangle(5, 60.0, 10.0, 100.0, 40.0);
+    document(
+        &["b-1"],
+        &block_then(vec![
+            sketch("f-sk2", origin_plane("XY"), outline),
+            extrude(
+                "f-ext2",
+                "b-1",
+                "f-sk2",
+                vec![rectangle_region(5, 60.0, 10.0, 100.0, 40.0)],
+                through_all(),
+                "new",
+            ),
+        ]),
+    )
+}
+
+/// A Horizontal distance constraint of `expr` on what `target` names (`line`, or `points`).
+fn horizontal_distance(constraint: &str, target: (&str, Value), expr: &str) -> Value {
+    let (key, value) = target;
+    json!({"id": constraint, "type": "horizontal_distance", key: value, "expr": expr})
+}
+
+/// The sketch `f-sk1` of the lines `e-1` (0, 0)-(30, 0) and `e-2` (30, 0)-(60, 0), joined by the coincident `c-1`,
+/// each 30 mm across (`c-2` and `c-3`, whose titles read the same) and 50 mm across from end to end (`c-4`), which no
+/// position of the lines can hold.
+fn two_spans_that_cannot_reach_across() -> String {
+    document(
+        &["b-1"],
+        &[constrained_sketch(
+            "f-sk1",
+            origin_plane("XY"),
+            vec![
+                line("e-1", [0.0, 0.0], [30.0, 0.0]),
+                line("e-2", [30.0, 0.0], [60.0, 0.0]),
+            ],
+            vec![
+                coincident("c-1", "e-1.end", "e-2.start"),
+                horizontal_distance("c-2", ("line", json!("e-1")), "30 mm"),
+                horizontal_distance("c-3", ("line", json!("e-2")), "30 mm"),
+                horizontal_distance("c-4", ("points", json!(["e-1.start", "e-2.end"])), "50 mm"),
+            ],
+        )],
+    )
+}
+
+/// The record of `feature` with `suppressed` set, applied as one `apply_edits`.
+fn suppress(session: &mut Session, doc: u64, feature: &str) -> Sent {
+    let mut suppressed = record(session, doc, feature);
+    suppressed["suppressed"] = json!(true);
+    apply(
+        session,
+        doc,
+        Some("Suppress"),
+        json!([{"type": "update_feature", "feature": suppressed}]),
+    )
+}
+
+/// `solve_sketch` of the stored sketch `feature`.
+fn solve_stored(session: &mut Session, doc: u64, feature: &str) -> Sent {
+    send(
+        session,
+        json!({"type": "solve_sketch", "doc": doc, "feature": feature}),
+    )
+}
+
 #[test]
 fn t126_nc05_a_fillet_too_large_offers_the_largest_radius_that_works() {
     let mut session = session();
@@ -606,6 +677,57 @@ fn t126_nc01_a_drag_frame_and_a_candidate_solve_offer_no_action() {
         let finding = solution_message(solution, "open_endpoint");
         assert_eq!(actions(&finding), Vec::<Value>::new(), "{solution}");
     }
+}
+
+#[test]
+fn t126_nc01_solving_a_suppressed_sketch_offers_no_action() {
+    let mut session = session();
+    let doc = doc_handle(&open_text(&mut session, &nc01()));
+    suppress(&mut session, doc, "f-sk1").ok();
+
+    let solved = solve_stored(&mut session, doc, "f-sk1");
+
+    let finding = solution_message(&solved.ok()["solution"], "open_endpoint");
+    assert_eq!(actions(&finding), Vec::<Value>::new(), "{finding}");
+}
+
+#[test]
+fn t126_dimensions_whose_titles_read_the_same_are_labeled_with_their_lines() {
+    let mut session = session();
+
+    let opened = open_text(&mut session, &two_spans_that_cannot_reach_across());
+
+    let error = message(&opened, "f-sk1", "sketch_conflict");
+    assert_eq!(
+        error["message"],
+        "In 'Sketch 1', Horizontal distance 50 mm cannot hold together with Horizontal distance 30 mm on the line from (30, 0) to (60, 0), Horizontal distance 30 mm on the line from (0, 0) to (30, 0) and Coincident between the line from (0, 0) to (30, 0) and the line from (30, 0) to (60, 0)."
+    );
+    assert_eq!(
+        labels(&error),
+        [
+            "Delete Horizontal distance 50 mm",
+            "Make Horizontal distance 50 mm a reference",
+            "Delete Horizontal distance 30 mm on the line from (30, 0) to (60, 0)",
+            "Make Horizontal distance 30 mm on the line from (30, 0) to (60, 0) a reference",
+            "Delete Horizontal distance 30 mm on the line from (0, 0) to (30, 0)",
+            "Make Horizontal distance 30 mm on the line from (0, 0) to (30, 0) a reference",
+            "Delete Coincident between the line from (0, 0) to (30, 0) and the line from (30, 0) to (60, 0)"
+        ]
+    );
+}
+
+#[test]
+fn t126_through_all_with_operation_new_body_offers_only_join() {
+    let mut session = session();
+
+    let opened = open_text(&mut session, &through_all_as_a_new_body_into_the_block());
+
+    let error = message(&opened, "f-ext2", "body_not_empty");
+    assert_eq!(
+        error["message"],
+        "Body 'Body 1' already has a solid here, so Operation New body cannot start it. Set Operation to Join."
+    );
+    assert_eq!(labels(&error), ["Set Operation to Join"]);
 }
 
 #[test]
@@ -1042,6 +1164,77 @@ fn t127_nc04_attach_stands_the_boss_on_the_top_in_body_coordinates() {
         [80.0, 50.0, 45.0],
     );
     assert_undo_restores(&mut session, doc, &attach["label"], &before);
+}
+
+#[test]
+fn t127_nc04_put_it_in_a_new_body_skips_a_body_id_the_document_uses() {
+    let mut nc04: Value = serde_json::from_str(&nc04()).expect("NC04 is JSON");
+    nc04["bodies"]
+        .as_array_mut()
+        .expect("NC04 lists its bodies")
+        .push(json!({"id": "b-000000000001", "name": "Spare"}));
+    let mut session = session();
+    let opened = open_text(&mut session, &nc04.to_string());
+    let doc = doc_handle(&opened);
+    let put = action(
+        &message(&opened, "f-ext2", "separate_solid"),
+        "Put it in a new body",
+    );
+
+    apply_as_one_entry(&mut session, doc, &put);
+
+    let bodies = get_document(&mut session, doc)["document"]["bodies"].clone();
+    assert_eq!(bodies[2]["id"], "b-000000000002", "{bodies}");
+    assert_eq!(bodies[2]["name"], "Body 3");
+    assert_eq!(
+        record(&mut session, doc, "f-ext2")["body"],
+        "b-000000000002"
+    );
+}
+
+#[test]
+fn t127_through_all_set_operation_to_join_goes_through_the_block() {
+    let mut session = session();
+    let opened = open_text(&mut session, &through_all_as_a_new_body_into_the_block());
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let offered = actions(&message(&opened, "f-ext2", "body_not_empty"));
+
+    let mut applied = Vec::new();
+    for offer in &offered {
+        applied.push(apply_as_one_entry(&mut session, doc, offer));
+    }
+
+    assert_eq!(applied.len(), 1, "{offered:?}");
+    assert_eq!(record(&mut session, doc, "f-ext2")["op"], "join");
+    assert_ok_without_messages(&applied[0], &["f-ext1", "f-ext2"]);
+    // The block, and the 40 x 30 rectangle through its 30 and the 1 mm Through all goes past it, less the half that
+    // lies in the block: 120000 + 40 x 30 x 31 - 20 x 30 x 30.
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        139200.0,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_undo_restores(&mut session, doc, &offered[0]["label"], &before);
+}
+
+#[test]
+fn t127_deleting_one_of_two_dimensions_that_read_the_same_deletes_the_one_its_label_names() {
+    let mut session = session();
+    let opened = open_text(&mut session, &two_spans_that_cannot_reach_across());
+    let doc = doc_handle(&opened);
+    let delete = action(
+        &message(&opened, "f-sk1", "sketch_conflict"),
+        "Delete Horizontal distance 30 mm on the line from (30, 0) to (60, 0)",
+    );
+
+    apply_as_one_entry(&mut session, doc, &delete);
+
+    assert_eq!(
+        constraint_ids(&record(&mut session, doc, "f-sk1")),
+        ["c-1", "c-2", "c-4"]
+    );
 }
 
 // Test 128: re-anchoring.
@@ -1509,6 +1702,23 @@ fn t131_a_misspelled_settings_key_is_ignored_and_offers_to_rename_it() {
     assert_undo_restores(&mut session, doc, &actions(&warning)[0]["label"], &before);
 }
 
+#[test]
+fn t131_nc01_an_unrelated_edit_sends_the_finding_again_at_the_new_revision_and_it_still_applies() {
+    let mut session = session();
+    let doc = doc_handle(&open_text(&mut session, &nc01()));
+
+    let edited = unrelated_edit(&mut session, doc);
+
+    let finding = solution_message(edited.sketch_solution("f-sk1"), "open_endpoint");
+    let connect = action(&finding, "Connect the ends (0.3 mm apart)");
+    assert_eq!(
+        connect["run"]["fix"],
+        fix_ref("f-sk1", "open_endpoint", "/profile_findings/0", 0, 1)
+    );
+    let applied = apply_as_one_entry(&mut session, doc, &connect);
+    assert_eq!(applied.sketch_solution("f-sk1")["messages"], json!([]));
+}
+
 // Test 132: fixes in transactions.
 
 #[test]
@@ -1672,6 +1882,72 @@ fn t133_a_pick_action_an_index_past_the_actions_and_another_code_are_stale() {
         1,
         "the fix at index 0 still applies"
     );
+}
+
+#[test]
+fn t133_nc01_a_finding_s_fix_with_another_code_index_or_field_is_stale() {
+    let mut session = session();
+    let doc = doc_handle(&open_text(&mut session, &nc01()));
+    let text = saved_text(&mut session, doc);
+    let stale = [
+        fix_ref("f-sk1", "overlap", "/profile_findings/0", 0, 0),
+        fix_ref("f-sk1", "open_endpoint", "/profile_findings/0", 1, 0),
+        fix_ref("f-sk1", "open_endpoint", "/profile_findings/1", 0, 0),
+        fix_ref("f-sk1", "open_endpoint", "/profile_findings/+0", 0, 0),
+        fix_ref("f-sk1", "open_endpoint", "/profile_findings/00", 0, 0),
+    ];
+
+    for fix in stale {
+        let sent = send_fix(&mut session, doc, fix.clone());
+
+        assert_stale(&mut session, doc, &sent, 0, &text);
+    }
+    let applied = send_fix(
+        &mut session,
+        doc,
+        fix_ref("f-sk1", "open_endpoint", "/profile_findings/0", 0, 0),
+    );
+    assert_eq!(applied.ok()["revision"], 1, "the fix still applies");
+}
+
+#[test]
+fn t133_nc01_a_finding_s_fix_after_the_ends_were_joined_by_hand_is_stale() {
+    let mut session = session();
+    let doc = doc_handle(&open_text(&mut session, &nc01()));
+    let mut joined = record(&mut session, doc, "f-sk1");
+    joined["constraints"] = json!([coincident("c-9", "e-4.end", "e-1.start")]);
+    apply(
+        &mut session,
+        doc,
+        Some("Join"),
+        json!([{"type": "update_feature", "feature": joined}]),
+    )
+    .ok();
+    let text = saved_text(&mut session, doc);
+
+    let sent = send_fix(
+        &mut session,
+        doc,
+        fix_ref("f-sk1", "open_endpoint", "/profile_findings/0", 0, 1),
+    );
+
+    assert_stale(&mut session, doc, &sent, 1, &text);
+}
+
+#[test]
+fn t133_nc01_a_finding_s_fix_of_a_suppressed_sketch_is_stale() {
+    let mut session = session();
+    let doc = doc_handle(&open_text(&mut session, &nc01()));
+    suppress(&mut session, doc, "f-sk1").ok();
+    let text = saved_text(&mut session, doc);
+
+    let sent = send_fix(
+        &mut session,
+        doc,
+        fix_ref("f-sk1", "open_endpoint", "/profile_findings/0", 0, 1),
+    );
+
+    assert_stale(&mut session, doc, &sent, 1, &text);
 }
 
 // Test 134: actions hold no session data.

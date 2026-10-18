@@ -1,16 +1,18 @@
-"""Unit tests of documents, parts, parameters, ids and the current context in partsmith.document,
-and of atomic writes."""
+"""Unit tests of documents, parts, parameters, document units, ids and the current context in
+partsmith.document, and of atomic writes."""
 
 import inspect
 import os
 import warnings
 
 import pytest
-from support import partsmith_warnings, stored
+from support import partsmith_warnings, recorded_document, stored, stored_feature
 
 from partsmith import (
+    Axis,
     Document,
     ExpressionError,
+    Feature,
     FeatureError,
     Part,
     PartsmithError,
@@ -23,6 +25,7 @@ from partsmith import (
     datum_plane,
     edges,
     fillet,
+    linear_pattern,
     mm,
     param,
     printer,
@@ -343,3 +346,185 @@ def test_setting_the_printer_warns_about_each_problem_it_starts():
     assert warning.filename == __file__
     assert document.printer == "generic-fdm"
     assert rounded.status == "error"
+
+
+# Document units (python-api.md sections 2.4, 3.2 and 3.10).
+
+
+def test_setting_the_units_sends_one_set_document_units_command(monkeypatch):
+    document, session = recorded_document(monkeypatch)
+    [(_, created)] = session.exchanges
+    with Part("P"):
+        box(40, 20, 10)
+    session.exchanges.clear()
+
+    kept = document.set_units("in", keep_sizes=True)
+
+    [(command, result)] = session.exchanges
+    assert command == {"type": "set_document_units", "doc": created["doc"], "units": "in", "keep_sizes": True}
+    assert kept == result["kept"] == 3
+
+
+def test_keep_sizes_is_off_unless_asked_for(monkeypatch):
+    document, session = recorded_document(monkeypatch)
+    with Part("P"):
+        box(40, 20, 10)
+    session.exchanges.clear()
+
+    kept = document.set_units("in")
+
+    [(command, result)] = session.exchanges
+    assert command["type"] == "set_document_units"
+    # protocol.md: an absent keep_sizes is false.
+    assert command.get("keep_sizes", False) is False
+    assert kept == result["kept"] == 0
+
+
+@pytest.mark.parametrize(("units", "factor"), [("cm", 10), ("m", 1000), ("in", 25.4)])
+def test_each_document_unit_can_be_set(units, factor):
+    document = Document()
+    with Part("P") as part:
+        box(10, 10, 10)
+
+    assert document.set_units(units) == 0
+
+    assert document.units == units
+    assert part.bounding_box().max[2] == pytest.approx(10 * factor, rel=1e-9)
+
+
+@pytest.mark.parametrize("units", ["inch", "meter", "MM", ""])
+def test_only_the_unit_symbols_are_accepted(units):
+    document = Document()
+    with Part("P"):
+        box(10, 10, 10)
+    text = document.to_text()
+
+    with pytest.raises(ValueError, match="units"):
+        document.set_units(units)
+
+    assert document.to_text() == text
+
+
+def test_the_units_error_names_every_document_unit():
+    document = Document()
+
+    with pytest.raises(ValueError) as raised:
+        document.set_units("ft")
+
+    assert str(raised.value) == "Document.set_units() units must be 'mm', 'cm', 'm' or 'in', not 'ft'."
+
+
+def test_the_units_error_follows_the_document_units(monkeypatch):
+    monkeypatch.setattr("partsmith.document.DOCUMENT_UNITS", ("mm", "ft"))
+    document = Document()
+
+    with pytest.raises(ValueError) as raised:
+        document.set_units("cm")
+
+    assert str(raised.value) == "Document.set_units() units must be 'mm' or 'ft', not 'cm'."
+
+
+def test_setting_the_current_units_changes_nothing():
+    document = Document()
+    with Part("P"):
+        box(40, 20, 10)
+    text = document.to_text()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PartsmithWarning)
+        kept = document.set_units("mm", keep_sizes=True)
+
+    assert kept == 0
+    assert document.to_text() == text
+
+
+def test_keep_sizes_adds_the_old_unit_to_a_parameter_used_as_a_size():
+    document = Document()
+    width = param("width", 40)
+    with Part("P"):
+        box(width, 20 * mm, 10 * mm, id="f-box1")
+
+    assert document.set_units("in", keep_sizes=True) == 1
+
+    assert width.expression == "40 mm"
+    assert width.value == 40
+    assert stored_feature(document, "f-box1")["size"] == ["width", "20 mm", "10 mm"]
+
+
+def test_keep_sizes_leaves_alone_what_the_units_do_not_decide():
+    # A count, a number with a unit and a parameter nothing uses keep their text (model.md section 3.12).
+    document = Document()
+    unused = param("unused", 5)
+    with Part("P"):
+        box(10, 10 * mm, 10 * mm, id="f-box1")
+        linear_pattern(Axis.X, 3, 10 * mm, id="f-lp1")
+
+    assert document.set_units("in", keep_sizes=True) == 1
+
+    assert stored_feature(document, "f-box1")["size"] == ["10 mm", "10 mm", "10 mm"]
+    direction = stored_feature(document, "f-lp1")["direction"]
+    assert (direction["count"], direction["spacing"]) == ("3", "10 mm")
+    assert unused.expression == "5"
+
+
+def test_raw_numbers_after_a_units_change_are_in_the_new_units():
+    document = Document()
+    document.set_units("in")
+
+    with Sketch(Plane.XY) as sketch:
+        Point(1, 2)
+
+    assert stored_feature(document, sketch.id)["entities"][0]["position"] == [25.4, 50.8]
+
+
+def cube_with_bare_fillet() -> tuple[Document, Feature]:
+    """Corpus R48's setup in a millimeter document: a 20 mm cube whose sizes carry their unit, and a fillet of radius
+    `2` (no unit) on its front top edge, with the fillet feature."""
+    document = Document()
+    with Part("P"):
+        box(20 * mm, 20 * mm, 20 * mm)
+        rounded = fillet(edges().top().min(Axis.Y), 2)
+    return document, rounded
+
+
+def test_setting_the_units_warns_about_each_problem_it_starts():
+    document, rounded = cube_with_bare_fillet()
+    assert rounded.status == "ok"
+
+    def use_inches() -> None:
+        assert document.set_units("in") == 0
+
+    [warning] = partsmith_warnings(use_inches)
+
+    message = warning.message
+    assert (message.code, message.feature, message.suggestion) == ("fillet_too_large", rounded.id, "2 mm")
+    assert str(message).startswith(
+        "Document.set_units(): Fillet radius 2 in is too large for the selected edges: the largest that works is about "
+    )
+    assert str(message).endswith(" in. '2' has no unit, so it means 2 in in this document.")
+    assert message.actions[0] == "Use 2 mm"
+    assert warning.filename == __file__
+    # The edit is kept, as in the UI.
+    assert document.units == "in"
+    assert rounded.status == "error"
+    assert rounded.id in [feature.id for feature in document.features]
+
+
+def test_keep_sizes_starts_no_problem():
+    document, rounded = cube_with_bare_fillet()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PartsmithWarning)
+        kept = document.set_units("in", keep_sizes=True)
+
+    assert kept == 1
+    assert rounded.status == "ok"
+    assert stored_feature(document, rounded.id)["radius"] == "2 mm"
+
+
+def test_a_closed_document_refuses_a_units_change():
+    document = Document()
+    document.close()
+
+    with pytest.raises(PartsmithError, match=r"^This document is closed\.$"):
+        document.set_units("in")

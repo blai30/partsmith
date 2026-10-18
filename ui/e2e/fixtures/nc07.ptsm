@@ -1,0 +1,39 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [40, 0]},
+        {"id": "e-2", "type": "line", "start": [40, 0], "end": [40, 20]},
+        {"id": "e-3", "type": "line", "start": [40, 20], "end": [0, 20]},
+        {"id": "e-4", "type": "line", "start": [0, 20], "end": [0, 0]}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "distance", "line": "e-1", "expr": "40 mm"},
+        {"id": "c-2", "type": "distance", "line": "e-1", "expr": "30 mm"}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=20,10|a=800", "outline": "e-1,e-2,e-3,e-4"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "10 mm"},
+      "op": "new"
+    }
+  ]
+}

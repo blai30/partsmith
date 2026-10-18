@@ -205,7 +205,7 @@ pub enum FeatureWarning {
     HoleMissesBody {
         /// The point sketch.
         sketch: Id,
-        /// The point reference, for reports only.
+        /// The point reference; the message names the hole by `position` instead.
         point: String,
         /// The point's sketch coordinates in millimeters.
         position: [f64; 2],
@@ -631,8 +631,7 @@ impl FeatureWarning {
                 }
                 Some(detail)
             }
-            FeatureWarning::PointMissing { point, .. }
-            | FeatureWarning::HoleMissesBody { point, .. } => Some(point.clone()),
+            FeatureWarning::PointMissing { point, .. } => Some(point.clone()),
             _ => None,
         }
     }

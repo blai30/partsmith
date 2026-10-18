@@ -1,6 +1,6 @@
 //! The label of each fix a message offers and how it runs (engine.md section 3.22): every label
 //! starts with a verb and says exactly what changes, naming elements and regions by the words
-//! their repair gives them, and constraints by their titles.
+//! their repair gives them, and constraints by the titles their message gives them.
 
 use partsmith_features::{FieldRef, Fix, Names, Place, SelectionKind, describe_elements, joined};
 use partsmith_model::{Expr, ExprNodeKind, FeatureRecord, Id};
@@ -136,14 +136,19 @@ impl Labels<'_> {
         }
     }
 
-    /// The title of `constraint` of the sketch `sketch` (sketch.md section 4,
-    /// `MessageContext::title`) as the sketch crate renders it for the sketch's latest solve: with
-    /// its solved entities and measured values when it built, and the driving dimension values
-    /// that its conflict or redundancy message carries.
+    /// The title of `constraint` of the sketch `sketch` as the message names it (sketch.md
+    /// section 4, `MessageContext::titles` of the constraints the message's fixes name, so that a
+    /// dimension whose title reads like another's names its entities), as the sketch crate renders
+    /// it for the sketch's latest solve: with its solved entities and measured values when it
+    /// built, and the driving dimension values that its conflict or redundancy message carries.
+    /// None when the sketch does not have the constraint.
     fn constraint_title(&self, sketch: &Id, constraint: &Id) -> Option<String> {
         let run = self.feature.run;
         let view = run.feature(sketch)?;
         let params = sketch_params(run.registry, run.document, view.record).ok()?;
+        params.constraint(constraint)?;
+        let named = self.constraints_named(sketch);
+        let position = named.iter().position(|named| *named == constraint)?;
         let result = built_sketch(view.report);
         let label = run.label(sketch);
         let values = solve_values(view.report);
@@ -155,7 +160,31 @@ impl Labels<'_> {
             measured: result.map(|result| &result.solved.measured),
             units: run.document.units,
         }
-        .title(constraint)
+        .titles(&named)
+        .into_iter()
+        .nth(position)
+    }
+
+    /// The constraints of the sketch `sketch` that the message's fixes delete or make references,
+    /// in the order of the fixes, each once: the constraints the message names.
+    fn constraints_named(&self, sketch: &Id) -> Vec<&Id> {
+        let mut named: Vec<&Id> = Vec::new();
+        for fix in &self.message.fixes {
+            if let Fix::DeleteConstraint {
+                sketch: of,
+                constraint,
+            }
+            | Fix::MakeReference {
+                sketch: of,
+                constraint,
+            } = fix
+                && of == sketch
+                && !named.contains(&constraint)
+            {
+                named.push(constraint);
+            }
+        }
+        named
     }
 
     /// True for a `reference_widened` message.

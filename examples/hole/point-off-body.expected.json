@@ -21,7 +21,7 @@
         {
           "severity": "warning",
           "code": "hole_misses_body",
-          "message": "The hole at point 'e-p3' does not touch body 'Body 1'. Move the point, or turn on Reverse."
+          "message": "The hole at (100, 0) in 'Sketch 1' does not touch body 'Body 1'. Move the point onto the body."
         }
       ]
     }

@@ -5,7 +5,11 @@ import math
 import warnings
 from collections.abc import Callable
 from pathlib import Path
+from typing import ClassVar
 
+import pytest
+
+import partsmith._core
 from partsmith import Document, EngineError, Part, PartsmithWarning, Placement, Ref, run_code
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -242,3 +246,34 @@ def response_message(frame: bytes) -> dict:
     assert [message["kind"] for message in messages[:-1]] == ["event"] * (len(messages) - 1)
     assert messages[-1]["kind"] == "response"
     return messages[-1]
+
+
+ORIGINAL_SESSION = partsmith._core.Session
+"""The extension's session class, which `RecordingSession` wraps."""
+
+
+class RecordingSession:
+    """An engine session that records every command it is sent with its response's result; a test gets one with
+    `recorded_document`."""
+
+    sessions: ClassVar[list["RecordingSession"]] = []
+
+    def __init__(self, **options: bool) -> None:
+        self._session = ORIGINAL_SESSION(**options)
+        self.exchanges: list[tuple[dict, dict]] = []
+        RecordingSession.sessions.append(self)
+
+    def call(self, frame: bytes) -> bytes:
+        response = self._session.call(frame)
+        self.exchanges.append((request_command(frame), response_message(response)["result"]))
+        return response
+
+
+def recorded_document(monkeypatch: pytest.MonkeyPatch) -> tuple[Document, RecordingSession]:
+    """A new document whose session is a `RecordingSession`, with that session; the document's creation is its first
+    exchange."""
+    monkeypatch.setattr(RecordingSession, "sessions", [])
+    monkeypatch.setattr(partsmith._core, "Session", RecordingSession)
+    document = Document()
+    [session] = RecordingSession.sessions
+    return document, session

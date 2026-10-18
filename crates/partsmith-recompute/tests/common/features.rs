@@ -430,6 +430,7 @@ impl Feature for TestBlock {
                     return Err(FeatureError::BodyNotEmpty {
                         body: params.body.clone(),
                         target: None,
+                        new_body: true,
                     });
                 }
                 (size.powi(3), BodyChange::New)

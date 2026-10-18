@@ -260,6 +260,7 @@ fn body_not_empty() -> FeatureError {
     FeatureError::BodyNotEmpty {
         body: id("b-1"),
         target: None,
+        new_body: true,
     }
 }
 

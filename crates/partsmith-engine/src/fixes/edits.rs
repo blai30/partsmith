@@ -10,9 +10,9 @@ use partsmith_recompute::Status;
 use partsmith_sketch::{MatchMethod, RegionMatch, RegionRef, match_region};
 use serde_json::Value;
 
-use super::NewIds;
 use crate::elements::full_reference;
 use crate::error::EngineError;
+use crate::ids::NewIds;
 use crate::params::{
     is_list_entry, parent, remove, replace, replace_each, set, stored_references, value_at,
 };

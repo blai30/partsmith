@@ -174,6 +174,10 @@ pub enum FeatureError {
         body: Id,
         /// The target field that names it; None for Operation New body.
         target: Option<FieldRef>,
+        /// With `target` None, true when the feature would build in a new empty body, which the
+        /// message then offers; false for an extrude Through all, which needs a solid to go
+        /// through. False with a target.
+        new_body: bool,
     },
     /// A body that must hold a solid is empty. Recompute's diagnosis says why.
     BodyEmpty {
@@ -608,14 +612,27 @@ impl FeatureError {
                 "The STEP file of {} is not in this document's assets folder. Copy the assets folder that came with the document next to it, or import the file again.",
                 this()
             ),
-            FeatureError::BodyNotEmpty { body, target: None } => format!(
+            FeatureError::BodyNotEmpty {
+                body,
+                target: None,
+                new_body: true,
+            } => format!(
                 "{} already has a solid here, so Operation New body cannot start it. Set Operation to Join, or put {} in a new body.",
                 renderer.body_subject(body),
                 this()
             ),
             FeatureError::BodyNotEmpty {
                 body,
+                target: None,
+                new_body: false,
+            } => format!(
+                "{} already has a solid here, so Operation New body cannot start it. Set Operation to Join.",
+                renderer.body_subject(body)
+            ),
+            FeatureError::BodyNotEmpty {
+                body,
                 target: Some(target),
+                ..
             } => format!(
                 "{} already has a solid here, so {} cannot put its result there. Pick an empty body for {}.",
                 renderer.body_subject(body),
@@ -1051,8 +1068,14 @@ impl FeatureError {
                 },
                 Fix::pick(field.pointer()),
             ],
-            FeatureError::BodyNotEmpty { target: None, .. } => {
-                vec![operation("join"), Fix::NewBody]
+            FeatureError::BodyNotEmpty {
+                target: None,
+                new_body,
+                ..
+            } => {
+                let mut fixes = vec![operation("join")];
+                fixes.extend(new_body.then_some(Fix::NewBody));
+                fixes
             }
             FeatureError::UndeclaredDependency { .. }
             | FeatureError::Kernel { .. }

@@ -15,7 +15,7 @@
         {
           "severity": "warning",
           "code": "no_effect",
-          "message": "This feature does not change body 'Body 1'. Check its position, size and direction."
+          "message": "This linear pattern makes no copies, because Count is 1."
         }
       ]
     }
@@ -25,8 +25,8 @@
     {
       "id": "b-1",
       "name": "Body 1",
-      "volume": 999.9999999999998,
-      "area": 599.9999999999999,
+      "volume": 999.9999999999999,
+      "area": 600.0,
       "center_of_mass": [
         6.1062266354383625e-18,
         8.881784197001254e-18,

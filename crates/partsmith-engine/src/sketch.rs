@@ -9,14 +9,13 @@ use partsmith_protocol::{
     ConstraintSolveState, ConstraintState, Diagnostic, RegionInfo, Severity, SketchSolution,
     SolvedEntity, SolvedPoint,
 };
+use partsmith_recompute::FeatureReport;
 use partsmith_sketch::{
     DimensionValues, DragSession, DragTarget, EntityState, Geometry, MessageContext,
     NativeDragSession, NativeSolver, Placement, PointRef, PointRole, Profile, ProfileFinding,
     Region, SketchEntity, SketchError, SketchParams, SketchPlane, SolveIssue, SolveResult, Solver,
     ValueKind, build_profile,
 };
-
-use partsmith_recompute::FeatureReport;
 
 use crate::diagnostics::{feature_error_detail, render_feature_error};
 use crate::error::EngineError;
@@ -366,9 +365,21 @@ fn solution_messages(
     issues.chain(findings).collect()
 }
 
+/// The pointer of a solution's profile findings, under which the field of each finding message
+/// names its finding.
+const FINDINGS: &str = "/profile_findings";
+
 /// The field of the profile finding at `index` of a solution: `/profile_findings/{index}`.
 pub(crate) fn finding_field(index: usize) -> String {
-    format!("/profile_findings/{index}")
+    format!("{FINDINGS}/{index}")
+}
+
+/// True when `field` lies under a solution's profile findings, where the fields of finding
+/// messages are, rather than in feature params.
+pub(crate) fn is_finding_field(field: &str) -> bool {
+    field
+        .strip_prefix(FINDINGS)
+        .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// The code of a profile finding's message: its type.
@@ -899,6 +910,15 @@ mod tests {
 
         assert!(matches!(error, EngineError::Expression { .. }));
         assert!(error.to_string().contains("wdth"));
+    }
+
+    #[test]
+    fn finding_fields_lie_under_the_profile_findings() {
+        assert_eq!(finding_field(2), "/profile_findings/2");
+        assert!(is_finding_field("/profile_findings/0"));
+        assert!(!is_finding_field("/profile_findings"));
+        assert!(!is_finding_field("/profile_findings_old/0"));
+        assert!(!is_finding_field("/edges/0"));
     }
 
     #[test]

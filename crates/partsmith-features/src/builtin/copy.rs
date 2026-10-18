@@ -145,6 +145,7 @@ impl<'a> Source<'a> {
                     return Err(FeatureError::BodyNotEmpty {
                         body: target.clone(),
                         target: Some(context.field("target")),
+                        new_body: false,
                     });
                 }
                 target
@@ -471,6 +472,7 @@ mod tests {
         FeatureError::BodyNotEmpty {
             body: id("b-2"),
             target: Some(context.field("target")),
+            new_body: false,
         }
     }
 }

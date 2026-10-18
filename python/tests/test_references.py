@@ -1,21 +1,35 @@
-"""Reference, diagnostic and warning acceptance tests (python-api.md section 6, tests 86 to 96), as far as phases 1 and
-2 of the reference stability plan build them (docs/design/reference-stability-and-errors.md sections 10.3 item 8, PY1
-to PY3, and 10.4 item 4: planes and axes taken from elements store an element's `fallback` with `fallback_frame`
-"body" and its `axis_direction` as `direction`).
+"""Reference, diagnostic, warning and units acceptance tests (python-api.md section 6, tests 86 to 96), as far as phases
+1 to 3 of the reference stability plan build them (docs/design/reference-stability-and-errors.md sections 10.3 item 8,
+PY1 to PY3; 10.4 item 4: planes and axes taken from elements store an element's `fallback` with `fallback_frame`
+"body" and its `axis_direction` as `direction`; and 10.5 item 6, PY4: `Document.set_units` with Keep sizes, the
+newcomer error corpus's NC09).
 
-Later phases add the rest: test 94 (`Document.set_units`, PY4) comes with phase 3, and test 93's cause line (`This
-started after you changed parameter 'd'`) with phase 4, when the engine fills `cause`.
+Phase 4 adds the rest: test 93's cause line (`This started after you changed parameter 'd'`), when the engine fills
+`cause`.
 """
 
 import inspect
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import ClassVar
 
 import pytest
+from support import (
+    ABSOLUTE_TOLERANCE,
+    FIXTURES,
+    RELATIVE_TOLERANCE,
+    REPOSITORY_ROOT,
+    assert_round_trip,
+    feature_statuses,
+    fixture_text,
+    open_text,
+    partsmith_warnings,
+    placement_json,
+    recorded_document,
+    reference_json,
+    stored_feature,
+)
 
-import partsmith._core
 from partsmith import (
     Axis,
     Circle,
@@ -42,20 +56,6 @@ from partsmith import (
     move,
     param,
     run_code,
-)
-from support import (
-    FIXTURES,
-    REPOSITORY_ROOT,
-    assert_round_trip,
-    feature_statuses,
-    fixture_text,
-    open_text,
-    partsmith_warnings,
-    placement_json,
-    reference_json,
-    request_command,
-    response_message,
-    stored_feature,
 )
 
 EXAMPLES = REPOSITORY_ROOT / "examples"
@@ -244,27 +244,14 @@ def python_of(source: Callable[[Path], str | Path], directory: Path) -> str:
     return open_text(written, directory, "source.ptsm").to_python()
 
 
-# Requests.
-
-
-ORIGINAL_SESSION = partsmith._core.Session
-"""The extension's session class, which `RecordingSession` wraps."""
-
-
-class RecordingSession:
-    """An engine session that records every command it is sent with its response's result."""
-
-    sessions: ClassVar[list["RecordingSession"]] = []
-
-    def __init__(self, **options: bool) -> None:
-        self._session = ORIGINAL_SESSION(**options)
-        self.exchanges: list[tuple[dict, dict]] = []
-        RecordingSession.sessions.append(self)
-
-    def call(self, frame: bytes) -> bytes:
-        response = self._session.call(frame)
-        self.exchanges.append((request_command(frame), response_message(response)["result"]))
-        return response
+def bare_numbers_document() -> tuple[Document, Part]:
+    """Test 94's setup, the newcomer error corpus's NC09: in a millimeter document, `f-box1` 40 x 20 x 10 and `f-fil1`
+    fillet radius 2 on its front top edge, all four numbers without a unit."""
+    document = Document()
+    with Part("P") as part:
+        box(40, 20, 10, id="f-box1")
+        fillet(edges().top().min(Axis.Y), 2, id="f-fil1")
+    return document, part
 
 
 # Tests.
@@ -636,6 +623,50 @@ def test_t093_an_edit_warns_about_the_problems_it_starts():
     assert fillet_feature.id in [feature.id for feature in document.features]
 
 
+def test_t094_keep_sizes_adds_the_old_unit_to_the_four_numbers_without_one():
+    document, part = bare_numbers_document()
+    volume = part.volume()
+
+    kept = document.set_units("in", keep_sizes=True)
+
+    assert kept == 4
+    assert document.units == "in"
+    text = document.to_text()
+    for size in ('"40 mm"', '"20 mm"', '"10 mm"', '"2 mm"'):
+        assert size in text
+    assert stored_feature(document, "f-box1")["size"] == ["40 mm", "20 mm", "10 mm"]
+    assert stored_feature(document, "f-fil1")["radius"] == "2 mm"
+    assert part.volume() == pytest.approx(volume, rel=RELATIVE_TOLERANCE)
+
+
+def test_t094_without_keep_sizes_the_four_numbers_mean_inches():
+    document, part = bare_numbers_document()
+
+    kept = document.set_units("in")
+
+    assert kept == 0
+    assert document.units == "in"
+    assert stored_feature(document, "f-box1")["size"] == ["40", "20", "10"]
+    assert stored_feature(document, "f-fil1")["radius"] == "2"
+    # The box is 1016 x 508 x 254 mm; the fillet of 50.8 mm still fits, so the box keeps its extent.
+    bounding_box = part.bounding_box()
+    assert (bounding_box.min, bounding_box.max) == (
+        pytest.approx((-508, -254, 0), abs=ABSOLUTE_TOLERANCE),
+        pytest.approx((508, 254, 254), abs=ABSOLUTE_TOLERANCE),
+    )
+
+
+def test_t094_an_unknown_unit_raises_value_error():
+    document, _ = bare_numbers_document()
+    text = document.to_text()
+
+    with pytest.raises(ValueError):
+        document.set_units("ft")
+
+    assert document.units == "mm"
+    assert document.to_text() == text
+
+
 def test_t095_info_notices_are_not_emitted():
     Document()
     with Part("P"):
@@ -653,10 +684,7 @@ def test_t095_info_notices_are_not_emitted():
 
 
 def test_t096_headless_picks_name_their_body(monkeypatch):
-    monkeypatch.setattr(RecordingSession, "sessions", [])
-    monkeypatch.setattr(partsmith._core, "Session", RecordingSession)
-    Document()
-    [session] = RecordingSession.sessions
+    _, session = recorded_document(monkeypatch)
     with Part("A"):
         box(10, 10, 10)
     with Part("B") as part_b:
@@ -678,10 +706,7 @@ def test_t096_headless_picks_name_their_body(monkeypatch):
 
 
 def test_t096_the_picks_of_a_feature_function_name_their_body(monkeypatch):
-    monkeypatch.setattr(RecordingSession, "sessions", [])
-    monkeypatch.setattr(partsmith._core, "Session", RecordingSession)
-    Document()
-    [session] = RecordingSession.sessions
+    _, session = recorded_document(monkeypatch)
     with Part("P") as part:
         box(20, 30, 40)
         top_edges = edges().top()

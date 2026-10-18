@@ -8,17 +8,17 @@ mod frames;
 mod labels;
 mod renames;
 
-use std::collections::BTreeSet;
-
-use partsmith_features::{Fix, Registry};
-use partsmith_model::{Document, Id, IdGenerator, IdKind};
+use partsmith_features::Fix;
+use partsmith_model::{Document, Id};
 use partsmith_protocol::{DocHandle, FixAction, FixKind, FixRef, Repair};
 use partsmith_recompute::{Message, Recompute};
 
 use crate::document::OpenDocument;
 use crate::error::EngineError;
+use crate::ids::NewIds;
 use crate::run::{FeatureView, RunView};
 use crate::session::Session;
+use crate::sketch::is_finding_field;
 use crate::state::{self, Computed};
 use labels::Labels;
 
@@ -106,7 +106,7 @@ impl Session {
         if open.revision != fix.revision || fix.cause {
             return Err(EngineError::StaleFix);
         }
-        if findings::is_finding_field(fix.field.as_deref()) {
+        if fix.field.as_deref().is_some_and(is_finding_field) {
             return self.apply_finding_fix(doc, fix);
         }
         let run = RunView::new(&open.document, &self.registry, &open.computed.report);
@@ -131,52 +131,14 @@ impl Session {
         let later = whole
             .as_ref()
             .map(|(document, computed)| RunView::new(document, &self.registry, &computed.report));
-        let mut ids = NewIds::new(&mut *self.ids, &open.document, &self.registry);
+        let mut ids = NewIds::new(
+            &mut *self.ids,
+            &open.document,
+            self.inspections.with(&self.registry),
+        );
         let edits = feature.edits(chosen, later.as_ref().unwrap_or(&run), &mut ids)?;
         let label = label.clone();
         self.apply_batch(doc, &label, edits)
-    }
-}
-
-/// Ids for the records a fix creates (a body, a constraint), from the session's generator, so
-/// that `SequentialIds` makes them deterministic, and never an id the document uses.
-pub(super) struct NewIds<'a> {
-    /// The session's generator.
-    generator: &'a mut (dyn IdGenerator + Send),
-    /// The document the fix changes.
-    document: &'a Document,
-    /// The registry, which reads the ids feature params declare.
-    registry: &'a Registry,
-    /// The ids in use, found when the first id is made, with every id made since.
-    used: Option<BTreeSet<Id>>,
-}
-
-impl<'a> NewIds<'a> {
-    /// Ids from `generator` that `document` does not use.
-    pub(super) fn new(
-        generator: &'a mut (dyn IdGenerator + Send),
-        document: &'a Document,
-        registry: &'a Registry,
-    ) -> NewIds<'a> {
-        NewIds {
-            generator,
-            document,
-            registry,
-            used: None,
-        }
-    }
-
-    /// A new id of `kind`, unused by the document and by the ids made before it.
-    pub(super) fn next(&mut self, kind: IdKind) -> Result<Id, EngineError> {
-        let used = self
-            .used
-            .get_or_insert_with(|| self.document.used_ids(self.registry));
-        let id = self
-            .generator
-            .generate(kind, &|id: &Id| used.contains(id))
-            .map_err(EngineError::unexpected)?;
-        used.insert(id.clone());
-        Ok(id)
     }
 }
 

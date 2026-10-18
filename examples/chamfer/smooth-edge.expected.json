@@ -22,12 +22,13 @@
           "severity": "warning",
           "code": "ignored",
           "message": "One of the edges selected for Edges is smooth (its faces meet without a corner), so it was skipped.",
-          "field": "/edges"
-        },
-        {
-          "severity": "warning",
-          "code": "no_effect",
-          "message": "This feature does not change body 'Body 1'. Check its position, size and direction."
+          "field": "/edges/0",
+          "actions": [
+            {
+              "label": "Remove from Edges",
+              "kind": "apply"
+            }
+          ]
         }
       ]
     }

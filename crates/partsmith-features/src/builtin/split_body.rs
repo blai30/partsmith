@@ -107,6 +107,7 @@ impl Feature for SplitBody {
             return Err(FeatureError::BodyNotEmpty {
                 body: target.clone(),
                 target: Some(context.field("target")),
+                new_body: false,
             });
         }
         let whole = name_pieces(context, &pieces, state.naming())?;
@@ -450,6 +451,7 @@ mod tests {
             FeatureError::BodyNotEmpty {
                 body: id("b-2"),
                 target: Some(FieldRef::new("target", &SplitBody::manifest())),
+                new_body: false,
             }
         );
     }

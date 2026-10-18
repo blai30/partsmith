@@ -1,0 +1,29 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [30, 0]},
+        {"id": "e-2", "type": "line", "start": [30, 0], "end": [30, 40]},
+        {"id": "e-3", "type": "line", "start": [30, 40], "end": [0, 0]}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "distance", "line": "e-1", "expr": "30 mm"},
+        {"id": "c-2", "type": "distance", "line": "e-2", "expr": "40 mm"},
+        {"id": "c-3", "type": "distance", "line": "e-3", "expr": "80 mm"},
+        {"id": "c-4", "type": "coincident", "points": ["e-1.end", "e-2.start"]},
+        {"id": "c-5", "type": "coincident", "points": ["e-2.end", "e-3.start"]},
+        {"id": "c-6", "type": "coincident", "points": ["e-3.end", "e-1.start"]}
+      ]
+    }
+  ]
+}

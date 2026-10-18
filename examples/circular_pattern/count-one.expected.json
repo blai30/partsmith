@@ -15,7 +15,7 @@
         {
           "severity": "warning",
           "code": "no_effect",
-          "message": "This feature does not change body 'Body 1'. Check its position, size and direction."
+          "message": "This circular pattern makes no copies, because Count is 1."
         }
       ]
     }
@@ -25,7 +25,7 @@
     {
       "id": "b-1",
       "name": "Body 1",
-      "volume": 62.83185307179584,
+      "volume": 62.83185307179587,
       "area": 87.96459430051421,
       "center_of_mass": [
         20.0,

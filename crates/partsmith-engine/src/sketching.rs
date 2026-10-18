@@ -73,8 +73,9 @@ impl Session {
     }
 
     /// `solve_sketch` with the regions its display fills come from. A solve of the stored sketch
-    /// offers its findings' fixes at the current revision; a candidate's offers none, since
-    /// nothing it shows is stored.
+    /// offers its findings' fixes at the current revision when the sketch ran in the latest
+    /// recompute, so that it has the latest solution `apply_fix` finds them in; a candidate's
+    /// offers none, since nothing it shows is stored.
     pub(crate) fn solve_sketch_command(
         &self,
         doc: DocHandle,
@@ -100,7 +101,7 @@ impl Session {
             feature,
             &params,
         )?;
-        if stored {
+        if stored && ran(&open.computed, position) {
             offer_finding_fixes(&mut solved.solution, open.revision, open.document.units);
         }
         Ok(solved)
@@ -147,10 +148,25 @@ impl Session {
     }
 }
 
+/// True when the feature at timeline position `position` ran in the recompute of `computed`: it
+/// built or failed, rather than being suppressed, rolled back or not run.
+fn ran(computed: &Computed, position: usize) -> bool {
+    computed
+        .report
+        .features
+        .get(position)
+        .is_some_and(|report| {
+            !matches!(
+                report.status,
+                Status::Suppressed | Status::RolledBack | Status::NotRun
+            )
+        })
+}
+
 /// The latest solution of the stored sketch at timeline position `position`, which
 /// `sketch_solved` reports (section 3.4): its recompute output when it built, the engine's own
-/// solve of the stored params when it failed, and nothing when it is suppressed or rolled back
-/// or that solve fails. Its messages carry no actions (`offer_finding_fixes` adds them).
+/// solve of the stored params when it failed, and nothing when it did not run (`ran`) or that
+/// solve fails. Its messages carry no actions (`offer_finding_fixes` adds them).
 pub(crate) fn stored_solution(
     registry: &Registry,
     document: &Document,

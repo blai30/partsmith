@@ -1709,15 +1709,12 @@ fn t061_through_all_with_op_new_on_a_body_that_holds_a_solid() {
     assert_eq!(
         run.messages("f-ext1"),
         [
-            "Body 'Body 1' already has a solid here, so Operation New body cannot start it. Set Operation to Join, or put this extrude in a new body."
+            "Body 'Body 1' already has a solid here, so Operation New body cannot start it. Set Operation to Join."
         ]
     );
     assert_eq!(
         message(&run, "f-ext1", "body_not_empty").fixes,
-        [
-            set_field("op", "Operation", serde_json::json!("join")),
-            Fix::NewBody
-        ]
+        [set_field("op", "Operation", serde_json::json!("join"))]
     );
     assert_volume(run.shape("b-1"), 16000.0);
 }

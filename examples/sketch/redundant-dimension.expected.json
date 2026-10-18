@@ -9,7 +9,17 @@
         {
           "severity": "warning",
           "code": "redundant_constraints",
-          "message": "In 'Sketch 1', Distance 100 mm is not needed: the other constraints already set it."
+          "message": "In 'Sketch 1', Distance 100 mm is not needed: the other constraints already set it.",
+          "actions": [
+            {
+              "label": "Make Distance 100 mm a reference",
+              "kind": "apply"
+            },
+            {
+              "label": "Delete Distance 100 mm",
+              "kind": "apply"
+            }
+          ]
         }
       ]
     }

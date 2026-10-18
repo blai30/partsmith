@@ -1,5 +1,5 @@
-"""Documents, parts, parameters and the current context (python-api.md sections 2.4, 2.5, 3.1,
-3.3 and 3.11).
+"""Documents and their units, parts, parameters and the current context (python-api.md sections
+2.4, 2.5, 3.1 to 3.3 and 3.11).
 
 The current document, the current part, the open sketch and the documents a script run creates
 live in `ContextVar`s, so threads and asyncio tasks are independent. There is no other
@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from ._client import Client, Reply
 from ._files import write_atomic
 from .errors import EngineError, ExpressionError, FeatureError, PartsmithError, PartsmithWarning
-from .expressions import ATOM, Expr, render_value
+from .expressions import ATOM, LENGTH_FACTORS, Expr, render_value
 from .reports import BoundingBox, PrintReport, bounding_box, point, print_report
 
 if TYPE_CHECKING:
@@ -33,6 +33,9 @@ ASSET_NAME = re.compile(r"[0-9a-f]{64}\.[a-z0-9]+")
 
 PACKAGE_DIRECTORY = str(Path(__file__).resolve().parent)
 """Warnings and the notes of feature errors point at the first frame outside this directory."""
+
+DOCUMENT_UNITS = tuple(LENGTH_FACTORS)
+"""The units a document can have (model.md `Units`): "mm", "cm", "m" and "in"."""
 
 PROBLEM_SEVERITIES = ("warning", "error")
 """The severities of the feature messages a script is told about; info notices never are."""
@@ -124,6 +127,22 @@ class Document:
     def units(self) -> str:
         """The document units: "mm", "cm", "m" or "in"."""
         return self._recipe["units"]
+
+    def set_units(self, units: str, *, keep_sizes: bool = False) -> int:
+        """Changes the document units as one undo entry and returns how many numbers without a unit
+        got the old unit; setting the current units changes nothing and returns 0.
+
+        With `keep_sizes`, every number without a unit whose meaning the units decide gets the old
+        unit (`20` becomes `20 mm`), so no size changes; without it, those numbers take the new
+        units. Each problem the change starts in a feature is a PartsmithWarning (section 3.2).
+        """
+        if units not in DOCUMENT_UNITS:
+            *others, last = map(repr, DOCUMENT_UNITS)
+            raise ValueError(f"Document.set_units() units must be {', '.join(others)} or {last}, not {units!r}.")
+        before = self._problems()
+        reply = self._client.command("set_document_units", units=units, keep_sizes=bool(keep_sizes))
+        self._warn_new_problems("Document.set_units()", before)
+        return reply.result["kept"]
 
     @property
     def printer(self) -> str | None:

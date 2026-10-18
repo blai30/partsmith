@@ -91,7 +91,8 @@ def test_t084_reserved_references_are_named_constants_outside_all():
 def test_t084_a_rejected_use_fails_like_an_invalid_sketch():
     document = Document()
 
-    with pytest.raises(FeatureError, match="x_axis"), Sketch(Plane.XY):
+    # sketch.md section 4 names a reserved reference in words.
+    with pytest.raises(FeatureError, match="cannot use the x axis"), Sketch(Plane.XY):
         line = Line((0, 0), (10, 0))
         Equal(Sketch.X_AXIS, line)
 
