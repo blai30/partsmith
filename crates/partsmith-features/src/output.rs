@@ -280,6 +280,48 @@ pub fn apply_op_result(
             "apply_op_result needs a body that holds a solid",
         ));
     };
+    check_history(&result, target, tools)?;
+    let before = state.volume()?;
+    let after = result.shape.volume()?;
+    let nothing_left =
+        result.shape.count(SubShapeKind::Solid) == 0 || after <= VOLUME_TOLERANCE * before;
+    if op != BodyOp::Join && nothing_left {
+        return Err(FeatureError::EmptyResult {
+            body: body.clone(),
+            op,
+        });
+    }
+    if (after - before).abs() <= VOLUME_TOLERANCE * before {
+        let update = BodyUpdate {
+            body: body.clone(),
+            shape: Some(target.clone()),
+            naming: Arc::clone(state.naming()),
+            change,
+            measured: state.measurements(),
+        };
+        let warning = no_effect(state, target, body, op, tools, direction)?;
+        return Ok((update, vec![warning]));
+    }
+    let warnings = changed_body_warnings(state, target, body, op, &result, direction)?;
+    let mut inputs: Vec<&NamingMap> = vec![state.naming()];
+    inputs.extend(tools.iter().map(|tool| &tool.naming));
+    let named = name_by_history(context.feature(), &result, &inputs, &Motion::IDENTITY)?;
+    let update = BodyUpdate {
+        body: body.clone(),
+        shape: Some(result.shape),
+        naming: Arc::new(named.naming),
+        change,
+        measured: Measurements {
+            topology: Some(named.topology),
+            volume: Some(after),
+        },
+    };
+    Ok((update, warnings))
+}
+
+/// `Internal` unless `result`'s history has one input per shape, the body's `target` and then each tool's, with that
+/// shape's face, edge and vertex counts.
+fn check_history(result: &OpResult, target: &Shape, tools: &[Tool]) -> Result<(), FeatureError> {
     if result.history.inputs.len() != tools.len() + 1 {
         return Err(FeatureError::internal(format!(
             "the kernel result has {} history inputs, not the body and {} tools",
@@ -300,44 +342,49 @@ pub fn apply_op_result(
             )));
         }
     }
-    let before = state.volume()?;
-    let after = result.shape.volume()?;
-    let nothing_left =
-        result.shape.count(SubShapeKind::Solid) == 0 || after <= VOLUME_TOLERANCE * before;
-    if op != BodyOp::Join && nothing_left {
-        return Err(FeatureError::EmptyResult {
-            body: body.clone(),
-            op,
-        });
-    }
-    if (after - before).abs() <= VOLUME_TOLERANCE * before {
-        let update = BodyUpdate {
-            body: body.clone(),
-            shape: Some(target.clone()),
-            naming: Arc::clone(state.naming()),
-            change,
-            measured: state.measurements(),
-        };
-        let how = no_effect_how(op, target, tools, direction.map(|given| given.direction))?;
-        let attach = match how {
-            NoEffectHow::Inside => attach_to(state, direction)?,
-            _ => None,
-        };
-        let warning = FeatureWarning::NoEffect {
-            body: body.clone(),
-            how,
-            reverse_hits: false,
-            attach,
-        };
-        return Ok((update, vec![warning]));
-    }
+    Ok(())
+}
+
+/// The `NoEffect` of a join, cut or intersect of `tools` with the body in `state`, whose shape is `target`, that
+/// changed nothing (section 3.15): why, and for a join inside the body the attach face.
+fn no_effect(
+    state: &BodyState,
+    target: &Shape,
+    body: &Id,
+    op: BodyOp,
+    tools: &[Tool],
+    direction: Option<Direction<'_>>,
+) -> Result<FeatureWarning, FeatureError> {
+    let how = no_effect_how(op, target, tools, direction.map(|given| given.direction))?;
+    let attach = match how {
+        NoEffectHow::Inside => attach_to(state, direction)?,
+        _ => None,
+    };
+    Ok(FeatureWarning::NoEffect {
+        body: body.clone(),
+        how,
+        reverse_hits: false,
+        attach,
+    })
+}
+
+/// The body rules' warnings of a join or cut that changed the body in `state`, whose shape is `target`, into `result`
+/// (section 3.5): `ClosedVoid` when it has more inner shells, and for a join `SeparateSolid` when it has more solids.
+fn changed_body_warnings(
+    state: &BodyState,
+    target: &Shape,
+    body: &Id,
+    op: BodyOp,
+    result: &OpResult,
+    direction: Option<Direction<'_>>,
+) -> Result<Vec<FeatureWarning>, FeatureError> {
     let mut warnings = Vec::new();
     if op != BodyOp::Intersect && inner_shells(&result.shape) > inner_shells(target) {
         warnings.push(FeatureWarning::ClosedVoid { body: body.clone() });
     }
     let pieces = result.shape.count(SubShapeKind::Solid);
     if op == BodyOp::Join && pieces > target.count(SubShapeKind::Solid) {
-        let part_joined = part_joined(&result)?;
+        let part_joined = part_joined(result)?;
         // When part of the tools joined the body, the sketch reaches it already, and a new body would take that
         // part along, so neither fix is offered.
         let attach = if part_joined {
@@ -352,20 +399,7 @@ pub fn apply_op_result(
             attach,
         });
     }
-    let mut inputs: Vec<&NamingMap> = vec![state.naming()];
-    inputs.extend(tools.iter().map(|tool| &tool.naming));
-    let named = name_by_history(context.feature(), &result, &inputs, &Motion::IDENTITY)?;
-    let update = BodyUpdate {
-        body: body.clone(),
-        shape: Some(result.shape),
-        naming: Arc::new(named.naming),
-        change,
-        measured: Measurements {
-            topology: Some(named.topology),
-            volume: Some(after),
-        },
-    };
-    Ok((update, warnings))
+    Ok(warnings)
 }
 
 /// The feature's profile sketch and the attach face of the body before it (section 3.15), for a feature with a

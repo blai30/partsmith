@@ -6,6 +6,7 @@ use std::sync::Arc;
 use partsmith_features::{DatumResult, OutputData, Registry};
 use partsmith_model::{Document, Edit, FeatureRecord, Id};
 use partsmith_protocol::{DocHandle, SketchSolution};
+use partsmith_recompute::Status;
 use partsmith_sketch::{
     DimensionValues, NativeSolver, OriginPlane, Placement, PointRef, Region, RegionRef,
     SketchParams, SketchPlane, Solver, build_profile,
@@ -13,10 +14,12 @@ use partsmith_sketch::{
 use serde_json::Value;
 
 use crate::error::EngineError;
+use crate::fixes::offer_finding_fixes;
 use crate::frames::{face_placement, kept_face_plane, placement_hint, sketch_motion};
 use crate::session::{Session, evaluate_in};
 use crate::sketch::{
-    Drag, SketchWords, Solved, dimension_values, has_point, sketch_params, sketch_record, solve,
+    Drag, SketchWords, Solved, built, dimension_values, has_point, sketch_params, sketch_record,
+    solve, solve_values,
 };
 use crate::state::{Computed, built_output, built_sketch, feature_label, state_before};
 
@@ -69,7 +72,9 @@ impl Session {
         self.apply_batch(doc, "Drag", vec![Edit::UpdateFeature { feature: record }])
     }
 
-    /// `solve_sketch` with the regions its display fills come from.
+    /// `solve_sketch` with the regions its display fills come from. A solve of the stored sketch
+    /// offers its findings' fixes at the current revision; a candidate's offers none, since
+    /// nothing it shows is stored.
     pub(crate) fn solve_sketch_command(
         &self,
         doc: DocHandle,
@@ -78,6 +83,7 @@ impl Session {
     ) -> Result<Solved, EngineError> {
         let open = self.open(doc)?;
         let (position, record) = sketch_record(&open.document, feature)?;
+        let stored = candidate.is_none();
         let params = match candidate {
             Some(candidate) => {
                 let mut record = record.clone();
@@ -86,14 +92,18 @@ impl Session {
             }
             None => sketch_params(&self.registry, &open.document, record)?,
         };
-        solve_in(
+        let mut solved = solve_in(
             &self.registry,
             &open.document,
             &open.computed,
             position,
             feature,
             &params,
-        )
+        )?;
+        if stored {
+            offer_finding_fixes(&mut solved.solution, open.revision, open.document.units);
+        }
+        Ok(solved)
     }
 
     /// `drag_sketch` with the regions its display fills come from.
@@ -134,6 +144,39 @@ impl Session {
         let solved = drag.solved(feature);
         open.drags.insert(feature.clone(), drag);
         Ok(solved)
+    }
+}
+
+/// The latest solution of the stored sketch at timeline position `position`, which
+/// `sketch_solved` reports (section 3.4): its recompute output when it built, the engine's own
+/// solve of the stored params when it failed, and nothing when it is suppressed or rolled back
+/// or that solve fails. Its messages carry no actions (`offer_finding_fixes` adds them).
+pub(crate) fn stored_solution(
+    registry: &Registry,
+    document: &Document,
+    computed: &Computed,
+    position: usize,
+) -> Option<Solved> {
+    let record = document.features.get(position)?;
+    let report = computed.report.features.get(position)?;
+    match report.status {
+        Status::Ok | Status::Warning => {
+            let result = built_sketch(report)?;
+            let params = sketch_params(registry, document, record).ok()?;
+            let words = SketchWords::of(registry, document, &record.id);
+            Some(built(
+                &record.id,
+                &params,
+                result,
+                &solve_values(report),
+                &words,
+            ))
+        }
+        Status::Error => {
+            let params = sketch_params(registry, document, record).ok()?;
+            solve_in(registry, document, computed, position, &record.id, &params).ok()
+        }
+        Status::Suppressed | Status::RolledBack | Status::NotRun => None,
     }
 }
 

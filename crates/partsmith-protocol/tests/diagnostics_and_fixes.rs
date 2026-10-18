@@ -1,12 +1,13 @@
-//! Acceptance tests for diagnostics, fixes, repairs and `apply_fix` (protocol.md section 6, "Diagnostics, fixes, repairs and the commands of ADR 0024", tests 72 to 80 and 83), plus small unit tests of the same shapes.
-//! Test 80 checks `SketchSolution::messages`; its `DocumentChanged::bare_numbers` half arrives with that field (reference stability plan, phase 3). Tests 81 and 82 live in `schema.rs` and the UI.
+//! Acceptance tests for diagnostics, fixes, repairs, `apply_fix` and `set_document_units` (protocol.md section 6, "Diagnostics, fixes, repairs and the commands of ADR 0024", tests 72 to 80 and 83), plus small unit tests of the same shapes.
+//! The `list_uses` half of test 76 arrives with that command (reference stability plan, phase 4). Tests 81 and 82 live in `schema.rs` and the UI.
 
 mod common;
 
 use common::examples::{
-    APPLY_FIX_REQUEST, APPLY_FIX_RESULT, ELEMENT_REPAIR, ERROR_CODES, FEATURE_STATUS_R03,
-    FIX_ACTIONS, FRONT_TOP_EDGE_DESCRIPTOR, FULL_REFERENCE, GHOSTS, INTERNAL_ERROR_OUTCOME,
-    LOSS_REASONS, MERGED_REFERENCE, R16_DIAGNOSTIC, REGION_REPAIR, SKETCH_SOLVED_EVENT,
+    APPLY_FIX_REQUEST, APPLY_FIX_RESULT, DOCUMENT_CHANGED_EVENT, ELEMENT_REPAIR, ERROR_CODES,
+    FEATURE_STATUS_R03, FIX_ACTIONS, FRONT_TOP_EDGE_DESCRIPTOR, FULL_REFERENCE, GHOSTS,
+    INTERNAL_ERROR_OUTCOME, LOSS_REASONS, MERGED_REFERENCE, R16_DIAGNOSTIC, REGION_REPAIR,
+    SET_DOCUMENT_UNITS_REQUEST, SET_DOCUMENT_UNITS_RESULT, SKETCH_SOLVED_EVENT,
     SOLVE_ON_FACE_IN_BODY_FRAME, STALE_FIX_MESSAGE, TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME,
     UNKNOWN_PRINTER_DIAGNOSTIC,
 };
@@ -14,6 +15,7 @@ use common::{
     compact, frame_with_messages, header_bytes, id, message, object_keys, parse_json, schema_json,
     variant_tags,
 };
+use partsmith_model::Units;
 use partsmith_naming::Reference;
 use partsmith_protocol::{
     Absence, Axis, Buffer, BufferIndex, Cause, Command, CommandResult, CurveKind, Diagnostic,
@@ -490,6 +492,60 @@ fn t076_apply_fix_request_and_result_round_trip_and_the_request_is_strict() {
 }
 
 #[test]
+fn t076_set_document_units_request_and_result_round_trip() {
+    let command: Command = parse(SET_DOCUMENT_UNITS_REQUEST);
+    assert_eq!(
+        command,
+        Command::SetDocumentUnits {
+            doc: DocHandle(1),
+            units: Units::In,
+            keep_sizes: true,
+        }
+    );
+    assert_eq!(command.type_name(), "set_document_units");
+    assert_eq!(written(&command), compact(SET_DOCUMENT_UNITS_REQUEST));
+
+    let result: CommandResult = parse(SET_DOCUMENT_UNITS_RESULT);
+    assert_eq!(
+        result,
+        CommandResult::SetDocumentUnits {
+            revision: 5,
+            kept: 4,
+        }
+    );
+    assert_eq!(written(&result), compact(SET_DOCUMENT_UNITS_RESULT));
+
+    let (request, buffers) = decode_request(SET_DOCUMENT_UNITS_REQUEST)
+        .expect("the set_document_units example decodes from a frame");
+    assert_eq!(request.command, command);
+    assert!(buffers.is_empty());
+}
+
+#[test]
+fn t076_set_document_units_without_keep_sizes_keeps_no_sizes() {
+    let command: Command = parse(r#"{"type":"set_document_units","doc":1,"units":"in"}"#);
+
+    assert_eq!(
+        command,
+        Command::SetDocumentUnits {
+            doc: DocHandle(1),
+            units: Units::In,
+            keep_sizes: false,
+        }
+    );
+}
+
+#[test]
+fn set_document_units_requests_are_strict() {
+    // An unknown field, units that are not document units, and a request without units.
+    assert_malformed_request(
+        r#"{"type":"set_document_units","doc":1,"units":"in","keep_sizes":true,"extra":1}"#,
+    );
+    assert_malformed_request(r#"{"type":"set_document_units","doc":1,"units":"ft"}"#);
+    assert_malformed_request(r#"{"type":"set_document_units","doc":1,"keep_sizes":true}"#);
+}
+
+#[test]
 fn t077_error_info_writes_detail_and_actions_after_span_only_when_present() {
     let every_field = ErrorInfo {
         code: ErrorCode::ExpressionError,
@@ -712,8 +768,59 @@ fn t079_descriptors_carry_fallback_and_axis_direction_and_picks_may_name_their_b
 }
 
 #[test]
+fn t080_document_changed_writes_bare_numbers_last() {
+    let event = message(DOCUMENT_CHANGED_EVENT);
+    let Message::Event(Event::DocumentChanged { bare_numbers, .. }) = &event else {
+        panic!("the example is a document_changed event, got {event:?}");
+    };
+    assert_eq!(*bare_numbers, 0);
+
+    let text = written(&event);
+    assert_eq!(text, compact(DOCUMENT_CHANGED_EVENT));
+    assert_eq!(
+        object_keys(&parse_json(&text)).last(),
+        Some(&"bare_numbers")
+    );
+}
+
+#[test]
+fn document_changed_writes_a_count_of_bare_numbers() {
+    let Message::Event(Event::DocumentChanged {
+        doc,
+        revision,
+        document,
+        dirty,
+        undo,
+        redo,
+        transaction_open,
+        transaction,
+        focus,
+        ..
+    }) = message(DOCUMENT_CHANGED_EVENT)
+    else {
+        panic!("the example is a document_changed event");
+    };
+    let event = Event::DocumentChanged {
+        doc,
+        revision,
+        document,
+        dirty,
+        undo,
+        redo,
+        transaction_open,
+        transaction,
+        focus,
+        bare_numbers: 4,
+    };
+
+    let value = serde_json::to_value(&event).expect("an event serializes");
+
+    assert_eq!(value["bare_numbers"], 4);
+    assert_eq!(object_keys(&value).last(), Some(&"bare_numbers"));
+}
+
+#[test]
 fn t080_sketch_solution_writes_its_messages_after_profile_findings() {
-    // The `DocumentChanged::bare_numbers` half of test 80 joins with that field (reference stability plan, phase 3).
     let event = message(SKETCH_SOLVED_EVENT);
     let Message::Event(Event::SketchSolved { solution, .. }) = &event else {
         panic!("the example is a sketch_solved event, got {event:?}");

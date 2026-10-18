@@ -166,12 +166,13 @@ impl Feature for Extrude {
         // A symmetric extrusion is the same either way round, so it has no Reverse to offer. A reversed one that
         // lies inside the body may come out of it with Reverse turned off.
         if !symmetric {
-            op_warnings = reverse_checked(context, &params.body, op_warnings, params.reverse, || {
-                let back = direction.scaled(-1.0);
-                Ok(vec![swept_tool(context, &profile, |faces| {
-                    extrude(faces, back, start, end)
-                })?])
-            })?;
+            op_warnings =
+                reverse_checked(context, &params.body, op_warnings, params.reverse, || {
+                    let back = direction.scaled(-1.0);
+                    Ok(vec![swept_tool(context, &profile, |faces| {
+                        extrude(faces, back, start, end)
+                    })?])
+                })?;
         }
         let mut messages = profile.into_messages();
         messages.extend(op_warnings);

@@ -446,7 +446,11 @@ pub(crate) fn reverse_checked(
 /// True when the tools add more than `VOLUME_TOLERANCE` times the body's volume to it: a tool's volume less what it
 /// shares with the body (one kernel `common` per tool until one adds some), for Turn off Reverse on a join that lies
 /// inside the body (features.md section 3.15).
-fn adds_volume(context: &BuildContext<'_>, body: &Id, tools: &[Tool]) -> Result<bool, FeatureError> {
+fn adds_volume(
+    context: &BuildContext<'_>,
+    body: &Id,
+    tools: &[Tool],
+) -> Result<bool, FeatureError> {
     let state = context.body(body)?;
     let Some(target) = state.shape() else {
         return Ok(false);
@@ -454,7 +458,9 @@ fn adds_volume(context: &BuildContext<'_>, body: &Id, tools: &[Tool]) -> Result<
     let volume = state.volume()?;
     for tool in tools {
         check_canceled(context)?;
-        let shared = common(target, std::slice::from_ref(&tool.shape))?.shape.volume()?;
+        let shared = common(target, std::slice::from_ref(&tool.shape))?
+            .shape
+            .volume()?;
         if tool.shape.volume()? - shared > VOLUME_TOLERANCE * volume {
             return Ok(true);
         }

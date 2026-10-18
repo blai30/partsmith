@@ -1,19 +1,20 @@
-//! Acceptance tests 126 to 135 of `docs/spec/engine.md` section 6, as far as phases 1 and 2 of the reference stability
-//! plan build them: the labels and kinds of fix actions, `apply_fix` of each kind of fix these phases offer with its
-//! undo label, re-anchoring for `KeepMatch` and `KeepRegions`, timeline fixes, fixes inside a transaction,
-//! `stale_fix`, actions that hold no session data, and the frame fixes `Attach` and `TurnDrawingBack` (section 3.22).
-//! A test named `tNNN` is section 6 test NNN; a test with several documents is one test per document.
+//! Acceptance tests 126 to 135 of `docs/spec/engine.md` section 6: the labels and kinds of fix actions, `apply_fix`
+//! of each kind of fix with its undo label, re-anchoring for `KeepMatch` and `KeepRegions`, timeline fixes, fixes
+//! inside a transaction, `stale_fix`, actions that hold no session data, and the frame fixes `Attach` and
+//! `TurnDrawingBack` (section 3.22). A test named `tNNN` is section 6 test NNN; a test with several documents is one
+//! test per document.
 //!
 //! Scenarios come from `corpus`: each setup is opened with its references picked, and "after its edit" is the corpus
 //! edit applied as one `apply_edits` labeled `Edit`, so the actions it offers carry revision 1. Corpus R26 is made as
-//! test 136 makes it, in three `apply_edits` (`r26_recreated`), so its actions carry revision 3.
+//! test 136 makes it, in three `apply_edits` (`r26_recreated`), so its actions carry revision 3. A newcomer error
+//! scenario without an edit is only opened, so its actions carry revision 0.
 //!
-//! Left for the phases that make the fixes they need: the actions of NC05 (`Use 2.3 mm`, and `Replace r * 2 with` of a
-//! too large radius, test 126), NC03 (`Turn on Reverse`), NC10 (`Replace hieght with height`), CUBE10's linear pattern
-//! without a target (`Set Operation to Join`), NC04 (`Put it in a new body`, and `Attach 'Sketch 2' to`, the label of
-//! an `Attach` on another feature's message), NC07 (`Delete`, `Make ... a reference`) and NC01 (`Connect the ends`) in
-//! tests 126, 127 and 131, which phase 3 adds; and test 132 with NC05's fix, which
-//! `t132_a_fix_inside_a_transaction_joins_it` checks with a fix phase 1 offers.
+//! Phase 3 of the reference stability plan adds the fixes of the newcomer error corpus and of the settings key typo:
+//! the actions of NC05 (`Use 2.3 mm`, and `Replace r * 2 with` of a too large radius), NC03 (`Turn on Reverse`), NC10
+//! (`Replace hieght with height`), CUBE10's linear pattern without a target (`Set Operation to Join`), NC04 (`Put it
+//! in a new body`, and `Attach 'Sketch 2' to`, the label of an `Attach` on another feature's message), NC07 (`Delete`,
+//! `Make ... a reference`), NC01 (`Connect the ends`, on a finding of `sketch_solved`) and a misspelled shell key
+//! (`Rename`) in tests 126, 127 and 131, and test 132 with NC05's fix.
 
 mod common;
 mod corpus;
@@ -21,19 +22,20 @@ mod corpus;
 use common::{
     GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, apply, assert_bounding_box, assert_fallback,
     assert_near, assert_placement, assert_point2, assert_point3, assert_relative, doc_handle,
-    element_named, get_document, measure_body, number, open_text, point2, point3, revision,
-    saved_text, send, session, set_rollback,
+    drag_sketch, element_named, fixture, get_document, measure_body, number, open_text, point2,
+    point3, replace_once, revision, saved_text, send, session, set_rollback,
 };
 use corpus::{
-    EDIT_LABEL, UPPER_BOSS_WALL, action, actions, after_edit, apply_fix, axis_xy,
-    back_line_notched, block_back_side, block_edited, block_right_side, bosses_on_a_moved_box,
-    box_record, cube10, datum_offset, datum_on_a_split_side, datum_on_face, document,
-    document_with, edited_text, face_plane, faces_of, features, fix_ref, labels, linear_pattern,
-    message, messages, moved_by_100, nc11, parameter, picked_before, point, r03, r06a, r16, r23a,
-    r26_recreated, r28, r32b, r32b_chamfered_hole_at_an_arc_end, r32b_moved, r32b_pocket, r33, r50,
-    r56b, r66, record, redrawn_beside_a_split, redrawn_beside_a_split_with_a_face_sketch,
-    reference, repairs, right_side_redrawn_in_two, send_fix, sketch, statuses, two_areas, volume,
-    without_keys,
+    EDIT_LABEL, UPPER_BOSS_WALL, action, actions, after_edit, apply_as_one_entry, apply_fix,
+    assert_undo_restores, axis_xy, back_line_notched, block_back_side, block_edited,
+    block_right_side, bosses_on_a_moved_box, box_record, cube10, datum_offset,
+    datum_on_a_split_side, datum_on_face, document, document_with, edited_text, face_names,
+    face_plane, faces_of, features, fix_ref, labels, linear_pattern, message, messages,
+    moved_by_100, nc01, nc03, nc04, nc05, nc07, nc10, nc11, parameter, picked_before, point, r03,
+    r06a, r16, r23a, r26_recreated, r28, r32b, r32b_chamfered_hole_at_an_arc_end, r32b_moved,
+    r32b_pocket, r33, r50, r56b, r66, record, redrawn_beside_a_split,
+    redrawn_beside_a_split_with_a_face_sketch, reference, repairs, right_side_redrawn_in_two,
+    send_fix, shell_with_a_misspelled_key, sketch, statuses, two_areas, volume, with, without_keys,
 };
 use partsmith_engine::Session;
 use partsmith_sketch::{HintFrame, RegionRef, SketchParams, SketchPlane};
@@ -73,33 +75,6 @@ fn kind_of(label: &str) -> &'static str {
         Some("Show") => "show",
         _ => "apply",
     }
-}
-
-/// Applies an action with `apply_fix` outside a transaction and checks that it is one recipe change recorded as one
-/// undo entry labeled with the action's label, emitted like `apply_edits`.
-fn apply_as_one_entry(session: &mut Session, doc: u64, action: &Value) -> Sent {
-    let before = revision(session, doc);
-
-    let applied = apply_fix(session, doc, action);
-
-    assert_eq!(applied.ok()["revision"], before + 1, "{action}");
-    assert_eq!(
-        applied.event_types()[..2],
-        ["document_changed", "recomputed"],
-        "{:?}",
-        applied.event_types()
-    );
-    let changed = applied.event("document_changed");
-    assert_eq!(changed["revision"], before + 1);
-    assert_eq!(changed["undo"], action["label"]);
-    applied
-}
-
-/// Undoes the newest entry, checks its label, and checks that the document's text is `before` again.
-fn assert_undo_restores(session: &mut Session, doc: u64, label: &Value, before: &str) {
-    let undone = send(session, json!({"type": "undo", "doc": doc}));
-    assert_eq!(&undone.ok()["label"], label);
-    assert_eq!(saved_text(session, doc), before);
 }
 
 /// The timeline of the document, as feature ids.
@@ -461,6 +436,219 @@ fn t126_r33_a_sketch_placed_where_its_face_was_offers_attach_to_the_new_top_firs
     assert_eq!(labels(&warning), expected);
 }
 
+// Test 126, phase 3: the fixes of the newcomer error corpus and of a misspelled settings key.
+
+/// CUBE10 with a linear pattern along X into a new body without a target body, which Operation New body needs
+/// (features/linear_pattern.md, `target_required`).
+fn pattern_into_a_new_body_without_a_target() -> String {
+    document(
+        &["b-1"],
+        &[
+            cube10(),
+            with(linear_pattern("3", "20"), "op", json!("new")),
+        ],
+    )
+}
+
+/// `fillet.ptsm` with a parameter `r` of 15 mm and its radius `r * 2`, 30 mm, too large for its edge (test 107).
+fn fillet_with_a_formula_radius() -> String {
+    let with_parameter = replace_once(
+        &fixture("fillet.ptsm"),
+        r#"{"id": "p-h", "name": "height", "expr": "40 mm"}"#,
+        r#"{"id": "p-h", "name": "height", "expr": "40 mm"},
+    {"id": "p-r", "name": "r", "expr": "15 mm"}"#,
+    );
+    replace_once(
+        &with_parameter,
+        r#""radius": "2 mm""#,
+        r#""radius": "r * 2""#,
+    )
+}
+
+/// The only message of the solution `solution` (a `SketchSolution` JSON value) with `code`.
+fn solution_message(solution: &Value, code: &str) -> Value {
+    let found: Vec<Value> = solution["messages"]
+        .as_array()
+        .expect("a solution lists its messages")
+        .iter()
+        .filter(|message| message["code"] == code)
+        .cloned()
+        .collect();
+    assert_eq!(found.len(), 1, "one {code} message in {solution}");
+    found[0].clone()
+}
+
+#[test]
+fn t126_nc05_a_fillet_too_large_offers_the_largest_radius_that_works() {
+    let mut session = session();
+
+    let opened = open_text(&mut session, &nc05());
+
+    let error = message(&opened, "f-fil1", "fillet_too_large");
+    assert_eq!(labels(&error), ["Use 2.3 mm"]);
+}
+
+#[test]
+fn t126_a_too_large_radius_that_holds_a_formula_offers_to_replace_it_with_the_suggestion() {
+    let mut session = session();
+
+    let opened = open_text(&mut session, &fillet_with_a_formula_radius());
+
+    let error = message(&opened, "f-fil1", "fillet_too_large");
+    let suggestion = error["suggestion"]
+        .as_str()
+        .expect("a too large radius has a suggestion (test 107)");
+    assert_eq!(
+        labels(&error)[0],
+        format!("Replace r * 2 with {suggestion}")
+    );
+}
+
+#[test]
+fn t126_nc03_a_cut_that_points_away_offers_turn_on_reverse() {
+    let mut session = session();
+
+    let opened = open_text(&mut session, &nc03());
+
+    let warning = message(&opened, "f-ext2", "no_effect");
+    assert_eq!(labels(&warning), ["Turn on Reverse"]);
+}
+
+#[test]
+fn t126_a_pattern_into_a_new_body_without_a_target_offers_join_then_pick() {
+    let mut session = session();
+
+    let opened = open_text(&mut session, &pattern_into_a_new_body_without_a_target());
+
+    let error = message(&opened, "f-lp1", "target_required");
+    assert_eq!(
+        labels(&error),
+        ["Set Operation to Join", "Pick a body again"]
+    );
+}
+
+#[test]
+fn t126_nc10_a_misspelled_parameter_offers_the_near_match() {
+    let mut session = session();
+
+    let opened = open_text(&mut session, &nc10());
+
+    let error = message(&opened, "f-ext1", "expression");
+    assert_eq!(labels(&error), ["Replace hieght with height"]);
+}
+
+#[test]
+fn t126_nc04_a_floating_join_offers_a_new_body_then_attach_naming_the_sketch() {
+    let mut session = session();
+
+    let opened = open_text(&mut session, &nc04());
+
+    let warning = message(&opened, "f-ext2", "separate_solid");
+    assert_eq!(
+        labels(&warning),
+        [
+            "Put it in a new body",
+            "Attach 'Sketch 2' to the top of 'Extrude 1'"
+        ]
+    );
+}
+
+#[test]
+fn t126_nc07_a_conflict_offers_delete_and_make_a_reference_per_constraint_newest_first() {
+    let mut session = session();
+
+    let (_, edited) = after_edit(&mut session, &nc07());
+
+    let error = message(&edited, "f-sk1", "sketch_conflict");
+    assert_eq!(
+        labels(&error),
+        [
+            "Delete Distance 30 mm",
+            "Make Distance 30 mm a reference",
+            "Delete Distance 40 mm",
+            "Make Distance 40 mm a reference"
+        ]
+    );
+}
+
+#[test]
+fn t126_nc01_an_open_end_of_the_stored_sketch_offers_to_connect_the_ends() {
+    let mut session = session();
+
+    let opened = open_text(&mut session, &nc01());
+
+    let finding = solution_message(opened.sketch_solution("f-sk1"), "open_endpoint");
+    assert_eq!(finding["field"], "/profile_findings/0");
+    assert_eq!(
+        actions(&finding),
+        [json!({
+            "label": "Connect the ends (0.3 mm apart)",
+            "run": {"kind": "apply", "fix": fix_ref("f-sk1", "open_endpoint", "/profile_findings/0", 0, 0)}
+        })]
+    );
+}
+
+#[test]
+fn t126_nc01_a_drag_frame_and_a_candidate_solve_offer_no_action() {
+    let mut session = session();
+    let opened = open_text(&mut session, &nc01());
+    let doc = doc_handle(&opened);
+    let candidate = serde_json::to_value(sketch_params(&record(&mut session, doc, "f-sk1")))
+        .expect("sketch params serialize");
+
+    let frame = drag_sketch(&mut session, doc, "e-2.end", [80.0, 50.0]);
+    let solved = send(
+        &mut session,
+        json!({"type": "solve_sketch", "doc": doc, "feature": "f-sk1", "candidate": candidate}),
+    );
+
+    for solution in [&frame.ok()["solution"], &solved.ok()["solution"]] {
+        let finding = solution_message(solution, "open_endpoint");
+        assert_eq!(actions(&finding), Vec::<Value>::new(), "{solution}");
+    }
+}
+
+#[test]
+fn t126_every_newcomer_label_starts_with_a_verb_and_runs_as_its_kind() {
+    let mut session = session();
+    let mut all = Vec::new();
+    for text in [
+        nc03(),
+        nc04(),
+        nc05(),
+        nc10(),
+        fillet_with_a_formula_radius(),
+        pattern_into_a_new_body_without_a_target(),
+        shell_with_a_misspelled_key(),
+    ] {
+        all.extend(statuses(&open_text(&mut session, &text)));
+    }
+    let (_, edited) = after_edit(&mut session, &nc07());
+    all.extend(statuses(&edited));
+    let opened = open_text(&mut session, &nc01());
+
+    let mut offered: Vec<Value> = all
+        .iter()
+        .flat_map(|status| status["messages"].as_array().cloned().unwrap_or_default())
+        .flat_map(|message| actions(&message))
+        .collect();
+    offered.extend(
+        opened.sketch_solution("f-sk1")["messages"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .flat_map(actions),
+    );
+    assert!(offered.len() >= 14, "{offered:?}");
+    for offer in &offered {
+        let label = offer["label"].as_str().expect("actions have labels");
+        let verb = label.split(' ').next().unwrap_or_default();
+        assert!(VERBS.contains(&verb), "{label:?} starts with a verb");
+        assert_eq!(offer["run"]["kind"], kind_of(label), "{offer}");
+    }
+}
+
 // Test 127: applying fixes.
 
 #[test]
@@ -623,6 +811,237 @@ fn t127_set_operation_to_new_body_starts_the_body() {
         "volume",
     );
     assert_undo_restores(&mut session, doc, &set_new["label"], &before);
+}
+
+// Test 127, phase 3: the fixes of the newcomer error corpus.
+
+/// The ids of the constraints a sketch record stores, in order.
+fn constraint_ids(record: &Value) -> Vec<String> {
+    record["constraints"]
+        .as_array()
+        .expect("sketch records list their constraints")
+        .iter()
+        .map(|constraint| {
+            constraint["id"]
+                .as_str()
+                .expect("constraints have ids")
+                .to_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn t127_nc05_use_2_3_mm_sets_the_radius_and_the_fillet_builds() {
+    let mut session = session();
+    let opened = open_text(&mut session, &nc05());
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let use_largest = action(
+        &message(&opened, "f-fil1", "fillet_too_large"),
+        "Use 2.3 mm",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &use_largest);
+
+    assert_eq!(record(&mut session, doc, "f-fil1")["radius"], "2.3 mm");
+    assert_ok_without_messages(&applied, &["f-fil1"]);
+    assert_undo_restores(&mut session, doc, &use_largest["label"], &before);
+}
+
+#[test]
+fn t127_nc03_turn_on_reverse_cuts_the_pocket() {
+    let mut session = session();
+    let opened = open_text(&mut session, &nc03());
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let reverse = action(&message(&opened, "f-ext2", "no_effect"), "Turn on Reverse");
+
+    let applied = apply_as_one_entry(&mut session, doc, &reverse);
+
+    assert_eq!(record(&mut session, doc, "f-ext2")["reverse"], true);
+    assert_ok_without_messages(&applied, &["f-ext2"]);
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        119607.300918,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_undo_restores(&mut session, doc, &reverse["label"], &before);
+}
+
+#[test]
+fn t127_set_operation_to_join_patterns_into_the_body() {
+    let mut session = session();
+    let opened = open_text(&mut session, &pattern_into_a_new_body_without_a_target());
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let join = action(
+        &message(&opened, "f-lp1", "target_required"),
+        "Set Operation to Join",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &join);
+
+    // Join is the default Operation, which the canonical record may leave out.
+    let pattern = record(&mut session, doc, "f-lp1");
+    assert!(pattern.get("op").is_none_or(|op| op == "join"), "{pattern}");
+    assert_eq!(applied.feature_status("f-lp1")["status"], "ok");
+    // The two copies join the cube's body.
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        3000.0,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_undo_restores(&mut session, doc, &join["label"], &before);
+}
+
+#[test]
+fn t127_nc10_replace_writes_the_parameter_it_nearly_matches() {
+    let mut session = session();
+    let opened = open_text(&mut session, &nc10());
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let replace = action(
+        &message(&opened, "f-ext1", "expression"),
+        "Replace hieght with height",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &replace);
+
+    assert_eq!(
+        record(&mut session, doc, "f-ext1")["extent"]["expr"],
+        "height"
+    );
+    assert_ok_without_messages(&applied, &["f-ext1"]);
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        120000.0,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_undo_restores(&mut session, doc, &replace["label"], &before);
+}
+
+#[test]
+fn t127_nc07_delete_distance_30_mm_removes_the_new_constraint() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &nc07());
+    let before = saved_text(&mut session, doc);
+    let delete = action(
+        &message(&edited, "f-sk1", "sketch_conflict"),
+        "Delete Distance 30 mm",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &delete);
+
+    assert_eq!(constraint_ids(&record(&mut session, doc, "f-sk1")), ["c-1"]);
+    assert_ok_without_messages(&applied, &["f-sk1", "f-ext1"]);
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        8000.0,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_undo_restores(&mut session, doc, &delete["label"], &before);
+}
+
+#[test]
+fn t127_nc07_make_distance_30_mm_a_reference_keeps_it_without_driving() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &nc07());
+    let before = saved_text(&mut session, doc);
+    let make_reference = action(
+        &message(&edited, "f-sk1", "sketch_conflict"),
+        "Make Distance 30 mm a reference",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &make_reference);
+
+    let sketch = record(&mut session, doc, "f-sk1");
+    assert_eq!(constraint_ids(&sketch), ["c-1", "c-2"]);
+    assert_eq!(sketch["constraints"][1]["driving"], false);
+    assert!(
+        sketch["constraints"][0].get("driving").is_none(),
+        "Distance 40 mm still drives: {sketch}"
+    );
+    assert_eq!(applied.feature_status("f-sk1")["status"], "ok");
+    assert_eq!(applied.feature_status("f-ext1")["status"], "ok");
+    assert_undo_restores(&mut session, doc, &make_reference["label"], &before);
+}
+
+#[test]
+fn t127_nc04_put_it_in_a_new_body_starts_body_2() {
+    let mut session = session();
+    let opened = open_text(&mut session, &nc04());
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let put = action(
+        &message(&opened, "f-ext2", "separate_solid"),
+        "Put it in a new body",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &put);
+
+    let bodies = get_document(&mut session, doc)["document"]["bodies"].clone();
+    assert_eq!(bodies.as_array().map(Vec::len), Some(2), "{bodies}");
+    assert_eq!(bodies[1]["id"], "b-000000000001");
+    assert_eq!(bodies[1]["name"], "Body 2");
+    let extrude = record(&mut session, doc, "f-ext2");
+    assert_eq!(extrude["body"], "b-000000000001");
+    assert_eq!(extrude["op"], "new");
+    // Without a `separate_solid` warning, each body is one solid.
+    assert_ok_without_messages(&applied, &["f-ext1", "f-ext2"]);
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        120000.0,
+        GEOMETRY_TOLERANCE,
+        "volume of Body 1",
+    );
+    assert_relative(
+        volume(&mut session, doc, "b-000000000001"),
+        1178.097245,
+        GEOMETRY_TOLERANCE,
+        "volume of Body 2",
+    );
+    assert_undo_restores(&mut session, doc, &put["label"], &before);
+}
+
+#[test]
+fn t127_nc04_attach_stands_the_boss_on_the_top_in_body_coordinates() {
+    let text = nc04();
+    let mut session = session();
+    let opened = open_text(&mut session, &text);
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let attach = action(
+        &message(&opened, "f-ext2", "separate_solid"),
+        "Attach 'Sketch 2' to the top of 'Extrude 1'",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &attach);
+
+    let top = picked_before(&text, "f-ext2", "b-1", &["f-ext1/end-cap"]).remove(0);
+    assert_face_plane(
+        &record(&mut session, doc, "f-sk2")["plane"],
+        &top,
+        [0.0, 0.0, 30.0],
+        Z_AXIS,
+        Some("body"),
+    );
+    assert_ok_without_messages(&applied, &["f-sk2", "f-ext2"]);
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        121178.097245,
+        GEOMETRY_TOLERANCE,
+        "volume",
+    );
+    assert_bounding_box(
+        &measure_body(&mut session, doc, "b-1")["bounding_box"],
+        [0.0, 0.0, 0.0],
+        [80.0, 50.0, 45.0],
+    );
+    assert_undo_restores(&mut session, doc, &attach["label"], &before);
 }
 
 // Test 128: re-anchoring.
@@ -1014,6 +1433,82 @@ fn t130_r28_move_below_lands_below_its_neighbor_after_an_insertion_above() {
     );
 }
 
+// Test 131: sketch and settings fixes.
+
+#[test]
+fn t131_nc01_connect_the_ends_closes_the_outline_with_one_new_coincident_constraint() {
+    let mut session = session();
+    let opened = open_text(&mut session, &nc01());
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let connect = action(
+        &solution_message(opened.sketch_solution("f-sk1"), "open_endpoint"),
+        "Connect the ends (0.3 mm apart)",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &connect);
+
+    assert_eq!(
+        record(&mut session, doc, "f-sk1")["constraints"],
+        json!([{"id": "c-000000000001", "type": "coincident", "points": ["e-4.end", "e-1.start"]}])
+    );
+    let solution = applied.sketch_solution("f-sk1");
+    assert_eq!(
+        solution["regions"].as_array().map(Vec::len),
+        Some(1),
+        "{solution}"
+    );
+    assert_eq!(solution["profile_findings"], json!([]));
+    assert_eq!(solution["messages"], json!([]));
+    assert_undo_restores(&mut session, doc, &connect["label"], &before);
+}
+
+#[test]
+fn t131_a_misspelled_settings_key_is_ignored_and_offers_to_rename_it() {
+    let mut session = session();
+    let opened = open_text(&mut session, &shell_with_a_misspelled_key());
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+
+    let warning = message(&opened, "f-sh1", "unknown_params");
+    assert_eq!(warning["severity"], "warning");
+    assert_eq!(
+        warning["message"],
+        "'remove_face' is not a Shell setting, so it is ignored. Did you mean Faces to remove?"
+    );
+    assert_eq!(labels(&warning), ["Rename remove_face to remove_faces"]);
+    // Ignored, the key leaves a closed hollow: 20^3 - 16^3.
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        3904.0,
+        GEOMETRY_TOLERANCE,
+        "volume of the closed hollow",
+    );
+
+    let applied = apply_as_one_entry(&mut session, doc, &actions(&warning)[0]);
+
+    let shell = record(&mut session, doc, "f-sh1");
+    assert!(shell.get("remove_face").is_none(), "{shell}");
+    assert_eq!(
+        shell["remove_faces"].as_array().map(Vec::len),
+        Some(1),
+        "{shell}"
+    );
+    assert_ok_without_messages(&applied, &["f-sh1"]);
+    assert!(
+        !face_names(&mut session, doc, "b-1").contains(&"f-box1/top".to_owned()),
+        "the top is removed"
+    );
+    // The top is open: 20^3 - 16 x 16 x 18.
+    assert_relative(
+        volume(&mut session, doc, "b-1"),
+        3392.0,
+        GEOMETRY_TOLERANCE,
+        "volume of the open shell",
+    );
+    assert_undo_restores(&mut session, doc, &actions(&warning)[0]["label"], &before);
+}
+
 // Test 132: fixes in transactions.
 
 #[test]
@@ -1043,6 +1538,40 @@ fn t132_a_fix_inside_a_transaction_joins_it() {
     );
     assert_eq!(committed.ok()["recorded"], true);
     assert_undo_restores(&mut session, doc, &json!("Tidy"), &before);
+}
+
+#[test]
+fn t132_nc05_use_2_3_mm_inside_a_transaction_joins_it() {
+    let mut session = session();
+    let opened = open_text(&mut session, &nc05());
+    let doc = doc_handle(&opened);
+    let before = saved_text(&mut session, doc);
+    let use_largest = action(
+        &message(&opened, "f-fil1", "fillet_too_large"),
+        "Use 2.3 mm",
+    );
+    send(
+        &mut session,
+        json!({"type": "begin_transaction", "doc": doc, "label": "Resize"}),
+    )
+    .ok();
+
+    let applied = apply_fix(&mut session, doc, &use_largest);
+
+    assert_eq!(applied.ok()["revision"], 1);
+    let changed = applied.event("document_changed");
+    assert!(
+        changed.get("undo").is_none(),
+        "no undo entry of its own: {changed}"
+    );
+    assert_eq!(changed["transaction"], "Resize");
+    assert_eq!(applied.feature_status("f-fil1")["status"], "ok");
+    let committed = send(
+        &mut session,
+        json!({"type": "commit_transaction", "doc": doc}),
+    );
+    assert_eq!(committed.ok()["recorded"], true);
+    assert_undo_restores(&mut session, doc, &json!("Resize"), &before);
 }
 
 // Test 133: `stale_fix`.

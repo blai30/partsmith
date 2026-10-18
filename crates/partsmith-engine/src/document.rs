@@ -1,6 +1,6 @@
 //! The state of one open document: recipe, revision, undo log, transaction, drags, dirty
-//! baseline, assets, display quality, the latest recompute and what was last emitted (engine.md
-//! sections 3.2 to 3.6); and the canonical forms of a recipe: its text, and its params as the
+//! baseline, assets, display quality, the latest recompute, what was last emitted and the
+//! memoized inspections of its records (engine.md sections 3.2 to 3.6 and 3.25); and the canonical forms of a recipe: its text, and its params as the
 //! registry writes them.
 
 use std::collections::BTreeMap;
@@ -16,6 +16,7 @@ use crate::events::Emitted;
 use crate::profiles::tolerance;
 use crate::sketch::Drag;
 use crate::state::Computed;
+use crate::units::Inspections;
 
 /// An open transaction: its label, the recorded edits and the focus feature.
 #[derive(Debug, Clone, PartialEq)]
@@ -66,6 +67,11 @@ pub(crate) struct OpenDocument {
     pub(crate) emitted: Emitted,
     /// The recipe as of the last successful command, once a command panicked (section 3.15).
     pub(crate) poisoned: Option<Arc<Document>>,
+    /// The registry's inspection of each feature record, memoized for `bare_numbers` and Keep
+    /// sizes (section 3.25).
+    pub(crate) inspections: Inspections,
+    /// The latest count of `bare_numbers` with the revision it counts.
+    pub(crate) bare_count: Option<(u64, u32)>,
 }
 
 impl OpenDocument {
@@ -95,6 +101,8 @@ impl OpenDocument {
             computed,
             emitted: Emitted::default(),
             poisoned: None,
+            inspections: Inspections::default(),
+            bare_count: None,
         })
     }
 

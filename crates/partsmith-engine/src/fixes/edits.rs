@@ -3,23 +3,32 @@
 
 use std::collections::BTreeSet;
 
-use partsmith_features::{FeatureWarning, Fix, Names, Place};
-use partsmith_model::{Edit, FeatureRecord, Id};
+use partsmith_features::{BodyOp, FeatureWarning, Fix, Names, Place};
+use partsmith_model::{Body, Edit, FeatureRecord, Id, IdKind};
 use partsmith_naming::{ElementName, Generator, Reference, Resolution, resolve, roles};
 use partsmith_recompute::Status;
 use partsmith_sketch::{MatchMethod, RegionMatch, RegionRef, match_region};
 use serde_json::Value;
 
+use super::NewIds;
 use crate::elements::full_reference;
 use crate::error::EngineError;
-use crate::params::{is_list_entry, parent, remove, replace, replace_each, set, stored_references};
+use crate::params::{
+    is_list_entry, parent, remove, replace, replace_each, set, stored_references, value_at,
+};
 use crate::run::{FeatureView, RunView};
 
 impl FeatureView<'_> {
     /// The edits of an offered `apply` fix of this feature's message, built from the current
     /// records. `KeepRegions` resolves the references of later features in `later`, a run of
-    /// the same recipe in which every later feature ran.
-    pub(super) fn edits(&self, fix: &Fix, later: &RunView<'_>) -> Result<Vec<Edit>, EngineError> {
+    /// the same recipe in which every later feature ran; `NewBody` takes its body's id from
+    /// `ids`.
+    pub(super) fn edits(
+        &self,
+        fix: &Fix,
+        later: &RunView<'_>,
+        ids: &mut NewIds<'_>,
+    ) -> Result<Vec<Edit>, EngineError> {
         match fix {
             Fix::SetField {
                 feature,
@@ -63,18 +72,82 @@ impl FeatureView<'_> {
             Fix::Unsuppress { feature } => self.suppression(feature, false),
             Fix::Suppress { feature } => self.suppression(feature, true),
             Fix::Move { feature, place } => self.moved(feature, place),
+            Fix::NewBody => self.in_new_body(ids),
             Fix::Attach { sketch, body, face } => self.attached(sketch, body, face),
             Fix::TurnDrawingBack { sketch } => self.turned_back(sketch),
-            Fix::Pick { .. }
-            | Fix::Show { .. }
-            | Fix::NewBody
-            | Fix::ConnectEnds { .. }
-            | Fix::DeleteConstraint { .. }
-            | Fix::MakeReference { .. }
-            | Fix::RenameKey { .. } => Err(EngineError::internal(
-                "a fix that is no apply action of this phase was applied",
-            )),
+            Fix::DeleteConstraint { sketch, constraint } => {
+                let (record, pointer) = self.constraint_entry(sketch, constraint)?;
+                Ok(vec![updated(record, |params| remove(params, &pointer))?])
+            }
+            Fix::MakeReference { sketch, constraint } => {
+                let (record, pointer) = self.constraint_entry(sketch, constraint)?;
+                Ok(vec![updated(record, |params| {
+                    set(params, &format!("{pointer}/driving"), Value::Bool(false))
+                })?])
+            }
+            Fix::RenameKey { from, to } => Ok(vec![self.renamed_key(from, to)?]),
+            Fix::Pick { .. } | Fix::Show { .. } | Fix::ConnectEnds { .. } => Err(
+                EngineError::internal("a fix that is no apply action of a message was applied"),
+            ),
         }
+    }
+
+    /// The edits of `NewBody` (section 3.22): `add_body` of a body named `Body {n}`, `n` the
+    /// smallest number from the count of bodies plus 1 that names no body, with a new id; then
+    /// one `update_feature` of this feature with its body set to it and Operation New body.
+    fn in_new_body(&self, ids: &mut NewIds<'_>) -> Result<Vec<Edit>, EngineError> {
+        let bodies = &self.run.document.bodies;
+        let id = ids.next(IdKind::Body)?;
+        let name = (bodies.len() + 1..)
+            .map(|number| format!("Body {number}"))
+            .find(|name| bodies.iter().all(|body| body.name != *name))
+            .ok_or_else(|| EngineError::internal("some body number is free"))?;
+        let new_body = serde_json::to_value(BodyOp::New).map_err(EngineError::unexpected)?;
+        let moved = updated(self.record, |params| {
+            set(params, "/body", Value::String(id.to_string())) && set(params, "/op", new_body)
+        })?;
+        Ok(vec![
+            Edit::AddBody {
+                index: bodies.len(),
+                body: Body::new(id, name),
+            },
+            moved,
+        ])
+    }
+
+    /// The record of the sketch `sketch` and the pointer of `constraint` in its `constraints`.
+    fn constraint_entry(
+        &self,
+        sketch: &Id,
+        constraint: &Id,
+    ) -> Result<(&FeatureRecord, String), EngineError> {
+        let gone = || EngineError::internal("a fix names a constraint that is gone");
+        let record = self.run.document.feature(sketch).ok_or_else(gone)?;
+        let position = value_at(&record.params, "/constraints")
+            .and_then(Value::as_array)
+            .and_then(|constraints| {
+                constraints.iter().position(|entry| {
+                    entry.get("id").and_then(Value::as_str) == Some(constraint.as_str())
+                })
+            })
+            .ok_or_else(gone)?;
+        Ok((record, format!("/constraints/{position}")))
+    }
+
+    /// One `update_feature` of this feature with the value of the params key `from` moved to the
+    /// key `to`, which it does not have (section 3.22, `RenameKey`).
+    fn renamed_key(&self, from: &str, to: &str) -> Result<Edit, EngineError> {
+        let mut params = self.record.params.clone();
+        if params.contains_key(to) {
+            return Err(EngineError::internal(
+                "a renamed key would replace a setting",
+            ));
+        }
+        let value = params
+            .remove(from)
+            .ok_or_else(|| EngineError::internal("a fix renames a key the record does not have"))?;
+        params.insert(to.to_string(), value);
+        update_feature(self.record, Value::Object(params))
     }
 
     /// One `update_feature` of this feature with the entry at `pointer` replaced by `values`.

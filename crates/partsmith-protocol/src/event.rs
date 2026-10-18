@@ -41,6 +41,8 @@ pub enum Event {
         /// The focused feature.
         #[serde(skip_serializing_if = "Option::is_none")]
         focus: Option<Id>,
+        /// How many expressions and parameters are numbers without a unit whose meaning the document units decide (model.md `bare_numbers`), so hosts can offer Keep sizes with its count (engine.md section 3.25).
+        bare_numbers: u32,
     },
     /// Status of every feature in timeline order, every parameter value, and document diagnostics.
     Recomputed {
@@ -305,13 +307,14 @@ mod tests {
             transaction_open: false,
             transaction: None,
             focus: None,
+            bare_numbers: 0,
         };
 
         let text = serde_json::to_string(&event).expect("serializes");
 
         assert_eq!(
             text,
-            r#"{"type":"document_changed","doc":1,"revision":0,"document":{"format":"partsmith","format_version":2,"units":"mm","parameters":[],"bodies":[],"features":[]},"dirty":false,"transaction_open":false}"#
+            r#"{"type":"document_changed","doc":1,"revision":0,"document":{"format":"partsmith","format_version":2,"units":"mm","parameters":[],"bodies":[],"features":[]},"dirty":false,"transaction_open":false,"bare_numbers":0}"#
         );
     }
 

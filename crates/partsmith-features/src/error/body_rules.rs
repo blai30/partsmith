@@ -125,7 +125,10 @@ pub(super) fn no_effect_fixes(
     }
     let reverse = reverse_hits.then(|| reverse_fix(renderer));
     match how {
-        NoEffectHow::Inside => reverse.into_iter().chain(attach_fix(body, attach)).collect(),
+        NoEffectHow::Inside => reverse
+            .into_iter()
+            .chain(attach_fix(body, attach))
+            .collect(),
         NoEffectHow::Away { .. } | NoEffectHow::Short { .. } | NoEffectHow::Beside => {
             reverse.into_iter().collect()
         }

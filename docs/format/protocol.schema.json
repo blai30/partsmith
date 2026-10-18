@@ -379,6 +379,35 @@
           ]
         },
         {
+          "description": "Changes the document units; with `keep_sizes`, numbers without a unit get the old unit (engine.md section 3.25).",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "units": {
+              "description": "The new document units.",
+              "$ref": "#/$defs/Units"
+            },
+            "keep_sizes": {
+              "description": "Append the old unit to every number without a unit whose meaning the units decide, so no size changes.",
+              "type": "boolean",
+              "default": false
+            },
+            "type": {
+              "type": "string",
+              "const": "set_document_units"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "units"
+          ]
+        },
+        {
           "description": "Opens a transaction; later `apply_edits` join it and are previewed.",
           "type": "object",
           "properties": {
@@ -5940,6 +5969,33 @@
           ]
         },
         {
+          "description": "Result of `set_document_units`.",
+          "type": "object",
+          "properties": {
+            "revision": {
+              "description": "The revision after the change, unchanged when the units were already `units`.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kept": {
+              "description": "How many expressions and parameters got the old unit.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "set_document_units"
+            }
+          },
+          "required": [
+            "type",
+            "revision",
+            "kept"
+          ]
+        },
+        {
           "description": "Result of `begin_transaction`.",
           "type": "object",
           "properties": {
@@ -7691,6 +7747,12 @@
                 }
               ]
             },
+            "bare_numbers": {
+              "description": "How many expressions and parameters are numbers without a unit whose meaning the document units decide (model.md `bare_numbers`), so hosts can offer Keep sizes with its count (engine.md section 3.25).",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
             "type": {
               "type": "string",
               "const": "document_changed"
@@ -7702,7 +7764,8 @@
             "revision",
             "document",
             "dirty",
-            "transaction_open"
+            "transaction_open",
+            "bare_numbers"
           ]
         },
         {

@@ -245,6 +245,18 @@ impl Session {
                 self.events(doc, &mut output)?;
                 CommandResult::ApplyFix { revision }
             }
+            Command::SetDocumentUnits {
+                doc,
+                units,
+                keep_sizes,
+            } => {
+                let changed = self.set_document_units(doc, units, keep_sizes)?;
+                self.events(doc, &mut output)?;
+                CommandResult::SetDocumentUnits {
+                    revision: changed.revision,
+                    kept: changed.kept,
+                }
+            }
             Command::BeginTransaction { doc, label } => {
                 self.begin_transaction(doc, &label)?;
                 self.events(doc, &mut output)?;
@@ -479,6 +491,7 @@ fn document_of(command: &Command) -> Option<DocHandle> {
         | Command::ApplyEdits { doc, .. }
         | Command::RenameParameter { doc, .. }
         | Command::ApplyFix { doc, .. }
+        | Command::SetDocumentUnits { doc, .. }
         | Command::BeginTransaction { doc, .. }
         | Command::SetFocus { doc, .. }
         | Command::CommitTransaction { doc }

@@ -1,8 +1,8 @@
 //! JSON examples copied verbatim from `docs/spec/protocol.md`, plus a few supplementary records so every command type has a request and a result.
 
 /// Every command type of section 2.5, in the order of test 34.
-// `set_document_units` and `list_uses` join this list with their own steps (reference stability plan, phases 3 and 4).
-pub const COMMAND_TYPES: [&str; 32] = [
+// `list_uses` joins this list with its own step (reference stability plan, phase 4).
+pub const COMMAND_TYPES: [&str; 33] = [
     "engine_info",
     "feature_catalog",
     "list_printer_profiles",
@@ -35,6 +35,7 @@ pub const COMMAND_TYPES: [&str; 32] = [
     "mark_saved",
     "rename_parameter",
     "apply_fix",
+    "set_document_units",
 ];
 
 /// Every event type of section 2.7, in the order of test 36.
@@ -195,6 +196,17 @@ pub const APPLY_FIX_REQUEST: &str = r#"{"type": "apply_fix", "doc": 1, "fix": {"
 /// The `apply_fix` result example of section 2.5.
 pub const APPLY_FIX_RESULT: &str = r#"{"type": "apply_fix", "revision": 8}"#;
 
+/// The `set_document_units` request example of section 2.5.
+pub const SET_DOCUMENT_UNITS_REQUEST: &str =
+    r#"{"type": "set_document_units", "doc": 1, "units": "in", "keep_sizes": true}"#;
+
+/// The `set_document_units` result example of section 2.5.
+pub const SET_DOCUMENT_UNITS_RESULT: &str =
+    r#"{"type": "set_document_units", "revision": 5, "kept": 4}"#;
+
+/// The `document_changed` event example of section 2.7: a dirty document after an edit, with `bare_numbers` last.
+pub const DOCUMENT_CHANGED_EVENT: &str = r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false, "bare_numbers": 0}"#;
+
 /// The mesh of the first `body_mesh` event example in section 2.7.
 pub const BOX_MESH: &str = r#"{"positions": 0, "normals": 1, "indices": 2, "face_ids": 3, "edge_positions": 4, "edge_ids": 5, "vertex_positions": 6, "vertex_ids": 7, "face_count": 6, "edge_count": 12, "vertex_count": 8, "bounding_box": {"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}}"#;
 
@@ -230,15 +242,12 @@ pub fn all_results() -> Vec<&'static str> {
 pub const SKETCH_SOLVED_EVENT: &str = r#"{"kind": "event", "type": "sketch_solved", "doc": 1, "revision": 0, "solution": {"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [10.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [10.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [10.0, 0.0]}], "messages": [{"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (10, 0) at (0, 0) is not connected to other geometry.", "field": "/profile_findings/0", "detail": "open_endpoint entity=e-1 point=0,0"}, {"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (10, 0) at (10, 0) is not connected to other geometry.", "field": "/profile_findings/1", "detail": "open_endpoint entity=e-1 point=10,0"}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}}"#;
 
 /// The examples of sections 2.3 and 2.7 whose top level is a message, in spec order.
-// Events ignore unknown fields, so the `document_changed` examples (with `bare_numbers`) decode
-// and validate before the protocol has that field. The field, and the half of test 80 that
-// checks it, join with their own step (reference stability plan, phase 3).
 pub const MESSAGE_EXAMPLES: [&str; 11] = [
     r#"{"kind": "request", "id": 7, "command": {"type": "undo", "doc": 1}}"#,
     r#"{"kind": "response", "id": 7, "result": {"kind": "ok", "type": "undo", "revision": 6, "label": "Change height"}}"#,
     r#"{"kind": "response", "id": 8, "result": {"kind": "error", "code": "nothing_to_undo", "message": "There is nothing to undo."}}"#,
     r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 6, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [], "bodies": [], "features": []}, "dirty": false, "transaction_open": false, "bare_numbers": 0}"#,
-    r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false, "bare_numbers": 0}"#,
+    DOCUMENT_CHANGED_EVENT,
     r#"{"kind": "event", "type": "recomputed", "doc": 1, "revision": 4, "features": [{"id": "f-box1", "status": "ok", "messages": [], "repairs": []}], "parameters": [{"id": "p-h", "value": 50.0, "dimension": {"length": 1, "angle": 0}}], "diagnostics": []}"#,
     SKETCH_SOLVED_EVENT,
     r#"{"kind": "event", "type": "datum_plane", "doc": 1, "revision": 2, "feature": "f-dp1", "placement": {"origin": [0.0, 0.0, 10.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}}"#,
@@ -248,8 +257,8 @@ pub const MESSAGE_EXAMPLES: [&str; 11] = [
 ];
 
 /// The command examples of section 2.5 (request side), in spec order.
-// The `set_document_units` and `list_uses` examples join with their own steps (reference stability plan, phases 3 and 4).
-pub const COMMAND_EXAMPLES: [&str; 31] = [
+// The `list_uses` example joins with its own step (reference stability plan, phase 4).
+pub const COMMAND_EXAMPLES: [&str; 32] = [
     r#"{"type": "engine_info"}"#,
     r#"{"type": "feature_catalog"}"#,
     r#"{"type": "list_printer_profiles"}"#,
@@ -263,6 +272,7 @@ pub const COMMAND_EXAMPLES: [&str; 31] = [
     r#"{"type": "apply_edits", "doc": 1, "label": "Roll back", "edits": [{"type": "set_rollback", "rollback": "f-fil1"}]}"#,
     r#"{"type": "rename_parameter", "doc": 1, "parameter": "p-h", "name": "h"}"#,
     APPLY_FIX_REQUEST,
+    SET_DOCUMENT_UNITS_REQUEST,
     r#"{"type": "begin_transaction", "doc": 1, "label": "Fillet"}"#,
     r#"{"type": "set_focus", "doc": 1, "feature": "f-fil1"}"#,
     r#"{"type": "commit_transaction", "doc": 1}"#,
@@ -284,8 +294,8 @@ pub const COMMAND_EXAMPLES: [&str; 31] = [
 ];
 
 /// The result examples of section 2.5 (the `ok` value of a response), in spec order.
-// The `set_document_units` and `list_uses` examples join with their own steps (reference stability plan, phases 3 and 4).
-pub const RESULT_EXAMPLES: [&str; 25] = [
+// The `list_uses` example joins with its own step (reference stability plan, phase 4).
+pub const RESULT_EXAMPLES: [&str; 26] = [
     r#"{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 2, "kernel": "OCCT 7.9.3"}"#,
     r#"{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}"#,
     r#"{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}"#,
@@ -298,6 +308,7 @@ pub const RESULT_EXAMPLES: [&str; 25] = [
     r#"{"type": "apply_edits", "revision": 4}"#,
     r#"{"type": "rename_parameter", "revision": 5}"#,
     APPLY_FIX_RESULT,
+    SET_DOCUMENT_UNITS_RESULT,
     r#"{"type": "begin_transaction"}"#,
     r#"{"type": "commit_transaction", "revision": 7, "recorded": true}"#,
     r#"{"type": "drag_sketch", "solution": {"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [20.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [20.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [20.0, 0.0]}], "messages": [{"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (20, 0) at (0, 0) is not connected to other geometry.", "field": "/profile_findings/0", "detail": "open_endpoint entity=e-1 point=0,0"}, {"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (20, 0) at (20, 0) is not connected to other geometry.", "field": "/profile_findings/1", "detail": "open_endpoint entity=e-1 point=20,0"}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}}"#,

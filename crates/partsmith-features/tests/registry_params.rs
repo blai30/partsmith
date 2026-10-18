@@ -529,7 +529,8 @@ fn shell_with(extra: &[(&str, Value)]) -> FeatureRecord {
 /// A shell record on b-1 with `extra` in place of `remove_faces`, as when a typo replaced that key (features.md
 /// section 6.5 test 8).
 fn misspelled_shell(extra: &[(&str, Value)]) -> FeatureRecord {
-    let mut shell = record(json!({"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2"}));
+    let mut shell =
+        record(json!({"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2"}));
     for (key, value) in extra {
         shell.params.insert((*key).to_string(), value.clone());
     }

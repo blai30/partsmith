@@ -102,7 +102,11 @@ fn apply_with_sketch(
 /// The sketch of an extrude of `tools` along `direction`: facing along it, in the plane where the tools start (through
 /// the corner of their boxes that lies farthest against `direction`).
 fn sketch_at_start(tools: &[Tool], direction: [f64; 3]) -> Placement {
-    let along = |point: [f64; 3]| (0..3).map(|axis| point[axis] * direction[axis]).sum::<f64>();
+    let along = |point: [f64; 3]| {
+        (0..3)
+            .map(|axis| point[axis] * direction[axis])
+            .sum::<f64>()
+    };
     let start = tools
         .iter()
         .map(|tool| tool.shape.bounding_box().expect("a tool box"))
@@ -276,7 +280,10 @@ fn a_reversed_join_has_no_attach_face() {
     );
 
     let (_, warnings) = result.expect("the join applies");
-    assert_eq!(only_no_effect(&warnings), (NoEffectHow::Inside, false, None));
+    assert_eq!(
+        only_no_effect(&warnings),
+        (NoEffectHow::Inside, false, None)
+    );
 }
 
 #[test]

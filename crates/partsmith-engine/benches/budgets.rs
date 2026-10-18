@@ -16,7 +16,15 @@
 //! references, measured on the reference part with its lid pattern's count made a parameter and a
 //! fillet added on five edges of the pattern's third copy. Its loss row covers the diagnosis,
 //! descriptions and candidates; causes and ghosts come with phase 4, and so do the rows of
-//! `list_uses` and ghost capture, while `set_document_units` and `bare_numbers` come with phase 3.
+//! `list_uses` and ghost capture.
+//!
+//! Phase 3 adds two more: `set_document_units` with `keep_sizes` on the reference part, inside a
+//! transaction, each sample after an untimed new lid width and switching between mm and in; and
+//! `bare_numbers` of the 300-feature memory document after one `update_feature`. `Session::call`
+//! cannot time `bare_numbers` alone, so that row times, in a headless session, `apply_edits` of
+//! one `update_feature` that gives a suppressed box a new size without a unit: the batch, a
+//! recompute that builds nothing, `bare_numbers` with the inspection of every other record reused,
+//! and frame encoding. The time bounds `bare_numbers` from above.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -26,7 +34,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use common::{Sent, doc_handle, request_frame, session};
+use common::{Sent, doc_handle, headless_session, request_frame, session};
 use partsmith_budgets::{Report, median};
 use partsmith_engine::Session;
 use serde_json::{Value, json};
@@ -112,6 +120,14 @@ impl Driver {
         }
     }
 
+    /// A headless session (`SessionOptions::headless()`).
+    fn headless() -> Driver {
+        Driver {
+            session: headless_session(),
+            next_id: 1,
+        }
+    }
+
     /// Sends one command and returns the time `Session::call` took and the decoded answer.
     /// Encoding the request and decoding the response are not timed.
     fn timed(&mut self, command: Value) -> (Duration, Answer) {
@@ -159,14 +175,14 @@ fn last_five_edit(text: &str, expr: &str) -> Value {
     json!({"type": "update_parameter", "parameter": parameter})
 }
 
-/// The record of `feature` in the reference part.
+/// The record of `feature` in the document `text`.
 fn reference_record(text: &str, feature: &str) -> Value {
-    let document: Value = serde_json::from_str(text).expect("the reference part is JSON");
+    let document: Value = serde_json::from_str(text).expect("the document is JSON");
     document["features"]
         .as_array()
         .and_then(|features| features.iter().find(|record| record["id"] == feature))
         .cloned()
-        .unwrap_or_else(|| panic!("the reference part has no feature {feature}"))
+        .unwrap_or_else(|| panic!("the document has no feature {feature}"))
 }
 
 /// The edits that make the lid fillet too large for lids `width` wide: the lid width and a fillet
@@ -416,6 +432,7 @@ fn main() -> ExitCode {
         "export_python of the reference part",
         "apply_fix of a SetField of one of the last 5 features of the reference part, inside a transaction",
         "apply_edits inside a transaction of a parameter change that loses 5 references of the last features of the reference part",
+        "set_document_units with keep_sizes on the reference part, including the edit set, recompute, tessellation of changed bodies and frame encoding",
     ];
     let selected: Vec<&str> = reference_operations
         .into_iter()
@@ -544,8 +561,67 @@ fn main() -> ExitCode {
                     time
                 })
             });
+            report.measure(reference_operations[7], Duration::from_millis(100), || {
+                let mut driver = Driver::new();
+                let doc = driver.open(&text).doc();
+                driver
+                    .send(json!({"type": "begin_transaction", "doc": doc, "label": "Units"}))
+                    .ok();
+                median(RUNS, |sample| {
+                    // A new lid width per sample, so the switched document is never a cached result.
+                    let width = format!("{} mm", 24.5 + 0.5 * sample as f64);
+                    driver
+                        .send(json!({
+                            "type": "apply_edits", "doc": doc, "edits": [last_five_edit(&text, &width)]
+                        }))
+                        .ok();
+                    let units = if sample % 2 == 0 { "in" } else { "mm" };
+                    let (time, answer) = driver.timed(json!({
+                        "type": "set_document_units", "doc": doc, "units": units, "keep_sizes": true
+                    }));
+                    answer.ok();
+                    time
+                })
+            });
         }
     }
+
+    let bare_numbers = "bare_numbers of a 300-feature document after one update_feature";
+    report.measure(bare_numbers, Duration::from_millis(2), || {
+        let mut driver = Driver::headless();
+        let text = many_bodies();
+        let opened = driver.open(&text);
+        let doc = opened.doc();
+        let count = opened.0.event("document_changed")["bare_numbers"].clone();
+        assert!(
+            count.as_u64().is_some_and(|count| count > 0),
+            "the memory document has numbers without a unit: {count}"
+        );
+        let last = format!("f-box{MEMORY_FEATURES}");
+        let mut record = reference_record(&text, &last);
+        record["suppressed"] = json!(true);
+        driver
+            .send(json!({
+                "type": "apply_edits", "doc": doc, "label": "Suppress",
+                "edits": [{"type": "update_feature", "feature": record.clone()}]
+            }))
+            .ok();
+        median(RUNS, |sample| {
+            // A new size per sample, so the edited record's inspection is never reused.
+            record["size"] = json!([(11 + sample).to_string(), "10", "10"]);
+            let (time, answer) = driver.timed(json!({
+                "type": "apply_edits", "doc": doc, "label": "Size",
+                "edits": [{"type": "update_feature", "feature": record.clone()}]
+            }));
+            answer.ok();
+            assert_eq!(
+                answer.0.event("document_changed")["bare_numbers"],
+                count,
+                "the count of numbers without a unit is unchanged"
+            );
+            time
+        })
+    });
 
     report.measure(
         "drag_sketch frame on a 500-constraint sketch, including frame encoding",

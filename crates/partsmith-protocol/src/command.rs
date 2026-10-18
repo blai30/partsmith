@@ -100,6 +100,16 @@ pub enum Command {
         /// The action's fix, as the diagnostic offered it.
         fix: FixRef,
     },
+    /// Changes the document units; with `keep_sizes`, numbers without a unit get the old unit (engine.md section 3.25).
+    SetDocumentUnits {
+        /// The document.
+        doc: DocHandle,
+        /// The new document units.
+        units: Units,
+        /// Append the old unit to every number without a unit whose meaning the units decide, so no size changes.
+        #[serde(default)]
+        keep_sizes: bool,
+    },
     /// Opens a transaction; later `apply_edits` join it and are previewed.
     BeginTransaction {
         /// The document.
@@ -288,6 +298,7 @@ impl Command {
             Command::ApplyEdits { .. } => "apply_edits",
             Command::RenameParameter { .. } => "rename_parameter",
             Command::ApplyFix { .. } => "apply_fix",
+            Command::SetDocumentUnits { .. } => "set_document_units",
             Command::BeginTransaction { .. } => "begin_transaction",
             Command::SetFocus { .. } => "set_focus",
             Command::CommitTransaction { .. } => "commit_transaction",
@@ -385,6 +396,13 @@ pub enum CommandResult {
     ApplyFix {
         /// The revision after the fix.
         revision: u64,
+    },
+    /// Result of `set_document_units`.
+    SetDocumentUnits {
+        /// The revision after the change, unchanged when the units were already `units`.
+        revision: u64,
+        /// How many expressions and parameters got the old unit.
+        kept: u32,
     },
     /// Result of `begin_transaction`.
     BeginTransaction,

@@ -38,6 +38,7 @@ mod status;
 mod test_support;
 mod triangulate;
 mod types;
+mod units;
 mod validate;
 mod words;
 
@@ -47,7 +48,7 @@ pub use partsmith_model::SequentialIds;
 pub use session::Session;
 pub use types::{
     Asset, Committed, EngineInfo, ExportRequest, Exported, ExportedFile, FeatureMessage, Imported,
-    Opened, PrintAnalysis, PrintRequest, Reply, Saved, Stepped, ValidateOptions,
+    Opened, PrintAnalysis, PrintRequest, Reply, Saved, Stepped, UnitsChanged, ValidateOptions,
     ValidationDiagnostic, ValidationReport,
 };
 pub use validate::{message_candidates, message_location};

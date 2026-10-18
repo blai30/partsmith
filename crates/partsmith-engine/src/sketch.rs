@@ -3,16 +3,20 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use partsmith_features::{FeatureError, Registry, SketchResult};
+use partsmith_features::{FeatureError, FeatureWarning, Registry, SketchResult};
 use partsmith_model::{Dimension, Document, FeatureRecord, Id, Scope, Units};
 use partsmith_protocol::{
-    ConstraintSolveState, ConstraintState, RegionInfo, SketchSolution, SolvedEntity, SolvedPoint,
+    ConstraintSolveState, ConstraintState, Diagnostic, RegionInfo, Severity, SketchSolution,
+    SolvedEntity, SolvedPoint,
 };
 use partsmith_sketch::{
     DimensionValues, DragSession, DragTarget, EntityState, Geometry, MessageContext,
-    NativeDragSession, NativeSolver, Placement, PointRef, PointRole, Profile, Region, SketchEntity,
-    SketchError, SketchParams, SketchPlane, SolveResult, Solver, ValueKind, build_profile,
+    NativeDragSession, NativeSolver, Placement, PointRef, PointRole, Profile, ProfileFinding,
+    Region, SketchEntity, SketchError, SketchParams, SketchPlane, SolveIssue, SolveResult, Solver,
+    ValueKind, build_profile,
 };
+
+use partsmith_recompute::FeatureReport;
 
 use crate::diagnostics::{feature_error_detail, render_feature_error};
 use crate::error::EngineError;
@@ -49,6 +53,24 @@ impl SketchWords {
         SketchWords {
             label: feature_label(registry, document, feature),
             units: document.units,
+        }
+    }
+
+    /// The context the sketch crate renders the messages of a solve of `params` in: the solved
+    /// entities and measured values of `result`, and the driving dimension values `values`.
+    fn context<'a>(
+        &'a self,
+        params: &'a SketchParams,
+        result: &'a SolveResult,
+        values: &'a DimensionValues,
+    ) -> MessageContext<'a> {
+        MessageContext {
+            label: &self.label,
+            sketch: params,
+            solved: Some(&result.entities),
+            values,
+            measured: Some(&result.measured),
+            units: self.units,
         }
     }
 
@@ -157,6 +179,23 @@ pub(crate) fn dimension_values(
     Ok(values)
 }
 
+/// The driving dimension values of a sketch's latest solve in a run, which its report keeps in
+/// the error of a conflict and in the warning of redundant constraints, the solve issues whose
+/// messages name dimensions by their values; none when its report has neither.
+pub(crate) fn solve_values(report: &FeatureReport) -> DimensionValues {
+    if let Some(FeatureError::SketchConflict { values, .. }) = &report.error {
+        return values.clone();
+    }
+    report
+        .warnings
+        .iter()
+        .find_map(|warning| match warning {
+            FeatureWarning::RedundantConstraints { values, .. } => Some(values.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 /// Solves `params` with `values` (`invalid_params` with the sketch crate's message in `words`
 /// when the solver rejects them) and projects the result.
 pub(crate) fn solve(
@@ -171,24 +210,34 @@ pub(crate) fn solve(
         .map_err(|error| words.invalid(&error, params, values))?;
     let profile = build_profile(&result.entities);
     Ok(project(
-        feature, params, &result, profile, placement, values,
+        feature, params, &result, profile, placement, values, words,
     ))
 }
 
-/// The solution of a sketch that built, from its recompute output.
-pub(crate) fn built(feature: &Id, params: &SketchParams, result: &SketchResult) -> Solved {
+/// The solution of a sketch that built, from its recompute output; `values` are the driving
+/// dimension values it was solved with, which its messages name dimensions by.
+pub(crate) fn built(
+    feature: &Id,
+    params: &SketchParams,
+    result: &SketchResult,
+    values: &DimensionValues,
+    words: &SketchWords,
+) -> Solved {
     project(
         feature,
         params,
         &result.solved,
         result.profile.clone(),
         result.placement,
-        &DimensionValues::new(),
+        values,
+        words,
     )
 }
 
 /// Projects a solve into a `SketchSolution` (section 3.6). `values` are the driving dimension
-/// values of the solve, used to find the constraints of failed components.
+/// values of the solve, used to find the constraints of failed components and to name
+/// dimensions in the messages, which `words` name the sketch and write numbers for. The messages
+/// carry no actions.
 fn project(
     feature: &Id,
     params: &SketchParams,
@@ -196,6 +245,7 @@ fn project(
     profile: Profile,
     placement: Placement,
     values: &DimensionValues,
+    words: &SketchWords,
 ) -> Solved {
     let entities = result
         .entities
@@ -270,12 +320,64 @@ fn project(
             points,
             constraints,
             regions,
+            messages: solution_messages(
+                &result.issues(params),
+                &profile.findings,
+                &words.context(params, result, values),
+            ),
             profile_findings: profile.findings,
-            // The sketch crate renders these from phase 3 of the reference stability plan (engine.md section 3.6).
-            messages: Vec::new(),
             display: None,
         },
         regions: profile.regions,
+    }
+}
+
+/// The messages of a solve (section 3.6): one per solve issue, in order, then one per profile
+/// finding, in order, each rendered by the sketch crate in `context` with its `Display` as the
+/// detail. A finding's field is its position in `profile_findings`.
+fn solution_messages(
+    issues: &[SolveIssue],
+    findings: &[ProfileFinding],
+    context: &MessageContext<'_>,
+) -> Vec<Diagnostic> {
+    let issues = issues.iter().map(|issue| {
+        let (severity, code) = match issue {
+            SolveIssue::Conflicting { .. } => (Severity::Error, "sketch_conflict"),
+            SolveIssue::NotConverged => (Severity::Error, "sketch_not_solved"),
+            SolveIssue::Redundant { .. } => (Severity::Warning, "redundant_constraints"),
+        };
+        Diagnostic {
+            detail: Some(issue.to_string()),
+            ..Diagnostic::new(severity, code, issue.render(context))
+        }
+    });
+    let findings = findings
+        .iter()
+        .enumerate()
+        .map(|(index, finding)| Diagnostic {
+            field: Some(finding_field(index)),
+            detail: Some(finding.to_string()),
+            ..Diagnostic::new(
+                Severity::Warning,
+                finding_code(finding),
+                finding.render(context),
+            )
+        });
+    issues.chain(findings).collect()
+}
+
+/// The field of the profile finding at `index` of a solution: `/profile_findings/{index}`.
+pub(crate) fn finding_field(index: usize) -> String {
+    format!("/profile_findings/{index}")
+}
+
+/// The code of a profile finding's message: its type.
+pub(crate) fn finding_code(finding: &ProfileFinding) -> &'static str {
+    match finding {
+        ProfileFinding::OpenEndpoint { .. } => "open_endpoint",
+        ProfileFinding::Overlap { .. } => "overlap",
+        ProfileFinding::SelfIntersection { .. } => "self_intersection",
+        ProfileFinding::ZeroLength { .. } => "zero_length",
     }
 }
 
@@ -443,6 +545,7 @@ impl Drag {
             profile,
             self.placement,
             &self.values,
+            &self.words,
         )
     }
 }

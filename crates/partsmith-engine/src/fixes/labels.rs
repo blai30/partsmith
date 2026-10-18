@@ -1,18 +1,20 @@
 //! The label of each fix a message offers and how it runs (engine.md section 3.22): every label
 //! starts with a verb and says exactly what changes, naming elements and regions by the words
-//! their repair gives them.
+//! their repair gives them, and constraints by their titles.
 
-use partsmith_features::{FieldRef, Fix, Names, Place, SelectionKind, joined};
+use partsmith_features::{FieldRef, Fix, Names, Place, SelectionKind, describe_elements, joined};
 use partsmith_model::{Expr, ExprNodeKind, FeatureRecord, Id};
 use partsmith_naming::{ElementKind, Reference};
 use partsmith_protocol::{Repair, RepairCandidate};
 use partsmith_recompute::Message;
-use partsmith_sketch::RegionRef;
+use partsmith_sketch::{MessageContext, RegionRef};
 use serde_json::Value;
 
 use super::{Offer, OfferRun};
 use crate::params::{field_path, is_list_entry, reference_at};
 use crate::run::FeatureView;
+use crate::sketch::{sketch_params, solve_values};
+use crate::state::built_sketch;
 use crate::words::region_words;
 
 /// The code of the warning whose reference now covers every element its replacement makes
@@ -31,7 +33,7 @@ pub(super) struct Labels<'a> {
 
 impl Labels<'_> {
     /// The offer of a fix, or None when no label can say exactly what it does, when it would not
-    /// do exactly what its label says, or when this phase builds no edits for it.
+    /// do exactly what its label says, or when a message is not where it is offered.
     pub(super) fn offer<'m>(&self, fix: &'m Fix) -> Option<Offer<'m>> {
         let apply = |label: String| {
             Some(Offer {
@@ -77,7 +79,7 @@ impl Labels<'_> {
                 if !self.feature.attach_keeps_motion(sketch, body, face) {
                     return None;
                 }
-                apply(self.attach(sketch, face)?)
+                apply(self.attach(sketch, body, face)?)
             }
             Fix::TurnDrawingBack { .. } => apply("Turn the drawing back".to_string()),
             Fix::Unsuppress { feature } => {
@@ -111,15 +113,49 @@ impl Labels<'_> {
                     entity: entity.clone(),
                 },
             }),
-            // Later phases of the reference stability plan build these fixes' edits: the sketch
-            // fixes of the newcomer errors (constraint titles, connecting ends), new bodies and
-            // renamed keys. Until then no message offers them.
-            Fix::NewBody
-            | Fix::ConnectEnds { .. }
-            | Fix::DeleteConstraint { .. }
-            | Fix::MakeReference { .. }
-            | Fix::RenameKey { .. } => None,
+            Fix::NewBody => apply("Put it in a new body".to_string()),
+            Fix::DeleteConstraint { sketch, constraint } => apply(format!(
+                "Delete {}",
+                self.constraint_title(sketch, constraint)?
+            )),
+            Fix::MakeReference { sketch, constraint } => apply(format!(
+                "Make {} a reference",
+                self.constraint_title(sketch, constraint)?
+            )),
+            // A rename that replaced a setting the record has would change more than its label.
+            Fix::RenameKey { from, to } => {
+                let params = &self.feature.record.params;
+                if !params.contains_key(from) || params.contains_key(to) {
+                    return None;
+                }
+                apply(format!("Rename {from} to {to}"))
+            }
+            // Connecting ends fixes a finding of a sketch's solution, which offers it there
+            // (section 3.6, `offer_finding_fixes`); no feature message offers it.
+            Fix::ConnectEnds { .. } => None,
         }
+    }
+
+    /// The title of `constraint` of the sketch `sketch` (sketch.md section 4,
+    /// `MessageContext::title`) as the sketch crate renders it for the sketch's latest solve: with
+    /// its solved entities and measured values when it built, and the driving dimension values
+    /// that its conflict or redundancy message carries.
+    fn constraint_title(&self, sketch: &Id, constraint: &Id) -> Option<String> {
+        let run = self.feature.run;
+        let view = run.feature(sketch)?;
+        let params = sketch_params(run.registry, run.document, view.record).ok()?;
+        let result = built_sketch(view.report);
+        let label = run.label(sketch);
+        let values = solve_values(view.report);
+        MessageContext {
+            label: &label,
+            sketch: &params,
+            solved: result.map(|result| result.solved.entities.as_slice()),
+            values: &values,
+            measured: result.map(|result| &result.solved.measured),
+            units: run.document.units,
+        }
+        .title(constraint)
     }
 
     /// True for a `reference_widened` message.
@@ -229,17 +265,39 @@ impl Labels<'_> {
     }
 
     /// The label of an `Attach` fix (`attach_label`), with the description of the candidate in
-    /// the message's element repairs that stores `face`. None when no repair describes it.
-    fn attach(&self, sketch: &Id, face: &Reference) -> Option<String> {
-        let description = self.repairs.iter().find_map(|repair| match repair {
+    /// the message's element repairs that stores `face`, else, on a message without such a
+    /// repair (a join that adds nothing or floats), the face of `body` described on its own in
+    /// the state just before the sketch. None when the sketch is not in the run.
+    fn attach(&self, sketch: &Id, body: &Id, face: &Reference) -> Option<String> {
+        let candidate = self.repairs.iter().find_map(|repair| match repair {
             Repair::Element { candidates, .. } => candidates
                 .iter()
                 .find(|candidate| candidate.reference.query == face.query)
-                .map(|candidate| candidate.description.as_str()),
+                .map(|candidate| candidate.description.clone()),
             Repair::Region { .. } => None,
-        })?;
+        });
+        let description = match candidate {
+            Some(description) => description,
+            None => self.face_words(sketch, body, face)?,
+        };
         let other = (sketch != self.feature.id()).then(|| self.feature.run.label(sketch));
-        Some(attach_label(description, other.as_deref()))
+        Some(attach_label(&description, other.as_deref()))
+    }
+
+    /// The words of `face` of `body` described on its own (features.md `describe_elements`) in
+    /// the state of `body` just before the sketch `sketch`, which an attach puts on it.
+    fn face_words(&self, sketch: &Id, body: &Id, face: &Reference) -> Option<String> {
+        let run = self.feature.run;
+        let state = run.feature(sketch)?.state_before(body);
+        describe_elements(
+            &[(&face.query, &face.fingerprint)],
+            body,
+            Some(&state),
+            Some(sketch),
+            &run.names(),
+            run.document.units,
+        )
+        .pop()
     }
 
     /// The words of the regions a fix stores at `pointer`: the description of the candidate set

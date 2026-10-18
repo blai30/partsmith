@@ -249,30 +249,14 @@ impl Feature for Hole {
             &drilling.candidates,
             Some(along),
         )?;
-        // Reverse turns every point, so it is a fix only when no point reaches the body as it is.
-        let any_overlaps = decision.overlaps.contains(&true);
-        for (point, candidate) in points.iter().zip(&drilling.points) {
-            if candidate.is_some_and(|position| decision.overlaps[position]) {
-                continue;
-            }
-            // On this warning path only, the hole drilled the other way decides whether Reverse is a fix that works.
-            let reversed = if any_overlaps {
-                None
-            } else {
-                drill(direction.scaled(-1.0), point.point, point.world)?
-            };
-            let reverse_hits = match reversed {
-                Some(reversed) => reverse_hits(context, &params.body, &[reversed])?,
-                None => false,
-            };
-            warnings.push(FeatureWarning::HoleMissesBody {
-                sketch: params.sketch.clone(),
-                point: point.point.to_string(),
-                position: point.local,
-                body: params.body.clone(),
-                reverse_hits,
-            });
-        }
+        warnings.extend(misses(
+            context,
+            params,
+            &points,
+            &drilling.points,
+            &decision.overlaps,
+            |point| drill(direction.scaled(-1.0), point.point, point.world),
+        )?);
         let overlaps = decision.overlaps.clone();
         let mut output = finish(
             context,
@@ -399,6 +383,44 @@ fn distinct_points<'a>(
         });
     }
     Ok(points)
+}
+
+/// A `HoleMissesBody` for each point whose tool does not overlap the body (`overlaps` of its candidate in
+/// `candidates`, none without one), by its sketch coordinates (features/hole.md section 3.3 step 5). On this warning
+/// path only, `drilled_back` builds the point's tool the other way round to decide whether Reverse works, and only
+/// when no point overlaps: Reverse turns every point, so it would make one that reaches the body miss.
+fn misses(
+    context: &BuildContext<'_>,
+    params: &HoleParams,
+    points: &[HolePoint<'_>],
+    candidates: &[Option<usize>],
+    overlaps: &[bool],
+    drilled_back: impl Fn(&HolePoint<'_>) -> Result<Option<Tool>, FeatureError>,
+) -> Result<Vec<FeatureWarning>, FeatureError> {
+    let reversible = !overlaps.contains(&true);
+    let mut warnings = Vec::new();
+    for (point, candidate) in points.iter().zip(candidates) {
+        if candidate.is_some_and(|position| overlaps[position]) {
+            continue;
+        }
+        let reversed = if reversible {
+            drilled_back(point)?
+        } else {
+            None
+        };
+        let reverse_hits = match reversed {
+            Some(reversed) => reverse_hits(context, &params.body, &[reversed])?,
+            None => false,
+        };
+        warnings.push(FeatureWarning::HoleMissesBody {
+            sketch: params.sketch.clone(),
+            point: point.point.to_string(),
+            position: point.local,
+            body: params.body.clone(),
+            reverse_hits,
+        });
+    }
+    Ok(warnings)
 }
 
 /// The tools of a hole's points that may overlap the body.

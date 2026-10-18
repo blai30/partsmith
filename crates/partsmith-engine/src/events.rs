@@ -18,10 +18,11 @@ use crate::counts::saturating_u32;
 use crate::display::{DisplayCache, DisplayMesh, MeshKey};
 use crate::document::OpenDocument;
 use crate::error::EngineError;
+use crate::fixes::offer_finding_fixes;
 use crate::session::Session;
-use crate::sketch::{DATUM_PLANE_TYPE, SKETCH_TYPE, Solved, built, sketch_params};
-use crate::sketching::{datum_placement, solve_in};
-use crate::state::{BodyView, built_sketch, display_bodies, preview_bodies};
+use crate::sketch::{DATUM_PLANE_TYPE, SKETCH_TYPE};
+use crate::sketching::{datum_placement, stored_solution};
+use crate::state::{BodyView, display_bodies, preview_bodies};
 use crate::status::{DisplayFailure, document_diagnostics, feature_statuses, parameter_values};
 use crate::triangulate::fill_regions;
 
@@ -108,6 +109,8 @@ struct Changed {
     transaction: Option<String>,
     /// The focus feature.
     focus: Option<Id>,
+    /// How many expressions and parameters are numbers without a unit (section 3.25).
+    bare_numbers: u32,
 }
 
 /// A displayed mesh.
@@ -143,7 +146,7 @@ impl Session {
         let revision = open.revision;
         // The one step that can fail comes before anything is recorded as emitted, so a failed
         // pass leaves every layer as the host last saw it.
-        document_changed(open, doc, output)?;
+        document_changed(registry, open, doc, output)?;
         // Meshes are built and given their ids before the statuses, so `recomputed` can report
         // the bodies that could not be displayed and name the mesh elements of candidates.
         let meshes = display.then(|| {
@@ -192,11 +195,13 @@ impl Session {
 
 /// Emits `document_changed` when any of its fields changed.
 fn document_changed(
+    registry: &Registry,
     open: &mut OpenDocument,
     doc: DocHandle,
     output: &mut Output,
 ) -> Result<(), EngineError> {
     let changed = Changed {
+        bare_numbers: open.bare_numbers(registry),
         revision: open.revision,
         dirty: open.dirty()?,
         undo: open.undo.undo_label().map(str::to_string),
@@ -220,37 +225,10 @@ fn document_changed(
         transaction_open: changed.transaction.is_some(),
         transaction: changed.transaction.clone(),
         focus: changed.focus.clone(),
+        bare_numbers: changed.bare_numbers,
     });
     open.emitted.changed = Some(changed);
     Ok(())
-}
-
-/// The solution `sketch_solved` reports for the sketch at `position`: its recompute output when
-/// it built, the engine's own solve when it failed, nothing when it is suppressed or rolled back
-/// or the solve fails.
-fn event_solution(registry: &Registry, open: &OpenDocument, position: usize) -> Option<Solved> {
-    let record = open.document.features.get(position)?;
-    let report = open.computed.report.features.get(position)?;
-    match report.status {
-        Status::Ok | Status::Warning => {
-            let result = built_sketch(report)?;
-            let params = sketch_params(registry, &open.document, record).ok()?;
-            Some(built(&record.id, &params, result))
-        }
-        Status::Error => {
-            let params = sketch_params(registry, &open.document, record).ok()?;
-            solve_in(
-                registry,
-                &open.document,
-                &open.computed,
-                position,
-                &record.id,
-                &params,
-            )
-            .ok()
-        }
-        Status::Suppressed | Status::RolledBack | Status::NotRun => None,
-    }
 }
 
 /// Emits `sketch_solved` for each active sketch whose solution changed, in timeline order.
@@ -268,9 +246,11 @@ fn sketch_events(
             continue;
         }
         present.insert(record.id.clone());
-        let Some(solved) = event_solution(registry, open, position) else {
+        let Some(mut solved) = stored_solution(registry, &open.document, &open.computed, position)
+        else {
             continue;
         };
+        offer_finding_fixes(&mut solved.solution, revision, open.document.units);
         if open.emitted.sketches.get(&record.id) == Some(&solved.solution) {
             continue;
         }

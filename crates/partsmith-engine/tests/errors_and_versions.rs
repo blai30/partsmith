@@ -1,8 +1,8 @@
 //! Acceptance tests 146 to 149 of `docs/spec/engine.md` section 6: error texts with their details and actions, the
 //! actions of `transaction_open`, format version 1 texts, and invalid params in edits (section 4).
 //!
-//! Test 150 (the newcomer error corpus) comes with phase 3 of the reference stability plan and test 151 (determinism
-//! with causes and ghosts) with phase 4.
+//! Test 150 (the newcomer error corpus) lives in `newcomer_errors.rs`, the file the spec names for it; test 151
+//! (determinism with causes and ghosts) comes with phase 4 of the reference stability plan.
 
 mod common;
 

@@ -66,6 +66,15 @@ pub struct Stepped {
     pub label: String,
 }
 
+/// Result of `set_document_units`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnitsChanged {
+    /// The revision after the change, unchanged when the units were already the ones asked for.
+    pub revision: u64,
+    /// How many expressions and parameters got the old unit.
+    pub kept: u32,
+}
+
 /// Engine and format versions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineInfo {

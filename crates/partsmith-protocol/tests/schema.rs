@@ -16,6 +16,17 @@ use common::{
 use partsmith_protocol::{MAX_SAFE_INTEGER, protocol_schema};
 use serde_json::{Value, json};
 
+/// The names a schema object lists as `required`.
+fn required_names(subschema: &Value) -> Vec<&str> {
+    subschema
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect()
+}
+
 /// The schema's `maximum` for property `name` of `subschema`.
 fn maximum_of(schema: &Value, subschema: &Value, name: &str) -> Option<u64> {
     property(schema, subschema, name)
@@ -154,7 +165,7 @@ fn t046_ids_and_mesh_ids_declare_the_javascript_safe_maximum() {
 fn t081_schema_defines_the_diagnostic_fix_repair_and_ghost_types() {
     let schema = schema_json();
 
-    // `Use` joins with list_uses and `Connection` with the connect-ends fix, in their own steps.
+    // `Use` joins with list_uses, in its own step (reference stability plan, phase 4).
     for name in [
         "Diagnostic",
         "Cause",
@@ -170,6 +181,7 @@ fn t081_schema_defines_the_diagnostic_fix_repair_and_ghost_types() {
         "GhostFrame",
         "RepairCandidate",
         "RegionCandidate",
+        "Connection",
         "HintFrame",
     ] {
         definition(&schema, name);
@@ -476,4 +488,27 @@ fn diagnostic_with_a_suggestion_and_a_root_validates() {
     diagnostic["root"] = json!("f-dp1");
 
     assert_eq!(validate(&schema, "/$defs/Diagnostic", &diagnostic), Ok(()));
+}
+
+#[test]
+fn set_document_units_needs_its_units_and_may_leave_out_keep_sizes() {
+    let schema = schema_json();
+    let command = variant(&schema, "Command", "type", "set_document_units");
+
+    let required = required_names(command);
+
+    assert!(
+        required.contains(&"doc") && required.contains(&"units"),
+        "{required:?}"
+    );
+    assert!(!required.contains(&"keep_sizes"), "{required:?}");
+    assert!(property(&schema, command, "keep_sizes").is_some());
+}
+
+#[test]
+fn document_changed_declares_bare_numbers() {
+    let schema = schema_json();
+    let event = variant(&schema, "Event", "type", "document_changed");
+
+    assert!(property(&schema, event, "bare_numbers").is_some());
 }
