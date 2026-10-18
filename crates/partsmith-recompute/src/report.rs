@@ -201,30 +201,30 @@ impl Message {
     }
 
     /// The document-level warning for a stop point or rollback marker that names no record when
-    /// the whole timeline runs instead (recompute.md section 4).
-    pub(crate) fn unknown_stop(feature: &Id) -> Message {
-        Message::unknown_stop_with(format!(
-            "The preview or rollback point '{feature}' is not in this document, so the whole timeline was rebuilt."
-        ))
+    /// the whole timeline runs instead (recompute.md section 4). It names no id: the feature is not
+    /// in the document, so it has no label.
+    pub(crate) fn unknown_stop() -> Message {
+        Message::unknown_stop_with(
+            "The preview or rollback point is a feature that is not in this document, so the whole timeline was rebuilt.",
+        )
     }
 
     /// The document-level warning for a stop point that names no record when the run stops at the
-    /// document's rollback marker instead. Section 4 words `unknown_stop` for the whole timeline
-    /// only, which would be false here.
-    pub(crate) fn unknown_stop_before_rollback(feature: &Id) -> Message {
-        Message::unknown_stop_with(format!(
-            "The preview point '{feature}' is not in this document, so the timeline was rebuilt up to the rollback marker."
-        ))
+    /// document's rollback marker instead (section 4).
+    pub(crate) fn unknown_stop_before_rollback() -> Message {
+        Message::unknown_stop_with(
+            "The preview point is a feature that is not in this document, so the timeline was rebuilt up to the rollback marker.",
+        )
     }
 
     /// An `unknown_stop` warning with this text. Document-level messages have no repairs, fixes,
     /// detail, root or reason (section 4).
-    fn unknown_stop_with(text: String) -> Message {
+    fn unknown_stop_with(text: &str) -> Message {
         Message {
             severity: Severity::Warning,
             code: "unknown_stop",
             pointer: None,
-            text,
+            text: text.to_owned(),
             suggestion: None,
             repairs: Vec::new(),
             fixes: Vec::new(),
@@ -542,8 +542,8 @@ mod tests {
     }
 
     #[test]
-    fn unknown_stop_names_the_missing_feature() {
-        let message = Message::unknown_stop(&id("f-nope"));
+    fn unknown_stop_says_the_whole_timeline_was_rebuilt() {
+        let message = Message::unknown_stop();
 
         assert_eq!(message.severity, Severity::Warning);
         assert_eq!(message.code, "unknown_stop");
@@ -555,20 +555,20 @@ mod tests {
         );
         assert_eq!(
             message.text,
-            "The preview or rollback point 'f-nope' is not in this document, so the whole timeline was rebuilt."
+            "The preview or rollback point is a feature that is not in this document, so the whole timeline was rebuilt."
         );
     }
 
     #[test]
     fn unknown_stop_before_rollback_says_where_the_run_stopped() {
-        let message = Message::unknown_stop_before_rollback(&id("f-nope"));
+        let message = Message::unknown_stop_before_rollback();
 
         assert_eq!(message.severity, Severity::Warning);
         assert_eq!(message.code, "unknown_stop");
         assert_eq!(message.pointer, None);
         assert_eq!(
             message.text,
-            "The preview point 'f-nope' is not in this document, so the timeline was rebuilt up to the rollback marker."
+            "The preview point is a feature that is not in this document, so the timeline was rebuilt up to the rollback marker."
         );
     }
 

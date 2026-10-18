@@ -1,7 +1,6 @@
 //! Statuses and the loss diagnosis of recompute.md sections 3.5, 3.6 and 3.10: tests 41 to 68 and 71 to 73 of
-//! section 6, as far as phases 1 and 2 of the reference stability plan build them, plus small tests of the rules those
-//! scenarios do not reach. A test named `tNNN` is section 6 test NNN; a test with several scenarios is one test per
-//! scenario.
+//! section 6, plus small tests of the rules those scenarios do not reach. A test named `tNNN` is section 6 test NNN; a
+//! test with several scenarios is one test per scenario.
 //!
 //! Each test runs the scenario of the reference stability corpus or the newcomer error corpus it names as a document of
 //! features.md section 6.1. The setup runs with its references picked as the corpus's "Picked references" rule says
@@ -12,22 +11,27 @@
 //! Test 42 reads the placement of a sketch where its face was just before its removal from the writer chains, whose
 //! entries `timeline.rs` tests; test 66 includes the sketch placed where the cut face was (corpus R33); and test 72 (a
 //! drawing turned over, corpus R32 (b)) checks its statuses and roots, and its hole text, single message and `Show`
-//! fix (features.md sections 3.15 and 4.2, phase 3 step 4). Left for the phases that build what they need: test 60 (b)
-//! (a hole that skips a deleted point, phase 3) and the `no_effect` and `separate_solid` texts and fixes of test 66
-//! (phase 3). Test 69 is the corpus (`reference_stability_{1,2,3}.rs`) and test 70 the newcomer error corpus (phase
-//! 3).
+//! fix (features.md sections 3.15 and 4.2). Test 66 checks the reason of the sketch that lost its face and the root
+//! of the message under it; the `no_effect` and `separate_solid` texts and fixes it names are features/sketch.md tests
+//! 23 and 22, `feature_sketch.rs` tests `t023` and `t022`. Test 69 is the corpus (`reference_stability_{1,2,3}.rs`)
+//! and test 70 the newcomer error corpus (`newcomer_errors.rs`).
 //! A sketch whose face is lost carries the loss in its `plane_fallback` warning (features/sketch.md section 3.5), so
 //! tests 57 (R57), 66 (R26 and R33) and 73 (R55) check its reason here; its `Attach` fixes are in `Message::fixes`.
+//! The scenarios of these tests are functions named after their corpus scenario (`r16` is R16 after its edit), so the
+//! last test can render every explanation clause of section 3.10 again and check each against the message lint of the
+//! error guidelines (`lint_failures`).
 
 mod feature_support;
 #[path = "stability_common/mod.rs"]
 mod stability_common;
 
+use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;
 
 use feature_support::{
     Assets, Run, assert_sketch_on_top_plane, assert_volume, body_before, element_names,
-    face_names_with_prefix, keep_match, message, pick, remove_entry, sketch_result, use_reference,
+    face_names_with_prefix, keep_match, lint_failures, message, pick, remove_entry, sketch_result,
+    use_reference,
 };
 use partsmith_features::{Absence, FieldRef, Fix, Place, Placed, Repair};
 use partsmith_model::{Document, EmptyContext};
@@ -481,11 +485,15 @@ fn fillet_above_slot() -> Vec<Value> {
     move_before(&slotted_cube(), &["f-fil1"], "f-box2")
 }
 
+/// Corpus R24 (a) after its edit, run on a new recompute.
+fn r24a() -> Run {
+    let setup = run(&["b-1"], &slotted_cube());
+    run_edited(&setup, &["b-1"], &slot_suppressed())
+}
+
 #[test]
 fn t043_r24a_a_suppressed_maker_is_named_with_unsuppress() {
-    let setup = run(&["b-1"], &slotted_cube());
-
-    let run = run_edited(&setup, &["b-1"], &slot_suppressed());
+    let run = r24a();
 
     let error = error_message(&run, "f-fil1", "references_not_found");
     assert_eq!(
@@ -506,8 +514,7 @@ fn t043_r24a_a_suppressed_maker_is_named_with_unsuppress() {
 
 #[test]
 fn t043_a_run_with_every_reason_memoized_gives_the_messages_of_a_cold_run() {
-    let setup = run(&["b-1"], &slotted_cube());
-    let mut run = run_edited(&setup, &["b-1"], &slot_suppressed());
+    let mut run = r24a();
     let cold = all_messages(&run.report);
 
     run.rerun(&Assets::new());
@@ -574,15 +581,20 @@ fn t044_the_states_the_diagnosis_walks_compute_no_element_infos() {
 
 // Test 45: `NotInDocument` (corpus R23 (b)).
 
-#[test]
-fn t045_r23b_a_maker_that_is_not_in_the_document() {
+/// Corpus R23 (b) after its edit: the sketch and extrude of the first peg deleted.
+fn r23b() -> Run {
     let mut session = run(&["b-1"], &pegs());
-
     edit(
         &mut session,
         &["b-1"],
         &without(&pegs(), &["f-sk1", "f-ext1"]),
     );
+    session
+}
+
+#[test]
+fn t045_r23b_a_maker_that_is_not_in_the_document() {
+    let session = r23b();
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -608,6 +620,35 @@ fn t045_r23b_a_maker_that_is_not_in_the_document() {
     assert!(
         element_names(session.body("b-1"), ElementKind::Edge)
             .contains(&"edge(f-ext2/end-cap|f-ext2/lateral/e-7)".to_owned())
+    );
+}
+
+/// Corpus R41's setup with the variant's one edge, on the third copy, and the pattern then deleted: the edge is on a
+/// face of 'Box 1', which is in the document, made by a pattern that is not.
+fn pattern_deleted() -> Run {
+    let edges = vec![copy_right_top_edge(2)];
+    let setup = run(&["b-1"], &patterned_cubes("3", edges.clone()));
+    run_edited(
+        &setup,
+        &["b-1"],
+        &without(&patterned_cubes("3", edges), &["f-lp1"]),
+    )
+}
+
+#[test]
+fn t045_an_edge_of_a_copy_whose_pattern_is_not_in_the_document() {
+    let session = pattern_deleted();
+
+    let error = error_message(&session, "f-fil1", "references_not_found");
+    assert_eq!(
+        error.reason,
+        Some(LossReason::NotInDocument {
+            feature: id("f-lp1")
+        })
+    );
+    assert_ends_with(
+        &error.text,
+        " selected for Edges is made by a feature that is not in this document.",
     );
 }
 
@@ -745,11 +786,24 @@ fn fillet_above_boss(edge: Value) -> Vec<Value> {
     move_before(&filleted_boss(edge), &["f-fil1"], "f-dp1")
 }
 
+/// Corpus R28 with the fillet on `edge`, after its edit in the same session.
+fn r28(edge: Value) -> Run {
+    let mut session = run(&["b-1"], &filleted_boss(edge.clone()));
+    edit(&mut session, &["b-1"], &fillet_above_boss(edge));
+    session
+}
+
+/// Corpus R28 after its edit with the rollback marker at 'Datum plane 1', so 'Extrude 2' is after it.
+fn r28_rolled_back() -> Run {
+    let setup = run(&["b-1"], &filleted_boss(boss_top_rim()));
+    let mut document = edited_document(&setup, &["b-1"], &fillet_above_boss(boss_top_rim()));
+    document.rollback = Some(id("f-dp1"));
+    Run::new(document)
+}
+
 #[test]
 fn t048_r28_a_maker_that_now_comes_later_offers_the_move_first() {
-    let mut session = run(&["b-1"], &filleted_boss(boss_top_rim()));
-
-    edit(&mut session, &["b-1"], &fillet_above_boss(boss_top_rim()));
+    let session = r28(boss_top_rim());
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -769,9 +823,7 @@ fn t048_r28_a_maker_that_now_comes_later_offers_the_move_first() {
 
 #[test]
 fn t048_r28_the_base_ring_gets_the_same_reason() {
-    let mut session = run(&["b-1"], &filleted_boss(boss_base_ring()));
-
-    edit(&mut session, &["b-1"], &fillet_above_boss(boss_base_ring()));
+    let session = r28(boss_base_ring());
 
     assert_eq!(
         error_message(&session, "f-fil1", "references_not_found").reason,
@@ -795,11 +847,7 @@ fn t048_r28_dragging_back_restores_the_document() {
 
 #[test]
 fn t049_a_maker_after_the_rollback_marker_offers_no_move() {
-    let setup = run(&["b-1"], &filleted_boss(boss_top_rim()));
-    let mut document = edited_document(&setup, &["b-1"], &fillet_above_boss(boss_top_rim()));
-    document.rollback = Some(id("f-dp1"));
-
-    let run = Run::new(document);
+    let run = r28_rolled_back();
 
     for feature in ["f-dp1", "f-sk2", "f-ext2"] {
         assert_eq!(run.feature(feature).status, Status::RolledBack);
@@ -939,15 +987,16 @@ fn conflicting_radius() -> Vec<Value> {
     vec![size_constraint("c-2", "radius", "e-5", "6 mm")]
 }
 
+/// Corpus R47's setup with a boss of 10, then edited to `features` in the same session.
+fn r47(features: &[Value]) -> Run {
+    let mut session = run(&["b-1"], &boss_beside_hole(Vec::new(), "10"));
+    edit(&mut session, &["b-1"], features);
+    session
+}
+
 #[test]
 fn t050_r47_a_maker_that_cannot_be_built_names_the_root_and_offers_no_pick() {
-    let mut session = run(&["b-1"], &boss_beside_hole(Vec::new(), "10"));
-
-    edit(
-        &mut session,
-        &["b-1"],
-        &boss_beside_hole(conflicting_radius(), "10"),
-    );
+    let session = r47(&boss_beside_hole(conflicting_radius(), "10"));
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -1009,9 +1058,7 @@ fn t050_r47_removing_the_conflict_gives_the_original_result() {
 
 #[test]
 fn t050_r47_a_maker_with_its_own_error_is_the_root() {
-    let mut session = run(&["b-1"], &boss_beside_hole(Vec::new(), "10"));
-
-    edit(&mut session, &["b-1"], &boss_beside_hole(Vec::new(), "0"));
+    let session = r47(&boss_beside_hole(Vec::new(), "0"));
 
     session.assert_error("f-ext3", "out_of_range");
     let error = error_message(&session, "f-fil1", "references_not_found");
@@ -1049,10 +1096,9 @@ fn now_in_body_2(by: &str, by_suppressed: bool) -> LossReason {
     }
 }
 
-#[test]
-fn t051_r31a_an_edge_a_split_put_into_another_body() {
+/// Corpus R31 (a) after its edit: a split at z = 5 inserted before the chamfer.
+fn r31a() -> Run {
     let mut session = run(&["b-1", "b-2"], &chamfered_bottom_edge());
-
     edit(
         &mut session,
         &["b-1", "b-2"],
@@ -1062,6 +1108,12 @@ fn t051_r31a_an_edge_a_split_put_into_another_body() {
             vec![datum_offset("f-dp1", "XY", "5"), split(false)],
         ),
     );
+    session
+}
+
+#[test]
+fn t051_r31a_an_edge_a_split_put_into_another_body() {
+    let session = r31a();
 
     let error = message(&session, "f-cha1", "references_not_found");
     assert_eq!(session.feature("f-cha1").status, Status::Error);
@@ -1134,15 +1186,20 @@ fn boolean_on_top(target: &str, tool: &str) -> Vec<Value> {
     ]
 }
 
-#[test]
-fn t051_r56a_an_edge_whose_boolean_is_suppressed_offers_unsuppress_then_the_body() {
+/// Corpus R56 (a) after its edit: the boolean suppressed.
+fn r56a() -> Run {
     let mut session = run(&["b-1", "b-2"], &boolean_on_top("b-1", "b-2"));
-
     edit(
         &mut session,
         &["b-1", "b-2"],
         &edited(&boolean_on_top("b-1", "b-2"), "f-bool1", suppressed),
     );
+    session
+}
+
+#[test]
+fn t051_r56a_an_edge_whose_boolean_is_suppressed_offers_unsuppress_then_the_body() {
+    let session = r56a();
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(error.reason, Some(now_in_body_2("f-bool1", true)));
@@ -1196,11 +1253,16 @@ fn boss_ring(body: &str, op: &str) -> Vec<Value> {
     ]
 }
 
+/// Corpus R56 (c) after its edit: the boss made as a new body 'Body 2'.
+fn r56c() -> Run {
+    let mut session = run(&["b-1", "b-2"], &boss_ring("b-1", "join"));
+    edit(&mut session, &["b-1", "b-2"], &boss_ring("b-2", "new"));
+    session
+}
+
 #[test]
 fn t051_r56c_an_edge_whose_maker_now_makes_another_body_left_this_one() {
-    let mut session = run(&["b-1", "b-2"], &boss_ring("b-1", "join"));
-
-    edit(&mut session, &["b-1", "b-2"], &boss_ring("b-2", "new"));
+    let session = r56c();
 
     let error = message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -1313,11 +1375,16 @@ fn a_memoized_reason_follows_the_order_of_the_bodies() {
 
 // Tests 52 and 71: `CutAway` (corpus R16 and R30 (b)), rendered with current names.
 
+/// Corpus R16 after its edit: the rabbet cut before the fillet.
+fn r16() -> Run {
+    let mut session = run(&["b-1"], &filleted_cube());
+    edit(&mut session, &["b-1"], &rabbeted_cube());
+    session
+}
+
 #[test]
 fn t052_r16_an_edge_a_cut_took_away_offers_its_neighbors_by_meaning() {
-    let mut session = run(&["b-1"], &filleted_cube());
-
-    edit(&mut session, &["b-1"], &rabbeted_cube());
+    let session = r16();
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -1456,11 +1523,16 @@ fn stepped_block(step: &str) -> Vec<Value> {
     )
 }
 
+/// Corpus R13 after its edit: the step made as tall as the block.
+fn r13() -> Run {
+    let mut session = run(&["b-1"], &stepped_block("20"));
+    edit(&mut session, &["b-1"], &stepped_block("30"));
+    session
+}
+
 #[test]
 fn t053_r13_an_edge_a_join_made_flush_is_inside_the_part() {
-    let mut session = run(&["b-1"], &stepped_block("20"));
-
-    edit(&mut session, &["b-1"], &stepped_block("30"));
+    let session = r13();
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -1554,8 +1626,9 @@ fn t053_r21b_the_inside_corner_where_the_edge_was_is_offered_first() {
 
 // Test 54: `Rounded` and `Beveled` (corpus R18 and R59).
 
-#[test]
-fn t054_r18a_an_edge_an_inserted_fillet_rounded() {
+/// Corpus R18 (a) after its edit: a fillet of 5 on BLOCK's front right vertical edge inserted before the chamfer of
+/// that edge.
+fn r18a() -> Run {
     let features = followed_by(
         block(),
         vec![chamfer(
@@ -1566,7 +1639,6 @@ fn t054_r18a_an_edge_an_inserted_fillet_rounded() {
         )],
     );
     let mut session = run(&["b-1"], &features);
-
     edit(
         &mut session,
         &["b-1"],
@@ -1581,6 +1653,27 @@ fn t054_r18a_an_edge_an_inserted_fillet_rounded() {
             )],
         ),
     );
+    session
+}
+
+/// Corpus R18 (b) after its edit: a chamfer of 2 on CUBE20's front top edge inserted before the fillet of that edge.
+fn r18b() -> Run {
+    let mut session = run(&["b-1"], &filleted_cube());
+    edit(
+        &mut session,
+        &["b-1"],
+        &insert_before(
+            &filleted_cube(),
+            "f-fil1",
+            vec![chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2")],
+        ),
+    );
+    session
+}
+
+#[test]
+fn t054_r18a_an_edge_an_inserted_fillet_rounded() {
+    let session = r18a();
 
     let error = error_message(&session, "f-cha1", "references_not_found");
     assert_eq!(
@@ -1598,17 +1691,7 @@ fn t054_r18a_an_edge_an_inserted_fillet_rounded() {
 
 #[test]
 fn t054_r18b_an_edge_an_inserted_chamfer_beveled() {
-    let mut session = run(&["b-1"], &filleted_cube());
-
-    edit(
-        &mut session,
-        &["b-1"],
-        &insert_before(
-            &filleted_cube(),
-            "f-fil1",
-            vec![chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2")],
-        ),
-    );
+    let session = r18b();
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -1665,8 +1748,9 @@ fn t054_r59a_an_axis_edge_rounded_upstream_offers_the_tangent_edges() {
 
 // Test 55: `Hollowed`.
 
-#[test]
-fn t055_a_face_a_shell_removed_with_nothing_left_in_its_plane() {
+/// CUBE20 and a datum `f-dp1` on its top, with a shell `f-sh1` of 2 that removes the top and the four sides inserted
+/// before the datum, so nothing is left in the top's plane.
+fn hollowed_top() -> Run {
     let top = reference("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4");
     let features = vec![cube20(), datum_on_face("f-dp1", "b-1", top, "0")];
     let mut session = run(&["b-1"], &features);
@@ -1677,7 +1761,6 @@ fn t055_a_face_a_shell_removed_with_nothing_left_in_its_plane() {
             serde_json::to_value(picked).expect("a reference serializes")
         })
         .collect();
-
     edit(
         &mut session,
         &["b-1"],
@@ -1687,6 +1770,12 @@ fn t055_a_face_a_shell_removed_with_nothing_left_in_its_plane() {
             vec![shell("f-sh1", "b-1", "2", removed)],
         ),
     );
+    session
+}
+
+#[test]
+fn t055_a_face_a_shell_removed_with_nothing_left_in_its_plane() {
+    let session = hollowed_top();
 
     assert_volume(session.shape("b-1"), 800.0);
     let error = error_message(&session, "f-dp1", "reference_not_found");
@@ -1738,11 +1827,16 @@ fn slotted_block(x0: f64, x1: f64) -> Vec<Value> {
     )
 }
 
+/// Corpus R10 (a) after its edit: the slot moved to x 50..81, over the right-hand piece's front top edge.
+fn r10a() -> Run {
+    let mut session = run(&["b-1"], &slotted_block(30.0, 50.0));
+    edit(&mut session, &["b-1"], &slotted_block(50.0, 81.0));
+    session
+}
+
 #[test]
 fn t056_r10a_the_piece_an_edge_was_on_is_gone() {
-    let mut session = run(&["b-1"], &slotted_block(30.0, 50.0));
-
-    edit(&mut session, &["b-1"], &slotted_block(50.0, 81.0));
+    let session = r10a();
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -1875,12 +1969,17 @@ fn pocket(square: bool, depth: &str) -> Vec<Value> {
     )
 }
 
+/// Corpus R12 after its edit: the pocket, round or square, made `depth` deep instead of 5.
+fn r12(square: bool, depth: &str) -> Run {
+    let mut session = run(&["b-1"], &pocket(square, "5"));
+    edit(&mut session, &["b-1"], &pocket(square, depth));
+    session
+}
+
 /// Checks corpus R12 with the pocket made `depth` deep: the floor edge is no longer made by the cut, which goes all
 /// the way through, its rims are offered and never applied, and the hole's seam is never offered.
 fn check_pocket_made_through(square: bool, depth: &str) {
-    let mut session = run(&["b-1"], &pocket(square, "5"));
-
-    edit(&mut session, &["b-1"], &pocket(square, depth));
+    let session = r12(square, depth);
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -1935,11 +2034,16 @@ fn t057_r12_a_square_pocket_made_through_40() {
     check_pocket_made_through(true, "40");
 }
 
+/// Corpus R30 (a) after its edit: the symmetric boss made a cut.
+fn r30a() -> Run {
+    let mut session = run(&["b-1"], &symmetric_boss("join"));
+    edit(&mut session, &["b-1"], &symmetric_boss("cut"));
+    session
+}
+
 #[test]
 fn t057_r30a_a_cut_whose_end_reaches_the_outside_no_longer_makes_its_rim() {
-    let mut session = run(&["b-1"], &symmetric_boss("join"));
-
-    edit(&mut session, &["b-1"], &symmetric_boss("cut"));
+    let session = r30a();
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -1958,11 +2062,16 @@ fn t057_r30a_a_cut_whose_end_reaches_the_outside_no_longer_makes_its_rim() {
     assert_volume(session.shape("b-1"), 113716.814693);
 }
 
+/// Corpus R57 after its edit: the revolve of 270 degrees made a full turn.
+fn r57() -> Run {
+    let mut session = run(&["b-1"], &three_quarter_ring(angle("270 deg")));
+    edit(&mut session, &["b-1"], &three_quarter_ring(full_turn()));
+    session
+}
+
 #[test]
 fn t057_r57_a_revolve_that_turns_all_the_way_round_no_longer_makes_its_caps() {
-    let mut session = run(&["b-1"], &three_quarter_ring(angle("270 deg")));
-
-    edit(&mut session, &["b-1"], &three_quarter_ring(full_turn()));
+    let mut session = r57();
 
     let error = error_message(&session, "f-cha1", "references_not_found");
     assert_eq!(
@@ -2012,8 +2121,9 @@ fn t057_r57_a_revolve_that_turns_all_the_way_round_no_longer_makes_its_caps() {
     session.assert_all_ok();
 }
 
-#[test]
-fn t057_a_face_its_feature_no_longer_makes() {
+/// CUBE20, a chamfer `f-cha1` of 2 on its front top edge and a datum `f-dp1` on the beveled face, with the chamfer
+/// then moved to the back top edge.
+fn bevel_moved() -> Run {
     let features = vec![
         cube20(),
         chamfer("f-cha1", "b-1", vec![cube20_front_top()], "2"),
@@ -2021,7 +2131,6 @@ fn t057_a_face_its_feature_no_longer_makes() {
     ];
     let mut session = run(&["b-1"], &features);
     let back_top = session.picked_before("f-cha1", "b-1", "edge(f-box1/back|f-box1/top)");
-
     edit(
         &mut session,
         &["b-1"],
@@ -2029,6 +2138,12 @@ fn t057_a_face_its_feature_no_longer_makes() {
             with(record, "edges", json!([back_top]))
         }),
     );
+    session
+}
+
+#[test]
+fn t057_a_face_its_feature_no_longer_makes() {
+    let session = bevel_moved();
 
     let error = error_message(&session, "f-dp1", "reference_not_found");
     assert_eq!(
@@ -2058,8 +2173,8 @@ fn corner_cut_outline() -> Vec<Value> {
     ]
 }
 
-#[test]
-fn t058_r01_an_edge_whose_faces_no_longer_meet_names_the_face_between() {
+/// Corpus R01 after its 5 mm edit, with a chamfer `f-cha1` of 1 on BLOCK's front right vertical edge.
+fn r01() -> Run {
     let features = followed_by(
         block(),
         vec![chamfer(
@@ -2070,12 +2185,17 @@ fn t058_r01_an_edge_whose_faces_no_longer_meet_names_the_face_between() {
         )],
     );
     let mut session = run(&["b-1"], &features);
-
     edit(
         &mut session,
         &["b-1"],
         &with_outline(&features, corner_cut_outline()),
     );
+    session
+}
+
+#[test]
+fn t058_r01_an_edge_whose_faces_no_longer_meet_names_the_face_between() {
+    let session = r01();
 
     let error = error_message(&session, "f-cha1", "references_not_found");
     assert_eq!(
@@ -2124,15 +2244,20 @@ fn rounded_corner_outline() -> Vec<Value> {
     ]
 }
 
-#[test]
-fn t058_r64_a_corner_a_sketch_arc_now_rounds_offers_suppress() {
+/// Corpus R64 after its edit: the corner of BLOCK's outline rounded by an arc.
+fn r64() -> Run {
     let mut session = run(&["b-1"], &shelled_block());
-
     edit(
         &mut session,
         &["b-1"],
         &with_outline(&shelled_block(), rounded_corner_outline()),
     );
+    session
+}
+
+#[test]
+fn t058_r64_a_corner_a_sketch_arc_now_rounds_offers_suppress() {
+    let session = r64();
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -2195,6 +2320,39 @@ fn t058_r64_suppressing_the_fillet_leaves_every_other_feature_ok() {
     }
 }
 
+/// Corpus R28's setup with the fillet on the ring where the boss meets BLOCK's top, and the boss's datum then raised to
+/// z = 35, so the boss floats above the block and nothing lies between the faces of the ring.
+fn boss_lifted() -> Run {
+    let mut session = run(&["b-1"], &filleted_boss(boss_base_ring()));
+    edit(
+        &mut session,
+        &["b-1"],
+        &edited(&filleted_boss(boss_base_ring()), "f-dp1", |record| {
+            with(record, "offset", json!("35"))
+        }),
+    );
+    session
+}
+
+#[test]
+fn t058_an_edge_whose_faces_no_longer_meet_with_no_face_between() {
+    let session = boss_lifted();
+
+    session.assert_warnings("f-ext2", &["separate_solid"]);
+    let error = error_message(&session, "f-fil1", "references_not_found");
+    assert_eq!(
+        error.reason,
+        Some(LossReason::Removed {
+            by: id("f-ext2"),
+            how: Removal::NoLongerMeet { between: None }
+        })
+    );
+    assert_ends_with(
+        &error.text,
+        " selected for Edges no longer exists, because its faces no longer meet.",
+    );
+}
+
 // Test 59: `EntityDeleted` (corpus R03 and R51).
 
 /// Corpus R03's setup: BLOCK's outline with its back right corner beveled by `e-5`, and a fillet `f-fil1` of 2 on the
@@ -2236,15 +2394,20 @@ fn beveled_block() -> Vec<Value> {
     ]
 }
 
-#[test]
-fn t059_r03_an_edge_whose_sketch_line_was_deleted_is_skipped() {
+/// Corpus R03 after its edit: the bevel line deleted from the outline.
+fn r03() -> Run {
     let mut session = run(&["b-1"], &beveled_block());
-
     edit(
         &mut session,
         &["b-1"],
         &with_outline(&beveled_block(), rectangle(1, 0.0, 0.0, 80.0, 50.0)),
     );
+    session
+}
+
+#[test]
+fn t059_r03_an_edge_whose_sketch_line_was_deleted_is_skipped() {
+    let session = r03();
 
     session.assert_warnings("f-fil1", &["reference_missing"]);
     let warning = message(&session, "f-fil1", "reference_missing");
@@ -2276,15 +2439,20 @@ fn t059_r03_an_edge_whose_sketch_line_was_deleted_is_skipped() {
     assert_volume(session.shape("b-1"), 119931.327412);
 }
 
-#[test]
-fn t059_r51_an_edge_whose_sketch_curve_was_deleted() {
+/// Corpus R51 after its edit: the back right arc deleted from the outline.
+fn r51() -> Run {
     let mut session = run(&["b-1"], &rounded_plate(true));
-
     edit(
         &mut session,
         &["b-1"],
         &with_outline(&rounded_plate(true), rounded_outline(false)),
     );
+    session
+}
+
+#[test]
+fn t059_r51_an_edge_whose_sketch_curve_was_deleted() {
+    let session = r51();
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -2301,18 +2469,24 @@ fn t059_r51_an_edge_whose_sketch_curve_was_deleted() {
     );
 }
 
-// Test 60: `PointGone` (corpus R43 (a); (b) needs holes that skip a deleted point, phase 3).
+// Test 60: `PointGone` (corpus R43).
 
-/// Corpus R43's setup: BOX-BELOW, holes of 6 through all at `e-p1` (0, 0) and `e-p2` (7, 0), and a chamfer `f-cha1` of
-/// 0.5 on the top rim of the hole at (7, 0).
-fn two_holes(points: &[&str]) -> Vec<Value> {
+/// Corpus R43's first sketch point, `e-p1` at (0, 0).
+fn point_p1() -> Value {
+    point("e-p1", [0.0, 0.0])
+}
+
+/// Corpus R43's second sketch point, `e-p2` at (7, 0), the point of the hole whose rim the chamfer is on.
+fn point_p2() -> Value {
+    point("e-p2", [7.0, 0.0])
+}
+
+/// Corpus R43's setup: BOX-BELOW, `f-sk1` with `sketch_points`, holes of 6 through all at `points`, and a chamfer
+/// `f-cha1` of 0.5 on the top rim of the hole at `e-p2` (7, 0).
+fn two_holes(sketch_points: Vec<Value>, points: &[&str]) -> Vec<Value> {
     vec![
         box_below(),
-        sketch(
-            "f-sk1",
-            origin_plane("XY"),
-            vec![point("e-p1", [0.0, 0.0]), point("e-p2", [7.0, 0.0])],
-        ),
+        sketch("f-sk1", origin_plane("XY"), sketch_points),
         hole("f-hole1", "b-1", "f-sk1", points, "6", through_all()),
         chamfer(
             "f-cha1",
@@ -2326,11 +2500,29 @@ fn two_holes(points: &[&str]) -> Vec<Value> {
     ]
 }
 
+/// Corpus R43's setup, then edited in the same session to `sketch_points` in the sketch and `points` in the hole.
+fn r43(sketch_points: Vec<Value>, points: &[&str]) -> Run {
+    let mut session = run(
+        &["b-1"],
+        &two_holes(vec![point_p1(), point_p2()], &["e-p1", "e-p2"]),
+    );
+    edit(&mut session, &["b-1"], &two_holes(sketch_points, points));
+    session
+}
+
+/// Corpus R43 (a) after its edit: `e-p2` removed from the hole's points.
+fn r43a() -> Run {
+    r43(vec![point_p1(), point_p2()], &["e-p1"])
+}
+
+/// Corpus R43 (b) after its edit: `e-p2` deleted from the sketch.
+fn r43b() -> Run {
+    r43(vec![point_p1()], &["e-p1", "e-p2"])
+}
+
 #[test]
 fn t060_r43a_a_hole_point_removed_from_points() {
-    let mut session = run(&["b-1"], &two_holes(&["e-p1", "e-p2"]));
-
-    edit(&mut session, &["b-1"], &two_holes(&["e-p1"]));
+    let session = r43a();
 
     let error = error_message(&session, "f-cha1", "references_not_found");
     assert_eq!(
@@ -2345,6 +2537,28 @@ fn t060_r43a_a_hole_point_removed_from_points() {
     assert_ends_with(
         &error.text,
         "is gone because 'Hole 1' no longer makes the hole at (7, 0): that point was removed from its Points.",
+    );
+    assert_volume(session.shape("b-1"), 15717.256661);
+}
+
+#[test]
+fn t060_r43b_a_hole_point_deleted_from_the_sketch() {
+    let session = r43b();
+
+    session.assert_warnings("f-hole1", &["point_missing"]);
+    let error = error_message(&session, "f-cha1", "references_not_found");
+    assert_eq!(
+        error.reason,
+        Some(LossReason::PointGone {
+            feature: id("f-hole1"),
+            sketch: id("f-sk1"),
+            point: "e-p2".to_owned(),
+            deleted: true
+        })
+    );
+    assert_eq!(
+        error.text,
+        "The top rim of a hole of 'Hole 1' near (7, 0, 0) selected for Edges is gone because the point of that hole was deleted from 'Sketch 1'."
     );
     assert_volume(session.shape("b-1"), 15717.256661);
 }
@@ -2380,12 +2594,16 @@ fn third_copy_gone() -> LossReason {
     }
 }
 
+/// Corpus R41 with the fillet on `edges`, after its edit: the pattern's count lowered from 3 to 2.
+fn r41(edges: Vec<Value>) -> Run {
+    let mut session = run(&["b-1"], &patterned_cubes("3", edges.clone()));
+    edit(&mut session, &["b-1"], &patterned_cubes("2", edges));
+    session
+}
+
 #[test]
 fn t061_r41_an_edge_of_a_copy_the_pattern_no_longer_makes_is_skipped() {
-    let edges = vec![copy_right_top_edge(1), copy_right_top_edge(2)];
-    let mut session = run(&["b-1"], &patterned_cubes("3", edges.clone()));
-
-    edit(&mut session, &["b-1"], &patterned_cubes("2", edges));
+    let session = r41(vec![copy_right_top_edge(1), copy_right_top_edge(2)]);
 
     session.assert_warnings("f-fil1", &["reference_missing"]);
     let warning = message(&session, "f-fil1", "reference_missing");
@@ -2400,10 +2618,7 @@ fn t061_r41_an_edge_of_a_copy_the_pattern_no_longer_makes_is_skipped() {
 
 #[test]
 fn t061_r41_the_variant_with_only_the_lost_copy() {
-    let edges = vec![copy_right_top_edge(2)];
-    let mut session = run(&["b-1"], &patterned_cubes("3", edges.clone()));
-
-    edit(&mut session, &["b-1"], &patterned_cubes("2", edges));
+    let session = r41(vec![copy_right_top_edge(2)]);
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(error.reason, Some(third_copy_gone()));
@@ -2438,20 +2653,25 @@ fn imported_plate(asset: char, rim: Value) -> Vec<Value> {
     ]
 }
 
-#[test]
-fn t062_r46a_an_edge_not_in_the_new_version_of_an_imported_file() {
+/// Corpus R46 (a) after its edit: the plate with a hole at (30, 10) replaced by the plate without holes.
+fn r46a() -> Run {
     let rim = reference(
         "edge(f-imp1/face#3|f-imp1/face#6)",
         "circle|n=0,0,1|c=30,10,5|l=18.849556|r=3|adj=2,1",
     );
     let assets = plates();
     let mut session = run_with_assets(&["b-1"], &imported_plate('a', rim.clone()), &assets);
-
     edit_document(
         &mut session,
         document_of(&["b-1"], &imported_plate('c', rim)),
         &assets,
     );
+    session
+}
+
+#[test]
+fn t062_r46a_an_edge_not_in_the_new_version_of_an_imported_file() {
+    let session = r46a();
 
     let error = error_message(&session, "f-cha1", "references_not_found");
     assert_eq!(
@@ -2501,9 +2721,9 @@ fn t067_r46b_an_ambiguous_loss_in_an_imported_file_names_no_change() {
 
 // Test 63: `Unknown`.
 
-#[test]
-fn t063_a_loss_no_rule_explains() {
-    let run = Run::new(document_of(
+/// CUBE20, a datum `f-dp1` and a fillet `f-fil1` on an edge between the cube's top and the datum, which makes no face.
+fn unexplained_loss() -> Run {
+    Run::new(document_of(
         &["b-1"],
         &[
             cube20(),
@@ -2518,7 +2738,12 @@ fn t063_a_loss_no_rule_explains() {
                 "1",
             ),
         ],
-    ));
+    ))
+}
+
+#[test]
+fn t063_a_loss_no_rule_explains() {
+    let run = unexplained_loss();
 
     let error = error_message(&run, "f-fil1", "references_not_found");
     assert_eq!(error.reason, Some(LossReason::Unknown));
@@ -2530,8 +2755,8 @@ fn t063_a_loss_no_rule_explains() {
 
 // Test 64: follows (corpus R19, R61 (a), R63 (b) and R66).
 
-#[test]
-fn t064_r19_an_edge_that_follows_a_shell_rim_names_the_shell() {
+/// Corpus R19 after its edit: a shell of 3 opening BLOCK's top inserted before the fillet of its front top edge.
+fn r19() -> Run {
     let features = followed_by(
         block(),
         vec![fillet("f-fil1", "b-1", vec![block_front_top()], "1")],
@@ -2539,7 +2764,6 @@ fn t064_r19_an_edge_that_follows_a_shell_rim_names_the_shell() {
     let mut session = run(&["b-1"], &features);
     let top = serde_json::to_value(session.picked_before("f-fil1", "b-1", "f-ext1/end-cap"))
         .expect("a reference serializes");
-
     edit(
         &mut session,
         &["b-1"],
@@ -2549,6 +2773,12 @@ fn t064_r19_an_edge_that_follows_a_shell_rim_names_the_shell() {
             vec![shell("f-sh1", "b-1", "3", vec![top])],
         ),
     );
+    session
+}
+
+#[test]
+fn t064_r19_an_edge_that_follows_a_shell_rim_names_the_shell() {
+    let session = r19();
 
     session.assert_notices("f-fil1", &["reference_followed"]);
     let notice = message(&session, "f-fil1", "reference_followed");
@@ -3233,7 +3463,8 @@ fn comes_later_offers_no_move_when_records_between_use_both_features() {
     assert!(!error.fixes.iter().any(is_move), "{:?}", error.fixes);
 }
 
-// The root of a `no_effect` under a sketch that lost its face (section 3.10, `lost_face`; its text is phase 3's).
+// The root of a `no_effect` under a sketch that lost its face (section 3.10, `lost_face`; its text is `feature_sketch.rs`
+// test `t023`'s).
 
 #[test]
 fn a_no_effect_under_a_sketch_that_lost_its_face_has_that_sketch_as_root() {
@@ -3285,7 +3516,7 @@ fn a_no_effect_under_a_sketch_that_lost_its_face_has_that_sketch_as_root() {
 }
 
 // The root of every `no_effect` and `hole_misses_body` under a sketch whose face turned over (section 3.10,
-// `turned_over`; the `no_effect` text is phase 3's).
+// `turned_over`; the `no_effect` text is the features crate's, `tests/warning_messages.rs`).
 
 #[test]
 fn every_message_of_a_hole_under_a_turned_over_sketch_has_that_sketch_as_root() {
@@ -3365,4 +3596,196 @@ fn messages_without_a_loss_or_a_follow_have_no_reason() {
     let error = error_message(&run, "f-fil1", "fillet_too_large");
     assert_eq!(error.reason, None);
     assert_eq!(error.root, None);
+}
+
+// The message lint of the error guidelines over every explanation clause (section 3.10, "Rendering").
+
+/// The clause of section 3.10's rendering table that `reason` renders: its row, and the part of the row that changes
+/// the words. The match names every variant, so a new reason or removal must be given a scenario below.
+fn clause(reason: &LossReason) -> &'static str {
+    match reason {
+        LossReason::Unknown => "Unknown",
+        LossReason::NotInDocument { .. } => "NotInDocument",
+        LossReason::Suppressed { .. } => "Suppressed",
+        LossReason::ComesLater { .. } => "ComesLater",
+        LossReason::RolledBack { .. } => "RolledBack",
+        LossReason::UpstreamFailed { feature, root } if feature == root => {
+            "UpstreamFailed, its own error"
+        }
+        LossReason::UpstreamFailed { .. } => "UpstreamFailed, an error above it",
+        LossReason::OtherBody { present: false, .. } => "OtherBody, no longer in the body",
+        LossReason::OtherBody { by: None, .. } => "OtherBody, present",
+        LossReason::OtherBody {
+            by_suppressed: true,
+            ..
+        } => "OtherBody, present while the joiner is suppressed",
+        LossReason::OtherBody { .. } => "OtherBody, present and put there",
+        LossReason::Removed { how, .. } => match how {
+            Removal::CutAway => "CutAway",
+            Removal::Covered => "Covered",
+            Removal::Rounded => "Rounded",
+            Removal::Beveled => "Beveled",
+            Removal::Hollowed => "Hollowed",
+            Removal::PieceGone => "PieceGone",
+            Removal::NoLongerMade { absence: None } => "NoLongerMade",
+            Removal::NoLongerMade {
+                absence: Some(Absence::Through),
+            } => "NoLongerMade, through",
+            Removal::NoLongerMade {
+                absence: Some(Absence::EndOutside),
+            } => "NoLongerMade, end outside",
+            Removal::NoLongerMade {
+                absence: Some(Absence::FullTurn),
+            } => "NoLongerMade, full turn",
+            Removal::NoLongerMeet { between: Some(_) } => "NoLongerMeet, a face between",
+            Removal::NoLongerMeet { between: None } => "NoLongerMeet",
+        },
+        LossReason::EntityDeleted { .. } => "EntityDeleted",
+        LossReason::PointGone { deleted: true, .. } => "PointGone, deleted from the sketch",
+        LossReason::PointGone { deleted: false, .. } => "PointGone, removed from Points",
+        LossReason::CopyGone { .. } => "CopyGone",
+        LossReason::NotInFile { .. } => "NotInFile",
+        LossReason::Followed { .. } => "Followed",
+    }
+}
+
+/// A scenario whose message renders an explanation clause: its name, its run, and the feature and code of the message.
+type ClauseScenario = (&'static str, fn() -> Run, &'static str, &'static str);
+
+/// One scenario for every clause of [`clause`], and one more where the words of a clause also depend on the run:
+/// `NotInDocument` of an element whose description already says that its feature is gone (R23 (b), `is gone`),
+/// `NoLongerMeet` with a face between that a sketch arc made (R64, `is already round`), and `EntityDeleted` of a line
+/// (R03) and of a curve (R51).
+const CLAUSE_SCENARIOS: [ClauseScenario; 32] = [
+    (
+        "Unknown",
+        unexplained_loss,
+        "f-fil1",
+        "references_not_found",
+    ),
+    ("R23 (b)", r23b, "f-fil1", "references_not_found"),
+    (
+        "R41, pattern deleted",
+        pattern_deleted,
+        "f-fil1",
+        "references_not_found",
+    ),
+    ("R24 (a)", r24a, "f-fil1", "references_not_found"),
+    (
+        "R28",
+        || r28(boss_top_rim()),
+        "f-fil1",
+        "references_not_found",
+    ),
+    (
+        "R28, rolled back",
+        r28_rolled_back,
+        "f-fil1",
+        "references_not_found",
+    ),
+    (
+        "R47",
+        || r47(&boss_beside_hole(conflicting_radius(), "10")),
+        "f-fil1",
+        "references_not_found",
+    ),
+    (
+        "R47, boss of 0",
+        || r47(&boss_beside_hole(Vec::new(), "0")),
+        "f-fil1",
+        "references_not_found",
+    ),
+    ("R31 (a)", r31a, "f-cha1", "references_not_found"),
+    ("R56 (a)", r56a, "f-fil1", "references_not_found"),
+    ("R56 (c)", r56c, "f-fil1", "references_not_found"),
+    (
+        "CUBE20 halves",
+        || {
+            Run::new(document_of(
+                &["b-1", "b-2", "b-3"],
+                &cube20_halves_beside_a_fillet(),
+            ))
+        },
+        "f-fil1",
+        "references_not_found",
+    ),
+    ("R16", r16, "f-fil1", "references_not_found"),
+    ("R13", r13, "f-fil1", "references_not_found"),
+    ("R18 (a)", r18a, "f-cha1", "references_not_found"),
+    ("R18 (b)", r18b, "f-fil1", "references_not_found"),
+    ("Shell", hollowed_top, "f-dp1", "reference_not_found"),
+    ("R10 (a)", r10a, "f-fil1", "references_not_found"),
+    ("R12", || r12(false, "30"), "f-fil1", "references_not_found"),
+    ("R30 (a)", r30a, "f-fil1", "references_not_found"),
+    ("R57", r57, "f-cha1", "references_not_found"),
+    ("Bevel moved", bevel_moved, "f-dp1", "reference_not_found"),
+    ("R01", r01, "f-cha1", "references_not_found"),
+    ("R64", r64, "f-fil1", "references_not_found"),
+    ("Boss lifted", boss_lifted, "f-fil1", "references_not_found"),
+    ("R03", r03, "f-fil1", "reference_missing"),
+    ("R51", r51, "f-fil1", "references_not_found"),
+    ("R43 (a)", r43a, "f-cha1", "references_not_found"),
+    ("R43 (b)", r43b, "f-cha1", "references_not_found"),
+    (
+        "R41",
+        || r41(vec![copy_right_top_edge(2)]),
+        "f-fil1",
+        "references_not_found",
+    ),
+    ("R46 (a)", r46a, "f-cha1", "references_not_found"),
+    ("R19", r19, "f-fil1", "reference_followed"),
+];
+
+#[test]
+fn every_explanation_clause_passes_the_message_lint() {
+    let mut rendered = BTreeSet::new();
+
+    for (scenario, setup, feature, code) in CLAUSE_SCENARIOS {
+        let run = setup();
+        let message = message(&run, feature, code);
+        let reason = message
+            .reason
+            .as_ref()
+            .unwrap_or_else(|| panic!("{scenario}: the {code} of {feature} has no reason"));
+        let failures = lint_failures(&message.text);
+        assert!(
+            failures.is_empty(),
+            "{scenario}: {:?} breaks the message lint: {failures:?}",
+            message.text
+        );
+        rendered.insert(clause(reason));
+    }
+
+    let every_clause = BTreeSet::from([
+        "Unknown",
+        "NotInDocument",
+        "Suppressed",
+        "ComesLater",
+        "RolledBack",
+        "UpstreamFailed, its own error",
+        "UpstreamFailed, an error above it",
+        "OtherBody, no longer in the body",
+        "OtherBody, present",
+        "OtherBody, present while the joiner is suppressed",
+        "OtherBody, present and put there",
+        "CutAway",
+        "Covered",
+        "Rounded",
+        "Beveled",
+        "Hollowed",
+        "PieceGone",
+        "NoLongerMade",
+        "NoLongerMade, through",
+        "NoLongerMade, end outside",
+        "NoLongerMade, full turn",
+        "NoLongerMeet, a face between",
+        "NoLongerMeet",
+        "EntityDeleted",
+        "PointGone, deleted from the sketch",
+        "PointGone, removed from Points",
+        "CopyGone",
+        "NotInFile",
+        "Followed",
+    ]);
+    assert_eq!(rendered, every_clause);
 }

@@ -57,6 +57,21 @@ impl Session {
             self.apply_batch(doc, &format!("Change units to {}", units.symbol()), edits)?;
         Ok(UnitsChanged { revision, kept })
     }
+
+    /// Counts the numbers without a unit of `document` (model.md `bare_numbers`) through the
+    /// session's memoized inspections, as `document_changed` counts them after every change of a
+    /// recipe: only the records no count inspected with the same content are inspected. Hosts read
+    /// the count from `document_changed`; this exists so the budgets bench can time the count on
+    /// its own (engine.md section 5), which `Session::call` cannot.
+    #[doc(hidden)]
+    pub fn count_bare_numbers(&mut self, document: &Document) -> usize {
+        let Session {
+            registry,
+            inspections,
+            ..
+        } = self;
+        inspections.count(registry, document)
+    }
 }
 
 impl OpenDocument {
@@ -73,8 +88,7 @@ impl OpenDocument {
         {
             return count;
         }
-        inspections.refresh(registry, &self.document);
-        let count = saturating_u32(self.document.bare_numbers(&inspections.with(registry)));
+        let count = saturating_u32(inspections.count(registry, &self.document));
         self.bare_count = Some((self.revision, count));
         count
     }
@@ -116,6 +130,14 @@ impl Inspected {
 }
 
 impl Inspections {
+    /// Counts the numbers without a unit of `document` (model.md `bare_numbers`) as one pass:
+    /// inspects the records no count inspected with the same content, then counts through the
+    /// memoized inspections.
+    fn count(&mut self, registry: &Registry, document: &Document) -> usize {
+        self.refresh(registry, document);
+        document.bare_numbers(&self.with(registry))
+    }
+
     /// Starts a count over `document`: inspects each of its records that no count inspected with
     /// the same content, marks the inspection of every record used, and then drops the
     /// inspections used longest ago beyond `KEPT_INSPECTIONS`.
@@ -330,6 +352,27 @@ mod tests {
 
         assert!(matches!(inspections.memoized(&invalid), Some(Err(_))));
         assert_eq!(with_invalid.bare_numbers(&inspections.with(&registry)), 0);
+    }
+
+    #[test]
+    fn counting_a_document_inspects_only_the_records_the_session_has_not_seen() {
+        let (mut session, doc) = box_session(false);
+        let mut edited = session.document(doc).expect("box.ptsm is open").clone();
+        let opened = session.count_bare_numbers(&edited);
+        let kept = session.inspections.len;
+        edited.features[0]
+            .params
+            .insert("size".to_owned(), json!(["20", "30", "height"]));
+
+        let counted = session.count_bare_numbers(&edited);
+
+        assert_eq!((opened, counted), (0, 2));
+        assert_eq!(counted, edited.bare_numbers(session.registry.as_ref()));
+        assert_eq!(
+            session.inspections.len,
+            kept + 1,
+            "only the edited box is inspected"
+        );
     }
 
     #[test]

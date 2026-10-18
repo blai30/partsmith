@@ -295,14 +295,14 @@ fn active_end(
     if let Some(stop_at) = stop_at {
         match (positions.get(stop_at), rollback_position) {
             (Some(&position), _) => return (position + 1, messages),
-            (None, Some(_)) => messages.push(Message::unknown_stop_before_rollback(stop_at)),
-            (None, None) => messages.push(Message::unknown_stop(stop_at)),
+            (None, Some(_)) => messages.push(Message::unknown_stop_before_rollback()),
+            (None, None) => messages.push(Message::unknown_stop()),
         }
     }
-    if let Some(rollback) = &document.rollback {
+    if document.rollback.is_some() {
         match rollback_position {
             Some(position) => return (position, messages),
-            None => messages.push(Message::unknown_stop(rollback)),
+            None => messages.push(Message::unknown_stop()),
         }
     }
     (document.features.len(), messages)
@@ -499,7 +499,7 @@ mod tests {
             messages,
             [(
                 "unknown_stop",
-                "The preview point 'f-nope' is not in this document, so the timeline was rebuilt up to the rollback marker."
+                "The preview point is a feature that is not in this document, so the timeline was rebuilt up to the rollback marker."
             )]
         );
     }
@@ -520,7 +520,7 @@ mod tests {
         assert_eq!(
             texts,
             [
-                "The preview or rollback point 'f-nope' is not in this document, so the whole timeline was rebuilt."
+                "The preview or rollback point is a feature that is not in this document, so the whole timeline was rebuilt."
             ]
         );
     }
@@ -533,7 +533,17 @@ mod tests {
         let timeline = prepared(&document);
 
         assert_eq!(kinds(&timeline), ["active"]);
-        assert!(timeline.messages[0].text.contains("'f-gone'"));
+        let texts: Vec<&str> = timeline
+            .messages
+            .iter()
+            .map(|message| message.text.as_str())
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                "The preview or rollback point is a feature that is not in this document, so the whole timeline was rebuilt."
+            ]
+        );
     }
 
     #[test]

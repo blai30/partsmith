@@ -6,6 +6,7 @@ mod common;
 
 use std::sync::Arc;
 
+use common::feature_support::lint_failures;
 use common::{
     Harness, all_features, assert_relative, assert_volume, bodies, bodies_before_ids, body_report,
     chain_json, datum_height, doc_a, doc_a_json, document, error_code, face_count, feature_report,
@@ -97,6 +98,24 @@ fn t018_stop_point_runs_up_to_and_including_the_stop_feature() {
     assert_eq!(face_count(final_state(&overriding, "b-1")), 7);
 }
 
+/// The code and text of each document-level message of `report`, after asserting that every text
+/// passes the message lint of the error guidelines.
+fn document_messages(report: &Report) -> Vec<(&'static str, &str)> {
+    for message in &report.messages {
+        let failures = lint_failures(&message.text);
+        assert!(
+            failures.is_empty(),
+            "{:?} breaks the message lint: {failures:?}",
+            message.text
+        );
+    }
+    report
+        .messages
+        .iter()
+        .map(|message| (message.code, message.text.as_str()))
+        .collect()
+}
+
 #[test]
 fn t019_unknown_stop_point_rebuilds_the_whole_timeline() {
     let mut harness = Harness::builtins();
@@ -106,8 +125,40 @@ fn t019_unknown_stop_point_rebuilds_the_whole_timeline() {
     for (feature_id, feature_status) in statuses(&report) {
         assert_eq!(feature_status, "ok", "status of {feature_id}");
     }
-    let codes: Vec<&str> = report.messages.iter().map(|message| message.code).collect();
-    assert_eq!(codes, vec!["unknown_stop"]);
+    assert_eq!(
+        document_messages(&report),
+        [(
+            "unknown_stop",
+            "The preview or rollback point is a feature that is not in this document, so the whole timeline was rebuilt."
+        )]
+    );
+}
+
+#[test]
+fn t019_unknown_stop_point_with_a_rollback_marker_rebuilds_up_to_the_marker() {
+    let mut harness = Harness::builtins();
+    let mut rolled = doc_a_json();
+    rolled["rollback"] = json!("f-box2");
+
+    let report = harness.run_until(&load(&rolled), "f-nope");
+
+    assert_statuses(
+        &report,
+        &[
+            ("f-sk1", "ok"),
+            ("f-ext1", "ok"),
+            ("f-box2", "rolled_back"),
+            ("f-fil1", "rolled_back"),
+            ("f-dp1", "rolled_back"),
+        ],
+    );
+    assert_eq!(
+        document_messages(&report),
+        [(
+            "unknown_stop",
+            "The preview point is a feature that is not in this document, so the timeline was rebuilt up to the rollback marker."
+        )]
+    );
 }
 
 #[test]
@@ -553,7 +604,7 @@ fn an_unknown_stop_point_rebuilds_the_whole_timeline_with_a_warning() {
     assert_eq!(message.pointer, None);
     assert_eq!(
         message.text,
-        "The preview or rollback point 'f-nope' is not in this document, so the whole timeline was rebuilt."
+        "The preview or rollback point is a feature that is not in this document, so the whole timeline was rebuilt."
     );
 }
 

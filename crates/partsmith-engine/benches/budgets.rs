@@ -23,10 +23,10 @@
 //! unit, so that Keep sizes rewrites them and their features build again; each sample comes after
 //! an untimed new lid width and those records written without a unit again in mm. And
 //! `bare_numbers` of the 300-feature memory document after one `update_feature`. `Session::call`
-//! cannot time `bare_numbers` alone, so that row times, in a headless session, `apply_edits` of
-//! one `update_feature` that gives a suppressed box a new size without a unit: the batch, a
-//! recompute that builds nothing, `bare_numbers` with the inspection of every other record reused,
-//! and frame encoding. The time bounds `bare_numbers` from above.
+//! cannot time the count alone, since every `apply_edits` also recomputes and encodes the whole
+//! recipe, so that row opens the document in a headless session and times
+//! `Session::count_bare_numbers`, the count `document_changed` makes, of the document with a new
+//! size without a unit in its last box: one record inspected, the other 299 inspections reused.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -642,32 +642,31 @@ fn main() -> ExitCode {
         let mut driver = Driver::headless();
         let text = many_bodies();
         let opened = driver.open(&text);
-        let doc = opened.doc();
-        let count = opened.0.event("document_changed")["bare_numbers"].clone();
-        assert!(
-            count.as_u64().is_some_and(|count| count > 0),
-            "the memory document has numbers without a unit: {count}"
-        );
-        let last = format!("f-box{MEMORY_FEATURES}");
-        let mut record = reference_record(&text, &last);
-        record["suppressed"] = json!(true);
-        driver
-            .send(json!({
-                "type": "apply_edits", "doc": doc, "label": "Suppress",
-                "edits": [{"type": "update_feature", "feature": record.clone()}]
-            }))
-            .ok();
+        let count = opened.0.event("document_changed")["bare_numbers"]
+            .as_u64()
+            .filter(|count| *count > 0)
+            .expect("the memory document has numbers without a unit");
+        let mut document = partsmith_model::load(&text)
+            .expect("the memory document loads")
+            .document;
+        let last = document
+            .features
+            .len()
+            .checked_sub(1)
+            .expect("the memory document has features");
         median(RUNS, |sample| {
-            // A new size per sample, so the edited record's inspection is never reused.
-            record["size"] = json!([(11 + sample).to_string(), "10", "10"]);
-            let (time, answer) = driver.timed(json!({
-                "type": "apply_edits", "doc": doc, "label": "Size",
-                "edits": [{"type": "update_feature", "feature": record.clone()}]
-            }));
-            answer.ok();
+            // A new size per sample, as one update_feature writes it, so the edited record's
+            // inspection is never reused and every other record's is.
+            document.features[last].params.insert(
+                "size".to_owned(),
+                json!([(11 + sample).to_string(), "10", "10"]),
+            );
+            let start = Instant::now();
+            let counted = black_box(driver.session.count_bare_numbers(black_box(&document)));
+            let time = start.elapsed();
             assert_eq!(
-                answer.0.event("document_changed")["bare_numbers"],
-                count,
+                u64::try_from(counted).ok(),
+                Some(count),
                 "the count of numbers without a unit is unchanged"
             );
             time

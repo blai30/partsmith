@@ -1875,6 +1875,7 @@ Exit: corpus 118; silent wrong results 0; built correctly before, fails after: 0
 6. **python.** PY4. Test: NC09 in Python.
 7. **ui.** U10 to U12. Tests: U-138 to U-140; E-110 to E-121 for the newcomer corpus (the cause lines of NC08 and NC11 are checked in phase 4).
 8. **examples.** `examples/hole/deleted-point` (R43b) with its Python twin.
+9. **partsmith-recompute.** Code: the `unknown_stop` texts of recompute.md section 4, which name no id. Tests (its section 6), the recompute parts of the exit: the newcomer error corpus from the document alone (test 70, `tests/newcomer_errors.rs`: NC01 to NC12 with their codes, texts, fixes and roots), test 60 (b) for a hole point deleted from its sketch (corpus R43b), and the message lint over both `unknown_stop` texts (test 19) and every explanation clause of section 3.10.
 
 Exit: corpus 122; the newcomer corpus passes in recompute and engine tests and in Playwright for everything but cause lines; the lint passes over every template of features, sketch, kernel and recompute; budgets, including K2 and K3.
 
