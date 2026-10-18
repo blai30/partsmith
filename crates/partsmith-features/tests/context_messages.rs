@@ -5,37 +5,21 @@ mod common;
 use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_4, TAU};
 
-use common::{NoNames, field, hint, id, manifest};
+use common::samples::fillet_failure;
+use common::{NoNames, field, hint, id, manifest, use_value, with_render_context};
 use partsmith_features::{
     Bound, Diagnosis, DocumentNames, FeatureError, FieldRef, FieldUnit, Fix, Names, Registry,
     RenderContext, format_value,
 };
 use partsmith_model::{Body, Document, Expr, FeatureRecord, Units};
-use partsmith_occt_sys::{KernelError, KernelErrorKind, Operation};
+use partsmith_occt_sys::{KernelError, Operation};
 
 /// `error` rendered on `f-test1` with `names` in a document of `units`, without body states or a diagnosis
 /// (features.md section 4: messages render with a `RenderContext`).
 fn rendered(error: &FeatureError, names: &dyn Names, units: Units) -> String {
-    let feature = id("f-test1");
-    let bodies = BTreeMap::new();
-    let diagnosis = Diagnosis::default();
-    error.render(&RenderContext {
-        feature: &feature,
-        names,
-        units,
-        bodies: &bodies,
-        diagnosis: &diagnosis,
+    with_render_context(names, "f-test1", units, &Diagnosis::default(), |context| {
+        error.render(context)
     })
-}
-
-/// A kernel failure used as the cause of "too large" errors.
-fn fillet_failure() -> KernelError {
-    KernelError {
-        operation: Operation::Fillet,
-        kind: KernelErrorKind::Failed,
-        exception: "StdFail_NotDone".to_string(),
-        message: "BRep_API: command not done".to_string(),
-    }
 }
 
 /// A fillet error for the radius `expr` of `radius` mm whose largest working radius is `max`, without a measured
@@ -74,25 +58,13 @@ fn chamfer_too_large(path: &str) -> FeatureError {
 
 /// The fixes of `error` on `f-test1` in a document of `units`, without body states or a diagnosis.
 fn fixes(error: &FeatureError, units: Units) -> Vec<Fix> {
-    let feature = id("f-test1");
-    let bodies = BTreeMap::new();
-    let diagnosis = Diagnosis::default();
-    error.fixes(&RenderContext {
-        feature: &feature,
-        names: &NoNames,
+    with_render_context(
+        &NoNames,
+        "f-test1",
         units,
-        bodies: &bodies,
-        diagnosis: &diagnosis,
-    })
-}
-
-/// "Use {value}": the fix that sets this feature's `path` to `value`.
-fn use_value(path: &str, label: &str, value: &str) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: field(path, label),
-        value: serde_json::Value::String(value.to_string()),
-    }
+        &Diagnosis::default(),
+        |context| error.fixes(context),
+    )
 }
 
 /// An out-of-range error for a field with the given unit and bound.

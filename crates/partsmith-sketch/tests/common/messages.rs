@@ -1,12 +1,12 @@
 //! Message contexts and rendering helpers for the message tests (spec sections 4, 6.10 and 6.20).
 
+use partsmith_message_lint::assert_passes_lint;
 use partsmith_model::Units;
 use partsmith_sketch::{
     Connection, EntityKind, MessageContext, ORIGIN, PlacementProblem, Profile, ProfileFinding,
     SketchError, SketchFix, SolveIssue, SolveResult, X_AXIS, Y_AXIS, build_profile,
 };
 
-use super::lint::assert_passes_lint;
 use super::{Sketch, distance_line, id, parallel, point_ref, rect_with_circle_and_point};
 
 /// The label of the sketch in every message test.

@@ -4,14 +4,14 @@
 //! `Probe` and `Slab` are small features registered only by these tests. They let the registry and
 //! context tests run before the built-in feature types exist: `Probe` is the "test feature registered
 //! for the purpose" of section 6.3, and `Slab` has the same params shape as extrude. `timeline` runs
-//! built-in feature records in order, `records` writes the records of the specs' shared setups, and
-//! `lint` holds the message lint of the error guidelines.
+//! built-in feature records in order, `records` writes the records of the specs' shared setups, and `samples` holds one
+//! sample of every error and warning for the message tests.
 
 // Each test binary uses only some of these helpers.
 #![allow(dead_code)]
 
-pub mod lint;
 pub mod records;
+pub mod samples;
 pub mod timeline;
 
 use std::collections::BTreeMap;
@@ -198,14 +198,16 @@ impl Names for NoNames {
     }
 }
 
-/// `Names` from fixed tables: body names, and feature labels with the manifest label of their type, for messages
-/// built by hand. It knows no records and no sketch results.
+/// `Names` from fixed tables: body names, feature labels with the manifest label of their type, and the records added
+/// with `with_record`, for messages built by hand. It knows no sketch results.
 #[derive(Default)]
 pub struct LabelNames {
     /// Body id to body name.
     pub bodies: BTreeMap<Id, String>,
     /// Feature id to (feature label, type label).
     pub features: BTreeMap<Id, (String, String)>,
+    /// Feature id to its stored record.
+    pub records: BTreeMap<Id, FeatureRecord>,
 }
 
 impl LabelNames {
@@ -222,7 +224,50 @@ impl LabelNames {
                     (id(feature), (label.to_string(), type_label.to_string()))
                 })
                 .collect(),
+            records: BTreeMap::new(),
         }
+    }
+
+    /// The names every sample of `samples` is rendered with: bodies 'Body 1' and 'Body 2', the features the samples
+    /// name and render on, and the record of `samples::SAMPLE_SKETCH`, so the sketch crate's messages name its
+    /// entities and constraints.
+    pub fn standard() -> LabelNames {
+        LabelNames::new(
+            &[("b-1", "Body 1"), ("b-2", "Body 2")],
+            &[
+                ("f-sk1", "Sketch 1", "Sketch"),
+                ("f-sk2", "Sketch 2", "Sketch"),
+                (samples::SAMPLE_SKETCH, "Sketch 3", "Sketch"),
+                ("f-ext1", "Extrude 1", "Extrude"),
+                ("f-ext2", "Extrude 2", "Extrude"),
+                ("f-box1", "Box 1", "Box"),
+                ("f-box2", "Box 2", "Box"),
+                ("f-box3", "Box 3", "Box"),
+                ("f-cyl1", "Cylinder 1", "Cylinder"),
+                ("f-cone1", "Cone 1", "Cone"),
+                ("f-fil1", "Fillet 1", "Fillet"),
+                ("f-cha1", "Chamfer 1", "Chamfer"),
+                ("f-sh1", "Shell 1", "Shell"),
+                ("f-hole1", "Hole 1", "Hole"),
+                ("f-imp1", "Import 1", "Import"),
+                ("f-bool1", "Boolean 1", "Boolean"),
+                ("f-mir1", "Mirror 1", "Mirror"),
+                ("f-lp1", "Linear pattern 1", "Linear pattern"),
+                ("f-cp1", "Circular pattern 1", "Circular pattern"),
+                ("f-mv1", "Move body 1", "Move body"),
+                ("f-split1", "Split body 1", "Split body"),
+                ("f-rev1", "Revolve 1", "Revolve"),
+                ("f-dp1", "Datum plane 1", "Datum plane"),
+                ("f-tor1", "Torus 1", "Torus"),
+            ],
+        )
+        .with_record(samples::sample_sketch_record())
+    }
+
+    /// These names with `record` as the stored record of its feature.
+    pub fn with_record(mut self, record: FeatureRecord) -> LabelNames {
+        self.records.insert(record.id.clone(), record);
+        self
     }
 }
 
@@ -241,8 +286,8 @@ impl Names for LabelNames {
             .map(|(_, type_label)| type_label.clone())
     }
 
-    fn feature_record(&self, _feature: &Id) -> Option<&FeatureRecord> {
-        None
+    fn feature_record(&self, feature: &Id) -> Option<&FeatureRecord> {
+        self.records.get(feature)
     }
 
     fn sketch_result(&self, _sketch: &Id) -> Option<&SketchResult> {
@@ -250,52 +295,84 @@ impl Names for LabelNames {
     }
 }
 
-/// A render context for `feature` in a millimeter document, with these names and diagnosis and no body states.
-pub fn render_context<'a>(
-    feature: &'a Id,
-    names: &'a dyn Names,
-    diagnosis: &'a Diagnosis,
-    bodies: &'a BTreeMap<Id, BodyState>,
-) -> RenderContext<'a> {
-    RenderContext {
-        feature,
+/// Calls `use_context` with the render context of `feature` in a document of `units`, with `names`, `diagnosis` and no
+/// body states.
+pub fn with_render_context<T>(
+    names: &dyn Names,
+    feature: &str,
+    units: Units,
+    diagnosis: &Diagnosis,
+    use_context: impl FnOnce(&RenderContext<'_>) -> T,
+) -> T {
+    let feature = id(feature);
+    let bodies = BTreeMap::new();
+    use_context(&RenderContext {
+        feature: &feature,
         names,
-        units: Units::Mm,
-        bodies,
+        units,
+        bodies: &bodies,
         diagnosis,
-    }
+    })
+}
+
+/// `with_render_context` with `LabelNames::standard`.
+pub fn with_standard_labels<T>(
+    feature: &str,
+    units: Units,
+    diagnosis: &Diagnosis,
+    use_context: impl FnOnce(&RenderContext<'_>) -> T,
+) -> T {
+    with_render_context(
+        &LabelNames::standard(),
+        feature,
+        units,
+        diagnosis,
+        use_context,
+    )
 }
 
 /// An error rendered on `feature` with `names`, no body states and no diagnosis, in a millimeter document.
 pub fn render_error(error: &FeatureError, feature: &str, names: &dyn Names) -> String {
-    let feature = id(feature);
-    let bodies = BTreeMap::new();
-    let diagnosis = Diagnosis::default();
-    error.render(&render_context(&feature, names, &diagnosis, &bodies))
+    with_render_context(
+        names,
+        feature,
+        Units::Mm,
+        &Diagnosis::default(),
+        |context| error.render(context),
+    )
 }
 
 /// A warning rendered on `feature` with `names`, no body states and no diagnosis, in a millimeter document.
 pub fn render_warning(warning: &FeatureWarning, feature: &str, names: &dyn Names) -> String {
-    let feature = id(feature);
-    let bodies = BTreeMap::new();
-    let diagnosis = Diagnosis::default();
-    warning.render(&render_context(&feature, names, &diagnosis, &bodies))
+    with_render_context(
+        names,
+        feature,
+        Units::Mm,
+        &Diagnosis::default(),
+        |context| warning.render(context),
+    )
 }
 
 /// The fixes of an error on `feature` without names, body states or diagnosis.
 pub fn error_fixes(error: &FeatureError, feature: &str) -> Vec<Fix> {
-    let feature = id(feature);
-    let bodies = BTreeMap::new();
-    let diagnosis = Diagnosis::default();
-    error.fixes(&render_context(&feature, &NoNames, &diagnosis, &bodies))
+    with_render_context(
+        &NoNames,
+        feature,
+        Units::Mm,
+        &Diagnosis::default(),
+        |context| error.fixes(context),
+    )
 }
 
 /// The fixes of a warning on `feature` without names, body states or diagnosis.
 pub fn warning_fixes(warning: &FeatureWarning, feature: &str) -> Vec<Fix> {
-    let feature = id(feature);
-    let bodies = BTreeMap::new();
-    let diagnosis = Diagnosis::default();
-    warning.fixes(&render_context(&feature, &NoNames, &diagnosis, &bodies))
+    with_render_context(
+        &NoNames,
+        feature,
+        Units::Mm,
+        &Diagnosis::default(),
+        |context| warning.fixes(context),
+    )
 }
 
 /// The JSON Pointer of a warning's field.
@@ -308,6 +385,42 @@ pub fn use_reference(pointer: &str, reference: Reference) -> Fix {
     Fix::UseReferences {
         pointer: pointer.to_string(),
         references: vec![reference],
+    }
+}
+
+/// `SetField` of this feature's field `path` to `value`.
+pub fn set_field(path: &str, label: &str, value: Value) -> Fix {
+    Fix::SetField {
+        feature: None,
+        field: field(path, label),
+        value,
+    }
+}
+
+/// "Use {value}": `SetField` of this feature's field `path` to the expression `value`.
+pub fn use_value(path: &str, label: &str, value: &str) -> Fix {
+    set_field(path, label, json!(value))
+}
+
+/// `Suppress` of a feature.
+pub fn suppress(feature: &str) -> Fix {
+    Fix::Suppress {
+        feature: id(feature),
+    }
+}
+
+/// `RemoveEntry` of the list entry at `pointer`.
+pub fn remove_entry(pointer: &str) -> Fix {
+    Fix::RemoveEntry {
+        pointer: pointer.to_string(),
+    }
+}
+
+/// `Show` of a feature.
+pub fn show(feature: &str) -> Fix {
+    Fix::Show {
+        feature: id(feature),
+        entity: None,
     }
 }
 

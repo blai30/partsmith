@@ -8,7 +8,6 @@ mod common;
 use std::collections::BTreeMap;
 use std::f64::consts::FRAC_PI_2;
 
-use common::lint::lint_failures;
 use common::messages::{
     ERROR_VARIANTS, FINDING_VARIANTS, ISSUE_VARIANTS, assert_plain_message, context, delete,
     error_variant, every_error, every_error_sketch, every_finding, every_issue, finding_variant,
@@ -23,6 +22,7 @@ use common::{
     rect_with_zero_size_curves, reference, sketch_on_face, slot, symmetric, tangent, two_distances,
     value_entities, vertical_distance_line,
 };
+use partsmith_message_lint::lint_failures;
 use partsmith_model::Units;
 use partsmith_sketch::{
     Connection, EntityKind, MessageContext, PlacementProblem, ProfileFinding, SketchError,

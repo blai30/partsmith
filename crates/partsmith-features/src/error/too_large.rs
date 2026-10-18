@@ -86,31 +86,32 @@ impl TooLarge<'_> {
         let reason = self
             .bare_number_sentence(renderer)
             .or_else(|| self.limit_sentence(renderer));
-        let what = match (self.max, self.subject) {
-            (Some(max), Subject::Shell { body }) => format!(
-                "{value} is too thick for {}: the largest that works is about {}.",
+        // The reason as a second sentence, when there is one.
+        let second_sentence =
+            |reason: Option<String>| reason.map_or_else(String::new, |reason| format!(" {reason}"));
+        match (self.max, self.subject, reason) {
+            (Some(max), Subject::Shell { body }, reason) => format!(
+                "{value} is too thick for {}: the largest that works is about {}.{}",
                 renderer.body_phrase(body),
-                renderer.limit(max)
+                renderer.limit(max),
+                second_sentence(reason)
             ),
-            (Some(max), _) => format!(
-                "{value} is too large for the selected edges: the largest that works is about {}.",
-                renderer.limit(max)
+            (Some(max), _, reason) => format!(
+                "{value} is too large for the selected edges: the largest that works is about {}.{}",
+                renderer.limit(max),
+                second_sentence(reason)
             ),
-            (None, Subject::Shell { body }) => format!(
-                "{value} does not work on {}, even when thinner.",
-                renderer.body_phrase(body)
+            (None, Subject::Shell { body }, reason) => format!(
+                "{value} does not work on {}, even when thinner. {}",
+                renderer.body_phrase(body),
+                reason.unwrap_or_else(|| "Partsmith could not tell why.".to_string())
             ),
-            (None, _) if reason.is_none() => format!(
+            (None, _, Some(reason)) => {
+                format!("{value} does not work on the selected edges, even when smaller. {reason}")
+            }
+            (None, _, None) => format!(
                 "{value} does not work on the selected edges, even when smaller, and Partsmith could not tell why."
             ),
-            (None, _) => format!("{value} does not work on the selected edges, even when smaller."),
-        };
-        match (reason, self.max, self.subject) {
-            (Some(reason), _, _) => format!("{what} {reason}"),
-            (None, None, Subject::Shell { .. }) => {
-                format!("{what} Partsmith could not tell why.")
-            }
-            (None, _, _) => what,
         }
     }
 
@@ -125,17 +126,12 @@ impl TooLarge<'_> {
     /// The fixes in the order of section 4.3: the bare-number fix, then the round-face fixes of a shell, then the
     /// limit and the removal of the limiting edge, else `Suppress`.
     pub(super) fn fixes(&self, renderer: &Renderer<'_>, feature: &Id) -> Vec<Fix> {
-        let set_field = |value: String| Fix::SetField {
-            feature: None,
-            field: self.field.clone(),
-            value: Value::String(value),
-        };
         let mut fixes = Vec::new();
         if let Some(bare) = self
             .expr
             .and_then(|expr| bare_number_in_millimeters(expr, renderer.units()))
         {
-            fixes.push(set_field(bare));
+            fixes.push(Fix::set_field(self.field.clone(), bare));
         }
         if let (
             Subject::Shell { .. },
@@ -153,7 +149,7 @@ impl TooLarge<'_> {
             });
         }
         if let (Some(max), Some(_)) = (self.max, self.expr) {
-            fixes.push(set_field(renderer.limit(max)));
+            fixes.push(Fix::set_field(self.field.clone(), renderer.limit(max)));
         }
         if let Some(Limit::Face {
             position,

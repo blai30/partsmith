@@ -8,14 +8,15 @@ mod common;
 
 use std::f64::consts::{FRAC_PI_2, PI};
 
+use common::id;
 use common::records::{
     BLOCK_TOP, FRONT_TOP_EDGE, RIGHT_SIDE, RIGHT_TOP_EDGE, arc, block, block_with, box_below,
     cube10, edited, line, linear_pattern, point, rectangle, reference, shell, sketch, suppressed,
     xy,
 };
 use common::timeline::{Timeline, stored};
-use common::{id, lint::assert_passes_lint};
 use partsmith_features::{Diagnosis, FeatureWarning, Resolved};
+use partsmith_message_lint::assert_passes_lint;
 use partsmith_naming::{ElementKind, Reference};
 use serde_json::{Value, json};
 

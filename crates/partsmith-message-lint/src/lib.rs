@@ -1,6 +1,10 @@
-//! The message lint of the error guidelines (docs/guidelines/errors.md, "Checklist"; features.md section 3.12): no
-//! rendered message matches `repair panel`, `\bop (new|join|cut|intersect)\b`, `\b[fbec]-[0-9a-z]+\b`,
+//! The message lint of the error guidelines (docs/guidelines/errors.md, "Checklist"): no rendered
+//! message matches `repair panel`, `\bop (new|join|cut|intersect)\b`, `\b[fbec]-[0-9a-z]+\b`,
 //! `(Edge|Face|Vertex|Curve) [0-9]`, `[0-9]+% match`, a backtick or `os error`.
+//!
+//! The kernel tests (kernel.md test 130), the sketch tests (sketch.md test 247), the features tests
+//! (features.md section 3.12) and the recompute tests run it over every message they render. The
+//! crate has no dependencies and is a dev-dependency of tests only (ADR 0027).
 
 /// The lint rules a message breaks, by the pattern each one checks; empty when it passes.
 pub fn lint_failures(message: &str) -> Vec<&'static str> {
@@ -110,4 +114,62 @@ fn mentions_a_match_percentage(text: &str) -> bool {
             .next_back()
             .is_some_and(|character| character.is_ascii_digit())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_message_lint_accepts_plain_words() {
+        assert!(lint_failures(
+            "The front top edge of 'Box 1' selected for Edges was cut away by 'Extrude 1', which comes before this fillet."
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn the_message_lint_rejects_ids_numbered_elements_ops_scores_and_the_repair_panel() {
+        assert_eq!(
+            lint_failures("Edge 12 of f-box1 is lost."),
+            [r"\b[fbec]-[0-9a-z]+\b", "(Edge|Face|Vertex|Curve) [0-9]"]
+        );
+        assert_eq!(
+            lint_failures("Use op new."),
+            [r"\bop (new|join|cut|intersect)\b"]
+        );
+        assert_eq!(lint_failures("A 91% match."), ["[0-9]+% match"]);
+        assert_eq!(
+            lint_failures("Re-pick it in the repair panel."),
+            ["repair panel"]
+        );
+        assert_eq!(lint_failures("The `edges` field."), ["a backtick"]);
+        assert_eq!(lint_failures("No such file (os error 2)."), ["os error"]);
+    }
+
+    #[test]
+    fn an_op_counts_only_as_a_whole_word() {
+        assert_eq!(
+            lint_failures("Set it to (op cut)."),
+            [r"\bop (new|join|cut|intersect)\b"]
+        );
+        assert!(lint_failures("Develop new parts.").is_empty());
+        assert!(lint_failures("Keep op newer.").is_empty());
+        assert!(lint_failures("Stop joining.").is_empty());
+    }
+
+    #[test]
+    fn an_id_counts_only_as_a_whole_word_of_lowercase_letters_and_digits() {
+        assert_eq!(
+            lint_failures("Delete c-12 first."),
+            [r"\b[fbec]-[0-9a-z]+\b"]
+        );
+        assert_eq!(
+            lint_failures("Made by f-3fa91c0e72b4."),
+            [r"\b[fbec]-[0-9a-z]+\b"]
+        );
+        assert!(lint_failures("Run a self-check, then re-pick it.").is_empty());
+        assert!(lint_failures("Use b-Box or c-12_a.").is_empty());
+        assert!(lint_failures("Add an f- prefix.").is_empty());
+    }
 }

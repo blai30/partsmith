@@ -18,6 +18,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 partsmith-budgets.workspace = true
+partsmith-message-lint.workspace = true
 partsmith-occt-sys.workspace = true
 partsmith-sketch.workspace = true
 proptest.workspace = true

@@ -132,19 +132,14 @@ impl Registry {
         &self,
         record: &FeatureRecord,
     ) -> Result<Validated, FeatureError> {
-        let feature = self.feature(record)?;
-        let canonical = feature.canonicalize(&record.params)?;
-        let suggestions = self
-            .features
-            .get(&record.kind)
-            .map_or_else(Vec::new, |registered| {
-                near_matches(
-                    &canonical.unknown_keys,
-                    &registered.known_keys,
-                    &record.params,
-                    feature.manifest(),
-                )
-            });
+        let registered = self.registered(record)?;
+        let canonical = registered.feature.canonicalize(&record.params)?;
+        let suggestions = near_matches(
+            &canonical.unknown_keys,
+            &registered.known_keys,
+            &record.params,
+            registered.feature.manifest(),
+        );
         Ok(Validated {
             record: FeatureRecord {
                 id: record.id.clone(),
@@ -185,17 +180,21 @@ impl Registry {
 
     /// The Python call that recreates the record (section 3.11): the dedicated form with the record keywords appended when the type has one for these params, else the generic form. Never fails.
     pub fn python(&self, record: &FeatureRecord, names: &dyn PythonNames) -> PythonCall {
-        let dedicated = self.get(&record.kind).and_then(|feature| {
-            let validated = feature.canonicalize(&record.params).ok()?;
-            feature.python(&validated.params, names)
-        });
-        match dedicated {
-            Some(mut call) => {
-                call.keywords.extend(record_keywords(record));
-                call
-            }
-            None => self.python_generic(record),
-        }
+        self.python_dedicated(record, names)
+            .unwrap_or_else(|| self.python_generic(record))
+    }
+
+    /// The dedicated form with the record keywords appended, when the type is registered, the record validates and its hook has one for these params (section 3.11); None otherwise.
+    pub fn python_dedicated(
+        &self,
+        record: &FeatureRecord,
+        names: &dyn PythonNames,
+    ) -> Option<PythonCall> {
+        let feature = self.get(&record.kind)?;
+        let validated = feature.canonicalize(&record.params).ok()?;
+        let mut call = feature.python(&validated.params, names)?;
+        call.keywords.extend(record_keywords(record));
+        Some(call)
     }
 
     /// The generic `feature(...)` call that recreates any record, registered or not, valid or not (section 3.11). Never fails.
@@ -240,7 +239,14 @@ impl Registry {
 
     /// The feature registered for the record's type.
     fn feature(&self, record: &FeatureRecord) -> Result<&dyn DynFeature, FeatureError> {
-        self.get(&record.kind)
+        self.registered(record)
+            .map(|registered| registered.feature.as_ref())
+    }
+
+    /// The registration of the record's type; `UnknownType` when it has none.
+    fn registered(&self, record: &FeatureRecord) -> Result<&Registered, FeatureError> {
+        self.features
+            .get(&record.kind)
             .ok_or_else(|| FeatureError::UnknownType {
                 type_name: record.kind.clone(),
             })

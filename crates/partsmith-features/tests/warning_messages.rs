@@ -2,71 +2,24 @@
 //! phase 3 adds or rewrites (its section 7.2): why a feature changed nothing (`no_effect` with each `NoEffectHow`, also
 //! when its sketch lost its face or turned over), separate pieces, closed hollows, holes beside the body and points
 //! deleted from their sketch, smooth edges, and unknown settings with their near matches (section 6.5 test 8), with
-//! the fixes each offers and the message lint over every template (section 6.5 test 14). Warnings of whole documents
-//! are in `crates/partsmith-recompute/tests/feature_*.rs` and `body_semantics.rs`.
+//! the fixes each offers. The samples of these rows are in `tests/common/samples.rs`, which `tests/messages.rs` lints
+//! (section 6.5 test 14). Warnings of whole documents are in `crates/partsmith-recompute/tests/feature_*.rs` and
+//! `body_semantics.rs`.
 
 mod common;
 
-use std::collections::BTreeMap;
-
-use common::lint::assert_passes_lint;
-use common::records::BLOCK_TOP;
-use common::timeline::stored;
-use common::{LabelNames, field, id, pick};
-use partsmith_features::{
-    Diagnosis, FeatureWarning, Fix, IgnoredReason, NoEffectHow, RenderContext, Severity,
+use common::samples::{
+    block_top, hole_misses, lost_face, no_effect, phase_3_warnings, point_missing, separate_solid,
+    turned_over, unknown_params,
 };
+use common::{field, id, pick, remove_entry, show, with_standard_labels};
+use partsmith_features::{Diagnosis, FeatureWarning, Fix, IgnoredReason, NoEffectHow, Severity};
 use partsmith_model::{Id, Units};
 use partsmith_naming::Reference;
 
-/// The labels the warnings of this file are rendered with.
-fn labels() -> LabelNames {
-    LabelNames::new(
-        &[("b-1", "Body 1"), ("b-2", "Body 2")],
-        &[
-            ("f-sk1", "Sketch 1", "Sketch"),
-            ("f-sk2", "Sketch 2", "Sketch"),
-            ("f-ext1", "Extrude 1", "Extrude"),
-            ("f-ext2", "Extrude 2", "Extrude"),
-            ("f-rev1", "Revolve 1", "Revolve"),
-            ("f-box2", "Box 2", "Box"),
-            ("f-box3", "Box 3", "Box"),
-            ("f-bool1", "Boolean 1", "Boolean"),
-            ("f-mir1", "Mirror 1", "Mirror"),
-            ("f-lp1", "Linear pattern 1", "Linear pattern"),
-            ("f-cp1", "Circular pattern 1", "Circular pattern"),
-            ("f-mv1", "Move body 1", "Move body"),
-            ("f-fil1", "Fillet 1", "Fillet"),
-            ("f-cha1", "Chamfer 1", "Chamfer"),
-            ("f-sh1", "Shell 1", "Shell"),
-            ("f-hole1", "Hole 1", "Hole"),
-        ],
-    )
-}
-
-/// Calls `use_context` with the render context of `feature` in a document of `units`, with the labels of this file,
-/// `diagnosis` and no body states.
-fn with_labels<T>(
-    feature: &str,
-    units: Units,
-    diagnosis: &Diagnosis,
-    use_context: impl FnOnce(&RenderContext<'_>) -> T,
-) -> T {
-    let names = labels();
-    let feature = id(feature);
-    let bodies = BTreeMap::new();
-    use_context(&RenderContext {
-        feature: &feature,
-        names: &names,
-        units,
-        bodies: &bodies,
-        diagnosis,
-    })
-}
-
 /// `warning` rendered on `feature` in a millimeter document with `diagnosis`.
 fn rendered_with(warning: &FeatureWarning, feature: &str, diagnosis: &Diagnosis) -> String {
-    with_labels(feature, Units::Mm, diagnosis, |context| {
+    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
         warning.render(context)
     })
 }
@@ -78,7 +31,7 @@ fn rendered(warning: &FeatureWarning, feature: &str) -> String {
 
 /// The fixes of `warning` on `feature` in a millimeter document with `diagnosis`.
 fn fixes_with(warning: &FeatureWarning, feature: &str, diagnosis: &Diagnosis) -> Vec<Fix> {
-    with_labels(feature, Units::Mm, diagnosis, |context| {
+    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
         warning.fixes(context)
     })
 }
@@ -88,52 +41,12 @@ fn fixes_of(warning: &FeatureWarning, feature: &str) -> Vec<Fix> {
     fixes_with(warning, feature, &Diagnosis::default())
 }
 
-/// The top of `BLOCK`, the attach face of the newcomer error corpus NC02 and NC04.
-fn block_top() -> Reference {
-    stored(BLOCK_TOP.0, BLOCK_TOP.1)
-}
-
-/// `NoEffect` on `b-1` with `how`, a Reverse that does not reach the body, and the attach face `attach` of the sketch
-/// `f-sk2`, when given.
-fn no_effect(how: NoEffectHow, attach: Option<Reference>) -> FeatureWarning {
-    FeatureWarning::NoEffect {
-        body: id("b-1"),
-        how,
-        reverse_hits: false,
-        attach: attach.map(|face| (id("f-sk2"), face)),
-    }
-}
-
 /// `Attach 'Sketch 2' to {face}`.
 fn attach_sketch_2(face: Reference) -> Fix {
     Fix::Attach {
         sketch: id("f-sk2"),
         body: id("b-1"),
         face,
-    }
-}
-
-/// `Show` of a feature.
-fn show(feature: &str) -> Fix {
-    Fix::Show {
-        feature: id(feature),
-        entity: None,
-    }
-}
-
-/// A diagnosis whose profile or point sketch `f-sk2` lost its face in the same run (section 3.15).
-fn lost_face() -> Diagnosis {
-    Diagnosis {
-        lost_face: Some(id("f-sk2")),
-        ..Diagnosis::default()
-    }
-}
-
-/// A diagnosis whose profile or point sketch `f-sk2` turned over on its face in the same run (section 3.15).
-fn turned_over() -> Diagnosis {
-    Diagnosis {
-        turned_over: Some(id("f-sk2")),
-        ..Diagnosis::default()
     }
 }
 
@@ -228,7 +141,7 @@ fn a_cut_that_ends_at_the_surface_says_so_without_a_distance() {
 fn a_gap_is_written_in_document_units() {
     let warning = no_effect(NoEffectHow::Away { gap: 25.4 }, None);
 
-    let text = with_labels("f-ext2", Units::In, &Diagnosis::default(), |context| {
+    let text = with_standard_labels("f-ext2", Units::In, &Diagnosis::default(), |context| {
         warning.render(context)
     });
 
@@ -419,16 +332,6 @@ fn a_cut_whose_sketch_turned_over_changes_nothing_in_the_body() {
     );
 }
 
-/// `SeparateSolid` on `b-1` with 2 pieces, none of its tools joined, and the attach face of `f-sk2`, when given.
-fn separate_solid(attach: Option<Reference>) -> FeatureWarning {
-    FeatureWarning::SeparateSolid {
-        body: id("b-1"),
-        pieces: 2,
-        part_joined: false,
-        attach: attach.map(|face| (id("f-sk2"), face)),
-    }
-}
-
 #[test]
 fn a_join_that_floats_says_the_body_now_has_separate_pieces() {
     let warning = separate_solid(Some(block_top()));
@@ -523,17 +426,6 @@ fn a_closed_hollow_says_it_prints_as_a_sealed_cavity() {
     assert_eq!(fixes_of(&warning, "f-box3"), []);
 }
 
-/// `HoleMissesBody` of the point `e-p3` of `sketch` at `position` on `b-1`.
-fn hole_misses(sketch: &str, position: [f64; 2], reverse_hits: bool) -> FeatureWarning {
-    FeatureWarning::HoleMissesBody {
-        sketch: id(sketch),
-        point: "e-p3".to_string(),
-        position,
-        body: id("b-1"),
-        reverse_hits,
-    }
-}
-
 #[test]
 fn a_hole_that_misses_either_way_asks_to_move_its_point() {
     let warning = hole_misses("f-sk1", [100.0, 0.0], false);
@@ -557,7 +449,7 @@ fn a_hole_that_reversing_reaches_names_it_by_its_coordinates() {
 fn a_hole_is_named_by_its_coordinates_in_document_units() {
     let warning = hole_misses("f-sk1", [25.4, 50.8], false);
 
-    let text = with_labels("f-hole1", Units::In, &Diagnosis::default(), |context| {
+    let text = with_standard_labels("f-hole1", Units::In, &Diagnosis::default(), |context| {
         warning.render(context)
     });
 
@@ -595,16 +487,6 @@ fn a_hole_whose_sketch_turned_over_names_the_mirrored_drawing() {
     );
 }
 
-/// `PointMissing` of the deleted point `e-p9` at `points[1]` of `f-sk1`.
-fn point_missing() -> FeatureWarning {
-    FeatureWarning::PointMissing {
-        field: field("points[1]", "Points"),
-        position: 1,
-        sketch: id("f-sk1"),
-        point: "e-p9".to_string(),
-    }
-}
-
 #[test]
 fn a_deleted_hole_point_is_skipped_with_a_warning() {
     let warning = point_missing();
@@ -618,12 +500,7 @@ fn a_deleted_hole_point_is_skipped_with_a_warning() {
     // Remove from Points, then Pick (features/hole.md section 3.3 step 4, corpus R43b).
     assert_eq!(
         fixes_of(&warning, "f-hole1"),
-        [
-            Fix::RemoveEntry {
-                pointer: "/points/1".to_string()
-            },
-            pick("/points/1"),
-        ]
+        [remove_entry("/points/1"), pick("/points/1")]
     );
     assert_eq!(warning.field(), Some(&field("points[1]", "Points")));
     // The point's reference is for reports only (section 2.8).
@@ -641,12 +518,7 @@ fn a_smooth_edge_offers_to_remove_its_entry() {
         rendered(&warning, "f-fil1"),
         "One of the edges selected for Edges is smooth (its faces meet without a corner), so it was skipped."
     );
-    assert_eq!(
-        fixes_of(&warning, "f-fil1"),
-        [Fix::RemoveEntry {
-            pointer: "/edges/1".to_string()
-        }]
-    );
+    assert_eq!(fixes_of(&warning, "f-fil1"), [remove_entry("/edges/1")]);
 }
 
 #[test]
@@ -657,19 +529,6 @@ fn a_tip_angle_ignored_with_through_all_offers_nothing() {
     };
 
     assert_eq!(fixes_of(&warning, "f-hole1"), []);
-}
-
-/// `UnknownParams` of a shell with `keys`, of which `remove_face` nearly matches Faces to remove.
-fn unknown_params(keys: &[&str]) -> FeatureWarning {
-    let suggestions = keys
-        .iter()
-        .filter(|key| **key == "remove_face")
-        .map(|key| (key.to_string(), field("remove_faces", "Faces to remove")))
-        .collect();
-    FeatureWarning::UnknownParams {
-        keys: keys.iter().map(ToString::to_string).collect(),
-        suggestions,
-    }
 }
 
 /// "Rename remove_face to remove_faces".
@@ -713,101 +572,12 @@ fn t008_several_unknown_keys_are_listed_with_a_rename_for_each_near_match() {
     assert_eq!(fixes_of(&warning, "f-sh1"), [rename_remove_face()]);
 }
 
-// Codes, severities and the message lint over every template of these rows.
-
-/// One sample of every warning row phase 3 adds or rewrites, with the feature it is rendered on.
-fn sample_warnings() -> Vec<(FeatureWarning, &'static str)> {
-    let mut samples = Vec::new();
-    for (how, feature) in [
-        (NoEffectHow::Inside, "f-ext2"),
-        (NoEffectHow::Inside, "f-mir1"),
-        (NoEffectHow::Inside, "f-lp1"),
-        (NoEffectHow::Away { gap: 10.0 }, "f-ext2"),
-        (NoEffectHow::Away { gap: 0.0 }, "f-ext2"),
-        (NoEffectHow::Short { gap: 5.0 }, "f-ext2"),
-        (NoEffectHow::Short { gap: 0.0 }, "f-ext2"),
-        (NoEffectHow::Beside, "f-bool1"),
-        (NoEffectHow::Covers, "f-box2"),
-        (
-            NoEffectHow::Skipped {
-                field: field("edges", "Edges"),
-            },
-            "f-fil1",
-        ),
-        (NoEffectHow::Missed, "f-hole1"),
-        (
-            NoEffectHow::NoCopies {
-                fields: vec![field("direction.count", "Count")],
-            },
-            "f-lp1",
-        ),
-        (
-            NoEffectHow::NoCopies {
-                fields: vec![
-                    field("direction.count", "Count"),
-                    field("second_direction.count", "Second count"),
-                ],
-            },
-            "f-lp1",
-        ),
-        (NoEffectHow::NotMoved, "f-mv1"),
-    ] {
-        samples.push((no_effect(how.clone(), Some(block_top())), feature));
-        samples.push((
-            FeatureWarning::NoEffect {
-                body: id("b-1"),
-                how,
-                reverse_hits: true,
-                attach: None,
-            },
-            feature,
-        ));
-    }
-    samples.push((separate_solid(Some(block_top())), "f-ext2"));
-    samples.push((separate_solid(None), "f-box2"));
-    samples.push((FeatureWarning::ClosedVoid { body: id("b-1") }, "f-box3"));
-    samples.push((hole_misses("f-sk1", [100.0, 0.0], false), "f-hole1"));
-    samples.push((hole_misses("f-sk2", [20.0, 10.0], true), "f-hole1"));
-    samples.push((point_missing(), "f-hole1"));
-    samples.push((
-        FeatureWarning::Ignored {
-            field: field("edges[1]", "Edges"),
-            reason: IgnoredReason::SmoothEdge,
-        },
-        "f-fil1",
-    ));
-    for keys in [
-        &["remove_face"][..],
-        &["zzz"][..],
-        &["remove_face", "zzz"][..],
-    ] {
-        samples.push((unknown_params(keys), "f-sh1"));
-    }
-    samples
-}
-
-/// The diagnoses every sample is rendered with.
-fn sample_diagnoses() -> Vec<Diagnosis> {
-    vec![Diagnosis::default(), lost_face(), turned_over()]
-}
-
-#[test]
-fn t014_every_phase_3_warning_template_passes_the_message_lint() {
-    for units in [Units::Mm, Units::In] {
-        for diagnosis in sample_diagnoses() {
-            for (warning, feature) in sample_warnings() {
-                let text = with_labels(feature, units, &diagnosis, |context| {
-                    warning.render(context)
-                });
-                assert_passes_lint(&text);
-            }
-        }
-    }
-}
+// Codes, severities and details of the samples of these rows; the message lint renders them with every other sample
+// (section 6.5 test 14).
 
 #[test]
 fn t010_every_phase_3_warning_is_a_warning_with_its_code() {
-    for (warning, _) in sample_warnings() {
+    for (warning, _) in phase_3_warnings() {
         assert_eq!(warning.severity(), Severity::Warning, "{warning:?}");
         let expected = match &warning {
             FeatureWarning::NoEffect { .. } => "no_effect",
@@ -826,7 +596,7 @@ fn t010_every_phase_3_warning_is_a_warning_with_its_code() {
 #[test]
 fn no_warning_has_a_suggestion() {
     // Section 4.4: no M1 warning has a suggestion; fixes carry what a warning offers.
-    for (warning, _) in sample_warnings() {
+    for (warning, _) in phase_3_warnings() {
         assert_eq!(warning.suggestion(Units::Mm), None, "{warning:?}");
     }
 }
@@ -834,7 +604,7 @@ fn no_warning_has_a_suggestion() {
 #[test]
 fn of_these_warnings_only_a_deleted_point_has_a_detail() {
     // Section 2.8: `PointMissing` gives the point's reference; every other warning here has no detail.
-    for (warning, _) in sample_warnings() {
+    for (warning, _) in phase_3_warnings() {
         let expected = match &warning {
             FeatureWarning::PointMissing { point, .. } => Some(point.clone()),
             _ => None,
@@ -862,7 +632,7 @@ fn sample_ids() -> Vec<Id> {
 
 #[test]
 fn rendered_warnings_name_no_point_or_feature_by_its_id() {
-    for (warning, feature) in sample_warnings() {
+    for (warning, feature) in phase_3_warnings() {
         let text = rendered(&warning, feature);
         for sample_id in sample_ids() {
             assert!(

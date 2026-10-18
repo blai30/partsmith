@@ -210,11 +210,7 @@ pub(super) fn reverse_fix(renderer: &Renderer<'_>) -> Fix {
         .and_then(|record| record.params.get("reverse"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    Fix::SetField {
-        feature: None,
-        field: renderer.own_field("reverse", "Reverse"),
-        value: Value::Bool(!reversed),
-    }
+    Fix::set_field(renderer.own_field("reverse", "Reverse"), !reversed)
 }
 
 /// `Attach` of the sketch to the attach face, when the attach rule found one.

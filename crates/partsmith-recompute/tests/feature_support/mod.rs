@@ -24,6 +24,7 @@ use partsmith_features::{
     FallbackCause, FeatureError, FeatureOutput, FeatureWarning, FieldRef, Fix, Link, Loss, Names,
     OutputData, Placed, Registry, RenderContext, Repair, Severity, SketchResult,
 };
+use partsmith_message_lint::lint_failures;
 use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit, Id};
 use partsmith_naming::{ElementKind, ElementName, Follow, Motion, Reference};
 use partsmith_occt_sys::{
@@ -1300,79 +1301,6 @@ pub fn absent_faces(run: &Run, feature: &str) -> Vec<(String, String)> {
         .iter()
         .map(|face| (face.name.to_string(), format!("{:?}", face.why)))
         .collect()
-}
-
-/// The lint rules of the error guidelines a message breaks (features.md section 3.12): `repair panel`,
-/// `\bop (new|join|cut|intersect)\b`, `\b[fbec]-[0-9a-z]+\b`, `(Edge|Face|Vertex|Curve) [0-9]`, `[0-9]+% match`, a
-/// backtick or `os error`.
-pub fn lint_failures(message: &str) -> Vec<&'static str> {
-    let is_word = |character: char| character.is_ascii_alphanumeric() || character == '_';
-    let starts_word = |start: usize| !message[..start].chars().next_back().is_some_and(is_word);
-    let ends_word = |end: usize| !message[end..].chars().next().is_some_and(is_word);
-    let mut failures = Vec::new();
-    if message.contains("repair panel") {
-        failures.push("repair panel");
-    }
-    let mentions_op = ["op new", "op join", "op cut", "op intersect"]
-        .iter()
-        .any(|phrase| {
-            message
-                .match_indices(phrase)
-                .any(|(start, _)| starts_word(start) && ends_word(start + phrase.len()))
-        });
-    if mentions_op {
-        failures.push("op");
-    }
-    let characters: Vec<(usize, char)> = message.char_indices().collect();
-    let mentions_id = characters
-        .iter()
-        .enumerate()
-        .any(|(position, &(start, letter))| {
-            if !matches!(letter, 'f' | 'b' | 'e' | 'c') || !starts_word(start) {
-                return false;
-            }
-            if characters.get(position + 1).map(|&(_, next)| next) != Some('-') {
-                return false;
-            }
-            let run: Vec<&(usize, char)> = characters[position + 2..]
-                .iter()
-                .take_while(|(_, character)| {
-                    character.is_ascii_digit() || character.is_ascii_lowercase()
-                })
-                .collect();
-            run.last()
-                .is_some_and(|&&(last, character)| ends_word(last + character.len_utf8()))
-        });
-    if mentions_id {
-        failures.push("an id");
-    }
-    let numbered = ["Edge ", "Face ", "Vertex ", "Curve "].iter().any(|word| {
-        message.match_indices(word).any(|(start, _)| {
-            message[start + word.len()..]
-                .chars()
-                .next()
-                .is_some_and(|character| character.is_ascii_digit())
-        })
-    });
-    if numbered {
-        failures.push("a numbered element");
-    }
-    let percentage = message.match_indices("% match").any(|(start, _)| {
-        message[..start]
-            .chars()
-            .next_back()
-            .is_some_and(|character| character.is_ascii_digit())
-    });
-    if percentage {
-        failures.push("a match percentage");
-    }
-    if message.contains('`') {
-        failures.push("a backtick");
-    }
-    if message.contains("os error") {
-        failures.push("os error");
-    }
-    failures
 }
 
 /// Asserts that every rendered message of `feature` passes the message lint.

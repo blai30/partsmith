@@ -22,6 +22,7 @@ cxx-build.workspace = true
 
 [dev-dependencies]
 partsmith-budgets.workspace = true
+partsmith-message-lint.workspace = true
 
 [[bench]]
 name = "budgets"

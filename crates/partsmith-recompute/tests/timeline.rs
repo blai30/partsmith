@@ -6,7 +6,6 @@ mod common;
 
 use std::sync::Arc;
 
-use common::feature_support::lint_failures;
 use common::{
     Harness, all_features, assert_relative, assert_volume, bodies, bodies_before_ids, body_report,
     chain_json, datum_height, doc_a, doc_a_json, document, error_code, face_count, feature_report,
@@ -15,6 +14,7 @@ use common::{
     statuses, suppressed, test_block, test_datum, test_datum_on, test_history, test_node,
     test_on_body, test_probe, upstream, with_action,
 };
+use partsmith_message_lint::assert_passes_lint;
 use partsmith_occt_sys::{Plane, StepBody, SubShapeKind, make_box, write_step};
 use partsmith_recompute::{Fix, Report};
 use serde_json::{Value, json};
@@ -102,12 +102,7 @@ fn t018_stop_point_runs_up_to_and_including_the_stop_feature() {
 /// passes the message lint of the error guidelines.
 fn document_messages(report: &Report) -> Vec<(&'static str, &str)> {
     for message in &report.messages {
-        let failures = lint_failures(&message.text);
-        assert!(
-            failures.is_empty(),
-            "{:?} breaks the message lint: {failures:?}",
-            message.text
-        );
+        assert_passes_lint(&message.text);
     }
     report
         .messages

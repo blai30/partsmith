@@ -9,10 +9,11 @@ use serde::{Deserialize, Serialize};
 use super::common::{
     BODY_OP_OPTIONS, bodies, body_op_name, essential, flag, hint, is_false, manifest, one_or_list,
     options_hint, part, require_selection, selection_hint, solid_body, target_hint, unchanged,
+    without_separate_solids,
 };
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FeatureWarning, FieldRef, Noun};
+use crate::error::{FeatureError, FieldRef, Noun};
 use crate::feature::Feature;
 use crate::output::{BodyChange, FeatureOutput, Tool, apply_op};
 use crate::params::BodyOp;
@@ -135,11 +136,7 @@ impl Feature for Boolean {
         }
         let (update, warnings) =
             apply_op(context, &params.target, params.op.body_op(), tools, None)?;
-        // Joining separate bodies is what a boolean is asked for, so it reports no separate pieces (section 3.5).
-        let warnings: Vec<FeatureWarning> = warnings
-            .into_iter()
-            .filter(|warning| !matches!(warning, FeatureWarning::SeparateSolid { .. }))
-            .collect();
+        let warnings = without_separate_solids(warnings);
         let mut updates = vec![update];
         if !params.keep_tools {
             let empty = BodyState::empty();

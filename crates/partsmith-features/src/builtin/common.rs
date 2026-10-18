@@ -345,6 +345,21 @@ pub(crate) fn has_face(faces: &[&ElementName], face: &ElementName) -> bool {
         .any(|name| *name == face || name.is_split_descendant_of(face))
 }
 
+/// `warnings` without `SeparateSolid`: only a join by a solid feature (extrude, revolve, a primitive, import) reports
+/// separate pieces, since a boolean or a copy feature joining separate solids is what it is asked for (features.md
+/// section 3.5).
+pub(crate) fn without_separate_solids(warnings: Vec<FeatureWarning>) -> Vec<FeatureWarning> {
+    warnings
+        .into_iter()
+        .filter(|warning| !matches!(warning, FeatureWarning::SeparateSolid { .. }))
+        .collect()
+}
+
+/// The angle in radians between two vectors, in [0, pi], accurate for small angles too.
+pub(crate) fn angle_between(first: Vector, second: Vector) -> f64 {
+    first.cross(second).length().atan2(first.dot(second))
+}
+
 /// An update that keeps a body's state exactly: the same shape and naming map, with what has been
 /// measured on it.
 pub(crate) fn unchanged(body: &Id, state: &BodyState, change: BodyChange) -> BodyUpdate {
@@ -408,8 +423,8 @@ pub(crate) fn apply_tool(
     Ok(bodies(vec![update], warnings))
 }
 
-/// The body rules' warnings with `reverse_hits` set on a `NoEffect` whose tools miss the body (`Away`, `Short`,
-/// `Beside`), and with `inside_too` on one of a join inside it (`Inside`, for an extrude whose Reverse is on):
+/// The body rules' warnings with `reverse_hits` set on their one `NoEffect` when its tools miss the body (`Away`,
+/// `Short`, `Beside`), and with `inside_too` when it is a join inside it (`Inside`, for an extrude whose Reverse is on):
 /// `reversed` builds the tools the other way round, only on this warning path, and `reverse_hits` checks that they
 /// reach the body, `adds_volume` that they add to it (features.md section 3.15).
 pub(crate) fn reverse_checked(
@@ -419,27 +434,21 @@ pub(crate) fn reverse_checked(
     inside_too: bool,
     reversed: impl FnOnce() -> Result<Vec<Tool>, FeatureError>,
 ) -> Result<Vec<FeatureWarning>, FeatureError> {
-    let unchanged = warnings.iter_mut().find_map(|warning| match warning {
+    let Some((how, hits)) = warnings.iter_mut().find_map(|warning| match warning {
         FeatureWarning::NoEffect {
-            how: NoEffectHow::Away { .. } | NoEffectHow::Short { .. } | NoEffectHow::Beside,
-            reverse_hits,
-            ..
-        } => Some((reverse_hits, false)),
-        FeatureWarning::NoEffect {
-            how: NoEffectHow::Inside,
-            reverse_hits,
-            ..
-        } if inside_too => Some((reverse_hits, true)),
+            how, reverse_hits, ..
+        } => Some((&*how, reverse_hits)),
         _ => None,
-    });
-    if let Some((hits, inside)) = unchanged {
-        let tools = reversed()?;
-        *hits = if inside {
-            adds_volume(context, body, &tools)?
-        } else {
-            reverse_hits(context, body, &tools)?
-        };
-    }
+    }) else {
+        return Ok(warnings);
+    };
+    *hits = match how {
+        NoEffectHow::Away { .. } | NoEffectHow::Short { .. } | NoEffectHow::Beside => {
+            reverse_hits(context, body, &reversed()?)?
+        }
+        NoEffectHow::Inside if inside_too => adds_volume(context, body, &reversed()?)?,
+        _ => return Ok(warnings),
+    };
     Ok(warnings)
 }
 
@@ -743,6 +752,8 @@ pub(crate) fn call(
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::PI;
+
     use partsmith_occt_sys::{Plane, make_box, make_cylinder};
     use partsmith_sketch::RegionFingerprint;
 
@@ -955,5 +966,14 @@ mod tests {
         };
 
         assert_eq!(profile_arguments(&profile, &names), None);
+    }
+
+    #[test]
+    fn the_angle_between_vectors_ignores_their_lengths() {
+        let up = Vector::new(0.0, 0.0, 2.0);
+
+        assert_eq!(angle_between(up, up), 0.0);
+        assert!((angle_between(up, Vector::new(0.0, 0.0, -1.0)) - PI).abs() < 1e-12);
+        assert!((angle_between(up, Vector::new(3.0, 0.0, 0.0)) - PI / 2.0).abs() < 1e-12);
     }
 }

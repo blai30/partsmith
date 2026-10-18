@@ -32,7 +32,7 @@ Format: title, status (proposed, accepted, superseded by NNNN), context, decisio
 | [0024](0024-diagnostics-with-actions-causes-and-ghosts.md) | Diagnostics carry actions, causes, details, candidates and ghosts (protocol schema) | Accepted, needs human review |
 | [0025](0025-file-format-version-2.md) | File format version 2 for anchors, merged names, region outlines and model frames, migrated from 1 without change | Accepted, needs human review |
 | [0026](0026-kernel-facade-additions-for-errors.md) | Kernel facade additions for ghosts, limits, void checks and true hints | Accepted, needs human review |
-| [0027](0027-dev-only-workspace-crates.md) | Dev-only workspace crates: `partsmith-budgets` for the budget benchmarks and `partsmith-mesh-fixtures` for the mesh.md section 6.1 test fixtures | Accepted, needs human review |
+| [0027](0027-dev-only-workspace-crates.md) | Dev-only workspace crates: `partsmith-budgets` for the budget benchmarks and `partsmith-mesh-fixtures` for the mesh.md section 6.1 test fixtures; amended 2026-10-18 with `partsmith-message-lint` for the message lint of the kernel, sketch, features and recompute tests | Accepted, needs human review (amended 2026-10-18) |
 | [0028](0028-single-license-apache-2.md) | One license, Apache-2.0, for code, specifications, examples and test corpus | Accepted |
 | [0029](0029-z-up-right-handed.md) | Right-handed Z-up coordinates everywhere, with no up-axis option | Accepted |
 | [0030](0030-islands-over-a-full-window-viewport-and-rgb-axes.md) | Floating islands over a full-window viewport, and X, Y, Z in red, green and blue | Accepted, needs human review; outlines and surfaces amended by 0032 |

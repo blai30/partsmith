@@ -14,8 +14,8 @@ mod common;
 
 use std::f64::consts::FRAC_PI_2;
 
-use common::{ContextFixture, NoNames, TOLERANCE, error_fixes, field, render_error};
-use partsmith_features::{Bound, FeatureError, FieldUnit, Fix, MODEL_LIMIT};
+use common::{ContextFixture, NoNames, TOLERANCE, error_fixes, render_error, use_value};
+use partsmith_features::{Bound, FeatureError, FieldUnit, MODEL_LIMIT};
 use partsmith_model::{Expr, Units};
 
 /// The count `expr` declared at `count` gives with `minimum`.
@@ -37,15 +37,6 @@ fn assert_count_out_of_range(result: Result<u32, FeatureError>, bound: Bound) {
         ),
         "expected {bound:?}, got {result:?}"
     );
-}
-
-/// "Use {value}": the fix that sets the probe's Count to `value`.
-fn use_count(value: &str) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: field("count", "Count"),
-        value: serde_json::Value::String(value.to_string()),
-    }
 }
 
 /// Asserts that `result` is an `UndeclaredDependency` error.
@@ -133,7 +124,10 @@ fn t003_count_with_a_fraction_is_not_a_whole_number() {
     );
     assert_eq!(
         error_fixes(&error, "f-test1"),
-        [use_count("2"), use_count("3")]
+        [
+            use_value("count", "Count", "2"),
+            use_value("count", "Count", "3")
+        ]
     );
 }
 
@@ -283,7 +277,10 @@ fn t019_fraction_in_range_is_not_a_whole_number() {
     );
     assert_eq!(
         error_fixes(&error, "f-test1"),
-        [use_count("1"), use_count("2")]
+        [
+            use_value("count", "Count", "1"),
+            use_value("count", "Count", "2")
+        ]
     );
 }
 

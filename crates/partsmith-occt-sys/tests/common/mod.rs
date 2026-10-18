@@ -1,11 +1,8 @@
 //! Fixtures and assertion helpers shared by the kernel acceptance tests (kernel spec section 6) and
 //! the budgets bench, which includes this module with `#[path]`.
-//! `lint` holds the message lint of the error guidelines.
 
 // Each test binary and the bench use only some of these helpers.
 #![allow(dead_code)]
-
-pub mod lint;
 
 use std::collections::{BTreeMap, BTreeSet};
 

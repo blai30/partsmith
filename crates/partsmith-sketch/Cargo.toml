@@ -17,6 +17,7 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+partsmith-message-lint.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
 

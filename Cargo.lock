@@ -2526,6 +2526,7 @@ name = "partsmith-features"
 version = "0.2.0"
 dependencies = [
  "partsmith-mesh",
+ "partsmith-message-lint",
  "partsmith-model",
  "partsmith-naming",
  "partsmith-occt-sys",
@@ -2572,6 +2573,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "partsmith-message-lint"
+version = "0.1.0"
+
+[[package]]
 name = "partsmith-model"
 version = "0.1.0"
 dependencies = [
@@ -2607,6 +2612,7 @@ dependencies = [
  "cxx-build",
  "partsmith-budgets",
  "partsmith-mesh",
+ "partsmith-message-lint",
  "thiserror 2.0.21",
 ]
 
@@ -2660,6 +2666,7 @@ dependencies = [
  "blake3",
  "partsmith-budgets",
  "partsmith-features",
+ "partsmith-message-lint",
  "partsmith-model",
  "partsmith-naming",
  "partsmith-occt-sys",
@@ -2674,6 +2681,7 @@ dependencies = [
 name = "partsmith-sketch"
 version = "0.1.0"
 dependencies = [
+ "partsmith-message-lint",
  "partsmith-model",
  "partsmith-naming",
  "proptest",

@@ -3,34 +3,37 @@
 //! regions, `upstream_failed`, `body_empty`, `tool_empty`, `internal` and `name_too_deep` (phase 1), and
 //! `not_coplanar`, `not_collinear`, `sketch_turned_over` and a `plane_fallback` placed before the removal of its face
 //! (phase 2, frames on the model). Tests named `tNNN` are section 6.5 test NNN; the region rows and the phase 2 rows
-//! have one rendering test each. Messages that need a run of a whole document are in
+//! have one rendering test each. Test 14 lints every sample of `tests/common/samples.rs`, one of every error and
+//! warning variant. Messages that need a run of a whole document are in
 //! `crates/partsmith-recompute/tests/feature_messages.rs`.
 
 mod common;
 
-use std::collections::BTreeMap;
+use std::collections::HashSet;
+use std::mem::{Discriminant, discriminant};
 
-use common::lint::{assert_passes_lint, lint_failures};
 use common::records::{
     ATTACHED_BOX_TOP, BLOCK_TOP, block, both_front_top_edges, both_tops, circle, cube20,
     cut_through_the_top, face_sketch, fillet, l_shaped_body, point, reference, reversed_block,
     shell, slot,
 };
-use common::timeline::{Timeline, stored};
-use common::{LabelNames, assert_vector_close, field, id, pick, render_context, use_reference};
-use partsmith_features::{
-    Because, BodyState, Diagnosis, Explanation, FallbackCause, FeatureError, FeatureWarning,
-    FieldRef, Fix, Loss, LossCandidate, Place, Placed, RegionLost, Repair, Severity,
+use common::samples::{
+    CUT_AWAY, ERROR_VARIANTS, FRONT_TOP, WARNING_VARIANTS, every_diagnosis, every_error,
+    every_warning, explained, fillet_body_empty, lost_region, phase_1_and_2_diagnoses,
+    phase_1_and_2_errors, phase_1_and_2_warnings, profile_not_found, rectangle_region,
+    region_field, region_missing, region_split, tool_empty,
 };
-use partsmith_naming::{ElementKind, ElementName, Follow, Lost, Reference};
-use partsmith_sketch::{RegionLoss, RegionRef};
+use common::timeline::{Timeline, stored};
+use common::{assert_vector_close, field, id, pick, show, use_reference, with_standard_labels};
+use partsmith_features::{
+    Because, Diagnosis, FallbackCause, FeatureError, FeatureWarning, FieldRef, Fix, Loss,
+    LossCandidate, Place, Placed, Repair, Severity,
+};
+use partsmith_message_lint::assert_passes_lint;
+use partsmith_model::Units;
+use partsmith_naming::{ElementKind, ElementName, Lost, Reference};
+use partsmith_sketch::RegionLoss;
 use serde_json::json;
-
-/// The front top edge of `CUBE20` (features/fillet.md `E-FT`).
-const FRONT_TOP: (&str, &str) = (
-    "edge(f-box1/front|f-box1/top)",
-    "line|n=1,0,0|c=0,-10,20|l=20",
-);
 
 /// `CUBE20` and `f-fil1` of features/fillet.md test 1.
 fn cube_with_fillet() -> Timeline {
@@ -90,25 +93,6 @@ fn front_top_lost(timeline: &Timeline, ambiguous: bool) -> FeatureWarning {
         loss: front_top_loss(timeline, ambiguous),
     }
 }
-
-/// A diagnosis with one explanation for the loss at position 0.
-fn explained(text: &str, after: Option<&str>, fixes: Vec<Fix>, upstream: bool) -> Diagnosis {
-    Diagnosis {
-        losses: BTreeMap::from([(
-            0,
-            Explanation {
-                text: text.to_string(),
-                after: after.map(id),
-                fixes,
-                upstream,
-            },
-        )]),
-        ..Diagnosis::default()
-    }
-}
-
-/// The reason of section 6.5 test 3.
-const CUT_AWAY: &str = "was cut away by 'Extrude 1', which comes before this fillet";
 
 /// `UseReferences` of a candidate at `/edges/0`.
 fn use_candidate(candidate: &LossCandidate) -> Fix {
@@ -449,69 +433,40 @@ fn t004_several_losses_list_their_fixes_in_loss_order() {
     assert_eq!(fixes.last(), Some(&pick("/edges/1")));
 }
 
-/// Names for the hand-built messages of tests 5 to 7: bodies 'Body 1' and 'Body 2', and the features they name.
-fn labels() -> LabelNames {
-    LabelNames::new(
-        &[("b-1", "Body 1"), ("b-2", "Body 2")],
-        &[
-            ("f-sk1", "Sketch 1", "Sketch"),
-            ("f-dp1", "Datum plane 1", "Datum plane"),
-            ("f-ext1", "Extrude 1", "Extrude"),
-            ("f-fil1", "Fillet 1", "Fillet"),
-            ("f-bool1", "Boolean 1", "Boolean"),
-            ("f-box2", "Box 2", "Box"),
-            ("f-sh1", "Shell 1", "Shell"),
-            ("f-hole1", "Hole 1", "Hole"),
-        ],
-    )
-}
-
-/// `error` rendered on `feature` with the test labels and `diagnosis`.
+/// `error` rendered on `feature` with the standard labels and `diagnosis`.
 fn render_labeled(error: &FeatureError, feature: &str, diagnosis: &Diagnosis) -> String {
-    let names = labels();
-    let feature = id(feature);
-    let bodies = BTreeMap::new();
-    error.render(&render_context(&feature, &names, diagnosis, &bodies))
+    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
+        error.render(context)
+    })
 }
 
-/// The fixes of `error` on `feature` with the test labels and `diagnosis`.
+/// The fixes of `error` on `feature` with the standard labels and `diagnosis`.
 fn fixes_labeled(error: &FeatureError, feature: &str, diagnosis: &Diagnosis) -> Vec<Fix> {
-    let names = labels();
-    let feature = id(feature);
-    let bodies = BTreeMap::new();
-    error.fixes(&render_context(&feature, &names, diagnosis, &bodies))
+    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
+        error.fixes(context)
+    })
 }
 
-/// `warning` rendered on `feature` with the test labels and `diagnosis`.
+/// `warning` rendered on `feature` with the standard labels and `diagnosis`.
 fn render_warning_labeled(
     warning: &FeatureWarning,
     feature: &str,
     diagnosis: &Diagnosis,
 ) -> String {
-    let names = labels();
-    let feature = id(feature);
-    let bodies = BTreeMap::new();
-    warning.render(&render_context(&feature, &names, diagnosis, &bodies))
+    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
+        warning.render(context)
+    })
 }
 
-/// The fixes of `warning` on `feature` with the test labels and `diagnosis`.
+/// The fixes of `warning` on `feature` with the standard labels and `diagnosis`.
 fn warning_fixes_labeled(
     warning: &FeatureWarning,
     feature: &str,
     diagnosis: &Diagnosis,
 ) -> Vec<Fix> {
-    let names = labels();
-    let feature = id(feature);
-    let bodies = BTreeMap::new();
-    warning.fixes(&render_context(&feature, &names, diagnosis, &bodies))
-}
-
-/// `Show` of a feature.
-fn show(feature: &str) -> Fix {
-    Fix::Show {
-        feature: id(feature),
-        entity: None,
-    }
+    with_standard_labels(feature, Units::Mm, diagnosis, |context| {
+        warning.fixes(context)
+    })
 }
 
 /// A diagnosis naming the root of an upstream chain.
@@ -560,15 +515,6 @@ fn t005_an_upstream_chain_names_its_root() {
         fixes_labeled(&error, "f-ext1", &rooted("f-dp1")),
         [show("f-dp1")]
     );
-}
-
-/// `BodyEmpty` of `b-1` at the fillet's Body.
-fn fillet_body_empty(use_new: bool) -> FeatureError {
-    FeatureError::BodyEmpty {
-        field: field("body", "Body"),
-        body: id("b-1"),
-        use_new,
-    }
 }
 
 #[test]
@@ -669,14 +615,6 @@ fn t006_a_body_nothing_makes_yet_offers_operation_new_body() {
     );
 }
 
-/// `ToolEmpty` of `b-2` at a boolean's first tool.
-fn tool_empty() -> FeatureError {
-    FeatureError::ToolEmpty {
-        field: field("tools[0]", "Tool bodies"),
-        body: id("b-2"),
-    }
-}
-
 #[test]
 fn t006_an_empty_tool_whose_maker_is_suppressed() {
     let diagnosis = because(Because::Suppressed(id("f-box2")));
@@ -757,33 +695,6 @@ fn t007_a_name_too_deep_to_build() {
     assert_eq!(fixes_labeled(&error, "f-fil1", &Diagnosis::default()), []);
 }
 
-/// A stored region reference.
-fn region(key: &str, fingerprint: &str) -> RegionRef {
-    serde_json::from_value(serde_json::json!({"key": key, "fp": fingerprint}))
-        .expect("region references written in tests are valid")
-}
-
-/// The region of `RECT(0, 0, 80, 50)`.
-fn rectangle_region() -> RegionRef {
-    region("e-1,e-2,e-3,e-4", "c=40,25|a=4000")
-}
-
-/// The field of the region at `position` of a profile.
-fn region_field(position: usize) -> FieldRef {
-    field(&format!("profile.regions[{position}]"), "Profile")
-}
-
-/// A region warning of `f-sk1` at position 0.
-fn region_split() -> FeatureWarning {
-    FeatureWarning::RegionSplit {
-        field: region_field(0),
-        position: 0,
-        sketch: id("f-sk1"),
-        region: rectangle_region(),
-        count: 2,
-    }
-}
-
 #[test]
 fn a_split_region_renders_as_a_notice_of_its_parts() {
     assert_eq!(
@@ -840,17 +751,6 @@ fn an_ambiguous_region_says_how_many_areas_match() {
     );
 }
 
-/// A missing region at position 1 with `loss`.
-fn region_missing(loss: RegionLoss) -> FeatureWarning {
-    FeatureWarning::RegionMissing {
-        field: region_field(1),
-        position: 1,
-        sketch: id("f-sk1"),
-        region: rectangle_region(),
-        loss,
-    }
-}
-
 #[test]
 fn a_missing_region_says_why_for_each_loss() {
     let deleted = RegionLoss::Deleted {
@@ -877,29 +777,6 @@ fn a_missing_region_says_why_for_each_loss() {
         ),
         [show("f-sk1"), pick("/profile/regions/1")]
     );
-}
-
-/// `ProfileNotFound` of `f-sk1` with these lost regions.
-fn profile_not_found(regions: Vec<RegionLost>) -> FeatureError {
-    FeatureError::ProfileNotFound {
-        field: field("profile", "Profile"),
-        sketch: id("f-sk1"),
-        regions,
-    }
-}
-
-/// A lost region at `position` with `loss` and `candidates`.
-fn lost_region(
-    position: usize,
-    loss: Option<RegionLoss>,
-    candidates: Vec<Vec<usize>>,
-) -> RegionLost {
-    RegionLost {
-        position,
-        region: rectangle_region(),
-        loss,
-        candidates,
-    }
 }
 
 #[test]
@@ -991,444 +868,16 @@ fn a_profile_without_any_of_its_regions_says_why_for_all() {
     }
 }
 
-/// One sample of every error of the phase 1 and phase 2 rows, with the feature it is rendered on.
-fn sample_errors() -> Vec<(FeatureError, &'static str)> {
-    let lost = |position: usize, ambiguous: bool| Loss {
-        position,
-        body: id("b-1"),
-        reference: stored(FRONT_TOP.0, FRONT_TOP.1),
-        kind: ElementKind::Edge,
-        ambiguous,
-        lost: Lost {
-            parts: vec![ElementName::parse("f-box1/front").expect("a valid name")],
-            ..Lost::default()
-        },
-        candidates: Vec::new(),
-        matches: if ambiguous { 2 } else { 0 },
-    };
-    vec![
-        (
-            FeatureError::ReferencesNotFound {
-                field: field("edges", "Edges"),
-                kind: ElementKind::Edge,
-                losses: vec![lost(0, false)],
-            },
-            "f-fil1",
-        ),
-        (
-            FeatureError::ReferencesNotFound {
-                field: field("edges", "Edges"),
-                kind: ElementKind::Edge,
-                losses: vec![lost(0, true)],
-            },
-            "f-fil1",
-        ),
-        (
-            FeatureError::ReferencesNotFound {
-                field: field("edges", "Edges"),
-                kind: ElementKind::Edge,
-                losses: vec![lost(0, false), lost(1, false)],
-            },
-            "f-fil1",
-        ),
-        (
-            FeatureError::ReferencesNotFound {
-                field: field("edges", "Edges"),
-                kind: ElementKind::Edge,
-                losses: vec![lost(0, true), lost(1, false)],
-            },
-            "f-fil1",
-        ),
-        (
-            FeatureError::ReferenceNotFound {
-                field: field("base.face", "Base plane"),
-                loss: lost(0, false),
-            },
-            "f-dp1",
-        ),
-        (
-            FeatureError::ReferenceNotFound {
-                field: field("base.face", "Base plane"),
-                loss: lost(0, true),
-            },
-            "f-dp1",
-        ),
-        (
-            profile_not_found(vec![lost_region(0, Some(RegionLoss::Open), Vec::new())]),
-            "f-ext1",
-        ),
-        (
-            profile_not_found(vec![lost_region(0, None, vec![vec![0], vec![1]])]),
-            "f-ext1",
-        ),
-        (
-            profile_not_found(vec![
-                lost_region(0, Some(RegionLoss::Redrawn), Vec::new()),
-                lost_region(1, None, vec![vec![0], vec![1]]),
-            ]),
-            "f-ext1",
-        ),
-        (
-            FeatureError::UpstreamFailed {
-                feature: id("f-sk1"),
-            },
-            "f-ext1",
-        ),
-        (fillet_body_empty(false), "f-fil1"),
-        (fillet_body_empty(true), "f-ext1"),
-        (tool_empty(), "f-bool1"),
-        (
-            FeatureError::Internal {
-                message: "called Option::unwrap() on a None value".to_string(),
-            },
-            "f-sh1",
-        ),
-        (
-            FeatureError::UndeclaredDependency {
-                what: "body b-9".to_string(),
-            },
-            "f-hole1",
-        ),
-        (FeatureError::NameTooDeep { length: 16400 }, "f-fil1"),
-        (
-            FeatureError::NotCoplanar {
-                field: field("base", "Base plane"),
-                body: id("b-1"),
-                reference: stored("f-box1/top", "plane|n=0,0,1|c=-10,0,10|a=400"),
-                faces: vec![
-                    stored("f-box1/top", "plane|n=0,0,1|c=-10,0,10|a=400"),
-                    stored("f-box2/top", "plane|n=0,0,1|c=10,0,20|a=400"),
-                ],
-            },
-            "f-dp1",
-        ),
-        (
-            FeatureError::NotCollinear {
-                field: field("direction.axis", "Direction"),
-                body: id("b-1"),
-                reference: stored(
-                    "edge(f-box1/front|f-box1/top)",
-                    "line|n=1,0,0|c=-10,-10,10|l=20",
-                ),
-                elements: vec![
-                    stored(
-                        "edge(f-box1/front|f-box1/top)",
-                        "line|n=1,0,0|c=-10,-10,10|l=20",
-                    ),
-                    stored(
-                        "edge(f-box1/front|f-box2/top)",
-                        "line|n=1,0,0|c=10,-10,20|l=20",
-                    ),
-                ],
-                kind: ElementKind::Edge,
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::NotCollinear {
-                field: field("axis", "Axis"),
-                body: id("b-2"),
-                reference: stored(
-                    "f-cyl2/side",
-                    "cylinder|n=0,0,1|c=-20,0,2.5|a=62.831853|r=2",
-                ),
-                elements: vec![
-                    stored(
-                        "f-cyl2/side",
-                        "cylinder|n=0,0,1|c=-20,0,2.5|a=62.831853|r=2",
-                    ),
-                    stored(
-                        "f-cyl3/side",
-                        "cylinder|n=0,0,1|c=-30,0,2.5|a=62.831853|r=2",
-                    ),
-                ],
-                kind: ElementKind::Face,
-            },
-            "f-ext1",
-        ),
-    ]
-}
-
-/// One sample of every warning of the phase 1 and phase 2 rows, with the feature it is rendered on.
-fn sample_warnings() -> Vec<(FeatureWarning, &'static str)> {
-    let reference: Reference = stored(FRONT_TOP.0, FRONT_TOP.1);
-    let element = stored(
-        "edge(f-box1/back|f-box1/top)",
-        "line|n=1,0,0|c=0,10,20|l=20",
-    );
-    let face = |name: &str| ElementName::parse(name).expect("a valid name");
-    let followed = |follow: Follow, reference: &Reference| FeatureWarning::ReferenceFollowed {
-        field: field("edges[0]", "Edges"),
-        position: 0,
-        body: id("b-1"),
-        reference: reference.clone(),
-        elements: vec![element.clone()],
-        follow,
-        via: vec![face("f-box1/front")],
-    };
-    let vertex = stored(
-        "vertex(f-box1/front|f-box1/left|f-box1/top)",
-        "point|c=-10,-10,20",
-    );
-    let top = stored("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400");
-    let mut samples = vec![
-        (
-            FeatureWarning::ReferenceLost {
-                field: field("edges[0]", "Edges"),
-                loss: Loss {
-                    position: 0,
-                    body: id("b-1"),
-                    reference: reference.clone(),
-                    kind: ElementKind::Edge,
-                    ambiguous: false,
-                    lost: Lost {
-                        unmet: true,
-                        ..Lost::default()
-                    },
-                    candidates: Vec::new(),
-                    matches: 0,
-                },
-            },
-            "f-fil1",
-        ),
-        (
-            FeatureWarning::ReferenceLost {
-                field: field("edges[0]", "Edges"),
-                loss: Loss {
-                    position: 0,
-                    body: id("b-1"),
-                    reference: reference.clone(),
-                    kind: ElementKind::Edge,
-                    ambiguous: true,
-                    lost: Lost::default(),
-                    candidates: Vec::new(),
-                    matches: 2,
-                },
-            },
-            "f-fil1",
-        ),
-        (
-            FeatureWarning::ReferenceGuessed {
-                field: field("edges[0]", "Edges"),
-                position: 0,
-                body: id("b-1"),
-                reference: stored(
-                    "edge(f-box1/front|f-box1/top#1)",
-                    "line|n=1,0,0|c=0,-10,20|l=10",
-                ),
-                elements: vec![stored(
-                    "edge(f-box1/front|f-box1/top#1)",
-                    "line|n=1,0,0|c=-5,-10,20|l=10",
-                )],
-                alternatives: vec![LossCandidate {
-                    reference: stored(
-                        "edge(f-box1/front|f-box1/top#2)",
-                        "line|n=1,0,0|c=5,-10,20|l=10",
-                    ),
-                    meaning: true,
-                    distance: 5.0,
-                    score: 0.9,
-                }],
-                score: 0.7,
-            },
-            "f-fil1",
-        ),
-        (
-            FeatureWarning::ReferenceGuessed {
-                field: field("edges[0]", "Edges"),
-                position: 0,
-                body: id("b-1"),
-                reference: stored(
-                    "edge(f-box1/front|f-box1/top#1)",
-                    "line|n=1,0,0|c=0,-10,20|l=10",
-                ),
-                elements: vec![stored(
-                    "edge(f-box1/front|f-box1/top#1)",
-                    "line|n=1,0,0|c=-5,-10,20|l=10",
-                )],
-                alternatives: Vec::new(),
-                score: 0.7,
-            },
-            "f-fil1",
-        ),
-        (
-            FeatureWarning::ReferenceGuessed {
-                field: field("edges[0]", "Edges"),
-                position: 0,
-                body: id("b-1"),
-                reference: stored(
-                    "edge(f-box1/front|f-box1/top#3)",
-                    "line|n=1,0,0|c=0,-10,20|l=10",
-                ),
-                elements: vec![stored(
-                    "edge(f-box1/front|f-box1/top#2)",
-                    "line|n=1,0,0|c=5,-10,20|l=10",
-                )],
-                alternatives: Vec::new(),
-                score: 0.9,
-            },
-            "f-fil1",
-        ),
-        (
-            FeatureWarning::ReferenceWidened {
-                field: field("edges[0]", "Edges"),
-                position: 0,
-                body: id("b-1"),
-                reference: reference.clone(),
-                elements: vec![element.clone(), top.clone()],
-                via: vec![face("f-box1/front")],
-                first: element.clone(),
-            },
-            "f-fil1",
-        ),
-        (region_split(), "f-ext1"),
-        (
-            FeatureWarning::RegionResized {
-                field: region_field(0),
-                position: 0,
-                sketch: id("f-sk1"),
-                region: rectangle_region(),
-                count: 2,
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureWarning::RegionRemapped {
-                field: region_field(0),
-                position: 0,
-                sketch: id("f-sk1"),
-                region: rectangle_region(),
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureWarning::RegionAmbiguous {
-                field: region_field(0),
-                position: 0,
-                sketch: id("f-sk1"),
-                region: rectangle_region(),
-                candidates: vec![vec![0], vec![1]],
-            },
-            "f-ext1",
-        ),
-        (region_missing(RegionLoss::Redrawn), "f-ext1"),
-        (region_missing(RegionLoss::Open), "f-ext1"),
-        (
-            region_missing(RegionLoss::Deleted {
-                entities: vec![id("e-3")],
-            }),
-            "f-ext1",
-        ),
-    ];
-    for follow in [
-        Follow::Replaced,
-        Follow::Extended,
-        Follow::Merged,
-        Follow::Continued,
-        Follow::Related,
-    ] {
-        samples.push((followed(follow, &reference), "f-fil1"));
-    }
-    samples.push((followed(Follow::Continued, &top), "f-fil1"));
-    let lost_top = |ambiguous: bool| Loss {
-        position: 0,
-        body: id("b-1"),
-        reference: top.clone(),
-        kind: ElementKind::Face,
-        ambiguous,
-        lost: Lost::default(),
-        candidates: Vec::new(),
-        matches: 2,
-    };
-    for (loss, cause, placed) in [
-        (Some(lost_top(false)), FallbackCause::Missing, Placed::Saved),
-        (
-            Some(lost_top(false)),
-            FallbackCause::Missing,
-            Placed::BeforeRemoval { by: id("f-ext3") },
-        ),
-        (None, FallbackCause::Missing, Placed::Saved),
-        (None, FallbackCause::NotPlanar, Placed::Saved),
-        (
-            Some(lost_top(true)),
-            FallbackCause::Ambiguous,
-            Placed::Saved,
-        ),
-        (
-            Some(lost_top(true)),
-            FallbackCause::NotCoplanar,
-            Placed::Saved,
-        ),
-    ] {
-        let warning = FeatureWarning::PlaneFallback {
-            field: field("plane.face", "Plane"),
-            body: id("b-1"),
-            reference: top.clone(),
-            loss,
-            cause,
-            placed,
-        };
-        samples.push((warning, "f-sk2"));
-    }
-    samples.push((followed(Follow::Continued, &vertex), "f-fil1"));
-    samples.push((
-        FeatureWarning::SketchTurnedOver {
-            field: field("plane.face", "Plane"),
-            body: id("b-1"),
-            reference: top.clone(),
-        },
-        "f-sk2",
-    ));
-    for matches in [0, 1] {
-        samples.push((
-            FeatureWarning::ReferenceLost {
-                field: field("edges[0]", "Edges"),
-                loss: Loss {
-                    position: 0,
-                    body: id("b-1"),
-                    reference: reference.clone(),
-                    kind: ElementKind::Edge,
-                    ambiguous: true,
-                    lost: Lost::default(),
-                    candidates: Vec::new(),
-                    matches,
-                },
-            },
-            "f-fil1",
-        ));
-    }
-    samples
-}
-
-/// The diagnoses every sample is rendered with: none, and one that explains everything a phase 1 message reads.
-fn sample_diagnoses() -> Vec<Diagnosis> {
-    let mut full = explained(CUT_AWAY, Some("f-box2"), vec![show("f-sk1")], false);
-    full.root = Some(id("f-dp1"));
-    full.because = Some(Because::Failed(id("f-ext1")));
-    full.by = Some(id("f-sk1"));
-    let mut upstream = explained(
-        "is missing because 'Extrude 1' failed",
-        None,
-        vec![show("f-ext1")],
-        true,
-    );
-    upstream.because = Some(Because::UsedAsTool {
-        feature: id("f-bool1"),
-        target: id("b-2"),
-    });
-    vec![Diagnosis::default(), full, upstream]
-}
-
 #[test]
 fn t010_errors_are_errors() {
-    for (error, _) in sample_errors() {
+    for (error, _) in phase_1_and_2_errors() {
         assert_eq!(error.severity(), Severity::Error, "{error:?}");
     }
 }
 
 #[test]
 fn t010_followed_references_and_split_regions_are_notices_and_every_other_warning_a_warning() {
-    for (warning, _) in sample_warnings() {
+    for (warning, _) in phase_1_and_2_warnings() {
         let expected = match warning {
             FeatureWarning::ReferenceFollowed { .. } | FeatureWarning::RegionSplit { .. } => {
                 Severity::Info
@@ -1574,32 +1023,57 @@ fn t011_values_have_no_detail() {
 }
 
 #[test]
-fn t014_every_phase_1_and_phase_2_template_passes_the_message_lint() {
-    let names = labels();
-    let bodies: BTreeMap<partsmith_model::Id, BodyState> = BTreeMap::new();
-    for diagnosis in sample_diagnoses() {
-        for (error, feature) in sample_errors() {
-            let feature = id(feature);
-            let text = error.render(&render_context(&feature, &names, &diagnosis, &bodies));
-            assert_passes_lint(&text);
-        }
-        for (warning, feature) in sample_warnings() {
-            let feature = id(feature);
-            let text = warning.render(&render_context(&feature, &names, &diagnosis, &bodies));
-            assert_passes_lint(&text);
+fn t014_every_error_template_passes_the_message_lint() {
+    for units in [Units::Mm, Units::In] {
+        for diagnosis in every_diagnosis() {
+            for (error, feature) in every_error() {
+                let text = with_standard_labels(feature, units, &diagnosis, |context| {
+                    error.render(context)
+                });
+                assert_passes_lint(&text);
+            }
         }
     }
 }
 
 #[test]
+fn t014_every_warning_template_passes_the_message_lint() {
+    for units in [Units::Mm, Units::In] {
+        for diagnosis in every_diagnosis() {
+            for (warning, feature) in every_warning() {
+                let text = with_standard_labels(feature, units, &diagnosis, |context| {
+                    warning.render(context)
+                });
+                assert_passes_lint(&text);
+            }
+        }
+    }
+}
+
+#[test]
+fn the_lint_samples_hold_every_error_and_warning_variant() {
+    let errors: HashSet<Discriminant<FeatureError>> = every_error()
+        .iter()
+        .map(|(error, _)| discriminant(error))
+        .collect();
+    let warnings: HashSet<Discriminant<FeatureWarning>> = every_warning()
+        .iter()
+        .map(|(warning, _)| discriminant(warning))
+        .collect();
+
+    assert_eq!(errors.len(), ERROR_VARIANTS);
+    assert_eq!(warnings.len(), WARNING_VARIANTS);
+}
+
+#[test]
 fn t014_rendered_losses_on_a_built_body_pass_the_message_lint() {
     let timeline = cube_with_two_lost_edges();
-    for diagnosis in sample_diagnoses() {
+    for diagnosis in phase_1_and_2_diagnoses() {
         assert_passes_lint(&timeline.render_error("f-fil1", &diagnosis));
     }
     let fillet = cube_with_fillet();
     for ambiguous in [false, true] {
-        for diagnosis in sample_diagnoses() {
+        for diagnosis in phase_1_and_2_diagnoses() {
             assert_passes_lint(&render_on_fillet(
                 &fillet,
                 &front_top_lost(&fillet, ambiguous),
@@ -1607,33 +1081,6 @@ fn t014_rendered_losses_on_a_built_body_pass_the_message_lint() {
             ));
         }
     }
-}
-
-#[test]
-fn the_message_lint_accepts_plain_words() {
-    assert!(lint_failures(
-        "The front top edge of 'Box 1' selected for Edges was cut away by 'Extrude 1', which comes before this fillet."
-    )
-    .is_empty());
-}
-
-#[test]
-fn the_message_lint_rejects_ids_numbered_elements_ops_scores_and_the_repair_panel() {
-    assert_eq!(
-        lint_failures("Edge 12 of f-box1 is lost."),
-        [r"\b[fbec]-[0-9a-z]+\b", "(Edge|Face|Vertex|Curve) [0-9]"]
-    );
-    assert_eq!(
-        lint_failures("Use op new."),
-        [r"\bop (new|join|cut|intersect)\b"]
-    );
-    assert_eq!(lint_failures("A 91% match."), ["[0-9]+% match"]);
-    assert_eq!(
-        lint_failures("Re-pick it in the repair panel."),
-        ["repair panel"]
-    );
-    assert_eq!(lint_failures("The `edges` field."), ["a backtick"]);
-    assert_eq!(lint_failures("No such file (os error 2)."), ["os error"]);
 }
 
 // Frames on the model (phase 2): faces in several planes, edges and axes not on one line, a face that turned over, and

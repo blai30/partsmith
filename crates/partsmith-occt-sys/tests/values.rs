@@ -5,9 +5,9 @@ mod common;
 
 use std::f64::consts::FRAC_PI_2;
 
-use common::lint::assert_passes_lint;
 use common::{assert_point_near, assert_vector_near, box_primitive, z_axis};
 use partsmith_mesh::TessellationTolerance;
+use partsmith_message_lint::assert_passes_lint;
 use partsmith_occt_sys::{
     Color, KernelError, KernelErrorKind, LINEAR_TOLERANCE, OCCT_VERSION, Operation, Plane, Point,
     Point2, Shape, StepBody, Transform, Vector, write_step,

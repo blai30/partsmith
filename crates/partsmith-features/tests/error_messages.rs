@@ -2,131 +2,45 @@
 //! rewrites (its section 7.2): the texts and fixes of the errors that name a field, a body, a feature or a limit, the
 //! messages of the "too large" search with the face that limits it, the round faces of a shell and the bare-number
 //! sentence, kernel failures (section 6.5 test 7), values next to their bounds and beyond the modeling limit (section
-//! 6.5 test 9), and the message lint over every template of these rows (section 6.5 test 14). Messages that need a run
-//! of a whole document are in `crates/partsmith-recompute/tests/feature_*.rs`.
+//! 6.5 test 9), and the fixed texts of the revolve and extrude checks. The samples of these rows are in
+//! `tests/common/samples.rs`, which `tests/messages.rs` lints (section 6.5 test 14). Messages that need a run of a whole
+//! document are in `crates/partsmith-recompute/tests/feature_*.rs`.
 
 mod common;
 
-use std::collections::BTreeMap;
-
-use common::lint::assert_passes_lint;
 use common::records::{
     RISER_EDGE, ROUNDED_BOX_TOP, STEP_BOTTOM_LEFT_EDGE, reference, rounded_box, shell, step,
     suppressed,
 };
-use common::timeline::{Timeline, stored};
-use common::{LabelNames, field, id, pick};
-use partsmith_features::{
-    Bound, Diagnosis, FeatureError, FieldRef, FieldUnit, Fix, Limit, Noun, Place, RenderContext,
-    Severity,
+use common::samples::{
+    chamfer_too_large, fillet_failure, fillet_too_large, length_out_of_range, make_box_failure,
+    phase_3_errors, profile_sketch, shell_too_thick, target,
 };
-use partsmith_model::{Expr, Units};
-use partsmith_naming::Reference;
-use partsmith_occt_sys::{KernelError, KernelErrorKind, Operation};
+use common::timeline::Timeline;
+use common::{field, id, pick, remove_entry, set_field, suppress, use_value, with_standard_labels};
+use partsmith_features::{
+    Bound, Diagnosis, FeatureError, FieldUnit, Fix, Limit, Noun, Place, Severity,
+};
+use partsmith_model::Units;
 use serde_json::{Value, json};
 
-/// The labels the hand-built messages of this file are rendered with.
-fn labels() -> LabelNames {
-    LabelNames::new(
-        &[("b-1", "Body 1"), ("b-2", "Body 2")],
-        &[
-            ("f-sk1", "Sketch 1", "Sketch"),
-            ("f-sk2", "Sketch 2", "Sketch"),
-            ("f-ext1", "Extrude 1", "Extrude"),
-            ("f-box1", "Box 1", "Box"),
-            ("f-box2", "Box 2", "Box"),
-            ("f-cyl1", "Cylinder 1", "Cylinder"),
-            ("f-fil1", "Fillet 1", "Fillet"),
-            ("f-cha1", "Chamfer 1", "Chamfer"),
-            ("f-sh1", "Shell 1", "Shell"),
-            ("f-hole1", "Hole 1", "Hole"),
-            ("f-imp1", "Import 1", "Import"),
-            ("f-bool1", "Boolean 1", "Boolean"),
-            ("f-mir1", "Mirror 1", "Mirror"),
-            ("f-lp1", "Linear pattern 1", "Linear pattern"),
-            ("f-split1", "Split body 1", "Split body"),
-            ("f-rev1", "Revolve 1", "Revolve"),
-            ("f-dp1", "Datum plane 1", "Datum plane"),
-            ("f-tor1", "Torus 1", "Torus"),
-        ],
-    )
-}
-
-/// Calls `use_context` with the render context of `feature` in a document of `units`, with the labels of this file,
-/// `diagnosis` and no body states.
-fn with_labels<T>(
-    feature: &str,
-    units: Units,
-    diagnosis: &Diagnosis,
-    use_context: impl FnOnce(&RenderContext<'_>) -> T,
-) -> T {
-    let names = labels();
-    let feature = id(feature);
-    let bodies = BTreeMap::new();
-    use_context(&RenderContext {
-        feature: &feature,
-        names: &names,
-        units,
-        bodies: &bodies,
-        diagnosis,
-    })
-}
-
-/// `error` rendered on `feature` with the labels of this file in a millimeter document, without a diagnosis.
+/// `error` rendered on `feature` with the standard labels in a millimeter document, without a diagnosis.
 fn rendered(error: &FeatureError, feature: &str) -> String {
-    with_labels(feature, Units::Mm, &Diagnosis::default(), |context| {
+    with_standard_labels(feature, Units::Mm, &Diagnosis::default(), |context| {
         error.render(context)
     })
 }
 
-/// The fixes of `error` on `feature` with the labels of this file in a millimeter document, without a diagnosis.
+/// The fixes of `error` on `feature` with the standard labels in a millimeter document, without a diagnosis.
 fn fixes_of(error: &FeatureError, feature: &str) -> Vec<Fix> {
-    with_labels(feature, Units::Mm, &Diagnosis::default(), |context| {
+    with_standard_labels(feature, Units::Mm, &Diagnosis::default(), |context| {
         error.fixes(context)
     })
-}
-
-/// `SetField` of this feature's field `path` to `value`.
-fn set_field(path: &str, label: &str, value: Value) -> Fix {
-    Fix::SetField {
-        feature: None,
-        field: field(path, label),
-        value,
-    }
-}
-
-/// "Use {value}": `SetField` of this feature's field `path` to the expression `value`.
-fn use_value(path: &str, label: &str, value: &str) -> Fix {
-    set_field(path, label, json!(value))
 }
 
 /// `SetField` of Operation to `op` (features.md section 4.1: "Set Operation to Join").
 fn set_operation(op: &str) -> Fix {
     use_value("op", "Operation", op)
-}
-
-/// `Suppress` of a feature.
-fn suppress(feature: &str) -> Fix {
-    Fix::Suppress {
-        feature: id(feature),
-    }
-}
-
-/// `RemoveEntry` of the list entry at `pointer`.
-fn remove_entry(pointer: &str) -> Fix {
-    Fix::RemoveEntry {
-        pointer: pointer.to_string(),
-    }
-}
-
-/// The field `target` of mirror, patterns and split body.
-fn target() -> FieldRef {
-    field("target", "Target body")
-}
-
-/// The field `profile.sketch` of extrude and revolve.
-fn profile_sketch() -> FieldRef {
-    field("profile.sketch", "Profile")
 }
 
 #[test]
@@ -378,16 +292,6 @@ fn a_line_the_sketch_no_longer_has_names_its_kind() {
     );
 }
 
-/// The kernel failure of section 6.5 test 7.
-fn make_box_failure() -> KernelError {
-    KernelError {
-        operation: Operation::MakeBox,
-        kind: KernelErrorKind::Failed,
-        exception: "StdFail_NotDone".to_string(),
-        message: "BRep_API: command not done".to_string(),
-    }
-}
-
 #[test]
 fn t007_a_kernel_failure_names_the_feature_and_gives_the_kernel_hint() {
     let error = FeatureError::Kernel {
@@ -461,6 +365,30 @@ fn through_all_into_a_body_without_a_solid_asks_for_a_distance() {
 }
 
 #[test]
+fn an_extrusion_whose_sides_are_both_zero_asks_for_a_distance() {
+    assert_eq!(
+        rendered(&FeatureError::BothSidesZero, "f-ext1"),
+        "Both sides of the extrusion are 0. Give at least one side a distance."
+    );
+}
+
+#[test]
+fn a_profile_that_crosses_the_revolve_axis_asks_to_keep_it_on_one_side() {
+    assert_eq!(
+        rendered(&FeatureError::ProfileCrossesAxis, "f-rev1"),
+        "The profile crosses the revolve axis. Move the profile to one side of the axis, or pick another axis."
+    );
+}
+
+#[test]
+fn a_revolve_axis_outside_the_sketch_plane_asks_for_one_in_it() {
+    assert_eq!(
+        rendered(&FeatureError::AxisNotInPlane, "f-rev1"),
+        "The revolve axis does not lie in the sketch plane. Pick a line in the sketch, or an axis that lies in the sketch plane."
+    );
+}
+
+#[test]
 fn too_many_copies_name_the_pattern_and_the_limit() {
     let error = FeatureError::TooManyInstances {
         count: 20000,
@@ -479,17 +407,6 @@ fn a_canceled_build_names_the_feature() {
         rendered(&FeatureError::Canceled, "f-lp1"),
         "Recompute was canceled before this linear pattern finished."
     );
-}
-
-/// An `OutOfRange` error of a length field.
-fn length_out_of_range(path: &str, label: &str, value: f64, bound: Bound) -> FeatureError {
-    FeatureError::OutOfRange {
-        field: field(path, label),
-        kind: FieldUnit::Length,
-        value,
-        bound,
-        bound_name: None,
-    }
 }
 
 #[test]
@@ -598,16 +515,6 @@ fn a_value_just_under_a_named_upper_bound_gets_the_digits_that_tell_it_apart() {
 // The "too large" search (section 4.3), on `STEP` of features/fillet.md tests 19 to 22 (newcomer error corpus NC05):
 // the limiting face is `f-box2/left`, the riser, 2.4 mm across `E-RISER`.
 
-/// The kernel failure of a fillet.
-fn fillet_failure() -> KernelError {
-    KernelError {
-        operation: Operation::Fillet,
-        kind: KernelErrorKind::Failed,
-        exception: "StdFail_NotDone".to_string(),
-        message: "BRep_API: command not done".to_string(),
-    }
-}
-
 /// `STEP` followed by `feature` suppressed, so messages on it read the stepped body, its label and its type without
 /// running the search.
 fn stepped(feature: Value) -> Timeline {
@@ -652,18 +559,6 @@ fn riser_limit(timeline: &Timeline, position: usize, removable: bool) -> Limit {
         face: timeline.picked("b-1", "f-box2/left"),
         width: 2.4,
         removable,
-    }
-}
-
-/// `FilletTooLarge` of a 3 mm radius on `STEP` with this largest working radius and limit.
-fn fillet_too_large(max: Option<f64>, limit: Option<Limit>) -> FeatureError {
-    FeatureError::FilletTooLarge {
-        field: field("radius", "Radius"),
-        expr: Expr::new("3"),
-        radius: 3.0,
-        max,
-        limit,
-        cause: fillet_failure(),
     }
 }
 
@@ -785,26 +680,6 @@ fn a_fillet_without_a_limit_or_a_face_says_partsmith_could_not_tell_why() {
     assert_eq!(error.detail(), Some(fillet_failure().detail()));
 }
 
-/// `ChamferTooLarge` of a 3 mm distance on `STEP`: an equal distance (field `distance.expr`, with its expression) or
-/// two distances (field `distance`, without one).
-fn chamfer_too_large(equal: bool, max: Option<f64>, limit: Option<Limit>) -> FeatureError {
-    FeatureError::ChamferTooLarge {
-        field: if equal {
-            field("distance.expr", "Distance")
-        } else {
-            field("distance", "Distance")
-        },
-        expr: equal.then(|| Expr::new("3")),
-        distance: 3.0,
-        max,
-        limit,
-        cause: KernelError {
-            operation: Operation::Chamfer,
-            ..fillet_failure()
-        },
-    }
-}
-
 #[test]
 fn a_chamfer_with_a_limit_and_a_limiting_face_names_both() {
     let timeline = stepped_chamfer(json!({"kind": "equal", "expr": "3"}));
@@ -850,27 +725,6 @@ fn a_chamfer_without_a_limit_or_a_face_says_partsmith_could_not_tell_why() {
 }
 
 // Shells too thick (section 4.3): the round faces of the body smaller than the wall, made by one feature.
-
-/// `ShellTooThick` of `expr` (`thickness` mm) on `b-1` with this largest working wall and limit.
-fn shell_too_thick(
-    expr: &str,
-    thickness: f64,
-    max: Option<f64>,
-    limit: Option<Limit>,
-) -> FeatureError {
-    FeatureError::ShellTooThick {
-        field: field("thickness", "Thickness"),
-        expr: Expr::new(expr),
-        body: id("b-1"),
-        thickness,
-        max,
-        limit,
-        cause: KernelError {
-            operation: Operation::Shell,
-            ..fillet_failure()
-        },
-    }
-}
 
 /// The round faces of `f-fil1`, a fillet of radius 1 that wrote the body before the shell.
 fn fillet_rounds() -> Limit {
@@ -1028,10 +882,10 @@ fn a_bare_thickness_in_an_inch_document_says_what_it_means_in_place_of_the_round
     );
     let diagnosis = Diagnosis::default();
 
-    let text = with_labels("f-sh1", Units::In, &diagnosis, |context| {
+    let text = with_standard_labels("f-sh1", Units::In, &diagnosis, |context| {
         error.render(context)
     });
-    let fixes = with_labels("f-sh1", Units::In, &diagnosis, |context| {
+    let fixes = with_standard_labels("f-sh1", Units::In, &diagnosis, |context| {
         error.fixes(context)
     });
 
@@ -1049,260 +903,12 @@ fn a_bare_thickness_in_an_inch_document_says_what_it_means_in_place_of_the_round
     assert_eq!(error.suggestion(Units::In).as_deref(), Some("2 mm"));
 }
 
-// The message lint over every template of the rows above (section 6.5 test 14).
-
-/// A face of `b-1` stored by name and fingerprint, for the samples.
-fn stored_face(name: &str) -> Reference {
-    stored(name, "plane|n=0,0,1|c=0,0,20|a=400")
-}
-
-/// One sample of every error row phase 3 rewrites, with the feature it is rendered on.
-fn sample_errors() -> Vec<(FeatureError, &'static str)> {
-    let asset = format!("{}.step", "0".repeat(64));
-    let round_faces = |fillet: bool| Limit::RoundFaces {
-        feature: id("f-fil1"),
-        radius: 1.0,
-        fillet,
-    };
-    let face_limit = |removable: bool| Limit::Face {
-        position: 0,
-        edge: stored(RISER_EDGE.0, RISER_EDGE.1),
-        face: stored("f-box2/left", "plane|n=-1,0,0|c=0,0,8.8|a=48"),
-        width: 2.4,
-        removable,
-    };
-    let mut samples = vec![
-        (FeatureError::TargetRequired { field: target() }, "f-mir1"),
-        (FeatureError::TargetNotAllowed { field: target() }, "f-lp1"),
-        (
-            FeatureError::UnknownBody {
-                field: field("body", "Body"),
-                body: id("b-9"),
-            },
-            "f-fil1",
-        ),
-        (
-            FeatureError::UnknownFeature {
-                field: profile_sketch(),
-                feature: id("f-sk9"),
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::ForwardReference {
-                field: profile_sketch(),
-                feature: id("f-sk1"),
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::UpstreamSuppressed {
-                field: profile_sketch(),
-                feature: id("f-sk1"),
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::AssetMissing {
-                field: field("asset", "File"),
-                asset,
-            },
-            "f-imp1",
-        ),
-        (
-            FeatureError::BodyNotEmpty {
-                body: id("b-1"),
-                target: None,
-                new_body: true,
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::BodyNotEmpty {
-                body: id("b-2"),
-                target: Some(target()),
-                new_body: false,
-            },
-            "f-split1",
-        ),
-        (
-            FeatureError::EmptyResult {
-                body: id("b-1"),
-                op: partsmith_features::BodyOp::Cut,
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::EmptyResult {
-                body: id("b-1"),
-                op: partsmith_features::BodyOp::Intersect,
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::NotPlanar {
-                field: field("base.face", "Base plane"),
-                element: stored("f-cyl1/side", "cylinder|n=0,0,1|c=0,0,5|a=314.159265|r=5"),
-            },
-            "f-dp1",
-        ),
-        (
-            FeatureError::NotStraight {
-                field: field("axis", "Axis"),
-                element: stored(
-                    "edge(f-cyl1/side|f-cyl1/top)",
-                    "circle|n=0,0,1|c=0,0,10|l=31.415927|r=5",
-                ),
-            },
-            "f-rev1",
-        ),
-        (
-            FeatureError::NoAxis {
-                field: field("axis", "Axis"),
-                element: stored_face("f-box1/top"),
-            },
-            "f-rev1",
-        ),
-        (
-            FeatureError::UnknownEntity {
-                field: field("points[0]", "Points"),
-                sketch: id("f-sk1"),
-                entity: "e-p9".to_string(),
-                noun: Noun::Point,
-            },
-            "f-hole1",
-        ),
-        (
-            FeatureError::NotALine {
-                field: field("axis", "Axis"),
-                sketch: id("f-sk1"),
-                entity: id("e-5"),
-            },
-            "f-rev1",
-        ),
-        (
-            FeatureError::Kernel {
-                error: make_box_failure(),
-            },
-            "f-box1",
-        ),
-        (
-            FeatureError::ShellRemovesAll {
-                body: id("b-1"),
-                count: 6,
-            },
-            "f-sh1",
-        ),
-        (
-            FeatureError::ThroughAllMisses {
-                body: id("b-1"),
-                reverse_hits: true,
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::ThroughAllMisses {
-                body: id("b-1"),
-                reverse_hits: false,
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::ThroughAllNeedsBody { body: id("b-1") },
-            "f-ext1",
-        ),
-        (
-            FeatureError::TooManyInstances {
-                count: 20000,
-                limit: 10000,
-            },
-            "f-lp1",
-        ),
-        (FeatureError::Canceled, "f-lp1"),
-        (
-            FeatureError::NotWholeNumber {
-                field: field("direction.count", "Count"),
-                value: 2.5,
-            },
-            "f-lp1",
-        ),
-        (
-            length_out_of_range("size[0]", "Length", 1e200, Bound::AtMost(1_000_000.0)),
-            "f-box1",
-        ),
-        (
-            length_out_of_range(
-                "translation[0]",
-                "Move X",
-                -1e7,
-                Bound::AtLeast(-1_000_000.0),
-            ),
-            "f-box1",
-        ),
-        (
-            length_out_of_range("extent.expr", "Distance", 1e-7, Bound::GreaterThan(0.0)),
-            "f-ext1",
-        ),
-        (
-            FeatureError::InvalidParams {
-                field: Some(field("body", "Body")),
-                detail: "the setting 'body' is missing".to_string(),
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::InvalidParams {
-                field: None,
-                detail: "the settings are not a JSON object".to_string(),
-            },
-            "f-ext1",
-        ),
-        (
-            FeatureError::UnknownType {
-                type_name: "gear".to_string(),
-            },
-            "f-ext1",
-        ),
-    ];
-    for max in [Some(2.396), None] {
-        for limit in [Some(face_limit(true)), Some(face_limit(false)), None] {
-            samples.push((fillet_too_large(max, limit.clone()), "f-fil1"));
-            samples.push((chamfer_too_large(true, max, limit.clone()), "f-cha1"));
-            samples.push((chamfer_too_large(false, max, limit), "f-cha1"));
-        }
-        for limit in [Some(round_faces(true)), Some(round_faces(false)), None] {
-            samples.push((shell_too_thick("2", 2.0, max, limit), "f-sh1"));
-        }
-    }
-    samples
-}
-
-/// The diagnoses every sample is rendered with: none, and one with a root, a cause and a sketch that lost its face.
-fn sample_diagnoses() -> Vec<Diagnosis> {
-    let full = Diagnosis {
-        root: Some(id("f-dp1")),
-        lost_face: Some(id("f-sk2")),
-        ..Diagnosis::default()
-    };
-    vec![Diagnosis::default(), full]
-}
-
-#[test]
-fn t014_every_phase_3_error_template_passes_the_message_lint() {
-    for units in [Units::Mm, Units::In] {
-        for diagnosis in sample_diagnoses() {
-            for (error, feature) in sample_errors() {
-                let text = with_labels(feature, units, &diagnosis, |context| error.render(context));
-                assert_passes_lint(&text);
-            }
-        }
-    }
-}
+// The samples of the rows above; the message lint renders them with every other sample (section 6.5 test 14).
 
 #[test]
 fn the_display_of_every_phase_3_error_has_no_kernel_text() {
     // `Display` renders the text of `render` with ids for names (section 2.8); the kernel's text is in the detail only.
-    for (error, _) in sample_errors() {
+    for (error, _) in phase_3_errors() {
         let text = error.to_string();
         assert!(!text.contains("StdFail"), "{text}");
         assert!(!text.contains("BRep_API"), "{text}");
@@ -1311,7 +917,7 @@ fn the_display_of_every_phase_3_error_has_no_kernel_text() {
 
 #[test]
 fn every_phase_3_error_is_an_error() {
-    for (error, _) in sample_errors() {
+    for (error, _) in phase_3_errors() {
         assert_eq!(error.severity(), Severity::Error, "{error:?}");
     }
 }

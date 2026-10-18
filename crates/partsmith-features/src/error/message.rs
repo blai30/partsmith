@@ -384,22 +384,13 @@ fn exponent_form(number: f64) -> String {
     let (mantissa, exponent) = text
         .split_once('e')
         .expect("scientific notation always has an exponent");
-    let mantissa = if mantissa.contains('.') {
-        mantissa.trim_end_matches('0').trim_end_matches('.')
-    } else {
-        mantissa
-    };
-    format!("{mantissa}e{exponent}")
+    format!("{}e{exponent}", without_trailing_zeros(mantissa))
 }
 
 /// `number` with `decimals` decimals, trailing zeros removed, and negative zero written as 0.
 fn fixed(number: f64, decimals: usize) -> String {
     let text = format!("{number:.decimals$}");
-    let trimmed = if text.contains('.') {
-        text.trim_end_matches('0').trim_end_matches('.')
-    } else {
-        &text
-    };
+    let trimmed = without_trailing_zeros(&text);
     if trimmed == "-0" {
         "0".to_string()
     } else {
@@ -407,19 +398,32 @@ fn fixed(number: f64, decimals: usize) -> String {
     }
 }
 
+/// A decimal text without the zeros that end its decimals, nor a decimal point left last: `2.50` is `2.5` and `3.0`
+/// is `3`, while a whole number keeps its zeros.
+fn without_trailing_zeros(text: &str) -> &str {
+    if text.contains('.') {
+        text.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        text
+    }
+}
+
 /// The text of a computed length limit (section 3.12): the value in display units rounded down to
 /// two significant digits, then formatted, so it never suggests more than what worked.
 pub(crate) fn suggested_limit(millimeters: f64, units: Units) -> String {
-    let factor = Dimension::LENGTH.display_factor(units);
-    let truncated = round_to_two_digits(millimeters / factor, Rounding::Down);
-    format_value(FieldUnit::Length, truncated * factor, units)
+    rounded_length(millimeters, units, Rounding::Down)
 }
 
 /// A length in display units rounded up to two significant digits, then formatted: the radius that a shell's
 /// fix of a fillet's rounds asks for, which is never below the value it was computed from (section 4.3).
 pub(crate) fn rounded_up_length(millimeters: f64, units: Units) -> String {
+    rounded_length(millimeters, units, Rounding::Up)
+}
+
+/// A length in display units rounded to two significant digits the way `rounding` says, then formatted.
+fn rounded_length(millimeters: f64, units: Units, rounding: Rounding) -> String {
     let factor = Dimension::LENGTH.display_factor(units);
-    let rounded = round_to_two_digits(millimeters / factor, Rounding::Up);
+    let rounded = round_to_two_digits(millimeters / factor, rounding);
     format_value(FieldUnit::Length, rounded * factor, units)
 }
 

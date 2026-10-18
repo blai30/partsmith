@@ -19,7 +19,7 @@
 //! tests 57 (R57), 66 (R26 and R33) and 73 (R55) check its reason here; its `Attach` fixes are in `Message::fixes`.
 //! The scenarios of these tests are functions named after their corpus scenario (`r16` is R16 after its edit), so the
 //! last test can render every explanation clause of section 3.10 again and check each against the message lint of the
-//! error guidelines (`lint_failures`).
+//! error guidelines (`lint_failures` of `partsmith-message-lint`).
 
 mod feature_support;
 #[path = "stability_common/mod.rs"]
@@ -30,10 +30,10 @@ use std::f64::consts::FRAC_PI_2;
 
 use feature_support::{
     Assets, Run, assert_sketch_on_top_plane, assert_volume, body_before, element_names,
-    face_names_with_prefix, keep_match, lint_failures, message, pick, remove_entry, sketch_result,
-    use_reference,
+    face_names_with_prefix, keep_match, message, pick, remove_entry, sketch_result, use_reference,
 };
 use partsmith_features::{Absence, FieldRef, Fix, Place, Placed, Repair};
+use partsmith_message_lint::lint_failures;
 use partsmith_model::{Document, EmptyContext};
 use partsmith_naming::{ElementKind, ElementName, Instance};
 use partsmith_recompute::{

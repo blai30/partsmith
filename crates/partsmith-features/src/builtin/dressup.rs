@@ -12,10 +12,10 @@ use partsmith_naming::{
 };
 use partsmith_occt_sys::{
     Continuity, EdgeNormals, InputHistory, KernelError, KernelErrorKind, OpResult, Shape,
-    SubShapeKind, Vector,
+    SubShapeKind,
 };
 
-use super::common::{bodies, check_canceled, face_name, name_on_body, unchanged};
+use super::common::{angle_between, bodies, check_canceled, face_name, name_on_body, unchanged};
 use crate::{
     BodyChange, BodyState, BodyUpdate, BuildContext, FeatureError, FeatureOutput, FeatureWarning,
     IgnoredReason, Limit, Measurements, Named, NoEffectHow, too_large_search,
@@ -152,11 +152,6 @@ fn meets_without_corner(
     };
     Ok(normals.continuity == Some(Continuity::G1OrBetter)
         || angle_between(first.normal, second.normal) <= SMOOTH_ANGLE)
-}
-
-/// The angle in radians between two vectors, in [0, pi].
-fn angle_between(first: Vector, second: Vector) -> f64 {
-    first.cross(second).length().atan2(first.dot(second))
 }
 
 /// Runs a fillet, chamfer or shell `operation` at the `requested` value. When the kernel fails for
@@ -513,8 +508,8 @@ mod tests {
 
     use partsmith_occt_sys::{
         EdgeRadius, ElementFate, FaceNormal, GeometryKind, Operation, PlanarCurve, PlanarLoop,
-        PlanarRegion, Plane, Point, Point2, SubShape, TaggedCurve, extrude, fillet, make_cylinder,
-        make_profile,
+        PlanarRegion, Plane, Point, Point2, SubShape, TaggedCurve, Vector, extrude, fillet,
+        make_cylinder, make_profile,
     };
 
     use super::*;
@@ -967,15 +962,6 @@ mod tests {
         let error = meets_without_corner(7, Ok(normals)).expect_err("one face");
 
         assert_eq!(error.code(), "internal");
-    }
-
-    #[test]
-    fn the_angle_between_vectors_ignores_their_lengths() {
-        let up = Vector::new(0.0, 0.0, 2.0);
-
-        assert_eq!(angle_between(up, up), 0.0);
-        assert!((angle_between(up, Vector::new(0.0, 0.0, -1.0)) - PI).abs() < 1e-12);
-        assert!((angle_between(up, Vector::new(3.0, 0.0, 0.0)) - PI / 2.0).abs() < 1e-12);
     }
 
     #[test]

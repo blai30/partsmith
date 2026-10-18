@@ -213,46 +213,37 @@ impl<'a> Renderer<'a> {
         self.units
     }
 
-    /// A message of the sketch crate (sketch.md section 4) about the sketch this message is on, rendered as
-    /// `sketch_message_of` renders it.
-    pub(crate) fn sketch_message(
+    /// `message` of the sketch crate (sketch.md section 4) about the sketch this message is on, as `in_sketch` gives
+    /// it; `None` outside a feature.
+    pub(crate) fn in_this_sketch<T>(
         &self,
         values: &DimensionValues,
-        message: impl FnOnce(&MessageContext<'_>) -> String,
-        detail: impl FnOnce() -> String,
-    ) -> String {
-        match self.feature {
-            Some(sketch) => self.sketch_message_of(sketch, values, message, detail),
-            None => detail(),
-        }
+        message: impl FnOnce(&MessageContext<'_>) -> T,
+    ) -> Option<T> {
+        self.in_sketch(self.feature?, values, message)
     }
 
-    /// A message of the sketch crate (sketch.md section 4) about `sketch`, rendered with the sketch's label, its
+    /// `message` of the sketch crate (sketch.md section 4) about `sketch`, rendered with the sketch's label, its
     /// stored params, its solved entities and measured values in the run when it built, the dimension `values` the
-    /// message carries, and the document units (section 4.2); `detail` when the sketch's params cannot be read, as
-    /// for `Display`.
-    pub(crate) fn sketch_message_of(
+    /// message carries, and the document units (section 4.2); `None` when the names do not know the sketch's params or
+    /// its label, where callers fall back to the text of `Display`.
+    pub(crate) fn in_sketch<T>(
         &self,
         sketch: &Id,
         values: &DimensionValues,
-        message: impl FnOnce(&MessageContext<'_>) -> String,
-        detail: impl FnOnce() -> String,
-    ) -> String {
-        let Some(params) = stored_params(self.names, sketch) else {
-            return detail();
-        };
+        message: impl FnOnce(&MessageContext<'_>) -> T,
+    ) -> Option<T> {
+        let params = stored_params(self.names, sketch)?;
         let result = self.names.sketch_result(sketch);
-        let Some(label) = self.names.feature_label(sketch) else {
-            return detail();
-        };
-        message(&MessageContext {
+        let label = self.names.feature_label(sketch)?;
+        Some(message(&MessageContext {
             label: &label,
             sketch: &params,
             solved: result.map(|result| result.solved.entities.as_slice()),
             values,
             measured: result.map(|result| &result.solved.measured),
             units: self.units,
-        })
+        }))
     }
 
     /// The stored params of the sketch the message is on, when the names know its record.

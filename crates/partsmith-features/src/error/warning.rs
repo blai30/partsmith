@@ -20,7 +20,8 @@ use super::{candidate_detail, loss_detail, sketch_fixes};
 
 /// Something a feature built around: a lost, guessed, followed or widened reference, a region that matched in
 /// another way, an unchanged body. Stores ids, never display names, so it renders correctly after a rename. `Display`
-/// renders the message with ids in place of names, values in millimeters and no diagnosis.
+/// renders the message with ids in place of names, values in millimeters and no diagnosis. Each variant has a sample in
+/// the message lint's `tests/common/samples.rs`.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum FeatureWarning {
@@ -408,23 +409,11 @@ impl FeatureWarning {
             FeatureWarning::UnknownParams { keys, suggestions } => {
                 unknown_params_text(renderer, keys, suggestions)
             }
-            FeatureWarning::RedundantConstraints { issues, values } => renderer.sketch_message(
-                values,
-                |context| {
-                    issues
-                        .iter()
-                        .map(|issue| issue.render(context))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                },
-                || {
-                    issues
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                },
-            ),
+            FeatureWarning::RedundantConstraints { issues, values } => renderer
+                .in_this_sketch(values, |context| {
+                    issues_text(issues, |issue| issue.render(context))
+                })
+                .unwrap_or_else(|| issues_text(issues, ToString::to_string)),
             FeatureWarning::ImportWarning { message } => message.clone(),
         }
     }
@@ -930,6 +919,11 @@ fn continued_part(query: &ElementName, elements: &[Reference]) -> Option<String>
         .iter()
         .map(ToString::to_string)
         .find(|term| rims.contains(&piece_free_text(term)))
+}
+
+/// The texts of `issues`, each as `text` gives it, joined with a space (section 4.2, `redundant_constraints`).
+fn issues_text(issues: &[SolveIssue], text: impl Fn(&SolveIssue) -> String) -> String {
+    issues.iter().map(text).collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]

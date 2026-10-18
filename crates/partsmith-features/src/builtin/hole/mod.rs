@@ -253,7 +253,7 @@ impl Feature for Hole {
             context,
             params,
             &points,
-            &drilling.points,
+            &drilling.candidate_of_point,
             &decision.overlaps,
             |point| drill(direction.scaled(-1.0), point.point, point.world),
         )?);
@@ -264,7 +264,7 @@ impl Feature for Hole {
             state,
             drilling.candidates,
             decision,
-            Finish {
+            FinishInputs {
                 direction: along,
                 entries: params.points.len(),
                 warnings,
@@ -385,21 +385,21 @@ fn distinct_points<'a>(
     Ok(points)
 }
 
-/// A `HoleMissesBody` for each point whose tool does not overlap the body (`overlaps` of its candidate in
-/// `candidates`, none without one), by its sketch coordinates (features/hole.md section 3.3 step 5). On this warning
+/// A `HoleMissesBody` for each point whose tool does not overlap the body (`overlaps` of its candidate, which
+/// `candidate_of_point` gives, none without one), by its sketch coordinates (features/hole.md section 3.3 step 5). On this warning
 /// path only, `drilled_back` builds the point's tool the other way round to decide whether Reverse works, and only
 /// when no point overlaps: Reverse turns every point, so it would make one that reaches the body miss.
 fn misses(
     context: &BuildContext<'_>,
     params: &HoleParams,
     points: &[HolePoint<'_>],
-    candidates: &[Option<usize>],
+    candidate_of_point: &[Option<usize>],
     overlaps: &[bool],
     drilled_back: impl Fn(&HolePoint<'_>) -> Result<Option<Tool>, FeatureError>,
 ) -> Result<Vec<FeatureWarning>, FeatureError> {
     let reversible = !overlaps.contains(&true);
     let mut warnings = Vec::new();
-    for (point, candidate) in points.iter().zip(candidates) {
+    for (point, candidate) in points.iter().zip(candidate_of_point) {
         if candidate.is_some_and(|position| overlaps[position]) {
             continue;
         }
@@ -426,7 +426,7 @@ fn misses(
 /// The tools of a hole's points that may overlap the body.
 struct Drilling {
     /// For each point, the position in `candidates` of its tool, when it has one.
-    points: Vec<Option<usize>>,
+    candidate_of_point: Vec<Option<usize>>,
     /// The tools whose bounding boxes meet the body's, in point order.
     candidates: Vec<Candidate>,
     /// The end and entry faces of each candidate's tool, in the same order.
@@ -490,7 +490,7 @@ fn drill_candidates(
     drill: impl Fn(&PointRef, Point) -> Result<Option<Tool>, FeatureError>,
 ) -> Result<Drilling, FeatureError> {
     let mut drilling = Drilling {
-        points: Vec::with_capacity(points.len()),
+        candidate_of_point: Vec::with_capacity(points.len()),
         candidates: Vec::new(),
         ends: Vec::new(),
     };
@@ -507,13 +507,13 @@ fn drill_candidates(
                 drilling.candidates.push(Candidate { tool, bounds });
             }
         }
-        drilling.points.push(candidate);
+        drilling.candidate_of_point.push(candidate);
     }
     Ok(drilling)
 }
 
 /// What `finish` adds to the hole's output besides the decision's cut.
-struct Finish<'a> {
+struct FinishInputs<'a> {
     /// The drilling direction with the point sketch, for the body rules.
     direction: Direction<'a>,
     /// The number of entries of `points`, which decides whether `NoEffect` repeats the misses.
@@ -533,13 +533,13 @@ fn finish(
     state: &BodyState,
     candidates: Vec<Candidate>,
     decision: Decision,
-    finish: Finish<'_>,
+    inputs: FinishInputs<'_>,
 ) -> Result<FeatureOutput, FeatureError> {
-    let Finish {
+    let FinishInputs {
         direction,
         entries,
         mut warnings,
-    } = finish;
+    } = inputs;
     let outcome = match decision.result {
         Some(result) => result,
         None => {

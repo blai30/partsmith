@@ -9,10 +9,12 @@ use partsmith_naming::{ElementKind, GeometryKind, Reference};
 use partsmith_occt_sys::{InputHistory, OpResult, Shape, SubShapeKind, common};
 use partsmith_sketch::Placement;
 
+use crate::builtin::common::angle_between;
 use crate::context::{BodyState, BuildContext};
 use crate::error::{FeatureError, NoEffectHow};
 use crate::output::{Tool, VOLUME_TOLERANCE};
 use crate::params::BodyOp;
+use crate::vector;
 
 /// How far a direction may be from a world axis, per component, for boxes to be compared along it (section 3.15).
 const AXIS_TOLERANCE: f64 = 1e-9;
@@ -125,10 +127,9 @@ pub(crate) fn attach_face(
         .filter(|(_, info)| {
             info.kind == ElementKind::Face
                 && info.fingerprint.kind == GeometryKind::Plane
-                && info
-                    .fingerprint
-                    .direction
-                    .is_some_and(|normal| angle(normal, direction) <= ATTACH_ANGLE)
+                && info.fingerprint.direction.is_some_and(|normal| {
+                    angle_between(vector(normal), vector(direction)) <= ATTACH_ANGLE
+                })
         })
         .filter_map(|(index, info)| {
             let centroid = info.fingerprint.centroid?;
@@ -211,17 +212,6 @@ pub fn reverse_hits(
     Ok(false)
 }
 
-/// The angle between two unit vectors, accurate for small angles.
-fn angle(first: [f64; 3], second: [f64; 3]) -> f64 {
-    let cross = [
-        first[1] * second[2] - first[2] * second[1],
-        first[2] * second[0] - first[0] * second[2],
-        first[0] * second[1] - first[1] * second[0],
-    ];
-    let sine = dot(cross, cross).sqrt();
-    sine.atan2(dot(first, second))
-}
-
 /// The dot product.
 fn dot(first: [f64; 3], second: [f64; 3]) -> f64 {
     first[0] * second[0] + first[1] * second[1] + first[2] * second[2]
@@ -264,7 +254,10 @@ mod tests {
     fn small_angles_are_measured_accurately() {
         let tilted = [1e-10_f64.sin(), 0.0, 1e-10_f64.cos()];
 
-        assert!((angle(tilted, [0.0, 0.0, 1.0]) - 1e-10).abs() < 1e-20);
-        assert_eq!(angle([0.0, 0.0, 1.0], [0.0, 0.0, 1.0]), 0.0);
+        assert!((angle_between(vector(tilted), vector([0.0, 0.0, 1.0])) - 1e-10).abs() < 1e-20);
+        assert_eq!(
+            angle_between(vector([0.0, 0.0, 1.0]), vector([0.0, 0.0, 1.0])),
+            0.0
+        );
     }
 }

@@ -5,7 +5,6 @@
 
 pub mod benchmark;
 pub mod generator;
-pub mod lint;
 pub mod matching;
 pub mod messages;
 pub mod plane;

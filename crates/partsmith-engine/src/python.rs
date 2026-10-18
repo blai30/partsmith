@@ -338,11 +338,6 @@ struct Requests {
 }
 
 impl Requests {
-    /// True when nothing is requested.
-    fn is_empty(&self) -> bool {
-        self.features.is_empty() && self.entities.is_empty()
-    }
-
     /// Adds the requests of `other`.
     fn extend(&mut self, other: Requests) {
         self.features.extend(other.features);
@@ -493,9 +488,9 @@ fn plan(registry: &Registry, names: &Names<'_>, position: usize) -> Plan {
 /// (rule 7).
 fn record_call(registry: &Registry, names: &Names<'_>, record: &FeatureRecord) {
     let earlier = names.requests.take();
-    let call = registry.python(record, names);
+    let dedicated = registry.python_dedicated(record, names).is_some();
     let lookups = names.requests.replace(earlier);
-    if !lookups.is_empty() && call != registry.python_generic(record) {
+    if dedicated {
         names.requests.borrow_mut().extend(lookups);
     }
 }

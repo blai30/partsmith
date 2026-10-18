@@ -3,6 +3,7 @@
 use partsmith_model::Id;
 use partsmith_naming::Reference;
 use partsmith_sketch::{PointRef, RegionRef};
+use serde_json::Value;
 
 use super::field::FieldRef;
 
@@ -18,7 +19,7 @@ pub enum Fix {
         /// The field.
         field: FieldRef,
         /// Its new value.
-        value: serde_json::Value,
+        value: Value,
     },
     /// Replace the reference at `pointer` with one or more references: a candidate, or "Use only".
     UseReferences {
@@ -150,6 +151,15 @@ impl Fix {
         Fix::Show {
             feature: feature.clone(),
             entity: None,
+        }
+    }
+
+    /// `SetField` of this feature's `field` to `value`.
+    pub(crate) fn set_field(field: FieldRef, value: impl Into<Value>) -> Fix {
+        Fix::SetField {
+            feature: None,
+            field,
+            value: value.into(),
         }
     }
 

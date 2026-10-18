@@ -7,7 +7,9 @@ use partsmith_model::{FeatureManifest, FieldHint, Id};
 use partsmith_naming::Instance;
 use partsmith_occt_sys::{Shape, Transform, transform};
 
-use super::common::{bodies, naming_motion, options_hint, solid_body, unchanged};
+use super::common::{
+    bodies, naming_motion, options_hint, solid_body, unchanged, without_separate_solids,
+};
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning, FieldRef, NoEffectHow};
@@ -169,11 +171,7 @@ impl<'a> Source<'a> {
             CopyOp::New => BodyOp::New,
         };
         let (update, op_warnings) = apply_op(context, destination, body_op, copies, None)?;
-        warnings.extend(
-            op_warnings
-                .into_iter()
-                .filter(|warning| !matches!(warning, FeatureWarning::SeparateSolid { .. })),
-        );
+        warnings.extend(without_separate_solids(op_warnings));
         Ok(bodies(vec![update], warnings))
     }
 }
