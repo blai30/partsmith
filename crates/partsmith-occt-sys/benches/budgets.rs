@@ -8,6 +8,9 @@
 //! build on the reference laptop (technical design section 14), single thread. Web budgets are
 //! three times these and are not measured here.
 
+#[path = "../tests/common/mod.rs"]
+mod common;
+
 use std::f64::consts::TAU;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -16,9 +19,9 @@ use partsmith_budgets::{Report, median_time_of};
 use partsmith_mesh::TessellationTolerance;
 use partsmith_occt_sys::{
     Axis, EdgeRadius, GeometryKind, PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane,
-    Point, Point2, PrimitiveFace, Shape, StepBody, SubShapeKind, TaggedCurve, Transform, Vector,
-    cut, extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere,
-    make_torus, read_step, shell, transform, write_step,
+    Point, Point2, Shape, StepBody, SubShapeKind, TaggedCurve, Transform, Vector, cut, extrude,
+    fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere, make_torus,
+    read_step, shell, transform, write_step,
 };
 
 /// Times each operation runs; the median counts.
@@ -34,14 +37,6 @@ fn milliseconds(count: u64) -> Duration {
 /// A point in plane coordinates.
 fn point(x: f64, y: f64) -> Point2 {
     Point2 { x, y }
-}
-
-/// A plane parallel to XY through a point.
-fn placed(x: f64, y: f64, z: f64) -> Plane {
-    Plane {
-        origin: Point::new(x, y, z),
-        ..Plane::XY
-    }
 }
 
 /// A line curve with a tag.
@@ -69,7 +64,7 @@ fn arc(tag: u32, center: Point2, radius: f64, start: Point2, end: Point2) -> Tag
 fn polygon(corners: &[Point2]) -> PlanarLoop {
     let curves = (0..corners.len())
         .map(|position| {
-            let tag = u32::try_from(position + 1).expect("benchmark polygons are small");
+            let tag = common::index_from_position(position);
             let next = corners[(position + 1) % corners.len()];
             line(tag, corners[position], next)
         })
@@ -115,7 +110,7 @@ fn planar_face(shape: &Shape, normal: Vector, height: f64) -> u32 {
                 && (face.centroid.z - height).abs() < 1e-9
         })
         .expect("the face exists");
-    u32::try_from(position + 1).expect("benchmark shapes have few faces")
+    common::index_from_position(position)
 }
 
 /// The part of spec section 5: the 80 x 50 x 30 extrude of naming spec test 81 with its four
@@ -141,7 +136,7 @@ fn part() -> Shape {
                 .is_some_and(|direction| direction.z.abs() > 0.5)
         })
         .map(|(position, _)| EdgeRadius {
-            edge: u32::try_from(position + 1).expect("a block has 12 edges"),
+            edge: common::index_from_position(position),
             radius: 5.0,
         })
         .collect();
@@ -149,7 +144,7 @@ fn part() -> Shape {
         .expect("the vertical edges round")
         .shape;
 
-    let hole = make_cylinder(&placed(20.0, 25.0, -1.0), 5.0, 32.0)
+    let hole = make_cylinder(&common::xy_plane_at(20.0, 25.0, -1.0), 5.0, 32.0)
         .expect("the hole cylinder builds")
         .shape;
     let slot_outline = PlanarLoop {
@@ -186,7 +181,7 @@ fn part() -> Shape {
 /// `RC` of spec test 131: a 20 mm cube from (-10,-10,0) with its four vertical edges rounded at
 /// radius 2.
 fn rounded_cube() -> Shape {
-    let block = make_box(&placed(-10.0, -10.0, 0.0), 20.0, 20.0, 20.0)
+    let block = make_box(&common::xy_plane_at(-10.0, -10.0, 0.0), 20.0, 20.0, 20.0)
         .expect("the cube builds")
         .shape;
     let vertical: Vec<EdgeRadius> = block
@@ -199,7 +194,7 @@ fn rounded_cube() -> Shape {
                 .is_some_and(|direction| direction.z.abs() > 0.5)
         })
         .map(|(position, _)| EdgeRadius {
-            edge: u32::try_from(position + 1).expect("a cube has 12 edges"),
+            edge: common::index_from_position(position),
             radius: 2.0,
         })
         .collect();
@@ -211,7 +206,7 @@ fn rounded_cube() -> Shape {
 /// A `size` x `size` x 10 box (origin (0,0,-5)) with `holes` through holes of radius 4 cut in
 /// one call, in rows of `columns` holes 13.5 mm apart from (10, 10).
 fn holed_plate(size: f64, holes: u32, columns: u32) -> Shape {
-    let block = make_box(&placed(0.0, 0.0, -5.0), size, size, 10.0)
+    let block = make_box(&common::xy_plane_at(0.0, 0.0, -5.0), size, size, 10.0)
         .expect("the plate builds")
         .shape;
     let tools: Vec<Shape> = (0..holes)
@@ -219,7 +214,7 @@ fn holed_plate(size: f64, holes: u32, columns: u32) -> Shape {
             let column = f64::from(position % columns);
             let row = f64::from(position / columns);
             make_cylinder(
-                &placed(10.0 + 13.5 * column, 10.0 + 13.5 * row, -10.0),
+                &common::xy_plane_at(10.0 + 13.5 * column, 10.0 + 13.5 * row, -10.0),
                 4.0,
                 20.0,
             )
@@ -244,54 +239,13 @@ fn plate_1000() -> Shape {
     holed_plate(440.0, 994, 32)
 }
 
-/// `STAIR` of spec test 119: a 40 x 20 x 10 block from (-20,-10,0) with a step 2.4 mm deep cut
-/// over x from 0 to 20.
-fn stair() -> Shape {
-    let block = make_box(&placed(-20.0, -10.0, 0.0), 40.0, 20.0, 10.0)
-        .expect("the block builds")
-        .shape;
-    let step = make_box(&placed(0.0, -15.0, 7.6), 20.0, 30.0, 5.0)
-        .expect("the step tool builds")
-        .shape;
-    cut(&block, &[step]).expect("the step is cut").shape
-}
-
-/// The result of spec test 44: a 10 x 20 x 30 box with its edge between `Top` and `Front`
-/// rounded at radius 2.
-fn rounded_top_front() -> Shape {
-    let block = make_box(&Plane::XY, 10.0, 20.0, 30.0).expect("the box builds");
-    let role_face = |role| {
-        let position = block
-            .faces
-            .iter()
-            .position(|face| *face == role)
-            .expect("the box has every role");
-        u32::try_from(position + 1).expect("a box has 6 faces")
-    };
-    let mut wanted = [
-        role_face(PrimitiveFace::Top),
-        role_face(PrimitiveFace::Front),
-    ];
-    wanted.sort_unstable();
-    let topology = block.shape.topology().expect("topology can be queried");
-    let position = topology
-        .edges
-        .iter()
-        .position(|edge| edge.faces == wanted)
-        .expect("Top and Front share an edge");
-    let edge = u32::try_from(position + 1).expect("a box has 12 edges");
-    fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }])
-        .expect("the edge rounds")
-        .shape
-}
-
 /// The slowest median time of `width_across` over every face of `shape` across each of its edges
 /// that is not degenerated.
 fn slowest_width_across(shape: &Shape) -> Duration {
     let topology = shape.topology().expect("topology can be queried");
     let mut slowest = Duration::ZERO;
     for (position, face) in topology.faces.iter().enumerate() {
-        let face_index = u32::try_from(position + 1).expect("benchmark shapes have few faces");
+        let face_index = common::index_from_position(position);
         for &edge in &face.edges {
             if topology.edges[edge as usize - 1].degenerate {
                 continue;
@@ -305,20 +259,6 @@ fn slowest_width_across(shape: &Shape) -> Duration {
         }
     }
     slowest
-}
-
-/// `L` of spec test 102: a 40 x 20 x 10 box fused with a 20 x 20 x 10 box standing on its right
-/// half, with the index of the step face (the top of the low half, at z = 10).
-fn l_body() -> (Shape, u32) {
-    let low = make_box(&placed(-20.0, -10.0, 0.0), 40.0, 20.0, 10.0)
-        .expect("the low box builds")
-        .shape;
-    let high = make_box(&placed(0.0, -10.0, 10.0), 20.0, 20.0, 10.0)
-        .expect("the high box builds")
-        .shape;
-    let body = fuse(&low, &[high]).expect("the boxes fuse").shape;
-    let step = planar_face(&body, UP, 10.0);
-    (body, step)
 }
 
 /// The kernel calls of a feature whose shell of `requested` mm fails, with the "too large" search of
@@ -370,12 +310,7 @@ fn main() -> ExitCode {
         median_time_of(RUNS, || extrude(&outline, UP, 0.0, 10.0))
     });
 
-    let cube = |x: f64, y: f64, z: f64| {
-        make_box(&placed(x, y, z), 10.0, 10.0, 10.0)
-            .expect("the cube builds")
-            .shape
-    };
-    let (first, second) = (cube(0.0, 0.0, 0.0), cube(5.0, 5.0, 5.0));
+    let (first, second) = (common::cube_a().shape, common::cube_b().shape);
     report.measure("fuse, two primitives", milliseconds(10), || {
         median_time_of(RUNS, || fuse(&first, std::slice::from_ref(&second)))
     });
@@ -391,7 +326,7 @@ fn main() -> ExitCode {
                 let column = f64::from(position % 5);
                 let row = f64::from(position / 5);
                 make_cylinder(
-                    &placed(10.0 + 15.0 * column, 8.0 + 11.0 * row, -1.0),
+                    &common::xy_plane_at(10.0 + 15.0 * column, 8.0 + 11.0 * row, -1.0),
                     2.0,
                     32.0,
                 )
@@ -492,20 +427,17 @@ fn main() -> ExitCode {
     report.measure(
         "width_across, any face across any of its edges, STAIR and test 44",
         milliseconds(5),
-        || slowest_width_across(&stair()).max(slowest_width_across(&rounded_top_front())),
+        || {
+            let rounded_top_front = common::fillet_top_front(&common::box_primitive()).shape;
+            slowest_width_across(&common::stair()).max(slowest_width_across(&rounded_top_front))
+        },
     );
     report.measure(
         "element_display, one hole wall of PLATE1000 at 0.05 mm and 5 degrees",
         milliseconds(5),
         || {
             let plate = plate_1000();
-            let position = plate
-                .elements(SubShapeKind::Face)
-                .expect("faces can be queried")
-                .iter()
-                .position(|face| face.kind == GeometryKind::Cylinder)
-                .expect("PLATE1000 has hole walls");
-            let wall = u32::try_from(position + 1).expect("PLATE1000 has 1,000 faces");
+            let wall = common::faces_of_kind(&plate, GeometryKind::Cylinder)[0];
             let tolerance = engine_tolerance(0.05);
             // A failed display returns early, so its time would say nothing about the budget.
             plate
@@ -520,7 +452,7 @@ fn main() -> ExitCode {
         "shell, L with its step face removed",
         milliseconds(40),
         || {
-            let (body, step) = l_body();
+            let (body, step) = common::l_body();
             // A failed shell returns early, so its time would say nothing about the budget.
             shell(&body, &[step], 2.0).expect("the fallback shells L");
             median_time_of(RUNS, || shell(&body, &[step], 2.0))

@@ -12,9 +12,9 @@ use common::{
     assert_invalid_input, assert_near, assert_parallel, assert_point_near, assert_relative,
     assert_same_points, assert_vector_near, box_corners, box_primitive, cube_a, cube_at,
     cylinder_primitive, degenerated_edges, edge_between, face_direction, face_with_role,
-    faces_of_kind, fillet_top_front, generated_faces, geometry, index_from_position, line,
-    planar_face, rectangle_curves, rectangle_profile, region, seam_edge, sphere_primitive, stair,
-    top_front_edge, volume, xy_plane_at, z_axis,
+    faces_of_kind, fillet_top_front, generated_faces, geometry, hollow_box, index_from_position,
+    line, planar_face, rectangle_curves, rectangle_profile, region, seam_edge, sphere_primitive,
+    stair, top_front_edge, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
     Continuity, EdgeNormals, EdgeRadius, GeometryKind, LINEAR_TOLERANCE, Operation, Plane, Point,
@@ -940,7 +940,7 @@ fn t100_inner_faces_of_a_hollow_box_point_into_the_cavity() {
     let block = box_primitive();
     let top = face_with_role(&block, PrimitiveFace::Top);
     let front = face_with_role(&block, PrimitiveFace::Front);
-    let hollow = shell(&block.shape, &[], 1.0).expect("the box is hollowed");
+    let hollow = hollow_box(&block);
     let inner_face = |face: u32| {
         let inner = generated_faces(&hollow.history.inputs[0].faces[face as usize - 1]);
         assert_eq!(inner.len(), 1, "face {face} generates one inner face");
@@ -979,7 +979,7 @@ fn t100_outer_edge_of_a_hollow_box_keeps_outward_normals() {
     let block = box_primitive();
     let top = face_with_role(&block, PrimitiveFace::Top);
     let front = face_with_role(&block, PrimitiveFace::Front);
-    let hollow = shell(&block.shape, &[], 1.0).expect("the box is hollowed");
+    let hollow = hollow_box(&block);
     let outer_face = |face: u32| {
         let images = &hollow.history.inputs[0].faces[face as usize - 1].modified;
         assert_eq!(images.len(), 1, "face {face} keeps one image");
@@ -1295,14 +1295,9 @@ fn degenerated_edge_is_another_curve_at_its_vertex() {
 #[test]
 fn cylinder_seam_lies_on_the_positive_x_side() {
     let shape = cylinder_primitive().shape;
-    let topology = shape.topology().expect("topology");
-    let seam = topology
-        .edges
-        .iter()
-        .position(|edge| edge.seam)
-        .expect("the cylinder has a seam");
+    let seam = seam_edge(&shape);
 
-    let element = geometry(&shape, SubShapeKind::Edge, index_from_position(seam));
+    let element = geometry(&shape, SubShapeKind::Edge, seam);
 
     assert_point_near(
         element.centroid,
@@ -1646,13 +1641,6 @@ fn closed_cup() -> Shape {
     fuse(&cup(), &[lid.shape]).expect("LID fuses").shape
 }
 
-/// The closed hollow of test 52: BOX shelled 1 mm with no face removed.
-fn closed_hollow_box() -> Shape {
-    shell(&box_primitive().shape, &[], 1.0)
-        .expect("BOX shells closed")
-        .shape
-}
-
 /// Asserts the number of solids and of shells of a shape.
 #[track_caller]
 fn assert_solids_and_shells(shape: &Shape, solids: u32, shells: u32) {
@@ -1685,7 +1673,7 @@ fn t117_open_shell_has_one_shell() {
 
 #[test]
 fn t117_closed_hollow_has_an_inner_shell() {
-    assert_solids_and_shells(&closed_hollow_box(), 1, 2);
+    assert_solids_and_shells(&hollow_box(&box_primitive()).shape, 1, 2);
 }
 
 #[test]
@@ -1821,15 +1809,19 @@ fn shells_cannot_be_listed_as_elements() {
 
 #[test]
 fn mirrored_closed_hollow_keeps_its_inner_shell() {
-    let mirrored = transform(&closed_hollow_box(), &Transform::mirror(&Plane::YZ))
-        .expect("the hollow box mirrors");
+    let hollow = hollow_box(&box_primitive()).shape;
+
+    let mirrored =
+        transform(&hollow, &Transform::mirror(&Plane::YZ)).expect("the hollow box mirrors");
 
     assert_solids_and_shells(&mirrored.shape, 1, 2);
 }
 
 #[test]
 fn compound_counts_the_shells_of_every_solid() {
-    let grouped = compound(&[box_primitive().shape, closed_hollow_box()]).expect("grouped");
+    let hollow = hollow_box(&box_primitive()).shape;
+
+    let grouped = compound(&[box_primitive().shape, hollow]).expect("grouped");
 
     assert_solids_and_shells(&grouped.shape, 2, 3);
 }

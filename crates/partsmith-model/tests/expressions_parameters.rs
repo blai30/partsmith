@@ -2,39 +2,14 @@
 
 mod common;
 
-use common::{assert_expr_error, assert_quantity, id, printer_context, span};
-use partsmith_model::{
-    Document, EmptyContext, EvaluationContext, Expr, ExprError, ExprErrorKind, NameError,
-    Parameter, ParameterValues, Quantity, References, RenameError, Units,
+use common::{
+    assert_expr_error, assert_quantity, document_with, evaluate, evaluate_with, id,
+    printer_context, result_of, span,
 };
-
-/// A document in `units` with one parameter per `(name, expression)` pair, in order; ids are `p-<name>`.
-fn document_with(units: Units, parameters: &[(&str, &str)]) -> Document {
-    let mut document = Document::new(units);
-    document.parameters = parameters
-        .iter()
-        .map(|(name, source)| Parameter::new(id(&format!("p-{name}")), *name, *source))
-        .collect();
-    document
-}
-
-/// Evaluates the parameters of a millimeter document with the given context.
-fn evaluate_with(parameters: &[(&str, &str)], context: &dyn EvaluationContext) -> ParameterValues {
-    document_with(Units::Mm, parameters).evaluate_parameters(context)
-}
-
-/// Evaluates the parameters of a millimeter document with no dotted names.
-fn evaluate(parameters: &[(&str, &str)]) -> ParameterValues {
-    evaluate_with(parameters, &EmptyContext)
-}
-
-/// The result for `name`, which must be present.
-fn result_of(values: &ParameterValues, name: &str) -> Result<Quantity, ExprError> {
-    values
-        .get(name)
-        .cloned()
-        .unwrap_or_else(|| panic!("no result for {name}"))
-}
+use partsmith_model::{
+    Document, EmptyContext, Expr, ExprErrorKind, NameError, Parameter, ParameterValues, Quantity,
+    References, RenameError, Units,
+};
 
 #[test]
 fn t068_parameters_evaluate_in_dependency_order() {

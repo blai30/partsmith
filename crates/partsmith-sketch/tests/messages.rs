@@ -9,8 +9,8 @@ mod common;
 use std::f64::consts::FRAC_PI_2;
 
 use common::messages::{
-    context, error_message, every_error, every_error_sketch, finding_messages, issue_messages,
-    sketch_error, solved_context,
+    context, delete, error_message, every_error, every_error_sketch, finding_messages,
+    issue_messages, make_reference, sketch_error, solved_context,
 };
 use common::{
     Sketch, arc, circle, coincident, concentric, distance_line, distance_point_line,
@@ -24,20 +24,6 @@ use partsmith_sketch::{
     MessageContext, PlacementProblem, ProfileFinding, RegionFingerprint, RegionKey, SketchError,
     SketchFix, SolveIssue,
 };
-
-/// `DeleteConstraint` of this constraint.
-fn delete(constraint: &str) -> SketchFix {
-    SketchFix::DeleteConstraint {
-        constraint: id(constraint),
-    }
-}
-
-/// `MakeReference` of this constraint.
-fn make_reference(constraint: &str) -> SketchFix {
-    SketchFix::MakeReference {
-        constraint: id(constraint),
-    }
-}
 
 // ---------------------------------------------------------------------------
 // 6.10 Messages: test 144, errors

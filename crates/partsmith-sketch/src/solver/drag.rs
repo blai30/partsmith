@@ -142,7 +142,7 @@ impl DragSession for NativeDragSession {
             &mut self.factorization,
         ) {
             Outcome::Converged(x) => (x, false),
-            Outcome::Failed(_) => (warm.clone(), true),
+            Outcome::Failed => (warm.clone(), true),
         };
         let entities = self.system.layout.entities(&self.previous, &warm, &solved);
         let measured = measure(&self.sketch, &self.system.layout, &entities);

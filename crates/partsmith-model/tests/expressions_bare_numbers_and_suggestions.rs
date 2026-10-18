@@ -4,10 +4,10 @@ mod common;
 
 use std::collections::BTreeSet;
 
-use common::{assert_expr_error, assert_quantity, eval, eval_in, id};
+use common::{assert_expr_error, assert_quantity, eval, eval_in, evaluate, result_of};
 use partsmith_model::{
-    Dimension, Document, EmptyContext, Expr, ExprError, ExprErrorKind, Parameter, ParameterValues,
-    Quantity, SUGGESTION_DISTANCE, Scope, Unit, Units, edit_distance,
+    Dimension, EmptyContext, Expr, ExprError, ExprErrorKind, ParameterValues, Quantity,
+    SUGGESTION_DISTANCE, Scope, Unit, Units, edit_distance,
 };
 
 /// The `UnknownName` kind for `name`, with the suggested parameter name if any.
@@ -16,16 +16,6 @@ fn unknown_name(name: &str, suggestion: Option<&str>) -> ExprErrorKind {
         name: name.to_string(),
         suggestion: suggestion.map(str::to_string),
     }
-}
-
-/// The parameters of a millimeter document with one parameter per `(name, expression)` pair, in order, evaluated with no dotted names; ids are `p-<name>`.
-fn evaluate(parameters: &[(&str, &str)]) -> ParameterValues {
-    let mut document = Document::new(Units::Mm);
-    document.parameters = parameters
-        .iter()
-        .map(|(name, source)| Parameter::new(id(&format!("p-{name}")), *name, *source))
-        .collect();
-    document.evaluate_parameters(&EmptyContext)
 }
 
 /// The parameters of test 92: `height` = `30 mm` and `width` = `80 mm`, in a millimeter document.
@@ -41,14 +31,6 @@ fn length_field(parameters: &ParameterValues, source: &str) -> Result<Quantity, 
         context: &EmptyContext,
     };
     Expr::new(source).evaluate(&scope, Some(Dimension::LENGTH))
-}
-
-/// The result for `name`, which must be present.
-fn result_of(values: &ParameterValues, name: &str) -> Result<Quantity, ExprError> {
-    values
-        .get(name)
-        .cloned()
-        .unwrap_or_else(|| panic!("no result for {name}"))
 }
 
 /// The set of these parameter names.

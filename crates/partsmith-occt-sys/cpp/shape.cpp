@@ -127,6 +127,10 @@ void raise_read_error(const std::string &message) { throw Partsmith_ReadError(me
 
 void raise_not_done(const std::string &message) { throw StdFail_NotDone(message.c_str()); }
 
+void raise_not_an_element() {
+  raise_invalid_input("Only faces, edges and vertices can be queried.");
+}
+
 bool has_solid(const TopoDS_Shape &shape) { return TopExp_Explorer(shape, TopAbs_SOLID).More(); }
 
 void require_solid(const TopoDS_Shape &shape, const char *algorithm) {

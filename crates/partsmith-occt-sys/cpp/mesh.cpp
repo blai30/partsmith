@@ -38,6 +38,22 @@ void push_point(rust::Vec<double> &values, const gp_XYZ &point) {
   values.push_back(point.Z());
 }
 
+// Appends the coordinates of each point, in order, to a flat list.
+void push_points(rust::Vec<double> &values, const std::vector<gp_XYZ> &points) {
+  for (const gp_XYZ &point : points) {
+    push_point(values, point);
+  }
+}
+
+// The points of an edge's curve, given in increasing parameter, from the edge's first vertex to
+// its last: the curve runs along its parameter; a reversed edge runs the other way.
+std::vector<gp_XYZ> from_first_vertex(std::vector<gp_XYZ> points, const TopoDS_Edge &edge) {
+  if (edge.Orientation() == TopAbs_REVERSED) {
+    std::reverse(points.begin(), points.end());
+  }
+  return points;
+}
+
 // The meshing parameters of kernel spec section 3.7, item 2.
 IMeshTools_Parameters mesh_parameters(double chord_deviation, double angle) {
   IMeshTools_Parameters parameters;
@@ -253,13 +269,7 @@ class MeshBuilder {
           seams_[static_cast<std::size_t>(edge_index)]) {
         continue;
       }
-      std::vector<gp_XYZ> ordered = points;
-      if (edge.Orientation() == TopAbs_REVERSED) {
-        std::reverse(ordered.begin(), ordered.end());
-      }
-      for (const gp_XYZ &point : ordered) {
-        push_point(data_.edge_points, point);
-      }
+      push_points(data_.edge_points, from_first_vertex(points, edge));
       data_.edge_ids.push_back(static_cast<std::uint32_t>(edge_index));
       data_.edge_offsets.push_back(static_cast<std::uint32_t>(data_.edge_points.size() / 3));
       TopTools_IndexedMapOfShape vertices;
@@ -324,22 +334,19 @@ rust::Vec<double> face_display(const TopoDS_Face &face, std::uint32_t index, dou
 // first point (kernel spec section 3.7, item 9.3).
 rust::Vec<double> edge_display(const TopoDS_Edge &edge, std::uint32_t index, double chord_deviation,
                                double angle) {
-  require_curve(edge, index);
+  require_not_degenerated(edge, index, "curve to measure or draw");
   const BRepAdaptor_Curve curve(edge);
   const GCPnts_TangentialDeflection discretization(curve, angle, chord_deviation, 2);
   if (discretization.NbPoints() < 2) {
     raise_not_done("GCPnts_TangentialDeflection gave edge " + std::to_string(index) +
                    " fewer than 2 points");
   }
-  std::vector<gp_XYZ> polyline;
-  polyline.reserve(static_cast<std::size_t>(discretization.NbPoints()));
+  std::vector<gp_XYZ> along_curve;
+  along_curve.reserve(static_cast<std::size_t>(discretization.NbPoints()));
   for (int point = 1; point <= discretization.NbPoints(); ++point) {
-    polyline.push_back(discretization.Value(point).XYZ());
+    along_curve.push_back(discretization.Value(point).XYZ());
   }
-  // The curve runs along its parameter; a reversed edge runs the other way.
-  if (edge.Orientation() == TopAbs_REVERSED) {
-    std::reverse(polyline.begin(), polyline.end());
-  }
+  std::vector<gp_XYZ> polyline = from_first_vertex(std::move(along_curve), edge);
   TopoDS_Vertex first_vertex, last_vertex;
   TopExp::Vertices(edge, first_vertex, last_vertex);
   if (!first_vertex.IsNull() && first_vertex.IsSame(last_vertex)) {
@@ -347,9 +354,7 @@ rust::Vec<double> edge_display(const TopoDS_Edge &edge, std::uint32_t index, dou
   }
   rust::Vec<double> points;
   points.reserve(3 * polyline.size());
-  for (const gp_XYZ &point : polyline) {
-    push_point(points, point);
-  }
+  push_points(points, polyline);
   return points;
 }
 
@@ -369,7 +374,7 @@ rust::Vec<double> shape_element_display(const Shape &shape, ElementKind kind, st
       return position;
     }
     default:
-      raise_invalid_input("Only faces, edges and vertices can be queried.");
+      raise_not_an_element();
   }
 }
 

@@ -192,7 +192,6 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
     let system = System::new(sketch, values, &sketch.entities);
     let warm = &system.warm_start;
     let mut solved = warm.clone();
-    let mut diagnosis_point = warm.clone();
     let mut failed_components = Vec::with_capacity(system.components.len());
     let mut factorization = SparseQr::default();
     for component in &system.components {
@@ -206,18 +205,17 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
             match solve_component(&system, component, warm, &[], &mut factorization) {
                 Outcome::Converged(x) => {
                     copy_parameters(component, &x, &mut solved);
-                    copy_parameters(component, &x, &mut diagnosis_point);
                     false
                 }
-                // A failed component is diagnosed where it was given, never at the LM end point,
-                // whose nearly dependent rows would make the diagnosis depend on the iterations.
-                Outcome::Failed(_) => true,
+                Outcome::Failed => true,
             }
         };
         failed_components.push(failed);
     }
     let entities = system.layout.entities(&sketch.entities, warm, &solved);
-    let diagnosis = diagnose(sketch, &system, &diagnosis_point);
+    // The diagnosis point is the result, which is the warm start for untouched and failed
+    // components, never where an iteration stopped (its rows would depend on the iterations).
+    let diagnosis = diagnose(sketch, &system, &solved);
     let measured = measure(sketch, &system.layout, &entities);
     let failed = failed_components.contains(&true);
     Solved {
@@ -239,8 +237,7 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
 ///
 /// `drag_targets` lists dragged parameters with their targets (section 3.9); it is empty outside a drag.
 /// `factorization` is reused between calls so that repeated solves of one component plan their
-/// factorizations once. The outcome holds the full parameter vector at the solution, or where
-/// Levenberg-Marquardt stopped.
+/// factorizations once. A converged outcome holds the full parameter vector at the solution.
 fn solve_component(
     system: &System,
     component: &Component,
@@ -259,7 +256,7 @@ fn solve_component(
         Outcome::Converged(variables) => {
             Outcome::Converged(problem.parameters(&variables).to_vec())
         }
-        Outcome::Failed(variables) => Outcome::Failed(problem.parameters(&variables).to_vec()),
+        Outcome::Failed => Outcome::Failed,
     }
 }
 

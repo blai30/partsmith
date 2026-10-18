@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{TestInspector, d1, feature, id, is_close};
+use common::{TestInspector, d1, document_with, feature, id, is_close};
 use partsmith_model::{
     Body, Dimension, Document, Edit, EmptyContext, Expr, ExprLink, FeatureInspector, FeatureLinks,
     FeatureRecord, FieldUnit, OpaqueFeatures, Parameter, Scope, UndoLog, Units,
@@ -126,12 +126,8 @@ fn nc09_keep_sizes_edits(symbol: &str) -> Vec<Edit> {
 }
 
 /// A millimeter document with one parameter per `(name, expression)` pair (ids `p-<name>`) and one `box` feature `f-1` with these params.
-fn document_with(parameters: &[(&str, &str)], box_params: Value) -> Document {
-    let mut document = Document::new(Units::Mm);
-    document.parameters = parameters
-        .iter()
-        .map(|(name, source)| Parameter::new(id(&format!("p-{name}")), *name, *source))
-        .collect();
+fn box_document(parameters: &[(&str, &str)], box_params: Value) -> Document {
+    let mut document = document_with(Units::Mm, parameters);
     document.bodies = vec![Body::new(id("b-1"), "Base")];
     document.features = vec![feature("f-1", "box", box_params)];
     document
@@ -338,7 +334,7 @@ fn keep_sizes_keeps_a_length_for_every_change_of_units() {
 
 #[test]
 fn a_parameter_reached_through_other_parameters_is_kept() {
-    let document = document_with(
+    let document = box_document(
         &[("outer", "inner"), ("inner", "3")],
         json!({"body": "b-1", "lengths": ["outer"]}),
     );
@@ -357,7 +353,7 @@ fn a_parameter_reached_through_other_parameters_is_kept() {
 
 #[test]
 fn a_parameter_is_counted_once_however_many_lengths_use_it() {
-    let document = document_with(
+    let document = box_document(
         &[("wall", "2")],
         json!({"body": "b-1", "lengths": ["wall", "wall + 1", "2 * wall"]}),
     );
@@ -367,7 +363,7 @@ fn a_parameter_is_counted_once_however_many_lengths_use_it() {
 
 #[test]
 fn parameters_are_rewritten_in_document_order() {
-    let document = document_with(
+    let document = box_document(
         &[("first", "1"), ("second", "2")],
         json!({"body": "b-1", "lengths": ["second", "first"]}),
     );
@@ -388,7 +384,7 @@ fn parameters_are_rewritten_in_document_order() {
 
 #[test]
 fn a_rewritten_parameter_keeps_its_name_and_comment() {
-    let mut document = document_with(
+    let mut document = box_document(
         &[("wall", "2")],
         json!({"body": "b-1", "lengths": ["wall"]}),
     );
@@ -410,7 +406,7 @@ fn a_rewritten_parameter_keeps_its_name_and_comment() {
 #[test]
 fn a_parameter_that_another_kind_of_field_also_uses_is_left_alone() {
     for key in ["exprs", "angles", "counts"] {
-        let document = document_with(
+        let document = box_document(
             &[("size", "5")],
             json!({"body": "b-1", "lengths": ["size"], key: ["size"]}),
         );
@@ -431,7 +427,7 @@ fn a_parameter_that_another_kind_of_field_also_uses_is_left_alone() {
 #[test]
 fn a_parameter_only_other_kinds_of_field_use_is_left_alone() {
     for key in ["exprs", "angles", "counts"] {
-        let document = document_with(&[("size", "5")], json!({"body": "b-1", key: ["size"]}));
+        let document = box_document(&[("size", "5")], json!({"body": "b-1", key: ["size"]}));
 
         assert_eq!(
             document.bare_numbers(&TestInspector),
@@ -443,7 +439,7 @@ fn a_parameter_only_other_kinds_of_field_use_is_left_alone() {
 
 #[test]
 fn bare_numbers_in_other_kinds_of_field_are_left_alone() {
-    let document = document_with(
+    let document = box_document(
         &[],
         json!({"body": "b-1", "exprs": ["0.5"], "angles": ["45"], "counts": ["3"]}),
     );
@@ -457,7 +453,7 @@ fn bare_numbers_in_other_kinds_of_field_are_left_alone() {
 
 #[test]
 fn a_parameter_times_a_negated_number_keeps_its_size() {
-    let original = document_with(
+    let original = box_document(
         &[("wall", "2")],
         json!({"body": "b-1", "lengths": ["-2 * wall"]}),
     );
@@ -476,7 +472,7 @@ fn a_parameter_times_a_negated_number_keeps_its_size() {
 
 #[test]
 fn a_parameter_with_one_length_use_that_does_not_promote_it_is_left_alone() {
-    let document = document_with(
+    let document = box_document(
         &[("wall", "2")],
         json!({"body": "b-1", "lengths": ["wall", "round(wall)"]}),
     );
@@ -486,7 +482,7 @@ fn a_parameter_with_one_length_use_that_does_not_promote_it_is_left_alone() {
 
 #[test]
 fn a_parameter_that_a_parameter_on_the_way_uses_as_a_factor_is_left_alone() {
-    let document = document_with(
+    let document = box_document(
         &[("outer", "40 mm * inner"), ("inner", "2")],
         json!({"body": "b-1", "lengths": ["outer"]}),
     );
@@ -500,7 +496,7 @@ fn a_parameter_that_a_parameter_on_the_way_uses_as_a_factor_is_left_alone() {
 
 #[test]
 fn suppressed_and_rolled_back_features_take_part() {
-    let mut document = document_with(&[], json!({"body": "b-1", "lengths": ["5"]}));
+    let mut document = box_document(&[], json!({"body": "b-1", "lengths": ["5"]}));
     document.features[0].suppressed = true;
     document.features.push(feature(
         "f-2",
@@ -528,7 +524,7 @@ fn suppressed_and_rolled_back_features_take_part() {
 
 #[test]
 fn an_expression_that_does_not_parse_is_not_followed() {
-    let document = document_with(
+    let document = box_document(
         &[("wall", "2")],
         json!({"body": "b-1", "lengths": ["wall +"]}),
     );
@@ -542,7 +538,7 @@ fn an_expression_that_does_not_parse_is_not_followed() {
 
 #[test]
 fn dotted_and_unknown_names_are_not_followed() {
-    let document = document_with(
+    let document = box_document(
         &[("wall", "2")],
         json!({"body": "b-1", "lengths": ["printer.wall", "missing"]}),
     );
@@ -552,7 +548,7 @@ fn dotted_and_unknown_names_are_not_followed() {
 
 #[test]
 fn parameters_in_a_cycle_do_not_stop_the_count() {
-    let document = document_with(
+    let document = box_document(
         &[("first", "second"), ("second", "first"), ("own", "own")],
         json!({"body": "b-1", "lengths": ["first", "own", "5"]}),
     );

@@ -2,8 +2,8 @@
 
 use partsmith_model::Units;
 use partsmith_sketch::{
-    EntityKind, MessageContext, ORIGIN, PlacementProblem, SketchError, SketchFix, SolveResult,
-    X_AXIS, Y_AXIS, build_profile,
+    Connection, EntityKind, MessageContext, ORIGIN, PlacementProblem, Profile, ProfileFinding,
+    SketchError, SketchFix, SolveIssue, SolveResult, X_AXIS, Y_AXIS, build_profile,
 };
 
 use super::lint::assert_passes_lint;
@@ -11,6 +11,25 @@ use super::{Sketch, distance_line, id, parallel, point_ref, rect_with_circle_and
 
 /// The label of the sketch in every message test.
 pub const LABEL: &str = "Sketch 1";
+
+/// `DeleteConstraint` of this constraint.
+pub fn delete(constraint: &str) -> SketchFix {
+    SketchFix::DeleteConstraint {
+        constraint: id(constraint),
+    }
+}
+
+/// `MakeReference` of this constraint.
+pub fn make_reference(constraint: &str) -> SketchFix {
+    SketchFix::MakeReference {
+        constraint: id(constraint),
+    }
+}
+
+/// The `fixes()` of every finding of the profile, in order.
+pub fn fixes_of(profile: &Profile) -> Vec<Vec<SketchFix>> {
+    profile.findings.iter().map(ProfileFinding::fixes).collect()
+}
 
 /// The context of section 6.10: label "Sketch 1", the sketch as stored, no solve, the sketch's values, no measured
 /// values, millimeters.
@@ -103,11 +122,6 @@ pub fn every_error_sketch() -> Sketch {
 
 /// One error of every `SketchError` variant, each with the fixes section 4.1 gives it, on `every_error_sketch`.
 pub fn every_error() -> Vec<(SketchError, Vec<SketchFix>)> {
-    let delete = || {
-        vec![SketchFix::DeleteConstraint {
-            constraint: id("c-9"),
-        }]
-    };
     vec![
         (
             SketchError::InvalidPointRef {
@@ -140,7 +154,7 @@ pub fn every_error() -> Vec<(SketchError, Vec<SketchFix>)> {
                 constraint: id("c-9"),
                 entity: id("e-9"),
             },
-            delete(),
+            vec![delete("c-9")],
         ),
         (
             SketchError::ReservedMisuse {
@@ -148,7 +162,7 @@ pub fn every_error() -> Vec<(SketchError, Vec<SketchFix>)> {
                 type_name: "parallel",
                 reference: "origin".to_owned(),
             },
-            delete(),
+            vec![delete("c-9")],
         ),
         (
             SketchError::InvalidPointRole {
@@ -156,7 +170,7 @@ pub fn every_error() -> Vec<(SketchError, Vec<SketchFix>)> {
                 point: point_ref("e-1.center"),
                 kind: EntityKind::Line,
             },
-            delete(),
+            vec![delete("c-9")],
         ),
         (
             SketchError::WrongEntityKind {
@@ -166,7 +180,7 @@ pub fn every_error() -> Vec<(SketchError, Vec<SketchFix>)> {
                 found: EntityKind::Circle,
                 expected: "a line",
             },
-            delete(),
+            vec![delete("c-9")],
         ),
         (
             SketchError::SameEntity {
@@ -174,7 +188,7 @@ pub fn every_error() -> Vec<(SketchError, Vec<SketchFix>)> {
                 type_name: "parallel",
                 entity: id("e-1"),
             },
-            delete(),
+            vec![delete("c-9")],
         ),
         (
             SketchError::SamePoint {
@@ -182,7 +196,7 @@ pub fn every_error() -> Vec<(SketchError, Vec<SketchFix>)> {
                 type_name: "parallel",
                 point: point_ref("e-1.start"),
             },
-            delete(),
+            vec![delete("c-9")],
         ),
         (
             SketchError::PointOnOwnEntity {
@@ -191,7 +205,7 @@ pub fn every_error() -> Vec<(SketchError, Vec<SketchFix>)> {
                 point: point_ref("e-1.start"),
                 entity: id("e-1"),
             },
-            delete(),
+            vec![delete("c-9")],
         ),
         (
             SketchError::MissingValue {
@@ -243,6 +257,111 @@ pub fn every_error() -> Vec<(SketchError, Vec<SketchFix>)> {
             Vec::new(),
         ),
     ]
+}
+
+/// One issue of every `SolveIssue` variant on `every_error_sketch`, with conflicts of two constraints and of one, and
+/// redundant constraints with and without a value.
+pub fn every_issue() -> Vec<SolveIssue> {
+    vec![
+        SolveIssue::Conflicting {
+            constraints: vec![id("c-9"), id("c-10")],
+        },
+        SolveIssue::Conflicting {
+            constraints: vec![id("c-9")],
+        },
+        SolveIssue::Redundant {
+            constraint: id("c-9"),
+            type_name: "parallel",
+            dimension: false,
+        },
+        SolveIssue::Redundant {
+            constraint: id("c-10"),
+            type_name: "distance",
+            dimension: true,
+        },
+        SolveIssue::NotConverged,
+    ]
+}
+
+/// One finding of every `ProfileFinding` variant on `every_error_sketch`, the open end with a connection.
+pub fn every_finding() -> Vec<ProfileFinding> {
+    vec![
+        ProfileFinding::OpenEndpoint {
+            entity: id("e-4"),
+            point: [0.0, 0.0],
+            connect: Some(Connection {
+                first: point_ref("e-4.end"),
+                second: point_ref("e-1.start"),
+                gap: 0.3,
+            }),
+        },
+        ProfileFinding::Overlap {
+            entities: [id("e-1"), id("e-3")],
+            start: [20.0, 0.0],
+            end: [60.0, 0.0],
+        },
+        ProfileFinding::SelfIntersection {
+            entities: [id("e-1"), id("e-2")],
+            point: [80.0, 0.0],
+        },
+        ProfileFinding::ZeroLength { entity: id("e-5") },
+    ]
+}
+
+/// The number of `SketchError` variants.
+pub const ERROR_VARIANTS: usize = 21;
+
+/// The position of the error's variant among the `ERROR_VARIANTS` of `SketchError`. The match has no wildcard arm, so
+/// a new variant does not compile until it is counted here and given a sample in `every_error`.
+pub fn error_variant(error: &SketchError) -> usize {
+    match error {
+        SketchError::InvalidPointRef { .. } => 0,
+        SketchError::DuplicateId { .. } => 1,
+        SketchError::ReservedId { .. } => 2,
+        SketchError::InvalidPlacement { .. } => 3,
+        SketchError::NonFiniteGeometry { .. } => 4,
+        SketchError::NegativeRadius { .. } => 5,
+        SketchError::UnknownEntity { .. } => 6,
+        SketchError::ReservedMisuse { .. } => 7,
+        SketchError::InvalidPointRole { .. } => 8,
+        SketchError::WrongEntityKind { .. } => 9,
+        SketchError::SameEntity { .. } => 10,
+        SketchError::SamePoint { .. } => 11,
+        SketchError::PointOnOwnEntity { .. } => 12,
+        SketchError::MissingValue { .. } => 13,
+        SketchError::NonFiniteValue { .. } => 14,
+        SketchError::ValueNotPositive { .. } => 15,
+        SketchError::ValueNegative { .. } => 16,
+        SketchError::UnknownDragTarget { .. } => 17,
+        SketchError::NonFiniteCursor => 18,
+        SketchError::InvalidRegionKey { .. } => 19,
+        SketchError::InvalidFingerprint { .. } => 20,
+    }
+}
+
+/// The number of `SolveIssue` variants.
+pub const ISSUE_VARIANTS: usize = 3;
+
+/// The position of the issue's variant among the `ISSUE_VARIANTS` of `SolveIssue`, with no wildcard arm.
+pub fn issue_variant(issue: &SolveIssue) -> usize {
+    match issue {
+        SolveIssue::Conflicting { .. } => 0,
+        SolveIssue::Redundant { .. } => 1,
+        SolveIssue::NotConverged => 2,
+    }
+}
+
+/// The number of `ProfileFinding` variants.
+pub const FINDING_VARIANTS: usize = 4;
+
+/// The position of the finding's variant among the `FINDING_VARIANTS` of `ProfileFinding`, with no wildcard arm.
+pub fn finding_variant(finding: &ProfileFinding) -> usize {
+    match finding {
+        ProfileFinding::OpenEndpoint { .. } => 0,
+        ProfileFinding::Overlap { .. } => 1,
+        ProfileFinding::SelfIntersection { .. } => 2,
+        ProfileFinding::ZeroLength { .. } => 3,
+    }
 }
 
 /// True when `word` occurs in `text` with no id character (letter, digit, `_` or `-`) right before or after it.

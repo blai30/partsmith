@@ -1,7 +1,8 @@
-//! Fixtures and assertion helpers shared by the kernel acceptance tests (kernel spec section 6).
+//! Fixtures and assertion helpers shared by the kernel acceptance tests (kernel spec section 6) and
+//! the budgets bench, which includes this module with `#[path]`.
 //! `lint` holds the message lint of the error guidelines.
 
-// Each test binary uses only some of these helpers.
+// Each test binary and the bench use only some of these helpers.
 #![allow(dead_code)]
 
 pub mod lint;
@@ -13,7 +14,7 @@ use partsmith_occt_sys::{
     Axis, EdgeRadius, ElementFate, ElementGeometry, GeometryKind, KernelError, KernelErrorKind,
     OpResult, Operation, PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane, Point,
     Point2, Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace, SweepResult, TaggedCurve,
-    Vector, cut, fillet, fuse, make_box, make_cylinder, make_profile, make_sphere,
+    Vector, cut, fillet, fuse, make_box, make_cylinder, make_profile, make_sphere, shell,
 };
 
 /// Default tolerance for points and vectors: "vectors and points compare within 1e-9" (section 6).
@@ -354,6 +355,11 @@ pub fn top_front_edge(primitive: &Primitive) -> u32 {
 pub fn fillet_top_front(block: &Primitive) -> OpResult {
     let edge = top_front_edge(block);
     fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("TF is filleted")
+}
+
+/// Test 52: the closed 1 mm shell of `block`, hollowed with no face removed.
+pub fn hollow_box(block: &Primitive) -> OpResult {
+    shell(&block.shape, &[], 1.0).expect("the box is hollowed")
 }
 
 /// The single seam edge of a shape.

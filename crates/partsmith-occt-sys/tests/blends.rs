@@ -12,8 +12,8 @@ use common::{
     assert_vector_near, box_primitive, box_with_displaced_corner, cube_20, cube_a, cube_at,
     cube_edge, cube_with_vertical_rounds, cylinder_primitive, edge_at, edge_between,
     face_direction, face_groups, face_with_role, faces_of_kind, fillet_top_front, generated_faces,
-    geometry, index_from_position, l_body, l_body_with_round, line, planar_face, rectangle_profile,
-    region, swept_face, top_front_edge, volume, xy_plane_at, z_axis,
+    geometry, hollow_box, index_from_position, l_body, l_body_with_round, line, planar_face,
+    rectangle_profile, region, seam_edge, swept_face, top_front_edge, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
     ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
@@ -38,11 +38,6 @@ fn all_edges(radius: f64) -> Vec<EdgeRadius> {
 fn open_box_shell(block: &Primitive) -> OpResult {
     let top = face_with_role(block, PrimitiveFace::Top);
     shell(&block.shape, &[top], 1.0).expect("the open box is shelled")
-}
-
-/// Test 52: BOX hollowed with no face removed and a 1 mm wall.
-fn closed_box_shell(block: &Primitive) -> OpResult {
-    shell(&block.shape, &[], 1.0).expect("the closed box is hollowed")
 }
 
 /// The fate of input face `face` of input 0.
@@ -303,15 +298,7 @@ fn t047_empty_fillet_list_is_rejected() {
 #[test]
 fn t047_cylinder_seam_cannot_be_filleted() {
     let cylinder = cylinder_primitive();
-    let seam = cylinder
-        .shape
-        .topology()
-        .expect("topology")
-        .edges
-        .iter()
-        .position(|edge| edge.seam)
-        .map(index_from_position)
-        .expect("the cylinder has a seam");
+    let seam = seam_edge(&cylinder.shape);
 
     let error = fillet(
         &cylinder.shape,
@@ -567,7 +554,7 @@ fn t051_kept_faces_keep_their_image_and_generate_the_inner_wall() {
 
 #[test]
 fn t052_closed_shell_volume_faces_and_shells() {
-    let result = closed_box_shell(&box_primitive());
+    let result = hollow_box(&box_primitive());
 
     assert_relative(volume(&result.shape), 1968.0, 1e-9, "volume");
     assert_eq!(result.shape.count(SubShapeKind::Face), 12);
@@ -637,7 +624,7 @@ fn t068_inner_bottom_face_points_into_the_cavity() {
     let block = box_primitive();
     let bottom = face_with_role(&block, PrimitiveFace::Bottom);
 
-    let result = closed_box_shell(&block);
+    let result = hollow_box(&block);
 
     let inner_faces = generated_faces(face_fate(&result, bottom));
     assert_eq!(inner_faces.len(), 1);
@@ -658,14 +645,14 @@ fn open_box_shell_gives_every_face_an_origin() {
 
 #[test]
 fn closed_box_shell_gives_every_face_an_origin() {
-    let result = closed_box_shell(&box_primitive());
+    let result = hollow_box(&box_primitive());
 
     assert_every_face_has_an_origin(&result);
 }
 
 #[test]
 fn closed_box_shell_keeps_every_face_and_generates_its_inner_face() {
-    let result = closed_box_shell(&box_primitive());
+    let result = hollow_box(&box_primitive());
 
     let faces = &result.history.inputs[0].faces;
     assert_eq!(faces.len(), 6);

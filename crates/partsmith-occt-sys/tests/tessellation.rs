@@ -8,15 +8,15 @@ use std::f64::consts::FRAC_PI_2;
 
 use common::{
     OPT, ORIGIN, POINT_TOLERANCE, UP, assert_argument_error, assert_closed, assert_invalid_input,
-    assert_near, assert_point_near, assert_relative, assert_same_points, box_corners,
-    box_primitive, cylinder_primitive, degenerated_edges, directed_edge_uses, edge_between,
-    face_with_role, generated_faces, geometry, mesh_face_ids, rectangle_profile, seam_edge,
-    sphere_primitive, top_front_edge, unbounded_face, weld_exactly,
+    assert_near, assert_point_near, assert_relative, assert_same_points, assert_vector_near,
+    box_corners, box_primitive, cylinder_primitive, degenerated_edges, directed_edge_uses,
+    edge_between, face_with_role, generated_faces, geometry, hollow_box, mesh_face_ids,
+    rectangle_profile, seam_edge, sphere_primitive, top_front_edge, unbounded_face, weld_exactly,
 };
 use partsmith_mesh::{Mesh, TessellationTolerance};
 use partsmith_occt_sys::{
     ElementDisplay, KernelError, KernelErrorKind, Operation, Plane, Point, Primitive,
-    PrimitiveFace, Shape, SubShapeKind, Transform, Vector, shell, transform,
+    PrimitiveFace, Shape, SubShapeKind, Transform, Vector, transform,
 };
 
 const TOLERANCE_MESSAGE: &str =
@@ -166,20 +166,13 @@ fn t073_sphere_mesh_welds_into_a_closed_mesh() {
 #[test]
 fn t074_cylinder_mesh_draws_the_circles_but_not_the_seam() {
     let shape = cylinder_primitive().shape;
-    let seam = shape
-        .topology()
-        .expect("topology")
-        .edges
-        .iter()
-        .position(|edge| edge.seam)
-        .expect("the cylinder has a seam");
-    let seam_id = u32::try_from(seam + 1).expect("few edges");
+    let seam = seam_edge(&shape);
 
     let mesh = mesh_of(&shape);
 
     assert_eq!(mesh.edges().len(), 2);
     for edge in mesh.edges() {
-        assert_ne!(edge.edge_id, seam_id, "the seam has no polyline");
+        assert_ne!(edge.edge_id, seam, "the seam has no polyline");
         assert_eq!(
             edge.points.first(),
             edge.points.last(),
@@ -193,10 +186,9 @@ fn t074_cylinder_mesh_draws_the_circles_but_not_the_seam() {
 
 #[test]
 fn t075_hollow_box_mesh_volume() {
-    let block = box_primitive();
-    let hollow = shell(&block.shape, &[], 1.0).expect("the box is hollowed");
+    let hollow = hollow_box(&box_primitive()).shape;
 
-    let mesh = mesh_of(&hollow.shape);
+    let mesh = mesh_of(&hollow);
 
     assert_relative(mesh.signed_volume(), 1968.0, 1e-6, "signed mesh volume");
 }
@@ -435,32 +427,14 @@ fn display_error(
         .expect_err("the element cannot be displayed")
 }
 
-/// The normal of a triangle by its winding, `(p1 - p0) x (p2 - p0)`, not normalized.
-fn winding_normal(triangle: &[Point]) -> [f64; 3] {
-    let first = [
-        triangle[1].x - triangle[0].x,
-        triangle[1].y - triangle[0].y,
-        triangle[1].z - triangle[0].z,
-    ];
-    let second = [
-        triangle[2].x - triangle[0].x,
-        triangle[2].y - triangle[0].y,
-        triangle[2].z - triangle[0].z,
-    ];
-    [
-        first[1] * second[2] - first[2] * second[1],
-        first[2] * second[0] - first[0] * second[2],
-        first[0] * second[1] - first[1] * second[0],
-    ]
+/// The vector from `from` to `to`.
+fn vector_between(from: Point, to: Point) -> Vector {
+    Vector::new(to.x - from.x, to.y - from.y, to.z - from.z)
 }
 
-/// The length of a vector given by its components.
-fn length(components: [f64; 3]) -> f64 {
-    components
-        .iter()
-        .map(|component| component * component)
-        .sum::<f64>()
-        .sqrt()
+/// The normal of a triangle by its winding, `(p1 - p0) x (p2 - p0)`, not normalized.
+fn winding_normal(triangle: &[Point]) -> Vector {
+    vector_between(triangle[0], triangle[1]).cross(vector_between(triangle[0], triangle[2]))
 }
 
 /// The centroid of a triangle.
@@ -476,7 +450,7 @@ fn triangle_centroid(triangle: &[Point]) -> Point {
 fn total_area(points: &[Point]) -> f64 {
     points
         .chunks_exact(3)
-        .map(|triangle| length(winding_normal(triangle)) / 2.0)
+        .map(|triangle| winding_normal(triangle).length() / 2.0)
         .sum()
 }
 
@@ -486,18 +460,18 @@ fn assert_wound_along(points: &[Point], direction: Vector, what: &str) {
     assert_eq!(points.len() % 3, 0, "{what}: three points per triangle");
     for (position, triangle) in points.chunks_exact(3).enumerate() {
         let normal = winding_normal(triangle);
-        let normal_length = length(normal);
+        let normal_length = normal.length();
         assert!(normal_length > 0.0, "{what}: triangle {position} is flat");
         let unit = Vector::new(
-            normal[0] / normal_length,
-            normal[1] / normal_length,
-            normal[2] / normal_length,
+            normal.x / normal_length,
+            normal.y / normal_length,
+            normal.z / normal_length,
         );
-        assert!(
-            (unit.x - direction.x).abs() <= POINT_TOLERANCE
-                && (unit.y - direction.y).abs() <= POINT_TOLERANCE
-                && (unit.z - direction.z).abs() <= POINT_TOLERANCE,
-            "{what}: triangle {position} faces {unit:?}, not {direction:?}"
+        assert_vector_near(
+            unit,
+            direction,
+            POINT_TOLERANCE,
+            &format!("{what}: triangle {position}"),
         );
     }
 }
@@ -618,7 +592,7 @@ fn t122_cylinder_side_displays_on_the_cylinder_wound_outward() {
     for (position, triangle) in points.chunks_exact(3).enumerate() {
         let normal = winding_normal(triangle);
         let centroid = triangle_centroid(triangle);
-        let outward = normal[0] * centroid.x + normal[1] * centroid.y;
+        let outward = normal.dot(Vector::new(centroid.x, centroid.y, 0.0));
         assert!(outward > 0.0, "triangle {position} faces inward");
     }
     let exact_area = 314.1592653589793;
@@ -645,9 +619,7 @@ fn t123_box_edge_displays_from_its_first_vertex_to_its_last() {
     let direction = geometry(&block.shape, SubShapeKind::Edge, edge)
         .direction
         .expect("a line has a direction");
-    let along = (points[1].x - points[0].x) * direction.x
-        + (points[1].y - points[0].y) * direction.y
-        + (points[1].z - points[0].z) * direction.z;
+    let along = vector_between(points[0], points[1]).dot(direction);
     assert!(along > 0.0, "TF runs against its direction: {points:?}");
 }
 
@@ -959,7 +931,7 @@ fn mirrored_box_top_stays_wound_outward() {
 fn inner_face_of_a_hollow_box_is_wound_into_the_cavity() {
     let block = box_primitive();
     let bottom = face_with_role(&block, PrimitiveFace::Bottom);
-    let hollow = shell(&block.shape, &[], 1.0).expect("the box is hollowed");
+    let hollow = hollow_box(&block);
     let inner = generated_faces(&hollow.history.inputs[0].faces[bottom as usize - 1]);
     assert_eq!(inner.len(), 1);
 

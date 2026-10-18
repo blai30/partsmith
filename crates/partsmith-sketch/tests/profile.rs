@@ -6,7 +6,7 @@ mod common;
 
 use std::f64::consts::PI;
 
-use common::messages::context;
+use common::messages::{context, fixes_of};
 use common::random::Rng;
 use common::{
     Sketch, TOLERANCE, arc, as_construction, assert_bitwise, assert_close, assert_point_bitwise,
@@ -851,11 +851,6 @@ fn t173_profiles_are_deterministic() {
 // ---------------------------------------------------------------------------
 // 6.19 Open ends
 // ---------------------------------------------------------------------------
-
-/// The `fixes()` of every finding, in order.
-fn fixes_of(profile: &Profile) -> Vec<Vec<SketchFix>> {
-    profile.findings.iter().map(ProfileFinding::fixes).collect()
-}
 
 /// Test 239: an open end within 2 mm of two others.
 fn three_lines_with_close_ends() -> Vec<SketchEntity> {

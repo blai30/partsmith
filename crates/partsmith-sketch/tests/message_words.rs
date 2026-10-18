@@ -10,8 +10,9 @@ use std::f64::consts::FRAC_PI_2;
 
 use common::lint::lint_failures;
 use common::messages::{
-    assert_plain_message, context, every_error, every_error_sketch, rendered_messages,
-    sketch_error, solved_context,
+    ERROR_VARIANTS, FINDING_VARIANTS, ISSUE_VARIANTS, assert_plain_message, context, delete,
+    error_variant, every_error, every_error_sketch, every_finding, every_issue, finding_variant,
+    fixes_of, issue_variant, make_reference, rendered_messages, sketch_error, solved_context,
 };
 use common::{
     Sketch, angle, arc, bowtie, circle, coincident, concentric, distance_line, distance_point_line,
@@ -27,20 +28,6 @@ use partsmith_sketch::{
     Connection, EntityKind, MessageContext, PlacementProblem, ProfileFinding, SketchError,
     SketchFix, SolveIssue,
 };
-
-/// `DeleteConstraint` of this constraint.
-fn delete(constraint: &str) -> SketchFix {
-    SketchFix::DeleteConstraint {
-        constraint: id(constraint),
-    }
-}
-
-/// `MakeReference` of this constraint.
-fn make_reference(constraint: &str) -> SketchFix {
-    SketchFix::MakeReference {
-        constraint: id(constraint),
-    }
-}
 
 /// The title of a constraint in this context, as an owned option for comparisons.
 fn title(context: &MessageContext<'_>, constraint: &str) -> Option<String> {
@@ -490,7 +477,7 @@ fn t245_fixes_of_errors() {
 
 #[test]
 fn t245_fixes_of_solve_issues() {
-    let fixes_of = |sketch: &Sketch| -> Vec<Vec<SketchFix>> {
+    let issue_fixes = |sketch: &Sketch| -> Vec<Vec<SketchFix>> {
         sketch
             .solve()
             .issues(&sketch.params)
@@ -500,15 +487,15 @@ fn t245_fixes_of_solve_issues() {
     };
 
     assert_eq!(
-        fixes_of(&rect_with_redundant_parallel()),
+        issue_fixes(&rect_with_redundant_parallel()),
         [vec![delete("c-9")]]
     );
     assert_eq!(
-        fixes_of(&two_distances(5.0, 5.0)),
+        issue_fixes(&two_distances(5.0, 5.0)),
         [vec![make_reference("c-2"), delete("c-2")]]
     );
     assert_eq!(
-        fixes_of(&fixed_points_with_distance(4.0)),
+        issue_fixes(&fixed_points_with_distance(4.0)),
         [vec![
             delete("c-3"),
             make_reference("c-3"),
@@ -527,21 +514,14 @@ fn t245_fixes_of_findings() {
     let gap = Sketch::new(rect_with_gap(0.001)).profile();
     let polyline = Sketch::new(open_polyline()).profile();
 
-    let gap_fixes: Vec<Vec<SketchFix>> = gap.findings.iter().map(ProfileFinding::fixes).collect();
-    let polyline_fixes: Vec<Vec<SketchFix>> = polyline
-        .findings
-        .iter()
-        .map(ProfileFinding::fixes)
-        .collect();
-
     assert_eq!(
-        gap_fixes,
+        fixes_of(&gap),
         [vec![SketchFix::ConnectEnds {
             first: point_ref("e-4.end"),
             second: point_ref("e-1.start"),
         }]]
     );
-    assert_eq!(polyline_fixes, [Vec::new(), Vec::<SketchFix>::new()]);
+    assert_eq!(fixes_of(&polyline), [Vec::new(), Vec::<SketchFix>::new()]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1093,52 +1073,49 @@ fn t247_every_row_of_section_4_passes_the_lint_and_names_no_ids() {
         .iter()
         .map(|(error, _)| error.render(&context))
         .collect();
-    let issues = [
-        SolveIssue::Conflicting {
-            constraints: vec![id("c-9"), id("c-10")],
-        },
-        SolveIssue::Conflicting {
-            constraints: vec![id("c-9")],
-        },
-        SolveIssue::Redundant {
-            constraint: id("c-9"),
-            type_name: "parallel",
-            dimension: false,
-        },
-        SolveIssue::Redundant {
-            constraint: id("c-10"),
-            type_name: "distance",
-            dimension: true,
-        },
-        SolveIssue::NotConverged,
-    ];
-    messages.extend(issues.iter().map(|issue| issue.render(&context)));
-    let findings = [
-        ProfileFinding::OpenEndpoint {
-            entity: id("e-4"),
-            point: [0.0, 0.0],
-            connect: Some(Connection {
-                first: point_ref("e-4.end"),
-                second: point_ref("e-1.start"),
-                gap: 0.3,
-            }),
-        },
-        ProfileFinding::Overlap {
-            entities: [id("e-1"), id("e-3")],
-            start: [20.0, 0.0],
-            end: [60.0, 0.0],
-        },
-        ProfileFinding::SelfIntersection {
-            entities: [id("e-1"), id("e-2")],
-            point: [80.0, 0.0],
-        },
-        ProfileFinding::ZeroLength { entity: id("e-5") },
-    ];
-    messages.extend(findings.iter().map(|finding| finding.render(&context)));
+    messages.extend(every_issue().iter().map(|issue| issue.render(&context)));
+    messages.extend(
+        every_finding()
+            .iter()
+            .map(|finding| finding.render(&context)),
+    );
 
     for message in &messages {
         assert_plain_message(message, &sketch);
     }
+}
+
+/// Asserts that `variants`, the variant position of each sample, cover every position below `count`.
+#[track_caller]
+fn assert_every_variant(variants: impl Iterator<Item = usize>, count: usize, samples: &str) {
+    let mut covered = vec![false; count];
+    for variant in variants {
+        covered[variant] = true;
+    }
+    let missing: Vec<usize> = (0..count).filter(|&i| !covered[i]).collect();
+    assert!(
+        missing.is_empty(),
+        "{samples} has no sample of the variants at {missing:?}"
+    );
+}
+
+#[test]
+fn the_samples_hold_every_error_issue_and_finding_variant() {
+    assert_every_variant(
+        every_error().iter().map(|(error, _)| error_variant(error)),
+        ERROR_VARIANTS,
+        "every_error",
+    );
+    assert_every_variant(
+        every_issue().iter().map(issue_variant),
+        ISSUE_VARIANTS,
+        "every_issue",
+    );
+    assert_every_variant(
+        every_finding().iter().map(finding_variant),
+        FINDING_VARIANTS,
+        "every_finding",
+    );
 }
 
 #[test]

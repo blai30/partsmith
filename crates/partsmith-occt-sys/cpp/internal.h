@@ -58,6 +58,9 @@ std::vector<TopoDS_Shape> shapes_of(rust::Slice<const ShapeHandle> handles);
 [[noreturn]] void raise_read_error(const std::string &message);
 // Throws StdFail_NotDone for an algorithm that reported failure without throwing.
 [[noreturn]] void raise_not_done(const std::string &message);
+// Throws Partsmith_InvalidInput for an element that is not a face, edge or vertex, which the
+// facade rejects in Rust first.
+[[noreturn]] void raise_not_an_element();
 
 // True when the shape contains a solid.
 bool has_solid(const TopoDS_Shape &shape);
@@ -214,9 +217,10 @@ OpResultData op_result(const TopoDS_Shape &result, const Handle(BRepTools_Histor
 // The sub-shape `index` of `kind`, checking the index.
 const TopoDS_Shape &element_at(const Shape &shape, ElementKind kind, std::uint32_t index);
 
-// Raises Partsmith_InvalidInput for a degenerated edge, which has no curve to measure or draw
-// (kernel spec sections 3.6 item 7 and 3.7 item 9); `index` names it in the message.
-void require_curve(const TopoDS_Edge &edge, std::uint32_t index);
+// Raises Partsmith_InvalidInput for a degenerated edge (kernel spec sections 3.6 items 5 and 7 and
+// 3.7 item 9): the message names it by `index` and says it has no `lacking`, such as "middle
+// point".
+void require_not_degenerated(const TopoDS_Edge &edge, std::uint32_t index, const char *lacking);
 
 // measure.cpp
 

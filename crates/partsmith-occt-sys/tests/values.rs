@@ -47,6 +47,15 @@ const BUILD_FAILURES: [KernelErrorKind; 3] = [
     KernelErrorKind::InvalidResult,
     KernelErrorKind::EmptyResult,
 ];
+/// Every kind of kernel error.
+const ALL_KINDS: [KernelErrorKind; 6] = [
+    KernelErrorKind::InvalidInput,
+    KernelErrorKind::Failed,
+    KernelErrorKind::InvalidResult,
+    KernelErrorKind::EmptyResult,
+    KernelErrorKind::ReadFailed,
+    KernelErrorKind::Internal,
+];
 /// Every kind but `InvalidInput`, whose user message is the facade's own sentence.
 const KINDS_WITH_OWN_TEXTS: [KernelErrorKind; 5] = [
     KernelErrorKind::Failed,
@@ -241,12 +250,12 @@ impl OperationTexts {
 
 /// An error with the exception and message of tests 127 and 130.
 fn not_done(operation: Operation, kind: KernelErrorKind) -> KernelError {
-    KernelError {
+    kernel_error(
         operation,
         kind,
-        exception: "StdFail_NotDone".to_owned(),
-        message: "BRep_API: command not done".to_owned(),
-    }
+        "StdFail_NotDone",
+        "BRep_API: command not done",
+    )
 }
 
 /// An error with the given parts.
@@ -757,17 +766,8 @@ fn t130_host_check_messages_pass_the_message_lint() {
 
 #[test]
 fn t130_every_hint_is_one_sentence() {
-    let kinds = [
-        KernelErrorKind::InvalidInput,
-        KernelErrorKind::Failed,
-        KernelErrorKind::InvalidResult,
-        KernelErrorKind::EmptyResult,
-        KernelErrorKind::ReadFailed,
-        KernelErrorKind::Internal,
-    ];
-
     for texts in &OPERATION_TEXTS {
-        for kind in kinds {
+        for kind in ALL_KINDS {
             let hint = not_done(texts.operation, kind).hint();
 
             assert_eq!(

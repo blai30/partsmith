@@ -85,10 +85,10 @@ const TopoDS_Shape &element_at(const Shape &shape, ElementKind kind, std::uint32
   return map(static_cast<int>(index));
 }
 
-void require_curve(const TopoDS_Edge &edge, std::uint32_t index) {
+void require_not_degenerated(const TopoDS_Edge &edge, std::uint32_t index, const char *lacking) {
   if (BRep_Tool::Degenerated(edge)) {
-    raise_invalid_input("Edge " + std::to_string(index) +
-                        " is a degenerated edge, so it has no curve to measure or draw.");
+    raise_invalid_input("Edge " + std::to_string(index) + " is a degenerated edge, so it has no " +
+                        lacking + ".");
   }
 }
 
@@ -283,7 +283,7 @@ ElementData element_data(const TopoDS_Shape &element) {
     case TopAbs_VERTEX:
       return vertex_element(TopoDS::Vertex(element));
     default:
-      raise_invalid_input("Only faces, edges and vertices can be queried.");
+      raise_not_an_element();
   }
 }
 
@@ -533,9 +533,7 @@ gp_Dir normal_at_edge(const TopoDS_Face &face, const TopoDS_Edge &edge, double m
 EdgeNormalsData shape_edge_normals(const Shape &shape, std::uint32_t edge_index) {
   const TopoDS_Edge &edge = TopoDS::Edge(element_at(shape, ElementKind::Edge, edge_index));
   const std::string name = "Edge " + std::to_string(edge_index);
-  if (BRep_Tool::Degenerated(edge)) {
-    raise_invalid_input(name + " is a degenerated edge, so it has no middle point.");
-  }
+  require_not_degenerated(edge, edge_index, "middle point");
   const BRepAdaptor_Curve curve(edge);
   const double middle = middle_parameter(curve);
   gp_Pnt point;
@@ -595,8 +593,9 @@ std::vector<gp_Pnt> width_samples(const TopoDS_Face &face) {
   TopTools_IndexedMapOfShape edges;
   TopExp::MapShapes(face, TopAbs_EDGE, edges);
   for (int edge = 1; edge <= edges.Extent(); ++edge) {
-    if (!BRep_Tool::Degenerated(TopoDS::Edge(edges(edge)))) {
-      const BRepAdaptor_Curve curve(TopoDS::Edge(edges(edge)));
+    const TopoDS_Edge &edge_shape = TopoDS::Edge(edges(edge));
+    if (!BRep_Tool::Degenerated(edge_shape)) {
+      const BRepAdaptor_Curve curve(edge_shape);
       samples.push_back(curve.Value(middle_parameter(curve)));
     }
   }
@@ -625,7 +624,7 @@ std::vector<gp_Pnt> width_samples(const TopoDS_Face &face) {
 double shape_width_across(const Shape &shape, std::uint32_t face_index, std::uint32_t edge_index) {
   const TopoDS_Face &face = TopoDS::Face(element_at(shape, ElementKind::Face, face_index));
   const TopoDS_Edge &edge = TopoDS::Edge(element_at(shape, ElementKind::Edge, edge_index));
-  require_curve(edge, edge_index);
+  require_not_degenerated(edge, edge_index, "curve to measure or draw");
   // The edge is loaded once; each sample is a vertex measured to it (kernel spec section 3.6,
   // item 7.3).
   BRepExtrema_DistShapeShape distance;

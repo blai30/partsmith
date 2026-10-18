@@ -1,7 +1,9 @@
 //! Bare numbers and promoted names: what keeps a size when the document units change
 //! (expressions.md sections 3.17 and 3.19).
 
-use super::{BinaryOperator, Expr, ExprNode, ExprNodeKind, Function, ParsedExpr, Unit};
+use std::collections::BTreeSet;
+
+use super::{BinaryOperator, Expr, ExprError, ExprNode, ExprNodeKind, Function, ParsedExpr, Unit};
 
 impl ParsedExpr {
     /// For a bare number, the byte offset in `source` just after its number literal; `None` for
@@ -15,6 +17,20 @@ impl ParsedExpr {
         plain_literal(&self.root).map(|number| number.span.end)
     }
 
+    /// Each parameter name of the tree once, in first-use order, with true when every occurrence
+    /// of it stands in a promoting position (expressions.md section 3.19).
+    pub(crate) fn promotions(&self) -> Vec<(&str, bool)> {
+        let mut promotions: Vec<(&str, bool)> = Vec::new();
+        self.visit_parameters(&mut |name, promoting| match promotions
+            .iter_mut()
+            .find(|(seen, _)| *seen == name)
+        {
+            Some((_, promoted)) => *promoted &= promoting,
+            None => promotions.push((name, promoting)),
+        });
+        promotions
+    }
+
     /// Calls `visit` with every occurrence of a parameter name, in source order, and whether it
     /// stands in a promoting position (expressions.md section 3.19).
     pub(crate) fn visit_parameters<'tree>(&'tree self, visit: &mut impl FnMut(&'tree str, bool)) {
@@ -23,6 +39,31 @@ impl ParsedExpr {
 }
 
 impl Expr {
+    /// True when the expression is a number without a unit, optionally negated (expressions.md section 3.17).
+    pub fn is_bare_number(&self) -> bool {
+        self.parse()
+            .is_ok_and(|tree| tree.bare_number_end(self.as_str()).is_some())
+    }
+
+    /// For a bare number, the same text with `unit` written after the number; `None` otherwise
+    /// (expressions.md section 3.17).
+    pub fn with_unit(&self, unit: Unit) -> Option<Expr> {
+        let end = self.parse().ok()?.bare_number_end(self.as_str())?;
+        Some(self.with_unit_at(end, unit))
+    }
+
+    /// The parameter names every occurrence of which stands where a plain value is promoted as a
+    /// whole (expressions.md section 3.19).
+    pub fn promoted_names(&self) -> Result<BTreeSet<String>, ExprError> {
+        Ok(self
+            .parse()?
+            .promotions()
+            .into_iter()
+            .filter(|&(_, promoted)| promoted)
+            .map(|(name, _)| name.to_string())
+            .collect())
+    }
+
     /// `self` with a space and `unit`'s symbol inserted at byte offset `end`, the end of its
     /// number literal (`ParsedExpr::bare_number_end`).
     pub(crate) fn with_unit_at(&self, end: usize, unit: Unit) -> Expr {

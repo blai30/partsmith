@@ -194,8 +194,8 @@ impl<'a> Problem<'a> {
 pub(crate) enum Outcome {
     /// Every row holds within `SOLVER_TOLERANCE` at these variable values.
     Converged(Vec<f64>),
-    /// Neither method converged; these are the variable values where Levenberg-Marquardt stopped.
-    Failed(Vec<f64>),
+    /// Neither method converged.
+    Failed,
 }
 
 /// Runs dog-leg from `start`, then Levenberg-Marquardt from `start` again when dog-leg does not converge.
@@ -204,8 +204,8 @@ pub(crate) fn solve(problem: &mut Problem<'_>, start: &[f64]) -> Outcome {
     let (solution, evaluation) = match dog_leg(problem, start) {
         Some(converged) => converged,
         None => match levenberg_marquardt(problem, start) {
-            Ok(converged) => converged,
-            Err(end) => return Outcome::Failed(end),
+            Some(converged) => converged,
+            None => return Outcome::Failed,
         },
     };
     Outcome::Converged(refine(problem, solution, evaluation))
@@ -316,19 +316,16 @@ fn blend(steepest: &[f64], gauss_newton: &[f64], radius: f64) -> Vec<f64> {
         .collect()
 }
 
-/// Levenberg-Marquardt: the converged point with its evaluation, or `Err` with the point where it
-/// stopped without converging.
+/// Levenberg-Marquardt: the converged point with its evaluation, or `None` when it stops without
+/// converging.
 ///
 /// Like dog-leg, it tries a step at most `MIN_RELATIVE_STEP` long before it stops.
-fn levenberg_marquardt(
-    problem: &mut Problem<'_>,
-    start: &[f64],
-) -> Result<(Vec<f64>, Evaluation), Vec<f64>> {
+fn levenberg_marquardt(problem: &mut Problem<'_>, start: &[f64]) -> Option<(Vec<f64>, Evaluation)> {
     let variable_count = start.len();
     let mut variables = start.to_vec();
     let mut current = problem.evaluate(&variables);
     if current.converged() {
-        return Ok((variables, current));
+        return Some((variables, current));
     }
     let mut diagonal = vec![0.0; variable_count];
     for row in current.rows() {
@@ -338,7 +335,7 @@ fn levenberg_marquardt(
     }
     let mut damping = 1e-3 * diagonal.iter().copied().fold(0.0, f64::max);
     if damping == 0.0 {
-        return Err(variables);
+        return None;
     }
     let mut growth = 2.0;
     for _ in 0..MAX_ITERATIONS {
@@ -361,7 +358,7 @@ fn levenberg_marquardt(
             variables = candidate;
             current = trial;
             if current.converged() {
-                return Ok((variables, current));
+                return Some((variables, current));
             }
             damping *= (1.0 - (2.0 * rho - 1.0).powi(3)).max(1.0 / 3.0);
             growth = 2.0;
@@ -370,10 +367,10 @@ fn levenberg_marquardt(
             growth *= 2.0;
         }
         if stalled {
-            return Err(variables);
+            return None;
         }
     }
-    Err(variables)
+    None
 }
 
 /// Takes minimum-norm Gauss-Newton steps from a converged point while they lower its largest residual,

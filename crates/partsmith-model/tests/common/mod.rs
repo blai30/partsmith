@@ -6,9 +6,9 @@
 use std::collections::BTreeMap;
 
 use partsmith_model::{
-    Body, Document, Expr, ExprError, ExprErrorKind, ExprLink, FORMAT_VERSION, FeatureInspector,
-    FeatureLinks, FeatureRecord, FieldUnit, Id, Parameter, ParameterValues, Quantity, Scope, Span,
-    Units, load, save,
+    Body, Document, EmptyContext, EvaluationContext, Expr, ExprError, ExprErrorKind, ExprLink,
+    FORMAT_VERSION, FeatureInspector, FeatureLinks, FeatureRecord, FieldUnit, Id, Parameter,
+    ParameterValues, Quantity, Scope, Span, Units, load, save,
 };
 use serde_json::{Map, Value};
 
@@ -246,6 +246,37 @@ pub fn scope_document(units: Units) -> Document {
         Parameter::new(id("p-bad"), "bad", "1 / 0"),
     ];
     document
+}
+
+/// A document in `units` with one parameter per `(name, expression)` pair, in order; ids are `p-<name>`.
+pub fn document_with(units: Units, parameters: &[(&str, &str)]) -> Document {
+    let mut document = Document::new(units);
+    document.parameters = parameters
+        .iter()
+        .map(|(name, source)| Parameter::new(id(&format!("p-{name}")), *name, *source))
+        .collect();
+    document
+}
+
+/// Evaluates the parameters of a millimeter document with the given context.
+pub fn evaluate_with(
+    parameters: &[(&str, &str)],
+    context: &dyn EvaluationContext,
+) -> ParameterValues {
+    document_with(Units::Mm, parameters).evaluate_parameters(context)
+}
+
+/// Evaluates the parameters of a millimeter document with no dotted names.
+pub fn evaluate(parameters: &[(&str, &str)]) -> ParameterValues {
+    evaluate_with(parameters, &EmptyContext)
+}
+
+/// The result for `name`, which must be present.
+pub fn result_of(values: &ParameterValues, name: &str) -> Result<Quantity, ExprError> {
+    values
+        .get(name)
+        .cloned()
+        .unwrap_or_else(|| panic!("no result for {name}"))
 }
 
 /// The evaluation context of scope S: `printer.fit.slip` is 0.2 mm and `printer.nozzle` is 0.4 mm.
