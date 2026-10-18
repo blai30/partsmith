@@ -427,6 +427,27 @@ fn t012_smooth_edge_skipped() {
     assert_unchanged(&run, "f-fil2", "b-1");
 }
 
+#[test]
+fn t012_a_smooth_edge_that_two_entries_select_is_not_removed() {
+    // Removing one entry would leave the other selecting the smooth edge, so the warning is on the whole list
+    // (features.md section 4.2).
+    let smooth = r#"{"q": "edge(f-box1/front|f-fil1/fillet/edge(f-box1/front|f-box1/left))", "fp": "line|n=0,0,1|c=-12,-10,5|l=10"}"#;
+    let second_fillet = format!(
+        r#"{{"id": "f-fil2", "type": "fillet", "body": "b-1", "edges": [{smooth}, {smooth}], "radius": "1"}}"#
+    );
+    let run = Run::records(&["b-1"], &[ROUNDED_BOX[0], ROUNDED_BOX[1], &second_fillet]);
+
+    run.assert_warnings("f-fil2", &["ignored", "no_effect"]);
+    let ignored = run.warning("f-fil2", "ignored");
+    assert_skipped_as_smooth(ignored);
+    assert_eq!(
+        ignored.field().map(|field| field.path.as_str()),
+        Some("edges")
+    );
+    assert_eq!(message(&run, "f-fil2", "ignored").fixes, []);
+    assert_unchanged(&run, "f-fil2", "b-1");
+}
+
 /// The 30 x 20 x 10 box of tests 11 and 12 with its four vertical edges rounded at 3 mm by `f-fil1`, so the top loop
 /// is one tangent chain.
 const ROUNDED_BOX: [&str; 2] = [
@@ -689,6 +710,26 @@ fn t020_the_edge_that_limits_it_can_be_removed_when_the_others_work() {
     assert_eq!(
         message(&run, "f-fil1", "fillet_too_large").fixes,
         [use_radius("2.3 mm"), remove_entry("/edges/0")]
+    );
+}
+
+#[test]
+fn t020_an_edge_that_two_entries_select_is_not_removable() {
+    // Removing `edges[0]` would leave `edges[1]` selecting the riser's edge, so the fillet would fail again
+    // (features.md section 4.3).
+    let run = step_run(&[RISER_EDGE, RISER_EDGE, BOTTOM_LEFT_EDGE], "3");
+
+    let error = run.assert_error("f-fil1", "fillet_too_large");
+    assert_limiting_face(
+        error,
+        0,
+        "edge(f-box1/top|f-box2/left)",
+        "f-box2/left",
+        false,
+    );
+    assert_eq!(
+        message(&run, "f-fil1", "fillet_too_large").fixes,
+        [use_radius("2.3 mm")]
     );
 }
 

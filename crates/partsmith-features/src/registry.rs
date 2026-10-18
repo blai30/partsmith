@@ -141,6 +141,7 @@ impl Registry {
                 near_matches(
                     &canonical.unknown_keys,
                     &registered.known_keys,
+                    &record.params,
                     feature.manifest(),
                 )
             });
@@ -246,11 +247,13 @@ impl Registry {
     }
 }
 
-/// For each unknown key within `SUGGESTION_DISTANCE` of exactly one known top-level key, the key and that known field,
-/// in the order of `unknown` (section 3.2).
+/// For each unknown key within `SUGGESTION_DISTANCE` of exactly one known top-level key that `params` does not set,
+/// the key and that known field, in the order of `unknown` (section 3.2). Renaming onto a key that is set would
+/// overwrite the user's value, so such a key gets no suggestion.
 fn near_matches(
     unknown: &[String],
     known: &[String],
+    params: &Map<String, Value>,
     manifest: &FeatureManifest,
 ) -> Vec<(String, FieldRef)> {
     unknown
@@ -260,8 +263,7 @@ fn near_matches(
                 .iter()
                 .filter(|known| edit_distance(key, known) <= SUGGESTION_DISTANCE);
             let only = near.next()?;
-            near.next()
-                .is_none()
+            (near.next().is_none() && !params.contains_key(only))
                 .then(|| (key.clone(), FieldRef::new(only, manifest)))
         })
         .collect()

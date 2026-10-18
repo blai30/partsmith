@@ -526,6 +526,16 @@ fn shell_with(extra: &[(&str, Value)]) -> FeatureRecord {
     shell
 }
 
+/// A shell record on b-1 with `extra` in place of `remove_faces`, as when a typo replaced that key (features.md
+/// section 6.5 test 8).
+fn misspelled_shell(extra: &[(&str, Value)]) -> FeatureRecord {
+    let mut shell = record(json!({"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2"}));
+    for (key, value) in extra {
+        shell.params.insert((*key).to_string(), value.clone());
+    }
+    shell
+}
+
 /// The field `remove_faces` of the shell manifest.
 fn faces_to_remove() -> FieldRef {
     field("remove_faces", "Faces to remove")
@@ -535,13 +545,24 @@ fn faces_to_remove() -> FieldRef {
 fn an_unknown_key_that_nearly_matches_one_setting_suggests_it() {
     let registry = Registry::with_builtins();
 
-    let validated = canonical(&registry, &shell_with(&[("remove_face", json!([]))]));
+    let validated = canonical(&registry, &misspelled_shell(&[("remove_face", json!([]))]));
 
     assert_eq!(validated.unknown_keys, ["remove_face"]);
     assert_eq!(
         validated.suggestions,
         [("remove_face".to_string(), faces_to_remove())]
     );
+}
+
+#[test]
+fn a_near_match_the_record_sets_as_well_is_not_suggested() {
+    // Renaming 'remove_face' would overwrite the faces 'remove_faces' already holds (section 3.2).
+    let registry = Registry::with_builtins();
+
+    let validated = canonical(&registry, &shell_with(&[("remove_face", json!([]))]));
+
+    assert_eq!(validated.unknown_keys, ["remove_face"]);
+    assert_eq!(validated.suggestions, []);
 }
 
 #[test]
@@ -560,7 +581,7 @@ fn suggestions_follow_the_order_of_the_unknown_keys() {
 
     let validated = canonical(
         &registry,
-        &shell_with(&[("zzz", json!(1)), ("remove_face", json!([]))]),
+        &misspelled_shell(&[("zzz", json!(1)), ("remove_face", json!([]))]),
     );
 
     assert_eq!(validated.unknown_keys, ["zzz", "remove_face"]);
@@ -582,6 +603,22 @@ fn an_unknown_key_near_two_settings_suggests_neither() {
     let validated = canonical(&registry, &torus);
 
     assert_eq!(validated.unknown_keys, ["maor_radius"]);
+    assert_eq!(validated.suggestions, []);
+}
+
+#[test]
+fn an_unknown_key_near_a_setting_the_record_already_sets_suggests_nothing() {
+    // Renaming 'raduis' to 'radius' would replace the radius 2 with 5, more than Rename says (section 3.2).
+    let registry = Registry::with_builtins();
+    let fillet = record(json!({
+        "id": "f-fil1", "type": "fillet", "body": "b-1",
+        "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}],
+        "radius": "2", "raduis": "5"
+    }));
+
+    let validated = canonical(&registry, &fillet);
+
+    assert_eq!(validated.unknown_keys, ["raduis"]);
     assert_eq!(validated.suggestions, []);
 }
 

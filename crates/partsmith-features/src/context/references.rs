@@ -131,13 +131,15 @@ impl Resolved {
         Resolved {
             elements: Vec::new(),
             sources: Vec::new(),
+            all_sources: Vec::new(),
             warnings: Vec::new(),
             notices: Vec::new(),
         }
     }
 
     /// The result of a field's entries, in entry order: their elements without duplicates, each with the first entry
-    /// that resolved to it, and their warnings and notices, a lost entry's as its `ReferenceLost` warning.
+    /// that resolved to it and every such entry, and their warnings and notices, a lost entry's as its
+    /// `ReferenceLost` warning.
     pub(super) fn of_entries(outcomes: Vec<Outcome>) -> Resolved {
         let mut resolved = Resolved::empty();
         for outcome in outcomes {
@@ -157,12 +159,22 @@ impl Resolved {
         resolved
     }
 
-    /// Adds each element that is not in yet, with the position of the entry it was resolved from.
+    /// Adds each element that is not in yet, with the position of the entry it was resolved from, and that position
+    /// to the entries of an element that is.
     fn add_elements(&mut self, elements: impl IntoIterator<Item = (SubShape, usize)>) {
         for (element, source) in elements {
-            if !self.elements.contains(&element) {
-                self.elements.push(element);
-                self.sources.push(source);
+            match self.elements.iter().position(|known| *known == element) {
+                Some(index) => {
+                    let entries = &mut self.all_sources[index];
+                    if !entries.contains(&source) {
+                        entries.push(source);
+                    }
+                }
+                None => {
+                    self.elements.push(element);
+                    self.sources.push(source);
+                    self.all_sources.push(vec![source]);
+                }
             }
         }
     }

@@ -8,7 +8,7 @@ use partsmith_sketch::{DimensionValues, RegionLoss, RegionRef, SolveIssue};
 
 use super::body_rules;
 use super::describe::{made_from_line, new_faces_are_flat, rim_generator};
-use super::field::FieldRef;
+use super::field::{FieldRef, is_list_entry};
 use super::fix::Fix;
 use super::loss::{Loss, LossCandidate, Repair, Severity};
 use super::message::{FallbackCause, IgnoredReason, NoEffectHow, Placed, plural};
@@ -190,6 +190,9 @@ pub enum FeatureWarning {
         body: Id,
         /// The number of separate pieces the body has now.
         pieces: usize,
+        /// True when part of the tools joined the body and only the rest lies apart from it, so neither a new body
+        /// nor Attach is offered.
+        part_joined: bool,
         /// The sketch and the face of the body the attach rule found for it, for the `Attach` fix.
         attach: Option<(Id, Reference)>,
     },
@@ -365,9 +368,12 @@ impl FeatureWarning {
             FeatureWarning::NoEffect { body, how, .. } => {
                 body_rules::no_effect_text(renderer, body, how)
             }
-            FeatureWarning::SeparateSolid { body, pieces, .. } => {
-                body_rules::separate_solid_text(renderer, body, *pieces)
-            }
+            FeatureWarning::SeparateSolid {
+                body,
+                pieces,
+                part_joined,
+                ..
+            } => body_rules::separate_solid_text(renderer, body, *pieces, *part_joined),
             FeatureWarning::ClosedVoid { body } => format!(
                 "{} closes a hollow inside {}, which will print as a sealed cavity. Check the order of the features if that is not intended.",
                 renderer.this_title(),
@@ -552,9 +558,12 @@ impl FeatureWarning {
                 reverse_hits,
                 attach,
             } => body_rules::no_effect_fixes(&renderer, body, how, *reverse_hits, attach.as_ref()),
-            FeatureWarning::SeparateSolid { body, attach, .. } => {
-                body_rules::separate_solid_fixes(body, attach.as_ref())
-            }
+            FeatureWarning::SeparateSolid {
+                body,
+                part_joined,
+                attach,
+                ..
+            } => body_rules::separate_solid_fixes(body, *part_joined, attach.as_ref()),
             FeatureWarning::HoleMissesBody { reverse_hits, .. } => {
                 body_rules::hole_misses_fixes(&renderer, *reverse_hits)
             }
@@ -562,12 +571,12 @@ impl FeatureWarning {
                 Fix::RemoveEntry { pointer: pointer() },
                 Fix::pick(pointer()),
             ],
-            // Only an entry the reference resolved to alone is removed: a reference that also names other edges
-            // is the whole field, which the fix would empty (section 4.2).
+            // Only an entry the reference resolved to alone is removed: a reference that also names other edges,
+            // or an edge another entry selects too, is the whole field, which the fix would empty (section 4.2).
             FeatureWarning::Ignored {
                 field,
                 reason: IgnoredReason::SmoothEdge,
-            } if field.path.ends_with(']') => vec![Fix::RemoveEntry { pointer: pointer() }],
+            } if is_list_entry(&field.path) => vec![Fix::RemoveEntry { pointer: pointer() }],
             FeatureWarning::UnknownParams { suggestions, .. } => suggestions
                 .iter()
                 .map(|(key, field)| Fix::RenameKey {

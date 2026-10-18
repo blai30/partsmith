@@ -1585,6 +1585,143 @@ fn t054_attaching_the_floating_sketch_to_the_top_joins_the_boss() {
     assert_bounding_box(shape, [0.0, 0.0, 0.0], [80.0, 50.0, 45.0]);
 }
 
+/// The datum `f-dp1` at z = 30, in the plane of the top of `BLOCK`.
+const DATUM_ON_THE_TOP: &str = r#"{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "30"}"#;
+
+/// "Turn off Reverse": `SetField` of `reverse` to false (engine.md section 3.22 labels it).
+fn turn_off_reverse() -> Fix {
+    set_field("reverse", "Reverse", serde_json::json!(false))
+}
+
+#[test]
+fn t058_a_reversed_join_from_the_top_offers_to_turn_reverse_off() {
+    let sketch = small_circle_sketch(ON_THE_DATUM);
+    let boss = small_circle_extrude(&reversed_distance("10"), "join");
+    let run = on_block(&[DATUM_ON_THE_TOP, &sketch, &boss]);
+
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    assert_eq!(no_effect_how(&run), NoEffectHow::Inside);
+    assert_eq!(
+        run.messages("f-ext2"),
+        ["This extrude adds nothing to body 'Body 1': it lies entirely inside the body."]
+    );
+    // Attached to the bottom, the sketch would face down and the reversed sweep would run up into the body again, so
+    // only turning Reverse off helps (features.md section 3.15).
+    assert_eq!(
+        message(&run, "f-ext2", "no_effect").fixes,
+        [turn_off_reverse()]
+    );
+    assert_volume(run.shape("b-1"), 120000.0);
+    assert_messages_pass_lint(&run, "f-ext2");
+}
+
+#[test]
+fn t058_turning_reverse_off_stands_the_boss_on_the_top() {
+    let sketch = small_circle_sketch(ON_THE_DATUM);
+    let boss = small_circle_extrude(&distance("10"), "join");
+    let run = on_block(&[DATUM_ON_THE_TOP, &sketch, &boss]);
+
+    run.assert_all_quiet();
+    assert_volume(run.shape("b-1"), 120785.398163);
+    assert_bounding_box(run.shape("b-1"), [0.0, 0.0, 0.0], [80.0, 50.0, 40.0]);
+}
+
+#[test]
+fn t058_a_reversed_join_inside_either_way_offers_nothing() {
+    // The datum at z = 20: reversed the boss spans z 10..20, the other way z 20..30, inside the body both times.
+    let datum = r#"{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "20"}"#;
+    let sketch = small_circle_sketch(ON_THE_DATUM);
+    let boss = small_circle_extrude(&reversed_distance("10"), "join");
+    let run = on_block(&[datum, &sketch, &boss]);
+
+    run.assert_warnings("f-ext2", &["no_effect"]);
+    assert_eq!(no_effect_how(&run), NoEffectHow::Inside);
+    assert_eq!(message(&run, "f-ext2", "no_effect").fixes, []);
+}
+
+#[test]
+fn t059_a_join_beside_the_body_in_the_plane_of_its_top_offers_only_a_new_body() {
+    // The sketch lies in the plane of the top already, so attaching it there would change nothing.
+    let sketch = r#"{"id": "f-sk2", "type": "sketch", "plane": {"kind": "datum", "feature": "f-dp1"}, "entities": [{"id": "e-5", "type": "circle", "center": [100, 25], "radius": 5}]}"#;
+    let boss = r#"{"id": "f-ext2", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk2", "regions": [{"key": "e-5", "fp": "c=100,25|a=78.539816"}]}, "extent": {"kind": "distance", "expr": "10"}, "op": "join"}"#;
+    let run = on_block(&[DATUM_ON_THE_TOP, sketch, boss]);
+
+    run.assert_warnings("f-ext2", &["separate_solid"]);
+    assert_eq!(
+        run.messages("f-ext2"),
+        ["This extrude does not touch body 'Body 1', so the body now has 2 separate pieces."]
+    );
+    assert_eq!(
+        message(&run, "f-ext2", "separate_solid").fixes,
+        [Fix::NewBody]
+    );
+    assert_solid_count(run.shape("b-1"), 2);
+}
+
+#[test]
+fn t060_a_join_of_which_only_part_floats_says_so_and_offers_no_fix() {
+    // The boss at (40, 25) stands on the top and the one at (100, 25) beside the body: a new body would take the
+    // boss that joined along (features.md section 3.15).
+    let sketch = format!(
+        r#"{{"id": "f-sk2", "type": "sketch", "plane": {ON_THE_DATUM}, "entities": [{SMALL_CIRCLE}, {{"id": "e-6", "type": "circle", "center": [100, 25], "radius": 5}}]}}"#
+    );
+    let bosses = r#"{"id": "f-ext2", "type": "extrude", "body": "b-1", "profile": {"sketch": "f-sk2", "regions": [{"key": "e-5", "fp": "c=40,25|a=78.539816"}, {"key": "e-6", "fp": "c=100,25|a=78.539816"}]}, "extent": {"kind": "distance", "expr": "10"}, "op": "join"}"#;
+    let run = on_block(&[DATUM_ON_THE_TOP, &sketch, bosses]);
+
+    run.assert_warnings("f-ext2", &["separate_solid"]);
+    let warning = run.warning("f-ext2", "separate_solid");
+    assert!(
+        matches!(
+            warning,
+            FeatureWarning::SeparateSolid {
+                pieces: 2,
+                part_joined: true,
+                attach: None,
+                ..
+            }
+        ),
+        "{warning:?}"
+    );
+    assert_eq!(
+        run.messages("f-ext2"),
+        [
+            "Part of this extrude does not touch body 'Body 1', so the body now has 2 separate pieces."
+        ]
+    );
+    assert_eq!(message(&run, "f-ext2", "separate_solid").fixes, []);
+    assert_solid_count(run.shape("b-1"), 2);
+    assert_volume(run.shape("b-1"), 121570.796327);
+    assert_messages_pass_lint(&run, "f-ext2");
+}
+
+#[test]
+fn t061_through_all_with_op_new_on_a_body_that_holds_a_solid() {
+    let run = Run::records(
+        &["b-1"],
+        &[
+            BOX_BELOW,
+            RECTANGLE_SKETCH,
+            &extrude(RECTANGLE_PROFILE, THROUGH_ALL, "new"),
+        ],
+    );
+
+    run.assert_error("f-ext1", "body_not_empty");
+    assert_eq!(
+        run.messages("f-ext1"),
+        [
+            "Body 'Body 1' already has a solid here, so Operation New body cannot start it. Set Operation to Join, or put this extrude in a new body."
+        ]
+    );
+    assert_eq!(
+        message(&run, "f-ext1", "body_not_empty").fixes,
+        [
+            set_field("op", "Operation", serde_json::json!("join")),
+            Fix::NewBody
+        ]
+    );
+    assert_volume(run.shape("b-1"), 16000.0);
+}
+
 #[test]
 fn t055_distance_beyond_the_modeling_limit() {
     let run = run_rectangle(&distance("1e200"));

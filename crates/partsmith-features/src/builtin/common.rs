@@ -12,14 +12,15 @@ use partsmith_naming::{
 };
 use partsmith_occt_sys::{
     KernelError, PlanarProfile, Point, Primitive, PrimitiveFace, Shape, SweepFace, SweepResult,
-    Transform, Vector, compound,
+    Transform, Vector, common, compound,
 };
 use partsmith_sketch::{RegionRef, Succession};
 
 use crate::context::{BodyState, BuildContext, MODEL_LIMIT, ResolvedProfile};
 use crate::error::{Bound, FeatureError, FeatureWarning, FieldRef, NoEffectHow, Noun};
 use crate::output::{
-    BodyChange, BodyUpdate, FeatureOutput, OutputData, Tool, apply_op, reverse_hits,
+    BodyChange, BodyUpdate, FeatureOutput, OutputData, Tool, VOLUME_TOLERANCE, apply_op,
+    reverse_hits,
 };
 use crate::params::{BodyOp, CopyOp, ProfileRef};
 use crate::python::{PythonCall, PythonNames, PythonValue};
@@ -408,26 +409,57 @@ pub(crate) fn apply_tool(
 }
 
 /// The body rules' warnings with `reverse_hits` set on a `NoEffect` whose tools miss the body (`Away`, `Short`,
-/// `Beside`): `reversed` builds the tools the other way round, only on this warning path, and `reverse_hits` checks
-/// that they reach it (features.md section 3.15).
+/// `Beside`), and with `inside_too` on one of a join inside it (`Inside`, for an extrude whose Reverse is on):
+/// `reversed` builds the tools the other way round, only on this warning path, and `reverse_hits` checks that they
+/// reach the body, `adds_volume` that they add to it (features.md section 3.15).
 pub(crate) fn reverse_checked(
     context: &BuildContext<'_>,
     body: &Id,
     mut warnings: Vec<FeatureWarning>,
+    inside_too: bool,
     reversed: impl FnOnce() -> Result<Vec<Tool>, FeatureError>,
 ) -> Result<Vec<FeatureWarning>, FeatureError> {
-    let missed = warnings.iter_mut().find_map(|warning| match warning {
+    let unchanged = warnings.iter_mut().find_map(|warning| match warning {
         FeatureWarning::NoEffect {
             how: NoEffectHow::Away { .. } | NoEffectHow::Short { .. } | NoEffectHow::Beside,
             reverse_hits,
             ..
-        } => Some(reverse_hits),
+        } => Some((reverse_hits, false)),
+        FeatureWarning::NoEffect {
+            how: NoEffectHow::Inside,
+            reverse_hits,
+            ..
+        } if inside_too => Some((reverse_hits, true)),
         _ => None,
     });
-    if let Some(hits) = missed {
-        *hits = reverse_hits(context, body, &reversed()?)?;
+    if let Some((hits, inside)) = unchanged {
+        let tools = reversed()?;
+        *hits = if inside {
+            adds_volume(context, body, &tools)?
+        } else {
+            reverse_hits(context, body, &tools)?
+        };
     }
     Ok(warnings)
+}
+
+/// True when the tools add more than `VOLUME_TOLERANCE` times the body's volume to it: a tool's volume less what it
+/// shares with the body (one kernel `common` per tool until one adds some), for Turn off Reverse on a join that lies
+/// inside the body (features.md section 3.15).
+fn adds_volume(context: &BuildContext<'_>, body: &Id, tools: &[Tool]) -> Result<bool, FeatureError> {
+    let state = context.body(body)?;
+    let Some(target) = state.shape() else {
+        return Ok(false);
+    };
+    let volume = state.volume()?;
+    for tool in tools {
+        check_canceled(context)?;
+        let shared = common(target, std::slice::from_ref(&tool.shape))?.shape.volume()?;
+        if tool.shape.volume()? - shared > VOLUME_TOLERANCE * volume {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// One solid as it is, several grouped in order into one compound (kernel `compound`).

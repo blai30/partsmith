@@ -135,7 +135,7 @@ impl Feature for Revolve {
             apply_op(context, &params.body, params.op, vec![tool], None)?;
         // A full turn ignores Reverse, so it has none to offer.
         if turn != Turn::Full {
-            op_warnings = reverse_checked(context, &params.body, op_warnings, || {
+            op_warnings = reverse_checked(context, &params.body, op_warnings, false, || {
                 let back = turn.sweep_angle(!params.reverse);
                 Ok(vec![swept_tool(context, &profile, |faces| {
                     revolve(faces, &axis, back)

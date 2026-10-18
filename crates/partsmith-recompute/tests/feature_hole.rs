@@ -246,6 +246,32 @@ fn t007_turning_on_reverse_drills_the_hole_that_reaches_the_body() {
 }
 
 #[test]
+fn t007_reverse_is_not_offered_when_another_point_reaches_the_body() {
+    // A box below the sketch plane under e-p1 and one above it at e-p3: drilled down, e-p1 reaches the body and e-p3
+    // misses, and Reverse would turn both, so e-p1 would miss instead (features/hole.md section 3.3 step 5).
+    let box_above_e_p3 = r#"{"id": "f-box2", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "position": ["100", "0", "0"], "op": "join"}"#;
+    let run = Run::records(
+        &["b-1"],
+        &[
+            BOX_BELOW,
+            box_above_e_p3,
+            POINTS_SKETCH,
+            &hole(r#"["e-p1", "e-p3"]"#, THROUGH_ALL),
+        ],
+    );
+
+    run.assert_warnings("f-hole1", &["hole_misses_body"]);
+    assert_eq!(
+        run.messages("f-hole1"),
+        [
+            "The hole at (100, 0) in 'Sketch 1' does not touch body 'Body 1'. Move the point onto the body."
+        ],
+    );
+    assert_eq!(message(&run, "f-hole1", "hole_misses_body").fixes, []);
+    assert_volume(run.shape("b-1"), 16717.256661);
+}
+
+#[test]
 fn t008_every_point_off_the_body() {
     let run = Run::example("hole/all-points-off-body.ptsm");
 

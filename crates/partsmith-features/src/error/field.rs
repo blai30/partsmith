@@ -96,6 +96,11 @@ pub(crate) fn segments(path: &str) -> Option<Vec<Segment<'_>>> {
     Some(steps)
 }
 
+/// True when `path` names one entry of a list, such as `edges[1]`.
+pub(crate) fn is_list_entry(path: &str) -> bool {
+    segments(path).is_some_and(|steps| matches!(steps.last(), Some(Segment::Index(_))))
+}
+
 /// The JSON Pointer of a field path: `.name` and `[index]` become `/name` and `/index`, with `~`
 /// and `/` inside names escaped as RFC 6901 requires. The empty path is the empty pointer.
 pub(crate) fn pointer(path: &str) -> String {
@@ -160,6 +165,15 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn only_a_path_ending_in_an_index_is_a_list_entry() {
+        assert!(is_list_entry("edges[1]"));
+        assert!(is_list_entry("profile.regions[0]"));
+        assert!(!is_list_entry("edges"));
+        assert!(!is_list_entry("constraints[2].expr"));
+        assert!(!is_list_entry("edges[*]"));
     }
 
     #[test]

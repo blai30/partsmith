@@ -419,11 +419,12 @@ fn a_cut_whose_sketch_turned_over_changes_nothing_in_the_body() {
     );
 }
 
-/// `SeparateSolid` on `b-1` with 2 pieces and the attach face of `f-sk2`, when given.
+/// `SeparateSolid` on `b-1` with 2 pieces, none of its tools joined, and the attach face of `f-sk2`, when given.
 fn separate_solid(attach: Option<Reference>) -> FeatureWarning {
     FeatureWarning::SeparateSolid {
         body: id("b-1"),
         pieces: 2,
+        part_joined: false,
         attach: attach.map(|face| (id("f-sk2"), face)),
     }
 }
@@ -442,6 +443,46 @@ fn a_join_that_floats_says_the_body_now_has_separate_pieces() {
         fixes_of(&warning, "f-ext2"),
         [Fix::NewBody, attach_sketch_2(block_top())]
     );
+}
+
+#[test]
+fn a_join_of_which_only_part_floats_says_so_and_offers_no_fix() {
+    let warning = FeatureWarning::SeparateSolid {
+        body: id("b-1"),
+        pieces: 2,
+        part_joined: true,
+        attach: None,
+    };
+
+    assert_eq!(
+        rendered(&warning, "f-ext2"),
+        "Part of this extrude does not touch body 'Body 1', so the body now has 2 separate pieces."
+    );
+    // A new body would take the part that joined along (section 3.15).
+    assert_eq!(fixes_of(&warning, "f-ext2"), []);
+}
+
+#[test]
+fn a_join_inside_the_body_that_comes_out_the_other_way_offers_reverse() {
+    // A reversed extrude from the body's top runs into it, and with Reverse off it stands on the top (section 3.15).
+    // These names hold no record, so the fix sets Reverse to the other value than false; the extrude document tests
+    // turn it off.
+    let warning = FeatureWarning::NoEffect {
+        body: id("b-1"),
+        how: NoEffectHow::Inside,
+        reverse_hits: true,
+        attach: None,
+    };
+
+    assert_eq!(
+        rendered(&warning, "f-ext2"),
+        "This extrude adds nothing to body 'Body 1': it lies entirely inside the body."
+    );
+    let [Fix::SetField { field, value, .. }] = &fixes_of(&warning, "f-ext2")[..] else {
+        panic!("expected one SetField fix of Reverse");
+    };
+    assert_eq!(field.path, "reverse");
+    assert_eq!(*value, serde_json::json!(true));
 }
 
 #[test]

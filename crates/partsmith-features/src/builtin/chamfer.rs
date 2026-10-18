@@ -467,6 +467,7 @@ mod tests {
                 index: edge,
                 faces,
                 source: 0,
+                entries: vec![0],
             },
             index("f-box1/front"),
         )
@@ -629,6 +630,7 @@ mod tests {
             index: 1,
             faces: vec![99],
             source: 0,
+            entries: vec![0],
         };
 
         let error = first_face(&cube_state(&cube), &edge, &reference(FRONT_TOP))
@@ -643,7 +645,11 @@ mod tests {
         let state = cube_state(&cube);
         let fixture = crate::test_support::Fixture::new("f-cha1").with_body("b-1", state.clone());
         let (edge, _) = front_top_edge(&cube);
-        let edge = SelectedEdge { source: 1, ..edge };
+        let edge = SelectedEdge {
+            source: 1,
+            entries: vec![1],
+            ..edge
+        };
 
         let notice = side_notice(
             &fixture.context(),

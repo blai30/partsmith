@@ -239,7 +239,7 @@ impl Feature for Hole {
         })?;
         let along = Direction {
             direction: [direction.x, direction.y, direction.z],
-            sketch: Some(&params.sketch),
+            sketch: Some((&params.sketch, &sketch.placement)),
         };
         let decision = cut_candidates(
             context,
@@ -249,12 +249,19 @@ impl Feature for Hole {
             &drilling.candidates,
             Some(along),
         )?;
+        // Reverse turns every point, so it is a fix only when no point reaches the body as it is.
+        let any_overlaps = decision.overlaps.contains(&true);
         for (point, candidate) in points.iter().zip(&drilling.points) {
             if candidate.is_some_and(|position| decision.overlaps[position]) {
                 continue;
             }
             // On this warning path only, the hole drilled the other way decides whether Reverse is a fix that works.
-            let reverse_hits = match drill(direction.scaled(-1.0), point.point, point.world)? {
+            let reversed = if any_overlaps {
+                None
+            } else {
+                drill(direction.scaled(-1.0), point.point, point.world)?
+            };
+            let reverse_hits = match reversed {
                 Some(reversed) => reverse_hits(context, &params.body, &[reversed])?,
                 None => false,
             };

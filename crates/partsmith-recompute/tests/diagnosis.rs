@@ -11,12 +11,11 @@
 //!
 //! Test 42 reads the placement of a sketch where its face was just before its removal from the writer chains, whose
 //! entries `timeline.rs` tests; test 66 includes the sketch placed where the cut face was (corpus R33); and test 72 (a
-//! drawing turned over, corpus R32 (b)) checks its statuses and roots. Left for the phases that build what they need:
-//! test 60 (b) (a hole that skips a deleted point, phase 3), the `no_effect` and `separate_solid` texts and fixes of
-//! test 66 (phase 3), and test 72's hole text, single message and `Show` fix, which need the hole's rendering of
-//! `Diagnosis::turned_over` by coordinates and the one-point rule (features.md sections 3.15 and 4.2, phase 3 step 4),
-//! written and ignored until then. Test 69 is the corpus (`reference_stability_{1,2,3}.rs`) and test 70 the newcomer
-//! error corpus (phase 3).
+//! drawing turned over, corpus R32 (b)) checks its statuses and roots, and its hole text, single message and `Show`
+//! fix (features.md sections 3.15 and 4.2, phase 3 step 4). Left for the phases that build what they need: test 60 (b)
+//! (a hole that skips a deleted point, phase 3) and the `no_effect` and `separate_solid` texts and fixes of test 66
+//! (phase 3). Test 69 is the corpus (`reference_stability_{1,2,3}.rs`) and test 70 the newcomer error corpus (phase
+//! 3).
 //! A sketch whose face is lost carries the loss in its `plane_fallback` warning (features/sketch.md section 3.5), so
 //! tests 57 (R57), 66 (R26 and R33) and 73 (R55) check its reason here; its `Attach` fixes are in `Message::fixes`.
 

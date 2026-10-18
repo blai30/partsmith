@@ -313,11 +313,12 @@ impl Names for IdNames {
 ///
 /// Lengths and angles render as `Quantity::display` does (6 decimals, trimmed, with the unit);
 /// plain numbers and counts render the same way without a unit, so a whole count is an integer. A
-/// value whose magnitude in display units is at least 1e15 is written in exponent form with at
-/// most 6 significant digits, `1e200 mm`, never as hundreds of digits.
+/// finite value whose magnitude in display units is at least 1e15 is written in exponent form with
+/// at most 6 significant digits, `1e200 mm`, never as hundreds of digits; an infinite one renders
+/// as `Quantity::display` writes it.
 pub fn format_value(kind: FieldUnit, value: f64, units: Units) -> String {
     let number = display_number(kind, value, units);
-    if number.abs() >= EXPONENT_FORM_FROM {
+    if number.is_finite() && number.abs() >= EXPONENT_FORM_FROM {
         return with_unit_label(kind, exponent_form(number), units);
     }
     let quantity = match kind {
@@ -577,6 +578,18 @@ mod tests {
         assert_eq!(
             format_value(FieldUnit::Length, -1.5e20, Units::Mm),
             "-1.5e20 mm"
+        );
+    }
+
+    #[test]
+    fn infinite_values_render_as_quantities_do() {
+        assert_eq!(
+            format_value(FieldUnit::Length, f64::INFINITY, Units::Mm),
+            Quantity::length(f64::INFINITY).display(Units::Mm)
+        );
+        assert_eq!(
+            format_value(FieldUnit::Count, f64::NEG_INFINITY, Units::Mm),
+            Quantity::plain(f64::NEG_INFINITY).display(Units::Mm)
         );
     }
 

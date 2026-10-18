@@ -22,6 +22,7 @@ use partsmith_features::{
 use partsmith_model::{Id, Units};
 use partsmith_naming::{NamingMap, Reference};
 use partsmith_occt_sys::{Shape, SubShapeKind};
+use partsmith_sketch::Placement;
 use serde_json::json;
 
 /// Absolute tolerance of measured gaps in millimeters (features.md section 6.1).
@@ -64,7 +65,8 @@ fn sketch() -> Id {
 }
 
 /// `apply_op` on `b-1` holding `state`, for a feature with the direction `direction` (None for one without) and, when
-/// `with_sketch`, the profile sketch `f-sk2`.
+/// `with_sketch`, the profile sketch `f-sk2` where an extrude of the tools along `direction` has it
+/// (`sketch_at_start`).
 fn apply(
     state: &BodyState,
     op: BodyOp,
@@ -72,14 +74,56 @@ fn apply(
     direction: Option<[f64; 3]>,
     with_sketch: bool,
 ) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError> {
+    let placement = direction
+        .filter(|_| with_sketch)
+        .map(|direction| sketch_at_start(&tools, direction));
+    apply_with_sketch(state, op, tools, direction, placement)
+}
+
+/// `apply_op` on `b-1` holding `state`, for a feature with the direction `direction` (None for one without) and, when
+/// `placement` is given, the profile sketch `f-sk2` placed there.
+fn apply_with_sketch(
+    state: &BodyState,
+    op: BodyOp,
+    tools: Vec<Tool>,
+    direction: Option<[f64; 3]>,
+    placement: Option<Placement>,
+) -> Result<(BodyUpdate, Vec<FeatureWarning>), FeatureError> {
     let mut fixture = ContextFixture::new(Units::Mm, &[]);
     fixture.bodies.insert(id("b-1"), state.clone());
     let sketch = sketch();
     let direction = direction.map(|direction| Direction {
         direction,
-        sketch: with_sketch.then_some(&sketch),
+        sketch: placement.as_ref().map(|placement| (&sketch, placement)),
     });
     apply_op(&fixture.context(), &id("b-1"), op, tools, direction)
+}
+
+/// The sketch of an extrude of `tools` along `direction`: facing along it, in the plane where the tools start (through
+/// the corner of their boxes that lies farthest against `direction`).
+fn sketch_at_start(tools: &[Tool], direction: [f64; 3]) -> Placement {
+    let along = |point: [f64; 3]| (0..3).map(|axis| point[axis] * direction[axis]).sum::<f64>();
+    let start = tools
+        .iter()
+        .map(|tool| tool.shape.bounding_box().expect("a tool box"))
+        .flat_map(|bounds| [bounds.min, bounds.max])
+        .map(along)
+        .fold(f64::INFINITY, f64::min);
+    facing(direction, start)
+}
+
+/// A sketch whose normal is `normal` (a world axis direction), in the plane `offset` along it from the origin.
+fn facing(normal: [f64; 3], offset: f64) -> Placement {
+    let x_axis = if normal[0].abs() > 0.5 {
+        [0.0, 1.0, 0.0]
+    } else {
+        [1.0, 0.0, 0.0]
+    };
+    Placement {
+        origin: normal.map(|component| component * offset),
+        x_axis,
+        normal,
+    }
 }
 
 /// The update and warnings of an `apply_op` that must succeed.
@@ -202,7 +246,7 @@ fn a_join_inside_the_body_with_a_profile_sketch_offers_the_face_farthest_along_i
 }
 
 #[test]
-fn the_attach_face_of_a_reversed_join_faces_down() {
+fn the_attach_face_of_a_join_pointing_down_faces_down() {
     let body = cube10();
 
     let (_, warnings) = applied(
@@ -216,6 +260,46 @@ fn the_attach_face_of_a_reversed_join_faces_down() {
     assert_eq!(
         only_no_effect(&warnings).2,
         Some((sketch(), picked(&body, "f-box1/bottom")))
+    );
+}
+
+#[test]
+fn a_reversed_join_has_no_attach_face() {
+    // The sketch at z = 6 faces up and the sweep runs down: attached to the bottom, the sketch would face down and the
+    // reversed sweep would run up into the cube again, so Attach would not help (section 3.15).
+    let result = apply_with_sketch(
+        &cube10(),
+        BodyOp::Join,
+        vec![box_tool("f-box2", ["2", "2", "2"], ["0", "0", "4"])],
+        Some(DOWN),
+        Some(facing(UP, 6.0)),
+    );
+
+    let (_, warnings) = result.expect("the join applies");
+    assert_eq!(only_no_effect(&warnings), (NoEffectHow::Inside, false, None));
+}
+
+#[test]
+fn a_sketch_in_the_plane_of_the_attach_face_has_no_attach_face() {
+    // The sketch lies in the plane of the cube's top and its boss stands beside the cube: attaching it to the top
+    // would leave it where it is.
+    let result = apply_with_sketch(
+        &cube10(),
+        BodyOp::Join,
+        vec![box_tool("f-box2", ["2", "2", "2"], ["20", "0", "10"])],
+        Some(UP),
+        Some(facing(UP, 10.0)),
+    );
+
+    let (_, warnings) = result.expect("the join applies");
+    assert_eq!(
+        warnings,
+        [FeatureWarning::SeparateSolid {
+            body: id("b-1"),
+            pieces: 2,
+            part_joined: false,
+            attach: None,
+        }]
     );
 }
 
@@ -499,6 +583,7 @@ fn a_join_that_does_not_touch_the_body_leaves_separate_pieces() {
         [FeatureWarning::SeparateSolid {
             body: id("b-1"),
             pieces: 2,
+            part_joined: false,
             attach: None,
         }]
     );
@@ -524,6 +609,7 @@ fn a_floating_join_with_a_profile_sketch_offers_the_attach_face() {
         [FeatureWarning::SeparateSolid {
             body: id("b-1"),
             pieces: 2,
+            part_joined: false,
             attach: Some((sketch(), picked(&body, "f-box1/top"))),
         }]
     );
@@ -553,9 +639,37 @@ fn a_join_onto_a_body_of_two_pieces_counts_the_pieces_of_the_result() {
         [FeatureWarning::SeparateSolid {
             body: id("b-1"),
             pieces: 3,
+            part_joined: false,
             attach: None,
         }]
     );
+}
+
+#[test]
+fn a_join_of_which_only_part_floats_says_so_and_offers_neither_fix() {
+    // One boss stands on the cube's top and the other beside it: the sketch reaches the body already, and a new body
+    // would take the boss that joined along (section 3.5).
+    let (update, warnings) = applied(
+        &cube10(),
+        BodyOp::Join,
+        vec![
+            box_tool("f-box2", ["2", "2", "2"], ["0", "0", "10"]),
+            box_tool("f-box3", ["2", "2", "2"], ["20", "0", "10"]),
+        ],
+        Some(UP),
+        true,
+    );
+
+    assert_eq!(
+        warnings,
+        [FeatureWarning::SeparateSolid {
+            body: id("b-1"),
+            pieces: 2,
+            part_joined: true,
+            attach: None,
+        }]
+    );
+    assert_volume(volume(&update), 1016.0);
 }
 
 #[test]

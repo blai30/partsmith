@@ -10,7 +10,7 @@ use partsmith_occt_sys::{
 use partsmith_sketch::{ORIGIN, Placement, PointRef, PointRole, Profile, SolveResult};
 
 pub use crate::body_rules::reverse_hits;
-use crate::body_rules::{attach_face, inner_shells, no_effect_how};
+use crate::body_rules::{attach_face, inner_shells, no_effect_how, part_joined};
 use crate::context::{BodyState, BuildContext};
 use crate::error::FeatureError;
 use crate::error::{FeatureWarning, NoEffectHow};
@@ -191,8 +191,8 @@ pub struct Tool {
 pub struct Direction<'a> {
     /// The unit direction d: an extrude's direction after `reverse`.
     pub direction: [f64; 3],
-    /// The sketch the profile comes from, for the Attach fix, or None.
-    pub sketch: Option<&'a Id>,
+    /// The sketch the profile comes from and its placement, for the Attach fix, or None.
+    pub sketch: Option<(&'a Id, &'a Placement)>,
 }
 
 /// Applies `op` with `tools` to `body` with the shared body semantics (section 3.5). At least one tool.
@@ -337,10 +337,19 @@ pub fn apply_op_result(
     }
     let pieces = result.shape.count(SubShapeKind::Solid);
     if op == BodyOp::Join && pieces > target.count(SubShapeKind::Solid) {
+        let part_joined = part_joined(&result)?;
+        // When part of the tools joined the body, the sketch reaches it already, and a new body would take that
+        // part along, so neither fix is offered.
+        let attach = if part_joined {
+            None
+        } else {
+            attach_to(state, direction)?
+        };
         warnings.push(FeatureWarning::SeparateSolid {
             body: body.clone(),
             pieces: pieces as usize,
-            attach: attach_to(state, direction)?,
+            part_joined,
+            attach,
         });
     }
     let mut inputs: Vec<&NamingMap> = vec![state.naming()];
@@ -367,12 +376,12 @@ fn attach_to(
 ) -> Result<Option<(Id, Reference)>, FeatureError> {
     let Some(Direction {
         direction,
-        sketch: Some(sketch),
+        sketch: Some((sketch, placement)),
     }) = direction
     else {
         return Ok(None);
     };
-    Ok(attach_face(state, direction)?.map(|face| (sketch.clone(), face)))
+    Ok(attach_face(state, direction, placement)?.map(|face| (sketch.clone(), face)))
 }
 
 /// True when `input` has one entry per face, edge and vertex of `shape`.
@@ -519,6 +528,7 @@ mod tests {
             [FeatureWarning::SeparateSolid {
                 body: id("b-1"),
                 pieces: 2,
+                part_joined: false,
                 attach: None,
             }]
         );
@@ -676,6 +686,7 @@ mod tests {
             [FeatureWarning::SeparateSolid {
                 body: id("b-1"),
                 pieces: 3,
+                part_joined: false,
                 attach: None,
             }]
         );

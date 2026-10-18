@@ -299,6 +299,9 @@ pub struct Resolved {
     pub elements: Vec<SubShape>,
     /// For each element, the position in the reference list of the reference it was first resolved from.
     pub sources: Vec<usize>,
+    /// For each element, the positions in the reference list of every reference that resolved to it, ascending (its
+    /// `sources` entry first), so a fix that removes one entry knows whether another one keeps the element.
+    pub all_sources: Vec<Vec<usize>>,
     /// Warnings of severity `Warning`: one per skipped reference (`ReferenceLost`), guess (`ReferenceGuessed`) or
     /// widening (`ReferenceWidened`), in reference order.
     pub warnings: Vec<FeatureWarning>,

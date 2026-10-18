@@ -110,8 +110,9 @@ pub(super) fn no_effect_text(renderer: &Renderer<'_>, body: &Id, how: &NoEffectH
     }
 }
 
-/// The fixes of `NoEffect` (section 3.15): `Show` of the sketch that is the root; else `Attach` for a join inside
-/// the body with an attach face, and Turn on Reverse for a cut whose reversed tools reach the body.
+/// The fixes of `NoEffect` (section 3.15): `Show` of the sketch that is the root; else, for a join inside the body,
+/// Turn off Reverse when the tools built the other way round add to the body, then `Attach` with an attach face, and
+/// Turn on Reverse for a cut whose reversed tools reach the body.
 pub(super) fn no_effect_fixes(
     renderer: &Renderer<'_>,
     body: &Id,
@@ -122,29 +123,45 @@ pub(super) fn no_effect_fixes(
     if let Some(root) = SketchRoot::of(renderer) {
         return vec![Fix::show(&root.sketch())];
     }
+    let reverse = reverse_hits.then(|| reverse_fix(renderer));
     match how {
-        NoEffectHow::Inside => attach_fix(body, attach).into_iter().collect(),
-        NoEffectHow::Away { .. } | NoEffectHow::Short { .. } | NoEffectHow::Beside
-            if reverse_hits =>
-        {
-            vec![reverse_fix(renderer)]
+        NoEffectHow::Inside => reverse.into_iter().chain(attach_fix(body, attach)).collect(),
+        NoEffectHow::Away { .. } | NoEffectHow::Short { .. } | NoEffectHow::Beside => {
+            reverse.into_iter().collect()
         }
         _ => Vec::new(),
     }
 }
 
-/// The message of `SeparateSolid` (section 4.2). A sketch that lost its face or turned over makes it the root
-/// without changing the text (section 3.15).
-pub(super) fn separate_solid_text(renderer: &Renderer<'_>, body: &Id, pieces: usize) -> String {
+/// The message of `SeparateSolid` (section 4.2), which starts with `Part of {this}` when part of the tools joined the
+/// body. A sketch that lost its face or turned over makes it the root without changing the text (section 3.15).
+pub(super) fn separate_solid_text(
+    renderer: &Renderer<'_>,
+    body: &Id,
+    pieces: usize,
+    part_joined: bool,
+) -> String {
+    let subject = if part_joined {
+        format!("Part of {}", renderer.this())
+    } else {
+        renderer.this_title()
+    };
     format!(
-        "{} does not touch {}, so the body now has {pieces} separate pieces.",
-        renderer.this_title(),
+        "{subject} does not touch {}, so the body now has {pieces} separate pieces.",
         renderer.body_phrase(body)
     )
 }
 
-/// The fixes of `SeparateSolid` (section 3.15): `NewBody`, then `Attach` when the attach rule found a face.
-pub(super) fn separate_solid_fixes(body: &Id, attach: Option<&(Id, Reference)>) -> Vec<Fix> {
+/// The fixes of `SeparateSolid` (section 3.15): `NewBody`, then `Attach` when the attach rule found a face; none when
+/// part of the tools joined the body, since a new body would take that part along.
+pub(super) fn separate_solid_fixes(
+    body: &Id,
+    part_joined: bool,
+    attach: Option<&(Id, Reference)>,
+) -> Vec<Fix> {
+    if part_joined {
+        return Vec::new();
+    }
     std::iter::once(Fix::NewBody)
         .chain(attach_fix(body, attach))
         .collect()

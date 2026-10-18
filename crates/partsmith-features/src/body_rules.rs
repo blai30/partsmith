@@ -1,10 +1,13 @@
 //! The measurements behind the body rules (features.md sections 3.5 and 3.15): why a join, cut or intersect changed
 //! nothing, the attach face of a directed feature, closed hollows, separate pieces and the Reverse check.
 
+use std::collections::BTreeSet;
+
 use partsmith_mesh::BoundingBox;
 use partsmith_model::LINEAR_TOLERANCE;
 use partsmith_naming::{ElementKind, GeometryKind, Reference};
-use partsmith_occt_sys::{Shape, SubShapeKind, common};
+use partsmith_occt_sys::{InputHistory, OpResult, Shape, SubShapeKind, common};
+use partsmith_sketch::Placement;
 
 use crate::context::{BodyState, BuildContext};
 use crate::error::{FeatureError, NoEffectHow};
@@ -99,14 +102,19 @@ fn extent(bounds: &BoundingBox, axis: usize, sign: f64) -> [f64; 2] {
     }
 }
 
-/// The attach face of a body (section 3.15): the planar face whose outward normal equals `direction` within
-/// `ATTACH_ANGLE` and whose centroid lies farthest along it, when no other such face lies within `LINEAR_TOLERANCE`
-/// of it along `direction`; as `Reference::from_element` stores it.
+/// The attach face of a body for a profile sketch at `sketch` swept along `direction` (section 3.15): the planar face
+/// whose outward normal equals `direction` within `ATTACH_ANGLE` and whose centroid lies farthest along it, when no
+/// other such face lies within `LINEAR_TOLERANCE` of it along `direction`; as `Reference::from_element` stores it.
+/// None as well when attaching would not move the sweep out of the body: it runs against the sketch's normal, or the
+/// face lies in the sketch's plane already.
 pub(crate) fn attach_face(
     state: &BodyState,
     direction: [f64; 3],
+    sketch: &Placement,
 ) -> Result<Option<Reference>, FeatureError> {
-    if state.is_empty() {
+    // Attached to a face, the sketch's normal is the face's outward normal, so a sweep against that normal (a
+    // reversed extrude) runs back into the body.
+    if state.is_empty() || dot(direction, sketch.normal) <= 0.0 {
         return Ok(None);
     }
     let set = state.element_set()?;
@@ -134,7 +142,41 @@ pub(crate) fn attach_face(
     let unique = facing
         .get(1)
         .is_none_or(|&(next, _)| farthest - next > LINEAR_TOLERANCE);
-    Ok(unique.then(|| Reference::from_element(&set.elements()[index], &set)))
+    let moves = (farthest - dot(sketch.origin, direction)).abs() > LINEAR_TOLERANCE;
+    Ok((unique && moves).then(|| Reference::from_element(&set.elements()[index], &set)))
+}
+
+/// True when a solid of a join's result holds faces of both the body and a tool (section 3.5): part of the tools
+/// joined the body, so the separate pieces are only the rest of them. Read from the result's history, whose first
+/// input is the body and the others the tools.
+pub(crate) fn part_joined(result: &OpResult) -> Result<bool, FeatureError> {
+    let Some((body, tools)) = result.history.inputs.split_first() else {
+        return Ok(false);
+    };
+    let body_faces = face_images(std::slice::from_ref(body));
+    let tool_faces = face_images(tools);
+    for solid in result.shape.solids()? {
+        let faces: Vec<u32> = result
+            .shape
+            .locate(&solid, SubShapeKind::Face)?
+            .into_iter()
+            .flatten()
+            .collect();
+        let holds = |images: &BTreeSet<u32>| faces.iter().any(|face| images.contains(face));
+        if holds(&body_faces) && holds(&tool_faces) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// The result faces that are images of the faces of `inputs` (`ElementFate::modified`).
+fn face_images(inputs: &[InputHistory]) -> BTreeSet<u32> {
+    inputs
+        .iter()
+        .flat_map(|input| &input.faces)
+        .flat_map(|fate| fate.modified.iter().copied())
+        .collect()
 }
 
 /// The number of closed cavities of a shape: its shells minus its solids, one outer shell per solid (kernel.md

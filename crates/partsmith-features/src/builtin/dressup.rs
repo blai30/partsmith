@@ -46,6 +46,8 @@ pub(super) struct SelectedEdge {
     /// The position in `edges` of the reference it was first resolved from (`Resolved::sources`), whose first face
     /// term gives a two-distance chamfer its side (chamfer.md section 3.3 step 4).
     pub(super) source: usize,
+    /// The positions in `edges` of every reference that resolved to it (`Resolved::all_sources`), `source` first.
+    pub(super) entries: Vec<usize>,
 }
 
 /// Resolves the `edges` references in `body`, which holds `shape` in `state`, and skips the smooth
@@ -66,40 +68,48 @@ pub(super) fn select_edges(
     };
     let resolved =
         context.resolve_all_usable("edges", body, edges, ElementKind::Edge, &has_corner)?;
-    let resolved_edges: Vec<(u32, usize)> = resolved
-        .elements
-        .iter()
-        .zip(&resolved.sources)
-        .map(|(edge, &source)| (edge.index, source))
-        .collect();
-    let mut selection = EdgeSelection {
-        edges: Vec::new(),
-        warnings: resolved.into_messages(),
-    };
-    for &(index, source) in &resolved_edges {
-        if is_smooth(shape, &topology, index)? {
-            // The entry of a reference that resolved to this edge alone, which its fix removes, else the whole list.
-            let alone = resolved_edges
-                .iter()
-                .all(|&(other, from)| other == index || from != source);
-            let field = if alone {
-                format!("edges[{source}]")
-            } else {
-                "edges".to_string()
+    let mut selected = Vec::new();
+    let mut skipped = Vec::new();
+    for (position, (edge, &source)) in resolved.elements.iter().zip(&resolved.sources).enumerate() {
+        if is_smooth(shape, &topology, edge.index)? {
+            let field = match alone_entry(&resolved.all_sources, position) {
+                Some(entry) => format!("edges[{entry}]"),
+                None => "edges".to_string(),
             };
-            selection.warnings.push(FeatureWarning::Ignored {
+            skipped.push(FeatureWarning::Ignored {
                 field: context.field(&field),
                 reason: IgnoredReason::SmoothEdge,
             });
         } else {
-            selection.edges.push(SelectedEdge {
-                index,
-                faces: edge_topology(&topology, index)?.faces.clone(),
+            selected.push(SelectedEdge {
+                index: edge.index,
+                faces: edge_topology(&topology, edge.index)?.faces.clone(),
                 source,
+                entries: resolved.all_sources[position].clone(),
             });
         }
     }
-    Ok(selection)
+    let mut warnings = resolved.into_messages();
+    warnings.extend(skipped);
+    Ok(EdgeSelection {
+        edges: selected,
+        warnings,
+    })
+}
+
+/// The entry of the element at `position` of a resolved list (`Resolved::all_sources`) that its fix removes: the only
+/// entry that resolved to it, when that entry resolved to it alone, so removing it leaves out that element and
+/// nothing else (features.md section 4.2). None when another entry selects the element too, or the entry also
+/// selects other elements, so the warning is on the whole list.
+fn alone_entry(all_sources: &[Vec<usize>], position: usize) -> Option<usize> {
+    let [entry] = all_sources[position][..] else {
+        return None;
+    };
+    all_sources
+        .iter()
+        .enumerate()
+        .all(|(other, entries)| other == position || !entries.contains(&entry))
+        .then_some(entry)
 }
 
 /// The adjacency of `edge` (a 1-based kernel index) in `topology`.
@@ -182,9 +192,11 @@ pub(super) fn run_or_search<T>(
 /// The narrowest face next to a selected edge of a fillet or chamfer, measured on its failure path
 /// (features.md section 4.3), when it is narrower than `requested`: the kernel's `width_across` of
 /// each face of each of `edges`, which come in name order, the faces of an edge in name order too,
-/// so ties go to the edge and then the face whose names sort first. When another reference
-/// resolved, `works_without` tries the operation at `requested` without the edges of the limiting
-/// edge's reference (`keep` false for them, in the order of `edges`), which decides `removable`.
+/// so ties go to the edge and then the face whose names sort first. When the limiting edge comes
+/// from one entry alone and another reference resolved, `works_without` tries the operation at
+/// `requested` without the edges only that entry selects (`keep` false for them, in the order of
+/// `edges`), which decides `removable`; an edge that another entry selects too stays after the
+/// removal, so it is not removable.
 pub(super) fn face_limit(
     state: &BodyState,
     shape: &Shape,
@@ -214,11 +226,16 @@ pub(super) fn face_limit(
     let Some((width, edge, face)) = narrowest.filter(|(width, _, _)| *width < requested) else {
         return Ok(None);
     };
-    let keep: Vec<bool> = edges
-        .iter()
-        .map(|other| other.source != edge.source)
-        .collect();
-    let removable = keep.contains(&true) && works_without(&keep);
+    let removable = match edge.entries[..] {
+        [entry] => {
+            let keep: Vec<bool> = edges
+                .iter()
+                .map(|other| other.entries.iter().any(|&from| from != entry))
+                .collect();
+            keep.contains(&true) && works_without(&keep)
+        }
+        _ => false,
+    };
     Ok(Some(Limit::Face {
         position: edge.source,
         edge: picked(state, ElementKind::Edge, edge.index)?,
@@ -523,6 +540,7 @@ mod tests {
                 index: index(name),
                 faces: Vec::new(),
                 source: 0,
+                entries: vec![0],
             })
             .collect();
 
@@ -539,6 +557,7 @@ mod tests {
             index: 99,
             faces: Vec::new(),
             source: 0,
+            entries: vec![0],
         };
 
         let error = sorted_by_name(&cube.naming, &[edge]).expect_err("edge 99 has no name");
@@ -738,6 +757,7 @@ mod tests {
                     index: edge_between(&shape, front, top),
                     faces,
                     source: 0,
+                    entries: vec![0],
                 }],
                 warnings: Vec::new(),
             }

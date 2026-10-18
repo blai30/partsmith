@@ -159,13 +159,14 @@ impl Feature for Extrude {
         };
         let along = Direction {
             direction: [direction.x, direction.y, direction.z],
-            sketch: Some(&params.profile.sketch),
+            sketch: Some((&params.profile.sketch, &profile.sketch.placement)),
         };
         let (update, mut op_warnings) =
             apply_op(context, &params.body, params.op, vec![tool], Some(along))?;
-        // A symmetric extrusion is the same either way round, so it has no Reverse to offer.
+        // A symmetric extrusion is the same either way round, so it has no Reverse to offer. A reversed one that
+        // lies inside the body may come out of it with Reverse turned off.
         if !symmetric {
-            op_warnings = reverse_checked(context, &params.body, op_warnings, || {
+            op_warnings = reverse_checked(context, &params.body, op_warnings, params.reverse, || {
                 let back = direction.scaled(-1.0);
                 Ok(vec![swept_tool(context, &profile, |faces| {
                     extrude(faces, back, start, end)
@@ -240,12 +241,20 @@ fn interval(
             Ok((-against, along))
         }
         ExtrudeExtent::ThroughAll => {
+            let state = context.body(&params.body)?;
             if params.op == BodyOp::New {
-                return Err(FeatureError::ThroughAllNeedsBody {
-                    body: params.body.clone(),
+                // A body that holds a solid has something to go through, but Operation New body cannot use it.
+                return Err(if state.is_empty() {
+                    FeatureError::ThroughAllNeedsBody {
+                        body: params.body.clone(),
+                    }
+                } else {
+                    FeatureError::BodyNotEmpty {
+                        body: params.body.clone(),
+                        target: None,
+                    }
                 });
             }
-            let state = context.body(&params.body)?;
             let Some(shape) = state.shape() else {
                 return Err(FeatureError::BodyEmpty {
                     field: context.field("body"),
