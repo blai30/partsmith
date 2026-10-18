@@ -7,7 +7,6 @@ use partsmith_features::FieldRef;
 use partsmith_model::{EditError, Id, LoadError, Span};
 use partsmith_naming::ElementKind;
 use partsmith_protocol::{DocHandle, ErrorCode, ErrorInfo, FixAction, FixKind};
-use partsmith_sketch::{MessageContext, SketchError};
 
 use crate::counts::saturating_u32;
 
@@ -434,15 +433,6 @@ impl EngineError {
     /// An internal error describing an error that a valid document never causes.
     pub(crate) fn unexpected(error: impl fmt::Display) -> EngineError {
         EngineError::internal(error.to_string())
-    }
-
-    /// The `invalid_params` error for sketch params that the solver rejects: the sketch crate's
-    /// message rendered in `context` (sketch.md section 4.1), and its `Display` as the detail.
-    pub(crate) fn invalid_sketch(error: &SketchError, context: &MessageContext<'_>) -> EngineError {
-        EngineError::InvalidSketch {
-            message: error.render(context),
-            detail: error.to_string(),
-        }
     }
 
     /// The error with an internal error naming the protocol command `command` (its type, for

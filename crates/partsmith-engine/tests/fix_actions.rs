@@ -27,17 +27,17 @@ use common::{
 };
 use corpus::{
     EDIT_LABEL, UPPER_BOSS_WALL, action, actions, after_edit, apply_as_one_entry, apply_fix,
-    assert_undo_restores, axis_xy, back_line_notched, block_back_side, block_edited,
-    block_right_side, block_then, bosses_on_a_moved_box, box_record, coincident,
+    assert_ok_without_messages, assert_undo_restores, axis_xy, back_line_notched, block_back_side,
+    block_edited, block_right_side, block_then, bosses_on_a_moved_box, box_record, coincident,
     constrained_sketch, cube10, datum_offset, datum_on_a_split_side, datum_on_face, document,
     document_with, edited_text, extrude, face_names, face_plane, faces_of, features, fix_ref,
     labels, line, linear_pattern, message, messages, moved_by_100, nc01, nc03, nc04, nc05, nc07,
-    nc10, nc11, origin_plane, parameter, picked_before, point, r03, r06a, r16, r23a, r26_recreated,
-    r28, r32b, r32b_chamfered_hole_at_an_arc_end, r32b_moved, r32b_pocket, r33, r50, r56b, r66,
-    record, rectangle, rectangle_region, redrawn_beside_a_split,
+    nc10, nc11, opened, origin_plane, parameter, picked_before, point, r03, r06a, r16, r23a,
+    r26_recreated, r28, r32b, r32b_chamfered_hole_at_an_arc_end, r32b_moved, r32b_pocket, r33, r50,
+    r56b, r66, record, rectangle, rectangle_region, redrawn_beside_a_split,
     redrawn_beside_a_split_with_a_face_sketch, reference, repairs, right_side_redrawn_in_two,
-    send_fix, shell_with_a_misspelled_key, sketch, statuses, through_all, two_areas, volume, with,
-    without_keys,
+    send_fix, shell_with_a_misspelled_key, sketch, solution_messages, statuses, through_all,
+    two_areas, volume, with, without_keys,
 };
 use partsmith_engine::Session;
 use partsmith_sketch::{HintFrame, RegionRef, SketchParams, SketchPlane};
@@ -76,6 +76,25 @@ fn kind_of(label: &str) -> &'static str {
         Some("Pick") => "pick",
         Some("Show") => "show",
         _ => "apply",
+    }
+}
+
+/// The actions of every message of `statuses`, in order.
+fn status_actions(statuses: &[Value]) -> Vec<Value> {
+    statuses
+        .iter()
+        .flat_map(|status| status["messages"].as_array().cloned().unwrap_or_default())
+        .flat_map(|message| actions(&message))
+        .collect()
+}
+
+/// Asserts that each label of `offered` starts with a verb and that its action runs as the kind its verb names.
+fn assert_labels_start_with_verbs_and_run_as_their_kind(offered: &[Value]) {
+    for offer in offered {
+        let label = offer["label"].as_str().expect("actions have labels");
+        let verb = label.split(' ').next().unwrap_or_default();
+        assert!(VERBS.contains(&verb), "{label:?} starts with a verb");
+        assert_eq!(offer["run"]["kind"], kind_of(label), "{offer}");
     }
 }
 
@@ -323,18 +342,9 @@ fn t126_every_label_starts_with_a_verb_and_runs_as_its_kind() {
         all.extend(statuses(&open_text(&mut session, &text)));
     }
 
-    let offered: Vec<Value> = all
-        .iter()
-        .flat_map(|status| status["messages"].as_array().cloned().unwrap_or_default())
-        .flat_map(|message| actions(&message))
-        .collect();
+    let offered = status_actions(&all);
     assert!(offered.len() >= 20, "{offered:?}");
-    for offer in &offered {
-        let label = offer["label"].as_str().expect("actions have labels");
-        let verb = label.split(' ').next().unwrap_or_default();
-        assert!(VERBS.contains(&verb), "{label:?} starts with a verb");
-        assert_eq!(offer["run"]["kind"], kind_of(label), "{offer}");
-    }
+    assert_labels_start_with_verbs_and_run_as_their_kind(&offered);
 }
 
 /// The repair of `feature` in `sent` at `path`.
@@ -469,12 +479,9 @@ fn fillet_with_a_formula_radius() -> String {
 
 /// The only message of the solution `solution` (a `SketchSolution` JSON value) with `code`.
 fn solution_message(solution: &Value, code: &str) -> Value {
-    let found: Vec<Value> = solution["messages"]
-        .as_array()
-        .expect("a solution lists its messages")
-        .iter()
+    let found: Vec<Value> = solution_messages(solution)
+        .into_iter()
         .filter(|message| message["code"] == code)
-        .cloned()
         .collect();
     assert_eq!(found.len(), 1, "one {code} message in {solution}");
     found[0].clone()
@@ -749,26 +756,14 @@ fn t126_every_newcomer_label_starts_with_a_verb_and_runs_as_its_kind() {
     all.extend(statuses(&edited));
     let opened = open_text(&mut session, &nc01());
 
-    let mut offered: Vec<Value> = all
-        .iter()
-        .flat_map(|status| status["messages"].as_array().cloned().unwrap_or_default())
-        .flat_map(|message| actions(&message))
-        .collect();
+    let mut offered = status_actions(&all);
     offered.extend(
-        opened.sketch_solution("f-sk1")["messages"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
+        solution_messages(opened.sketch_solution("f-sk1"))
             .iter()
             .flat_map(actions),
     );
     assert!(offered.len() >= 14, "{offered:?}");
-    for offer in &offered {
-        let label = offer["label"].as_str().expect("actions have labels");
-        let verb = label.split(' ').next().unwrap_or_default();
-        assert!(VERBS.contains(&verb), "{label:?} starts with a verb");
-        assert_eq!(offer["run"]["kind"], kind_of(label), "{offer}");
-    }
+    assert_labels_start_with_verbs_and_run_as_their_kind(&offered);
 }
 
 // Test 127: applying fixes.
@@ -955,13 +950,8 @@ fn constraint_ids(record: &Value) -> Vec<String> {
 #[test]
 fn t127_nc05_use_2_3_mm_sets_the_radius_and_the_fillet_builds() {
     let mut session = session();
-    let opened = open_text(&mut session, &nc05());
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
-    let use_largest = action(
-        &message(&opened, "f-fil1", "fillet_too_large"),
-        "Use 2.3 mm",
-    );
+    let (doc, sent, before) = opened(&mut session, &nc05());
+    let use_largest = action(&message(&sent, "f-fil1", "fillet_too_large"), "Use 2.3 mm");
 
     let applied = apply_as_one_entry(&mut session, doc, &use_largest);
 
@@ -973,10 +963,8 @@ fn t127_nc05_use_2_3_mm_sets_the_radius_and_the_fillet_builds() {
 #[test]
 fn t127_nc03_turn_on_reverse_cuts_the_pocket() {
     let mut session = session();
-    let opened = open_text(&mut session, &nc03());
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
-    let reverse = action(&message(&opened, "f-ext2", "no_effect"), "Turn on Reverse");
+    let (doc, sent, before) = opened(&mut session, &nc03());
+    let reverse = action(&message(&sent, "f-ext2", "no_effect"), "Turn on Reverse");
 
     let applied = apply_as_one_entry(&mut session, doc, &reverse);
 
@@ -994,11 +982,9 @@ fn t127_nc03_turn_on_reverse_cuts_the_pocket() {
 #[test]
 fn t127_set_operation_to_join_patterns_into_the_body() {
     let mut session = session();
-    let opened = open_text(&mut session, &pattern_into_a_new_body_without_a_target());
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
+    let (doc, sent, before) = opened(&mut session, &pattern_into_a_new_body_without_a_target());
     let join = action(
-        &message(&opened, "f-lp1", "target_required"),
+        &message(&sent, "f-lp1", "target_required"),
         "Set Operation to Join",
     );
 
@@ -1021,11 +1007,9 @@ fn t127_set_operation_to_join_patterns_into_the_body() {
 #[test]
 fn t127_nc10_replace_writes_the_parameter_it_nearly_matches() {
     let mut session = session();
-    let opened = open_text(&mut session, &nc10());
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
+    let (doc, sent, before) = opened(&mut session, &nc10());
     let replace = action(
-        &message(&opened, "f-ext1", "expression"),
+        &message(&sent, "f-ext1", "expression"),
         "Replace hieght with height",
     );
 
@@ -1095,11 +1079,9 @@ fn t127_nc07_make_distance_30_mm_a_reference_keeps_it_without_driving() {
 #[test]
 fn t127_nc04_put_it_in_a_new_body_starts_body_2() {
     let mut session = session();
-    let opened = open_text(&mut session, &nc04());
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
+    let (doc, sent, before) = opened(&mut session, &nc04());
     let put = action(
-        &message(&opened, "f-ext2", "separate_solid"),
+        &message(&sent, "f-ext2", "separate_solid"),
         "Put it in a new body",
     );
 
@@ -1133,11 +1115,9 @@ fn t127_nc04_put_it_in_a_new_body_starts_body_2() {
 fn t127_nc04_attach_stands_the_boss_on_the_top_in_body_coordinates() {
     let text = nc04();
     let mut session = session();
-    let opened = open_text(&mut session, &text);
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
+    let (doc, sent, before) = opened(&mut session, &text);
     let attach = action(
-        &message(&opened, "f-ext2", "separate_solid"),
+        &message(&sent, "f-ext2", "separate_solid"),
         "Attach 'Sketch 2' to the top of 'Extrude 1'",
     );
 
@@ -1195,10 +1175,8 @@ fn t127_nc04_put_it_in_a_new_body_skips_a_body_id_the_document_uses() {
 #[test]
 fn t127_through_all_set_operation_to_join_goes_through_the_block() {
     let mut session = session();
-    let opened = open_text(&mut session, &through_all_as_a_new_body_into_the_block());
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
-    let offered = actions(&message(&opened, "f-ext2", "body_not_empty"));
+    let (doc, sent, before) = opened(&mut session, &through_all_as_a_new_body_into_the_block());
+    let offered = actions(&message(&sent, "f-ext2", "body_not_empty"));
 
     let mut applied = Vec::new();
     for offer in &offered {
@@ -1631,11 +1609,9 @@ fn t130_r28_move_below_lands_below_its_neighbor_after_an_insertion_above() {
 #[test]
 fn t131_nc01_connect_the_ends_closes_the_outline_with_one_new_coincident_constraint() {
     let mut session = session();
-    let opened = open_text(&mut session, &nc01());
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
+    let (doc, sent, before) = opened(&mut session, &nc01());
     let connect = action(
-        &solution_message(opened.sketch_solution("f-sk1"), "open_endpoint"),
+        &solution_message(sent.sketch_solution("f-sk1"), "open_endpoint"),
         "Connect the ends (0.3 mm apart)",
     );
 
@@ -1659,11 +1635,9 @@ fn t131_nc01_connect_the_ends_closes_the_outline_with_one_new_coincident_constra
 #[test]
 fn t131_a_misspelled_settings_key_is_ignored_and_offers_to_rename_it() {
     let mut session = session();
-    let opened = open_text(&mut session, &shell_with_a_misspelled_key());
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
+    let (doc, sent, before) = opened(&mut session, &shell_with_a_misspelled_key());
 
-    let warning = message(&opened, "f-sh1", "unknown_params");
+    let warning = message(&sent, "f-sh1", "unknown_params");
     assert_eq!(warning["severity"], "warning");
     assert_eq!(
         warning["message"],
@@ -1753,13 +1727,8 @@ fn t132_a_fix_inside_a_transaction_joins_it() {
 #[test]
 fn t132_nc05_use_2_3_mm_inside_a_transaction_joins_it() {
     let mut session = session();
-    let opened = open_text(&mut session, &nc05());
-    let doc = doc_handle(&opened);
-    let before = saved_text(&mut session, doc);
-    let use_largest = action(
-        &message(&opened, "f-fil1", "fillet_too_large"),
-        "Use 2.3 mm",
-    );
+    let (doc, sent, before) = opened(&mut session, &nc05());
+    let use_largest = action(&message(&sent, "f-fil1", "fillet_too_large"), "Use 2.3 mm");
     send(
         &mut session,
         json!({"type": "begin_transaction", "doc": doc, "label": "Resize"}),
@@ -1887,8 +1856,7 @@ fn t133_a_pick_action_an_index_past_the_actions_and_another_code_are_stale() {
 #[test]
 fn t133_nc01_a_finding_s_fix_with_another_code_index_or_field_is_stale() {
     let mut session = session();
-    let doc = doc_handle(&open_text(&mut session, &nc01()));
-    let text = saved_text(&mut session, doc);
+    let (doc, _, text) = opened(&mut session, &nc01());
     let stale = [
         fix_ref("f-sk1", "overlap", "/profile_findings/0", 0, 0),
         fix_ref("f-sk1", "open_endpoint", "/profile_findings/0", 1, 0),
@@ -2028,14 +1996,6 @@ fn assert_face_plane(
     assert_eq!(plane["body"], "b-1", "{plane}");
     assert_eq!(&plane["face"], face, "{plane}");
     assert_fallback(plane, origin, normal, frame);
-}
-
-/// Asserts that every feature named is ok with no message.
-fn assert_ok_without_messages(sent: &Sent, features: &[&str]) {
-    for feature in features {
-        assert_eq!(sent.feature_status(feature)["status"], "ok", "{feature}");
-        assert_eq!(messages(sent, feature), Vec::<Value>::new(), "{feature}");
-    }
 }
 
 /// The `Attach` action of a sketch's own message for its first candidate, and that candidate's reference.

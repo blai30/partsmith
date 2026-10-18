@@ -785,33 +785,13 @@ fn t080_document_changed_writes_bare_numbers_last() {
 
 #[test]
 fn document_changed_writes_a_count_of_bare_numbers() {
-    let Message::Event(Event::DocumentChanged {
-        doc,
-        revision,
-        document,
-        dirty,
-        undo,
-        redo,
-        transaction_open,
-        transaction,
-        focus,
-        ..
-    }) = message(DOCUMENT_CHANGED_EVENT)
-    else {
+    let Message::Event(mut event) = message(DOCUMENT_CHANGED_EVENT) else {
+        panic!("the example is an event");
+    };
+    let Event::DocumentChanged { bare_numbers, .. } = &mut event else {
         panic!("the example is a document_changed event");
     };
-    let event = Event::DocumentChanged {
-        doc,
-        revision,
-        document,
-        dirty,
-        undo,
-        redo,
-        transaction_open,
-        transaction,
-        focus,
-        bare_numbers: 4,
-    };
+    *bare_numbers = 4;
 
     let value = serde_json::to_value(&event).expect("an event serializes");
 

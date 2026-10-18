@@ -1,5 +1,6 @@
 //! Sketch commands: candidate solves, drag frames and committing a drag (engine.md section 3.6),
-//! and the context a stored sketch is solved in: its dimension values and its placement.
+//! the stored sketch's latest solution (`stored_solution`), and the context a stored sketch is
+//! solved in: its dimension values and its placement.
 
 use std::sync::Arc;
 
@@ -21,7 +22,7 @@ use crate::sketch::{
     Drag, SketchWords, Solved, built, dimension_values, has_point, sketch_params, sketch_record,
     solve, solve_values,
 };
-use crate::state::{Computed, built_output, built_sketch, feature_label, state_before};
+use crate::state::{Computed, built_output, built_sketch, feature_label, ran, state_before};
 
 impl Session {
     /// Solves the stored sketch or a candidate in its place; records nothing.
@@ -101,7 +102,14 @@ impl Session {
             feature,
             &params,
         )?;
-        if stored && ran(&open.computed, position) {
+        if stored
+            && open
+                .computed
+                .report
+                .features
+                .get(position)
+                .is_some_and(|report| ran(report.status))
+        {
             offer_finding_fixes(&mut solved.solution, open.revision, open.document.units);
         }
         Ok(solved)
@@ -148,25 +156,11 @@ impl Session {
     }
 }
 
-/// True when the feature at timeline position `position` ran in the recompute of `computed`: it
-/// built or failed, rather than being suppressed, rolled back or not run.
-fn ran(computed: &Computed, position: usize) -> bool {
-    computed
-        .report
-        .features
-        .get(position)
-        .is_some_and(|report| {
-            !matches!(
-                report.status,
-                Status::Suppressed | Status::RolledBack | Status::NotRun
-            )
-        })
-}
-
 /// The latest solution of the stored sketch at timeline position `position`, which
 /// `sketch_solved` reports (section 3.4): its recompute output when it built, the engine's own
-/// solve of the stored params when it failed, and nothing when it did not run (`ran`) or that
-/// solve fails. Its messages carry no actions (`offer_finding_fixes` adds them).
+/// solve of the stored params when it failed, and nothing when its status says it did not run
+/// (`state::ran`) or that solve fails. Its messages carry no actions (`offer_finding_fixes` adds
+/// them).
 pub(crate) fn stored_solution(
     registry: &Registry,
     document: &Document,
@@ -175,25 +169,21 @@ pub(crate) fn stored_solution(
 ) -> Option<Solved> {
     let record = document.features.get(position)?;
     let report = computed.report.features.get(position)?;
-    match report.status {
-        Status::Ok | Status::Warning => {
-            let result = built_sketch(report)?;
-            let params = sketch_params(registry, document, record).ok()?;
-            let words = SketchWords::of(registry, document, &record.id);
-            Some(built(
-                &record.id,
-                &params,
-                result,
-                &solve_values(report),
-                &words,
-            ))
-        }
-        Status::Error => {
-            let params = sketch_params(registry, document, record).ok()?;
-            solve_in(registry, document, computed, position, &record.id, &params).ok()
-        }
-        Status::Suppressed | Status::RolledBack | Status::NotRun => None,
+    if !ran(report.status) {
+        return None;
     }
+    let params = sketch_params(registry, document, record).ok()?;
+    if report.status == Status::Error {
+        return solve_in(registry, document, computed, position, &record.id, &params).ok();
+    }
+    let words = SketchWords::of(registry, document, &record.id);
+    Some(built(
+        &record.id,
+        &params,
+        built_sketch(report)?,
+        &solve_values(report),
+        &words,
+    ))
 }
 
 /// Solves `params` of the sketch at timeline position `position` the way `solve_sketch` does,

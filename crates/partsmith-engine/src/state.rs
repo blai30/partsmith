@@ -101,6 +101,15 @@ impl BodyView {
     }
 }
 
+/// True when a feature of status `status` ran in its recompute: it built or failed, rather than
+/// being suppressed, rolled back or not run.
+pub(crate) fn ran(status: Status) -> bool {
+    match status {
+        Status::Ok | Status::Warning | Status::Error => true,
+        Status::Suppressed | Status::RolledBack | Status::NotRun => false,
+    }
+}
+
 /// The output of a feature that built (status ok or warning); `None` for every other status.
 pub(crate) fn built_output(report: &FeatureReport) -> Option<&FeatureOutput> {
     if !matches!(report.status, Status::Ok | Status::Warning) {
@@ -355,6 +364,21 @@ mod tests {
 
         assert_eq!(feature_label(&registry, &document(), &id("f-2")), "box 2");
         assert_eq!(feature_label(&registry, &document(), &id("f-9")), "f-9");
+    }
+
+    #[test]
+    fn only_features_that_built_or_failed_ran() {
+        let ran_by_status = [
+            Status::Ok,
+            Status::Warning,
+            Status::Error,
+            Status::Suppressed,
+            Status::RolledBack,
+            Status::NotRun,
+        ]
+        .map(ran);
+
+        assert_eq!(ran_by_status, [true, true, true, false, false, false]);
     }
 
     #[test]

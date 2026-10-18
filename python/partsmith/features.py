@@ -13,7 +13,7 @@ from typing import cast
 
 from .document import FEATURE_PREFIX, PART_PREFIX, Document, Part, check_no_sketch, current_document, current_part
 from .errors import PartsmithError, SelectionError
-from .expressions import Expr, items_of, render_value
+from .expressions import Expr, choices_text, items_of, render_value
 from .selectors import ORIGIN_AXES, Axis, Element, Ref, Selection, element_references, faces, single_element
 from .sketch import Line, Placement, Plane, PlaneLike, Point, PointRef, Region, Sketch
 
@@ -401,7 +401,7 @@ def boolean(
     `keep_tools`."""
     target = _target("boolean", part)
     if op not in BOOLEAN_OPS:
-        raise ValueError(f"boolean() op must be 'join', 'cut' or 'intersect', not {op!r}.")
+        raise ValueError(f"boolean() op must be {choices_text(BOOLEAN_OPS)}, not {op!r}.")
     tool_parts = [tools] if isinstance(tools, Part) else list(tools)
     if not tool_parts:
         raise ValueError("boolean() needs at least one tool part.")
@@ -626,7 +626,7 @@ def sketch_plane(plane: object, fallback: Placement | None, fallback_frame: str 
     means world coordinates (python-api.md section 3.4).
     """
     if fallback_frame is not None and fallback_frame not in FALLBACK_FRAMES:
-        raise ValueError(f"Sketch() fallback_frame must be 'world' or 'body', not {fallback_frame!r}.")
+        raise ValueError(f"Sketch() fallback_frame must be {choices_text(FALLBACK_FRAMES)}, not {fallback_frame!r}.")
     if isinstance(plane, (Element, Selection, Ref)):
         part, face, element_fallback = _face("A sketch", plane)
         if fallback is None:
@@ -689,7 +689,7 @@ def _body_op(function: str, op: str | None, target: Part) -> str:
     if op is None:
         return target.document._default_op(target.id)
     if op not in BODY_OPS:
-        raise ValueError(f"{function}() op must be 'new', 'join', 'cut' or 'intersect', not {op!r}.")
+        raise ValueError(f"{function}() op must be {choices_text(BODY_OPS)}, not {op!r}.")
     return op
 
 

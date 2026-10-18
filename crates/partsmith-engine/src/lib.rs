@@ -25,6 +25,7 @@ mod fixes;
 mod frames;
 mod ids;
 mod inspect;
+mod inspections;
 mod options;
 mod params;
 mod profiles;

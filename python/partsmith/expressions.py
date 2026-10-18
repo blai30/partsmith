@@ -254,6 +254,12 @@ def items_of(values: object, count: int, message: str) -> Sequence[object]:
     return values
 
 
+def choices_text(values: Sequence[str]) -> str:
+    """Two or more choices quoted and listed for an error message: "'a', 'b' or 'c'"."""
+    *others, last = map(repr, values)
+    return f"{', '.join(others)} or {last}"
+
+
 def triple[T](values: Iterable[T]) -> tuple[T, T, T]:
     """Three values as a tuple."""
     x, y, z = values

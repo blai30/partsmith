@@ -13,7 +13,7 @@ use partsmith_model::{
 use partsmith_print::{PrinterValues, Severity};
 use partsmith_protocol::{Repair, RepairCandidate};
 use partsmith_recompute::Input;
-use partsmith_sketch::{MessageContext, NativeSolver, PointRef, SketchParams, SolveIssue, Solver};
+use partsmith_sketch::{NativeSolver, PointRef, SketchParams, SolveIssue, Solver};
 use serde_json::Value;
 
 use crate::assets::asset_matches;
@@ -23,8 +23,7 @@ use crate::document::{canonical_text, canonicalize_params};
 use crate::error::EngineError;
 use crate::run::RunView;
 use crate::session::Session;
-use crate::sketch::{SKETCH_TYPE, dimension_values};
-use crate::state::feature_label;
+use crate::sketch::{SKETCH_TYPE, SketchWords, dimension_values};
 use crate::types::{
     Asset, FeatureMessage, ValidateOptions, ValidationDiagnostic, ValidationReport,
 };
@@ -415,17 +414,9 @@ impl<'a> Checks<'a> {
                 continue;
             };
             let path = Some(format!("/features/{position}"));
-            let label = feature_label(self.registry, self.document, &record.id);
+            let words = SketchWords::of(self.registry, self.document, &record.id);
             let solve = NativeSolver.solve(params, &values);
-            let result = solve.as_ref().ok();
-            let context = MessageContext {
-                label: &label,
-                sketch: params,
-                solved: result.map(|result| result.entities.as_slice()),
-                values: &values,
-                measured: result.map(|result| &result.measured),
-                units: self.document.units,
-            };
+            let context = words.context(params, &values, solve.as_ref().ok());
             match &solve {
                 Ok(result) => {
                     for issue in result.issues(params) {

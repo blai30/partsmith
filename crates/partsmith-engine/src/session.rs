@@ -21,12 +21,12 @@ use crate::assets::{referenced_assets, stored_assets};
 use crate::display::DisplayCache;
 use crate::document::{OpenDocument, SavedText, canonical_text, canonicalize_params};
 use crate::error::EngineError;
+use crate::inspections::Inspections;
 use crate::options::SessionOptions;
 use crate::profiles::{Profiles, tolerance};
 use crate::state::{self, Computed};
 use crate::status::{feature_statuses, parameter_values};
 use crate::types::{Asset, EngineInfo, Opened, Saved};
-use crate::units::Inspections;
 
 /// Bytes of one cached recompute result the engine assumes when it turns its byte budget into
 /// recompute's entry limit (recompute evicts by entry count in M1, recompute.md section 1), so

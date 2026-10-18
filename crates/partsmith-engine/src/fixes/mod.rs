@@ -1,6 +1,7 @@
 //! Fix actions (engine.md section 3.22): the label and the run of each fix a feature message
-//! offers, and `apply_fix`, which builds an offered fix's edits from the current records and
-//! applies them as one batch, refusing a fix that no longer applies.
+//! offers, the fixes of a stored sketch's profile findings (`findings.rs`), and `apply_fix`, which
+//! builds an offered fix's edits from the current records and applies them as one batch,
+//! refusing a fix that no longer applies.
 
 mod edits;
 mod findings;
@@ -95,8 +96,10 @@ pub(crate) fn offers<'m>(
 impl Session {
     /// Applies one offered `apply` action as one batch (section 3.22): outside a transaction as
     /// one undo entry labeled with the action's label, inside one appended to it. Fails with
-    /// `stale_fix` when the document's revision is not `fix.revision`, or its latest statuses no
-    /// longer offer that `apply` action. Returns the new revision.
+    /// `stale_fix` when the document's revision is not `fix.revision`, when `fix.cause` is set (the
+    /// engine makes no causes yet, section 3.21), or when its latest statuses no longer offer that
+    /// `apply` action; a finding's fix is checked against the stored sketch's latest solution
+    /// instead. Returns the new revision.
     pub fn apply_fix(&mut self, doc: DocHandle, fix: &FixRef) -> Result<u64, EngineError> {
         // Borrowed by field, so that `whole_run` can still use the recompute.
         let open = self

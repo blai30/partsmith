@@ -396,6 +396,56 @@ fn feature_repair(frame: &ResponseFrame, feature: &str, path: &str) -> Value {
     status_entry(frame, feature, "repairs", "path", path)
 }
 
+/// The only item of `items`, where `what` names one item for the failure text.
+#[track_caller]
+fn only(items: Vec<Value>, what: &str) -> Value {
+    match <[Value; 1]>::try_from(items) {
+        Ok([item]) => item,
+        Err(items) => panic!("one {what}, not {}: {items:?}", items.len()),
+    }
+}
+
+/// The only message of `holder`, a feature status or a sketch solution.
+fn only_message_of(holder: &Value) -> Value {
+    let messages = holder["messages"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{holder} lists its messages"));
+    only(messages.clone(), "message")
+}
+
+/// The only message of `feature` in the frame's `recomputed` event.
+fn only_message(frame: &ResponseFrame, feature: &str) -> Value {
+    only_message_of(&feature_status(frame, feature))
+}
+
+/// The frame's only `document_changed` event.
+fn document_changed(frame: &ResponseFrame) -> Value {
+    only(
+        events_of(frame, "document_changed"),
+        "document_changed event",
+    )
+}
+
+/// The recipe in the frame's only `document_changed` event.
+fn changed_recipe(frame: &ResponseFrame) -> Value {
+    document_changed(frame)["document"].clone()
+}
+
+/// The record of `feature` in the recipe of the frame's `document_changed` event.
+fn changed_record(frame: &ResponseFrame, feature: &str) -> Value {
+    feature_record(&changed_recipe(frame), feature)
+}
+
+/// The `id` of each object of the JSON array `items`, in order.
+fn ids_of(items: &Value) -> Vec<String> {
+    items
+        .as_array()
+        .unwrap_or_else(|| panic!("{items} is a list"))
+        .iter()
+        .map(|item| item["id"].as_str().expect("ids are text").to_owned())
+        .collect()
+}
+
 /// The actions of a message, in order.
 fn actions(message: &Value) -> &[Value] {
     message["actions"]
@@ -432,9 +482,19 @@ fn apply_fix(side: &Side, fix: &Value) -> Value {
     json!({"type": "apply_fix", "doc": side.doc, "fix": fix})
 }
 
+/// The `apply_fix` command for the `apply` action labeled `label` among `message`'s actions, for the side's document.
+fn apply_action(side: &Side, message: &Value, label: &str) -> Value {
+    apply_fix(side, &action_labeled(message, label)["run"]["fix"])
+}
+
 /// The `save_document` command for the side's document.
 fn save_document(side: &Side) -> Value {
     json!({"type": "save_document", "doc": side.doc})
+}
+
+/// The text `save_document` gives for the bridge's document, read as request `id`.
+fn saved_text(sides: &mut SideBySide, id: u64) -> Value {
+    ok_result(&sides.send(id, save_document), "save_document")["text"].clone()
 }
 
 /// The `get_document` command for the side's document.
@@ -445,6 +505,21 @@ fn get_document(side: &Side) -> Value {
 /// The `begin_transaction` command labeled `label` for the side's document.
 fn begin_transaction(side: &Side, label: &str) -> Value {
     json!({"type": "begin_transaction", "doc": side.doc, "label": label})
+}
+
+/// The `set_document_units` command for the side's document.
+fn set_document_units(side: &Side, units: &str, keep_sizes: bool) -> Value {
+    json!({"type": "set_document_units", "doc": side.doc, "units": units, "keep_sizes": keep_sizes})
+}
+
+/// The `undo` command for the side's document.
+fn undo(side: &Side) -> Value {
+    json!({"type": "undo", "doc": side.doc})
+}
+
+/// The `solve_sketch` command for the sketch `feature` of the side's document.
+fn solve_sketch(side: &Side, feature: &str) -> Value {
+    json!({"type": "solve_sketch", "doc": side.doc, "feature": feature})
 }
 
 /// The `list_elements` command for the faces of `b-1` of the side's document.
@@ -495,10 +570,9 @@ fn listed_named(frame: &ResponseFrame, name: &str) -> Value {
     named(&listed(frame), name).clone()
 }
 
-/// The record of `feature` that the bridge's document holds, read with `get_document` as request `id`.
-fn record(sides: &mut SideBySide, id: u64, feature: &str) -> Value {
-    let got = sides.send(id, get_document);
-    ok_result(&got, "get_document")["document"]["features"]
+/// The record of `feature` in the recipe `document`.
+fn feature_record(document: &Value, feature: &str) -> Value {
+    document["features"]
         .as_array()
         .expect("documents list their features")
         .iter()
@@ -507,18 +581,24 @@ fn record(sides: &mut SideBySide, id: u64, feature: &str) -> Value {
         .clone()
 }
 
+/// The record of `feature` that the bridge's document holds, read with `get_document` as request `id`.
+fn record(sides: &mut SideBySide, id: u64, feature: &str) -> Value {
+    let got = sides.send(id, get_document);
+    feature_record(&ok_result(&got, "get_document")["document"], feature)
+}
+
 /// The solution of `feature` in the frame's only `sketch_solved` event for it.
 fn sketch_solution(frame: &ResponseFrame, feature: &str) -> Value {
-    let solved: Vec<Value> = events_of(frame, "sketch_solved")
+    let solved = events_of(frame, "sketch_solved")
         .into_iter()
         .filter(|event| event["solution"]["feature"] == feature)
         .collect();
-    assert_eq!(
-        solved.len(),
-        1,
-        "the frame solves {feature} once: {solved:?}"
-    );
-    solved[0]["solution"].clone()
+    only(solved, &format!("sketch_solved event of {feature}"))["solution"].clone()
+}
+
+/// The only message of `feature`'s solution in the frame's `sketch_solved` event.
+fn only_solution_message(frame: &ResponseFrame, feature: &str) -> Value {
+    only_message_of(&sketch_solution(frame, feature))
 }
 
 /// The `fix` reference of `Use 3`, the second action of the fractional pattern's message, offered at revision 0.
@@ -897,6 +977,29 @@ fn box_then(more: Vec<Value>) -> String {
     serde_json::to_string_pretty(&document).expect("documents serialize")
 }
 
+/// A millimeter `.ptsm` text at format version 2 of the one body `b-1`, 'Body 1', with `parameters` and `features`.
+fn body_1_text(parameters: Vec<Value>, features: Vec<Value>) -> String {
+    let document = json!({
+        "format": "partsmith",
+        "format_version": 2,
+        "units": "mm",
+        "parameters": parameters,
+        "bodies": [{"id": "b-1", "name": "Body 1"}],
+        "features": features
+    });
+    serde_json::to_string_pretty(&document).expect("documents serialize")
+}
+
+/// The box `feature` of `b-1` of `size`, at `position` when there is one, with Operation `op`.
+fn box_feature(feature: &str, size: [&str; 3], position: Option<[&str; 3]>, op: &str) -> Value {
+    let mut record = json!({"id": feature, "type": "box", "body": "b-1", "size": size});
+    if let Some(position) = position {
+        record["position"] = json!(position);
+    }
+    record["op"] = json!(op);
+    record
+}
+
 /// The Move body `f-mv1` of `b-1` by (100, 0, 0), the move of engine.md tests 124, 125 and 135.
 fn moved_by_100() -> Value {
     json!({"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]})
@@ -979,19 +1082,6 @@ fn moved_box_with_a_face_sketch(frame: Option<&str>) -> String {
             }),
         ],
     )
-}
-
-/// A millimeter `.ptsm` text at format version 2 of the one body `b-1`, 'Body 1', with `parameters` and `features`.
-fn body_1_text(parameters: Vec<Value>, features: Vec<Value>) -> String {
-    let document = json!({
-        "format": "partsmith",
-        "format_version": 2,
-        "units": "mm",
-        "parameters": parameters,
-        "bodies": [{"id": "b-1", "name": "Body 1"}],
-        "features": features
-    });
-    serde_json::to_string_pretty(&document).expect("documents serialize")
 }
 
 /// Asserts that `feature` has status ok and no message in the frame's `recomputed` event.
@@ -1082,16 +1172,11 @@ fn wire_response(frame: &[u8]) -> Value {
 
 /// The only event of type `event_type` of a frame as its bytes hold it (see [`wire_header`]).
 fn wire_event(frame: &[u8], event_type: &str) -> Value {
-    let events: Vec<Value> = wire_messages(frame)
+    let events = wire_messages(frame)
         .into_iter()
         .filter(|message| message["kind"] == "event" && message["type"] == event_type)
         .collect();
-    assert_eq!(
-        events.len(),
-        1,
-        "the frame has one {event_type} event: {events:?}"
-    );
-    events[0].clone()
+    only(events, &format!("{event_type} event"))
 }
 
 /// The keys of the JSON object `object`, in the order it holds them.
@@ -1208,10 +1293,7 @@ fn engine_t125_solve_sketch_of_a_body_fallback_passes_through_placed_on_the_move
     let mut sides = SideBySide::new();
     sides.open(1, &sketch_on_moved_top(Some("body")));
 
-    let solved = sides.send(
-        2,
-        |side| json!({"type": "solve_sketch", "doc": side.doc, "feature": "f-sk1"}),
-    );
+    let solved = sides.send(2, |side| solve_sketch(side, "f-sk1"));
 
     assert_level_placement(
         &ok_result(&solved, "solve_sketch")["solution"]["placement"],
@@ -1239,9 +1321,10 @@ fn engine_t135_apply_fix_of_attach_passes_through_with_the_fallback_in_body_coor
     let mut sides = SideBySide::new();
     let opened = sides.open(1, LOST_FACE_ON_A_MOVED_CUBE_TEXT);
     let message = feature_message(&opened, "f-sk1", "plane_fallback");
-    let attach = action_labeled(&message, "Attach to the top of 'Box 1'");
 
-    let applied = sides.send(2, |side| apply_fix(side, &attach["run"]["fix"]));
+    let applied = sides.send(2, |side| {
+        apply_action(side, &message, "Attach to the top of 'Box 1'")
+    });
 
     assert_eq!(ok_result(&applied, "apply_fix")["revision"], 1);
     assert_ok_without_messages(&applied, "f-sk1");
@@ -1279,9 +1362,10 @@ fn engine_t135_apply_fix_of_turn_the_drawing_back_passes_through_with_the_mirror
     let mut sides = SideBySide::new();
     let opened = sides.open(1, TURNED_OVER_TOP_TEXT);
     let message = feature_message(&opened, "f-sk2", "sketch_turned_over");
-    let turn = action_labeled(&message, "Turn the drawing back");
 
-    let applied = sides.send(2, |side| apply_fix(side, &turn["run"]["fix"]));
+    let applied = sides.send(2, |side| {
+        apply_action(side, &message, "Turn the drawing back")
+    });
 
     assert_eq!(ok_result(&applied, "apply_fix")["revision"], 1);
     assert_ok_without_messages(&applied, "f-sk2");
@@ -1308,16 +1392,16 @@ fn engine_t135_apply_fix_of_turn_the_drawing_back_passes_through_with_the_mirror
 fn engine_t135_undo_of_turn_the_drawing_back_passes_through_restoring_the_text() {
     let mut sides = SideBySide::new();
     let opened = sides.open(1, TURNED_OVER_TOP_TEXT);
-    let before = ok_result(&sides.send(2, save_document), "save_document")["text"].clone();
+    let before = saved_text(&mut sides, 2);
     let message = feature_message(&opened, "f-sk2", "sketch_turned_over");
-    let turn = action_labeled(&message, "Turn the drawing back");
-    sides.send(3, |side| apply_fix(side, &turn["run"]["fix"]));
+    sides.send(3, |side| {
+        apply_action(side, &message, "Turn the drawing back")
+    });
 
-    let undone = sides.send(4, |side| json!({"type": "undo", "doc": side.doc}));
+    let undone = sides.send(4, undo);
 
     assert_eq!(ok_result(&undone, "undo")["label"], "Turn the drawing back");
-    let after = ok_result(&sides.send(5, save_document), "save_document")["text"].clone();
-    assert_eq!(after, before);
+    assert_eq!(saved_text(&mut sides, 5), before);
 }
 
 #[test]
@@ -1417,19 +1501,9 @@ fn extrude(feature: &str, sketch: &str, regions: Value, distance: &str, op: &str
     })
 }
 
-/// The box `feature` of `b-1` of `size`, at `position` when there is one, with Operation `op`.
-fn box_feature(feature: &str, size: [&str; 3], position: Option<[&str; 3]>, op: &str) -> Value {
-    let mut record = json!({"id": feature, "type": "box", "body": "b-1", "size": size});
-    if let Some(position) = position {
-        record["position"] = json!(position);
-    }
-    record["op"] = json!(op);
-    record
-}
-
-/// The fillet `f-fil1` of `b-1` of radius `radius` on the one edge `edge`.
-fn fillet(edge: Value, radius: &str) -> Value {
-    json!({"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [edge], "radius": radius})
+/// The fillet `feature` of `b-1` of radius `radius` on the one edge `edge`.
+fn fillet(feature: &str, edge: Value, radius: &str) -> Value {
+    json!({"id": feature, "type": "fillet", "body": "b-1", "edges": [edge], "radius": radius})
 }
 
 /// BLOCK of the newcomer error corpus with 'Extrude 1' extruded `distance`: the 80 x 50 rectangle `e-1` to `e-4` of `f-sk1` on XY, extruded by `f-ext1` into `b-1` (x 0..80, y 0..50, z 0..30 at distance 30).
@@ -1486,6 +1560,7 @@ fn fillet_on_a_low_step() -> String {
             box_feature("f-box1", ["40", "20", "10"], None, "new"),
             box_feature("f-box2", ["20", "30", "5"], Some(["10", "0", "7.6"]), "cut"),
             fillet(
+                "f-fil1",
                 json!({"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,10|l=20|adj=2,2"}),
                 "3",
             ),
@@ -1523,6 +1598,7 @@ fn numbers_without_units() -> String {
         vec![
             box_feature("f-box1", ["40", "20", "10"], None, "new"),
             fillet(
+                "f-fil1",
                 json!({"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,10|l=40|adj=2,2"}),
                 "2",
             ),
@@ -1537,6 +1613,7 @@ fn cube_with_a_bare_radius() -> String {
         vec![
             box_feature("f-box1", ["20 mm", "20 mm", "20 mm"], None, "new"),
             fillet(
+                "f-fil1",
                 json!({"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2"}),
                 "2",
             ),
@@ -1566,40 +1643,6 @@ fn misspelled_shell_setting() -> String {
     )
 }
 
-/// The `set_document_units` command for the side's document.
-fn set_document_units(side: &Side, units: &str, keep_sizes: bool) -> Value {
-    json!({"type": "set_document_units", "doc": side.doc, "units": units, "keep_sizes": keep_sizes})
-}
-
-/// The `undo` command for the side's document.
-fn undo(side: &Side) -> Value {
-    json!({"type": "undo", "doc": side.doc})
-}
-
-/// The text `save_document` gives for the bridge's document, read as request `id`.
-fn saved_text(sides: &mut SideBySide, id: u64) -> Value {
-    ok_result(&sides.send(id, save_document), "save_document")["text"].clone()
-}
-
-/// The only message of `holder`, a feature status or a sketch solution.
-fn only_message_of(holder: &Value) -> Value {
-    let messages = holder["messages"]
-        .as_array()
-        .unwrap_or_else(|| panic!("{holder} lists its messages"));
-    assert_eq!(messages.len(), 1, "one message: {holder}");
-    messages[0].clone()
-}
-
-/// The only message of `feature` in the frame's `recomputed` event.
-fn only_message(frame: &ResponseFrame, feature: &str) -> Value {
-    only_message_of(&feature_status(frame, feature))
-}
-
-/// The only message of `feature`'s solution in the frame's `sketch_solved` event.
-fn only_solution_message(frame: &ResponseFrame, feature: &str) -> Value {
-    only_message_of(&sketch_solution(frame, feature))
-}
-
 /// Asserts a message's code, text and action labels, in order.
 #[track_caller]
 fn assert_message(message: &Value, code: &str, text: &str, offered: &[&str]) {
@@ -1608,51 +1651,9 @@ fn assert_message(message: &Value, code: &str, text: &str, offered: &[&str]) {
     assert_eq!(labels(message), offered, "{message}");
 }
 
-/// The `apply_fix` command for the `apply` action labeled `label` among `message`'s actions, for the side's document.
-fn apply_action(side: &Side, message: &Value, label: &str) -> Value {
-    apply_fix(side, &action_labeled(message, label)["run"]["fix"])
-}
-
-/// The frame's only `document_changed` event.
-fn document_changed(frame: &ResponseFrame) -> Value {
-    let changed = events_of(frame, "document_changed");
-    assert_eq!(
-        changed.len(),
-        1,
-        "the frame changes the document once: {changed:?}"
-    );
-    changed[0].clone()
-}
-
-/// The recipe in the frame's only `document_changed` event.
-fn changed_document(frame: &ResponseFrame) -> Value {
-    document_changed(frame)["document"].clone()
-}
-
-/// The record of `feature` in the recipe of the frame's `document_changed` event.
-fn changed_record(frame: &ResponseFrame, feature: &str) -> Value {
-    changed_document(frame)["features"]
-        .as_array()
-        .expect("documents list their features")
-        .iter()
-        .find(|record| record["id"] == feature)
-        .unwrap_or_else(|| panic!("the document has {feature}"))
-        .clone()
-}
-
-/// The `id` of each object of the JSON array `items`, in order.
-fn ids_of(items: &Value) -> Vec<String> {
-    items
-        .as_array()
-        .unwrap_or_else(|| panic!("{items} is a list"))
-        .iter()
-        .map(|item| item["id"].as_str().expect("ids are text").to_owned())
-        .collect()
-}
-
 /// The bodies of the frame's recipe besides `b-1`: the one `Put it in a new body` adds to a document of `b-1` alone.
 fn bodies_besides_body_1(frame: &ResponseFrame) -> Vec<String> {
-    ids_of(&changed_document(frame)["bodies"])
+    ids_of(&changed_recipe(frame)["bodies"])
         .into_iter()
         .filter(|body| body != "b-1")
         .collect()
@@ -1694,10 +1695,7 @@ fn engine_t126_nc01_sketch_solutions_keep_messages_after_profile_findings_throug
     let mut sides = SideBySide::new();
     sides.open(1, &open_outline());
 
-    let solved = sides.send_raw(
-        2,
-        |side| json!({"type": "solve_sketch", "doc": side.doc, "feature": "f-sk1"}),
-    );
+    let solved = sides.send_raw(2, |side| solve_sketch(side, "f-sk1"));
 
     let keys = keys_of(&wire_response(&solved)["result"]["solution"]);
     assert_eq!(
@@ -1818,7 +1816,7 @@ fn engine_t127_nc04_apply_fix_of_put_it_in_a_new_body_passes_through_with_body_2
     );
 
     assert_eq!(ok_result(&applied, "apply_fix")["revision"], 1);
-    let bodies = &changed_document(&applied)["bodies"];
+    let bodies = &changed_recipe(&applied)["bodies"];
     assert_eq!(bodies.as_array().map(Vec::len), Some(2), "{bodies}");
     assert_eq!(bodies[1]["name"], "Body 2", "{bodies}");
     let boss = changed_record(&applied, "f-ext2");

@@ -12,30 +12,13 @@ mod corpus;
 use common::{
     GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, doc_handle, fixture,
     get_document, measure_body, new_doc, open, open_text, revision, saved_text, send, session,
+    set_document_units,
 };
-use corpus::{box_record, document_with, nc09, parameter, record, volume};
-use partsmith_engine::Session;
+use corpus::{box_record, document_with, nc09, opened, parameter, record, volume};
 use partsmith_model::Units;
 use partsmith_protocol::DocHandle;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-
-/// Sends `set_document_units` with `units` and `keep_sizes`.
-fn set_units(session: &mut Session, doc: u64, units: &str, keep_sizes: bool) -> Sent {
-    send(
-        session,
-        json!({"type": "set_document_units", "doc": doc, "units": units, "keep_sizes": keep_sizes}),
-    )
-}
-
-/// Opens the NC09 document (a box of size `40`, `20` and `10` and a fillet of radius `2`, all without a unit) and
-/// returns the handle, the reply and the text.
-fn open_nc09(session: &mut Session) -> (u64, Sent, String) {
-    let opened = open_text(session, &nc09());
-    let doc = doc_handle(&opened);
-    let text = saved_text(session, doc);
-    (doc, opened, text)
-}
 
 /// The document units in `document_changed` of `sent`.
 fn units_of(sent: &Sent) -> Value {
@@ -64,17 +47,17 @@ fn box_sized_by_a_bare_parameter() -> String {
 fn t145_opening_counts_the_four_numbers_without_a_unit() {
     let mut session = session();
 
-    let (_, opened, _) = open_nc09(&mut session);
+    let (_, sent, _) = opened(&mut session, &nc09());
 
-    assert_eq!(opened.event("document_changed")["bare_numbers"], 4);
+    assert_eq!(sent.event("document_changed")["bare_numbers"], 4);
 }
 
 #[test]
 fn t145_keep_sizes_is_one_change_that_keeps_four_numbers() {
     let mut session = session();
-    let (doc, _, _) = open_nc09(&mut session);
+    let (doc, _, _) = opened(&mut session, &nc09());
 
-    let switched = set_units(&mut session, doc, "in", true);
+    let switched = set_document_units(&mut session, doc, "in", true);
 
     assert_eq!(
         switched.ok(),
@@ -96,9 +79,9 @@ fn t145_keep_sizes_is_one_change_that_keeps_four_numbers() {
 #[test]
 fn t145_keep_sizes_writes_the_old_unit_after_each_number() {
     let mut session = session();
-    let (doc, _, _) = open_nc09(&mut session);
+    let (doc, _, _) = opened(&mut session, &nc09());
 
-    set_units(&mut session, doc, "in", true).ok();
+    set_document_units(&mut session, doc, "in", true).ok();
 
     assert_eq!(
         record(&mut session, doc, "f-box1")["size"],
@@ -110,10 +93,10 @@ fn t145_keep_sizes_writes_the_old_unit_after_each_number() {
 #[test]
 fn t145_keep_sizes_keeps_the_volume() {
     let mut session = session();
-    let (doc, _, _) = open_nc09(&mut session);
+    let (doc, _, _) = opened(&mut session, &nc09());
     let before = volume(&mut session, doc, "b-1");
 
-    let switched = set_units(&mut session, doc, "in", true);
+    let switched = set_document_units(&mut session, doc, "in", true);
 
     assert_eq!(switched.feature_status("f-fil1")["status"], "ok");
     assert_relative(
@@ -127,8 +110,8 @@ fn t145_keep_sizes_keeps_the_volume() {
 #[test]
 fn t145_undo_restores_the_text_exactly() {
     let mut session = session();
-    let (doc, _, before) = open_nc09(&mut session);
-    set_units(&mut session, doc, "in", true).ok();
+    let (doc, _, before) = opened(&mut session, &nc09());
+    set_document_units(&mut session, doc, "in", true).ok();
 
     let undone = send(&mut session, json!({"type": "undo", "doc": doc}));
 
@@ -140,9 +123,9 @@ fn t145_undo_restores_the_text_exactly() {
 #[test]
 fn t145_without_keep_sizes_nothing_is_kept_and_the_numbers_mean_inches() {
     let mut session = session();
-    let (doc, _, _) = open_nc09(&mut session);
+    let (doc, _, _) = opened(&mut session, &nc09());
 
-    let switched = set_units(&mut session, doc, "in", false);
+    let switched = set_document_units(&mut session, doc, "in", false);
 
     assert_eq!(switched.ok()["revision"], 1);
     assert_eq!(switched.ok()["kept"], 0);
@@ -165,9 +148,9 @@ fn t145_without_keep_sizes_nothing_is_kept_and_the_numbers_mean_inches() {
 fn t145_the_current_units_change_nothing() {
     for keep_sizes in [true, false] {
         let mut session = session();
-        let (doc, _, before) = open_nc09(&mut session);
+        let (doc, _, before) = opened(&mut session, &nc09());
 
-        let same = set_units(&mut session, doc, "mm", keep_sizes);
+        let same = set_document_units(&mut session, doc, "mm", keep_sizes);
 
         assert_eq!(
             same.ok(),
@@ -185,14 +168,14 @@ fn t145_the_current_units_change_nothing() {
 #[test]
 fn t145_inside_a_transaction_the_edits_join_it() {
     let mut session = session();
-    let (doc, _, before) = open_nc09(&mut session);
+    let (doc, _, before) = opened(&mut session, &nc09());
     send(
         &mut session,
         json!({"type": "begin_transaction", "doc": doc, "label": "Units"}),
     )
     .ok();
 
-    let switched = set_units(&mut session, doc, "in", true);
+    let switched = set_document_units(&mut session, doc, "in", true);
 
     assert_eq!(switched.ok()["revision"], 1);
     assert_eq!(switched.ok()["kept"], 4);
@@ -217,7 +200,7 @@ fn t145_inside_a_transaction_the_edits_join_it() {
 #[test]
 fn a_request_without_keep_sizes_does_not_keep_sizes() {
     let mut session = session();
-    let (doc, _, _) = open_nc09(&mut session);
+    let (doc, _, _) = opened(&mut session, &nc09());
 
     let switched = send(
         &mut session,
@@ -239,7 +222,7 @@ fn the_label_names_the_new_units_by_their_symbol() {
         ("in", "Change units to in"),
         ("mm", "Change units to mm"),
     ] {
-        let switched = set_units(&mut session, doc, units, true);
+        let switched = set_document_units(&mut session, doc, units, true);
 
         assert_eq!(switched.ok()["kept"], 0, "{units}");
         assert_eq!(units_of(&switched), units);
@@ -262,7 +245,7 @@ fn keep_sizes_from_inches_writes_inches() {
     assert_eq!(opened.event("document_changed")["bare_numbers"], 3);
     let before = volume(&mut session, doc, "b-1");
 
-    let switched = set_units(&mut session, doc, "mm", true);
+    let switched = set_document_units(&mut session, doc, "mm", true);
 
     assert_eq!(switched.ok()["kept"], 3);
     assert_eq!(
@@ -287,7 +270,7 @@ fn keep_sizes_without_bare_numbers_only_changes_the_units() {
     let doc = doc_handle(&open(&mut session, "box.ptsm"));
     let features_before = get_document(&mut session, doc)["document"]["features"].clone();
 
-    let switched = set_units(&mut session, doc, "in", true);
+    let switched = set_document_units(&mut session, doc, "in", true);
 
     assert_eq!(switched.ok()["revision"], 1);
     assert_eq!(switched.ok()["kept"], 0);
@@ -305,7 +288,7 @@ fn a_parameter_used_as_a_length_is_counted_and_kept() {
     let doc = doc_handle(&opened);
     assert_eq!(opened.event("document_changed")["bare_numbers"], 1);
 
-    let switched = set_units(&mut session, doc, "in", true);
+    let switched = set_document_units(&mut session, doc, "in", true);
 
     assert_eq!(switched.ok()["kept"], 1);
     assert_eq!(
@@ -318,8 +301,8 @@ fn a_parameter_used_as_a_length_is_counted_and_kept() {
 #[test]
 fn redo_changes_the_units_again() {
     let mut session = session();
-    let (doc, _, _) = open_nc09(&mut session);
-    set_units(&mut session, doc, "in", true).ok();
+    let (doc, _, _) = opened(&mut session, &nc09());
+    set_document_units(&mut session, doc, "in", true).ok();
     send(&mut session, json!({"type": "undo", "doc": doc})).ok();
 
     let redone = send(&mut session, json!({"type": "redo", "doc": doc}));
@@ -332,9 +315,9 @@ fn redo_changes_the_units_again() {
 #[test]
 fn a_units_change_makes_the_document_dirty_and_undo_makes_it_clean() {
     let mut session = session();
-    let (doc, _, _) = open_nc09(&mut session);
+    let (doc, _, _) = opened(&mut session, &nc09());
 
-    let switched = set_units(&mut session, doc, "in", true);
+    let switched = set_document_units(&mut session, doc, "in", true);
     let undone = send(&mut session, json!({"type": "undo", "doc": doc}));
 
     assert_eq!(switched.event("document_changed")["dirty"], true);
@@ -344,13 +327,13 @@ fn a_units_change_makes_the_document_dirty_and_undo_makes_it_clean() {
 #[test]
 fn cancelling_the_transaction_reverts_the_units() {
     let mut session = session();
-    let (doc, _, before) = open_nc09(&mut session);
+    let (doc, _, before) = opened(&mut session, &nc09());
     send(
         &mut session,
         json!({"type": "begin_transaction", "doc": doc, "label": "Units"}),
     )
     .ok();
-    set_units(&mut session, doc, "in", true).ok();
+    set_document_units(&mut session, doc, "in", true).ok();
 
     let cancelled = send(
         &mut session,
@@ -366,7 +349,7 @@ fn cancelling_the_transaction_reverts_the_units() {
 fn an_unknown_document_fails_before_anything_changes() {
     let mut session = session();
 
-    let sent = set_units(&mut session, 9, "in", true);
+    let sent = set_document_units(&mut session, 9, "in", true);
 
     assert_eq!(sent.error_code(), "unknown_document");
     assert!(sent.events.is_empty(), "{:?}", sent.event_types());

@@ -5,7 +5,6 @@ import math
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import ClassVar
 
 import pytest
 
@@ -256,12 +255,9 @@ class RecordingSession:
     """An engine session that records every command it is sent with its response's result; a test gets one with
     `recorded_document`."""
 
-    sessions: ClassVar[list["RecordingSession"]] = []
-
     def __init__(self, **options: bool) -> None:
         self._session = ORIGINAL_SESSION(**options)
         self.exchanges: list[tuple[dict, dict]] = []
-        RecordingSession.sessions.append(self)
 
     def call(self, frame: bytes) -> bytes:
         response = self._session.call(frame)
@@ -272,8 +268,14 @@ class RecordingSession:
 def recorded_document(monkeypatch: pytest.MonkeyPatch) -> tuple[Document, RecordingSession]:
     """A new document whose session is a `RecordingSession`, with that session; the document's creation is its first
     exchange."""
-    monkeypatch.setattr(RecordingSession, "sessions", [])
-    monkeypatch.setattr(partsmith._core, "Session", RecordingSession)
+    sessions: list[RecordingSession] = []
+
+    def recording_session(**options: bool) -> RecordingSession:
+        session = RecordingSession(**options)
+        sessions.append(session)
+        return session
+
+    monkeypatch.setattr(partsmith._core, "Session", recording_session)
     document = Document()
-    [session] = RecordingSession.sessions
+    [session] = sessions
     return document, session

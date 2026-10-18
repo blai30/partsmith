@@ -55,43 +55,38 @@ impl SketchWords {
         }
     }
 
-    /// The context the sketch crate renders the messages of a solve of `params` in: the solved
-    /// entities and measured values of `result`, and the driving dimension values `values`.
-    fn context<'a>(
+    /// The context the sketch crate renders the messages of `params` in, with the driving
+    /// dimension values `values`: the solved entities and measured values of `solve` when a
+    /// solve ran.
+    pub(crate) fn context<'a>(
         &'a self,
         params: &'a SketchParams,
-        result: &'a SolveResult,
         values: &'a DimensionValues,
+        solve: Option<&'a SolveResult>,
     ) -> MessageContext<'a> {
         MessageContext {
             label: &self.label,
             sketch: params,
-            solved: Some(&result.entities),
+            solved: solve.map(|result| result.entities.as_slice()),
             values,
-            measured: Some(&result.measured),
+            measured: solve.map(|result| &result.measured),
             units: self.units,
         }
     }
 
     /// The `invalid_params` error for `error`, raised by `params` with the driving dimension
-    /// values `values` before any solve.
+    /// values `values` before any solve: the sketch crate's message (sketch.md section 4.1), and
+    /// its `Display` as the detail.
     pub(crate) fn invalid(
         &self,
         error: &SketchError,
         params: &SketchParams,
         values: &DimensionValues,
     ) -> EngineError {
-        EngineError::invalid_sketch(
-            error,
-            &MessageContext {
-                label: &self.label,
-                sketch: params,
-                solved: None,
-                values,
-                measured: None,
-                units: self.units,
-            },
-        )
+        EngineError::InvalidSketch {
+            message: error.render(&self.context(params, values, None)),
+            detail: error.to_string(),
+        }
     }
 }
 
@@ -322,7 +317,7 @@ fn project(
             messages: solution_messages(
                 &result.issues(params),
                 &profile.findings,
-                &words.context(params, result, values),
+                &words.context(params, values, Some(result)),
             ),
             profile_findings: profile.findings,
             display: None,

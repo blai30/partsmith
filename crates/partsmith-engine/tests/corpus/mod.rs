@@ -1867,6 +1867,14 @@ fn set_pointer(target: &mut Value, pointer: &str, value: Value) {
     }
 }
 
+/// Opens a scenario text and returns the handle, the reply and the saved text before any fix.
+pub fn opened(session: &mut Session, text: &str) -> (u64, Sent, String) {
+    let sent = open_text(session, text);
+    let doc = doc_handle(&sent);
+    let before = saved_text(session, doc);
+    (doc, sent, before)
+}
+
 /// Opens the scenario's setup in `session` (revision 0) and applies its edit as one `apply_edits` labeled
 /// [`EDIT_LABEL`] (revision 1); returns the handle and the edit's reply.
 pub fn after_edit(session: &mut Session, scenario: &Scenario) -> (u64, Sent) {
@@ -1915,6 +1923,22 @@ pub fn message(sent: &Sent, feature: &str, code: &str) -> Value {
         sent.feature_status(feature)
     );
     found[0].clone()
+}
+
+/// Asserts that every feature named is ok with no message.
+pub fn assert_ok_without_messages(sent: &Sent, features: &[&str]) {
+    for feature in features {
+        assert_eq!(sent.feature_status(feature)["status"], "ok", "{feature}");
+        assert_eq!(messages(sent, feature), Vec::<Value>::new(), "{feature}");
+    }
+}
+
+/// The messages of a solution (a `SketchSolution` JSON value), in order.
+pub fn solution_messages(solution: &Value) -> Vec<Value> {
+    solution["messages"]
+        .as_array()
+        .expect("a solution lists its messages")
+        .clone()
 }
 
 /// The repairs of `feature` in the only `recomputed` event of `sent`.

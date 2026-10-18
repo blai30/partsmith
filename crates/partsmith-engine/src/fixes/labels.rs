@@ -7,13 +7,13 @@ use partsmith_model::{Expr, ExprNodeKind, FeatureRecord, Id};
 use partsmith_naming::{ElementKind, Reference};
 use partsmith_protocol::{Repair, RepairCandidate};
 use partsmith_recompute::Message;
-use partsmith_sketch::{MessageContext, RegionRef};
+use partsmith_sketch::RegionRef;
 use serde_json::Value;
 
 use super::{Offer, OfferRun};
 use crate::params::{field_path, is_list_entry, reference_at};
 use crate::run::FeatureView;
-use crate::sketch::{sketch_params, solve_values};
+use crate::sketch::{SketchWords, sketch_params, solve_values};
 use crate::state::built_sketch;
 use crate::words::region_words;
 
@@ -33,7 +33,8 @@ pub(super) struct Labels<'a> {
 
 impl Labels<'_> {
     /// The offer of a fix, or None when no label can say exactly what it does, when it would not
-    /// do exactly what its label says, or when a message is not where it is offered.
+    /// do exactly what its label says, or when a feature message is not where it is offered
+    /// (`ConnectEnds`, which a finding of a sketch's solution offers).
     pub(super) fn offer<'m>(&self, fix: &'m Fix) -> Option<Offer<'m>> {
         let apply = |label: String| {
             Some(Offer {
@@ -149,20 +150,17 @@ impl Labels<'_> {
         params.constraint(constraint)?;
         let named = self.constraints_named(sketch);
         let position = named.iter().position(|named| *named == constraint)?;
-        let result = built_sketch(view.report);
-        let label = run.label(sketch);
+        let words = SketchWords::of(run.registry, run.document, sketch);
         let values = solve_values(view.report);
-        MessageContext {
-            label: &label,
-            sketch: &params,
-            solved: result.map(|result| result.solved.entities.as_slice()),
-            values: &values,
-            measured: result.map(|result| &result.solved.measured),
-            units: run.document.units,
-        }
-        .titles(&named)
-        .into_iter()
-        .nth(position)
+        words
+            .context(
+                &params,
+                &values,
+                built_sketch(view.report).map(|built| &built.solved),
+            )
+            .titles(&named)
+            .into_iter()
+            .nth(position)
     }
 
     /// The constraints of the sketch `sketch` that the message's fixes delete or make references,

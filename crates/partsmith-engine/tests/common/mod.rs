@@ -420,6 +420,14 @@ pub fn apply(session: &mut Session, doc: u64, label: Option<&str>, edits: Value)
     send(session, command)
 }
 
+/// Sends `set_document_units` with `units` and `keep_sizes`.
+pub fn set_document_units(session: &mut Session, doc: u64, units: &str, keep_sizes: bool) -> Sent {
+    send(
+        session,
+        json!({"type": "set_document_units", "doc": doc, "units": units, "keep_sizes": keep_sizes}),
+    )
+}
+
 /// The `update_parameter` edit that sets the fixtures' `height` parameter (`p-h`) to `expr`.
 pub fn set_height(expr: &str) -> Value {
     json!({"type": "update_parameter", "parameter": {"id": "p-h", "name": "height", "expr": expr}})

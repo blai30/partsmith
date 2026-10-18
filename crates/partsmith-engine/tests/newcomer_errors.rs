@@ -13,13 +13,14 @@ mod common;
 mod corpus;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, assert_bounding_box, assert_relative, count, doc_handle,
-    measure_body, open_text, saved_text, send, session,
+    GEOMETRY_TOLERANCE, Sent, assert_bounding_box, assert_relative, count, measure_body,
+    saved_text, session, set_document_units,
 };
 use corpus::{
-    above_the_block, actions, after_edit, apply_as_one_entry, assert_undo_restores, box_record,
-    cube20_front_top, document, face_names, fillet, labels, messages, nc01, nc02, nc03, nc04, nc05,
-    nc06, nc07, nc08, nc09, nc10, nc11, nc12, picked, record, volume,
+    above_the_block, actions, after_edit, apply_as_one_entry, assert_ok_without_messages,
+    assert_undo_restores, box_record, cube20_front_top, document, face_names, fillet, labels,
+    messages, nc01, nc02, nc03, nc04, nc05, nc06, nc07, nc08, nc09, nc10, nc11, nc12, opened,
+    picked, record, solution_messages, volume,
 };
 use partsmith_engine::Session;
 use pretty_assertions::assert_eq;
@@ -58,25 +59,9 @@ fn assert_only_message(
     assert_message(&only_message(sent, feature), severity, code, text, offered);
 }
 
-/// Asserts that every feature named is ok with no message.
-fn assert_quiet(sent: &Sent, features: &[&str]) {
-    for feature in features {
-        assert_eq!(sent.feature_status(feature)["status"], "ok", "{feature}");
-        assert_eq!(messages(sent, feature), Vec::<Value>::new(), "{feature}");
-    }
-}
-
 /// The action of the only message of `feature` at position `index`.
 fn offered_action(sent: &Sent, feature: &str, index: usize) -> Value {
     actions(&only_message(sent, feature))[index].clone()
-}
-
-/// The messages of the latest `sketch_solved` solution of `feature` in `sent`.
-fn solution_messages(sent: &Sent, feature: &str) -> Vec<Value> {
-    sent.sketch_solution(feature)["messages"]
-        .as_array()
-        .expect("a solution lists its messages")
-        .clone()
 }
 
 /// Asserts the volume of `b-1` at the display state.
@@ -89,22 +74,6 @@ fn assert_block_volume(session: &mut Session, doc: u64, expected: f64) {
     );
 }
 
-/// Opens a scenario text and returns the handle, the reply and the saved text before any fix.
-fn opened(session: &mut Session, text: &str) -> (u64, Sent, String) {
-    let sent = open_text(session, text);
-    let doc = doc_handle(&sent);
-    let before = saved_text(session, doc);
-    (doc, sent, before)
-}
-
-/// Sends `set_document_units` with `units` and `keep_sizes`.
-fn set_document_units(session: &mut Session, doc: u64, units: &str, keep_sizes: bool) -> Sent {
-    send(
-        session,
-        json!({"type": "set_document_units", "doc": doc, "units": units, "keep_sizes": keep_sizes}),
-    )
-}
-
 // NC01 Open outline.
 
 #[test]
@@ -114,7 +83,7 @@ fn t150_nc01_an_open_outline_has_no_region_and_one_finding_that_connects_the_end
     let (_, sent, _) = opened(&mut session, &nc01());
 
     assert_eq!(sent.sketch_solution("f-sk1")["regions"], json!([]));
-    let findings = solution_messages(&sent, "f-sk1");
+    let findings = solution_messages(sent.sketch_solution("f-sk1"));
     assert_eq!(
         findings.len(),
         1,
@@ -133,7 +102,7 @@ fn t150_nc01_an_open_outline_has_no_region_and_one_finding_that_connects_the_end
 fn t150_nc01_connecting_the_ends_gives_the_sketch_one_region() {
     let mut session = session();
     let (doc, sent, before) = opened(&mut session, &nc01());
-    let connect = actions(&solution_messages(&sent, "f-sk1")[0])[0].clone();
+    let connect = actions(&solution_messages(sent.sketch_solution("f-sk1"))[0])[0].clone();
 
     let applied = apply_as_one_entry(&mut session, doc, &connect);
 
@@ -166,7 +135,7 @@ fn t150_nc02_a_join_buried_in_the_body_offers_to_attach_its_sketch_to_the_top() 
         ),
         &["Attach 'Sketch 2' to the top of 'Extrude 1'"],
     );
-    assert_quiet(&sent, &["f-sk1", "f-ext1", "f-sk2"]);
+    assert_ok_without_messages(&sent, &["f-sk1", "f-ext1", "f-sk2"]);
     assert_block_volume(&mut session, doc, 120000.0);
 }
 
@@ -178,7 +147,7 @@ fn t150_nc02_attaching_stands_the_boss_on_the_top() {
 
     let applied = apply_as_one_entry(&mut session, doc, &attach);
 
-    assert_quiet(&applied, &["f-sk1", "f-ext1", "f-sk2", "f-ext2"]);
+    assert_ok_without_messages(&applied, &["f-sk1", "f-ext1", "f-sk2", "f-ext2"]);
     assert_block_volume(&mut session, doc, 120785.398163);
     assert_bounding_box(
         &measure_body(&mut session, doc, "b-1")["bounding_box"],
@@ -207,7 +176,7 @@ fn t150_nc03_a_cut_that_points_away_offers_turn_on_reverse() {
         ("warning", "no_effect", POINTS_AWAY),
         &["Turn on Reverse"],
     );
-    assert_quiet(&sent, &["f-sk1", "f-ext1", "f-dp1", "f-sk2"]);
+    assert_ok_without_messages(&sent, &["f-sk1", "f-ext1", "f-dp1", "f-sk2"]);
 }
 
 #[test]
@@ -218,7 +187,7 @@ fn t150_nc03_turning_on_reverse_cuts_a_pocket() {
 
     let applied = apply_as_one_entry(&mut session, doc, &reverse);
 
-    assert_quiet(&applied, &["f-ext2"]);
+    assert_ok_without_messages(&applied, &["f-ext2"]);
     // The pocket spans z 25..30.
     assert_block_volume(&mut session, doc, 119607.300918);
     assert_undo_restores(&mut session, doc, &reverse["label"], &before);
@@ -273,7 +242,7 @@ fn t150_nc04_attaching_joins_the_boss_as_one_solid() {
     let applied = apply_as_one_entry(&mut session, doc, &attach);
 
     // Without a `separate_solid` warning the body is one solid; the boss spans z 30..45.
-    assert_quiet(&applied, &["f-sk2", "f-ext2"]);
+    assert_ok_without_messages(&applied, &["f-sk2", "f-ext2"]);
     assert_block_volume(&mut session, doc, 121178.097245);
     assert_bounding_box(
         &measure_body(&mut session, doc, "b-1")["bounding_box"],
@@ -302,7 +271,7 @@ fn t150_nc05_a_fillet_too_large_names_the_wall_that_limits_it() {
         ),
         &["Use 2.3 mm"],
     );
-    assert_quiet(&sent, &["f-box1", "f-box2"]);
+    assert_ok_without_messages(&sent, &["f-box1", "f-box2"]);
 }
 
 #[test]
@@ -313,7 +282,7 @@ fn t150_nc05_the_largest_radius_builds() {
 
     let applied = apply_as_one_entry(&mut session, doc, &use_largest);
 
-    assert_quiet(&applied, &["f-box1", "f-box2", "f-fil1"]);
+    assert_ok_without_messages(&applied, &["f-box1", "f-box2", "f-fil1"]);
     assert_undo_restores(&mut session, doc, &use_largest["label"], &before);
 }
 
@@ -325,7 +294,7 @@ fn t150_nc06_two_mm_walls_after_a_one_mm_fillet_build_with_sharp_inner_corners()
 
     let (doc, sent, _) = opened(&mut session, &nc06());
 
-    assert_quiet(&sent, &["f-box1", "f-fil1", "f-sh1"]);
+    assert_ok_without_messages(&sent, &["f-box1", "f-fil1", "f-sh1"]);
     assert_block_volume(&mut session, doc, 8654.831853);
     assert_eq!(
         count(&measure_body(&mut session, doc, "b-1")["face_count"]),
@@ -389,7 +358,7 @@ fn t150_nc07_deleting_the_new_dimension_builds_the_plate() {
 
     let applied = apply_as_one_entry(&mut session, doc, &delete);
 
-    assert_quiet(&applied, &["f-sk1", "f-ext1"]);
+    assert_ok_without_messages(&applied, &["f-sk1", "f-ext1"]);
     assert_block_volume(&mut session, doc, 8000.0);
     assert_undo_restores(&mut session, doc, &delete["label"], &before);
 }
@@ -438,7 +407,7 @@ fn t150_nc09_keep_sizes_adds_the_old_unit_to_the_four_numbers_as_one_undo_entry(
         json!(["40 mm", "20 mm", "10 mm"])
     );
     assert_eq!(record(&mut session, doc, "f-fil1")["radius"], "2 mm");
-    assert_quiet(&switched, &["f-box1", "f-fil1"]);
+    assert_ok_without_messages(&switched, &["f-box1", "f-fil1"]);
     assert_relative(
         volume(&mut session, doc, "b-1"),
         volume_before,
@@ -458,7 +427,7 @@ fn t150_nc09_without_keep_sizes_the_four_numbers_mean_inches() {
     assert_eq!(switched.ok()["kept"], 0);
     assert_eq!(switched.event("document_changed")["bare_numbers"], 4);
     // The box is 1016 x 508 x 254 mm and the radius 50.8 mm, which still fits.
-    assert_quiet(&switched, &["f-box1", "f-fil1"]);
+    assert_ok_without_messages(&switched, &["f-box1", "f-fil1"]);
     assert_bounding_box(
         &measure_body(&mut session, doc, "b-1")["bounding_box"],
         [-508.0, -254.0, 0.0],
@@ -502,7 +471,7 @@ fn t150_nc09_a_fillet_whose_bare_number_now_fails_says_what_it_means_and_offers_
     let applied = apply_as_one_entry(&mut session, doc, &use_millimeters);
 
     assert_eq!(record(&mut session, doc, "f-fil1")["radius"], "2 mm");
-    assert_quiet(&applied, &["f-fil1"]);
+    assert_ok_without_messages(&applied, &["f-fil1"]);
     assert_block_volume(&mut session, doc, 7982.831853);
     assert_undo_restores(&mut session, doc, &use_millimeters["label"], &before);
 }
@@ -536,7 +505,7 @@ fn t150_nc10_replacing_the_name_builds_the_block() {
 
     let applied = apply_as_one_entry(&mut session, doc, &replace);
 
-    assert_quiet(&applied, &["f-sk1", "f-ext1"]);
+    assert_ok_without_messages(&applied, &["f-sk1", "f-ext1"]);
     assert_block_volume(&mut session, doc, 120000.0);
     assert_undo_restores(&mut session, doc, &replace["label"], &before);
 }
@@ -593,6 +562,6 @@ fn t150_nc12_a_hole_beside_the_body_says_where_it_is_and_offers_no_reverse() {
         ),
         &[],
     );
-    assert_quiet(&sent, &["f-sk1", "f-ext1", "f-sk2"]);
+    assert_ok_without_messages(&sent, &["f-sk1", "f-ext1", "f-sk2"]);
     assert_block_volume(&mut session, doc, 120000.0);
 }

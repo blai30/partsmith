@@ -177,14 +177,14 @@ fn last_five_edit(text: &str, expr: &str) -> Value {
     json!({"type": "update_parameter", "parameter": parameter})
 }
 
-/// The record of `feature` in the document `text`.
+/// The record of `feature` in the reference part.
 fn reference_record(text: &str, feature: &str) -> Value {
-    let document: Value = serde_json::from_str(text).expect("the document is JSON");
+    let document: Value = serde_json::from_str(text).expect("the reference part is JSON");
     document["features"]
         .as_array()
         .and_then(|features| features.iter().find(|record| record["id"] == feature))
         .cloned()
-        .unwrap_or_else(|| panic!("the document has no feature {feature}"))
+        .unwrap_or_else(|| panic!("the reference part has no feature {feature}"))
 }
 
 /// The edits that make the lid fillet too large for lids `width` wide: the lid width and a fillet

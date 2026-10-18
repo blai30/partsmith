@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use partsmith_model::{Document, Id, IdGenerator, IdKind};
 
 use crate::error::EngineError;
-use crate::units::MemoizedInspector;
+use crate::inspections::MemoizedInspector;
 
 /// Ids for the records one command creates, from the session's generator, so that
 /// `SequentialIds` makes them deterministic, and never an id the document uses or one made
@@ -59,8 +59,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::inspections::Inspections;
     use crate::test_support::id;
-    use crate::units::Inspections;
 
     /// A generator that hands out the first id of a kind that is not taken.
     struct FirstFree;

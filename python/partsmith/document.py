@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from ._client import Client, Reply
 from ._files import write_atomic
 from .errors import EngineError, ExpressionError, FeatureError, PartsmithError, PartsmithWarning
-from .expressions import ATOM, LENGTH_FACTORS, Expr, render_value
+from .expressions import ATOM, LENGTH_FACTORS, Expr, choices_text, render_value
 from .reports import BoundingBox, PrintReport, bounding_box, point, print_report
 
 if TYPE_CHECKING:
@@ -137,11 +137,10 @@ class Document:
         units. Each problem the change starts in a feature is a PartsmithWarning (section 3.2).
         """
         if units not in DOCUMENT_UNITS:
-            *others, last = map(repr, DOCUMENT_UNITS)
-            raise ValueError(f"Document.set_units() units must be {', '.join(others)} or {last}, not {units!r}.")
-        before = self._problems()
-        reply = self._client.command("set_document_units", units=units, keep_sizes=bool(keep_sizes))
-        self._warn_new_problems("Document.set_units()", before)
+            raise ValueError(f"Document.set_units() units must be {choices_text(DOCUMENT_UNITS)}, not {units!r}.")
+        reply = self._command_and_warn(
+            "Document.set_units()", "set_document_units", units=units, keep_sizes=bool(keep_sizes)
+        )
         return reply.result["kept"]
 
     @property
@@ -151,7 +150,9 @@ class Document:
 
     @printer.setter
     def printer(self, profile: str | None) -> None:
-        self._apply_and_warn("Document.printer", "printer", [{"type": "set_printer", "printer": profile}])
+        self._command_and_warn(
+            "Document.printer", "apply_edits", label="printer", edits=[{"type": "set_printer", "printer": profile}]
+        )
 
     @property
     def parameters(self) -> list[Param]:
@@ -240,11 +241,13 @@ class Document:
         """Applies edits as one undo entry."""
         return self._client.command("apply_edits", label=label, edits=edits)
 
-    def _apply_and_warn(self, call: str, label: str, edits: list[dict]) -> None:
-        """Applies edits as one undo entry and warns about the problems they start (section 3.2)."""
+    def _command_and_warn(self, call: str, command_type: str, **fields: object) -> Reply:
+        """Sends a command that `call` makes, warns about the problems it starts (section 3.2) and
+        returns its reply."""
         before = self._problems()
-        self._apply(label, edits)
+        reply = self._client.command(command_type, **fields)
         self._warn_new_problems(call, before)
+        return reply
 
     def _problem_messages(self) -> Iterator[tuple[ProblemKey, dict, dict]]:
         """Every warning and error of the latest statuses, with its key and its feature's status."""
@@ -676,4 +679,6 @@ def rollback(feature: Feature | Sketch | str | None) -> None:
             raise TypeError(
                 f"rollback() takes a feature, a sketch, a feature id or None, not {type(feature).__name__}."
             )
-    document._apply_and_warn("rollback()", "rollback", [{"type": "set_rollback", "rollback": feature_id}])
+    document._command_and_warn(
+        "rollback()", "apply_edits", label="rollback", edits=[{"type": "set_rollback", "rollback": feature_id}]
+    )

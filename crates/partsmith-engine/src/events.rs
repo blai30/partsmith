@@ -11,7 +11,6 @@ use partsmith_protocol::{
     Buffer, BufferIndex, DocHandle, Event, Layer, MeshBuffers, MeshElement, SketchDisplay,
     SketchSolution,
 };
-use partsmith_recompute::Status;
 use partsmith_sketch::Placement;
 
 use crate::counts::saturating_u32;
@@ -19,13 +18,13 @@ use crate::display::{DisplayCache, DisplayMesh, MeshKey};
 use crate::document::OpenDocument;
 use crate::error::EngineError;
 use crate::fixes::offer_finding_fixes;
+use crate::inspections::Inspections;
 use crate::session::Session;
 use crate::sketch::{DATUM_PLANE_TYPE, SKETCH_TYPE};
 use crate::sketching::{datum_placement, stored_solution};
-use crate::state::{BodyView, display_bodies, preview_bodies};
+use crate::state::{BodyView, display_bodies, preview_bodies, ran};
 use crate::status::{DisplayFailure, document_diagnostics, feature_statuses, parameter_values};
 use crate::triangulate::fill_regions;
-use crate::units::Inspections;
 
 /// Events and the buffers they reference, collected for one reply.
 #[derive(Debug, Default)]
@@ -306,10 +305,7 @@ fn datum_events(open: &mut OpenDocument, doc: DocHandle, output: &mut Output) {
             continue;
         }
         present.insert(record.id.clone());
-        if matches!(
-            report.status,
-            Status::Suppressed | Status::RolledBack | Status::NotRun
-        ) {
+        if !ran(report.status) {
             continue;
         }
         let placement = datum_placement(&open.computed, &record.id);

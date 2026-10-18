@@ -198,13 +198,7 @@ fn t081_schema_defines_the_diagnostic_fix_repair_and_ghost_types() {
             property(&schema, entry, "actions").is_some(),
             "{name} declares actions"
         );
-        let required: Vec<&str> = entry
-            .get("required")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .collect();
+        let required = required_names(entry);
         assert!(
             !required.contains(&"actions"),
             "{name} does not require actions: {required:?}"
