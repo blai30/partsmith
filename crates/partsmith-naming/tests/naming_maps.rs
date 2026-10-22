@@ -1,7 +1,7 @@
 //! Acceptance tests for building, renaming, projecting and serializing naming maps (spec
 //! section 6, tests 33 to 55, 115, 123, 131 and 139).
 
-mod common;
+use crate::common;
 
 use common::{
     BOX_EDGE_NAMES, BOX_FACE_NAMES, BOX_VERTEX_NAMES, aliases, box_map, box_sources, box_topology,

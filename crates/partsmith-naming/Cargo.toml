@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One test binary: tests/integration.rs declares every other file of tests/ as a module (ADR 0035).
+autotests = false
 
 [dependencies]
 partsmith-model.workspace = true
@@ -22,6 +24,9 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
+
+[[test]]
+name = "integration"
 
 [[bench]]
 name = "budgets"

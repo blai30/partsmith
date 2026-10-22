@@ -1,6 +1,6 @@
 //! Acceptance tests for mesh construction and per-triangle geometry (spec sections 6.2 and 6.3).
 
-mod common;
+use crate::common;
 
 use common::{
     BOX_FACE_IDS, BOX_TRIANGLES, TOLERANCE, assert_close, assert_vector_close, box_positions, cube,

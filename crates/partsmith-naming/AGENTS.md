@@ -29,6 +29,7 @@ Everything is re-exported at the crate root.
 
 ```sh
 cargo test -p partsmith-naming
+cargo test -p partsmith-naming --test integration resolver::   # one file of tests/, a module of tests/integration.rs
 cargo clippy -p partsmith-naming --all-targets -- -D warnings
 cargo fmt -p partsmith-naming
 cargo bench -p partsmith-naming --bench budgets          # spec section 5 budgets, fails when one is over

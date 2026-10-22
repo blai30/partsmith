@@ -1,6 +1,6 @@
 //! Acceptance tests for planar slicing (spec section 6.8).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::FRAC_PI_4;
 

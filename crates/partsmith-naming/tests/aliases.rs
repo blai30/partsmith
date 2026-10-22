@@ -1,7 +1,7 @@
 //! Acceptance tests for merge aliases and sketch successions (spec section 6, test 122, and the
 //! types of spec section 2.6).
 
-mod common;
+use crate::common;
 
 use common::{aliases, name, names, successions};
 use partsmith_naming::{Aliases, Successions};

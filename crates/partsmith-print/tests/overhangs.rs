@@ -1,6 +1,6 @@
 //! Acceptance tests for the overhangs check and its overlay (spec section 6.10).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, FRAC_PI_6};
 

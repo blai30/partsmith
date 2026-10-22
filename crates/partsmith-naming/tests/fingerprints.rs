@@ -1,6 +1,6 @@
 //! Acceptance tests for fingerprints (spec section 6, tests 16 to 28).
 
-mod common;
+use crate::common;
 
 use common::{ALL_GEOMETRY_KINDS, fingerprint, fingerprint_values};
 use partsmith_naming::{Fingerprint, GeometryKind, NamingError};

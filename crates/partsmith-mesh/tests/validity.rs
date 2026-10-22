@@ -1,6 +1,6 @@
 //! Acceptance tests for validity reports and shells (spec section 6.7).
 
-mod common;
+use crate::common;
 
 use common::{
     TOLERANCE, assert_close, box_mesh, cube, cube_with, fin, flipped_one, inside_out, open_box,

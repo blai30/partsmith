@@ -1,6 +1,6 @@
 //! Acceptance tests for the analysis pipeline basics (spec section 6.5).
 
-mod common;
+use crate::common;
 
 use common::{
     TOLERANCE, assert_check_ok, assert_json_close, box_mesh, check_kinds, cube, faceted_box, fdm,

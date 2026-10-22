@@ -1,8 +1,5 @@
 //! Fixtures and helpers shared by the acceptance tests (spec section 6).
 
-// Each test binary uses only some of these fixtures.
-#![allow(dead_code)]
-
 use std::sync::Arc;
 
 use partsmith_model::Id;

@@ -1,6 +1,6 @@
 //! Acceptance tests for the first-layer contact and islands checks (spec sections 6.8 and 6.9).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_6, PI};
 

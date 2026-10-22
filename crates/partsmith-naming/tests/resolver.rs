@@ -1,6 +1,6 @@
 //! Acceptance tests for the resolver and scoring (spec section 6, tests 59 to 80).
 
-mod common;
+use crate::common;
 
 use common::{
     ALL_GEOMETRY_KINDS, FingerprintValues, SCORE_TOLERANCE, TOP_FINGERPRINT, aliases,

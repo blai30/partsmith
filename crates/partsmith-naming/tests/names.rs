@@ -1,6 +1,6 @@
 //! Acceptance tests for element names (spec section 6, tests 1 to 15 and 117).
 
-mod common;
+use crate::common;
 
 use common::{id, name};
 use partsmith_naming::{ElementKind, ElementName, Generator, GeneratorUse, Instance, NamingError};

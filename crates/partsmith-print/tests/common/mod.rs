@@ -2,7 +2,7 @@
 //!
 //! The mesh fixtures of mesh.md section 6.1 come from `partsmith-mesh-fixtures`, re-exported here.
 
-// Each test binary uses only some of these fixtures and helpers.
+// The test modules and the bench each use only some of these fixtures and helpers.
 #![allow(dead_code)]
 
 use partsmith_mesh::{Mesh, Point3, Transform, Vector3};

@@ -2,7 +2,7 @@
 //! continuations and relatives (spec section 6, tests 91 to 110, 125 to 128, 130, 132 to 138, 142
 //! and 143; spec sections 3.9 and 3.11).
 
-mod common;
+use crate::common;
 
 use common::{
     DISTANCE_TOLERANCE, FIRST_FRONT_EDGE, SCORE_TOLERANCE, ScopeElement,

@@ -1,8 +1,8 @@
 //! Acceptance tests for name sets, families and the order independence of resolving (spec section
 //! 6, tests 118 and 140; spec sections 2.7 and 3.9).
 
-mod common;
-mod oracle;
+use crate::common;
+use crate::oracle;
 
 use common::{
     BOX_FACE_NAMES, ScopeElement, box_infos, box_map, build_with, edge_info, element_set,

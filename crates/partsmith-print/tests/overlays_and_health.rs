@@ -1,7 +1,7 @@
 //! Acceptance tests for per-vertex overlays (spec section 6.14) and for findings and the print
 //! health summary (spec section 6.15).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_PI_3, FRAC_PI_6};
 

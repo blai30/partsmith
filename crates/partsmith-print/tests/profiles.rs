@@ -1,7 +1,7 @@
 //! Acceptance tests for printer profiles, fit classes and profile input (spec sections 6.2 and
 //! 6.16), plus the JSON round trip property of section 3.1.
 
-mod common;
+use crate::common;
 
 use common::{fdm, object_keys, profile_from_json, to_json_value};
 use partsmith_model::Id;

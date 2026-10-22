@@ -1,7 +1,7 @@
 //! Acceptance tests for the tessellation tolerance, printer values and check thresholds (spec
 //! section 6.3) and the shared tolerance constant (test 111).
 
-mod common;
+use crate::common;
 
 use common::{TOLERANCE, assert_close, assert_json_close, fdm, resin, to_json_value};
 use partsmith_model::{

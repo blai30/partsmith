@@ -24,6 +24,7 @@ Spec: `docs/spec/mesh.md` (the definition of done). Acceptance tests in `tests/`
 
 ```sh
 cargo test -p partsmith-mesh
+cargo test -p partsmith-mesh --test integration ray_casting::   # one file of tests/, a module of tests/integration.rs
 cargo clippy -p partsmith-mesh --all-targets -- -D warnings
 cargo fmt -p partsmith-mesh
 cargo bench -p partsmith-mesh --bench budgets            # spec section 5 budgets, all of them

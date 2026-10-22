@@ -1,6 +1,6 @@
 //! Acceptance tests for rays and the bounding volume hierarchy (spec section 6.9).
 
-mod common;
+use crate::common;
 
 use common::{TOLERANCE, assert_close, assert_vector_close, cube, sphere};
 use partsmith_mesh::{BoundingVolumeHierarchy, Mesh, MeshError, Point3, Ray, RayHit, Vector3};

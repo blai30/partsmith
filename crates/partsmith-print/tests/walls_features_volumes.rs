@@ -1,7 +1,7 @@
 //! Acceptance tests for the thin walls, small features and trapped volumes checks (spec sections
 //! 6.11, 6.12 and 6.13).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 

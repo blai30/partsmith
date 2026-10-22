@@ -1,6 +1,6 @@
 //! Acceptance tests for affine transforms and transformed meshes (spec section 6.5).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2};
 

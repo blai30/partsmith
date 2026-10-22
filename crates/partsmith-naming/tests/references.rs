@@ -1,7 +1,7 @@
 //! Acceptance tests for references, anchors and merged names (spec section 6, tests 29 to 32, 111
 //! to 114, 119 to 121 and 129).
 
-mod common;
+use crate::common;
 
 use common::{
     ScopeElement, TOP_FINGERPRINT, TOP_FRONT_EDGE_FINGERPRINT, aliases, anchored_pieces_infos,

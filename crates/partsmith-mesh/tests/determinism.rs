@@ -1,6 +1,6 @@
 //! Acceptance tests for deterministic results (spec section 6.12).
 
-mod common;
+use crate::common;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::process::Command;
@@ -8,7 +8,8 @@ use std::process::Command;
 use common::{BOX_FACE_IDS, faceted_box_data, mesh_with_face_ids, sphere};
 use partsmith_mesh::{Point3, WELD_TOLERANCE};
 
-/// Name of the fresh-process test, used to run only that test in a child process.
+/// Name of the fresh-process test function; `common::harness_test_name` turns it into the name the
+/// harness runs it by.
 const FRESH_PROCESS_TEST: &str = "t089_fresh_process_gives_identical_results";
 /// Set in the child process so the fresh-process test reports its digest instead of spawning
 /// another child.
@@ -58,13 +59,9 @@ fn t089_fresh_process_gives_identical_results() {
     }
 
     let executable = std::env::current_exe().expect("the test binary knows its own path");
+    let test = common::harness_test_name(module_path!(), FRESH_PROCESS_TEST);
     let output = Command::new(executable)
-        .args([
-            FRESH_PROCESS_TEST,
-            "--exact",
-            "--nocapture",
-            "--test-threads=1",
-        ])
+        .args([test.as_str(), "--exact", "--nocapture", "--test-threads=1"])
         .env(CHILD_ENVIRONMENT_VARIABLE, "1")
         .output()
         .expect("the test binary can run itself");

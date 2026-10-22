@@ -1,6 +1,6 @@
 //! Acceptance tests for element infos and element sets (spec section 6, tests 56 to 58 and 124).
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

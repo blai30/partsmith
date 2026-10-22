@@ -3,7 +3,7 @@
 //! The fixtures of section 6.1 come from `partsmith-mesh-fixtures`, re-exported here; the rest
 //! are this crate's own.
 
-// Each test binary uses only some of these fixtures.
+// The test modules and the bench each use only some of these fixtures.
 #![allow(dead_code)]
 
 use partsmith_mesh::{EdgePolyline, Mesh, Point3, Vector3, VertexMarker};
@@ -78,6 +78,16 @@ pub fn marker(vertex_id: u32, position: Point3) -> VertexMarker {
     VertexMarker {
         vertex_id,
         position,
+    }
+}
+
+/// The name the test harness gives the test function `test` of the module whose `module_path!()`
+/// is `module`: the module path without the test crate's name, then `test`. A test that runs its
+/// own binary again selects itself with it and `--exact`.
+pub fn harness_test_name(module: &str, test: &str) -> String {
+    match module.split_once("::") {
+        Some((_, path)) => format!("{path}::{test}"),
+        None => test.to_owned(),
     }
 }
 

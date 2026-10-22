@@ -1,6 +1,6 @@
 //! Acceptance tests for the mesh validity and bed fit checks (spec sections 6.6 and 6.7).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::FRAC_PI_2;
 

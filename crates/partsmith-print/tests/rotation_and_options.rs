@@ -1,6 +1,6 @@
 //! Acceptance tests for rotations and analysis options (spec section 6.4).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::FRAC_PI_2;
 

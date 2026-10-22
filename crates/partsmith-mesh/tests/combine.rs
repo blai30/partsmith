@@ -1,6 +1,6 @@
 //! Acceptance tests for concatenation, welding, id remapping and vertex normals (spec section 6.6).
 
-mod common;
+use crate::common;
 
 use common::{
     BOX_FACE_IDS, BOX_SIDE_NORMALS, BOX_TRIANGLES, TOLERANCE, assert_close, assert_vector_close,

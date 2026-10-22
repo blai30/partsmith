@@ -1,7 +1,7 @@
 //! Acceptance tests for motions and the motions of naming maps (spec section 6, tests 116 and
 //! 139, and the type of spec section 2.6).
 
-mod common;
+use crate::common;
 
 use common::{
     BOX_FACE_NAMES, MOTION_TOLERANCE, aliases, assert_motion_close, box_map, build_on, build_with,

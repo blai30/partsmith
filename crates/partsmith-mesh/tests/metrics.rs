@@ -1,7 +1,7 @@
 //! Acceptance tests for mesh metrics: volume, area, bounding box and center of mass
 //! (spec section 6.4).
 
-mod common;
+use crate::common;
 
 use common::{
     TOLERANCE, assert_close, assert_vector_close, box_mesh, cube_with, inside_out,

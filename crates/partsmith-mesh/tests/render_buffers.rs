@@ -1,6 +1,6 @@
 //! Acceptance tests for the display buffers the protocol ships (spec section 6.10).
 
-mod common;
+use crate::common;
 
 use common::{BOX_FACE_IDS, BOX_TRIANGLES, box_positions, cube, edge, marker};
 use partsmith_mesh::{Mesh, Vector3};

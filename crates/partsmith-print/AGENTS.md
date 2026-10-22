@@ -34,6 +34,7 @@ Spec: `docs/spec/print.md` (the definition of done). Acceptance tests in `tests/
 
 ```sh
 cargo test -p partsmith-print
+cargo test -p partsmith-print --test integration overhangs::   # one file of tests/, a module of tests/integration.rs
 cargo clippy -p partsmith-print --all-targets -- -D warnings
 cargo fmt -p partsmith-print
 # Section 5 budgets (benches/budgets.rs); fails when one is exceeded
