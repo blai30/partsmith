@@ -3,7 +3,7 @@
 //! Unless stated, the context is that of section 6.10: label "Sketch 1", the test's sketch, no solve, the test's
 //! values, no measured values, millimeters.
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeMap;
 use std::f64::consts::FRAC_PI_2;

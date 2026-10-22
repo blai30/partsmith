@@ -1,7 +1,7 @@
 //! Acceptance tests for transforms, split, section and compound (kernel spec sections 2.9,
 //! 3.4.10 to 3.4.13 and tests 54 to 63).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::FRAC_PI_2;
 

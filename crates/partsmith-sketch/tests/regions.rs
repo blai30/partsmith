@@ -1,7 +1,7 @@
 //! Acceptance tests for region keys, fingerprints and matching (spec section 6.12, tests 174 to 188), plus the
 //! rules of steps 1, 3 and 4 of section 3.14 that those leave out.
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 

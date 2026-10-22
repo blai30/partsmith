@@ -1,6 +1,6 @@
 //! Acceptance tests for `partsmith export` (cli spec sections 3.4 and 6, tests 34 to 49).
 
-mod common;
+use crate::common;
 
 use std::fs;
 

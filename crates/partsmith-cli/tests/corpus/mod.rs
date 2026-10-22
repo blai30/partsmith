@@ -9,9 +9,6 @@
 //! [`Scenario::edited_text`] opens that text, applies the corpus edit as one `apply_edits` and returns the saved text,
 //! which is what the CLI then opens fresh.
 
-// Each test binary uses only some of these helpers.
-#![allow(dead_code)]
-
 use partsmith_engine::{Session, SessionOptions};
 use partsmith_model::FORMAT_VERSION;
 use partsmith_protocol::Request;

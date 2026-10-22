@@ -5,7 +5,7 @@
 //! After an intended change, regenerate the expected results and review them in the pull request:
 //!
 //! ```sh
-//! PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test examples
+//! PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::
 //! ```
 
 use std::collections::BTreeSet;
@@ -537,7 +537,7 @@ fn check_expected(example: &Example, report: &Value, bless: bool, problems: &mut
         Ok(Expectation::Missing) => problems.add(
             &expected,
             format!(
-                "{expected} is missing. Run: PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test examples"
+                "{expected} is missing. Run: PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::"
             ),
         ),
         Ok(Expectation::Invalid(error)) => {

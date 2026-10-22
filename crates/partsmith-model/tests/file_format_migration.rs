@@ -1,6 +1,6 @@
 //! Acceptance tests for format versions and the migration chain (file-format.md section 6, "Migration", tests 39 to 45), with a test of the built-in step (section 3.9).
 
-mod common;
+use crate::common;
 
 use common::E1;
 use partsmith_model::{LoadError, MIGRATIONS, MigrationStep, migrate, migrate_with};

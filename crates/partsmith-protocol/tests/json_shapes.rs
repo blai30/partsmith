@@ -1,6 +1,6 @@
 //! Acceptance tests for the JSON shapes of messages and shared types (protocol.md section 6, "JSON shapes", tests 28 to 40 and 42, and "Added shapes", tests 67, 68, 70 and 71).
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeSet;
 

@@ -1,6 +1,6 @@
 //! Acceptance tests for edits, their preconditions and their exact inverses (model.md section 6, "Edits", tests 53 to 67).
 
-mod common;
+use crate::common;
 
 use common::{d1, feature, id, params};
 use partsmith_model::{

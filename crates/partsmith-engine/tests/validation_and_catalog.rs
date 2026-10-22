@@ -1,6 +1,6 @@
 //! Acceptance tests 97, 103, 104, 110 and 114 of `docs/spec/engine.md` section 6: the feature catalog, validation, formatting and load errors.
 
-mod common;
+use crate::common;
 
 use common::{code_text, fixture, reindent, replace_once, send, session};
 use partsmith_engine::{EngineError, ValidateOptions, ValidationReport};

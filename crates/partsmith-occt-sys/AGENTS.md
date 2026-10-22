@@ -48,6 +48,7 @@ Spec: `docs/spec/kernel.md` (the definition of done). Acceptance tests in `tests
 
 ```sh
 cargo test -p partsmith-occt-sys
+cargo test -p partsmith-occt-sys --test integration blends::   # one file of tests/, a module of tests/integration.rs
 cargo clippy -p partsmith-occt-sys --all-targets -- -D warnings
 cargo fmt -p partsmith-occt-sys
 # WebAssembly, run under Node (needs the activated Emscripten SDK and the wasm OCCT install)

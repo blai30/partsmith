@@ -1,6 +1,6 @@
 //! Acceptance tests for `partsmith rebuild` (cli spec sections 3.3 and 6, tests 26 to 33).
 
-mod common;
+use crate::common;
 
 use common::{
     BOX, FILLET, Workspace, assert_json_close, assert_pretty_json_layout, assert_relative,

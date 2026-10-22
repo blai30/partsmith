@@ -3,7 +3,7 @@
 //! Tests of the built-in feature types each have a companion with the same number that checks the
 //! same registry behavior with the `probe` and `slab` test features.
 
-mod common;
+use crate::common;
 
 use common::{
     Probe, ScriptNames, Slab, extrude_record, record, rectangle_sketch_record, slab_record,

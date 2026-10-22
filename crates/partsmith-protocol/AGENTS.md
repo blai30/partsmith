@@ -29,6 +29,7 @@ Spec (the definition of done): `docs/spec/protocol.md`. Acceptance tests in `tes
 
 ```sh
 cargo test -p partsmith-protocol
+cargo test -p partsmith-protocol --test integration schema::   # one file of tests/, a module of tests/integration.rs
 cargo clippy -p partsmith-protocol --all-targets -- -D warnings
 cargo fmt -p partsmith-protocol
 # Section 5 native budgets (benches/budgets.rs); fails when one is exceeded

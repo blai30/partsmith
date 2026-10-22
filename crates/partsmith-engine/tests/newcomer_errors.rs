@@ -9,8 +9,8 @@
 //! line offers, come with phase 4 of the reference stability plan. The parts only the UI shows (NC01's Extrude disabled
 //! reason, NC09's units control) are ui.md's E-110 and E-118.
 
-mod common;
-mod corpus;
+use crate::common;
+use crate::corpus;
 
 use common::{
     GEOMETRY_TOLERANCE, Sent, assert_bounding_box, assert_relative, count, measure_body,

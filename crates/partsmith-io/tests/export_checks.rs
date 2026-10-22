@@ -1,7 +1,7 @@
 //! Acceptance tests for the export checks: validity warnings with stable codes and messages (io
 //! spec section 6.7).
 
-mod common;
+use crate::common;
 
 use common::{
     MESH_WRITERS, cube_with, faceted_cube_with_vertex_0, fin, flipped_one, inside_out, open_box,

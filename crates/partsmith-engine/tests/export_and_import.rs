@@ -1,6 +1,6 @@
 //! Acceptance tests 85 to 95, 105 and 112 of `docs/spec/engine.md` section 6: export, STEP import, assets and generated ids.
 
-mod common;
+use crate::common;
 
 use std::io::Read;
 

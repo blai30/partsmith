@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One test binary: tests/integration.rs declares every other file of tests/ as a module (ADR 0035).
+autotests = false
 
 [lib]
 name = "partsmith_desktop"
@@ -15,6 +17,9 @@ name = "partsmith_desktop"
 [[bin]]
 name = "partsmith-desktop"
 path = "src/main.rs"
+
+[[test]]
+name = "integration"
 
 [[bench]]
 name = "budgets"

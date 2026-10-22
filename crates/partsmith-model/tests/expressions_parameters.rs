@@ -1,6 +1,6 @@
 //! Acceptance tests for parameter evaluation, references and renaming inside expressions (expressions.md section 6, "Parameters" and "References and rename", tests 68 to 82).
 
-mod common;
+use crate::common;
 
 use common::{
     assert_expr_error, assert_quantity, document_with, evaluate, evaluate_with, id,

@@ -1,6 +1,6 @@
 //! Acceptance tests 26 to 40 of `docs/spec/engine.md` section 6: transactions, coalescing, focus with live preview, and rollback.
 
-mod common;
+use crate::common;
 
 use common::{
     GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, elements, get_document,

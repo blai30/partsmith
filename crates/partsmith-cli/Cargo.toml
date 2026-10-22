@@ -8,10 +8,15 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One test binary: tests/integration.rs declares every other file of tests/ as a module (ADR 0035).
+autotests = false
 
 [[bin]]
 name = "partsmith"
 path = "src/main.rs"
+
+[[test]]
+name = "integration"
 
 [dependencies]
 # The `string` feature lets the version text come from the engine at run time.

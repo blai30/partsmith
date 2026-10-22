@@ -3,7 +3,7 @@
 //! matches sketch.md pins, built by the sketch feature (`common::timeline`); the stored region is `R0`, the rectangle
 //! as a pick stores it since file format version 2.
 
-mod common;
+use crate::common;
 
 use common::records::{circle, edited, line, rectangle, rectangle_region, sketch, xy};
 use common::timeline::Timeline;

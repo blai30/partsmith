@@ -4,7 +4,7 @@
 //! here, and a few more built the same way. The readers (`read_stl`, `unzip`, `read_model`) are
 //! written here because the crate has no mesh import in M1 (io spec section 1.3, decision 4).
 
-// Each test binary uses only some of these fixtures and helpers.
+// The test modules and the bench each use only some of these fixtures and helpers.
 #![allow(dead_code)]
 
 use std::io::{Cursor, Read};

@@ -8,8 +8,8 @@
 //! causes (section 3.21) come with phase 4 of the reference stability plan; until then no repair has a ghost and no
 //! message has a cause, which tests 115 and 116 check where the spec says so.
 
-mod common;
-mod corpus;
+use crate::common;
+use crate::corpus;
 
 use common::{
     GEOMETRY_TOLERANCE, assert_near, assert_point3, assert_relative, doc_handle, elements,

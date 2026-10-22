@@ -1,6 +1,6 @@
 //! Acceptance tests for the reserved references `origin`, `x_axis` and `y_axis` (spec section 6.15, tests 201 to 216).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::FRAC_PI_4;
 

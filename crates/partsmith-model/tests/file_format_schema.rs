@@ -1,6 +1,6 @@
 //! Acceptance tests for the `.ptsm` JSON Schema (file-format.md section 6, "JSON Schema", tests 46 to 53).
 
-mod common;
+use crate::common;
 
 use common::keys_at;
 use partsmith_model::canonical::{parse, to_string};

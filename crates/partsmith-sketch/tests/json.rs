@@ -1,7 +1,7 @@
 //! Acceptance tests for the JSON form and JSON Schema of sketch params (spec section 6.1, tests 1 to 17, and
 //! section 6.16, test 217).
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeSet;
 use std::fmt::Debug;

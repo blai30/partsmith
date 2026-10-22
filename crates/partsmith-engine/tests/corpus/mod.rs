@@ -9,9 +9,6 @@
 //! with its outline), marks each face sketch's fallback `fallback_frame: body`, and returns the saved text. "After its
 //! edit" is the setup opened, then the corpus edit applied as one labeled `apply_edits` ([`after_edit`]).
 
-// Each test binary uses only some of these helpers.
-#![allow(dead_code)]
-
 use partsmith_engine::Session;
 use partsmith_model::FORMAT_VERSION;
 use serde_json::{Map, Value, json};

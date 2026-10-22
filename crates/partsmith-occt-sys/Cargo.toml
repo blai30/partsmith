@@ -11,6 +11,8 @@ publish = false
 
 links = "occt"
 build = "build.rs"
+# One test binary: tests/integration.rs declares every other file of tests/ as a module (ADR 0035).
+autotests = false
 
 [dependencies]
 cxx.workspace = true
@@ -23,6 +25,9 @@ cxx-build.workspace = true
 [dev-dependencies]
 partsmith-budgets.workspace = true
 partsmith-message-lint.workspace = true
+
+[[test]]
+name = "integration"
 
 [[bench]]
 name = "budgets"

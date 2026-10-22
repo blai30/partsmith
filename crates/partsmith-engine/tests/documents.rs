@@ -1,6 +1,6 @@
 //! Acceptance tests 1 to 13 of `docs/spec/engine.md` section 6: documents, handles, opening, saving and display meshes.
 
-mod common;
+use crate::common;
 
 use common::{
     GEOMETRY_TOLERANCE, assert_bounding_box, assert_near, doc_handle, fixture, get_document,

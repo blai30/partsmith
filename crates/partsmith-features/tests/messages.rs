@@ -7,7 +7,7 @@
 //! warning variant. Messages that need a run of a whole document are in
 //! `crates/partsmith-recompute/tests/feature_messages.rs`.
 
-mod common;
+use crate::common;
 
 use std::collections::HashSet;
 use std::mem::{Discriminant, discriminant};

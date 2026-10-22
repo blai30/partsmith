@@ -1,7 +1,7 @@
 //! Acceptance tests for STEP and BRep exchange (kernel spec sections 2.12, 3.8 and tests 78 to
 //! 86).
 
-mod common;
+use crate::common;
 
 use common::{
     assert_argument_error, assert_invalid_input, assert_leaves_unchanged, assert_near,
@@ -375,7 +375,7 @@ fn truncated_brep_bytes_fail_to_read() {
 #[cfg(not(target_os = "emscripten"))]
 mod standard_streams {
     use super::{EMPTY_STEP, body};
-    use crate::common::{OPT, box_primitive, face_with_role, xy_plane_at};
+    use crate::common::{OPT, box_primitive, face_with_role, harness_test_name, xy_plane_at};
     use partsmith_occt_sys::{
         EdgeRadius, PrimitiveFace, Shape, fillet, read_step, shell, split, write_step,
     };
@@ -441,14 +441,10 @@ mod standard_streams {
             return;
         }
         let test_binary = std::env::current_exe().expect("the path of the test binary");
+        let test = harness_test_name(module_path!(), "kernel_prints_nothing");
 
         let output = std::process::Command::new(test_binary)
-            .args([
-                "standard_streams::kernel_prints_nothing",
-                "--exact",
-                "--nocapture",
-                "--test-threads=1",
-            ])
+            .args([test.as_str(), "--exact", "--nocapture", "--test-threads=1"])
             .env(QUIET_PROBE_VARIABLE, "1")
             .output()
             .expect("the test binary runs again");

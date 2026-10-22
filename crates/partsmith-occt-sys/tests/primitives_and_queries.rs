@@ -2,7 +2,7 @@
 //! across edges (kernel spec sections 2.2, 2.4, 2.10, 3.4.1, 3.6 and tests 5 to 14, 64 to 67, 69,
 //! 70, 95 to 101, 108, 109, 112 and 116 to 121).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 use std::sync::OnceLock;

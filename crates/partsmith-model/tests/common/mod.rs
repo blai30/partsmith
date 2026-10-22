@@ -1,8 +1,5 @@
 //! Fixtures and helpers shared by the acceptance tests of `docs/spec/model.md`, `docs/spec/expressions.md` and `docs/spec/file-format.md`.
 
-// Each test binary uses only some of these helpers.
-#![allow(dead_code)]
-
 use std::collections::BTreeMap;
 
 use partsmith_model::{

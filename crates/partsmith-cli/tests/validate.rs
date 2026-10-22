@@ -1,6 +1,6 @@
 //! Acceptance tests for `partsmith validate` (cli spec sections 3.1 and 6, tests 4 to 18).
 
-mod common;
+use crate::common;
 
 use std::fs;
 

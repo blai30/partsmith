@@ -4,7 +4,7 @@
 //! printer warning (3.4, 3.13), picks that come before any listing (3.9) and fixtures that are
 //! canonical at the current format version (3.20).
 
-mod common;
+use crate::common;
 
 use std::path::Path;
 

@@ -1,6 +1,6 @@
 //! Acceptance tests for the OBJ writer (io spec section 6.4).
 
-mod common;
+use crate::common;
 
 use common::{assert_no_warnings, cube, cube_with, faceted_cube, part, second_box, utf8};
 use partsmith_io::{ExportBody, ExportOutput, write_obj};

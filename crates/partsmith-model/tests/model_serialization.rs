@@ -1,6 +1,6 @@
 //! Acceptance tests for the JSON form of edits, records and transactions (model.md section 6, "Serialization", tests 68 to 73).
 
-mod common;
+use crate::common;
 
 use common::{feature, id};
 use partsmith_model::{

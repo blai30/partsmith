@@ -1,7 +1,7 @@
 //! Acceptance tests for the 3MF writer: package and zip container (io spec section 6.5) and
 //! model part (section 6.6).
 
-mod common;
+use crate::common;
 
 use common::{
     assert_no_warnings, attribute, cube, cube_with, faceted_cube, lines_starting_with, model_of,

@@ -1,8 +1,8 @@
 //! Acceptance tests for feature messages, actions and candidates in `validate` and `rebuild` (cli spec sections 2.2,
 //! 3.1 and 3.3, and section 6, tests 55 to 62), on documents of the reference stability corpus after their edits.
 
-mod common;
-mod corpus;
+use crate::common;
+use crate::corpus;
 
 use common::{
     Workspace, assert_json_close, entry, items, keys, lines_after, number, run_of_lines_after, text,

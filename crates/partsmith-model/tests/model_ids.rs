@@ -1,6 +1,6 @@
 //! Acceptance tests for ids and id generation (model.md section 6, "Ids", tests 1 to 16).
 
-mod common;
+use crate::common;
 
 use std::cell::Cell;
 use std::collections::BTreeSet;

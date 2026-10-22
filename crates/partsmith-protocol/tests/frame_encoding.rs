@@ -1,6 +1,6 @@
 //! Acceptance tests for frame encoding and round trips (protocol.md section 6, "Frame encoding and decoding", tests 1 to 8).
 
-mod common;
+use crate::common;
 
 use common::examples::{
     ERROR_OUTCOMES, FEATURE_STATUS_R03, MESSAGE_EXAMPLES, R16_DIAGNOSTIC, REGION_REPAIR,

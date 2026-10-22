@@ -1,7 +1,7 @@
 //! Acceptance tests for diagnostics, fixes, repairs, `apply_fix` and `set_document_units` (protocol.md section 6, "Diagnostics, fixes, repairs and the commands of ADR 0024", tests 72 to 80 and 83), plus small unit tests of the same shapes.
 //! The `list_uses` half of test 76 arrives with that command (reference stability plan, phase 4). Tests 81 and 82 live in `schema.rs` and the UI.
 
-mod common;
+use crate::common;
 
 use common::examples::{
     APPLY_FIX_REQUEST, APPLY_FIX_RESULT, DOCUMENT_CHANGED_EVENT, ELEMENT_REPAIR, ERROR_CODES,

@@ -3,7 +3,7 @@
 //! order (`common::timeline`) and describes elements of the end state with `describe_elements`, the document's names
 //! and the run's outputs, as messages do.
 
-mod common;
+use crate::common;
 
 use std::f64::consts::FRAC_PI_2;
 

@@ -1,6 +1,6 @@
 //! Acceptance tests for `Files`, `FileKind`, `FileError`, `grant_of` and `Unsaved` (desktop.md section 6, tests 14 to 32), with a fake for the native dialogs.
 
-mod common;
+use crate::common;
 
 use std::fs;
 use std::path::{Path, PathBuf};

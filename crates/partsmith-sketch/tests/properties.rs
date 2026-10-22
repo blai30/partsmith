@@ -4,7 +4,7 @@
 //! Cases come from the known-solution generator in `common/generator.rs`; proptest draws its seeds.
 //! The case count follows proptest's configuration (256 by default, `PROPTEST_CASES` in the nightly job).
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeSet;
 use std::f64::consts::TAU;

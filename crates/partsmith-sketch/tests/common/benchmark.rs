@@ -4,7 +4,7 @@
 //! This file depends only on `partsmith_sketch` and `std`, because the bench target
 //! (`benches/solver.rs`) includes it with `#[path]`.
 
-// The bench target and each test binary use only some of these functions.
+// The test modules and the bench each use only some of these functions.
 #![allow(dead_code)]
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_6, TAU};

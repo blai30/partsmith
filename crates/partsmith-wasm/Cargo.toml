@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One test binary: tests/integration.rs declares every other file of tests/ as a module (ADR 0035).
+autotests = false
 
 # The web core module. Emscripten embeds the .wasm file name in the .js loader, so the binary
 # carries the published name `partsmith_core` (protocol.md section 2.10, scripts/build-wasm.sh).
@@ -17,6 +19,9 @@ publish = false
 name = "partsmith_core"
 path = "src/main.rs"
 test = false
+
+[[test]]
+name = "integration"
 
 # The `ps_call` budget of protocol.md section 5.
 [[bench]]

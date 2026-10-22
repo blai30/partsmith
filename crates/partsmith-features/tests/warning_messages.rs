@@ -6,7 +6,7 @@
 //! (section 6.5 test 14). Warnings of whole documents are in `crates/partsmith-recompute/tests/feature_*.rs` and
 //! `body_semantics.rs`.
 
-mod common;
+use crate::common;
 
 use common::samples::{
     block_top, hole_misses, lost_face, no_effect, phase_3_warnings, point_missing, separate_solid,

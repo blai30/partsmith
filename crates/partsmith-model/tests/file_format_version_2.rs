@@ -1,6 +1,6 @@
 //! Acceptance tests for format version 2 (file-format.md section 6, "Format version 2", tests 54 to 56), with tests of the version 2 rules of section 3.9.
 
-mod common;
+use crate::common;
 
 use common::{
     E2, E8_OUTPUT, E10, differing_lines, e8_input, keys_at, load_document, save_text,

@@ -1,7 +1,7 @@
 //! Correctness of the benchmark scenarios, without timing (spec section 6.14, tests 197 to 200 and 254, and
 //! section 6.21, test 253).
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeMap;
 use std::f64::consts::PI;

@@ -2,7 +2,7 @@
 //!
 //! Every block it touches comes from `ps_alloc` or `ps_call` with its exact length, or is null, which is the caller contract of protocol.md section 2.10.
 
-// Each test binary and the benchmark use only some of these methods.
+// The test modules and the bench each use only some of these methods.
 #![allow(dead_code)]
 
 use std::ptr;

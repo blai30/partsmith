@@ -1,7 +1,7 @@
 //! Fixtures and assertion helpers shared by the kernel acceptance tests (kernel spec section 6) and
 //! the budgets bench, which includes this module with `#[path]`.
 
-// Each test binary and the bench use only some of these helpers.
+// The test modules and the bench each use only some of these helpers.
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -811,4 +811,16 @@ pub fn assert_closed(triangles: &[[usize; 3]]) {
 /// The distinct face ids of a mesh.
 pub fn mesh_face_ids(mesh: &Mesh) -> BTreeSet<u32> {
     mesh.face_ids().iter().copied().collect()
+}
+
+// Test harness helpers.
+
+/// The name the test harness gives the test function `test` of the module whose `module_path!()`
+/// is `module`: the module path without the test crate's name, then `test`. A test that runs its
+/// own binary again selects itself with it and `--exact`.
+pub fn harness_test_name(module: &str, test: &str) -> String {
+    match module.split_once("::") {
+        Some((_, path)) => format!("{path}::{test}"),
+        None => test.to_owned(),
+    }
 }

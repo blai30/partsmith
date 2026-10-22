@@ -1,6 +1,6 @@
 //! Acceptance tests for dimensions, quantities, display text and evaluation contexts (expressions.md section 6, "Dimensions, quantities and display", tests 83 to 91).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 

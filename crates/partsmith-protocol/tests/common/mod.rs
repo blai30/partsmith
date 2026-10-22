@@ -1,8 +1,5 @@
 //! Fixtures and helpers shared by the acceptance tests of `docs/spec/protocol.md`.
 
-// Each test binary uses only some of these helpers.
-#![allow(dead_code)]
-
 pub mod examples;
 pub mod json_schema;
 

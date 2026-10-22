@@ -1,7 +1,7 @@
 //! Acceptance tests for region loops and references with outlines (spec section 6.17, tests 218 to 220), plus the
 //! rules of sections 2.7 and 3.13.8 that those leave out.
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 

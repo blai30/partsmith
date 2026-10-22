@@ -41,8 +41,8 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 export OCCT_ROOT=/opt/occt/7.9.3/native
 cargo test -p partsmith-cli
 cargo test -p partsmith-cli --bins                 # unit tests only
-cargo test -p partsmith-cli --test validate        # one acceptance test file
-PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test examples   # regenerate examples' expected results
+cargo test -p partsmith-cli --test integration validate::   # one acceptance test file, a module of tests/integration.rs
+PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::   # regenerate examples' expected results
 cargo clippy -p partsmith-cli --all-targets -- -D warnings
 cargo fmt -p partsmith-cli
 cargo run -p partsmith-cli -- schema --write       # regenerate docs/format/*.schema.json
@@ -51,5 +51,5 @@ cargo run -p partsmith-cli -- schema --write       # regenerate docs/format/*.sc
 ## Rules
 
 - Acceptance tests in `tests/` come from the spec; do not weaken them. `tests/regressions.rs` holds end-to-end tests for spec behavior that section 6 does not test.
-- `tests/feature_messages.rs` (tests 55 to 62) runs documents of the reference stability corpus after their edits, which `tests/corpus` (a directory, so Cargo builds no test target of its own) writes with the engine: each setup's references picked in a headless session as the corpus's "Picked references" rule says, then the edit applied as one `apply_edits`.
+- `tests/feature_messages.rs` (tests 55 to 62) runs documents of the reference stability corpus after their edits, which `tests/corpus` (a module of the test binary, beside `tests/common`) writes with the engine: each setup's references picked in a headless session as the corpus's "Picked references" rule says, then the edit applied as one `apply_edits`.
 - Hosts contain no modeling logic: anything a model needs belongs in the engine.

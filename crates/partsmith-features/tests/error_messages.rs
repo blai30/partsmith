@@ -6,7 +6,7 @@
 //! `tests/common/samples.rs`, which `tests/messages.rs` lints (section 6.5 test 14). Messages that need a run of a whole
 //! document are in `crates/partsmith-recompute/tests/feature_*.rs`.
 
-mod common;
+use crate::common;
 
 use common::records::{
     RISER_EDGE, ROUNDED_BOX_TOP, STEP_BOTTOM_LEFT_EDGE, reference, rounded_box, shell, step,

@@ -1,6 +1,6 @@
 //! Acceptance tests 98 to 102 of `docs/spec/engine.md` section 6: byte-level calls, determinism, warm reopening, headless sessions and buffer checks.
 
-mod common;
+use crate::common;
 
 use common::{
     display_options, fixture, headless_session, open, request_frame, send, session, set_height,

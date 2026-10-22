@@ -1,6 +1,6 @@
 //! Acceptance tests for strict frame decoding and frame composition (protocol.md section 6, "Frame encoding and decoding", tests 9 to 27).
 
-mod common;
+use crate::common;
 
 use common::{
     EXAMPLE_A_HEADER, EXAMPLE_B_HEADER, example_a, example_b, frame_bytes, frame_from_header,

@@ -1,6 +1,6 @@
 //! Acceptance tests for document lookups, rollback, used ids, structural rules and validation (model.md section 6, "Document basics", "Structure" and "Validation", tests 30 to 52).
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeSet;
 

@@ -1,7 +1,7 @@
 //! Acceptance tests for determinism, ignored mesh data and `ExportBody::new` (io spec section
 //! 6.10).
 
-mod common;
+use crate::common;
 
 use common::{
     BOX_FACE_IDS, BOX_TRIANGLES, MESH_WRITERS, box_positions, cube, part, standard_sphere, write_ok,

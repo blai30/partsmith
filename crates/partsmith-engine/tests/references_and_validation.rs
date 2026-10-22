@@ -5,8 +5,8 @@
 //! coordinates that keep the sketch's motion, body coordinates unless a world fallback lies on a moved face (section
 //! 3.6). A test named `tNNN` is section 6 test NNN.
 
-mod common;
-mod corpus;
+use crate::common;
+use crate::corpus;
 
 use common::{
     GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, assert_bounding_box, assert_fallback, assert_near,

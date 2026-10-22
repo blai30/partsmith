@@ -37,7 +37,7 @@ cargo clippy -p partsmith-sketch --all-targets -- -D warnings
 cargo fmt -p partsmith-sketch
 cargo bench -p partsmith-sketch --bench solver
 # nightly property run
-PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test properties
+PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test integration properties::
 ```
 
 ## Rules

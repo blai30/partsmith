@@ -1,6 +1,6 @@
 //! Acceptance tests 55 to 67, 108 and 111 of `docs/spec/engine.md` section 6: tessellation tolerances, display element ids, picks and reference resolution.
 
-mod common;
+use crate::common;
 
 use common::{
     GEOMETRY_TOLERANCE, Sent, apply, assert_point3, assert_relative, elements, number, open,

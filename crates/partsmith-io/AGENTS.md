@@ -26,6 +26,7 @@ Spec: `docs/spec/io.md` (the definition of done). Acceptance tests in `tests/` c
 
 ```sh
 cargo test -p partsmith-io
+cargo test -p partsmith-io --test integration step::   # one file of tests/, a module of tests/integration.rs
 cargo clippy -p partsmith-io --all-targets -- -D warnings
 cargo fmt -p partsmith-io
 cargo bench -p partsmith-io --bench budgets              # spec section 5 budgets; fails when one is over

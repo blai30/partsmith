@@ -1,6 +1,6 @@
 //! Acceptance tests for origin planes and placements (spec section 6.4, tests 46 to 53).
 
-mod common;
+use crate::common;
 
 use common::TOLERANCE;
 use partsmith_sketch::{OriginPlane, Placement, PlacementProblem, SketchError};

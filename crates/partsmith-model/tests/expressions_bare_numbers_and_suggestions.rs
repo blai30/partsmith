@@ -1,6 +1,6 @@
 //! Acceptance tests for suggestions for unknown names, bare numbers and promoted names (expressions.md section 6, "Bare numbers and suggestions", tests 92 to 98), and unit tests for the rules of sections 3.17 to 3.19 they rest on.
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeSet;
 

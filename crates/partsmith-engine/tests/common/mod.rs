@@ -3,7 +3,7 @@
 //! Requests go through `Session::execute` as protocol JSON, and replies are inspected as JSON, so
 //! the tests follow the wire shapes of `docs/spec/protocol.md` exactly.
 
-// Each test binary uses only some of these helpers.
+// The test modules and the bench each use only some of these helpers.
 #![allow(dead_code)]
 
 use std::path::Path;

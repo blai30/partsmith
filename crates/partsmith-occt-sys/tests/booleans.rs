@@ -1,7 +1,7 @@
 //! Acceptance tests for fuse, cut and common (kernel spec sections 2.7, 3.3, 3.4.5, 3.5 and
 //! tests 34 to 43, 110, 111 and 114).
 
-mod common;
+use crate::common;
 
 use common::{
     POINT_TOLERANCE, assert_invalid_input, assert_near, assert_point_near, assert_relative,

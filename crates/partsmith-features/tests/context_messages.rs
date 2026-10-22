@@ -1,6 +1,6 @@
 //! Acceptance tests for value formatting, message rendering, field references and suggested fixes (features.md section 6.3, tests 10 to 13, 15 and 18), with the "too large" texts of section 4.3, the body texts of section 4.1 and the exponent form of section 3.12.
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_4, TAU};

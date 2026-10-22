@@ -1,6 +1,6 @@
 //! Acceptance tests for the command line as a whole (cli spec section 6, tests 1 to 3).
 
-mod common;
+use crate::common;
 
 use common::Workspace;
 

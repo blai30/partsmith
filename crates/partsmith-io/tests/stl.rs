@@ -1,6 +1,6 @@
 //! Acceptance tests for the binary and ASCII STL writers (io spec sections 6.2 and 6.3).
 
-mod common;
+use crate::common;
 
 use common::{
     StlFile, TETRA_POSITIONS, TETRA_TRIANGLES, assert_no_warnings, bits, cube, cube_with,

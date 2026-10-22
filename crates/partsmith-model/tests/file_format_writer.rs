@@ -1,6 +1,6 @@
 //! Acceptance tests for the canonical writer and the `.ptsm` layout (file-format.md section 6, "Writer and layout", tests 1 to 13).
 
-mod common;
+use crate::common;
 
 use common::{
     E1, E2, E3, E4, E5, E6, E7, E8_OUTPUT, differing_lines, e8_input, feature, id, load_document,

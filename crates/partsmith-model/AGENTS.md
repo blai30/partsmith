@@ -31,6 +31,7 @@ Spec (the definition of done): `docs/spec/model.md`, `docs/spec/expressions.md`,
 
 ```sh
 cargo test -p partsmith-model
+cargo test -p partsmith-model --test integration model_undo::   # one file of tests/, a module of tests/integration.rs
 cargo clippy -p partsmith-model --all-targets -- -D warnings
 cargo fmt -p partsmith-model
 # Section 5 budgets of the three specs (benches/budgets.rs); fails when one is exceeded

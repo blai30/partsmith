@@ -1,7 +1,7 @@
 //! Acceptance tests for the value types, constants and errors (kernel spec sections 2.1, 2.13,
 //! 4 and tests 1 to 4, 87 to 89, 93 and 127 to 130).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::FRAC_PI_2;
 

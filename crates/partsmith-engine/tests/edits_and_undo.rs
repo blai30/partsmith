@@ -1,6 +1,6 @@
 //! Acceptance tests 14 to 25, 106 and 107 of `docs/spec/engine.md` section 6: edit batches, undo and redo, saving, parameter rename and suggested fixes.
 
-mod common;
+use crate::common;
 
 use common::{
     GEOMETRY_TOLERANCE, apply, assert_relative, display_options, doc_handle, fixture, get_document,

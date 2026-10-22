@@ -1,8 +1,5 @@
 //! Fixtures, builders and assertion helpers shared by the acceptance tests (spec section 6.0).
 
-// Each test binary uses only some of these helpers.
-#![allow(dead_code)]
-
 pub mod benchmark;
 pub mod generator;
 pub mod matching;

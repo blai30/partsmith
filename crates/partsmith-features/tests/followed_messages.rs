@@ -4,7 +4,7 @@
 //! the document knows its label and type; the reference is resolved for that feature against the end state, as it
 //! would be built there, and its notice or warning is rendered with the document's names and the run's outputs.
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, PI};
 

@@ -2,7 +2,7 @@
 //!
 //! The tests go through `common::block::Block`, which holds the only `unsafe` code of the tests.
 
-mod common;
+use crate::common;
 
 use common::block::Block;
 use common::{

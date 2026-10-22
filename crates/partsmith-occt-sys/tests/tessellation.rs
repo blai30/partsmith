@@ -1,7 +1,7 @@
 //! Acceptance tests for tessellation into `partsmith_mesh::Mesh` and the display geometry of one
 //! element (kernel spec sections 2.11, 3.7 and tests 71 to 77, 113 and 122 to 126).
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;
@@ -333,7 +333,7 @@ mod environment {
 
     use partsmith_occt_sys::{EdgeRadius, fillet};
 
-    use crate::common::{OPT, box_primitive, sphere_primitive};
+    use crate::common::{OPT, box_primitive, harness_test_name, sphere_primitive};
 
     /// Set in the child process of `t113_meshes_do_not_depend_on_the_environment`.
     const PROBE_VARIABLE: &str = "PARTSMITH_OCCT_SYS_MESH_PROBE";
@@ -364,16 +364,15 @@ mod environment {
         }
         let expected = meshes_line();
         let test_binary = std::env::current_exe().expect("the path of the test binary");
+        let test = harness_test_name(
+            module_path!(),
+            "t113_meshes_do_not_depend_on_the_environment",
+        );
 
         // Each of OCCT's two algorithms in turn, so one of them differs from the facade's.
         for algorithm in ["watson", "delabella"] {
             let output = std::process::Command::new(&test_binary)
-                .args([
-                    "environment::t113_meshes_do_not_depend_on_the_environment",
-                    "--exact",
-                    "--nocapture",
-                    "--test-threads=1",
-                ])
+                .args([test.as_str(), "--exact", "--nocapture", "--test-threads=1"])
                 .env(PROBE_VARIABLE, "1")
                 .env("CSF_MeshAlgo", algorithm)
                 .output()

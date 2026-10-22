@@ -1,7 +1,7 @@
 //! Acceptance tests for the mesh writers' errors, their order and their messages (io spec
 //! section 6.8).
 
-mod common;
+use crate::common;
 
 use common::{
     MESH_WRITERS, cube, cube_with, cube_with_vertex, mesh_with_face_ids, part, write_3mf_untitled,

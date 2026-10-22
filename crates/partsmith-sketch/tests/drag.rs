@@ -1,6 +1,6 @@
 //! Acceptance tests for drag solving (spec section 6.9, tests 128 to 143).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, PI};
 

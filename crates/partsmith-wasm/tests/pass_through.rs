@@ -4,7 +4,7 @@
 //!
 //! A test named `engine_tNNN` sends the documents and requests of engine.md section 6 test NNN, one named `engine_tNNN_ncMM` those of newcomer error corpus scenario NCMM in that test, and one named `file_format_tNNN` those of file-format.md section 6 test NNN; the bridge's own tests are protocol.md's (`tNNN` in the other test files).
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeMap;
 

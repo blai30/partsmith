@@ -7,7 +7,7 @@
 //! built-in feature records in order, `records` writes the records of the specs' shared setups, and `samples` holds one
 //! sample of every error and warning for the message tests.
 
-// Each test binary uses only some of these helpers.
+// The test modules and `budgets.rs` each use only some of these helpers.
 #![allow(dead_code)]
 
 pub mod records;

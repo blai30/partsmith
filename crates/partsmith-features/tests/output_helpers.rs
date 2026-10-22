@@ -7,7 +7,7 @@
     reason = "FeatureError keeps the payload types the spec gives"
 )]
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

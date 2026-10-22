@@ -1,6 +1,6 @@
 //! Acceptance tests 41 to 54 and 109 of `docs/spec/engine.md` section 6: sketch solutions, candidate solves, drags and datum planes.
 
-mod common;
+use crate::common;
 
 use common::{
     GEOMETRY_TOLERANCE, apply, assert_bounding_box, assert_near, assert_point2, assert_point3,

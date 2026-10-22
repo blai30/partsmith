@@ -1,6 +1,6 @@
 //! Acceptance tests for the generated protocol JSON Schema (protocol.md section 6, test 41 of "JSON shapes", "Schema", tests 43 to 46, and test 81).
 
-mod common;
+use crate::common;
 
 use std::path::Path;
 

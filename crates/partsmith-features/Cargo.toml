@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One test binary: tests/integration.rs declares every other file of tests/ as a module, except
+# the targets below (ADR 0035).
+autotests = false
 
 [dependencies]
 partsmith-mesh.workspace = true
@@ -23,6 +26,14 @@ thiserror.workspace = true
 [dev-dependencies]
 partsmith-message-lint.workspace = true
 proptest.workspace = true
+
+[[test]]
+name = "integration"
+
+# The release-only budgets of features.md section 5, timed beside only each other, never beside
+# the tests of the other files.
+[[test]]
+name = "budgets"
 
 [lints]
 workspace = true

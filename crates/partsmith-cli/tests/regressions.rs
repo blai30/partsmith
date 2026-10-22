@@ -4,7 +4,7 @@
 //! type, a closed standard output, `--out-dir` next to a schema name, and the action and members
 //! of a feature error with a suggested value.
 
-mod common;
+use crate::common;
 
 use std::io::Read;
 use std::process::{Command, Stdio};

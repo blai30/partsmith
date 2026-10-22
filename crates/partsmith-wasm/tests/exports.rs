@@ -2,7 +2,7 @@
 //!
 //! The exports trade raw pointers, so the tests go through `common::block::Block`, which holds the only `unsafe` code of the tests: each block it touches comes from `ps_alloc` or `ps_call` with its exact length, which is the caller contract of section 2.10.
 
-mod common;
+use crate::common;
 
 use common::block::Block;
 use common::{error_of, example_a, response_frame};

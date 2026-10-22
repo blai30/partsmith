@@ -2,7 +2,7 @@
 //!
 //! The spec numbers its tests 68, 71, 72, ...; there are no tests 69 and 70.
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 

@@ -1,6 +1,6 @@
 //! Acceptance tests for `Host` (desktop.md section 6, tests 1 to 7): one engine session behind the `call` command, serialized calls and the display option.
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeSet;
 use std::path::Path;

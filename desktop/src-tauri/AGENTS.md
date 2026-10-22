@@ -18,6 +18,7 @@ Spec: `docs/spec/desktop.md`. Decisions: ADR 0014 (Tauri, its dependencies, no f
 ```sh
 # These need OCCT_ROOT and, on Linux, the WebKitGTK development packages (delivery.md 3.2)
 cargo test -p partsmith-desktop
+cargo test -p partsmith-desktop --test integration config::   # one file of tests/, a module of tests/integration.rs
 cargo clippy -p partsmith-desktop --all-targets -- -D warnings
 # The budgets of spec section 5 that Rust measures (Host::call overhead, Files::load)
 cargo bench -p partsmith-desktop --bench budgets

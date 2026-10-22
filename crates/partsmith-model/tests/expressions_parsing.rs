@@ -1,6 +1,6 @@
 //! Acceptance tests for expression literals, syntax, units, names and parse errors (expressions.md section 6, "Literals and syntax", "Units and names" and "Parse errors", tests 1 to 34).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 

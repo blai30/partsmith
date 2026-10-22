@@ -16,8 +16,8 @@
 //! `Make ... a reference`), NC01 (`Connect the ends`, on a finding of `sketch_solved`) and a misspelled shell key
 //! (`Rename`) in tests 126, 127 and 131, and test 132 with NC05's fix.
 
-mod common;
-mod corpus;
+use crate::common;
+use crate::corpus;
 
 use common::{
     GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, apply, assert_bounding_box, assert_fallback,

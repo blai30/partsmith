@@ -1,6 +1,6 @@
 //! Python export: acceptance test 96 of `docs/spec/engine.md` section 6, plus the code generation tests of `docs/spec/python-api.md` section 6 whose checks are about the generated text (python-api.md says they also run from Rust here). Tests named `python_api_tNNN_` carry python-api.md's test number; tests without a number are regression tests for its section 3.8 rules.
 
-mod common;
+use crate::common;
 
 use common::{doc_handle, fixture, open_doc, open_text, python_script, replace_once, session};
 use pretty_assertions::assert_eq;

@@ -1,6 +1,6 @@
 //! Acceptance tests for saving, the canonical helpers and the round-trip properties (file-format.md section 6, "Saving and canonical helpers", tests 32 to 38).
 
-mod common;
+use crate::common;
 
 use common::{d1, feature_mut, id};
 use partsmith_model::canonical::{normalize_numbers, parse, to_string, to_value};

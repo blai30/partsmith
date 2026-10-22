@@ -1,6 +1,6 @@
 //! Acceptance tests for the mirrored drawing of a sketch (spec section 3.17; section 6.21, tests 248 to 250).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_6};
 

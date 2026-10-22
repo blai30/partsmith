@@ -1,6 +1,6 @@
 //! Acceptance tests for sketch validation and dimension values (spec sections 6.2 and 6.3, tests 18 to 45).
 
-mod common;
+use crate::common;
 
 use common::{
     Sketch, angle, arc, assert_bitwise, assert_close, assert_point_close, circle, coincident,

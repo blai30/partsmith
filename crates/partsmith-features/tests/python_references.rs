@@ -2,7 +2,7 @@
 //! and 6.5, tests 12 and 13): anchors and merged names of references, region outlines, picked axis directions, and a
 //! face sketch's `fallback_frame`, each kept through canonicalization and written as a keyword only when stored.
 
-mod common;
+use crate::common;
 
 use common::{id, record};
 use partsmith_features::{AxisRef, BodyOp, PythonNames, PythonValue, Registry};

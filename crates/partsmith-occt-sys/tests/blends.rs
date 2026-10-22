@@ -2,7 +2,7 @@
 //! and tests 44 to 53, 68, 102, 103, 110, 115 and 131 to 133), including the history behavior the
 //! spec asks to verify on the built library (section 7, open issues 3 and 4).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 

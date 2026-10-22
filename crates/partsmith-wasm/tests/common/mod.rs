@@ -1,6 +1,6 @@
 //! Fixtures and helpers shared by the bridge acceptance tests of `docs/spec/protocol.md` (section 2.10, tests 47 to 52).
 
-// Each test binary uses only some of these helpers.
+// The test modules and the bench each use only some of these helpers.
 #![allow(dead_code)]
 
 pub mod block;

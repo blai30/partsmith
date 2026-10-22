@@ -1,6 +1,6 @@
 //! Acceptance tests for changing the document units with Keep sizes (model.md section 6, "Document units", tests 92 to 97), and unit tests for the rules of section 3.12 they rest on.
 
-mod common;
+use crate::common;
 
 use common::{TestInspector, d1, document_with, feature, id, is_close};
 use partsmith_model::{

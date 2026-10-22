@@ -1,6 +1,6 @@
 //! Documents committed for the UI's end-to-end tests are canonical at the current format version (ui.md section 6.2), so a `FORMAT_VERSION` bump that leaves one behind fails here. The CLI checks `examples/` the same way.
 
-mod common;
+use crate::common;
 
 use std::fs;
 use std::path::{Path, PathBuf};

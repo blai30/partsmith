@@ -1,6 +1,6 @@
 //! Acceptance tests for transactions and the undo log (model.md section 6, "Transactions and undo", tests 74 to 86).
 
-mod common;
+use crate::common;
 
 use common::{d1, feature, id};
 use partsmith_model::{

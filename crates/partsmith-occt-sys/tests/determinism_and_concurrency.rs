@@ -2,7 +2,7 @@
 //! 90 to 92, 104 to 107, 131, 132 and 134). The WebAssembly build has no threads and cannot
 //! start processes, so the threaded tests and test 107 are ignored or left out there.
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, TAU};
 use std::thread;
@@ -852,14 +852,13 @@ mod other_processes {
         }
         let expected = outcome_lines();
         let test_binary = std::env::current_exe().expect("the path of the test binary");
+        let test = crate::common::harness_test_name(
+            module_path!(),
+            "t107_outcomes_do_not_depend_on_the_process",
+        );
         for child in 1..=CHILDREN {
             let output = std::process::Command::new(&test_binary)
-                .args([
-                    "other_processes::t107_outcomes_do_not_depend_on_the_process",
-                    "--exact",
-                    "--nocapture",
-                    "--test-threads=1",
-                ])
+                .args([test.as_str(), "--exact", "--nocapture", "--test-threads=1"])
                 .env(PROBE_VARIABLE, "1")
                 .output()
                 .expect("the test binary runs again");

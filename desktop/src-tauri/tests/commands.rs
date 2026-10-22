@@ -2,7 +2,7 @@
 //!
 //! The app is `configure(tauri::test::mock_builder())` with `Arc<Files>` managed and the real configuration and capability compiled in by `tauri::generate_context!(test = true)`, so Tauri's mock runtime enforces the ACL as the app does (2.7). No window system is needed.
 
-mod common;
+use crate::common;
 
 use std::fs;
 use std::path::PathBuf;

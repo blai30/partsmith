@@ -1,6 +1,6 @@
 //! Acceptance tests for solving (spec sections 6.5 and 6.6, tests 54 to 103).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 use std::thread;

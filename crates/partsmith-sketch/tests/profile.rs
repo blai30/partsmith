@@ -2,7 +2,7 @@
 //!
 //! Areas and centroids hold within 1e-9 relative; coordinates and gaps within 1e-9 unless "bitwise".
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 

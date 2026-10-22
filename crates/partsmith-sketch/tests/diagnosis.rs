@@ -1,7 +1,7 @@
 //! Acceptance tests for diagnosis, measured values and failed components (spec sections 6.7, 6.8 and 6.21, tests 104
 //! to 127 and 251).
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_4, PI};

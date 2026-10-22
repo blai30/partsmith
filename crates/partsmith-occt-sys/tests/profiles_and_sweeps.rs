@@ -1,7 +1,7 @@
 //! Acceptance tests for profiles, extrusions and revolutions (kernel spec sections 2.5, 2.6,
 //! 3.4.2 to 3.4.4 and tests 15 to 33 and 94).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, PI};
 

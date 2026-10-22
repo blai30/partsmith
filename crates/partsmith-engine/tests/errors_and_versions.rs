@@ -4,7 +4,7 @@
 //! Test 150 (the newcomer error corpus) lives in `newcomer_errors.rs`, the file the spec names for it; test 151
 //! (determinism with causes and ghosts) comes with phase 4 of the reference stability plan.
 
-mod common;
+use crate::common;
 
 use common::{
     apply, code_text, fixture, get_document, new_doc, open_doc, open_text, replace_once,

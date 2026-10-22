@@ -30,9 +30,9 @@ cargo bench -p partsmith-wasm --bench budgets
 # prints the .wasm size, gzip and brotli sizes against the 25 MiB Cloudflare Pages per-file limit
 source /opt/emsdk/emsdk_env.sh >/dev/null 2>&1
 OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=/opt/occt/7.9.3/wasm scripts/build-wasm.sh
-cargo test -p partsmith-wasm --test web_module
+cargo test -p partsmith-wasm --test integration web_module::
 
-# The bridge tests under Node, with every test on one thread and one session
+# The bridge tests under Node, with every integration test on one thread and one session
 OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=/opt/occt/7.9.3/wasm cargo test -p partsmith-wasm --target wasm32-unknown-emscripten
 ```
 

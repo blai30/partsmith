@@ -1,6 +1,6 @@
 //! Acceptance tests for `partsmith schema` (cli spec sections 3.5 and 6, tests 50 to 54).
 
-mod common;
+use crate::common;
 
 use std::fs;
 

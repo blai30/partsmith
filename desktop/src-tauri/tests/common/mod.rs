@@ -1,8 +1,5 @@
 //! Helpers shared by the acceptance tests of `docs/spec/desktop.md` section 6: protocol frames, a fake for the native dialogs, and file grants made through it.
 
-// Each test binary uses only some of these helpers.
-#![allow(dead_code)]
-
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};

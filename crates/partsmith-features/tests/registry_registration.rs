@@ -4,7 +4,7 @@
 //! Tests of the 20 built-in feature types that check framework behavior each have a companion with
 //! the same number that uses test features instead.
 
-mod common;
+use crate::common;
 
 use common::{Probe, Slab, hint, manifest, no_dependencies, nothing, record};
 use partsmith_features::{

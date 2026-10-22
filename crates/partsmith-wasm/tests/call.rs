@@ -2,7 +2,7 @@
 //!
 //! Tests that open documents use the handle the session returns, so they pass whether or not other tests ran on the same thread's session (natively each test has its own thread; on the Emscripten target all tests share one).
 
-mod common;
+use crate::common;
 
 use common::{
     EMPTY_DOCUMENT_TEXT, error_info, error_of, example_a, frame_from_header, new_document,

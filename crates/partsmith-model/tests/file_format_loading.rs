@@ -1,6 +1,6 @@
 //! Acceptance tests for loading `.ptsm` text (file-format.md section 6, "Loading", tests 14 to 31).
 
-mod common;
+use crate::common;
 
 use common::{E1, id, load_document, save_text, with_format_version};
 use partsmith_model::{

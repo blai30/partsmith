@@ -1,6 +1,6 @@
 //! Acceptance tests for the rollback marker under edits, renaming a parameter everywhere, and feature manifests (model.md section 6, "Rollback, parameter rename and manifests", tests 87 to 91).
 
-mod common;
+use crate::common;
 
 use common::{TestInspector, d1, feature, feature_mut, id, parameter_mut, params};
 use partsmith_model::{

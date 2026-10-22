@@ -2,7 +2,7 @@
 //! tests 221 to 236, and test 252 of section 6.21), plus one test per rule of sections 2.7 and 3.14 that those
 //! leave out.
 
-mod common;
+use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, PI};
 

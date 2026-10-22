@@ -1,6 +1,6 @@
 //! Acceptance tests for expression evaluation: errors, plain-number promotion, functions and the expected dimension (expressions.md section 6, "Evaluation errors", "Plain numbers and promotion" and "Expected dimension", tests 35 to 67).
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 

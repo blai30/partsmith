@@ -1,6 +1,6 @@
 //! Acceptance tests for `partsmith fmt` (cli spec sections 3.2 and 6, tests 19 to 25).
 
-mod common;
+use crate::common;
 
 use common::{
     BOX, TRUNCATED_DOCUMENT, Workspace, feature_mut, fixture_json, fixture_text, pretty,

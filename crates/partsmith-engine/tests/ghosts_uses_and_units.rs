@@ -6,8 +6,8 @@
 //! Tests 141 and 142 (ghosts, section 3.23) and 143 and 144 (`list_uses`, section 3.24) come with phase 4 of the
 //! reference stability plan.
 
-mod common;
-mod corpus;
+use crate::common;
+use crate::corpus;
 
 use common::{
     GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, doc_handle, fixture,

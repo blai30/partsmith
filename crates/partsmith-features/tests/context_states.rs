@@ -2,7 +2,7 @@
 //! 26), placements before a removal (test 30), the motions Move body and copy features give faces (section 3.9), and
 //! the faces a feature's naming rule names that a build did not make (`FeatureOutput::absent`, section 2.7).
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 
