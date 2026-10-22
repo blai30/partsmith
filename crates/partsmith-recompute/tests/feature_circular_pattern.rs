@@ -3,7 +3,7 @@
 //! the examples in `examples/circular_pattern/`; the documents of tests 12 to 15 (frames on the
 //! model) are written here until their examples exist.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::time::Duration;
 

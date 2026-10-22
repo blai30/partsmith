@@ -27,7 +27,7 @@ pnpm build && pnpm check:dist
 pytest python/tests -m packaging
 
 # The nightly property run
-PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test properties
+PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test integration properties::
 
 # Release checklist items 5 to 7: the dry run from main, the tag, and the draft's assets checked
 gh workflow run release.yml --ref main

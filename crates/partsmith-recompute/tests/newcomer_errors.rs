@@ -13,9 +13,7 @@
 //! (`crates/partsmith-engine/tests/newcomer_errors.rs`, which also applies each "Then" with `apply_fix`). NC09 runs the
 //! documents `Document::units_edits` (model.md section 3.12) leaves with and without Keep sizes.
 
-mod feature_support;
-#[path = "stability_common/mod.rs"]
-mod stability_common;
+use crate::{feature_support, stability_common};
 
 use std::f64::consts::PI;
 

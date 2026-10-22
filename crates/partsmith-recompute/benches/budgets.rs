@@ -11,6 +11,8 @@
 
 #[path = "../tests/common/mod.rs"]
 mod common;
+#[path = "../tests/feature_support/mod.rs"]
+mod feature_support;
 
 use std::collections::BTreeMap;
 use std::path::Path;

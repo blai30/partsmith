@@ -3,7 +3,7 @@
 //! `examples/split_body/`; the documents of tests 11 and 12 (planes on faces, features.md section
 //! 3.6) are written here until their examples exist.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::time::Duration;
 

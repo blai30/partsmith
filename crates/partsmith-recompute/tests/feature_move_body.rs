@@ -3,7 +3,7 @@
 //! `examples/move_body/`; the documents of tests 10 to 13 (frames on the model) are written here
 //! until their examples exist.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::time::Duration;
 

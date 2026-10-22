@@ -3,7 +3,7 @@
 //! `examples/chamfer/`; the documents of tests 15 and 16 (corpus R22) are written here until their
 //! examples exist.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::f64::consts::FRAC_1_SQRT_2;
 use std::time::Duration;

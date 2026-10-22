@@ -3,7 +3,7 @@
 //! examples in `examples/linear_pattern/`; the documents of tests 16 to 19 (frames on the model) are
 //! written here until their examples exist.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

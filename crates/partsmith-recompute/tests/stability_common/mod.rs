@@ -5,16 +5,15 @@
 //! (`newcomer_errors.rs`, test 70): the feature records (`records.rs`, with the shared setups and
 //! their picked references), documents, runs and edits, fixes, the picks of the corpus's "Picked
 //! references" rule, run readers, resolver diagnostics and checks that are the same in all of
-//! them. Each includes it with `#[path]` beside its own `feature_support`; the corpus thirds
+//! them. Both test targets declare it beside `feature_support`; the corpus thirds' helpers
 //! re-export it.
 //! The first third checks against body states with its own `Expectations` at the corpus's exact
 //! 1e-6 mm instead of `Checks`, which reads the run.
 //!
-//! It lives in its own directory, like `common/` and `feature_support/`, so Cargo does not build
-//! it as a test target of its own. It is not behind the `stability-study` feature, since the
-//! diagnosis tests run in the normal suite.
+//! It is not behind the `stability-study` feature, since the diagnosis and newcomer error tests of
+//! the target `integration` use it too.
 
-// Each test binary uses only some of these helpers.
+// The two test targets each use only some of these helpers.
 #![allow(dead_code)]
 
 mod records;

@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One test binary: tests/integration.rs declares every other file of tests/ as a module, except
+# the targets below (ADR 0035).
+autotests = false
 
 [dependencies]
 blake3.workspace = true
@@ -26,20 +29,20 @@ schemars.workspace = true
 serde.workspace = true
 
 [features]
-# Builds the reference stability corpus tests (docs/design/reference-stability-corpus.md), which
-# record the study's scenarios and fail until the study's plan is implemented.
+# Builds the test target reference_stability, the reference stability corpus
+# (docs/design/reference-stability-corpus.md), which records the study's scenarios and fails until
+# the study's plan is implemented.
 stability-study = []
 
+# Its modules include the release-only budgets of tests/feature_<type>.rs, which stay in the files
+# of the features they time and are timed beside the other tests: run them at the default thread
+# count on an otherwise idle machine (ADR 0035).
 [[test]]
-name = "reference_stability_1"
-required-features = ["stability-study"]
+name = "integration"
 
+# The reference stability corpus. Naming it without the feature is an error, not an empty run.
 [[test]]
-name = "reference_stability_2"
-required-features = ["stability-study"]
-
-[[test]]
-name = "reference_stability_3"
+name = "reference_stability"
 required-features = ["stability-study"]
 
 [[bench]]

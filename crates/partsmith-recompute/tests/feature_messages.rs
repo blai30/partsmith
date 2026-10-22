@@ -4,7 +4,7 @@
 //! they check the rendering rules on their own; recompute's own diagnosis is checked in its tests. Test 15 covers
 //! the corpus messages of the reference stability corpus and of the newcomer error corpus that it lists.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_2, PI};

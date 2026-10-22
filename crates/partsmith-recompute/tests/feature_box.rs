@@ -1,7 +1,7 @@
 //! Acceptance tests of the `box` feature (docs/spec/features/box.md section 6), run as documents
 //! through recompute (features.md section 6.1). Geometry documents are the examples in `examples/box/`.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::time::Duration;
 

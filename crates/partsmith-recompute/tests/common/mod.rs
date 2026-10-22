@@ -7,11 +7,9 @@
 //! runs. Tolerances, measurements and element names come from the feature tests' shared helpers
 //! (`tests/feature_support`), so every test measures the same way.
 
-// Each test binary uses only some of these helpers.
+// The test modules and the bench each use only some of these helpers.
 #![allow(dead_code)]
 
-#[path = "../feature_support/mod.rs"]
-pub mod feature_support;
 pub mod features;
 
 use std::collections::BTreeMap;
@@ -27,7 +25,9 @@ use partsmith_recompute::{
 };
 use serde_json::{Value, json};
 
-// Each test binary uses only some of the shared helpers.
+use super::feature_support;
+
+// The test modules and the bench each use only some of the shared helpers.
 #[allow(unused_imports)]
 pub use feature_support::{
     AXIS_TOLERANCE, LENGTH_TOLERANCE, MEASURE_TOLERANCE, assert_absolute, assert_bounding_box,

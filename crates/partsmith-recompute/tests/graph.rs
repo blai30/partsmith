@@ -2,7 +2,7 @@
 //! runner tests over test-only features that exercise every graph rule without the built-in
 //! feature pipelines.
 
-mod common;
+use crate::common;
 
 use common::{
     Harness, bodies, doc_a, document, graph_node, id, owned, parameter, state_name, strings,

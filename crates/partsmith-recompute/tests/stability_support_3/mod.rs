@@ -5,26 +5,19 @@
 //! the shared feature test helpers. Checks are collected rather than asserted one by one, so a
 //! failing scenario reports every way its result differs from the corpus, together with what the
 //! resolver did with the reference under test.
-//!
-//! It lives in its own directory, like `common/` and `feature_support/`, so Cargo does not build
-//! it as a test target of its own.
 
-#![cfg(feature = "stability-study")]
-// The corpus test binary uses only some of these helpers.
+// The corpus uses only some of these helpers.
 #![allow(dead_code)]
 
-#[path = "../feature_support/mod.rs"]
-pub mod feature_support;
-#[path = "../stability_common/mod.rs"]
-mod stability_common;
-
-pub use stability_common::*;
+pub use super::stability_common::*;
 
 use std::collections::BTreeSet;
 
 use feature_support::Run;
 use partsmith_features::{BodyState, Repair};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, Shape};
+
+use super::feature_support;
 
 // Reading results.
 
@@ -193,9 +186,37 @@ impl Checks {
             ),
         );
     }
+}
 
+/// The placement checks of this third, a trait rather than methods of [`Checks`]: the second third
+/// has its own `placement` and `sketch_placement` with other arguments, and the thirds build into
+/// one test binary, where the methods of a type share one name space.
+pub trait PlacementChecks {
     /// Checks a placement within `tolerance`.
-    pub fn placement(
+    fn placement(
+        &mut self,
+        what: &str,
+        placement: &partsmith_sketch::Placement,
+        origin: [f64; 3],
+        x_axis: Option<[f64; 3]>,
+        normal: [f64; 3],
+        tolerance: f64,
+    );
+
+    /// Checks the placement of the sketch `feature` within `tolerance`.
+    fn sketch_placement(
+        &mut self,
+        run: &Run,
+        feature: &str,
+        origin: [f64; 3],
+        x_axis: [f64; 3],
+        normal: [f64; 3],
+        tolerance: f64,
+    );
+}
+
+impl PlacementChecks for Checks {
+    fn placement(
         &mut self,
         what: &str,
         placement: &partsmith_sketch::Placement,
@@ -223,8 +244,7 @@ impl Checks {
         }
     }
 
-    /// Checks the placement of the sketch `feature` within `tolerance`.
-    pub fn sketch_placement(
+    fn sketch_placement(
         &mut self,
         run: &Run,
         feature: &str,

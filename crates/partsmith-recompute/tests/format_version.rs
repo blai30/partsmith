@@ -13,7 +13,7 @@
 //! with the corpus's fallback, origin (0, 0, 10), x axis +X and normal +Z, and its point at (15, 15), and a hole of
 //! diameter 4 through all), whose face sketch has no `fallback_frame` at version 1.
 
-mod feature_support;
+use crate::feature_support;
 
 use feature_support::{
     MOVE_BY_100, Run, TURN_BY_90, assert_bore_through, assert_bounding_box, assert_face_translated,

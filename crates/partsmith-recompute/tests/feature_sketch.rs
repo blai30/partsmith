@@ -9,7 +9,7 @@
 //! the document after a fix as the engine's `apply_fix` would write it. Tests 30 and 31 check the
 //! modeling limit of a dimension and the dimension values carried by sketch errors.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::time::Duration;
 

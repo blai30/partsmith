@@ -11,20 +11,18 @@
 //! resolver did with the reference under test (method, picked elements and the best fingerprint
 //! scores).
 
-#![cfg(feature = "stability-study")]
-
-mod stability_support_2;
+use crate::stability_support_2;
 
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
+use crate::feature_support::{
+    Assets, Run, body_before, datum_placement, parse_document, pick, sketch_result,
+};
 use partsmith_features::Fix;
 use partsmith_model::Document;
 use partsmith_naming::MatchMethod;
 use partsmith_sketch::{HintFrame, Placement, SketchParams, SketchPlane};
 use serde_json::{Value, json};
-use stability_support_2::feature_support::{
-    Assets, Run, body_before, datum_placement, parse_document, pick, sketch_result,
-};
 use stability_support_2::*;
 
 /// A move body record that translates `b-1`.

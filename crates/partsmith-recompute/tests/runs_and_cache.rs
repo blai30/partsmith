@@ -1,7 +1,7 @@
 //! Runs and the result cache (recompute.md sections 3.5 to 3.9): tests 6 to 16 and 34 to 36 of
 //! section 6, plus runner tests over test-only features.
 
-mod common;
+use crate::common;
 
 use std::f64::consts::PI;
 use std::sync::Arc;

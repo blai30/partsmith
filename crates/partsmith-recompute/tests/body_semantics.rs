@@ -4,9 +4,9 @@
 //! feature changed nothing (section 3.15), closed hollows, separate pieces and the modeling limit
 //! (section 3.4).
 
-mod common;
+use crate::common;
 
-use common::feature_support::{Run, assert_shell_count, body_update, set_field};
+use crate::feature_support::{Run, assert_shell_count, body_update, set_field};
 use common::{
     Harness, all_element_names, assert_bounding_box, assert_solid_count, assert_volume, bodies,
     document, error_code, face_count, feature_report, final_state, first_message, message_texts,

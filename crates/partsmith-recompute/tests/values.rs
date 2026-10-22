@@ -1,7 +1,7 @@
 //! Values, units and the evaluation context (recompute.md sections 3.1 step 4 and 3.4): tests 31
 //! to 33 of section 6, plus runner tests over test-only features.
 
-mod common;
+use crate::common;
 
 use common::{
     Harness, assert_absolute, assert_bounding_box, assert_volume, bodies, datum_height, document,

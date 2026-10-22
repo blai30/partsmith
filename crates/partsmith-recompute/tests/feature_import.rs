@@ -3,7 +3,7 @@
 //! `examples/import/`; the asset bytes are written with the kernel at test time, as the spec's
 //! fixtures define them.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

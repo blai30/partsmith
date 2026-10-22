@@ -3,7 +3,7 @@
 //! examples in `examples/datum_plane/`; the documents of tests 16, 17 and 19 (frames on the model)
 //! are written here until their examples exist.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::f64::consts::FRAC_1_SQRT_2;
 use std::time::Duration;

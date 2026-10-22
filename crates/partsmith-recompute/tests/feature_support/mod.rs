@@ -5,12 +5,12 @@
 //! and the kernel measurements of body shapes. The records, documents and motion checks of the
 //! frames on the model (ADR 0023) are in `frames.rs`.
 
-// Each test binary uses only some of these helpers.
+// The two test targets and the bench each use only some of these helpers.
 #![allow(dead_code)]
 
 mod frames;
 
-// Each test binary uses only some of these helpers.
+// The two test targets and the bench each use only some of these helpers.
 #[allow(unused_imports)]
 pub use frames::*;
 

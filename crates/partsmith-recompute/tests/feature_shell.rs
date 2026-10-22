@@ -2,7 +2,7 @@
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
 //! `examples/shell/`.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::collections::BTreeMap;
 use std::f64::consts::PI;

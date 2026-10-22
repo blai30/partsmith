@@ -51,7 +51,9 @@ jobs:
       - if: steps.skip.outputs.skip != 'true'
         uses: Swatinem/rust-cache@v2.9.2
       # Sixteen times the 256 cases of every pull request (sketch.md 6.13, tests 189 to 196).
+      # A block scalar, since a plain YAML value cannot end in a colon.
       - if: steps.skip.outputs.skip != 'true'
-        run: cargo test -p partsmith-sketch --release --test properties
+        run: |
+          cargo test -p partsmith-sketch --release --test integration properties::
         env:
           PROPTEST_CASES: "4096"

@@ -10,18 +10,16 @@
 //! resolver did with the reference under test (method, picked elements and the best fingerprint
 //! scores) and the messages the user would see.
 
-#![cfg(feature = "stability-study")]
-
-mod stability_support_3;
+use crate::stability_support_3;
 
 use std::f64::consts::{FRAC_PI_2, PI, SQRT_2};
 
-use partsmith_naming::MatchMethod;
-use serde_json::{Value, json};
-use stability_support_3::feature_support::{
+use crate::feature_support::{
     Assets, Run, datum_placement, face_names, keep_match, pick, picked_in, sketch_result,
     successions, use_reference,
 };
+use partsmith_naming::MatchMethod;
+use serde_json::{Value, json};
 use stability_support_3::*;
 
 /// The volume removed along a straight edge of length `length` between two perpendicular faces by

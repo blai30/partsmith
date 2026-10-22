@@ -114,7 +114,7 @@ Some files are generated and committed. Regenerate them with:
 
 ```sh
 # The expected results of the examples, and their Python twins
-PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test examples
+PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::
 PARTSMITH_BLESS=1 pytest python/tests/test_examples.py
 
 # The JSON Schemas and the protocol types of the UI

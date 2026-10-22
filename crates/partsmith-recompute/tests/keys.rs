@@ -2,7 +2,7 @@
 //! checked over test-only features. Recompute tests 6 to 16 and 35 check keys on the built-in
 //! features (`runs_and_cache.rs`).
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

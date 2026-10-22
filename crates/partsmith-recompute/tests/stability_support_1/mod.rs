@@ -8,22 +8,12 @@
 //! under test. Positions are compared at the corpus's 1e-6 mm (`EXACT_POSITION_TOLERANCE`).
 //!
 //! The record builders, runs, readers and resolver diagnostics the three thirds of the corpus share
-//! come from `stability_common`, which it includes with `#[path]` and re-exports, beside its own
-//! `feature_support`.
-//!
-//! It lives in its own directory, like `common/` and `feature_support/`, so Cargo does not build
-//! it as a test target of its own.
+//! come from `stability_common`, which it re-exports.
 
-#![cfg(feature = "stability-study")]
 // Each user of the module needs only some of the helpers.
 #![allow(dead_code)]
 
-#[path = "../feature_support/mod.rs"]
-pub mod feature_support;
-#[path = "../stability_common/mod.rs"]
-mod stability_common;
-
-pub use stability_common::*;
+pub use super::stability_common::*;
 
 use std::f64::consts::PI;
 
@@ -35,6 +25,8 @@ use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 use partsmith_recompute::{FeatureReport, Message, Report, Severity, Status};
 use partsmith_sketch::{Id, RegionRef, match_region};
 use serde_json::{Value, json};
+
+use super::feature_support;
 
 /// Positions and lengths the corpus compares exactly (1e-6 mm), which these scenarios check at
 /// the corpus's own precision rather than at the shared `POSITION_TOLERANCE`.

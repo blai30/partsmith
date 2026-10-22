@@ -2,7 +2,7 @@
 //! documents (features.md section 6.1) with the ids naming.md shows. Element names come from the
 //! naming maps of the body reports; positions and normals from the kernel's element geometry.
 
-mod common;
+use crate::common;
 
 use common::{
     Harness, assert_face_normal, assert_face_position, assert_has_element, bodies, document,

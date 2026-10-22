@@ -15,7 +15,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   OCCT_ROOT: ${{ github.workspace }}/.occt/native
-  # Every test binary links OCCT statically; with debug info they outgrow the runner's disk (delivery.md 3.2).
+  # Without debug info the test binaries that link OCCT statically stay small and link fast (delivery.md 3.2).
   CARGO_PROFILE_DEV_DEBUG: "0"
 
 # Every job sets timeout-minutes, so a hung job ends long before GitHub's default of 360 minutes (delivery.md 2.4).
@@ -91,7 +91,7 @@ jobs:
           path: .occt/native
           key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
           fail-on-cache-miss: true
-      # About 170 OCCT-linked test binaries need more space than the runner leaves next to SDKs this job does not use.
+      # Margin for the workspace build and its OCCT-linked test binaries; df shows what is left (delivery.md 3.2).
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -213,7 +213,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.2
       - run: scripts/build-wasm.sh
       # The Node round trip against the module just built. The variable turns a skip into a failure (test 7).
-      - run: cargo test -p partsmith-wasm --test web_module
+      # A block scalar, since a plain YAML value cannot end in a colon.
+      - run: |
+          cargo test -p partsmith-wasm --test integration web_module::
         env:
           PARTSMITH_REQUIRE_WEB_MODULE: "1"
       # The web notices go wherever the core goes. With two paths, the artifact is rooted at ui/public/.

@@ -2,7 +2,7 @@
 //! (recompute.md sections 3.1, 3.3 and 3.5): tests 17 to 28 and 38 to 40 of section 6, plus runner
 //! tests over test-only features.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

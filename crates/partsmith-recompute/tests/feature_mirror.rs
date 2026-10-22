@@ -3,7 +3,7 @@
 //! `examples/mirror/`; the document of test 13 (a sketch on the mirror image, ADR 0023) is written
 //! here until its example exists.
 
-mod feature_support;
+use crate::feature_support;
 
 use std::time::Duration;
 

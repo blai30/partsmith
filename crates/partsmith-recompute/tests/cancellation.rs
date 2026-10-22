@@ -4,7 +4,7 @@
 //! Test 30 and its runner twin wait on the wall clock (50 ms and 100 ms against the 10 s ceiling of
 //! `test_wait`), as recompute.md open issue 3 notes.
 
-mod common;
+use crate::common;
 
 use std::thread::{self, JoinHandle};
 use std::time::Duration;

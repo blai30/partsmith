@@ -21,9 +21,7 @@
 //! last test can render every explanation clause of section 3.10 again and check each against the message lint of the
 //! error guidelines (`lint_failures` of `partsmith-message-lint`).
 
-mod feature_support;
-#[path = "stability_common/mod.rs"]
-mod stability_common;
+use crate::{feature_support, stability_common};
 
 use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;

@@ -65,6 +65,7 @@ desktop/
       close_guard.rs               Unsaved, the close confirmation
       commands.rs                  the six #[tauri::command] functions
     tests/
+      integration.rs               the one test binary: declares the files below as modules
       host.rs  files.rs  commands.rs  config.rs  common/mod.rs
     benches/
       budgets.rs                   the Rust budgets of section 5
@@ -76,7 +77,7 @@ ui/src/
 
 `/desktop/src-tauri/gen` (generated ACL schemas) is already in `.gitignore`; build output goes to the workspace `target/`.
 
-`desktop/src-tauri/AGENTS.md` states the crate's purpose, points at this spec, and lists its commands: `cargo test -p partsmith-desktop`, `cargo clippy -p partsmith-desktop --all-targets -- -D warnings` and `cargo bench -p partsmith-desktop --bench budgets` (all three need `OCCT_ROOT` and, on Linux, the WebKitGTK development packages of delivery.md 3.2); `cargo install tauri-cli --version 2.12.2 --locked` once; `pnpm -C ui dev` and then `cargo tauri dev` in `desktop/src-tauri` to run the app against the Vite dev server; `pnpm -C ui build` and then `cargo tauri build` in `desktop/src-tauri` to bundle it.
+`desktop/src-tauri/AGENTS.md` states the crate's purpose, points at this spec, and lists its commands: `cargo test -p partsmith-desktop`, `cargo test -p partsmith-desktop --test integration config::` (one file of `tests/`, here `config.rs`), `cargo clippy -p partsmith-desktop --all-targets -- -D warnings` and `cargo bench -p partsmith-desktop --bench budgets` (all four need `OCCT_ROOT` and, on Linux, the WebKitGTK development packages of delivery.md 3.2); `cargo install tauri-cli --version 2.12.2 --locked` once; `pnpm -C ui dev` and then `cargo tauri dev` in `desktop/src-tauri` to run the app against the Vite dev server; `pnpm -C ui build` and then `cargo tauri build` in `desktop/src-tauri` to bundle it.
 
 ### 2.2 Manifest and build script
 
@@ -101,6 +102,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One test binary: tests/integration.rs declares every other file of tests/ as a module (ADR 0035).
+autotests = false
 
 [lib]
 name = "partsmith_desktop"
@@ -108,6 +111,9 @@ name = "partsmith_desktop"
 [[bin]]
 name = "partsmith-desktop"
 path = "src/main.rs"
+
+[[test]]
+name = "integration"
 
 [[bench]]
 name = "budgets"

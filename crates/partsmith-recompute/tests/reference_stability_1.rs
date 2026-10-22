@@ -7,24 +7,21 @@
 //! geometry (centroids, normals, axes, lengths, volumes) and by the feature's status and messages.
 //! A scenario with variants has one test per variant; sizes that must behave alike are variants too.
 //!
-//! The tests compile only with the `stability-study` feature:
-//! `cargo test -p partsmith-recompute --features stability-study --test reference_stability_1`.
-//! The crate documentation comes before the gate so the empty crate built without the feature
-//! still has it (the workspace denies `missing_docs`).
+//! The tests are a module of the test target `reference_stability`, which needs the
+//! `stability-study` feature; run this third alone with
+//! `cargo test -p partsmith-recompute --features stability-study --test reference_stability reference_stability_1::`.
 
-#![cfg(feature = "stability-study")]
-
-mod stability_support_1;
+use crate::stability_support_1;
 
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI};
 
+use crate::feature_support::{Assets, Run, point_components};
 use partsmith_features::{BodyState, DatumResult, OutputData, SketchResult};
 use partsmith_model::Document;
 use partsmith_naming::ElementKind;
 use partsmith_recompute::Status;
 use partsmith_sketch::Placement;
 use serde_json::Value;
-use stability_support_1::feature_support::{Assets, Run, point_components};
 use stability_support_1::{
     EXACT_POSITION_TOLERANCE, Expectations, arc, block, block_back_top, block_front_right_vertical,
     block_front_top, block_outline, block_outline_to, block_region, block_right_side,
