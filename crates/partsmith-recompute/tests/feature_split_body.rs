@@ -5,14 +5,12 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     BOTH_TOPS, CUBE20, MOVE_BY_100, Run, assert_bounding_box, assert_choice_between, assert_empty,
     assert_error_field, assert_examples_canonical, assert_face_count, assert_face_kind,
-    assert_face_normal, assert_face_position, assert_has_face, assert_median_build_within,
-    assert_moved_by_100, assert_solid_count, assert_unchanged, assert_volume, body_changes, face,
-    l_shaped_body, load_example, slotted_block,
+    assert_face_normal, assert_face_position, assert_has_face, assert_moved_by_100,
+    assert_solid_count, assert_unchanged, assert_volume, body_changes, face, l_shaped_body,
+    slotted_block,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -227,17 +225,6 @@ fn t009_parts_with_several_solids_lower_part() {
     assert_solid_count(base, 1);
     assert_has_face(run.body("b-2"), "f-split1/split-negative#1");
     assert_has_face(run.body("b-2"), "f-split1/split-negative#2");
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t010_split_into_two_bodies_builds_within_15_ms() {
-    let document = load_example("split_body/into-two-bodies.ptsm");
-
-    assert_median_build_within(&document, "f-split1", 21, Duration::from_millis(15));
 }
 
 // Tests 11 and 12: a split plane on a face must lie in one plane, and a face split into coplanar pieces keeps it.

@@ -5,15 +5,13 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     AXIS_TOLERANCE, Run, THROUGH_ALL, assert_bore_through, assert_bounding_box, assert_coordinates,
     assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
-    assert_face_kind, assert_face_normal, assert_face_position, assert_has_face,
-    assert_median_build_within, assert_moves, assert_sketch_on_top_plane, assert_solid_count,
-    assert_unchanged, assert_volume, body_changes, document, face, face_motion, face_sketch_with,
-    hole_at_point, link_ids, load_example, message, one_point, pick, set_field, sketch_result,
+    assert_face_kind, assert_face_normal, assert_face_position, assert_has_face, assert_moves,
+    assert_sketch_on_top_plane, assert_solid_count, assert_unchanged, assert_volume, body_changes,
+    document, face, face_motion, face_sketch_with, hole_at_point, link_ids, message, one_point,
+    pick, set_field, sketch_result,
 };
 use partsmith_features::{FeatureWarning, NoEffectHow};
 use partsmith_occt_sys::GeometryKind;
@@ -273,17 +271,6 @@ fn t011_empty_source() {
             "Body 'Body 1' has no solid at this point, so this mirror has nothing to work on. Pick a body that has a solid."
         ]
     );
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t012_join_apart_builds_within_15_ms() {
-    let document = load_example("mirror/join-apart.ptsm");
-
-    assert_median_build_within(&document, "f-mir1", 21, Duration::from_millis(15));
 }
 
 // Test 13: the reflection that makes the image is the motion of its faces, so a sketch whose fallback is in body

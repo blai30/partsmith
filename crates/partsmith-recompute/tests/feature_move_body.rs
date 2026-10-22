@@ -5,16 +5,13 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_bore_through,
     assert_bounding_box, assert_choice_between, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_normal,
-    assert_face_position, assert_face_translated, assert_median_build_within,
-    assert_quarter_turns_about_z, assert_unchanged, assert_volume, body_changes, edge_axis, face,
-    face_motion, l_shaped_body, leaning_wall, left_bottom_edge_axis, load_example,
-    moved_box_document,
+    assert_face_position, assert_face_translated, assert_quarter_turns_about_z, assert_unchanged,
+    assert_volume, body_changes, edge_axis, face, face_motion, l_shaped_body, leaning_wall,
+    left_bottom_edge_axis, moved_box_document,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -160,17 +157,6 @@ fn t008_wrong_angle_dimension() {
         run.messages("f-mv1"),
         ["Rotation angle: Expected an angle, but this expression gives a length."]
     );
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t009_rotate_then_translate_builds_within_5_ms() {
-    let document = load_example("move_body/rotate-translate.ptsm");
-
-    assert_median_build_within(&document, "f-mv1", 21, Duration::from_millis(5));
 }
 
 // Tests 10 to 13: the output map is the input map `moved` by the transform, so face sketches and stored axis directions

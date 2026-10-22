@@ -1,10 +1,9 @@
 //! The integration tests of `partsmith-recompute`, built as one test binary (ADR 0035): every other
 //! `.rs` file directly in `tests/` and every helper directory is a module here, except the
 //! reference stability corpus (`reference_stability_{1,2,3}.rs` and `stability_support_{1,2,3}`),
-//! the modules of the test target `reference_stability` behind the `stability-study` feature. A
-//! new test file is declared here, or it is never built. The release-only budgets of the
-//! `feature_<type>` modules are timed beside every other test here, so they run at the default
-//! thread count on an otherwise idle machine.
+//! the modules of the test target `reference_stability` behind the `stability-study` feature, and
+//! `budgets.rs`, the release-only feature budgets, a test target of its own so that their medians
+//! are timed beside only each other. A new test file is declared here, or it is never built.
 
 mod common;
 mod feature_support;

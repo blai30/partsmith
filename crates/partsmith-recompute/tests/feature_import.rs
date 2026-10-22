@@ -6,34 +6,15 @@
 use crate::feature_support;
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
+use feature_support::import::{assets, block, block_bytes};
 use feature_support::{
-    Assets, Run, assert_bounding_box, assert_empty, assert_examples_canonical, assert_face_count,
+    Run, assert_bounding_box, assert_empty, assert_examples_canonical, assert_face_count,
     assert_face_kind, assert_face_names, assert_face_position, assert_solid_count, assert_volume,
-    body_changes, face, load_example, median_build_time_with_assets, median_duration,
-    step_asset_name,
+    body_changes, face, load_example, step_asset_name,
 };
 use partsmith_features::FeatureError;
-use partsmith_occt_sys::{GeometryKind, Plane, Point, StepBody, make_box, read_step, write_step};
-
-/// A STEP body named `name` holding a `make_box` solid of this size on `placement`.
-fn block(name: &str, placement: &Plane, size: [f64; 3]) -> StepBody {
-    let [length, width, height] = size;
-    let primitive =
-        make_box(placement, length, width, height).expect("the kernel makes a valid box");
-    StepBody {
-        shape: primitive.shape,
-        name: name.to_owned(),
-        color: None,
-    }
-}
-
-/// The fixture `BYTES`: a STEP file with one body named `Block` spanning [0,10]x[0,20]x[0,30].
-fn block_bytes() -> Arc<[u8]> {
-    let bodies = [block("Block", &Plane::XY, [10.0, 20.0, 30.0])];
-    Arc::from(write_step(&bodies).expect("the kernel writes STEP"))
-}
+use partsmith_occt_sys::{GeometryKind, Plane, Point, write_step};
 
 /// The fixture `TWO`: a STEP file with two 10 mm cubes named `A` and `B`, the second moved to x = 50.
 fn two_cubes_bytes() -> Arc<[u8]> {
@@ -46,11 +27,6 @@ fn two_cubes_bytes() -> Arc<[u8]> {
         block("B", &moved, [10.0, 10.0, 10.0]),
     ];
     Arc::from(write_step(&bodies).expect("the kernel writes STEP"))
-}
-
-/// The asset map `{A: bytes}`.
-fn assets(bytes: Arc<[u8]>) -> Assets {
-    Assets::from([(step_asset_name(), bytes)])
 }
 
 /// Runs an example with the asset map `{A: bytes}`.
@@ -285,26 +261,4 @@ fn t007_cut_hole_walls_keep_their_imported_names() {
         assert_face_kind(&wall, GeometryKind::Plane);
         assert_face_position(&wall, axis, position);
     }
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t008_op_new_builds_within_10_ms_plus_reading() {
-    let bytes = block_bytes();
-    let document = load_example("import/new-body.ptsm");
-    let runs = 21;
-    let read_time = median_duration(runs, || {
-        let start = Instant::now();
-        read_step(&bytes).expect("the kernel reads its own STEP output");
-        start.elapsed()
-    });
-
-    let duration = median_build_time_with_assets(&document, "f-imp1", runs, &assets(bytes));
-    assert!(
-        duration < Duration::from_millis(10) + read_time,
-        "the import took {duration:?} to build (median of {runs} runs), over the 10 ms budget plus {read_time:?} of read_step",
-    );
 }

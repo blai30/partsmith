@@ -34,11 +34,13 @@ serde.workspace = true
 # the study's plan is implemented.
 stability-study = []
 
-# Its modules include the release-only budgets of tests/feature_<type>.rs, which stay in the files
-# of the features they time and are timed beside the other tests: run them at the default thread
-# count on an otherwise idle machine (ADR 0035).
 [[test]]
 name = "integration"
+
+# The release-only build-time budgets of the per-feature specs, a module per feature named like its
+# tests/feature_<type>.rs, timed beside only each other, never beside the tests of the other files.
+[[test]]
+name = "budgets"
 
 # The reference stability corpus. Naming it without the feature is an error, not an empty run.
 [[test]]

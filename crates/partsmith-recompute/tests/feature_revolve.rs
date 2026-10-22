@@ -5,16 +5,14 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, absent_faces,
     assert_absolute, assert_bounding_box, assert_choice_between, assert_empty, assert_error_field,
     assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
-    assert_face_kind, assert_face_radius, assert_has_face, assert_median_build_within,
-    assert_messages_pass_lint, assert_no_face, assert_unchanged, assert_volume, edge_axis, face,
-    face_names_with_prefix, keep_and_pick, l_shaped_body, lean, lean_edge_axis, line, link_ids,
-    load_example, message, output_body, pick, successions, turn,
+    assert_face_kind, assert_face_radius, assert_has_face, assert_messages_pass_lint,
+    assert_no_face, assert_unchanged, assert_volume, edge_axis, face, face_names_with_prefix,
+    keep_and_pick, l_shaped_body, lean, lean_edge_axis, line, link_ids, message, output_body, pick,
+    successions, turn,
 };
 use partsmith_features::{Diagnosis, Fix};
 use partsmith_naming::Follow;
@@ -345,17 +343,6 @@ fn t019_new_on_a_body_with_a_solid() {
 
     run.assert_error("f-rev1", "body_not_empty");
     assert_volume(run.shape("b-1"), 84823.001647);
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t020_full_ring_builds_within_5_ms() {
-    let document = load_example("revolve/full-ring.ptsm");
-
-    assert_median_build_within(&document, "f-rev1", 21, Duration::from_millis(5));
 }
 
 #[test]

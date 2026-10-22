@@ -4,12 +4,10 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_names,
-    assert_median_build_within, assert_volume, face, face_index, load_example,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_volume, face,
+    face_index,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -125,17 +123,6 @@ fn t007_zero_height_is_out_of_range() {
 
     let error = run.assert_error("f-cone1", "out_of_range");
     assert_error_field(error, "height");
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t008_frustum_builds_within_2_ms() {
-    let document = load_example("cone/frustum.ptsm");
-
-    assert_median_build_within(&document, "f-cone1", 21, Duration::from_millis(2));
 }
 
 #[test]

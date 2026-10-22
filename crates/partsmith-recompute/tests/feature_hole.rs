@@ -4,27 +4,22 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
+use feature_support::hole::THROUGH_ALL;
 use feature_support::{
     BOX_BELOW, LENGTH_TOLERANCE, MOVE_BY_100, Run, absent_faces, assert_bounding_box,
     assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_count, assert_face_in_plane, assert_face_kind, assert_face_radius, assert_has_face,
-    assert_median_build_within, assert_messages_pass_lint, assert_no_face, assert_solid_count,
-    assert_translation, assert_unchanged, assert_volume, body_update, document, face, face_motion,
-    face_names_with_prefix, id, load_example, message, moved_box_document, output_body, pick,
-    remove_entry, set_reverse, sketch_result, vertex,
+    assert_messages_pass_lint, assert_no_face, assert_solid_count, assert_translation,
+    assert_unchanged, assert_volume, body_update, face, face_motion, face_names_with_prefix, id,
+    message, moved_box_document, output_body, pick, remove_entry, set_reverse, sketch_result,
+    vertex,
 };
 use partsmith_features::{BodyChange, Bound, FeatureError, FeatureWarning};
-use partsmith_model::Document;
 use partsmith_occt_sys::GeometryKind;
 use partsmith_recompute::Message;
 
 /// `SK-PTS`: the points `e-p1` (0, 0), `e-p2` (10, 10) and `e-p3` (100, 0) on XY.
 const POINTS_SKETCH: &str = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-p1", "type": "point", "position": [0, 0]}, {"id": "e-p2", "type": "point", "position": [10, 10]}, {"id": "e-p3", "type": "point", "position": [100, 0]}]}"#;
-
-/// The extent that goes through the whole body.
-const THROUGH_ALL: &str = r#""extent": {"kind": "through_all"}"#;
 
 /// The hole `f-hole1` of diameter `diameter` at `points` (a JSON array), with `extra` members after
 /// the diameter.
@@ -483,17 +478,6 @@ fn countersink_at_its_depth_limit_is_out_of_range() {
 }
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t021_two_points_build_within_25_ms() {
-    let document = load_example("hole/two-points.ptsm");
-
-    assert_median_build_within(&document, "f-hole1", 21, Duration::from_millis(25));
-}
-
-#[test]
 fn t022_zero_depth_with_a_counterbore() {
     let run = run_hole(&hole(
         r#"["e-p1"]"#,
@@ -716,70 +700,6 @@ fn t032_tools_decided_by_the_cut_and_by_their_shared_volume() {
         Vec::<String>::new(),
         "the swallowed cube is gone"
     );
-}
-
-/// Test 33: the 200 x 200 x 10 plate with 194 through holes of diameter 8 (200 faces), then ten
-/// holes of diameter 6 between them.
-fn ten_holes_in_a_200_face_body() -> Document {
-    let plate = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["200", "200", "10"], "position": ["0", "0", "-10"], "op": "new"}"#;
-    let sketch = |id: &str, points: &[[f64; 2]]| {
-        let entities: Vec<String> = (1..)
-            .zip(points)
-            .map(|(number, [x, y])| {
-                format!(r#"{{"id": "e-p{number}", "type": "point", "position": [{x}, {y}]}}"#)
-            })
-            .collect();
-        format!(
-            r#"{{"id": "{id}", "type": "sketch", "plane": {{"kind": "origin", "plane": "XY"}}, "entities": [{}]}}"#,
-            entities.join(", ")
-        )
-    };
-    let hole = |id: &str, sketch: &str, count: usize, diameter: &str| {
-        let points: Vec<String> = (1..=count)
-            .map(|number| format!(r#""e-p{number}""#))
-            .collect();
-        format!(
-            r#"{{"id": "{id}", "type": "hole", "body": "b-1", "sketch": "{sketch}", "points": [{}], "diameter": "{diameter}", {THROUGH_ALL}}}"#,
-            points.join(", ")
-        )
-    };
-    let existing: Vec<[f64; 2]> = (0..194_u32)
-        .map(|index| {
-            [
-                -90.0 + 13.5 * f64::from(index % 14),
-                -90.0 + 13.5 * f64::from(index / 14),
-            ]
-        })
-        .collect();
-    let new: Vec<[f64; 2]> = (0..10_u32)
-        .map(|index| [-83.25 + 13.5 * f64::from(index), -83.25])
-        .collect();
-    document(
-        &["b-1"],
-        &[
-            plate,
-            &sketch("f-sk1", &existing),
-            &hole("f-hole1", "f-sk1", existing.len(), "8"),
-            &sketch("f-sk2", &new),
-            &hole("f-hole2", "f-sk2", new.len(), "6"),
-        ],
-    )
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t033_ten_holes_in_a_200_face_body_within_80_ms() {
-    let document = ten_holes_in_a_200_face_body();
-    let run = Run::new(document.clone());
-    run.assert_all_ok();
-    let plate = output_body(&run, "f-hole1", "b-1");
-    assert_face_count(plate.shape().expect("the plate is a solid"), 200);
-    assert_face_count(run.shape("b-1"), 210);
-
-    assert_median_build_within(&document, "f-hole2", 7, Duration::from_millis(80));
 }
 
 #[test]

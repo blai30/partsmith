@@ -3,14 +3,20 @@
 //! A test builds a document (from an example under `examples/` or from JSON records), runs it with
 //! `Recompute` and the built-in registry, and inspects the `Report`: statuses, rendered messages,
 //! and the kernel measurements of body shapes. The records, documents and motion checks of the
-//! frames on the model (ADR 0023) are in `frames.rs`.
+//! frames on the model (ADR 0023) are in `frames.rs`, and the records that a feature's document
+//! tests share with its release-only budgets (`budgets.rs`) in a module named after the feature.
 
-// The two test targets and the bench each use only some of these helpers.
+// The three test targets and the bench each use only some of these helpers.
 #![allow(dead_code)]
 
+pub mod fillet;
 mod frames;
+pub mod hole;
+pub mod import;
+pub mod linear_pattern;
+pub mod shell;
 
-// The two test targets and the bench each use only some of these helpers.
+// The three test targets and the bench each use only some of these helpers.
 #[allow(unused_imports)]
 pub use frames::*;
 

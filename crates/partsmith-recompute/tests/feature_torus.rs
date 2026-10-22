@@ -4,12 +4,10 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_axis_direction, assert_face_count, assert_face_kind,
-    assert_face_names, assert_median_build_within, assert_volume, face, load_example,
+    assert_face_names, assert_volume, face,
 };
 use partsmith_features::{Bound, FeatureError};
 use partsmith_occt_sys::GeometryKind;
@@ -98,17 +96,6 @@ fn t005_zero_tube_is_out_of_range() {
         ),
         "the bound should be GreaterThan(0): {error:?}",
     );
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t006_default_torus_builds_within_2_ms() {
-    let document = load_example("torus/default.ptsm");
-
-    assert_median_build_within(&document, "f-tor1", 21, Duration::from_millis(2));
 }
 
 #[test]

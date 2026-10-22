@@ -4,13 +4,10 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
-    assert_face_count, assert_face_kind, assert_face_position, assert_has_face,
-    assert_median_build_within, assert_solid_count, assert_unchanged, assert_volume, body_changes,
-    face, id, link_ids, load_example,
+    assert_face_count, assert_face_kind, assert_face_position, assert_has_face, assert_solid_count,
+    assert_unchanged, assert_volume, body_changes, face, id, link_ids,
 };
 use partsmith_features::{Because, Diagnosis, Fix};
 use partsmith_occt_sys::GeometryKind;
@@ -266,17 +263,6 @@ fn t015_tool_names_survive_for_a_later_fillet() {
     let shape = run.shape("b-1");
     assert_volume(shape, 3982.831853);
     assert_face_count(shape, 7);
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t016_join_builds_within_15_ms() {
-    let document = load_example("boolean/join.ptsm");
-
-    assert_median_build_within(&document, "f-bool1", 21, Duration::from_millis(15));
 }
 
 /// `BOX2` suppressed.

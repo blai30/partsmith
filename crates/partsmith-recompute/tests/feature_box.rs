@@ -3,13 +3,11 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_face_normal,
-    assert_face_position, assert_median_build_within, assert_messages_pass_lint,
-    assert_solid_count, assert_volume, face, link_ids, load_example, message, set_field,
+    assert_face_position, assert_messages_pass_lint, assert_solid_count, assert_volume, face,
+    link_ids, message, set_field,
 };
 use partsmith_features::Fix;
 use partsmith_occt_sys::GeometryKind;
@@ -202,17 +200,6 @@ fn t009_sizes_use_parameter_expressions() {
     let shape = run.shape("b-1");
     assert_volume(shape, 512.0);
     assert_bounding_box(shape, [-4.0, -8.0, 0.0], [4.0, 8.0, 4.0]);
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t010_default_box_builds_within_2_ms() {
-    let document = load_example("box/default.ptsm");
-
-    assert_median_build_within(&document, "f-box1", 21, Duration::from_millis(2));
 }
 
 #[test]

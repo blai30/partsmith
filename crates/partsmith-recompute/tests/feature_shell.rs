@@ -8,15 +8,14 @@ use std::collections::BTreeMap;
 use std::f64::consts::PI;
 use std::ops::Range;
 use std::path::Path;
-use std::time::Duration;
 
+use feature_support::shell::{ROUNDED_TOP_FACE, rounded_cube_document, shell_record};
 use feature_support::{
     CUBE20, MOVE_BY_100, Run, assert_bounding_box, assert_element_repair, assert_error_field,
     assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
     assert_face_normal, assert_face_position, assert_face_radius, assert_has_face,
-    assert_list_field, assert_median_build_within, assert_moved_by_100, assert_solid_count,
-    assert_unchanged, assert_volume, body_update, document, face, face_index,
-    face_names_with_prefix, load_example, median_failed_build_time, parse_document,
+    assert_list_field, assert_moved_by_100, assert_solid_count, assert_unchanged, assert_volume,
+    body_update, document, face, face_index, face_names_with_prefix, load_example, parse_document,
     suggested_limit,
 };
 use feature_support::{assert_messages_pass_lint, id, message, pick, set_field};
@@ -52,14 +51,6 @@ const HIGH_TOP_FACE: &str = r#"{"q": "f-box2/top", "fp": "plane|n=0,0,1|c=10,0,2
 /// the taller box.
 const ARC_JOIN: &str = "f-sh1/inner/edge(f-box1/top|f-box2/left)";
 
-/// `F-ROUND`: `CUBE20`'s four edges parallel to Z rounded at radius 2 by `f-fil1`, which gives the
-/// body of ui.md's `cube-features.ptsm` (volume 7680 + 80 pi, 10 faces).
-const VERTICAL_ROUNDS: &str = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-10,-10,10|l=20"}, {"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=10,-10,10|l=20"}, {"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-10,10,10|l=20"}, {"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=10,10,10|l=20"}], "radius": "2"}"#;
-
-/// The top face of `CUBE20` after `VERTICAL_ROUNDS`: a 20 mm square with corners of radius 2.
-const ROUNDED_TOP_FACE: &str =
-    r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=396.566371"}"#;
-
 /// The box of test 15 (newcomer error corpus NC06): 40 x 40 x 20 mm, spanning
 /// [-20,-20,0]-[20,20,20].
 const BOX404020: &str =
@@ -90,19 +81,6 @@ const CYL20: &str = r#"{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radi
 /// The top face of `CYL20`.
 const CYLINDER_TOP_FACE: &str =
     r#"{"q": "f-cyl1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=1256.637061"}"#;
-
-/// `SHELL(thickness, faces)`: the shell `f-sh1` of `b-1`, without `remove_faces` when `faces` is
-/// empty.
-fn shell_record(thickness: &str, faces: &[&str]) -> String {
-    if faces.is_empty() {
-        format!(r#"{{"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "{thickness}"}}"#)
-    } else {
-        format!(
-            r#"{{"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "{thickness}", "remove_faces": [{}]}}"#,
-            faces.join(", "),
-        )
-    }
-}
 
 /// Test 5: `BOX805030` shelled with the top removed and a wall of `thickness`.
 fn open_top_document(thickness: &str) -> Document {
@@ -146,15 +124,6 @@ fn assert_arc_join_kept(run: &Run, volume: f64, faces: u32) {
     let join = face(run.body("b-1"), ARC_JOIN);
     assert_face_kind(&join, GeometryKind::Cylinder);
     assert_face_radius(&join, 2.0);
-}
-
-/// Tests 12, 19, 20 and 22: `CUBE20` with `VERTICAL_ROUNDS`, shelled with a wall of `thickness`
-/// and `faces` removed (a closed hollow when empty).
-fn rounded_cube_document(thickness: &str, faces: &[&str]) -> Document {
-    document(
-        &["b-1"],
-        &[CUBE20, VERTICAL_ROUNDS, &shell_record(thickness, faces)],
-    )
 }
 
 /// Tests 19, 20 and 22: `CUBE20` with `VERTICAL_ROUNDS`, shelled with its top removed and a wall of
@@ -554,38 +523,6 @@ fn removed_face_beside_a_concave_edge() {
     );
     thin.assert_all_ok();
     assert_volume(thin.shape("b-1"), 1531.0);
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t012_performance() {
-    assert_median_build_within(
-        &load_example("shell/open-top.ptsm"),
-        "f-sh1",
-        5,
-        Duration::from_millis(50),
-    );
-    // Section 5: a wall within 0.01 mm of the radius of the rounds, on test 19 at 2 mm.
-    assert_median_build_within(
-        &rounded_cube_document("2", &[ROUNDED_TOP_FACE]),
-        "f-sh1",
-        5,
-        Duration::from_millis(250),
-    );
-    // Section 5: a failing shell including the search, on test 20.
-    let too_thick = median_failed_build_time(
-        &rounded_cube_document("12", &[ROUNDED_TOP_FACE]),
-        "f-sh1",
-        "shell_too_thick",
-        3,
-    );
-    assert!(
-        too_thick < Duration::from_millis(1200),
-        "the failing shell with its search took {too_thick:?}, the budget is 1.2 s"
-    );
 }
 
 #[test]

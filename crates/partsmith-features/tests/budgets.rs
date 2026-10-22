@@ -4,7 +4,7 @@
 //!
 //! The framework budgets are measured with the `probe` and `slab` test features, whose params
 //! have the shape of extrude's, so they time the registry and context code itself. The budgets of
-//! individual built-in feature builds live with the document tests in `partsmith-recompute`.
+//! individual built-in feature builds live in `partsmith-recompute`'s `tests/budgets.rs`.
 
 mod common;
 

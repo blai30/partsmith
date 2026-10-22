@@ -6,23 +6,22 @@ use crate::feature_support;
 
 use std::collections::BTreeMap;
 use std::f64::consts::PI;
-use std::time::Duration;
 
+use feature_support::fillet::{fillet_record, plate_document};
 use feature_support::{
-    CUBE20, FRONT_TOP_EDGE, MOVE_BY_100, PLATE, PLATE_TOP_EDGES, RISER_EDGE, RISER_SENTENCE, Run,
-    STEP, STEP_BOTTOM_LEFT_EDGE, assert_bounding_box, assert_element_repair, assert_error_field,
+    CUBE20, FRONT_TOP_EDGE, MOVE_BY_100, RISER_EDGE, RISER_SENTENCE, Run, STEP,
+    STEP_BOTTOM_LEFT_EDGE, assert_bounding_box, assert_element_repair, assert_error_field,
     assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
-    assert_face_radius, assert_limiting_face, assert_list_field, assert_median_build_within,
-    assert_messages_pass_lint, assert_moved_by_100, assert_same_body, assert_skipped_as_smooth,
-    assert_unchanged, assert_volume, body_update, document, document_text, face,
-    face_names_with_prefix, id, load_example, median_failed_build_time, message, output_body,
-    parse_document, remove_entry, round_down_to_two_significant_digits, set_field, suggested_limit,
-    use_reference,
+    assert_face_radius, assert_limiting_face, assert_list_field, assert_messages_pass_lint,
+    assert_moved_by_100, assert_same_body, assert_skipped_as_smooth, assert_unchanged,
+    assert_volume, body_update, document_text, face, face_names_with_prefix, id, message,
+    output_body, parse_document, remove_entry, round_down_to_two_significant_digits, set_field,
+    suggested_limit, use_reference,
 };
 use partsmith_features::{
     BodyChange, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, NoEffectHow,
 };
-use partsmith_model::{Document, Units};
+use partsmith_model::Units;
 use partsmith_occt_sys::GeometryKind;
 
 /// The names of the twelve edges of a box `f-box1`.
@@ -52,19 +51,6 @@ const BOX_VERTEX_NAMES: [&str; 8] = [
     "vertex(f-box1/front|f-box1/left|f-box1/top)",
     "vertex(f-box1/front|f-box1/right|f-box1/top)",
 ];
-
-/// `FIL(edges, radius)`: the fillet `f-fil1` of `b-1`.
-fn fillet_record(edges: &[&str], radius: &str) -> String {
-    format!(
-        r#"{{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{}], "radius": "{radius}"}}"#,
-        edges.join(", "),
-    )
-}
-
-/// Test 8: the plate with its four top edges filleted at `radius`.
-fn plate_document(radius: &str) -> Document {
-    document(&["b-1"], &[PLATE, &fillet_record(&PLATE_TOP_EDGES, radius)])
-}
 
 /// "Use {value}": `SetField` of the radius to the expression `value`.
 fn use_radius(value: &str) -> Fix {
@@ -473,25 +459,6 @@ fn t014_edges_of_another_body() {
 }
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t015_performance() {
-    assert_median_build_within(
-        &load_example("fillet/every-edge.ptsm"),
-        "f-fil1",
-        5,
-        Duration::from_millis(100),
-    );
-    let too_large = median_failed_build_time(&plate_document("3"), "f-fil1", "fillet_too_large", 3);
-    assert!(
-        too_large < Duration::from_millis(1200),
-        "the failing fillet with its search took {too_large:?}, the budget is 1.2 s"
-    );
-}
-
-#[test]
 fn t016_fillet_beside_a_fillet_on_a_pipe_tee() {
     let run = Run::example("fillet/pipe-tee.ptsm");
 
@@ -746,33 +713,4 @@ fn t022_the_bare_number_fix_keeps_the_size_that_was_meant() {
 
     run.assert_all_quiet();
     assert_volume(run.shape("b-1"), 7982.831853);
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn a_failed_fillet_of_twelve_edges_with_its_search_and_limit_within_budget() {
-    // features.md section 5: the search, `width_across` of the faces next to the edges and the attempt without the
-    // narrowest face's edge, on a 2.4 mm plate whose every edge is rounded at 3 mm.
-    let mut edges: Vec<&str> = PLATE_TOP_EDGES.to_vec();
-    edges.extend([
-        r#"{"q": "edge(f-box1/bottom|f-box1/front)", "fp": "line|n=1,0,0|c=0,-10,0|l=20"}"#,
-        r#"{"q": "edge(f-box1/back|f-box1/bottom)", "fp": "line|n=1,0,0|c=0,10,0|l=20"}"#,
-        r#"{"q": "edge(f-box1/bottom|f-box1/left)", "fp": "line|n=0,1,0|c=-10,0,0|l=20"}"#,
-        r#"{"q": "edge(f-box1/bottom|f-box1/right)", "fp": "line|n=0,1,0|c=10,0,0|l=20"}"#,
-        r#"{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-10,-10,1.2|l=2.4"}"#,
-        r#"{"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=10,-10,1.2|l=2.4"}"#,
-        r#"{"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-10,10,1.2|l=2.4"}"#,
-        r#"{"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=10,10,1.2|l=2.4"}"#,
-    ]);
-    let document = document(&["b-1"], &[PLATE, &fillet_record(&edges, "3")]);
-
-    let failed = median_failed_build_time(&document, "f-fil1", "fillet_too_large", 3);
-
-    assert!(
-        failed < Duration::from_millis(1300),
-        "the failing fillet of 12 edges with its search took {failed:?}, the budget is 1.3 s"
-    );
 }

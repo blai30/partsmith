@@ -7,15 +7,15 @@ use crate::feature_support;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Duration;
 
+use feature_support::linear_pattern::{BODIES, CUBE10, X, direction, pattern};
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_bore_through,
     assert_bounding_box, assert_choice_between, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_position,
-    assert_face_translated, assert_has_face, assert_median_build_within, assert_solid_count,
-    assert_unchanged, assert_volume, body_changes, document, edge_axis, face, l_shaped_body,
-    leaning_wall_pattern, link_ids, set_field, sketch_on_pattern_copy_document, turn,
+    assert_face_translated, assert_has_face, assert_solid_count, assert_unchanged, assert_volume,
+    body_changes, edge_axis, face, l_shaped_body, leaning_wall_pattern, link_ids, set_field,
+    sketch_on_pattern_copy_document, turn,
 };
 use partsmith_features::{
     BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, Values,
@@ -23,35 +23,8 @@ use partsmith_features::{
 use partsmith_model::{EmptyContext, Id, Scope, Units};
 use partsmith_occt_sys::GeometryKind;
 
-/// The bodies of every linear pattern test.
-const BODIES: [&str; 2] = ["b-1", "b-2"];
-
-/// The `CUBE10` fixture: b-1 spanning [-5,-5,0]-[5,5,10].
-const CUBE10: &str =
-    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}"#;
-
-/// The origin X axis as an axis reference.
-const X: &str = r#"{"kind": "origin", "axis": "X"}"#;
-
 /// The origin Y axis as an axis reference.
 const Y: &str = r#"{"kind": "origin", "axis": "Y"}"#;
-
-/// The `DIR(axis, count, spacing)` fixture.
-fn direction(axis: &str, count: &str, spacing: &str) -> String {
-    format!(r#"{{"axis": {axis}, "count": "{count}", "spacing": "{spacing}"}}"#)
-}
-
-/// The `LP(direction, extra)` fixture; `extra` holds further members, or is empty.
-fn pattern(direction: &str, extra: &str) -> String {
-    let extra = if extra.is_empty() {
-        String::new()
-    } else {
-        format!(", {extra}")
-    };
-    format!(
-        r#"{{"id": "f-lp1", "type": "linear_pattern", "body": "b-1", "direction": {direction}{extra}}}"#
-    )
-}
 
 #[test]
 fn examples_are_canonical() {
@@ -352,17 +325,6 @@ fn t013_canceled_build_returns_canceled() {
         matches!(result, Err(FeatureError::Canceled)),
         "a canceled build returns Canceled, not {result:?}",
     );
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t014_one_hundred_instances_build_within_500_ms() {
-    let document = document(&BODIES, &[CUBE10, &pattern(&direction(X, "100", "20"), "")]);
-
-    assert_median_build_within(&document, "f-lp1", 5, Duration::from_millis(500));
 }
 
 #[test]

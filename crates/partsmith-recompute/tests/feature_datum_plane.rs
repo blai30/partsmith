@@ -6,14 +6,12 @@
 use crate::feature_support;
 
 use std::f64::consts::FRAC_1_SQRT_2;
-use std::time::Duration;
 
 use feature_support::{
     AXIS_TOLERANCE, BOTH_TOPS, Run, assert_choice_between, assert_coordinates,
-    assert_element_repair, assert_examples_canonical, assert_median_build_within,
-    assert_messages_pass_lint, assert_moves, assert_placement, assert_translation, datum_motion,
-    datum_placement, id, keep_and_pick, l_shaped_body, link_ids, load_example, slotted_block,
-    use_reference,
+    assert_element_repair, assert_examples_canonical, assert_messages_pass_lint, assert_moves,
+    assert_placement, assert_translation, datum_motion, datum_placement, id, keep_and_pick,
+    l_shaped_body, link_ids, slotted_block, use_reference,
 };
 use partsmith_features::{Diagnosis, Fix};
 use partsmith_naming::{Follow, Motion};
@@ -291,17 +289,6 @@ fn t014_expression_offset() {
         [0.0, 0.0, 4.0],
         AXIS_TOLERANCE,
     );
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t015_xy_offset_builds_within_0_1_ms() {
-    let document = load_example("datum_plane/xy-offset.ptsm");
-
-    assert_median_build_within(&document, "f-dp1", 21, Duration::from_micros(100));
 }
 
 #[test]

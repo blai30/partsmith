@@ -4,13 +4,11 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_axis_direction, assert_face_axis_through, assert_face_count,
     assert_face_kind, assert_face_names, assert_face_position, assert_face_radius, assert_has_face,
-    assert_median_build_within, assert_volume, face, load_example,
+    assert_volume, face,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -133,17 +131,6 @@ fn t006_cut_a_round_hole_keeps_the_side_name() {
     let run = Run::example("cylinder/cut-round-hole.ptsm");
 
     assert_has_face(run.body("b-1"), "f-cyl1/side");
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t007_default_cylinder_builds_within_2_ms() {
-    let document = load_example("cylinder/default.ptsm");
-
-    assert_median_build_within(&document, "f-cyl1", 21, Duration::from_millis(2));
 }
 
 #[test]

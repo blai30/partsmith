@@ -6,17 +6,16 @@
 use crate::feature_support;
 
 use std::f64::consts::FRAC_1_SQRT_2;
-use std::time::Duration;
 
 use feature_support::{
     CUBE20, FRONT_TOP_EDGE, LENGTH_TOLERANCE, MOVE_BY_100, PLATE, PLATE_TOP_EDGES, RISER_EDGE,
     RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_absolute, assert_bounding_box,
     assert_coordinates, assert_element_repair, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_limiting_face, assert_list_field,
-    assert_median_build_within, assert_messages_pass_lint, assert_moved_by_100, assert_placement,
-    assert_relative, assert_skipped_as_smooth, assert_unchanged, assert_volume, body_update,
-    document, edge, face, face_names, face_sketch, load_example, message, one_point,
-    point_components, remove_entry, set_field, sketch_result, suggested_limit,
+    assert_messages_pass_lint, assert_moved_by_100, assert_placement, assert_relative,
+    assert_skipped_as_smooth, assert_unchanged, assert_volume, body_update, document, edge, face,
+    face_names, face_sketch, message, one_point, point_components, remove_entry, set_field,
+    sketch_result, suggested_limit,
 };
 use partsmith_features::{BodyChange, FeatureError, Fix};
 use partsmith_model::{Document, Units};
@@ -322,20 +321,6 @@ fn smooth_edge_skipped() {
         [remove_entry("/edges/0")]
     );
     assert_unchanged(&run, "f-cha1", "b-1");
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t011_performance() {
-    assert_median_build_within(
-        &load_example("chamfer/top-loop.ptsm"),
-        "f-cha1",
-        5,
-        Duration::from_millis(60),
-    );
 }
 
 #[test]

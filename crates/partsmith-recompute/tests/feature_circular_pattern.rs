@@ -5,17 +5,14 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, THROUGH_ALL,
     assert_absolute, assert_bore_through, assert_bounding_box, assert_choice_between,
     assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_position, assert_median_build_within,
-    assert_placement, assert_quarter_turns_about_z, assert_same_body, assert_solid_count,
-    assert_unchanged, assert_volume, body_changes, document, edge_axis, face, face_sketch_with,
-    hole_at_point, l_shaped_body, lean, lean_edge_axis, link_ids, load_example, one_point,
-    sketch_result, turn,
+    assert_face_count, assert_face_kind, assert_face_position, assert_placement,
+    assert_quarter_turns_about_z, assert_same_body, assert_solid_count, assert_unchanged,
+    assert_volume, body_changes, document, edge_axis, face, face_sketch_with, hole_at_point,
+    l_shaped_body, lean, lean_edge_axis, link_ids, one_point, sketch_result, turn,
 };
 use partsmith_model::Units;
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
@@ -213,17 +210,6 @@ fn t009_new_body() {
     let copies = run.shape("b-2");
     assert_volume(copies, 314.159265);
     assert_face_count(copies, 15);
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t010_six_around_builds_within_40_ms() {
-    let document = load_example("circular_pattern/six-around.ptsm");
-
-    assert_median_build_within(&document, "f-cp1", 21, Duration::from_millis(40));
 }
 
 #[test]

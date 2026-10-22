@@ -4,17 +4,14 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     BOX_BELOW, Run, absent_faces, assert_bounding_box, assert_empty, assert_error_field,
     assert_examples_canonical, assert_face_area, assert_face_axis_direction,
     assert_face_axis_through, assert_face_count, assert_face_in_plane, assert_face_names,
-    assert_face_normal, assert_has_face, assert_median_build_within, assert_messages_pass_lint,
-    assert_no_face, assert_solid_count, assert_unchanged, assert_volume, body_update,
-    document_text, element_names, face, face_names_with_prefix, id, keep_and_pick, line,
-    load_example, message, output_body, parse_document, pick, reference_json, set_field,
-    set_reverse, successions, top_fallback, use_reference,
+    assert_face_normal, assert_has_face, assert_messages_pass_lint, assert_no_face,
+    assert_solid_count, assert_unchanged, assert_volume, body_update, document_text, element_names,
+    face, face_names_with_prefix, id, keep_and_pick, line, message, output_body, parse_document,
+    pick, reference_json, set_field, set_reverse, successions, top_fallback, use_reference,
 };
 use partsmith_features::{
     BodyChange, Bound, Diagnosis, FeatureError, FeatureWarning, Fix, NoEffectHow,
@@ -784,26 +781,6 @@ fn t038_empty_profile() {
     assert_eq!(
         run.messages("f-ext1"),
         ["Select at least one region for Profile."]
-    );
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t039_builds_within_budget() {
-    assert_median_build_within(
-        &load_example("extrude/distance.ptsm"),
-        "f-ext1",
-        21,
-        Duration::from_millis(3),
-    );
-    assert_median_build_within(
-        &load_example("extrude/through-all-cut.ptsm"),
-        "f-ext1",
-        21,
-        Duration::from_millis(30),
     );
 }
 

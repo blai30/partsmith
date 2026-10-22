@@ -11,18 +11,15 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     AXIS_TOLERANCE, BOTH_TOPS, MOVE_BY_100, Run, TURN_BY_90, assert_bore_through,
     assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_in_plane,
-    assert_median_build_within, assert_moves, assert_placement, assert_quarter_turns_about_z,
-    assert_relative, assert_sketch_on_top_plane, assert_solid_count, assert_top_at,
-    assert_translation, assert_volume, box_step_asset, datum_motion, document, document_text,
-    expression_uses, face, face_motion_before, face_sketch, face_sketch_with, hole_at_point, id,
-    l_shaped_body, link_ids, load_example, message, moved_box_document, one_circle, one_point,
-    parse_document, reference_json, saved, sketch_on_pattern_copy_document, sketch_result,
-    step_asset_name, top_fallback, turn,
+    assert_moves, assert_placement, assert_quarter_turns_about_z, assert_relative,
+    assert_sketch_on_top_plane, assert_solid_count, assert_top_at, assert_translation,
+    assert_volume, box_step_asset, datum_motion, document, document_text, expression_uses, face,
+    face_motion_before, face_sketch, face_sketch_with, hole_at_point, id, l_shaped_body, link_ids,
+    message, moved_box_document, one_circle, one_point, parse_document, reference_json, saved,
+    sketch_on_pattern_copy_document, sketch_result, step_asset_name, top_fallback, turn,
 };
 use partsmith_features::{
     Bound, FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
@@ -453,19 +450,6 @@ fn t016_invalid_params() {
         "expected the sketch crate's UnknownEntity, got {error:?}",
     );
     run.assert_error("f-sk1", "sketch_invalid");
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t017_rectangle_builds_within_2_ms() {
-    let document = load_example("sketch/rectangle-xy.ptsm");
-
-    // The budget excludes the solve and the profile, which the report does not time separately;
-    // for these four unconstrained lines they take a negligible part of the whole build.
-    assert_median_build_within(&document, "f-sk1", 21, Duration::from_millis(2));
 }
 
 #[test]

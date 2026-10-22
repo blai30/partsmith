@@ -4,12 +4,9 @@
 
 use crate::feature_support;
 
-use std::time::Duration;
-
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_names,
-    assert_median_build_within, assert_volume, face, load_example,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_volume, face,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -84,17 +81,6 @@ fn t005_zero_radius_is_out_of_range() {
 
     let error = run.assert_error("f-sph1", "out_of_range");
     assert_error_field(error, "radius");
-}
-
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "performance budgets hold for release builds: run with cargo test --release"
-)]
-fn t006_default_sphere_builds_within_2_ms() {
-    let document = load_example("sphere/default.ptsm");
-
-    assert_median_build_within(&document, "f-sph1", 21, Duration::from_millis(2));
 }
 
 #[test]
