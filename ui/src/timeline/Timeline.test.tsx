@@ -613,6 +613,14 @@ describe('reordering by drag (3.9)', () => {
     expect(core.callsTo('applyEdits')).toEqual([])
   })
 
+  it('dropping feature index 3 at gap 3, just before it, is its own position too and sends no edit', async () => {
+    stubItemRectangles()
+    const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
+    drag(item('f-box4'), 252, 230)
+    await settle()
+    expect(core.callsTo('applyEdits')).toEqual([])
+  })
+
   it('moving a feature later drops it at the gap minus one', async () => {
     stubItemRectangles()
     const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))

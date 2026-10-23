@@ -372,6 +372,21 @@ const CASES: readonly Case[] = [
     "'Sketch 1' has no closed shape: 2 ends are not connected.",
   ],
   [
+    'drop_breaks_use',
+    () => MESSAGES.drop_breaks_use('Fillet 1', 'an edge', 'Extrude 2', 'user'),
+    "'Fillet 1' uses an edge made by 'Extrude 2'. Drop below 'Extrude 2' instead?",
+  ],
+  [
+    'used_by',
+    () => MESSAGES.used_by(['Fillet 1', 'Datum plane 1']),
+    "Used by 'Fillet 1', 'Datum plane 1'",
+  ],
+  [
+    'entity_used',
+    () => MESSAGES.entity_used('Fillet 1', 'edge', 'line'),
+    "'Fillet 1' uses the edge made from this line. Draw its replacement in the same place and 'Fillet 1' will follow it.",
+  ],
+  [
     'keep_sizes',
     () => MESSAGES.keep_sizes('mm', 4),
     'Keep sizes: add mm to the 4 numbers without a unit',
@@ -404,7 +419,7 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(102)
+    expect(CASES).toHaveLength(105)
   })
 
   it('U-73 has no dimension_unsolvable: an edited dimension shows the probe message (3.16.7)', () => {
@@ -424,6 +439,34 @@ describe('MESSAGES', () => {
   it('U-73 recovered_more counts one other document in the singular', () => {
     expect(MESSAGES.recovered_more('bracket', '14:32', 1)).toBe(
       'Partsmith kept unsaved changes to bracket from 14:32, and to 1 other document.',
+    )
+  })
+
+  it('U-135 drop_breaks_use asks to drop above the user when the used feature is dragged', () => {
+    expect(MESSAGES.drop_breaks_use('Fillet 1', 'an edge', 'Extrude 2', 'feature')).toBe(
+      "'Fillet 1' uses an edge made by 'Extrude 2'. Drop above 'Fillet 1' instead?",
+    )
+  })
+
+  it('U-136 used_by quotes up to three labels, then adds " and {n} more"', () => {
+    expect(MESSAGES.used_by(['Fillet 1'])).toBe("Used by 'Fillet 1'")
+    expect(MESSAGES.used_by(['A', 'B', 'C'])).toBe("Used by 'A', 'B', 'C'")
+    expect(MESSAGES.used_by(['A', 'B', 'C', 'D'])).toBe("Used by 'A', 'B', 'C' and 1 more")
+    expect(MESSAGES.used_by(['A', 'B', 'C', 'D', 'E'])).toBe("Used by 'A', 'B', 'C' and 2 more")
+  })
+
+  it('U-137 entity_used names a circle and an arc like a line', () => {
+    expect(MESSAGES.entity_used('Extrude 2', 'face', 'circle')).toBe(
+      "'Extrude 2' uses the face made from this circle. Draw its replacement in the same place and 'Extrude 2' will follow it.",
+    )
+    expect(MESSAGES.entity_used('Fillet 1', 'edge', 'arc')).toBe(
+      "'Fillet 1' uses the edge made from this arc. Draw its replacement in the same place and 'Fillet 1' will follow it.",
+    )
+  })
+
+  it('U-137 entity_used of a point says only what uses it', () => {
+    expect(MESSAGES.entity_used('Chamfer 1', 'edge', 'point')).toBe(
+      "'Chamfer 1' uses the edge made from this point.",
     )
   })
 

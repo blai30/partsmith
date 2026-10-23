@@ -1,0 +1,3911 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-101", "type": "line", "start": [-100, -100], "end": [100, -100]},
+        {"id": "e-102", "type": "line", "start": [100, -100], "end": [100, 100]},
+        {"id": "e-103", "type": "line", "start": [100, 100], "end": [-100, 100]},
+        {"id": "e-104", "type": "line", "start": [-100, 100], "end": [-100, -100]}
+      ],
+      "constraints": [
+        {"id": "c-101", "type": "coincident", "points": ["e-101.end", "e-102.start"]},
+        {"id": "c-102", "type": "coincident", "points": ["e-102.end", "e-103.start"]},
+        {"id": "c-103", "type": "coincident", "points": ["e-103.end", "e-104.start"]},
+        {"id": "c-104", "type": "coincident", "points": ["e-104.end", "e-101.start"]}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-101,e-102,e-103,e-104", "fp": "c=0,0|a=40000", "outline": "e-101,e-102,e-103,e-104"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "2 mm"},
+      "op": "new"
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext1/lateral/e-102|f-ext1/lateral/e-103)", "fp": "line|n=0,0,1|c=100,100,1|l=2|adj=2,2"},
+        {"q": "edge(f-ext1/lateral/e-101|f-ext1/lateral/e-104)", "fp": "line|n=0,0,1|c=-100,-100,1|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk1",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=0,0,2|a=39999.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 2], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-105", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp1",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=0,0,2|a=39999.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-201", "type": "line", "start": [-98.5, -98.5], "end": [98.5, -98.5]},
+        {"id": "e-202", "type": "line", "start": [98.5, -98.5], "end": [98.5, 98.5]},
+        {"id": "e-203", "type": "line", "start": [98.5, 98.5], "end": [-98.5, 98.5]},
+        {"id": "e-204", "type": "line", "start": [-98.5, 98.5], "end": [-98.5, -98.5]}
+      ],
+      "constraints": [
+        {"id": "c-201", "type": "coincident", "points": ["e-201.end", "e-202.start"]},
+        {"id": "c-202", "type": "coincident", "points": ["e-202.end", "e-203.start"]},
+        {"id": "c-203", "type": "coincident", "points": ["e-203.end", "e-204.start"]},
+        {"id": "c-204", "type": "coincident", "points": ["e-204.end", "e-201.start"]}
+      ]
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk2",
+        "regions": [
+          {"key": "e-201,e-202,e-203,e-204", "fp": "c=0,0|a=38809", "outline": "e-201,e-202,e-203,e-204"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "4 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil2",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext2/lateral/e-202|f-ext2/lateral/e-203)", "fp": "line|n=0,0,1|c=98.5,98.5,3|l=2|adj=2,2"},
+        {"q": "edge(f-ext2/lateral/e-201|f-ext2/lateral/e-204)", "fp": "line|n=0,0,1|c=-98.5,-98.5,3|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext2/end-cap", "fp": "plane|n=0,0,1|c=0,0,4|a=38808.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 4], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-205", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp2",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext2/end-cap", "fp": "plane|n=0,0,1|c=0,0,4|a=38808.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk3",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-301", "type": "line", "start": [-97, -97], "end": [97, -97]},
+        {"id": "e-302", "type": "line", "start": [97, -97], "end": [97, 97]},
+        {"id": "e-303", "type": "line", "start": [97, 97], "end": [-97, 97]},
+        {"id": "e-304", "type": "line", "start": [-97, 97], "end": [-97, -97]}
+      ],
+      "constraints": [
+        {"id": "c-301", "type": "coincident", "points": ["e-301.end", "e-302.start"]},
+        {"id": "c-302", "type": "coincident", "points": ["e-302.end", "e-303.start"]},
+        {"id": "c-303", "type": "coincident", "points": ["e-303.end", "e-304.start"]},
+        {"id": "c-304", "type": "coincident", "points": ["e-304.end", "e-301.start"]}
+      ]
+    },
+    {
+      "id": "f-ext3",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk3",
+        "regions": [
+          {"key": "e-301,e-302,e-303,e-304", "fp": "c=0,0|a=37636", "outline": "e-301,e-302,e-303,e-304"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "6 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil3",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext3/lateral/e-302|f-ext3/lateral/e-303)", "fp": "line|n=0,0,1|c=97,97,5|l=2|adj=2,2"},
+        {"q": "edge(f-ext3/lateral/e-301|f-ext3/lateral/e-304)", "fp": "line|n=0,0,1|c=-97,-97,5|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk3",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext3/end-cap", "fp": "plane|n=0,0,1|c=0,0,6|a=37635.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 6], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-305", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp3",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext3/end-cap", "fp": "plane|n=0,0,1|c=0,0,6|a=37635.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk4",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-401", "type": "line", "start": [-95.5, -95.5], "end": [95.5, -95.5]},
+        {"id": "e-402", "type": "line", "start": [95.5, -95.5], "end": [95.5, 95.5]},
+        {"id": "e-403", "type": "line", "start": [95.5, 95.5], "end": [-95.5, 95.5]},
+        {"id": "e-404", "type": "line", "start": [-95.5, 95.5], "end": [-95.5, -95.5]}
+      ],
+      "constraints": [
+        {"id": "c-401", "type": "coincident", "points": ["e-401.end", "e-402.start"]},
+        {"id": "c-402", "type": "coincident", "points": ["e-402.end", "e-403.start"]},
+        {"id": "c-403", "type": "coincident", "points": ["e-403.end", "e-404.start"]},
+        {"id": "c-404", "type": "coincident", "points": ["e-404.end", "e-401.start"]}
+      ]
+    },
+    {
+      "id": "f-ext4",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk4",
+        "regions": [
+          {"key": "e-401,e-402,e-403,e-404", "fp": "c=0,0|a=36481", "outline": "e-401,e-402,e-403,e-404"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "8 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil4",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext4/lateral/e-402|f-ext4/lateral/e-403)", "fp": "line|n=0,0,1|c=95.5,95.5,7|l=2|adj=2,2"},
+        {"q": "edge(f-ext4/lateral/e-401|f-ext4/lateral/e-404)", "fp": "line|n=0,0,1|c=-95.5,-95.5,7|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk4",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext4/end-cap", "fp": "plane|n=0,0,1|c=0,0,8|a=36480.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 8], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-405", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp4",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext4/end-cap", "fp": "plane|n=0,0,1|c=0,0,8|a=36480.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk5",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-501", "type": "line", "start": [-94, -94], "end": [94, -94]},
+        {"id": "e-502", "type": "line", "start": [94, -94], "end": [94, 94]},
+        {"id": "e-503", "type": "line", "start": [94, 94], "end": [-94, 94]},
+        {"id": "e-504", "type": "line", "start": [-94, 94], "end": [-94, -94]}
+      ],
+      "constraints": [
+        {"id": "c-501", "type": "coincident", "points": ["e-501.end", "e-502.start"]},
+        {"id": "c-502", "type": "coincident", "points": ["e-502.end", "e-503.start"]},
+        {"id": "c-503", "type": "coincident", "points": ["e-503.end", "e-504.start"]},
+        {"id": "c-504", "type": "coincident", "points": ["e-504.end", "e-501.start"]}
+      ]
+    },
+    {
+      "id": "f-ext5",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk5",
+        "regions": [
+          {"key": "e-501,e-502,e-503,e-504", "fp": "c=0,0|a=35344", "outline": "e-501,e-502,e-503,e-504"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "10 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil5",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext5/lateral/e-502|f-ext5/lateral/e-503)", "fp": "line|n=0,0,1|c=94,94,9|l=2|adj=2,2"},
+        {"q": "edge(f-ext5/lateral/e-501|f-ext5/lateral/e-504)", "fp": "line|n=0,0,1|c=-94,-94,9|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk5",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext5/end-cap", "fp": "plane|n=0,0,1|c=0,0,10|a=35343.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 10], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-505", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp5",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext5/end-cap", "fp": "plane|n=0,0,1|c=0,0,10|a=35343.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk6",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-601", "type": "line", "start": [-92.5, -92.5], "end": [92.5, -92.5]},
+        {"id": "e-602", "type": "line", "start": [92.5, -92.5], "end": [92.5, 92.5]},
+        {"id": "e-603", "type": "line", "start": [92.5, 92.5], "end": [-92.5, 92.5]},
+        {"id": "e-604", "type": "line", "start": [-92.5, 92.5], "end": [-92.5, -92.5]}
+      ],
+      "constraints": [
+        {"id": "c-601", "type": "coincident", "points": ["e-601.end", "e-602.start"]},
+        {"id": "c-602", "type": "coincident", "points": ["e-602.end", "e-603.start"]},
+        {"id": "c-603", "type": "coincident", "points": ["e-603.end", "e-604.start"]},
+        {"id": "c-604", "type": "coincident", "points": ["e-604.end", "e-601.start"]}
+      ]
+    },
+    {
+      "id": "f-ext6",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk6",
+        "regions": [
+          {"key": "e-601,e-602,e-603,e-604", "fp": "c=0,0|a=34225", "outline": "e-601,e-602,e-603,e-604"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "12 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil6",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext6/lateral/e-602|f-ext6/lateral/e-603)", "fp": "line|n=0,0,1|c=92.5,92.5,11|l=2|adj=2,2"},
+        {"q": "edge(f-ext6/lateral/e-601|f-ext6/lateral/e-604)", "fp": "line|n=0,0,1|c=-92.5,-92.5,11|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk6",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext6/end-cap", "fp": "plane|n=0,0,1|c=0,0,12|a=34224.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 12], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-605", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp6",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext6/end-cap", "fp": "plane|n=0,0,1|c=0,0,12|a=34224.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk7",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-701", "type": "line", "start": [-91, -91], "end": [91, -91]},
+        {"id": "e-702", "type": "line", "start": [91, -91], "end": [91, 91]},
+        {"id": "e-703", "type": "line", "start": [91, 91], "end": [-91, 91]},
+        {"id": "e-704", "type": "line", "start": [-91, 91], "end": [-91, -91]}
+      ],
+      "constraints": [
+        {"id": "c-701", "type": "coincident", "points": ["e-701.end", "e-702.start"]},
+        {"id": "c-702", "type": "coincident", "points": ["e-702.end", "e-703.start"]},
+        {"id": "c-703", "type": "coincident", "points": ["e-703.end", "e-704.start"]},
+        {"id": "c-704", "type": "coincident", "points": ["e-704.end", "e-701.start"]}
+      ]
+    },
+    {
+      "id": "f-ext7",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk7",
+        "regions": [
+          {"key": "e-701,e-702,e-703,e-704", "fp": "c=0,0|a=33124", "outline": "e-701,e-702,e-703,e-704"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "14 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil7",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext7/lateral/e-702|f-ext7/lateral/e-703)", "fp": "line|n=0,0,1|c=91,91,13|l=2|adj=2,2"},
+        {"q": "edge(f-ext7/lateral/e-701|f-ext7/lateral/e-704)", "fp": "line|n=0,0,1|c=-91,-91,13|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk7",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext7/end-cap", "fp": "plane|n=0,0,1|c=0,0,14|a=33123.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 14], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-705", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp7",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext7/end-cap", "fp": "plane|n=0,0,1|c=0,0,14|a=33123.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk8",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-801", "type": "line", "start": [-89.5, -89.5], "end": [89.5, -89.5]},
+        {"id": "e-802", "type": "line", "start": [89.5, -89.5], "end": [89.5, 89.5]},
+        {"id": "e-803", "type": "line", "start": [89.5, 89.5], "end": [-89.5, 89.5]},
+        {"id": "e-804", "type": "line", "start": [-89.5, 89.5], "end": [-89.5, -89.5]}
+      ],
+      "constraints": [
+        {"id": "c-801", "type": "coincident", "points": ["e-801.end", "e-802.start"]},
+        {"id": "c-802", "type": "coincident", "points": ["e-802.end", "e-803.start"]},
+        {"id": "c-803", "type": "coincident", "points": ["e-803.end", "e-804.start"]},
+        {"id": "c-804", "type": "coincident", "points": ["e-804.end", "e-801.start"]}
+      ]
+    },
+    {
+      "id": "f-ext8",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk8",
+        "regions": [
+          {"key": "e-801,e-802,e-803,e-804", "fp": "c=0,0|a=32041", "outline": "e-801,e-802,e-803,e-804"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "16 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil8",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext8/lateral/e-802|f-ext8/lateral/e-803)", "fp": "line|n=0,0,1|c=89.5,89.5,15|l=2|adj=2,2"},
+        {"q": "edge(f-ext8/lateral/e-801|f-ext8/lateral/e-804)", "fp": "line|n=0,0,1|c=-89.5,-89.5,15|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk8",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext8/end-cap", "fp": "plane|n=0,0,1|c=0,0,16|a=32040.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 16], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-805", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp8",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext8/end-cap", "fp": "plane|n=0,0,1|c=0,0,16|a=32040.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk9",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-901", "type": "line", "start": [-88, -88], "end": [88, -88]},
+        {"id": "e-902", "type": "line", "start": [88, -88], "end": [88, 88]},
+        {"id": "e-903", "type": "line", "start": [88, 88], "end": [-88, 88]},
+        {"id": "e-904", "type": "line", "start": [-88, 88], "end": [-88, -88]}
+      ],
+      "constraints": [
+        {"id": "c-901", "type": "coincident", "points": ["e-901.end", "e-902.start"]},
+        {"id": "c-902", "type": "coincident", "points": ["e-902.end", "e-903.start"]},
+        {"id": "c-903", "type": "coincident", "points": ["e-903.end", "e-904.start"]},
+        {"id": "c-904", "type": "coincident", "points": ["e-904.end", "e-901.start"]}
+      ]
+    },
+    {
+      "id": "f-ext9",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk9",
+        "regions": [
+          {"key": "e-901,e-902,e-903,e-904", "fp": "c=0,0|a=30976", "outline": "e-901,e-902,e-903,e-904"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "18 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil9",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext9/lateral/e-902|f-ext9/lateral/e-903)", "fp": "line|n=0,0,1|c=88,88,17|l=2|adj=2,2"},
+        {"q": "edge(f-ext9/lateral/e-901|f-ext9/lateral/e-904)", "fp": "line|n=0,0,1|c=-88,-88,17|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk9",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext9/end-cap", "fp": "plane|n=0,0,1|c=0,0,18|a=30975.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 18], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-905", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp9",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext9/end-cap", "fp": "plane|n=0,0,1|c=0,0,18|a=30975.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk10",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1001", "type": "line", "start": [-86.5, -86.5], "end": [86.5, -86.5]},
+        {"id": "e-1002", "type": "line", "start": [86.5, -86.5], "end": [86.5, 86.5]},
+        {"id": "e-1003", "type": "line", "start": [86.5, 86.5], "end": [-86.5, 86.5]},
+        {"id": "e-1004", "type": "line", "start": [-86.5, 86.5], "end": [-86.5, -86.5]}
+      ],
+      "constraints": [
+        {"id": "c-1001", "type": "coincident", "points": ["e-1001.end", "e-1002.start"]},
+        {"id": "c-1002", "type": "coincident", "points": ["e-1002.end", "e-1003.start"]},
+        {"id": "c-1003", "type": "coincident", "points": ["e-1003.end", "e-1004.start"]},
+        {"id": "c-1004", "type": "coincident", "points": ["e-1004.end", "e-1001.start"]}
+      ]
+    },
+    {
+      "id": "f-ext10",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk10",
+        "regions": [
+          {"key": "e-1001,e-1002,e-1003,e-1004", "fp": "c=0,0|a=29929", "outline": "e-1001,e-1002,e-1003,e-1004"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "20 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil10",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext10/lateral/e-1002|f-ext10/lateral/e-1003)", "fp": "line|n=0,0,1|c=86.5,86.5,19|l=2|adj=2,2"},
+        {"q": "edge(f-ext10/lateral/e-1001|f-ext10/lateral/e-1004)", "fp": "line|n=0,0,1|c=-86.5,-86.5,19|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk10",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext10/end-cap", "fp": "plane|n=0,0,1|c=0,0,20|a=29928.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 20], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1005", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp10",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext10/end-cap", "fp": "plane|n=0,0,1|c=0,0,20|a=29928.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk11",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1101", "type": "line", "start": [-85, -85], "end": [85, -85]},
+        {"id": "e-1102", "type": "line", "start": [85, -85], "end": [85, 85]},
+        {"id": "e-1103", "type": "line", "start": [85, 85], "end": [-85, 85]},
+        {"id": "e-1104", "type": "line", "start": [-85, 85], "end": [-85, -85]}
+      ],
+      "constraints": [
+        {"id": "c-1101", "type": "coincident", "points": ["e-1101.end", "e-1102.start"]},
+        {"id": "c-1102", "type": "coincident", "points": ["e-1102.end", "e-1103.start"]},
+        {"id": "c-1103", "type": "coincident", "points": ["e-1103.end", "e-1104.start"]},
+        {"id": "c-1104", "type": "coincident", "points": ["e-1104.end", "e-1101.start"]}
+      ]
+    },
+    {
+      "id": "f-ext11",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk11",
+        "regions": [
+          {"key": "e-1101,e-1102,e-1103,e-1104", "fp": "c=0,0|a=28900", "outline": "e-1101,e-1102,e-1103,e-1104"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "22 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil11",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext11/lateral/e-1102|f-ext11/lateral/e-1103)", "fp": "line|n=0,0,1|c=85,85,21|l=2|adj=2,2"},
+        {"q": "edge(f-ext11/lateral/e-1101|f-ext11/lateral/e-1104)", "fp": "line|n=0,0,1|c=-85,-85,21|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk11",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext11/end-cap", "fp": "plane|n=0,0,1|c=0,0,22|a=28899.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 22], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1105", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp11",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext11/end-cap", "fp": "plane|n=0,0,1|c=0,0,22|a=28899.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk12",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1201", "type": "line", "start": [-83.5, -83.5], "end": [83.5, -83.5]},
+        {"id": "e-1202", "type": "line", "start": [83.5, -83.5], "end": [83.5, 83.5]},
+        {"id": "e-1203", "type": "line", "start": [83.5, 83.5], "end": [-83.5, 83.5]},
+        {"id": "e-1204", "type": "line", "start": [-83.5, 83.5], "end": [-83.5, -83.5]}
+      ],
+      "constraints": [
+        {"id": "c-1201", "type": "coincident", "points": ["e-1201.end", "e-1202.start"]},
+        {"id": "c-1202", "type": "coincident", "points": ["e-1202.end", "e-1203.start"]},
+        {"id": "c-1203", "type": "coincident", "points": ["e-1203.end", "e-1204.start"]},
+        {"id": "c-1204", "type": "coincident", "points": ["e-1204.end", "e-1201.start"]}
+      ]
+    },
+    {
+      "id": "f-ext12",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk12",
+        "regions": [
+          {"key": "e-1201,e-1202,e-1203,e-1204", "fp": "c=0,0|a=27889", "outline": "e-1201,e-1202,e-1203,e-1204"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "24 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil12",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext12/lateral/e-1202|f-ext12/lateral/e-1203)", "fp": "line|n=0,0,1|c=83.5,83.5,23|l=2|adj=2,2"},
+        {"q": "edge(f-ext12/lateral/e-1201|f-ext12/lateral/e-1204)", "fp": "line|n=0,0,1|c=-83.5,-83.5,23|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk12",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext12/end-cap", "fp": "plane|n=0,0,1|c=0,0,24|a=27888.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 24], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1205", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp12",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext12/end-cap", "fp": "plane|n=0,0,1|c=0,0,24|a=27888.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk13",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1301", "type": "line", "start": [-82, -82], "end": [82, -82]},
+        {"id": "e-1302", "type": "line", "start": [82, -82], "end": [82, 82]},
+        {"id": "e-1303", "type": "line", "start": [82, 82], "end": [-82, 82]},
+        {"id": "e-1304", "type": "line", "start": [-82, 82], "end": [-82, -82]}
+      ],
+      "constraints": [
+        {"id": "c-1301", "type": "coincident", "points": ["e-1301.end", "e-1302.start"]},
+        {"id": "c-1302", "type": "coincident", "points": ["e-1302.end", "e-1303.start"]},
+        {"id": "c-1303", "type": "coincident", "points": ["e-1303.end", "e-1304.start"]},
+        {"id": "c-1304", "type": "coincident", "points": ["e-1304.end", "e-1301.start"]}
+      ]
+    },
+    {
+      "id": "f-ext13",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk13",
+        "regions": [
+          {"key": "e-1301,e-1302,e-1303,e-1304", "fp": "c=0,0|a=26896", "outline": "e-1301,e-1302,e-1303,e-1304"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "26 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil13",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext13/lateral/e-1302|f-ext13/lateral/e-1303)", "fp": "line|n=0,0,1|c=82,82,25|l=2|adj=2,2"},
+        {"q": "edge(f-ext13/lateral/e-1301|f-ext13/lateral/e-1304)", "fp": "line|n=0,0,1|c=-82,-82,25|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk13",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext13/end-cap", "fp": "plane|n=0,0,1|c=0,0,26|a=26895.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 26], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1305", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp13",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext13/end-cap", "fp": "plane|n=0,0,1|c=0,0,26|a=26895.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk14",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1401", "type": "line", "start": [-80.5, -80.5], "end": [80.5, -80.5]},
+        {"id": "e-1402", "type": "line", "start": [80.5, -80.5], "end": [80.5, 80.5]},
+        {"id": "e-1403", "type": "line", "start": [80.5, 80.5], "end": [-80.5, 80.5]},
+        {"id": "e-1404", "type": "line", "start": [-80.5, 80.5], "end": [-80.5, -80.5]}
+      ],
+      "constraints": [
+        {"id": "c-1401", "type": "coincident", "points": ["e-1401.end", "e-1402.start"]},
+        {"id": "c-1402", "type": "coincident", "points": ["e-1402.end", "e-1403.start"]},
+        {"id": "c-1403", "type": "coincident", "points": ["e-1403.end", "e-1404.start"]},
+        {"id": "c-1404", "type": "coincident", "points": ["e-1404.end", "e-1401.start"]}
+      ]
+    },
+    {
+      "id": "f-ext14",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk14",
+        "regions": [
+          {"key": "e-1401,e-1402,e-1403,e-1404", "fp": "c=0,0|a=25921", "outline": "e-1401,e-1402,e-1403,e-1404"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "28 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil14",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext14/lateral/e-1402|f-ext14/lateral/e-1403)", "fp": "line|n=0,0,1|c=80.5,80.5,27|l=2|adj=2,2"},
+        {"q": "edge(f-ext14/lateral/e-1401|f-ext14/lateral/e-1404)", "fp": "line|n=0,0,1|c=-80.5,-80.5,27|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk14",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext14/end-cap", "fp": "plane|n=0,0,1|c=0,0,28|a=25920.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 28], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1405", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp14",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext14/end-cap", "fp": "plane|n=0,0,1|c=0,0,28|a=25920.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk15",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1501", "type": "line", "start": [-79, -79], "end": [79, -79]},
+        {"id": "e-1502", "type": "line", "start": [79, -79], "end": [79, 79]},
+        {"id": "e-1503", "type": "line", "start": [79, 79], "end": [-79, 79]},
+        {"id": "e-1504", "type": "line", "start": [-79, 79], "end": [-79, -79]}
+      ],
+      "constraints": [
+        {"id": "c-1501", "type": "coincident", "points": ["e-1501.end", "e-1502.start"]},
+        {"id": "c-1502", "type": "coincident", "points": ["e-1502.end", "e-1503.start"]},
+        {"id": "c-1503", "type": "coincident", "points": ["e-1503.end", "e-1504.start"]},
+        {"id": "c-1504", "type": "coincident", "points": ["e-1504.end", "e-1501.start"]}
+      ]
+    },
+    {
+      "id": "f-ext15",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk15",
+        "regions": [
+          {"key": "e-1501,e-1502,e-1503,e-1504", "fp": "c=0,0|a=24964", "outline": "e-1501,e-1502,e-1503,e-1504"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "30 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil15",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext15/lateral/e-1502|f-ext15/lateral/e-1503)", "fp": "line|n=0,0,1|c=79,79,29|l=2|adj=2,2"},
+        {"q": "edge(f-ext15/lateral/e-1501|f-ext15/lateral/e-1504)", "fp": "line|n=0,0,1|c=-79,-79,29|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk15",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext15/end-cap", "fp": "plane|n=0,0,1|c=0,0,30|a=24963.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1505", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp15",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext15/end-cap", "fp": "plane|n=0,0,1|c=0,0,30|a=24963.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk16",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1601", "type": "line", "start": [-77.5, -77.5], "end": [77.5, -77.5]},
+        {"id": "e-1602", "type": "line", "start": [77.5, -77.5], "end": [77.5, 77.5]},
+        {"id": "e-1603", "type": "line", "start": [77.5, 77.5], "end": [-77.5, 77.5]},
+        {"id": "e-1604", "type": "line", "start": [-77.5, 77.5], "end": [-77.5, -77.5]}
+      ],
+      "constraints": [
+        {"id": "c-1601", "type": "coincident", "points": ["e-1601.end", "e-1602.start"]},
+        {"id": "c-1602", "type": "coincident", "points": ["e-1602.end", "e-1603.start"]},
+        {"id": "c-1603", "type": "coincident", "points": ["e-1603.end", "e-1604.start"]},
+        {"id": "c-1604", "type": "coincident", "points": ["e-1604.end", "e-1601.start"]}
+      ]
+    },
+    {
+      "id": "f-ext16",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk16",
+        "regions": [
+          {"key": "e-1601,e-1602,e-1603,e-1604", "fp": "c=0,0|a=24025", "outline": "e-1601,e-1602,e-1603,e-1604"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "32 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil16",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext16/lateral/e-1602|f-ext16/lateral/e-1603)", "fp": "line|n=0,0,1|c=77.5,77.5,31|l=2|adj=2,2"},
+        {"q": "edge(f-ext16/lateral/e-1601|f-ext16/lateral/e-1604)", "fp": "line|n=0,0,1|c=-77.5,-77.5,31|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk16",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext16/end-cap", "fp": "plane|n=0,0,1|c=0,0,32|a=24024.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 32], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1605", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp16",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext16/end-cap", "fp": "plane|n=0,0,1|c=0,0,32|a=24024.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk17",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1701", "type": "line", "start": [-76, -76], "end": [76, -76]},
+        {"id": "e-1702", "type": "line", "start": [76, -76], "end": [76, 76]},
+        {"id": "e-1703", "type": "line", "start": [76, 76], "end": [-76, 76]},
+        {"id": "e-1704", "type": "line", "start": [-76, 76], "end": [-76, -76]}
+      ],
+      "constraints": [
+        {"id": "c-1701", "type": "coincident", "points": ["e-1701.end", "e-1702.start"]},
+        {"id": "c-1702", "type": "coincident", "points": ["e-1702.end", "e-1703.start"]},
+        {"id": "c-1703", "type": "coincident", "points": ["e-1703.end", "e-1704.start"]},
+        {"id": "c-1704", "type": "coincident", "points": ["e-1704.end", "e-1701.start"]}
+      ]
+    },
+    {
+      "id": "f-ext17",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk17",
+        "regions": [
+          {"key": "e-1701,e-1702,e-1703,e-1704", "fp": "c=0,0|a=23104", "outline": "e-1701,e-1702,e-1703,e-1704"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "34 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil17",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext17/lateral/e-1702|f-ext17/lateral/e-1703)", "fp": "line|n=0,0,1|c=76,76,33|l=2|adj=2,2"},
+        {"q": "edge(f-ext17/lateral/e-1701|f-ext17/lateral/e-1704)", "fp": "line|n=0,0,1|c=-76,-76,33|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk17",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext17/end-cap", "fp": "plane|n=0,0,1|c=0,0,34|a=23103.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 34], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1705", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp17",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext17/end-cap", "fp": "plane|n=0,0,1|c=0,0,34|a=23103.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk18",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1801", "type": "line", "start": [-74.5, -74.5], "end": [74.5, -74.5]},
+        {"id": "e-1802", "type": "line", "start": [74.5, -74.5], "end": [74.5, 74.5]},
+        {"id": "e-1803", "type": "line", "start": [74.5, 74.5], "end": [-74.5, 74.5]},
+        {"id": "e-1804", "type": "line", "start": [-74.5, 74.5], "end": [-74.5, -74.5]}
+      ],
+      "constraints": [
+        {"id": "c-1801", "type": "coincident", "points": ["e-1801.end", "e-1802.start"]},
+        {"id": "c-1802", "type": "coincident", "points": ["e-1802.end", "e-1803.start"]},
+        {"id": "c-1803", "type": "coincident", "points": ["e-1803.end", "e-1804.start"]},
+        {"id": "c-1804", "type": "coincident", "points": ["e-1804.end", "e-1801.start"]}
+      ]
+    },
+    {
+      "id": "f-ext18",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk18",
+        "regions": [
+          {"key": "e-1801,e-1802,e-1803,e-1804", "fp": "c=0,0|a=22201", "outline": "e-1801,e-1802,e-1803,e-1804"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "36 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil18",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext18/lateral/e-1802|f-ext18/lateral/e-1803)", "fp": "line|n=0,0,1|c=74.5,74.5,35|l=2|adj=2,2"},
+        {"q": "edge(f-ext18/lateral/e-1801|f-ext18/lateral/e-1804)", "fp": "line|n=0,0,1|c=-74.5,-74.5,35|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk18",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext18/end-cap", "fp": "plane|n=0,0,1|c=0,0,36|a=22200.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 36], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1805", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp18",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext18/end-cap", "fp": "plane|n=0,0,1|c=0,0,36|a=22200.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk19",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1901", "type": "line", "start": [-73, -73], "end": [73, -73]},
+        {"id": "e-1902", "type": "line", "start": [73, -73], "end": [73, 73]},
+        {"id": "e-1903", "type": "line", "start": [73, 73], "end": [-73, 73]},
+        {"id": "e-1904", "type": "line", "start": [-73, 73], "end": [-73, -73]}
+      ],
+      "constraints": [
+        {"id": "c-1901", "type": "coincident", "points": ["e-1901.end", "e-1902.start"]},
+        {"id": "c-1902", "type": "coincident", "points": ["e-1902.end", "e-1903.start"]},
+        {"id": "c-1903", "type": "coincident", "points": ["e-1903.end", "e-1904.start"]},
+        {"id": "c-1904", "type": "coincident", "points": ["e-1904.end", "e-1901.start"]}
+      ]
+    },
+    {
+      "id": "f-ext19",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk19",
+        "regions": [
+          {"key": "e-1901,e-1902,e-1903,e-1904", "fp": "c=0,0|a=21316", "outline": "e-1901,e-1902,e-1903,e-1904"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "38 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil19",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext19/lateral/e-1902|f-ext19/lateral/e-1903)", "fp": "line|n=0,0,1|c=73,73,37|l=2|adj=2,2"},
+        {"q": "edge(f-ext19/lateral/e-1901|f-ext19/lateral/e-1904)", "fp": "line|n=0,0,1|c=-73,-73,37|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk19",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext19/end-cap", "fp": "plane|n=0,0,1|c=0,0,38|a=21315.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 38], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-1905", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp19",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext19/end-cap", "fp": "plane|n=0,0,1|c=0,0,38|a=21315.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk20",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-2001", "type": "line", "start": [-71.5, -71.5], "end": [71.5, -71.5]},
+        {"id": "e-2002", "type": "line", "start": [71.5, -71.5], "end": [71.5, 71.5]},
+        {"id": "e-2003", "type": "line", "start": [71.5, 71.5], "end": [-71.5, 71.5]},
+        {"id": "e-2004", "type": "line", "start": [-71.5, 71.5], "end": [-71.5, -71.5]}
+      ],
+      "constraints": [
+        {"id": "c-2001", "type": "coincident", "points": ["e-2001.end", "e-2002.start"]},
+        {"id": "c-2002", "type": "coincident", "points": ["e-2002.end", "e-2003.start"]},
+        {"id": "c-2003", "type": "coincident", "points": ["e-2003.end", "e-2004.start"]},
+        {"id": "c-2004", "type": "coincident", "points": ["e-2004.end", "e-2001.start"]}
+      ]
+    },
+    {
+      "id": "f-ext20",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk20",
+        "regions": [
+          {"key": "e-2001,e-2002,e-2003,e-2004", "fp": "c=0,0|a=20449", "outline": "e-2001,e-2002,e-2003,e-2004"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "40 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil20",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext20/lateral/e-2002|f-ext20/lateral/e-2003)", "fp": "line|n=0,0,1|c=71.5,71.5,39|l=2|adj=2,2"},
+        {"q": "edge(f-ext20/lateral/e-2001|f-ext20/lateral/e-2004)", "fp": "line|n=0,0,1|c=-71.5,-71.5,39|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk20",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext20/end-cap", "fp": "plane|n=0,0,1|c=0,0,40|a=20448.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 40], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-2005", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp20",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext20/end-cap", "fp": "plane|n=0,0,1|c=0,0,40|a=20448.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk21",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-2101", "type": "line", "start": [-70, -70], "end": [70, -70]},
+        {"id": "e-2102", "type": "line", "start": [70, -70], "end": [70, 70]},
+        {"id": "e-2103", "type": "line", "start": [70, 70], "end": [-70, 70]},
+        {"id": "e-2104", "type": "line", "start": [-70, 70], "end": [-70, -70]}
+      ],
+      "constraints": [
+        {"id": "c-2101", "type": "coincident", "points": ["e-2101.end", "e-2102.start"]},
+        {"id": "c-2102", "type": "coincident", "points": ["e-2102.end", "e-2103.start"]},
+        {"id": "c-2103", "type": "coincident", "points": ["e-2103.end", "e-2104.start"]},
+        {"id": "c-2104", "type": "coincident", "points": ["e-2104.end", "e-2101.start"]}
+      ]
+    },
+    {
+      "id": "f-ext21",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk21",
+        "regions": [
+          {"key": "e-2101,e-2102,e-2103,e-2104", "fp": "c=0,0|a=19600", "outline": "e-2101,e-2102,e-2103,e-2104"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "42 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil21",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext21/lateral/e-2102|f-ext21/lateral/e-2103)", "fp": "line|n=0,0,1|c=70,70,41|l=2|adj=2,2"},
+        {"q": "edge(f-ext21/lateral/e-2101|f-ext21/lateral/e-2104)", "fp": "line|n=0,0,1|c=-70,-70,41|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk21",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext21/end-cap", "fp": "plane|n=0,0,1|c=0,0,42|a=19599.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 42], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-2105", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp21",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext21/end-cap", "fp": "plane|n=0,0,1|c=0,0,42|a=19599.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk22",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-2201", "type": "line", "start": [-68.5, -68.5], "end": [68.5, -68.5]},
+        {"id": "e-2202", "type": "line", "start": [68.5, -68.5], "end": [68.5, 68.5]},
+        {"id": "e-2203", "type": "line", "start": [68.5, 68.5], "end": [-68.5, 68.5]},
+        {"id": "e-2204", "type": "line", "start": [-68.5, 68.5], "end": [-68.5, -68.5]}
+      ],
+      "constraints": [
+        {"id": "c-2201", "type": "coincident", "points": ["e-2201.end", "e-2202.start"]},
+        {"id": "c-2202", "type": "coincident", "points": ["e-2202.end", "e-2203.start"]},
+        {"id": "c-2203", "type": "coincident", "points": ["e-2203.end", "e-2204.start"]},
+        {"id": "c-2204", "type": "coincident", "points": ["e-2204.end", "e-2201.start"]}
+      ]
+    },
+    {
+      "id": "f-ext22",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk22",
+        "regions": [
+          {"key": "e-2201,e-2202,e-2203,e-2204", "fp": "c=0,0|a=18769", "outline": "e-2201,e-2202,e-2203,e-2204"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "44 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil22",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext22/lateral/e-2202|f-ext22/lateral/e-2203)", "fp": "line|n=0,0,1|c=68.5,68.5,43|l=2|adj=2,2"},
+        {"q": "edge(f-ext22/lateral/e-2201|f-ext22/lateral/e-2204)", "fp": "line|n=0,0,1|c=-68.5,-68.5,43|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk22",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext22/end-cap", "fp": "plane|n=0,0,1|c=0,0,44|a=18768.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 44], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-2205", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp22",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext22/end-cap", "fp": "plane|n=0,0,1|c=0,0,44|a=18768.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk23",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-2301", "type": "line", "start": [-67, -67], "end": [67, -67]},
+        {"id": "e-2302", "type": "line", "start": [67, -67], "end": [67, 67]},
+        {"id": "e-2303", "type": "line", "start": [67, 67], "end": [-67, 67]},
+        {"id": "e-2304", "type": "line", "start": [-67, 67], "end": [-67, -67]}
+      ],
+      "constraints": [
+        {"id": "c-2301", "type": "coincident", "points": ["e-2301.end", "e-2302.start"]},
+        {"id": "c-2302", "type": "coincident", "points": ["e-2302.end", "e-2303.start"]},
+        {"id": "c-2303", "type": "coincident", "points": ["e-2303.end", "e-2304.start"]},
+        {"id": "c-2304", "type": "coincident", "points": ["e-2304.end", "e-2301.start"]}
+      ]
+    },
+    {
+      "id": "f-ext23",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk23",
+        "regions": [
+          {"key": "e-2301,e-2302,e-2303,e-2304", "fp": "c=0,0|a=17956", "outline": "e-2301,e-2302,e-2303,e-2304"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "46 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil23",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext23/lateral/e-2302|f-ext23/lateral/e-2303)", "fp": "line|n=0,0,1|c=67,67,45|l=2|adj=2,2"},
+        {"q": "edge(f-ext23/lateral/e-2301|f-ext23/lateral/e-2304)", "fp": "line|n=0,0,1|c=-67,-67,45|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk23",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext23/end-cap", "fp": "plane|n=0,0,1|c=0,0,46|a=17955.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 46], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-2305", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp23",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext23/end-cap", "fp": "plane|n=0,0,1|c=0,0,46|a=17955.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk24",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-2401", "type": "line", "start": [-65.5, -65.5], "end": [65.5, -65.5]},
+        {"id": "e-2402", "type": "line", "start": [65.5, -65.5], "end": [65.5, 65.5]},
+        {"id": "e-2403", "type": "line", "start": [65.5, 65.5], "end": [-65.5, 65.5]},
+        {"id": "e-2404", "type": "line", "start": [-65.5, 65.5], "end": [-65.5, -65.5]}
+      ],
+      "constraints": [
+        {"id": "c-2401", "type": "coincident", "points": ["e-2401.end", "e-2402.start"]},
+        {"id": "c-2402", "type": "coincident", "points": ["e-2402.end", "e-2403.start"]},
+        {"id": "c-2403", "type": "coincident", "points": ["e-2403.end", "e-2404.start"]},
+        {"id": "c-2404", "type": "coincident", "points": ["e-2404.end", "e-2401.start"]}
+      ]
+    },
+    {
+      "id": "f-ext24",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk24",
+        "regions": [
+          {"key": "e-2401,e-2402,e-2403,e-2404", "fp": "c=0,0|a=17161", "outline": "e-2401,e-2402,e-2403,e-2404"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "48 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil24",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext24/lateral/e-2402|f-ext24/lateral/e-2403)", "fp": "line|n=0,0,1|c=65.5,65.5,47|l=2|adj=2,2"},
+        {"q": "edge(f-ext24/lateral/e-2401|f-ext24/lateral/e-2404)", "fp": "line|n=0,0,1|c=-65.5,-65.5,47|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk24",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext24/end-cap", "fp": "plane|n=0,0,1|c=0,0,48|a=17160.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 48], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-2405", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp24",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext24/end-cap", "fp": "plane|n=0,0,1|c=0,0,48|a=17160.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk25",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-2501", "type": "line", "start": [-64, -64], "end": [64, -64]},
+        {"id": "e-2502", "type": "line", "start": [64, -64], "end": [64, 64]},
+        {"id": "e-2503", "type": "line", "start": [64, 64], "end": [-64, 64]},
+        {"id": "e-2504", "type": "line", "start": [-64, 64], "end": [-64, -64]}
+      ],
+      "constraints": [
+        {"id": "c-2501", "type": "coincident", "points": ["e-2501.end", "e-2502.start"]},
+        {"id": "c-2502", "type": "coincident", "points": ["e-2502.end", "e-2503.start"]},
+        {"id": "c-2503", "type": "coincident", "points": ["e-2503.end", "e-2504.start"]},
+        {"id": "c-2504", "type": "coincident", "points": ["e-2504.end", "e-2501.start"]}
+      ]
+    },
+    {
+      "id": "f-ext25",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk25",
+        "regions": [
+          {"key": "e-2501,e-2502,e-2503,e-2504", "fp": "c=0,0|a=16384", "outline": "e-2501,e-2502,e-2503,e-2504"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "50 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil25",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext25/lateral/e-2502|f-ext25/lateral/e-2503)", "fp": "line|n=0,0,1|c=64,64,49|l=2|adj=2,2"},
+        {"q": "edge(f-ext25/lateral/e-2501|f-ext25/lateral/e-2504)", "fp": "line|n=0,0,1|c=-64,-64,49|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk25",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext25/end-cap", "fp": "plane|n=0,0,1|c=0,0,50|a=16383.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 50], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-2505", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp25",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext25/end-cap", "fp": "plane|n=0,0,1|c=0,0,50|a=16383.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk26",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-2601", "type": "line", "start": [-62.5, -62.5], "end": [62.5, -62.5]},
+        {"id": "e-2602", "type": "line", "start": [62.5, -62.5], "end": [62.5, 62.5]},
+        {"id": "e-2603", "type": "line", "start": [62.5, 62.5], "end": [-62.5, 62.5]},
+        {"id": "e-2604", "type": "line", "start": [-62.5, 62.5], "end": [-62.5, -62.5]}
+      ],
+      "constraints": [
+        {"id": "c-2601", "type": "coincident", "points": ["e-2601.end", "e-2602.start"]},
+        {"id": "c-2602", "type": "coincident", "points": ["e-2602.end", "e-2603.start"]},
+        {"id": "c-2603", "type": "coincident", "points": ["e-2603.end", "e-2604.start"]},
+        {"id": "c-2604", "type": "coincident", "points": ["e-2604.end", "e-2601.start"]}
+      ]
+    },
+    {
+      "id": "f-ext26",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk26",
+        "regions": [
+          {"key": "e-2601,e-2602,e-2603,e-2604", "fp": "c=0,0|a=15625", "outline": "e-2601,e-2602,e-2603,e-2604"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "52 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil26",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext26/lateral/e-2602|f-ext26/lateral/e-2603)", "fp": "line|n=0,0,1|c=62.5,62.5,51|l=2|adj=2,2"},
+        {"q": "edge(f-ext26/lateral/e-2601|f-ext26/lateral/e-2604)", "fp": "line|n=0,0,1|c=-62.5,-62.5,51|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk26",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext26/end-cap", "fp": "plane|n=0,0,1|c=0,0,52|a=15624.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 52], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-2605", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp26",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext26/end-cap", "fp": "plane|n=0,0,1|c=0,0,52|a=15624.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk27",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-2701", "type": "line", "start": [-61, -61], "end": [61, -61]},
+        {"id": "e-2702", "type": "line", "start": [61, -61], "end": [61, 61]},
+        {"id": "e-2703", "type": "line", "start": [61, 61], "end": [-61, 61]},
+        {"id": "e-2704", "type": "line", "start": [-61, 61], "end": [-61, -61]}
+      ],
+      "constraints": [
+        {"id": "c-2701", "type": "coincident", "points": ["e-2701.end", "e-2702.start"]},
+        {"id": "c-2702", "type": "coincident", "points": ["e-2702.end", "e-2703.start"]},
+        {"id": "c-2703", "type": "coincident", "points": ["e-2703.end", "e-2704.start"]},
+        {"id": "c-2704", "type": "coincident", "points": ["e-2704.end", "e-2701.start"]}
+      ]
+    },
+    {
+      "id": "f-ext27",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk27",
+        "regions": [
+          {"key": "e-2701,e-2702,e-2703,e-2704", "fp": "c=0,0|a=14884", "outline": "e-2701,e-2702,e-2703,e-2704"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "54 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil27",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext27/lateral/e-2702|f-ext27/lateral/e-2703)", "fp": "line|n=0,0,1|c=61,61,53|l=2|adj=2,2"},
+        {"q": "edge(f-ext27/lateral/e-2701|f-ext27/lateral/e-2704)", "fp": "line|n=0,0,1|c=-61,-61,53|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk27",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext27/end-cap", "fp": "plane|n=0,0,1|c=0,0,54|a=14883.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 54], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-2705", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp27",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext27/end-cap", "fp": "plane|n=0,0,1|c=0,0,54|a=14883.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk28",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-2801", "type": "line", "start": [-59.5, -59.5], "end": [59.5, -59.5]},
+        {"id": "e-2802", "type": "line", "start": [59.5, -59.5], "end": [59.5, 59.5]},
+        {"id": "e-2803", "type": "line", "start": [59.5, 59.5], "end": [-59.5, 59.5]},
+        {"id": "e-2804", "type": "line", "start": [-59.5, 59.5], "end": [-59.5, -59.5]}
+      ],
+      "constraints": [
+        {"id": "c-2801", "type": "coincident", "points": ["e-2801.end", "e-2802.start"]},
+        {"id": "c-2802", "type": "coincident", "points": ["e-2802.end", "e-2803.start"]},
+        {"id": "c-2803", "type": "coincident", "points": ["e-2803.end", "e-2804.start"]},
+        {"id": "c-2804", "type": "coincident", "points": ["e-2804.end", "e-2801.start"]}
+      ]
+    },
+    {
+      "id": "f-ext28",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk28",
+        "regions": [
+          {"key": "e-2801,e-2802,e-2803,e-2804", "fp": "c=0,0|a=14161", "outline": "e-2801,e-2802,e-2803,e-2804"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "56 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil28",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext28/lateral/e-2802|f-ext28/lateral/e-2803)", "fp": "line|n=0,0,1|c=59.5,59.5,55|l=2|adj=2,2"},
+        {"q": "edge(f-ext28/lateral/e-2801|f-ext28/lateral/e-2804)", "fp": "line|n=0,0,1|c=-59.5,-59.5,55|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk28",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext28/end-cap", "fp": "plane|n=0,0,1|c=0,0,56|a=14160.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 56], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-2805", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp28",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext28/end-cap", "fp": "plane|n=0,0,1|c=0,0,56|a=14160.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk29",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-2901", "type": "line", "start": [-58, -58], "end": [58, -58]},
+        {"id": "e-2902", "type": "line", "start": [58, -58], "end": [58, 58]},
+        {"id": "e-2903", "type": "line", "start": [58, 58], "end": [-58, 58]},
+        {"id": "e-2904", "type": "line", "start": [-58, 58], "end": [-58, -58]}
+      ],
+      "constraints": [
+        {"id": "c-2901", "type": "coincident", "points": ["e-2901.end", "e-2902.start"]},
+        {"id": "c-2902", "type": "coincident", "points": ["e-2902.end", "e-2903.start"]},
+        {"id": "c-2903", "type": "coincident", "points": ["e-2903.end", "e-2904.start"]},
+        {"id": "c-2904", "type": "coincident", "points": ["e-2904.end", "e-2901.start"]}
+      ]
+    },
+    {
+      "id": "f-ext29",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk29",
+        "regions": [
+          {"key": "e-2901,e-2902,e-2903,e-2904", "fp": "c=0,0|a=13456", "outline": "e-2901,e-2902,e-2903,e-2904"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "58 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil29",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext29/lateral/e-2902|f-ext29/lateral/e-2903)", "fp": "line|n=0,0,1|c=58,58,57|l=2|adj=2,2"},
+        {"q": "edge(f-ext29/lateral/e-2901|f-ext29/lateral/e-2904)", "fp": "line|n=0,0,1|c=-58,-58,57|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk29",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext29/end-cap", "fp": "plane|n=0,0,1|c=0,0,58|a=13455.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 58], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-2905", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp29",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext29/end-cap", "fp": "plane|n=0,0,1|c=0,0,58|a=13455.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk30",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-3001", "type": "line", "start": [-56.5, -56.5], "end": [56.5, -56.5]},
+        {"id": "e-3002", "type": "line", "start": [56.5, -56.5], "end": [56.5, 56.5]},
+        {"id": "e-3003", "type": "line", "start": [56.5, 56.5], "end": [-56.5, 56.5]},
+        {"id": "e-3004", "type": "line", "start": [-56.5, 56.5], "end": [-56.5, -56.5]}
+      ],
+      "constraints": [
+        {"id": "c-3001", "type": "coincident", "points": ["e-3001.end", "e-3002.start"]},
+        {"id": "c-3002", "type": "coincident", "points": ["e-3002.end", "e-3003.start"]},
+        {"id": "c-3003", "type": "coincident", "points": ["e-3003.end", "e-3004.start"]},
+        {"id": "c-3004", "type": "coincident", "points": ["e-3004.end", "e-3001.start"]}
+      ]
+    },
+    {
+      "id": "f-ext30",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk30",
+        "regions": [
+          {"key": "e-3001,e-3002,e-3003,e-3004", "fp": "c=0,0|a=12769", "outline": "e-3001,e-3002,e-3003,e-3004"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "60 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil30",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext30/lateral/e-3002|f-ext30/lateral/e-3003)", "fp": "line|n=0,0,1|c=56.5,56.5,59|l=2|adj=2,2"},
+        {"q": "edge(f-ext30/lateral/e-3001|f-ext30/lateral/e-3004)", "fp": "line|n=0,0,1|c=-56.5,-56.5,59|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk30",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext30/end-cap", "fp": "plane|n=0,0,1|c=0,0,60|a=12768.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 60], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3005", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp30",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext30/end-cap", "fp": "plane|n=0,0,1|c=0,0,60|a=12768.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk31",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-3101", "type": "line", "start": [-55, -55], "end": [55, -55]},
+        {"id": "e-3102", "type": "line", "start": [55, -55], "end": [55, 55]},
+        {"id": "e-3103", "type": "line", "start": [55, 55], "end": [-55, 55]},
+        {"id": "e-3104", "type": "line", "start": [-55, 55], "end": [-55, -55]}
+      ],
+      "constraints": [
+        {"id": "c-3101", "type": "coincident", "points": ["e-3101.end", "e-3102.start"]},
+        {"id": "c-3102", "type": "coincident", "points": ["e-3102.end", "e-3103.start"]},
+        {"id": "c-3103", "type": "coincident", "points": ["e-3103.end", "e-3104.start"]},
+        {"id": "c-3104", "type": "coincident", "points": ["e-3104.end", "e-3101.start"]}
+      ]
+    },
+    {
+      "id": "f-ext31",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk31",
+        "regions": [
+          {"key": "e-3101,e-3102,e-3103,e-3104", "fp": "c=0,0|a=12100", "outline": "e-3101,e-3102,e-3103,e-3104"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "62 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil31",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext31/lateral/e-3102|f-ext31/lateral/e-3103)", "fp": "line|n=0,0,1|c=55,55,61|l=2|adj=2,2"},
+        {"q": "edge(f-ext31/lateral/e-3101|f-ext31/lateral/e-3104)", "fp": "line|n=0,0,1|c=-55,-55,61|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk31",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext31/end-cap", "fp": "plane|n=0,0,1|c=0,0,62|a=12099.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 62], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3105", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp31",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext31/end-cap", "fp": "plane|n=0,0,1|c=0,0,62|a=12099.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk32",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-3201", "type": "line", "start": [-53.5, -53.5], "end": [53.5, -53.5]},
+        {"id": "e-3202", "type": "line", "start": [53.5, -53.5], "end": [53.5, 53.5]},
+        {"id": "e-3203", "type": "line", "start": [53.5, 53.5], "end": [-53.5, 53.5]},
+        {"id": "e-3204", "type": "line", "start": [-53.5, 53.5], "end": [-53.5, -53.5]}
+      ],
+      "constraints": [
+        {"id": "c-3201", "type": "coincident", "points": ["e-3201.end", "e-3202.start"]},
+        {"id": "c-3202", "type": "coincident", "points": ["e-3202.end", "e-3203.start"]},
+        {"id": "c-3203", "type": "coincident", "points": ["e-3203.end", "e-3204.start"]},
+        {"id": "c-3204", "type": "coincident", "points": ["e-3204.end", "e-3201.start"]}
+      ]
+    },
+    {
+      "id": "f-ext32",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk32",
+        "regions": [
+          {"key": "e-3201,e-3202,e-3203,e-3204", "fp": "c=0,0|a=11449", "outline": "e-3201,e-3202,e-3203,e-3204"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "64 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil32",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext32/lateral/e-3202|f-ext32/lateral/e-3203)", "fp": "line|n=0,0,1|c=53.5,53.5,63|l=2|adj=2,2"},
+        {"q": "edge(f-ext32/lateral/e-3201|f-ext32/lateral/e-3204)", "fp": "line|n=0,0,1|c=-53.5,-53.5,63|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk32",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext32/end-cap", "fp": "plane|n=0,0,1|c=0,0,64|a=11448.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 64], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3205", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp32",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext32/end-cap", "fp": "plane|n=0,0,1|c=0,0,64|a=11448.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk33",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-3301", "type": "line", "start": [-52, -52], "end": [52, -52]},
+        {"id": "e-3302", "type": "line", "start": [52, -52], "end": [52, 52]},
+        {"id": "e-3303", "type": "line", "start": [52, 52], "end": [-52, 52]},
+        {"id": "e-3304", "type": "line", "start": [-52, 52], "end": [-52, -52]}
+      ],
+      "constraints": [
+        {"id": "c-3301", "type": "coincident", "points": ["e-3301.end", "e-3302.start"]},
+        {"id": "c-3302", "type": "coincident", "points": ["e-3302.end", "e-3303.start"]},
+        {"id": "c-3303", "type": "coincident", "points": ["e-3303.end", "e-3304.start"]},
+        {"id": "c-3304", "type": "coincident", "points": ["e-3304.end", "e-3301.start"]}
+      ]
+    },
+    {
+      "id": "f-ext33",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk33",
+        "regions": [
+          {"key": "e-3301,e-3302,e-3303,e-3304", "fp": "c=0,0|a=10816", "outline": "e-3301,e-3302,e-3303,e-3304"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "66 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil33",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext33/lateral/e-3302|f-ext33/lateral/e-3303)", "fp": "line|n=0,0,1|c=52,52,65|l=2|adj=2,2"},
+        {"q": "edge(f-ext33/lateral/e-3301|f-ext33/lateral/e-3304)", "fp": "line|n=0,0,1|c=-52,-52,65|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk33",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext33/end-cap", "fp": "plane|n=0,0,1|c=0,0,66|a=10815.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 66], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3305", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp33",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext33/end-cap", "fp": "plane|n=0,0,1|c=0,0,66|a=10815.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk34",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-3401", "type": "line", "start": [-50.5, -50.5], "end": [50.5, -50.5]},
+        {"id": "e-3402", "type": "line", "start": [50.5, -50.5], "end": [50.5, 50.5]},
+        {"id": "e-3403", "type": "line", "start": [50.5, 50.5], "end": [-50.5, 50.5]},
+        {"id": "e-3404", "type": "line", "start": [-50.5, 50.5], "end": [-50.5, -50.5]}
+      ],
+      "constraints": [
+        {"id": "c-3401", "type": "coincident", "points": ["e-3401.end", "e-3402.start"]},
+        {"id": "c-3402", "type": "coincident", "points": ["e-3402.end", "e-3403.start"]},
+        {"id": "c-3403", "type": "coincident", "points": ["e-3403.end", "e-3404.start"]},
+        {"id": "c-3404", "type": "coincident", "points": ["e-3404.end", "e-3401.start"]}
+      ]
+    },
+    {
+      "id": "f-ext34",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk34",
+        "regions": [
+          {"key": "e-3401,e-3402,e-3403,e-3404", "fp": "c=0,0|a=10201", "outline": "e-3401,e-3402,e-3403,e-3404"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "68 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil34",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext34/lateral/e-3402|f-ext34/lateral/e-3403)", "fp": "line|n=0,0,1|c=50.5,50.5,67|l=2|adj=2,2"},
+        {"q": "edge(f-ext34/lateral/e-3401|f-ext34/lateral/e-3404)", "fp": "line|n=0,0,1|c=-50.5,-50.5,67|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk34",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext34/end-cap", "fp": "plane|n=0,0,1|c=0,0,68|a=10200.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 68], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3405", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp34",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext34/end-cap", "fp": "plane|n=0,0,1|c=0,0,68|a=10200.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk35",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-3501", "type": "line", "start": [-49, -49], "end": [49, -49]},
+        {"id": "e-3502", "type": "line", "start": [49, -49], "end": [49, 49]},
+        {"id": "e-3503", "type": "line", "start": [49, 49], "end": [-49, 49]},
+        {"id": "e-3504", "type": "line", "start": [-49, 49], "end": [-49, -49]}
+      ],
+      "constraints": [
+        {"id": "c-3501", "type": "coincident", "points": ["e-3501.end", "e-3502.start"]},
+        {"id": "c-3502", "type": "coincident", "points": ["e-3502.end", "e-3503.start"]},
+        {"id": "c-3503", "type": "coincident", "points": ["e-3503.end", "e-3504.start"]},
+        {"id": "c-3504", "type": "coincident", "points": ["e-3504.end", "e-3501.start"]}
+      ]
+    },
+    {
+      "id": "f-ext35",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk35",
+        "regions": [
+          {"key": "e-3501,e-3502,e-3503,e-3504", "fp": "c=0,0|a=9604", "outline": "e-3501,e-3502,e-3503,e-3504"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "70 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil35",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext35/lateral/e-3502|f-ext35/lateral/e-3503)", "fp": "line|n=0,0,1|c=49,49,69|l=2|adj=2,2"},
+        {"q": "edge(f-ext35/lateral/e-3501|f-ext35/lateral/e-3504)", "fp": "line|n=0,0,1|c=-49,-49,69|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk35",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext35/end-cap", "fp": "plane|n=0,0,1|c=0,0,70|a=9603.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 70], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3505", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp35",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext35/end-cap", "fp": "plane|n=0,0,1|c=0,0,70|a=9603.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk36",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-3601", "type": "line", "start": [-47.5, -47.5], "end": [47.5, -47.5]},
+        {"id": "e-3602", "type": "line", "start": [47.5, -47.5], "end": [47.5, 47.5]},
+        {"id": "e-3603", "type": "line", "start": [47.5, 47.5], "end": [-47.5, 47.5]},
+        {"id": "e-3604", "type": "line", "start": [-47.5, 47.5], "end": [-47.5, -47.5]}
+      ],
+      "constraints": [
+        {"id": "c-3601", "type": "coincident", "points": ["e-3601.end", "e-3602.start"]},
+        {"id": "c-3602", "type": "coincident", "points": ["e-3602.end", "e-3603.start"]},
+        {"id": "c-3603", "type": "coincident", "points": ["e-3603.end", "e-3604.start"]},
+        {"id": "c-3604", "type": "coincident", "points": ["e-3604.end", "e-3601.start"]}
+      ]
+    },
+    {
+      "id": "f-ext36",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk36",
+        "regions": [
+          {"key": "e-3601,e-3602,e-3603,e-3604", "fp": "c=0,0|a=9025", "outline": "e-3601,e-3602,e-3603,e-3604"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "72 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil36",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext36/lateral/e-3602|f-ext36/lateral/e-3603)", "fp": "line|n=0,0,1|c=47.5,47.5,71|l=2|adj=2,2"},
+        {"q": "edge(f-ext36/lateral/e-3601|f-ext36/lateral/e-3604)", "fp": "line|n=0,0,1|c=-47.5,-47.5,71|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk36",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext36/end-cap", "fp": "plane|n=0,0,1|c=0,0,72|a=9024.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 72], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3605", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp36",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext36/end-cap", "fp": "plane|n=0,0,1|c=0,0,72|a=9024.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk37",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-3701", "type": "line", "start": [-46, -46], "end": [46, -46]},
+        {"id": "e-3702", "type": "line", "start": [46, -46], "end": [46, 46]},
+        {"id": "e-3703", "type": "line", "start": [46, 46], "end": [-46, 46]},
+        {"id": "e-3704", "type": "line", "start": [-46, 46], "end": [-46, -46]}
+      ],
+      "constraints": [
+        {"id": "c-3701", "type": "coincident", "points": ["e-3701.end", "e-3702.start"]},
+        {"id": "c-3702", "type": "coincident", "points": ["e-3702.end", "e-3703.start"]},
+        {"id": "c-3703", "type": "coincident", "points": ["e-3703.end", "e-3704.start"]},
+        {"id": "c-3704", "type": "coincident", "points": ["e-3704.end", "e-3701.start"]}
+      ]
+    },
+    {
+      "id": "f-ext37",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk37",
+        "regions": [
+          {"key": "e-3701,e-3702,e-3703,e-3704", "fp": "c=0,0|a=8464", "outline": "e-3701,e-3702,e-3703,e-3704"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "74 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil37",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext37/lateral/e-3702|f-ext37/lateral/e-3703)", "fp": "line|n=0,0,1|c=46,46,73|l=2|adj=2,2"},
+        {"q": "edge(f-ext37/lateral/e-3701|f-ext37/lateral/e-3704)", "fp": "line|n=0,0,1|c=-46,-46,73|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk37",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext37/end-cap", "fp": "plane|n=0,0,1|c=0,0,74|a=8463.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 74], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3705", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp37",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext37/end-cap", "fp": "plane|n=0,0,1|c=0,0,74|a=8463.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk38",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-3801", "type": "line", "start": [-44.5, -44.5], "end": [44.5, -44.5]},
+        {"id": "e-3802", "type": "line", "start": [44.5, -44.5], "end": [44.5, 44.5]},
+        {"id": "e-3803", "type": "line", "start": [44.5, 44.5], "end": [-44.5, 44.5]},
+        {"id": "e-3804", "type": "line", "start": [-44.5, 44.5], "end": [-44.5, -44.5]}
+      ],
+      "constraints": [
+        {"id": "c-3801", "type": "coincident", "points": ["e-3801.end", "e-3802.start"]},
+        {"id": "c-3802", "type": "coincident", "points": ["e-3802.end", "e-3803.start"]},
+        {"id": "c-3803", "type": "coincident", "points": ["e-3803.end", "e-3804.start"]},
+        {"id": "c-3804", "type": "coincident", "points": ["e-3804.end", "e-3801.start"]}
+      ]
+    },
+    {
+      "id": "f-ext38",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk38",
+        "regions": [
+          {"key": "e-3801,e-3802,e-3803,e-3804", "fp": "c=0,0|a=7921", "outline": "e-3801,e-3802,e-3803,e-3804"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "76 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil38",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext38/lateral/e-3802|f-ext38/lateral/e-3803)", "fp": "line|n=0,0,1|c=44.5,44.5,75|l=2|adj=2,2"},
+        {"q": "edge(f-ext38/lateral/e-3801|f-ext38/lateral/e-3804)", "fp": "line|n=0,0,1|c=-44.5,-44.5,75|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk38",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext38/end-cap", "fp": "plane|n=0,0,1|c=0,0,76|a=7920.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 76], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3805", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp38",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext38/end-cap", "fp": "plane|n=0,0,1|c=0,0,76|a=7920.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk39",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-3901", "type": "line", "start": [-43, -43], "end": [43, -43]},
+        {"id": "e-3902", "type": "line", "start": [43, -43], "end": [43, 43]},
+        {"id": "e-3903", "type": "line", "start": [43, 43], "end": [-43, 43]},
+        {"id": "e-3904", "type": "line", "start": [-43, 43], "end": [-43, -43]}
+      ],
+      "constraints": [
+        {"id": "c-3901", "type": "coincident", "points": ["e-3901.end", "e-3902.start"]},
+        {"id": "c-3902", "type": "coincident", "points": ["e-3902.end", "e-3903.start"]},
+        {"id": "c-3903", "type": "coincident", "points": ["e-3903.end", "e-3904.start"]},
+        {"id": "c-3904", "type": "coincident", "points": ["e-3904.end", "e-3901.start"]}
+      ]
+    },
+    {
+      "id": "f-ext39",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk39",
+        "regions": [
+          {"key": "e-3901,e-3902,e-3903,e-3904", "fp": "c=0,0|a=7396", "outline": "e-3901,e-3902,e-3903,e-3904"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "78 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil39",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext39/lateral/e-3902|f-ext39/lateral/e-3903)", "fp": "line|n=0,0,1|c=43,43,77|l=2|adj=2,2"},
+        {"q": "edge(f-ext39/lateral/e-3901|f-ext39/lateral/e-3904)", "fp": "line|n=0,0,1|c=-43,-43,77|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk39",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext39/end-cap", "fp": "plane|n=0,0,1|c=0,0,78|a=7395.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 78], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-3905", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp39",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext39/end-cap", "fp": "plane|n=0,0,1|c=0,0,78|a=7395.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk40",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-4001", "type": "line", "start": [-41.5, -41.5], "end": [41.5, -41.5]},
+        {"id": "e-4002", "type": "line", "start": [41.5, -41.5], "end": [41.5, 41.5]},
+        {"id": "e-4003", "type": "line", "start": [41.5, 41.5], "end": [-41.5, 41.5]},
+        {"id": "e-4004", "type": "line", "start": [-41.5, 41.5], "end": [-41.5, -41.5]}
+      ],
+      "constraints": [
+        {"id": "c-4001", "type": "coincident", "points": ["e-4001.end", "e-4002.start"]},
+        {"id": "c-4002", "type": "coincident", "points": ["e-4002.end", "e-4003.start"]},
+        {"id": "c-4003", "type": "coincident", "points": ["e-4003.end", "e-4004.start"]},
+        {"id": "c-4004", "type": "coincident", "points": ["e-4004.end", "e-4001.start"]}
+      ]
+    },
+    {
+      "id": "f-ext40",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk40",
+        "regions": [
+          {"key": "e-4001,e-4002,e-4003,e-4004", "fp": "c=0,0|a=6889", "outline": "e-4001,e-4002,e-4003,e-4004"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "80 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil40",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext40/lateral/e-4002|f-ext40/lateral/e-4003)", "fp": "line|n=0,0,1|c=41.5,41.5,79|l=2|adj=2,2"},
+        {"q": "edge(f-ext40/lateral/e-4001|f-ext40/lateral/e-4004)", "fp": "line|n=0,0,1|c=-41.5,-41.5,79|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk40",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext40/end-cap", "fp": "plane|n=0,0,1|c=0,0,80|a=6888.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 80], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-4005", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp40",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext40/end-cap", "fp": "plane|n=0,0,1|c=0,0,80|a=6888.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk41",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-4101", "type": "line", "start": [-40, -40], "end": [40, -40]},
+        {"id": "e-4102", "type": "line", "start": [40, -40], "end": [40, 40]},
+        {"id": "e-4103", "type": "line", "start": [40, 40], "end": [-40, 40]},
+        {"id": "e-4104", "type": "line", "start": [-40, 40], "end": [-40, -40]}
+      ],
+      "constraints": [
+        {"id": "c-4101", "type": "coincident", "points": ["e-4101.end", "e-4102.start"]},
+        {"id": "c-4102", "type": "coincident", "points": ["e-4102.end", "e-4103.start"]},
+        {"id": "c-4103", "type": "coincident", "points": ["e-4103.end", "e-4104.start"]},
+        {"id": "c-4104", "type": "coincident", "points": ["e-4104.end", "e-4101.start"]}
+      ]
+    },
+    {
+      "id": "f-ext41",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk41",
+        "regions": [
+          {"key": "e-4101,e-4102,e-4103,e-4104", "fp": "c=0,0|a=6400", "outline": "e-4101,e-4102,e-4103,e-4104"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "82 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil41",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext41/lateral/e-4102|f-ext41/lateral/e-4103)", "fp": "line|n=0,0,1|c=40,40,81|l=2|adj=2,2"},
+        {"q": "edge(f-ext41/lateral/e-4101|f-ext41/lateral/e-4104)", "fp": "line|n=0,0,1|c=-40,-40,81|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk41",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext41/end-cap", "fp": "plane|n=0,0,1|c=0,0,82|a=6399.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 82], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-4105", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp41",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext41/end-cap", "fp": "plane|n=0,0,1|c=0,0,82|a=6399.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk42",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-4201", "type": "line", "start": [-38.5, -38.5], "end": [38.5, -38.5]},
+        {"id": "e-4202", "type": "line", "start": [38.5, -38.5], "end": [38.5, 38.5]},
+        {"id": "e-4203", "type": "line", "start": [38.5, 38.5], "end": [-38.5, 38.5]},
+        {"id": "e-4204", "type": "line", "start": [-38.5, 38.5], "end": [-38.5, -38.5]}
+      ],
+      "constraints": [
+        {"id": "c-4201", "type": "coincident", "points": ["e-4201.end", "e-4202.start"]},
+        {"id": "c-4202", "type": "coincident", "points": ["e-4202.end", "e-4203.start"]},
+        {"id": "c-4203", "type": "coincident", "points": ["e-4203.end", "e-4204.start"]},
+        {"id": "c-4204", "type": "coincident", "points": ["e-4204.end", "e-4201.start"]}
+      ]
+    },
+    {
+      "id": "f-ext42",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk42",
+        "regions": [
+          {"key": "e-4201,e-4202,e-4203,e-4204", "fp": "c=0,0|a=5929", "outline": "e-4201,e-4202,e-4203,e-4204"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "84 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil42",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext42/lateral/e-4202|f-ext42/lateral/e-4203)", "fp": "line|n=0,0,1|c=38.5,38.5,83|l=2|adj=2,2"},
+        {"q": "edge(f-ext42/lateral/e-4201|f-ext42/lateral/e-4204)", "fp": "line|n=0,0,1|c=-38.5,-38.5,83|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk42",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext42/end-cap", "fp": "plane|n=0,0,1|c=0,0,84|a=5928.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 84], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-4205", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp42",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext42/end-cap", "fp": "plane|n=0,0,1|c=0,0,84|a=5928.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk43",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-4301", "type": "line", "start": [-37, -37], "end": [37, -37]},
+        {"id": "e-4302", "type": "line", "start": [37, -37], "end": [37, 37]},
+        {"id": "e-4303", "type": "line", "start": [37, 37], "end": [-37, 37]},
+        {"id": "e-4304", "type": "line", "start": [-37, 37], "end": [-37, -37]}
+      ],
+      "constraints": [
+        {"id": "c-4301", "type": "coincident", "points": ["e-4301.end", "e-4302.start"]},
+        {"id": "c-4302", "type": "coincident", "points": ["e-4302.end", "e-4303.start"]},
+        {"id": "c-4303", "type": "coincident", "points": ["e-4303.end", "e-4304.start"]},
+        {"id": "c-4304", "type": "coincident", "points": ["e-4304.end", "e-4301.start"]}
+      ]
+    },
+    {
+      "id": "f-ext43",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk43",
+        "regions": [
+          {"key": "e-4301,e-4302,e-4303,e-4304", "fp": "c=0,0|a=5476", "outline": "e-4301,e-4302,e-4303,e-4304"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "86 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil43",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext43/lateral/e-4302|f-ext43/lateral/e-4303)", "fp": "line|n=0,0,1|c=37,37,85|l=2|adj=2,2"},
+        {"q": "edge(f-ext43/lateral/e-4301|f-ext43/lateral/e-4304)", "fp": "line|n=0,0,1|c=-37,-37,85|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk43",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext43/end-cap", "fp": "plane|n=0,0,1|c=0,0,86|a=5475.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 86], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-4305", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp43",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext43/end-cap", "fp": "plane|n=0,0,1|c=0,0,86|a=5475.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk44",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-4401", "type": "line", "start": [-35.5, -35.5], "end": [35.5, -35.5]},
+        {"id": "e-4402", "type": "line", "start": [35.5, -35.5], "end": [35.5, 35.5]},
+        {"id": "e-4403", "type": "line", "start": [35.5, 35.5], "end": [-35.5, 35.5]},
+        {"id": "e-4404", "type": "line", "start": [-35.5, 35.5], "end": [-35.5, -35.5]}
+      ],
+      "constraints": [
+        {"id": "c-4401", "type": "coincident", "points": ["e-4401.end", "e-4402.start"]},
+        {"id": "c-4402", "type": "coincident", "points": ["e-4402.end", "e-4403.start"]},
+        {"id": "c-4403", "type": "coincident", "points": ["e-4403.end", "e-4404.start"]},
+        {"id": "c-4404", "type": "coincident", "points": ["e-4404.end", "e-4401.start"]}
+      ]
+    },
+    {
+      "id": "f-ext44",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk44",
+        "regions": [
+          {"key": "e-4401,e-4402,e-4403,e-4404", "fp": "c=0,0|a=5041", "outline": "e-4401,e-4402,e-4403,e-4404"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "88 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil44",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext44/lateral/e-4402|f-ext44/lateral/e-4403)", "fp": "line|n=0,0,1|c=35.5,35.5,87|l=2|adj=2,2"},
+        {"q": "edge(f-ext44/lateral/e-4401|f-ext44/lateral/e-4404)", "fp": "line|n=0,0,1|c=-35.5,-35.5,87|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk44",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext44/end-cap", "fp": "plane|n=0,0,1|c=0,0,88|a=5040.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 88], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-4405", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp44",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext44/end-cap", "fp": "plane|n=0,0,1|c=0,0,88|a=5040.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk45",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-4501", "type": "line", "start": [-34, -34], "end": [34, -34]},
+        {"id": "e-4502", "type": "line", "start": [34, -34], "end": [34, 34]},
+        {"id": "e-4503", "type": "line", "start": [34, 34], "end": [-34, 34]},
+        {"id": "e-4504", "type": "line", "start": [-34, 34], "end": [-34, -34]}
+      ],
+      "constraints": [
+        {"id": "c-4501", "type": "coincident", "points": ["e-4501.end", "e-4502.start"]},
+        {"id": "c-4502", "type": "coincident", "points": ["e-4502.end", "e-4503.start"]},
+        {"id": "c-4503", "type": "coincident", "points": ["e-4503.end", "e-4504.start"]},
+        {"id": "c-4504", "type": "coincident", "points": ["e-4504.end", "e-4501.start"]}
+      ]
+    },
+    {
+      "id": "f-ext45",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk45",
+        "regions": [
+          {"key": "e-4501,e-4502,e-4503,e-4504", "fp": "c=0,0|a=4624", "outline": "e-4501,e-4502,e-4503,e-4504"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "90 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil45",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext45/lateral/e-4502|f-ext45/lateral/e-4503)", "fp": "line|n=0,0,1|c=34,34,89|l=2|adj=2,2"},
+        {"q": "edge(f-ext45/lateral/e-4501|f-ext45/lateral/e-4504)", "fp": "line|n=0,0,1|c=-34,-34,89|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk45",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext45/end-cap", "fp": "plane|n=0,0,1|c=0,0,90|a=4623.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 90], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-4505", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp45",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext45/end-cap", "fp": "plane|n=0,0,1|c=0,0,90|a=4623.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk46",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-4601", "type": "line", "start": [-32.5, -32.5], "end": [32.5, -32.5]},
+        {"id": "e-4602", "type": "line", "start": [32.5, -32.5], "end": [32.5, 32.5]},
+        {"id": "e-4603", "type": "line", "start": [32.5, 32.5], "end": [-32.5, 32.5]},
+        {"id": "e-4604", "type": "line", "start": [-32.5, 32.5], "end": [-32.5, -32.5]}
+      ],
+      "constraints": [
+        {"id": "c-4601", "type": "coincident", "points": ["e-4601.end", "e-4602.start"]},
+        {"id": "c-4602", "type": "coincident", "points": ["e-4602.end", "e-4603.start"]},
+        {"id": "c-4603", "type": "coincident", "points": ["e-4603.end", "e-4604.start"]},
+        {"id": "c-4604", "type": "coincident", "points": ["e-4604.end", "e-4601.start"]}
+      ]
+    },
+    {
+      "id": "f-ext46",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk46",
+        "regions": [
+          {"key": "e-4601,e-4602,e-4603,e-4604", "fp": "c=0,0|a=4225", "outline": "e-4601,e-4602,e-4603,e-4604"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "92 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil46",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext46/lateral/e-4602|f-ext46/lateral/e-4603)", "fp": "line|n=0,0,1|c=32.5,32.5,91|l=2|adj=2,2"},
+        {"q": "edge(f-ext46/lateral/e-4601|f-ext46/lateral/e-4604)", "fp": "line|n=0,0,1|c=-32.5,-32.5,91|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk46",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext46/end-cap", "fp": "plane|n=0,0,1|c=0,0,92|a=4224.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 92], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-4605", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp46",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext46/end-cap", "fp": "plane|n=0,0,1|c=0,0,92|a=4224.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk47",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-4701", "type": "line", "start": [-31, -31], "end": [31, -31]},
+        {"id": "e-4702", "type": "line", "start": [31, -31], "end": [31, 31]},
+        {"id": "e-4703", "type": "line", "start": [31, 31], "end": [-31, 31]},
+        {"id": "e-4704", "type": "line", "start": [-31, 31], "end": [-31, -31]}
+      ],
+      "constraints": [
+        {"id": "c-4701", "type": "coincident", "points": ["e-4701.end", "e-4702.start"]},
+        {"id": "c-4702", "type": "coincident", "points": ["e-4702.end", "e-4703.start"]},
+        {"id": "c-4703", "type": "coincident", "points": ["e-4703.end", "e-4704.start"]},
+        {"id": "c-4704", "type": "coincident", "points": ["e-4704.end", "e-4701.start"]}
+      ]
+    },
+    {
+      "id": "f-ext47",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk47",
+        "regions": [
+          {"key": "e-4701,e-4702,e-4703,e-4704", "fp": "c=0,0|a=3844", "outline": "e-4701,e-4702,e-4703,e-4704"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "94 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil47",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext47/lateral/e-4702|f-ext47/lateral/e-4703)", "fp": "line|n=0,0,1|c=31,31,93|l=2|adj=2,2"},
+        {"q": "edge(f-ext47/lateral/e-4701|f-ext47/lateral/e-4704)", "fp": "line|n=0,0,1|c=-31,-31,93|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk47",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext47/end-cap", "fp": "plane|n=0,0,1|c=0,0,94|a=3843.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 94], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-4705", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp47",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext47/end-cap", "fp": "plane|n=0,0,1|c=0,0,94|a=3843.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk48",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-4801", "type": "line", "start": [-29.5, -29.5], "end": [29.5, -29.5]},
+        {"id": "e-4802", "type": "line", "start": [29.5, -29.5], "end": [29.5, 29.5]},
+        {"id": "e-4803", "type": "line", "start": [29.5, 29.5], "end": [-29.5, 29.5]},
+        {"id": "e-4804", "type": "line", "start": [-29.5, 29.5], "end": [-29.5, -29.5]}
+      ],
+      "constraints": [
+        {"id": "c-4801", "type": "coincident", "points": ["e-4801.end", "e-4802.start"]},
+        {"id": "c-4802", "type": "coincident", "points": ["e-4802.end", "e-4803.start"]},
+        {"id": "c-4803", "type": "coincident", "points": ["e-4803.end", "e-4804.start"]},
+        {"id": "c-4804", "type": "coincident", "points": ["e-4804.end", "e-4801.start"]}
+      ]
+    },
+    {
+      "id": "f-ext48",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk48",
+        "regions": [
+          {"key": "e-4801,e-4802,e-4803,e-4804", "fp": "c=0,0|a=3481", "outline": "e-4801,e-4802,e-4803,e-4804"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "96 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil48",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext48/lateral/e-4802|f-ext48/lateral/e-4803)", "fp": "line|n=0,0,1|c=29.5,29.5,95|l=2|adj=2,2"},
+        {"q": "edge(f-ext48/lateral/e-4801|f-ext48/lateral/e-4804)", "fp": "line|n=0,0,1|c=-29.5,-29.5,95|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk48",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext48/end-cap", "fp": "plane|n=0,0,1|c=0,0,96|a=3480.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 96], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-4805", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp48",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext48/end-cap", "fp": "plane|n=0,0,1|c=0,0,96|a=3480.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk49",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-4901", "type": "line", "start": [-28, -28], "end": [28, -28]},
+        {"id": "e-4902", "type": "line", "start": [28, -28], "end": [28, 28]},
+        {"id": "e-4903", "type": "line", "start": [28, 28], "end": [-28, 28]},
+        {"id": "e-4904", "type": "line", "start": [-28, 28], "end": [-28, -28]}
+      ],
+      "constraints": [
+        {"id": "c-4901", "type": "coincident", "points": ["e-4901.end", "e-4902.start"]},
+        {"id": "c-4902", "type": "coincident", "points": ["e-4902.end", "e-4903.start"]},
+        {"id": "c-4903", "type": "coincident", "points": ["e-4903.end", "e-4904.start"]},
+        {"id": "c-4904", "type": "coincident", "points": ["e-4904.end", "e-4901.start"]}
+      ]
+    },
+    {
+      "id": "f-ext49",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk49",
+        "regions": [
+          {"key": "e-4901,e-4902,e-4903,e-4904", "fp": "c=0,0|a=3136", "outline": "e-4901,e-4902,e-4903,e-4904"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "98 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil49",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext49/lateral/e-4902|f-ext49/lateral/e-4903)", "fp": "line|n=0,0,1|c=28,28,97|l=2|adj=2,2"},
+        {"q": "edge(f-ext49/lateral/e-4901|f-ext49/lateral/e-4904)", "fp": "line|n=0,0,1|c=-28,-28,97|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk49",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext49/end-cap", "fp": "plane|n=0,0,1|c=0,0,98|a=3135.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 98], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-4905", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp49",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext49/end-cap", "fp": "plane|n=0,0,1|c=0,0,98|a=3135.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk50",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5001", "type": "line", "start": [-26.5, -26.5], "end": [26.5, -26.5]},
+        {"id": "e-5002", "type": "line", "start": [26.5, -26.5], "end": [26.5, 26.5]},
+        {"id": "e-5003", "type": "line", "start": [26.5, 26.5], "end": [-26.5, 26.5]},
+        {"id": "e-5004", "type": "line", "start": [-26.5, 26.5], "end": [-26.5, -26.5]}
+      ],
+      "constraints": [
+        {"id": "c-5001", "type": "coincident", "points": ["e-5001.end", "e-5002.start"]},
+        {"id": "c-5002", "type": "coincident", "points": ["e-5002.end", "e-5003.start"]},
+        {"id": "c-5003", "type": "coincident", "points": ["e-5003.end", "e-5004.start"]},
+        {"id": "c-5004", "type": "coincident", "points": ["e-5004.end", "e-5001.start"]}
+      ]
+    },
+    {
+      "id": "f-ext50",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk50",
+        "regions": [
+          {"key": "e-5001,e-5002,e-5003,e-5004", "fp": "c=0,0|a=2809", "outline": "e-5001,e-5002,e-5003,e-5004"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "100 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil50",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext50/lateral/e-5002|f-ext50/lateral/e-5003)", "fp": "line|n=0,0,1|c=26.5,26.5,99|l=2|adj=2,2"},
+        {"q": "edge(f-ext50/lateral/e-5001|f-ext50/lateral/e-5004)", "fp": "line|n=0,0,1|c=-26.5,-26.5,99|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk50",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext50/end-cap", "fp": "plane|n=0,0,1|c=0,0,100|a=2808.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 100], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5005", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp50",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext50/end-cap", "fp": "plane|n=0,0,1|c=0,0,100|a=2808.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk51",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5101", "type": "line", "start": [-25, -25], "end": [25, -25]},
+        {"id": "e-5102", "type": "line", "start": [25, -25], "end": [25, 25]},
+        {"id": "e-5103", "type": "line", "start": [25, 25], "end": [-25, 25]},
+        {"id": "e-5104", "type": "line", "start": [-25, 25], "end": [-25, -25]}
+      ],
+      "constraints": [
+        {"id": "c-5101", "type": "coincident", "points": ["e-5101.end", "e-5102.start"]},
+        {"id": "c-5102", "type": "coincident", "points": ["e-5102.end", "e-5103.start"]},
+        {"id": "c-5103", "type": "coincident", "points": ["e-5103.end", "e-5104.start"]},
+        {"id": "c-5104", "type": "coincident", "points": ["e-5104.end", "e-5101.start"]}
+      ]
+    },
+    {
+      "id": "f-ext51",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk51",
+        "regions": [
+          {"key": "e-5101,e-5102,e-5103,e-5104", "fp": "c=0,0|a=2500", "outline": "e-5101,e-5102,e-5103,e-5104"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "102 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil51",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext51/lateral/e-5102|f-ext51/lateral/e-5103)", "fp": "line|n=0,0,1|c=25,25,101|l=2|adj=2,2"},
+        {"q": "edge(f-ext51/lateral/e-5101|f-ext51/lateral/e-5104)", "fp": "line|n=0,0,1|c=-25,-25,101|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk51",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext51/end-cap", "fp": "plane|n=0,0,1|c=0,0,102|a=2499.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 102], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5105", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp51",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext51/end-cap", "fp": "plane|n=0,0,1|c=0,0,102|a=2499.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk52",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5201", "type": "line", "start": [-23.5, -23.5], "end": [23.5, -23.5]},
+        {"id": "e-5202", "type": "line", "start": [23.5, -23.5], "end": [23.5, 23.5]},
+        {"id": "e-5203", "type": "line", "start": [23.5, 23.5], "end": [-23.5, 23.5]},
+        {"id": "e-5204", "type": "line", "start": [-23.5, 23.5], "end": [-23.5, -23.5]}
+      ],
+      "constraints": [
+        {"id": "c-5201", "type": "coincident", "points": ["e-5201.end", "e-5202.start"]},
+        {"id": "c-5202", "type": "coincident", "points": ["e-5202.end", "e-5203.start"]},
+        {"id": "c-5203", "type": "coincident", "points": ["e-5203.end", "e-5204.start"]},
+        {"id": "c-5204", "type": "coincident", "points": ["e-5204.end", "e-5201.start"]}
+      ]
+    },
+    {
+      "id": "f-ext52",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk52",
+        "regions": [
+          {"key": "e-5201,e-5202,e-5203,e-5204", "fp": "c=0,0|a=2209", "outline": "e-5201,e-5202,e-5203,e-5204"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "104 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil52",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext52/lateral/e-5202|f-ext52/lateral/e-5203)", "fp": "line|n=0,0,1|c=23.5,23.5,103|l=2|adj=2,2"},
+        {"q": "edge(f-ext52/lateral/e-5201|f-ext52/lateral/e-5204)", "fp": "line|n=0,0,1|c=-23.5,-23.5,103|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk52",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext52/end-cap", "fp": "plane|n=0,0,1|c=0,0,104|a=2208.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 104], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5205", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp52",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext52/end-cap", "fp": "plane|n=0,0,1|c=0,0,104|a=2208.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk53",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5301", "type": "line", "start": [-22, -22], "end": [22, -22]},
+        {"id": "e-5302", "type": "line", "start": [22, -22], "end": [22, 22]},
+        {"id": "e-5303", "type": "line", "start": [22, 22], "end": [-22, 22]},
+        {"id": "e-5304", "type": "line", "start": [-22, 22], "end": [-22, -22]}
+      ],
+      "constraints": [
+        {"id": "c-5301", "type": "coincident", "points": ["e-5301.end", "e-5302.start"]},
+        {"id": "c-5302", "type": "coincident", "points": ["e-5302.end", "e-5303.start"]},
+        {"id": "c-5303", "type": "coincident", "points": ["e-5303.end", "e-5304.start"]},
+        {"id": "c-5304", "type": "coincident", "points": ["e-5304.end", "e-5301.start"]}
+      ]
+    },
+    {
+      "id": "f-ext53",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk53",
+        "regions": [
+          {"key": "e-5301,e-5302,e-5303,e-5304", "fp": "c=0,0|a=1936", "outline": "e-5301,e-5302,e-5303,e-5304"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "106 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil53",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext53/lateral/e-5302|f-ext53/lateral/e-5303)", "fp": "line|n=0,0,1|c=22,22,105|l=2|adj=2,2"},
+        {"q": "edge(f-ext53/lateral/e-5301|f-ext53/lateral/e-5304)", "fp": "line|n=0,0,1|c=-22,-22,105|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk53",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext53/end-cap", "fp": "plane|n=0,0,1|c=0,0,106|a=1935.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 106], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5305", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp53",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext53/end-cap", "fp": "plane|n=0,0,1|c=0,0,106|a=1935.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk54",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5401", "type": "line", "start": [-20.5, -20.5], "end": [20.5, -20.5]},
+        {"id": "e-5402", "type": "line", "start": [20.5, -20.5], "end": [20.5, 20.5]},
+        {"id": "e-5403", "type": "line", "start": [20.5, 20.5], "end": [-20.5, 20.5]},
+        {"id": "e-5404", "type": "line", "start": [-20.5, 20.5], "end": [-20.5, -20.5]}
+      ],
+      "constraints": [
+        {"id": "c-5401", "type": "coincident", "points": ["e-5401.end", "e-5402.start"]},
+        {"id": "c-5402", "type": "coincident", "points": ["e-5402.end", "e-5403.start"]},
+        {"id": "c-5403", "type": "coincident", "points": ["e-5403.end", "e-5404.start"]},
+        {"id": "c-5404", "type": "coincident", "points": ["e-5404.end", "e-5401.start"]}
+      ]
+    },
+    {
+      "id": "f-ext54",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk54",
+        "regions": [
+          {"key": "e-5401,e-5402,e-5403,e-5404", "fp": "c=0,0|a=1681", "outline": "e-5401,e-5402,e-5403,e-5404"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "108 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil54",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext54/lateral/e-5402|f-ext54/lateral/e-5403)", "fp": "line|n=0,0,1|c=20.5,20.5,107|l=2|adj=2,2"},
+        {"q": "edge(f-ext54/lateral/e-5401|f-ext54/lateral/e-5404)", "fp": "line|n=0,0,1|c=-20.5,-20.5,107|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk54",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext54/end-cap", "fp": "plane|n=0,0,1|c=0,0,108|a=1680.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 108], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5405", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp54",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext54/end-cap", "fp": "plane|n=0,0,1|c=0,0,108|a=1680.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk55",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5501", "type": "line", "start": [-19, -19], "end": [19, -19]},
+        {"id": "e-5502", "type": "line", "start": [19, -19], "end": [19, 19]},
+        {"id": "e-5503", "type": "line", "start": [19, 19], "end": [-19, 19]},
+        {"id": "e-5504", "type": "line", "start": [-19, 19], "end": [-19, -19]}
+      ],
+      "constraints": [
+        {"id": "c-5501", "type": "coincident", "points": ["e-5501.end", "e-5502.start"]},
+        {"id": "c-5502", "type": "coincident", "points": ["e-5502.end", "e-5503.start"]},
+        {"id": "c-5503", "type": "coincident", "points": ["e-5503.end", "e-5504.start"]},
+        {"id": "c-5504", "type": "coincident", "points": ["e-5504.end", "e-5501.start"]}
+      ]
+    },
+    {
+      "id": "f-ext55",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk55",
+        "regions": [
+          {"key": "e-5501,e-5502,e-5503,e-5504", "fp": "c=0,0|a=1444", "outline": "e-5501,e-5502,e-5503,e-5504"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "110 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil55",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext55/lateral/e-5502|f-ext55/lateral/e-5503)", "fp": "line|n=0,0,1|c=19,19,109|l=2|adj=2,2"},
+        {"q": "edge(f-ext55/lateral/e-5501|f-ext55/lateral/e-5504)", "fp": "line|n=0,0,1|c=-19,-19,109|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk55",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext55/end-cap", "fp": "plane|n=0,0,1|c=0,0,110|a=1443.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 110], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5505", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp55",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext55/end-cap", "fp": "plane|n=0,0,1|c=0,0,110|a=1443.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk56",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5601", "type": "line", "start": [-17.5, -17.5], "end": [17.5, -17.5]},
+        {"id": "e-5602", "type": "line", "start": [17.5, -17.5], "end": [17.5, 17.5]},
+        {"id": "e-5603", "type": "line", "start": [17.5, 17.5], "end": [-17.5, 17.5]},
+        {"id": "e-5604", "type": "line", "start": [-17.5, 17.5], "end": [-17.5, -17.5]}
+      ],
+      "constraints": [
+        {"id": "c-5601", "type": "coincident", "points": ["e-5601.end", "e-5602.start"]},
+        {"id": "c-5602", "type": "coincident", "points": ["e-5602.end", "e-5603.start"]},
+        {"id": "c-5603", "type": "coincident", "points": ["e-5603.end", "e-5604.start"]},
+        {"id": "c-5604", "type": "coincident", "points": ["e-5604.end", "e-5601.start"]}
+      ]
+    },
+    {
+      "id": "f-ext56",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk56",
+        "regions": [
+          {"key": "e-5601,e-5602,e-5603,e-5604", "fp": "c=0,0|a=1225", "outline": "e-5601,e-5602,e-5603,e-5604"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "112 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil56",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext56/lateral/e-5602|f-ext56/lateral/e-5603)", "fp": "line|n=0,0,1|c=17.5,17.5,111|l=2|adj=2,2"},
+        {"q": "edge(f-ext56/lateral/e-5601|f-ext56/lateral/e-5604)", "fp": "line|n=0,0,1|c=-17.5,-17.5,111|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk56",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext56/end-cap", "fp": "plane|n=0,0,1|c=0,0,112|a=1224.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 112], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5605", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp56",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext56/end-cap", "fp": "plane|n=0,0,1|c=0,0,112|a=1224.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk57",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5701", "type": "line", "start": [-16, -16], "end": [16, -16]},
+        {"id": "e-5702", "type": "line", "start": [16, -16], "end": [16, 16]},
+        {"id": "e-5703", "type": "line", "start": [16, 16], "end": [-16, 16]},
+        {"id": "e-5704", "type": "line", "start": [-16, 16], "end": [-16, -16]}
+      ],
+      "constraints": [
+        {"id": "c-5701", "type": "coincident", "points": ["e-5701.end", "e-5702.start"]},
+        {"id": "c-5702", "type": "coincident", "points": ["e-5702.end", "e-5703.start"]},
+        {"id": "c-5703", "type": "coincident", "points": ["e-5703.end", "e-5704.start"]},
+        {"id": "c-5704", "type": "coincident", "points": ["e-5704.end", "e-5701.start"]}
+      ]
+    },
+    {
+      "id": "f-ext57",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk57",
+        "regions": [
+          {"key": "e-5701,e-5702,e-5703,e-5704", "fp": "c=0,0|a=1024", "outline": "e-5701,e-5702,e-5703,e-5704"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "114 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil57",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext57/lateral/e-5702|f-ext57/lateral/e-5703)", "fp": "line|n=0,0,1|c=16,16,113|l=2|adj=2,2"},
+        {"q": "edge(f-ext57/lateral/e-5701|f-ext57/lateral/e-5704)", "fp": "line|n=0,0,1|c=-16,-16,113|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk57",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext57/end-cap", "fp": "plane|n=0,0,1|c=0,0,114|a=1023.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 114], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5705", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp57",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext57/end-cap", "fp": "plane|n=0,0,1|c=0,0,114|a=1023.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk58",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5801", "type": "line", "start": [-14.5, -14.5], "end": [14.5, -14.5]},
+        {"id": "e-5802", "type": "line", "start": [14.5, -14.5], "end": [14.5, 14.5]},
+        {"id": "e-5803", "type": "line", "start": [14.5, 14.5], "end": [-14.5, 14.5]},
+        {"id": "e-5804", "type": "line", "start": [-14.5, 14.5], "end": [-14.5, -14.5]}
+      ],
+      "constraints": [
+        {"id": "c-5801", "type": "coincident", "points": ["e-5801.end", "e-5802.start"]},
+        {"id": "c-5802", "type": "coincident", "points": ["e-5802.end", "e-5803.start"]},
+        {"id": "c-5803", "type": "coincident", "points": ["e-5803.end", "e-5804.start"]},
+        {"id": "c-5804", "type": "coincident", "points": ["e-5804.end", "e-5801.start"]}
+      ]
+    },
+    {
+      "id": "f-ext58",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk58",
+        "regions": [
+          {"key": "e-5801,e-5802,e-5803,e-5804", "fp": "c=0,0|a=841", "outline": "e-5801,e-5802,e-5803,e-5804"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "116 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil58",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext58/lateral/e-5802|f-ext58/lateral/e-5803)", "fp": "line|n=0,0,1|c=14.5,14.5,115|l=2|adj=2,2"},
+        {"q": "edge(f-ext58/lateral/e-5801|f-ext58/lateral/e-5804)", "fp": "line|n=0,0,1|c=-14.5,-14.5,115|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk58",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext58/end-cap", "fp": "plane|n=0,0,1|c=0,0,116|a=840.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 116], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5805", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp58",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext58/end-cap", "fp": "plane|n=0,0,1|c=0,0,116|a=840.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk59",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-5901", "type": "line", "start": [-13, -13], "end": [13, -13]},
+        {"id": "e-5902", "type": "line", "start": [13, -13], "end": [13, 13]},
+        {"id": "e-5903", "type": "line", "start": [13, 13], "end": [-13, 13]},
+        {"id": "e-5904", "type": "line", "start": [-13, 13], "end": [-13, -13]}
+      ],
+      "constraints": [
+        {"id": "c-5901", "type": "coincident", "points": ["e-5901.end", "e-5902.start"]},
+        {"id": "c-5902", "type": "coincident", "points": ["e-5902.end", "e-5903.start"]},
+        {"id": "c-5903", "type": "coincident", "points": ["e-5903.end", "e-5904.start"]},
+        {"id": "c-5904", "type": "coincident", "points": ["e-5904.end", "e-5901.start"]}
+      ]
+    },
+    {
+      "id": "f-ext59",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk59",
+        "regions": [
+          {"key": "e-5901,e-5902,e-5903,e-5904", "fp": "c=0,0|a=676", "outline": "e-5901,e-5902,e-5903,e-5904"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "118 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil59",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext59/lateral/e-5902|f-ext59/lateral/e-5903)", "fp": "line|n=0,0,1|c=13,13,117|l=2|adj=2,2"},
+        {"q": "edge(f-ext59/lateral/e-5901|f-ext59/lateral/e-5904)", "fp": "line|n=0,0,1|c=-13,-13,117|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk59",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext59/end-cap", "fp": "plane|n=0,0,1|c=0,0,118|a=675.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 118], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5905", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp59",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext59/end-cap", "fp": "plane|n=0,0,1|c=0,0,118|a=675.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    },
+    {
+      "id": "f-sk60",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-6001", "type": "line", "start": [-11.5, -11.5], "end": [11.5, -11.5]},
+        {"id": "e-6002", "type": "line", "start": [11.5, -11.5], "end": [11.5, 11.5]},
+        {"id": "e-6003", "type": "line", "start": [11.5, 11.5], "end": [-11.5, 11.5]},
+        {"id": "e-6004", "type": "line", "start": [-11.5, 11.5], "end": [-11.5, -11.5]}
+      ],
+      "constraints": [
+        {"id": "c-6001", "type": "coincident", "points": ["e-6001.end", "e-6002.start"]},
+        {"id": "c-6002", "type": "coincident", "points": ["e-6002.end", "e-6003.start"]},
+        {"id": "c-6003", "type": "coincident", "points": ["e-6003.end", "e-6004.start"]},
+        {"id": "c-6004", "type": "coincident", "points": ["e-6004.end", "e-6001.start"]}
+      ]
+    },
+    {
+      "id": "f-ext60",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk60",
+        "regions": [
+          {"key": "e-6001,e-6002,e-6003,e-6004", "fp": "c=0,0|a=529", "outline": "e-6001,e-6002,e-6003,e-6004"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "120 mm"},
+      "op": "join"
+    },
+    {
+      "id": "f-fil60",
+      "type": "fillet",
+      "body": "b-1",
+      "edges": [
+        {"q": "edge(f-ext60/lateral/e-6002|f-ext60/lateral/e-6003)", "fp": "line|n=0,0,1|c=11.5,11.5,119|l=2|adj=2,2"},
+        {"q": "edge(f-ext60/lateral/e-6001|f-ext60/lateral/e-6004)", "fp": "line|n=0,0,1|c=-11.5,-11.5,119|l=2|adj=2,2"}
+      ],
+      "radius": "0.5 mm"
+    },
+    {
+      "id": "f-fsk60",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext60/end-cap", "fp": "plane|n=0,0,1|c=0,0,120|a=528.892699|adj=6,6"},
+        "fallback": {"origin": [0, 0, 120], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-6005", "type": "circle", "center": [0, 0], "radius": 2}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-dp60",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext60/end-cap", "fp": "plane|n=0,0,1|c=0,0,120|a=528.892699|adj=6,6"}
+      },
+      "offset": "5 mm"
+    }
+  ]
+}

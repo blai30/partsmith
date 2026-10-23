@@ -28,13 +28,20 @@ import {
   expectPreviewShown,
   fillInspector,
 } from './support/modeling'
-import { app, clickAt, dimensionLabel, editSketchFromBrowser, sketchHeader } from './support/sketch'
+import {
+  app,
+  clickAt,
+  dimensionLabel,
+  editSketchFromBrowser,
+  sketchHeader,
+  sketchHint,
+} from './support/sketch'
 
 // The newcomer error corpus with the real core and UI (ui.md 6.5, E-110 to E-121; the newcomer
-// error corpus NC01 to NC12, whose texts these tests check exactly). Phase 3 of the plan
-// (reference-stability-and-errors.md 10.5) has no cause lines and no uses yet: phase 4 adds the
-// cause line of NC11 and its "Used by" item, used mark and sketch hint to E-120 (10.6), and NC08's
-// cause line is checked by engine.md test 150 only (ui.md open issue 24).
+// error corpus NC01 to NC12, whose texts these tests check exactly), cause lines and uses
+// included. NC08's cause line needs the edit stored in the session, which the dimension editor
+// refuses, so engine.md test 150 checks it (ui.md open issue 24) and E-117 checks that a document
+// opened fresh has none.
 
 /** Expects `names` to hold `expected` in this order, whatever else it holds. */
 function expectInOrder(names: readonly string[], expected: readonly string[]): void {
@@ -296,12 +303,29 @@ test.describe('newcomer errors', () => {
       ['Extrude 1', 'ok'],
       ['Fillet 1', 'ok'],
     ])
+    await timelineItem(page, 'Extrude 1')
+      .getByRole('button', { name: 'Extrude 1', exact: true })
+      .click({ button: 'right' })
+    await expect(
+      page
+        .getByTestId('context-menu')
+        .getByRole('menuitem', { name: "Used by 'Fillet 1'", exact: true }),
+    ).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('context-menu')).toBeHidden()
+
     await editSketchFromBrowser(page, 'Sketch 1')
+    const marks = page.getByTestId('entity-used')
+    await expect(marks).toHaveCount(1)
+    await expect(marks).toHaveAttribute('data-entity', 'e-3')
     const mapping = sketchToScreen(await canvas(page), [0, 0], [80, 50])
     // The back line, at its middle.
     await clickAt(page, mapping.toPage([40, 50]))
     await expect(page.getByTestId('selection-title')).toHaveText('1 line')
     await page.keyboard.press('Delete')
+    await expect(sketchHint(page)).toHaveText(
+      "'Fillet 1' uses the edge made from this line. Draw its replacement in the same place and 'Fillet 1' will follow it.",
+    )
     await expect(page.locator('[data-testid=notification][data-severity=error]')).toHaveCount(0)
 
     await page.keyboard.press('ControlOrMeta+Enter')
@@ -316,6 +340,9 @@ test.describe('newcomer errors', () => {
         { exact: true },
       ),
     ).toBeVisible()
+    await expect(lost.getByTestId('cause-line')).toHaveText(
+      "This started after you deleted the line from (80, 50) to (0, 50) in 'Sketch 1'.",
+    )
     expect(await notificationActions(lost)).toEqual(["Show what 'Extrude 1' lost", 'Undo'])
     await expect(page.locator('[data-testid=notification][data-code=feature_failed]')).toHaveCount(
       0,

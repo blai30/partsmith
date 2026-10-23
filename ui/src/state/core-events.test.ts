@@ -181,6 +181,21 @@ describe('applyCoreEvent', () => {
     expect(store.getState().document?.bareNumbers).toBe(0)
   })
 
+  it('starts a document without uses, and keeps the uses through its events until a newer result replaces them (2.8, 3.9)', () => {
+    const store = shownCube()
+    expect(store.getState().document?.uses).toBeNull()
+    const uses = {
+      revision: 3,
+      uses: [{ user: 'f-ext1', field: '/profile/sketch', feature: 'f-sk1' }],
+    }
+    store.setState((state) => ({
+      document: state.document === null ? null : { ...state.document, uses },
+    }))
+    applyCoreEvent(store, documentChanged(4))
+    applyCoreEvent(store, recomputed(4))
+    expect(store.getState().document?.uses).toEqual(uses)
+  })
+
   it('stores a print report with the revision it describes', () => {
     const store = shownCube()
     const report = printReport({

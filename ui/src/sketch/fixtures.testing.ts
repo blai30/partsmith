@@ -310,6 +310,7 @@ export function createFakeCore(methods: Partial<CoreApi>): CoreApi {
     applyEdits: unexpected('applyEdits'),
     applyFix: unexpected('applyFix'),
     setDocumentUnits: unexpected('setDocumentUnits'),
+    listUses: unexpected('listUses'),
     renameParameter: unexpected('renameParameter'),
     beginTransaction: unexpected('beginTransaction'),
     setFocus: unexpected('setFocus'),

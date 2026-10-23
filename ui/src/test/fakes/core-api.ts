@@ -70,6 +70,7 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     applyEdits: async () => ++revision,
     applyFix: async () => ++revision,
     setDocumentUnits: async () => ({ revision: ++revision, kept: 0 }),
+    listUses: async () => [],
     renameParameter: async () => ++revision,
     beginTransaction: async () => undefined,
     setFocus: async () => undefined,
@@ -159,6 +160,10 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     setDocumentUnits: (...args: Parameters<CoreApi['setDocumentUnits']>) => {
       record('setDocumentUnits', args)
       return implementation.setDocumentUnits(...args)
+    },
+    listUses: (...args: Parameters<CoreApi['listUses']>) => {
+      record('listUses', args)
+      return implementation.listUses(...args)
     },
     renameParameter: (...args: Parameters<CoreApi['renameParameter']>) => {
       record('renameParameter', args)

@@ -333,6 +333,55 @@ test('P-8 palette re-rank, 2,000 items: 95th percentile of ps:palette at most 8 
   ])
 })
 
+test('P-9 timeline drop check over 300 features: 95th percentile of ps:drop-check at most 1 ms @perf', async ({
+  page,
+}) => {
+  test.setTimeout(240_000)
+  await openApp(page)
+  await dropFile(page, 'part-300.ptsm')
+  const items = page.getByTestId('timeline-item')
+  await expect(items).toHaveCount(300)
+  // A drag asks for list_uses when it starts (3.9); opening an item's menu asks the same and shows
+  // "Used by" once they are known, so every drop check of the drag runs over the 300 features' uses.
+  await timelineItem(page, 'Extrude 1')
+    .getByRole('button', { name: 'Extrude 1', exact: true })
+    .click({ button: 'right' })
+  await expect(
+    page.getByTestId('context-menu').getByRole('menuitem', { name: /^Used by / }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('context-menu')).toBeHidden()
+
+  const last = items.last()
+  await last.scrollIntoViewIfNeeded()
+  const from = await last.boundingBox()
+  const strip = await page
+    .getByTestId('timeline')
+    .getByRole('toolbar', { name: 'Features' })
+    .boundingBox()
+  if (from === null || strip === null) {
+    throw new Error('The timeline strip or its last item is not visible.')
+  }
+  const start = { x: from.x + from.width / 2, y: from.y + from.height / 2 }
+  await page.mouse.move(start.x, start.y)
+  const since = await pageTime(page)
+  await page.mouse.down()
+  // The last feature dragged to the start of the strip in 120 pointer moves, over every gap shown.
+  await page.mouse.move(strip.x + 4, start.y, { steps: 120 })
+  // Esc cancels the drag (3.9), so the drop rebuilds nothing.
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  const checks = await measures(page, 'ps:drop-check', since)
+  expect.soft(checks.length, 'ps:drop-check measures during the drag').toBeGreaterThan(0)
+  expectWithinBudgets('P-9', [
+    {
+      statistic: 'ps:drop-check 95th percentile',
+      value: measuredPercentile(checks, 0.95),
+      budget: 1,
+    },
+  ])
+})
+
 test('P-10 applying document_changed plus recomputed for 50 features: 95th percentile of ps:apply-events at most 8 ms @perf', async ({
   page,
 }) => {

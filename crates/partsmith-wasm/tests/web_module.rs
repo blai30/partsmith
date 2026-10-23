@@ -1,6 +1,6 @@
-//! Runs the built web core module under Node (protocol.md section 2.10): `tests/node/engine_info_round_trip.mjs` loads `ui/public/core/partsmith_core.mjs` with its `.wasm`, round-trips an `engine_info` request through `ps_alloc`, `ps_call` and `ps_free`, and checks the response against this build's engine and format versions (test 48), so a module built before a version change fails.
+//! Runs the built web core module under Node (protocol.md section 2.10). `tests/node/engine_info_round_trip.mjs` loads `ui/public/core/partsmith_core.mjs` with its `.wasm`, round-trips an `engine_info` request through `ps_alloc`, `ps_call` and `ps_free`, and checks the response against this build's engine and format versions (test 48), so a module built before a version change fails. `tests/node/list_uses_round_trip.mjs` round-trips `new_document`, then `list_uses` of the new document (engine.md section 3.24), so a module built before that command existed fails too: adding a command changes neither version. Both scripts share the calling sequence of `tests/node/core.mjs`.
 //!
-//! Build the module with `scripts/build-wasm.sh` first. The test is skipped, with a message saying why, when Node or the built module is missing, unless `PARTSMITH_REQUIRE_WEB_MODULE` is `1`: then it fails instead, so the CI job that builds the module cannot pass without running the round trip (delivery.md section 6, test 7). Set `NODE` to use a Node other than the one on `PATH`.
+//! Build the module with `scripts/build-wasm.sh` first. The tests are skipped, with a message saying why, when Node or the built module is missing, unless `PARTSMITH_REQUIRE_WEB_MODULE` is `1`: then they fail instead, so the CI job that builds the module cannot pass without running the round trips (delivery.md section 6, test 7). Set `NODE` to use a Node other than the one on `PATH`.
 
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -54,8 +54,8 @@ fn skip_reason(module: &Path, wasm: &Path) -> Option<String> {
     }
 }
 
-#[test]
-fn built_module_round_trips_an_engine_info_request_under_node() {
+/// Runs the Node script `script` of `tests/node` against the built module with `arguments` after the module's two paths, and asserts that it succeeds; skips with a message when it cannot run here (see [`skip_reason`]).
+fn run_round_trip(script: &str, arguments: &[&str]) {
     let core = core_directory();
     let module = core.join("partsmith_core.mjs");
     let wasm = core.join("partsmith_core.wasm");
@@ -67,25 +67,39 @@ fn built_module_round_trips_an_engine_info_request_under_node() {
         eprintln!("skipped: {reason}");
         return;
     }
-    let script =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/node/engine_info_round_trip.mjs");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/node")
+        .join(script);
 
     let output = Command::new(node())
         .arg(&script)
         .arg(&module)
         .arg(&wasm)
-        .arg(ENGINE_VERSION)
-        .arg(FORMAT_VERSION.to_string())
+        .args(arguments)
         .output()
         .expect("Node ran a moment ago, so it starts again");
 
     assert!(
         output.status.success(),
-        "the round trip failed ({}). A stale module also fails; rebuild it with scripts/build-wasm.sh.\nstdout:\n{}\nstderr:\n{}",
+        "the round trip of {} failed ({}). A stale module also fails; rebuild it with scripts/build-wasm.sh.\nstdout:\n{}\nstderr:\n{}",
+        script.display(),
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn built_module_round_trips_an_engine_info_request_under_node() {
+    run_round_trip(
+        "engine_info_round_trip.mjs",
+        &[ENGINE_VERSION, &FORMAT_VERSION.to_string()],
+    );
+}
+
+#[test]
+fn built_module_answers_list_uses_of_a_new_document_under_node() {
+    run_round_trip("list_uses_round_trip.mjs", &[]);
 }
 
 #[test]

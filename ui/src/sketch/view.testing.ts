@@ -194,6 +194,8 @@ export function sketchHarness(
   let revision = 1
   const holder: { app: App | null } = { app: null }
   const core = createFakeCore({
+    // Nothing uses the sketch unless a test says so (ui.md 3.16.10).
+    listUses: () => Promise.resolve([]),
     solveSketch: (_handle, _feature, candidate) => {
       if (candidate !== undefined) {
         probes.push(candidate)

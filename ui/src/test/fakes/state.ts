@@ -76,6 +76,7 @@ export function documentStateFor(
     lastRebuildMilliseconds: null,
     bareNumbers: 0,
     ghosts: {},
+    uses: null,
     ...overrides,
   }
 }

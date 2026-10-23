@@ -1,8 +1,8 @@
-//! The protocol passes through `ps_call` unchanged (protocol.md section 2.10; the reference stability plan, sections 10.3 item 9, 10.4 and 10.5). The bridge answers the diagnostics, fixes and errors of ADR 0024, the documents of format version 2 (ADR 0025), the frames on the model of ADR 0023 (body-coordinate fallbacks and axis directions in descriptors, drag commits, `Attach` and `Turn the drawing back`) and the newcomer errors of phase 3 (sketch finding messages with `Connect the ends`, the conflict's Delete and Make a reference, `Put it in a new body`, renamed settings and misspelled parameter names, the limits that the kernel's solid counts and widths across edges find, `set_document_units` and `bare_numbers`) with the response frame that `Session::call` gives a session of the module's options (display on, random ids): nothing is added, dropped or reordered on the way through.
+//! The protocol passes through `ps_call` unchanged (protocol.md section 2.10; the reference stability plan, sections 10.3 item 9, 10.4, 10.5 and 10.6). The bridge answers the diagnostics, fixes and errors of ADR 0024, the documents of format version 2 (ADR 0025), the frames on the model of ADR 0023 (body-coordinate fallbacks and axis directions in descriptors, drag commits, `Attach` and `Turn the drawing back`), the newcomer errors of phase 3 (sketch finding messages with `Connect the ends`, the conflict's Delete and Make a reference, `Put it in a new body`, renamed settings and misspelled parameter names, the limits that the kernel's solid counts and widths across edges find, `set_document_units` and `bare_numbers`) and the causes, ghosts and uses of phase 4 (cause lines with their reverts, `Keep the sketch where it was`, Undo and Show, the ghosts of lost elements, lost regions and edited sketch entities with their buffers, and `list_uses`) with the response frame that `Session::call` gives a session of the module's options (display on, random ids): nothing is added, dropped or reordered on the way through.
 //!
 //! Each test sends its requests through `ps_call` (the `Block` helper) and to a reference `Session`, and compares the decoded frames. Document handles and mesh ids count per session, and on the Emscripten target every test shares the module's one session, so the comparison leaves those two numbers out, and a command that names a document or a mesh, such as a pick, names each side's own. A fix whose edits take a new id from the session's id generator (`Put it in a new body`, `Connect the ends`) gets a random id on each side, so the comparison of that frame reads each side's new ids as the same placeholders. Everything else, buffers included, must be equal. Each test also checks the new shape it is about in the bridge's frame, so an empty answer on both sides cannot pass.
 //!
-//! A test named `engine_tNNN` sends the documents and requests of engine.md section 6 test NNN, one named `engine_tNNN_ncMM` those of newcomer error corpus scenario NCMM in that test, and one named `file_format_tNNN` those of file-format.md section 6 test NNN; the bridge's own tests are protocol.md's (`tNNN` in the other test files).
+//! A test named `engine_tNNN` sends the documents and requests of engine.md section 6 test NNN, one named `engine_tNNN_ncMM` those of newcomer error corpus scenario NCMM in that test, one named `engine_tNNN_rMM` those of reference stability corpus scenario RMM in that test, and one named `file_format_tNNN` those of file-format.md section 6 test NNN; the bridge's own tests are protocol.md's (`tNNN` in the other test files).
 
 use crate::common;
 
@@ -12,7 +12,7 @@ use common::block::Block;
 use common::{error_info, ok_result, outcome_json, request_frame, response_frame};
 use partsmith_engine::{Session, SessionOptions};
 use partsmith_model::{FORMAT_VERSION, load, save};
-use partsmith_protocol::{ErrorCode, ResponseFrame};
+use partsmith_protocol::{Buffer, ErrorCode, ResponseFrame};
 use serde_json::{Value, json};
 
 /// File-format.md example E10: every field format version 2 adds (`nb`, `merged`, `outline`, `fallback_frame` and `direction`), exactly as `save` writes it.
@@ -360,30 +360,38 @@ fn events_of(frame: &ResponseFrame, event_type: &str) -> Vec<Value> {
         .collect()
 }
 
+/// The status of `feature` among the statuses of `recomputed`, a `recomputed` event as JSON.
+fn status_in<'a>(recomputed: &'a Value, feature: &str) -> Option<&'a Value> {
+    recomputed["features"]
+        .as_array()
+        .expect("recomputed lists its features")
+        .iter()
+        .find(|status| status["id"] == feature)
+}
+
 /// The status of `feature` in the frame's `recomputed` event.
 fn feature_status(frame: &ResponseFrame, feature: &str) -> Value {
     events_of(frame, "recomputed")
         .iter()
-        .flat_map(|event| {
-            event["features"]
-                .as_array()
-                .expect("recomputed lists its features")
-        })
-        .find(|status| status["id"] == feature)
+        .find_map(|event| status_in(event, feature))
         .unwrap_or_else(|| panic!("the frame has no recomputed status of {feature}"))
         .clone()
 }
 
-/// The first entry of the list `list` of `feature`'s status in the frame's `recomputed` event whose `key` is `value`.
-fn status_entry(frame: &ResponseFrame, feature: &str, list: &str, key: &str, value: &str) -> Value {
-    let status = feature_status(frame, feature);
+/// The first entry of the list `list` of `status`, a feature status as JSON, whose `key` is `value`.
+fn entry_of(status: &Value, list: &str, key: &str, value: &str) -> Value {
     status[list]
         .as_array()
         .unwrap_or_else(|| panic!("statuses list their {list}: {status}"))
         .iter()
         .find(|entry| entry[key] == value)
-        .unwrap_or_else(|| panic!("{feature} has none of its {list} with {key} {value}: {status}"))
+        .unwrap_or_else(|| panic!("the status has none of its {list} with {key} {value}: {status}"))
         .clone()
+}
+
+/// The first entry of the list `list` of `feature`'s status in the frame's `recomputed` event whose `key` is `value`.
+fn status_entry(frame: &ResponseFrame, feature: &str, list: &str, key: &str, value: &str) -> Value {
+    entry_of(&feature_status(frame, feature), list, key, value)
 }
 
 /// The message with `code` among the messages of `feature` in the frame's `recomputed` event.
@@ -570,11 +578,16 @@ fn listed_named(frame: &ResponseFrame, name: &str) -> Value {
     named(&listed(frame), name).clone()
 }
 
-/// The record of `feature` in the recipe `document`.
-fn feature_record(document: &Value, feature: &str) -> Value {
+/// The feature records of the recipe `document`, in timeline order.
+fn feature_records(document: &Value) -> &[Value] {
     document["features"]
         .as_array()
         .expect("documents list their features")
+}
+
+/// The record of `feature` in the recipe `document`.
+fn feature_record(document: &Value, feature: &str) -> Value {
+    feature_records(document)
         .iter()
         .find(|record| record["id"] == feature)
         .unwrap_or_else(|| panic!("the document has {feature}"))
@@ -2173,4 +2186,579 @@ fn engine_t150_nc09_apply_fix_of_use_2_mm_passes_through_with_the_fillet_built()
     assert_eq!(ok_result(&applied, "apply_fix")["revision"], 2);
     assert_ok_without_messages(&applied, "f-fil1");
     assert_eq!(record(&mut sides, 4, "f-fil1")["radius"], "2 mm");
+}
+
+// Causes, ghosts and uses (the reference stability plan, section 10.6). Each corpus setup is opened as written, without
+// picks, and its edit is applied as one `apply_edits` labeled `Edit`, so the actions it offers carry revision 1 (R26's
+// delete, a second `apply_edits`, makes revision 2). On the Emscripten target, ghost capture runs the kernel's display
+// geometry of single elements in WebAssembly (kernel.md K3).
+
+/// The label of the `apply_edits` that makes a corpus edit, as engine.md test 136 applies it.
+const EDIT_LABEL: &str = "Edit";
+
+/// How far a value of an `f32` buffer may lie from the value the spec gives it, relative to values larger than 1.
+const BUFFER_TOLERANCE: f64 = 1e-5;
+
+/// The ids of the rabbet ('Sketch 1' and 'Extrude 1') that corpus R16's edit inserts before the fillet.
+const RABBET: [&str; 2] = ["f-sk2", "f-ext2"];
+
+/// The label of the cause action of corpus R26 that stores the placement the sketch was built with.
+const KEEP_THE_SKETCH_WHERE_IT_WAS: &str = "Keep the sketch where it was";
+
+/// The cause line of corpus R26 after its delete: the boss's extrude is 'Extrude 1' now.
+const R26_CAUSE: &str = "This started after you deleted the former 'Extrude 1'.";
+
+/// The cause line of every message newcomer error NC11 gives.
+const NC11_CAUSE: &str =
+    "This started after you deleted the line from (80, 50) to (0, 50) in 'Sketch 1'.";
+
+/// The `apply_edits` command labeled `label` with the model edits `edits` for the side's document.
+fn apply_edits(side: &Side, label: &str, edits: &Value) -> Value {
+    json!({"type": "apply_edits", "doc": side.doc, "label": label, "edits": edits})
+}
+
+/// The `update_feature` edit that stores `record` in place of the record with its id.
+fn update_feature(record: Value) -> Value {
+    json!({"type": "update_feature", "feature": record})
+}
+
+/// The `add_feature` edit that inserts `record` at timeline position `index`.
+fn add_feature(index: usize, record: Value) -> Value {
+    json!({"type": "add_feature", "index": index, "feature": record})
+}
+
+/// The `remove_feature` edit of `feature`.
+fn remove_feature(feature: &str) -> Value {
+    json!({"type": "remove_feature", "id": feature})
+}
+
+/// The `list_uses` command for the side's document.
+fn list_uses(side: &Side) -> Value {
+    json!({"type": "list_uses", "doc": side.doc})
+}
+
+/// Opens `setup` on both sides as request 1 and applies `edits` as one `apply_edits` labeled [`EDIT_LABEL`] as request 2; returns the bridge's frame of the edit.
+fn after_edit(sides: &mut SideBySide, setup: &str, edits: &Value) -> ResponseFrame {
+    sides.open(1, setup);
+    let edited = sides.send(2, |side| apply_edits(side, EDIT_LABEL, edits));
+    assert_eq!(ok_result(&edited, "apply_edits")["revision"], 1);
+    edited
+}
+
+/// The feature records of the document `text`, in timeline order.
+fn features_of(text: &str) -> Vec<Value> {
+    let document: Value = serde_json::from_str(text).expect("documents are JSON");
+    feature_records(&document).to_vec()
+}
+
+/// A circle entity at `center` with `radius`.
+fn circle(entity: &str, center: [f64; 2], radius: f64) -> Value {
+    json!({"id": entity, "type": "circle", "center": center, "radius": radius})
+}
+
+/// BLOCK's top, as a face sketch stores it.
+fn block_top() -> Value {
+    json!({"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"})
+}
+
+/// BLOCK's back top edge, along the line `e-3` from (80, 50) to (0, 50).
+fn block_back_top() -> Value {
+    json!({"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)", "fp": "line|n=1,0,0|c=40,50,30|l=80|adj=2,2"})
+}
+
+/// Corpus R12's round pocket `f-ext2`: the circle `e-5` of `f-sk2` at (40, 25) with radius 10, cut `depth` down from BLOCK's top.
+fn round_pocket(depth: &str) -> Value {
+    let mut pocket = extrude(
+        "f-ext2",
+        "f-sk2",
+        json!([{"key": "e-5", "fp": "c=40,25|a=314.159265"}]),
+        depth,
+        "cut",
+    );
+    pocket["reverse"] = json!(true);
+    pocket
+}
+
+/// Corpus R12 before its edit: BLOCK, the datum plane `f-dp1` at its top, the circle `e-5` of `f-sk2` on it, the pocket `f-ext2` 5 deep, and a fillet `f-fil1` of 2 on the pocket's floor edge.
+fn pocket_with_a_floor_fillet() -> String {
+    let mut features = block("30");
+    features.extend([
+        json!({"id": "f-dp1", "type": "datum_plane", "base": xy_plane(), "offset": "30"}),
+        sketch(
+            "f-sk2",
+            json!({"kind": "datum", "feature": "f-dp1"}),
+            vec![circle("e-5", [40.0, 25.0], 10.0)],
+            Vec::new(),
+        ),
+        round_pocket("5"),
+        fillet(
+            json!({"q": "edge(f-ext2/end-cap|f-ext2/lateral/e-5)", "fp": "circle|n=0,0,1|c=40,25,25|l=62.831853|r=10|adj=2,1"}),
+            "2",
+        ),
+    ]);
+    body_1_text(Vec::new(), features)
+}
+
+/// Corpus R12's edit: the pocket made 30 deep, through the block, so its floor and the fillet's edge are gone.
+fn pocket_made_through() -> Value {
+    json!([update_feature(round_pocket("30"))])
+}
+
+/// Whether `record` is one of the [`RABBET`] records.
+fn is_rabbet(record: &Value) -> bool {
+    RABBET.iter().any(|feature| record["id"] == *feature)
+}
+
+/// Corpus R16 before its edit: CUBE20 with a fillet of 2 on its front top edge, [`CUT_AWAY_EDGE_TEXT`] without the rabbet.
+fn cube_with_a_front_top_fillet() -> String {
+    let features = features_of(CUT_AWAY_EDGE_TEXT)
+        .into_iter()
+        .filter(|record| !is_rabbet(record))
+        .collect();
+    body_1_text(Vec::new(), features)
+}
+
+/// Corpus R16's edit: the rabbet of [`CUT_AWAY_EDGE_TEXT`] inserted before the fillet, at timeline positions 1 and 2.
+fn rabbet_inserted() -> Value {
+    let rabbet = features_of(CUT_AWAY_EDGE_TEXT)
+        .into_iter()
+        .filter(is_rabbet)
+        .enumerate()
+        .map(|(offset, record)| add_feature(1 + offset, record))
+        .collect();
+    Value::Array(rabbet)
+}
+
+/// Corpus R26 before its edits: BLOCK, a face sketch `f-sk2` on its top with its fallback at (0, 0, 30) in body coordinates and the circle `e-5` at (40, 25) with radius 10, and the boss `f-ext2` joined 10 tall from it.
+fn boss_on_the_block_top() -> String {
+    let mut features = block("30");
+    features.extend([
+        sketch(
+            "f-sk2",
+            face_plane(block_top(), [0.0, 0.0, 30.0], Some("body")),
+            vec![circle("e-5", [40.0, 25.0], 10.0)],
+            Vec::new(),
+        ),
+        extrude(
+            "f-ext2",
+            "f-sk2",
+            json!([{"key": "e-5", "fp": "c=40,25|a=314.159265"}]),
+            "10",
+            "join",
+        ),
+    ]);
+    body_1_text(Vec::new(), features)
+}
+
+/// Corpus R26 after edit (1), BLOCK made 80 tall (request 2, labeled `Edit`), and the delete of 'Extrude 1' (request 3, labeled `Delete`), the first two of the three `apply_edits` engine.md test 136 applies; returns the bridge's frame of the delete, which makes the boss's extrude 'Extrude 1'.
+fn r26_after_the_delete(sides: &mut SideBySide) -> ResponseFrame {
+    let taller = json!([update_feature(block("80")[1].clone())]);
+    after_edit(sides, &boss_on_the_block_top(), &taller);
+    let deleted = sides.send(3, |side| {
+        apply_edits(side, "Delete", &json!([remove_feature("f-ext1")]))
+    });
+    assert_eq!(ok_result(&deleted, "apply_edits")["revision"], 2);
+    deleted
+}
+
+/// BLOCK with a fillet `f-fil1` of 2 on its back top edge, then `more` features (newcomer error NC11 before its edit, and engine.md test 143).
+fn block_with_a_back_top_fillet(more: Vec<Value>) -> String {
+    let mut features = block("30");
+    features.push(fillet(block_back_top(), "2"));
+    features.extend(more);
+    body_1_text(Vec::new(), features)
+}
+
+/// NC11's edit: the back line `e-3` of BLOCK's outline deleted, which leaves the outline open.
+fn back_line_deleted() -> Value {
+    let mut outline = rectangle(80.0, 50.0);
+    outline.remove(2);
+    json!([update_feature(sketch(
+        "f-sk1",
+        xy_plane(),
+        outline,
+        Vec::new()
+    ))])
+}
+
+/// The first message of `feature` in the frame's `recomputed` event: its error, else its first warning or notice.
+fn first_message(frame: &ResponseFrame, feature: &str) -> Value {
+    let status = feature_status(frame, feature);
+    status["messages"]
+        .as_array()
+        .and_then(|messages| messages.first())
+        .cloned()
+        .unwrap_or_else(|| panic!("{feature} has a message: {status}"))
+}
+
+/// The cause of `message`.
+fn cause_of(message: &Value) -> &Value {
+    message
+        .get("cause")
+        .filter(|cause| cause.is_object())
+        .unwrap_or_else(|| panic!("the message has a cause: {message}"))
+}
+
+/// The label and the run kind of each action of `holder`, a message or a cause, in order.
+fn labels_and_kinds(holder: &Value) -> Vec<(&str, &str)> {
+    actions(holder)
+        .iter()
+        .map(|action| {
+            (
+                action["label"].as_str().expect("actions have labels"),
+                action["run"]["kind"]
+                    .as_str()
+                    .expect("actions say how they run"),
+            )
+        })
+        .collect()
+}
+
+/// Asserts the cause of `message`: its text, the feature it names, and the label and run kind of each of its actions, in order; returns the cause.
+#[track_caller]
+fn assert_cause(
+    message: &Value,
+    text: &str,
+    feature: Option<&str>,
+    offered: &[(&str, &str)],
+) -> Value {
+    let cause = cause_of(message);
+    assert_eq!(cause["text"], text, "{cause}");
+    assert_eq!(
+        cause.get("feature").and_then(Value::as_str),
+        feature,
+        "{cause}"
+    );
+    assert_eq!(labels_and_kinds(cause), offered, "{cause}");
+    cause.clone()
+}
+
+/// The values of the `f32` buffer of `frame` that `ghost` names as its positions.
+fn ghost_values(frame: &ResponseFrame, ghost: &Value) -> Vec<f32> {
+    let index = ghost["positions"]
+        .as_u64()
+        .and_then(|index| usize::try_from(index).ok())
+        .unwrap_or_else(|| panic!("a ghost names its buffer: {ghost}"));
+    frame
+        .buffers
+        .get(index)
+        .and_then(Buffer::as_f32)
+        .unwrap_or_else(|| panic!("buffer {index} of the frame holds f32 values: {ghost}"))
+        .to_vec()
+}
+
+/// Whether `actual`, a point read from an `f32` buffer, lies within [`BUFFER_TOLERANCE`] of `expected`.
+fn same_point(actual: &[f32], expected: &[f64]) -> bool {
+    actual.len() == expected.len()
+        && actual.iter().zip(expected).all(|(value, wanted)| {
+            (f64::from(*value) - wanted).abs() <= BUFFER_TOLERANCE * wanted.abs().max(1.0)
+        })
+}
+
+/// Asserts that `ghost`, whose buffer travels in `frame`, joins its points as lines into exactly the segments `expected`, each from a start to an end point of `N` coordinates, in any order and each in either direction.
+#[track_caller]
+fn assert_ghost_segments<const N: usize>(
+    frame: &ResponseFrame,
+    ghost: &Value,
+    expected: &[([f64; N], [f64; N])],
+) {
+    assert_eq!(ghost["kind"], "lines", "{ghost}");
+    let values = ghost_values(frame, ghost);
+    assert_eq!(
+        values.len(),
+        2 * N * expected.len(),
+        "the ghost holds {} segments: {values:?}",
+        expected.len()
+    );
+    let mut unmatched: Vec<&[f32]> = values.chunks(2 * N).collect();
+    for (start, end) in expected {
+        let position = unmatched
+            .iter()
+            .position(|segment| {
+                let (first, second) = segment.split_at(N);
+                (same_point(first, start) && same_point(second, end))
+                    || (same_point(first, end) && same_point(second, start))
+            })
+            .unwrap_or_else(|| {
+                panic!("the ghost has the segment from {start:?} to {end:?}: {unmatched:?}")
+            });
+        unmatched.remove(position);
+    }
+}
+
+/// The status of `feature` in the only `recomputed` event of a frame as its bytes hold it (see [`wire_header`]).
+fn wire_status(frame: &[u8], feature: &str) -> Value {
+    status_in(&wire_event(frame, "recomputed"), feature)
+        .unwrap_or_else(|| panic!("the frame has no recomputed status of {feature}"))
+        .clone()
+}
+
+#[test]
+fn engine_t136_r12_a_cause_passes_through_with_set_distance_back_and_undo() {
+    let mut sides = SideBySide::new();
+
+    let edited = after_edit(
+        &mut sides,
+        &pocket_with_a_floor_fillet(),
+        &pocket_made_through(),
+    );
+
+    let message = first_message(&edited, "f-fil1");
+    let cause = assert_cause(
+        &message,
+        "This started after you changed Distance of 'Extrude 2' from 5 mm to 30 mm.",
+        Some("f-ext2"),
+        &[
+            ("Set Distance of 'Extrude 2' back to 5 mm", "apply"),
+            ("Undo", "undo"),
+        ],
+    );
+    assert_eq!(
+        actions(&cause)[0]["run"],
+        json!({"kind": "apply", "fix": {
+            "feature": "f-fil1", "code": message["code"], "field": message["field"],
+            "cause": true, "index": 0, "revision": 1
+        }})
+    );
+    assert!(
+        cause.get("ghost").is_none(),
+        "a field change has no ghost: {cause}"
+    );
+}
+
+#[test]
+fn engine_t136_r12_a_message_writes_its_cause_right_after_its_actions_through_ps_call() {
+    // Protocol.md test 72: a diagnostic writes `cause` after `actions`, and a cause `text`, `feature`, then `actions`.
+    let mut sides = SideBySide::new();
+    sides.open(1, &pocket_with_a_floor_fillet());
+
+    let edited = sides.send_raw(2, |side| {
+        apply_edits(side, EDIT_LABEL, &pocket_made_through())
+    });
+
+    let status = wire_status(&edited, "f-fil1");
+    let message = &status["messages"][0];
+    let keys = keys_of(message);
+    let actions_at = keys.iter().position(|key| key == "actions");
+    let cause_at = keys.iter().position(|key| key == "cause");
+    assert!(
+        actions_at.is_some() && cause_at == actions_at.map(|position| position + 1),
+        "{keys:?}"
+    );
+    assert_eq!(keys_of(&message["cause"]), ["text", "feature", "actions"]);
+}
+
+#[test]
+fn engine_t136_r12_apply_fix_of_set_distance_back_passes_through_giving_back_the_text() {
+    let mut sides = SideBySide::new();
+    sides.open(1, &pocket_with_a_floor_fillet());
+    let before = saved_text(&mut sides, 2);
+    let edited = sides.send(3, |side| {
+        apply_edits(side, EDIT_LABEL, &pocket_made_through())
+    });
+    let revert = actions(cause_of(&first_message(&edited, "f-fil1")))[0].clone();
+
+    let applied = sides.send(4, |side| apply_fix(side, &revert["run"]["fix"]));
+
+    assert_eq!(ok_result(&applied, "apply_fix")["revision"], 2);
+    assert_ok_without_messages(&applied, "f-fil1");
+    assert_eq!(saved_text(&mut sides, 5), before);
+}
+
+#[test]
+fn engine_t136_r16_a_cause_of_an_inserted_cut_passes_through_with_suppress_and_undo() {
+    let mut sides = SideBySide::new();
+
+    let edited = after_edit(
+        &mut sides,
+        &cube_with_a_front_top_fillet(),
+        &rabbet_inserted(),
+    );
+
+    // The added sketch reaches the fillet only through the added extrude, so it is not counted.
+    assert_cause(
+        &first_message(&edited, "f-fil1"),
+        "This started after you added 'Extrude 1' before this fillet.",
+        Some("f-ext2"),
+        &[("Suppress 'Extrude 1'", "apply"), ("Undo", "undo")],
+    );
+}
+
+#[test]
+fn engine_t136_r26_a_plane_fallback_passes_through_with_keep_the_sketch_where_it_was() {
+    let mut sides = SideBySide::new();
+
+    let deleted = r26_after_the_delete(&mut sides);
+
+    let cause = assert_cause(
+        &feature_message(&deleted, "f-sk2", "plane_fallback"),
+        R26_CAUSE,
+        Some("f-ext1"),
+        &[(KEEP_THE_SKETCH_WHERE_IT_WAS, "apply"), ("Undo", "undo")],
+    );
+    assert_eq!(
+        actions(&cause)[0]["run"],
+        json!({"kind": "apply", "fix": {
+            "feature": "f-sk2", "code": "plane_fallback", "field": "/plane/face",
+            "cause": true, "index": 0, "revision": 2
+        }})
+    );
+}
+
+#[test]
+fn engine_t136_r26_apply_fix_of_keep_the_sketch_where_it_was_passes_through_with_the_fallback_in_body_coordinates()
+ {
+    let mut sides = SideBySide::new();
+    let deleted = r26_after_the_delete(&mut sides);
+    let warning = feature_message(&deleted, "f-sk2", "plane_fallback");
+    let keep = action_labeled(cause_of(&warning), KEEP_THE_SKETCH_WHERE_IT_WAS);
+
+    let applied = sides.send(4, |side| apply_fix(side, &keep["run"]["fix"]));
+
+    assert_eq!(ok_result(&applied, "apply_fix")["revision"], 3);
+    // The placement the sketch was built with before the delete, on the 80 tall block's top.
+    let plane = record(&mut sides, 5, "f-sk2")["plane"].clone();
+    assert_level_placement(&plane["fallback"], [0.0, 0.0, 80.0], "fallback");
+    assert_eq!(plane["fallback_frame"], "body", "{plane}");
+}
+
+#[test]
+fn engine_t141_r16_an_element_ghost_passes_through_with_the_lost_edge_in_its_buffer() {
+    let mut sides = SideBySide::new();
+
+    let edited = after_edit(
+        &mut sides,
+        &cube_with_a_front_top_fillet(),
+        &rabbet_inserted(),
+    );
+
+    let repair = feature_repair(&edited, "f-fil1", "/edges/0");
+    let ghost = &repair["ghost"];
+    assert_eq!(ghost["frame"], "world", "{repair}");
+    assert_ghost_segments(
+        &edited,
+        ghost,
+        &[([-10.0, -10.0, 20.0], [10.0, -10.0, 20.0])],
+    );
+}
+
+#[test]
+fn engine_t142_nc11_a_region_ghost_passes_through_with_the_outline_in_its_buffer() {
+    let mut sides = SideBySide::new();
+
+    let edited = after_edit(
+        &mut sides,
+        &block_with_a_back_top_fillet(Vec::new()),
+        &back_line_deleted(),
+    );
+
+    let repair = feature_repair(&edited, "f-ext1", "/profile/regions/0");
+    let ghost = &repair["ghost"];
+    assert_eq!(ghost["frame"], "sketch", "{repair}");
+    assert_ghost_segments(
+        &edited,
+        ghost,
+        &[
+            ([0.0, 0.0], [80.0, 0.0]),
+            ([80.0, 0.0], [80.0, 50.0]),
+            ([80.0, 50.0], [0.0, 50.0]),
+            ([0.0, 50.0], [0.0, 0.0]),
+        ],
+    );
+}
+
+#[test]
+fn engine_t142_nc11_a_cause_ghost_passes_through_with_the_deleted_line_in_its_buffer() {
+    let mut sides = SideBySide::new();
+
+    let edited = after_edit(
+        &mut sides,
+        &block_with_a_back_top_fillet(Vec::new()),
+        &back_line_deleted(),
+    );
+
+    let cause = assert_cause(
+        &feature_message(&edited, "f-ext1", "profile_not_found"),
+        NC11_CAUSE,
+        Some("f-sk1"),
+        &[("Undo", "undo"), ("Show the line", "show")],
+    );
+    assert_eq!(
+        actions(&cause)[1]["run"],
+        json!({"kind": "show", "feature": "f-sk1", "entity": "e-3"})
+    );
+    let ghost = &cause["ghost"];
+    assert_eq!(ghost["frame"], "sketch", "{cause}");
+    assert_ghost_segments(&edited, ghost, &[([80.0, 50.0], [0.0, 50.0])]);
+}
+
+#[test]
+fn engine_t142_nc11_an_empty_body_passes_through_with_its_root_and_the_same_cause() {
+    let mut sides = SideBySide::new();
+
+    let edited = after_edit(
+        &mut sides,
+        &block_with_a_back_top_fillet(Vec::new()),
+        &back_line_deleted(),
+    );
+
+    let empty = feature_message(&edited, "f-fil1", "body_empty");
+    assert_eq!(empty["root"], "f-ext1", "{empty}");
+    assert_eq!(cause_of(&empty)["text"], NC11_CAUSE);
+}
+
+#[test]
+fn engine_t142_nc11_ghosts_are_written_last_through_ps_call() {
+    // Protocol.md tests 68 and 72: a repair and a cause each write `ghost` after their other keys.
+    let mut sides = SideBySide::new();
+    sides.open(1, &block_with_a_back_top_fillet(Vec::new()));
+
+    let edited = sides.send_raw(2, |side| {
+        apply_edits(side, EDIT_LABEL, &back_line_deleted())
+    });
+
+    let status = wire_status(&edited, "f-ext1");
+    let repair = entry_of(&status, "repairs", "path", "/profile/regions/0");
+    assert_eq!(
+        keys_of(&repair).last().map(String::as_str),
+        Some("ghost"),
+        "{repair}"
+    );
+    let message = entry_of(&status, "messages", "code", "profile_not_found");
+    assert_eq!(
+        keys_of(&message["cause"]),
+        ["text", "feature", "actions", "ghost"]
+    );
+}
+
+#[test]
+fn engine_t143_list_uses_passes_through_unchanged() {
+    let mut sides = SideBySide::new();
+    let right_side_plane = json!({
+        "kind": "face", "body": "b-1",
+        "face": {"q": "f-ext1/lateral/e-2", "fp": "plane|n=1,0,0|c=80,25,15|a=1500|adj=4,4"},
+        "fallback": {"origin": [80, 0, 0], "x_axis": [0, 1, 0], "normal": [1, 0, 0]}
+    });
+    sides.open(
+        1,
+        &block_with_a_back_top_fillet(vec![sketch(
+            "f-sk2",
+            right_side_plane,
+            vec![circle("e-5", [25.0, 15.0], 4.0)],
+            Vec::new(),
+        )]),
+    );
+
+    let listed = sides.send(2, list_uses);
+
+    assert_eq!(
+        ok_result(&listed, "list_uses")["uses"],
+        json!([
+            {"user": "f-ext1", "field": "/profile/sketch", "feature": "f-sk1"},
+            {"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1"},
+            {"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1", "entity": "e-3"},
+            {"user": "f-sk2", "field": "/plane/face", "feature": "f-ext1", "entity": "e-2"}
+        ])
+    );
+    assert!(listed.events.is_empty(), "list_uses emits nothing");
 }

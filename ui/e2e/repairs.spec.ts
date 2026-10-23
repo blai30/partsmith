@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   canvas,
   download,
@@ -7,6 +7,7 @@ import {
   expectHover,
   fixtureBytes,
   inspector,
+  inspectorInput,
   openApp,
   runCommand,
   sketchToScreen,
@@ -21,14 +22,38 @@ import {
   openProblems,
   problemRow,
 } from './support/documents'
-import { dragTo, expectPreviewShown, fillInspector, timelineGap } from './support/modeling'
+import { expectPreviewShown, fillInspector, timelineGap } from './support/modeling'
 import { app, clickAt, editSketchFromBrowser, expectNoHover, sketchHint } from './support/sketch'
 
-// Lost references with the real core (ui.md 6.5, E-109 and E-123 to E-126; the reference
-// stability study section 6.3): a notification for every new loss, repair mode, the core's fixes
-// and notes. Phase 1 of the plan (reference-stability-and-errors.md 10.3) has no cause lines,
-// ghosts or uses yet: phase 4 adds the cause lines and their reverts, the repair ghost, the drop
-// hint and the used marks of these tests (10.6).
+// Lost references with the real core (ui.md 6.5, E-109 and E-122 to E-126; the reference
+// stability study section 6.3): a notification for every new loss with its cause line, repair mode
+// with the lost element's ghost, the core's fixes and the cause's reverts, the drop hint, used
+// marks and notes.
+
+/** The text of the stale_fix error (protocol.md 4, engine.md 3.22). */
+const STALE_FIX =
+  'This fix no longer applies because the document changed after it was offered. Look at the problem again.'
+
+/** The loss notification of 'Fillet 1' (ui.md 4.2), whatever else is shown. */
+function filletLoss(page: Page): Locator {
+  return page.getByTestId('notification').filter({ hasText: "'Fillet 1' lost" })
+}
+
+/** Edits 'Linear pattern 1' of pattern-fillet.ptsm to Count 2 and confirms, as E-122 and E-124 do. */
+async function lowerPatternCount(page: Page): Promise<void> {
+  await timelineItem(page, 'Linear pattern 1')
+    .getByRole('button', { name: 'Linear pattern 1', exact: true })
+    .dblclick()
+  await expect(inspector(page)).toHaveAccessibleName('Linear pattern 1')
+  await fillInspector(page, 'Count', '2')
+  await page.keyboard.press('Enter')
+  await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'warning')
+}
+
+/** Expects the names in this order among `names`, whatever else it holds between them. */
+function expectInOrder(names: readonly string[], expected: readonly string[]): void {
+  expect(names.filter((name) => expected.includes(name))).toEqual(expected)
+}
 
 test.describe('lost references and their fixes', () => {
   test('E-109 corpus R03: a line deleted in a sketch session notifies once when the session ends', async ({
@@ -41,7 +66,13 @@ test.describe('lost references and their fixes', () => {
     const mapping = sketchToScreen(await canvas(page), [0, 0], [80, 50])
     await clickAt(page, mapping.toPage([75, 45]))
     await expect(page.getByTestId('selection-title')).toHaveText('1 line')
+    await expect(page.locator('[data-testid=entity-used][data-entity="e-5"]')).toHaveAccessibleName(
+      "Used by 'Fillet 1'",
+    )
     await page.keyboard.press('Delete')
+    await expect(sketchHint(page)).toHaveText(
+      "'Fillet 1' uses the edge made from this line. Draw its replacement in the same place and 'Fillet 1' will follow it.",
+    )
     await expect(page.getByTestId('notification')).toHaveCount(0)
 
     await page.keyboard.press('ControlOrMeta+Enter')
@@ -53,6 +84,9 @@ test.describe('lost references and their fixes', () => {
         exact: true,
       }),
     ).toBeVisible()
+    await expect(lost.getByTestId('cause-line')).toHaveText(
+      "This started after you deleted the line from (80, 40) to (70, 50) in 'Sketch 1'.",
+    )
     expect(await notificationActions(lost)).toEqual(["Show what 'Fillet 1' lost", 'Undo'])
     await expect(timelineItem(page, 'Extrude 1')).toHaveAttribute('data-status', 'ok')
     await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'warning')
@@ -65,10 +99,20 @@ test.describe('lost references and their fixes', () => {
     const names = await buttonNames(row)
     const uses = names.filter((name) => name.startsWith('Use '))
     expect(uses.length).toBeGreaterThan(0)
-    const remove = names.indexOf('Remove from Edges')
-    const pick = names.indexOf('Pick an edge again')
-    expect(names.indexOf(uses.at(-1) ?? '')).toBeLessThan(remove)
-    expect(remove).toBeLessThan(pick)
+    expectInOrder(names, [
+      uses.at(-1) ?? '',
+      'Remove from Edges',
+      'Pick an edge again',
+      'Undo',
+      'Show the line',
+    ])
+    await expect(row.getByTestId('cause-line')).toHaveText(
+      "This started after you deleted the line from (80, 40) to (70, 50) in 'Sketch 1'.",
+    )
+
+    await row.getByRole('button', { name: 'Show the line', exact: true }).click()
+    await expect(page.getByTestId('cause-ghost')).toHaveCount(1)
+    await expect(page.getByTestId('cause-ghost')).toBeVisible()
 
     await row.getByRole('button', { name: 'Remove from Edges', exact: true }).click()
     await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'ok')
@@ -98,13 +142,19 @@ test.describe('lost references and their fixes', () => {
     await expect(
       lost.getByText("'Fillet 1' lost the front top edge of 'Box 1'.", { exact: true }),
     ).toBeVisible()
-    expect(await notificationActions(lost)).toEqual(["Show what 'Fillet 1' lost", 'Undo'])
+    await expect(lost.getByTestId('cause-line')).toHaveText(
+      "This started after you unsuppressed 'Extrude 1'.",
+    )
+    expect(await notificationActions(lost)).toEqual([
+      "Show what 'Fillet 1' lost",
+      "Suppress 'Extrude 1'",
+      'Undo',
+    ])
 
     await lost.getByRole('button', { name: "Show what 'Fillet 1' lost", exact: true }).click()
     await expect(inspector(page)).toHaveAccessibleName('Fillet 1')
     await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
-    // Without a ghost from the core (phase 4), the stored centroid is ringed.
-    await expect(page.getByTestId('repair-marker')).toHaveCount(1)
+    await expect(page.getByTestId('repair-ghost')).toHaveCount(1)
     expect(await page.getByTestId('repair-candidate').count()).toBeGreaterThanOrEqual(2)
     const candidates = inspector(page).getByTestId('repair-candidate-button')
     await expect(candidates.nth(0)).toContainText(
@@ -124,14 +174,8 @@ test.describe('lost references and their fixes', () => {
     await openApp(page)
     await dropFile(page, 'pattern-fillet.ptsm')
     await expectTimeline(page, ['Box 1', 'Linear pattern 1', 'Fillet 1'])
-    await timelineItem(page, 'Linear pattern 1')
-      .getByRole('button', { name: 'Linear pattern 1', exact: true })
-      .dblclick()
-    await expect(inspector(page)).toHaveAccessibleName('Linear pattern 1')
-    await fillInspector(page, 'Count', '2')
-    await page.keyboard.press('Enter')
+    await lowerPatternCount(page)
 
-    await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'warning')
     const lost = await expectOnlyNotification(page)
     await expect(lost).toHaveAttribute('data-severity', 'warning')
     await expect(
@@ -140,7 +184,59 @@ test.describe('lost references and their fixes', () => {
         { exact: true },
       ),
     ).toBeVisible()
-    expect(await notificationActions(lost)).toEqual(["Show what 'Fillet 1' lost", 'Undo'])
+    await expect(lost.getByTestId('cause-line')).toHaveText(
+      "This started after you changed Count of 'Linear pattern 1' from 3 to 2.",
+    )
+    expect(await notificationActions(lost)).toEqual([
+      "Show what 'Fillet 1' lost",
+      "Set Count of 'Linear pattern 1' back to 3",
+      'Undo',
+    ])
+
+    await lost
+      .getByRole('button', { name: "Set Count of 'Linear pattern 1' back to 3", exact: true })
+      .click()
+    await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'ok')
+    await expect(filletLoss(page)).toHaveCount(0)
+
+    await page.keyboard.press('ControlOrMeta+Z')
+    await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'warning')
+  })
+
+  test('E-122 a fix offered before an unrelated edit reports that it no longer applies', async ({
+    page,
+  }) => {
+    await openApp(page)
+    await dropFile(page, 'pattern-fillet.ptsm')
+    await expectTimeline(page, ['Box 1', 'Linear pattern 1', 'Fillet 1'])
+    await lowerPatternCount(page)
+    const lost = filletLoss(page)
+    await expect(lost).toHaveCount(1)
+
+    // With the pointer over the notification, so its timer waits, an unrelated edit from the palette.
+    await lost.hover()
+    await page.keyboard.press('ControlOrMeta+K')
+    const input = page.getByTestId('palette-input')
+    await expect(input).toBeFocused()
+    await input.fill('Units: cm')
+    await expect(page.getByTestId('palette-option').first()).toContainText('Units: cm')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('status-units')).toHaveText('cm')
+
+    await lost
+      .getByRole('button', { name: "Set Count of 'Linear pattern 1' back to 3", exact: true })
+      .click()
+    const stale = page.locator('[data-testid=notification][data-code=stale_fix]')
+    await expect(stale).toHaveCount(1)
+    await expect(stale).toHaveAttribute('data-severity', 'error')
+    await expect(stale.getByText(STALE_FIX, { exact: true })).toBeVisible()
+    expect(await notificationActions(stale)).toEqual(['Show problems'])
+
+    await timelineItem(page, 'Linear pattern 1')
+      .getByRole('button', { name: 'Linear pattern 1', exact: true })
+      .dblclick()
+    await expect(inspector(page)).toHaveAccessibleName('Linear pattern 1')
+    await expect(inspectorInput(page, 'Count')).toHaveValue('2')
   })
 
   test('E-125 corpus R28: a fillet dropped above what makes its edge, moved back by its fix', async ({
@@ -151,7 +247,27 @@ test.describe('lost references and their fixes', () => {
     const labels = ['Sketch 1', 'Extrude 1', 'Datum plane 1', 'Sketch 2', 'Extrude 2', 'Fillet 1']
     await expectTimeline(page, labels)
 
-    await dragTo(page, timelineItem(page, 'Fillet 1'), await timelineGap(page, 2))
+    // Drag 'Fillet 1' over the gap between 'Extrude 1' and 'Datum plane 1' and hold it there.
+    const fillet = await timelineItem(page, 'Fillet 1').boundingBox()
+    if (fillet === null) {
+      throw new Error("The timeline item 'Fillet 1' is not visible.")
+    }
+    const gap = await timelineGap(page, 2)
+    await page.mouse.move(fillet.x + fillet.width / 2, fillet.y + fillet.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(gap.x, gap.y, { steps: 12 })
+    const hint = page.getByTestId('drop-hint')
+    // The uses the drag asked for may arrive after the pointer reached the gap; it moves on the spot.
+    await expect(async () => {
+      await page.mouse.move(gap.x + 1, gap.y)
+      await page.mouse.move(gap.x, gap.y)
+      await expect(hint).toHaveText(
+        "'Fillet 1' uses an edge made by 'Extrude 2'. Drop below 'Extrude 2' instead?",
+        { timeout: 1_000 },
+      )
+    }).toPass()
+    await page.mouse.up()
+    await expect(hint.filter({ hasText: 'Drop below' })).toHaveCount(0)
     await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'error')
     await openProblems(page)
     const move = problemRow(page, 'f-fil1').getByRole('button', {

@@ -7,10 +7,10 @@ use common::examples::{
     APPLY_FIX_REQUEST, APPLY_FIX_RESULT, BLOCK_USES_RESULT, DELETED_POINT_MESSAGE,
     DOCUMENT_CHANGED_EVENT, ELEMENT_REPAIR, ERROR_CODES, FEATURE_STATUS_R03, FIX_ACTIONS,
     FRONT_TOP_EDGE_DESCRIPTOR, FULL_REFERENCE, GHOSTS, INTERNAL_ERROR_OUTCOME, LIST_USES_REQUEST,
-    LIST_USES_RESULT, LOSS_REASONS, LOST_FACE_REPAIR, MERGED_REFERENCE, R16_DIAGNOSTIC, R26_CAUSE,
-    REGION_REPAIR, SET_DOCUMENT_UNITS_REQUEST, SET_DOCUMENT_UNITS_RESULT, SKETCH_SOLVED_EVENT,
-    SOLVE_ON_FACE_IN_BODY_FRAME, STALE_FIX_MESSAGE, TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME,
-    UNKNOWN_PRINTER_DIAGNOSTIC,
+    LIST_USES_RESULT, LOSS_REASONS, LOST_FACE_MESSAGE, LOST_FACE_REPAIR, MERGED_REFERENCE,
+    R16_DIAGNOSTIC, R26_CAUSE, REGION_AMBIGUOUS_MESSAGE, REGION_REPAIR, SET_DOCUMENT_UNITS_REQUEST,
+    SET_DOCUMENT_UNITS_RESULT, SKETCH_SOLVED_EVENT, SOLVE_ON_FACE_IN_BODY_FRAME, STALE_FIX_MESSAGE,
+    TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME, UNKNOWN_PRINTER_DIAGNOSTIC,
 };
 use common::{
     compact, frame_with_messages, header_bytes, header_json, id, message, object_keys, parse_json,
@@ -274,6 +274,87 @@ fn ghosts_in(frame: &ResponseFrame) -> Vec<(GhostKind, GhostFrame, usize)> {
         }
     }
     ghosts
+}
+
+/// The frame answering an `apply_edits` at `revision` with one `recomputed` event of `features` and `buffers`, after it
+/// encodes and decodes to an equal frame.
+fn recomputed_round_trip(
+    revision: u64,
+    features: Vec<FeatureStatus>,
+    buffers: Vec<Buffer>,
+) -> ResponseFrame {
+    let frame = ResponseFrame {
+        events: vec![Event::Recomputed {
+            doc: DocHandle(1),
+            revision,
+            features,
+            parameters: Vec::new(),
+            diagnostics: Vec::new(),
+        }],
+        response: Response {
+            id: 4,
+            result: Outcome::Ok(CommandResult::ApplyEdits { revision }),
+        },
+        buffers,
+    };
+
+    let bytes = encode_response_frame(&frame.events, &frame.response, &frame.buffers)
+        .expect("the response frame encodes");
+    let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
+
+    assert_eq!(decoded, frame);
+    decoded
+}
+
+/// The JSON Pointer of a repair.
+fn repair_path(repair: &Repair) -> &str {
+    let (Repair::Element { path, .. } | Repair::Region { path, .. }) = repair;
+    path
+}
+
+/// Whether the JSON Pointer `path` is `field` or points inside it.
+fn lies_in(path: &str, field: &str) -> bool {
+    path.strip_prefix(field)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// Checks that the status of a feature that ran is one the engine sends (section 2.7): its messages from the most
+/// severe down, its state the one its first message gives, and each repair at or inside the field of a message, in
+/// message order.
+fn assert_sent_by_the_engine(status: &FeatureStatus) {
+    let severities: Vec<Severity> = status
+        .messages
+        .iter()
+        .map(|message| message.severity)
+        .collect();
+    assert!(
+        severities.is_sorted_by(|first, second| first >= second),
+        "messages go from the most severe down: {status:?}"
+    );
+    let state = match severities.first() {
+        Some(Severity::Error) => FeatureState::Error,
+        Some(Severity::Warning) => FeatureState::Warning,
+        Some(Severity::Info) | None => FeatureState::Ok,
+    };
+    assert_eq!(
+        status.status, state,
+        "the state is the one its first message gives: {status:?}"
+    );
+    let mut owner = 0;
+    for repair in &status.repairs {
+        let path = repair_path(repair);
+        owner += status.messages[owner..]
+            .iter()
+            .position(|message| {
+                message
+                    .field
+                    .as_deref()
+                    .is_some_and(|field| lies_in(path, field))
+            })
+            .unwrap_or_else(|| {
+                panic!("the repair at {path} belongs to a message, in message order: {status:?}")
+            });
+    }
 }
 
 /// The right side of BLOCK, the rectangle x = 80 from (0, 0) to (50, 30) in y and z, as two triangles counterclockwise seen from outside (+X): 18 values.
@@ -694,20 +775,13 @@ fn t078_ghost_buffers_travel_in_the_response_frame() {
     let extrude = FeatureStatus {
         id: id("f-ext1"),
         status: FeatureState::Warning,
-        messages: Vec::new(),
+        messages: vec![parse(REGION_AMBIGUOUS_MESSAGE)],
         repairs: vec![parse(REGION_REPAIR)],
     };
-    let events = vec![Event::Recomputed {
-        doc: DocHandle(1),
-        revision: 2,
-        features: vec![fillet, extrude],
-        parameters: Vec::new(),
-        diagnostics: Vec::new(),
-    }];
-    let response = Response {
-        id: 4,
-        result: Outcome::Ok(CommandResult::ApplyEdits { revision: 2 }),
-    };
+    let features = vec![fillet, extrude];
+    for status in &features {
+        assert_sent_by_the_engine(status);
+    }
     // The lost edge from (80, 40, 30) to (70, 50, 30), the deleted line from (80, 40) to (70, 50), and the region outline.
     let buffers = vec![
         Buffer::F32(vec![80.0, 40.0, 30.0, 70.0, 50.0, 30.0]),
@@ -715,16 +789,7 @@ fn t078_ghost_buffers_travel_in_the_response_frame() {
         Buffer::F32(rectangle_outline()),
     ];
 
-    let bytes =
-        encode_response_frame(&events, &response, &buffers).expect("the response frame encodes");
-    let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
-
-    let expected = ResponseFrame {
-        events,
-        response,
-        buffers,
-    };
-    assert_eq!(decoded, expected);
+    let decoded = recomputed_round_trip(2, features, buffers);
 
     // The cause's deleted line, the lost edge, then the region outline, each one or more segments.
     assert_eq!(
@@ -1715,7 +1780,7 @@ fn face_and_sketch_point_ghosts_travel_in_the_response_frame() {
     let datum_plane = FeatureStatus {
         id: id("f-dp1"),
         status: FeatureState::Error,
-        messages: Vec::new(),
+        messages: vec![parse(LOST_FACE_MESSAGE)],
         repairs: vec![parse(LOST_FACE_REPAIR)],
     };
     let hole = FeatureStatus {
@@ -1724,34 +1789,17 @@ fn face_and_sketch_point_ghosts_travel_in_the_response_frame() {
         messages: vec![parse(DELETED_POINT_MESSAGE)],
         repairs: Vec::new(),
     };
-    let events = vec![Event::Recomputed {
-        doc: DocHandle(1),
-        revision: 3,
-        features: vec![datum_plane, hole],
-        parameters: Vec::new(),
-        diagnostics: Vec::new(),
-    }];
-    let response = Response {
-        id: 7,
-        result: Outcome::Ok(CommandResult::ApplyEdits { revision: 3 }),
-    };
+    let features = vec![datum_plane, hole];
+    for status in &features {
+        assert_sent_by_the_engine(status);
+    }
     let buffers = vec![
         Buffer::F32(right_side_triangles()),
         Buffer::F32(vec![20.0, 10.0]),
     ];
 
-    let bytes =
-        encode_response_frame(&events, &response, &buffers).expect("the response frame encodes");
-    let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
+    let decoded = recomputed_round_trip(3, features, buffers);
 
-    assert_eq!(
-        decoded,
-        ResponseFrame {
-            events,
-            response,
-            buffers,
-        }
-    );
     assert_eq!(
         ghosts_in(&decoded),
         [
@@ -1759,6 +1807,26 @@ fn face_and_sketch_point_ghosts_travel_in_the_response_frame() {
             (GhostKind::Points, GhostFrame::Sketch, 2)
         ]
     );
+}
+
+#[test]
+#[should_panic(expected = "the state is the one its first message gives")]
+fn an_error_status_without_its_error_message_is_not_one_the_engine_sends() {
+    assert_sent_by_the_engine(&FeatureStatus {
+        id: id("f-dp1"),
+        status: FeatureState::Error,
+        messages: Vec::new(),
+        repairs: vec![parse(LOST_FACE_REPAIR)],
+    });
+}
+
+#[test]
+#[should_panic(expected = "the repair at /profile/regions/0 belongs to a message")]
+fn a_repair_without_the_message_it_belongs_to_is_not_one_the_engine_sends() {
+    let mut fillet: FeatureStatus = parse(FEATURE_STATUS_R03);
+    fillet.repairs.push(parse(REGION_REPAIR));
+
+    assert_sent_by_the_engine(&fillet);
 }
 
 #[test]

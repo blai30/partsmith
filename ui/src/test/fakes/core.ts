@@ -18,6 +18,7 @@ import {
   type Repair,
   type Resolution,
   type SketchSolution,
+  type Use,
 } from '../../generated/protocol'
 import { TEST_CATALOG_ENTRIES } from './catalog'
 import {
@@ -108,6 +109,8 @@ export type FakeCoreOptions = {
    * buffer 0 for the first, 1 for the second (protocol.md 3.4).
    */
   readonly ghosts?: readonly (readonly number[])[]
+  /** The `list_uses` answer for every document (engine.md 3.24); default none. */
+  readonly uses?: readonly Use[]
 }
 
 /** The state of one open document in the fake core. */
@@ -1024,6 +1027,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         )
         return { result: { type: 'list_elements', elements } }
       }
+      case 'list_uses':
+        entryFor(command.doc)
+        return { result: { type: 'list_uses', uses: [...(options.uses ?? [])] } }
       case 'pick_reference':
         entryFor(command.doc)
         return reject(

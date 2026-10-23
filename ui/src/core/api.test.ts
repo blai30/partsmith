@@ -170,6 +170,19 @@ describe('createCoreApi', () => {
     })
   })
 
+  it('listUses sends list_uses and resolves its uses in order (2.6, engine.md 3.24)', async () => {
+    const uses = [
+      { user: 'f-ext1', field: '/profile/sketch', feature: 'f-sk1' },
+      { user: 'f-fil1', field: '/edges/0', feature: 'f-ext1', entity: 'e-3' },
+    ] as const
+    const transport = createFakeTransport({ uses })
+    await transport.start()
+    const api = createCoreApi(createCoreClient(transport))
+    const { documentHandle } = await api.openDocument(documentText(CUBE_DOCUMENT))
+    await expect(api.listUses(documentHandle)).resolves.toEqual(uses)
+    expect(lastCommand(transport)).toEqual({ type: 'list_uses', doc: 1 })
+  })
+
   it('maps the transaction commands', async () => {
     const { api, transport } = await setUp()
     const { documentHandle } = await api.openDocument(documentText(CUBE_DOCUMENT))
@@ -426,9 +439,10 @@ describe('rebuildsDocument and rebuiltDocument', () => {
       { type: 'begin_transaction', doc: 1, label: 'Extrude' },
       { type: 'export', doc: 1, format: { kind: 'step' } },
       { type: 'engine_info' },
+      { type: 'list_uses', doc: 1 },
     ]
     expect(rebuilding.map(rebuildsDocument)).toEqual([true, true, true, true, true, true])
-    expect(quiet.map(rebuildsDocument)).toEqual([false, false, false, false, false])
+    expect(quiet.map(rebuildsDocument)).toEqual([false, false, false, false, false, false])
   })
 
   it('names the document from the command, or from the result of open_document', () => {
