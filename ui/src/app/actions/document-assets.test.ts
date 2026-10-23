@@ -28,13 +28,14 @@ import {
   assetValues,
   BLOCK_DOCUMENT,
 } from '../../test/fakes/assets'
-import { CUBE_DOCUMENT, documentFile, documentText } from '../../test/fakes/documents'
+import { bodiesOf, CUBE_DOCUMENT, documentFile, documentText } from '../../test/fakes/documents'
 import {
   callsOf,
   createDesktopHandle,
   createFakeFileHandle,
   createFakeFolderHandle,
 } from '../../test/fakes/files'
+import { deferred, type Deferred } from '../../test/fakes/deferred'
 import { settle } from '../../test/fakes/settle'
 import { startFeatureCommand } from './command'
 import { applyEdits, newDocument, openFile, save, saveAs } from './document'
@@ -180,6 +181,17 @@ async function blockWithFolder(siblings: readonly FileHandle[] = []): Promise<We
   expect(importStatus(opened.fake.app)).toBe('ok')
   forget(opened.fake)
   return opened
+}
+
+/** Holds every `readAssets` answer of the fake file service until the returned deferred resolves. */
+function holdReadAssets(fake: FakeApp): Deferred<void> {
+  const held = deferred<void>()
+  const readAssets = fake.files.readAssets
+  vi.spyOn(fake.files, 'readAssets').mockImplementation(async (place, names) => {
+    await held.promise
+    return readAssets(place, names)
+  })
+  return held
 }
 
 /** The arguments of the `writeAssets` calls, with the assets as plain names and bytes. */
@@ -359,6 +371,9 @@ describe('why imports are missing (3.19 openFile step 6)', () => {
     )
     expect(actionLabels(notification)).toEqual(['Open...'])
     expect(notification.features).toEqual(['f-imp1'])
+    forget(fake)
+    await click(fake.app, notification, 'Open...')
+    expect(callsOf(fake.files, 'pickToOpen')).toEqual([[]])
   })
 
   it('U-221 (c) a dropped file without the File System Access API shows assets_unsupported with no action', async () => {
@@ -543,6 +558,98 @@ describe('Choose folder (3.19)', () => {
       .notifications.find((notification) => notification.message === message)
     expect(shown?.severity).toBe('error')
     expect(callsOf(fake.files, 'readAssets')).toEqual([])
+  })
+
+  it('U-222 an edit committed while the folder is read is in the reopened recipe', async () => {
+    const { fake, folder } = await blockWithoutFolder()
+    const reading = holdReadAssets(fake)
+    fake.files.folderChoices.push({ kind: 'chosen', folder })
+    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
+    await settle()
+    const settled = currentDocument(fake.app).recipe
+    reading.resolve()
+    await settle()
+    const [reopened] = fake.transport.commandsOfType('open_document')
+    expect(reopened?.text).toBe(JSON.stringify(settled, null, 2))
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.name).toBe('Block')
+    expect(currentDocument(fake.app).localUnsaved).toBe(true)
+    expect(importStatus(fake.app)).toBe('ok')
+  })
+
+  it('U-222 an edit still waiting for the core when the folder is chosen is in the reopened recipe', async () => {
+    const { fake, folder } = await blockWithoutFolder()
+    fake.transport.pause()
+    const renamed = applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
+    fake.files.folderChoices.push({ kind: 'chosen', folder })
+    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    fake.transport.resume()
+    await renamed
+    await settle()
+    expect(fake.transport.commandTypes()).toEqual([
+      'apply_edits',
+      'open_document',
+      'close_document',
+    ])
+    const [reopened] = fake.transport.commandsOfType('open_document')
+    expect(JSON.parse(reopened?.text ?? '{}').bodies[0].name).toBe('Block')
+    expect(bodiesOf(currentDocument(fake.app).recipe)[0]?.name).toBe('Block')
+  })
+
+  it('U-222 an edit made while the document is reopened goes to the reopened document', async () => {
+    const { fake, folder } = await blockWithoutFolder()
+    const { documentHandle } = currentDocument(fake.app)
+    const opening = deferred<void>()
+    fake.transport.handle('open_document', async (command, core, buffers) => {
+      await opening.promise
+      return core.reply(command, buffers)
+    })
+    fake.files.folderChoices.push({ kind: 'chosen', folder })
+    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    expect(fake.transport.commandsOfType('open_document')).toHaveLength(1)
+    const renamed = applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
+    opening.resolve()
+    expect(await renamed).toBe(true)
+    await settle()
+    const document = currentDocument(fake.app)
+    expect(document.documentHandle).not.toBe(documentHandle)
+    expect(fake.transport.commandsOfType('apply_edits').map((command) => command.doc)).toEqual([
+      document.documentHandle,
+    ])
+    expect(bodiesOf(document.recipe)[0]?.name).toBe('Block')
+    expect(isUnsaved(document)).toBe(true)
+  })
+
+  it('U-222 a feature command opened while the folder is read keeps the document and asks again', async () => {
+    const { fake, folder } = await blockWithoutFolder()
+    const { documentHandle } = currentDocument(fake.app)
+    const reading = holdReadAssets(fake)
+    fake.files.folderChoices.push({ kind: 'chosen', folder })
+    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await startFeatureCommand(fake.app, 'fillet')
+    await settle()
+    reading.resolve()
+    await settle()
+    expect(fake.transport.commandsOfType('open_document')).toEqual([])
+    expect(currentDocument(fake.app).documentHandle).toBe(documentHandle)
+    expect(fake.app.store.getState().command?.featureType).toBe('fillet')
+    expect(shownCodes(fake.app)).toContain('finish_command_first')
+    const again = notificationCoded(fake.app, 'assets_folder_needed')
+    expect(again.features).toEqual(['f-imp1'])
+    expect(actionLabels(again)).toEqual(['Choose folder'])
+  })
+
+  it('U-222 a document that replaced this one while the folder was read is not reopened', async () => {
+    const { fake, folder } = await blockWithoutFolder()
+    const reading = holdReadAssets(fake)
+    fake.files.folderChoices.push({ kind: 'chosen', folder })
+    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await newDocument(fake.app)
+    await settle()
+    reading.resolve()
+    await settle()
+    expect(fake.transport.commandsOfType('open_document')).toEqual([])
+    expect(currentDocument(fake.app).name).toBe('Untitled')
   })
 
   it('U-222 a Choose folder clicked after New replaced the document calls no chooseFolder', async () => {

@@ -67,6 +67,29 @@ export function createMutationQueue(): MutationQueue {
   }
 }
 
+/**
+ * Runs tasks one at a time per key: a task starts once the one before it for the same key has
+ * settled, or at once when none is in progress, and one that fails does not stop the next.
+ */
+export type OneAtATime<Key extends object> = (key: Key, task: () => Promise<void>) => Promise<void>
+
+export function createOneAtATime<Key extends object>(): OneAtATime<Key> {
+  // The latest task of each key, settled once it has run, whether or not it failed.
+  const inProgress = new WeakMap<Key, Promise<void>>()
+  return (key, task) => {
+    const previous = inProgress.get(key)
+    const started = previous === undefined ? task() : previous.then(task)
+    const done = started.catch(() => undefined)
+    inProgress.set(key, done)
+    void done.then(() => {
+      if (inProgress.get(key) === done) {
+        inProgress.delete(key)
+      }
+    })
+    return started
+  }
+}
+
 /** Sends at most one input at a time; while one is in flight, newer inputs replace the waiting one. */
 export type LatestOnly<Input> = {
   submit(input: Input): void

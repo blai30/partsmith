@@ -9,13 +9,13 @@ import {
   type FileHandle,
 } from '../../files/file-service'
 import { isSameHandle } from '../../files/recent'
+import type { DocHandle } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { adoptDocument } from '../../state/core-events'
 import { isUnsaved } from '../../state/selectors'
 import type { AppState, DocumentState, FileReference, Notification } from '../../state/store'
 import { settledRecipeOf } from '../connection'
 import type { App } from '../createApp'
-import { openWithPicker } from './document'
 import { documentOf, refusedDuringCommand, showCoreError } from './edits'
 import { copyDetails } from './fixes'
 import { notify } from './notifications'
@@ -196,13 +196,15 @@ function featuresMissingAssets(document: DocumentState): readonly string[] {
  * Says why the imports of a document just opened are missing (openFile steps 4 and 6): the core's
  * refusal of the folder's files, a failed read, and, when the folder was not reached, one warning
  * naming the features that miss their asset. A host that reached the folder adds nothing more,
- * since each import's own `asset_missing` message says what to copy.
+ * since each import's own `asset_missing` message says what to copy. `openWithPicker` is the
+ * "Open..." action of `assets_without_folder`.
  */
 export function explainMissingAssets(
   app: App,
   document: DocumentState,
   reading: AssetReading | null,
   refusal: CoreError | null,
+  openWithPicker: () => void,
 ): void {
   const fileName = fileNameOf(document)
   if (refusal !== null) {
@@ -229,14 +231,7 @@ export function explainMissingAssets(
       ? {
           message: MESSAGES.assets_without_folder(fileName),
           code: 'assets_without_folder',
-          actions: [
-            {
-              label: 'Open...',
-              run: () => {
-                void openWithPicker(app)
-              },
-            },
-          ],
+          actions: [{ label: 'Open...', run: openWithPicker }],
         }
       : {
           message: MESSAGES.assets_unsupported(fileName),
@@ -328,6 +323,9 @@ async function chooseDocumentFolder(
   if (handle === null || !isOffered(app, offer) || refusedDuringCommand(app)) {
     return
   }
+  const offerAgain = (): void => {
+    showFolderNeeded(app, offer, fileName, features)
+  }
   const folder = await chooseFolderOf(
     app,
     handle,
@@ -335,9 +333,7 @@ async function chooseDocumentFolder(
     () => {
       void chooseDocumentFolder(app, offer, fileName, features)
     },
-    () => {
-      showFolderNeeded(app, offer, fileName, features)
-    },
+    offerAgain,
   )
   const document = documentOf(app)
   if (folder === null || document === null || document.file === null || !isOffered(app, offer)) {
@@ -354,30 +350,41 @@ async function chooseDocumentFolder(
     showAssetsNotRead(app, fileName, reading.failure)
   }
   if (reading.assets.length > 0) {
-    await reopenWithAssets(app, document, text, reading.assets)
+    await reopenWithAssets(app, offer, fileName, reading.assets, offerAgain)
   }
 }
 
 /**
  * Reopens the shown document's settled recipe with assets, as a core restart does but without
  * stopping the core (3.19, 4.4): the session keeps its name, file reference, recovery entry and
- * unsaved state, while sketch mode, the selection and the undo history start again. A refusal of
- * the assets leaves the document as it is.
+ * unsaved state, while sketch mode, the selection and the undo history start again. The recipe is
+ * taken when the task's turn in the mutation queue comes, so every edit queued before it is kept.
+ * A document that is no longer the one offered changes nothing, a feature command opened meanwhile
+ * refuses with `finish_command_first` and runs `refused`, and a refusal of the assets leaves the
+ * document as it is.
  */
 async function reopenWithAssets(
   app: App,
-  document: DocumentState,
-  text: string,
+  offer: DocumentOffer,
+  fileName: string,
   assets: readonly AssetFile[],
+  refused: () => void,
 ): Promise<void> {
-  const fileName = fileNameOf(document)
-  let opened: Awaited<ReturnType<App['core']['openDocument']>>
   try {
     // One task, so no queued edit lands on the old document between the open and the close.
-    opened = await app.mutations.run(async () => {
-      const reopened = await app.core.openDocument(text, assets)
+    await app.mutations.run(async () => {
+      const document = documentOf(app)
+      if (document === null || !isOffered(app, offer)) {
+        return
+      }
+      if (refusedDuringCommand(app) || document.transactionOpen) {
+        refused()
+        return
+      }
+      const text = JSON.stringify(settledRecipeOf(app, document), null, 2)
+      const opened = await app.core.openDocument(text, assets)
       await app.core.closeDocument(document.documentHandle)
-      return reopened
+      adoptReopened(app, documentOf(app) ?? document, opened.documentHandle, assets)
     }, 'other')
   } catch (error) {
     if (error instanceof CoreError && error.code === 'asset_mismatch') {
@@ -387,9 +394,16 @@ async function reopenWithAssets(
     showCoreError(app, error, {
       stopped: { code: 'open_stopped', message: MESSAGES.open_stopped(fileName) },
     })
-    return
   }
-  const shown = documentOf(app) ?? document
+}
+
+/** Shows the reopened document in place of `shown`, in the same document session (3.19 Choose folder). */
+function adoptReopened(
+  app: App,
+  shown: DocumentState,
+  documentHandle: DocHandle,
+  assets: readonly AssetFile[],
+): void {
   leaveSketchHistory(app)
   app.store.setState((state): Partial<AppState> => ({
     context: state.context === 'sketch' ? 'model' : state.context,
@@ -398,7 +412,7 @@ async function reopenWithAssets(
     command: null,
     sketch: null,
   }))
-  adoptDocument(app.store, opened.documentHandle, {
+  adoptDocument(app.store, documentHandle, {
     name: shown.name,
     file: shown.file,
     localUnsaved: isUnsaved(shown),

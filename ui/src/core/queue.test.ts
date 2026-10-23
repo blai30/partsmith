@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { deferred, type Deferred } from '../test/fakes/deferred'
 import { settle } from '../test/fakes/settle'
-import { createLatestOnly, createMutationQueue, skipRepeats, type LatestOnly } from './queue'
+import {
+  createLatestOnly,
+  createMutationQueue,
+  createOneAtATime,
+  skipRepeats,
+  type LatestOnly,
+} from './queue'
 
 describe('createMutationQueue', () => {
   it('U-15 starts the second task only after the first settles', async () => {
@@ -65,6 +71,50 @@ describe('createMutationQueue', () => {
       ),
     )
     expect(order).toEqual([1, 2, 3, 4])
+  })
+})
+
+describe('createOneAtATime', () => {
+  it('starts a task at once when none of its key is in progress', () => {
+    const oneAtATime = createOneAtATime<object>()
+    const log: string[] = []
+    void oneAtATime({}, async () => {
+      log.push('started')
+    })
+    expect(log).toEqual(['started'])
+  })
+
+  it('starts the next task of a key once the one before it has settled, even when it failed', async () => {
+    const oneAtATime = createOneAtATime<object>()
+    const key = {}
+    const first = deferred<void>()
+    const log: string[] = []
+    const failed = oneAtATime(key, async () => {
+      log.push('first')
+      await first.promise
+      throw new Error('write failed')
+    })
+    const next = oneAtATime(key, async () => {
+      log.push('second')
+    })
+    await settle()
+    expect(log).toEqual(['first'])
+    first.resolve()
+    await expect(failed).rejects.toThrow('write failed')
+    await next
+    expect(log).toEqual(['first', 'second'])
+  })
+
+  it('runs the tasks of other keys without waiting', async () => {
+    const oneAtATime = createOneAtATime<object>()
+    const held = deferred<void>()
+    const log: string[] = []
+    void oneAtATime({}, () => held.promise)
+    await oneAtATime({}, async () => {
+      log.push('other key')
+    })
+    expect(log).toEqual(['other key'])
+    held.resolve()
   })
 })
 

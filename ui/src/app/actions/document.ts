@@ -1,11 +1,13 @@
 import type { CoreApi } from '../../core/api'
 import { CoreError } from '../../core/client'
 import { errorMessage } from '../../core/errors'
+import { createOneAtATime } from '../../core/queue'
 import type { AssetFile } from '../../files/assets'
 import { fileDigestOrNull } from '../../files/digest'
 import {
   FileServiceError,
   folderHolds,
+  type FileHandle,
   type OpenedFile,
   type SaveTarget,
 } from '../../files/file-service'
@@ -242,7 +244,9 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<string
   offerReopen()
   const shown = documentOf(app)
   if (shown !== null) {
-    explainMissingAssets(app, shown, reading, result.refusal)
+    explainMissingAssets(app, shown, reading, result.refusal, () => {
+      void openWithPicker(app)
+    })
   }
   return recoveryId
 }
@@ -480,21 +484,49 @@ type DocumentWrite = {
   readonly target: SaveTarget
   /** The web folder that holds the target, through which its assets are written; null on the desktop and without one. */
   readonly folder: FileSystemDirectoryHandle | null
-  /** Save's change check: the digest the file must still have; null skips the check (Save as, or a digest that is not known). */
-  readonly expected: string | null
+  /** Whether Save's change check runs: true for Save, false for Save as, whose dialog confirmed replacing the file. */
+  readonly checksChange: boolean
   /** The document session and file the save was started for, which its notifications' actions require. */
   readonly offer: DocumentOffer
 }
 
+/** Writes of the document, per store: each one waits for the one before it (3.19). */
+const writesOneAtATime = createOneAtATime<App['store']>()
+
+/**
+ * Runs one write of the document after the write still in progress, if any, so a second Save never
+ * checks the file against the digest the first one is about to replace. `write` gives the write
+ * when its turn comes, from the document as it is then; null writes nothing. With nothing in
+ * progress it starts at once.
+ */
+function writeInTurn(app: App, write: () => DocumentWrite | null): Promise<void> {
+  return writesOneAtATime(app.store, async () => {
+    const next = write()
+    if (next !== null) {
+      await writeDocument(app, next)
+    }
+  })
+}
+
+/** The digest the shown document's file reference knows for `handle`: null for another handle or an unknown digest. */
+function knownDigest(app: App, handle: FileHandle): string | null {
+  const file = documentOf(app)?.file
+  return file?.handle === handle ? file.digest : null
+}
+
 /**
  * Save's change check (3.19 writing step 2): whether the target still holds the bytes the
- * session last read or wrote, true when there is nothing to check. A file changed elsewhere shows
- * `save_conflict`, and a file that cannot be read the Save message of its reason; a digest that
- * cannot be taken skips the check.
+ * session last read or wrote, as the file reference knows them when the check runs, true when
+ * there is nothing to check. A file changed elsewhere shows `save_conflict`, and a file that
+ * cannot be read the Save message of its reason; a digest that cannot be taken skips the check.
  */
 async function unchangedElsewhere(app: App, write: DocumentWrite): Promise<boolean> {
-  const { target, expected } = write
-  if (expected === null || target.kind !== 'handle') {
+  const { target } = write
+  if (!write.checksChange || target.kind !== 'handle') {
+    return true
+  }
+  const expected = knownDigest(app, target.handle)
+  if (expected === null) {
     return true
   }
   const fileName = target.name
@@ -656,7 +688,7 @@ async function chooseSaveFolder(app: App, write: DocumentWrite): Promise<void> {
     },
   )
   if (folder !== null && isOffered(app, write.offer)) {
-    await writeDocument(app, { ...write, folder })
+    await writeInTurn(app, () => (isOffered(app, write.offer) ? { ...write, folder } : null))
   }
 }
 
@@ -669,17 +701,12 @@ async function adoptWrittenFile(
   app: App,
   document: DocumentState,
   write: DocumentWrite,
-  bytes: Uint8Array,
+  digest: string | null,
 ): Promise<void> {
   const { target } = write
   const file: FileReference =
     target.kind === 'handle'
-      ? {
-          name: target.name,
-          handle: target.handle,
-          folder: write.folder,
-          digest: await fileDigestOrNull(bytes, target.name),
-        }
+      ? { name: target.name, handle: target.handle, folder: write.folder, digest }
       : { name: target.name, handle: null, folder: null, digest: null }
   const isNewFile = target.kind === 'handle' && target.handle !== document.file?.handle
   app.store.setState((state) =>
@@ -727,14 +754,16 @@ async function writeDocument(app: App, write: DocumentWrite): Promise<void> {
     kind: 'other',
     stopped: { code: 'save_stopped', message: MESSAGES.save_stopped(target.name) },
   })
-  if (
-    saved === null ||
-    !(await unchangedElsewhere(app, write)) ||
-    !(await wroteAssets(app, write, saved.assets))
-  ) {
+  if (saved === null) {
     return
   }
   const bytes = textBytes(saved.text)
+  // Taken alongside the change check, for the file reference once the bytes are written (step 5).
+  const writtenDigest =
+    target.kind === 'handle' ? fileDigestOrNull(bytes, target.name) : Promise.resolve(null)
+  if (!(await unchangedElsewhere(app, write)) || !(await wroteAssets(app, write, saved.assets))) {
+    return
+  }
   try {
     await app.files.write(target, 'ptsm', bytes)
   } catch (error) {
@@ -745,7 +774,7 @@ async function writeDocument(app: App, write: DocumentWrite): Promise<void> {
     throw error
   }
   // The file now holds these bytes, even if the core stops before they are marked saved.
-  await adoptWrittenFile(app, document, write, bytes)
+  await adoptWrittenFile(app, document, write, await writtenDigest)
   // A core that stops now leaves the written document unsaved, which keeps its recovery copy.
   const marked = await mutate(
     app,
@@ -766,23 +795,43 @@ async function writeDocument(app: App, write: DocumentWrite): Promise<void> {
   }
 }
 
+/** Whether the shown document is still the session with this recovery id. */
+function isSession(app: App, recoveryId: string): boolean {
+  return documentOf(app)?.recoveryId === recoveryId
+}
+
+/**
+ * Save's write to the document's file as it is when the write's turn comes (3.19), so a Save
+ * pressed while another save writes goes to the file and folder that one left; none once another
+ * document replaced this session.
+ */
+function saveToFile(app: App, recoveryId: string): DocumentWrite | null {
+  const document = documentOf(app)
+  const file = document?.file ?? null
+  const handle = file?.handle ?? null
+  if (document === null || file === null || handle === null || !isSession(app, recoveryId)) {
+    return null
+  }
+  return {
+    target: { kind: 'handle', name: file.name, handle },
+    folder: file.folder,
+    checksChange: true,
+    offer: offerOf(document),
+  }
+}
+
 /** Save (Mod+S): to the document's file, or Save as without one; refused during a feature command (3.7). */
 export async function save(app: App): Promise<void> {
   const document = documentOf(app)
   if (document === null || refusedDuringCommand(app)) {
     return
   }
-  const file = document.file
-  if (file?.handle === null || file?.handle === undefined) {
+  if ((document.file?.handle ?? null) === null) {
     await saveAs(app)
     return
   }
-  await writeDocument(app, {
-    target: { kind: 'handle', name: file.name, handle: file.handle },
-    folder: file.folder,
-    expected: file.digest,
-    offer: offerOf(document),
-  })
+  const { recoveryId } = document
+  await writeInTurn(app, () => saveToFile(app, recoveryId))
 }
 
 /**
@@ -812,12 +861,13 @@ export async function saveAs(app: App): Promise<void> {
   const folder = document.file?.folder ?? null
   const holds =
     folder !== null && target.kind === 'handle' && (await folderHolds(folder, target.handle))
+  const { recoveryId } = document
   // No change check: the dialog confirmed replacing the file.
-  await writeDocument(app, {
-    target,
-    folder: holds ? folder : null,
-    expected: null,
-    offer: offerOf(document),
+  await writeInTurn(app, () => {
+    const shown = documentOf(app)
+    return shown === null || !isSession(app, recoveryId)
+      ? null
+      : { target, folder: holds ? folder : null, checksChange: false, offer: offerOf(shown) }
   })
 }
 

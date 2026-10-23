@@ -121,16 +121,17 @@ export type ChangeOutcome = { readonly sent: boolean; readonly reported: boolean
 
 /**
  * Runs one user change on the open document through the mutation queue, then reports what it
- * broke (4.2). `change` runs when its turn comes, never on a document that replaced this one
- * meanwhile, and resolves false when it sent nothing. A refusal shows the core's message.
+ * broke (4.2). `change` runs when its turn comes on the shown document of the same document
+ * session, which a reopen with assets keeps (3.19 Choose folder), never on a document that replaced
+ * this one meanwhile, and resolves false when it sent nothing. A refusal shows the core's message.
  */
 export async function runChange(
   app: App,
   change: (document: DocumentState) => Promise<boolean>,
   options: RefusalOptions = {},
 ): Promise<ChangeOutcome> {
-  const handle = documentOf(app)?.documentHandle ?? null
-  if (handle === null) {
+  const session = documentOf(app)?.recoveryId ?? null
+  if (session === null) {
     return { sent: false, reported: false }
   }
   const before = statusesOf(app)
@@ -138,7 +139,7 @@ export async function runChange(
   try {
     sent = await app.mutations.run(async () => {
       const document = documentOf(app)
-      return document?.documentHandle === handle ? change(document) : false
+      return document?.recoveryId === session ? change(document) : false
     })
   } catch (error) {
     showCoreError(app, error, options)

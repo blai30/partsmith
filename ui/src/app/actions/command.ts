@@ -1,7 +1,7 @@
 import { CoreError } from '../../core/client'
 import { generateId, usedIds } from '../../core/ids'
 import { featureLabel, nextBodyName } from '../../core/labels'
-import { createLatestOnly, type LatestOnly } from '../../core/queue'
+import { createLatestOnly, createOneAtATime, type LatestOnly } from '../../core/queue'
 import { CoreFatalError } from '../../core/transport'
 import { activeFeatures, markerPosition } from '../../core/recipe'
 import type {
@@ -603,8 +603,8 @@ function withoutCreatedBodies(
   return { params: setParam(session.feature, saved.params, 'target', body.id), newBody: body }
 }
 
-/** Feature command starts in progress, per store: a start waits for the one before it to finish. */
-const startsInProgress = new WeakMap<AppStore, Promise<void>>()
+/** Feature command starts, per store: a start waits for the one before it to finish. */
+const startsOneAtATime = createOneAtATime<AppStore>()
 
 /**
  * Runs one start of a feature command after any start still in progress (a double-click, a held
@@ -612,16 +612,7 @@ const startsInProgress = new WeakMap<AppStore, Promise<void>>()
  * progress it starts at once.
  */
 function oneStartAtATime(app: App, start: () => Promise<void>): Promise<void> {
-  const previous = startsInProgress.get(app.store)
-  const started = previous === undefined ? start() : previous.then(start)
-  const done = started.catch(() => undefined)
-  startsInProgress.set(app.store, done)
-  void done.then(() => {
-    if (startsInProgress.get(app.store) === done) {
-      startsInProgress.delete(app.store)
-    }
-  })
-  return started
+  return startsOneAtATime(app.store, start)
 }
 
 /**

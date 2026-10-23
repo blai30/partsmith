@@ -15,6 +15,7 @@ import {
 } from '../../test/fakes/app'
 import { CUBE_DOCUMENT, bodiesOf, documentText } from '../../test/fakes/documents'
 import { callsOf, calledMethods, createFakeFileHandle } from '../../test/fakes/files'
+import { deferred } from '../../test/fakes/deferred'
 import { settle } from '../../test/fakes/settle'
 import { applyEdits, newDocument, save, saveAs } from './document'
 import { dismiss } from './notifications'
@@ -85,6 +86,23 @@ function steps(fake: FakeApp): readonly string[] {
 /** The text of the last write. */
 function writtenText(fake: FakeApp): string {
   return new TextDecoder().decode(fake.files.writes.at(-1)?.bytes)
+}
+
+/**
+ * Holds the first `write` of the fake file service until `release`, as a slow desktop write or a
+ * permission prompt does; `started` counts the writes begun so far.
+ */
+function holdFirstWrite(fake: FakeApp): {
+  readonly started: () => number
+  readonly release: () => void
+} {
+  const held = deferred<void>()
+  const write = fake.files.write
+  const spy = vi.spyOn(fake.files, 'write').mockImplementationOnce(async (...args) => {
+    await held.promise
+    return write(...args)
+  })
+  return { started: () => spy.mock.calls.length, release: () => held.resolve() }
 }
 
 /** `cube.ptsm` opened from the web handle `H` holding `T`, then its body renamed to "Box". */
@@ -216,6 +234,76 @@ describe('the change check (3.19 step 2)', () => {
     await save(fake.app)
     await settle()
     expect(steps(fake)).toEqual(['command:save_document', 'files.write', 'command:mark_saved'])
+  })
+
+  it('U-223 (f) a second Save pressed while the first writes waits for it and shows no save_conflict', async () => {
+    const { fake, handle } = await renamedCube()
+    const writing = holdFirstWrite(fake)
+    const first = save(fake.app)
+    await settle()
+    expect(writing.started()).toBe(1)
+    await applyEdits(fake.app, 'Rename', rename('Crate'))
+    const second = save(fake.app)
+    await settle()
+    expect(fake.transport.commandsOfType('save_document')).toHaveLength(1)
+    writing.release()
+    await Promise.all([first, second])
+    await settle()
+    expect(shownCodes(fake.app)).not.toContain('save_conflict')
+    expect(steps(fake)).toEqual([
+      'command:save_document',
+      'files.readHandle',
+      'command:apply_edits',
+      'files.write',
+      'command:mark_saved',
+      'command:save_document',
+      'files.readHandle',
+      'files.write',
+      'command:mark_saved',
+    ])
+    expect(fake.files.writes.map((write) => write.target)).toEqual([
+      { kind: 'handle', name: 'cube.ptsm', handle },
+      { kind: 'handle', name: 'cube.ptsm', handle },
+    ])
+    expect(writtenText(fake)).toContain('"Crate"')
+    expect(currentDocument(fake.app).file?.digest).toBe(await fileDigest(utf8(writtenText(fake))))
+    expect(currentDocument(fake.app).dirty).toBe(false)
+  })
+
+  it('U-223 (f) a Save pressed while a Save as writes goes to the file the Save as chose', async () => {
+    const { fake, handle } = await renamedCube()
+    const copy = createFakeFileHandle('copy.ptsm')
+    fake.files.nextSaveTarget = { kind: 'handle', name: 'copy.ptsm', handle: copy }
+    const writing = holdFirstWrite(fake)
+    const savedAs = saveAs(fake.app)
+    await settle()
+    expect(writing.started()).toBe(1)
+    const saved = save(fake.app)
+    writing.release()
+    await Promise.all([savedAs, saved])
+    await settle()
+    expect(fake.files.writes.map((write) => write.target)).toEqual([
+      { kind: 'handle', name: 'copy.ptsm', handle: copy },
+      { kind: 'handle', name: 'copy.ptsm', handle: copy },
+    ])
+    expect(callsOf(fake.files, 'readHandle').map(([read]) => read)).toEqual([copy])
+    expect(fake.files.contents.get(handle)).toBe(ORIGINAL)
+    expect(shownCodes(fake.app)).not.toContain('save_conflict')
+    expect(currentDocument(fake.app).file?.handle).toBe(copy)
+  })
+
+  it('U-223 (f) a Save waiting behind another write saves nothing once New replaced the document', async () => {
+    const { fake } = await renamedCube()
+    const writing = holdFirstWrite(fake)
+    const first = save(fake.app)
+    await settle()
+    const second = save(fake.app)
+    await newDocument(fake.app)
+    writing.release()
+    await Promise.all([first, second])
+    await settle()
+    expect(fake.transport.commandsOfType('save_document')).toHaveLength(1)
+    expect(fake.files.writes).toHaveLength(1)
   })
 })
 
