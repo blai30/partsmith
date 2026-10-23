@@ -1,7 +1,8 @@
-//! The release-only build-time budgets of the per-feature specs (features.md section 6.1), a test
-//! target of their own (ADR 0035), so each median is timed beside only the other budgets, never
-//! beside the document tests of `tests/integration.rs`. Debug builds are far slower than the
-//! reference machine, so they run only in release builds:
+//! The release-only build-time budgets of the per-feature specs and features.md section 5
+//! (features.md section 6.1), a test target of their own (ADR 0035), so no median is timed beside
+//! the document tests of `tests/integration.rs`, and timed one at a time (`median_duration` of
+//! `feature_support`), so none is timed beside another budget's either. Debug builds are far
+//! slower than the reference machine, so they run only in release builds:
 //! `cargo test -p partsmith-recompute --release --test budgets`. Each module is named after the
 //! file of the feature it times, so a budget's test id is the one it had in that file
 //! (`feature_box::t010_default_box_builds_within_2_ms`).

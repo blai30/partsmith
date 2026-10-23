@@ -5,15 +5,15 @@
 //! (`newcomer_errors.rs`, test 70): the feature records (`records.rs`, with the shared setups and
 //! their picked references), documents, runs and edits, fixes, the picks of the corpus's "Picked
 //! references" rule, run readers, resolver diagnostics and checks that are the same in all of
-//! them. Both test targets declare it beside `feature_support`; the corpus thirds' helpers
-//! re-export it.
+//! them. The test targets `integration` and `reference_stability` declare it beside
+//! `feature_support`; the corpus thirds' helpers re-export it.
 //! The first third checks against body states with its own `Expectations` at the corpus's exact
 //! 1e-6 mm instead of `Checks`, which reads the run.
 //!
 //! It is not behind the `stability-study` feature, since the diagnosis and newcomer error tests of
 //! the target `integration` use it too.
 
-// The two test targets each use only some of these helpers.
+// `integration` and `reference_stability` each use only some of these helpers.
 #![allow(dead_code)]
 
 mod records;

@@ -22,7 +22,7 @@ pub use frames::*;
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use partsmith_features::{
@@ -689,9 +689,16 @@ pub fn median_build_time(document: &Document, feature: &str, runs: usize) -> Dur
     median_build_time_with_assets(document, feature, runs, &Assets::new())
 }
 
-/// The median of `runs` durations, each one call of `measure`.
+/// Serializes the timed runs, so that a budget's median never shares the cores with another
+/// budget's timed runs.
+static TIMING: Mutex<()> = Mutex::new(());
+
+/// The median of `runs` durations, each one call of `measure`, timed while no other median is
+/// (`TIMING`).
 pub fn median_duration(runs: usize, mut measure: impl FnMut() -> Duration) -> Duration {
     assert!(runs > 0, "at least one run");
+    // The lock guards no data, so a budget that failed while holding it does not fail the rest.
+    let _timing = TIMING.lock().unwrap_or_else(PoisonError::into_inner);
     let mut durations: Vec<Duration> = (0..runs).map(|_| measure()).collect();
     durations.sort();
     durations[runs / 2]
