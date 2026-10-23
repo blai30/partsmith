@@ -55,7 +55,6 @@ import { entityUse } from '../../timeline/uses'
 import { cameraAfterSketch, type Camera, type Vector3 } from '../../viewport/camera'
 import type { ViewportHandle } from '../../viewport/controller'
 import type { App } from '../createApp'
-import { reportFailure } from '../report'
 import { cancelCommandImplicitly } from './command'
 import { coreRedo, coreUndo } from './document'
 import { documentOf, showCoreError } from './edits'
@@ -137,7 +136,7 @@ export function recordSketchEdit(app: App, sketchId: string | null = null): void
   if (edited === null || (sketchId !== null && sketchId !== edited)) {
     return
   }
-  refreshUses(app).catch(reportFailure('Asking what the features use'))
+  void refreshUses(app)
   const history = sessionRecords.get(app.store)
   if (history !== undefined) {
     history.undo.push({ kind: 'document' })
@@ -356,7 +355,7 @@ export async function enterSketch(app: App, sketchId: string): Promise<void> {
     return
   }
   // The used marks show what later features use of the sketch (3.16.10).
-  refreshUses(app).catch(reportFailure('Asking what the features use'))
+  void refreshUses(app)
   let solution = document.sketches[sketchId]?.solution ?? null
   if (solution === null) {
     try {

@@ -1,4 +1,4 @@
-import { createLatestOnly } from '../../core/queue'
+import { createLatestOnly, skipRepeats, type LatestOnly } from '../../core/queue'
 import type { DocHandle, Edit, FeatureRecord, Use } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { selectFeatureLabel } from '../../state/selectors'
@@ -257,21 +257,17 @@ export async function renameFeature(app: App, featureId: string, name: string): 
 /** The document revision a `list_uses` request asks about. */
 type UsesInput = { readonly documentHandle: DocHandle; readonly revision: number }
 
-/** The `list_uses` requests of one app: one at a time, the newest waiting (2.5). */
-type UsesRequests = {
-  /** Asks for the uses of `input` unless the request in flight or waiting already does. */
-  submit(input: UsesInput): void
-  /** Resolves when no request is left. */
-  flush(): Promise<void>
-}
-
-const usesRequestsByStore = new WeakMap<AppStore, UsesRequests>()
+/**
+ * The `list_uses` requests of each app: one at a time, the newest waiting (2.5), and none sent
+ * again while the request in flight or waiting already asks about the same revision.
+ */
+const usesRequestsByStore = new WeakMap<AppStore, LatestOnly<UsesInput>>()
 
 function sameRevision(first: UsesInput, second: UsesInput): boolean {
   return first.documentHandle === second.documentHandle && first.revision === second.revision
 }
 
-function usesRequestsOf(app: App): UsesRequests {
+function usesRequestsOf(app: App): LatestOnly<UsesInput> {
   const existing = usesRequestsByStore.get(app.store)
   if (existing !== undefined) {
     return existing
@@ -290,18 +286,7 @@ function usesRequestsOf(app: App): UsesRequests {
       // Uses that are not known warn about nothing (3.9); the next refresh asks again.
     },
   )
-  // The input submitted last: while `latest` is busy, the request whose answer comes next.
-  let submitted: UsesInput | null = null
-  const requests: UsesRequests = {
-    submit(input) {
-      if (latest.busy && submitted !== null && sameRevision(submitted, input)) {
-        return
-      }
-      submitted = input
-      latest.submit(input)
-    },
-    flush: () => latest.flush(),
-  }
+  const requests = skipRepeats(latest, sameRevision)
   usesRequestsByStore.set(app.store, requests)
   return requests
 }
@@ -309,7 +294,8 @@ function usesRequestsOf(app: App): UsesRequests {
 /**
  * Asks the core for `list_uses` when `document.uses` is older than the document's revision (3.9),
  * outside the mutation queue, since it changes nothing; resolves when the uses are current, or
- * when the request for the current revision failed (the next refresh asks again).
+ * when the request for the current revision failed (the next refresh asks again). It never
+ * rejects, so callers that do not wait for it drop it with `void`.
  */
 export function refreshUses(app: App): Promise<void> {
   return refreshUsesAfter(app, null)

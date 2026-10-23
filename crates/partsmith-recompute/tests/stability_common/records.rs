@@ -1,7 +1,9 @@
 //! Feature records as `.ptsm` JSON for the corpus scenarios: sketch entities, regions, planes,
 //! feature records, the corpus's shared setups (BLOCK, SLOT, CUBE20, CUBE10 and BOX-BELOW) with
-//! their picked references, the setups more than one test file runs (PEGS of R23 to the notched
-//! outline of R66), and edits of feature lists.
+//! their picked references, the setups more than one test file runs (the corner chamfered outline
+//! of R01 to the notched outline of R66) with theirs, and edits of feature lists. Each setup and
+//! pick is written once here, so the corpus thirds, the diagnosis tests and the newcomer error
+//! corpus run the same records.
 
 use std::f64::consts::{FRAC_PI_2, PI};
 
@@ -398,6 +400,11 @@ pub fn cube20_bottom_front() -> Value {
     )
 }
 
+/// CUBE20's top.
+pub fn cube20_top() -> Value {
+    reference("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4")
+}
+
 /// CUBE10: `f-box1` box 10 x 10 x 10 in `b-1`.
 pub fn cube10() -> Value {
     box_record("f-box1", "b-1", ["10", "10", "10"], None, "new")
@@ -518,15 +525,241 @@ pub fn slot_cut(
     ]
 }
 
+/// `f-dp1`: datum XY offset 30 (BLOCK's top).
+pub fn top_datum() -> Value {
+    datum_offset("f-dp1", "XY", "30")
+}
+
 /// SLOT(a, b) (naming.md test 84) on BLOCK: `f-dp1` datum XY offset 30, `f-sk2` and `f-ext2`
 /// cutting 5 mm.
 pub fn slot(x0: f64, x1: f64) -> Vec<Value> {
-    let mut features = vec![datum_offset("f-dp1", "XY", "30")];
+    let mut features = vec![top_datum()];
     features.extend(slot_cut("f-dp1", "f-sk2", "f-ext2", x0, x1, "5"));
     features
 }
 
-// Setups that more than one test file runs, R23 to R66, with their picked references.
+/// The front top edge of the top's right-hand piece (x 50..80) of SLOT(30,50).
+pub fn slot_right_piece_front_top() -> Value {
+    reference(
+        "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)",
+        "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
+    )
+}
+
+// Setups that more than one test file runs, R01 to R66, with their picked references.
+
+/// R01: BLOCK's outline with its front right corner cut by the line `e-6`, `size` along each side.
+pub fn corner_chamfered_outline(size: f64) -> Vec<Value> {
+    vec![
+        line("e-1", [0.0, 0.0], [80.0 - size, 0.0]),
+        line("e-2", [80.0, size], [80.0, 50.0]),
+        line("e-3", [80.0, 50.0], [0.0, 50.0]),
+        line("e-4", [0.0, 50.0], [0.0, 0.0]),
+        line("e-6", [80.0 - size, 0.0], [80.0, size]),
+    ]
+}
+
+/// R03: BLOCK's outline with its back right corner beveled by `e-5` from (80, 40) to (70, 50).
+pub fn beveled_outline() -> Vec<Value> {
+    vec![
+        line("e-1", [0.0, 0.0], [80.0, 0.0]),
+        line("e-2", [80.0, 0.0], [80.0, 40.0]),
+        line("e-5", [80.0, 40.0], [70.0, 50.0]),
+        line("e-3", [70.0, 50.0], [0.0, 50.0]),
+        line("e-4", [0.0, 50.0], [0.0, 0.0]),
+    ]
+}
+
+/// R03: the region of the beveled outline, as stored when the block was made.
+pub fn beveled_region() -> Value {
+    region("e-1,e-2,e-3,e-4,e-5", [39.535865, 24.725738], 3950.0)
+}
+
+/// R03: the top edge of the bevel face.
+pub fn bevel_top() -> Value {
+    reference(
+        "edge(f-ext1/end-cap|f-ext1/lateral/e-5)",
+        "line|n=0.707107,-0.707107,0|c=75,45,30|l=14.142136|adj=2,2",
+    )
+}
+
+/// R03 setup with `outline` in `f-sk1` (the beveled outline when set up): `f-ext1`, the stored
+/// beveled region extruded 30 into `b-1`, and a fillet `f-fil1` of 2 on the bevel's top edge and
+/// BLOCK's front top edge.
+pub fn beveled_block(outline: Vec<Value>) -> Vec<Value> {
+    vec![
+        sketch("f-sk1", origin_plane("XY"), outline),
+        extrude(
+            "f-ext1",
+            "b-1",
+            "f-sk1",
+            vec![beveled_region()],
+            distance("30"),
+            "new",
+        ),
+        fillet("f-fil1", "b-1", vec![bevel_top(), block_front_top()], "2"),
+    ]
+}
+
+/// R10 (a) and R48 setup: BLOCK, SLOT(x0, x1) and a fillet `f-fil1` of `radius` on the front top
+/// edge of the top's right-hand piece as picked with SLOT(30,50).
+pub fn filleted_slot(x0: f64, x1: f64, radius: &str) -> Vec<Value> {
+    let mut features = block();
+    features.extend(slot(x0, x1));
+    features.push(fillet(
+        "f-fil1",
+        "b-1",
+        vec![slot_right_piece_front_top()],
+        radius,
+    ));
+    features
+}
+
+/// The pocket of R12.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Pocket {
+    /// A circle `e-5` of radius 10 at (40, 25), filleted with radius 2.
+    Round,
+    /// The 20 x 20 square `e-11` to `e-14` at (40, 25), one floor edge filleted with radius 1.
+    Square,
+}
+
+impl Pocket {
+    /// The pocket's floor edge as picked with the pocket 5 deep.
+    pub fn floor_edge(self) -> Value {
+        match self {
+            Pocket::Round => reference(
+                "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
+                "circle|n=0,0,1|c=40,25,25|l=62.831853|r=10|adj=2,1",
+            ),
+            Pocket::Square => reference(
+                "edge(f-ext2/end-cap|f-ext2/lateral/e-11)",
+                "line|n=1,0,0|c=40,15,25|l=20|adj=2,2",
+            ),
+        }
+    }
+}
+
+/// R12 setup: BLOCK, `pocket` cut `depth` deep from its top by `f-ext2`, and a fillet `f-fil1` on
+/// the edge where the pocket's floor meets its wall.
+pub fn filleted_pocket(pocket: Pocket, depth: &str) -> Vec<Value> {
+    let (entities, profile, radius) = match pocket {
+        Pocket::Round => (
+            vec![circle("e-5", [40.0, 25.0], 10.0)],
+            circle_region("e-5", [40.0, 25.0], 10.0),
+            "2",
+        ),
+        Pocket::Square => (
+            rectangle(11, 30.0, 15.0, 50.0, 35.0),
+            rectangle_region(11, 30.0, 15.0, 50.0, 35.0),
+            "1",
+        ),
+    };
+    let mut features = block();
+    features.extend([
+        top_datum(),
+        sketch("f-sk2", datum_plane("f-dp1"), entities),
+        reversed(extrude(
+            "f-ext2",
+            "b-1",
+            "f-sk2",
+            vec![profile],
+            distance(depth),
+            "cut",
+        )),
+        fillet("f-fil1", "b-1", vec![pocket.floor_edge()], radius),
+    ]);
+    features
+}
+
+/// R13: the top of the lower step, as picked.
+pub fn step_top() -> Value {
+    reference("f-ext2/end-cap", "plane|n=0,0,1|c=100,25,20|a=2000|adj=4,4")
+}
+
+/// R13: the right top edge of the lower step.
+pub fn step_right_top() -> Value {
+    reference(
+        "edge(f-ext2/end-cap|f-ext2/lateral/e-6)",
+        "line|n=0,1,0|c=120,25,20|l=50|adj=2,2",
+    )
+}
+
+/// R13 setup: BLOCK, a step `f-sk2`, `f-ext2` x 80..120 of `height` joined beside it, a fillet
+/// `f-fil1` of 2 on the step edge, a boss `f-sk3`, `f-ext3` on a face sketch on the step's top and
+/// a fillet `f-fil2` of 1 on the step's right top edge.
+pub fn stepped_block(height: &str) -> Vec<Value> {
+    let mut features = block();
+    features.extend([
+        sketch(
+            "f-sk2",
+            origin_plane("XY"),
+            rectangle(5, 80.0, 0.0, 120.0, 50.0),
+        ),
+        extrude(
+            "f-ext2",
+            "b-1",
+            "f-sk2",
+            vec![rectangle_region(5, 80.0, 0.0, 120.0, 50.0)],
+            distance(height),
+            "join",
+        ),
+        fillet("f-fil1", "b-1", vec![block_right_top()], "2"),
+        sketch(
+            "f-sk3",
+            top_face_plane("b-1", step_top(), 20.0),
+            vec![circle("e-9", [100.0, 25.0], 5.0)],
+        ),
+        extrude(
+            "f-ext3",
+            "b-1",
+            "f-sk3",
+            vec![circle_region("e-9", [100.0, 25.0], 5.0)],
+            distance("5"),
+            "join",
+        ),
+        fillet("f-fil2", "b-1", vec![step_right_top()], "1"),
+    ]);
+    features
+}
+
+/// R15 (a) and R32 (a): the top of the 40 x 40 x 10 box `f-box1`.
+pub fn plate40_top() -> Value {
+    reference("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4")
+}
+
+/// R21: the top edge of the right side of the 20 x 20 x 10 box `f-box1`.
+pub fn box_right_top() -> Value {
+    reference(
+        "edge(f-box1/right|f-box1/top)",
+        "line|n=0,1,0|c=10,0,10|l=20|adj=2,2",
+    )
+}
+
+/// R21 setup: a 20 x 20 x 10 box `f-box1` and a fillet `f-fil1` of 2 on the top edge of its right
+/// side.
+pub fn filleted_right_edge() -> Vec<Value> {
+    vec![
+        box_record("f-box1", "b-1", ["20", "20", "10"], None, "new"),
+        fillet("f-fil1", "b-1", vec![box_right_top()], "2"),
+    ]
+}
+
+/// R21's edit: a 20 x 20 box `f-box2` of `height` joined against the right side, inserted before
+/// the fillet.
+pub fn box_against_right_side(height: &str) -> Vec<Value> {
+    insert_before(
+        &filleted_right_edge(),
+        "f-fil1",
+        vec![box_record(
+            "f-box2",
+            "b-1",
+            ["20", "20", height],
+            Some(["20", "0", "0"]),
+            "join",
+        )],
+    )
+}
 
 /// R23: peg A's top rim.
 pub fn peg_a_rim() -> Value {
@@ -647,7 +880,7 @@ pub fn boss_base_ring() -> Value {
 pub fn filleted_boss(edge: Value) -> Vec<Value> {
     let mut features = block();
     features.extend([
-        datum_offset("f-dp1", "XY", "30"),
+        top_datum(),
         sketch(
             "f-sk2",
             datum_plane("f-dp1"),
@@ -678,7 +911,7 @@ pub fn symmetric_boss_rim() -> Value {
 /// `f-fil1` of 2 on its top rim.
 pub fn symmetric_boss(op: &str) -> Vec<Value> {
     let mut features = block();
-    features.push(datum_offset("f-dp1", "XY", "30"));
+    features.push(top_datum());
     features.push(sketch(
         "f-sk2",
         datum_plane("f-dp1"),
@@ -874,6 +1107,104 @@ pub fn revolve_about_box_edge(inserted: Vec<Value>) -> Vec<Value> {
     features
 }
 
+/// R43: the top rim of the hole of [`two_holes`] at `e-p2` (7, 0).
+pub fn two_holes_p2_rim() -> Value {
+    reference(
+        "edge(f-box1/top|f-hole1/bore/e-p2)",
+        "circle|n=0,0,1|c=7,0,0|l=18.849556|r=3|adj=2,1",
+    )
+}
+
+/// R43 setup: BOX-BELOW, `f-sk1` with `entities`, holes `f-hole1` of 6 through all at `points`,
+/// and a chamfer `f-cha1` of 0.5 on the top rim of the hole at `e-p2` (7, 0).
+pub fn two_holes(entities: Vec<Value>, points: &[&str]) -> Vec<Value> {
+    vec![
+        box_below(),
+        sketch("f-sk1", origin_plane("XY"), entities),
+        hole("f-hole1", "b-1", "f-sk1", points, "6", through_all()),
+        chamfer("f-cha1", "b-1", vec![two_holes_p2_rim()], "0.5"),
+    ]
+}
+
+/// R45 and R46 (a): the top rim of the hole at (30, 10) of the first plate.
+pub fn plate_rim_30() -> Value {
+    reference(
+        "edge(f-imp1/face#3|f-imp1/face#6)",
+        "circle|n=0,0,1|c=30,10,5|l=18.849556|r=3|adj=2,1",
+    )
+}
+
+/// R46 (b): the top rim of the hole at (20, 10) of the first plate.
+pub fn plate_rim_20() -> Value {
+    reference(
+        "edge(f-imp1/face#4|f-imp1/face#5)",
+        "circle|n=0,0,1|c=20,10,5|l=18.849556|r=3|adj=2,1",
+    )
+}
+
+/// R45 and R46 setup: an import `f-imp1` of the plate `asset` into `b-1` and a chamfer `f-cha1` of
+/// 0.5 on `rim`.
+pub fn imported_plate(asset: &str, rim: Value) -> Vec<Value> {
+    vec![
+        import("f-imp1", "b-1", asset, "new"),
+        chamfer("f-cha1", "b-1", vec![rim], "0.5"),
+    ]
+}
+
+/// R47: the top rim of the boss of [`boss_beside_hole`].
+pub fn boss_beside_hole_rim() -> Value {
+    reference(
+        "edge(f-ext3/end-cap|f-ext3/lateral/e-5)",
+        "circle|n=0,0,1|c=20,25,40|l=62.831853|r=10|adj=2,1",
+    )
+}
+
+/// R47 setup: BLOCK with a through hole `f-ext2` at (50, 25), a boss `f-ext3` at (20, 25) of
+/// `boss_distance` whose sketch `f-sk3` has the diameter `c-1` and then `extra`, and a fillet
+/// `f-fil1` of 2 on the boss's top rim.
+pub fn boss_beside_hole(extra: Vec<Value>, boss_distance: &str) -> Vec<Value> {
+    let mut constraints = vec![size_constraint("c-1", "diameter", "e-5", "20 mm")];
+    constraints.extend(extra);
+    let mut features = block();
+    features.extend([
+        sketch(
+            "f-sk2",
+            origin_plane("XY"),
+            vec![circle("e-6", [50.0, 25.0], 10.0)],
+        ),
+        extrude(
+            "f-ext2",
+            "b-1",
+            "f-sk2",
+            vec![circle_region("e-6", [50.0, 25.0], 10.0)],
+            through_all(),
+            "cut",
+        ),
+        top_datum(),
+        constrained_sketch(
+            "f-sk3",
+            datum_plane("f-dp1"),
+            vec![circle("e-5", [20.0, 25.0], 10.0)],
+            constraints,
+        ),
+        extrude(
+            "f-ext3",
+            "b-1",
+            "f-sk3",
+            vec![circle_region("e-5", [20.0, 25.0], 10.0)],
+            distance(boss_distance),
+            "join",
+        ),
+        fillet("f-fil1", "b-1", vec![boss_beside_hole_rim()], "2"),
+    ]);
+    features
+}
+
+/// R47's edit: a radius `c-2` that conflicts with the diameter `c-1`.
+pub fn conflicting_radius() -> Vec<Value> {
+    vec![size_constraint("c-2", "radius", "e-5", "6 mm")]
+}
+
 /// R51: the outline of an 80 x 50 rectangle with radius 5 corners; `back_right_arc` false draws a
 /// sharp back right corner instead of the arc `e-6`.
 pub fn rounded_outline(back_right_arc: bool) -> Vec<Value> {
@@ -970,6 +1301,36 @@ pub fn three_quarter_ring(extent: Value) -> Vec<Value> {
             distance("3"),
             "cut",
         )),
+    ]
+}
+
+/// R63 (b): the counterbore's mouth of [`counterbored_hole`].
+pub fn counterbore_mouth() -> Value {
+    reference(
+        "edge(f-box1/top|f-hole1/counterbore/e-p1)",
+        "circle|n=0,0,1|c=0,0,0|l=34.557519|r=5.5|adj=2,1",
+    )
+}
+
+/// R63 (b) setup: BOX-BELOW, a hole `f-hole1` of `diameter` through all at `e-p1` (0, 0),
+/// counterbored 11 by 4 or simple, and a chamfer `f-cha1` of 0.5 on the counterbore's mouth.
+pub fn counterbored_hole(diameter: &str, counterbored: bool) -> Vec<Value> {
+    let mut drill = hole(
+        "f-hole1",
+        "b-1",
+        "f-sk1",
+        &["e-p1"],
+        diameter,
+        through_all(),
+    );
+    if counterbored {
+        drill = with(drill, "hole_type", counterbore("11", "4"));
+    }
+    vec![
+        box_below(),
+        sketch("f-sk1", origin_plane("XY"), vec![point("e-p1", [0.0, 0.0])]),
+        drill,
+        chamfer("f-cha1", "b-1", vec![counterbore_mouth()], "0.5"),
     ]
 }
 

@@ -1,5 +1,5 @@
 import { CoreError } from '../../core/client'
-import { createLatestOnly } from '../../core/queue'
+import { createLatestOnly, skipRepeats, type LatestOnly } from '../../core/queue'
 import type { DocHandle, Health, Orientation } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { ALWAYS_SHOWN_CHECK } from '../../print/checks'
@@ -36,17 +36,22 @@ const ORIENTATION_ERRORS: ReadonlySet<string> = new Set([
   'reference_unresolved',
 ])
 
-/** The print analyses of one app: one at a time, newest waiting input only (2.5). */
-type Analyses = {
-  /** Sends an analysis unless the one in flight or waiting already checks the same revision. */
-  submit(input: AnalysisInput): void
-  /** Resolves when no analysis is left. */
-  flush(): Promise<void>
+/** Whether two analyses check the same revision in the same orientation. */
+function sameAnalysis(first: AnalysisInput, second: AnalysisInput): boolean {
+  return (
+    first.documentHandle === second.documentHandle &&
+    first.revision === second.revision &&
+    sameOrientation(first.orientation, second.orientation)
+  )
 }
 
-const analysesByStore = new WeakMap<AppStore, Analyses>()
+/**
+ * The print analyses of each app: one at a time, newest waiting input only (2.5), and none sent
+ * again while the one in flight or waiting already checks the same revision.
+ */
+const analysesByStore = new WeakMap<AppStore, LatestOnly<AnalysisInput>>()
 
-function analysesOf(app: App): Analyses {
+function analysesOf(app: App): LatestOnly<AnalysisInput> {
   const existing = analysesByStore.get(app.store)
   if (existing !== undefined) {
     return existing
@@ -79,25 +84,7 @@ function analysesOf(app: App): Analyses {
       }
     },
   )
-  // The input submitted last. While `latest` is busy it is the analysis whose report comes next:
-  // the waiting one, else the one in flight.
-  let submitted: AnalysisInput | null = null
-  const analyses: Analyses = {
-    submit(input) {
-      if (
-        latest.busy &&
-        submitted !== null &&
-        submitted.documentHandle === input.documentHandle &&
-        submitted.revision === input.revision &&
-        sameOrientation(submitted.orientation, input.orientation)
-      ) {
-        return
-      }
-      submitted = input
-      latest.submit(input)
-    },
-    flush: () => latest.flush(),
-  }
+  const analyses = skipRepeats(latest, sameAnalysis)
   analysesByStore.set(app.store, analyses)
   return analyses
 }

@@ -2,15 +2,14 @@
 //! `.rs` file directly in `tests/` and every helper directory is a module here, except
 //! `budgets.rs`, the release-only feature budgets, a test target of its own so that no median is
 //! timed beside these tests. The reference stability corpus (recompute.md test 69) is the three
-//! modules `reference_stability_{1,2,3}`, with their helpers `stability_support_{1,2,3}`. A new
-//! test file is declared here, or it is never built.
+//! modules `reference_stability_{1,2,3}`, with the helpers they share in `stability_common` and the
+//! first third's own in `stability_support_1`. A new test file is declared here, or it is never
+//! built.
 
 mod common;
 mod feature_support;
 mod stability_common;
 mod stability_support_1;
-mod stability_support_2;
-mod stability_support_3;
 
 mod body_semantics;
 mod cancellation;

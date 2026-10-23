@@ -168,8 +168,9 @@ function sketchPointsToWorld(placement: Placement, positions: Float32Array): Flo
   if (cached?.placement === placement) {
     return cached.world
   }
-  const world = new Float32Array((positions.length >> 1) * 3)
-  for (let i = 0; (i + 1) * 2 <= positions.length; i++) {
+  const count = positions.length >> 1
+  const world = new Float32Array(count * 3)
+  for (let i = 0; i < count; i++) {
     world.set(sketchToWorld(placement, [positions[i * 2] ?? 0, positions[i * 2 + 1] ?? 0]), i * 3)
   }
   worldBySketchPoints.set(positions, { placement, world })
@@ -200,10 +201,14 @@ function worldGhostPoints(
  */
 export function ghostBuffer(state: AppState, repair: Repair): Float32Array | undefined {
   const ghost = repair.ghost ?? null
-  const positions = ghost === null ? undefined : state.document?.ghosts[ghost.positions]
-  return ghost === null || positions === undefined
-    ? undefined
-    : worldGhostPoints(state, ghost, positions, repair.kind === 'region' ? repair.sketch : null)
+  if (ghost === null) {
+    return undefined
+  }
+  const positions = state.document?.ghosts[ghost.positions]
+  if (positions === undefined) {
+    return undefined
+  }
+  return worldGhostPoints(state, ghost, positions, repair.kind === 'region' ? repair.sketch : null)
 }
 
 /**
@@ -232,12 +237,15 @@ export function causeGhost(
 ): { readonly kind: GhostKind; readonly positions: Float32Array } | undefined {
   const shown = state.shown
   const ghost = shown?.ghost ?? null
-  const kept = ghost === null ? undefined : shownGhostPoints.get(ghost)
-  const positions =
-    shown === null || ghost === null || kept === undefined
-      ? undefined
-      : worldGhostPoints(state, ghost, kept, shown.feature)
-  return ghost === null || positions === undefined ? undefined : { kind: ghost.kind, positions }
+  if (shown === null || ghost === null) {
+    return undefined
+  }
+  const kept = shownGhostPoints.get(ghost)
+  if (kept === undefined) {
+    return undefined
+  }
+  const positions = worldGhostPoints(state, ghost, kept, shown.feature)
+  return positions === undefined ? undefined : { kind: ghost.kind, positions }
 }
 
 /** Repair mode as shown (3.7): the feature, its repairs, and its current repair with candidates. */

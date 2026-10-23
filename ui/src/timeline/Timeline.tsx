@@ -8,27 +8,21 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
-  type RefObject,
 } from 'react'
 import { editFeature } from '../app/actions/command'
 import { openSidePanel, togglePanel } from '../app/actions/panels'
-import { select } from '../app/actions/selection'
 import {
-  deleteFeatures,
   moveFeature,
   refreshUses,
   renameFeature,
   setRollback,
-  setSuppressed,
   startRollbackDrag,
 } from '../app/actions/timeline'
 import { useApp, useAppState } from '../app/AppProvider'
-import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import { markerPosition } from '../core/recipe'
 import { FEATURE_ICONS } from '../commands/icons'
 import { IconButton } from '../components/IconButton'
-import { Menu, type MenuEntry } from '../components/Menu'
 import { Tooltip } from '../components/Tooltip'
 import { featureLabel } from '../core/labels'
 import type { FeatureRecord, FeatureStatus } from '../generated/protocol'
@@ -39,19 +33,15 @@ import { RenameField } from '../layout/RenameField'
 import { useUiRequest } from '../layout/requests'
 import { arrowTarget, rovingTabStop } from '../layout/roving'
 import { keepInViewHorizontally } from '../layout/scroll'
-import { counted, MESSAGES } from '../messages'
+import { counted } from '../messages'
 import { rowSeverity } from '../problems/problems'
-import {
-  selectCommandBlock,
-  selectFeatureLabel,
-  selectProblemCount,
-  selectProblems,
-} from '../state/selectors'
-import type { AppState } from '../state/store'
+import { selectCommandBlock, selectProblemCount, selectProblems } from '../state/selectors'
 import { COLOR_CLASSES } from '../theme/roles'
+import { DropHint } from './DropHint'
+import { FeatureMenu } from './FeatureMenu'
 import { itemStatus, markerText, statusText } from './strip'
 import { useStripDrag } from './use-strip-drag'
-import { dropWarning, usersOf, usesAreCurrent, type DropWarning } from './uses'
+import { dropWarning } from './uses'
 
 // The timeline (ui.md 3.9): the features in timeline order with the rollback marker in its gap,
 // reordering by drag, inline rename, a context menu, and the problems count. The strip is a
@@ -338,104 +328,6 @@ function Marker({ position, count, valueText, onPress }: MarkerProps) {
   )
 }
 
-type FeatureMenuOptions = {
-  /** The features Suppress and Delete cover. */
-  readonly targets: readonly string[]
-  /** An open feature command blocks every timeline edit (3.7). */
-  readonly blocked: boolean
-  /** "Used by {labels}" (3.9), or null when nothing uses the feature or its uses are not known. */
-  readonly usedBy: string | null
-  readonly onRename: (id: string) => void
-}
-
-/**
- * The `used_by` text of the features that use `feature` (3.9), once the uses of the current
- * revision are known; null before, and when nothing uses it.
- */
-function usedByText(state: AppState, feature: string): string | null {
-  const users = usesAreCurrent(state) ? usersOf(state, feature) : []
-  return users.length === 0
-    ? null
-    : MESSAGES.used_by(users.map((user) => selectFeatureLabel(state, user)))
-}
-
-/** Selects the features that use `feature`, which highlights what they made (3.6, 3.9). */
-function selectUsers(app: App, feature: string): void {
-  const state = app.store.getState()
-  select(
-    app,
-    usersOf(state, feature).map((user) =>
-      featureSelectionItem(user, selectFeatureLabel(state, user)),
-    ),
-    'replace',
-  )
-}
-
-/** The context menu (3.9) of the timeline item of `record`, at `index` in the timeline. */
-function featureMenuEntries(
-  app: App,
-  record: FeatureRecord,
-  index: number,
-  { targets, blocked, usedBy, onRename }: FeatureMenuOptions,
-): MenuEntry[] {
-  const suppressed = record.suppressed === true
-  const usedByEntries: MenuEntry[] =
-    usedBy === null
-      ? []
-      : [
-          {
-            kind: 'item',
-            label: usedBy,
-            onSelect: () => {
-              selectUsers(app, record.id)
-            },
-          },
-        ]
-  return [
-    {
-      kind: 'item',
-      label: 'Edit',
-      disabled: record.type === 'import',
-      onSelect: () => {
-        editFeature(app, record.id).catch(reportFailure('Editing the feature'))
-      },
-    },
-    {
-      kind: 'item',
-      label: 'Rename',
-      disabled: blocked,
-      onSelect: () => {
-        onRename(record.id)
-      },
-    },
-    {
-      kind: 'item',
-      label: suppressed ? 'Unsuppress' : 'Suppress',
-      disabled: blocked,
-      onSelect: () => {
-        setSuppressed(app, targets, !suppressed).catch(reportFailure('Suppressing'))
-      },
-    },
-    ...usedByEntries,
-    {
-      kind: 'item',
-      label: 'Roll back to here',
-      disabled: blocked,
-      onSelect: () => {
-        setRollback(app, index + 1).catch(reportFailure('Rolling back'))
-      },
-    },
-    {
-      kind: 'item',
-      label: 'Delete',
-      disabled: blocked,
-      onSelect: () => {
-        deleteFeatures(app, targets).catch(reportFailure('Deleting'))
-      },
-    },
-  ]
-}
-
 /** The strip of items and the marker, with reordering, renaming and the context menu. */
 function Strip() {
   const app = useApp()
@@ -527,8 +419,6 @@ function Strip() {
       moveFeature(app, featureId, target).catch(reportFailure('Reordering'))
     },
   })
-  // The open menu lists the features that use its feature, once their uses are known (3.9).
-  const usedBy = useAppState((state) => (menuFor === null ? null : usedByText(state, menuFor)))
 
   function labelOf(id: string): string {
     return recipe === null ? id : featureLabel(recipe, id, catalog)
@@ -563,15 +453,6 @@ function Strip() {
 
   const menuIndex = records.findIndex((record) => record.id === menuFor)
   const menuRecord = records[menuIndex]
-  const menuEntries: MenuEntry[] =
-    menuRecord === undefined
-      ? []
-      : featureMenuEntries(app, menuRecord, menuIndex, {
-          targets: targetsOf(menuRecord.id),
-          blocked,
-          usedBy,
-          onRename: setRenaming,
-        })
 
   const markerElement = (
     <Marker
@@ -608,7 +489,7 @@ function Strip() {
         onMenu={(featureId, button) => {
           menuAnchor.current = button
           setMenuFor(featureId)
-          refreshUses(app).catch(reportFailure('Asking what the features use'))
+          void refreshUses(app)
         }}
         onRename={setRenaming}
       />
@@ -670,67 +551,24 @@ function Strip() {
             )}
           />
         )}
-        <Menu
-          label="Feature"
-          testId="context-menu"
-          open={menuRecord !== undefined}
-          anchor={menuAnchor}
-          entries={menuEntries}
-          onOpenChange={(open) => {
-            if (!open) {
+        {menuRecord === undefined ? null : (
+          <FeatureMenu
+            feature={menuRecord}
+            index={menuIndex}
+            anchor={menuAnchor}
+            targets={targetsOf(menuRecord.id)}
+            blocked={blocked}
+            onRename={setRenaming}
+            onClose={() => {
               setMenuFor(null)
-            }
-          }}
-        />
+            }}
+          />
+        )}
       </div>
       {dragging === null || dragging === 'marker' ? null : (
         <DropHint ref={hint} warning={warning} />
       )}
     </>
-  )
-}
-
-type DropHintProps = {
-  readonly ref: RefObject<HTMLDivElement | null>
-  readonly warning: DropWarning | null
-}
-
-/**
- * The drop warning's chip above the insertion bar while a feature is dragged (3.9): a live region
- * from the drag's start, so a warning is announced when it appears, and transparent while empty.
- */
-function DropHint({ ref, warning }: DropHintProps) {
-  const text = useAppState((state) => {
-    if (warning === null) {
-      return ''
-    }
-    const user = selectFeatureLabel(state, warning.user)
-    const feature = selectFeatureLabel(state, warning.feature)
-    return MESSAGES.drop_breaks_use(
-      user,
-      warning.what,
-      feature,
-      warning.moved === warning.user ? 'user' : 'feature',
-    )
-  })
-  return (
-    <div
-      ref={ref}
-      data-testid="drop-hint"
-      // ui.md 3.9 names the status role of this chip.
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="status"
-      className={clsx(
-        'pointer-events-none absolute bottom-full left-0 mb-2 rounded-lg border px-2 py-1 text-xs whitespace-nowrap shadow-lg',
-        COLOR_CLASSES.surface.background,
-        COLOR_CLASSES.forcedEdge.border,
-        COLOR_CLASSES.elevation.shadow,
-        COLOR_CLASSES.text.foreground,
-        text === '' && 'opacity-0',
-      )}
-    >
-      {text}
-    </div>
   )
 }
 

@@ -1,36 +1,39 @@
-//! Reference stability corpus, scenarios R01 to R22 (docs/design/reference-stability-corpus.md): the
-//! first third of the corpus by id. Each test builds the scenario's setup as a document, runs it
-//! with the built-in registry with its references picked as the corpus's "Picked references" rule
-//! says (`run_picked`; every setup feature must be ok), applies the scenario's edit to the document
-//! (which keeps those picks, `with_picks`), runs it again on the same recompute, and checks the
-//! "Expect" of the scenario by geometry (centroids, normals, axes, lengths, volumes) and by the
-//! feature's status and messages.
-//! A scenario with variants has one test per variant; sizes that must behave alike are variants too.
+//! Reference stability corpus, scenarios R01 to R22 (docs/design/reference-stability-corpus.md):
+//! the first third of the corpus by id. Each test builds the scenario's setup as a document, runs
+//! it with the built-in registry with its references picked as the corpus's "Picked references"
+//! rule says (`run_picked`; every setup feature must be ok), applies the scenario's edit to the
+//! document (which keeps those picks, `with_picks`), runs it again on the same recompute, and
+//! checks the "Expect" of the scenario by geometry (centroids, normals, axes, lengths, volumes) and
+//! by the feature's status and messages.
+//! A scenario with variants has one test per variant; sizes that must behave alike are variants
+//! too.
 //!
 //! The tests are a module of the test target `integration` (ADR 0035); run this third alone with
 //! `cargo test -p partsmith-recompute --test integration reference_stability_1::`.
 
 use crate::stability_support_1;
 
-use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI};
+use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI, SQRT_2};
 
-use crate::feature_support::{Assets, Run, point_components};
+use crate::feature_support::{Assets, Run, face_names, point_components};
 use partsmith_features::{BodyState, DatumResult, OutputData, SketchResult};
 use partsmith_model::Document;
-use partsmith_naming::ElementKind;
 use partsmith_recompute::Status;
 use partsmith_sketch::Placement;
 use serde_json::Value;
 use stability_support_1::{
-    EXACT_POSITION_TOLERANCE, Expectations, arc, block, block_back_top, block_front_right_vertical,
-    block_front_top, block_outline, block_outline_to, block_region, block_right_side,
-    block_right_top, block_top, block_with, box_record, chamfer, chamfer_spans,
-    chamfer_two_distances, circle, cube20, cube20_front_top, datum_on_face, datum_plane, diagnose,
-    diagnose_region, distance, document_in, document_of, edit_document, extrude, face_plane,
-    faces_with_prefix, fillet, line, linear_pattern, names, origin_plane, parameter, rectangle,
-    rectangle_region, reference, region_with_fingerprint, reversed, run_picked, shell, sketch,
-    slot, slot_cut, split_by_datum, stored, summary, suppressed, symmetric, through_all, top_datum,
-    try_body_before, volume,
+    EXACT_POSITION_TOLERANCE, Expectations, Pocket, arc, bevel_top, beveled_block, beveled_outline,
+    beveled_region, block, block_back_top, block_front_right_vertical, block_front_top,
+    block_outline, block_outline_to, block_region, block_right_side, block_right_top, block_top,
+    block_with, box_against_right_side, box_record, box_right_top, chamfer, chamfer_two_distances,
+    circle, circle_region, corner_chamfered_outline, cube20, cube20_front_top, cube20_top,
+    datum_on_face, diagnose, diagnose_region, distance, document_in, document_of, edit_document,
+    extrude, face_plane, faces_with_prefix, fillet, filleted_pocket, filleted_right_edge,
+    filleted_slot, line, linear_pattern, origin_plane, parameter, plate40_top, rectangle,
+    rectangle_region, reference, reversed, run_picked, shell, sketch, slot, slot_cut,
+    slot_right_piece_front_top, solid_count, spans_along_x, split_by_datum, step_right_top,
+    step_top, stepped_block, stored, summary, suppressed, symmetric, through_all, top_datum,
+    top_face_plane, try_body_before, volume,
 };
 
 // Running scenarios.
@@ -40,9 +43,7 @@ use stability_support_1::{
 fn setup(document: Document) -> Run {
     let run = run_picked(document, &Assets::new());
     let mut checks = Expectations::new();
-    for feature in &run.report.features {
-        checks.clean(feature);
-    }
+    checks.all_clean(&run.report);
     checks.note(format!("setup run:\n{}", summary(&run.report)));
     checks.finish();
     run
@@ -171,37 +172,20 @@ fn r01_model(outline: Vec<Value>) -> Document {
     features.extend([
         sketch(
             "f-sk2",
-            face_plane(
-                "b-1",
-                block_top(),
-                [0.0, 0.0, 30.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ),
+            top_face_plane("b-1", block_top(), 30.0),
             vec![circle("e-5", [40.0, 25.0], 5.0)],
         ),
         extrude(
             "f-ext2",
             "b-1",
             "f-sk2",
-            vec![region_with_fingerprint("e-5", "c=40,25|a=78.539816")],
+            vec![circle_region("e-5", [40.0, 25.0], 5.0)],
             distance("10"),
             "join",
         ),
         fillet("f-fil1", "b-1", vec![block_back_top()], "2"),
     ]);
     document_of(&["b-1"], &features)
-}
-
-/// The block outline with its front right corner cut by line `e-6`, `size` along each side.
-fn corner_chamfered_outline(size: f64) -> Vec<Value> {
-    vec![
-        line("e-1", [0.0, 0.0], [80.0 - size, 0.0]),
-        line("e-2", [80.0, size], [80.0, 50.0]),
-        line("e-3", [80.0, 50.0], [0.0, 50.0]),
-        line("e-4", [0.0, 50.0], [0.0, 0.0]),
-        line("e-6", [80.0 - size, 0.0], [80.0, size]),
-    ]
 }
 
 /// R01 with a corner chamfer line of `size`.
@@ -336,7 +320,7 @@ fn r02(outline: Vec<Value>, face_count: usize, area: f64, new_faces: &[&str]) {
 
     checks.built_with_at_most_notices(run.feature("f-ext1"));
     if let Some(block) = state_after(&run, "f-ext1", "b-1") {
-        let faces = names(&block, ElementKind::Face);
+        let faces = face_names(&block);
         checks.expect(faces.len() == face_count, || {
             format!("after Extrude 1: expected {face_count} faces, got {faces:?}")
         });
@@ -442,49 +426,15 @@ fn r02_corner_radius_5_keeps_front_fillet_and_chamfer() {
     );
 }
 
-/// The top edge of R03's bevel face.
-fn bevel_top() -> Value {
-    reference(
-        "edge(f-ext1/end-cap|f-ext1/lateral/e-5)",
-        "line|n=0.707107,-0.707107,0|c=75,45,30|l=14.142136|adj=2,2",
-    )
-}
-
-/// R03's beveled outline region as stored.
-fn beveled_region() -> Value {
-    region_with_fingerprint("e-1,e-2,e-3,e-4,e-5", "c=39.535865,24.725738|a=3950")
-}
-
 /// R03: the beveled block (or the block with `outline`) with a fillet on the bevel's top edge
 /// and the front top edge.
 fn r03_model(outline: Vec<Value>) -> Document {
-    document_of(
-        &["b-1"],
-        &[
-            sketch("f-sk1", origin_plane("XY"), outline),
-            extrude(
-                "f-ext1",
-                "b-1",
-                "f-sk1",
-                vec![beveled_region()],
-                distance("30"),
-                "new",
-            ),
-            fillet("f-fil1", "b-1", vec![bevel_top(), block_front_top()], "2"),
-        ],
-    )
+    document_of(&["b-1"], &beveled_block(outline))
 }
 
 #[test]
 fn r03_removed_bevel_reports_its_lost_edge_and_keeps_the_rest() {
-    let beveled = vec![
-        line("e-1", [0.0, 0.0], [80.0, 0.0]),
-        line("e-2", [80.0, 0.0], [80.0, 40.0]),
-        line("e-5", [80.0, 40.0], [70.0, 50.0]),
-        line("e-3", [70.0, 50.0], [0.0, 50.0]),
-        line("e-4", [0.0, 50.0], [0.0, 0.0]),
-    ];
-    let mut run = setup(r03_model(beveled));
+    let mut run = setup(r03_model(beveled_outline()));
     edit_document(&mut run, r03_model(block_outline()), &Assets::new());
     let mut checks = checks_for(&run);
     checks.note(region_diagnosis(&run, "f-sk1", &beveled_region()));
@@ -618,7 +568,7 @@ fn r05_overlapping_profile_rectangles_extrude_their_union() {
 
     checks.built_with_at_most_notices(run.feature("f-ext1"));
     if let Some(block) = state_after(&run, "f-ext1", "b-1") {
-        let solids = stability_support_1::solid_count(&block);
+        let solids = solid_count(&block);
         checks.expect(solids == 1, || {
             format!("after Extrude 1: expected one solid, got {solids}")
         });
@@ -667,7 +617,7 @@ fn r06_model(outline: Vec<Value>) -> Document {
             "f-ext2",
             "b-1",
             "f-sk2",
-            vec![region_with_fingerprint("e-5", "c=25,15|a=50.265482")],
+            vec![circle_region("e-5", [25.0, 15.0], 4.0)],
             distance("5"),
             "cut",
         )),
@@ -840,10 +790,7 @@ fn r08a_model(width: f64) -> Document {
     features.push(fillet(
         "f-fil1",
         "b-1",
-        vec![reference(
-            "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)",
-            "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
-        )],
+        vec![slot_right_piece_front_top()],
         "2",
     ));
     document_of(&["b-1"], &features)
@@ -858,10 +805,7 @@ fn r08a(width: f64) {
         &run,
         "f-fil1",
         "b-1",
-        &reference(
-            "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)",
-            "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
-        ),
+        &slot_right_piece_front_top(),
     ));
     checks.clean(run.feature("f-fil1"));
     checks.fillets_along_x(
@@ -1017,20 +961,9 @@ fn r09_slot_moved_so_pieces_swap_sizes_keeps_the_shell_opening() {
     checks.finish();
 }
 
-/// R10 (a)'s fillet edge: the front top edge of the right piece of the top.
-fn r10a_edge() -> Value {
-    reference(
-        "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)",
-        "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
-    )
-}
-
 /// R10 (a): BLOCK with a slot x `x0..x1` and a fillet on the front top edge of the right piece.
 fn r10a_model(x0: f64, x1: f64) -> Document {
-    let mut features = block();
-    features.extend(slot(x0, x1));
-    features.push(fillet("f-fil1", "b-1", vec![r10a_edge()], "2"));
-    document_of(&["b-1"], &features)
+    document_of(&["b-1"], &filleted_slot(x0, x1, "2"))
 }
 
 #[test]
@@ -1038,7 +971,12 @@ fn r10a_slot_moved_over_the_right_piece_reports_its_lost_edge() {
     let mut run = setup(r10a_model(30.0, 50.0));
     edit_document(&mut run, r10a_model(50.0, 81.0), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnose(&run, "f-fil1", "b-1", &r10a_edge()));
+    checks.note(diagnose(
+        &run,
+        "f-fil1",
+        "b-1",
+        &slot_right_piece_front_top(),
+    ));
     // The corpus quotes the structural message; the cause line naming the moved line of 'Sketch 2'
     // is the engine twin's (recompute.md test 69).
     let candidates = check_lost_edge(
@@ -1149,7 +1087,7 @@ fn r11_model(center_y: f64) -> Document {
             "f-ext2",
             "b-1",
             "f-sk2",
-            vec![region_with_fingerprint("e-5", "c=80,25|a=78.539816")],
+            vec![circle_region("e-5", [80.0, 25.0], 5.0)],
             through_all(),
             "cut",
         ),
@@ -1190,65 +1128,9 @@ fn r11_notch_moved_further_than_its_width_keeps_the_chamfer_on_its_side() {
     checks.finish();
 }
 
-/// The pocket of R12.
-#[derive(Clone, Copy)]
-enum Pocket {
-    /// A circle of radius 10 at (40, 25), filleted with radius 2.
-    Round,
-    /// A 20 x 20 square at (40, 25), one floor edge filleted with radius 1.
-    Square,
-}
-
-impl Pocket {
-    /// The pocket's floor edge as picked with the pocket 5 deep.
-    fn floor_edge(self) -> Value {
-        match self {
-            Pocket::Round => reference(
-                "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
-                "circle|n=0,0,1|c=40,25,25|l=62.831853|r=10|adj=2,1",
-            ),
-            Pocket::Square => reference(
-                "edge(f-ext2/end-cap|f-ext2/lateral/e-11)",
-                "line|n=1,0,0|c=40,15,25|l=20|adj=2,2",
-            ),
-        }
-    }
-}
-
 /// R12: BLOCK with `pocket` cut `depth` down from the top and a fillet on its floor edge.
 fn r12_model(pocket: Pocket, depth: &str) -> Document {
-    let (entities, profile, radius) = match pocket {
-        Pocket::Round => (
-            vec![circle("e-5", [40.0, 25.0], 10.0)],
-            region_with_fingerprint("e-5", "c=40,25|a=314.159265"),
-            "2",
-        ),
-        Pocket::Square => (
-            vec![
-                line("e-11", [30.0, 15.0], [50.0, 15.0]),
-                line("e-12", [50.0, 15.0], [50.0, 35.0]),
-                line("e-13", [50.0, 35.0], [30.0, 35.0]),
-                line("e-14", [30.0, 35.0], [30.0, 15.0]),
-            ],
-            region_with_fingerprint("e-11,e-12,e-13,e-14", "c=40,25|a=400"),
-            "1",
-        ),
-    };
-    let mut features = block();
-    features.extend([
-        top_datum(),
-        sketch("f-sk2", datum_plane("f-dp1"), entities),
-        reversed(extrude(
-            "f-ext2",
-            "b-1",
-            "f-sk2",
-            vec![profile],
-            distance(depth),
-            "cut",
-        )),
-        fillet("f-fil1", "b-1", vec![pocket.floor_edge()], radius),
-    ]);
-    document_of(&["b-1"], &features)
+    document_of(&["b-1"], &filleted_pocket(pocket, depth))
 }
 
 /// R12 with `pocket` deepened to `depth`: the floor edge is gone and nothing is rounded.
@@ -1263,7 +1145,7 @@ fn r12(pocket: Pocket, depth: &str) {
     match pocket {
         Pocket::Round => {
             checks.volume("final volume", body, 110575.222039);
-            let faces = names(body, ElementKind::Face);
+            let faces = face_names(body);
             checks.expect(faces.len() == 7, || {
                 format!("expected 7 faces, got {faces:?}")
             });
@@ -1293,60 +1175,10 @@ fn r12_square_pocket_made_through_40_does_not_move_the_floor_fillet() {
     r12(Pocket::Square, "40");
 }
 
-/// R13's sketch face: the top of the lower block, as picked.
-fn r13_face() -> Value {
-    reference("f-ext2/end-cap", "plane|n=0,0,1|c=100,25,20|a=2000|adj=4,4")
-}
-
-/// R13's second fillet edge: the right top edge of the lower block.
-fn r13_right_edge() -> Value {
-    reference(
-        "edge(f-ext2/end-cap|f-ext2/lateral/e-6)",
-        "line|n=0,1,0|c=120,25,20|l=50|adj=2,2",
-    )
-}
-
 /// R13: BLOCK with a block x 80..120 of `height` joined beside it, a fillet on the step edge, a
 /// boss on a face sketch on the lower block's top and a fillet on its right top edge.
 fn r13_model(height: &str) -> Document {
-    let mut features = block();
-    features.extend([
-        sketch(
-            "f-sk2",
-            origin_plane("XY"),
-            rectangle(5, 80.0, 0.0, 120.0, 50.0),
-        ),
-        extrude(
-            "f-ext2",
-            "b-1",
-            "f-sk2",
-            vec![rectangle_region(5, 80.0, 0.0, 120.0, 50.0)],
-            distance(height),
-            "join",
-        ),
-        fillet("f-fil1", "b-1", vec![block_right_top()], "2"),
-        sketch(
-            "f-sk3",
-            face_plane(
-                "b-1",
-                r13_face(),
-                [0.0, 0.0, 20.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ),
-            vec![circle("e-9", [100.0, 25.0], 5.0)],
-        ),
-        extrude(
-            "f-ext3",
-            "b-1",
-            "f-sk3",
-            vec![region_with_fingerprint("e-9", "c=100,25|a=78.539816")],
-            distance("5"),
-            "join",
-        ),
-        fillet("f-fil2", "b-1", vec![r13_right_edge()], "1"),
-    ]);
-    document_of(&["b-1"], &features)
+    document_of(&["b-1"], &stepped_block(height))
 }
 
 #[test]
@@ -1355,8 +1187,8 @@ fn r13_block_made_flush_follows_the_merged_top_and_reports_the_lost_step() {
     edit_document(&mut run, r13_model("30"), &Assets::new());
     let mut checks = checks_for(&run);
     checks.note(diagnose(&run, "f-fil1", "b-1", &block_right_top()));
-    checks.note(diagnose(&run, "f-sk3", "b-1", &r13_face()));
-    checks.note(diagnose(&run, "f-fil2", "b-1", &r13_right_edge()));
+    checks.note(diagnose(&run, "f-sk3", "b-1", &step_top()));
+    checks.note(diagnose(&run, "f-fil2", "b-1", &step_right_top()));
 
     checks.clean(run.feature("f-sk3"));
     check_placement(
@@ -1474,20 +1306,14 @@ fn r15a_model(with_fillet: bool) -> Document {
     features.extend([
         sketch(
             "f-sk2",
-            face_plane(
-                "b-1",
-                reference("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"),
-                [0.0, 0.0, 10.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ),
+            top_face_plane("b-1", plate40_top(), 10.0),
             vec![circle("e-5", [10.0, 10.0], 4.0)],
         ),
         extrude(
             "f-ext2",
             "b-1",
             "f-sk2",
-            vec![region_with_fingerprint("e-5", "c=10,10|a=50.265482")],
+            vec![circle_region("e-5", [10.0, 10.0], 4.0)],
             distance("10"),
             "join",
         ),
@@ -1499,12 +1325,10 @@ fn r15a_model(with_fillet: bool) -> Document {
 fn r15a_fillet_inserted_under_a_face_sketch_keeps_the_sketch() {
     let mut run = setup(r15a_model(false));
     edit_document(&mut run, r15a_model(true), &Assets::new());
-    let face = reference("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4");
+    let face = plate40_top();
     let mut checks = checks_for(&run);
     checks.note(diagnose(&run, "f-sk2", "b-1", &face));
-    for feature in &run.report.features {
-        checks.clean(feature);
-    }
+    checks.all_clean(&run.report);
     if let Some(state) = try_body_before(&run, "f-sk2", "b-1") {
         checks.resolves_exactly("the sketch face", state, &stored(&run, "f-sk2", &face));
     }
@@ -1532,12 +1356,7 @@ fn r15b_model(with_fillet: bool) -> Document {
         features.push(fillet("f-fil1", "b-1", box_top_edges(20.0, 20.0), "2"));
     }
     features.extend([
-        datum_on_face(
-            "f-dp1",
-            "b-1",
-            reference("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4"),
-            "-5",
-        ),
+        datum_on_face("f-dp1", "b-1", cube20_top(), "-5"),
         split_by_datum("f-split1", "b-1", "f-dp1", "b-2"),
     ]);
     document_of(&["b-1", "b-2"], &features)
@@ -1547,12 +1366,10 @@ fn r15b_model(with_fillet: bool) -> Document {
 fn r15b_fillet_inserted_under_a_datum_keeps_the_datum_and_split() {
     let mut run = setup(r15b_model(false));
     edit_document(&mut run, r15b_model(true), &Assets::new());
-    let face = reference("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4");
+    let face = cube20_top();
     let mut checks = checks_for(&run);
     checks.note(diagnose(&run, "f-dp1", "b-1", &face));
-    for feature in &run.report.features {
-        checks.clean(feature);
-    }
+    checks.all_clean(&run.report);
     match datum_output(&run, "f-dp1") {
         Some(placement) => {
             checks.point("datum origin", placement.origin, [0.0, 0.0, 15.0]);
@@ -1599,9 +1416,7 @@ fn r15c_chamfer_inserted_before_a_fillet_keeps_the_fillet() {
     edit_document(&mut run, r15c_model(true), &Assets::new());
     let mut checks = checks_for(&run);
     checks.note(diagnose(&run, "f-fil1", "b-1", &cube20_front_top()));
-    for feature in &run.report.features {
-        checks.clean(feature);
-    }
+    checks.all_clean(&run.report);
     let body = run.body("b-1");
     if let Some(fillet) = checks.element(body, "f-fil1/fillet/edge(f-box1/front|f-box1/top)") {
         checks.cylinder("fillet", &fillet, 2.0, [1.0, 0.0, 0.0], [0.0, -8.0, 18.0]);
@@ -1717,15 +1532,13 @@ fn check_r17(
     checks: &mut Expectations,
     run: &Run,
     fillet_spans: &[(f64, f64)],
-    chamfer_spans_expected: &[(f64, f64)],
+    chamfer_spans: &[(f64, f64)],
 ) {
-    for feature in &run.report.features {
-        checks.clean(feature);
-    }
+    checks.all_clean(&run.report);
     let body = run.body("b-1");
     checks.fillets_along_x(body, "f-fil1/fillet/", 1.0, 1.0, 29.0, fillet_spans);
-    let chamfers = chamfer_spans(body, "f-cha1/chamfer/", 1.0);
-    checks.spans("chamfer faces", &chamfers, chamfer_spans_expected);
+    let chamfers = spans_along_x(body, "f-cha1/chamfer/", SQRT_2);
+    checks.spans("chamfer faces", &chamfers, chamfer_spans);
     for (name, chamfer) in faces_with_prefix(body, "f-cha1/chamfer/") {
         checks.plane_normal(&name, &chamfer, [0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2]);
     }
@@ -1757,14 +1570,6 @@ fn r17b_slot_inserted_after_the_other_splits_references_by_meaning() {
     r17ab(Inserted::AfterSlotB);
 }
 
-/// R17 (c)'s fillet edge: the front top edge of the right piece of SLOT(30,50) (x 50..80).
-fn r17c_fillet_edge() -> Value {
-    reference(
-        "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)",
-        "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
-    )
-}
-
 /// R17 (c)'s chamfer edge: the back top edge of the left piece of SLOT(30,50) (x 0..30).
 fn r17c_chamfer_edge() -> Value {
     reference(
@@ -1783,7 +1588,7 @@ fn r17c_model(inserted: bool) -> Document {
     }
     features.extend(slot_cut("f-dp1", "f-sk2", "f-ext2", 30.0, 50.0, "5"));
     features.extend([
-        fillet("f-fil1", "b-1", vec![r17c_fillet_edge()], "1"),
+        fillet("f-fil1", "b-1", vec![slot_right_piece_front_top()], "1"),
         chamfer("f-cha1", "b-1", vec![r17c_chamfer_edge()], "1"),
     ]);
     document_of(&["b-1"], &features)
@@ -1794,7 +1599,12 @@ fn r17c_slot_inserted_in_the_right_piece_splits_references_by_meaning() {
     let mut run = setup(r17c_model(false));
     edit_document(&mut run, r17c_model(true), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnose(&run, "f-fil1", "b-1", &r17c_fillet_edge()));
+    checks.note(diagnose(
+        &run,
+        "f-fil1",
+        "b-1",
+        &slot_right_piece_front_top(),
+    ));
     checks.note(diagnose(&run, "f-cha1", "b-1", &r17c_chamfer_edge()));
     check_r17(
         &mut checks,
@@ -2053,28 +1863,13 @@ fn r20b_slot_suppressed_before_a_pattern_follows_the_unsplit_copy_edge() {
     checks.finish();
 }
 
-/// R21's fillet edge: the top edge of Box 1's right side.
-fn r21_edge() -> Value {
-    reference(
-        "edge(f-box1/right|f-box1/top)",
-        "line|n=0,1,0|c=10,0,10|l=20|adj=2,2",
-    )
-}
-
-/// R21: a 20 x 20 x 10 box, optionally a 20 x 20 x `height` box joined against its right side, and a
-/// fillet on its right top edge.
+/// R21: a 20 x 20 x 10 box, optionally a 20 x 20 x `height` box joined against its right side, and
+/// a fillet on its right top edge.
 fn r21_model(height: Option<&str>) -> Document {
-    let mut features = vec![box_record("f-box1", "b-1", ["20", "20", "10"], None, "new")];
-    if let Some(height) = height {
-        features.push(box_record(
-            "f-box2",
-            "b-1",
-            ["20", "20", height],
-            Some(["20", "0", "0"]),
-            "join",
-        ));
-    }
-    features.push(fillet("f-fil1", "b-1", vec![r21_edge()], "2"));
+    let features = match height {
+        Some(height) => box_against_right_side(height),
+        None => filleted_right_edge(),
+    };
     document_of(&["b-1"], &features)
 }
 
@@ -2083,7 +1878,7 @@ fn r21(height: &str, final_volume: f64, inside_corner: bool) {
     let mut run = setup(r21_model(None));
     edit_document(&mut run, r21_model(Some(height)), &Assets::new());
     let mut checks = checks_for(&run);
-    checks.note(diagnose(&run, "f-fil1", "b-1", &r21_edge()));
+    checks.note(diagnose(&run, "f-fil1", "b-1", &box_right_top()));
     let candidates = check_lost_edge(&mut checks, &run, "f-fil1", &["Box 1", "Box 2"]);
     if inside_corner && let Some(state) = try_body_before(&run, "f-fil1", "b-1") {
         checks.candidate_edge(

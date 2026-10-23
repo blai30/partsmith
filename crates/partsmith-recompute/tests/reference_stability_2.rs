@@ -11,19 +11,16 @@
 //! resolver did with the reference under test (method, picked elements and the best fingerprint
 //! scores).
 
-use crate::stability_support_2;
-
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
-use crate::feature_support::{
-    Assets, Run, body_before, datum_placement, parse_document, pick, sketch_result,
-};
+use crate::feature_support::{Assets, Run, body_before, parse_document, pick, sketch_result};
+use crate::stability_common::*;
 use partsmith_features::Fix;
 use partsmith_model::Document;
 use partsmith_naming::MatchMethod;
+use partsmith_recompute::Status;
 use partsmith_sketch::{HintFrame, Placement, SketchParams, SketchPlane};
 use serde_json::{Value, json};
-use stability_support_2::*;
 
 /// A move body record that translates `b-1`.
 fn translate(feature: &str, translation: [&str; 3]) -> Value {
@@ -66,8 +63,8 @@ fn r23a_suppressing_one_peg_does_not_move_its_fillet_to_the_other_peg() {
     let suppressed_features = edited(&original, "f-ext1", suppressed);
     edit(&mut session, &["b-1"], &suppressed_features);
     checks.note(diagnose(&session, "f-fil1", "b-1", &peg_a_rim()));
-    checks.status(&session, "f-ext1", "suppressed");
-    checks.status(&session, "f-fil1", "error");
+    checks.status(&session, "f-ext1", Status::Suppressed);
+    checks.status(&session, "f-fil1", Status::Error);
     let body = session.body("b-1");
     checks.faces_count(body, "f-fil1/fillet/", 0);
     checks.has_element(body, "edge(f-ext2/end-cap|f-ext2/lateral/e-7)", true);
@@ -95,7 +92,7 @@ fn r23b_deleting_one_peg_does_not_move_its_fillet_to_the_other_peg() {
     let setup = run(&["b-1"], &pegs());
     let after = run_edited(&setup, &["b-1"], &without(&pegs(), &["f-sk1", "f-ext1"]));
     checks.note(diagnose(&after, "f-fil1", "b-1", &peg_a_rim()));
-    checks.status(&after, "f-fil1", "error");
+    checks.status(&after, "f-fil1", Status::Error);
     let body = after.body("b-1");
     checks.faces_count(body, "f-fil1/fillet/", 0);
     checks.has_element(body, "edge(f-ext2/end-cap|f-ext2/lateral/e-7)", true);
@@ -128,8 +125,8 @@ fn r24a_slot_rim_fillet_when_the_slot_is_suppressed() {
         &edited(&slotted_cube(), "f-box2", suppressed),
     );
     checks.note(diagnose(&after, "f-fil1", "b-1", &slot_right_rim()));
-    checks.status(&after, "f-box2", "suppressed");
-    checks.status(&after, "f-fil1", "error");
+    checks.status(&after, "f-box2", Status::Suppressed);
+    checks.status(&after, "f-fil1", Status::Error);
     checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 8000.0);
     checks.face_count(&after, "b-1", 6);
@@ -149,7 +146,7 @@ fn r24b_slot_rim_fillet_dragged_above_the_slot() {
         &move_before(&slotted_cube(), &["f-fil1"], "f-box2"),
     );
     checks.note(diagnose(&after, "f-fil1", "b-1", &slot_right_rim()));
-    checks.status(&after, "f-fil1", "error");
+    checks.status(&after, "f-fil1", Status::Error);
     checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 7600.0);
     checks.message_names(&after, "f-fil1", &["'Box 2'"]);
@@ -170,8 +167,8 @@ fn r25_suppressing_a_chamfer_that_carries_a_datum() {
     let suppressed_features = edited(&original, "f-cha1", suppressed);
     edit(&mut session, &["b-1"], &suppressed_features);
     checks.note(diagnose(&session, "f-dp1", "b-1", &chamfer_face()));
-    checks.status(&session, "f-cha1", "suppressed");
-    checks.status(&session, "f-dp1", "error");
+    checks.status(&session, "f-cha1", Status::Suppressed);
+    checks.status(&session, "f-dp1", Status::Error);
     checks.message_names(&session, "f-dp1", &["'Chamfer 1'", "suppressed"]);
     checks.plain_words(&session, "f-dp1");
     for feature in ["f-sk1", "f-ext1"] {
@@ -249,7 +246,7 @@ fn r26_deleting_and_recreating_the_base_extrude() {
     // The run alone cannot tell that 'Extrude 1' (f-ext3) replaces the deleted extrude, so nothing
     // moves without the user: the sketch uses the position saved with it (amended by decision D3).
     // "Deleted" and Keep the sketch where it was are the engine twin's cause line.
-    checks.status(&session, "f-sk2", "warning");
+    checks.status(&session, "f-sk2", Status::Warning);
     checks.sketch_placement(
         &session,
         "f-sk2",
@@ -283,7 +280,7 @@ fn r26_deleting_and_recreating_the_base_extrude() {
         },
     );
     checks.plain_words(&session, "f-sk2");
-    checks.status(&session, "f-ext2", "warning");
+    checks.status(&session, "f-ext2", Status::Warning);
     checks.only_message(
         &session,
         "f-ext2",
@@ -339,7 +336,7 @@ fn r27_removing_an_upstream_move_keeps_the_reference_on_its_piece() {
         &edited(&moved_slotted_cube(), "f-mv1", suppressed),
     );
     checks.note(diagnose(&after, "f-fil1", "b-1", &left_piece_front_edge()));
-    checks.status(&after, "f-fil1", "ok");
+    checks.status(&after, "f-fil1", Status::Ok);
     let body = after.body("b-1");
     checks.faces_count(body, "f-fil1/fillet/", 1);
     checks.axis_through(body, fillet_face, [-6.0, -9.5, 19.5], POSITION_TOLERANCE);
@@ -364,7 +361,7 @@ fn check_fillet_dragged_above_its_edge(edge: Value) {
         &move_before(&original, &["f-fil1"], "f-dp1"),
     );
     checks.note(diagnose(&session, "f-fil1", "b-1", &edge));
-    checks.status(&session, "f-fil1", "error");
+    checks.status(&session, "f-fil1", Status::Error);
     checks.faces_count(session.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&session, "b-1", 120000.0 + PI * 100.0 * 10.0);
     checks.message_names(&session, "f-fil1", &["'Extrude 2'"]);
@@ -403,7 +400,7 @@ fn leftmost_front_edge() -> Value {
 /// a chamfer on the leftmost piece's front top edge and a fillet on the other pieces' back edges.
 fn two_slots(b_first: bool) -> Vec<Value> {
     let mut features = block();
-    features.push(datum_offset("f-dp1", "XY", "30"));
+    features.push(top_datum());
     let slot_a = slot_cut("f-dp1", "f-sk2", "f-ext2", 10.0, 20.0, "5");
     let slot_b = slot_cut("f-dp1", "f-sk3", "f-ext3", 50.0, 60.0, "5");
     if b_first {
@@ -494,7 +491,7 @@ fn r30a_a_join_changed_to_a_cut_does_not_retarget_its_rim_fillet() {
 
     let after = run_edited(&before, &["b-1"], &symmetric_boss("cut"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &symmetric_boss_rim()));
-    checks.status(&after, "f-fil1", "error");
+    checks.status(&after, "f-fil1", Status::Error);
     checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 120000.0 - PI * 100.0 * 20.0);
     // recompute.md test 57's text; the changed Operation is the engine twin's cause line.
@@ -521,7 +518,7 @@ fn r30b_a_boolean_join_changed_to_a_cut_does_not_retarget_its_fillet() {
 
     let after = run_edited(&before, &["b-1", "b-2"], &boolean_boss("cut"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &box2_front_top_edge()));
-    checks.status(&after, "f-fil1", "error");
+    checks.status(&after, "f-fil1", Status::Error);
     checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 7450.0);
     checks.message_names(&after, "f-fil1", &["'Box 2'", "'Boolean 1'"]);
@@ -550,7 +547,7 @@ fn r31a_a_split_inserted_upstream_moves_the_chamfered_edge_to_the_other_body() {
         ),
     );
     checks.note(diagnose(&after, "f-cha1", "b-1", &cube20_bottom_front()));
-    checks.status(&after, "f-cha1", "error");
+    checks.status(&after, "f-cha1", Status::Error);
     checks.faces_count(after.body("b-1"), "f-cha1/chamfer/", 0);
     checks.volume(&after, "b-1", 6000.0);
     checks.message_names(&after, "f-cha1", &["'Body 2'", "'Split body 1'"]);
@@ -571,7 +568,7 @@ fn r31b_flipping_a_split_moves_the_filleted_edge_to_the_other_body() {
 
     let after = run_edited(&before, &["b-1", "b-2"], &split_then_fillet(true));
     checks.note(diagnose(&after, "f-fil1", "b-1", &upper_front_top_edge()));
-    checks.status(&after, "f-fil1", "error");
+    checks.status(&after, "f-fil1", Status::Error);
     checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 4000.0);
     checks.has_element(after.body("b-2"), "edge(f-box1/front#2|f-box1/top)", true);
@@ -582,11 +579,6 @@ fn r31b_flipping_a_split_moves_the_filleted_edge_to_the_other_body() {
 
 // G. Sketches and datums on faces.
 
-/// R32 (a): the top of the 40 x 40 x 10 box.
-fn plate_top() -> Value {
-    reference("f-box1/top", "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4")
-}
-
 /// R32 (a) setup: a 40 x 40 x 10 plate, these features inserted after it, then a sketch on its top
 /// with a point at (15,15) and a 4 mm through hole there.
 fn plate_with_hole(inserted: Vec<Value>) -> Vec<Value> {
@@ -594,7 +586,7 @@ fn plate_with_hole(inserted: Vec<Value>) -> Vec<Value> {
     features.extend(inserted);
     features.push(sketch(
         "f-sk2",
-        top_face_plane("b-1", plate_top(), 10.0),
+        top_face_plane("b-1", plate40_top(), 10.0),
         vec![point("e-p1", [15.0, 15.0])],
     ));
     features.push(hole(
@@ -621,7 +613,7 @@ fn check_plate_hole_follows_the_face(inserted: Vec<Value>, x: f64, y: f64) {
     );
 
     let after = run_edited(&before, &["b-1"], &plate_with_hole(inserted));
-    checks.note(diagnose(&after, "f-sk2", "b-1", &plate_top()));
+    checks.note(diagnose(&after, "f-sk2", "b-1", &plate40_top()));
     checks.all_ok(&after);
     checks.axis_through(
         after.body("b-1"),
@@ -667,7 +659,7 @@ fn r32b_a_sketch_keeps_its_place_on_a_face_that_turns_over() {
     checks.note(diagnose(&after, "f-sk2", "b-1", &block_top()));
     // Amended by decision D3: the placement stays right-handed, so the drawing lies mirrored on the
     // face that turned over.
-    checks.status(&after, "f-sk2", "warning");
+    checks.status(&after, "f-sk2", Status::Warning);
     checks.sketch_placement(
         &after,
         "f-sk2",
@@ -692,7 +684,7 @@ fn r32b_a_sketch_keeps_its_place_on_a_face_that_turns_over() {
         },
     );
     // Until the drawing is turned back, e-p1 lies at world (20, -10, -30), off the face.
-    checks.status(&after, "f-hole1", "warning");
+    checks.status(&after, "f-hole1", Status::Warning);
     checks.only_message(
         &after,
         "f-hole1",
@@ -780,7 +772,7 @@ fn r33_a_sketch_whose_face_is_cut_away_keeps_its_last_placement() {
     checks.note(diagnose(&session, "f-sk2", "b-1", &tall_box_top()));
     // Placed where the top was just before 'Extrude 1' cut it away (decision D3), never at the
     // attach-time fallback (z = 10).
-    checks.status(&session, "f-sk2", "warning");
+    checks.status(&session, "f-sk2", Status::Warning);
     checks.sketch_placement(
         &session,
         "f-sk2",
@@ -900,7 +892,7 @@ fn r34_a_shell_inserted_under_a_sketch_does_not_drop_it_onto_the_floor() {
         1e-9,
     );
     checks.top_z(&session, "b-1", 40.0);
-    if status(&session, "f-sk2") == "warning" {
+    if session.feature("f-sk2").status == Status::Warning {
         checks.message_names(&session, "f-sk2", &["'Shell 1'"]);
         checks.plain_words(&session, "f-sk2");
     }
@@ -1105,19 +1097,17 @@ fn datum_on_chamfer(inserted: Vec<Value>) -> Vec<Value> {
 /// R37: checks the datum plane of a run lies on the chamfer face as picked.
 fn check_datum_on_chamfer(checks: &mut Checks, run: &Run) {
     checks.check(
-        status(run, "f-dp1") != "error",
+        run.feature("f-dp1").status != Status::Error,
         format!("f-dp1 fails: {:?}", run.messages("f-dp1")),
     );
-    if run.feature("f-dp1").output.is_some() {
-        checks.placement(
-            "f-dp1",
-            *datum_placement(run, "f-dp1"),
-            [0.0, -14.0, 14.0],
-            [1.0, 0.0, 0.0],
-            [0.0, -FRAC_1_SQRT_2, FRAC_1_SQRT_2],
-            1e-9,
-        );
-    }
+    checks.datum_placement(
+        run,
+        "f-dp1",
+        [0.0, -14.0, 14.0],
+        Some([1.0, 0.0, 0.0]),
+        [0.0, -FRAC_1_SQRT_2, FRAC_1_SQRT_2],
+        1e-9,
+    );
 }
 
 #[test]
@@ -1139,7 +1129,7 @@ fn r37_a_datum_on_a_chamfer_face_survives_an_upstream_merge() {
         )]),
     );
     checks.note(diagnose(&after, "f-dp1", "b-1", &chamfer_face()));
-    checks.status(&after, "f-cha1", "ok");
+    checks.status(&after, "f-cha1", Status::Ok);
     let body = after.body("b-1");
     let merged_chamfer = "f-cha1/chamfer/edge(f-a1/front|f-a1/top)";
     if let Some(geometry) = checks.geometry(body, merged_chamfer) {
@@ -1419,7 +1409,7 @@ fn r39c_a_rotation_axis_on_an_edge_that_an_upstream_fillet_shortens() {
             &["edge(f-box1/right|f-box1/top)"],
         );
         if let Some(hinge) = try_body_before(&after, "f-mv1", "b-1")
-            .and_then(|state| element(state, "edge(f-box1/right|f-box1/top)"))
+            .and_then(|state| try_element(state, "edge(f-box1/right|f-box1/top)"))
         {
             checks.note(format!("hinge length before the move: {}", hinge.measure));
         }
@@ -1676,7 +1666,7 @@ fn r41_variant_only_the_lost_copy_referenced() {
     let setup = run(&["b-1"], &cubes("3"));
     let after = run_edited(&setup, &["b-1"], &cubes("2"));
     checks.note(diagnose(&after, "f-fil1", "b-1", &third));
-    checks.status(&after, "f-fil1", "error");
+    checks.status(&after, "f-fil1", Status::Error);
     checks.faces_count(after.body("b-1"), "f-fil1/fillet/", 0);
     checks.volume(&after, "b-1", 2000.0);
     // recompute.md test 61's text; the changed Count is the engine twin's cause line.
@@ -1792,24 +1782,6 @@ fn r42d_a_moved_point_takes_the_chamfer_with_it() {
     );
 }
 
-/// R43: the top rim of the hole at `e-p2` (7, 0).
-fn hole_p2_rim() -> Value {
-    reference(
-        "edge(f-box1/top|f-hole1/bore/e-p2)",
-        "circle|n=0,0,1|c=7,0,0|l=18.849556|r=3|adj=2,1",
-    )
-}
-
-/// R43 setup: BOX-BELOW, holes at these sketch points, a chamfer of 0.5 on the rim at `e-p2`.
-fn two_holes(entities: Vec<Value>, points: &[&str]) -> Vec<Value> {
-    vec![
-        box_below(),
-        sketch("f-sk1", origin_plane("XY"), entities),
-        hole("f-hole1", "b-1", "f-sk1", points, "6", through_all()),
-        chamfer("f-cha1", "b-1", vec![hole_p2_rim()], "0.5"),
-    ]
-}
-
 /// The two points of R43.
 fn points_p1_p2() -> Vec<Value> {
     vec![point("e-p1", [0.0, 0.0]), point("e-p2", [7.0, 0.0])]
@@ -1817,8 +1789,8 @@ fn points_p1_p2() -> Vec<Value> {
 
 /// R43: the checks both variants share once the hole at (7, 0) is gone.
 fn check_hole_point_removed(checks: &mut Checks, after: &Run) {
-    checks.note(diagnose(after, "f-cha1", "b-1", &hole_p2_rim()));
-    checks.status(after, "f-cha1", "error");
+    checks.note(diagnose(after, "f-cha1", "b-1", &two_holes_p2_rim()));
+    checks.status(after, "f-cha1", Status::Error);
     let body = after.body("b-1");
     checks.faces_count(body, "f-cha1/chamfer/", 0);
     checks.axis_through(
@@ -1852,7 +1824,7 @@ fn r43b_a_hole_point_deleted_from_the_sketch_does_not_move_the_chamfer() {
         &["b-1"],
         &two_holes(vec![point("e-p1", [0.0, 0.0])], &["e-p1", "e-p2"]),
     );
-    checks.status(&after, "f-hole1", "warning");
+    checks.status(&after, "f-hole1", Status::Warning);
     checks.message_names(&after, "f-hole1", &["'Sketch 1'"]);
     check_hole_point_removed(&mut checks, &after);
     checks.message_names(&after, "f-cha1", &["'Sketch 1'"]);

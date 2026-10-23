@@ -3,13 +3,13 @@ import type { SketchConstraint } from '../generated/protocol'
 import { circleEntity, lineEntity, pointEntity, solutionFor } from './fixtures.testing'
 import type { Vector2 } from './geometry'
 import {
+  annotationCenters,
   axisLabelPosition,
   arrowheadPath,
   besideAxis,
   circlePath,
   drawInputsPlacement,
   entitiesInBox,
-  glyphCenters,
   polylinePath,
   projectPolyline,
   screenBox,
@@ -78,16 +78,17 @@ describe('paths', () => {
   })
 })
 
-describe('glyphCenters (3.16.2)', () => {
+describe('annotationCenters (3.16.2, 3.16.10)', () => {
   const FLAT = lineEntity('e-1', [0, 0], [10, 0])
   const UPRIGHT = lineEntity('e-2', [20, 0], [20, 10])
   const DOT = pointEntity('e-3', [-5, -5])
+  const SOLUTION = solutionFor([FLAT, UPRIGHT, DOT])
 
   function centers(
     constraints: SketchConstraint[],
     scale = 1,
   ): ReadonlyMap<string, Vector2 | null> {
-    return glyphCenters(constraints, solutionFor([FLAT, UPRIGHT, DOT]), PROJECT, scale)
+    return annotationCenters(constraints, [], SOLUTION, PROJECT, scale).glyphs
   }
 
   it('puts a line glyph 14 pixels above the line middle, times the UI scale', () => {
@@ -117,13 +118,36 @@ describe('glyphCenters (3.16.2)', () => {
   })
 
   it('is null for a glyph whose anchor is behind the eye', () => {
-    const placed = glyphCenters(
+    const placed = annotationCenters(
       [{ id: 'c-1', type: 'horizontal', line: 'e-1' }],
+      [],
       solutionFor([FLAT]),
       () => null,
       1,
-    )
+    ).glyphs
     expect(placed.get('c-1')).toBeNull()
+  })
+
+  it('puts the used mark of a line one stack step after its last glyph', () => {
+    const placed = annotationCenters(
+      [
+        { id: 'c-1', type: 'horizontal', line: 'e-1' },
+        { id: 'c-2', type: 'equal', curves: ['e-1', 'e-2'] },
+      ],
+      ['e-1'],
+      SOLUTION,
+      PROJECT,
+      1,
+    )
+    expect(placed.glyphs.get('c-2')).toEqual([170, 86])
+    expect(placed.marks.get('e-1')).toEqual([190, 86])
+  })
+
+  it('puts the used mark of a point entity up and to the right of the point', () => {
+    const [x = 0, y = 0] =
+      annotationCenters([], ['e-3'], SOLUTION, PROJECT, 1).marks.get('e-3') ?? []
+    expect(x).toBeCloseTo(50 + 14 / Math.SQRT2, 9)
+    expect(y).toBeCloseTo(150 - 14 / Math.SQRT2, 9)
   })
 })
 

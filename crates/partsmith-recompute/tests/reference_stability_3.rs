@@ -10,17 +10,15 @@
 //! resolver did with the reference under test (method, picked elements and the best fingerprint
 //! scores) and the messages the user would see.
 
-use crate::stability_support_3;
-
 use std::f64::consts::{FRAC_PI_2, PI, SQRT_2};
 
 use crate::feature_support::{
-    Assets, Run, datum_placement, face_names, keep_match, pick, picked_in, sketch_result,
-    successions, use_reference,
+    Assets, Run, face_names, keep_match, pick, picked_in, sketch_result, successions, use_reference,
 };
+use crate::stability_common::*;
 use partsmith_naming::MatchMethod;
+use partsmith_recompute::Status;
 use serde_json::{Value, json};
-use stability_support_3::*;
 
 /// The volume removed along a straight edge of length `length` between two perpendicular faces by
 /// a fillet of radius `radius`.
@@ -37,47 +35,17 @@ fn single_cone_about(
     x: f64,
     y: f64,
 ) -> Option<partsmith_occt_sys::ElementGeometry> {
-    let faces = faces_with_prefix(state, prefix);
-    checks.check(
-        faces.len() == 1,
-        format!(
-            "expected one face named {prefix}*, found {}: {}",
-            faces.len(),
-            describe_faces(&faces)
-        ),
-    );
-    let (name, geometry) = faces.into_iter().next()?;
+    checks.faces_count(state, prefix, 1);
+    let (name, geometry) = faces_with_prefix(state, prefix).into_iter().next()?;
     checks.check(
         geometry.kind == partsmith_occt_sys::GeometryKind::Cone,
         format!("{name} is {:?}, not a cone", geometry.kind),
     );
-    match axis_distance(&geometry, [x, y, 0.0]) {
-        Some(distance) => checks.check(
-            distance <= POSITION_TOLERANCE,
-            format!("the axis of {name} misses ({x}, {y}) by {distance}"),
-        ),
-        None => checks.check(false, format!("{name} has no axis")),
-    }
+    checks.axis_through(state, &name, [x, y, 0.0], POSITION_TOLERANCE);
     Some(geometry)
 }
 
 // L. Imported geometry.
-
-/// R45 and R46 (a): the top rim of the hole at (30, 10) of asset A.
-fn plate_rim_30() -> Value {
-    reference(
-        "edge(f-imp1/face#3|f-imp1/face#6)",
-        "circle|n=0,0,1|c=30,10,5|l=18.849556|r=3|adj=2,1",
-    )
-}
-
-/// R45 and R46: an import of `asset` into `b-1` and a chamfer of 0.5 on `rim`.
-fn imported_plate(asset: &str, rim: Value) -> Vec<Value> {
-    vec![
-        import("f-imp1", "b-1", asset, "new"),
-        chamfer("f-cha1", "b-1", vec![rim], "0.5"),
-    ]
-}
 
 /// Runs the import of asset `asset` (bytes of a plate with these holes) and the chamfer on `rim`,
 /// checking the setup builds and the rim resolves exactly.
@@ -119,7 +87,7 @@ fn r45_imported_file_revised_with_an_extra_hole_keeps_the_chamfer_on_its_hole() 
         &rim,
     );
     checks.note(diagnose(&session, "f-cha1", "b-1", &rim));
-    checks.status(&session, "f-cha1", "ok");
+    checks.status(&session, "f-cha1", Status::Ok);
     checks.resolves(
         &session,
         "f-cha1",
@@ -147,7 +115,7 @@ fn r46a_imported_file_revised_without_the_hole_does_not_chamfer_a_straight_edge(
     revise_import(&mut session, &asset_name('c'), &[], &rim);
     checks.note(diagnose(&session, "f-cha1", "b-1", &rim));
     checks.note(describe_messages(&session, "f-cha1"));
-    checks.status(&session, "f-cha1", "error");
+    checks.status(&session, "f-cha1", Status::Error);
     checks.faces_count(session.body("b-1"), "f-cha1/", 0);
     checks.volume(&session, "b-1", 4000.0);
     checks.message_names(&session, "f-cha1", &["'Import 1'", "(30, 10, 5)"]);
@@ -159,10 +127,7 @@ fn r46a_imported_file_revised_without_the_hole_does_not_chamfer_a_straight_edge(
 #[test]
 fn r46b_imported_file_revised_with_two_lookalike_holes_lists_both_and_chamfers_neither() {
     let mut checks = Checks::new();
-    let rim = reference(
-        "edge(f-imp1/face#4|f-imp1/face#5)",
-        "circle|n=0,0,1|c=20,10,5|l=18.849556|r=3|adj=2,1",
-    );
+    let rim = plate_rim_20();
     let mut session = run_imported_plate(&asset_name('a'), &[[20.0, 10.0]], &rim, &mut checks);
 
     revise_import(
@@ -173,7 +138,7 @@ fn r46b_imported_file_revised_with_two_lookalike_holes_lists_both_and_chamfers_n
     );
     checks.note(diagnose(&session, "f-cha1", "b-1", &rim));
     checks.note(describe_messages(&session, "f-cha1"));
-    checks.status(&session, "f-cha1", "error");
+    checks.status(&session, "f-cha1", Status::Error);
     checks.faces_count(session.body("b-1"), "f-cha1/", 0);
     checks.volume(&session, "b-1", 4000.0 - 2.0 * PI * 9.0 * 5.0);
     // recompute.md test 67's text (corpus amendment 7); the two top rims are its repair data.
@@ -204,69 +169,21 @@ fn r46b_imported_file_revised_with_two_lookalike_holes_lists_both_and_chamfers_n
 
 // M. Units and upstream failures.
 
-/// R47: the boss's top rim.
-fn boss_rim() -> Value {
-    reference(
-        "edge(f-ext3/end-cap|f-ext3/lateral/e-5)",
-        "circle|n=0,0,1|c=20,25,40|l=62.831853|r=10|adj=2,1",
-    )
-}
-
-/// R47 setup: BLOCK with a through hole at (50, 25), a boss at (20, 25) whose sketch carries the
-/// constraints `extra` after `c-1`, and a fillet on the boss's top rim.
-fn boss_beside_hole(extra: Vec<Value>) -> Vec<Value> {
-    let mut constraints = vec![size_constraint("c-1", "diameter", "e-5", "20 mm")];
-    constraints.extend(extra);
-    let mut features = block();
-    features.extend([
-        sketch(
-            "f-sk2",
-            origin_plane("XY"),
-            vec![circle("e-6", [50.0, 25.0], 10.0)],
-        ),
-        extrude(
-            "f-ext2",
-            "b-1",
-            "f-sk2",
-            vec![circle_region("e-6", [50.0, 25.0], 10.0)],
-            through_all(),
-            "cut",
-        ),
-        datum_offset("f-dp1", "XY", "30"),
-        constrained_sketch(
-            "f-sk3",
-            datum_plane("f-dp1"),
-            vec![circle("e-5", [20.0, 25.0], 10.0)],
-            constraints,
-        ),
-        extrude(
-            "f-ext3",
-            "b-1",
-            "f-sk3",
-            vec![circle_region("e-5", [20.0, 25.0], 10.0)],
-            distance("10"),
-            "join",
-        ),
-        fillet("f-fil1", "b-1", vec![boss_rim()], "2"),
-    ]);
-    features
-}
-
 #[test]
 fn r47_upstream_sketch_conflict_does_not_send_the_fillet_to_a_lookalike() {
     let mut checks = Checks::new();
-    let original = boss_beside_hole(Vec::new());
+    let original = boss_beside_hole(Vec::new(), "10");
     let mut session = run(&["b-1"], &original);
     checks.all_ok(&session);
     let original_result = snapshot(&session, "b-1");
 
-    let conflicting = boss_beside_hole(vec![size_constraint("c-2", "radius", "e-5", "6 mm")]);
+    let conflicting = boss_beside_hole(conflicting_radius(), "10");
     edit(&mut session, &["b-1"], &conflicting);
-    checks.note(diagnose(&session, "f-fil1", "b-1", &boss_rim()));
+    checks.note(diagnose(&session, "f-fil1", "b-1", &boss_beside_hole_rim()));
     checks.note(describe_messages(&session, "f-fil1"));
     checks.error_code(&session, "f-sk3", "sketch_conflict");
     checks.error_code(&session, "f-ext3", "upstream_failed");
-    checks.status(&session, "f-fil1", "error");
+    checks.status(&session, "f-fil1", Status::Error);
     checks.faces_count(session.body("b-1"), "f-fil1/", 0);
     checks.volume(&session, "b-1", 120000.0 - PI * 100.0 * 30.0);
     checks.message_names(&session, "f-fil1", &["'Sketch 3'"]);
@@ -279,7 +196,7 @@ fn r47_upstream_sketch_conflict_does_not_send_the_fillet_to_a_lookalike() {
         &session,
         "f-fil1",
         "b-1",
-        &boss_rim(),
+        &boss_beside_hole_rim(),
         MatchMethod::Exact,
         &["edge(f-ext3/end-cap|f-ext3/lateral/e-5)"],
     );
@@ -287,31 +204,10 @@ fn r47_upstream_sketch_conflict_does_not_send_the_fillet_to_a_lookalike() {
     checks.finish();
 }
 
-/// R48: the front top edge of the right piece of SLOT(30,50).
-fn right_piece_front_edge() -> Value {
-    reference(
-        "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)",
-        "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
-    )
-}
-
-/// R48 setup: BLOCK and SLOT(30,50) with bare numbers and a fillet of `radius`.
-fn slotted_block_with_fillet(radius: &str) -> Vec<Value> {
-    let mut features = block();
-    features.extend(slot(30.0, 50.0));
-    features.push(fillet(
-        "f-fil1",
-        "b-1",
-        vec![right_piece_front_edge()],
-        radius,
-    ));
-    features
-}
-
 #[test]
 fn r48_switching_units_with_bare_numbers_explains_the_unit_change() {
     let mut checks = Checks::new();
-    let features = slotted_block_with_fillet("2");
+    let features = filleted_slot(30.0, 50.0, "2");
     let mut session = run(&["b-1"], &features);
     checks.all_ok(&session);
 
@@ -324,14 +220,14 @@ fn r48_switching_units_with_bare_numbers_explains_the_unit_change() {
         &session,
         "f-fil1",
         "b-1",
-        &right_piece_front_edge(),
+        &slot_right_piece_front_top(),
     ));
     checks.note(describe_messages(&session, "f-fil1"));
     checks.resolves(
         &session,
         "f-fil1",
         "b-1",
-        &right_piece_front_edge(),
+        &slot_right_piece_front_top(),
         MatchMethod::Exact,
         &["edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)"],
     );
@@ -357,13 +253,13 @@ fn r48_switching_units_with_bare_numbers_explains_the_unit_change() {
     checks.message_names(&session, "f-fil1", &["no unit", "2 in"]);
     checks.suggests(&session, "f-fil1", "2 mm");
 
-    let fixed = slotted_block_with_fillet("2 mm");
+    let fixed = filleted_slot(30.0, 50.0, "2 mm");
     edit_document(
         &mut session,
         document_in("in", &[], &["b-1"], &fixed),
         &Assets::new(),
     );
-    checks.status(&session, "f-fil1", "ok");
+    checks.status(&session, "f-fil1", Status::Ok);
     let fillet_face = "f-fil1/fillet/edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)";
     let body = session.body("b-1");
     if let Some(geometry) = checks.geometry(body, fillet_face) {
@@ -478,7 +374,7 @@ fn r51_deleted_arc_of_a_tangent_chain_is_reported_with_its_loop_as_the_fix() {
     checks.note(diagnose(&session, "f-fil1", "b-1", &arc_top_edge()));
     checks.note(describe_messages(&session, "f-fil1"));
     checks.built(&session, "f-ext1");
-    checks.status(&session, "f-fil1", "error");
+    checks.status(&session, "f-fil1", Status::Error);
     checks.faces_count(session.body("b-1"), "f-fil1/", 0);
     checks.message_names(&session, "f-fil1", &["'Sketch 1'"]);
     checks.plain_words(&session, "f-fil1");
@@ -563,7 +459,7 @@ fn r66_a_side_line_replaced_by_a_notch_widens_the_fillet_with_a_warning() {
     checks.note(diagnose(&session, "f-fil1", "b-1", &block_back_top()));
     checks.note(describe_messages(&session, "f-fil1"));
 
-    checks.status(&session, "f-ext1", "ok");
+    checks.status(&session, "f-ext1", Status::Ok);
     checks.check(
         codes(&session, "f-ext1").is_empty(),
         format!(
@@ -595,27 +491,17 @@ fn r66_a_side_line_replaced_by_a_notch_widens_the_fillet_with_a_warning() {
         checks.relative("volume after Extrude 1", volume, 114000.0, VOLUME_TOLERANCE);
     }
 
-    checks.status(&session, "f-fil1", "warning");
-    let messages = &session.feature("f-fil1").messages;
-    checks.check(
-        messages.len() == 1,
-        format!(
-            "f-fil1 should have one message: {}",
-            describe_messages(&session, "f-fil1")
-        ),
-    );
-    if let Some(message) = messages.first() {
+    checks.status(&session, "f-fil1", Status::Warning);
+    if let Some(message) = checks.only_message_ignoring_fixes(
+        &session,
+        "f-fil1",
+        "reference_widened",
+        "The back top edge of 'Extrude 1' selected for Edges now covers 5 edges, because the line it was made from was replaced by 5 lines in 'Sketch 1'. Keep all of them, or use only one.",
+        None,
+    ) {
         checks.check(
-            message.code == "reference_widened" && message.pointer.as_deref() == Some("/edges/0"),
-            format!(
-                "f-fil1's message is {} at {:?}",
-                message.code, message.pointer
-            ),
-        );
-        checks.check(
-            message.text
-                == "The back top edge of 'Extrude 1' selected for Edges now covers 5 edges, because the line it was made from was replaced by 5 lines in 'Sketch 1'. Keep all of them, or use only one.",
-            format!("f-fil1's message reads {:?}", message.text),
+            message.pointer.as_deref() == Some("/edges/0"),
+            format!("f-fil1's message is at {:?}", message.pointer),
         );
         let expected = vec![
             keep_match("/edges/0"),
@@ -827,9 +713,9 @@ fn r52b_merged_top_that_comes_apart_opens_every_part_or_offers_them() {
     checks.note(describe_messages(&session, "f-sh1"));
     checks.built(&session, "f-sh1");
     let body = session.body("b-1");
-    let every_part = element(body, "f-sh1/rim/f-box1/top").is_some()
-        && element(body, "f-sh1/rim/f-box2/top").is_some()
-        && element(body, "f-box2/top").is_none();
+    let every_part = try_element(body, "f-sh1/rim/f-box1/top").is_some()
+        && try_element(body, "f-sh1/rim/f-box2/top").is_some()
+        && try_element(body, "f-box2/top").is_none();
     let offered = repair_candidates(&session, "f-sh1")
         .iter()
         .any(|name| name == "f-box2/top");
@@ -859,11 +745,11 @@ fn r53a(thickness: f64) {
     let mut session = run(&["b-1"], &tray(None, tray_top()));
     checks.all_ok(&session);
 
-    let t = fingerprint_number(thickness);
+    let thickness_text = fingerprint_number(thickness);
     let cover = box_record(
         "f-box2",
         "b-1",
-        ["80", "50", &t],
+        ["80", "50", &thickness_text],
         Some(["0", "0", "30"]),
         "join",
     );
@@ -875,7 +761,7 @@ fn r53a(thickness: f64) {
     checks.note(diagnose(&session, "f-sh1", "b-1", &tray_top()));
     checks.note(describe_messages(&session, "f-sh1"));
     checks.check(
-        status(&session, "f-sh1") != "ok",
+        session.feature("f-sh1").status != Status::Ok,
         "f-sh1 is ok although its face is now covered",
     );
     checks.has_element(session.body("b-1"), "f-sh1/rim/f-box2/top", false);
@@ -893,7 +779,7 @@ fn r53a(thickness: f64) {
         ),
     );
     edit(&mut session, &["b-1"], &tray(Some(cover), new_top));
-    checks.status(&session, "f-sh1", "ok");
+    checks.status(&session, "f-sh1", Status::Ok);
     checks.centroid_at(
         session.body("b-1"),
         "f-sh1/rim/f-box2/top",
@@ -941,21 +827,16 @@ fn pocket_from_datum(cover: Option<Value>, base: Value) -> Vec<Value> {
     features
 }
 
-/// R53 (b): the top of CUBE20.
-fn cube20_top() -> Value {
-    reference("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4")
-}
-
 fn r53b(thickness: f64) {
     let mut checks = Checks::new();
     let mut session = run(&["b-1"], &pocket_from_datum(None, cube20_top()));
     checks.all_ok(&session);
 
-    let t = fingerprint_number(thickness);
+    let thickness_text = fingerprint_number(thickness);
     let cover = box_record(
         "f-box2",
         "b-1",
-        ["20", "20", &t],
+        ["20", "20", &thickness_text],
         Some(["0", "0", "20"]),
         "join",
     );
@@ -968,13 +849,13 @@ fn r53b(thickness: f64) {
     checks.note(describe_messages(&session, "f-dp1"));
     checks.note(describe_messages(&session, "f-sk1"));
     checks.note(describe_messages(&session, "f-ext1"));
-    checks.status(&session, "f-dp1", "error");
+    checks.status(&session, "f-dp1", Status::Error);
     checks.message_names(&session, "f-dp1", &["'Box 1'", "'Box 2'"]);
     checks.plain_words(&session, "f-dp1");
     checks.repair_offers(&session, "f-dp1", &["f-box2/top"]);
     checks.error_code(&session, "f-sk1", "upstream_failed");
     checks.message_names(&session, "f-sk1", &["'Datum plane 1'"]);
-    checks.status(&session, "f-ext1", "error");
+    checks.status(&session, "f-ext1", Status::Error);
     checks.message_names(&session, "f-ext1", &["'Datum plane 1'"]);
     checks.volume(&session, "b-1", 400.0 * (20.0 + thickness));
 
@@ -992,16 +873,14 @@ fn r53b(thickness: f64) {
         &pocket_from_datum(Some(cover), new_top),
     );
     checks.all_ok(&session);
-    if session.feature("f-dp1").output.is_some() {
-        checks.placement(
-            "f-dp1",
-            datum_placement(&session, "f-dp1"),
-            [0.0, 0.0, 25.0 + thickness],
-            None,
-            [0.0, 0.0, 1.0],
-            POSITION_TOLERANCE,
-        );
-    }
+    checks.datum_placement(
+        &session,
+        "f-dp1",
+        [0.0, 0.0, 25.0 + thickness],
+        None,
+        [0.0, 0.0, 1.0],
+        POSITION_TOLERANCE,
+    );
     checks.finish();
 }
 
@@ -1067,7 +946,7 @@ fn r54_deleting_a_boss_under_a_datum_gives_one_root_cause() {
     checks.note(describe_messages(&session, "f-dp1"));
     checks.note(describe_messages(&session, "f-sk3"));
     checks.note(describe_messages(&session, "f-ext3"));
-    checks.status(&session, "f-dp1", "error");
+    checks.status(&session, "f-dp1", Status::Error);
     // recompute.md test 46's text; "deleted" is the engine twin's cause line (test 69).
     checks.message_names(
         &session,
@@ -1191,7 +1070,7 @@ fn r56a_suppressed_boolean_names_where_the_edge_now_lives() {
     );
     checks.note(diagnose(&session, "f-fil1", "b-1", &small_box_edge()));
     checks.note(describe_messages(&session, "f-fil1"));
-    checks.status(&session, "f-fil1", "error");
+    checks.status(&session, "f-fil1", Status::Error);
     checks.faces_count(session.body("b-1"), "f-fil1/", 0);
     checks.volume(&session, "b-1", 8000.0);
     checks.message_names(&session, "f-fil1", &["'Boolean 1'", "suppressed"]);
@@ -1213,7 +1092,7 @@ fn r56b_swapped_boolean_names_where_the_edge_now_lives() {
         &stacked_boxes(swapped.clone(), "b-1"),
     );
     checks.note(describe_messages(&session, "f-fil1"));
-    checks.status(&session, "f-fil1", "error");
+    checks.status(&session, "f-fil1", Status::Error);
     // The text the corpus quotes (recompute.md test 65); 'Body 2' is its Use body fix.
     checks.message_names(
         &session,
@@ -1228,7 +1107,7 @@ fn r56b_swapped_boolean_names_where_the_edge_now_lives() {
         &["b-1", "b-2"],
         &stacked_boxes(swapped, "b-2"),
     );
-    checks.status(&session, "f-fil1", "ok");
+    checks.status(&session, "f-fil1", Status::Ok);
     checks.resolves(
         &session,
         "f-fil1",
@@ -1274,7 +1153,7 @@ fn r56c_boss_moved_to_its_own_body_names_where_the_edge_now_lives() {
     edit(&mut session, &["b-1", "b-2"], &features("b-2", "new"));
     checks.note(diagnose(&session, "f-fil1", "b-1", &ring));
     checks.note(describe_messages(&session, "f-fil1"));
-    checks.status(&session, "f-fil1", "error");
+    checks.status(&session, "f-fil1", Status::Error);
     checks.faces_count(session.body("b-1"), "f-fil1/", 0);
     checks.volume(&session, "b-1", 4000.0);
     checks.message_names(&session, "f-fil1", &["'Extrude 1'", "'Body 2'"]);
@@ -1295,11 +1174,11 @@ fn r57_revolve_made_a_full_turn_names_the_lost_end_faces() {
     checks.note(diagnose(&session, "f-cha1", "b-1", &revolve_end_edge()));
     checks.note(describe_messages(&session, "f-cha1"));
     checks.note(describe_messages(&session, "f-sk2"));
-    checks.status(&session, "f-cha1", "error");
+    checks.status(&session, "f-cha1", Status::Error);
     checks.faces_count(session.body("b-1"), "f-cha1/", 0);
     checks.message_names(&session, "f-cha1", &["'Revolve 1'"]);
     checks.plain_words(&session, "f-cha1");
-    checks.status(&session, "f-sk2", "warning");
+    checks.status(&session, "f-sk2", Status::Warning);
     checks.check(
         codes(&session, "f-sk2").contains(&"plane_fallback"),
         format!(
@@ -1335,7 +1214,7 @@ fn r57_revolve_made_a_full_turn_names_the_lost_end_faces() {
 #[test]
 fn r58_datum_on_a_face_an_inserted_shell_removes_follows_the_rim() {
     let mut checks = Checks::new();
-    let top = reference("f-box1/top", "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4");
+    let top = tray_top();
     let features = vec![
         box_record("f-box1", "b-1", ["80", "50", "30"], None, "new"),
         datum_on_face("f-dp1", "b-1", top.clone(), "-2"),
@@ -1356,16 +1235,14 @@ fn r58_datum_on_a_face_an_inserted_shell_removes_follows_the_rim() {
     checks.note(describe_messages(&session, "f-dp1"));
     checks.note(describe_messages(&session, "f-split1"));
     checks.built(&session, "f-dp1");
-    if session.feature("f-dp1").output.is_some() {
-        checks.placement(
-            "f-dp1",
-            datum_placement(&session, "f-dp1"),
-            [0.0, 0.0, 28.0],
-            None,
-            [0.0, 0.0, 1.0],
-            POSITION_TOLERANCE,
-        );
-    }
+    checks.datum_placement(
+        &session,
+        "f-dp1",
+        [0.0, 0.0, 28.0],
+        None,
+        [0.0, 0.0, 1.0],
+        POSITION_TOLERANCE,
+    );
     checks.message_names(&session, "f-dp1", &["'Shell 1'"]);
     checks.plain_words(&session, "f-dp1");
     checks.built(&session, "f-split1");
@@ -1410,8 +1287,8 @@ fn check_rounded_axis(
     edit(&mut session, bodies, &rounded);
     checks.note(diagnose(&session, "f-rev1", axis_body, &axis_edge));
     checks.note(describe_messages(&session, "f-rev1"));
-    checks.status(&session, "f-fil1", "ok");
-    checks.status(&session, "f-rev1", "error");
+    checks.status(&session, "f-fil1", Status::Ok);
+    checks.status(&session, "f-rev1", Status::Error);
     checks.empty(&session, revolve_body);
     checks.message_names(&session, "f-rev1", &["'Fillet 1'"]);
     checks.plain_words(&session, "f-rev1");
@@ -1421,34 +1298,14 @@ fn check_rounded_axis(
 
 #[test]
 fn r59a_axis_edge_rounded_upstream_offers_the_tangent_edges() {
-    let axis_edge = reference(
-        "edge(f-box1/front|f-box1/left)",
-        "line|n=0,0,1|c=-5,0,5|l=10|adj=2,2",
+    check_rounded_axis(
+        revolve_about_box_edge(Vec::new()),
+        &["b-1", "b-2"],
+        "b-1",
+        "b-2",
+        box_corner_edge(),
+        "1",
     );
-    let features = vec![
-        box_record(
-            "f-box1",
-            "b-2",
-            ["10", "10", "10"],
-            Some(["0", "5", "0"]),
-            "new",
-        ),
-        sketch(
-            "f-sk1",
-            origin_plane("XZ"),
-            rectangle(1, 10.0, 0.0, 20.0, 30.0),
-        ),
-        revolve(
-            "f-rev1",
-            "b-1",
-            "f-sk1",
-            vec![rectangle_region(1, 10.0, 0.0, 20.0, 30.0)],
-            edge_axis("b-2", axis_edge.clone()),
-            full_turn(),
-            "new",
-        ),
-    ];
-    check_rounded_axis(features, &["b-1", "b-2"], "b-1", "b-2", axis_edge, "1");
 }
 
 #[test]
@@ -1679,13 +1536,13 @@ fn r61c_both_picked_edges_fused_into_one_are_rounded_once() {
     let mut session = run(&["b-1"], &features("30"));
     // Before the edit the second box does not touch the first, so the body has two pieces (features.md section 3.5,
     // `SeparateSolid`, newcomer error corpus NC04).
-    checks.status(&session, "f-box1", "ok");
+    checks.status(&session, "f-box1", Status::Ok);
     checks.warnings(&session, "f-box2", &["separate_solid"]);
-    checks.status(&session, "f-fil1", "ok");
+    checks.status(&session, "f-fil1", Status::Ok);
 
     edit(&mut session, &["b-1"], &features("20"));
     checks.note(diagnose(&session, "f-fil1", "b-1", &edges[1]));
-    checks.status(&session, "f-fil1", "ok");
+    checks.status(&session, "f-fil1", Status::Ok);
     let faces = faces_with_prefix(session.body("b-1"), "f-fil1/fillet/");
     checks.check(
         faces.len() == 1,
@@ -1809,7 +1666,7 @@ fn r63a_hole_made_a_counterbore_offers_the_new_mouth_and_never_chamfers_the_floo
     );
     checks.note(diagnose(&session, "f-cha1", "b-1", &hole_p2_rim()));
     checks.note(describe_messages(&session, "f-cha1"));
-    checks.status(&session, "f-cha1", "error");
+    checks.status(&session, "f-cha1", Status::Error);
     let body = session.body("b-1");
     checks.faces_count(body, "f-cha1/", 0);
     // recompute.md test 67's text; the hole type changed to counterbore is the engine twin's cause
@@ -1826,36 +1683,6 @@ fn r63a_hole_made_a_counterbore_offers_the_new_mouth_and_never_chamfers_the_floo
         &["edge(f-box1/top|f-hole1/counterbore/e-p2)"],
     );
     checks.finish();
-}
-
-/// R63 (b): a hole of `diameter` at `e-p1`, counterbored or simple, with a chamfer of 0.5 on the
-/// counterbore's mouth.
-fn counterbored_hole(diameter: &str, counterbored: bool) -> Vec<Value> {
-    let mut drill = hole(
-        "f-hole1",
-        "b-1",
-        "f-sk1",
-        &["e-p1"],
-        diameter,
-        through_all(),
-    );
-    if counterbored {
-        drill = with(drill, "hole_type", counterbore("11", "4"));
-    }
-    vec![
-        box_below(),
-        sketch("f-sk1", origin_plane("XY"), vec![point("e-p1", [0.0, 0.0])]),
-        drill,
-        chamfer("f-cha1", "b-1", vec![counterbore_mouth()], "0.5"),
-    ]
-}
-
-/// R63 (b): the counterbore's mouth.
-fn counterbore_mouth() -> Value {
-    reference(
-        "edge(f-box1/top|f-hole1/counterbore/e-p1)",
-        "circle|n=0,0,1|c=0,0,0|l=34.557519|r=5.5|adj=2,1",
-    )
 }
 
 fn r63b(diameter: f64) {
@@ -1945,7 +1772,7 @@ fn r64_inside_corner_already_rounded_upstream_says_why() {
     checks.note(describe_messages(&session, "f-fil1"));
     checks.built(&session, "f-ext1");
     checks.built(&session, "f-sh1");
-    checks.status(&session, "f-fil1", "error");
+    checks.status(&session, "f-fil1", Status::Error);
     checks.faces_count(session.body("b-1"), "f-fil1/", 0);
     checks.message_names(&session, "f-fil1", &["'Sketch 1'"]);
     checks.plain_words(&session, "f-fil1");

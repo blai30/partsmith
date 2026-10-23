@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_2, PI};
 
 use feature_support::{
-    Run, assert_messages_pass_lint, body_before, box_step_asset, document_text, id, parse_document,
-    pick, remove_entry, set_field, set_reverse, step_asset_name, use_reference,
+    Run, assert_messages_pass_lint, asset_name, body_before, box_step_asset, document_text, id,
+    parse_document, pick, remove_entry, set_field, set_reverse, use_reference,
 };
 use partsmith_features::{
     Because, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, Repair, describe_elements,
@@ -748,7 +748,7 @@ fn t001_faces_of_dress_ups_and_splits() {
 /// fallback names `f-imp1/face#1` to `#6`.
 fn imported_block() -> Run {
     let record = json!({
-        "id": "f-imp1", "type": "import", "body": "b-1", "asset": step_asset_name(), "op": "new"
+        "id": "f-imp1", "type": "import", "body": "b-1", "asset": asset_name('0'), "op": "new"
     });
     let text = record.to_string();
     let assets = box_step_asset("Block", [10.0, 20.0, 30.0]);

@@ -34,7 +34,7 @@ import {
   type EditingSession,
 } from '../state/selectors'
 import type { AppState, SelectionItem, SketchNotice } from '../state/store'
-import { usedEntities } from '../timeline/uses'
+import { usedMarkEntities } from '../timeline/uses'
 import { framedArea, type Camera, type ViewWindow } from '../viewport/camera'
 import type { ViewportController, ViewportHandle } from '../viewport/controller'
 import { requestFrame } from '../viewport/frames'
@@ -70,7 +70,6 @@ import {
   drawPreview,
   IDLE,
   type DrawFieldName,
-  type DrawingTool,
   type DrawInput,
   type DrawPreview,
   type DrawState,
@@ -89,7 +88,7 @@ import { EMPTY_PAINT, overlayPaint, type OverlayPaint, type PaintSnapshot } from
 import { millimetersPerPixelAt, pixelToSketch, sketchToPixel } from './placement'
 import type { SketchAddition } from './recipes'
 import { entitiesInBox, freeAreaBox, screenBox, type Projector } from './screen'
-import { constraintTool, isDrawingTool } from './tools'
+import { constraintTool, isDrawingTool, type DrawingTool } from './tools'
 
 // Sketch mode's session (ui.md 2.14, 3.16): its tools and the changes they commit, the step
 // prompts, the profile problems drawn on the sketch, and the internal sketch controller that turns
@@ -754,7 +753,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       pixelSize,
       tolerance: TESSELLATION_PIXELS * pixelSize,
       constraints: storedConstraints(state, session.sketchId),
-      usedEntities: Object.keys(usedEntities(state, session.sketchId)),
+      usedEntities: usedMarkEntities(state, session.sketchId),
       showConstraints: session.showConstraints,
       labelPositions,
       pointer,

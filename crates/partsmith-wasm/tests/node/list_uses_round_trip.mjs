@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict'
 
-import { callCore, decodeHeaderOnlyFrame, loadCore, requestFrame } from './core.mjs'
+import { callCore, decodeFrameWithoutBuffers, loadCore, requestFrame } from './core.mjs'
 
 const [modulePath, wasmPath] = process.argv.slice(2)
 assert.ok(modulePath && wasmPath, 'usage: node list_uses_round_trip.mjs <partsmith_core.mjs> <partsmith_core.wasm>')
@@ -19,7 +19,7 @@ const core = await loadCore(modulePath, wasmPath)
 
 /** Sends request id with command through the module and returns its response, the last message of the response frame. */
 function send(id, command) {
-  const header = decodeHeaderOnlyFrame(callCore(core, requestFrame(id, command)))
+  const header = decodeFrameWithoutBuffers(callCore(core, requestFrame(id, command)))
   assert.equal(header.protocol_version, 1)
   const response = header.messages.at(-1)
   assert.equal(response.kind, 'response', 'a response frame ends with its response')

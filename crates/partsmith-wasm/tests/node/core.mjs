@@ -56,8 +56,8 @@ export function callCore(core, request) {
   return response
 }
 
-/** Decodes the header of a frame without buffers and checks its layout. */
-export function decodeHeaderOnlyFrame(frame) {
+/** Decodes a frame without buffers and checks its layout. */
+export function decodeFrameWithoutBuffers(frame) {
   assert.ok(frame.length >= 8, `the response frame is ${frame.length} bytes, shorter than 8`)
   assert.equal(new TextDecoder().decode(frame.subarray(0, 4)), 'PSM1', 'the response magic')
   const headerLength = new DataView(frame.buffer, frame.byteOffset).getUint32(4, true)

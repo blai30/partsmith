@@ -263,16 +263,6 @@ export function annotationCenters(
   }
 }
 
-/** The canvas pixel at the center of each constraint glyph (3.16.2), as `annotationCenters` gives it. */
-export function glyphCenters(
-  constraints: readonly SketchConstraint[],
-  solution: SketchSolution,
-  project: Projector,
-  uiScale: number,
-): ReadonlyMap<string, Vector2 | null> {
-  return annotationCenters(constraints, [], solution, project, uiScale).glyphs
-}
-
 /**
  * Where the draw inputs go (3.16.4): a corner `offset` pixels off the rubber band's midpoint, and
  * the sides of that corner they extend to. They take the quadrant facing away from the pointer, so

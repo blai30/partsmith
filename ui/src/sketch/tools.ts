@@ -1,8 +1,19 @@
 import { isConstraintType, type ConstraintType } from './constraints'
-import { DRAWING_TOOLS, type DrawingTool } from './drawing'
 import type { SketchToolId } from './session'
 
 // Kinds of sketch tools (ui.md 3.16.3).
+
+/** The drawing tools, which place new geometry and show a crosshair (3.16.4). */
+export const DRAWING_TOOLS = [
+  'line',
+  'rectangle_2point',
+  'rectangle_center',
+  'circle',
+  'arc_3point',
+  'point',
+] as const
+
+export type DrawingTool = (typeof DRAWING_TOOLS)[number]
 
 const DRAWING_TOOL_SET: ReadonlySet<SketchToolId> = new Set<SketchToolId>(DRAWING_TOOLS)
 

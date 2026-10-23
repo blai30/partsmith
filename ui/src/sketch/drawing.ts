@@ -37,21 +37,10 @@ import {
 } from './recipes'
 import { X_AXIS } from './refs'
 import type { SketchChange } from './session'
+import type { DrawingTool } from './tools'
 
 // The drawing tools as a state machine (ui.md 3.16.4, 3.16.5): what the rubber band shows for the
 // pointer and typed values, and the change each click or Enter commits.
-
-/** The drawing tools, which place new geometry and show a crosshair (3.16.4). */
-export const DRAWING_TOOLS = [
-  'line',
-  'rectangle_2point',
-  'rectangle_center',
-  'circle',
-  'arc_3point',
-  'point',
-] as const
-
-export type DrawingTool = (typeof DRAWING_TOOLS)[number]
 
 /** The quantities of dimension as you draw, named by their draw inputs' accessible names. */
 export const DRAW_FIELD_NAMES = [

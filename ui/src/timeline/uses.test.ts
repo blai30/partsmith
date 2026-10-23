@@ -18,7 +18,7 @@ import {
   USED_SKETCH_USES,
   usesDocument,
 } from '../test/fakes/uses'
-import { dropWarning, usedEntities, usersOf } from './uses'
+import { dropWarning, usedByText, usedEntities, usedMarkEntities, usersOf } from './uses'
 
 // What a timeline drop would break, who uses a feature and which sketch entities later features
 // use, from `list_uses` (ui.md 3.9, 3.16.10, engine.md 3.24).
@@ -253,6 +253,14 @@ describe('usersOf (3.9, U-136)', () => {
   })
 })
 
+describe('usedByText (3.9, 3.16.10)', () => {
+  it('names the users by their labels', () => {
+    expect(usedByText(usedByState(), ['f-fil1', 'f-dp1'])).toBe(
+      "Used by 'Fillet 1', 'Datum plane 1'",
+    )
+  })
+})
+
 describe('usedEntities (3.16.10, U-137)', () => {
   it('U-137 maps e-3 to Fillet 1, through Extrude 1, which links Sketch 1', () => {
     expect(usedEntities(sketchState(USED_SKETCH_USES), 'f-sk1')).toEqual({
@@ -287,5 +295,11 @@ describe('usedEntities (3.16.10, U-137)', () => {
   it('is empty for a sketch whose entities nothing uses', () => {
     const uses: readonly Use[] = [{ user: 'f-ext1', field: '/profile/sketch', feature: 'f-sk1' }]
     expect(usedEntities(sketchState(uses), 'f-sk1')).toEqual({})
+  })
+})
+
+describe('usedMarkEntities (3.16.10)', () => {
+  it('lists the entities that later features use', () => {
+    expect(usedMarkEntities(sketchState(USED_POINT_USES), 'f-sk1')).toEqual(['e-3', 'e-p1'])
   })
 })

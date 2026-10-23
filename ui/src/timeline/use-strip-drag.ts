@@ -184,7 +184,7 @@ export function useStripDrag(strip: RefObject<HTMLDivElement | null>, options: S
             showWarning(current, options.dropWarning(featureId, current.gap))
           }
         })
-        .catch(reportFailure('Asking what the features use'))
+        .catch(reportFailure('Checking the drop'))
     }
     setDragging(featureId ?? 'marker')
   }

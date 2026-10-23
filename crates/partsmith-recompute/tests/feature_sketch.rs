@@ -16,10 +16,10 @@ use feature_support::{
     assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_in_plane,
     assert_moves, assert_placement, assert_quarter_turns_about_z, assert_relative,
     assert_sketch_on_top_plane, assert_solid_count, assert_top_at, assert_translation,
-    assert_volume, box_step_asset, datum_motion, document, document_text, expression_uses, face,
-    face_motion_before, face_sketch, face_sketch_with, hole_at_point, id, l_shaped_body, link_ids,
-    message, moved_box_document, one_circle, one_point, parse_document, reference_json, saved,
-    sketch_on_pattern_copy_document, sketch_result, step_asset_name, top_fallback, turn,
+    assert_volume, asset_name, box_step_asset, datum_motion, document, document_text,
+    expression_uses, face, face_motion_before, face_sketch, face_sketch_with, hole_at_point, id,
+    l_shaped_body, link_ids, message, moved_box_document, one_circle, one_point, parse_document,
+    reference_json, saved, sketch_on_pattern_copy_document, sketch_result, top_fallback, turn,
 };
 use partsmith_features::{
     Bound, FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
@@ -247,7 +247,7 @@ fn face_ambiguous() {
     // partial fingerprint fits all six faces of the cube equally.
     let import = format!(
         r#"{{"id": "f-imp1", "type": "import", "body": "b-1", "asset": "{}", "op": "new"}}"#,
-        step_asset_name()
+        asset_name('0')
     );
     let sketch = format!(
         r#"{{"id": "f-sk1", "type": "sketch", "plane": {{"kind": "face", "body": "b-1", "face": {{"q": "f-imp1/face#9", "fp": "plane|a=100"}}, "fallback": {{"origin": [3, 4, 0], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}}}}, "entities": {RECTANGLE_ENTITIES}}}"#

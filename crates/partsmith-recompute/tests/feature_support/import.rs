@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use partsmith_occt_sys::{Plane, StepBody, make_box, write_step};
 
-use super::{Assets, step_asset_name};
+use super::{Assets, asset_name};
 
 /// A STEP body named `name` holding a `make_box` solid of this size on `placement`.
 pub fn block(name: &str, placement: &Plane, size: [f64; 3]) -> StepBody {
@@ -26,5 +26,5 @@ pub fn block_bytes() -> Arc<[u8]> {
 
 /// The asset map `{A: bytes}`.
 pub fn assets(bytes: Arc<[u8]>) -> Assets {
-    Assets::from([(step_asset_name(), bytes)])
+    Assets::from([(asset_name('0'), bytes)])
 }

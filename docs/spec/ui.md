@@ -104,7 +104,7 @@ ui/
       client.ts              createCoreClient
       api.ts                 CoreApi, createCoreApi (the only module that names commands)
       events.ts              CoreEvent, decodeEvent (the only module that names events)
-      queue.ts               createMutationQueue, createLatestOnly
+      queue.ts               createMutationQueue, createLatestOnly, skipRepeats
       ids.ts                 generateId
       labels.ts              featureLabel, nextBodyName, originPlaneView, originPlaneName
     generated/
@@ -170,7 +170,8 @@ ui/
       issues.ts              profile finding messages and rings, outlineProblems
       overlay-chunk.ts       loadSketchOverlay, loadedSketchOverlay (3.1)
       SketchOverlay.tsx, SketchHeader.tsx, DrawInputs.tsx, DimensionEditor.tsx
-    timeline/ Timeline.tsx, uses.ts (dropWarning, usersOf, usedEntities)
+    timeline/ Timeline.tsx, FeatureMenu.tsx, DropHint.tsx, uses.ts (dropWarning, usersOf, usedEntities,
+              usedMarkEntities, usedByText)
     repair/ repair.ts (repairView, candidateAction, ghostSegments), RepairOverlay.tsx, CauseLine.tsx
     browser/ Browser.tsx
     parameters/ ParametersPanel.tsx
@@ -366,6 +367,11 @@ export function createLatestOnly<Input, Output>(
   send: (input: Input) => Promise<Output>,
   onResult: (output: Output, input: Input) => void,
   onError: (error: unknown, input: Input) => void,
+): LatestOnly<Input>
+/** Drops an input `same` as the one submitted last while `latest` is busy; `cancel` forgets that input. */
+export function skipRepeats<Input>(
+  latest: LatestOnly<Input>,
+  same: (first: Input, second: Input) => boolean,
 ): LatestOnly<Input>
 ```
 

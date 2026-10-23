@@ -182,3 +182,32 @@ export function createLatestOnly<Input, Output>(
     },
   }
 }
+
+/**
+ * Wraps `latest` so that an input `same` as the one submitted last is dropped while `latest` is
+ * busy, since the answer that comes next already answers it.
+ */
+export function skipRepeats<Input>(
+  latest: LatestOnly<Input>,
+  same: (first: Input, second: Input) => boolean,
+): LatestOnly<Input> {
+  // The input submitted last: while `latest` is busy, the waiting one, else the one in flight.
+  let submitted: { readonly input: Input } | null = null
+  return {
+    submit(input) {
+      if (latest.busy && submitted !== null && same(submitted.input, input)) {
+        return
+      }
+      submitted = { input }
+      latest.submit(input)
+    },
+    cancel() {
+      submitted = null
+      latest.cancel()
+    },
+    flush: () => latest.flush(),
+    get busy() {
+      return latest.busy
+    },
+  }
+}

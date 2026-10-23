@@ -261,11 +261,7 @@ impl Run {
 
     /// The rendered messages of `feature`, error first, then warnings.
     pub fn messages(&self, feature: &str) -> Vec<&str> {
-        self.feature(feature)
-            .messages
-            .iter()
-            .map(|message| message.text.as_str())
-            .collect()
+        message_texts(self.feature(feature))
     }
 
     /// Asserts that `feature` has status ok.
@@ -429,18 +425,27 @@ pub fn datum_plane<'r>(report: &'r Report, feature: &str) -> &'r Placement {
     datum_output(report, feature).0
 }
 
+/// The rendered messages of a feature's report, error first, then warnings.
+pub fn message_texts(report: &FeatureReport) -> Vec<&str> {
+    report
+        .messages
+        .iter()
+        .map(|message| message.text.as_str())
+        .collect()
+}
+
 /// Every feature's status and messages, for failure output.
 pub fn summary(report: &Report) -> String {
     let lines: Vec<String> = report
         .features
         .iter()
         .map(|entry| {
-            let texts: Vec<&str> = entry
-                .messages
-                .iter()
-                .map(|message| message.text.as_str())
-                .collect();
-            format!("{}: {:?} {:?}", entry.feature, entry.status, texts)
+            format!(
+                "{}: {:?} {:?}",
+                entry.feature,
+                entry.status,
+                message_texts(entry)
+            )
         })
         .collect();
     lines.join("; ")
@@ -548,28 +553,39 @@ pub fn face(state: &BodyState, name: &str) -> ElementGeometry {
     element(state, ElementKind::Face, name)
 }
 
-/// The geometry of the element of `kind` named `name`, found through the body's naming map and
-/// measured with the kernel's `element`.
+/// The geometry of the element of `kind` named `name`; panics with the body's names of that kind
+/// when it has none.
 fn element(state: &BodyState, kind: ElementKind, name: &str) -> ElementGeometry {
-    let (sub_shape, plural) = match kind {
-        ElementKind::Face => (SubShapeKind::Face, "faces"),
-        ElementKind::Edge => (SubShapeKind::Edge, "edges"),
-        ElementKind::Vertex => (SubShapeKind::Vertex, "vertices"),
+    let plural = match kind {
+        ElementKind::Face => "faces",
+        ElementKind::Edge => "edges",
+        ElementKind::Vertex => "vertices",
     };
-    let element = ElementName::parse(name)
-        .unwrap_or_else(|error| panic!("{name} is not a valid element name: {error}"));
-    let index = state.naming().index(&element).unwrap_or_else(|| {
+    try_element(state, name).unwrap_or_else(|| {
         panic!(
             "no {kind} named {name}; {plural}: {:?}",
             element_names(state, kind)
         )
-    });
-    let shape = state
-        .shape()
-        .unwrap_or_else(|| panic!("a body with named {plural} has a solid"));
-    shape
-        .element(sub_shape, index)
-        .unwrap_or_else(|error| panic!("geometry of {name}: {error}"))
+    })
+}
+
+/// The geometry of the face, edge or vertex named `name`, found through the body's naming map and
+/// measured with the kernel's `element`, if the body has one.
+pub fn try_element(state: &BodyState, name: &str) -> Option<ElementGeometry> {
+    let parsed = ElementName::parse(name)
+        .unwrap_or_else(|error| panic!("{name} is not a valid element name: {error}"));
+    let index = state.naming().index(&parsed)?;
+    let kind = match parsed.kind() {
+        ElementKind::Face => SubShapeKind::Face,
+        ElementKind::Edge => SubShapeKind::Edge,
+        ElementKind::Vertex => SubShapeKind::Vertex,
+    };
+    let shape = state.shape()?;
+    Some(
+        shape
+            .element(kind, index)
+            .unwrap_or_else(|error| panic!("geometry of {name}: {error}")),
+    )
 }
 
 /// Asserts a face's surface kind.
@@ -649,16 +665,14 @@ pub fn assert_face_axis_direction(geometry: &ElementGeometry, expected: [f64; 3]
     }
 }
 
-/// Asserts that a round face's axis passes through `point` (absolute 1e-9).
-pub fn assert_face_axis_through(geometry: &ElementGeometry, point: [f64; 3]) {
-    let location = geometry
-        .location
-        .unwrap_or_else(|| panic!("the face has no axis location: {geometry:?}"));
-    let direction = components(
-        geometry
-            .direction
-            .unwrap_or_else(|| panic!("the face has no axis: {geometry:?}")),
-    );
+/// The distance from `point` to the axis line of a round face (through its axis location) or of a
+/// straight edge (through its centroid), if the geometry has an axis.
+pub fn axis_distance(geometry: &ElementGeometry, point: [f64; 3]) -> Option<f64> {
+    let direction = components(geometry.direction?);
+    let location = match geometry.kind {
+        GeometryKind::Line => geometry.centroid,
+        _ => geometry.location?,
+    };
     let offset = [
         point[0] - location.x,
         point[1] - location.y,
@@ -669,12 +683,20 @@ pub fn assert_face_axis_through(geometry: &ElementGeometry, point: [f64; 3]) {
         .zip(direction)
         .map(|(component, axis)| component * axis)
         .sum();
-    let distance = offset
-        .iter()
-        .zip(direction)
-        .map(|(component, axis)| (component - along * axis).powi(2))
-        .sum::<f64>()
-        .sqrt();
+    Some(
+        offset
+            .iter()
+            .zip(direction)
+            .map(|(component, axis)| (component - along * axis).powi(2))
+            .sum::<f64>()
+            .sqrt(),
+    )
+}
+
+/// Asserts that a round face's axis passes through `point` (absolute 1e-9).
+pub fn assert_face_axis_through(geometry: &ElementGeometry, point: [f64; 3]) {
+    let distance = axis_distance(geometry, point)
+        .unwrap_or_else(|| panic!("the face has no axis: {geometry:?}"));
     assert_absolute(
         &format!("distance from {point:?} to the axis of {geometry:?}"),
         distance,
@@ -911,14 +933,15 @@ pub fn line(entity: &str, start: [i32; 2], end: [i32; 2]) -> String {
     )
 }
 
-/// The name the tests give a STEP asset, features/import.md's fixture `A`: 64 zeros followed by `.step` (the tests do
-/// not check that it is a hash).
-pub fn step_asset_name() -> String {
-    format!("{}.step", "0".repeat(64))
+/// An asset name made of one repeated hex digit followed by `.step`, as the hash-named asset of a
+/// file revision (the tests do not check that it is a hash); `asset_name('0')` is
+/// features/import.md's fixture `A`.
+pub fn asset_name(digit: char) -> String {
+    format!("{}.step", digit.to_string().repeat(64))
 }
 
 /// The asset map of a STEP file with one body named `name`, a `make_box` solid of `size` with its corner at the
-/// origin, under `step_asset_name()`.
+/// origin, under `asset_name('0')`.
 pub fn box_step_asset(name: &str, size: [f64; 3]) -> Assets {
     let [length, width, height] = size;
     let solid = make_box(&Plane::XY, length, width, height).expect("the kernel makes a valid box");
@@ -928,7 +951,7 @@ pub fn box_step_asset(name: &str, size: [f64; 3]) -> Assets {
         color: None,
     }])
     .expect("the kernel writes STEP");
-    Assets::from([(step_asset_name(), Arc::from(bytes))])
+    Assets::from([(asset_name('0'), Arc::from(bytes))])
 }
 
 /// The state of `body` just before `feature` (its `bodies_before`, which holds the bodies it declares).

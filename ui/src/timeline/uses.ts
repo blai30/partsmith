@@ -2,6 +2,8 @@ import type { FeatureRecord, SelectionKind, Use } from '../generated/protocol'
 import { getParam } from '../inspector/model'
 import { isRecord } from '../inspector/param-path'
 import { fieldForPointer } from '../inspector/status'
+import { MESSAGES } from '../messages'
+import { selectFeatureLabel } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { dropIndex } from './strip'
 
@@ -178,6 +180,11 @@ export function usersOf(state: AppState, feature: string): readonly string[] {
   )
 }
 
+/** The `used_by` text that names `users` by their labels (3.9, 3.16.10). */
+export function usedByText(state: AppState, users: readonly string[]): string {
+  return MESSAGES.used_by(users.map((user) => selectFeatureLabel(state, user)))
+}
+
 /** The features that link `sketch`: those with a use of it without an entity. */
 function sketchLinks(state: AppState, sketch: string): ReadonlySet<string> {
   return new Set(
@@ -219,6 +226,11 @@ export function usedEntities(
     }
   }
   return used
+}
+
+/** The entities of `sketch` that show a used mark: those `usedEntities` names (3.16.10). */
+export function usedMarkEntities(state: AppState, sketch: string): readonly string[] {
+  return Object.keys(usedEntities(state, sketch))
 }
 
 /** What a later feature uses of an entity of a sketch: its first user and the noun of that use. */

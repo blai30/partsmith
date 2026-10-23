@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { deferred, type Deferred } from '../test/fakes/deferred'
 import { settle } from '../test/fakes/settle'
-import { createLatestOnly, createMutationQueue } from './queue'
+import { createLatestOnly, createMutationQueue, skipRepeats, type LatestOnly } from './queue'
 
 describe('createMutationQueue', () => {
   it('U-15 starts the second task only after the first settles', async () => {
@@ -317,5 +317,58 @@ describe('createLatestOnly', () => {
     await latest.flush()
     await settle()
     expect(send).toHaveBeenCalledTimes(1)
+  })
+})
+
+/** The `harness` with its `LatestOnly` wrapped in `skipRepeats` of equal strings. */
+function skippingHarness(): LatestOnlyHarness & { readonly skipping: LatestOnly<string> } {
+  const parts = harness()
+  return { ...parts, skipping: skipRepeats(parts.latest, (first, second) => first === second) }
+}
+
+describe('skipRepeats', () => {
+  it('drops an input equal to the one submitted last while busy', async () => {
+    const { skipping, sends, sent, results } = skippingHarness()
+    skipping.submit('a')
+    await settle()
+    skipping.submit('a')
+    sends.get('a')?.resolve('result a')
+    await skipping.flush()
+    expect(sent).toEqual(['a'])
+    expect(results).toEqual([['result a', 'a']])
+  })
+
+  it('sends an input that differs from the one submitted last', async () => {
+    const { skipping, sends, sent } = skippingHarness()
+    skipping.submit('a')
+    await settle()
+    skipping.submit('b')
+    sends.get('a')?.resolve('result a')
+    await settle()
+    expect(sent).toEqual(['a', 'b'])
+    expect(skipping.busy).toBe(true)
+  })
+
+  it('sends an equal input again once idle', async () => {
+    const { skipping, sends, sent } = skippingHarness()
+    skipping.submit('a')
+    await settle()
+    sends.get('a')?.resolve('result a')
+    await skipping.flush()
+    expect(skipping.busy).toBe(false)
+    skipping.submit('a')
+    await settle()
+    expect(sent).toEqual(['a', 'a'])
+  })
+
+  it('sends an equal input after a cancel', async () => {
+    const { skipping, sends, sent } = skippingHarness()
+    skipping.submit('a')
+    await settle()
+    skipping.cancel()
+    skipping.submit('a')
+    sends.get('a')?.resolve('result a')
+    await settle()
+    expect(sent).toEqual(['a', 'a'])
   })
 })

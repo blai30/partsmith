@@ -11,7 +11,7 @@ use feature_support::import::{assets, block, block_bytes};
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_examples_canonical, assert_face_count,
     assert_face_kind, assert_face_names, assert_face_position, assert_solid_count, assert_volume,
-    body_changes, face, load_example, step_asset_name,
+    asset_name, body_changes, face, load_example,
 };
 use partsmith_features::FeatureError;
 use partsmith_occt_sys::{GeometryKind, Plane, Point, write_step};
@@ -100,7 +100,7 @@ fn t001_op_new_dependencies() {
     let run = run_example("import/new-body.ptsm", block_bytes());
 
     let dependencies = run.dependencies("f-imp1");
-    let name = step_asset_name();
+    let name = asset_name('0');
     let assets: Vec<(&str, &str)> = dependencies
         .assets
         .iter()

@@ -20,11 +20,10 @@ import { Tooltip } from '../components/Tooltip'
 import type { WorldAxis } from '../core/labels'
 import type { ConstraintSolveState, SketchSolution } from '../generated/protocol'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
-import { MESSAGES } from '../messages'
-import { selectEditedSketch, selectFeatureLabel, selectSketchRecord } from '../state/selectors'
+import { selectEditedSketch, selectSketchRecord } from '../state/selectors'
 import type { AppState } from '../state/store'
 import { AXIS_ROLES, COLOR_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
-import { usedEntities } from '../timeline/uses'
+import { usedByText, usedEntities } from '../timeline/uses'
 import { useCanvasLayer } from '../viewport/canvas-layer'
 import { hideLabelsUnderCards, positionElement } from '../viewport/overlay'
 import { sketchWorldAxes } from '../viewport/planes'
@@ -221,7 +220,7 @@ function usedByTexts(state: AppState, sketchId: string): Readonly<Record<string,
   return Object.fromEntries(
     Object.entries(usedEntities(state, sketchId)).map(([entity, users]) => [
       entity,
-      MESSAGES.used_by(users.map((user) => selectFeatureLabel(state, user))),
+      usedByText(state, users),
     ]),
   )
 }

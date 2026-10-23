@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict'
 
-import { callCore, decodeHeaderOnlyFrame, frameWithoutBuffers, loadCore } from './core.mjs'
+import { callCore, decodeFrameWithoutBuffers, frameWithoutBuffers, loadCore } from './core.mjs'
 
 const [modulePath, wasmPath, expectedEngineVersion, expectedFormatVersion] = process.argv.slice(2)
 assert.ok(
@@ -25,7 +25,7 @@ const core = await loadCore(modulePath, wasmPath)
 
 const request = frameWithoutBuffers(requestHeader)
 assert.equal(request.length, 120, 'example A is 120 bytes')
-const header = decodeHeaderOnlyFrame(callCore(core, request))
+const header = decodeFrameWithoutBuffers(callCore(core, request))
 
 assert.equal(header.protocol_version, 1)
 assert.deepEqual(header.buffers, [])

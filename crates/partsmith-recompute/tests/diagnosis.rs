@@ -39,20 +39,22 @@ use partsmith_recompute::{
 };
 use serde_json::{Value, json};
 use stability_common::{
-    angle, arc, asset_name, block, block_back_top, block_front_right_vertical, block_front_top,
-    block_right_top, block_top, block_with_end_cap_sketch, block_with_hole_on_end_cap,
-    block_with_holes_on_end_cap, boolean, boolean_boss, boss_base_ring, boss_on_chamfer_datum,
-    boss_top_rim, box_below, box_corner_edge, box_record, chamfer, chamfer_face, circle,
-    circle_region, constrained_sketch, counterbore, cube10, cube20, cube20_bottom_front,
-    cube20_front_top, datum_offset, datum_on_face, datum_plane, distance, document_of, edit,
-    edit_document, edited, edited_document, extrude, fillet, filleted_boss, followed_by, full_turn,
-    hole, id, import, insert_before, line, linear_pattern, move_before, move_to_end,
-    notched_back_outline, origin_plane, pegs, plate_bytes, point, rectangle, rectangle_region,
-    reference, region, reversed, revolve_about_box_edge, rounded_outline, rounded_plate, run,
-    run_edited, run_then_edit, run_with_assets, saved, shell, show, size_constraint, sketch,
-    slotted_cube, split, split_then_fillet, suppressed, symmetric, symmetric_boss,
-    tall_box_with_boss, three_quarter_ring, through_all, top_cut, top_face_plane, unsuppress,
-    unsuppressed, with, without,
+    Pocket, angle, arc, asset_name, beveled_block, beveled_outline, block, block_back_top,
+    block_front_right_vertical, block_front_top, block_outline, block_right_top, block_top,
+    block_with_end_cap_sketch, block_with_hole_on_end_cap, block_with_holes_on_end_cap, boolean,
+    boolean_boss, boss_base_ring, boss_beside_hole, boss_on_chamfer_datum, boss_top_rim,
+    box_against_right_side, box_below, box_corner_edge, box_record, chamfer, chamfer_face, circle,
+    circle_region, conflicting_radius, corner_chamfered_outline, counterbore, counterbored_hole,
+    cube10, cube20, cube20_bottom_front, cube20_front_top, cube20_top, datum_offset, datum_on_face,
+    datum_plane, distance, document_of, edit, edit_document, edited, edited_document, extrude,
+    fillet, filleted_boss, filleted_pocket, filleted_right_edge, filleted_slot, followed_by,
+    full_turn, hole, id, imported_plate, insert_before, line, linear_pattern, move_before,
+    move_to_end, notched_back_outline, origin_plane, pegs, plate_bytes, plate_rim_20, plate_rim_30,
+    point, rectangle, rectangle_region, reference, reversed, revolve_about_box_edge,
+    rounded_outline, rounded_plate, run, run_edited, run_then_edit, run_with_assets, saved, shell,
+    show, sketch, slotted_cube, split, split_then_fillet, stepped_block, suppressed, symmetric,
+    symmetric_boss, tall_box_with_boss, three_quarter_ring, through_all, top_cut, top_face_plane,
+    two_holes, unsuppress, unsuppressed, with, without,
 };
 
 // Ids, names and fixes.
@@ -161,7 +163,7 @@ fn report_message<'r>(report: &'r Report, feature: &str, code: &str) -> &'r Mess
 }
 
 /// The candidates of the element repair of `message` at `pointer`, as their queries with `meaning` and `distance`.
-fn repair_candidates(message: &Message, pointer: &str) -> Vec<(String, bool, f64)> {
+fn scored_candidates(message: &Message, pointer: &str) -> Vec<(String, bool, f64)> {
     message
         .repairs
         .iter()
@@ -923,60 +925,6 @@ fn a_memoized_reason_follows_a_maker_that_moved_after_the_rollback_marker() {
 
 // Test 50: `UpstreamFailed` (corpus R47).
 
-/// Corpus R47's boss rim.
-fn r47_boss_rim() -> Value {
-    reference(
-        "edge(f-ext3/end-cap|f-ext3/lateral/e-5)",
-        "circle|n=0,0,1|c=20,25,40|l=62.831853|r=10|adj=2,1",
-    )
-}
-
-/// Corpus R47's setup: BLOCK with a through hole at (50, 25), a boss at (20, 25) of `boss_distance` whose sketch has
-/// the diameter `c-1` and then `extra`, and a fillet of 2 on the boss's top rim.
-fn boss_beside_hole(extra: Vec<Value>, boss_distance: &str) -> Vec<Value> {
-    let mut constraints = vec![size_constraint("c-1", "diameter", "e-5", "20 mm")];
-    constraints.extend(extra);
-    followed_by(
-        block(),
-        vec![
-            sketch(
-                "f-sk2",
-                origin_plane("XY"),
-                vec![circle("e-6", [50.0, 25.0], 10.0)],
-            ),
-            extrude(
-                "f-ext2",
-                "b-1",
-                "f-sk2",
-                vec![circle_region("e-6", [50.0, 25.0], 10.0)],
-                through_all(),
-                "cut",
-            ),
-            datum_offset("f-dp1", "XY", "30"),
-            constrained_sketch(
-                "f-sk3",
-                datum_plane("f-dp1"),
-                vec![circle("e-5", [20.0, 25.0], 10.0)],
-                constraints,
-            ),
-            extrude(
-                "f-ext3",
-                "b-1",
-                "f-sk3",
-                vec![circle_region("e-5", [20.0, 25.0], 10.0)],
-                distance(boss_distance),
-                "join",
-            ),
-            fillet("f-fil1", "b-1", vec![r47_boss_rim()], "2"),
-        ],
-    )
-}
-
-/// Corpus R47's edit: a radius `c-2` that conflicts with the diameter `c-1`.
-fn conflicting_radius() -> Vec<Value> {
-    vec![size_constraint("c-2", "radius", "e-5", "6 mm")]
-}
-
 /// Corpus R47's setup with a boss of 10, then edited to `features` in the same session.
 fn r47(features: &[Value]) -> Run {
     run_then_edit(&["b-1"], &boss_beside_hole(Vec::new(), "10"), features)
@@ -1393,7 +1341,7 @@ fn t052_r16_an_edge_a_cut_took_away_offers_its_neighbors_by_meaning() {
         "{:?}",
         error.fixes
     );
-    for (query, meaning, distance) in repair_candidates(error, "/edges/0") {
+    for (query, meaning, distance) in scored_candidates(error, "/edges/0") {
         if query == RABBET_TOP_EDGE || query == RABBET_FRONT_EDGE {
             assert!(meaning, "{query} keeps a face of the lost edge");
             assert!(
@@ -1457,56 +1405,6 @@ fn t071_explanations_render_with_current_names() {
 
 // Test 53: `Covered` (corpus R13 and R21).
 
-/// Corpus R13's setup: BLOCK, a lower step `f-sk2`, `f-ext2` of `step` beside it, a fillet `f-fil1` on the step edge,
-/// a boss `f-sk3`, `f-ext3` on the step's top and a fillet `f-fil2` on the step's right top edge.
-fn stepped_block(step: &str) -> Vec<Value> {
-    followed_by(
-        block(),
-        vec![
-            sketch(
-                "f-sk2",
-                origin_plane("XY"),
-                rectangle(5, 80.0, 0.0, 120.0, 50.0),
-            ),
-            extrude(
-                "f-ext2",
-                "b-1",
-                "f-sk2",
-                vec![rectangle_region(5, 80.0, 0.0, 120.0, 50.0)],
-                distance(step),
-                "join",
-            ),
-            fillet("f-fil1", "b-1", vec![block_right_top()], "2"),
-            sketch(
-                "f-sk3",
-                top_face_plane(
-                    "b-1",
-                    reference("f-ext2/end-cap", "plane|n=0,0,1|c=100,25,20|a=2000|adj=4,4"),
-                    20.0,
-                ),
-                vec![circle("e-9", [100.0, 25.0], 5.0)],
-            ),
-            extrude(
-                "f-ext3",
-                "b-1",
-                "f-sk3",
-                vec![circle_region("e-9", [100.0, 25.0], 5.0)],
-                distance("5"),
-                "join",
-            ),
-            fillet(
-                "f-fil2",
-                "b-1",
-                vec![reference(
-                    "edge(f-ext2/end-cap|f-ext2/lateral/e-6)",
-                    "line|n=0,1,0|c=120,25,20|l=50|adj=2,2",
-                )],
-                "1",
-            ),
-        ],
-    )
-}
-
 /// Corpus R13 after its edit: the step made as tall as the block.
 fn r13() -> Run {
     run_then_edit(&["b-1"], &stepped_block("20"), &stepped_block("30"))
@@ -1528,37 +1426,6 @@ fn t053_r13_an_edge_a_join_made_flush_is_inside_the_part() {
         &error.text,
         "is now inside the part, covered by 'Extrude 2'.",
     );
-}
-
-/// Corpus R21's setup: a 20 x 20 x 10 box and a fillet `f-fil1` of 2 on the top edge of its right side.
-fn filleted_right_edge() -> Vec<Value> {
-    vec![
-        box_record("f-box1", "b-1", ["20", "20", "10"], None, "new"),
-        fillet(
-            "f-fil1",
-            "b-1",
-            vec![reference(
-                "edge(f-box1/right|f-box1/top)",
-                "line|n=0,1,0|c=10,0,10|l=20|adj=2,2",
-            )],
-            "2",
-        ),
-    ]
-}
-
-/// Corpus R21's edit: a box `f-box2` of `height` joined against the right side, inserted before the fillet.
-fn box_against_right_side(height: &str) -> Vec<Value> {
-    insert_before(
-        &filleted_right_edge(),
-        "f-fil1",
-        vec![box_record(
-            "f-box2",
-            "b-1",
-            ["20", "20", height],
-            Some(["20", "0", "0"]),
-            "join",
-        )],
-    )
 }
 
 /// Checks corpus R21 with a joined box of `height`: the fillet's edge is covered by 'Box 2' and the body has
@@ -1597,7 +1464,7 @@ fn t053_r21b_the_inside_corner_where_the_edge_was_is_offered_first() {
         error.fixes.first(),
         Some(&use_picked(&session, "f-fil1", "b-1", "/edges/0", corner))
     );
-    let candidates = repair_candidates(error, "/edges/0");
+    let candidates = scored_candidates(error, "/edges/0");
     let (_, meaning, distance) = candidates
         .iter()
         .find(|(query, _, _)| query == corner)
@@ -1729,8 +1596,7 @@ fn t054_r59a_an_axis_edge_rounded_upstream_offers_the_tangent_edges() {
 /// CUBE20 and a datum `f-dp1` on its top, with a shell `f-sh1` of 2 that removes the top and the four sides inserted
 /// before the datum, so nothing is left in the top's plane.
 fn hollowed_top() -> Run {
-    let top = reference("f-box1/top", "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4");
-    let features = vec![cube20(), datum_on_face("f-dp1", "b-1", top, "0")];
+    let features = vec![cube20(), datum_on_face("f-dp1", "b-1", cube20_top(), "0")];
     let mut session = run(&["b-1"], &features);
     let removed: Vec<Value> = ["top", "front", "back", "left", "right"]
         .iter()
@@ -1772,45 +1638,12 @@ fn t055_a_face_a_shell_removed_with_nothing_left_in_its_plane() {
 
 // Test 56: `PieceGone` (corpus R10 (a)).
 
-/// Corpus R10 (a)'s setup: BLOCK, a slot cut 5 deep from x0 to x1 across it, and a fillet `f-fil1` of 2 on the front
-/// top edge of the top's right-hand piece.
-fn slotted_block(x0: f64, x1: f64) -> Vec<Value> {
-    followed_by(
-        block(),
-        vec![
-            datum_offset("f-dp1", "XY", "30"),
-            sketch(
-                "f-sk2",
-                datum_plane("f-dp1"),
-                rectangle(5, x0, -1.0, x1, 51.0),
-            ),
-            reversed(extrude(
-                "f-ext2",
-                "b-1",
-                "f-sk2",
-                vec![rectangle_region(5, x0, -1.0, x1, 51.0)],
-                distance("5"),
-                "cut",
-            )),
-            fillet(
-                "f-fil1",
-                "b-1",
-                vec![reference(
-                    "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)",
-                    "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
-                )],
-                "2",
-            ),
-        ],
-    )
-}
-
 /// Corpus R10 (a) after its edit: the slot moved to x 50..81, over the right-hand piece's front top edge.
 fn r10a() -> Run {
     run_then_edit(
         &["b-1"],
-        &slotted_block(30.0, 50.0),
-        &slotted_block(50.0, 81.0),
+        &filleted_slot(30.0, 50.0, "2"),
+        &filleted_slot(50.0, 81.0, "2"),
     )
 }
 
@@ -1834,8 +1667,8 @@ fn t056_r10a_the_piece_an_edge_was_on_is_gone() {
     assert_no_faces_of(&session, "b-1", "f-fil1");
 }
 
-/// `slotted_block` with the block's top lowered to z = 25 by `f-bool1`, which cuts it with a box in b-2, so the top is
-/// the floor of that cut, and with `f-bool2` joining b-1 into a box in b-3 after the fillet.
+/// [`filleted_slot`] with the block's top lowered to z = 25 by `f-bool1`, which cuts it with a box in b-2, so the top
+/// is the floor of that cut, and with `f-bool2` joining b-1 into a box in b-3 after the fillet.
 fn slotted_floor(x0: f64, x1: f64) -> Vec<Value> {
     followed_by(
         block(),
@@ -1907,57 +1740,19 @@ fn t056_the_face_a_lost_piece_was_on_reads_as_it_did_just_before_this_feature() 
 
 // Test 57: `NoLongerMade` (corpus R12, R30 (a) and R57, and a face its feature no longer makes).
 
-/// Corpus R12's setup: BLOCK, a pocket `f-ext2` cut `depth` deep from its top, round or square, and a fillet `f-fil1`
-/// on the edge where the pocket's floor meets its wall.
-fn pocket(square: bool, depth: &str) -> Vec<Value> {
-    let (entities, region, edge, radius) = if square {
-        (
-            rectangle(11, 30.0, 15.0, 50.0, 35.0),
-            rectangle_region(11, 30.0, 15.0, 50.0, 35.0),
-            reference(
-                "edge(f-ext2/end-cap|f-ext2/lateral/e-11)",
-                "line|n=1,0,0|c=40,15,25|l=20|adj=2,2",
-            ),
-            "1",
-        )
-    } else {
-        (
-            vec![circle("e-5", [40.0, 25.0], 10.0)],
-            circle_region("e-5", [40.0, 25.0], 10.0),
-            reference(
-                "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
-                "circle|n=0,0,1|c=40,25,25|l=62.831853|r=10|adj=2,1",
-            ),
-            "2",
-        )
-    };
-    followed_by(
-        block(),
-        vec![
-            datum_offset("f-dp1", "XY", "30"),
-            sketch("f-sk2", datum_plane("f-dp1"), entities),
-            reversed(extrude(
-                "f-ext2",
-                "b-1",
-                "f-sk2",
-                vec![region],
-                distance(depth),
-                "cut",
-            )),
-            fillet("f-fil1", "b-1", vec![edge], radius),
-        ],
+/// Corpus R12 after its edit: `pocket` made `depth` deep instead of 5.
+fn r12(pocket: Pocket, depth: &str) -> Run {
+    run_then_edit(
+        &["b-1"],
+        &filleted_pocket(pocket, "5"),
+        &filleted_pocket(pocket, depth),
     )
-}
-
-/// Corpus R12 after its edit: the pocket, round or square, made `depth` deep instead of 5.
-fn r12(square: bool, depth: &str) -> Run {
-    run_then_edit(&["b-1"], &pocket(square, "5"), &pocket(square, depth))
 }
 
 /// Checks corpus R12 with the pocket made `depth` deep: the floor edge is no longer made by the cut, which goes all
 /// the way through, its rims are offered and never applied, and the hole's seam is never offered.
-fn check_pocket_made_through(square: bool, depth: &str) {
-    let session = r12(square, depth);
+fn check_pocket_made_through(pocket: Pocket, depth: &str) {
+    let session = r12(pocket, depth);
 
     let error = error_message(&session, "f-fil1", "references_not_found");
     assert_eq!(
@@ -1973,43 +1768,43 @@ fn check_pocket_made_through(square: bool, depth: &str) {
         &error.text,
         "is no longer made by 'Extrude 2', which goes all the way through the body.",
     );
-    let entity = if square { "e-11" } else { "e-5" };
+    let (entity, volume) = match pocket {
+        Pocket::Round => ("e-5", 110575.222039),
+        Pocket::Square => ("e-11", 108000.0),
+    };
     let offered = offered(&error.fixes);
     for cap in ["end-cap", "start-cap"] {
         let rim = format!("edge(f-ext1/{cap}|f-ext2/lateral/{entity})");
         assert!(offered.contains(&rim), "{rim} is not offered: {offered:?}");
     }
-    if !square {
+    if pocket == Pocket::Round {
         assert!(
             !offered.contains(&"edge(f-ext2/lateral/e-5)".to_owned()),
             "the seam is offered: {offered:?}"
         );
     }
     assert_no_faces_of(&session, "b-1", "f-fil1");
-    assert_volume(
-        session.shape("b-1"),
-        if square { 108000.0 } else { 110575.222039 },
-    );
+    assert_volume(session.shape("b-1"), volume);
 }
 
 #[test]
 fn t057_r12_a_round_pocket_made_through_30() {
-    check_pocket_made_through(false, "30");
+    check_pocket_made_through(Pocket::Round, "30");
 }
 
 #[test]
 fn t057_r12_a_round_pocket_made_through_40() {
-    check_pocket_made_through(false, "40");
+    check_pocket_made_through(Pocket::Round, "40");
 }
 
 #[test]
 fn t057_r12_a_square_pocket_made_through_30() {
-    check_pocket_made_through(true, "30");
+    check_pocket_made_through(Pocket::Square, "30");
 }
 
 #[test]
 fn t057_r12_a_square_pocket_made_through_40() {
-    check_pocket_made_through(true, "40");
+    check_pocket_made_through(Pocket::Square, "40");
 }
 
 /// Corpus R30 (a) after its edit: the symmetric boss made a cut.
@@ -2139,18 +1934,6 @@ fn t057_a_face_its_feature_no_longer_makes() {
 
 // Test 58: `NoLongerMeet` (corpus R01 and R64).
 
-/// Corpus R01's 5 mm edit of BLOCK's outline: `e-1` ends at (75, 0), `e-2` starts at (80, 5), and `e-6` runs between
-/// them.
-fn corner_cut_outline() -> Vec<Value> {
-    vec![
-        line("e-1", [0.0, 0.0], [75.0, 0.0]),
-        line("e-2", [80.0, 5.0], [80.0, 50.0]),
-        line("e-3", [80.0, 50.0], [0.0, 50.0]),
-        line("e-4", [0.0, 50.0], [0.0, 0.0]),
-        line("e-6", [75.0, 0.0], [80.0, 5.0]),
-    ]
-}
-
 /// Corpus R01 after its 5 mm edit, with a chamfer `f-cha1` of 1 on BLOCK's front right vertical edge.
 fn r01() -> Run {
     let features = followed_by(
@@ -2165,7 +1948,7 @@ fn r01() -> Run {
     run_then_edit(
         &["b-1"],
         &features,
-        &with_outline(&features, corner_cut_outline()),
+        &with_outline(&features, corner_chamfered_outline(5.0)),
     )
 }
 
@@ -2248,7 +2031,7 @@ fn t058_r64_a_corner_a_sketch_arc_now_rounds_offers_suppress() {
         "is already round: 'Sketch 1' now rounds that corner.",
     );
     // Candidates that keep a face of the lost edge, then Suppress, then the other candidates, then Pick.
-    let candidates = repair_candidates(error, "/edges/0");
+    let candidates = scored_candidates(error, "/edges/0");
     let by_meaning = |meaning: bool| {
         candidates
             .iter()
@@ -2327,51 +2110,12 @@ fn t058_an_edge_whose_faces_no_longer_meet_with_no_face_between() {
 
 // Test 59: `EntityDeleted` (corpus R03 and R51).
 
-/// Corpus R03's setup: BLOCK's outline with its back right corner beveled by `e-5`, and a fillet `f-fil1` of 2 on the
-/// bevel's top edge and on the front top edge.
-fn beveled_block() -> Vec<Value> {
-    let outline = vec![
-        line("e-1", [0.0, 0.0], [80.0, 0.0]),
-        line("e-2", [80.0, 0.0], [80.0, 40.0]),
-        line("e-5", [80.0, 40.0], [70.0, 50.0]),
-        line("e-3", [70.0, 50.0], [0.0, 50.0]),
-        line("e-4", [0.0, 50.0], [0.0, 0.0]),
-    ];
-    vec![
-        sketch("f-sk1", origin_plane("XY"), outline),
-        extrude(
-            "f-ext1",
-            "b-1",
-            "f-sk1",
-            vec![region(
-                "e-1,e-2,e-3,e-4,e-5",
-                [39.535865, 24.725738],
-                3950.0,
-            )],
-            distance("30"),
-            "new",
-        ),
-        fillet(
-            "f-fil1",
-            "b-1",
-            vec![
-                reference(
-                    "edge(f-ext1/end-cap|f-ext1/lateral/e-5)",
-                    "line|n=0.707107,-0.707107,0|c=75,45,30|l=14.142136|adj=2,2",
-                ),
-                block_front_top(),
-            ],
-            "2",
-        ),
-    ]
-}
-
 /// Corpus R03 after its edit: the bevel line deleted from the outline.
 fn r03() -> Run {
     run_then_edit(
         &["b-1"],
-        &beveled_block(),
-        &with_outline(&beveled_block(), rectangle(1, 0.0, 0.0, 80.0, 50.0)),
+        &beveled_block(beveled_outline()),
+        &beveled_block(block_outline()),
     )
 }
 
@@ -2447,25 +2191,6 @@ fn point_p1() -> Value {
 /// Corpus R43's second sketch point, `e-p2` at (7, 0), the point of the hole whose rim the chamfer is on.
 fn point_p2() -> Value {
     point("e-p2", [7.0, 0.0])
-}
-
-/// Corpus R43's setup: BOX-BELOW, `f-sk1` with `sketch_points`, holes of 6 through all at `points`, and a chamfer
-/// `f-cha1` of 0.5 on the top rim of the hole at `e-p2` (7, 0).
-fn two_holes(sketch_points: Vec<Value>, points: &[&str]) -> Vec<Value> {
-    vec![
-        box_below(),
-        sketch("f-sk1", origin_plane("XY"), sketch_points),
-        hole("f-hole1", "b-1", "f-sk1", points, "6", through_all()),
-        chamfer(
-            "f-cha1",
-            "b-1",
-            vec![reference(
-                "edge(f-box1/top|f-hole1/bore/e-p2)",
-                "circle|n=0,0,1|c=7,0,0|l=18.849556|r=3|adj=2,1",
-            )],
-            "0.5",
-        ),
-    ]
 }
 
 /// Corpus R43's setup, then edited in the same session to `sketch_points` in the sketch and `points` in the hole.
@@ -2614,25 +2339,17 @@ fn plates() -> Assets {
     .collect()
 }
 
-/// An import of the plate `asset` and a chamfer `f-cha1` of 0.5 on `rim`.
-fn imported_plate(asset: char, rim: Value) -> Vec<Value> {
-    vec![
-        import("f-imp1", "b-1", &asset_name(asset), "new"),
-        chamfer("f-cha1", "b-1", vec![rim], "0.5"),
-    ]
-}
-
 /// Corpus R46 (a) after its edit: the plate with a hole at (30, 10) replaced by the plate without holes.
 fn r46a() -> Run {
-    let rim = reference(
-        "edge(f-imp1/face#3|f-imp1/face#6)",
-        "circle|n=0,0,1|c=30,10,5|l=18.849556|r=3|adj=2,1",
-    );
     let assets = plates();
-    let mut session = run_with_assets(&["b-1"], &imported_plate('a', rim.clone()), &assets);
+    let mut session = run_with_assets(
+        &["b-1"],
+        &imported_plate(&asset_name('a'), plate_rim_30()),
+        &assets,
+    );
     edit_document(
         &mut session,
-        document_of(&["b-1"], &imported_plate('c', rim)),
+        document_of(&["b-1"], &imported_plate(&asset_name('c'), plate_rim_30())),
         &assets,
     );
     session
@@ -2658,16 +2375,16 @@ fn t062_r46a_an_edge_not_in_the_new_version_of_an_imported_file() {
 
 #[test]
 fn t067_r46b_an_ambiguous_loss_in_an_imported_file_names_no_change() {
-    let rim = reference(
-        "edge(f-imp1/face#4|f-imp1/face#5)",
-        "circle|n=0,0,1|c=20,10,5|l=18.849556|r=3|adj=2,1",
-    );
     let assets = plates();
-    let mut session = run_with_assets(&["b-1"], &imported_plate('b', rim.clone()), &assets);
+    let mut session = run_with_assets(
+        &["b-1"],
+        &imported_plate(&asset_name('b'), plate_rim_20()),
+        &assets,
+    );
 
     edit_document(
         &mut session,
-        document_of(&["b-1"], &imported_plate('d', rim)),
+        document_of(&["b-1"], &imported_plate(&asset_name('d'), plate_rim_20())),
         &assets,
     );
 
@@ -2788,36 +2505,6 @@ fn t064_r61a_an_edge_that_merged_names_the_pattern_that_joined_it() {
         &notice.text,
         "merged with neighboring parts when 'Linear pattern 1' joined them, so all of it is used.",
     );
-}
-
-/// Corpus R63 (b)'s setup: BOX-BELOW, a hole of `diameter` through all at `e-p1` (0, 0), counterbored 11 by 4 or
-/// simple, and a chamfer `f-cha1` of 0.5 on the counterbore's mouth.
-fn counterbored_hole(diameter: &str, counterbored: bool) -> Vec<Value> {
-    let mut drill = hole(
-        "f-hole1",
-        "b-1",
-        "f-sk1",
-        &["e-p1"],
-        diameter,
-        through_all(),
-    );
-    if counterbored {
-        drill = with(drill, "hole_type", counterbore("11", "4"));
-    }
-    vec![
-        box_below(),
-        sketch("f-sk1", origin_plane("XY"), vec![point("e-p1", [0.0, 0.0])]),
-        drill,
-        chamfer(
-            "f-cha1",
-            "b-1",
-            vec![reference(
-                "edge(f-box1/top|f-hole1/counterbore/e-p1)",
-                "circle|n=0,0,1|c=0,0,0|l=34.557519|r=5.5|adj=2,1",
-            )],
-            "0.5",
-        ),
-    ]
 }
 
 /// Checks corpus R63 (b) with a hole of `diameter`: the mouth follows the hole made simple, with a notice naming it.
@@ -3682,7 +3369,12 @@ const CLAUSE_SCENARIOS: [ClauseScenario; 32] = [
     ("R18 (b)", r18b, "f-fil1", "references_not_found"),
     ("Shell", hollowed_top, "f-dp1", "reference_not_found"),
     ("R10 (a)", r10a, "f-fil1", "references_not_found"),
-    ("R12", || r12(false, "30"), "f-fil1", "references_not_found"),
+    (
+        "R12",
+        || r12(Pocket::Round, "30"),
+        "f-fil1",
+        "references_not_found",
+    ),
     ("R30 (a)", r30a, "f-fil1", "references_not_found"),
     ("R57", r57, "f-cha1", "references_not_found"),
     ("Bevel moved", bevel_moved, "f-dp1", "reference_not_found"),

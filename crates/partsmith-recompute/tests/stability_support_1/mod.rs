@@ -14,9 +14,9 @@ pub use super::stability_common::*;
 
 use std::f64::consts::PI;
 
-use feature_support::point_components;
+use feature_support::{components, element_names, face_names, message_texts, point_components};
 
-use partsmith_features::{BodyState, Repair, SketchResult};
+use partsmith_features::{BodyState, SketchResult};
 use partsmith_naming::{ElementKind, ElementName, MatchMethod, Resolution};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 use partsmith_recompute::{FeatureReport, Message, Report, Severity, Status};
@@ -41,11 +41,6 @@ pub const LOSS_CODES: [&str; 6] = [
 
 // Feature records.
 
-/// A region ref with this key and fingerprint text.
-pub fn region_with_fingerprint(key: &str, fingerprint: &str) -> Value {
-    json!({"key": key, "fp": fingerprint})
-}
-
 /// A two-distance chamfer of `b-1`.
 pub fn chamfer_two_distances(id: &str, edges: Vec<Value>, first: &str, second: &str) -> Value {
     json!({
@@ -64,23 +59,7 @@ pub fn block_outline_to(x: f64) -> Vec<Value> {
     rectangle(1, 0.0, 0.0, x, 50.0)
 }
 
-/// `f-dp1`: datum XY offset 30 (the block top).
-pub fn top_datum() -> Value {
-    datum_offset("f-dp1", "XY", "30")
-}
-
 // Geometry probes.
-
-/// The names of a body's elements of one kind, sorted.
-pub fn names(state: &BodyState, kind: ElementKind) -> Vec<String> {
-    let mut names: Vec<String> = state
-        .naming()
-        .names(kind)
-        .map(|(_, name)| name.as_str().to_owned())
-        .collect();
-    names.sort();
-    names
-}
 
 /// `names` as owned strings, sorted.
 pub fn sorted(names: &[&str]) -> Vec<String> {
@@ -89,67 +68,23 @@ pub fn sorted(names: &[&str]) -> Vec<String> {
     names
 }
 
-/// The volume of a body's solid, or None when it is empty.
-pub fn volume(state: &BodyState) -> Option<f64> {
-    let shape = state.shape()?;
-    Some(shape.volume().expect("the kernel measures the volume"))
-}
-
-/// The bounding box of a body's solid, minimum then maximum corner, or None when it is empty.
-pub fn bounds(state: &BodyState) -> Option<([f64; 3], [f64; 3])> {
-    let bounds = state
-        .shape()?
-        .bounding_box()
-        .expect("the kernel bounds a solid");
-    Some((bounds.min, bounds.max))
-}
-
-/// The number of solids of a body.
-pub fn solid_count(state: &BodyState) -> usize {
-    state.shape().map_or(0, |shape| {
-        shape.solids().expect("the kernel lists the solids").len()
-    })
-}
-
-/// The span along x of a quarter-cylinder fillet face of `radius` on an edge along x between two
-/// perpendicular faces: centered at its centroid, as long as its area over `PI * radius / 2`.
-pub fn fillet_span_along_x(geometry: &ElementGeometry, radius: f64) -> (f64, f64) {
-    let length = geometry.measure / (PI * radius / 2.0);
+/// The span along x of a face `width` across an edge along x between two perpendicular faces
+/// (`PI * radius / 2` for a fillet of `radius`, `distance * SQRT_2` for an equal-distance chamfer):
+/// centered at its centroid, as long as its area over `width`.
+pub fn span_along_x(geometry: &ElementGeometry, width: f64) -> (f64, f64) {
+    let length = geometry.measure / width;
     let center = geometry.centroid.x;
     (center - length / 2.0, center + length / 2.0)
 }
 
-/// The span along x of an equal-distance chamfer face on an edge along x between two
-/// perpendicular faces: centered at its centroid, as long as its area over the chamfer width.
-pub fn chamfer_span_along_x(geometry: &ElementGeometry, distance: f64) -> (f64, f64) {
-    let length = geometry.measure / (distance * 2_f64.sqrt());
-    let center = geometry.centroid.x;
-    (center - length / 2.0, center + length / 2.0)
-}
-
-/// The spans along x of the fillet faces of `radius` whose names start with `prefix`, sorted.
-pub fn fillet_spans(state: &BodyState, prefix: &str, radius: f64) -> Vec<(f64, f64)> {
-    sorted_spans(
-        faces_with_prefix(state, prefix)
-            .iter()
-            .map(|(_, geometry)| fillet_span_along_x(geometry, radius))
-            .collect(),
-    )
-}
-
-/// The spans along x of the equal-distance chamfer faces whose names start with `prefix`, sorted.
-pub fn chamfer_spans(state: &BodyState, prefix: &str, distance: f64) -> Vec<(f64, f64)> {
-    sorted_spans(
-        faces_with_prefix(state, prefix)
-            .iter()
-            .map(|(_, geometry)| chamfer_span_along_x(geometry, distance))
-            .collect(),
-    )
-}
-
-/// Spans sorted by their start.
-pub fn sorted_spans(mut spans: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
-    spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+/// The spans along x of the faces whose names start with `prefix`, each `width` across its edge
+/// ([`span_along_x`]), sorted by their start.
+pub fn spans_along_x(state: &BodyState, prefix: &str, width: f64) -> Vec<(f64, f64)> {
+    let mut spans: Vec<(f64, f64)> = faces_with_prefix(state, prefix)
+        .iter()
+        .map(|(_, geometry)| span_along_x(geometry, width))
+        .collect();
+    spans.sort_by(|first, second| first.0.total_cmp(&second.0));
     spans
 }
 
@@ -158,7 +93,7 @@ pub fn is_edge_at(geometry: &ElementGeometry, centroid: [f64; 3], length: f64) -
     point_components(geometry.centroid)
         .iter()
         .zip(centroid)
-        .all(|(a, b)| (a - b).abs() <= EXACT_POSITION_TOLERANCE)
+        .all(|(component, wanted)| (component - wanted).abs() <= EXACT_POSITION_TOLERANCE)
         && (geometry.measure - length).abs() <= EXACT_POSITION_TOLERANCE
 }
 
@@ -173,7 +108,7 @@ pub fn edges_at(
         .iter()
         .filter(|name| name.kind() == ElementKind::Edge)
         .filter(|name| {
-            element(state, name.as_str())
+            try_element(state, name.as_str())
                 .is_some_and(|geometry| is_edge_at(&geometry, centroid, length))
         })
         .map(|name| name.as_str().to_owned())
@@ -181,63 +116,6 @@ pub fn edges_at(
 }
 
 // Messages.
-
-/// True when `text` has an id-like token at byte `start`: one of `f-`, `b-`, `e-`, `p-`, `c-` at a
-/// word start, then lowercase letters, then a digit (`f-ext1`, `b-1`, `e-5`).
-fn id_at(bytes: &[u8], start: usize) -> bool {
-    let at_word_start = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
-    if !at_word_start || !b"fbepc".contains(&bytes[start]) || bytes.get(start + 1) != Some(&b'-') {
-        return false;
-    }
-    let mut position = start + 2;
-    while bytes.get(position).is_some_and(u8::is_ascii_lowercase) {
-        position += 1;
-    }
-    bytes.get(position).is_some_and(u8::is_ascii_digit)
-}
-
-/// Why a message is not in plain words (element names, ids or raw kernel text), if it is not.
-pub fn plain_words_problem(text: &str) -> Option<String> {
-    if text.contains("edge(") || text.contains("vertex(") {
-        return Some(format!("it contains an element name: {text}"));
-    }
-    let bytes = text.as_bytes();
-    if let Some(start) = (0..bytes.len()).find(|&start| id_at(bytes, start)) {
-        return Some(format!("it contains an id at byte {start}: {text}"));
-    }
-    if text.contains("Standard_") || text.contains("BRep") {
-        return Some(format!("it contains raw kernel text: {text}"));
-    }
-    None
-}
-
-/// The message texts of a feature.
-pub fn texts(report: &FeatureReport) -> Vec<&str> {
-    report
-        .messages
-        .iter()
-        .map(|message| message.text.as_str())
-        .collect()
-}
-
-/// The element repair data a message carries, one per loss: each repair's pointer and the names of its loss's
-/// candidates (features.md section 4.2: an element repair carries the loss).
-pub fn element_repairs(message: &Message) -> Vec<(String, Vec<ElementName>)> {
-    message
-        .repairs
-        .iter()
-        .filter_map(|repair| match repair {
-            Repair::Element { pointer, loss, .. } => Some((
-                pointer.clone(),
-                loss.candidates
-                    .iter()
-                    .map(|candidate| candidate.reference.query.clone())
-                    .collect(),
-            )),
-            Repair::Region { .. } => None,
-        })
-        .collect()
-}
 
 /// Every feature's status and messages, one per line.
 pub fn summary(report: &Report) -> String {
@@ -249,7 +127,7 @@ pub fn summary(report: &Report) -> String {
                 "  {}: {:?} {:?}",
                 feature.feature,
                 feature.status,
-                texts(feature)
+                message_texts(feature)
             )
         })
         .collect::<Vec<_>>()
@@ -334,7 +212,7 @@ impl Expectations {
         let close = actual
             .iter()
             .zip(expected)
-            .all(|(a, b)| (a - b).abs() <= EXACT_POSITION_TOLERANCE);
+            .all(|(component, wanted)| (component - wanted).abs() <= EXACT_POSITION_TOLERANCE);
         self.expect(close, || {
             format!("{what}: expected {expected:?}, got {actual:?}")
         });
@@ -369,14 +247,14 @@ impl Expectations {
 
     /// The face, edge or vertex named `name`; records a failure when the body has none.
     pub fn element(&mut self, state: &BodyState, name: &str) -> Option<ElementGeometry> {
-        let geometry = element(state, name);
+        let geometry = try_element(state, name);
         if geometry.is_none() {
             let kind = ElementName::parse(name)
                 .expect("a valid element name")
                 .kind();
             self.fail(format!(
                 "no element named {name}; names of that kind: {:?}",
-                names(state, kind)
+                element_names(state, kind)
             ));
         }
         geometry
@@ -384,7 +262,7 @@ impl Expectations {
 
     /// The body has no face named `name`.
     pub fn no_face(&mut self, state: &BodyState, name: &str) {
-        self.expect(element(state, name).is_none(), || {
+        self.expect(try_element(state, name).is_none(), || {
             format!("unexpected face {name}")
         });
     }
@@ -402,7 +280,7 @@ impl Expectations {
 
     /// The face names of a body, exactly.
     pub fn face_names(&mut self, what: &str, state: &BodyState, expected: &[&str]) {
-        let actual = names(state, ElementKind::Face);
+        let actual = face_names(state);
         let expected = sorted(expected);
         self.expect(actual == expected, || {
             format!("{what}: expected faces {expected:?}, got {actual:?}")
@@ -434,27 +312,22 @@ impl Expectations {
                 EXACT_POSITION_TOLERANCE,
             );
         }
-        let (Some(axis), Some(location)) = (geometry.direction, geometry.location) else {
+        let (Some(axis), Some(distance)) = (geometry.direction, axis_distance(geometry, point))
+        else {
             self.fail(format!("{what}: the cylinder has no axis"));
             return;
         };
-        let axis = [axis.x, axis.y, axis.z];
-        let dot: f64 = axis.iter().zip(direction).map(|(a, b)| a * b).sum();
+        let dot: f64 = components(axis)
+            .iter()
+            .zip(direction)
+            .map(|(component, wanted)| component * wanted)
+            .sum();
         self.near(
             &format!("{what} axis direction (absolute cosine with {direction:?})"),
             dot.abs(),
             1.0,
             1e-9,
         );
-        let location = point_components(location);
-        let offset = [0, 1, 2].map(|i| point[i] - location[i]);
-        let along: f64 = offset.iter().zip(axis).map(|(a, b)| a * b).sum();
-        let distance = offset
-            .iter()
-            .zip(axis)
-            .map(|(component, unit)| (component - along * unit).powi(2))
-            .sum::<f64>()
-            .sqrt();
         self.near(
             &format!("{what}: distance from {point:?} to the axis"),
             distance,
@@ -477,7 +350,7 @@ impl Expectations {
         let close = actual
             .iter()
             .zip(normal)
-            .all(|(a, b)| (a - b).abs() <= 1e-9);
+            .all(|(component, wanted)| (component - wanted).abs() <= 1e-9);
         self.expect(close, || {
             format!("{what}: expected normal {normal:?}, got {actual:?}")
         });
@@ -486,9 +359,9 @@ impl Expectations {
     /// Spans along x, in order (1e-6 mm).
     pub fn spans(&mut self, what: &str, actual: &[(f64, f64)], expected: &[(f64, f64)]) {
         let close = actual.len() == expected.len()
-            && actual.iter().zip(expected).all(|(a, b)| {
-                (a.0 - b.0).abs() <= EXACT_POSITION_TOLERANCE
-                    && (a.1 - b.1).abs() <= EXACT_POSITION_TOLERANCE
+            && actual.iter().zip(expected).all(|(span, wanted)| {
+                (span.0 - wanted.0).abs() <= EXACT_POSITION_TOLERANCE
+                    && (span.1 - wanted.1).abs() <= EXACT_POSITION_TOLERANCE
             });
         self.expect(close, || {
             format!("{what}: expected spans {expected:?}, got {actual:?}")
@@ -509,8 +382,15 @@ impl Expectations {
         for (name, geometry) in faces_with_prefix(state, prefix) {
             self.cylinder(&name, &geometry, radius, [1.0, 0.0, 0.0], [0.0, y, z]);
         }
-        let spans = fillet_spans(state, prefix, radius);
+        let spans = spans_along_x(state, prefix, PI * radius / 2.0);
         self.spans(&format!("faces {prefix}*"), &spans, expected);
+    }
+
+    /// Every feature of the run is ok: status ok with no warnings.
+    pub fn all_clean(&mut self, report: &Report) {
+        for feature in &report.features {
+            self.clean(feature);
+        }
     }
 
     /// The feature is ok: status ok with no warnings.
@@ -520,7 +400,7 @@ impl Expectations {
                 "{} should be ok, but it is {:?}: {:?}",
                 report.feature,
                 report.status,
-                texts(report)
+                message_texts(report)
             )
         });
     }
@@ -533,7 +413,7 @@ impl Expectations {
                 "{} should build, but it is {:?}: {:?}",
                 report.feature,
                 report.status,
-                texts(report)
+                message_texts(report)
             ));
             return;
         }
@@ -547,7 +427,7 @@ impl Expectations {
             format!(
                 "{} reports losses {losses:?}: {:?}",
                 report.feature,
-                texts(report)
+                message_texts(report)
             )
         });
     }
@@ -559,7 +439,7 @@ impl Expectations {
                 "{} should fail, but it is {:?}: {:?}",
                 report.feature,
                 report.status,
-                texts(report)
+                message_texts(report)
             ));
             return None;
         }
@@ -608,7 +488,7 @@ impl Expectations {
                 self.fail(format!(
                     "{} has no notice naming {words:?}; its messages: {:?}",
                     report.feature,
-                    texts(report)
+                    message_texts(report)
                 ));
                 None
             }
@@ -675,7 +555,7 @@ impl Expectations {
         let found = edges_at(state, candidates, centroid, length);
         self.expect(!found.is_empty(), || {
             // The body's own edges at that position, which the candidates should have included.
-            let edges: Vec<ElementName> = names(state, ElementKind::Edge)
+            let edges: Vec<ElementName> = element_names(state, ElementKind::Edge)
                 .iter()
                 .map(|name| ElementName::parse(name).expect("a body's names are valid"))
                 .collect();

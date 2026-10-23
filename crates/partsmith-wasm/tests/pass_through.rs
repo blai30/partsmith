@@ -4,43 +4,27 @@
 //!
 //! A test named `engine_tNNN` sends the documents and requests of engine.md section 6 test NNN, one named `engine_tNNN_ncMM` those of newcomer error corpus scenario NCMM in that test, one named `engine_tNNN_rMM` those of reference stability corpus scenario RMM in that test, and one named `file_format_tNNN` those of file-format.md section 6 test NNN; the bridge's own tests are protocol.md's (`tNNN` in the other test files).
 
-use crate::common;
-
-use std::collections::BTreeMap;
-
-use common::block::Block;
-use common::{error_info, ok_result, outcome_json, request_frame, response_frame};
-use partsmith_engine::{Session, SessionOptions};
-use partsmith_model::{FORMAT_VERSION, load, save};
-use partsmith_protocol::{Buffer, ErrorCode, ResponseFrame};
+use crate::common::{error_info, ok_result, outcome_json};
+use crate::pass_through_support::*;
+use partsmith_model::FORMAT_VERSION;
+use partsmith_protocol::{ErrorCode, ResponseFrame};
 use serde_json::{Value, json};
 
-/// File-format.md example E10: every field format version 2 adds (`nb`, `merged`, `outline`, `fallback_frame` and `direction`), exactly as `save` writes it.
-const E10_TEXT: &str = include_str!("../../partsmith-model/tests/fixtures/e10_version_2.ptsm");
+// Diagnostics, fixes, errors and format version 2 (the reference stability plan, section 10.3 item 9).
 
-/// The line of canonical text at format version 2, E10 among them, that holds its format version.
-const VERSION_2_LINE: &str = "  \"format_version\": 2,";
+#[test]
+fn a_message_with_fix_actions_passes_through_unchanged() {
+    let mut sides = SideBySide::new();
 
-/// CUBE10 with a linear pattern of 2.5 copies along X (features/linear_pattern.md test 6): `f-lp1` fails with `not_whole_number` and offers `Use 2` and `Use 3` (engine.md test 126).
-const FRACTIONAL_PATTERN_TEXT: &str = r#"{
-  "format": "partsmith",
-  "format_version": 2,
-  "units": "mm",
-  "parameters": [],
-  "bodies": [
-    {"id": "b-1", "name": "Body 1"}
-  ],
-  "features": [
-    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"},
-    {
-      "id": "f-lp1",
-      "type": "linear_pattern",
-      "body": "b-1",
-      "direction": {"axis": {"kind": "origin", "axis": "X"}, "count": "2.5", "spacing": "20"}
-    }
-  ]
+    let opened = sides.open(1, FRACTIONAL_PATTERN_TEXT);
+
+    let message = feature_message(&opened, "f-lp1", "not_whole_number");
+    assert_eq!(labels(&message), ["Use 2", "Use 3"]);
+    assert_eq!(
+        message["actions"][1]["run"],
+        json!({"kind": "apply", "fix": use_three()})
+    );
 }
-"#;
 
 /// BLOCK's region picked before its right side `e-2` was deleted and its bottom `e-1` was drawn on to x = 200 under a second outline: the stored region now matches two separate areas, so `f-ext1` fails with `profile_not_found` and a region repair with both areas as candidates (engine.md test 119; sketch.md section 3.14 matches regions from the sketch alone, so the text gives the same repair opened fresh).
 const TWO_AREAS_TEXT: &str = r#"{
@@ -83,584 +67,6 @@ const TWO_AREAS_TEXT: &str = r#"{
   ]
 }
 "#;
-
-/// Corpus R16 after its edit (engine.md test 115): CUBE20 with a 5 x 5 rabbet ('Sketch 1' and 'Extrude 1') inserted before the fillet of its front top edge, so `f-fil1` fails with `references_not_found` and an element repair whose candidates are the rabbet's edges.
-const CUT_AWAY_EDGE_TEXT: &str = r#"{
-  "format": "partsmith",
-  "format_version": 2,
-  "units": "mm",
-  "parameters": [],
-  "bodies": [
-    {"id": "b-1", "name": "Body 1"}
-  ],
-  "features": [
-    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"},
-    {
-      "id": "f-sk2",
-      "type": "sketch",
-      "plane": {"kind": "origin", "plane": "YZ"},
-      "entities": [
-        {"id": "e-1", "type": "line", "start": [-11, 15], "end": [-5, 15]},
-        {"id": "e-2", "type": "line", "start": [-5, 15], "end": [-5, 21]},
-        {"id": "e-3", "type": "line", "start": [-5, 21], "end": [-11, 21]},
-        {"id": "e-4", "type": "line", "start": [-11, 21], "end": [-11, 15]}
-      ],
-      "constraints": []
-    },
-    {
-      "id": "f-ext2",
-      "type": "extrude",
-      "body": "b-1",
-      "profile": {"sketch": "f-sk2", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=-8,18|a=36"}]},
-      "extent": {"kind": "symmetric", "expr": "30"},
-      "op": "cut"
-    },
-    {
-      "id": "f-fil1",
-      "type": "fillet",
-      "body": "b-1",
-      "edges": [{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2"}],
-      "radius": "2"
-    }
-  ]
-}
-"#;
-
-/// The edge of E10's fillet: the front edge of the right part of the block's top, which the slot splits (engine.md test 122).
-const SPLIT_TOP_FRONT_EDGE: &str = "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)";
-
-/// The keys whose values count per session, so a fresh session and the module's shared one give them different values.
-const SESSION_NUMBERS: [&str; 2] = ["doc", "mesh_id"];
-
-/// The document one side opened last, with what that side's frames said about it.
-struct Side {
-    /// The document's handle in that side's session.
-    doc: Value,
-    /// The mesh id of each body's model layer in the latest `body_mesh` event of that body.
-    model_meshes: BTreeMap<String, Value>,
-}
-
-impl Side {
-    /// The document `frame`, a successful `open_document` response, opened.
-    fn opened(frame: &ResponseFrame) -> Side {
-        let mut side = Side {
-            doc: handle(frame),
-            model_meshes: BTreeMap::new(),
-        };
-        side.record_meshes(frame);
-        side
-    }
-
-    /// Keeps the model mesh ids of the `body_mesh` events in `frame`.
-    fn record_meshes(&mut self, frame: &ResponseFrame) {
-        for mesh in events_of(frame, "body_mesh") {
-            if mesh["layer"] == "model" {
-                let body = mesh["body"].as_str().expect("meshes name their body");
-                self.model_meshes
-                    .insert(body.to_owned(), mesh["mesh_id"].clone());
-            }
-        }
-    }
-
-    /// The mesh id of `body`'s model layer as this side displays it now.
-    fn model_mesh(&self, body: &str) -> &Value {
-        self.model_meshes
-            .get(body)
-            .unwrap_or_else(|| panic!("{body} has a model mesh"))
-    }
-}
-
-/// The bridge and a reference session with the module's session options, sent the same requests.
-struct SideBySide {
-    /// The session the bridge's answers are compared with.
-    reference: Session,
-    /// The document each side opened last: the bridge's, then the reference session's.
-    documents: Option<(Side, Side)>,
-}
-
-impl SideBySide {
-    /// A fresh reference session with the options `main` gives the module's session (protocol.md section 2.10).
-    fn new() -> SideBySide {
-        SideBySide {
-            reference: Session::new(SessionOptions {
-                display: true,
-                ..SessionOptions::default()
-            }),
-            documents: None,
-        }
-    }
-
-    /// Opens `text` on both sides with request `id`, keeps both documents when it opens, and returns the bridge's frame.
-    fn open(&mut self, id: u64, text: &str) -> ResponseFrame {
-        let request = request_frame(
-            id,
-            &json!({"type": "open_document", "text": text, "assets": []}).to_string(),
-        );
-
-        let (_, bridge, reference) = self.exchange(&request, &request, &no_generated_ids);
-
-        if outcome_json(&bridge)["kind"] == "ok" {
-            self.documents = Some((Side::opened(&bridge), Side::opened(&reference)));
-        }
-        bridge
-    }
-
-    /// Sends request `id` with the command `command` builds for each side's document, and returns the bridge's frame.
-    fn send(&mut self, id: u64, command: impl Fn(&Side) -> Value) -> ResponseFrame {
-        self.send_with_bytes(id, command, &no_generated_ids).1
-    }
-
-    /// Sends request `id` like [`SideBySide::send`], and returns the bridge's frame as `ps_call` returned it.
-    fn send_raw(&mut self, id: u64, command: impl Fn(&Side) -> Value) -> Vec<u8> {
-        self.send_with_bytes(id, command, &no_generated_ids).0
-    }
-
-    /// Sends request `id` like [`SideBySide::send`] for a command whose edits take ids from the session's id generator, and returns the bridge's frame. Each side generates its own random ids, so the comparison reads the ids that `generated` finds in each side's frame, which must be some, as the same placeholders, in the order it lists them.
-    fn send_generating(
-        &mut self,
-        id: u64,
-        command: impl Fn(&Side) -> Value,
-        generated: impl Fn(&ResponseFrame) -> Vec<String>,
-    ) -> ResponseFrame {
-        let found = |frame: &ResponseFrame| {
-            let ids = generated(frame);
-            assert!(!ids.is_empty(), "the command generated no id");
-            ids
-        };
-        self.send_with_bytes(id, command, &found).1
-    }
-
-    /// Sends request `id` with the command `command` builds for each side's document, compares the answers with the ids `generated` finds read as placeholders, keeps each side's model meshes, and returns the bridge's frame as `ps_call` returned it and decoded.
-    fn send_with_bytes(
-        &mut self,
-        id: u64,
-        command: impl Fn(&Side) -> Value,
-        generated: &dyn Fn(&ResponseFrame) -> Vec<String>,
-    ) -> (Vec<u8>, ResponseFrame) {
-        let (bridge_side, reference_side) = self
-            .documents
-            .as_ref()
-            .expect("a document is open on both sides");
-        let bridge_request = request_frame(id, &command(bridge_side).to_string());
-        let reference_request = request_frame(id, &command(reference_side).to_string());
-
-        let (bytes, bridge, reference) =
-            self.exchange(&bridge_request, &reference_request, generated);
-
-        if let Some((bridge_side, reference_side)) = &mut self.documents {
-            bridge_side.record_meshes(&bridge);
-            reference_side.record_meshes(&reference);
-        }
-        (bytes, bridge)
-    }
-
-    /// Sends `bridge_request` through `ps_call` and `reference_request` to the reference session, asserts that the answers are equal but for the session numbers and the ids `generated` finds in each, and returns the bridge's frame as `ps_call` returned it, then both decoded frames.
-    fn exchange(
-        &mut self,
-        bridge_request: &[u8],
-        reference_request: &[u8],
-        generated: &dyn Fn(&ResponseFrame) -> Vec<String>,
-    ) -> (Vec<u8>, ResponseFrame, ResponseFrame) {
-        let bridge_bytes = through_ps_call(bridge_request);
-        let bridge = response_frame(&bridge_bytes);
-        let reference = response_frame(&self.reference.call(reference_request));
-
-        let bridge_ids = generated(&bridge);
-        let reference_ids = generated(&reference);
-        assert_eq!(
-            bridge_ids.len(),
-            reference_ids.len(),
-            "ps_call generated {bridge_ids:?} where Session::call generated {reference_ids:?}"
-        );
-        assert_eq!(
-            comparable_messages(&bridge, &bridge_ids),
-            comparable_messages(&reference, &reference_ids),
-            "ps_call answered differently from Session::call"
-        );
-        assert!(
-            bridge.buffers == reference.buffers,
-            "ps_call answered with other buffers than Session::call ({} and {} buffers)",
-            bridge.buffers.len(),
-            reference.buffers.len()
-        );
-        (bridge_bytes, bridge, reference)
-    }
-}
-
-/// Copies `request` into a block, calls `ps_call` on it, and returns a copy of the response block.
-fn through_ps_call(request: &[u8]) -> Vec<u8> {
-    Block::holding(request).call().bytes()
-}
-
-/// The handle an `open_document` response returned.
-fn handle(frame: &ResponseFrame) -> Value {
-    ok_result(frame, "open_document")["doc"].clone()
-}
-
-/// What a command that takes no id from the session's id generator generated: nothing.
-fn no_generated_ids(_frame: &ResponseFrame) -> Vec<String> {
-    Vec::new()
-}
-
-/// The events and the response of a frame as JSON, with every value of a [`SESSION_NUMBERS`] key set to null and each id of `generated` read as its placeholder.
-fn comparable_messages(frame: &ResponseFrame, generated: &[String]) -> Value {
-    let mut messages = json!({
-        "events": serde_json::to_value(&frame.events).expect("events always serialize"),
-        "response": serde_json::to_value(&frame.response).expect("responses always serialize"),
-    });
-    forget_session_numbers(&mut messages);
-    replace_generated_ids(&mut messages, generated);
-    messages
-}
-
-/// Replaces each id of `generated` in every string inside `value` with the placeholder of its position in `generated`.
-fn replace_generated_ids(value: &mut Value, generated: &[String]) {
-    match value {
-        Value::String(text) => {
-            for (position, id) in generated.iter().enumerate() {
-                if text.contains(id.as_str()) {
-                    *text = text.replace(id.as_str(), &format!("<generated id {position}>"));
-                }
-            }
-        }
-        Value::Object(members) => members
-            .values_mut()
-            .for_each(|member| replace_generated_ids(member, generated)),
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|item| replace_generated_ids(item, generated)),
-        _ => {}
-    }
-}
-
-/// Sets every value of a [`SESSION_NUMBERS`] key inside `value` to null.
-fn forget_session_numbers(value: &mut Value) {
-    match value {
-        Value::Object(members) => {
-            for (key, member) in members.iter_mut() {
-                if SESSION_NUMBERS.contains(&key.as_str()) {
-                    *member = Value::Null;
-                } else {
-                    forget_session_numbers(member);
-                }
-            }
-        }
-        Value::Array(items) => items.iter_mut().for_each(forget_session_numbers),
-        _ => {}
-    }
-}
-
-/// The frame's events of type `event_type`, as JSON.
-fn events_of(frame: &ResponseFrame, event_type: &str) -> Vec<Value> {
-    frame
-        .events
-        .iter()
-        .map(|event| serde_json::to_value(event).expect("events always serialize"))
-        .filter(|event| event["type"] == event_type)
-        .collect()
-}
-
-/// The status of `feature` among the statuses of `recomputed`, a `recomputed` event as JSON.
-fn status_in<'a>(recomputed: &'a Value, feature: &str) -> Option<&'a Value> {
-    recomputed["features"]
-        .as_array()
-        .expect("recomputed lists its features")
-        .iter()
-        .find(|status| status["id"] == feature)
-}
-
-/// The status of `feature` in the frame's `recomputed` event.
-fn feature_status(frame: &ResponseFrame, feature: &str) -> Value {
-    events_of(frame, "recomputed")
-        .iter()
-        .find_map(|event| status_in(event, feature))
-        .unwrap_or_else(|| panic!("the frame has no recomputed status of {feature}"))
-        .clone()
-}
-
-/// The first entry of the list `list` of `status`, a feature status as JSON, whose `key` is `value`.
-fn entry_of(status: &Value, list: &str, key: &str, value: &str) -> Value {
-    status[list]
-        .as_array()
-        .unwrap_or_else(|| panic!("statuses list their {list}: {status}"))
-        .iter()
-        .find(|entry| entry[key] == value)
-        .unwrap_or_else(|| panic!("the status has none of its {list} with {key} {value}: {status}"))
-        .clone()
-}
-
-/// The first entry of the list `list` of `feature`'s status in the frame's `recomputed` event whose `key` is `value`.
-fn status_entry(frame: &ResponseFrame, feature: &str, list: &str, key: &str, value: &str) -> Value {
-    entry_of(&feature_status(frame, feature), list, key, value)
-}
-
-/// The message with `code` among the messages of `feature` in the frame's `recomputed` event.
-fn feature_message(frame: &ResponseFrame, feature: &str, code: &str) -> Value {
-    status_entry(frame, feature, "messages", "code", code)
-}
-
-/// The repair at `path` among the repairs of `feature` in the frame's `recomputed` event.
-fn feature_repair(frame: &ResponseFrame, feature: &str, path: &str) -> Value {
-    status_entry(frame, feature, "repairs", "path", path)
-}
-
-/// The only item of `items`, where `what` names one item for the failure text.
-#[track_caller]
-fn only(items: Vec<Value>, what: &str) -> Value {
-    match <[Value; 1]>::try_from(items) {
-        Ok([item]) => item,
-        Err(items) => panic!("one {what}, not {}: {items:?}", items.len()),
-    }
-}
-
-/// The only message of `holder`, a feature status or a sketch solution.
-fn only_message_of(holder: &Value) -> Value {
-    let messages = holder["messages"]
-        .as_array()
-        .unwrap_or_else(|| panic!("{holder} lists its messages"));
-    only(messages.clone(), "message")
-}
-
-/// The only message of `feature` in the frame's `recomputed` event.
-fn only_message(frame: &ResponseFrame, feature: &str) -> Value {
-    only_message_of(&feature_status(frame, feature))
-}
-
-/// The frame's only `document_changed` event.
-fn document_changed(frame: &ResponseFrame) -> Value {
-    only(
-        events_of(frame, "document_changed"),
-        "document_changed event",
-    )
-}
-
-/// The recipe in the frame's only `document_changed` event.
-fn changed_recipe(frame: &ResponseFrame) -> Value {
-    document_changed(frame)["document"].clone()
-}
-
-/// The record of `feature` in the recipe of the frame's `document_changed` event.
-fn changed_record(frame: &ResponseFrame, feature: &str) -> Value {
-    feature_record(&changed_recipe(frame), feature)
-}
-
-/// The `id` of each object of the JSON array `items`, in order.
-fn ids_of(items: &Value) -> Vec<String> {
-    items
-        .as_array()
-        .unwrap_or_else(|| panic!("{items} is a list"))
-        .iter()
-        .map(|item| item["id"].as_str().expect("ids are text").to_owned())
-        .collect()
-}
-
-/// The actions of a message, in order.
-fn actions(message: &Value) -> &[Value] {
-    message["actions"]
-        .as_array()
-        .unwrap_or_else(|| panic!("the message has actions: {message}"))
-}
-
-/// The labels of a message's actions, in order.
-fn labels(message: &Value) -> Vec<&str> {
-    actions(message)
-        .iter()
-        .map(|action| action["label"].as_str().expect("actions have labels"))
-        .collect()
-}
-
-/// The action labeled `label` among a message's actions.
-fn action_labeled(message: &Value, label: &str) -> Value {
-    actions(message)
-        .iter()
-        .find(|action| action["label"] == label)
-        .unwrap_or_else(|| panic!("the message offers {label:?}: {message}"))
-        .clone()
-}
-
-/// The candidates of a repair.
-fn candidates(repair: &Value) -> &[Value] {
-    repair["candidates"]
-        .as_array()
-        .unwrap_or_else(|| panic!("the repair lists its candidates: {repair}"))
-}
-
-/// The `apply_fix` command for the `fix` reference of an `apply` action, for the side's document.
-fn apply_fix(side: &Side, fix: &Value) -> Value {
-    json!({"type": "apply_fix", "doc": side.doc, "fix": fix})
-}
-
-/// The `apply_fix` command for the `apply` action labeled `label` among `message`'s actions, for the side's document.
-fn apply_action(side: &Side, message: &Value, label: &str) -> Value {
-    apply_fix(side, &action_labeled(message, label)["run"]["fix"])
-}
-
-/// The `save_document` command for the side's document.
-fn save_document(side: &Side) -> Value {
-    json!({"type": "save_document", "doc": side.doc})
-}
-
-/// The text `save_document` gives for the bridge's document, read as request `id`.
-fn saved_text(sides: &mut SideBySide, id: u64) -> Value {
-    ok_result(&sides.send(id, save_document), "save_document")["text"].clone()
-}
-
-/// The `get_document` command for the side's document.
-fn get_document(side: &Side) -> Value {
-    json!({"type": "get_document", "doc": side.doc})
-}
-
-/// The `begin_transaction` command labeled `label` for the side's document.
-fn begin_transaction(side: &Side, label: &str) -> Value {
-    json!({"type": "begin_transaction", "doc": side.doc, "label": label})
-}
-
-/// The `set_document_units` command for the side's document.
-fn set_document_units(side: &Side, units: &str, keep_sizes: bool) -> Value {
-    json!({"type": "set_document_units", "doc": side.doc, "units": units, "keep_sizes": keep_sizes})
-}
-
-/// The `undo` command for the side's document.
-fn undo(side: &Side) -> Value {
-    json!({"type": "undo", "doc": side.doc})
-}
-
-/// The `solve_sketch` command for the sketch `feature` of the side's document.
-fn solve_sketch(side: &Side, feature: &str) -> Value {
-    json!({"type": "solve_sketch", "doc": side.doc, "feature": feature})
-}
-
-/// The `list_elements` command for the faces of `b-1` of the side's document.
-fn list_faces(side: &Side) -> Value {
-    json!({"type": "list_elements", "doc": side.doc, "body": "b-1", "kind": "face"})
-}
-
-/// The `list_elements` command for the edges of `b-1` of the side's document.
-fn list_edges(side: &Side) -> Value {
-    json!({"type": "list_elements", "doc": side.doc, "body": "b-1", "kind": "edge"})
-}
-
-/// The `pick_reference` command for the element of `kind` at `index` in the model mesh of `b-1` the side displays now.
-fn pick(side: &Side, kind: &str, index: usize) -> Value {
-    json!({
-        "type": "pick_reference",
-        "doc": side.doc,
-        "pick": {"mesh_id": side.model_mesh("b-1"), "kind": kind, "index": index}
-    })
-}
-
-/// The descriptors of a `list_elements` frame, in their order.
-fn listed(frame: &ResponseFrame) -> Vec<Value> {
-    ok_result(frame, "list_elements")["elements"]
-        .as_array()
-        .expect("list_elements lists elements")
-        .clone()
-}
-
-/// The position of the descriptor named `name` in a `list_elements` frame of one kind, which a pick of that kind names as its `index`.
-fn listed_index(frame: &ResponseFrame, name: &str) -> usize {
-    listed(frame)
-        .iter()
-        .position(|element| element["name"] == name)
-        .unwrap_or_else(|| panic!("the list has {name}"))
-}
-
-/// The element named `name` among `elements`, the descriptors of a `list_elements` result.
-fn named<'a>(elements: &'a [Value], name: &str) -> &'a Value {
-    elements
-        .iter()
-        .find(|element| element["name"] == name)
-        .unwrap_or_else(|| panic!("the list has {name}"))
-}
-
-/// The descriptor named `name` in a `list_elements` frame.
-fn listed_named(frame: &ResponseFrame, name: &str) -> Value {
-    named(&listed(frame), name).clone()
-}
-
-/// The feature records of the recipe `document`, in timeline order.
-fn feature_records(document: &Value) -> &[Value] {
-    document["features"]
-        .as_array()
-        .expect("documents list their features")
-}
-
-/// The record of `feature` in the recipe `document`.
-fn feature_record(document: &Value, feature: &str) -> Value {
-    feature_records(document)
-        .iter()
-        .find(|record| record["id"] == feature)
-        .unwrap_or_else(|| panic!("the document has {feature}"))
-        .clone()
-}
-
-/// The record of `feature` that the bridge's document holds, read with `get_document` as request `id`.
-fn record(sides: &mut SideBySide, id: u64, feature: &str) -> Value {
-    let got = sides.send(id, get_document);
-    feature_record(&ok_result(&got, "get_document")["document"], feature)
-}
-
-/// The solution of `feature` in the frame's only `sketch_solved` event for it.
-fn sketch_solution(frame: &ResponseFrame, feature: &str) -> Value {
-    let solved = events_of(frame, "sketch_solved")
-        .into_iter()
-        .filter(|event| event["solution"]["feature"] == feature)
-        .collect();
-    only(solved, &format!("sketch_solved event of {feature}"))["solution"].clone()
-}
-
-/// The only message of `feature`'s solution in the frame's `sketch_solved` event.
-fn only_solution_message(frame: &ResponseFrame, feature: &str) -> Value {
-    only_message_of(&sketch_solution(frame, feature))
-}
-
-/// The `fix` reference of `Use 3`, the second action of the fractional pattern's message, offered at revision 0.
-fn use_three() -> Value {
-    json!({
-        "feature": "f-lp1", "code": "not_whole_number", "field": "/direction/count",
-        "cause": false, "index": 1, "revision": 0
-    })
-}
-
-/// The canonical text `text`, at format version 2, with its format version line set to `version`.
-fn at_version(text: &str, version: u32) -> String {
-    assert_eq!(
-        text.matches(VERSION_2_LINE).count(),
-        1,
-        "the text states its format version once"
-    );
-    text.replace(VERSION_2_LINE, &format!("  \"format_version\": {version},"))
-}
-
-/// The canonical text `save` writes for the document `text`.
-fn canonical(text: &str) -> String {
-    let loaded = load(text).unwrap_or_else(|error| panic!("the document loads: {error}"));
-    save(&loaded.document).unwrap_or_else(|error| panic!("the document saves: {error}"))
-}
-
-/// The canonical text of the document `text` as a file written at format version 1 holds it: only its `format_version` line differs.
-fn at_version_1(text: &str) -> String {
-    at_version(&canonical(text), 1)
-}
-
-/// E10 with its format version line set to `version`.
-fn e10_at_version(version: u32) -> String {
-    at_version(E10_TEXT, version)
-}
-
-#[test]
-fn a_message_with_fix_actions_passes_through_unchanged() {
-    let mut sides = SideBySide::new();
-
-    let opened = sides.open(1, FRACTIONAL_PATTERN_TEXT);
-
-    let message = feature_message(&opened, "f-lp1", "not_whole_number");
-    assert_eq!(labels(&message), ["Use 2", "Use 3"]);
-    assert_eq!(
-        message["actions"][1]["run"],
-        json!({"kind": "apply", "fix": use_three()})
-    );
-}
 
 #[test]
 fn a_region_repair_with_its_candidates_passes_through_unchanged() {
@@ -708,6 +114,9 @@ fn an_element_repair_with_its_candidates_and_relations_passes_through_unchanged(
         "on the front side of 'Box 1', 5 mm from where it was"
     );
 }
+
+/// The edge of E10's fillet: the front edge of the right part of the block's top, which the slot splits (engine.md test 122).
+const SPLIT_TOP_FRONT_EDGE: &str = "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)";
 
 #[test]
 fn a_pick_with_its_full_reference_passes_through_unchanged() {
@@ -870,346 +279,6 @@ fn an_error_with_an_action_passes_through_unchanged() {
 
 // Frames on the model (ADR 0023; the reference stability plan, section 10.4).
 
-/// `box.ptsm` of the engine tests: the 20 x 30 x 40 box `f-box1` of body `b-1`, centered on the Z axis from z = 0 to 40.
-const BOX_TEXT: &str = include_str!("../../partsmith-engine/tests/fixtures/box.ptsm");
-
-/// The top of the box of `box.ptsm`.
-const BOX_TOP: &str = "f-box1/top";
-
-/// The front top edge of the box of `box.ptsm`, which runs along X before anything moves the box.
-const BOX_FRONT_TOP_EDGE: &str = "edge(f-box1/front|f-box1/top)";
-
-/// How far a coordinate in a frame may lie from the value the spec gives it.
-const GEOMETRY_TOLERANCE: f64 = 1e-6;
-
-/// The world X direction.
-const X_AXIS: [f64; 3] = [1.0, 0.0, 0.0];
-
-/// The world Z direction.
-const Z_AXIS: [f64; 3] = [0.0, 0.0, 1.0];
-
-/// The world -Z direction.
-const MINUS_Z_AXIS: [f64; 3] = [0.0, 0.0, -1.0];
-
-/// features/sketch.md test 5 after a Move body (engine.md test 135): CUBE10 moved by (100, 0, 0), then a sketch `f-sk1` with the point `e-p1` on a face the cube does not have, its fallback at (3, 4, 0) in body coordinates, so it stands at its saved position, world (103, 4, 0), and offers to attach to the cube's faces.
-const LOST_FACE_ON_A_MOVED_CUBE_TEXT: &str = r#"{
-  "format": "partsmith",
-  "format_version": 2,
-  "units": "mm",
-  "parameters": [],
-  "bodies": [
-    {"id": "b-1", "name": "Body 1"}
-  ],
-  "features": [
-    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"},
-    {"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]},
-    {
-      "id": "f-sk1",
-      "type": "sketch",
-      "plane": {
-        "kind": "face",
-        "body": "b-1",
-        "face": {"q": "f-box1/nothing", "fp": "plane|n=0,0,1|c=500,500,500|a=1"},
-        "fallback": {"origin": [3, 4, 0], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
-        "fallback_frame": "body"
-      },
-      "entities": [
-        {"id": "e-p1", "type": "point", "position": [0, 0]}
-      ],
-      "constraints": []
-    }
-  ]
-}
-"#;
-
-/// Corpus R32 (b) after its edit (features/sketch.md test 24, engine.md tests 126 and 135): BLOCK with 'Extrude 1' reversed, so its end cap is the bottom at z = -30, facing -Z, and a face sketch `f-sk2` on that cap with its world fallback at (0, 0, 30) and the point `e-p1` at (20, 10), where the hole `f-hole1` of diameter 5 and depth 10 misses the body because the drawing lies mirrored on the turned-over face.
-const TURNED_OVER_TOP_TEXT: &str = r#"{
-  "format": "partsmith",
-  "format_version": 2,
-  "units": "mm",
-  "parameters": [],
-  "bodies": [
-    {"id": "b-1", "name": "Body 1"}
-  ],
-  "features": [
-    {
-      "id": "f-sk1",
-      "type": "sketch",
-      "plane": {"kind": "origin", "plane": "XY"},
-      "entities": [
-        {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
-        {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
-        {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
-        {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}
-      ],
-      "constraints": []
-    },
-    {
-      "id": "f-ext1",
-      "type": "extrude",
-      "body": "b-1",
-      "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]},
-      "extent": {"kind": "distance", "expr": "30"},
-      "reverse": true,
-      "op": "new"
-    },
-    {
-      "id": "f-sk2",
-      "type": "sketch",
-      "plane": {
-        "kind": "face",
-        "body": "b-1",
-        "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"},
-        "fallback": {"origin": [0, 0, 30], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}
-      },
-      "entities": [
-        {"id": "e-p1", "type": "point", "position": [20, 10]}
-      ],
-      "constraints": []
-    },
-    {
-      "id": "f-hole1",
-      "type": "hole",
-      "body": "b-1",
-      "sketch": "f-sk2",
-      "points": ["e-p1"],
-      "diameter": "5",
-      "extent": {"kind": "distance", "expr": "10"}
-    }
-  ]
-}
-"#;
-
-/// `box.ptsm` with `more` features after `f-box1`.
-fn box_then(more: Vec<Value>) -> String {
-    let mut document: Value = serde_json::from_str(BOX_TEXT).expect("box.ptsm is JSON");
-    document["features"]
-        .as_array_mut()
-        .expect("documents list their features")
-        .extend(more);
-    serde_json::to_string_pretty(&document).expect("documents serialize")
-}
-
-/// A millimeter `.ptsm` text at format version 2 of the one body `b-1`, 'Body 1', with `parameters` and `features`.
-fn body_1_text(parameters: Vec<Value>, features: Vec<Value>) -> String {
-    let document = json!({
-        "format": "partsmith",
-        "format_version": 2,
-        "units": "mm",
-        "parameters": parameters,
-        "bodies": [{"id": "b-1", "name": "Body 1"}],
-        "features": features
-    });
-    serde_json::to_string_pretty(&document).expect("documents serialize")
-}
-
-/// The box `feature` of `b-1` of `size`, at `position` when there is one, with Operation `op`.
-fn box_feature(feature: &str, size: [&str; 3], position: Option<[&str; 3]>, op: &str) -> Value {
-    let mut record = json!({"id": feature, "type": "box", "body": "b-1", "size": size});
-    if let Some(position) = position {
-        record["position"] = json!(position);
-    }
-    record["op"] = json!(op);
-    record
-}
-
-/// The Move body `f-mv1` of `b-1` by (100, 0, 0), the move of engine.md tests 124, 125 and 135.
-fn moved_by_100() -> Value {
-    json!({"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["100", "0", "0"]})
-}
-
-/// `box.ptsm` moved by (100, 0, 0), the document of engine.md test 124.
-fn moved_box() -> String {
-    box_then(vec![moved_by_100()])
-}
-
-/// The Move body `f-mv1` of `b-1` that turns it 90 degrees about the origin Z axis (engine.md test 124).
-fn quarter_turn() -> Value {
-    json!({
-        "id": "f-mv1", "type": "move_body", "body": "b-1",
-        "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "90 deg"}
-    })
-}
-
-/// The reference of the top of `box.ptsm` moved by (100, 0, 0), as a pick stores it (engine.md test 125).
-fn moved_top() -> Value {
-    json!({"q": BOX_TOP, "fp": "plane|n=0,0,1|c=100,0,40|a=600|adj=4,4"})
-}
-
-/// The plane of a sketch on the face `face` of `b-1` with its fallback at `origin`, x axis (1, 0, 0) and normal (0, 0, 1) in `frame` (`None` writes no `fallback_frame`: world coordinates).
-fn face_plane(face: Value, origin: [f64; 3], frame: Option<&str>) -> Value {
-    let mut plane = json!({
-        "kind": "face", "body": "b-1", "face": face,
-        "fallback": {"origin": origin, "x_axis": X_AXIS, "normal": Z_AXIS}
-    });
-    if let Some(frame) = frame {
-        plane["fallback_frame"] = json!(frame);
-    }
-    plane
-}
-
-/// The document of engine.md test 125: `box.ptsm` moved by (100, 0, 0), then a face sketch `f-sk1` on its top with one line `e-1` from (0, 0) to (10, 0) and its fallback at (0, 0, 40) in `frame` (see [`face_plane`]).
-fn sketch_on_moved_top(frame: Option<&str>) -> String {
-    box_then(vec![
-        moved_by_100(),
-        json!({
-            "id": "f-sk1", "type": "sketch",
-            "plane": face_plane(moved_top(), [0.0, 0.0, 40.0], frame),
-            "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [10, 0]}],
-            "constraints": []
-        }),
-    ])
-}
-
-/// The plane that `f-sk1` of [`sketch_on_moved_top`] in `frame` stores after a drag of `e-1.end` to (20, 5) and its commit, sent side by side, once the commit made revision 1.
-fn plane_after_a_drag_commit(frame: Option<&str>) -> Value {
-    let mut sides = SideBySide::new();
-    sides.open(1, &sketch_on_moved_top(frame));
-    sides.send(2, |side| {
-        json!({"type": "drag_sketch", "doc": side.doc, "feature": "f-sk1", "point": "e-1.end", "to": [20, 5]})
-    });
-    let committed = sides.send(3, |side| {
-        json!({"type": "end_sketch_drag", "doc": side.doc, "feature": "f-sk1", "commit": true})
-    });
-    assert_eq!(ok_result(&committed, "end_sketch_drag")["revision"], 1);
-    record(&mut sides, 4, "f-sk1")["plane"].clone()
-}
-
-/// The timeline of file-format.md test 57, corpus R32 (a) after its edit, at format version 2: a box 40 x 40 x 10, the Move body of (100, 0, 0), a face sketch `f-sk2` on the box's top with its fallback at (0, 0, 10) in `frame` (see [`face_plane`]) and its point `e-p1` at (15, 15), and a hole `f-hole1` of diameter 4 through all at the point.
-fn moved_box_with_a_face_sketch(frame: Option<&str>) -> String {
-    let top = json!({"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=1600|adj=4,4"});
-    let plane = face_plane(top, [0.0, 0.0, 10.0], frame);
-    body_1_text(
-        Vec::new(),
-        vec![
-            box_feature("f-box1", ["40", "40", "10"], None, "new"),
-            moved_by_100(),
-            json!({
-                "id": "f-sk2", "type": "sketch", "plane": plane,
-                "entities": [{"id": "e-p1", "type": "point", "position": [15, 15]}],
-                "constraints": []
-            }),
-            json!({
-                "id": "f-hole1", "type": "hole", "body": "b-1", "sketch": "f-sk2",
-                "points": ["e-p1"], "diameter": "4", "extent": {"kind": "through_all"}
-            }),
-        ],
-    )
-}
-
-/// Asserts that `feature` has status ok and no message in the frame's `recomputed` event.
-#[track_caller]
-fn assert_ok_without_messages(frame: &ResponseFrame, feature: &str) {
-    let status = feature_status(frame, feature);
-    assert_eq!(status["status"], "ok", "{status}");
-    assert_eq!(status["messages"], json!([]), "{status}");
-}
-
-/// The `N` components of a JSON vector.
-fn vector<const N: usize>(value: &Value) -> [f64; N] {
-    let components: Vec<f64> = value
-        .as_array()
-        .unwrap_or_else(|| panic!("{value} is a vector"))
-        .iter()
-        .map(|component| component.as_f64().expect("vectors hold numbers"))
-        .collect();
-    components
-        .try_into()
-        .unwrap_or_else(|components: Vec<f64>| panic!("{components:?} has {N} components"))
-}
-
-/// Asserts that each component of the JSON vector `actual` lies within [`GEOMETRY_TOLERANCE`] of `expected`.
-#[track_caller]
-fn assert_vector<const N: usize>(actual: &Value, expected: [f64; N], what: &str) {
-    let components: [f64; N] = vector(actual);
-    assert!(
-        components
-            .iter()
-            .zip(expected)
-            .all(|(component, wanted)| (component - wanted).abs() <= GEOMETRY_TOLERANCE),
-        "{what} is {components:?}, not {expected:?}"
-    );
-}
-
-/// Asserts that the JSON placement `placement` has `origin`, `x_axis` and `normal`.
-#[track_caller]
-fn assert_placement(
-    placement: &Value,
-    origin: [f64; 3],
-    x_axis: [f64; 3],
-    normal: [f64; 3],
-    what: &str,
-) {
-    assert_vector(&placement["origin"], origin, &format!("{what} origin"));
-    assert_vector(&placement["x_axis"], x_axis, &format!("{what} x axis"));
-    assert_vector(&placement["normal"], normal, &format!("{what} normal"));
-}
-
-/// Asserts that the JSON placement `placement` lies level at `origin`: x axis along world X, normal along world Z.
-#[track_caller]
-fn assert_level_placement(placement: &Value, origin: [f64; 3], what: &str) {
-    assert_placement(placement, origin, X_AXIS, Z_AXIS, what);
-}
-
-/// The header of a frame as its bytes hold it, each object's keys in the order the frame writes them (the workspace builds `serde_json` with `preserve_order`).
-fn wire_header(frame: &[u8]) -> Value {
-    let length_field: [u8; 4] = frame[4..8].try_into().expect("frames have a header length");
-    let length =
-        usize::try_from(u32::from_le_bytes(length_field)).expect("header lengths fit in usize");
-    serde_json::from_slice(&frame[8..8 + length]).expect("frame headers are JSON")
-}
-
-/// The keys of the descriptor named `name` that a `list_elements` response frame writes, in wire order.
-fn wire_keys(frame: &[u8], name: &str) -> Vec<String> {
-    let response = wire_response(frame);
-    let elements = response["result"]["elements"]
-        .as_array()
-        .expect("list_elements lists elements");
-    keys_of(named(elements, name))
-}
-
-/// The messages of a frame as its bytes hold them, in order (see [`wire_header`]).
-fn wire_messages(frame: &[u8]) -> Vec<Value> {
-    match wire_header(frame)["messages"].take() {
-        Value::Array(messages) => messages,
-        other => panic!("frames list their messages: {other}"),
-    }
-}
-
-/// The response of a frame as its bytes hold it (see [`wire_header`]).
-fn wire_response(frame: &[u8]) -> Value {
-    wire_messages(frame)
-        .pop()
-        .expect("a response frame ends with its response")
-}
-
-/// The only event of type `event_type` of a frame as its bytes hold it (see [`wire_header`]).
-fn wire_event(frame: &[u8], event_type: &str) -> Value {
-    let events = wire_messages(frame)
-        .into_iter()
-        .filter(|message| message["kind"] == "event" && message["type"] == event_type)
-        .collect();
-    only(events, &format!("{event_type} event"))
-}
-
-/// The keys of the JSON object `object`, in the order it holds them.
-fn keys_of(object: &Value) -> Vec<String> {
-    object
-        .as_object()
-        .unwrap_or_else(|| panic!("{object} is an object"))
-        .keys()
-        .cloned()
-        .collect()
-}
-
-/// The keys of `keys` that `all` holds, in the order `all` holds them.
-fn in_wire_order<'a>(all: &'a [String], keys: &[&str]) -> Vec<&'a str> {
-    all.iter()
-        .map(String::as_str)
-        .filter(|key| keys.contains(key))
-        .collect()
-}
-
 #[test]
 fn engine_t124_a_moved_face_passes_through_with_its_fallback_in_body_coordinates() {
     let mut sides = SideBySide::new();
@@ -1233,6 +302,14 @@ fn engine_t124_a_moved_line_edge_passes_through_with_its_axis_direction() {
     assert_vector(&edge["axis_direction"], X_AXIS, "axis direction");
 }
 
+/// The Move body `f-mv1` of `b-1` that turns it 90 degrees about the origin Z axis (engine.md test 124).
+fn quarter_turn() -> Value {
+    json!({
+        "id": "f-mv1", "type": "move_body", "body": "b-1",
+        "rotation": {"axis": {"kind": "origin", "axis": "Z"}, "angle": "90 deg"}
+    })
+}
+
 #[test]
 fn engine_t124_a_turned_line_edge_passes_through_with_the_axis_direction_it_had_before_the_turn() {
     let mut sides = SideBySide::new();
@@ -1247,6 +324,15 @@ fn engine_t124_a_turned_line_edge_passes_through_with_the_axis_direction_it_had_
         "the edge runs along Y after the turn: {edge}"
     );
     assert_vector(&edge["axis_direction"], X_AXIS, "axis direction");
+}
+
+/// The keys of the descriptor named `name` that a `list_elements` response frame writes, in wire order.
+fn wire_keys(frame: &[u8], name: &str) -> Vec<String> {
+    let response = wire_response(frame);
+    let elements = response["result"]["elements"]
+        .as_array()
+        .expect("list_elements lists elements");
+    keys_of(named(elements, name))
 }
 
 #[test]
@@ -1370,6 +456,9 @@ fn engine_t135_a_turned_over_face_passes_through_with_turn_the_drawing_back() {
     assert_eq!(message["actions"][0]["run"]["kind"], "apply", "{message}");
 }
 
+/// The world -Z direction.
+const MINUS_Z_AXIS: [f64; 3] = [0.0, 0.0, -1.0];
+
 #[test]
 fn engine_t135_apply_fix_of_turn_the_drawing_back_passes_through_with_the_mirrored_drawing() {
     let mut sides = SideBySide::new();
@@ -1476,203 +565,6 @@ const ATTACH_TO_THE_TOP: &str = "Attach 'Sketch 2' to the top of 'Extrude 1'";
 
 /// The label of the units change of NC09.
 const CHANGE_UNITS_TO_IN: &str = "Change units to in";
-
-/// A line entity from `start` to `end`.
-fn line(entity: &str, start: [f64; 2], end: [f64; 2]) -> Value {
-    json!({"id": entity, "type": "line", "start": start, "end": end})
-}
-
-/// The lines `e-1` to `e-4` of the rectangle from the origin to (`width`, `depth`), counterclockwise from the origin, as features.md section 6.1 `RECT` draws them.
-fn rectangle(width: f64, depth: f64) -> Vec<Value> {
-    vec![
-        line("e-1", [0.0, 0.0], [width, 0.0]),
-        line("e-2", [width, 0.0], [width, depth]),
-        line("e-3", [width, depth], [0.0, depth]),
-        line("e-4", [0.0, depth], [0.0, 0.0]),
-    ]
-}
-
-/// The origin plane XY, as a sketch or a datum plane stores it.
-fn xy_plane() -> Value {
-    json!({"kind": "origin", "plane": "XY"})
-}
-
-/// The sketch `feature` on `plane` with `entities` and `constraints`.
-fn sketch(feature: &str, plane: Value, entities: Vec<Value>, constraints: Vec<Value>) -> Value {
-    json!({
-        "id": feature, "type": "sketch", "plane": plane,
-        "entities": entities, "constraints": constraints
-    })
-}
-
-/// The extrude `feature` into `b-1` of the profile regions `regions` of `sketch`, by `distance`, with Operation `op`.
-fn extrude(feature: &str, sketch: &str, regions: Value, distance: &str, op: &str) -> Value {
-    json!({
-        "id": feature, "type": "extrude", "body": "b-1",
-        "profile": {"sketch": sketch, "regions": regions},
-        "extent": {"kind": "distance", "expr": distance}, "op": op
-    })
-}
-
-/// The fillet `f-fil1` of `b-1` of radius `radius` on the one edge `edge`.
-fn fillet(edge: Value, radius: &str) -> Value {
-    json!({"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [edge], "radius": radius})
-}
-
-/// BLOCK of the newcomer error corpus with 'Extrude 1' extruded `distance`: the 80 x 50 rectangle `e-1` to `e-4` of `f-sk1` on XY, extruded by `f-ext1` into `b-1` (x 0..80, y 0..50, z 0..30 at distance 30).
-fn block(distance: &str) -> Vec<Value> {
-    vec![
-        sketch("f-sk1", xy_plane(), rectangle(80.0, 50.0), Vec::new()),
-        extrude(
-            "f-ext1",
-            "f-sk1",
-            json!([{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}]),
-            distance,
-            "new",
-        ),
-    ]
-}
-
-/// Newcomer error NC01: BLOCK's outline in `f-sk1` with a 0.3 mm gap at the origin (`e-4` ends at (0, 0.3)), which no feature uses yet.
-fn open_outline() -> String {
-    let mut outline = rectangle(80.0, 50.0);
-    outline[3] = line("e-4", [0.0, 50.0], [0.0, 0.3]);
-    body_1_text(
-        Vec::new(),
-        vec![sketch("f-sk1", xy_plane(), outline, Vec::new())],
-    )
-}
-
-/// NC03 (`op` cut) and NC04 (`op` join): BLOCK, the datum plane `f-dp1` 40 above XY, and the circle `e-5` of `f-sk2` on it at (40, 25) with radius 5, extruded 15 by `f-ext2` with Operation `op`: it starts 10 above the block and points away from it.
-fn circle_above_the_block(op: &str) -> String {
-    let mut features = block("30");
-    features.extend([
-        json!({"id": "f-dp1", "type": "datum_plane", "base": xy_plane(), "offset": "40"}),
-        sketch(
-            "f-sk2",
-            json!({"kind": "datum", "feature": "f-dp1"}),
-            vec![json!({"id": "e-5", "type": "circle", "center": [40, 25], "radius": 5})],
-            Vec::new(),
-        ),
-        extrude(
-            "f-ext2",
-            "f-sk2",
-            json!([{"key": "e-5", "fp": "c=40,25|a=78.539816"}]),
-            "15",
-            op,
-        ),
-    ]);
-    body_1_text(Vec::new(), features)
-}
-
-/// Newcomer error NC05: 'Box 1' 40 x 20 x 10 (x -20..20), 'Box 2' 20 x 30 x 5 at (10, 0, 7.6) cutting a step 2.4 mm deep whose riser is `f-box2/left` at x = 0, and a fillet of radius 3 on the edge between the top of 'Box 1' and the riser.
-fn fillet_on_a_low_step() -> String {
-    body_1_text(
-        Vec::new(),
-        vec![
-            box_feature("f-box1", ["40", "20", "10"], None, "new"),
-            box_feature("f-box2", ["20", "30", "5"], Some(["10", "0", "7.6"]), "cut"),
-            fillet(
-                json!({"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,10|l=20|adj=2,2"}),
-                "3",
-            ),
-        ],
-    )
-}
-
-/// Newcomer error NC07 after its edit: the 40 x 20 rectangle of `f-sk1` with Distance `c-1` 40 mm and the added Distance `c-2` 30 mm on `e-1`, extruded 10 by `f-ext1`. Its messages and actions are those of the setup with the edit applied (the newcomer error corpus, rule 5).
-fn conflicting_dimensions() -> String {
-    let distance = |constraint: &str, expr: &str| json!({"id": constraint, "type": "distance", "line": "e-1", "expr": expr});
-    body_1_text(
-        Vec::new(),
-        vec![
-            sketch(
-                "f-sk1",
-                xy_plane(),
-                rectangle(40.0, 20.0),
-                vec![distance("c-1", "40 mm"), distance("c-2", "30 mm")],
-            ),
-            extrude(
-                "f-ext1",
-                "f-sk1",
-                json!([{"key": "e-1,e-2,e-3,e-4", "fp": "c=20,10|a=800"}]),
-                "10",
-                "new",
-            ),
-        ],
-    )
-}
-
-/// Newcomer error NC09: 'Box 1' of size `40`, `20` and `10` and a fillet of radius `2` on its front top edge, four numbers without a unit in a millimeter document.
-fn numbers_without_units() -> String {
-    body_1_text(
-        Vec::new(),
-        vec![
-            box_feature("f-box1", ["40", "20", "10"], None, "new"),
-            fillet(
-                json!({"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,10|l=40|adj=2,2"}),
-                "2",
-            ),
-        ],
-    )
-}
-
-/// CUBE20 with its sizes in millimeters and a fillet of radius `2`, without a unit, on its front top edge: in inches the radius is 50.8 mm, too large (NC09, with the sentence of corpus R48).
-fn cube_with_a_bare_radius() -> String {
-    body_1_text(
-        Vec::new(),
-        vec![
-            box_feature("f-box1", ["20 mm", "20 mm", "20 mm"], None, "new"),
-            fillet(
-                json!({"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2"}),
-                "2",
-            ),
-        ],
-    )
-}
-
-/// Newcomer error NC10: BLOCK with the parameter `height` 30 mm and the distance of 'Extrude 1' misspelled `hieght`.
-fn misspelled_parameter() -> String {
-    body_1_text(
-        vec![json!({"id": "p-height", "name": "height", "expr": "30 mm"})],
-        block("hieght"),
-    )
-}
-
-/// CUBE20 with a shell `f-sh1` 2 thick whose params store the top under the misspelled key `remove_face` instead of `remove_faces` (engine.md test 131).
-fn misspelled_shell_setting() -> String {
-    body_1_text(
-        Vec::new(),
-        vec![
-            box_feature("f-box1", ["20", "20", "20"], None, "new"),
-            json!({
-                "id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2",
-                "remove_face": [{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4"}]
-            }),
-        ],
-    )
-}
-
-/// Asserts a message's code, text and action labels, in order.
-#[track_caller]
-fn assert_message(message: &Value, code: &str, text: &str, offered: &[&str]) {
-    assert_eq!(message["code"], code, "{message}");
-    assert_eq!(message["message"], text, "{message}");
-    assert_eq!(labels(message), offered, "{message}");
-}
-
-/// The bodies of the frame's recipe besides `b-1`: the one `Put it in a new body` adds to a document of `b-1` alone.
-fn bodies_besides_body_1(frame: &ResponseFrame) -> Vec<String> {
-    ids_of(&changed_recipe(frame)["bodies"])
-        .into_iter()
-        .filter(|body| body != "b-1")
-        .collect()
-}
-
-/// The constraints of `f-sk1` in the frame's recipe: the one `Connect the ends` adds to NC01's sketch, which has none.
-fn constraints_of_sketch_1(frame: &ResponseFrame) -> Vec<String> {
-    ids_of(&changed_record(frame, "f-sk1")["constraints"])
-}
 
 #[test]
 fn engine_t126_nc01_a_profile_finding_passes_through_with_connect_the_ends() {
@@ -1811,6 +703,14 @@ fn engine_t126_nc04_a_floating_join_passes_through_with_a_new_body_and_attach() 
         "This extrude does not touch body 'Body 1', so the body now has 2 separate pieces.",
         &[PUT_IT_IN_A_NEW_BODY, ATTACH_TO_THE_TOP],
     );
+}
+
+/// The bodies of the frame's recipe besides `b-1`: the one `Put it in a new body` adds to a document of `b-1` alone.
+fn bodies_besides_body_1(frame: &ResponseFrame) -> Vec<String> {
+    ids_of(&changed_recipe(frame)["bodies"])
+        .into_iter()
+        .filter(|body| body != "b-1")
+        .collect()
 }
 
 #[test]
@@ -2193,315 +1093,18 @@ fn engine_t150_nc09_apply_fix_of_use_2_mm_passes_through_with_the_fillet_built()
 // delete, a second `apply_edits`, makes revision 2). On the Emscripten target, ghost capture runs the kernel's display
 // geometry of single elements in WebAssembly (kernel.md K3).
 
-/// The label of the `apply_edits` that makes a corpus edit, as engine.md test 136 applies it.
-const EDIT_LABEL: &str = "Edit";
-
-/// How far a value of an `f32` buffer may lie from the value the spec gives it, relative to values larger than 1.
-const BUFFER_TOLERANCE: f64 = 1e-5;
-
-/// The ids of the rabbet ('Sketch 1' and 'Extrude 1') that corpus R16's edit inserts before the fillet.
-const RABBET: [&str; 2] = ["f-sk2", "f-ext2"];
-
 /// The label of the cause action of corpus R26 that stores the placement the sketch was built with.
 const KEEP_THE_SKETCH_WHERE_IT_WAS: &str = "Keep the sketch where it was";
-
-/// The cause line of corpus R26 after its delete: the boss's extrude is 'Extrude 1' now.
-const R26_CAUSE: &str = "This started after you deleted the former 'Extrude 1'.";
 
 /// The cause line of every message newcomer error NC11 gives.
 const NC11_CAUSE: &str =
     "This started after you deleted the line from (80, 50) to (0, 50) in 'Sketch 1'.";
 
-/// The `apply_edits` command labeled `label` with the model edits `edits` for the side's document.
-fn apply_edits(side: &Side, label: &str, edits: &Value) -> Value {
-    json!({"type": "apply_edits", "doc": side.doc, "label": label, "edits": edits})
-}
-
-/// The `update_feature` edit that stores `record` in place of the record with its id.
-fn update_feature(record: Value) -> Value {
-    json!({"type": "update_feature", "feature": record})
-}
-
-/// The `add_feature` edit that inserts `record` at timeline position `index`.
-fn add_feature(index: usize, record: Value) -> Value {
-    json!({"type": "add_feature", "index": index, "feature": record})
-}
-
-/// The `remove_feature` edit of `feature`.
-fn remove_feature(feature: &str) -> Value {
-    json!({"type": "remove_feature", "id": feature})
-}
-
-/// The `list_uses` command for the side's document.
-fn list_uses(side: &Side) -> Value {
-    json!({"type": "list_uses", "doc": side.doc})
-}
-
-/// Opens `setup` on both sides as request 1 and applies `edits` as one `apply_edits` labeled [`EDIT_LABEL`] as request 2; returns the bridge's frame of the edit.
-fn after_edit(sides: &mut SideBySide, setup: &str, edits: &Value) -> ResponseFrame {
-    sides.open(1, setup);
-    let edited = sides.send(2, |side| apply_edits(side, EDIT_LABEL, edits));
-    assert_eq!(ok_result(&edited, "apply_edits")["revision"], 1);
-    edited
-}
-
-/// The feature records of the document `text`, in timeline order.
-fn features_of(text: &str) -> Vec<Value> {
-    let document: Value = serde_json::from_str(text).expect("documents are JSON");
-    feature_records(&document).to_vec()
-}
-
-/// A circle entity at `center` with `radius`.
-fn circle(entity: &str, center: [f64; 2], radius: f64) -> Value {
-    json!({"id": entity, "type": "circle", "center": center, "radius": radius})
-}
-
-/// BLOCK's top, as a face sketch stores it.
-fn block_top() -> Value {
-    json!({"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"})
-}
-
-/// BLOCK's back top edge, along the line `e-3` from (80, 50) to (0, 50).
-fn block_back_top() -> Value {
-    json!({"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)", "fp": "line|n=1,0,0|c=40,50,30|l=80|adj=2,2"})
-}
-
-/// Corpus R12's round pocket `f-ext2`: the circle `e-5` of `f-sk2` at (40, 25) with radius 10, cut `depth` down from BLOCK's top.
-fn round_pocket(depth: &str) -> Value {
-    let mut pocket = extrude(
-        "f-ext2",
-        "f-sk2",
-        json!([{"key": "e-5", "fp": "c=40,25|a=314.159265"}]),
-        depth,
-        "cut",
-    );
-    pocket["reverse"] = json!(true);
-    pocket
-}
-
-/// Corpus R12 before its edit: BLOCK, the datum plane `f-dp1` at its top, the circle `e-5` of `f-sk2` on it, the pocket `f-ext2` 5 deep, and a fillet `f-fil1` of 2 on the pocket's floor edge.
-fn pocket_with_a_floor_fillet() -> String {
-    let mut features = block("30");
-    features.extend([
-        json!({"id": "f-dp1", "type": "datum_plane", "base": xy_plane(), "offset": "30"}),
-        sketch(
-            "f-sk2",
-            json!({"kind": "datum", "feature": "f-dp1"}),
-            vec![circle("e-5", [40.0, 25.0], 10.0)],
-            Vec::new(),
-        ),
-        round_pocket("5"),
-        fillet(
-            json!({"q": "edge(f-ext2/end-cap|f-ext2/lateral/e-5)", "fp": "circle|n=0,0,1|c=40,25,25|l=62.831853|r=10|adj=2,1"}),
-            "2",
-        ),
-    ]);
-    body_1_text(Vec::new(), features)
-}
-
-/// Corpus R12's edit: the pocket made 30 deep, through the block, so its floor and the fillet's edge are gone.
-fn pocket_made_through() -> Value {
-    json!([update_feature(round_pocket("30"))])
-}
-
-/// Whether `record` is one of the [`RABBET`] records.
-fn is_rabbet(record: &Value) -> bool {
-    RABBET.iter().any(|feature| record["id"] == *feature)
-}
-
-/// Corpus R16 before its edit: CUBE20 with a fillet of 2 on its front top edge, [`CUT_AWAY_EDGE_TEXT`] without the rabbet.
-fn cube_with_a_front_top_fillet() -> String {
-    let features = features_of(CUT_AWAY_EDGE_TEXT)
-        .into_iter()
-        .filter(|record| !is_rabbet(record))
-        .collect();
-    body_1_text(Vec::new(), features)
-}
-
-/// Corpus R16's edit: the rabbet of [`CUT_AWAY_EDGE_TEXT`] inserted before the fillet, at timeline positions 1 and 2.
-fn rabbet_inserted() -> Value {
-    let rabbet = features_of(CUT_AWAY_EDGE_TEXT)
-        .into_iter()
-        .filter(is_rabbet)
-        .enumerate()
-        .map(|(offset, record)| add_feature(1 + offset, record))
-        .collect();
-    Value::Array(rabbet)
-}
-
-/// Corpus R26 before its edits: BLOCK, a face sketch `f-sk2` on its top with its fallback at (0, 0, 30) in body coordinates and the circle `e-5` at (40, 25) with radius 10, and the boss `f-ext2` joined 10 tall from it.
-fn boss_on_the_block_top() -> String {
-    let mut features = block("30");
-    features.extend([
-        sketch(
-            "f-sk2",
-            face_plane(block_top(), [0.0, 0.0, 30.0], Some("body")),
-            vec![circle("e-5", [40.0, 25.0], 10.0)],
-            Vec::new(),
-        ),
-        extrude(
-            "f-ext2",
-            "f-sk2",
-            json!([{"key": "e-5", "fp": "c=40,25|a=314.159265"}]),
-            "10",
-            "join",
-        ),
-    ]);
-    body_1_text(Vec::new(), features)
-}
-
-/// Corpus R26 after edit (1), BLOCK made 80 tall (request 2, labeled `Edit`), and the delete of 'Extrude 1' (request 3, labeled `Delete`), the first two of the three `apply_edits` engine.md test 136 applies; returns the bridge's frame of the delete, which makes the boss's extrude 'Extrude 1'.
-fn r26_after_the_delete(sides: &mut SideBySide) -> ResponseFrame {
-    let taller = json!([update_feature(block("80")[1].clone())]);
-    after_edit(sides, &boss_on_the_block_top(), &taller);
-    let deleted = sides.send(3, |side| {
-        apply_edits(side, "Delete", &json!([remove_feature("f-ext1")]))
-    });
-    assert_eq!(ok_result(&deleted, "apply_edits")["revision"], 2);
-    deleted
-}
-
-/// BLOCK with a fillet `f-fil1` of 2 on its back top edge, then `more` features (newcomer error NC11 before its edit, and engine.md test 143).
-fn block_with_a_back_top_fillet(more: Vec<Value>) -> String {
-    let mut features = block("30");
-    features.push(fillet(block_back_top(), "2"));
-    features.extend(more);
-    body_1_text(Vec::new(), features)
-}
-
-/// NC11's edit: the back line `e-3` of BLOCK's outline deleted, which leaves the outline open.
-fn back_line_deleted() -> Value {
-    let mut outline = rectangle(80.0, 50.0);
-    outline.remove(2);
-    json!([update_feature(sketch(
-        "f-sk1",
-        xy_plane(),
-        outline,
-        Vec::new()
-    ))])
-}
-
-/// The first message of `feature` in the frame's `recomputed` event: its error, else its first warning or notice.
-fn first_message(frame: &ResponseFrame, feature: &str) -> Value {
-    let status = feature_status(frame, feature);
-    status["messages"]
-        .as_array()
-        .and_then(|messages| messages.first())
-        .cloned()
-        .unwrap_or_else(|| panic!("{feature} has a message: {status}"))
-}
-
-/// The cause of `message`.
-fn cause_of(message: &Value) -> &Value {
-    message
-        .get("cause")
-        .filter(|cause| cause.is_object())
-        .unwrap_or_else(|| panic!("the message has a cause: {message}"))
-}
-
-/// The label and the run kind of each action of `holder`, a message or a cause, in order.
-fn labels_and_kinds(holder: &Value) -> Vec<(&str, &str)> {
-    actions(holder)
-        .iter()
-        .map(|action| {
-            (
-                action["label"].as_str().expect("actions have labels"),
-                action["run"]["kind"]
-                    .as_str()
-                    .expect("actions say how they run"),
-            )
-        })
-        .collect()
-}
-
-/// Asserts the cause of `message`: its text, the feature it names, and the label and run kind of each of its actions, in order; returns the cause.
-#[track_caller]
-fn assert_cause(
-    message: &Value,
-    text: &str,
-    feature: Option<&str>,
-    offered: &[(&str, &str)],
-) -> Value {
-    let cause = cause_of(message);
-    assert_eq!(cause["text"], text, "{cause}");
-    assert_eq!(
-        cause.get("feature").and_then(Value::as_str),
-        feature,
-        "{cause}"
-    );
-    assert_eq!(labels_and_kinds(cause), offered, "{cause}");
-    cause.clone()
-}
-
-/// The values of the `f32` buffer of `frame` that `ghost` names as its positions.
-fn ghost_values(frame: &ResponseFrame, ghost: &Value) -> Vec<f32> {
-    let index = ghost["positions"]
-        .as_u64()
-        .and_then(|index| usize::try_from(index).ok())
-        .unwrap_or_else(|| panic!("a ghost names its buffer: {ghost}"));
-    frame
-        .buffers
-        .get(index)
-        .and_then(Buffer::as_f32)
-        .unwrap_or_else(|| panic!("buffer {index} of the frame holds f32 values: {ghost}"))
-        .to_vec()
-}
-
-/// Whether `actual`, a point read from an `f32` buffer, lies within [`BUFFER_TOLERANCE`] of `expected`.
-fn same_point(actual: &[f32], expected: &[f64]) -> bool {
-    actual.len() == expected.len()
-        && actual.iter().zip(expected).all(|(value, wanted)| {
-            (f64::from(*value) - wanted).abs() <= BUFFER_TOLERANCE * wanted.abs().max(1.0)
-        })
-}
-
-/// Asserts that `ghost`, whose buffer travels in `frame`, joins its points as lines into exactly the segments `expected`, each from a start to an end point of `N` coordinates, in any order and each in either direction.
-#[track_caller]
-fn assert_ghost_segments<const N: usize>(
-    frame: &ResponseFrame,
-    ghost: &Value,
-    expected: &[([f64; N], [f64; N])],
-) {
-    assert_eq!(ghost["kind"], "lines", "{ghost}");
-    let values = ghost_values(frame, ghost);
-    assert_eq!(
-        values.len(),
-        2 * N * expected.len(),
-        "the ghost holds {} segments: {values:?}",
-        expected.len()
-    );
-    let mut unmatched: Vec<&[f32]> = values.chunks(2 * N).collect();
-    for (start, end) in expected {
-        let position = unmatched
-            .iter()
-            .position(|segment| {
-                let (first, second) = segment.split_at(N);
-                (same_point(first, start) && same_point(second, end))
-                    || (same_point(first, end) && same_point(second, start))
-            })
-            .unwrap_or_else(|| {
-                panic!("the ghost has the segment from {start:?} to {end:?}: {unmatched:?}")
-            });
-        unmatched.remove(position);
-    }
-}
-
-/// The status of `feature` in the only `recomputed` event of a frame as its bytes hold it (see [`wire_header`]).
-fn wire_status(frame: &[u8], feature: &str) -> Value {
-    status_in(&wire_event(frame, "recomputed"), feature)
-        .unwrap_or_else(|| panic!("the frame has no recomputed status of {feature}"))
-        .clone()
-}
-
 #[test]
 fn engine_t136_r12_a_cause_passes_through_with_set_distance_back_and_undo() {
     let mut sides = SideBySide::new();
 
-    let edited = after_edit(
-        &mut sides,
-        &pocket_with_a_floor_fillet(),
-        &pocket_made_through(),
-    );
+    let edited = after_edit(&mut sides, &r12());
 
     let message = first_message(&edited, "f-fil1");
     let cause = assert_cause(
@@ -2530,11 +1133,10 @@ fn engine_t136_r12_a_cause_passes_through_with_set_distance_back_and_undo() {
 fn engine_t136_r12_a_message_writes_its_cause_right_after_its_actions_through_ps_call() {
     // Protocol.md test 72: a diagnostic writes `cause` after `actions`, and a cause `text`, `feature`, then `actions`.
     let mut sides = SideBySide::new();
-    sides.open(1, &pocket_with_a_floor_fillet());
+    let scenario = r12();
+    sides.open(1, &scenario.setup);
 
-    let edited = sides.send_raw(2, |side| {
-        apply_edits(side, EDIT_LABEL, &pocket_made_through())
-    });
+    let edited = sides.send_raw(2, |side| apply_edits(side, EDIT_LABEL, &scenario.edits));
 
     let status = wire_status(&edited, "f-fil1");
     let message = &status["messages"][0];
@@ -2551,11 +1153,10 @@ fn engine_t136_r12_a_message_writes_its_cause_right_after_its_actions_through_ps
 #[test]
 fn engine_t136_r12_apply_fix_of_set_distance_back_passes_through_giving_back_the_text() {
     let mut sides = SideBySide::new();
-    sides.open(1, &pocket_with_a_floor_fillet());
+    let scenario = r12();
+    sides.open(1, &scenario.setup);
     let before = saved_text(&mut sides, 2);
-    let edited = sides.send(3, |side| {
-        apply_edits(side, EDIT_LABEL, &pocket_made_through())
-    });
+    let edited = sides.send(3, |side| apply_edits(side, EDIT_LABEL, &scenario.edits));
     let revert = actions(cause_of(&first_message(&edited, "f-fil1")))[0].clone();
 
     let applied = sides.send(4, |side| apply_fix(side, &revert["run"]["fix"]));
@@ -2569,11 +1170,7 @@ fn engine_t136_r12_apply_fix_of_set_distance_back_passes_through_giving_back_the
 fn engine_t136_r16_a_cause_of_an_inserted_cut_passes_through_with_suppress_and_undo() {
     let mut sides = SideBySide::new();
 
-    let edited = after_edit(
-        &mut sides,
-        &cube_with_a_front_top_fillet(),
-        &rabbet_inserted(),
-    );
+    let edited = after_edit(&mut sides, &r16());
 
     // The added sketch reaches the fillet only through the added extrude, so it is not counted.
     assert_cause(
@@ -2583,6 +1180,9 @@ fn engine_t136_r16_a_cause_of_an_inserted_cut_passes_through_with_suppress_and_u
         &[("Suppress 'Extrude 1'", "apply"), ("Undo", "undo")],
     );
 }
+
+/// The cause line of corpus R26 after its delete: the boss's extrude is 'Extrude 1' now.
+const R26_CAUSE: &str = "This started after you deleted the former 'Extrude 1'.";
 
 #[test]
 fn engine_t136_r26_a_plane_fallback_passes_through_with_keep_the_sketch_where_it_was() {
@@ -2626,11 +1226,7 @@ fn engine_t136_r26_apply_fix_of_keep_the_sketch_where_it_was_passes_through_with
 fn engine_t141_r16_an_element_ghost_passes_through_with_the_lost_edge_in_its_buffer() {
     let mut sides = SideBySide::new();
 
-    let edited = after_edit(
-        &mut sides,
-        &cube_with_a_front_top_fillet(),
-        &rabbet_inserted(),
-    );
+    let edited = after_edit(&mut sides, &r16());
 
     let repair = feature_repair(&edited, "f-fil1", "/edges/0");
     let ghost = &repair["ghost"];
@@ -2646,11 +1242,7 @@ fn engine_t141_r16_an_element_ghost_passes_through_with_the_lost_edge_in_its_buf
 fn engine_t142_nc11_a_region_ghost_passes_through_with_the_outline_in_its_buffer() {
     let mut sides = SideBySide::new();
 
-    let edited = after_edit(
-        &mut sides,
-        &block_with_a_back_top_fillet(Vec::new()),
-        &back_line_deleted(),
-    );
+    let edited = after_edit(&mut sides, &nc11());
 
     let repair = feature_repair(&edited, "f-ext1", "/profile/regions/0");
     let ghost = &repair["ghost"];
@@ -2671,11 +1263,7 @@ fn engine_t142_nc11_a_region_ghost_passes_through_with_the_outline_in_its_buffer
 fn engine_t142_nc11_a_cause_ghost_passes_through_with_the_deleted_line_in_its_buffer() {
     let mut sides = SideBySide::new();
 
-    let edited = after_edit(
-        &mut sides,
-        &block_with_a_back_top_fillet(Vec::new()),
-        &back_line_deleted(),
-    );
+    let edited = after_edit(&mut sides, &nc11());
 
     let cause = assert_cause(
         &feature_message(&edited, "f-ext1", "profile_not_found"),
@@ -2696,11 +1284,7 @@ fn engine_t142_nc11_a_cause_ghost_passes_through_with_the_deleted_line_in_its_bu
 fn engine_t142_nc11_an_empty_body_passes_through_with_its_root_and_the_same_cause() {
     let mut sides = SideBySide::new();
 
-    let edited = after_edit(
-        &mut sides,
-        &block_with_a_back_top_fillet(Vec::new()),
-        &back_line_deleted(),
-    );
+    let edited = after_edit(&mut sides, &nc11());
 
     let empty = feature_message(&edited, "f-fil1", "body_empty");
     assert_eq!(empty["root"], "f-ext1", "{empty}");
@@ -2711,11 +1295,10 @@ fn engine_t142_nc11_an_empty_body_passes_through_with_its_root_and_the_same_caus
 fn engine_t142_nc11_ghosts_are_written_last_through_ps_call() {
     // Protocol.md tests 68 and 72: a repair and a cause each write `ghost` after their other keys.
     let mut sides = SideBySide::new();
-    sides.open(1, &block_with_a_back_top_fillet(Vec::new()));
+    let scenario = nc11();
+    sides.open(1, &scenario.setup);
 
-    let edited = sides.send_raw(2, |side| {
-        apply_edits(side, EDIT_LABEL, &back_line_deleted())
-    });
+    let edited = sides.send_raw(2, |side| apply_edits(side, EDIT_LABEL, &scenario.edits));
 
     let status = wire_status(&edited, "f-ext1");
     let repair = entry_of(&status, "repairs", "path", "/profile/regions/0");
@@ -2729,6 +1312,11 @@ fn engine_t142_nc11_ghosts_are_written_last_through_ps_call() {
         keys_of(&message["cause"]),
         ["text", "feature", "actions", "ghost"]
     );
+}
+
+/// The `list_uses` command for the side's document.
+fn list_uses(side: &Side) -> Value {
+    json!({"type": "list_uses", "doc": side.doc})
 }
 
 #[test]
