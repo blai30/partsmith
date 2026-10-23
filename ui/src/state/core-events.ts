@@ -1,4 +1,5 @@
 import type { CoreEvent } from '../core/events'
+import type { AssetFile } from '../files/assets'
 import type { DocHandle, Document } from '../generated/protocol'
 import { measureTiming, TIMING_NAMES } from '../performance/marks'
 import type { AppStore, DocumentState, FileReference } from './store'
@@ -19,6 +20,8 @@ export type DocumentDetails = {
    * the one an action named for it; adopting a document without one starts a new session.
    */
   readonly recoveryId?: string
+  /** The asset files the core accepted when it opened the document (ui.md 3.19); none unless given. */
+  readonly assets?: readonly AssetFile[]
 }
 
 /** The details of an adopted document, with its recovery session. */
@@ -62,6 +65,7 @@ function newDocumentState(
     dirty: false,
     localUnsaved: details.localUnsaved,
     recoveryId: details.recoveryId,
+    assets: details.assets ?? [],
     undoLabel: null,
     redoLabel: null,
     transactionOpen: false,
@@ -253,6 +257,7 @@ export function adoptDocument(
   const adopted: AdoptedDetails = {
     ...details,
     recoveryId: details.recoveryId ?? crypto.randomUUID(),
+    assets: details.assets ?? [],
   }
   const pending = registry.pending.get(documentHandle)
   registry.pending.clear()

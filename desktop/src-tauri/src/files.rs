@@ -1,7 +1,7 @@
-//! File access limited to files the user chose in a native dialog (desktop.md 2.4 and 3.2 to 3.5).
+//! File access limited to files the user chose in a native dialog and the assets next to a chosen document (desktop.md 2.4 and 3.2 to 3.5).
 
-use std::fs::{self, File, OpenOptions, Permissions};
-use std::io::{self, Write};
+use std::fs::{self, File, Metadata, OpenOptions, Permissions};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -14,6 +14,15 @@ pub const MAX_GRANTS: usize = 100;
 
 /// The grant store format this host reads and writes.
 const STORE_VERSION: u64 = 1;
+
+/// The extensions of the assets the engine names (engine.md 3.14: `<hash>.step` in M1).
+pub const ASSET_EXTENSIONS: &[&str] = &["step"];
+
+/// The folder next to a document that holds its assets (file-format.md 3.11).
+const ASSETS_FOLDER: &str = "assets";
+
+/// The detail of `Denied` for a read-only file, which an atomic write would otherwise replace (3.4 step 4.2).
+const READ_ONLY: &str = "the file is read-only";
 
 /// The file kinds the UI opens and saves (ui.md `FileKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -113,9 +122,32 @@ pub enum FileError {
         /// The adjusted file name.
         name: String,
     },
-    /// `write_file` received a JSON body instead of raw bytes.
+    /// `write_file` or `write_asset` received a JSON body instead of raw bytes.
     #[error("The file contents must be sent as bytes.")]
     NotBytes,
+    /// An asset command was given a name that is not an asset's file name.
+    #[error("\"{name}\" is not the name of an asset.")]
+    NotAnAssetName {
+        /// The name as given.
+        name: String,
+    },
+    /// `write_asset` was given bytes whose BLAKE3 hash is not the asset's name.
+    #[error("The bytes sent for {name} are not that asset: their hash is not its name.")]
+    AssetMismatch {
+        /// The asset's name.
+        name: String,
+    },
+    /// The `assets` entry next to the document is not a folder; a symbolic link is never followed.
+    #[error(
+        "The assets entry next to the document is a file or a symbolic link, not a folder, so Partsmith does not use it."
+    )]
+    AssetsNotAFolder,
+    /// The entry under an asset's name is not a regular file.
+    #[error("{name} in the assets folder is not a file, so Partsmith does not use it.")]
+    NotAFile {
+        /// The asset's name.
+        name: String,
+    },
 }
 
 impl FileError {
@@ -127,7 +159,11 @@ impl FileError {
             FileError::Io { .. }
             | FileError::NotUnicode
             | FileError::Exists { .. }
-            | FileError::NotBytes => "io",
+            | FileError::NotBytes
+            | FileError::NotAnAssetName { .. }
+            | FileError::AssetMismatch { .. }
+            | FileError::AssetsNotAFolder
+            | FileError::NotAFile { .. } => "io",
         }
     }
 
@@ -161,6 +197,28 @@ impl Serialize for FileError {
 /// The grant of a path: the first 16 bytes of the BLAKE3 hash of its UTF-8 text, as 32 lowercase hex digits.
 pub fn grant_of(path: &str) -> String {
     blake3::hash(path.as_bytes()).to_hex()[..32].to_owned()
+}
+
+/// Whether `name` is an asset's file name (file-format.md 3.11): 64 lowercase hex digits, a dot and one of `ASSET_EXTENSIONS`.
+pub fn is_asset_name(name: &str) -> bool {
+    name.split_once('.').is_some_and(|(hash, extension)| {
+        hash.len() == 64
+            && hash
+                .bytes()
+                .all(|digit| matches!(digit, b'0'..=b'9' | b'a'..=b'f'))
+            && ASSET_EXTENSIONS.contains(&extension)
+    })
+}
+
+/// `NotAnAssetName` unless `name` is an asset's file name.
+fn check_asset_name(name: &str) -> Result<(), FileError> {
+    if is_asset_name(name) {
+        Ok(())
+    } else {
+        Err(FileError::NotAnAssetName {
+            name: name.to_owned(),
+        })
+    }
 }
 
 /// The grant store file (desktop.md 3.2 step 4).
@@ -267,6 +325,92 @@ impl Files {
         Ok(())
     }
 
+    /// Reads the asset `name` from the `assets/` folder next to a granted `.ptsm` document (3.4, assets).
+    /// Neither the folder nor the entry is followed when it is a symbolic link, and the grant list is left as it is.
+    pub fn read_asset(&self, grant: &str, name: &str) -> Result<Vec<u8>, FileError> {
+        check_asset_name(name)?;
+        let assets = self.assets_folder(grant)?;
+        if !assets_folder_exists(&assets)? {
+            return Err(FileError::NotFound {
+                name: ASSETS_FOLDER.to_owned(),
+            });
+        }
+        let entry = assets.join(name);
+        let not_a_file = || FileError::NotAFile {
+            name: name.to_owned(),
+        };
+        match look(&entry)? {
+            Some(looked) if looked.is_file() => read_looked(&entry, &looked)
+                .map_err(|error| FileError::from_io(&error, &entry))?
+                .ok_or_else(not_a_file),
+            Some(_) => Err(not_a_file()),
+            None => Err(FileError::NotFound {
+                name: name.to_owned(),
+            }),
+        }
+    }
+
+    /// Writes the asset `name` to the `assets/` folder next to a granted `.ptsm` document, keeping an entry that already holds these bytes (3.4, assets).
+    /// The bytes must hash to the name; an entry that is no regular file is replaced, never written through, and the grant list is left as it is.
+    pub fn write_asset(&self, grant: &str, name: &str, bytes: &[u8]) -> Result<(), FileError> {
+        check_asset_name(name)?;
+        // A valid name starts with its 64 hex digits, which must be the hash of the bytes.
+        if !name.starts_with(blake3::hash(bytes).to_hex().as_str()) {
+            return Err(FileError::AssetMismatch {
+                name: name.to_owned(),
+            });
+        }
+        let assets = self.assets_folder(grant)?;
+        if !assets_folder_exists(&assets)? {
+            // Never its parents: a missing document folder fails instead.
+            fs::create_dir(&assets).map_err(|error| FileError::from_io(&error, &assets))?;
+        }
+        let entry = assets.join(name);
+        let permissions = match look(&entry)? {
+            Some(looked) if looked.is_dir() => {
+                return Err(FileError::NotAFile {
+                    name: name.to_owned(),
+                });
+            }
+            Some(looked) if looked.is_file() => {
+                if looked.len() == bytes.len() as u64
+                    && read_looked(&entry, &looked)
+                        .map_err(|error| FileError::from_io(&error, &entry))?
+                        .is_some_and(|held| held == bytes)
+                {
+                    return Ok(());
+                }
+                if looked.permissions().readonly() {
+                    return Err(FileError::Denied {
+                        name: name.to_owned(),
+                        detail: READ_ONLY.to_owned(),
+                    });
+                }
+                Some(looked.permissions())
+            }
+            // A symbolic link, a socket or a pipe is replaced with a new file of default permissions.
+            Some(_) | None => None,
+        };
+        self.replace_entry(&entry, permissions.as_ref(), bytes)
+            .map_err(|error| FileError::from_io(&error, &entry))
+    }
+
+    /// The `assets` folder in the folder of a granted document as it was granted, without following a link (3.4 step 7).
+    /// The grant of a file that is not a `.ptsm` document, such as an export target, reaches none.
+    fn assets_folder(&self, grant: &str) -> Result<PathBuf, FileError> {
+        let path = PathBuf::from(self.path_of(grant)?);
+        let is_document = path.extension().is_some_and(|extension| {
+            FileKind::Ptsm
+                .extensions()
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known))
+        });
+        match path.parent() {
+            Some(folder) if is_document => Ok(folder.join(ASSETS_FOLDER)),
+            _ => Err(FileError::UnknownGrant),
+        }
+    }
+
     /// The grant list, which stays consistent even if a thread panicked while holding it.
     fn grants(&self) -> MutexGuard<'_, Vec<String>> {
         self.grants.lock().unwrap_or_else(PoisonError::into_inner)
@@ -341,14 +485,25 @@ impl Files {
     fn replace(&self, target: &Path, bytes: &[u8]) -> io::Result<()> {
         let target = followed(target)?;
         let permissions = writable_permissions(&target)?;
+        self.replace_entry(&target, permissions.as_ref(), bytes)
+    }
+
+    /// Replaces the entry `target` itself, never a file a link points to, with a file holding `bytes` and `permissions`:
+    /// a temporary file in its folder is written, flushed and renamed over it, and removed on any failure.
+    fn replace_entry(
+        &self,
+        target: &Path,
+        permissions: Option<&Permissions>,
+        bytes: &[u8],
+    ) -> io::Result<()> {
         let number = self.temporary_files.fetch_add(1, Ordering::Relaxed);
         let temporary_name = format!(
             ".{}.{}-{number}.partsmith.tmp",
-            file_name(&target),
+            file_name(target),
             std::process::id()
         );
         let temporary = target.with_file_name(temporary_name);
-        let result = write_and_rename(&temporary, &target, permissions.as_ref(), bytes);
+        let result = write_and_rename(&temporary, target, permissions, bytes);
         if result.is_err() {
             // The temporary file may not exist when its creation was what failed.
             let _ = fs::remove_file(&temporary);
@@ -369,13 +524,58 @@ fn followed(path: &Path) -> io::Result<PathBuf> {
 /// The permissions of an existing `target`, None when it does not exist yet, and `PermissionDenied` when it is read-only.
 fn writable_permissions(target: &Path) -> io::Result<Option<Permissions>> {
     match fs::metadata(target) {
-        Ok(metadata) if metadata.permissions().readonly() => Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "the file is read-only",
-        )),
+        Ok(metadata) if metadata.permissions().readonly() => {
+            Err(io::Error::new(io::ErrorKind::PermissionDenied, READ_ONLY))
+        }
         Ok(metadata) => Ok(Some(metadata.permissions())),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
+    }
+}
+
+/// What an entry is, without following a symbolic link; None when there is none.
+fn look(path: &Path) -> Result<Option<Metadata>, FileError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(FileError::from_io(&error, path)),
+    }
+}
+
+/// Whether the `assets` entry is a folder (true) or missing (false); anything else, a symbolic link included, is `AssetsNotAFolder`.
+fn assets_folder_exists(assets: &Path) -> Result<bool, FileError> {
+    match look(assets)? {
+        Some(metadata) if metadata.is_dir() => Ok(true),
+        Some(_) => Err(FileError::AssetsNotAFolder),
+        None => Ok(false),
+    }
+}
+
+/// The bytes of the regular file `looked` at under `path`, or None when the file opened there is not that one
+/// (it was swapped between the look and the open), so nothing is read through a link or another entry.
+fn read_looked(path: &Path, looked: &Metadata) -> io::Result<Option<Vec<u8>>> {
+    let mut file = File::open(path)?;
+    if !is_same_file(looked, &file.metadata()?) {
+        return Ok(None);
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(Some(bytes))
+}
+
+/// Whether an opened file is the regular file looked at: the same device and inode on Unix,
+/// elsewhere a regular file of the same length and modification time.
+fn is_same_file(looked: &Metadata, opened: &Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        looked.dev() == opened.dev() && looked.ino() == opened.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        opened.is_file()
+            && looked.len() == opened.len()
+            && looked.modified().ok() == opened.modified().ok()
     }
 }
 

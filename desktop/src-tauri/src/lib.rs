@@ -1,4 +1,4 @@
-//! Tauri 2 desktop host for Partsmith: one engine session behind the `call` command, native file dialogs, granted file access and the close guard (`docs/spec/desktop.md`).
+//! Tauri 2 desktop host for Partsmith: one engine session behind the `call` command, native file dialogs, granted file access with the assets next to a granted document, and the close guard (`docs/spec/desktop.md`).
 
 mod close_guard;
 mod command_names;
@@ -14,13 +14,16 @@ use tauri::{App, Manager, Runtime};
 pub use close_guard::Unsaved;
 pub use command_names::COMMAND_NAMES;
 pub use dialogs::TauriDialogs;
-pub use files::{Dialogs, FileError, FileKind, Files, Granted, MAX_GRANTS, grant_of};
+pub use files::{
+    ASSET_EXTENSIONS, Dialogs, FileError, FileKind, Files, Granted, MAX_GRANTS, grant_of,
+    is_asset_name,
+};
 pub use host::Host;
 
 /// The file in the app data directory that keeps the file grants across restarts.
 const GRANT_STORE: &str = "file-grants.json";
 
-/// Adds the dialog plugin, `Arc<Host>` (`Host::default()`), `Unsaved` and the six commands to a builder.
+/// Adds the dialog plugin, `Arc<Host>` (`Host::default()`), `Unsaved` and the eight commands to a builder.
 /// `run` and the command tests share it; the caller manages `Arc<Files>`.
 pub fn configure<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
@@ -33,6 +36,8 @@ pub fn configure<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             commands::pick_save_file,
             commands::read_file,
             commands::write_file,
+            commands::read_asset,
+            commands::write_asset,
             commands::set_unsaved,
         ])
 }

@@ -119,6 +119,8 @@ describe('a replaced document (3.19)', () => {
         text: stored(cubeRecipe),
         savedAt: expect.any(Number),
         handle: cubeHandle,
+        folder: null,
+        digest: expect.any(String),
         reason: 'autosave',
       },
     ])
@@ -133,6 +135,8 @@ describe('a replaced document (3.19)', () => {
         text: stored(cubeRecipe),
         savedAt: expect.any(Number),
         handle: cubeHandle,
+        folder: null,
+        digest: expect.any(String),
         reason: 'replaced',
       },
     ])
@@ -151,6 +155,8 @@ describe('a replaced document (3.19)', () => {
       text: stored(currentDocument(fake.app).recipe),
       savedAt: expect.any(Number),
       handle: pegHandle,
+      folder: null,
+      digest: expect.any(String),
       reason: 'autosave',
     })
 
@@ -243,6 +249,8 @@ function entryNamed(name: string, savedAt: number): RecoveryEntry {
     text: stored(withCubeNamed(name.toUpperCase())),
     savedAt,
     handle: null,
+    folder: null,
+    digest: null,
     reason: 'autosave',
   }
 }

@@ -24,6 +24,7 @@ import type {
   Units,
   Use,
 } from '../generated/protocol'
+import type { AssetFile } from '../files/assets'
 import { CoreError, type CoreClient } from './client'
 import { byteBuffer, sketchDisplayData, type SketchDisplayData } from './events'
 import type { BufferView } from './frame'
@@ -55,8 +56,15 @@ export type CoreApi = {
   featureCatalog(): Promise<readonly CatalogEntry[]>
   listPrinterProfiles(): Promise<readonly PrinterProfile[]>
   newDocument(units?: Units): Promise<DocHandle>
-  openDocument(text: string): Promise<{ documentHandle: DocHandle; migratedFrom: number | null }>
-  saveDocument(documentHandle: DocHandle): Promise<{ text: string; revision: number }>
+  /** `open_document` with the asset files of the document's `assets/` folder (3.19); none unless given. */
+  openDocument(
+    text: string,
+    assets?: readonly AssetFile[],
+  ): Promise<{ documentHandle: DocHandle; migratedFrom: number | null }>
+  /** `save_document`: the canonical text, every asset the document references (sorted by name) and the revision the text describes. */
+  saveDocument(
+    documentHandle: DocHandle,
+  ): Promise<{ text: string; assets: readonly AssetFile[]; revision: number }>
   markSaved(documentHandle: DocHandle, revision: number): Promise<void>
   closeDocument(documentHandle: DocHandle): Promise<void>
   applyEdits(
@@ -192,8 +200,9 @@ async function unlessSuperseded<Value>(request: Promise<Value>): Promise<Value |
 export function createCoreApi(client: CoreClient): CoreApi {
   async function call<Type extends Command['type']>(
     command: CommandOfType<Type>,
+    buffers?: readonly Uint8Array[],
   ): Promise<TypedReply<Type>> {
-    const reply = await client.request(command)
+    const reply = await client.request(command, buffers)
     const { result } = reply
     if (!isResultOf(result, command.type)) {
       throw new CoreFatalError(
@@ -236,13 +245,29 @@ export function createCoreApi(client: CoreClient): CoreApi {
       }
       return (await call(command)).result.doc
     },
-    async openDocument(text) {
-      const { result } = await call({ type: 'open_document', text, assets: [] })
+    async openDocument(text, assets = []) {
+      // Asset i travels as the request's buffer i (protocol.md command 6).
+      const { result } = await call(
+        {
+          type: 'open_document',
+          text,
+          assets: assets.map((asset, data) => ({ name: asset.name, data })),
+        },
+        assets.map((asset) => asset.bytes),
+      )
       return { documentHandle: result.doc, migratedFrom: result.migrated_from ?? null }
     },
     async saveDocument(documentHandle) {
-      const { result } = await call({ type: 'save_document', doc: documentHandle })
-      return { text: result.text, revision: result.revision }
+      const { result, buffers } = await call({ type: 'save_document', doc: documentHandle })
+      return {
+        text: result.text,
+        // Copied so the assets outlive the response frame.
+        assets: result.assets.map((asset) => ({
+          name: asset.name,
+          bytes: byteBuffer(buffers, asset.data).slice(),
+        })),
+        revision: result.revision,
+      }
     },
     async markSaved(documentHandle, revision) {
       await call({ type: 'mark_saved', doc: documentHandle, revision })

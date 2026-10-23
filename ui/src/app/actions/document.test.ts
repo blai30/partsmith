@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CoreFatalError } from '../../core/transport'
+import { fileDigest } from '../../files/digest'
 import { FileServiceError } from '../../files/file-service'
 import { createMemoryRecovery } from '../../files/recovery'
 import type { Document, Edit } from '../../generated/protocol'
@@ -48,6 +49,11 @@ import { select } from './selection'
 const RENAME_TO_BOX: readonly Edit[] = [
   { type: 'update_body', body: { id: 'b-cube', name: 'Box' } },
 ]
+
+/** Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's. */
+function utf8(text: string): Uint8Array {
+  return Uint8Array.from(new TextEncoder().encode(text))
+}
 
 function renamed(name: string): Document {
   return { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name }] }
@@ -149,6 +155,8 @@ describe('startCore (3.1)', () => {
       text: JSON.stringify(renamed('Box'), null, 2),
       savedAt: Date.UTC(2026, 9, 12, 9, 30),
       handle: null,
+      folder: null,
+      digest: null,
       reason: 'autosave',
     })
     const fake = await startFakeApp({ recovery })
@@ -170,6 +178,8 @@ describe('startCore (3.1)', () => {
       text: JSON.stringify(renamed('Box'), null, 2),
       savedAt: Date.UTC(2026, 9, 12, 9, 30),
       handle,
+      folder: null,
+      digest: null,
       reason: 'autosave',
     })
     const fake = await startFakeApp({ recovery })
@@ -190,6 +200,8 @@ describe('startCore (3.1)', () => {
       text: JSON.stringify(renamed('Box'), null, 2),
       savedAt: Date.UTC(2026, 9, 12, 9, 30),
       handle: null,
+      folder: null,
+      digest: null,
       reason: 'autosave',
     })
     const fake = await startFakeApp({ recovery })
@@ -232,6 +244,8 @@ describe('newDocument (3.19)', () => {
       text: '{}',
       savedAt: 0,
       handle: null,
+      folder: null,
+      digest: null,
       reason: 'autosave',
     } as const
     await fake.recovery.write(other)
@@ -241,6 +255,8 @@ describe('newDocument (3.19)', () => {
       text: '{}',
       savedAt: 1,
       handle: null,
+      folder: null,
+      digest: null,
       reason: 'autosave',
     })
     await newDocument(fake.app)
@@ -263,6 +279,8 @@ describe('newDocument (3.19)', () => {
         text: JSON.stringify(recipe, null, 2),
         savedAt: expect.any(Number),
         handle,
+        folder: null,
+        digest: await fileDigest(utf8(documentText(CUBE_DOCUMENT))),
         reason: 'replaced',
       },
     ])
@@ -417,7 +435,12 @@ describe('openFile (3.19)', () => {
     ])
     const document = currentDocument(fake.app)
     expect(document.name).toBe('Cube')
-    expect(document.file).toEqual({ name: 'Cube.PTSM', handle })
+    expect(document.file).toEqual({
+      name: 'Cube.PTSM',
+      handle,
+      folder: null,
+      digest: await fileDigest(utf8(documentText(CUBE_DOCUMENT))),
+    })
     expect(document.recipe).toEqual(CUBE_DOCUMENT)
     expect(document.localUnsaved).toBe(false)
     expect(fake.app.store.getState().context).toBe('model')
@@ -499,6 +522,7 @@ describe('openRecent (3.19)', () => {
       name: 'cube.ptsm',
       openedAt: 0,
       handle: null,
+      folder: null,
       text: documentText(CUBE_DOCUMENT),
     })
     await settle()
@@ -516,6 +540,7 @@ describe('openRecent (3.19)', () => {
       name: 'cube.ptsm',
       openedAt: 0,
       handle,
+      folder: null,
       text: null,
     })
     await settle()
@@ -533,6 +558,7 @@ describe('openRecent (3.19)', () => {
       name: 'cube.ptsm',
       openedAt: 0,
       handle,
+      folder: null,
       text: null,
     })
     await settle()
@@ -545,7 +571,12 @@ describe('openRecent (3.19)', () => {
   it('a missing file shows recent_missing and forgets the entry', async () => {
     const fake = await startFakeApp()
     const handle = createFakeFileHandle('cube.ptsm')
-    await fake.recent.remember({ name: 'cube.ptsm', handle, text: documentText(CUBE_DOCUMENT) })
+    await fake.recent.remember({
+      name: 'cube.ptsm',
+      handle,
+      folder: null,
+      text: documentText(CUBE_DOCUMENT),
+    })
     const [entry] = await fake.recent.list()
     if (entry === undefined) {
       throw new Error('The recent entry was not remembered.')
@@ -561,16 +592,18 @@ describe('openRecent (3.19)', () => {
 })
 
 describe('save (3.19)', () => {
-  it('U-86 calls saveDocument, files.write, then markSaved with the returned revision, in that order', async () => {
+  it('U-86 calls saveDocument, files.readHandle, files.write, then markSaved with the returned revision, in that order', async () => {
     const { fake, handle } = await dirtyCubeWithHandle()
     const revision = currentDocument(fake.app).revision
     await save(fake.app)
     await settle()
     expect(fake.journal.filter((entry) => !entry.startsWith('recovery.'))).toEqual([
       'command:save_document',
+      'files.readHandle',
       'files.write',
       'command:mark_saved',
     ])
+    expect(fake.files.reads).toEqual([handle])
     const [write] = fake.files.writes
     expect(write?.kind).toBe('ptsm')
     expect(write?.target).toEqual({ kind: 'handle', name: 'cube.ptsm', handle })
@@ -588,6 +621,8 @@ describe('save (3.19)', () => {
       text: '{}',
       savedAt: 0,
       handle: null,
+      folder: null,
+      digest: null,
       reason: 'autosave',
     })
     await save(fake.app)
@@ -695,7 +730,13 @@ describe('saveAs (3.19)', () => {
     await saveAs(fake.app)
     await settle()
     const document = currentDocument(fake.app)
-    expect(document.file).toEqual({ name: 'bracket.ptsm', handle })
+    const [write] = fake.files.writes
+    expect(document.file).toEqual({
+      name: 'bracket.ptsm',
+      handle,
+      folder: null,
+      digest: await fileDigest(write?.bytes ?? new Uint8Array(0)),
+    })
     expect(document.name).toBe('bracket')
     const [entry] = await fake.recent.list()
     expect(entry).toMatchObject({ name: 'bracket.ptsm', handle })

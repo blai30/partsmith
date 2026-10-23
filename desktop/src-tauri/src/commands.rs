@@ -1,4 +1,4 @@
-//! The six host commands the webview may invoke (desktop.md 2.6, 3.1 and 3.4).
+//! The eight host commands the webview may invoke (desktop.md 2.6, 3.1 and 3.4).
 
 use std::sync::Arc;
 
@@ -10,8 +10,11 @@ use crate::dialogs::TauriDialogs;
 use crate::files::{FileError, FileKind, Files, Granted};
 use crate::host::Host;
 
-/// The header that carries the grant of `write_file`; header names are case-insensitive, and the UI sends `Partsmith-Grant`.
+/// The header that carries the grant of `write_file` and `write_asset`; header names are case-insensitive, and the UI sends `Partsmith-Grant`.
 const GRANT_HEADER: &str = "partsmith-grant";
+
+/// The header that carries the asset name of `write_asset`; the UI sends `Partsmith-Asset`.
+const ASSET_HEADER: &str = "partsmith-asset";
 
 /// Forwards one request frame to the engine and answers with its response frame as raw bytes.
 #[tauri::command]
@@ -72,24 +75,61 @@ pub(crate) async fn write_file(
     request: Request<'_>,
     files: State<'_, Arc<Files>>,
 ) -> Result<(), FileError> {
-    let grant = request
-        .headers()
-        .get(GRANT_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .ok_or(FileError::UnknownGrant)?
-        .to_owned();
-    let InvokeBody::Raw(bytes) = request.body() else {
-        return Err(FileError::NotBytes);
-    };
-    let bytes = bytes.clone();
+    let grant = header(&request, GRANT_HEADER).ok_or(FileError::UnknownGrant)?;
+    let bytes = raw_body(&request)?;
     let files = Arc::clone(&files);
     on_blocking_pool(move || files.write(&grant, &bytes)).await
+}
+
+/// Answers with the bytes of an asset next to a granted document.
+#[tauri::command]
+pub(crate) async fn read_asset(
+    files: State<'_, Arc<Files>>,
+    grant: String,
+    name: String,
+) -> Result<Response, FileError> {
+    let files = Arc::clone(&files);
+    on_blocking_pool(move || files.read_asset(&grant, &name))
+        .await
+        .map(Response::new)
+}
+
+/// Writes the raw body as the asset the `Partsmith-Asset` header names, next to the document the `Partsmith-Grant` header grants.
+#[tauri::command]
+pub(crate) async fn write_asset(
+    request: Request<'_>,
+    files: State<'_, Arc<Files>>,
+) -> Result<(), FileError> {
+    let grant = header(&request, GRANT_HEADER).ok_or(FileError::UnknownGrant)?;
+    let name = header(&request, ASSET_HEADER).ok_or_else(|| FileError::NotAnAssetName {
+        name: String::new(),
+    })?;
+    let bytes = raw_body(&request)?;
+    let files = Arc::clone(&files);
+    on_blocking_pool(move || files.write_asset(&grant, &name, &bytes)).await
 }
 
 /// Keeps whether the UI has unsaved changes, for the close guard.
 #[tauri::command]
 pub(crate) fn set_unsaved(unsaved: bool, state: State<'_, Unsaved>) {
     state.set(unsaved);
+}
+
+/// A request header's value; None when it is missing or not visible ASCII.
+fn header(request: &Request<'_>, name: &str) -> Option<String> {
+    request
+        .headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+}
+
+/// The bytes of a raw request body; a JSON body gives `NotBytes`.
+fn raw_body(request: &Request<'_>) -> Result<Vec<u8>, FileError> {
+    match request.body() {
+        InvokeBody::Raw(bytes) => Ok(bytes.clone()),
+        InvokeBody::Json(_) => Err(FileError::NotBytes),
+    }
 }
 
 /// Runs file work on Tauri's blocking pool, so a dialog or a slow disk never blocks the event loop.

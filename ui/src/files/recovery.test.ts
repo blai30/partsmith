@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createFakeFileHandle, createFakeFolderHandle } from '../test/fakes/files'
 import { createFakeIndexedDb, type FakeIndexedDb } from '../test/fakes/indexed-db'
 import { createFakeLocks } from '../test/fakes/locks'
 import { settle } from '../test/fakes/settle'
@@ -22,6 +23,8 @@ const ENTRY: RecoveryEntry = {
   text: '{"format": 1}',
   savedAt: 1000,
   handle: null,
+  folder: null,
+  digest: null,
   reason: 'autosave',
 }
 
@@ -31,6 +34,8 @@ const SECOND: RecoveryEntry = {
   text: '{"format": 2}',
   savedAt: 2000,
   handle: null,
+  folder: null,
+  digest: null,
   reason: 'autosave',
 }
 
@@ -169,6 +174,45 @@ describe('createIndexedDbRecovery', () => {
     ])
   })
 
+  it('U-229 an entry with a folder handle and a digest round-trips unchanged', async () => {
+    const fake = createFakeIndexedDb()
+    const handle = createFakeFileHandle('block.ptsm')
+    const folder = createFakeFolderHandle('work', [handle])
+    const entry: RecoveryEntry = { ...ENTRY, handle, folder, digest: 'd'.repeat(64) }
+    await createIndexedDbRecovery(fake.factory, BARE).write(entry)
+    const [listed] = await createIndexedDbRecovery(fake.factory, BARE).list()
+    expect(listed).toEqual(entry)
+    expect(listed?.folder).toBe(folder)
+  })
+
+  it('U-229 a version 2 record without folder and digest lists with both null', async () => {
+    const fake = createFakeIndexedDb()
+    const recovery = createIndexedDbRecovery(fake.factory, BARE)
+    await recovery.list()
+    const older = {
+      id: ENTRY.id,
+      name: ENTRY.name,
+      text: ENTRY.text,
+      savedAt: ENTRY.savedAt,
+      handle: null,
+      reason: ENTRY.reason,
+    }
+    fake.putRecord('partsmith', 'recovery', older)
+    await expect(recovery.list()).resolves.toEqual([{ ...older, folder: null, digest: null }])
+  })
+
+  it.each([
+    ['a folder that is a file handle', { folder: { kind: 'file' } }],
+    ['a folder that is a string', { folder: 'work' }],
+    ['a digest that is a number', { digest: 7 }],
+  ])('U-229 skips a stored record with %s', async (_, change) => {
+    const fake = createFakeIndexedDb()
+    const recovery = createIndexedDbRecovery(fake.factory, BARE)
+    await recovery.write(SECOND)
+    fake.putRecord('partsmith', 'recovery', { ...ENTRY, ...change })
+    await expect(recovery.list()).resolves.toEqual([SECOND])
+  })
+
   it('desktop test 47: an entry with a desktop handle round-trips unchanged', async () => {
     const fake = createFakeIndexedDb()
     const handle: DesktopFileHandle = { kind: 'desktop', name: 'bracket.ptsm', grant: 'g1' }
@@ -196,7 +240,10 @@ describe('the upgrade from version 1 (2.15)', () => {
     expect(fake.keyPaths('partsmith')).toEqual({ recent: 'id', recovery: 'id' })
     const records = fake.records('partsmith', 'recovery')
     expect(records).toEqual([{ ...KEPT, id: expect.stringMatching(UUID) }])
-    expect(listed).toEqual(records)
+    // A record written before `folder` and `digest` existed reads them as null (2.15).
+    expect(listed).toEqual([
+      { ...KEPT, id: expect.stringMatching(UUID), folder: null, digest: null },
+    ])
     expect(fake.records('partsmith', 'recent')).toEqual(recent)
   })
 

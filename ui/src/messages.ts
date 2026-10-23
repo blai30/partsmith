@@ -46,12 +46,30 @@ export const MESSAGES = {
   save_not_found: (file: string) =>
     `${file} was moved or deleted. Save it again to choose a location.`,
   save_io: (file: string, reason: string) => `Could not save ${file}: ${reason}`,
+  save_conflict: (file: string) =>
+    `${file} was changed elsewhere after you opened or saved it, so Partsmith did not save over it.`,
+  save_assets: (file: string) =>
+    `${file} was not saved, because Partsmith could not write its imported files to the assets folder next to it.`,
+  save_folder_needed: (file: string) =>
+    `${file} is not saved yet, because its imported files are saved in the folder it goes in and the browser has not given Partsmith that folder. Choose the folder you are saving ${file} in.`,
   download_hint: (file: string) =>
     `This browser saves by downloading. ${file} is in your downloads folder.`,
   recent_permission: (file: string) =>
     `Partsmith needs permission to open ${file}. Choose it again to grant access.`,
   recent_missing: (file: string) =>
     `${file} has moved or been deleted, so it was removed from recent files.`,
+  assets_folder_needed: (file: string) =>
+    `The imported geometry of ${file} is missing, because the browser has not given Partsmith the folder that holds it and its assets folder. Choose the folder ${file} is in.`,
+  assets_wrong_folder: (folder: string, file: string) =>
+    `${folder} is not the folder that holds ${file}. Choose the folder ${file} is in.`,
+  assets_without_folder: (file: string) =>
+    `The imported geometry of ${file} is missing, because Partsmith has no file of it to find its assets folder by. Open the file with Open... instead.`,
+  assets_unsupported: (file: string) =>
+    `The imported geometry of ${file} is missing, because this browser does not let Partsmith reach files next to the one you chose. Open it in Chrome or Edge, or in the Partsmith desktop app.`,
+  assets_not_read: (file: string) =>
+    `Partsmith could not read some imported files from the assets folder next to ${file}, so their geometry is missing.`,
+  assets_mismatch: (file: string) =>
+    `Some files in the assets folder next to ${file} are not the files it imported, so Partsmith opened it without them and its imported geometry is missing.`,
   stashed: (name: string) => `${name} had unsaved changes. They are kept for you.`,
   recovered: (name: string, time: string) =>
     `Partsmith kept unsaved changes to ${name} from ${time}.`,

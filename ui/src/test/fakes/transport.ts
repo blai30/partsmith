@@ -1,3 +1,4 @@
+import type { BufferView } from '../../core/frame'
 import { CoreFatalError, type CoreReady, type Transport } from '../../core/transport'
 import { PROTOCOL_VERSION, type Command, type Request } from '../../generated/protocol'
 import {
@@ -7,7 +8,7 @@ import {
   type FakeCoreOptions,
   type FakeReply,
 } from './core'
-import { readRequest } from './protocol'
+import { readRequestFrame } from './protocol'
 
 // A Transport whose core is the in-memory fake of ./core, of the worker kind unless a test asks
 // for the Tauri kind. Every start() boots a fresh
@@ -17,10 +18,14 @@ import { readRequest } from './protocol'
 
 type CommandOfType<Type extends Command['type']> = Extract<Command, { type: Type }>
 
-/** Answers one command type instead of the fake core's default; `core.reply(command)` gives the default. */
+/**
+ * Answers one command type instead of the fake core's default; `core.reply(command, buffers)` gives
+ * the default. `buffers` are the request frame's buffers.
+ */
 export type FakeHandler<Type extends Command['type']> = (
   command: CommandOfType<Type>,
   core: FakeCore,
+  buffers: readonly BufferView[],
 ) => FakeReply | Promise<FakeReply>
 
 export type FakeTransportOptions = FakeCoreOptions & {
@@ -35,6 +40,10 @@ export type FakeTransport = Transport & {
   readonly requests: readonly Request[]
   /** The commands of `requests`. */
   readonly commands: readonly Command[]
+  /** The buffers of each request frame, in the order of `requests`. */
+  readonly requestBuffers: readonly (readonly BufferView[])[]
+  /** The buffers of the request frame that carried `command`, one of `commands`; throws for another. */
+  buffersOf(command: Command): readonly BufferView[]
   /** The received commands of one type, oldest first. */
   commandsOfType<Type extends Command['type']>(type: Type): readonly CommandOfType<Type>[]
   /** The types of the received commands, oldest first. */
@@ -66,9 +75,14 @@ function isCommandOfType<Type extends Command['type']>(
 
 export function createFakeTransport(options: FakeTransportOptions = {}): FakeTransport {
   const requests: Request[] = []
+  const requestBuffers: (readonly BufferView[])[] = []
   const handlers = new Map<
     Command['type'],
-    (command: Command, core: FakeCore) => FakeReply | Promise<FakeReply>
+    (
+      command: Command,
+      core: FakeCore,
+      buffers: readonly BufferView[],
+    ) => FakeReply | Promise<FakeReply>
   >()
   const fatalListeners = new Set<(error: CoreFatalError) => void>()
   let core: FakeCore | null = null
@@ -98,7 +112,7 @@ export function createFakeTransport(options: FakeTransportOptions = {}): FakeTra
     }
   }
 
-  async function answer(request: Request): Promise<ArrayBuffer> {
+  async function answer(request: Request, buffers: readonly BufferView[]): Promise<ArrayBuffer> {
     if (gate !== null) {
       await gate
     }
@@ -108,8 +122,8 @@ export function createFakeTransport(options: FakeTransportOptions = {}): FakeTra
     const answeringCore = currentCore()
     const handler = handlers.get(request.command.type)
     const reply = await (handler === undefined
-      ? answeringCore.reply(request.command)
-      : handler(request.command, answeringCore))
+      ? answeringCore.reply(request.command, buffers)
+      : handler(request.command, answeringCore, buffers))
     if (fatal !== null) {
       throw fatal
     }
@@ -123,6 +137,17 @@ export function createFakeTransport(options: FakeTransportOptions = {}): FakeTra
     },
     get commands() {
       return requests.map((request) => request.command)
+    },
+    get requestBuffers() {
+      return requestBuffers
+    },
+    buffersOf(command) {
+      const index = requests.findIndex((request) => request.command === command)
+      const buffers = requestBuffers[index]
+      if (buffers === undefined) {
+        throw new Error(`The fake transport received no such ${command.type} request.`)
+      }
+      return buffers
     },
     commandsOfType(type) {
       return requests.flatMap((request) =>
@@ -157,10 +182,11 @@ export function createFakeTransport(options: FakeTransportOptions = {}): FakeTra
       if (fatal !== null) {
         return Promise.reject(fatal)
       }
-      const request = readRequest(frame)
+      const { request, buffers } = readRequestFrame(frame)
       requests.push(request)
+      requestBuffers.push(buffers)
       options.journal?.push(`command:${request.command.type}`)
-      const response = chain.then(() => answer(request))
+      const response = chain.then(() => answer(request, buffers))
       chain = response.catch(() => undefined)
       return response
     },
@@ -179,11 +205,11 @@ export function createFakeTransport(options: FakeTransportOptions = {}): FakeTra
         handlers.delete(type)
         return
       }
-      handlers.set(type, (command, answeringCore) => {
+      handlers.set(type, (command, answeringCore, buffers) => {
         if (!isCommandOfType(command, type)) {
           throw new Error(`The handler for ${type} received ${command.type}.`)
         }
-        return handler(command, answeringCore)
+        return handler(command, answeringCore, buffers)
       })
     },
     failNextStart(error) {
@@ -206,6 +232,7 @@ export function createFakeTransport(options: FakeTransportOptions = {}): FakeTra
     },
     clearRequests() {
       requests.length = 0
+      requestBuffers.length = 0
     },
   }
   return transport

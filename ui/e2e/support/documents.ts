@@ -1,11 +1,12 @@
 /// <reference lib="dom" />
 import { expect, type Locator, type Page } from '@playwright/test'
+import { bodyRow } from '../helpers'
 
 // Helpers for the document, file, recovery, undo, notification and status bar tests (ui.md 6.5
 // E-1 to E-9, E-127 to E-129 and the tests of 3.19 to 3.22): the timeline as a whole and its
 // statuses, the Problems panel, notifications, the IndexedDB records of recent files and recovery,
-// and the Web Locks of running recovery sessions (2.15). The shared helpers of 6.3 are in
-// ../helpers.ts.
+// the Web Locks of running recovery sessions (2.15), and a rename sent without waiting for the
+// core. The shared helpers of 6.3 are in ../helpers.ts.
 
 /** One recovery entry in IndexedDB (ui.md 2.15), without its handle. */
 export type StoredRecovery = {
@@ -207,4 +208,19 @@ export function heldRecoveryLocks(page: Page): Promise<string[]> {
       lock.name?.startsWith('partsmith-recovery-') === true ? [lock.name] : [],
     )
   })
+}
+
+/**
+ * Starts renaming a body as `renameBody` does (click its row, F2, type, Enter), without waiting
+ * for the core to answer. Returns the time Enter was pressed, which sends the rename.
+ */
+export async function sendRename(page: Page, from: string, to: string): Promise<number> {
+  await bodyRow(page, from).click()
+  await page.keyboard.press('F2')
+  const field = page.getByTestId('browser').getByRole('textbox', { name: 'Name', exact: true })
+  await expect(field).toBeFocused()
+  await page.keyboard.type(to)
+  const sentAt = Date.now()
+  await page.keyboard.press('Enter')
+  return sentAt
 }

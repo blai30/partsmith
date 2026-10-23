@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { createFakeFileHandle } from '../test/fakes/files'
+import { ASSET_A, ASSET_B, ASSET_C_NAME } from '../test/fakes/assets'
+import { createFakeFileHandle, createFakeFolderHandle } from '../test/fakes/files'
 import { createFakeTauri, rejects, resolves, type FakeScript } from '../test/fakes/tauri'
-import { createDesktopFileService, GRANT_HEADER, tauriGlobalOf } from './desktop-file-service'
+import {
+  ASSET_HEADER,
+  createDesktopFileService,
+  GRANT_HEADER,
+  tauriGlobalOf,
+} from './desktop-file-service'
 import { FileServiceError, type DesktopFileHandle } from './file-service'
 
 // The bytes of "hello".
@@ -327,5 +333,183 @@ describe('tauriGlobalOf', () => {
     const { tauri } = createFakeTauri()
 
     expect(tauriGlobalOf({ __TAURI__: tauri })).toBe(tauri)
+  })
+})
+
+describe('the assets next to a granted document (desktop.md 3.7 steps 9 to 12)', () => {
+  const A = ASSET_A.name
+  const B = ASSET_B.name
+  const C = ASSET_C_NAME
+  const PLACE = { handle: PART, folder: null }
+
+  it('desktop test 64: readAssets reads each name through read_asset, in order', async () => {
+    const { service, invocations } = serviceAnswering({
+      read_asset: [
+        resolves(arrayBufferOf(ASSET_A.bytes)),
+        rejects({ reason: 'not_found', message: 'x' }),
+        rejects({ reason: 'io', message: 'Disk failure' }),
+      ],
+    })
+
+    const reading = await service.readAssets(PLACE, [A, B, C])
+
+    expect(invocations.map(({ command, payload }) => [command, payload])).toEqual([
+      ['read_asset', { grant: 'g1', name: A }],
+      ['read_asset', { grant: 'g1', name: B }],
+      ['read_asset', { grant: 'g1', name: C }],
+    ])
+    expect(reading.assets.map((asset) => [asset.name, Array.from(asset.bytes)])).toEqual([
+      [A, [1, 2, 3]],
+    ])
+    expect(reading.failure).toBeInstanceOf(FileServiceError)
+    expect(reading.failure).toMatchObject({
+      reason: 'io',
+      message: 'Disk failure',
+      entry: `assets/${C}`,
+    })
+  })
+
+  it('desktop test 64: readAssets with a web handle invokes nothing and fails for assets', async () => {
+    const { service, invocations } = serviceAnswering({})
+    const handle = createFakeFileHandle('part.ptsm')
+
+    const reading = await service.readAssets(
+      { handle, folder: createFakeFolderHandle('parts', [handle]) },
+      [A],
+    )
+
+    expect(invocations).toEqual([])
+    expect(reading.assets).toEqual([])
+    expect(reading.failure).toMatchObject({
+      reason: 'permission',
+      message: 'Partsmith has no access to part.ptsm.',
+      entry: 'assets',
+    })
+  })
+
+  it('readAssets takes a reply that is not an ArrayBuffer as a failure and reads on', async () => {
+    const { service } = serviceAnswering({
+      read_asset: [resolves('not bytes'), resolves(arrayBufferOf(ASSET_B.bytes))],
+    })
+
+    const reading = await service.readAssets(PLACE, [A, B])
+
+    expect(reading.assets.map((asset) => asset.name)).toEqual([B])
+    expect(reading.failure).toMatchObject({
+      reason: 'io',
+      message: 'The desktop app sent an unexpected reply to read_asset.',
+      entry: `assets/${A}`,
+    })
+  })
+
+  it('readAssets returns the first failure when several fail', async () => {
+    const { service } = serviceAnswering({
+      read_asset: [
+        rejects({ reason: 'permission', message: 'first' }),
+        rejects({ reason: 'io', message: 'second' }),
+      ],
+    })
+
+    const reading = await service.readAssets(PLACE, [A, B])
+
+    expect(reading.failure).toMatchObject({
+      reason: 'permission',
+      message: 'first',
+      entry: `assets/${A}`,
+    })
+  })
+
+  it('desktop test 65: writeAssets sends each asset through write_asset with both headers, in order', async () => {
+    const { service, invocations } = serviceAnswering({ write_asset: [resolves(null)] })
+
+    await service.writeAssets(PLACE, [ASSET_A, ASSET_B])
+
+    expect(invocations.map(({ command, options }) => [command, options])).toEqual([
+      ['write_asset', { headers: { [GRANT_HEADER]: 'g1', [ASSET_HEADER]: A } }],
+      ['write_asset', { headers: { [GRANT_HEADER]: 'g1', [ASSET_HEADER]: B } }],
+    ])
+    expect(
+      invocations.map(({ payload }) => Array.from(new Uint8Array(asArrayBuffer(payload)))),
+    ).toEqual([
+      [1, 2, 3],
+      [4, 5],
+    ])
+    expect(ASSET_HEADER).toBe('Partsmith-Asset')
+  })
+
+  it('desktop test 65: the first rejection throws with the asset as entry and stops the writing', async () => {
+    const { service, invocations } = serviceAnswering({
+      write_asset: [rejects({ reason: 'permission', message: 'm' })],
+    })
+
+    const error = await rejectionOf(service.writeAssets(PLACE, [ASSET_A, ASSET_B]))
+
+    expect(error).toBeInstanceOf(FileServiceError)
+    expect(error).toMatchObject({ reason: 'permission', message: 'm', entry: `assets/${A}` })
+    expect(invocations).toHaveLength(1)
+  })
+
+  it('writeAssets sends exactly the bytes of a view on a larger buffer', async () => {
+    const { service, invocations } = serviceAnswering({ write_asset: [resolves(null)] })
+    const buffer = new Uint8Array([9, 1, 2, 3, 9, 9])
+
+    await service.writeAssets(PLACE, [{ name: A, bytes: buffer.subarray(1, 4) }])
+
+    expect(Array.from(new Uint8Array(asArrayBuffer(invocations[0]?.payload)))).toEqual([1, 2, 3])
+  })
+
+  it('writeAssets with a web handle throws the permission error for assets and invokes nothing', async () => {
+    const { service, invocations } = serviceAnswering({})
+    const handle = createFakeFileHandle('part.ptsm')
+
+    const error = await rejectionOf(service.writeAssets({ handle, folder: null }, [ASSET_A]))
+
+    expect(error).toMatchObject({
+      reason: 'permission',
+      message: 'Partsmith has no access to part.ptsm.',
+      entry: 'assets',
+    })
+    expect(invocations).toEqual([])
+  })
+
+  it('desktop test 66: reachesFolder is true for a desktop handle and false for a web handle', () => {
+    const { service } = serviceAnswering({})
+    const handle = createFakeFileHandle('part.ptsm')
+
+    expect(service.reachesFolder(PLACE)).toBe(true)
+    expect(
+      service.reachesFolder({ handle, folder: createFakeFolderHandle('parts', [handle]) }),
+    ).toBe(false)
+  })
+
+  it('desktop test 66: chooseFolder throws io and invokes nothing', async () => {
+    const { service, invocations } = serviceAnswering({})
+
+    const error = await rejectionOf(service.chooseFolder(PART))
+
+    expect(error).toBeInstanceOf(FileServiceError)
+    expect(error).toMatchObject({
+      reason: 'io',
+      message: 'The desktop app finds the folder of a file by itself.',
+    })
+    expect(invocations).toEqual([])
+  })
+
+  it('desktop test 66: readHandle ignores the mode and the folder', async () => {
+    const { service, invocations } = serviceAnswering({
+      read_file: [resolves(arrayBufferOf(HELLO))],
+    })
+
+    await service.readHandle(PART)
+    await service.readHandle(PART, 'readwrite')
+    await service.readHandle(PART, 'read', createFakeFolderHandle('parts'))
+
+    expect(invocations.map(({ command, payload, options }) => [command, payload, options])).toEqual(
+      [
+        ['read_file', { grant: 'g1' }, undefined],
+        ['read_file', { grant: 'g1' }, undefined],
+        ['read_file', { grant: 'g1' }, undefined],
+      ],
+    )
   })
 })

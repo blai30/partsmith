@@ -9,6 +9,7 @@ const BRACKET: RecentFile = {
   name: 'bracket.ptsm',
   openedAt: 1000,
   handle: null,
+  folder: null,
   text: '{}',
 }
 

@@ -48,8 +48,11 @@ export class CoreError extends Error {
 }
 
 export type CoreClient = {
-  /** Sends one command. Events in the response frame are dispatched before the promise settles. */
-  request(command: Command): Promise<Reply>
+  /**
+   * Sends one command with its `u8` buffers (protocol.md 2.2; none unless given). Events in the
+   * response frame are dispatched before the promise settles.
+   */
+  request(command: Command, buffers?: readonly Uint8Array[]): Promise<Reply>
   onEvent(listener: (event: CoreEvent) => void): () => void
   onFatal(listener: (error: CoreFatalError) => void): () => void
   close(): void
@@ -131,14 +134,14 @@ export function createCoreClient(transport: Transport): CoreClient {
   }
 
   return {
-    async request(command) {
+    async request(command, buffers = []) {
       if (broken !== null) {
         throw broken
       }
       const id = takeId()
       const frame = encodeFrame(
         { protocol_version: PROTOCOL_VERSION, messages: [{ kind: 'request', id, command }] },
-        [],
+        buffers,
       )
       const responseFrame = await transport.send(frame)
       let decoded: { readonly response: DecodedResponse; readonly events: (CoreEvent | null)[] }

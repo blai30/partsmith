@@ -1,6 +1,7 @@
+import type { BufferView } from '../../core/frame'
 import { PROTOCOL_VERSION, type Command, type Request } from '../../generated/protocol'
 import { createFakeCore, replyFrame, type FakeCore, type FakeCoreOptions } from './core'
-import { readRequest } from './protocol'
+import { readRequestFrame } from './protocol'
 import { FakeWorker } from './worker'
 
 // Test support: workers for `createWorkerTransport` that run the in-memory core of ./core the way
@@ -61,17 +62,17 @@ class CoreWorker extends FakeWorker implements FakeCoreWorker {
     if (!isCall(message)) {
       return
     }
-    const request = readRequest(message.frame)
+    const { request, buffers } = readRequestFrame(message.frame)
     this.commands.push(request.command)
-    this.#answering = this.#answering.then(() => this.#answer(request))
+    this.#answering = this.#answering.then(() => this.#answer(request, buffers))
   }
 
-  async #answer(request: Request): Promise<void> {
+  async #answer(request: Request, buffers: readonly BufferView[]): Promise<void> {
     if (this.#stalls(request.command)) {
       // The core never returns from this call; the worker is busy until it is terminated.
       await new Promise<never>(() => undefined)
     }
-    const frame = replyFrame(request.id, this.#core.reply(request.command))
+    const frame = replyFrame(request.id, this.#core.reply(request.command, buffers))
     if (!this.terminated) {
       this.emit({ type: 'frame', frame })
     }

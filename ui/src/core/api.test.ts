@@ -8,10 +8,12 @@ import {
   RECT_SKETCH_DOCUMENT,
   RECT_SKETCH_SOLUTION,
 } from '../test/fakes/documents'
-import { withoutNulls } from '../test/fakes/protocol'
+import { ASSET_A, ASSET_B, assetValues } from '../test/fakes/assets'
+import { readRequestFrame, responseFrame, withoutNulls } from '../test/fakes/protocol'
 import { createFakeTransport, type FakeTransport } from '../test/fakes/transport'
 import { createCoreApi, rebuildsDocument, rebuiltDocument, type CoreApi } from './api'
 import { CoreError, createCoreClient } from './client'
+import type { Transport } from './transport'
 
 type Setup = { readonly api: CoreApi; readonly transport: FakeTransport }
 
@@ -78,7 +80,7 @@ describe('createCoreApi', () => {
     const { api, transport } = await setUp()
     const handle = await api.openDocument(documentText(CUBE_DOCUMENT))
     const saved = await api.saveDocument(handle.documentHandle)
-    expect(saved).toEqual({ text: documentText(CUBE_DOCUMENT), revision: 0 })
+    expect(saved).toEqual({ text: documentText(CUBE_DOCUMENT), assets: [], revision: 0 })
     await api.markSaved(handle.documentHandle, saved.revision)
     expect(lastCommand(transport)).toEqual({ type: 'mark_saved', doc: 1, revision: 0 })
     await api.closeDocument(handle.documentHandle)
@@ -461,5 +463,125 @@ describe('rebuildsDocument and rebuiltDocument', () => {
         { type: 'save_document', text: '', assets: [], revision: 1 },
       ),
     ).toBeNull()
+  })
+})
+
+/** A transport that keeps every request frame and answers each with `answer`'s response frame. */
+function recordingTransport(answer: (id: number) => ArrayBuffer): {
+  readonly transport: Transport
+  readonly frames: ArrayBuffer[]
+  readonly responses: ArrayBuffer[]
+} {
+  const frames: ArrayBuffer[] = []
+  const responses: ArrayBuffer[] = []
+  const transport: Transport = {
+    kind: 'worker',
+    start: async () => ({ protocolVersion: 1, engineVersion: '0.1.0' }),
+    async send(frame) {
+      frames.push(frame)
+      const response = answer(readRequestFrame(frame).request.id)
+      responses.push(response)
+      return response
+    },
+    stop: () => undefined,
+    onFatal: () => () => undefined,
+  }
+  return { transport, frames, responses }
+}
+
+/** The response frame of an `open_document` that opened document 1. */
+function openAnswer(id: number): ArrayBuffer {
+  return responseFrame({ id, result: { type: 'open_document', doc: 1, migrated_from: null } })
+}
+
+describe('asset plumbing (2.6, 3.19)', () => {
+  it('U-218 openDocument sends each asset as a name and the index of its u8 buffer, in the given order', async () => {
+    const { transport, frames } = recordingTransport(openAnswer)
+    const api = createCoreApi(createCoreClient(transport))
+    const text = documentText(CUBE_DOCUMENT)
+    await api.openDocument(text, [ASSET_A, ASSET_B])
+    const [frame] = frames
+    if (frame === undefined) {
+      throw new Error('openDocument sent no frame.')
+    }
+    const { request, buffers } = readRequestFrame(frame)
+    expect(withoutNulls(request.command)).toEqual({
+      type: 'open_document',
+      text,
+      assets: [
+        { name: ASSET_A.name, data: 0 },
+        { name: ASSET_B.name, data: 1 },
+      ],
+    })
+    expect(buffers.map((buffer) => buffer instanceof Uint8Array)).toEqual([true, true])
+    expect(buffers.map((buffer) => Array.from(buffer))).toEqual([
+      [1, 2, 3],
+      [4, 5],
+    ])
+  })
+
+  it('U-218 openDocument without assets sends assets: [] and no buffer', async () => {
+    const { transport, frames } = recordingTransport(openAnswer)
+    const api = createCoreApi(createCoreClient(transport))
+    await api.openDocument(documentText(CUBE_DOCUMENT))
+    const [frame] = frames
+    if (frame === undefined) {
+      throw new Error('openDocument sent no frame.')
+    }
+    const { request, buffers } = readRequestFrame(frame)
+    expect(request.command).toMatchObject({ type: 'open_document', assets: [] })
+    expect(buffers).toEqual([])
+  })
+
+  it('U-218 saveDocument copies each asset out of the frame and keeps the order of the result', async () => {
+    const text = documentText(CUBE_DOCUMENT)
+    const { transport, responses } = recordingTransport((id) =>
+      responseFrame({
+        id,
+        result: {
+          type: 'save_document',
+          text,
+          assets: [
+            { name: ASSET_B.name, data: 1 },
+            { name: ASSET_A.name, data: 0 },
+          ],
+          revision: 3,
+        },
+        buffers: [Uint8Array.from(ASSET_A.bytes), Uint8Array.from(ASSET_B.bytes)],
+      }),
+    )
+    const api = createCoreApi(createCoreClient(transport))
+    const saved = await api.saveDocument(1)
+    expect(saved.text).toBe(text)
+    expect(saved.revision).toBe(3)
+    expect(assetValues(saved.assets)).toEqual([
+      { name: ASSET_B.name, bytes: [4, 5] },
+      { name: ASSET_A.name, bytes: [1, 2, 3] },
+    ])
+    const [response] = responses
+    if (response === undefined) {
+      throw new Error('saveDocument got no response.')
+    }
+    new Uint8Array(response).fill(0xff)
+    expect(assetValues(saved.assets)).toEqual([
+      { name: ASSET_B.name, bytes: [4, 5] },
+      { name: ASSET_A.name, bytes: [1, 2, 3] },
+    ])
+    for (const asset of saved.assets) {
+      expect(asset.bytes.byteOffset).toBe(0)
+      expect(asset.bytes.buffer.byteLength).toBe(asset.bytes.byteLength)
+    }
+  })
+
+  it('U-218 the fake core keeps the assets open_document supplies and saves those the text names', async () => {
+    const { api, transport } = await setUp()
+    const text = JSON.stringify({
+      ...CUBE_DOCUMENT,
+      features: [{ id: 'f-imp1', type: 'import', body: 'b-cube', asset: ASSET_A.name, op: 'new' }],
+    })
+    const { documentHandle } = await api.openDocument(text, [ASSET_A, ASSET_B])
+    expect(transport.core.document(documentHandle).assets).toEqual([ASSET_A.name, ASSET_B.name])
+    const saved = await api.saveDocument(documentHandle)
+    expect(assetValues(saved.assets)).toEqual([{ name: ASSET_A.name, bytes: [1, 2, 3] }])
   })
 })

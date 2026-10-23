@@ -20,6 +20,7 @@ import {
   type SketchSolution,
   type Use,
 } from '../../generated/protocol'
+import { ASSET_MISSING_MESSAGE, assetMismatchMessage } from './assets'
 import { TEST_CATALOG_ENTRIES } from './catalog'
 import {
   bodiesOf,
@@ -34,8 +35,9 @@ import { meshParts, responseFrame, type ErrorReply } from './protocol'
 
 // An in-memory engine that answers protocol commands the way engine.md describes, closely enough for
 // UI tests: documents with revisions, labeled edits, transactions with a focus, undo and redo, the dirty
-// baseline of save and mark_saved, and the events every change emits. Geometry is not computed: a body
-// has geometry when an active feature names it as its `body`, and its mesh is a single triangle.
+// baseline of save and mark_saved, the assets open_document supplies (engine.md 3.14), and the events
+// every change emits. Geometry is not computed: a body has geometry when an active feature names it as
+// its `body` (an import only when the document holds its asset), and its mesh is a single triangle.
 
 type CommandOfType<Type extends Command['type']> = Extract<Command, { type: Type }>
 
@@ -111,6 +113,11 @@ export type FakeCoreOptions = {
   readonly ghosts?: readonly (readonly number[])[]
   /** The `list_uses` answer for every document (engine.md 3.24); default none. */
   readonly uses?: readonly Use[]
+  /**
+   * Asset names whose supplied bytes the core takes as not hashing to the name: an `open_document`
+   * that supplies one that a feature references fails with `asset_mismatch` (engine.md 3.14).
+   */
+  readonly mismatchedAssets?: readonly string[]
 }
 
 /** The state of one open document in the fake core. */
@@ -127,6 +134,8 @@ export type FakeDocumentState = {
   readonly focus: string | null
   /** Model-layer mesh id by body id, for bodies with geometry. */
   readonly meshIds: Readonly<Record<string, number>>
+  /** The names of the assets `open_document` supplied, sorted. */
+  readonly assets: readonly string[]
 }
 
 export type FakeCore = {
@@ -135,8 +144,11 @@ export type FakeCore = {
   readonly handles: readonly number[]
   /** An open document; throws for an unknown handle. */
   document(handle: number): FakeDocumentState
-  /** The default answer to a command; changes the core's state like the real engine. */
-  reply(command: Command): FakeReply
+  /**
+   * The default answer to a command with the request frame's buffers (an `open_document`'s
+   * assets); changes the core's state like the real engine.
+   */
+  reply(command: Command, buffers?: readonly BufferView[]): FakeReply
 }
 
 type HistoryEntry = { readonly label: string; readonly before: Document; readonly after: Document }
@@ -152,6 +164,8 @@ type DocumentEntry = {
   transaction: { readonly label: string; readonly before: Document } | null
   focus: string | null
   meshIds: Record<string, number>
+  /** The asset files open_document supplied, by name. */
+  readonly assets: ReadonlyMap<string, Uint8Array>
 }
 
 class Rejection extends Error {
@@ -387,6 +401,31 @@ function bodyOf(feature: FeatureRecord): string | null {
   return typeof body === 'string' ? body : null
 }
 
+/** The asset an import record names; null for any other record. */
+function importedAsset(feature: FeatureRecord): string | null {
+  const asset: unknown = feature['asset']
+  return feature.type === 'import' && typeof asset === 'string' ? asset : null
+}
+
+/** Whether a record is an import whose asset the document does not hold. */
+function missesAsset(feature: FeatureRecord, assets: ReadonlyMap<string, Uint8Array>): boolean {
+  const asset = importedAsset(feature)
+  return asset !== null && !assets.has(asset)
+}
+
+/** The status error of an import whose asset is missing (engine.md 3.14). */
+function assetMissing(asset: string): Diagnostic {
+  return { severity: 'error', code: 'asset_missing', message: ASSET_MISSING_MESSAGE, detail: asset }
+}
+
+/** The bytes of a `u8` buffer of a request frame, copied out of the frame. */
+function assetBytes(buffer: BufferView | undefined, name: string): Uint8Array {
+  if (!(buffer instanceof Uint8Array)) {
+    return reject('malformed_request', `The asset ${name} names no u8 buffer.`)
+  }
+  return Uint8Array.from(buffer)
+}
+
 function dirtyOf(entry: DocumentEntry): boolean {
   return documentText(entry.recipe) !== entry.baseline
 }
@@ -598,6 +637,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   function featureStatuses(
     recipe: Document,
     meshIds: Readonly<Record<string, number>>,
+    assets: ReadonlyMap<string, Uint8Array>,
   ): FeatureStatus[] {
     const end = rollbackIndex(recipe)
     return featuresOf(recipe).map((feature, index) => {
@@ -610,10 +650,14 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         status = 'suppressed'
       } else {
         const override = options.statuses?.[feature.id]
+        const missing = importedAsset(feature)
         if (override !== undefined) {
           status = override.status
           messages = override.messages
           repairs = override.repairs ?? []
+        } else if (missing !== null && !assets.has(missing)) {
+          status = 'error'
+          messages = [assetMissing(missing)]
         }
       }
       return {
@@ -636,7 +680,11 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   } {
     const events: ProtocolEvent[] = [documentChanged(entry)]
     const buffers: BufferView[] = (options.ghosts ?? []).map((points) => Float32Array.from(points))
-    const withGeometry = new Set(modelFeatures(entry).map(bodyOf))
+    const withGeometry = new Set(
+      modelFeatures(entry)
+        .filter((feature) => !missesAsset(feature, entry.assets))
+        .map(bodyOf),
+    )
     // Mesh ids are assigned before the statuses, which report candidates in the current meshes.
     const bodyMeshes = bodiesOf(entry.recipe).map((body) => ({
       body: body.id,
@@ -652,7 +700,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       type: 'recomputed',
       doc: entry.handle,
       revision: entry.revision,
-      features: featureStatuses(entry.recipe, meshIds),
+      features: featureStatuses(entry.recipe, meshIds, entry.assets),
       parameters: parameterValues(entry.recipe),
       diagnostics: [],
     })
@@ -714,10 +762,14 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return { result, events, buffers }
   }
 
-  function open(recipe: Document): DocumentEntry {
+  function open(
+    recipe: Document,
+    assets: ReadonlyMap<string, Uint8Array> = new Map(),
+  ): DocumentEntry {
     const entry: DocumentEntry = {
       handle: nextHandle++,
       recipe,
+      assets,
       revision: 0,
       baseline: documentText(recipe),
       saved: null,
@@ -846,7 +898,41 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return changed(entry, { type: command.type, revision: entry.revision, label: step.label })
   }
 
-  function reply(command: Command): FakeReply {
+  /**
+   * The assets an `open_document` supplies, by name; refuses one that a feature of the recipe
+   * references and `mismatchedAssets` lists, as the engine refuses bytes that do not hash to their name.
+   */
+  function suppliedAssets(
+    command: CommandOfType<'open_document'>,
+    recipe: Document,
+    buffers: readonly BufferView[],
+  ): Map<string, Uint8Array> {
+    const referenced = new Set(featuresOf(recipe).map(importedAsset))
+    const assets = new Map<string, Uint8Array>()
+    for (const { name, data } of command.assets ?? []) {
+      if (referenced.has(name) && (options.mismatchedAssets ?? []).includes(name)) {
+        reject('asset_mismatch', assetMismatchMessage(name))
+      }
+      assets.set(name, assetBytes(buffers[data], name))
+    }
+    return assets
+  }
+
+  /** The stored assets whose name occurs in the saved text, sorted, as `save_document` returns them. */
+  function savedAssets(entry: DocumentEntry, text: string): FakeReply {
+    const names = [...entry.assets.keys()].filter((name) => text.includes(name)).toSorted()
+    return {
+      result: {
+        type: 'save_document',
+        text,
+        assets: names.map((name, data) => ({ name, data })),
+        revision: entry.revision,
+      },
+      buffers: names.map((name) => Uint8Array.from(entry.assets.get(name) ?? [])),
+    }
+  }
+
+  function reply(command: Command, buffers: readonly BufferView[] = []): FakeReply {
     switch (command.type) {
       case 'engine_info':
         return {
@@ -893,7 +979,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
             'The file is not a valid Partsmith document: "format" must be "partsmith".',
           )
         }
-        const entry = open(parsed)
+        const entry = open(parsed, suppliedAssets(command, parsed, buffers))
         return changed(entry, { type: 'open_document', doc: entry.handle })
       }
       case 'save_document': {
@@ -901,7 +987,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         rejectDuringTransaction(entry)
         const text = documentText(entry.recipe)
         entry.saved = { revision: entry.revision, text }
-        return { result: { type: 'save_document', text, assets: [], revision: entry.revision } }
+        return savedAssets(entry, text)
       }
       case 'mark_saved': {
         const entry = entryFor(command.doc)
@@ -1125,11 +1211,12 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         transaction: entry.transaction?.label ?? null,
         focus: entry.focus,
         meshIds: { ...entry.meshIds },
+        assets: [...entry.assets.keys()].toSorted(),
       }
     },
-    reply(command) {
+    reply(command, buffers) {
       try {
-        return reply(command)
+        return reply(command, buffers)
       } catch (error) {
         if (error instanceof Rejection) {
           return { error: error.reply }

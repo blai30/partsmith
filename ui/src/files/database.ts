@@ -55,7 +55,9 @@ function upgradeRecoveryFromVersion1(database: IDBDatabase, upgrade: IDBTransact
         ? recoveryEntryFrom({ ...record, id: crypto.randomUUID() })
         : null
     if (entry !== null) {
-      recovery.put(entry)
+      // Version 1 kept no folder or digest, so the record keeps its own fields; both read as null.
+      const { folder: _folder, digest: _digest, ...moved } = entry
+      recovery.put(moved)
     }
   })
 }

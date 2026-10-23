@@ -1,19 +1,22 @@
 import { createStoreAccess, RECENT_STORE, requestResult } from './database'
-import { isFileHandle, type FileHandle } from './file-service'
+import { isFileHandle, isFolderHandle, type FileHandle } from './file-service'
 
 export type RecentFile = {
   readonly id: string
   readonly name: string
   readonly openedAt: number
   readonly handle: FileHandle | null
+  /** The web folder that holds the file (ui.md 3.19); null on the desktop and without one. */
+  readonly folder: FileSystemDirectoryHandle | null
   /** The file's text when there is no handle, so it reopens without file access; else null. */
   readonly text: string | null
 }
 
-/** A file to remember: its name and handle, and its text for when it has no handle. */
+/** A file to remember: its name, handle and web folder, and its text for when it has no handle. */
 export type RememberedFile = {
   readonly name: string
   readonly handle: FileHandle | null
+  readonly folder: FileSystemDirectoryHandle | null
   readonly text: string
 }
 
@@ -46,7 +49,7 @@ async function isSameFile(entry: RecentFile, file: RememberedFile): Promise<bool
 }
 
 /** Whether two handles name one file: desktop handles with equal grants, or web handles to the same entry. */
-async function isSameHandle(first: FileHandle, second: FileHandle): Promise<boolean> {
+export async function isSameHandle(first: FileHandle, second: FileHandle): Promise<boolean> {
   // Each host's handles come only from that host, so a desktop and a web handle are never the same file.
   if (first.kind === 'desktop' || second.kind === 'desktop') {
     return first.kind === 'desktop' && second.kind === 'desktop' && first.grant === second.grant
@@ -72,15 +75,19 @@ async function planRemember(
   file: RememberedFile,
   now: () => number,
 ): Promise<RememberPlan> {
+  const same = await Promise.all(entries.map((entry) => isSameFile(entry, file)))
+  const others = entries.filter((_, index) => same[index] !== true)
+  // Opening a file again with the picker keeps the folder an earlier session chose (3.19).
+  const replacedFolder =
+    entries.find((entry, index) => same[index] === true && entry.folder !== null)?.folder ?? null
   const added: RecentFile = {
     id: crypto.randomUUID(),
     name: file.name,
     openedAt: now(),
     handle: file.handle,
+    folder: file.folder ?? replacedFolder,
     text: file.handle === null ? file.text : null,
   }
-  const same = await Promise.all(entries.map((entry) => isSameFile(entry, file)))
-  const others = entries.filter((_, index) => same[index] !== true)
   const kept = [added, ...others].slice(0, RECENT_FILES_LIMIT)
   const keptIds = new Set(kept.map((entry) => entry.id))
   return {
@@ -107,20 +114,29 @@ export function createMemoryRecentFiles(now: () => number = Date.now): RecentFil
   }
 }
 
-function isRecentFile(value: unknown): value is RecentFile {
-  if (typeof value !== 'object' || value === null) {
-    return false
+/** The recent file a stored record holds, or null when it is not one; a record without `folder` has none. */
+function recentFileFrom(record: unknown): RecentFile | null {
+  if (typeof record !== 'object' || record === null) {
+    return null
   }
-  const field = (name: keyof RecentFile): unknown => Reflect.get(value, name)
+  const field = (name: keyof RecentFile): unknown => Reflect.get(record, name)
+  const id = field('id')
+  const name = field('name')
+  const openedAt = field('openedAt')
   const handle = field('handle')
+  const folder = field('folder') ?? null
   const text = field('text')
-  return (
-    typeof field('id') === 'string' &&
-    typeof field('name') === 'string' &&
-    typeof field('openedAt') === 'number' &&
-    (handle === null || isFileHandle(handle)) &&
-    (text === null || typeof text === 'string')
-  )
+  if (
+    typeof id !== 'string' ||
+    typeof name !== 'string' ||
+    typeof openedAt !== 'number' ||
+    (handle !== null && !isFileHandle(handle)) ||
+    (folder !== null && !isFolderHandle(folder)) ||
+    (text !== null && typeof text !== 'string')
+  ) {
+    return null
+  }
+  return { id, name, openedAt, handle, folder, text }
 }
 
 /** Every stored record of the `recent` object store. */
@@ -131,7 +147,7 @@ function readRecords(store: IDBObjectStore): Promise<readonly unknown[]> {
 /** The remembered files among stored records, most recent first, at most the limit. */
 function recentFilesOf(records: readonly unknown[]): readonly RecentFile[] {
   return records
-    .filter(isRecentFile)
+    .flatMap((record) => recentFileFrom(record) ?? [])
     .toSorted((first, second) => second.openedAt - first.openedAt)
     .slice(0, RECENT_FILES_LIMIT)
 }

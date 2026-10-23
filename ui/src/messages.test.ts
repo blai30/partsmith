@@ -101,6 +101,21 @@ const CASES: readonly Case[] = [
     'Could not save bracket.ptsm: The disk is full.',
   ],
   [
+    'save_conflict',
+    () => MESSAGES.save_conflict('cube.ptsm'),
+    'cube.ptsm was changed elsewhere after you opened or saved it, so Partsmith did not save over it.',
+  ],
+  [
+    'save_assets',
+    () => MESSAGES.save_assets('block.ptsm'),
+    'block.ptsm was not saved, because Partsmith could not write its imported files to the assets folder next to it.',
+  ],
+  [
+    'save_folder_needed',
+    () => MESSAGES.save_folder_needed('block.ptsm'),
+    'block.ptsm is not saved yet, because its imported files are saved in the folder it goes in and the browser has not given Partsmith that folder. Choose the folder you are saving block.ptsm in.',
+  ],
+  [
     'download_hint',
     () => MESSAGES.download_hint('bracket.ptsm'),
     'This browser saves by downloading. bracket.ptsm is in your downloads folder.',
@@ -114,6 +129,36 @@ const CASES: readonly Case[] = [
     'recent_missing',
     () => MESSAGES.recent_missing('bracket.ptsm'),
     'bracket.ptsm has moved or been deleted, so it was removed from recent files.',
+  ],
+  [
+    'assets_folder_needed',
+    () => MESSAGES.assets_folder_needed('block.ptsm'),
+    'The imported geometry of block.ptsm is missing, because the browser has not given Partsmith the folder that holds it and its assets folder. Choose the folder block.ptsm is in.',
+  ],
+  [
+    'assets_wrong_folder',
+    () => MESSAGES.assets_wrong_folder('parts', 'block.ptsm'),
+    'parts is not the folder that holds block.ptsm. Choose the folder block.ptsm is in.',
+  ],
+  [
+    'assets_without_folder',
+    () => MESSAGES.assets_without_folder('block.ptsm'),
+    'The imported geometry of block.ptsm is missing, because Partsmith has no file of it to find its assets folder by. Open the file with Open... instead.',
+  ],
+  [
+    'assets_unsupported',
+    () => MESSAGES.assets_unsupported('block.ptsm'),
+    'The imported geometry of block.ptsm is missing, because this browser does not let Partsmith reach files next to the one you chose. Open it in Chrome or Edge, or in the Partsmith desktop app.',
+  ],
+  [
+    'assets_not_read',
+    () => MESSAGES.assets_not_read('block.ptsm'),
+    'Partsmith could not read some imported files from the assets folder next to block.ptsm, so their geometry is missing.',
+  ],
+  [
+    'assets_mismatch',
+    () => MESSAGES.assets_mismatch('block.ptsm'),
+    'Some files in the assets folder next to block.ptsm are not the files it imported, so Partsmith opened it without them and its imported geometry is missing.',
   ],
   [
     'stashed',
@@ -419,7 +464,7 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(105)
+    expect(CASES).toHaveLength(114)
   })
 
   it('U-73 has no dimension_unsolvable: an edited dimension shows the probe message (3.16.7)', () => {

@@ -7,7 +7,7 @@ import { createMemoryRecovery, type RecoveryStore } from '../../files/recovery'
 import type { Document, Edit } from '../../generated/protocol'
 import type { AppStore, DocumentState } from '../../state/store'
 import { currentDocument, LINUX_WEB } from './test-app'
-import { CUBE_DOCUMENT, documentFile, featuresOf } from './documents'
+import { CUBE_DOCUMENT, documentFile, documentText, featuresOf } from './documents'
 import { createFakeFileService, type FakeFileService } from './files'
 import { editsOf, withoutNulls } from './protocol'
 import { settle } from './settle'
@@ -91,14 +91,22 @@ export async function startFakeApp(options: FakeAppOptions = {}): Promise<FakeAp
   return fake
 }
 
-/** Opens a recipe through `openFile` as if the user had picked `name`, and waits until it is applied. */
+/**
+ * Opens a recipe through `openFile` as if the user had picked `name`, from `handle` in `folder`, and
+ * waits until it is applied. A handle the fake file service has no text for gets the opened text,
+ * so the file holds what was read until a test changes it (ui.md 3.19, the change check).
+ */
 export async function openTestDocument(
   fake: FakeApp,
   name: string,
   document: Document,
   handle: FileHandle | null = null,
+  folder: FileSystemDirectoryHandle | null = null,
 ): Promise<DocumentState> {
-  await openFile(fake.app, documentFile(name, document, handle))
+  if (handle !== null && !fake.files.contents.has(handle)) {
+    fake.files.contents.set(handle, documentText(document))
+  }
+  await openFile(fake.app, documentFile(name, document, handle), folder)
   await settle()
   const opened = currentDocument(fake.app)
   if (featuresOf(opened.recipe).length !== featuresOf(document).length) {
@@ -111,11 +119,15 @@ export async function openTestDocument(
 export async function startWithDocument(
   name: string,
   document: Document,
-  options: FakeAppOptions & { readonly handle?: FileHandle | null } = {},
+  options: FakeAppOptions & {
+    readonly handle?: FileHandle | null
+    readonly folder?: FileSystemDirectoryHandle | null
+  } = {},
 ): Promise<FakeApp> {
   const fake = await startFakeApp(options)
-  await openTestDocument(fake, name, document, options.handle ?? null)
+  await openTestDocument(fake, name, document, options.handle ?? null, options.folder ?? null)
   fake.transport.clearRequests()
+  fake.files.clearCalls()
   fake.journal.length = 0
   return fake
 }

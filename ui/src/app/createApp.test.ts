@@ -361,6 +361,8 @@ describe('recovery copy (3.19)', () => {
         text: JSON.stringify(document.recipe, null, 2),
         savedAt: expect.any(Number),
         handle,
+        folder: null,
+        digest: expect.any(String),
         reason: 'autosave',
       },
     ])
@@ -551,6 +553,8 @@ describe('recovery copy across saves and restarts (3.19, 4.4)', () => {
         text: JSON.stringify(R1, null, 2),
         savedAt: expect.any(Number),
         handle,
+        folder: null,
+        digest: expect.any(String),
         reason: 'autosave',
       },
     ])

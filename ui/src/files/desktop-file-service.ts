@@ -1,15 +1,21 @@
 import { errorMessage } from '../core/errors'
+import type { AssetFile } from './assets'
 import {
+  assetEntry,
+  ASSETS_FOLDER,
   FileServiceError,
   noAccessError,
+  readingOf,
   type DesktopFileHandle,
+  type DocumentPlace,
   type FileService,
   type FileServiceErrorReason,
   type OpenedFile,
 } from './file-service'
 
-// The desktop file service (desktop.md 3.7): native dialogs and the files the user chose, through the
-// desktop host's commands on `window.__TAURI__`, without a Tauri npm package.
+// The desktop file service (desktop.md 3.7): native dialogs, the files the user chose and the assets
+// next to a chosen document, through the desktop host's commands on `window.__TAURI__`, without a
+// Tauri npm package.
 
 /** The part of `window.__TAURI__` the desktop modules use (requires `app.withGlobalTauri`, 2.8). */
 export type TauriInvokeGlobal = {
@@ -22,8 +28,11 @@ export type TauriInvokeGlobal = {
   }
 }
 
-/** The header that carries a write_file grant. */
+/** The header that carries the grant of write_file and write_asset. */
 export const GRANT_HEADER = 'Partsmith-Grant'
+
+/** The header that carries the asset name of write_asset. */
+export const ASSET_HEADER = 'Partsmith-Asset'
 
 /** The Tauri global of an environment when its `__TAURI__.core.invoke` is a function, else null. */
 export function tauriGlobalOf(environment: object): TauriInvokeGlobal | null {
@@ -58,8 +67,27 @@ function hostRejectionError(rejection: unknown): FileServiceError {
   return new FileServiceError('io', errorMessage(rejection), { cause: rejection })
 }
 
+/** A failure of the host's asset command for one asset, with the entry `assets/{name}` (3.5). */
+function assetError(error: unknown, name: string): FileServiceError {
+  const failure = error instanceof FileServiceError ? error : hostRejectionError(error)
+  return new FileServiceError(failure.reason, failure.message, {
+    cause: failure.cause,
+    entry: assetEntry(name),
+  })
+}
+
 function unexpectedReply(command: string): FileServiceError {
   return new FileServiceError('io', `The desktop app sent an unexpected reply to ${command}.`)
+}
+
+/** The grant of a place's desktop handle, or null for a web handle, which reaches no assets here (3.7). */
+function grantOf(place: DocumentPlace): string | null {
+  return place.handle.kind === 'desktop' ? place.handle.grant : null
+}
+
+/** The failure for a web handle's assets on the desktop (3.7 steps 11 and 12). */
+function noAssetsAccess(place: DocumentPlace): FileServiceError {
+  return noAccessError(place.handle.name, { entry: ASSETS_FOLDER })
 }
 
 /** The handle of a pick reply, or null when the user canceled. */
@@ -104,12 +132,24 @@ export function createDesktopFileService(tauri: TauriInvokeGlobal): FileService 
     }
   }
 
-  async function read(handle: DesktopFileHandle): Promise<OpenedFile> {
-    const reply = await invoke('read_file', { grant: handle.grant })
+  /** The bytes a read command answers with; any other reply is unexpected. */
+  async function readBytes(
+    command: 'read_file' | 'read_asset',
+    payload: Readonly<Record<string, string>>,
+  ): Promise<Uint8Array> {
+    const reply = await invoke(command, payload)
     if (!(reply instanceof ArrayBuffer)) {
-      throw unexpectedReply('read_file')
+      throw unexpectedReply(command)
     }
-    return { name: handle.name, bytes: new Uint8Array(reply), handle }
+    return new Uint8Array(reply)
+  }
+
+  async function read(handle: DesktopFileHandle): Promise<OpenedFile> {
+    return {
+      name: handle.name,
+      bytes: await readBytes('read_file', { grant: handle.grant }),
+      handle,
+    }
   }
 
   return {
@@ -120,6 +160,7 @@ export function createDesktopFileService(tauri: TauriInvokeGlobal): FileService 
       return handle === null ? null : read(handle)
     },
 
+    // A grant reads and writes alike, and the host finds the folder by itself (3.7 step 9).
     async readHandle(handle) {
       // A web handle reaches this service only if IndexedDB data moved between hosts.
       if (handle.kind !== 'desktop') {
@@ -145,6 +186,51 @@ export function createDesktopFileService(tauri: TauriInvokeGlobal): FileService 
       await invoke('write_file', exactBuffer(bytes), {
         headers: { [GRANT_HEADER]: handle.grant },
       })
+    },
+
+    reachesFolder(place) {
+      return place.handle.kind === 'desktop'
+    },
+
+    async chooseFolder() {
+      throw new FileServiceError('io', 'The desktop app finds the folder of a file by itself.')
+    },
+
+    async readAssets(place, names) {
+      const grant = grantOf(place)
+      if (grant === null) {
+        return { assets: [], failure: noAssetsAccess(place) }
+      }
+      return readingOf(
+        names.map(async (name): Promise<AssetFile | FileServiceError | null> => {
+          try {
+            return { name, bytes: await readBytes('read_asset', { grant, name }) }
+          } catch (error) {
+            // An asset the host does not find is left out; any other failure leaves it out too.
+            return error instanceof FileServiceError && error.reason === 'not_found'
+              ? null
+              : assetError(error, name)
+          }
+        }),
+      )
+    },
+
+    async writeAssets(place, assets) {
+      const grant = grantOf(place)
+      if (grant === null) {
+        throw noAssetsAccess(place)
+      }
+      for (const asset of assets) {
+        try {
+          // In order, so no asset after the first failure is sent (file-format.md 3.11).
+          // oxlint-disable-next-line no-await-in-loop
+          await invoke('write_asset', exactBuffer(asset.bytes), {
+            headers: { [GRANT_HEADER]: grant, [ASSET_HEADER]: asset.name },
+          })
+        } catch (error) {
+          throw assetError(error, asset.name)
+        }
+      }
     },
   }
 }

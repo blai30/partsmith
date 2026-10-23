@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createFakeFolderHandle } from '../test/fakes/files'
 import { createFakeIndexedDb } from '../test/fakes/indexed-db'
 import type { DesktopFileHandle, FileHandle } from './file-service'
 import {
@@ -25,7 +26,7 @@ function desktopHandle(name: string, grant: string): DesktopFileHandle {
 }
 
 function recentFile(id: string, name: string, openedAt: number): RecentFile {
-  return { id, name, openedAt, handle: null, text: '{}' }
+  return { id, name, openedAt, handle: null, folder: null, text: '{}' }
 }
 
 function blocked(): never {
@@ -57,13 +58,14 @@ async function rememberInOrder(
   entries: readonly {
     readonly name: string
     readonly handle: FileHandle | null
+    readonly folder?: FileSystemDirectoryHandle | null
     readonly text: string
   }[],
   tick: () => void,
 ): Promise<void> {
   await entries.reduce(async (previous, entry) => {
     await previous
-    await store.remember(entry)
+    await store.remember({ folder: null, ...entry })
     tick()
   }, Promise.resolve())
 }
@@ -83,6 +85,7 @@ describe('createMemoryRecentFiles', () => {
     const entries = Array.from({ length: 12 }, (_, index) => ({
       name: `part-${String(index + 1)}.ptsm`,
       handle: null,
+      folder: null,
       text: `{"part": ${String(index + 1)}}`,
     }))
     await rememberInOrder(store, entries, time.tick)
@@ -178,6 +181,7 @@ describe('createMemoryRecentFiles', () => {
     await store.remember({
       name: 'bracket.ptsm',
       handle: fakeHandle('bracket.ptsm', '/models/bracket.ptsm'),
+      folder: null,
       text: '{"format": 1}',
     })
     const [entry] = await store.list()
@@ -224,6 +228,7 @@ describe('createMemoryRecentFiles', () => {
     await store.remember({
       name: 'bracket.ptsm',
       handle: desktopHandle('bracket.ptsm', 'g1'),
+      folder: null,
       text: '{"format": 1}',
     })
     const [entry] = await store.list()
@@ -267,7 +272,7 @@ describe('createIndexedDbRecentFiles', () => {
     const store = createIndexedDbRecentFiles(blockedFactory(), () => 1000)
     expect(await store.list()).toEqual([])
     await expect(
-      store.remember({ name: 'a.ptsm', handle: null, text: '{}' }),
+      store.remember({ name: 'a.ptsm', handle: null, folder: null, text: '{}' }),
     ).resolves.toBeUndefined()
     await expect(store.forget('missing')).resolves.toBeUndefined()
     expect(warn).toHaveBeenCalled()
@@ -281,6 +286,7 @@ describe('createIndexedDbRecentFiles', () => {
     const entries = Array.from({ length: 11 }, (_, index) => ({
       name: `part-${String(index + 1)}.ptsm`,
       handle: null,
+      folder: null,
       text: `{"part": ${String(index + 1)}}`,
     }))
     await rememberInOrder(store, entries, time.tick)
@@ -330,6 +336,7 @@ describe('createIndexedDbRecentFiles', () => {
         {
           name: 'bracket.ptsm',
           handle: fakeHandle('bracket.ptsm', '/models/bracket.ptsm'),
+          folder: null,
           text: '{}',
         },
         { name: 'bracket.ptsm', handle: again, text: '{}' },
@@ -366,6 +373,7 @@ describe('createIndexedDbRecentFiles', () => {
       name: 'good.ptsm',
       openedAt: 1000,
       handle: null,
+      folder: null,
       text: '{}',
     })
     fake.putRecord('partsmith', 'recent', {
@@ -373,6 +381,7 @@ describe('createIndexedDbRecentFiles', () => {
       name: 'bad.ptsm',
       openedAt: 'yesterday',
       handle: null,
+      folder: null,
       text: '{}',
     })
     fake.putRecord('partsmith', 'recent', { id: 'c', name: 'no-handle-field.ptsm', openedAt: 2000 })
@@ -402,6 +411,7 @@ describe('createIndexedDbRecentFiles', () => {
     await createIndexedDbRecentFiles(fake.factory, () => 1000).remember({
       name: 'bracket.ptsm',
       handle: desktopHandle('bracket.ptsm', 'g1'),
+      folder: null,
       text: '{"format": 1}',
     })
     const later = await createIndexedDbRecentFiles(fake.factory).list()
@@ -411,6 +421,7 @@ describe('createIndexedDbRecentFiles', () => {
         name: 'bracket.ptsm',
         openedAt: 1000,
         handle: { kind: 'desktop', name: 'bracket.ptsm', grant: 'g1' },
+        folder: null,
         text: null,
       },
     ])
@@ -421,6 +432,7 @@ describe('createIndexedDbRecentFiles', () => {
     await createIndexedDbRecentFiles(fake.factory, () => 1000).remember({
       name: 'bracket.ptsm',
       handle: null,
+      folder: null,
       text: '{"format": 1}',
     })
     const later = await createIndexedDbRecentFiles(fake.factory).list()
@@ -430,8 +442,87 @@ describe('createIndexedDbRecentFiles', () => {
         name: 'bracket.ptsm',
         openedAt: 1000,
         handle: null,
+        folder: null,
         text: '{"format": 1}',
       },
     ])
+  })
+})
+
+describe('the folder of a recent file (2.15, U-229)', () => {
+  it('U-229 the IndexedDB store keeps the folder of an entry for a later session', async () => {
+    const fake = createFakeIndexedDb()
+    const handle = fakeHandle('block.ptsm', '/work/block.ptsm')
+    const folder = createFakeFolderHandle('work', [handle])
+    await createIndexedDbRecentFiles(fake.factory, () => 1000).remember({
+      name: 'block.ptsm',
+      handle,
+      folder,
+      text: '{}',
+    })
+    const [entry] = await createIndexedDbRecentFiles(fake.factory).list()
+    expect(entry?.handle).toBe(handle)
+    expect(entry?.folder).toBe(folder)
+  })
+
+  it('U-229 a stored record without folder reads it as null', async () => {
+    const fake = createFakeIndexedDb()
+    const store = createIndexedDbRecentFiles(fake.factory)
+    await store.list()
+    fake.putRecord('partsmith', 'recent', {
+      id: 'a',
+      name: 'old.ptsm',
+      openedAt: 1000,
+      handle: null,
+      text: '{}',
+    })
+    expect(await store.list()).toEqual([
+      { id: 'a', name: 'old.ptsm', openedAt: 1000, handle: null, folder: null, text: '{}' },
+    ])
+  })
+
+  it('a stored record whose folder is not a folder handle is skipped', async () => {
+    const fake = createFakeIndexedDb()
+    const store = createIndexedDbRecentFiles(fake.factory)
+    await store.list()
+    fake.putRecord('partsmith', 'recent', {
+      ...recentFile('a', 'bad.ptsm', 1000),
+      folder: { kind: 'file' },
+    })
+    fake.putRecord('partsmith', 'recent', recentFile('b', 'good.ptsm', 2000))
+    expect((await store.list()).map((entry) => entry.name)).toEqual(['good.ptsm'])
+  })
+
+  it.each([
+    ['memory', () => createMemoryRecentFiles(clock(1000).now)],
+    ['IndexedDB', () => createIndexedDbRecentFiles(createFakeIndexedDb().factory, clock(1000).now)],
+  ])(
+    'U-229 the %s store keeps the folder of the entry a new one without a folder replaces',
+    async (_, create) => {
+      const store = create()
+      const handle = fakeHandle('block.ptsm', '/work/block.ptsm')
+      const folder = createFakeFolderHandle('work', [handle])
+      await store.remember({ name: 'block.ptsm', handle, folder, text: '{}' })
+      const again = fakeHandle('block.ptsm', '/work/block.ptsm')
+      await store.remember({ name: 'block.ptsm', handle: again, folder: null, text: '{}' })
+      const list = await store.list()
+      expect(list).toHaveLength(1)
+      expect(list[0]?.handle).toBe(again)
+      expect(list[0]?.folder).toBe(folder)
+    },
+  )
+
+  it('a new entry with its own folder replaces the folder of the entry it replaces', async () => {
+    const store = createMemoryRecentFiles()
+    const handle = fakeHandle('block.ptsm', '/work/block.ptsm')
+    await store.remember({
+      name: 'block.ptsm',
+      handle,
+      folder: createFakeFolderHandle('old'),
+      text: '{}',
+    })
+    const chosen = createFakeFolderHandle('work', [handle])
+    await store.remember({ name: 'block.ptsm', handle, folder: chosen, text: '{}' })
+    expect((await store.list())[0]?.folder).toBe(chosen)
   })
 })

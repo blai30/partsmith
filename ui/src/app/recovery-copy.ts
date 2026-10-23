@@ -40,6 +40,8 @@ function entryOf(
     text: JSON.stringify(settledRecipeOf(app, document), null, 2),
     savedAt: nowOf(app),
     handle: document.file?.handle ?? null,
+    folder: document.file?.folder ?? null,
+    digest: document.file?.digest ?? null,
     reason,
   }
 }

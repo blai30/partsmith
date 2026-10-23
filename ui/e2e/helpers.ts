@@ -1,4 +1,5 @@
 /// <reference lib="dom" />
+/// <reference lib="dom.asynciterable" />
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { expect, type Locator, type Page } from '@playwright/test'
@@ -89,7 +90,7 @@ export function fixtureBytes(name: string): Promise<Buffer> {
 
 /**
  * Opens the app and waits for the core to be ready (ui.md 6.3). Without File System Access an
- * init script removes both pickers before every load of the page. Camera moves are not animated
+ * init script removes the three pickers before every load of the page. Camera moves are not animated
  * (reduced motion, 2.11), so a click right after a view change lands on the final view.
  */
 export async function openApp(
@@ -100,6 +101,7 @@ export async function openApp(
     await page.addInitScript(() => {
       Reflect.deleteProperty(window, 'showOpenFilePicker')
       Reflect.deleteProperty(window, 'showSaveFilePicker')
+      Reflect.deleteProperty(window, 'showDirectoryPicker')
     })
   }
   await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -377,6 +379,191 @@ export async function expectHover(page: Page, x: number, y: number, kind: string
 export async function download(page: Page, action: () => Promise<void>): Promise<Download> {
   const [started] = await Promise.all([page.waitForEvent('download'), action()])
   return { name: started.suggestedFilename(), bytes: await readFile(await started.path()) }
+}
+
+/** One picker call of the pickers `useFolders` installs, a handle option given as its name. */
+export type PickerCall = {
+  readonly picker: 'showOpenFilePicker' | 'showSaveFilePicker' | 'showDirectoryPicker'
+  readonly options: Readonly<Record<string, unknown>>
+}
+
+/** The `window` property where the pickers of `useFolders` keep their queue and calls. */
+const FOLDERS_KEY = 'partsmithFolders'
+
+/**
+ * Replaces the three File System Access pickers with pickers over the page's origin private file
+ * system, on every load of the page (ui.md 6.3). Called before `openApp`. Each picker call takes
+ * the next path that `queuePick` queued, slash-separated from the root: the open picker resolves
+ * the file there, the save picker the file there (created empty when missing, as Chromium's save
+ * dialog creates the file it names), the directory picker the folder there. With the queue empty
+ * a call rejects with an `AbortError`, as a canceled dialog does. Every call is recorded with its
+ * options, a handle given as its name (`pickerCalls`).
+ */
+export async function useFolders(page: Page): Promise<void> {
+  await page.addInitScript((key) => {
+    type Picker = 'showOpenFilePicker' | 'showSaveFilePicker' | 'showDirectoryPicker'
+    const state: {
+      queue: string[]
+      calls: { picker: Picker; options: Record<string, unknown> }[]
+    } = { queue: [], calls: [] }
+    Object.defineProperty(window, key, { value: state })
+
+    function record(picker: Picker, options: unknown): void {
+      const described: Record<string, unknown> = {}
+      if (typeof options === 'object' && options !== null) {
+        for (const [name, value] of Object.entries(options)) {
+          described[name] = value instanceof FileSystemHandle ? value.name : value
+        }
+      }
+      state.calls.push({ picker, options: described })
+    }
+
+    function nextPath(): string[] {
+      const path = state.queue.shift()
+      if (path === undefined) {
+        throw new DOMException('The user aborted a request.', 'AbortError')
+      }
+      return path.split('/').filter((part) => part !== '')
+    }
+
+    // The init script runs in the page, so its helpers live inside it.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
+    function folderAt(parts: readonly string[]): Promise<FileSystemDirectoryHandle> {
+      return parts.reduce<Promise<FileSystemDirectoryHandle>>(
+        async (folder, part) => (await folder).getDirectoryHandle(part),
+        navigator.storage.getDirectory(),
+      )
+    }
+
+    async function fileAt(
+      parts: readonly string[],
+      create: boolean,
+    ): Promise<FileSystemFileHandle> {
+      const name = parts.at(-1)
+      if (name === undefined) {
+        throw new DOMException('A file picker needs a file path.', 'TypeMismatchError')
+      }
+      const folder = await folderAt(parts.slice(0, -1))
+      return folder.getFileHandle(name, { create })
+    }
+
+    Object.assign(window, {
+      async showOpenFilePicker(options: unknown) {
+        record('showOpenFilePicker', options)
+        return [await fileAt(nextPath(), false)]
+      },
+      async showSaveFilePicker(options: unknown) {
+        record('showSaveFilePicker', options)
+        return fileAt(nextPath(), true)
+      },
+      async showDirectoryPicker(options: unknown) {
+        record('showDirectoryPicker', options)
+        return folderAt(nextPath())
+      },
+    })
+  }, FOLDERS_KEY)
+}
+
+/** Queues the path the next picker call of `useFolders` answers with (ui.md 6.3). */
+export async function queuePick(page: Page, path: string): Promise<void> {
+  await page.evaluate(
+    ({ key, picked }) => {
+      const state: unknown = Reflect.get(window, key)
+      if (typeof state !== 'object' || state === null) {
+        throw new Error('useFolders was not called before the page loaded.')
+      }
+      const queue: unknown = Reflect.get(state, 'queue')
+      if (!Array.isArray(queue)) {
+        throw new Error('The picker queue is missing.')
+      }
+      queue.push(picked)
+    },
+    { key: FOLDERS_KEY, picked: path },
+  )
+}
+
+/** The picker calls of the current load of the page, oldest first (ui.md 6.3). */
+export function pickerCalls(page: Page): Promise<PickerCall[]> {
+  return page.evaluate((key) => {
+    const state: unknown = Reflect.get(window, key)
+    const calls: unknown =
+      typeof state === 'object' && state !== null ? Reflect.get(state, 'calls') : []
+    return JSON.parse(JSON.stringify(calls)) as PickerCall[]
+  }, FOLDERS_KEY)
+}
+
+/** Writes `bytes` to the file at a slash-separated path of the origin private file system, creating its folders. */
+export async function writeFolderFile(
+  page: Page,
+  path: string,
+  bytes: Uint8Array | Buffer,
+): Promise<void> {
+  await page.evaluate(
+    async ({ parts, content }) => {
+      const name = parts.at(-1)
+      if (name === undefined) {
+        throw new Error('writeFolderFile needs a file path.')
+      }
+      const folder = await parts
+        .slice(0, -1)
+        .reduce<Promise<FileSystemDirectoryHandle>>(
+          async (parent, part) => (await parent).getDirectoryHandle(part, { create: true }),
+          navigator.storage.getDirectory(),
+        )
+      const file = await folder.getFileHandle(name, { create: true })
+      const writable = await file.createWritable()
+      await writable.write(new Uint8Array(content))
+      await writable.close()
+    },
+    { parts: path.split('/').filter((part) => part !== ''), content: [...bytes] },
+  )
+}
+
+/** The bytes of the file at a slash-separated path of the origin private file system, or null when there is none. */
+export async function readFolderFile(page: Page, path: string): Promise<Buffer | null> {
+  const content = await page.evaluate(
+    async (parts) => {
+      const name = parts.at(-1)
+      if (name === undefined) {
+        return null
+      }
+      try {
+        const folder = await parts
+          .slice(0, -1)
+          .reduce<Promise<FileSystemDirectoryHandle>>(
+            async (parent, part) => (await parent).getDirectoryHandle(part),
+            navigator.storage.getDirectory(),
+          )
+        const file = await (await folder.getFileHandle(name)).getFile()
+        return [...new Uint8Array(await file.arrayBuffer())]
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'NotFoundError') {
+          return null
+        }
+        throw error
+      }
+    },
+    path.split('/').filter((part) => part !== ''),
+  )
+  return content === null ? null : Buffer.from(content)
+}
+
+/** The sorted names of the entries of the folder at a slash-separated path of the origin private file system. */
+export function folderNames(page: Page, path: string): Promise<string[]> {
+  return page.evaluate(
+    async (parts) => {
+      const folder = await parts.reduce<Promise<FileSystemDirectoryHandle>>(
+        async (parent, part) => (await parent).getDirectoryHandle(part),
+        navigator.storage.getDirectory(),
+      )
+      const names: string[] = []
+      for await (const name of folder.keys()) {
+        names.push(name)
+      }
+      return names.toSorted()
+    },
+    path.split('/').filter((part) => part !== ''),
+  )
 }
 
 /**

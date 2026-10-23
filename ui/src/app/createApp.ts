@@ -7,6 +7,7 @@ import { createMutationQueue, type MutationQueue } from '../core/queue'
 import { CoreFatalError, type Transport } from '../core/transport'
 import type { FileService } from '../files/file-service'
 import type { RecentFilesStore } from '../files/recent'
+import type { AssetFile } from '../files/assets'
 import type { RecoveryStore } from '../files/recovery'
 import type { Command, DocHandle, Document } from '../generated/protocol'
 import { MESSAGES } from '../messages'
@@ -79,6 +80,8 @@ type Reopening = {
   readonly name: string
   readonly file: FileReference | null
   readonly recoveryId: string
+  /** The asset files the stopped core held, which the new one gets again (3.19). */
+  readonly assets: readonly AssetFile[]
 }
 
 /**
@@ -252,7 +255,7 @@ export function createApp(options: CreateAppOptions): App {
    * in `pendingMutations` until it is answered, and its time from sending to the applied response
    * is the document's rebuild time (3.21) and `ps:rebuild` once the viewport drew it (2.18).
    */
-  async function request(command: Command): Promise<Reply> {
+  async function request(command: Command, buffers?: readonly Uint8Array[]): Promise<Reply> {
     const ended = responses.sent(isWaitedOn(command))
     const rebuilds = rebuildsDocument(command)
     const started = performance.now()
@@ -260,7 +263,7 @@ export function createApp(options: CreateAppOptions): App {
       changePending(1)
     }
     try {
-      const reply = await client.request(command)
+      const reply = await client.request(command, buffers)
       ended(true)
       const documentHandle = rebuiltDocument(command, reply.result)
       if (documentHandle !== null) {
@@ -302,6 +305,7 @@ export function createApp(options: CreateAppOptions): App {
       name: shown.name,
       file: shown.file,
       recoveryId: shown.recoveryId,
+      assets: shown.assets,
     }
   }
 
@@ -319,7 +323,7 @@ export function createApp(options: CreateAppOptions): App {
       return
     }
     const opened = await mutations.run(
-      () => core.openDocument(JSON.stringify(kept.recipe, null, 2)),
+      () => core.openDocument(JSON.stringify(kept.recipe, null, 2), kept.assets),
       'other',
     )
     adoptDocument(store, opened.documentHandle, {
@@ -327,6 +331,7 @@ export function createApp(options: CreateAppOptions): App {
       file: kept.file,
       localUnsaved: true,
       recoveryId: kept.recoveryId,
+      assets: kept.assets,
     })
     reopening = null
     // The session goes on, so its recovery entry carries on (3.19).

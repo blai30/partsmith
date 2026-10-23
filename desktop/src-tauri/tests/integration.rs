@@ -4,6 +4,7 @@
 
 mod common;
 
+mod assets;
 mod commands;
 mod config;
 mod files;

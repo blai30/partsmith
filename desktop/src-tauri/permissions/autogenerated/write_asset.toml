@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-write-asset"
+description = "Enables the write_asset command without any pre-configured scope."
+commands.allow = ["write_asset"]
+
+[[permission]]
+identifier = "deny-write-asset"
+description = "Denies the write_asset command without any pre-configured scope."
+commands.deny = ["write_asset"]

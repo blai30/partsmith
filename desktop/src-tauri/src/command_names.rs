@@ -5,5 +5,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "pick_save_file",
     "read_file",
     "write_file",
+    "read_asset",
+    "write_asset",
     "set_unsaved",
 ];

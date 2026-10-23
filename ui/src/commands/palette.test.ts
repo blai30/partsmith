@@ -129,6 +129,7 @@ describe('paletteItems', () => {
       name: 'bracket.ptsm',
       openedAt: 0,
       handle: null,
+      folder: null,
       text: '{}',
     }
     expect(

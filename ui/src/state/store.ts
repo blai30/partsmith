@@ -1,5 +1,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { SolvedSketch } from '../core/api'
+import type { AssetFile } from '../files/assets'
 import type { FileHandle } from '../files/file-service'
 import type {
   BoundingBox,
@@ -106,6 +107,8 @@ export type DocumentState = {
   readonly localUnsaved: boolean
   /** The key of this document session's recovery entry (3.19): a new `crypto.randomUUID()` for each document the app adopts (New, Open, a recovery Open), kept when a core restart reopens the document (4.4). */
   readonly recoveryId: string
+  /** The asset files the core accepted when this session opened the document (3.19; none after an `asset_mismatch` retry), which a core restart gives it again (4.4); empty when none. */
+  readonly assets: readonly AssetFile[]
   readonly undoLabel: string | null
   readonly redoLabel: string | null
   readonly transactionOpen: boolean
@@ -138,7 +141,14 @@ export type MeshSummary = {
 }
 
 /** The file a document was opened from or saved to: a web file handle or a desktop grant. */
-export type FileReference = { readonly name: string; readonly handle: FileHandle | null }
+export type FileReference = {
+  readonly name: string
+  readonly handle: FileHandle | null
+  /** On the web, the folder the user chose that holds the file, through which the page reaches its `assets/` folder (3.19); null on the desktop and without one. */
+  readonly folder: FileSystemDirectoryHandle | null
+  /** `fileDigest` of the file's bytes as this session last read or wrote them, which Save compares to see a change made elsewhere (3.19); null without a handle or when unknown. */
+  readonly digest: string | null
+}
 
 /** The kinds of selection items, declared once with the picking code that produces them. */
 export type { SelectionItemKind }

@@ -79,14 +79,23 @@ export function responseFrame(parts: ResponseParts): ArrayBuffer {
   )
 }
 
-/** The single request of a request frame; throws for anything else. */
-export function readRequest(frame: ArrayBuffer): Request {
-  const { messages } = decodeFrame(frame).header
+/** The single request of a request frame and the frame's buffers, such as an `open_document`'s assets. */
+export type RequestParts = { readonly request: Request; readonly buffers: readonly BufferView[] }
+
+/** The single request of a request frame with the frame's buffers; throws for anything else. */
+export function readRequestFrame(frame: ArrayBuffer): RequestParts {
+  const { header, buffers } = decodeFrame(frame)
+  const { messages } = header
   const message = messages[0]
   if (messages.length !== 1 || message === undefined || message.kind !== 'request') {
     throw new Error('The frame does not hold exactly one request.')
   }
-  return { id: message.id, command: message.command }
+  return { request: { id: message.id, command: message.command }, buffers }
+}
+
+/** The single request of a request frame; throws for anything else. */
+export function readRequest(frame: ArrayBuffer): Request {
+  return readRequestFrame(frame).request
 }
 
 /** The events, the response and the buffers of a response frame; throws for anything else. */

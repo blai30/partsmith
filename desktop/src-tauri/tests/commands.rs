@@ -1,4 +1,4 @@
-//! Acceptance tests for the command wiring and the capability (desktop.md section 6, tests 8 to 13).
+//! Acceptance tests for the command wiring and the capability (desktop.md section 6, tests 8 to 13 and 63).
 //!
 //! The app is `configure(tauri::test::mock_builder())` with `Arc<Files>` managed and the real configuration and capability compiled in by `tauri::generate_context!(test = true)`, so Tauri's mock runtime enforces the ACL as the app does (2.7). No window system is needed.
 
@@ -19,8 +19,11 @@ use tauri::webview::InvokeRequest;
 use tauri::{App, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tempfile::TempDir;
 
-/// The header that carries the grant of `write_file` (2.6); header names are case-insensitive.
+/// The header that carries the grant of `write_file` and `write_asset` (2.6); header names are case-insensitive.
 const GRANT_HEADER: &str = "partsmith-grant";
+
+/// The header that carries the asset name of `write_asset` (2.6).
+const ASSET_HEADER: &str = "partsmith-asset";
 
 /// The message of a grant that is not in the list, or a missing grant header (section 4).
 const UNKNOWN_GRANT_MESSAGE: &str =
@@ -205,7 +208,7 @@ fn t010_write_file_without_a_grant_header_rejects_with_permission() {
 }
 
 #[test]
-fn t011_command_names_are_the_six_commands_in_registration_order() {
+fn t011_command_names_are_the_eight_commands_in_registration_order() {
     assert_eq!(
         COMMAND_NAMES,
         [
@@ -214,6 +217,8 @@ fn t011_command_names_are_the_six_commands_in_registration_order() {
             "pick_save_file",
             "read_file",
             "write_file",
+            "read_asset",
+            "write_asset",
             "set_unsaved"
         ]
     );
@@ -392,4 +397,147 @@ fn write_file_with_a_grant_header_that_is_not_visible_ascii_rejects_with_permiss
         json!({ "reason": "permission", "message": UNKNOWN_GRANT_MESSAGE })
     );
     assert_eq!(fs::read(&path).expect("the file exists"), b"hello");
+}
+
+/// `S` of desktop.md section 6: the BLAKE3 hash of `solid` followed by `.step`.
+fn solid_name() -> String {
+    format!("{}.step", blake3::hash(b"solid").to_hex())
+}
+
+/// Headers carrying `grant` in `Partsmith-Grant` and `name` in `Partsmith-Asset`.
+fn asset_headers(grant: &str, name: &str) -> HeaderMap {
+    let mut headers = grant_headers(grant);
+    headers.insert(
+        HeaderName::from_static(ASSET_HEADER),
+        HeaderValue::from_str(name).expect("asset names are visible ASCII"),
+    );
+    headers
+}
+
+/// Headers carrying only `name` in `Partsmith-Asset`.
+fn asset_header_only(name: &str) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        HeaderName::from_static(ASSET_HEADER),
+        HeaderValue::from_str(name).expect("asset names are visible ASCII"),
+    );
+    headers
+}
+
+#[test]
+fn t063_read_asset_answers_with_the_raw_bytes_of_the_asset() {
+    let (folder, _path, files, grant) = granted_part();
+    let assets = folder.path().join("assets");
+    fs::create_dir(&assets).expect("the test can create a folder");
+    fs::write(assets.join(solid_name()), b"solid").expect("the test asset can be written");
+    let app = app_with(files);
+    let main = window(&app, "main");
+
+    let answer = invoke(
+        &main,
+        "read_asset",
+        InvokeBody::Json(json!({ "grant": grant, "name": solid_name() })),
+        HeaderMap::new(),
+    );
+
+    assert_eq!(raw_answer(answer), b"solid");
+}
+
+#[test]
+fn t063_write_asset_writes_a_raw_body_under_the_asset_name_its_headers_give() {
+    let (folder, _path, files, grant) = granted_part();
+    let app = app_with(files);
+    let main = window(&app, "main");
+
+    let answer = invoke(
+        &main,
+        "write_asset",
+        InvokeBody::Raw(b"solid".to_vec()),
+        asset_headers(&grant, &solid_name()),
+    );
+
+    assert_eq!(json_answer(answer), Value::Null);
+    assert_eq!(
+        fs::read(folder.path().join("assets").join(solid_name())).expect("the asset exists"),
+        b"solid"
+    );
+}
+
+#[test]
+fn t063_write_asset_with_a_json_body_rejects_with_not_bytes() {
+    let (folder, _path, files, grant) = granted_part();
+    let app = app_with(files);
+    let main = window(&app, "main");
+
+    let answer = invoke(
+        &main,
+        "write_asset",
+        InvokeBody::Json(json!({ "bytes": [115, 111, 108, 105, 100] })),
+        asset_headers(&grant, &solid_name()),
+    );
+
+    assert_eq!(
+        rejection(answer),
+        json!({ "reason": "io", "message": "The file contents must be sent as bytes." })
+    );
+    assert!(!folder.path().join("assets").exists());
+}
+
+#[test]
+fn t063_write_asset_without_a_grant_header_rejects_with_permission() {
+    let (folder, _path, files, _grant) = granted_part();
+    let app = app_with(files);
+    let main = window(&app, "main");
+
+    let answer = invoke(
+        &main,
+        "write_asset",
+        InvokeBody::Raw(b"solid".to_vec()),
+        asset_header_only(&solid_name()),
+    );
+
+    assert_eq!(
+        rejection(answer),
+        json!({ "reason": "permission", "message": UNKNOWN_GRANT_MESSAGE })
+    );
+    assert!(!folder.path().join("assets").exists());
+}
+
+#[test]
+fn t063_write_asset_without_an_asset_header_rejects_with_an_empty_name() {
+    let (folder, _path, files, grant) = granted_part();
+    let app = app_with(files);
+    let main = window(&app, "main");
+
+    let answer = invoke(
+        &main,
+        "write_asset",
+        InvokeBody::Raw(b"solid".to_vec()),
+        grant_headers(&grant),
+    );
+
+    assert_eq!(
+        rejection(answer),
+        json!({ "reason": "io", "message": "\"\" is not the name of an asset." })
+    );
+    assert!(!folder.path().join("assets").exists());
+}
+
+#[test]
+fn t063_read_asset_of_a_missing_asset_rejects_with_not_found() {
+    let (_folder, _path, files, grant) = granted_part();
+    let app = app_with(files);
+    let main = window(&app, "main");
+
+    let answer = invoke(
+        &main,
+        "read_asset",
+        InvokeBody::Json(json!({ "grant": grant, "name": solid_name() })),
+        HeaderMap::new(),
+    );
+
+    assert_eq!(
+        rejection(answer),
+        json!({ "reason": "not_found", "message": "assets was not found." })
+    );
 }

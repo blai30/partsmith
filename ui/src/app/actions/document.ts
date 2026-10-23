@@ -1,7 +1,14 @@
 import type { CoreApi } from '../../core/api'
 import { CoreError } from '../../core/client'
 import { errorMessage } from '../../core/errors'
-import { FileServiceError, type OpenedFile, type SaveTarget } from '../../files/file-service'
+import type { AssetFile } from '../../files/assets'
+import { fileDigestOrNull } from '../../files/digest'
+import {
+  FileServiceError,
+  folderHolds,
+  type OpenedFile,
+  type SaveTarget,
+} from '../../files/file-service'
 import type { RecentFile } from '../../files/recent'
 import type { RecoveryEntry } from '../../files/recovery'
 import type { Edit, Units } from '../../generated/protocol'
@@ -18,6 +25,16 @@ import type { App } from '../createApp'
 import { adoptRecoveryEntry, endRecoverySession, removeRecoveryEntry } from '../recovery-copy'
 import { measureToNextFrame } from '../timing'
 import { cancelCommand, redoCommandChange, undoCommandChange } from './command'
+import {
+  chooseFolderOf,
+  explainMissingAssets,
+  folderOfFile,
+  isOffered,
+  offerOf,
+  readDocumentAssets,
+  showSaveAssetsError,
+  type DocumentOffer,
+} from './document-assets'
 import {
   commitEdits,
   documentOf,
@@ -139,15 +156,34 @@ type DocumentSource = {
   readonly stopped: StoppedNotice
 }
 
+/** What the core opened for a text: the document, the assets it accepted, and its refusal of the assets it was given first, if any. */
+type OpenedText = {
+  readonly opened: Awaited<ReturnType<CoreApi['openDocument']>>
+  readonly assets: readonly AssetFile[]
+  readonly refusal: CoreError | null
+}
+
 /**
- * Opens a recipe text in place of the current document (3.19 openFile step 3 and 4) in a new
- * document session. Resolves the session's recovery id, or null when the text was not opened.
+ * Has the core open a text with its assets (3.19 openFile step 4). When a file under an asset's
+ * name holds other bytes (`asset_mismatch`), the text opens again without assets, so the document
+ * can still be edited. Any other refusal shows `open_failed`; resolves null when nothing opened.
  */
-async function replaceDocument(app: App, source: DocumentSource): Promise<string | null> {
-  let opened: Awaited<ReturnType<CoreApi['openDocument']>>
+async function openText(
+  app: App,
+  source: DocumentSource,
+  assets: readonly AssetFile[],
+): Promise<OpenedText | null> {
   try {
-    opened = await app.mutations.run(() => app.core.openDocument(source.text), 'other')
+    const opened = await app.mutations.run(
+      () => app.core.openDocument(source.text, assets),
+      'other',
+    )
+    return { opened, assets, refusal: null }
   } catch (error) {
+    if (error instanceof CoreError && error.code === 'asset_mismatch' && assets.length > 0) {
+      const retried = await openText(app, source, [])
+      return retried === null ? null : { ...retried, refusal: error }
+    }
     if (error instanceof CoreError) {
       notify(app, {
         severity: 'error',
@@ -160,6 +196,20 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<string
     showCoreError(app, error, { stopped: source.stopped })
     return null
   }
+}
+
+/**
+ * Opens a recipe text in place of the current document (3.19 openFile steps 3 to 6) in a new
+ * document session, with the assets its file's folder holds. Resolves the session's recovery id,
+ * or null when the text was not opened.
+ */
+async function replaceDocument(app: App, source: DocumentSource): Promise<string | null> {
+  const reading = await readDocumentAssets(app, source.text, source.file)
+  const result = await openText(app, source, reading?.assets ?? [])
+  if (result === null) {
+    return null
+  }
+  const { opened } = result
   let offerReopen: () => void
   try {
     await cancelCommandOfReplaced(app)
@@ -175,6 +225,7 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<string
     file: source.file,
     localUnsaved: source.localUnsaved,
     recoveryId,
+    assets: result.assets,
   })
   startDocumentSession(app)
   const viewport = app.viewport()
@@ -189,6 +240,10 @@ async function replaceDocument(app: App, source: DocumentSource): Promise<string
     })
   }
   offerReopen()
+  const shown = documentOf(app)
+  if (shown !== null) {
+    explainMissingAssets(app, shown, reading, result.refusal)
+  }
   return recoveryId
 }
 
@@ -200,7 +255,15 @@ async function openRecovered(app: App, entry: RecoveryEntry): Promise<void> {
   const recoveryId = await replaceDocument(app, {
     text: entry.text,
     name: entry.name,
-    file: entry.handle === null ? null : { name: entry.handle.name, handle: entry.handle },
+    file:
+      entry.handle === null
+        ? null
+        : {
+            name: entry.handle.name,
+            handle: entry.handle,
+            folder: await folderOfFile(app, entry.handle, entry.folder),
+            digest: entry.digest,
+          },
     localUnsaved: true,
     fileName: entry.name,
     stopped: {
@@ -291,8 +354,15 @@ export async function newDocument(app: App): Promise<void> {
   }
 }
 
-/** Opens a chosen or dropped file (3.19). */
-export async function openFile(app: App, file: OpenedFile): Promise<void> {
+/**
+ * Opens a chosen or dropped file (3.19), with the web folder that holds it when one is known
+ * (given, or kept in the file's recent entry), through which its assets are read.
+ */
+export async function openFile(
+  app: App,
+  file: OpenedFile,
+  folder: FileSystemDirectoryHandle | null = null,
+): Promise<void> {
   // ps:open runs from the read file bytes to the first frame with the opened document (2.18).
   const started = performance.now()
   if (!PTSM_EXTENSION.test(file.name)) {
@@ -316,17 +386,23 @@ export async function openFile(app: App, file: OpenedFile): Promise<void> {
     })
     return
   }
+  const knownFolder = await folderOfFile(app, file.handle, folder)
   const opened = await replaceDocument(app, {
     text,
     name: documentName(file.name),
-    file: { name: file.name, handle: file.handle },
+    file: {
+      name: file.name,
+      handle: file.handle,
+      folder: knownFolder,
+      digest: file.handle === null ? null : await fileDigestOrNull(file.bytes, file.name),
+    },
     localUnsaved: false,
     fileName: file.name,
     stopped: { code: 'open_stopped', message: MESSAGES.open_stopped(file.name) },
   })
   if (opened !== null) {
     measureToNextFrame(TIMING_NAMES.open, started)
-    await app.recent.remember({ name: file.name, handle: file.handle, text })
+    await app.recent.remember({ name: file.name, handle: file.handle, folder: knownFolder, text })
   }
 }
 
@@ -358,7 +434,8 @@ export async function openRecent(app: App, entry: RecentFile): Promise<void> {
   }
   let file: OpenedFile
   try {
-    file = await app.files.readHandle(entry.handle)
+    // With the entry's folder, the one prompt this click may show is the folder's (2.15).
+    file = await app.files.readHandle(entry.handle, 'read', entry.folder)
   } catch (error) {
     if (!(error instanceof FileServiceError)) {
       throw error
@@ -395,34 +472,280 @@ export async function openRecent(app: App, entry: RecentFile): Promise<void> {
     }
     return
   }
-  await openFile(app, file)
+  await openFile(app, file, entry.folder)
+}
+
+/** One write of the document (3.19 "Writing the document"). */
+type DocumentWrite = {
+  readonly target: SaveTarget
+  /** The web folder that holds the target, through which its assets are written; null on the desktop and without one. */
+  readonly folder: FileSystemDirectoryHandle | null
+  /** Save's change check: the digest the file must still have; null skips the check (Save as, or a digest that is not known). */
+  readonly expected: string | null
+  /** The document session and file the save was started for, which its notifications' actions require. */
+  readonly offer: DocumentOffer
 }
 
 /**
- * Saves the document's canonical text to the target, then tells the core which revision is on
- * disk. Nothing is marked saved when the write fails.
+ * Save's change check (3.19 writing step 2): whether the target still holds the bytes the
+ * session last read or wrote, true when there is nothing to check. A file changed elsewhere shows
+ * `save_conflict`, and a file that cannot be read the Save message of its reason; a digest that
+ * cannot be taken skips the check.
  */
-async function writeDocument(app: App, target: SaveTarget): Promise<boolean> {
-  const document = documentOf(app)
-  if (document === null) {
+async function unchangedElsewhere(app: App, write: DocumentWrite): Promise<boolean> {
+  const { target, expected } = write
+  if (expected === null || target.kind !== 'handle') {
+    return true
+  }
+  const fileName = target.name
+  let file: OpenedFile
+  try {
+    // With the document's folder, the one prompt of this click is the folder's (2.15).
+    file = await app.files.readHandle(target.handle, 'readwrite', write.folder)
+  } catch (error) {
+    if (!(error instanceof FileServiceError)) {
+      throw error
+    }
+    showSaveError(app, fileName, error, () => saveAs(app))
     return false
   }
+  const digest = await fileDigestOrNull(file.bytes, fileName)
+  if (digest === null || digest === expected) {
+    return true
+  }
+  const { offer } = write
+  notify(app, {
+    severity: 'error',
+    message: MESSAGES.save_conflict(fileName),
+    code: 'save_conflict',
+    actions: [
+      {
+        label: `Overwrite ${fileName}`,
+        run: () => {
+          void overwrite(app, offer, digest)
+        },
+        editsDocument: true,
+      },
+      {
+        label: 'Save as',
+        run: () => {
+          if (isOffered(app, offer)) {
+            void saveAs(app)
+          }
+        },
+      },
+      {
+        label: 'Open the newer file',
+        run: () => {
+          void openNewerFile(app, offer)
+        },
+      },
+    ],
+  })
+  return false
+}
+
+/** "Overwrite {file}" of `save_conflict`: takes the newer file's digest as known and saves again, so a file changed once more warns again. */
+async function overwrite(app: App, offer: DocumentOffer, digest: string): Promise<void> {
+  if (!isOffered(app, offer) || refusedDuringCommand(app)) {
+    return
+  }
+  app.store.setState((state) =>
+    state.document?.file === null || state.document?.file === undefined
+      ? {}
+      : { document: { ...state.document, file: { ...state.document.file, digest } } },
+  )
+  await save(app)
+}
+
+/** "Open the newer file" of `save_conflict`: opens the file again, which keeps the unsaved document as a `replaced` entry (3.19). */
+async function openNewerFile(app: App, offer: DocumentOffer): Promise<void> {
+  const file = documentOf(app)?.file ?? null
+  if (file?.handle === null || file?.handle === undefined || !isOffered(app, offer)) {
+    return
+  }
+  let opened: OpenedFile
+  try {
+    opened = await app.files.readHandle(file.handle, 'read', file.folder)
+  } catch (error) {
+    if (!(error instanceof FileServiceError)) {
+      throw error
+    }
+    notify(app, {
+      severity: 'error',
+      message: MESSAGES.open_failed(file.name, error.message),
+      code: 'open_failed',
+      actions: [],
+    })
+    return
+  }
+  await openFile(app, opened, file.folder)
+}
+
+/**
+ * The assets step of a write (3.19 writing step 3): writes the assets to the folder next to the
+ * target, or, when the page does not reach it (on the web, Save as into another folder), asks for
+ * that folder with `save_folder_needed`. Resolves whether the write goes on.
+ */
+async function wroteAssets(
+  app: App,
+  write: DocumentWrite,
+  assets: readonly AssetFile[],
+): Promise<boolean> {
+  const { target } = write
+  // A download target holds no assets: a page without the File System Access API reads none.
+  if (assets.length === 0 || target.kind !== 'handle') {
+    return true
+  }
+  const place = { handle: target.handle, folder: write.folder }
+  if (!app.files.reachesFolder(place)) {
+    askForSaveFolder(app, write)
+    return false
+  }
+  try {
+    await app.files.writeAssets(place, assets)
+  } catch (error) {
+    if (!(error instanceof FileServiceError)) {
+      throw error
+    }
+    showSaveAssetsError(app, target.name, error, () => {
+      void saveAs(app)
+    })
+    return false
+  }
+  return true
+}
+
+/** `save_folder_needed`: the persistent warning whose "Choose folder" writes the document again with the target's folder (3.19). */
+function askForSaveFolder(app: App, write: DocumentWrite): void {
+  notify(
+    app,
+    {
+      severity: 'warning',
+      message: MESSAGES.save_folder_needed(write.target.name),
+      code: 'save_folder_needed',
+      actions: [
+        {
+          label: 'Choose folder',
+          run: () => {
+            void chooseSaveFolder(app, write)
+          },
+          editsDocument: true,
+        },
+      ],
+    },
+    { persistent: true },
+  )
+}
+
+/** "Choose folder" of `save_folder_needed`, for the document and target it was offered for. */
+async function chooseSaveFolder(app: App, write: DocumentWrite): Promise<void> {
+  const { target } = write
+  if (target.kind !== 'handle' || !isOffered(app, write.offer) || refusedDuringCommand(app)) {
+    return
+  }
+  const folder = await chooseFolderOf(
+    app,
+    target.handle,
+    target.name,
+    () => {
+      void chooseSaveFolder(app, write)
+    },
+    () => {
+      askForSaveFolder(app, write)
+    },
+  )
+  if (folder !== null && isOffered(app, write.offer)) {
+    await writeDocument(app, { ...write, folder })
+  }
+}
+
+/**
+ * Takes the written target as the document's file (3.19 writing step 5): its digest becomes that
+ * of the written bytes, and a new file (Save as) also names the document and goes to recent files
+ * with its folder. A download target leaves the document without a file handle.
+ */
+async function adoptWrittenFile(
+  app: App,
+  document: DocumentState,
+  write: DocumentWrite,
+  bytes: Uint8Array,
+): Promise<void> {
+  const { target } = write
+  const file: FileReference =
+    target.kind === 'handle'
+      ? {
+          name: target.name,
+          handle: target.handle,
+          folder: write.folder,
+          digest: await fileDigestOrNull(bytes, target.name),
+        }
+      : { name: target.name, handle: null, folder: null, digest: null }
+  const isNewFile = target.kind === 'handle' && target.handle !== document.file?.handle
+  app.store.setState((state) =>
+    state.document === null || state.document.recoveryId !== document.recoveryId
+      ? {}
+      : {
+          document: {
+            ...state.document,
+            file,
+            ...(isNewFile ? { name: documentName(target.name) } : {}),
+          },
+        },
+  )
+  if (isNewFile) {
+    await app.recent.remember({
+      name: target.name,
+      handle: target.handle,
+      folder: write.folder,
+      text: JSON.stringify((documentOf(app) ?? document).recipe, null, 2),
+    })
+  }
+  if (target.kind === 'download' && !downloadHintShown.has(app.store)) {
+    downloadHintShown.add(app.store)
+    notify(app, {
+      severity: 'info',
+      message: MESSAGES.download_hint(target.name),
+      actions: [],
+      code: 'download_hint',
+    })
+  }
+}
+
+/**
+ * Writes the document in the order of file-format.md 3.11 (3.19 "Writing the document"): the
+ * core's text and assets, Save's change check, the assets, the document, then `markSaved`. Each
+ * step that stops sends no `markSaved`, so the document stays unsaved.
+ */
+async function writeDocument(app: App, write: DocumentWrite): Promise<void> {
+  const document = documentOf(app)
+  if (document === null) {
+    return
+  }
+  const { target } = write
   const saved = await mutate(app, (current) => app.core.saveDocument(current.documentHandle), {
     kind: 'other',
     stopped: { code: 'save_stopped', message: MESSAGES.save_stopped(target.name) },
   })
-  if (saved === null) {
-    return false
+  if (
+    saved === null ||
+    !(await unchangedElsewhere(app, write)) ||
+    !(await wroteAssets(app, write, saved.assets))
+  ) {
+    return
   }
+  const bytes = textBytes(saved.text)
   try {
-    await app.files.write(target, 'ptsm', textBytes(saved.text))
+    await app.files.write(target, 'ptsm', bytes)
   } catch (error) {
     if (error instanceof FileServiceError) {
       showSaveError(app, target.name, error, () => saveAs(app))
-      return false
+      return
     }
     throw error
   }
+  // The file now holds these bytes, even if the core stops before they are marked saved.
+  await adoptWrittenFile(app, document, write, bytes)
   // A core that stops now leaves the written document unsaved, which keeps its recovery copy.
   const marked = await mutate(
     app,
@@ -430,7 +753,7 @@ async function writeDocument(app: App, target: SaveTarget): Promise<boolean> {
     { kind: 'other' },
   )
   if (marked === null) {
-    return false
+    return
   }
   app.store.setState((state) =>
     state.document === null ? {} : { document: { ...state.document, localUnsaved: false } },
@@ -441,7 +764,6 @@ async function writeDocument(app: App, target: SaveTarget): Promise<boolean> {
   if (current?.recoveryId === document.recoveryId && !isUnsaved(current)) {
     await removeRecoveryEntry(app, current)
   }
-  return true
 }
 
 /** Save (Mod+S): to the document's file, or Save as without one; refused during a feature command (3.7). */
@@ -455,7 +777,12 @@ export async function save(app: App): Promise<void> {
     await saveAs(app)
     return
   }
-  await writeDocument(app, { kind: 'handle', name: file.name, handle: file.handle })
+  await writeDocument(app, {
+    target: { kind: 'handle', name: file.name, handle: file.handle },
+    folder: file.folder,
+    expected: file.digest,
+    offer: offerOf(document),
+  })
 }
 
 /**
@@ -478,45 +805,20 @@ export async function saveAs(app: App): Promise<void> {
     showSaveError(app, fileName, error, () => saveAs(app))
     return
   }
-  if (target === null || !(await writeDocument(app, target))) {
+  if (target === null) {
     return
   }
-  if (target.kind === 'handle') {
-    app.store.setState((state) =>
-      state.document === null
-        ? {}
-        : {
-            document: {
-              ...state.document,
-              name: documentName(target.name),
-              file: { name: target.name, handle: target.handle },
-            },
-          },
-    )
-    const current = documentOf(app)
-    if (current !== null) {
-      await app.recent.remember({
-        name: target.name,
-        handle: target.handle,
-        text: JSON.stringify(current.recipe, null, 2),
-      })
-    }
-    return
-  }
-  app.store.setState((state) =>
-    state.document === null
-      ? {}
-      : { document: { ...state.document, file: { name: target.name, handle: null } } },
-  )
-  if (!downloadHintShown.has(app.store)) {
-    downloadHintShown.add(app.store)
-    notify(app, {
-      severity: 'info',
-      message: MESSAGES.download_hint(target.name),
-      actions: [],
-      code: 'download_hint',
-    })
-  }
+  // The document's folder goes with a target it holds, so the assets are written there at once.
+  const folder = document.file?.folder ?? null
+  const holds =
+    folder !== null && target.kind === 'handle' && (await folderHolds(folder, target.handle))
+  // No change check: the dialog confirmed replacing the file.
+  await writeDocument(app, {
+    target,
+    folder: holds ? folder : null,
+    expected: null,
+    offer: offerOf(document),
+  })
 }
 
 /** Applies labeled edits as one undo entry; resolves false when the core refused them. */

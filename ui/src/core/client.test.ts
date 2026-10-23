@@ -100,6 +100,21 @@ describe('createCoreClient', () => {
     })
   })
 
+  it('sends the given u8 buffers in order with the request, and none without them (2.5)', async () => {
+    const transport = scriptedTransport(undoAnswer)
+    const client = createCoreClient(transport)
+    await client.request(UNDO, [Uint8Array.of(1, 2, 3), Uint8Array.of(4, 5)])
+    await client.request(UNDO)
+    const [withBuffers, withoutBuffers] = transport.frames.map((frame) => decodeFrame(frame))
+    expect(withBuffers?.header.buffers.map((info) => info.element_type)).toEqual(['u8', 'u8'])
+    expect(withBuffers?.buffers.map((buffer) => Array.from(buffer))).toEqual([
+      [1, 2, 3],
+      [4, 5],
+    ])
+    expect(withoutBuffers?.header.buffers).toEqual([])
+    expect(withoutBuffers?.buffers).toEqual([])
+  })
+
   it('resolves an ok outcome with the result and the frame buffers', async () => {
     const transport = scriptedTransport(() => ({
       result: {

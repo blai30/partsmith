@@ -25,6 +25,7 @@ import {
   heldRecoveryLocks,
   recentFileNames,
   recoveryOffers,
+  sendRename,
   storedRecoveries,
   timelineItems,
 } from './support/documents'
@@ -67,21 +68,6 @@ async function expectCubeOpened(page: Page): Promise<void> {
   await expect(bodyRow(page, 'Cube')).toBeVisible()
   await expect(page.getByTestId('status-recompute')).toHaveText(/^Rebuilt in \d+(\.\d)? (ms|s)$/)
   await expect(page.getByTestId('document-name')).toHaveAttribute('data-dirty', 'false')
-}
-
-/**
- * Starts renaming a body as `renameBody` does (click its row, F2, type, Enter), without waiting
- * for the core to answer. Returns the time Enter was pressed, which sends the rename.
- */
-async function sendRename(page: Page, from: string, to: string): Promise<number> {
-  await bodyRow(page, from).click()
-  await page.keyboard.press('F2')
-  const field = page.getByTestId('browser').getByRole('textbox', { name: 'Name', exact: true })
-  await expect(field).toBeFocused()
-  await page.keyboard.type(to)
-  const sentAt = Date.now()
-  await page.keyboard.press('Enter')
-  return sentAt
 }
 
 /** Drags the selection inspector by its header label until the label's center is at (x, y). */
