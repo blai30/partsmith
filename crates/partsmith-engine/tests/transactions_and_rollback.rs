@@ -3,9 +3,9 @@
 use crate::common;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, begin, commit, elements,
-    focus, get_document, measure_body, number, open_doc, revision, saved_text, send, session,
-    set_height, set_rollback,
+    GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, begin, cancel, commit,
+    elements, focus, get_document, measure_body, number, open_doc, revision, saved_text, send,
+    session, set_height, set_rollback,
 };
 use partsmith_engine::Session;
 use pretty_assertions::assert_eq;
@@ -85,10 +85,7 @@ fn t029_commit_cancel_and_focus_need_a_transaction() {
     let doc = open_doc(&mut session, "box.ptsm");
 
     let committed = commit(&mut session, doc);
-    let canceled = send(
-        &mut session,
-        json!({"type": "cancel_transaction", "doc": doc}),
-    );
+    let canceled = cancel(&mut session, doc);
     let focused = focus(&mut session, doc, "f-box1");
 
     assert_eq!(committed.error_code(), "no_transaction");
@@ -105,10 +102,7 @@ fn t030_cancel_restores_the_recipe_and_counts_as_a_revision() {
     apply(&mut session, doc, None, json!([set_height("41 mm")])).ok();
     apply(&mut session, doc, None, json!([set_height("42 mm")])).ok();
 
-    let canceled = send(
-        &mut session,
-        json!({"type": "cancel_transaction", "doc": doc}),
-    );
+    let canceled = cancel(&mut session, doc);
 
     assert_eq!(canceled.ok()["revision"], 3);
     assert_bounding_box(

@@ -1,22 +1,23 @@
 import type { Document, FeatureRecord, Reference, Use } from '../../generated/protocol'
-import type { DocumentState } from '../../state/store'
+import type { AppState } from '../../state/store'
+import { stateWithDocument } from './state'
 
 // What features use, for the drop warning, "Used by" and the used marks of sketch entities (ui.md
 // 3.9, 3.16.10, U-135 to U-137, U-148): small timelines of one body `b-1` and the `list_uses`
 // answers the engine gives for them (engine.md 3.24).
 
 /** An edge reference of `b-1` by its name. */
-export function edgeReference(q: string): Reference {
-  return { q, fp: 'line|n=1,0,0|c=0,0,10|l=20|adj=2,2' }
+export function edgeReference(name: string): Reference {
+  return { q: name, fp: 'line|n=1,0,0|c=0,0,10|l=20|adj=2,2' }
 }
 
 /** A face reference of `b-1` by its name. */
-export function faceReference(q: string): Reference {
-  return { q, fp: 'plane|n=0,0,1|c=0,0,10|a=400|adj=4,4' }
+export function faceReference(name: string): Reference {
+  return { q: name, fp: 'plane|n=0,0,1|c=0,0,10|a=400|adj=4,4' }
 }
 
 /** A sketch on the XY plane with these entities (lines from `lines`, then points from `points`). */
-export function sketchRecord(
+export function xySketchRecord(
   id: string,
   lines: readonly {
     readonly id: string
@@ -97,19 +98,19 @@ export function usesDocument(features: readonly FeatureRecord[]): Document {
   }
 }
 
-/** `document` with `uses` known at `revision` (the document's revision unless given). */
-export function withUses(
-  document: DocumentState,
+/** The store state of `document` at revision 5, with `uses` known at `usesRevision`. */
+export function stateWithUses(
+  document: Document,
   uses: readonly Use[],
-  revision: number = document.revision,
-): DocumentState {
-  return { ...document, uses: { revision, uses } }
+  usesRevision = 5,
+): AppState {
+  return stateWithDocument(document, {}, { revision: 5, uses: { revision: usesRevision, uses } })
 }
 
 // U-135: 'Fillet 1' rounds an edge that 'Extrude 2' made.
 
 /** The top edge of 'Extrude 2' that 'Fillet 1' rounds. */
-export const EXTRUDE_2_EDGE = edgeReference('edge(f-ext2/end-cap|f-ext2/lateral/e-1)')
+const EXTRUDE_2_EDGE = edgeReference('edge(f-ext2/end-cap|f-ext2/lateral/e-1)')
 
 /** 'Extrude 1', 'Extrude 2' and 'Fillet 1' (U-135). */
 export const DROP_DOCUMENT = usesDocument([
@@ -124,11 +125,11 @@ export const DROP_USES: readonly Use[] = [{ user: 'f-fil1', field: '/edges/0', f
 // U-136: 'Extrude 1' is used by 'Fillet 1' and 'Datum plane 1'.
 
 /** The top of 'Extrude 1'. */
-export const EXTRUDE_1_TOP = faceReference('f-ext1/end-cap')
+const EXTRUDE_1_TOP = faceReference('f-ext1/end-cap')
 
 /** 'Sketch 1', 'Extrude 1', 'Fillet 1' on two of its edges and 'Datum plane 1' on its top (U-136). */
 export const USED_BY_DOCUMENT = usesDocument([
-  sketchRecord('f-sk1', [
+  xySketchRecord('f-sk1', [
     { id: 'e-1', from: [0, 0], to: [80, 0] },
     { id: 'e-2', from: [80, 0], to: [80, 50] },
     { id: 'e-3', from: [80, 50], to: [0, 50] },
@@ -155,7 +156,7 @@ export const USED_BY_USES: readonly Use[] = [
 
 /** 'Sketch 1' (a rectangle e-1 to e-4 and a point e-p1), 'Extrude 1', 'Fillet 1' and 'Chamfer 1' (U-137). */
 export const USED_SKETCH_DOCUMENT = usesDocument([
-  sketchRecord(
+  xySketchRecord(
     'f-sk1',
     [
       { id: 'e-1', from: [0, 0], to: [80, 0] },

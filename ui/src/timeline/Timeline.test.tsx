@@ -17,16 +17,18 @@ import { createModelApp, renderWithApp, stubMatchMedia } from '../layout/test-ap
 import { MESSAGES } from '../messages'
 import type { ActiveCommand, AppState, DocumentState } from '../state/store'
 import { coreErrorFor } from '../test/fakes/core-api'
-import {
-  CUBE_DOCUMENT,
-  CUBE_EXTRUDE,
-  CUBE_SKETCH,
-  emptyDocument,
-  featuresOf,
-} from '../test/fakes/documents'
+import { CUBE_DOCUMENT, CUBE_EXTRUDE, CUBE_SKETCH, emptyDocument } from '../test/fakes/documents'
 import { featureItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES } from '../theme/roles'
+import {
+  drag,
+  movePointer,
+  pressItem,
+  releasePointer,
+  stubItemRectangles,
+  timelineItem,
+} from './strip.testing'
 
 let uninstallDispatcher: () => void = () => undefined
 
@@ -58,16 +60,6 @@ function boxes(
   document: Document = THREE_BOXES_DOCUMENT,
 ): DocumentState {
   return documentState(rollback === null ? document : { ...document, rollback })
-}
-
-function item(id: string): HTMLElement {
-  const found = screen
-    .getAllByTestId('timeline-item')
-    .find((element) => element.getAttribute('data-feature-id') === id)
-  if (found === undefined) {
-    throw new Error(`No timeline item ${id}`)
-  }
-  return found
 }
 
 function itemButton(label: string): HTMLElement {
@@ -157,16 +149,16 @@ describe('timeline items (3.9)', () => {
       ...document,
       featureStatus: { 'f-sk1': document.featureStatus['f-sk1'] as FeatureStatus },
     })
-    expect(item('f-ext1')).toHaveAttribute('data-status', 'pending')
+    expect(timelineItem('f-ext1')).toHaveAttribute('data-status', 'pending')
   })
 
   it('describes an error with its first message and shows the circle-x badge', () => {
     renderTimeline(withStatus(cubeDocumentState(), FAILED_EXTRUDE))
-    expect(item('f-ext1')).toHaveAttribute('data-status', 'error')
+    expect(timelineItem('f-ext1')).toHaveAttribute('data-status', 'error')
     expect(describedText(itemButton('Extrude 1'))).toContain(
       "Error: Body 'Cube' already has a solid. Use op join to add to it.",
     )
-    expect(item('f-ext1').querySelector('.lucide-circle-x')).not.toBeNull()
+    expect(timelineItem('f-ext1').querySelector('.lucide-circle-x')).not.toBeNull()
   })
 
   it('describes a warning with its first message and shows the hazard sign', () => {
@@ -183,7 +175,7 @@ describe('timeline items (3.9)', () => {
     expect(describedText(itemButton('Extrude 1'))).toContain(
       'Warning: This feature does not change it.',
     )
-    expect(item('f-ext1').querySelector('.lucide-triangle-alert')).not.toBeNull()
+    expect(timelineItem('f-ext1').querySelector('.lucide-triangle-alert')).not.toBeNull()
   })
 
   it("shows the label on the tooltip's first line and every message on its second (3.24)", () => {
@@ -226,21 +218,21 @@ describe('timeline items (3.9)', () => {
         repairs: [],
       }),
     )
-    expect(item('f-ext1')).toHaveAttribute('data-suppressed', 'true')
-    expect(item('f-sk1')).toHaveAttribute('data-suppressed', 'false')
+    expect(timelineItem('f-ext1')).toHaveAttribute('data-suppressed', 'true')
+    expect(timelineItem('f-sk1')).toHaveAttribute('data-suppressed', 'false')
     expect(describedText(itemButton('Extrude 1'))).toContain('Suppressed')
   })
 
   it('marks the features after the rollback marker as rolled back', () => {
     renderTimeline(boxes('f-box2'))
-    expect(item('f-box1')).toHaveAttribute('data-rolled-back', 'false')
-    expect(item('f-box2')).toHaveAttribute('data-rolled-back', 'true')
-    expect(item('f-box3')).toHaveAttribute('data-rolled-back', 'true')
+    expect(timelineItem('f-box1')).toHaveAttribute('data-rolled-back', 'false')
+    expect(timelineItem('f-box2')).toHaveAttribute('data-rolled-back', 'true')
+    expect(timelineItem('f-box3')).toHaveAttribute('data-rolled-back', 'true')
   })
 
   it('outlines the feature being edited in the accent and dims the items after it', () => {
     renderTimeline(cubeDocumentState(), { command: EDITING_EXTRUDE })
-    const editing = item('f-ext1')
+    const editing = timelineItem('f-ext1')
     const carriers = [editing, ...editing.querySelectorAll('*')]
     const outline = COLOR_CLASSES.accent.outline.split(' ')
     expect(
@@ -250,7 +242,7 @@ describe('timeline items (3.9)', () => {
 
   it('gives selected items the selection background', () => {
     renderTimeline(cubeDocumentState(), { selection: [featureItem('f-ext1', 'Extrude 1')] })
-    const selected = item('f-ext1')
+    const selected = timelineItem('f-ext1')
     const carriers = [selected, ...selected.querySelectorAll('*')]
     const background = COLOR_CLASSES.selection.background.split(' ')
     expect(
@@ -264,7 +256,7 @@ describe('scrolling (3.4, 3.9)', () => {
     const { app } = renderTimeline()
     const strip = within(screen.getByTestId('timeline')).getByRole('toolbar', { name: 'Features' })
     Object.defineProperty(strip, 'clientWidth', { value: 100 })
-    const target = item('f-ext1')
+    const target = timelineItem('f-ext1')
     Object.defineProperty(target, 'offsetLeft', { value: 400 })
     Object.defineProperty(target, 'offsetWidth', { value: 40 })
     const option = paletteItems(app, []).find((entry) => entry.id === 'feature:f-ext1')
@@ -572,33 +564,11 @@ describe('deleting (3.9)', () => {
   })
 })
 
-// Items 40 pixels wide, 4 apart, from x = 100; gap g lies at x = 98 + 44 g.
-function stubItemRectangles(): void {
-  const order = featuresOf(FOUR_BOXES_DOCUMENT).map((feature) => feature.id)
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function rectangle(
-    this: Element,
-  ) {
-    const id = this.closest('[data-feature-id]')?.getAttribute('data-feature-id') ?? null
-    const index = id === null ? -1 : order.indexOf(id)
-    return index === -1
-      ? DOMRect.fromRect({ x: 0, y: 0, width: 1000, height: 56 })
-      : DOMRect.fromRect({ x: 100 + 44 * index, y: 8, width: 40, height: 40 })
-  })
-}
-
-function drag(from: HTMLElement, startX: number, endX: number): void {
-  const init = { pointerId: 1, pointerType: 'mouse', button: 0 }
-  fireEvent.pointerDown(from, { ...init, buttons: 1, clientX: startX, clientY: 28 })
-  fireEvent.pointerMove(from, { ...init, buttons: 1, clientX: startX - 10, clientY: 28 })
-  fireEvent.pointerMove(from, { ...init, buttons: 1, clientX: endX, clientY: 28 })
-  fireEvent.pointerUp(from, { ...init, buttons: 0, clientX: endX, clientY: 28 })
-}
-
 describe('reordering by drag (3.9)', () => {
   it('U-68 dropping feature index 3 at gap 1 moves it to index 1, labeled "Reorder"', async () => {
-    stubItemRectangles()
+    stubItemRectangles(FOUR_BOXES_DOCUMENT)
     const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
-    drag(item('f-box4'), 252, 142)
+    drag(timelineItem('f-box4'), 252, 142)
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([
       [1, 'Reorder', [{ type: 'move_feature', id: 'f-box4', index: 1 }]],
@@ -606,25 +576,25 @@ describe('reordering by drag (3.9)', () => {
   })
 
   it('U-68 dropping feature index 3 at gap 4, its own position, sends no edit', async () => {
-    stubItemRectangles()
+    stubItemRectangles(FOUR_BOXES_DOCUMENT)
     const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
-    drag(item('f-box4'), 252, 274)
+    drag(timelineItem('f-box4'), 252, 274)
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([])
   })
 
   it('dropping feature index 3 at gap 3, just before it, is its own position too and sends no edit', async () => {
-    stubItemRectangles()
+    stubItemRectangles(FOUR_BOXES_DOCUMENT)
     const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
-    drag(item('f-box4'), 252, 230)
+    drag(timelineItem('f-box4'), 252, 230)
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([])
   })
 
   it('moving a feature later drops it at the gap minus one', async () => {
-    stubItemRectangles()
+    stubItemRectangles(FOUR_BOXES_DOCUMENT)
     const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
-    drag(item('f-box1'), 120, 230)
+    drag(timelineItem('f-box1'), 120, 230)
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([
       [1, 'Reorder', [{ type: 'move_feature', id: 'f-box1', index: 2 }]],
@@ -632,7 +602,7 @@ describe('reordering by drag (3.9)', () => {
   })
 
   it('captures the pointer only once a press moves past the drag threshold', () => {
-    stubItemRectangles()
+    stubItemRectangles(FOUR_BOXES_DOCUMENT)
     const captured: number[] = []
     // jsdom has no pointer capture.
     Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', {
@@ -645,11 +615,12 @@ describe('reordering by drag (3.9)', () => {
     try {
       renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
       const init = { pointerId: 7, pointerType: 'mouse', button: 0 }
-      fireEvent.pointerDown(item('f-box4'), { ...init, buttons: 1, clientX: 252, clientY: 28 })
-      fireEvent.pointerMove(item('f-box4'), { ...init, buttons: 1, clientX: 255, clientY: 28 })
+      const box4 = timelineItem('f-box4')
+      fireEvent.pointerDown(box4, { ...init, buttons: 1, clientX: 252, clientY: 28 })
+      fireEvent.pointerMove(box4, { ...init, buttons: 1, clientX: 255, clientY: 28 })
       // Captured at the press, the click and double-click would never reach the item's button.
       expect(captured).toEqual([])
-      fireEvent.pointerMove(item('f-box4'), { ...init, buttons: 1, clientX: 240, clientY: 28 })
+      fireEvent.pointerMove(box4, { ...init, buttons: 1, clientX: 240, clientY: 28 })
       expect(captured).toEqual([7])
     } finally {
       Reflect.deleteProperty(HTMLElement.prototype, 'setPointerCapture')
@@ -657,23 +628,21 @@ describe('reordering by drag (3.9)', () => {
   })
 
   it('a press released outside the strip starts no drag when the pointer comes back', async () => {
-    stubItemRectangles()
+    stubItemRectangles(FOUR_BOXES_DOCUMENT)
     const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
-    const init = { pointerId: 1, pointerType: 'mouse', button: 0 }
-    fireEvent.pointerDown(item('f-box4'), { ...init, buttons: 1, clientX: 252, clientY: 28 })
+    pressItem(timelineItem('f-box4'), 252)
     // The release happened elsewhere; the next move over the strip has no button down.
-    fireEvent.pointerMove(item('f-box2'), { ...init, buttons: 0, clientX: 142, clientY: 28 })
-    fireEvent.pointerUp(item('f-box2'), { ...init, buttons: 0, clientX: 142, clientY: 28 })
+    movePointer(timelineItem('f-box2'), 142, 0)
+    releasePointer(timelineItem('f-box2'), 142)
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([])
   })
 
   it('a press that moves 4 pixels or less starts no drag', async () => {
-    stubItemRectangles()
+    stubItemRectangles(FOUR_BOXES_DOCUMENT)
     const { core } = renderTimeline(boxes(null, FOUR_BOXES_DOCUMENT))
-    const init = { pointerId: 1, pointerType: 'mouse', button: 0 }
-    fireEvent.pointerDown(item('f-box4'), { ...init, buttons: 1, clientX: 252, clientY: 28 })
-    fireEvent.pointerUp(item('f-box4'), { ...init, buttons: 0, clientX: 249, clientY: 28 })
+    pressItem(timelineItem('f-box4'), 252)
+    releasePointer(timelineItem('f-box4'), 249)
     await settle()
     expect(core.callsTo('applyEdits')).toEqual([])
   })

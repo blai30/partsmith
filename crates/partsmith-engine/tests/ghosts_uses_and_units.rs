@@ -15,7 +15,7 @@ use crate::common;
 use crate::corpus;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, begin, commit,
+    GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, begin, cancel, commit,
     doc_handle, fixture, get_document, headless_session, measure_body, new_doc, open, open_text,
     revision, saved_text, send, session, set_document_units, typed_handle,
 };
@@ -949,10 +949,7 @@ fn cancelling_the_transaction_reverts_the_units() {
     begin(&mut session, doc, "Units").ok();
     set_document_units(&mut session, doc, "in", true).ok();
 
-    let cancelled = send(
-        &mut session,
-        json!({"type": "cancel_transaction", "doc": doc}),
-    );
+    let cancelled = cancel(&mut session, doc);
 
     assert_eq!(units_of(&cancelled), "mm");
     assert_eq!(cancelled.event("document_changed")["bare_numbers"], 4);

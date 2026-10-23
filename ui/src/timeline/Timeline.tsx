@@ -530,6 +530,7 @@ function Strip() {
         {dragging === null ? null : (
           <div
             ref={bar}
+            data-testid="insertion-bar"
             aria-hidden="true"
             className={clsx(
               'pointer-events-none absolute top-2 left-0 h-10 w-0.5',

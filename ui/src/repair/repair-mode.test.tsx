@@ -36,6 +36,8 @@ import {
 } from '../test/fakes/repairs'
 import { settle } from '../test/fakes/settle'
 import { COLOR_CLASSES } from '../theme/roles'
+import { worldToCanvas } from '../viewport/projection.testing'
+import { pathNumbers } from './overlay.testing'
 import type { ElementRepair } from './repair'
 
 // Repair mode (ui.md 3.7, U-127 and U-149): while a feature with repairs is edited, the lost
@@ -117,28 +119,13 @@ function lastBackend(): FakeBackend {
   return last
 }
 
-/** A column-major 4 by 4 matrix times a 4-vector. */
-function apply(matrix: Float32Array, vector: readonly number[]): number[] {
-  return [0, 1, 2, 3].map((row) =>
-    [0, 1, 2, 3].reduce(
-      (sum, column) => sum + (matrix[column * 4 + row] ?? 0) * (vector[column] ?? 0),
-      0,
-    ),
-  )
-}
-
 /** Where the last frame draws a world point on the canvas, in CSS pixels. */
 function canvasPosition(point: readonly [number, number, number]): { x: number; y: number } {
   const frame = lastBackend().lastFrame()
   if (frame === null) {
     throw new Error('No frame was rendered.')
   }
-  const clip = apply(frame.projection, apply(frame.view, [...point, 1]))
-  const homogeneous = clip[3] ?? 1
-  return {
-    x: (((clip[0] ?? 0) / homogeneous + 1) / 2) * WIDTH,
-    y: ((1 - (clip[1] ?? 0) / homogeneous) / 2) * HEIGHT,
-  }
+  return worldToCanvas(frame, point, { width: WIDTH, height: HEIGHT })
 }
 
 /** The runtime position of a positioned overlay element (3.12): the `translate` of its style attribute. */
@@ -452,9 +439,7 @@ describe('region repairs on the model (3.7)', () => {
       "The region of 'Sketch 1' around (0, 0) (missing)",
     )
     // The cube's sketch lies on XY at the origin, so (u, v) is the world point (u, v, 0).
-    const numbers = (ghost?.getAttribute('d')?.match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/g) ?? []).map(
-      Number,
-    )
+    const numbers = ghost === undefined ? [] : pathNumbers(ghost)
     const expected = [
       [-10, -10],
       [10, -10],

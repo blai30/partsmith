@@ -38,7 +38,7 @@ use serde_json::{Value, json};
 const SESSION_DATA: [&str; 4] = ["revision", "mesh_id", "ghost", "cause"];
 
 /// The first message of `feature` in the only `recomputed` event of `sent`.
-fn named_message(sent: &Sent, feature: &str) -> Value {
+fn first_message(sent: &Sent, feature: &str) -> Value {
     messages(sent, feature)
         .into_iter()
         .next()
@@ -172,7 +172,7 @@ fn t136_r03_a_deleted_bevel_line_is_named_and_shown_where_it_was() {
     let twin = Twin::of(&r03(), "f-fil1");
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you deleted the line from (80, 40) to (70, 50) in 'Sketch 1'.",
             feature: Some("f-sk1"),
@@ -195,7 +195,7 @@ fn t136_r10a_a_moved_slot_line_is_named_and_shown() {
     let twin = Twin::of(&r10a(), "f-fil1");
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you moved the line from (30, -1) to (50, -1) in 'Sketch 2'.",
             feature: Some("f-sk2"),
@@ -221,7 +221,7 @@ fn t136_r12_a_pocket_made_through_offers_to_set_its_distance_back() {
     let mut twin = Twin::of(&r12(), "f-fil1");
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: R12_CAUSE,
             feature: Some("f-ext2"),
@@ -238,7 +238,7 @@ fn t136_r13_a_block_made_flush_offers_to_set_its_distance_back() {
     let mut twin = Twin::of(&r13(), "f-fil1");
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed Distance of 'Extrude 2' from 20 mm to 30 mm.",
             feature: Some("f-ext2"),
@@ -259,7 +259,7 @@ fn t136_r16_an_inserted_cut_is_named_without_its_sketch_and_offers_to_suppress_i
 
     // The added sketch reaches the fillet only through the added extrude, so it is not counted.
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you added 'Extrude 1' before this fillet.",
             feature: Some("f-ext2"),
@@ -280,7 +280,7 @@ fn t136_r23b_a_deleted_peg_is_named_by_the_label_it_had() {
 
     // Peg B's extrude is 'Extrude 1' now.
     assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you deleted the former 'Extrude 1'.",
             feature: Some("f-ext1"),
@@ -299,7 +299,7 @@ fn t136_r26_after_the_delete_the_sketch_offers_to_keep_where_it_was_then_undo() 
     let (_, deleted, _) = r26_deleted(&mut session);
 
     // The boss's extrude is 'Extrude 1' now.
-    let warning = named_message(&deleted, "f-sk2");
+    let warning = first_message(&deleted, "f-sk2");
     assert_eq!(warning["code"], "plane_fallback");
     let found = assert_cause(
         &warning,
@@ -383,7 +383,7 @@ fn t136_r30a_a_join_made_a_cut_offers_to_set_the_operation_back() {
     let mut twin = Twin::of(&r30a(), "f-fil1");
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed Operation of 'Extrude 2' from Join to Cut.",
             feature: Some("f-ext2"),
@@ -403,7 +403,7 @@ fn t136_r30b_a_boolean_join_made_a_cut_offers_to_set_the_operation_back() {
     let mut twin = Twin::of(&r30b(), "f-fil1");
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed Operation of 'Boolean 1' from Join to Cut.",
             feature: Some("f-bool1"),
@@ -424,7 +424,7 @@ fn t136_r33_a_cut_inserted_before_the_sketch_offers_to_suppress_it_and_not_to_ke
 
     // The sketch stays at z = 40, where it was built before, so there is nothing to keep.
     let found = assert_cause(
-        &named_message(&twin.edited, "f-sk2"),
+        &first_message(&twin.edited, "f-sk2"),
         &Expected {
             text: "This started after you added 'Extrude 1' before this sketch.",
             feature: Some("f-ext3"),
@@ -440,7 +440,7 @@ fn t136_r41_a_lower_count_offers_to_set_it_back() {
     let mut twin = Twin::of(&r41(), "f-fil1");
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed Count of 'Linear pattern 1' from 3 to 2.",
             feature: Some("f-lp1"),
@@ -458,7 +458,7 @@ fn t136_r41_a_lower_count_offers_to_set_it_back() {
 #[test]
 fn t136_r48_a_units_change_offers_only_undo_since_the_message_offers_the_old_size() {
     let twin = Twin::of(&r48(), "f-fil1");
-    let too_large = named_message(&twin.edited, "f-fil1");
+    let too_large = first_message(&twin.edited, "f-fil1");
 
     // Its revert, `Use 2 mm`, is the message's own first action.
     assert_eq!(labels(&too_large)[0], "Use 2 mm");
@@ -479,7 +479,7 @@ fn t136_r54_each_feature_of_the_chain_names_the_deleted_boss_by_the_label_it_had
     // 'Extrude 2' labels `f-ext3` now.
     for feature in ["f-dp1", "f-sk3", "f-ext3"] {
         assert_cause(
-            &named_message(&twin.edited, feature),
+            &first_message(&twin.edited, feature),
             &Expected {
                 text: "This started after you deleted the former 'Extrude 2'.",
                 feature: Some("f-ext2"),
@@ -494,7 +494,7 @@ fn t136_r57_a_full_turn_offers_to_restore_the_revolve() {
     let mut twin = Twin::of(&r57(), "f-cha1");
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-cha1"),
+        &first_message(&twin.edited, "f-cha1"),
         &Expected {
             text: "This started after you changed Extent of 'Revolve 1' from Angle to Full.",
             feature: Some("f-rev1"),
@@ -515,7 +515,7 @@ fn t136_r63a_a_counterbore_offers_to_restore_the_hole() {
     let mut twin = Twin::of(&r63a(), "f-cha1");
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-cha1"),
+        &first_message(&twin.edited, "f-cha1"),
         &Expected {
             text: "This started after you changed Type of 'Hole 1' from Simple to Counterbore.",
             feature: Some("f-hole1"),
@@ -650,7 +650,7 @@ fn t138_a_parameter_change_is_named_by_the_parameter_in_a_headless_session() {
     let (_, _, edited) = r12_with_d_made_30(&mut session);
 
     let found = assert_cause(
-        &named_message(&edited, "f-fil1"),
+        &first_message(&edited, "f-fil1"),
         &Expected {
             text: "This started after you changed parameter 'd' from 5 mm to 30 mm.",
             feature: None,
@@ -664,7 +664,7 @@ fn t138_a_parameter_change_is_named_by_the_parameter_in_a_headless_session() {
 fn t138_setting_the_parameter_back_gives_back_the_text_before_the_change() {
     let mut session = headless_session();
     let (doc, setup, edited) = r12_with_d_made_30(&mut session);
-    let revert = actions(&cause(&named_message(&edited, "f-fil1")))[0].clone();
+    let revert = actions(&cause(&first_message(&edited, "f-fil1")))[0].clone();
 
     let applied = apply_as_one_entry(&mut session, doc, &revert);
 
@@ -737,7 +737,7 @@ fn t140_r12_the_saved_text_is_the_same_as_without_the_session_s_history() {
     let (plain, _) = after_edit(&mut headless, &r12());
 
     assert!(
-        named_message(&edited, "f-fil1").get("cause").is_some(),
+        first_message(&edited, "f-fil1").get("cause").is_some(),
         "the session that saw the fillet build made a cause"
     );
     assert_eq!(
@@ -840,7 +840,7 @@ fn a_change_of_the_feature_itself_names_its_field_and_both_values() {
     let twin = fillet_with_radius("30 mm");
 
     assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: RADIUS_CAUSE,
             feature: Some("f-fil1"),
@@ -853,7 +853,7 @@ fn a_change_of_the_feature_itself_names_its_field_and_both_values() {
 fn a_revert_of_the_feature_itself_gives_back_the_text_before_the_change() {
     let mut twin = fillet_with_radius("30 mm");
     let changed = twin.text();
-    let found = cause(&named_message(&twin.edited, "f-fil1"));
+    let found = cause(&first_message(&twin.edited, "f-fil1"));
 
     twin.assert_revert_gives_the_clean_result("f-fil1", &found);
 
@@ -869,7 +869,7 @@ fn a_revert_of_the_feature_itself_gives_back_the_text_before_the_change() {
 #[test]
 fn a_revert_carries_a_fix_ref_to_the_cause_at_the_current_revision() {
     let twin = Twin::of(&r12(), "f-fil1");
-    let lost = named_message(&twin.edited, "f-fil1");
+    let lost = first_message(&twin.edited, "f-fil1");
 
     let revert = &actions(&cause(&lost))[0];
 
@@ -903,7 +903,7 @@ fn an_expression_that_is_not_a_plain_value_follows_its_value_and_is_set_back_as_
     );
 
     assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed Radius from 2 mm (r * 2) to 30 mm (r * 30).",
             feature: Some("f-fil1"),
@@ -919,7 +919,7 @@ fn a_parameter_used_upstream_is_named_when_no_feature_changed() {
     });
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed parameter 'w' from 20 mm to 1.5 mm.",
             feature: None,
@@ -940,7 +940,7 @@ fn one_other_change_is_counted_after_the_primary_change() {
     });
 
     assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed parameter 'w' from 20 mm to 1.5 mm, and 1 other change.",
             feature: None,
@@ -960,7 +960,7 @@ fn several_other_changes_are_counted_after_the_primary_change() {
     });
 
     assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed parameter 'w' from 20 mm to 1.5 mm, and 2 other changes.",
             feature: None,
@@ -982,7 +982,7 @@ fn unsuppressing_a_feature_offers_to_suppress_it_again() {
     );
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you unsuppressed 'Box 2'.",
             feature: Some("f-box2"),
@@ -1000,7 +1000,7 @@ fn moving_a_feature_above_this_one_offers_to_move_it_back_below_its_former_neigh
     let mut twin = Twin::with_changes(&setup, "f-fil1", &[Change::Move("f-box2", 1)]);
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you moved 'Box 2' above 'Fillet 1'.",
             feature: Some("f-box2"),
@@ -1044,7 +1044,7 @@ fn deleting_a_feature_whose_label_no_feature_has_now_names_it_plainly() {
     let twin = Twin::with_changes(&setup, "f-fil1", &[Change::Remove(vec!["f-box2"])]);
 
     assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you deleted 'Box 2'.",
             feature: Some("f-box2"),
@@ -1078,7 +1078,7 @@ fn a_units_change_that_reaches_the_feature_through_another_names_the_units() {
     let twin = Twin::with_changes(&setup, "f-fil1", &[Change::Units("mm")]);
 
     assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed the document units from in to mm.",
             feature: None,
@@ -1120,7 +1120,7 @@ fn a_toggle_reads_on_or_off_and_a_revert_the_message_offers_is_left_out() {
         &[Change::Set("f-ext2", "/reverse", json!(false))],
     );
 
-    let missed = named_message(&twin.edited, "f-ext2");
+    let missed = first_message(&twin.edited, "f-ext2");
     assert!(
         labels(&missed).contains(&"Turn on Reverse".to_owned()),
         "{missed}"
@@ -1150,7 +1150,7 @@ fn a_field_without_a_short_value_is_named_alone_and_restored_by_its_label() {
     );
 
     let found = assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed Edges.",
             feature: Some("f-fil1"),
@@ -1182,7 +1182,7 @@ fn the_cause_is_dropped_when_the_feature_builds_without_the_message() {
 
     // The clean snapshot is the build at 3 mm, not the one before the first problem.
     assert_cause(
-        &named_message(&again, "f-fil1"),
+        &first_message(&again, "f-fil1"),
         &Expected {
             text: "This started after you changed Radius from 3 mm to 25 mm.",
             feature: Some("f-fil1"),
@@ -1205,7 +1205,7 @@ fn undo_is_not_offered_while_a_transaction_is_open() {
     );
 
     assert_cause(
-        &named_message(&inside, "f-fil1"),
+        &first_message(&inside, "f-fil1"),
         &Expected {
             text: RADIUS_CAUSE,
             feature: Some("f-fil1"),
@@ -1224,7 +1224,7 @@ fn redo_makes_the_cause_again_from_the_state_the_undo_left() {
     let redone = send(&mut session, json!({"type": "redo", "doc": doc}));
 
     assert_cause(
-        &named_message(&redone, "f-fil1"),
+        &first_message(&redone, "f-fil1"),
         &Expected {
             text: R12_CAUSE,
             feature: Some("f-ext2"),
@@ -1257,7 +1257,7 @@ fn a_rolled_back_feature_keeps_its_cause() {
 
     // The text stays while the message lasts; the newest undo entry is the rollback, so no Undo.
     assert_cause(
-        &named_message(&again, "f-fil1"),
+        &first_message(&again, "f-fil1"),
         &Expected {
             text: R12_CAUSE,
             feature: Some("f-ext2"),
@@ -1290,7 +1290,7 @@ fn an_added_sketch_entity_is_shown_and_has_no_ghost() {
 fn a_moved_sketch_entity_has_its_ghost_where_it_was() {
     let twin = Twin::of(&r10a(), "f-fil1");
 
-    let found = cause(&named_message(&twin.edited, "f-fil1"));
+    let found = cause(&first_message(&twin.edited, "f-fil1"));
 
     let ghost = &found["ghost"];
     assert_eq!(ghost["frame"], "sketch", "{found}");
@@ -1335,7 +1335,7 @@ fn an_option_field_the_record_leaves_out_reads_as_its_first_option() {
     );
 
     assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed Operation of 'Linear pattern 1' from Join to New body.",
             feature: Some("f-lp1"),
@@ -1361,7 +1361,7 @@ fn another_change_of_the_feature_of_the_primary_change_is_counted() {
     );
 
     assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed Height of 'Box 2' from 50 mm to 60 mm, and 1 other change.",
             feature: Some("f-box2"),
@@ -1469,7 +1469,7 @@ fn a_parameter_without_a_unit_makes_the_units_change_reach_the_feature() {
 
     // The fillet's own Radius is no number without a unit, so the units change has no revert here.
     assert_cause(
-        &named_message(&twin.edited, "f-fil1"),
+        &first_message(&twin.edited, "f-fil1"),
         &Expected {
             text: "This started after you changed the document units from mm to in.",
             feature: None,
@@ -1506,7 +1506,7 @@ fn committing_a_transaction_without_a_focus_sends_its_causes_again_with_undo() {
     begin_edit(&mut session, doc, None);
     let inside = apply_changes(&mut session, doc, None, &scenario.changes);
     assert_eq!(
-        labels_and_kinds(&cause(&named_message(&inside, "f-fil1"))),
+        labels_and_kinds(&cause(&first_message(&inside, "f-fil1"))),
         owned_pairs(&[(R12_REVERT, "apply")])
     );
 
@@ -1515,7 +1515,7 @@ fn committing_a_transaction_without_a_focus_sends_its_causes_again_with_undo() {
     committed.ok();
     assert_eq!(committed.event_types(), ["document_changed", "recomputed"]);
     assert_cause(
-        &named_message(&committed, "f-fil1"),
+        &first_message(&committed, "f-fil1"),
         &Expected {
             text: R12_CAUSE,
             feature: Some("f-ext2"),
@@ -1561,7 +1561,7 @@ fn undo_is_not_offered_when_another_command_changed_the_recipe_after_the_clean_s
     );
 
     assert_cause(
-        &named_message(&rolled_forward, "f-fil1"),
+        &first_message(&rolled_forward, "f-fil1"),
         &Expected {
             text: R12_CAUSE,
             feature: Some("f-ext2"),
@@ -1576,7 +1576,7 @@ fn undo_is_not_offered_when_another_command_changed_the_recipe_after_the_clean_s
 fn a_cause_action_offered_before_another_edit_is_stale() {
     let mut session = session();
     let (doc, edited) = after_edit(&mut session, &r12());
-    let revert = actions(&cause(&named_message(&edited, "f-fil1")))[0].clone();
+    let revert = actions(&cause(&first_message(&edited, "f-fil1")))[0].clone();
     apply(
         &mut session,
         doc,
@@ -1595,7 +1595,7 @@ fn a_cause_action_offered_before_another_edit_is_stale() {
 fn the_undo_of_a_cause_and_an_index_past_its_actions_are_stale() {
     let mut session = session();
     let (doc, edited) = after_edit(&mut session, &r12());
-    let lost = named_message(&edited, "f-fil1");
+    let lost = first_message(&edited, "f-fil1");
     let text = saved_text(&mut session, doc);
 
     for index in [1, 2] {
@@ -1617,7 +1617,7 @@ fn a_cause_action_of_a_message_without_a_cause_is_stale() {
     let mut session = session();
     let opened = open_text(&mut session, &edited_text(&r12()));
     let doc = doc_handle(&opened);
-    let lost = named_message(&opened, "f-fil1");
+    let lost = first_message(&opened, "f-fil1");
     let text = saved_text(&mut session, doc);
 
     let sent = send_fix(

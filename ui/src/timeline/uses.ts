@@ -228,11 +228,6 @@ export function usedEntities(
   return used
 }
 
-/** The entities of `sketch` that show a used mark: those `usedEntities` names (3.16.10). */
-export function usedMarkEntities(state: AppState, sketch: string): readonly string[] {
-  return Object.keys(usedEntities(state, sketch))
-}
-
 /** What a later feature uses of an entity of a sketch: its first user and the noun of that use. */
 export type EntityUse = {
   readonly user: string

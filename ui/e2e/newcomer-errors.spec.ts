@@ -16,6 +16,7 @@ import {
 } from './helpers'
 import {
   buttonNames,
+  expectInOrder,
   expectStatuses,
   nestedProblemRow,
   notificationActions,
@@ -27,6 +28,7 @@ import {
   expectBodySize,
   expectPreviewShown,
   fillInspector,
+  openTimelineMenu,
 } from './support/modeling'
 import {
   app,
@@ -42,11 +44,6 @@ import {
 // included. NC08's cause line needs the edit stored in the session, which the dimension editor
 // refuses, so engine.md test 150 checks it (ui.md open issue 24) and E-117 checks that a document
 // opened fresh has none.
-
-/** Expects `names` to hold `expected` in this order, whatever else it holds. */
-function expectInOrder(names: readonly string[], expected: readonly string[]): void {
-  expect(names.filter((name) => expected.includes(name))).toEqual(expected)
-}
 
 const CUT_AWAY =
   "This cut does not touch body 'Body 1': it starts 10 mm from the body and points away from it."
@@ -303,13 +300,9 @@ test.describe('newcomer errors', () => {
       ['Extrude 1', 'ok'],
       ['Fillet 1', 'ok'],
     ])
-    await timelineItem(page, 'Extrude 1')
-      .getByRole('button', { name: 'Extrude 1', exact: true })
-      .click({ button: 'right' })
+    const menu = await openTimelineMenu(page, 'Extrude 1')
     await expect(
-      page
-        .getByTestId('context-menu')
-        .getByRole('menuitem', { name: "Used by 'Fillet 1'", exact: true }),
+      menu.getByRole('menuitem', { name: "Used by 'Fillet 1'", exact: true }),
     ).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('context-menu')).toBeHidden()

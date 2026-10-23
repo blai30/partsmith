@@ -447,6 +447,11 @@ pub fn commit(session: &mut Session, doc: u64) -> Sent {
     send(session, json!({"type": "commit_transaction", "doc": doc}))
 }
 
+/// Sends `cancel_transaction`.
+pub fn cancel(session: &mut Session, doc: u64) -> Sent {
+    send(session, json!({"type": "cancel_transaction", "doc": doc}))
+}
+
 /// Sends `set_document_units` with `units` and `keep_sizes`.
 pub fn set_document_units(session: &mut Session, doc: u64, units: &str, keep_sizes: bool) -> Sent {
     send(

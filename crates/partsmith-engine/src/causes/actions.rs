@@ -9,13 +9,13 @@ use partsmith_model::{
 };
 use partsmith_protocol::{FixAction, FixKind, FixRef, Repair};
 use partsmith_recompute::Message;
-use partsmith_sketch::{EntityKind, Placement, SketchPlane};
+use partsmith_sketch::{EntityKind, HintFrame, Placement, SketchPlane};
 use serde_json::{Map, Value};
 
 use super::changes::{Change, RecordChange, SketchItem};
 use super::words::{Side, Words};
 use crate::fixes::{constraint_pointer, index_beside, offered_edits, updated};
-use crate::frames::kept_face_plane;
+use crate::frames::placement_in_body;
 use crate::ghosts::GhostShape;
 use crate::params::{field_pointer, remove, set, value_at};
 use crate::run::{FeatureView, RunView};
@@ -280,55 +280,13 @@ impl MadeCause {
     /// one per number without a unit for a units change; none when it would change nothing or
     /// its feature, parameter or neighbor is gone.
     fn reverts(&self, view: &FeatureView<'_>) -> Vec<(String, Vec<Edit>)> {
-        let run = view.run;
-        let single = match self.revert.as_ref() {
-            None => None,
-            Some(Revert::Fields {
-                feature,
-                fields,
-                label,
-            }) => fields_revert(view, feature, fields, label),
-            Some(Revert::Dimension {
-                sketch,
-                constraint,
-                expr,
-                kind,
-                old,
-            }) => run
-                .document
-                .feature(sketch)
-                .and_then(|record| dimension_set_back(record, constraint, expr))
-                .map(|edit| {
-                    let label = format!("Set {kind} of '{}' back to {old}", run.label(sketch));
-                    (label, edit)
-                }),
-            Some(Revert::Parameter {
-                parameter,
-                expr,
-                old,
-            }) => parameter_set_back(run.document, parameter, expr, old),
-            Some(Revert::Suppression {
-                feature,
-                suppressed,
-            }) => suppression_set_back(run, feature, *suppressed),
-            Some(Revert::Move { feature, place }) => {
-                moved_back(run.document, feature, place).map(|edit| {
-                    let (side, beside) = match place {
-                        Place::Below(beside) => ("below", beside),
-                        Place::Above(beside) => ("above", beside),
-                    };
-                    let label = format!(
-                        "Move '{}' back {side} '{}'",
-                        run.label(feature),
-                        run.label(beside)
-                    );
-                    (label, edit)
-                })
-            }
-            Some(Revert::Units { old }) => return units_reverts(view, *old),
-            Some(Revert::Rollback { marker }) => rollback_set_back(run, marker.as_ref()),
+        let Some(revert) = &self.revert else {
+            return Vec::new();
         };
-        single
+        if let Revert::Units { old } = revert {
+            return units_reverts(view, *old);
+        }
+        single_revert(view, revert)
             .into_iter()
             .map(|(label, edit)| (label, vec![edit]))
             .collect()
@@ -352,7 +310,12 @@ impl MadeCause {
             return None;
         };
         let motion = view.state_before(&body).motion(&face.query);
-        let plane = kept_face_plane(&body, &face, &clean, &motion, &motion)?;
+        let plane = SketchPlane::Face {
+            fallback: placement_in_body(&clean, &motion),
+            fallback_frame: HintFrame::Body,
+            body,
+            face,
+        };
         let value = serde_json::to_value(plane).ok()?;
         updated(view.record, |params| set(params, "/plane", value))
             .ok()
@@ -565,6 +528,39 @@ fn restored(record: &FeatureRecord, fields: &[(String, Option<Value>)]) -> Optio
     changes.then_some(edit)
 }
 
+/// The one revert of a primary change, with its label, as it applies to the current records;
+/// `None` when it would change nothing or its feature, parameter or neighbor is gone, and for a
+/// units change, which has one per number (`units_reverts`).
+fn single_revert(view: &FeatureView<'_>, revert: &Revert) -> Option<(String, Edit)> {
+    let run = view.run;
+    match revert {
+        Revert::Fields {
+            feature,
+            fields,
+            label,
+        } => fields_revert(view, feature, fields, label),
+        Revert::Dimension {
+            sketch,
+            constraint,
+            expr,
+            kind,
+            old,
+        } => dimension_revert(run, sketch, constraint, expr, kind, old),
+        Revert::Parameter {
+            parameter,
+            expr,
+            old,
+        } => parameter_revert(run.document, parameter, expr, old),
+        Revert::Suppression {
+            feature,
+            suppressed,
+        } => suppression_revert(run, feature, *suppressed),
+        Revert::Move { feature, place } => move_revert(run, feature, place),
+        Revert::Rollback { marker } => rollback_revert(run, marker.as_ref()),
+        Revert::Units { .. } => None,
+    }
+}
+
 /// The revert of fields of `feature`, labeled as `named` says, the feature's name left out of a
 /// short value's label when it is the message's feature `view`; `None` when the feature is gone
 /// or the revert changes nothing.
@@ -590,7 +586,7 @@ fn fields_revert(
 
 /// `Set '{parameter}' back to {old}`: one `update_parameter` of `parameter` with its expression
 /// set back to `expr`; `None` when the parameter is gone or already holds `expr`.
-fn parameter_set_back(
+fn parameter_revert(
     document: &Document,
     parameter: &Id,
     expr: &Expr,
@@ -608,11 +604,7 @@ fn parameter_set_back(
 
 /// `Suppress '{feature}'` or `Unsuppress '{feature}'`: one `update_feature` of `feature` with
 /// `suppressed`; `None` when the feature is gone or already has it.
-fn suppression_set_back(
-    run: &RunView<'_>,
-    feature: &Id,
-    suppressed: bool,
-) -> Option<(String, Edit)> {
+fn suppression_revert(run: &RunView<'_>, feature: &Id, suppressed: bool) -> Option<(String, Edit)> {
     let record = run
         .document
         .feature(feature)
@@ -629,7 +621,7 @@ fn suppression_set_back(
 
 /// The rollback marker set back to `marker`, above a feature or at the end; `None` when that
 /// feature is gone or the marker is there already.
-fn rollback_set_back(run: &RunView<'_>, marker: Option<&Id>) -> Option<(String, Edit)> {
+fn rollback_revert(run: &RunView<'_>, marker: Option<&Id>) -> Option<(String, Edit)> {
     let document = run.document;
     let label = match marker {
         Some(feature) if document.feature(feature).is_none() => return None,
@@ -645,6 +637,23 @@ fn rollback_set_back(run: &RunView<'_>, marker: Option<&Id>) -> Option<(String, 
     Some((label, edit))
 }
 
+/// `Set {kind} of '{sketch}' back to {old}`: the dimension `constraint` of `sketch` set back to
+/// `expr` (`dimension_set_back`); `None` when the sketch or the dimension is gone or it already
+/// holds `expr`.
+fn dimension_revert(
+    run: &RunView<'_>,
+    sketch: &Id,
+    constraint: &Id,
+    expr: &Expr,
+    kind: &str,
+    old: &str,
+) -> Option<(String, Edit)> {
+    let record = run.document.feature(sketch)?;
+    let edit = dimension_set_back(record, constraint, expr)?;
+    let label = format!("Set {kind} of '{}' back to {old}", run.label(sketch));
+    Some((label, edit))
+}
+
 /// One `update_feature` of a sketch's record with the expression of the dimension `constraint`
 /// set back to `expr`; `None` when the sketch no longer has it or it already holds `expr`.
 fn dimension_set_back(record: &FeatureRecord, constraint: &Id, expr: &Expr) -> Option<Edit> {
@@ -654,6 +663,23 @@ fn dimension_set_back(record: &FeatureRecord, constraint: &Id, expr: &Expr) -> O
     }
     let value = Value::String(expr.as_str().to_string());
     updated(record, |params| set(params, &pointer, value)).ok()
+}
+
+/// `Move '{feature}' back below '{neighbor}'` (or above): `feature` moved back beside its
+/// neighbor in the clean snapshot (`moved_back`); `None` when either is gone or it is there
+/// already.
+fn move_revert(run: &RunView<'_>, feature: &Id, place: &Place) -> Option<(String, Edit)> {
+    let edit = moved_back(run.document, feature, place)?;
+    let (side, beside) = match place {
+        Place::Below(beside) => ("below", beside),
+        Place::Above(beside) => ("above", beside),
+    };
+    let label = format!(
+        "Move '{}' back {side} '{}'",
+        run.label(feature),
+        run.label(beside)
+    );
+    Some((label, edit))
 }
 
 /// One `move_feature` of `feature` to directly below (or above) its neighbor in the clean

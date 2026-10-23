@@ -1,8 +1,7 @@
-import { clsx } from 'clsx/lite'
 import { useEffect } from 'react'
 import { useApp, useAppState } from '../app/AppProvider'
 import { MESSAGES } from '../messages'
-import { COLOR_CLASSES } from '../theme/roles'
+import { GHOST_DASHES, GHOST_STROKE_CLASSES } from './ghost-style'
 import { causeGhost } from './repair'
 
 // The ghost of the cause line whose Show ran (ui.md 4.2): the changed sketch entity as it was
@@ -26,8 +25,8 @@ export function CauseGhost() {
     <svg aria-hidden="true" className="pointer-events-none absolute inset-0 size-full">
       <path
         data-testid="cause-ghost"
-        strokeDasharray="4 3"
-        className={clsx('fill-none stroke-2', COLOR_CLASSES.errorMark.stroke)}
+        strokeDasharray={GHOST_DASHES}
+        className={GHOST_STROKE_CLASSES}
       >
         <title>{MESSAGES.cause_ghost()}</title>
       </path>

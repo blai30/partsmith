@@ -11,7 +11,7 @@ import {
   edgeReference,
   extrudeRecord,
   filletRecord,
-  sketchRecord,
+  xySketchRecord,
   USED_BY_DOCUMENT,
   USED_BY_USES,
   usesDocument,
@@ -95,7 +95,7 @@ describe('Used by (3.9, U-136)', () => {
       ),
     )
     const recipe = usesDocument([
-      sketchRecord('f-sk1', []),
+      xySketchRecord('f-sk1', []),
       extrudeRecord('f-ext1', 'f-sk1', 'new'),
       ...fillets,
     ])

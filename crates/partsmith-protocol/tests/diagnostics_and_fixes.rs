@@ -247,8 +247,8 @@ fn rectangle_outline() -> Vec<f32> {
     ]
 }
 
-/// Checks one ghost against the buffer invariants of section 3.4 and returns the `f32` values it checked.
-fn ghost_values<'a>(ghost: &Ghost, buffers: &'a [Buffer]) -> &'a [f32] {
+/// Checks one ghost against the buffer invariants of section 3.4 and returns how many `f32` values it has.
+fn ghost_values(ghost: &Ghost, buffers: &[Buffer]) -> usize {
     let index = usize::try_from(ghost.positions.0).expect("a buffer index fits in usize");
     let values = buffers
         .get(index)
@@ -277,10 +277,10 @@ fn ghost_values<'a>(ghost: &Ghost, buffers: &'a [Buffer]) -> &'a [f32] {
         "ghost buffer {index} has {points} points, which do not make whole {:?}",
         ghost.kind
     );
-    values
+    values.len()
 }
 
-/// Every ghost of the `recomputed` events of a decoded frame, each feature's cause ghosts before its repair ghosts, checked against the buffer invariants of section 3.4: its kind, its frame and how many `f32` values it has.
+/// Every ghost of the `recomputed` events of `frame`, each feature's cause ghosts before its repair ghosts, checked against the buffer invariants of section 3.4: its kind, its frame and how many `f32` values it has.
 fn ghosts_in(frame: &ResponseFrame) -> Vec<(GhostKind, GhostFrame, usize)> {
     let mut ghosts = Vec::new();
     for event in &frame.events {
@@ -297,8 +297,7 @@ fn ghosts_in(frame: &ResponseFrame) -> Vec<(GhostKind, GhostFrame, usize)> {
                 ghost.as_ref()
             });
             for ghost in cause_ghosts.chain(repair_ghosts) {
-                let values = ghost_values(ghost, &frame.buffers);
-                ghosts.push((ghost.kind, ghost.frame, values.len()));
+                ghosts.push((ghost.kind, ghost.frame, ghost_values(ghost, &frame.buffers)));
             }
         }
     }
@@ -734,11 +733,11 @@ fn t078_ghost_buffers_travel_in_the_response_frame() {
         Buffer::F32(rectangle_outline()),
     ];
 
-    let decoded = recomputed_round_trip(2, edge_and_region_statuses(), buffers);
+    let frame = recomputed_round_trip(2, edge_and_region_statuses(), buffers);
 
     // The cause's deleted line, the lost edge, then the region outline, each one or more segments.
     assert_eq!(
-        ghosts_in(&decoded),
+        ghosts_in(&frame),
         [
             (GhostKind::Lines, GhostFrame::Sketch, 4),
             (GhostKind::Lines, GhostFrame::World, 6),
@@ -1704,10 +1703,10 @@ fn face_and_sketch_point_ghosts_travel_in_the_response_frame() {
         Buffer::F32(vec![20.0, 10.0]),
     ];
 
-    let decoded = recomputed_round_trip(3, face_and_point_statuses(), buffers);
+    let frame = recomputed_round_trip(3, face_and_point_statuses(), buffers);
 
     assert_eq!(
-        ghosts_in(&decoded),
+        ghosts_in(&frame),
         [
             (GhostKind::Triangles, GhostFrame::World, 18),
             (GhostKind::Points, GhostFrame::Sketch, 2)

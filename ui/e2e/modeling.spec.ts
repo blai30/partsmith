@@ -27,6 +27,7 @@ import {
   expectBodySize,
   expectPreviewShown,
   fillInspector,
+  openTimelineMenu,
   runFromGroup,
   selectionField,
   timelineGap,
@@ -314,11 +315,8 @@ test.describe('inspector, timeline and browser', () => {
     await openApp(page)
     await dropFile(page, 'cube-features.ptsm')
     const fillet = timelineItem(page, 'Fillet 1')
-    await fillet.getByRole('button', { name: 'Fillet 1', exact: true }).click({ button: 'right' })
-    await page
-      .getByTestId('context-menu')
-      .getByRole('menuitem', { name: 'Suppress', exact: true })
-      .click()
+    const menu = await openTimelineMenu(page, 'Fillet 1')
+    await menu.getByRole('menuitem', { name: 'Suppress', exact: true }).click()
     await expect(fillet).toHaveAttribute('data-suppressed', 'true')
     await expect(fillet).toHaveAttribute('data-status', 'suppressed')
     await page.keyboard.press('ControlOrMeta+Z')

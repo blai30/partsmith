@@ -7,6 +7,7 @@ import { COLOR_CLASSES } from '../theme/roles'
 import type { Vector3 } from '../viewport/math'
 import { candidateHandlers } from './candidates'
 import { candidatePoints } from './frame'
+import { GHOST_DASHES, GHOST_STROKE_CLASSES } from './ghost-style'
 import {
   ghostBuffer,
   repairTitle,
@@ -65,15 +66,14 @@ function RepairShapes({ mode }: { readonly mode: RepairMode }) {
   return (
     <svg aria-hidden="true" className="pointer-events-none absolute inset-0 size-full">
       {mode.repairs.map((repair, index) => {
-        const shape = clsx('fill-none stroke-2', COLOR_CLASSES.errorMark.stroke)
         if (ghosts[index] === true) {
           return (
             <path
               key={repair.path}
               data-testid="repair-ghost"
               data-repair={index}
-              strokeDasharray="4 3"
-              className={shape}
+              strokeDasharray={GHOST_DASHES}
+              className={GHOST_STROKE_CLASSES}
             >
               <title>{repairTitle(repair)}</title>
             </path>
@@ -90,8 +90,8 @@ function RepairShapes({ mode }: { readonly mode: RepairMode }) {
             data-z={centroid[2]}
             r={CENTROID_RING_RADIUS}
             display="none"
-            strokeDasharray="4 3"
-            className={shape}
+            strokeDasharray={GHOST_DASHES}
+            className={GHOST_STROKE_CLASSES}
           >
             <title>{repairTitle(repair)}</title>
           </circle>

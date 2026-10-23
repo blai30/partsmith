@@ -20,6 +20,7 @@ import {
   type PagePoint,
 } from './helpers'
 import type { measureTransfers } from './pages/transfer-harness'
+import { openTimelineMenu } from './support/modeling'
 import { wheelAt } from './support/print'
 import { editSketchFromTimeline } from './support/sketch'
 import { serveTestPage } from './support/test-pages'
@@ -343,12 +344,8 @@ test('P-9 timeline drop check over 300 features: 95th percentile of ps:drop-chec
   await expect(items).toHaveCount(300)
   // A drag asks for list_uses when it starts (3.9); opening an item's menu asks the same and shows
   // "Used by" once they are known, so every drop check of the drag runs over the 300 features' uses.
-  await timelineItem(page, 'Extrude 1')
-    .getByRole('button', { name: 'Extrude 1', exact: true })
-    .click({ button: 'right' })
-  await expect(
-    page.getByTestId('context-menu').getByRole('menuitem', { name: /^Used by / }),
-  ).toBeVisible()
+  const menu = await openTimelineMenu(page, 'Extrude 1')
+  await expect(menu.getByRole('menuitem', { name: /^Used by / })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('context-menu')).toBeHidden()
 

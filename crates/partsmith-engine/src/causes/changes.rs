@@ -209,12 +209,11 @@ impl<'a> Comparison<'a> {
                 .into_iter()
                 .map(Change::Parameter),
         );
-        let relies_on_units = self.graphs().iter().any(|graph| {
-            considered
+        if clean.units() != now.units()
+            && considered
                 .iter()
-                .any(|feature| graph.relies_on_units(feature))
-        });
-        if clean.units() != now.units() && relies_on_units {
+                .any(|feature| self.relies_on_units(feature))
+        {
             changes.push(Change::Units);
         }
         changes

@@ -72,6 +72,11 @@ export function buttonNames(locator: Locator): Promise<string[]> {
     )
 }
 
+/** Expects `names` to hold `expected` in this order, whatever else it holds between them. */
+export function expectInOrder(names: readonly string[], expected: readonly string[]): void {
+  expect(names.filter((name) => expected.includes(name))).toEqual(expected)
+}
+
 /** The action buttons of a notification: every button but Dismiss (ui.md 3.22). */
 export async function notificationActions(notification: Locator): Promise<string[]> {
   return (await buttonNames(notification)).filter((name) => name !== 'Dismiss')

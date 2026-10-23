@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 
 use super::edits::features;
 use crate::common::{
-    apply, doc_handle, elements, get_document, headless_session, open_text, saved_text, send,
+    apply, begin, cancel, doc_handle, elements, focus, get_document, headless_session, open_text,
+    saved_text, send,
 };
 
 /// A reference a record stores: its JSON Pointer in the record, the body it is resolved in and its query.
@@ -81,18 +82,10 @@ fn with_focus<T>(
     feature: &str,
     pick: impl FnOnce(&mut Session) -> T,
 ) -> T {
-    send(
-        session,
-        json!({"type": "begin_transaction", "doc": doc, "label": "Pick"}),
-    )
-    .ok();
-    send(
-        session,
-        json!({"type": "set_focus", "doc": doc, "feature": feature}),
-    )
-    .ok();
+    begin(session, doc, "Pick").ok();
+    focus(session, doc, feature).ok();
     let picked = pick(session);
-    send(session, json!({"type": "cancel_transaction", "doc": doc})).ok();
+    cancel(session, doc).ok();
     picked
 }
 

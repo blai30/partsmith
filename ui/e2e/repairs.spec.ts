@@ -15,6 +15,7 @@ import {
 } from './helpers'
 import {
   buttonNames,
+  expectInOrder,
   expectOnlyNotification,
   expectStatuses,
   expectTimeline,
@@ -22,7 +23,14 @@ import {
   openProblems,
   problemRow,
 } from './support/documents'
-import { expectPreviewShown, fillInspector, timelineGap } from './support/modeling'
+import {
+  editFeatureFromTimeline,
+  expectPreviewShown,
+  fillInspector,
+  holdOver,
+  openTimelineMenu,
+  timelineGap,
+} from './support/modeling'
 import { app, clickAt, editSketchFromBrowser, expectNoHover, sketchHint } from './support/sketch'
 
 // Lost references with the real core (ui.md 6.5, E-109 and E-122 to E-126; the reference
@@ -41,18 +49,10 @@ function filletLoss(page: Page): Locator {
 
 /** Edits 'Linear pattern 1' of pattern-fillet.ptsm to Count 2 and confirms, as E-122 and E-124 do. */
 async function lowerPatternCount(page: Page): Promise<void> {
-  await timelineItem(page, 'Linear pattern 1')
-    .getByRole('button', { name: 'Linear pattern 1', exact: true })
-    .dblclick()
-  await expect(inspector(page)).toHaveAccessibleName('Linear pattern 1')
+  await editFeatureFromTimeline(page, 'Linear pattern 1')
   await fillInspector(page, 'Count', '2')
   await page.keyboard.press('Enter')
   await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'warning')
-}
-
-/** Expects the names in this order among `names`, whatever else it holds between them. */
-function expectInOrder(names: readonly string[], expected: readonly string[]): void {
-  expect(names.filter((name) => expected.includes(name))).toEqual(expected)
 }
 
 test.describe('lost references and their fixes', () => {
@@ -129,13 +129,8 @@ test.describe('lost references and their fixes', () => {
       ['Extrude 1', 'suppressed'],
       ['Fillet 1', 'ok'],
     ])
-    await timelineItem(page, 'Extrude 1')
-      .getByRole('button', { name: 'Extrude 1', exact: true })
-      .click({ button: 'right' })
-    await page
-      .getByTestId('context-menu')
-      .getByRole('menuitem', { name: 'Unsuppress', exact: true })
-      .click()
+    const menu = await openTimelineMenu(page, 'Extrude 1')
+    await menu.getByRole('menuitem', { name: 'Unsuppress', exact: true }).click()
     await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'error')
     const lost = await expectOnlyNotification(page)
     await expect(lost).toHaveAttribute('data-severity', 'error')
@@ -232,10 +227,7 @@ test.describe('lost references and their fixes', () => {
     await expect(stale.getByText(STALE_FIX, { exact: true })).toBeVisible()
     expect(await notificationActions(stale)).toEqual(['Show problems'])
 
-    await timelineItem(page, 'Linear pattern 1')
-      .getByRole('button', { name: 'Linear pattern 1', exact: true })
-      .dblclick()
-    await expect(inspector(page)).toHaveAccessibleName('Linear pattern 1')
+    await editFeatureFromTimeline(page, 'Linear pattern 1')
     await expect(inspectorInput(page, 'Count')).toHaveValue('2')
   })
 
@@ -248,14 +240,7 @@ test.describe('lost references and their fixes', () => {
     await expectTimeline(page, labels)
 
     // Drag 'Fillet 1' over the gap between 'Extrude 1' and 'Datum plane 1' and hold it there.
-    const fillet = await timelineItem(page, 'Fillet 1').boundingBox()
-    if (fillet === null) {
-      throw new Error("The timeline item 'Fillet 1' is not visible.")
-    }
-    const gap = await timelineGap(page, 2)
-    await page.mouse.move(fillet.x + fillet.width / 2, fillet.y + fillet.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(gap.x, gap.y, { steps: 12 })
+    await holdOver(page, timelineItem(page, 'Fillet 1'), await timelineGap(page, 2))
     const hint = page.getByTestId('drop-hint')
     // The uses the drag asked for may arrive after the pointer stopped over the gap; they warn
     // there without another move (3.9).

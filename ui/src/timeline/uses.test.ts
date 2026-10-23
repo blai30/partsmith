@@ -10,42 +10,32 @@ import {
   extrudeRecord,
   faceReference,
   filletRecord,
-  sketchRecord,
+  stateWithUses,
   USED_BY_DOCUMENT,
   USED_BY_USES,
   USED_POINT_USES,
   USED_SKETCH_DOCUMENT,
   USED_SKETCH_USES,
   usesDocument,
+  xySketchRecord,
 } from '../test/fakes/uses'
-import { dropWarning, usedByText, usedEntities, usedMarkEntities, usersOf } from './uses'
+import { dropWarning, usedByText, usedEntities, usersOf } from './uses'
 
 // What a timeline drop would break, who uses a feature and which sketch entities later features
 // use, from `list_uses` (ui.md 3.9, 3.16.10, engine.md 3.24).
 
-/** The store state of a document at revision 5 whose uses are known at `usesRevision`. */
+/** The store state of a document of `features` at revision 5 whose uses are known at `usesRevision`. */
 function stateWith(
   features: readonly FeatureRecord[],
   uses: readonly Use[],
   usesRevision = 5,
 ): AppState {
-  return stateWithDocument(
-    usesDocument(features),
-    {},
-    {
-      revision: 5,
-      uses: { revision: usesRevision, uses },
-    },
-  )
+  return stateWithUses(usesDocument(features), uses, usesRevision)
 }
 
 /** The state of U-135: 'Extrude 1', 'Extrude 2' and 'Fillet 1', whose edge 'Extrude 2' made. */
 function dropState(uses: readonly Use[] = DROP_USES, usesRevision = 5): AppState {
-  return stateWithDocument(
-    DROP_DOCUMENT,
-    {},
-    { revision: 5, uses: { revision: usesRevision, uses } },
-  )
+  return stateWithUses(DROP_DOCUMENT, uses, usesRevision)
 }
 
 /** A revolve of 'Sketch 2' about `axis`. */
@@ -63,12 +53,12 @@ function revolveAbout(axis: Record<string, unknown>): FeatureRecord {
 
 /** The state of U-136: 'Extrude 1' used by 'Fillet 1' and 'Datum plane 1', with `uses` known. */
 function usedByState(uses: readonly Use[] = USED_BY_USES): AppState {
-  return stateWithDocument(USED_BY_DOCUMENT, {}, { revision: 5, uses: { revision: 5, uses } })
+  return stateWithUses(USED_BY_DOCUMENT, uses)
 }
 
 /** The state of U-137: 'Sketch 1' and the features after it, with `uses` known. */
 function sketchState(uses: readonly Use[]): AppState {
-  return stateWithDocument(USED_SKETCH_DOCUMENT, {}, { revision: 5, uses: { revision: 5, uses } })
+  return stateWithUses(USED_SKETCH_DOCUMENT, uses)
 }
 
 describe('dropWarning (3.9, U-135)', () => {
@@ -189,7 +179,7 @@ describe('what a drop warning names (3.9)', () => {
   })
 
   it('names a region, a point and a sketch by the selection kind of the field', () => {
-    const sketch = sketchRecord('f-sk1', [], [{ id: 'e-p1', at: [0, 0] }])
+    const sketch = xySketchRecord('f-sk1', [], [{ id: 'e-p1', at: [0, 0] }])
     const hole: FeatureRecord = {
       id: 'f-hole1',
       type: 'hole',
@@ -295,11 +285,5 @@ describe('usedEntities (3.16.10, U-137)', () => {
   it('is empty for a sketch whose entities nothing uses', () => {
     const uses: readonly Use[] = [{ user: 'f-ext1', field: '/profile/sketch', feature: 'f-sk1' }]
     expect(usedEntities(sketchState(uses), 'f-sk1')).toEqual({})
-  })
-})
-
-describe('usedMarkEntities (3.16.10)', () => {
-  it('lists the entities that later features use', () => {
-    expect(usedMarkEntities(sketchState(USED_POINT_USES), 'f-sk1')).toEqual(['e-3', 'e-p1'])
   })
 })

@@ -171,7 +171,7 @@ ui/
       overlay-chunk.ts       loadSketchOverlay, loadedSketchOverlay (3.1)
       SketchOverlay.tsx, SketchHeader.tsx, DrawInputs.tsx, DimensionEditor.tsx
     timeline/ Timeline.tsx, FeatureMenu.tsx, DropHint.tsx, uses.ts (dropWarning, usersOf, usedEntities,
-              usedMarkEntities, usedByText)
+              usedByText)
     repair/ repair.ts (repairView, candidateAction, ghostSegments), RepairOverlay.tsx, CauseLine.tsx
     browser/ Browser.tsx
     parameters/ ParametersPanel.tsx
@@ -3660,7 +3660,7 @@ Tests use these stable selectors only (plus accessible roles and names given in 
 | `selection-field` | Selection field box | `data-active`, `data-count` |
 | `expression-result`, `field-error`, `expression-suggestions` | Expression field parts | |
 | `selection-title`, `body-size`, `body-center`, `vertex-position`, `entity-size`, `measure-row`, `made-by` | Selection inspector parts | measure row: `data-measure`; `body-size`, `body-center`, `vertex-position`: `data-value` (the plain `formatSize` or `formatPoint` text, 3.8) |
-| `timeline`, `timeline-item`, `timeline-marker`, `timeline-problems`, `context-menu`, `timeline-empty` | Timeline | item: `data-feature-id`, `data-status`, `data-suppressed`, `data-rolled-back`, `data-notes` |
+| `timeline`, `timeline-item`, `timeline-marker`, `timeline-problems`, `context-menu`, `timeline-empty`, `insertion-bar` | Timeline | item: `data-feature-id`, `data-status`, `data-suppressed`, `data-rolled-back`, `data-notes` |
 | `side-panel`, `parameters-panel`, `parameter-row`, `parameter-value`, `parameters-empty`, `parameters-transaction`, `problems-panel`, `health-list`, `health-item`, `keys-panel` | Side panels | row: `data-id`; health item: `data-check`, `data-severity` |
 | `sketch-header`, `sketch-problems`, `sketch-hint` | Sketch chrome | header: `data-state`, `data-dof`, `data-outline` |
 | `sketch-dimension`, `dimension-editor`, `constraint-glyph`, `inference-glyph`, `draw-input`, `profile-issue`, `box-selection` | Sketch overlay | dimension: `data-constraint-id`, `data-type`, `data-driving`; glyph: `data-constraint-id`, `data-type`, `data-state`; inference: `data-type` |

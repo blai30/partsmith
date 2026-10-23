@@ -9,6 +9,7 @@ import {
   type Camera,
   type ViewWindow,
 } from '../viewport/camera'
+import { worldToCanvas } from '../viewport/projection.testing'
 import type { Vector2 } from './geometry'
 import {
   millimetersPerPixelAt,
@@ -106,24 +107,14 @@ describe('the canvas', () => {
   })
 })
 
-/** A column-major 4 by 4 matrix times a 4-vector. */
-function apply(matrix: Float32Array, vector: readonly number[]): number[] {
-  return [0, 1, 2, 3].map((row) =>
-    [0, 1, 2, 3].reduce(
-      (sum, column) => sum + (matrix[column * 4 + row] ?? 0) * (vector[column] ?? 0),
-      0,
-    ),
-  )
-}
-
 /** The canvas pixel of a world point through the view and window projection matrices. */
 function projected(view: ViewWindow, eyeCamera: Camera, point: readonly number[]): Vector2 {
-  const viewed = apply(viewMatrix(eyeCamera), [...point, 1])
-  const [x = 0, y = 0, , homogeneous = 1] = apply(
-    windowProjection(eyeCamera, view, 1, 1000),
-    viewed,
+  const pixel = worldToCanvas(
+    { view: viewMatrix(eyeCamera), projection: windowProjection(eyeCamera, view, 1, 1000) },
+    point,
+    view,
   )
-  return [((x / homogeneous + 1) / 2) * view.width, ((1 - y / homogeneous) / 2) * view.height]
+  return [pixel.x, pixel.y]
 }
 
 describe('the free area (U-176)', () => {

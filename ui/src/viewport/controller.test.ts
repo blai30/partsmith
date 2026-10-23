@@ -63,6 +63,7 @@ import {
 import { createViewportController, type ViewportController } from './controller'
 import { drawnGridSpacing } from './grid'
 import { createScene, type Scene } from './scene'
+import { worldToCanvas } from './projection.testing'
 
 const WIDTH = 800
 const HEIGHT = 600
@@ -1515,16 +1516,6 @@ describe('right clicks and the context menu (3.13)', () => {
   })
 })
 
-/** A column-major 4 by 4 matrix times a 4-vector. */
-function apply(matrix: Float32Array, vector: readonly number[]): number[] {
-  return [0, 1, 2, 3].map((row) =>
-    [0, 1, 2, 3].reduce(
-      (sum, column) => sum + (matrix[column * 4 + row] ?? 0) * (vector[column] ?? 0),
-      0,
-    ),
-  )
-}
-
 /** The canvas box a world box is drawn in by the last frame, from its view and projection. */
 function drawnBox(
   fixture: Fixture,
@@ -1540,10 +1531,9 @@ function drawnBox(
   for (const x of [bounds.min[0], bounds.max[0]]) {
     for (const y of [bounds.min[1], bounds.max[1]]) {
       for (const z of [bounds.min[2], bounds.max[2]]) {
-        const clip = apply(frame.projection, apply(frame.view, [x, y, z, 1]))
-        const homogeneous = clip[3] ?? 1
-        xs.push((((clip[0] ?? 0) / homogeneous + 1) / 2) * size.width)
-        ys.push(((1 - (clip[1] ?? 0) / homogeneous) / 2) * size.height)
+        const pixel = worldToCanvas(frame, [x, y, z], size)
+        xs.push(pixel.x)
+        ys.push(pixel.y)
       }
     }
   }
@@ -1834,12 +1824,15 @@ describe('Look at beside the inspector (3.14)', () => {
     fixture.controller.lookAlong([0, -1, 0], [0, 0, 1], [0, 0, 10])
     fixture.frames.flush()
     const frame = fixture.backend.lastFrame()
-    const clip = apply(
-      frame?.projection ?? new Float32Array(16),
-      apply(frame?.view ?? new Float32Array(16), [0, 0, 10, 1]),
+    const pixel = worldToCanvas(
+      {
+        view: frame?.view ?? new Float32Array(16),
+        projection: frame?.projection ?? new Float32Array(16),
+      },
+      [0, 0, 10],
+      { width: 1280, height: 720 },
     )
-    const homogeneous = clip[3] ?? 1
-    expect((((clip[0] ?? 0) / homogeneous + 1) / 2) * 1280).toBeCloseTo(973, 1)
-    expect(((1 - (clip[1] ?? 0) / homogeneous) / 2) * 720).toBeCloseTo(338, 1)
+    expect(pixel.x).toBeCloseTo(973, 1)
+    expect(pixel.y).toBeCloseTo(338, 1)
   })
 })

@@ -31,6 +31,8 @@ import { featureItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
 import { meshSummary } from '../test/fakes/state'
 import { COLOR_CLASSES } from '../theme/roles'
+import { worldToCanvas } from '../viewport/projection.testing'
+import { pathNumbers } from './overlay.testing'
 
 // The cause line of a message (ui.md 4.1, 4.2, 4.3, U-131): under the message and its actions, in
 // `textMuted`, followed by the cause's own actions; a `show` of the cause selects what changed,
@@ -319,33 +321,13 @@ function lastBackend(): FakeBackend {
   return last
 }
 
-/** A column-major 4 by 4 matrix times a 4-vector. */
-function apply(matrix: Float32Array, vector: readonly number[]): number[] {
-  return [0, 1, 2, 3].map((row) =>
-    [0, 1, 2, 3].reduce(
-      (sum, column) => sum + (matrix[column * 4 + row] ?? 0) * (vector[column] ?? 0),
-      0,
-    ),
-  )
-}
-
 /** Where the last frame draws a world point on the canvas, in CSS pixels. */
 function canvasPosition(point: readonly [number, number, number]): { x: number; y: number } {
   const frame = lastBackend().lastFrame()
   if (frame === null) {
     throw new Error('No frame was rendered.')
   }
-  const clip = apply(frame.projection, apply(frame.view, [...point, 1]))
-  const homogeneous = clip[3] ?? 1
-  return {
-    x: (((clip[0] ?? 0) / homogeneous + 1) / 2) * WIDTH,
-    y: ((1 - (clip[1] ?? 0) / homogeneous) / 2) * HEIGHT,
-  }
-}
-
-/** The numbers of an SVG path's `d`, in order. */
-function pathNumbers(path: Element): number[] {
-  return (path.getAttribute('d')?.match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/g) ?? []).map(Number)
+  return worldToCanvas(frame, point, { width: WIDTH, height: HEIGHT })
 }
 
 /** The cube sketch with the line e-5 still drawn, from (75, 40) to (70, 45). */

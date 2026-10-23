@@ -10,8 +10,8 @@ import {
 } from '../helpers'
 
 // Helpers for the modeling end-to-end tests: the Model toolbar's groups, inspector fields and
-// choices, previews, body sizes, editing from the timeline and timeline labels. The shared helpers
-// of ui.md 6.3 are in ../helpers.ts.
+// choices, previews, body sizes, editing from the timeline, an item's context menu, timeline labels
+// and drags. The shared helpers of ui.md 6.3 are in ../helpers.ts.
 
 /** Opens a toolbar group ("Shapes", "Pattern") and runs one of its commands. */
 export async function runFromGroup(page: Page, group: string, title: string): Promise<void> {
@@ -93,8 +93,16 @@ export async function timelineGap(page: Page, index: number): Promise<{ x: numbe
   return { x: (before.x + before.width + after.x) / 2, y: before.y + before.height / 2 }
 }
 
-/** Drags from an element's center to a page position in small steps. */
-export async function dragTo(
+/** Opens the context menu of a feature's timeline item with a right click (ui.md 3.9) and returns it. */
+export async function openTimelineMenu(page: Page, label: string): Promise<Locator> {
+  await timelineItem(page, label)
+    .getByRole('button', { name: label, exact: true })
+    .click({ button: 'right' })
+  return page.getByTestId('context-menu')
+}
+
+/** Presses on an element's center and moves to a page position in small steps, still pressed. */
+export async function holdOver(
   page: Page,
   from: Locator,
   to: { x: number; y: number },
@@ -106,5 +114,14 @@ export async function dragTo(
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
   await page.mouse.down()
   await page.mouse.move(to.x, to.y, { steps: 12 })
+}
+
+/** Drags from an element's center to a page position in small steps. */
+export async function dragTo(
+  page: Page,
+  from: Locator,
+  to: { x: number; y: number },
+): Promise<void> {
+  await holdOver(page, from, to)
   await page.mouse.up()
 }

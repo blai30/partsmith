@@ -34,7 +34,7 @@ import {
   type EditingSession,
 } from '../state/selectors'
 import type { AppState, SelectionItem, SketchNotice } from '../state/store'
-import { usedMarkEntities } from '../timeline/uses'
+import { usedEntities } from '../timeline/uses'
 import { framedArea, type Camera, type ViewWindow } from '../viewport/camera'
 import type { ViewportController, ViewportHandle } from '../viewport/controller'
 import { requestFrame } from '../viewport/frames'
@@ -753,7 +753,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       pixelSize,
       tolerance: TESSELLATION_PIXELS * pixelSize,
       constraints: storedConstraints(state, session.sketchId),
-      usedEntities: usedMarkEntities(state, session.sketchId),
+      usedEntities: Object.keys(usedEntities(state, session.sketchId)),
       showConstraints: session.showConstraints,
       labelPositions,
       pointer,
