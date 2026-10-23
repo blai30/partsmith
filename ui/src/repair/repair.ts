@@ -207,9 +207,10 @@ export function ghostBuffer(state: AppState, repair: Repair): Float32Array | und
 }
 
 /**
- * The points of each cause ghost a `show` action showed, from the recompute it was shown in: a
- * later recompute numbers its ghost buffers anew, while the ghost stays until the selection
- * changes (4.2).
+ * The points of each cause ghost a `show` action showed, from the recompute the action was offered
+ * in: a later recompute, such as that of the implicit cancel a show during a feature command
+ * starts with, numbers its ghost buffers anew, while the ghost stays until the selection changes
+ * (4.2).
  */
 const shownGhostPoints = new WeakMap<Ghost, Float32Array>()
 

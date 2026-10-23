@@ -104,8 +104,9 @@ function usedThing(state: AppState, use: Use): UsedThing {
 }
 
 /**
- * The timeline index of `feature` once `moved` goes from index `from` to index `to` (3.9: every
- * feature between the two shifts by one toward where `moved` was).
+ * The timeline index of the feature at index `position` once the moved feature goes from index
+ * `from` to index `to` (3.9: every feature between the two shifts by one toward where the moved
+ * one was).
  */
 function positionAfterMove(position: number, from: number, to: number): number {
   if (position === from) {
@@ -232,9 +233,11 @@ export type EntityUse = {
  * use of that entity in `list_uses` order (3.16.10); null when nothing uses the entity.
  */
 export function entityUse(state: AppState, sketch: string, entity: string): EntityUse | null {
-  const [user] = usedEntities(state, sketch)[entity] ?? []
-  const use = entityUses(state, sketch).find(
-    (candidate) => candidate.entity === entity && candidate.user === user,
+  const uses = entityUses(state, sketch).filter((use) => use.entity === entity)
+  const [user] = inTimelineOrder(
+    state,
+    uses.map((use) => use.user),
   )
+  const use = uses.find((candidate) => candidate.user === user)
   return user === undefined || use === undefined ? null : { user, noun: usedThing(state, use) }
 }

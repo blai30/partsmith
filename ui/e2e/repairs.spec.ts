@@ -257,15 +257,11 @@ test.describe('lost references and their fixes', () => {
     await page.mouse.down()
     await page.mouse.move(gap.x, gap.y, { steps: 12 })
     const hint = page.getByTestId('drop-hint')
-    // The uses the drag asked for may arrive after the pointer reached the gap; it moves on the spot.
-    await expect(async () => {
-      await page.mouse.move(gap.x + 1, gap.y)
-      await page.mouse.move(gap.x, gap.y)
-      await expect(hint).toHaveText(
-        "'Fillet 1' uses an edge made by 'Extrude 2'. Drop below 'Extrude 2' instead?",
-        { timeout: 1_000 },
-      )
-    }).toPass()
+    // The uses the drag asked for may arrive after the pointer stopped over the gap; they warn
+    // there without another move (3.9).
+    await expect(hint).toHaveText(
+      "'Fillet 1' uses an edge made by 'Extrude 2'. Drop below 'Extrude 2' instead?",
+    )
     await page.mouse.up()
     await expect(hint.filter({ hasText: 'Drop below' })).toHaveCount(0)
     await expect(timelineItem(page, 'Fillet 1')).toHaveAttribute('data-status', 'error')

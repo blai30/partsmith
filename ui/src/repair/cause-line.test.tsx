@@ -129,6 +129,9 @@ function filletStatus(message: Diagnostic): FeatureStatus {
 /** The line from (80, 40) to (70, 50) of 'Sketch 1' as it was before it was deleted, in buffer 1. */
 const LINE_POINTS: readonly number[] = [80, 40, 70, 50]
 
+/** A repair's ghost in world points, an edge from (0, 0, 20) to (20, 0, 20). */
+const REPAIR_POINTS: readonly number[] = [0, 0, 20, 20, 0, 20]
+
 /** "Show the line", a `show` of the deleted entity e-5 of 'Sketch 1'. */
 const SHOW_LINE: FixAction = {
   label: 'Show the line',
@@ -359,11 +362,44 @@ const SOLUTION_WITH_LINE: SketchSolution = {
   ],
 }
 
-/** Clicks "Show the line" on the cause line of 'Fillet 1' in the Problems panel. */
-async function showTheLine(): Promise<void> {
+/** Clicks "Show the line" on the cause line of 'Fillet 1' in `container`, the Problems row by default. */
+async function showTheLine(container: HTMLElement = filletRow()): Promise<void> {
   const user = userEvent.setup()
-  await user.click(within(filletRow()).getByRole('button', { name: SHOW_LINE.label }))
+  await user.click(within(container).getByRole('button', { name: SHOW_LINE.label }))
   await settled()
+}
+
+/** The numbers of the one cause-ghost path. */
+function causeGhostNumbers(): number[] {
+  const ghosts = screen.getAllByTestId('cause-ghost')
+  const [ghost] = ghosts
+  if (ghosts.length !== 1 || ghost === undefined) {
+    throw new Error(`Expected one cause ghost, found ${String(ghosts.length)}.`)
+  }
+  return pathNumbers(ghost)
+}
+
+/** The path numbers along the deleted line, from (80, 40) to (70, 50) on the XY sketch, to a pixel. */
+function alongLine(): unknown[] {
+  return [canvasPosition([80, 40, 0]), canvasPosition([70, 50, 0])].flatMap((position) => [
+    expect.closeTo(position.x, 0),
+    expect.closeTo(position.y, 0),
+  ])
+}
+
+/** Replaces the ghost buffers as a later recompute does, which numbers them anew (2.7). */
+function renumberGhosts(app: App): void {
+  app.store.setState((state) =>
+    state.document === null
+      ? {}
+      : {
+          document: {
+            ...state.document,
+            // A repair's world points first, then the line under another index.
+            ghosts: { 1: Float32Array.from(REPAIR_POINTS), 2: Float32Array.from(LINE_POINTS) },
+          },
+        },
+  )
 }
 
 describe("a cause's Show and its ghost (4.2, U-131)", () => {
@@ -396,14 +432,49 @@ describe("a cause's Show and its ghost (4.2, U-131)", () => {
   it("U-131 draws the ghost on the sketch's placement, where the line was", async () => {
     problemsShell(lostDocument(filletStatus(LOST_BEVEL)))
     await showTheLine()
-    const [ghost] = screen.getAllByTestId('cause-ghost')
-    const [startX, startY, endX, endY] = pathNumbers(ghost ?? document.body)
-    const start = canvasPosition([80, 40, 0])
-    const end = canvasPosition([70, 50, 0])
-    expect(startX).toBeCloseTo(start.x, 0)
-    expect(startY).toBeCloseTo(start.y, 0)
-    expect(endX).toBeCloseTo(end.x, 0)
-    expect(endY).toBeCloseTo(end.y, 0)
+    expect(causeGhostNumbers()).toEqual(alongLine())
+  })
+
+  it('U-131 keeps the ghost through a later recompute that numbers its buffers anew', async () => {
+    const { app } = problemsShell(lostDocument(filletStatus(LOST_BEVEL)))
+    await showTheLine()
+    act(() => {
+      renumberGhosts(app)
+    })
+    flush()
+    expect(causeGhostNumbers()).toEqual(alongLine())
+  })
+
+  it("U-131 a Show from the command's banner draws the ghost of the recompute it was offered in", async () => {
+    const { app, core } = shell(lostDocument(filletStatus(LOST_BEVEL)))
+    await act(async () => {
+      await editFeature(app, 'f-fil1')
+      await settle()
+    })
+    flush()
+    // The implicit cancel's recompute numbers the ghost buffers anew.
+    core.stub('cancelTransaction', async () => {
+      renumberGhosts(app)
+      return 5
+    })
+    await showTheLine(within(screen.getByTestId('inspector')).getByTestId('inspector-error'))
+    expect(core.callsTo('cancelTransaction')).toHaveLength(1)
+    expect(app.store.getState().command).toBeNull()
+    expect(causeGhostNumbers()).toEqual(alongLine())
+  })
+
+  it('U-131 frames what it selected together with the ghost', async () => {
+    const { app } = problemsShell(lostDocument(filletStatus(LOST_BEVEL)))
+    const viewport = app.viewport()
+    if (viewport === null) {
+      throw new Error('The shell attached no viewport.')
+    }
+    const zoom = vi.spyOn(viewport, 'zoomToBounds')
+    await showTheLine()
+    // The sketch's square from (-10, -10) to (10, 10), and the line from (80, 40) to (70, 50).
+    const [bounds] = zoom.mock.lastCall ?? []
+    expect(bounds?.min.slice(0, 2)).toEqual([-10, -10])
+    expect(bounds?.max.slice(0, 2)).toEqual([80, 50])
   })
 
   it('U-131 a selection change removes the ghost', async () => {

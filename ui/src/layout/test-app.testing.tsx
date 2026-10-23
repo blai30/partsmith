@@ -13,10 +13,15 @@ import type { App, Platform } from '../app/createApp'
 import { builtinCommands } from '../commands/builtin'
 import { featureCommands } from '../commands/features'
 import { createCommandRegistry } from '../commands/registry'
+import { loadSketchOverlay } from '../sketch/overlay-chunk'
 import { createAppStore, type AppState, type DocumentState } from '../state/store'
 import { createTestApp, LINUX_WEB } from '../test/fakes/test-app'
 import { createFakeCoreApi, type FakeCoreApi } from '../test/fakes/core-api'
 import { cubeDocumentState, readyState } from './fixtures.testing'
+
+// The shell renders sketch mode's overlay from a chunk of its own (ui.md 3.1). Loaded here, it is
+// there in every shell a test renders, as it is in the app soon after startup.
+await loadSketchOverlay()
 
 /** Registers the built-in commands and the commands of the store's catalog that are not registered yet. */
 export function registerMissingCommands(app: App): void {

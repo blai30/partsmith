@@ -1,5 +1,5 @@
 import { clsx } from 'clsx/lite'
-import { useEffect } from 'react'
+import { createElement, Suspense, use, useEffect } from 'react'
 import { useApp, useAppState } from './app/AppProvider'
 import { Browser } from './browser/Browser'
 import { Inspector } from './inspector/Inspector'
@@ -18,7 +18,7 @@ import { useResolvedTheme } from './layout/use-resolved-theme'
 import { OverhangLegend } from './print/OverhangLegend'
 import { overhangLegendLimit } from './print/overhang'
 import { PrintHint } from './print/PrintHint'
-import { SketchOverlay } from './sketch/SketchOverlay'
+import { loadedSketchOverlay, loadSketchOverlay } from './sketch/overlay-chunk'
 import type { AppState } from './state/store'
 import { COLOR_CLASSES, ROOT_CLASSES } from './theme/roles'
 import { applyTheme, applyUiScale } from './theme/theme'
@@ -49,6 +49,14 @@ function useRootClasses(): void {
   useEffect(() => {
     applyUiScale(document.documentElement, scale)
   }, [scale])
+}
+
+/**
+ * Sketch mode's overlay (3.16) from its own chunk (3.1): at once when the chunk has loaded, else
+ * suspended until it has. A chunk that fails to load is a crash of the viewport region (4.4).
+ */
+function SketchMode() {
+  return createElement(loadedSketchOverlay() ?? use(loadSketchOverlay()))
 }
 
 /** The overhang legend while the overhang map is shown in Print context (3.17). */
@@ -104,7 +112,9 @@ export function App() {
       >
         <Viewport legend={<PrintLegend />}>
           <EmptyState />
-          <SketchOverlay />
+          <Suspense fallback={null}>
+            <SketchMode />
+          </Suspense>
           <PrintHint />
           <Inspector />
         </Viewport>

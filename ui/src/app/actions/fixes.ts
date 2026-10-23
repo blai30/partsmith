@@ -155,6 +155,11 @@ async function show(
   entity: string | null,
   ghost: Ghost | null,
 ): Promise<void> {
+  // The ghost's points come from the recompute the action was offered in: the cancel's recompute
+  // numbers its buffers anew.
+  if (ghost !== null) {
+    keepCauseGhost(app.store.getState(), ghost)
+  }
   const command = app.store.getState().command
   if (command?.featureId === feature) {
     app.viewport()?.fit()
@@ -179,9 +184,6 @@ async function show(
           record.type === 'datum_plane' ? 'datum_plane' : 'feature',
         )
       : entitySelectionItem(feature, drawn)
-  if (ghost !== null) {
-    keepCauseGhost(state, ghost)
-  }
   // One change, so the selection change does not clear what is shown.
   app.store.setState({ selection: [item], shown: { feature, entity, ghost } })
   frameShown(app, await shownItems(app, record, drawn))

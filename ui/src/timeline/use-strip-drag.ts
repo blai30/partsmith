@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -99,7 +100,16 @@ export function useStripDrag(strip: RefObject<HTMLDivElement | null>, options: S
     setWarning(null)
   }
 
+  /** Cancels the press and its drag; a rollback marker goes back where it was (3.9). */
+  function cancelDrag(): void {
+    const current = press.current
+    press.current = null
+    endDrag()
+    current?.rollback?.cancel().catch(reportFailure('Canceling the roll back'))
+  }
+
   // Esc cancels a drag (3.9).
+  const cancelOnEscape = useEffectEvent(cancelDrag)
   useEffect(() => {
     if (dragging === null) {
       return undefined
@@ -107,11 +117,7 @@ export function useStripDrag(strip: RefObject<HTMLDivElement | null>, options: S
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        const current = press.current
-        press.current = null
-        setDragging(null)
-        setWarning(null)
-        current?.rollback?.cancel().catch(reportFailure('Canceling the roll back'))
+        cancelOnEscape()
       }
     }
     window.addEventListener('keydown', onKeyDown, true)
@@ -242,13 +248,9 @@ export function useStripDrag(strip: RefObject<HTMLDivElement | null>, options: S
   }
 
   function onPointerCancel(event: PointerEvent<HTMLDivElement>): void {
-    const current = press.current
-    if (current === null || current.pointerId !== event.pointerId) {
-      return
+    if (press.current?.pointerId === event.pointerId) {
+      cancelDrag()
     }
-    press.current = null
-    endDrag()
-    current.rollback?.cancel().catch(reportFailure('Canceling the roll back'))
   }
 
   return {
