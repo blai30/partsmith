@@ -7,9 +7,8 @@
 //! geometry (centroids, normals, axes, lengths, volumes) and by the feature's status and messages.
 //! A scenario with variants has one test per variant; sizes that must behave alike are variants too.
 //!
-//! The tests are a module of the test target `reference_stability`, which needs the
-//! `stability-study` feature; run this third alone with
-//! `cargo test -p partsmith-recompute --features stability-study --test reference_stability reference_stability_1::`.
+//! The tests are a module of the test target `integration` (ADR 0035); run this third alone with
+//! `cargo test -p partsmith-recompute --test integration reference_stability_1::`.
 
 use crate::stability_support_1;
 

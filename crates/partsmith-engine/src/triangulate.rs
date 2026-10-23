@@ -103,7 +103,7 @@ pub(crate) fn outline(profile_loop: &ProfileLoop) -> Vec<Point> {
 }
 
 /// `max(1, ceil(sweep / (2π / 72)))`.
-fn segment_count(sweep: f64) -> u32 {
+pub(crate) fn segment_count(sweep: f64) -> u32 {
     let segments = (sweep / TAU * SEGMENTS_PER_TURN - SEGMENT_SLACK).ceil();
     if segments >= 1.0 {
         // A sweep is at most a full turn, so the count is at most 72.
@@ -119,7 +119,7 @@ fn angle(center: Point, point: Point) -> f64 {
 }
 
 /// The point at `angle` on the circle `(center, radius)`.
-fn on_circle(center: Point, radius: f64, angle: f64) -> Point {
+pub(crate) fn on_circle(center: Point, radius: f64, angle: f64) -> Point {
     let (sine, cosine) = angle.sin_cos();
     [center[0] + radius * cosine, center[1] + radius * sine]
 }

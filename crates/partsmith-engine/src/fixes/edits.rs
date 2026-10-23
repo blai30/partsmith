@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use partsmith_features::{BodyOp, FeatureWarning, Fix, Names, Place};
-use partsmith_model::{Body, Edit, FeatureRecord, Id, IdKind};
+use partsmith_model::{Body, Document, Edit, FeatureRecord, Id, IdKind};
 use partsmith_naming::{ElementName, Generator, Reference, Resolution, resolve, roles};
 use partsmith_recompute::Status;
 use partsmith_sketch::{MatchMethod, RegionMatch, RegionRef, match_region};
@@ -29,6 +29,17 @@ impl FeatureView<'_> {
         later: &RunView<'_>,
         ids: &mut NewIds<'_>,
     ) -> Result<Vec<Edit>, EngineError> {
+        match fix {
+            Fix::KeepRegions { pointer } => self.kept_regions(pointer, later),
+            Fix::NewBody => self.in_new_body(ids),
+            other => self.own_edits(other),
+        }
+    }
+
+    /// The edits of an offered `apply` fix that needs nothing but this run and the current
+    /// records: every fix but `KeepRegions`, which reads later features in a run where they all
+    /// ran, and `NewBody`, which takes a new id.
+    pub(super) fn own_edits(&self, fix: &Fix) -> Result<Vec<Edit>, EngineError> {
         match fix {
             Fix::SetField {
                 feature,
@@ -65,14 +76,12 @@ impl FeatureView<'_> {
             Fix::UseRegions { pointer, regions } => {
                 self.replaced(pointer, region_entries(regions)?)
             }
-            Fix::KeepRegions { pointer } => self.kept_regions(pointer, later),
             Fix::UseBody { field, body } => Ok(vec![updated(self.record, |params| {
                 set(params, &field.pointer(), Value::String(body.to_string()))
             })?]),
             Fix::Unsuppress { feature } => self.suppression(feature, false),
             Fix::Suppress { feature } => self.suppression(feature, true),
             Fix::Move { feature, place } => self.moved(feature, place),
-            Fix::NewBody => self.in_new_body(ids),
             Fix::Attach { sketch, body, face } => self.attached(sketch, body, face),
             Fix::TurnDrawingBack { sketch } => self.turned_back(sketch),
             Fix::DeleteConstraint { sketch, constraint } => {
@@ -86,9 +95,13 @@ impl FeatureView<'_> {
                 })?])
             }
             Fix::RenameKey { from, to } => Ok(vec![self.renamed_key(from, to)?]),
-            Fix::Pick { .. } | Fix::Show { .. } | Fix::ConnectEnds { .. } => Err(
-                EngineError::internal("a fix that is no apply action of a message was applied"),
-            ),
+            Fix::Pick { .. }
+            | Fix::Show { .. }
+            | Fix::ConnectEnds { .. }
+            | Fix::KeepRegions { .. }
+            | Fix::NewBody => Err(EngineError::internal(
+                "a fix that is no apply action of a message, or that needs more than its run, was applied on its own",
+            )),
         }
     }
 
@@ -334,23 +347,28 @@ impl FeatureView<'_> {
     /// One `move_feature` of `feature` to directly below or above the feature `place` names,
     /// found by id now.
     fn moved(&self, feature: &Id, place: &Place) -> Result<Vec<Edit>, EngineError> {
-        let (other, offset) = match place {
-            Place::Below(other) => (other, 1),
-            Place::Above(other) => (other, 0),
-        };
-        let index = self
-            .run
-            .document
-            .features
-            .iter()
-            .filter(|record| record.id != *feature)
-            .position(|record| record.id == *other)
+        let index = index_beside(self.run.document, feature, place)
             .ok_or_else(|| EngineError::internal("a fix moves next to a feature that is gone"))?;
         Ok(vec![Edit::MoveFeature {
             id: feature.clone(),
-            index: index + offset,
+            index,
         }])
     }
+}
+
+/// The index `move_feature` takes to put `feature` directly below or above the feature `place`
+/// names in `document`, found by id; `None` when that feature is not in the document.
+pub(crate) fn index_beside(document: &Document, feature: &Id, place: &Place) -> Option<usize> {
+    let (other, offset) = match place {
+        Place::Below(other) => (other, 1),
+        Place::Above(other) => (other, 0),
+    };
+    let position = document
+        .features
+        .iter()
+        .filter(|record| record.id != *feature)
+        .position(|record| record.id == *other)?;
+    Some(position + offset)
 }
 
 /// One `update_feature` of `record` with its params changed by `change`, which says whether the
@@ -369,7 +387,7 @@ pub(super) fn updated(
 }
 
 /// One `update_feature` of `record` with `params`, which are an object.
-pub(super) fn update_feature(record: &FeatureRecord, params: Value) -> Result<Edit, EngineError> {
+pub(crate) fn update_feature(record: &FeatureRecord, params: Value) -> Result<Edit, EngineError> {
     let Value::Object(params) = params else {
         return Err(EngineError::internal("feature params are an object"));
     };

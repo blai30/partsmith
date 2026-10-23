@@ -18,6 +18,7 @@ use partsmith_recompute::Recompute;
 
 use crate::ENGINE_VERSION;
 use crate::assets::{referenced_assets, stored_assets};
+use crate::causes::CauseLines;
 use crate::display::DisplayCache;
 use crate::document::{OpenDocument, SavedText, canonical_text, canonicalize_params};
 use crate::error::EngineError;
@@ -195,7 +196,9 @@ impl Session {
     ) -> Result<DocHandle, EngineError> {
         let profile = self.profiles.resolve(document.printer.as_deref());
         let computed = state::run(&mut self.recompute, &document, &assets, profile, None, 0);
-        let open = OpenDocument::new(document, assets, self.undo_limit, self.quality, computed)?;
+        let mut open =
+            OpenDocument::new(document, assets, self.undo_limit, self.quality, computed)?;
+        open.observe(&self.registry, self.display);
         let handle = DocHandle(self.next_handle);
         self.next_handle += 1;
         self.documents.insert(handle, open);
@@ -267,6 +270,7 @@ impl Session {
             &open.emitted.display_failures(),
             open.revision,
             None,
+            CauseLines::of(open),
         ))
     }
 
@@ -348,6 +352,7 @@ impl Session {
             focus,
             open.computed.run,
         );
+        open.observe(&self.registry, self.display);
         Ok(())
     }
 }

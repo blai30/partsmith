@@ -13,6 +13,7 @@ use partsmith_protocol::{
 };
 use partsmith_sketch::Placement;
 
+use crate::causes::CauseLines;
 use crate::counts::saturating_u32;
 use crate::display::{DisplayCache, DisplayMesh, MeshKey};
 use crate::document::OpenDocument;
@@ -51,6 +52,9 @@ pub(crate) struct Emitted {
     changed: Option<Changed>,
     /// The recompute run the last `recomputed` described.
     run: u64,
+    /// Send `recomputed` again with the latest recompute's statuses, whose cause actions changed
+    /// without a recompute: a commit made `Undo` available (section 3.4).
+    restate: bool,
     /// The last solution of each sketch.
     sketches: BTreeMap<Id, SketchSolution>,
     /// The last placement (or its absence) of each datum plane.
@@ -64,6 +68,11 @@ pub(crate) struct Emitted {
 }
 
 impl Emitted {
+    /// Sends `recomputed` again with the next events, with the statuses of the latest recompute.
+    pub(crate) fn restate_statuses(&mut self) {
+        self.restate = true;
+    }
+
     /// The current display failures, model layer first, each layer in body id order.
     pub(crate) fn display_failures(&self) -> Vec<DisplayFailure> {
         self.model
@@ -156,7 +165,7 @@ impl Session {
             let preview = record_layer(&mut open.emitted.preview, preview, next_mesh_id);
             (model, preview)
         });
-        if open.computed.run != open.emitted.run {
+        if open.computed.run != open.emitted.run || std::mem::take(&mut open.emitted.restate) {
             open.emitted.run = open.computed.run;
             let shown = &open.emitted.model.shown;
             let element = |body: &Id, name: &ElementName| {
@@ -168,14 +177,18 @@ impl Session {
                     index: shown.mesh.table.find(name)?,
                 })
             };
-            let features = feature_statuses(
+            let mut features = feature_statuses(
                 &open.document,
                 registry,
                 &open.computed,
                 &open.emitted.display_failures(),
                 revision,
                 display.then_some(&element),
+                CauseLines::of(open),
             );
+            if *display {
+                open.ghosts.add_to(&mut features, &open.causes, output);
+            }
             output.events.push(Event::Recomputed {
                 doc,
                 revision,
@@ -206,8 +219,8 @@ fn document_changed(
         bare_numbers: open.bare_numbers(registry, inspections),
         revision: open.revision,
         dirty: open.dirty()?,
-        undo: open.undo.undo_label().map(str::to_string),
-        redo: open.undo.redo_label().map(str::to_string),
+        undo: open.history.undo_label().map(str::to_string),
+        redo: open.history.redo_label().map(str::to_string),
         transaction: open
             .transaction
             .as_ref()

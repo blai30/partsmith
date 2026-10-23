@@ -2,12 +2,14 @@
 
 use crate::common;
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use common::examples::{
-    COMMAND_EXAMPLES, ELEMENT_REPAIR, ERROR_OUTCOMES, FULL_REFERENCE, MERGED_REFERENCE,
-    MESSAGE_EXAMPLES, R16_DIAGNOSTIC, REGION_REPAIR, RESULT_EXAMPLES, SOLVE_ON_FACE_IN_BODY_FRAME,
-    STALE_FIX_MESSAGE, TYPE_EXAMPLES,
+    BLOCK_USES_RESULT, COMMAND_EXAMPLES, DELETED_POINT_MESSAGE, ELEMENT_REPAIR, ERROR_OUTCOMES,
+    FULL_REFERENCE, LOST_FACE_REPAIR, MERGED_REFERENCE, MESSAGE_EXAMPLES, R16_DIAGNOSTIC,
+    R26_CAUSE, REGION_REPAIR, RESULT_EXAMPLES, SOLVE_ON_FACE_IN_BODY_FRAME, STALE_FIX_MESSAGE,
+    TYPE_EXAMPLES,
 };
 use common::json_schema::validate;
 use common::{
@@ -505,4 +507,108 @@ fn document_changed_declares_bare_numbers() {
     let event = variant(&schema, "Event", "type", "document_changed");
 
     assert!(property(&schema, event, "bare_numbers").is_some());
+}
+
+#[test]
+fn use_requires_its_user_field_and_feature_but_not_its_entity() {
+    let schema = schema_json();
+    let entry = definition(&schema, "Use");
+
+    let required: BTreeSet<String> = required_names(entry)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(required, string_set(&["user", "field", "feature"]));
+    assert!(property(&schema, entry, "entity").is_some());
+
+    let complete =
+        json!({"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1", "entity": "e-3"});
+    assert_eq!(validate(&schema, "/$defs/Use", &complete), Ok(()));
+    let mut null_entity = complete.clone();
+    null_entity["entity"] = Value::Null;
+    assert_eq!(validate(&schema, "/$defs/Use", &null_entity), Ok(()));
+    for name in ["entity", "user", "field", "feature"] {
+        let mut without = complete.clone();
+        without
+            .as_object_mut()
+            .expect("a use is an object")
+            .remove(name);
+        let result = validate(&schema, "/$defs/Use", &without);
+        if name == "entity" {
+            assert_eq!(result, Ok(()), "a use without entity");
+        } else {
+            assert!(result.is_err(), "a use without {name} is rejected");
+        }
+    }
+}
+
+#[test]
+fn list_uses_request_names_only_its_document() {
+    let schema = schema_json();
+    let command = json!({"type": "list_uses", "doc": 1});
+    assert_eq!(validate(&schema, "/$defs/Command", &command), Ok(()));
+
+    let mut with_extra = command;
+    with_extra["feature"] = json!("f-fil1");
+    assert!(validate(&schema, "/$defs/Command", &with_extra).is_err());
+    let without_doc = json!({"type": "list_uses"});
+    assert!(validate(&schema, "/$defs/Command", &without_doc).is_err());
+}
+
+#[test]
+fn list_uses_result_requires_its_uses_as_a_list_of_use() {
+    let schema = schema_json();
+    let result = variant(&schema, "CommandResult", "type", "list_uses");
+
+    assert!(
+        required_names(result).contains(&"uses"),
+        "{:?}",
+        required_names(result)
+    );
+    let uses = property(&schema, result, "uses").expect("the list_uses result declares uses");
+    assert_eq!(uses["type"], "array");
+    assert_eq!(uses["items"]["$ref"], "#/$defs/Use");
+    assert_eq!(
+        validate(
+            &schema,
+            "/$defs/CommandResult",
+            &json!({"type": "list_uses", "uses": []})
+        ),
+        Ok(())
+    );
+    assert!(
+        validate(
+            &schema,
+            "/$defs/CommandResult",
+            &json!({"type": "list_uses"})
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn uses_causes_and_ghosts_the_engine_fills_validate() {
+    let schema = schema_json();
+    let shapes = [
+        ("CommandResult", BLOCK_USES_RESULT),
+        ("Cause", R26_CAUSE),
+        ("Diagnostic", DELETED_POINT_MESSAGE),
+        ("Repair", LOST_FACE_REPAIR),
+    ];
+
+    for (name, text) in shapes {
+        assert_eq!(
+            validate(&schema, &format!("/$defs/{name}"), &parse_json(text)),
+            Ok(()),
+            "{name}: {text}"
+        );
+    }
+
+    // A ghost names its kind and frame from the lists of section 2.4 only.
+    let mut unknown_kind = parse_json(LOST_FACE_REPAIR);
+    unknown_kind["ghost"]["kind"] = json!("polygons");
+    assert!(validate(&schema, "/$defs/Repair", &unknown_kind).is_err());
+    let mut unknown_frame = parse_json(DELETED_POINT_MESSAGE);
+    unknown_frame["cause"]["ghost"]["frame"] = json!("body");
+    assert!(validate(&schema, "/$defs/Diagnostic", &unknown_frame).is_err());
 }

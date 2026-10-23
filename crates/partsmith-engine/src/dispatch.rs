@@ -350,6 +350,9 @@ impl Session {
             Command::Measure { doc, targets } => {
                 CommandResult::Measure(self.measure(doc, &targets)?)
             }
+            Command::ListUses { doc } => CommandResult::ListUses {
+                uses: self.list_uses(doc)?,
+            },
             Command::AnalyzePrint {
                 doc,
                 profile,
@@ -507,6 +510,7 @@ fn document_of(command: &Command) -> Option<DocHandle> {
         | Command::PickReference { doc, .. }
         | Command::ResolveReferences { doc, .. }
         | Command::Measure { doc, .. }
+        | Command::ListUses { doc }
         | Command::AnalyzePrint { doc, .. }
         | Command::Export { doc, .. }
         | Command::ImportStep { doc, .. }

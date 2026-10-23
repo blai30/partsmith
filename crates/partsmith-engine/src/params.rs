@@ -1,11 +1,11 @@
 //! Feature params addressed by JSON Pointer (RFC 6901), as messages and fixes name their fields:
-//! the field path of a pointer, the references params store, and the changes fixes make at a
-//! pointer.
+//! the field path of a pointer, the references params store, the dependencies they declare, and
+//! the changes fixes make at a pointer.
 
 use std::cmp::Ordering;
 
-use partsmith_features::FieldRef;
-use partsmith_model::Id;
+use partsmith_features::{Dependencies, FieldRef, Registry};
+use partsmith_model::{FeatureRecord, Id};
 use partsmith_naming::Reference;
 use serde_json::{Map, Value};
 
@@ -35,6 +35,16 @@ pub(crate) fn field_pointer(path: &str) -> String {
         label: String::new(),
     }
     .pointer()
+}
+
+/// What `record` declares it depends on (features.md section 2.4); `None` when its params fail
+/// validation.
+pub(crate) fn declared_dependencies(
+    registry: &Registry,
+    record: &FeatureRecord,
+) -> Option<Dependencies> {
+    let validated = registry.validate_and_canonicalize(record).ok()?;
+    registry.dependencies(&validated.record).ok()
 }
 
 /// The value at `pointer` of a record's params.

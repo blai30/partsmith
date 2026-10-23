@@ -4,17 +4,17 @@
 use crate::common;
 
 use common::examples::{
-    APPLY_FIX_REQUEST, APPLY_FIX_RESULT, DOCUMENT_CHANGED_EVENT, ELEMENT_REPAIR, ERROR_CODES,
-    FEATURE_STATUS_R03, FIX_ACTIONS, FRONT_TOP_EDGE_DESCRIPTOR, FULL_REFERENCE, GHOSTS,
-    INTERNAL_ERROR_OUTCOME, LIST_USES_REQUEST, LIST_USES_RESULT, LOSS_REASONS, MERGED_REFERENCE,
-    R16_DIAGNOSTIC, REGION_REPAIR,
-    SET_DOCUMENT_UNITS_REQUEST, SET_DOCUMENT_UNITS_RESULT, SKETCH_SOLVED_EVENT,
+    APPLY_FIX_REQUEST, APPLY_FIX_RESULT, BLOCK_USES_RESULT, DELETED_POINT_MESSAGE,
+    DOCUMENT_CHANGED_EVENT, ELEMENT_REPAIR, ERROR_CODES, FEATURE_STATUS_R03, FIX_ACTIONS,
+    FRONT_TOP_EDGE_DESCRIPTOR, FULL_REFERENCE, GHOSTS, INTERNAL_ERROR_OUTCOME, LIST_USES_REQUEST,
+    LIST_USES_RESULT, LOSS_REASONS, LOST_FACE_REPAIR, MERGED_REFERENCE, R16_DIAGNOSTIC, R26_CAUSE,
+    REGION_REPAIR, SET_DOCUMENT_UNITS_REQUEST, SET_DOCUMENT_UNITS_RESULT, SKETCH_SOLVED_EVENT,
     SOLVE_ON_FACE_IN_BODY_FRAME, STALE_FIX_MESSAGE, TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME,
     UNKNOWN_PRINTER_DIAGNOSTIC,
 };
 use common::{
-    compact, frame_with_messages, header_bytes, id, message, object_keys, parse_json, schema_json,
-    variant_tags,
+    compact, frame_with_messages, header_bytes, header_json, id, message, object_keys, parse_json,
+    schema_json, variant_tags,
 };
 use partsmith_model::Units;
 use partsmith_naming::Reference;
@@ -250,6 +250,48 @@ fn ghost_values(ghost: &Ghost, buffers: &[Buffer]) -> usize {
         ghost.kind
     );
     values.len()
+}
+
+/// Every ghost of the `recomputed` events of a decoded frame, each feature's cause ghosts before its repair ghosts, checked against the buffer invariants of section 3.4: its kind, its frame and how many `f32` values it has.
+fn ghosts_in(frame: &ResponseFrame) -> Vec<(GhostKind, GhostFrame, usize)> {
+    let mut ghosts = Vec::new();
+    for event in &frame.events {
+        let Event::Recomputed { features, .. } = event else {
+            continue;
+        };
+        for status in features {
+            let cause_ghosts = status
+                .messages
+                .iter()
+                .filter_map(|message| message.cause.as_ref()?.ghost.as_ref());
+            let repair_ghosts = status.repairs.iter().filter_map(|repair| {
+                let (Repair::Element { ghost, .. } | Repair::Region { ghost, .. }) = repair;
+                ghost.as_ref()
+            });
+            for ghost in cause_ghosts.chain(repair_ghosts) {
+                ghosts.push((ghost.kind, ghost.frame, ghost_values(ghost, &frame.buffers)));
+            }
+        }
+    }
+    ghosts
+}
+
+/// The right side of BLOCK, the rectangle x = 80 from (0, 0) to (50, 30) in y and z, as two triangles counterclockwise seen from outside (+X): 18 values.
+fn right_side_triangles() -> Vec<f32> {
+    vec![
+        80.0, 0.0, 0.0, 80.0, 50.0, 0.0, 80.0, 50.0, 30.0, 80.0, 0.0, 0.0, 80.0, 50.0, 30.0, 80.0,
+        0.0, 30.0,
+    ]
+}
+
+/// One `Use`, with its ids and field given as text.
+fn use_of(user: &str, field: &str, feature: &str, entity: Option<&str>) -> Use {
+    Use {
+        user: id(user),
+        field: field.to_string(),
+        feature: id(feature),
+        entity: entity.map(id),
+    }
 }
 
 #[test]
@@ -544,19 +586,13 @@ fn t076_list_uses_request_and_result_round_trip() {
     assert_eq!(written(&command), compact(LIST_USES_REQUEST));
 
     let result: CommandResult = parse(LIST_USES_RESULT);
-    let a_use = |user: &str, field: &str, feature: &str, entity: Option<&str>| Use {
-        user: id(user),
-        field: field.to_string(),
-        feature: id(feature),
-        entity: entity.map(id),
-    };
     assert_eq!(
         result,
         CommandResult::ListUses {
             uses: vec![
-                a_use("f-ext1", "/profile/sketch", "f-sk1", None),
-                a_use("f-fil1", "/edges/0", "f-ext1", None),
-                a_use("f-fil1", "/edges/0", "f-ext1", Some("e-3")),
+                use_of("f-ext1", "/profile/sketch", "f-sk1", None),
+                use_of("f-fil1", "/edges/0", "f-ext1", None),
+                use_of("f-fil1", "/edges/0", "f-ext1", Some("e-3")),
             ],
         }
     );
@@ -690,33 +726,13 @@ fn t078_ghost_buffers_travel_in_the_response_frame() {
     };
     assert_eq!(decoded, expected);
 
-    let Event::Recomputed { features, .. } = &decoded.events[0] else {
-        panic!("the event is recomputed, got {:?}", decoded.events[0]);
-    };
-    let mut ghosts = Vec::new();
-    for status in features {
-        for message in &status.messages {
-            if let Some(ghost) = message
-                .cause
-                .as_ref()
-                .and_then(|cause| cause.ghost.as_ref())
-            {
-                ghosts.push((&ghost.frame, ghost_values(ghost, &decoded.buffers)));
-            }
-        }
-        for repair in &status.repairs {
-            let (Repair::Element { ghost, .. } | Repair::Region { ghost, .. }) = repair;
-            if let Some(ghost) = ghost {
-                ghosts.push((&ghost.frame, ghost_values(ghost, &decoded.buffers)));
-            }
-        }
-    }
+    // The cause's deleted line, the lost edge, then the region outline, each one or more segments.
     assert_eq!(
-        ghosts,
+        ghosts_in(&decoded),
         [
-            (&GhostFrame::Sketch, 4),
-            (&GhostFrame::World, 6),
-            (&GhostFrame::Sketch, 16)
+            (GhostKind::Lines, GhostFrame::Sketch, 4),
+            (GhostKind::Lines, GhostFrame::World, 6),
+            (GhostKind::Lines, GhostFrame::Sketch, 16)
         ]
     );
 }
@@ -1566,4 +1582,275 @@ fn reference_with_an_unknown_field_in_a_request_is_malformed() {
     let reference = compact(FULL_REFERENCE).replace(r#""nb":"#, r#""extra":1,"nb":"#);
 
     assert_malformed_request(&resolve_references_command(&reference));
+}
+
+#[test]
+fn use_without_an_entity_writes_neither_the_key_nor_null() {
+    let link = use_of("f-ext1", "/profile/sketch", "f-sk1", None);
+
+    assert_eq!(
+        written(&link),
+        r#"{"user":"f-ext1","field":"/profile/sketch","feature":"f-sk1"}"#
+    );
+}
+
+#[test]
+fn use_with_an_entity_writes_it_after_the_feature() {
+    let side = use_of("f-sk2", "/plane/face", "f-ext1", Some("e-2"));
+
+    let value = serde_json::to_value(&side).expect("a use serializes");
+
+    assert_eq!(object_keys(&value), ["user", "field", "feature", "entity"]);
+    assert_eq!(value["entity"], "e-2");
+}
+
+#[test]
+fn use_reads_a_null_entity_as_absent() {
+    let read: Use =
+        parse(r#"{"user":"f-fil1","field":"/edges/0","feature":"f-ext1","entity":null}"#);
+
+    assert_eq!(read, use_of("f-fil1", "/edges/0", "f-ext1", None));
+    assert_eq!(
+        written(&read),
+        r#"{"user":"f-fil1","field":"/edges/0","feature":"f-ext1"}"#
+    );
+}
+
+#[test]
+fn use_without_its_user_field_or_feature_is_rejected() {
+    let complete =
+        parse_json(r#"{"user":"f-fil1","field":"/edges/0","feature":"f-ext1","entity":"e-3"}"#);
+    // The complete use reads, so only the missing part makes the reads below fail.
+    let read: Use = serde_json::from_value(complete.clone()).expect("a complete use deserializes");
+    assert_eq!(read, use_of("f-fil1", "/edges/0", "f-ext1", Some("e-3")));
+
+    for name in ["user", "field", "feature"] {
+        let mut without = complete.clone();
+        without
+            .as_object_mut()
+            .expect("a use is an object")
+            .remove(name);
+
+        let result = serde_json::from_value::<Use>(without);
+
+        assert!(
+            result.is_err(),
+            "a use without {name} is rejected, got {result:?}"
+        );
+    }
+}
+
+#[test]
+fn list_uses_result_and_its_uses_ignore_unknown_fields() {
+    let mut value = parse_json(LIST_USES_RESULT);
+    value["added_later"] = json!(1);
+    value["uses"][2]["added_later"] = json!(2);
+
+    let result: CommandResult =
+        serde_json::from_value(value).expect("a result with unknown fields deserializes");
+
+    assert_eq!(result, parse::<CommandResult>(LIST_USES_RESULT));
+}
+
+#[test]
+fn list_uses_result_always_writes_its_uses() {
+    let result = CommandResult::ListUses { uses: Vec::new() };
+
+    assert_eq!(written(&result), r#"{"type":"list_uses","uses":[]}"#);
+}
+
+#[test]
+fn list_uses_request_without_its_document_is_malformed() {
+    assert_malformed_request(r#"{"type":"list_uses"}"#);
+}
+
+#[test]
+fn list_uses_response_frame_carries_every_use_and_no_event() {
+    // The result of engine.md test 143; list_uses emits nothing, so its frame holds the response alone.
+    let response = Response {
+        id: 6,
+        result: Outcome::Ok(parse(BLOCK_USES_RESULT)),
+    };
+
+    let bytes = encode_response_frame(&[], &response, &[]).expect("the response frame encodes");
+    let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
+
+    assert_eq!(
+        decoded,
+        ResponseFrame {
+            events: Vec::new(),
+            response,
+            buffers: Vec::new(),
+        }
+    );
+    let Outcome::Ok(CommandResult::ListUses { uses }) = &decoded.response.result else {
+        panic!(
+            "the response is a list_uses result, got {:?}",
+            decoded.response
+        );
+    };
+    assert_eq!(
+        uses,
+        &[
+            use_of("f-ext1", "/profile/sketch", "f-sk1", None),
+            use_of("f-fil1", "/edges/0", "f-ext1", None),
+            use_of("f-fil1", "/edges/0", "f-ext1", Some("e-3")),
+            use_of("f-sk2", "/plane/face", "f-ext1", Some("e-2")),
+        ]
+    );
+    assert_eq!(
+        header_json(&bytes)["messages"][0]["result"],
+        json!({
+            "kind": "ok",
+            "type": "list_uses",
+            "uses": parse_json(BLOCK_USES_RESULT)["uses"].clone()
+        })
+    );
+}
+
+#[test]
+fn face_and_sketch_point_ghosts_travel_in_the_response_frame() {
+    // Test 78 carries line ghosts; these are the other kinds of section 3.4: a lost face's triangles in model
+    // coordinates (buffer 0) and a deleted sketch point in the sketch's coordinates (buffer 1).
+    let datum_plane = FeatureStatus {
+        id: id("f-dp1"),
+        status: FeatureState::Error,
+        messages: Vec::new(),
+        repairs: vec![parse(LOST_FACE_REPAIR)],
+    };
+    let hole = FeatureStatus {
+        id: id("f-hole1"),
+        status: FeatureState::Warning,
+        messages: vec![parse(DELETED_POINT_MESSAGE)],
+        repairs: Vec::new(),
+    };
+    let events = vec![Event::Recomputed {
+        doc: DocHandle(1),
+        revision: 3,
+        features: vec![datum_plane, hole],
+        parameters: Vec::new(),
+        diagnostics: Vec::new(),
+    }];
+    let response = Response {
+        id: 7,
+        result: Outcome::Ok(CommandResult::ApplyEdits { revision: 3 }),
+    };
+    let buffers = vec![
+        Buffer::F32(right_side_triangles()),
+        Buffer::F32(vec![20.0, 10.0]),
+    ];
+
+    let bytes =
+        encode_response_frame(&events, &response, &buffers).expect("the response frame encodes");
+    let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
+
+    assert_eq!(
+        decoded,
+        ResponseFrame {
+            events,
+            response,
+            buffers,
+        }
+    );
+    assert_eq!(
+        ghosts_in(&decoded),
+        [
+            (GhostKind::Triangles, GhostFrame::World, 18),
+            (GhostKind::Points, GhostFrame::Sketch, 2)
+        ]
+    );
+}
+
+#[test]
+fn cause_of_a_deleted_point_shows_the_point_and_carries_its_ghost() {
+    let diagnostic: Diagnostic = parse(DELETED_POINT_MESSAGE);
+
+    let cause = diagnostic
+        .cause
+        .as_ref()
+        .expect("the hole's message has a cause");
+    assert_eq!(cause.feature, Some(id("f-sk1")));
+    assert_eq!(
+        cause.actions,
+        [
+            FixAction {
+                label: "Undo".to_string(),
+                run: FixKind::Undo,
+            },
+            FixAction {
+                label: "Show the point".to_string(),
+                run: FixKind::Show {
+                    feature: id("f-sk1"),
+                    entity: Some(id("e-p9")),
+                },
+            },
+        ]
+    );
+    assert_eq!(
+        cause.ghost,
+        Some(Ghost {
+            positions: BufferIndex(1),
+            kind: GhostKind::Points,
+            frame: GhostFrame::Sketch,
+        })
+    );
+    assert_eq!(written(&diagnostic), DELETED_POINT_MESSAGE);
+}
+
+#[test]
+fn r26_cause_names_the_deleted_feature_and_keeps_the_sketch_where_it_was() {
+    let cause: Cause = parse(R26_CAUSE);
+
+    assert_eq!(
+        cause,
+        Cause {
+            text: "This started after you deleted the former 'Extrude 1'.".to_string(),
+            feature: Some(id("f-ext1")),
+            actions: vec![
+                FixAction {
+                    label: "Keep the sketch where it was".to_string(),
+                    run: FixKind::Apply {
+                        fix: FixRef {
+                            feature: id("f-sk2"),
+                            code: "plane_fallback".to_string(),
+                            field: Some("/plane/face".to_string()),
+                            cause: true,
+                            index: 0,
+                            revision: 2,
+                        },
+                    },
+                },
+                FixAction {
+                    label: "Undo".to_string(),
+                    run: FixKind::Undo,
+                },
+            ],
+            ghost: None,
+        }
+    );
+    assert_eq!(written(&cause), R26_CAUSE);
+}
+
+#[test]
+fn cause_action_goes_back_in_apply_fix_with_its_cause_flag() {
+    let cause: Cause = parse(R26_CAUSE);
+    let FixKind::Apply { fix } = &cause.actions[0].run else {
+        panic!(
+            "Keep the sketch where it was is an apply action, got {:?}",
+            cause.actions[0]
+        );
+    };
+    let command = Command::ApplyFix {
+        doc: DocHandle(1),
+        fix: fix.clone(),
+    };
+
+    let (request, _) = decode_request(&written(&command))
+        .expect("an apply_fix request with a cause action's fix decodes");
+
+    assert_eq!(request.command, command);
+    let Command::ApplyFix { fix: sent, .. } = &request.command else {
+        panic!("the request is apply_fix, got {:?}", request.command);
+    };
+    assert!(sent.cause, "{sent:?}");
 }

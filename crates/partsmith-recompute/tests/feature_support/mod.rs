@@ -6,7 +6,7 @@
 //! frames on the model (ADR 0023) are in `frames.rs`, and the records that a feature's document
 //! tests share with its release-only budgets (`budgets.rs`) in a module named after the feature.
 
-// The three test targets and the bench each use only some of these helpers.
+// The test targets `integration` and `budgets` and the bench each use only some of these helpers.
 #![allow(dead_code)]
 
 pub mod fillet;
@@ -16,7 +16,7 @@ pub mod import;
 pub mod linear_pattern;
 pub mod shell;
 
-// The three test targets and the bench each use only some of these helpers.
+// The test targets `integration` and `budgets` and the bench each use only some of these helpers.
 #[allow(unused_imports)]
 pub use frames::*;
 

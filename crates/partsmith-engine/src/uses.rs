@@ -8,7 +8,7 @@ use partsmith_naming::{GeneratorUse, MergedName, Reference};
 use partsmith_protocol::{DocHandle, Use};
 
 use crate::error::EngineError;
-use crate::params::{field_pointer, stored_references};
+use crate::params::{declared_dependencies, field_pointer, stored_references};
 use crate::session::Session;
 
 impl Session {
@@ -66,9 +66,7 @@ fn uses(registry: &Registry, document: &Document) -> Vec<Use> {
 /// The features `record` links to (`Dependencies::features`); none when its params fail
 /// validation.
 fn feature_links(registry: &Registry, record: &FeatureRecord) -> Vec<Link> {
-    registry
-        .validate_and_canonicalize(record)
-        .and_then(|validated| registry.dependencies(&validated.record))
+    declared_dependencies(registry, record)
         .map(|dependencies| dependencies.features)
         .unwrap_or_default()
 }

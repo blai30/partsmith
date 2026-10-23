@@ -7,6 +7,7 @@ use partsmith_naming::{ElementKind, ElementName};
 use partsmith_protocol::{Diagnostic, FeatureState, FeatureStatus, ParameterValue, Severity};
 use partsmith_recompute::Status;
 
+use crate::causes::CauseLines;
 use crate::diagnostics::ElementLookup;
 use crate::run::RunView;
 use crate::state::{BodyView, Computed, display_bodies};
@@ -21,8 +22,9 @@ pub(crate) struct DisplayFailure {
     pub(crate) message: String,
 }
 
-/// The status of every feature in timeline order, with the display failures of its document.
-/// Actions carry `revision`; `elements` gives candidates their mesh element in display sessions.
+/// The status of every feature in timeline order, with the display failures of its document and
+/// the causes of its messages (section 3.21) without their ghosts. Actions carry `revision`;
+/// `elements` gives candidates their mesh element in display sessions.
 pub(crate) fn feature_statuses(
     document: &Document,
     registry: &Registry,
@@ -30,6 +32,7 @@ pub(crate) fn feature_statuses(
     failures: &[DisplayFailure],
     revision: u64,
     elements: Option<ElementLookup<'_>>,
+    causes: CauseLines<'_>,
 ) -> Vec<FeatureStatus> {
     let duplicated: Vec<BodyView> = display_bodies(document, computed)
         .into_iter()
@@ -51,7 +54,8 @@ pub(crate) fn feature_statuses(
             // A report entry whose feature the document lacks keeps its status without messages.
             if let Some(feature) = run.feature_at(position) {
                 for message in &report.messages {
-                    let (diagnostic, repairs) = feature.project(message, revision, elements);
+                    let (mut diagnostic, repairs) = feature.project(message, revision, elements);
+                    diagnostic.cause = causes.cause(&feature, message, &repairs, revision);
                     status.messages.push(diagnostic);
                     status.repairs.extend(repairs);
                 }

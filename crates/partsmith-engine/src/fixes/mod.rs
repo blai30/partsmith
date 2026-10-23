@@ -1,7 +1,7 @@
 //! Fix actions (engine.md section 3.22): the label and the run of each fix a feature message
 //! offers, the fixes of a stored sketch's profile findings (`findings.rs`), and `apply_fix`, which
-//! builds an offered fix's edits from the current records and applies them as one batch,
-//! refusing a fix that no longer applies.
+//! builds an offered fix's or cause action's edits from the current records and applies them as
+//! one batch, refusing a fix that no longer applies.
 
 mod edits;
 mod findings;
@@ -10,10 +10,11 @@ mod labels;
 mod renames;
 
 use partsmith_features::Fix;
-use partsmith_model::{Document, Id};
+use partsmith_model::{Document, Edit, Id};
 use partsmith_protocol::{DocHandle, FixAction, FixKind, FixRef, Repair};
 use partsmith_recompute::{Message, Recompute};
 
+use crate::causes::{CauseLines, CauseOffer};
 use crate::document::OpenDocument;
 use crate::error::EngineError;
 use crate::ids::NewIds;
@@ -23,7 +24,9 @@ use crate::sketch::is_finding_field;
 use crate::state::{self, Computed};
 use labels::Labels;
 
+pub(crate) use edits::{index_beside, update_feature};
 pub(crate) use findings::offer_finding_fixes;
+pub(crate) use labels::is_plain_value;
 
 /// One action a message offers: its label and how it runs.
 pub(crate) struct Offer<'m> {
@@ -93,23 +96,57 @@ pub(crate) fn offers<'m>(
         .collect()
 }
 
+/// The edits of each `apply` action of `message` of `feature` that a cause action is compared
+/// with, in order (section 3.21: a cause action whose edits equal those of such an action of the
+/// message is left out): those that set a field or a body, remove a list entry, or suppress,
+/// unsuppress or move a feature, which write values a revert writes. A fix whose edits cannot be
+/// built is left out too.
+pub(crate) fn offered_edits(
+    feature: &FeatureView<'_>,
+    message: &Message,
+    repairs: &[Repair],
+) -> Vec<Vec<Edit>> {
+    offers(feature, message, repairs)
+        .iter()
+        .filter_map(|offer| match offer.run {
+            OfferRun::Apply(fix) if writes_what_a_revert_writes(fix) => feature.own_edits(fix).ok(),
+            _ => None,
+        })
+        .collect()
+}
+
+/// True for the fixes whose edits a cause action can equal: those that set a field or a body,
+/// remove a list entry, or suppress, unsuppress or move a feature. The others store what the
+/// current state gives (references, regions, placements, a mirrored drawing, a new body or
+/// constraint, a renamed key), never a value of the clean snapshot.
+fn writes_what_a_revert_writes(fix: &Fix) -> bool {
+    matches!(
+        fix,
+        Fix::SetField { .. }
+            | Fix::UseBody { .. }
+            | Fix::RemoveEntry { .. }
+            | Fix::Suppress { .. }
+            | Fix::Unsuppress { .. }
+            | Fix::Move { .. }
+    )
+}
+
 impl Session {
-    /// Applies one offered `apply` action as one batch (section 3.22): outside a transaction as
-    /// one undo entry labeled with the action's label, inside one appended to it. Fails with
-    /// `stale_fix` when the document's revision is not `fix.revision`, when `fix.cause` is set (the
-    /// engine makes no causes yet, section 3.21), or when its latest statuses no longer offer that
-    /// `apply` action; a finding's fix is checked against the stored sketch's latest solution
-    /// instead. Returns the new revision.
+    /// Applies one offered `apply` action, of a message or of its cause, as one batch (section
+    /// 3.22): outside a transaction as one undo entry labeled with the action's label, inside one
+    /// appended to it. Fails with `stale_fix` when the document's revision is not `fix.revision`,
+    /// or when its latest statuses no longer offer that `apply` action; a finding's fix is
+    /// checked against the stored sketch's latest solution instead. Returns the new revision.
     pub fn apply_fix(&mut self, doc: DocHandle, fix: &FixRef) -> Result<u64, EngineError> {
         // Borrowed by field, so that `whole_run` can still use the recompute.
         let open = self
             .documents
             .get(&doc)
             .ok_or(EngineError::UnknownDocument { doc })?;
-        if open.revision != fix.revision || fix.cause {
+        if open.revision != fix.revision {
             return Err(EngineError::StaleFix);
         }
-        if fix.field.as_deref().is_some_and(is_finding_field) {
+        if !fix.cause && fix.field.as_deref().is_some_and(is_finding_field) {
             return self.apply_finding_fix(doc, fix);
         }
         let run = RunView::new(&open.document, &self.registry, &open.computed.report);
@@ -118,8 +155,17 @@ impl Session {
             .message(&fix.code, fix.field.as_deref())
             .ok_or(EngineError::StaleFix)?;
         let repairs = feature.repairs(message, None);
-        let offered = offers(&feature, message, &repairs);
         let index = usize::try_from(fix.index).map_err(|_| EngineError::StaleFix)?;
+        if fix.cause {
+            let offered = CauseLines::of(open)
+                .offers(&feature, message, &repairs)
+                .ok_or(EngineError::StaleFix)?;
+            let Some(CauseOffer::Apply { label, edits }) = offered.into_iter().nth(index) else {
+                return Err(EngineError::StaleFix);
+            };
+            return self.apply_batch(doc, &label, edits);
+        }
+        let offered = offers(&feature, message, &repairs);
         let Some(Offer {
             label,
             run: OfferRun::Apply(chosen),

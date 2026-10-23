@@ -803,6 +803,25 @@
           ]
         },
         {
+          "description": "What every feature uses, from the document alone, without recomputing (engine.md section 3.24).",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "type": {
+              "type": "string",
+              "const": "list_uses"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc"
+          ]
+        },
+        {
           "description": "Runs every printability check.",
           "type": "object",
           "properties": {
@@ -5641,6 +5660,40 @@
         }
       }
     },
+    "Use": {
+      "description": "One thing a feature uses (engine.md section 3.24): a feature it links to, or a feature or sketch entity that an\nelement name in one of its stored references depends on.",
+      "type": "object",
+      "properties": {
+        "user": {
+          "description": "The feature that uses it.",
+          "$ref": "#/$defs/Id"
+        },
+        "field": {
+          "description": "JSON Pointer of the field of `user` that names it, relative to the feature record, for example `/edges/0`.",
+          "type": "string"
+        },
+        "feature": {
+          "description": "The feature it uses, or whose element it uses.",
+          "$ref": "#/$defs/Id"
+        },
+        "entity": {
+          "description": "The sketch entity of `feature`'s sketch that made the element used (a lateral face's line, a hole's point).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "user",
+        "field",
+        "feature"
+      ]
+    },
     "Health": {
       "description": "Print health of a body or of everything analyzed. Info findings do not lower it.",
       "oneOf": [
@@ -6286,6 +6339,27 @@
           "$ref": "#/$defs/Measurement",
           "required": [
             "type"
+          ]
+        },
+        {
+          "description": "Result of `list_uses`.",
+          "type": "object",
+          "properties": {
+            "uses": {
+              "description": "What every feature uses, sorted by the user's timeline position, then `field`, then `feature`, then\n`entity` (absent first).",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Use"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "list_uses"
+            }
+          },
+          "required": [
+            "type",
+            "uses"
           ]
         },
         {

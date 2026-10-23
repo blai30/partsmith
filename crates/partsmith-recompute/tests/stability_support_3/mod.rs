@@ -6,9 +6,6 @@
 //! failing scenario reports every way its result differs from the corpus, together with what the
 //! resolver did with the reference under test.
 
-// The corpus uses only some of these helpers.
-#![allow(dead_code)]
-
 pub use super::stability_common::*;
 
 use std::collections::BTreeSet;

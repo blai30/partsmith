@@ -1,27 +1,34 @@
-//! The state of one open document: recipe, revision, undo log, transaction, drags, dirty
-//! baseline, assets, display quality, the latest recompute, what was last emitted and the latest
-//! count of its numbers without a unit (engine.md sections 3.2 to 3.6 and 3.25); and the
-//! canonical forms of a recipe: its text, and its params as the registry writes them.
+//! The state of one open document: recipe, revision, undo history, transaction, drags, dirty
+//! baseline, assets, display quality, the latest recompute, the causes and ghosts the session
+//! made of it, what was last emitted and the latest count of its numbers without a unit
+//! (engine.md sections 3.2 to 3.6, 3.21, 3.23 and 3.25); and the canonical forms of a recipe: its
+//! text, and its params as the registry writes them.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use partsmith_features::Registry;
 use partsmith_mesh::TessellationTolerance;
-use partsmith_model::{Document, Id, Step, UndoLog, canonical, save};
+use partsmith_model::{Document, Id, Step, canonical, save};
 use partsmith_protocol::TessellationQuality;
 
+use crate::causes::{Baseline, Causes};
 use crate::error::EngineError;
 use crate::events::Emitted;
+use crate::ghosts::Ghosts;
+use crate::history::History;
 use crate::profiles::tolerance;
 use crate::sketch::Drag;
 use crate::state::Computed;
 
-/// An open transaction: its label, the recorded edits and the focus feature.
+/// An open transaction: its label, the serial its undo entry gets, the recorded edits and the
+/// focus feature.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct OpenTransaction {
     /// The undo label.
     pub(crate) label: String,
+    /// The serial of the undo entry it becomes when it is committed (`History::serial`).
+    pub(crate) entry: u64,
     /// Recorded `(edit, inverse)` pairs, coalesced (section 3.3).
     pub(crate) steps: Vec<Step>,
     /// The focus feature.
@@ -44,8 +51,8 @@ pub(crate) struct OpenDocument {
     pub(crate) document: Arc<Document>,
     /// Increases by one on every recipe change.
     pub(crate) revision: u64,
-    /// Committed transactions.
-    pub(crate) undo: UndoLog,
+    /// Committed transactions, each with its serial.
+    pub(crate) history: History,
     /// The open transaction.
     pub(crate) transaction: Option<OpenTransaction>,
     /// Drag states by sketch feature.
@@ -62,6 +69,10 @@ pub(crate) struct OpenDocument {
     pub(crate) quality: TessellationQuality,
     /// The latest recompute.
     pub(crate) computed: Computed,
+    /// The causes of its messages and the baselines they are made from (section 3.21).
+    pub(crate) causes: Causes,
+    /// The ghosts of its lost references and regions (section 3.23).
+    pub(crate) ghosts: Ghosts,
     /// What the latest events described.
     pub(crate) emitted: Emitted,
     /// The recipe as of the last successful command, once a command panicked (section 3.15).
@@ -87,7 +98,7 @@ impl OpenDocument {
             },
             document: Arc::new(document),
             revision: 0,
-            undo: UndoLog::with_max_depth(undo_limit),
+            history: History::new(undo_limit),
             transaction: None,
             drags: BTreeMap::new(),
             baseline,
@@ -95,6 +106,8 @@ impl OpenDocument {
             assets,
             quality,
             computed,
+            causes: Causes::default(),
+            ghosts: Ghosts::default(),
             emitted: Emitted::default(),
             poisoned: None,
             bare_count: None,
@@ -143,6 +156,24 @@ impl OpenDocument {
                 then: then.to_string(),
             }),
             None => Ok(()),
+        }
+    }
+
+    /// Follows a recompute of the recipe, validated with `registry`: makes the causes of new
+    /// messages (section 3.21) and, in display sessions, captures the ghosts of references and
+    /// regions just lost (section 3.23), both from the recompute's baseline.
+    pub(crate) fn observe(&mut self, registry: &Arc<Registry>, display: bool) {
+        let now = Arc::new(Baseline::of(
+            Arc::clone(registry),
+            Arc::clone(&self.document),
+            &self.computed,
+            self.history.commands(),
+        ));
+        let entry = self.history.latest_change();
+        self.causes.observe(&now, &self.computed, entry, display);
+        if display {
+            let tolerance = self.display_tolerance();
+            self.ghosts.observe(&now, &self.computed.report, &tolerance);
         }
     }
 

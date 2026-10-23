@@ -17,16 +17,17 @@ use crate::corpus;
 use common::{
     GEOMETRY_TOLERANCE, Sent, Z_AXIS, apply, assert_bounding_box, assert_fallback, assert_relative,
     doc_handle, fixture, headless_session, measure_body, open_text, replace_once, revision,
-    saved_text, send, session, set_rollback,
+    saved_text, send, session, set_height, set_rollback,
 };
 use corpus::{
     Change, EDIT_LABEL, Scenario, actions, after_edit, apply_as_one_entry, apply_fix,
-    assert_ghost_segments, assert_undo_restores, block_then, box_record, cause, circle,
-    circle_region, datum_offset, datum_plane, distance, document, document_with, edited_text,
-    edits, extrude, fillet, labels, labels_and_kinds, message, messages, nc07, opened, parameter,
-    picked, r03, r10a, r12, r12_features, r13, r16, r23b, r26_deleted, r26_recreated, r30a, r30b,
-    r33, r41, r48, r50, r54, r57, r63a, record, reference, send_fix, sketch, statuses, volume,
-    with, without_keys,
+    assert_ghost_segments, assert_undo_restores, block_back_top, block_edited, block_then,
+    box_record, cause, circle, circle_region, constrained_sketch, datum_offset, datum_plane,
+    distance, document, document_with, edited_text, edits, extrude, fillet, labels,
+    labels_and_kinds, line, line_distance, message, messages, nc07, opened, origin_plane,
+    parameter, picked, r03, r10a, r12, r12_features, r13, r16, r23b, r26_deleted, r26_recreated,
+    r28, r30a, r30b, r33, r41, r48, r50, r54, r57, r63a, record, rectangle, rectangle_region,
+    reference, send_fix, sketch, statuses, volume, with, without_keys,
 };
 use partsmith_engine::Session;
 use pretty_assertions::assert_eq;
@@ -1154,9 +1155,12 @@ fn a_toggle_reads_on_or_off_and_a_revert_the_message_offers_is_left_out() {
 #[test]
 fn a_field_without_a_short_value_is_named_alone_and_restored_by_its_label() {
     let mut twin = Twin::new(&fixture("fillet.ptsm"), "f-fil1", |session, doc| {
+        // Named by nothing of the box and far from its edges, so that no candidate of the message
+        // restores the edge the setup picked (section 3.21 leaves out a cause action the message
+        // offers).
         let gone = reference(
-            "edge(f-box1/front|f-gone/x)",
-            "line|n=0,0,1|c=-10,-15,20|l=40|adj=2,2",
+            "edge(f-gone/x|f-gone/y)",
+            "line|n=0,0,1|c=500,500,500|l=1|adj=2,2",
         );
         Value::Array(edits(
             session,
@@ -1329,6 +1333,321 @@ fn a_moved_sketch_entity_has_its_ghost_where_it_was() {
     let ghost = &found["ghost"];
     assert_eq!(ghost["frame"], "sketch", "{found}");
     assert_ghost_segments(&twin.edited, ghost, &[(&[30.0, -1.0], &[50.0, -1.0])]);
+}
+
+#[test]
+fn a_feature_dragged_past_others_is_the_one_named_and_its_revert_the_message_offers_is_left_out() {
+    let twin = Twin::of(&r28(), "f-fil1");
+    let lost = message(&twin.edited, "f-fil1", "references_not_found");
+    assert!(
+        labels(&lost).contains(&"Move 'Fillet 1' below 'Extrude 2'".to_owned()),
+        "{lost}"
+    );
+
+    // The datum, the sketch and the extrude it passed did not move; its revert is the message's Move.
+    assert_cause(
+        &lost,
+        &Expected {
+            text: "This started after you moved 'Fillet 1' above 'Extrude 2'.",
+            feature: Some("f-fil1"),
+            actions: &[("Undo", "undo")],
+        },
+    );
+}
+
+#[test]
+fn an_option_field_the_record_leaves_out_reads_as_its_first_option() {
+    // Corpus R41's pattern leaves Operation out, which is Join; it is set to New body into an empty 'Body 2'.
+    let mut document: Value = serde_json::from_str(&r41().setup).expect("setups are JSON");
+    document["bodies"]
+        .as_array_mut()
+        .expect("documents list their bodies")
+        .push(json!({"id": "b-2", "name": "Body 2"}));
+    let twin = Twin::new(&document.to_string(), "f-fil1", |session, doc| {
+        Value::Array(edits(
+            session,
+            doc,
+            &[
+                Change::Set("f-lp1", "/op", json!("new")),
+                Change::Set("f-lp1", "/target", json!("b-2")),
+            ],
+        ))
+    });
+
+    assert_cause(
+        &named_message(&twin.edited, "f-fil1"),
+        &Expected {
+            text: "This started after you changed Operation of 'Linear pattern 1' from Join to New body.",
+            feature: Some("f-lp1"),
+            actions: &[
+                ("Restore the settings of 'Linear pattern 1'", "apply"),
+                ("Undo", "undo"),
+            ],
+        },
+    );
+}
+
+#[test]
+fn another_change_of_the_feature_of_the_primary_change_is_counted() {
+    // 'Box 2' moved above the fillet and made taller in one edit: its record change is named, its move counted.
+    let setup = picked(&fillet_fixture_with(2, corner_cut()));
+    let twin = Twin::new(&setup, "f-fil1", |session, doc| {
+        Value::Array(edits(
+            session,
+            doc,
+            &[
+                Change::Move("f-box2", 1),
+                Change::Set("f-box2", "/size/2", json!("60")),
+            ],
+        ))
+    });
+
+    assert_cause(
+        &named_message(&twin.edited, "f-fil1"),
+        &Expected {
+            text: "This started after you changed Height of 'Box 2' from 50 mm to 60 mm, and 1 other change.",
+            feature: Some("f-box2"),
+            actions: &[
+                ("Set Height of 'Box 2' back to 50 mm", "apply"),
+                ("Undo", "undo"),
+            ],
+        },
+    );
+}
+
+#[test]
+fn making_an_outline_line_construction_geometry_is_named_and_shown() {
+    // Newcomer error NC11 with its back line made construction geometry instead of deleted.
+    let outline = vec![
+        line("e-1", [0.0, 0.0], [80.0, 0.0]),
+        line("e-2", [80.0, 0.0], [80.0, 50.0]),
+        with(
+            line("e-3", [80.0, 50.0], [0.0, 50.0]),
+            "construction",
+            json!(true),
+        ),
+        line("e-4", [0.0, 50.0], [0.0, 0.0]),
+    ];
+    let scenario = block_edited(
+        vec![fillet("f-fil1", "b-1", vec![block_back_top()], "2")],
+        outline,
+    );
+    let twin = Twin::of(&scenario, "f-ext1");
+
+    // The line is still there, so the cause has no ghost.
+    let found = assert_cause(
+        &message(&twin.edited, "f-ext1", "profile_not_found"),
+        &Expected {
+            text: "This started after you made the line from (80, 50) to (0, 50) in 'Sketch 1' construction geometry.",
+            feature: Some("f-sk1"),
+            actions: &[("Undo", "undo"), ("Show the line", "show")],
+        },
+    );
+    assert_eq!(
+        actions(&found)[1]["run"],
+        json!({"kind": "show", "feature": "f-sk1", "entity": "e-3"})
+    );
+    assert!(found.get("ghost").is_none(), "{found}");
+}
+
+#[test]
+fn making_a_reference_dimension_driving_is_named_by_its_title() {
+    // Newcomer error NC07 with Distance 30 mm already on the line as a reference, then made driving.
+    let setup = picked(&document(
+        &["b-1"],
+        &[
+            constrained_sketch(
+                "f-sk1",
+                origin_plane("XY"),
+                rectangle(1, 0.0, 0.0, 40.0, 20.0),
+                vec![
+                    line_distance("c-1", "e-1", "40 mm"),
+                    with(
+                        line_distance("c-2", "e-1", "30 mm"),
+                        "driving",
+                        json!(false),
+                    ),
+                ],
+            ),
+            extrude(
+                "f-ext1",
+                "b-1",
+                "f-sk1",
+                vec![rectangle_region(1, 0.0, 0.0, 40.0, 20.0)],
+                distance("10"),
+                "new",
+            ),
+        ],
+    ));
+    let twin = Twin::new(&setup, "f-sk1", |session, doc| {
+        Value::Array(edits(
+            session,
+            doc,
+            &[Change::Set("f-sk1", "/constraints/1/driving", json!(true))],
+        ))
+    });
+
+    assert_cause(
+        &message(&twin.edited, "f-sk1", "sketch_conflict"),
+        &Expected {
+            text: "This started after you made Distance 30 mm in 'Sketch 1' a driving dimension.",
+            feature: Some("f-sk1"),
+            actions: &[("Undo", "undo")],
+        },
+    );
+}
+
+#[test]
+fn a_parameter_without_a_unit_makes_the_units_change_reach_the_feature() {
+    // Every length of the box has a unit or is zero; the radius is the parameter `r` = 2, which inches make 2 in, too
+    // large.
+    let with_parameter = replace_once(
+        &fixture("fillet.ptsm"),
+        r#"{"id": "p-h", "name": "height", "expr": "40 mm"}"#,
+        r#"{"id": "p-h", "name": "height", "expr": "40 mm"},
+    {"id": "p-r", "name": "r", "expr": "2"}"#,
+    );
+    let text = replace_once(&with_parameter, r#""radius": "2 mm""#, r#""radius": "r""#);
+
+    let twin = Twin::new(&text, "f-fil1", |session, doc| {
+        Value::Array(edits(session, doc, &[Change::Units("in")]))
+    });
+
+    // The fillet's own Radius is no number without a unit, so the units change has no revert here.
+    assert_cause(
+        &named_message(&twin.edited, "f-fil1"),
+        &Expected {
+            text: "This started after you changed the document units from mm to in.",
+            feature: None,
+            actions: &[("Undo", "undo")],
+        },
+    );
+}
+
+/// Begins a transaction labeled `Edit` on `doc`, focused on `focus` when one is given.
+fn begin_edit(session: &mut Session, doc: u64, focus: Option<&str>) {
+    send(
+        session,
+        json!({"type": "begin_transaction", "doc": doc, "label": EDIT_LABEL}),
+    )
+    .ok();
+    if let Some(focus) = focus {
+        send(
+            session,
+            json!({"type": "set_focus", "doc": doc, "feature": focus}),
+        )
+        .ok();
+    }
+}
+
+/// Commits the open transaction of `doc`; the reply.
+fn commit(session: &mut Session, doc: u64) -> Sent {
+    let committed = send(session, json!({"type": "commit_transaction", "doc": doc}));
+    committed.ok();
+    committed
+}
+
+#[test]
+fn an_edit_made_in_a_transaction_focused_on_its_feature_offers_undo_once_committed() {
+    // Corpus R41 the way the inspector edits the pattern: the fillet is rolled back until the commit.
+    let scenario = r41();
+    let mut session = session();
+    let (doc, _, _) = opened(&mut session, &scenario.setup);
+    begin_edit(&mut session, doc, Some("f-lp1"));
+    let made = edits(&mut session, doc, &scenario.changes);
+    apply(&mut session, doc, None, Value::Array(made)).ok();
+
+    let committed = commit(&mut session, doc);
+
+    assert_cause(
+        &message(&committed, "f-fil1", "reference_missing"),
+        &Expected {
+            text: R41_FIRST_CAUSE,
+            feature: Some("f-lp1"),
+            actions: &[
+                ("Set Count of 'Linear pattern 1' back to 3", "apply"),
+                ("Undo", "undo"),
+            ],
+        },
+    );
+}
+
+#[test]
+fn committing_a_transaction_without_a_focus_sends_its_causes_again_with_undo() {
+    let scenario = r12();
+    let mut session = session();
+    let (doc, _, _) = opened(&mut session, &scenario.setup);
+    begin_edit(&mut session, doc, None);
+    let made = edits(&mut session, doc, &scenario.changes);
+    let inside = apply(&mut session, doc, None, Value::Array(made));
+    assert_eq!(
+        labels_and_kinds(&cause(&named_message(&inside, "f-fil1"))),
+        [(
+            "Set Distance of 'Extrude 2' back to 5 mm".to_owned(),
+            "apply".to_owned()
+        )]
+    );
+
+    let committed = commit(&mut session, doc);
+
+    assert_eq!(committed.event_types(), ["document_changed", "recomputed"]);
+    assert_cause(
+        &named_message(&committed, "f-fil1"),
+        &Expected {
+            text: "This started after you changed Distance of 'Extrude 2' from 5 mm to 30 mm.",
+            feature: Some("f-ext2"),
+            actions: &[
+                ("Set Distance of 'Extrude 2' back to 5 mm", "apply"),
+                ("Undo", "undo"),
+            ],
+        },
+    );
+}
+
+#[test]
+fn committing_a_transaction_that_made_no_cause_sends_no_statuses() {
+    let mut session = session();
+    let (doc, _, _) = opened(&mut session, &fixture("fillet.ptsm"));
+    begin_edit(&mut session, doc, None);
+    apply(&mut session, doc, None, json!([set_height("45 mm")])).ok();
+
+    let committed = commit(&mut session, doc);
+
+    assert_eq!(committed.event_types(), ["document_changed"]);
+}
+
+#[test]
+fn undo_is_not_offered_when_another_command_changed_the_recipe_after_the_clean_snapshot() {
+    // Corpus R12's edit made while the fillet is rolled back: the newest entry moves the marker back, and undoing it
+    // would roll the fillet back and leave the distance at 30 mm.
+    let scenario = r12();
+    let mut session = session();
+    let (doc, _, _) = opened(&mut session, &scenario.setup);
+    apply(
+        &mut session,
+        doc,
+        Some("Roll back"),
+        json!([set_rollback(Some("f-fil1"))]),
+    )
+    .ok();
+    let made = edits(&mut session, doc, &scenario.changes);
+    apply(&mut session, doc, Some(EDIT_LABEL), Value::Array(made)).ok();
+
+    let rolled_forward = apply(
+        &mut session,
+        doc,
+        Some("Roll forward"),
+        json!([set_rollback(None)]),
+    );
+
+    assert_cause(
+        &named_message(&rolled_forward, "f-fil1"),
+        &Expected {
+            text: "This started after you changed Distance of 'Extrude 2' from 5 mm to 30 mm.",
+            feature: Some("f-ext2"),
+            actions: &[("Set Distance of 'Extrude 2' back to 5 mm", "apply")],
+        },
+    );
 }
 
 // Cause actions that no longer apply (section 3.22, `stale_fix`).

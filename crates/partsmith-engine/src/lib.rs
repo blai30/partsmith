@@ -11,6 +11,7 @@
 
 mod analysis;
 mod assets;
+mod causes;
 mod counts;
 mod diagnostics;
 mod dispatch;
@@ -23,6 +24,8 @@ mod events;
 mod exchange;
 mod fixes;
 mod frames;
+mod ghosts;
+mod history;
 mod ids;
 mod inspect;
 mod inspections;
@@ -41,6 +44,7 @@ mod test_support;
 mod triangulate;
 mod types;
 mod units;
+mod uses;
 mod validate;
 mod words;
 

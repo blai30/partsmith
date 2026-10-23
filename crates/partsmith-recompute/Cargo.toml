@@ -28,12 +28,6 @@ proptest.workspace = true
 schemars.workspace = true
 serde.workspace = true
 
-[features]
-# Builds the test target reference_stability, the reference stability corpus
-# (docs/design/reference-stability-corpus.md), which records the study's scenarios and fails until
-# the study's plan is implemented.
-stability-study = []
-
 [[test]]
 name = "integration"
 
@@ -42,11 +36,6 @@ name = "integration"
 # tests of the other files.
 [[test]]
 name = "budgets"
-
-# The reference stability corpus. Naming it without the feature is an error, not an empty run.
-[[test]]
-name = "reference_stability"
-required-features = ["stability-study"]
 
 [[bench]]
 name = "budgets"

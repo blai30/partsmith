@@ -61,8 +61,10 @@ impl Session {
     pub fn begin_transaction(&mut self, doc: DocHandle, label: &str) -> Result<(), EngineError> {
         let open = self.open_mut(doc)?;
         open.require_no_transaction(&format!("start \"{label}\""))?;
+        let entry = open.history.serial();
         open.transaction = Some(OpenTransaction {
             label: label.to_string(),
+            entry,
             steps: Vec::new(),
             focus: None,
         });
@@ -104,15 +106,19 @@ impl Session {
         let open = self.open_mut(doc)?;
         let transaction = open.transaction.take().ok_or(EngineError::NoTransaction)?;
         let recorded = !transaction.steps.is_empty();
-        if recorded {
-            open.undo.record(Transaction {
+        open.history.record(
+            transaction.entry,
+            Transaction {
                 label: transaction.label,
                 steps: transaction.steps,
-            });
-        }
+            },
+        );
         let revision = open.revision;
         if transaction.focus.is_some() {
             self.rerun(doc)?;
+        } else if recorded && open.causes.offer_undo_of(transaction.entry) {
+            // The causes its edits made offer `Undo` from now on (sections 3.4 and 3.21).
+            open.emitted.restate_statuses();
         }
         Ok(Committed { revision, recorded })
     }
@@ -144,6 +150,7 @@ impl Session {
         let changed = reverted.is_some();
         if let Some(document) = reverted {
             open.change(document);
+            open.history.changed_by(None);
         }
         let revision = open.revision;
         if changed || focused {
@@ -168,13 +175,13 @@ impl Session {
         open.require_no_transaction(if backward { "undo" } else { "redo" })?;
         let mut document = Document::clone(&open.document);
         let stepped = if backward {
-            open.undo.undo(&mut document)
+            open.history.undo(&mut document)
         } else {
-            open.undo.redo(&mut document)
+            open.history.redo(&mut document)
         }
         .map_err(EngineError::unexpected)?;
         let label = match stepped {
-            Some(transaction) => transaction.label.clone(),
+            Some(label) => label,
             None if backward => return Err(EngineError::NothingToUndo),
             None => return Err(EngineError::NothingToRedo),
         };
@@ -223,11 +230,19 @@ impl Session {
                 {
                     transaction.focus = None;
                 }
+                open.history.changed_by(Some(transaction.entry));
             }
-            None => open.undo.record(Transaction {
-                label: label.to_string(),
-                steps,
-            }),
+            None => {
+                let entry = open.history.serial();
+                open.history.record(
+                    entry,
+                    Transaction {
+                        label: label.to_string(),
+                        steps,
+                    },
+                );
+                open.history.changed_by(Some(entry));
+            }
         }
         let revision = open.revision;
         self.rerun(doc)?;

@@ -1,6 +1,8 @@
 //! A document's undo history (engine.md section 3.3) with a serial number for each entry, so that
 //! a cause remembers the entry whose command made its change and offers `Undo` only while that
-//! entry is the newest (section 3.21, cause action 3).
+//! entry is the newest, and with a count of the commands that changed the recipe, so that it
+//! offers `Undo` only when that command made every change since its clean snapshot (section 3.21,
+//! cause action 3).
 
 use std::collections::VecDeque;
 
@@ -21,6 +23,10 @@ pub(crate) struct History {
     /// redone, or the open transaction's; `None` after an undo or a canceled transaction, whose
     /// change no undo entry made.
     changed_by: Option<u64>,
+    /// How many commands have changed the recipe: each change made by another entry than the
+    /// change before it, and each undo and canceled transaction, counts one, so the edits of one
+    /// transaction count once.
+    commands: u64,
 }
 
 impl History {
@@ -32,6 +38,7 @@ impl History {
             redo: Vec::new(),
             next: 1,
             changed_by: None,
+            commands: 0,
         }
     }
 
@@ -54,14 +61,22 @@ impl History {
     }
 
     /// Notes that the latest change of the recipe was made by the entry `serial`, or by no
-    /// entry.
+    /// entry, and counts a command when the entry differs from the one of the change before.
     pub(crate) fn changed_by(&mut self, serial: Option<u64>) {
+        if serial.is_none() || serial != self.changed_by {
+            self.commands += 1;
+        }
         self.changed_by = serial;
     }
 
     /// The entry whose command made the latest change of the recipe, if one did.
     pub(crate) fn latest_change(&self) -> Option<u64> {
         self.changed_by
+    }
+
+    /// How many commands have changed the recipe so far.
+    pub(crate) fn commands(&self) -> u64 {
+        self.commands
     }
 
     /// The serial of the newest undo entry.
@@ -75,12 +90,12 @@ impl History {
             .log
             .undo(document)?
             .map(|transaction| transaction.label.clone());
-        if label.is_some()
-            && let Some(serial) = self.undo.pop_back()
-        {
-            self.redo.push(serial);
+        if label.is_some() {
+            if let Some(serial) = self.undo.pop_back() {
+                self.redo.push(serial);
+            }
+            self.changed_by(None);
         }
-        self.changed_by = None;
         Ok(label)
     }
 
@@ -95,7 +110,7 @@ impl History {
             && let Some(serial) = self.redo.pop()
         {
             self.push_undo(serial);
-            self.changed_by = Some(serial);
+            self.changed_by(Some(serial));
         }
         Ok(label)
     }
@@ -186,10 +201,39 @@ mod tests {
         history.undo(&mut recipe).expect("the edit undoes");
 
         assert_eq!(history.newest(), None);
-        assert_eq!(
-            history.undo(&mut recipe).expect("nothing is left"),
-            None
-        );
+        assert_eq!(history.undo(&mut recipe).expect("nothing is left"), None);
+    }
+
+    #[test]
+    fn the_edits_of_one_entry_count_as_one_command() {
+        let mut history = History::new(10);
+        let mut recipe = document("2 mm");
+        let transaction = history.serial();
+        history.changed_by(Some(transaction));
+        history.changed_by(Some(transaction));
+        history.record(transaction, set_height("1 mm", "2 mm"));
+        assert_eq!(history.commands(), 1);
+
+        let edit = history.serial();
+        history.changed_by(Some(edit));
+        history.record(edit, set_height("2 mm", "3 mm"));
+        history.undo(&mut recipe).expect("the edit undoes");
+        history.redo(&mut recipe).expect("the edit redoes");
+
+        // The edit, its undo and its redo are a command each.
+        assert_eq!(history.commands(), 4);
+        history.changed_by(None);
+        assert_eq!(history.commands(), 5);
+    }
+
+    #[test]
+    fn nothing_to_undo_counts_no_command() {
+        let mut history = History::new(10);
+        let mut recipe = document("2 mm");
+
+        history.undo(&mut recipe).expect("nothing is no error");
+
+        assert_eq!(history.commands(), 0);
     }
 
     #[test]

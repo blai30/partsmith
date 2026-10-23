@@ -413,7 +413,7 @@ impl Labels<'_> {
 }
 
 /// True when an expression is a plain value: a number, with or without a unit and a sign.
-fn is_plain_value(expression: &str) -> bool {
+pub(crate) fn is_plain_value(expression: &str) -> bool {
     let Ok(parsed) = Expr::new(expression).parse() else {
         return false;
     };

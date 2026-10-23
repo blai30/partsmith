@@ -10,9 +10,6 @@
 //! The record builders, runs, readers and resolver diagnostics the three thirds of the corpus share
 //! come from `stability_common`, which it re-exports.
 
-// Each user of the module needs only some of the helpers.
-#![allow(dead_code)]
-
 pub use super::stability_common::*;
 
 use std::f64::consts::PI;

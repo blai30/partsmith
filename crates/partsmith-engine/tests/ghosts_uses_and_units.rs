@@ -20,12 +20,12 @@ use common::{
     send, session, set_document_units,
 };
 use corpus::{
-    after_edit, angle, assert_ghost_segments, block_back_top, block_right_side, block_then,
-    box_below, box_record, cause, chamfer, circle, cube10, datum_on_face, document, document_with,
-    edited_text, face_plane, fillet, ghost_points, hole, labels_and_kinds, linear_pattern, message,
-    nc09, nc11, opened, origin_plane, parameter, picked, r03, r12, r16, r33, r41, r66, record,
-    rectangle, rectangle_region, reference, repair_ghost, repairs, revolve, sketch, through_all,
-    volume,
+    EDIT_LABEL, Scenario, after_edit, angle, assert_ghost_segments, block_back_top,
+    block_right_side, block_then, box_below, box_record, cause, chamfer, circle, cube10,
+    datum_on_face, document, document_with, edited_text, edits, face_plane, fillet, ghost_points,
+    hole, labels_and_kinds, linear_pattern, message, nc09, nc11, opened, origin_plane, parameter,
+    picked, r03, r12, r16, r33, r41, r66, record, rectangle, rectangle_region, reference,
+    repair_ghost, repairs, revolve, sketch, through_all, volume,
 };
 use partsmith_engine::Session;
 use partsmith_model::Units;
@@ -210,6 +210,73 @@ fn a_reference_lost_since_the_document_was_opened_gets_no_ghost_when_it_changes(
     let lost = repairs(&added, "f-fil1");
     assert_eq!(lost.len(), 1, "{lost:?}");
     assert!(lost[0].get("ghost").is_none(), "{}", lost[0]);
+}
+
+/// Opens `scenario`'s setup and applies its edit the way the inspector edits a feature: inside a transaction focused on
+/// `focus`, which rolls back every later feature until the commit; the commit's reply.
+fn edited_in_a_transaction_focused_on(
+    session: &mut Session,
+    scenario: &Scenario,
+    focus: &str,
+) -> Sent {
+    let (doc, _, _) = opened(session, &scenario.setup);
+    send(
+        session,
+        json!({"type": "begin_transaction", "doc": doc, "label": EDIT_LABEL}),
+    )
+    .ok();
+    send(
+        session,
+        json!({"type": "set_focus", "doc": doc, "feature": focus}),
+    )
+    .ok();
+    let made = edits(session, doc, &scenario.changes);
+    apply(session, doc, None, Value::Array(made)).ok();
+    let committed = send(session, json!({"type": "commit_transaction", "doc": doc}));
+    committed.ok();
+    committed
+}
+
+#[test]
+fn a_reference_lost_while_its_feature_was_rolled_back_has_its_last_build_as_its_ghost() {
+    let mut plain = session();
+    let (_, edited) = after_edit(&mut plain, &r41());
+    let expected = repair_ghost(&edited, "f-fil1", "/edges/1");
+    let mut session = session();
+
+    // Corpus R41's Count lowered in the pattern's inspector: the fillet is rolled back until the commit.
+    let committed = edited_in_a_transaction_focused_on(&mut session, &r41(), "f-lp1");
+
+    let ghost = repair_ghost(&committed, "f-fil1", "/edges/1");
+    assert_eq!(
+        (&ghost["kind"], &ghost["frame"]),
+        (&expected["kind"], &expected["frame"])
+    );
+    assert_eq!(
+        ghost_points(&committed, &ghost),
+        ghost_points(&edited, &expected)
+    );
+}
+
+#[test]
+fn a_region_lost_while_its_feature_was_rolled_back_has_its_last_outline_as_its_ghost() {
+    let mut session = session();
+
+    // Newcomer error NC11's line deleted in the sketch: the extrude is rolled back until the commit, and the sketch's
+    // solution before the commit already lacks the line.
+    let committed = edited_in_a_transaction_focused_on(&mut session, &nc11(), "f-sk1");
+
+    let ghost = repair_ghost(&committed, "f-ext1", "/profile/regions/0");
+    assert_ghost_segments(
+        &committed,
+        &ghost,
+        &[
+            (&[0.0, 0.0], &[80.0, 0.0]),
+            (&[80.0, 0.0], &[80.0, 50.0]),
+            (&[80.0, 50.0], &[0.0, 50.0]),
+            (&[0.0, 50.0], &[0.0, 0.0]),
+        ],
+    );
 }
 
 #[test]
