@@ -140,6 +140,7 @@ export const COLOR_CLASSES = {
     fill: 'fill-yellow-400',
     foreground: 'text-zinc-950',
     border: 'border-yellow-800 dark:border-yellow-300',
+    background: 'bg-yellow-800 dark:bg-yellow-300',
   },
   warningText: { foreground: 'text-yellow-800 dark:text-yellow-300' },
   warningSubtle: { background: 'bg-yellow-50 dark:bg-yellow-950' },

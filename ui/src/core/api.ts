@@ -22,6 +22,7 @@ import type {
   SketchParams,
   SketchSolution,
   Units,
+  Use,
 } from '../generated/protocol'
 import { CoreError, type CoreClient } from './client'
 import { byteBuffer, sketchDisplayData, type SketchDisplayData } from './events'
@@ -74,6 +75,8 @@ export type CoreApi = {
     units: Units,
     keepSizes: boolean,
   ): Promise<{ revision: number; kept: number }>
+  /** `list_uses` (engine.md 3.24): what every feature uses, from the document alone; changes nothing. */
+  listUses(documentHandle: DocHandle): Promise<readonly Use[]>
   renameParameter(documentHandle: DocHandle, parameter: string, name: string): Promise<number>
   beginTransaction(documentHandle: DocHandle, label: string): Promise<void>
   setFocus(documentHandle: DocHandle, feature: string | null): Promise<void>
@@ -267,6 +270,9 @@ export function createCoreApi(client: CoreClient): CoreApi {
         keep_sizes: keepSizes,
       })
       return { revision: result.revision, kept: result.kept }
+    },
+    async listUses(documentHandle) {
+      return (await call({ type: 'list_uses', doc: documentHandle })).result.uses
     },
     async renameParameter(documentHandle, parameter, name) {
       const { result } = await call({

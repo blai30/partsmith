@@ -33,7 +33,8 @@ import {
   selectSketchRecord,
   type EditingSession,
 } from '../state/selectors'
-import type { AppState, SelectionItem } from '../state/store'
+import type { AppState, SelectionItem, SketchNotice } from '../state/store'
+import { usedEntities } from '../timeline/uses'
 import { framedArea, type Camera, type ViewWindow } from '../viewport/camera'
 import type { ViewportController, ViewportHandle } from '../viewport/controller'
 import { requestFrame } from '../viewport/frames'
@@ -420,6 +421,12 @@ export function createSketchController(options: SketchControllerOptions): Sketch
 
   let hovered: string | null = null
   let flash: { readonly text: string; readonly timer: ReturnType<typeof setTimeout> } | null = null
+  // The session's notice as last shown, with the step prompt it replaced (3.16.10).
+  let notice: {
+    readonly shown: SketchNotice
+    readonly prompt: string | null
+    ended: boolean
+  } | null = null
   let last = sessionKey(store.getState())
 
   type Evaluation = {
@@ -660,6 +667,24 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     }
   }
 
+  /**
+   * The session's notice (3.16.10) while it shows: from when it is set until the step prompt it
+   * replaced changes, even when that prompt comes back later.
+   */
+  function noticeText(session: EditingSession, prompt: string | null): string | null {
+    const stored = session.notice ?? null
+    if (stored === null) {
+      notice = null
+      return null
+    }
+    if (notice?.shown !== stored) {
+      notice = { shown: stored, prompt, ended: false }
+    } else if (notice.prompt !== prompt) {
+      notice.ended = true
+    }
+    return notice.ended ? null : stored.message
+  }
+
   function computeModel(): SketchOverlayModel {
     const session = current()
     if (session === null) {
@@ -674,7 +699,11 @@ export function createSketchController(options: SketchControllerOptions): Sketch
     const fields = isDrawingTool(tool) ? drawFields(tool, draw) : []
     const inference = drawn?.glyphs ?? []
     return {
-      hint: hintOf(flash?.text ?? drawn?.hint ?? null, constraintTool(tool), prompt),
+      hint: hintOf(
+        flash?.text ?? drawn?.hint ?? noticeText(session, prompt),
+        constraintTool(tool),
+        prompt,
+      ),
       freePlacement: inference.length > 0,
       inference,
       drawInputs: fields.map((field) => ({
@@ -725,6 +754,7 @@ export function createSketchController(options: SketchControllerOptions): Sketch
       pixelSize,
       tolerance: TESSELLATION_PIXELS * pixelSize,
       constraints: storedConstraints(state, session.sketchId),
+      usedEntities: Object.keys(usedEntities(state, session.sketchId)),
       showConstraints: session.showConstraints,
       labelPositions,
       pointer,

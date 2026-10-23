@@ -60,6 +60,15 @@ export function gapPositions(strip: HTMLElement): readonly number[] {
   return gapsBetween(items, strip.getBoundingClientRect().left)
 }
 
+/**
+ * The timeline index a drop at gap `gap` (0 to N) moves the feature at index `from` to (3.9):
+ * `gap` when it is at most `from`, else `gap - 1`, so the gaps on either side of the feature leave
+ * it in place.
+ */
+export function dropIndex(from: number, gap: number): number {
+  return gap <= from ? gap : gap - 1
+}
+
 /** The gap nearest to a client x position. */
 export function nearestGap(gaps: readonly number[], x: number): number {
   let best = 0

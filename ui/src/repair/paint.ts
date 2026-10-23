@@ -4,11 +4,11 @@ import { framedArea } from '../viewport/camera'
 import type { RenderedFrame } from '../viewport/controller'
 import { pointAt, pointsOf, type Vector3 } from '../viewport/math'
 import { placeCircle, visiblePosition } from '../viewport/overlay'
-import { ghostBuffer, ghostSegments, selectRepairMode } from './repair'
+import { causeGhost, ghostBuffer, ghostSegments, selectRepairMode } from './repair'
 
-// Repair mode's ghosts and rings in a rendered frame (ui.md 3.7, 3.12): the overlay draws them
-// in canvas pixels from their model-space points, so a ghost shows through the part without a
-// depth test, where the element often is now.
+// Repair mode's ghosts and rings, and the ghost of a shown cause, in a rendered frame (ui.md 3.7,
+// 3.12, 4.2): the overlay draws them in canvas pixels from their model-space points, so a ghost
+// shows through the part without a depth test, where the element often is now.
 
 /** The radius in CSS pixels of a ring of a `points` ghost: 8 pixels across (3.7). */
 const POINT_RADIUS = 4
@@ -73,7 +73,7 @@ export function paintRepairOverlay(
   for (const path of overlay.querySelectorAll<SVGPathElement>('[data-testid="repair-ghost"]')) {
     const repair = mode.repairs[Number(path.dataset['repair'])]
     const positions = repair === undefined ? undefined : ghostBuffer(state, repair)
-    const kind = repair?.kind === 'element' ? repair.ghost?.kind : undefined
+    const kind = repair?.ghost?.kind
     path.setAttribute(
       'd',
       positions === undefined || kind === undefined ? '' : ghostPath(kind, positions, frame),
@@ -88,4 +88,14 @@ export function paintRepairOverlay(
     ]
     placeCircle(ring, visiblePosition(frame.project(point), area))
   }
+}
+
+/** Draws the shown cause's ghost for a rendered frame (4.2): its path from its points' projections. */
+export function paintCauseGhost(overlay: HTMLElement, frame: RenderedFrame, state: AppState): void {
+  const path = overlay.querySelector<SVGPathElement>('[data-testid="cause-ghost"]')
+  if (path === null) {
+    return
+  }
+  const ghost = causeGhost(state)
+  path.setAttribute('d', ghost === undefined ? '' : ghostPath(ghost.kind, ghost.positions, frame))
 }

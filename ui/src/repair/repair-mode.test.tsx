@@ -30,6 +30,7 @@ import {
   r16Fix,
   r16ListElements,
   SPLIT_DISPLAY,
+  SPLIT_REPAIR,
   SPLIT_SOLUTION,
   SPLIT_STATUS,
 } from '../test/fakes/repairs'
@@ -422,5 +423,50 @@ describe('region repairs on the model (3.7)', () => {
     const markers = screen.getAllByTestId('repair-candidate')
     expect(markers.map((marker) => marker.getAttribute('data-number'))).toEqual(['1', '2'])
     expect(markers.map((marker) => marker.getAttribute('data-anchor'))).toEqual(['5,0,0', '-5,0,0'])
+  })
+
+  it("draws the lost region's ghost, its old outline in sketch coordinates, on the sketch's placement", () => {
+    // Two sides of the old outline, (-10, -10) to (10, -10) and (10, -10) to (10, 10).
+    const outline = [-10, -10, 10, -10, 10, -10, 10, 10]
+    const status: FeatureStatus = {
+      ...SPLIT_STATUS,
+      repairs: [{ ...SPLIT_REPAIR, ghost: { positions: 0, kind: 'lines', frame: 'sketch' } }],
+    }
+    const { app } = createModelApp({
+      state: readyState(
+        cubeDocumentState({
+          sketches: { 'f-sk1': { solution: SPLIT_SOLUTION, display: SPLIT_DISPLAY } },
+          featureStatus: { 'f-ext1': status },
+          ghosts: { 0: Float32Array.from(outline) },
+        }),
+        { repair: { feature: 'f-ext1' } },
+      ),
+    })
+    renderWithApp(app)
+    flush()
+    const ghosts = screen.getAllByTestId('repair-ghost')
+    expect(ghosts).toHaveLength(1)
+    const [ghost] = ghosts
+    expect(ghost).toHaveAttribute('stroke-dasharray', '4 3')
+    expect(ghost?.querySelector('title')).toHaveTextContent(
+      "The region of 'Sketch 1' around (0, 0) (missing)",
+    )
+    // The cube's sketch lies on XY at the origin, so (u, v) is the world point (u, v, 0).
+    const numbers = (ghost?.getAttribute('d')?.match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/g) ?? []).map(
+      Number,
+    )
+    const expected = [
+      [-10, -10],
+      [10, -10],
+      [10, -10],
+      [10, 10],
+    ].flatMap(([u = 0, v = 0]) => {
+      const position = canvasPosition([u, v, 0])
+      return [position.x, position.y]
+    })
+    expect(numbers).toHaveLength(expected.length)
+    numbers.forEach((value, index) => {
+      expect(value).toBeCloseTo(expected[index] ?? Number.NaN, 0)
+    })
   })
 })

@@ -293,6 +293,12 @@ type: "measure"
  * The document.
  */
 doc: DocHandle
+type: "list_uses"
+} | {
+/**
+ * The document.
+ */
+doc: DocHandle
 /**
  * Printer profile id; the document's resolved profile when absent.
  */
@@ -1210,6 +1216,13 @@ type: "resolve_references"
 } | (Measurement & {
 type: "measure"
 }) | {
+/**
+ * What every feature uses, sorted by the user's timeline position, then `field`, then `feature`, then
+ * `entity` (absent first).
+ */
+uses: Use[]
+type: "list_uses"
+} | {
 /**
  * Overall health of the analyzed bodies.
  */
@@ -3218,6 +3231,31 @@ min: [number, number, number]
  * @maxItems 3
  */
 max: [number, number, number]
+}
+/**
+ * One thing a feature uses (engine.md section 3.24): a feature it links to, or a feature or sketch entity that an
+ * element name in one of its stored references depends on.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "Use".
+ */
+export interface Use {
+/**
+ * The feature that uses it.
+ */
+user: Id
+/**
+ * JSON Pointer of the field of `user` that names it, relative to the feature record, for example `/edges/0`.
+ */
+field: string
+/**
+ * The feature it uses, or whose element it uses.
+ */
+feature: Id
+/**
+ * The sketch entity of `feature`'s sketch that made the element used (a lateral face's line, a hole's point).
+ */
+entity?: (Id | null)
 }
 /**
  * A file produced by an export.

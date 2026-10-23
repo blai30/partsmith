@@ -1,4 +1,5 @@
 import { clsx } from 'clsx/lite'
+import { Link } from 'lucide-react'
 import {
   memo,
   useEffect,
@@ -15,11 +16,15 @@ import { useShallow } from 'zustand/react/shallow'
 import { sketchParamsOf } from '../app/actions/sketch'
 import { useApp, useAppState } from '../app/AppProvider'
 import { CONSTRAINT_ICONS } from '../commands/icons'
+import { Tooltip } from '../components/Tooltip'
 import type { WorldAxis } from '../core/labels'
 import type { ConstraintSolveState, SketchSolution } from '../generated/protocol'
 import { useResolvedTheme } from '../layout/use-resolved-theme'
-import { selectEditedSketch, selectSketchRecord } from '../state/selectors'
+import { MESSAGES } from '../messages'
+import { selectEditedSketch, selectFeatureLabel, selectSketchRecord } from '../state/selectors'
+import type { AppState } from '../state/store'
 import { AXIS_ROLES, COLOR_CLASSES, VIEWPORT_COLORS } from '../theme/roles'
+import { usedEntities } from '../timeline/uses'
 import { useCanvasLayer } from '../viewport/canvas-layer'
 import { hideLabelsUnderCards, positionElement } from '../viewport/overlay'
 import { sketchWorldAxes } from '../viewport/planes'
@@ -48,16 +53,18 @@ import {
 import { SketchHeader } from './SketchHeader'
 
 // Sketch mode over the view (ui.md 3.2, 3.12, 3.16): the sketch header and hint in the top-center
-// slot and, while a sketch is edited, its overlay in the viewport's canvas layer: constraint glyphs, dimensions, profile issue
-// rings, the rubber band, inference glyphs, draw inputs, the dimension editor and the selection
-// box. React renders the elements; the sketch controller writes their positions and the dimension
-// values each frame, so a drag re-renders nothing (ADR 0002).
+// slot and, while a sketch is edited, its overlay in the viewport's canvas layer: constraint
+// glyphs, used marks, dimensions, profile issue rings, the rubber band, inference glyphs, draw
+// inputs, the dimension editor and the selection box. React renders the elements; the sketch
+// controller writes their positions and the dimension values each frame, so a drag re-renders
+// nothing (ADR 0002).
 
 type ConstraintStates = Readonly<Record<string, ConstraintSolveState>>
 
 /** The elements the painter writes positions, path data and text into. */
 type OverlayElements = {
   readonly glyphs: ReadonlyMap<string, HTMLElement>
+  readonly usedMarks: ReadonlyMap<string, HTMLElement>
   readonly labels: ReadonlyMap<string, HTMLElement>
   readonly labelTexts: ReadonlyMap<string, HTMLElement>
   readonly issues: ReadonlyMap<number, SVGCircleElement>
@@ -141,6 +148,9 @@ function paintOverlay(paint: OverlayPaint, elements: OverlayElements): void {
   for (const [id, element] of elements.glyphs) {
     placeAt(element, paint.glyphs.get(id) ?? null)
   }
+  for (const [entity, element] of elements.usedMarks) {
+    placeAt(element, paint.usedMarks.get(entity) ?? null)
+  }
   for (const [id, element] of elements.labels) {
     placeAt(element, paint.labels.get(id) ?? null)
   }
@@ -204,6 +214,16 @@ function constraintStatesOf(solution: SketchSolution | undefined): ConstraintSta
 /** The titles of the profile issue rings, in `issueRings` order. */
 function ringTitlesOf(solution: SketchSolution | undefined): readonly string[] {
   return solution === undefined ? [] : issueRings(solution).map((ring) => ring.title)
+}
+
+/** The `used_by` text of each entity of a sketch that later features use (3.16.10). */
+function usedByTexts(state: AppState, sketchId: string): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(usedEntities(state, sketchId)).map(([entity, users]) => [
+      entity,
+      MESSAGES.used_by(users.map((user) => selectFeatureLabel(state, user))),
+    ]),
+  )
 }
 
 /**
@@ -277,6 +297,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
     useShallow((state) => ringTitlesOf(state.document?.sketches[sketchId]?.solution)),
   )
   const record = useAppState((state) => selectSketchRecord(state, sketchId))
+  const usedBy = useAppState(useShallow((state) => usedByTexts(state, sketchId)))
   const showConstraints = useAppState((state) => state.sketch?.showConstraints ?? true)
   const selection = useAppState((state) => state.sketch?.selection ?? null)
   const theme = useResolvedTheme()
@@ -288,11 +309,21 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
     [record],
   )
   const glyphConstraints = useMemo(() => constraints.filter(hasGlyph), [constraints])
+  // The entities that later features use, in stored order, each with its used mark's text.
+  const usedMarks = useMemo(
+    () =>
+      (record === null ? [] : (sketchParamsOf(record)?.entities ?? [])).flatMap((entity) => {
+        const text = usedBy[entity.id]
+        return text === undefined ? [] : [{ entity: entity.id, text }]
+      }),
+    [record, usedBy],
+  )
   const dimensions = useMemo(() => constraints.filter(isDimension), [constraints])
   const selected = useMemo(() => new Set((selection ?? []).map((item) => item.key)), [selection])
   const worldAxes = useMemo(() => (record === null ? null : sketchWorldAxes(record)), [record])
 
   const glyphElements = useRef(new Map<string, HTMLElement>())
+  const usedMarkElements = useRef(new Map<string, HTMLElement>())
   const labelElements = useRef(new Map<string, HTMLElement>())
   const labelTextElements = useRef(new Map<string, HTMLElement>())
   const issueElements = useRef(new Map<number, SVGCircleElement>())
@@ -333,6 +364,7 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
     controller.setPainter((paint) => {
       paintOverlay(paint, {
         glyphs: glyphElements.current,
+        usedMarks: usedMarkElements.current,
         labels: labelElements.current,
         labelTexts: labelTextElements.current,
         issues: issueElements.current,
@@ -442,6 +474,16 @@ function SketchLayer({ sketchId, model, onController }: SketchLayerProps) {
                 selected={selected.has(`constraint:${sketchId}:${constraint.id}`)}
                 controller={controller}
                 elements={glyphElements}
+              />
+            ))
+          : null}
+        {showConstraints && solved
+          ? usedMarks.map((mark) => (
+              <UsedMark
+                key={mark.entity}
+                entity={mark.entity}
+                text={mark.text}
+                elements={usedMarkElements}
               />
             ))
           : null}
@@ -628,6 +670,43 @@ const ConstraintGlyph = memo(function ConstraintGlyph({
       >
         <Icon aria-hidden="true" strokeWidth={1.75} className="size-3.5" />
       </button>
+    </div>
+  )
+})
+
+type UsedMarkProps = {
+  readonly entity: string
+  /** "Used by {labels}" (4.3), its accessible name and tooltip. */
+  readonly text: string
+  readonly elements: RefObject<Map<string, HTMLElement>>
+}
+
+/**
+ * The used mark of an entity that later features use (3.16.10): a chip with the link icon, centered
+ * on the position the painter gives its wrapper, after the entity's constraint glyphs. It takes no
+ * clicks, so it is never picked; it is hovered only for its tooltip.
+ */
+const UsedMark = memo(function UsedMark({ entity, text, elements }: UsedMarkProps) {
+  return (
+    <div ref={register(elements, entity)} hidden className="absolute top-0 left-0">
+      <Tooltip label={text}>
+        <span
+          data-testid="entity-used"
+          data-entity={entity}
+          // ui.md 3.16.10 names the img role of this mark, an icon on a chip.
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="img"
+          aria-label={text}
+          className={clsx(
+            'pointer-events-auto flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-sm border opacity-90',
+            COLOR_CLASSES.surface.background,
+            COLOR_CLASSES.forcedEdge.border,
+            COLOR_CLASSES.textMuted.foreground,
+          )}
+        >
+          <Link aria-hidden="true" strokeWidth={1.75} className="size-3" />
+        </span>
+      </Tooltip>
     </div>
   )
 })

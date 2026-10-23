@@ -16,9 +16,10 @@ import {
   type RepairMode,
 } from './repair'
 
-// Repair mode on the model (ui.md 3.7): each element repair's ghost as a dashed outline where the
-// element was in its last build, or a dashed ring at its stored centroid, and a numbered marker at
-// each candidate of the current repair, at its element or at the centroid of its first region.
+// Repair mode on the model (ui.md 3.7): each repair's ghost as a dashed outline where the element
+// was in its last build or where the region's outline lay on its sketch, else a dashed ring at an
+// element's stored centroid, and a numbered marker at each candidate of the current repair, at its
+// element or at the centroid of its first region.
 // `paint.ts` places the ghosts and rings in each frame; the scene fills the candidate regions.
 
 /** The radius in CSS pixels of the ring at a stored centroid: 16 pixels across (3.7). */
@@ -64,9 +65,6 @@ function RepairShapes({ mode }: { readonly mode: RepairMode }) {
   return (
     <svg aria-hidden="true" className="pointer-events-none absolute inset-0 size-full">
       {mode.repairs.map((repair, index) => {
-        if (repair.kind !== 'element') {
-          return null
-        }
         const shape = clsx('fill-none stroke-2', COLOR_CLASSES.errorMark.stroke)
         if (ghosts[index] === true) {
           return (
@@ -81,7 +79,8 @@ function RepairShapes({ mode }: { readonly mode: RepairMode }) {
             </path>
           )
         }
-        const centroid = repair.centroid ?? null
+        // A region repair without a ghost draws nothing: it has no centroid.
+        const centroid = repair.kind === 'element' ? (repair.centroid ?? null) : null
         return centroid === null ? null : (
           <circle
             key={repair.path}

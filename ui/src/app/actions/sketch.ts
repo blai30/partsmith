@@ -48,11 +48,14 @@ import type {
   AppStore,
   Notification,
   SelectionItem,
+  SketchNotice,
   SketchSession,
 } from '../../state/store'
+import { entityUse } from '../../timeline/uses'
 import { cameraAfterSketch, type Camera, type Vector3 } from '../../viewport/camera'
 import type { ViewportHandle } from '../../viewport/controller'
 import type { App } from '../createApp'
+import { reportFailure } from '../report'
 import { cancelCommandImplicitly } from './command'
 import { coreRedo, coreUndo } from './document'
 import { documentOf, showCoreError } from './edits'
@@ -61,6 +64,7 @@ import { dismiss, notify } from './notifications'
 import { select, toggledByKey } from './selection'
 import { commitSketchChange } from './sketch-commit'
 import { createSketchOn, pickPlane, sketchPlaneOf } from './sketch-plane'
+import { refreshUses } from './timeline'
 
 export { commitSketchChange, createSketchOn, pickPlane, sketchPlaneOf }
 
@@ -101,6 +105,7 @@ function sketchSession(sketchId: string | null, cameraBefore: Camera | null): Sk
     selection: [],
     dragging: false,
     cameraBefore,
+    notice: null,
   }
 }
 
@@ -123,17 +128,21 @@ export function recordSketchView(app: App, before: Camera): void {
 }
 
 /**
- * Records a committed sketch edit, which Mod+Z in sketch mode undoes in the core. With `sketchId`,
- * only while that sketch is the one being edited.
+ * Records a committed sketch edit: Mod+Z in sketch mode undoes it in the core, and the used marks
+ * ask for what later features use at the new revision (3.16.10). With `sketchId`, only while that
+ * sketch is the one being edited.
  */
 export function recordSketchEdit(app: App, sketchId: string | null = null): void {
-  const history = sessionRecords.get(app.store)
   const edited = editedSketch(app)
-  if (history === undefined || edited === null || (sketchId !== null && sketchId !== edited)) {
+  if (edited === null || (sketchId !== null && sketchId !== edited)) {
     return
   }
-  history.undo.push({ kind: 'document' })
-  history.redo.length = 0
+  refreshUses(app).catch(reportFailure('Asking what the features use'))
+  const history = sessionRecords.get(app.store)
+  if (history !== undefined) {
+    history.undo.push({ kind: 'document' })
+    history.redo.length = 0
+  }
 }
 
 /** Discards the sketch view history and the session's starting statuses, as leaving sketch mode does. */
@@ -346,6 +355,8 @@ export async function enterSketch(app: App, sketchId: string): Promise<void> {
   if (document === null) {
     return
   }
+  // The used marks show what later features use of the sketch (3.16.10).
+  refreshUses(app).catch(reportFailure('Asking what the features use'))
   let solution = document.sketches[sketchId]?.solution ?? null
   if (solution === null) {
     try {
@@ -638,9 +649,47 @@ function selectedEntities(items: readonly SelectionItem[]): string[] {
   })
 }
 
+/** How long the hint about a deleted entity that later features use stays (3.16.10). */
+const ENTITY_USED_MILLISECONDS = 8_000
+
+/**
+ * The `entity_used` hint of deleting `entities` from the edited sketch (3.16.10): for the first of
+ * them in stored order that a later feature uses, its first user and what that user uses of it;
+ * null when nothing uses any of them.
+ */
+function entityUsedHint(app: App, entities: readonly string[]): string | null {
+  const state = app.store.getState()
+  const session = editingSession(state)
+  const params = session === null ? null : storedSketchParams(state, session.sketchId)
+  if (session === null || params === null) {
+    return null
+  }
+  const deleted = new Set(entities)
+  for (const entity of params.entities ?? []) {
+    const use = deleted.has(entity.id) ? entityUse(state, session.sketchId, entity.id) : null
+    if (use !== null) {
+      const user = selectFeatureLabel(state, use.user)
+      return MESSAGES.entity_used(user, use.noun, entity.type)
+    }
+  }
+  return null
+}
+
+/** Shows `message` in place of the step prompt for 8 s, or until the next step prompt (3.16.10). */
+function showSketchNotice(app: App, message: string): void {
+  const notice: SketchNotice = { message }
+  updateSession(app, { notice })
+  setTimeout(() => {
+    app.store.setState((state) =>
+      state.sketch?.notice === notice ? { sketch: { ...state.sketch, notice: null } } : {},
+    )
+  }, ENTITY_USED_MILLISECONDS)
+}
+
 /**
  * Deletes the selected entities and constraints, plus every constraint that references a deleted
- * entity or one of its points, in one commit labeled "Delete" (3.16.10).
+ * entity or one of its points, in one commit labeled "Delete" (3.16.10). Deleting an entity that a
+ * later feature uses is not refused: the sketch hint says what uses it and how to keep it.
  */
 export async function deleteSketchItems(app: App, items: readonly SelectionItem[]): Promise<void> {
   const entities = selectedEntities(items)
@@ -650,6 +699,7 @@ export async function deleteSketchItems(app: App, items: readonly SelectionItem[
   if (entities.length === 0 && constraints.length === 0) {
     return
   }
+  const hint = entityUsedHint(app, entities)
   const result = await commitSketchChange(app, 'Delete', {
     removeEntities: entities,
     removeConstraints: constraints,
@@ -663,6 +713,9 @@ export async function deleteSketchItems(app: App, items: readonly SelectionItem[
       updateSession(app, {
         selection: session.selection.filter((item) => !removed.has(item.key)),
       })
+    }
+    if (hint !== null) {
+      showSketchNotice(app, hint)
     }
     return
   }

@@ -97,6 +97,41 @@ function constrainedPoints(constraint: SketchConstraint): readonly string[] {
 }
 
 /**
+ * The anchor on a curve of the solution: the midpoint of a line, or the point at 45 degrees on a
+ * circle (on an arc, there when the arc reaches it, else at its middle); null for another entity.
+ */
+function curveAnchor(solution: SketchSolution, curve: string): GlyphAnchor | null {
+  const entity = solvedEntity(solution, curve)
+  if (entity?.type === 'line') {
+    return {
+      at: midpoint(entity.start, entity.end),
+      tangent: subtract(entity.end, entity.start),
+      group: entity.id,
+    }
+  }
+  if (entity?.type === 'circle' || entity?.type === 'arc') {
+    const circle = entityCircle(entity)
+    const eighth = Math.PI / 4
+    const angle =
+      circle.full || angleWithin(eighth, circle.start, circle.end - circle.start)
+        ? eighth
+        : (circle.start + circle.end) / 2
+    return {
+      at: pointOnCircle(circle.center, circle.radius, angle),
+      tangent: unitAt(angle + Math.PI / 2),
+      group: entity.id,
+    }
+  }
+  return null
+}
+
+/** The anchor at a point of the solution, or null when the solution has no such point. */
+function pointAnchor(solution: SketchSolution, point: string): GlyphAnchor | null {
+  const at = pointPosition(solution, point)
+  return at === null ? null : { at, tangent: null, group: point }
+}
+
+/**
  * The anchor of a constraint's glyph: the midpoint of the first constrained line, the point at 45
  * degrees on a circle (on an arc, there when the arc reaches it, else at its middle), or the
  * constrained point itself.
@@ -106,38 +141,26 @@ export function glyphAnchor(
   solution: SketchSolution,
 ): GlyphAnchor | null {
   for (const curve of constrainedCurves(constraint)) {
-    if (isReservedReference(curve)) {
-      continue
-    }
-    const entity = solvedEntity(solution, curve)
-    if (entity?.type === 'line') {
-      return {
-        at: midpoint(entity.start, entity.end),
-        tangent: subtract(entity.end, entity.start),
-        group: entity.id,
-      }
-    }
-    if (entity?.type === 'circle' || entity?.type === 'arc') {
-      const circle = entityCircle(entity)
-      const eighth = Math.PI / 4
-      const angle =
-        circle.full || angleWithin(eighth, circle.start, circle.end - circle.start)
-          ? eighth
-          : (circle.start + circle.end) / 2
-      return {
-        at: pointOnCircle(circle.center, circle.radius, angle),
-        tangent: unitAt(angle + Math.PI / 2),
-        group: entity.id,
-      }
+    const anchor = isReservedReference(curve) ? null : curveAnchor(solution, curve)
+    if (anchor !== null) {
+      return anchor
     }
   }
   for (const point of [...constrainedPoints(constraint), ...constrainedCurves(constraint)]) {
-    const at = pointPosition(solution, point)
-    if (at !== null) {
-      return { at, tangent: null, group: point }
+    const anchor = pointAnchor(solution, point)
+    if (anchor !== null) {
+      return anchor
     }
   }
   return null
+}
+
+/**
+ * The anchor of an entity's annotations, such as its used mark (3.16.10): where a glyph that
+ * constrains it alone sits, on a curve, or at a point entity's position.
+ */
+export function entityAnchor(entity: string, solution: SketchSolution): GlyphAnchor | null {
+  return curveAnchor(solution, entity) ?? pointAnchor(solution, entity)
 }
 
 /** The text of a dimension label (3.16.2): ⌀ and R prefixes, ° for angles, fx for formulas, and parentheses for reference dimensions. */

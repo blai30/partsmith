@@ -248,6 +248,7 @@ const BACKGROUND_REQUESTS: readonly CoreRequest[] = [
       app.core.measure(documentHandle, { kind: 'body', body: 'b-cube' }),
   },
   { type: 'evaluate', send: (app, documentHandle) => app.core.evaluate(documentHandle, '1 mm') },
+  { type: 'list_uses', send: (app, documentHandle) => app.core.listUses(documentHandle) },
 ]
 
 /** One request of each of the commands U-171 names that the user waits on (4.4). */
@@ -306,6 +307,7 @@ describe('only waited-on requests count (2.5, 3.21, 4.4)', () => {
       'analyze_print',
       'evaluate',
       'list_elements',
+      'list_uses',
       'measure',
       'resolve_references',
     ])

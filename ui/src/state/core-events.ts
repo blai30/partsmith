@@ -75,6 +75,7 @@ function newDocumentState(
     lastRebuildMilliseconds: null,
     bareNumbers: 0,
     ghosts: {},
+    uses: null,
   }
 }
 

@@ -33,7 +33,8 @@ import { ViewportControls, type SelectionFilterKind } from './ViewportControls'
 import { ViewportMenu } from './ViewportMenu'
 import { CanvasLayerContext } from './canvas-layer'
 import { VIEW_ID } from '../layout/focus'
-import { paintRepairOverlay } from '../repair/paint'
+import { CauseGhost } from '../repair/CauseGhost'
+import { paintCauseGhost, paintRepairOverlay } from '../repair/paint'
 import { RepairOverlay } from '../repair/RepairOverlay'
 
 // The 3D view (ui.md 3.2, 3.12 to 3.15): the canvas and its controller under the islands, the
@@ -387,6 +388,7 @@ export function Viewport({ legend = null, children }: ViewportProps) {
       const state = app.store.getState()
       placeFindingMarker(findingMarker.current, focusedFindingPoint(state), frame)
       paintRepairOverlay(overlayElement, frame, state)
+      paintCauseGhost(overlayElement, frame, state)
       // The first frame with the startup document makes the app usable (3.1).
       if (!usableMarked.has(app) && state.core.status === 'ready' && state.document !== null) {
         usableMarked.add(app)
@@ -508,6 +510,7 @@ export function Viewport({ legend = null, children }: ViewportProps) {
           )}
         </svg>
         <RepairOverlay />
+        <CauseGhost />
         {scene === null ? null : <AxisLabels scene={scene} />}
         {scene === null ? null : <PlaneLabels scene={scene} />}
       </div>

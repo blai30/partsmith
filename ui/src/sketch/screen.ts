@@ -1,7 +1,7 @@
 import type { SketchConstraint, SketchSolution } from '../generated/protocol'
 import { framedArea, type ViewWindow } from '../viewport/camera'
-import { glyphAnchor } from './annotations'
-import type { DimensionGeometry } from './annotations'
+import { entityAnchor, glyphAnchor } from './annotations'
+import type { DimensionGeometry, GlyphAnchor } from './annotations'
 import type { PreviewShape } from './drawing'
 import {
   add,
@@ -18,7 +18,8 @@ import {
 import type { SolvedEntity } from './operands'
 
 // The sketch overlay in canvas pixels (ui.md 3.16.2, 3.16.9): sketch geometry projected through the
-// camera into SVG path data, the screen offsets of constraint glyphs, and box selection.
+// camera into SVG path data, the screen offsets of constraint glyphs and used marks, and box
+// selection.
 
 /** The canvas pixel (CSS pixels from the top left) of a sketch point, or null behind the eye. */
 export type Projector = (point: Vector2) => Vector2 | null
@@ -190,27 +191,23 @@ function screenDirection(
 }
 
 /**
- * The canvas pixel at the center of each glyph (3.16.2): its anchor moved 14 pixels (times the UI
- * scale) off the curve on the side facing up the screen, further glyphs on the same anchor 20
- * pixels apart along it; glyphs at a point sit up and to the right of it. Null when the anchor is
+ * The canvas pixel at the center of each anchored chip, in order: its anchor moved 14 pixels (times
+ * the UI scale) off the curve on the side facing up the screen, further chips on the same anchor 20
+ * pixels apart along it; chips at a point sit up and to the right of it. Null when the anchor is
  * not in view.
  */
-export function glyphCenters(
-  constraints: readonly SketchConstraint[],
-  solution: SketchSolution,
+function stackedCenters(
+  anchors: readonly (GlyphAnchor | null)[],
   project: Projector,
   uiScale: number,
-): ReadonlyMap<string, Vector2 | null> {
-  const centers = new Map<string, Vector2 | null>()
+): readonly (Vector2 | null)[] {
   const stacked = new Map<string, number>()
   const offset = GLYPH_OFFSET_PIXELS * uiScale
   const stack = GLYPH_STACK_PIXELS * uiScale
-  for (const constraint of constraints) {
-    const anchor = glyphAnchor(constraint, solution)
+  return anchors.map((anchor) => {
     const pixel = anchor === null ? null : project(anchor.at)
     if (anchor === null || pixel === null) {
-      centers.set(constraint.id, null)
-      continue
+      return null
     }
     const index = stacked.get(anchor.group) ?? 0
     stacked.set(anchor.group, index + 1)
@@ -218,8 +215,7 @@ export function glyphCenters(
       anchor.tangent === null ? null : screenDirection(project, anchor.at, anchor.tangent, pixel)
     if (along === null) {
       const diagonal = offset / Math.SQRT2
-      centers.set(constraint.id, [pixel[0] + diagonal + index * stack, pixel[1] - diagonal])
-      continue
+      return [pixel[0] + diagonal + index * stack, pixel[1] - diagonal]
     }
     // Of the two normals, the one pointing up the screen (or right, for a vertical curve).
     const normal: Vector2 = [-along[1], along[0]]
@@ -227,9 +223,54 @@ export function glyphCenters(
       normal[1] < -1e-9 || (Math.abs(normal[1]) <= 1e-9 && normal[0] > 0)
         ? normal
         : scale(normal, -1)
-    centers.set(constraint.id, add(add(pixel, scale(facing, offset)), scale(along, index * stack)))
+    return add(add(pixel, scale(facing, offset)), scale(along, index * stack))
+  })
+}
+
+/** The centers of the constraint glyphs and of the used marks of a sketch, each by its id. */
+export type AnnotationCenters = {
+  readonly glyphs: ReadonlyMap<string, Vector2 | null>
+  readonly marks: ReadonlyMap<string, Vector2 | null>
+}
+
+/**
+ * The canvas pixel at the center of each constraint glyph (3.16.2) and of each used mark of the
+ * entities `marked` (3.16.10), which follow the glyphs on their anchor. Null when the anchor is not
+ * in view.
+ */
+export function annotationCenters(
+  constraints: readonly SketchConstraint[],
+  marked: readonly string[],
+  solution: SketchSolution,
+  project: Projector,
+  uiScale: number,
+): AnnotationCenters {
+  const centers = stackedCenters(
+    [
+      ...constraints.map((constraint) => glyphAnchor(constraint, solution)),
+      ...marked.map((entity) => entityAnchor(entity, solution)),
+    ],
+    project,
+    uiScale,
+  )
+  return {
+    glyphs: new Map(
+      constraints.map((constraint, index) => [constraint.id, centers[index] ?? null]),
+    ),
+    marks: new Map(
+      marked.map((entity, index) => [entity, centers[constraints.length + index] ?? null]),
+    ),
   }
-  return centers
+}
+
+/** The canvas pixel at the center of each constraint glyph (3.16.2), as `annotationCenters` gives it. */
+export function glyphCenters(
+  constraints: readonly SketchConstraint[],
+  solution: SketchSolution,
+  project: Projector,
+  uiScale: number,
+): ReadonlyMap<string, Vector2 | null> {
+  return annotationCenters(constraints, [], solution, project, uiScale).glyphs
 }
 
 /**

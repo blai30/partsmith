@@ -2,8 +2,10 @@ import type {
   Diagnostic,
   FeatureStatus,
   FixAction,
+  Ghost,
   GhostKind,
   MeshElement,
+  Placement,
   Repair,
   SketchSolution,
 } from '../generated/protocol'
@@ -16,7 +18,7 @@ import { pointAt, type Vector3 } from '../viewport/math'
 
 // Repair mode's data (ui.md 3.7): the current repair of a feature and its numbered candidates, the
 // message action that stores each candidate, found by its label (open issue 18), and the outline
-// a ghost is drawn with.
+// a ghost is drawn with; and the ghost of the cause a `show` action showed (4.2).
 
 export type RepairCandidateView = {
   readonly number: number
@@ -115,14 +117,6 @@ export function repairTitle(repair: Repair): string {
     : MESSAGES.repair_check(description)
 }
 
-/** The ghost buffer an element repair names in the latest recompute, or undefined. */
-export function ghostBuffer(state: AppState, repair: Repair): Float32Array | undefined {
-  const ghost = repair.kind === 'element' ? (repair.ghost ?? null) : null
-  return ghost === null || ghost.frame !== 'world'
-    ? undefined
-    : state.document?.ghosts[ghost.positions]
-}
-
 /**
  * The segments of a ghost's points as world points, two per segment: `lines` as given, the
  * boundary of `triangles` (the triangle sides that belong to one triangle only); empty for
@@ -160,6 +154,89 @@ export function ghostSegments(kind: GhostKind, positions: Float32Array): Float32
     }
   }
   return Float32Array.from(boundary)
+}
+
+/** World points of sketch points on a placement, by sketch buffer: a frame converts each once. */
+const worldBySketchPoints = new WeakMap<
+  Float32Array,
+  { readonly placement: Placement; readonly world: Float32Array }
+>()
+
+/** Sketch points (u, v pairs) as world points (x, y, z triples) on `placement`. */
+function sketchPointsToWorld(placement: Placement, positions: Float32Array): Float32Array {
+  const cached = worldBySketchPoints.get(positions)
+  if (cached?.placement === placement) {
+    return cached.world
+  }
+  const world = new Float32Array((positions.length >> 1) * 3)
+  for (let i = 0; (i + 1) * 2 <= positions.length; i++) {
+    world.set(sketchToWorld(placement, [positions[i * 2] ?? 0, positions[i * 2 + 1] ?? 0]), i * 3)
+  }
+  worldBySketchPoints.set(positions, { placement, world })
+  return world
+}
+
+/**
+ * A ghost's points as world points: `world` points as given, `sketch` points on the plane of the
+ * sketch `sketch` at its latest solved placement; undefined without that sketch's solution.
+ */
+function worldGhostPoints(
+  state: AppState,
+  ghost: Ghost,
+  positions: Float32Array,
+  sketch: string | null,
+): Float32Array | undefined {
+  if (ghost.frame === 'world') {
+    return positions
+  }
+  const placement =
+    sketch === null ? undefined : state.document?.sketches[sketch]?.solution.placement
+  return placement === undefined ? undefined : sketchPointsToWorld(placement, positions)
+}
+
+/**
+ * A repair's ghost from the latest recompute as world points (3.7): an element's display geometry
+ * as given, a region's old outline on the plane of its sketch; undefined without one.
+ */
+export function ghostBuffer(state: AppState, repair: Repair): Float32Array | undefined {
+  const ghost = repair.ghost ?? null
+  const positions = ghost === null ? undefined : state.document?.ghosts[ghost.positions]
+  return ghost === null || positions === undefined
+    ? undefined
+    : worldGhostPoints(state, ghost, positions, repair.kind === 'region' ? repair.sketch : null)
+}
+
+/**
+ * The points of each cause ghost a `show` action showed, from the recompute it was shown in: a
+ * later recompute numbers its ghost buffers anew, while the ghost stays until the selection
+ * changes (4.2).
+ */
+const shownGhostPoints = new WeakMap<Ghost, Float32Array>()
+
+/** Keeps the points of a cause's ghost as the latest recompute gives them, for a `show` of it (4.2). */
+export function keepCauseGhost(state: AppState, ghost: Ghost): void {
+  const positions = state.document?.ghosts[ghost.positions]
+  if (positions !== undefined) {
+    shownGhostPoints.set(ghost, positions)
+  }
+}
+
+/**
+ * The ghost of the cause line whose `show` action ran (4.2) in world points, with how they are
+ * joined: a `sketch` ghost lies on the plane of the shown sketch at its latest solved placement.
+ * Undefined while nothing such is shown, or when its points or sketch are not there.
+ */
+export function causeGhost(
+  state: AppState,
+): { readonly kind: GhostKind; readonly positions: Float32Array } | undefined {
+  const shown = state.shown
+  const ghost = shown?.ghost ?? null
+  const kept = ghost === null ? undefined : shownGhostPoints.get(ghost)
+  const positions =
+    shown === null || ghost === null || kept === undefined
+      ? undefined
+      : worldGhostPoints(state, ghost, kept, shown.feature)
+  return ghost === null || positions === undefined ? undefined : { kind: ghost.kind, positions }
 }
 
 /** Repair mode as shown (3.7): the feature, its repairs, and its current repair with candidates. */

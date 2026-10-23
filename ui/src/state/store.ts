@@ -19,6 +19,7 @@ import type {
   PrintReport,
   RegionInfo,
   SketchParams,
+  Use,
 } from '../generated/protocol'
 import type { JsonSchema } from '../inspector/model'
 import { startsNarrow } from '../layout/docking'
@@ -121,7 +122,12 @@ export type DocumentState = {
   readonly bareNumbers: number
   /** The ghost buffers of the latest `recomputed` (2.7), by buffer index. */
   readonly ghosts: Readonly<Record<number, Float32Array>>
+  /** The latest `list_uses` result and the revision it describes, or null before the first (3.9). */
+  readonly uses: UsesState | null
 }
+
+/** A `list_uses` result and the document revision it describes (3.9). */
+export type UsesState = { readonly revision: number; readonly uses: readonly Use[] }
 
 export type MeshSummary = {
   readonly meshId: number
@@ -156,12 +162,15 @@ export type SelectionItem = {
 
 export type OriginName = 'XY' | 'XZ' | 'YZ' | 'X' | 'Y' | 'Z' | 'O'
 
+/** The kinds of sketch entities the M1 UI draws and selects. */
+export type SketchEntityType = 'point' | 'line' | 'circle' | 'arc'
+
 export type SketchItemReference =
   | {
       readonly kind: 'entity'
       readonly sketch: string
       readonly entity: string
-      readonly entityType: 'point' | 'line' | 'circle' | 'arc'
+      readonly entityType: SketchEntityType
     }
   | { readonly kind: 'point'; readonly sketch: string; readonly point: PointRef }
   | { readonly kind: 'constraint'; readonly sketch: string; readonly constraint: string }
@@ -239,7 +248,15 @@ export type SketchSession = {
   readonly dragging: boolean
   /** Camera before enterSketch moved it, for leaving the sketch (3.16.11); null during plane picking. */
   readonly cameraBefore: Camera | null
+  /**
+   * The `entity_used` hint of the last Delete (3.16.10), shown in the sketch hint for 8 s or until
+   * the next step prompt; absent or null for none.
+   */
+  readonly notice?: SketchNotice | null
 }
+
+/** A hint in place of the sketch's step prompt (3.16.10); each one is a new object. */
+export type SketchNotice = { readonly message: string }
 
 export type PrintState = {
   readonly report: PrintReport | null

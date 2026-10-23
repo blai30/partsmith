@@ -8,12 +8,15 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
+  type RefObject,
 } from 'react'
 import { editFeature } from '../app/actions/command'
 import { openSidePanel, togglePanel } from '../app/actions/panels'
+import { select } from '../app/actions/selection'
 import {
   deleteFeatures,
   moveFeature,
+  refreshUses,
   renameFeature,
   setRollback,
   setSuppressed,
@@ -36,12 +39,19 @@ import { RenameField } from '../layout/RenameField'
 import { useUiRequest } from '../layout/requests'
 import { arrowTarget, rovingTabStop } from '../layout/roving'
 import { keepInViewHorizontally } from '../layout/scroll'
-import { counted } from '../messages'
+import { counted, MESSAGES } from '../messages'
 import { rowSeverity } from '../problems/problems'
-import { selectCommandBlock, selectProblemCount, selectProblems } from '../state/selectors'
+import {
+  selectCommandBlock,
+  selectFeatureLabel,
+  selectProblemCount,
+  selectProblems,
+} from '../state/selectors'
+import type { AppState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
 import { itemStatus, markerText, statusText } from './strip'
 import { useStripDrag } from './use-strip-drag'
+import { dropWarning, usersOf, usesAreCurrent, type DropWarning } from './uses'
 
 // The timeline (ui.md 3.9): the features in timeline order with the rollback marker in its gap,
 // reordering by drag, inline rename, a context menu, and the problems count. The strip is a
@@ -333,7 +343,32 @@ type FeatureMenuOptions = {
   readonly targets: readonly string[]
   /** An open feature command blocks every timeline edit (3.7). */
   readonly blocked: boolean
+  /** "Used by {labels}" (3.9), or null when nothing uses the feature or its uses are not known. */
+  readonly usedBy: string | null
   readonly onRename: (id: string) => void
+}
+
+/**
+ * The `used_by` text of the features that use `feature` (3.9), once the uses of the current
+ * revision are known; null before, and when nothing uses it.
+ */
+function usedByText(state: AppState, feature: string): string | null {
+  const users = usesAreCurrent(state) ? usersOf(state, feature) : []
+  return users.length === 0
+    ? null
+    : MESSAGES.used_by(users.map((user) => selectFeatureLabel(state, user)))
+}
+
+/** Selects the features that use `feature`, which highlights what they made (3.6, 3.9). */
+function selectUsers(app: App, feature: string): void {
+  const state = app.store.getState()
+  select(
+    app,
+    usersOf(state, feature).map((user) =>
+      featureSelectionItem(user, selectFeatureLabel(state, user)),
+    ),
+    'replace',
+  )
 }
 
 /** The context menu (3.9) of the timeline item of `record`, at `index` in the timeline. */
@@ -341,9 +376,21 @@ function featureMenuEntries(
   app: App,
   record: FeatureRecord,
   index: number,
-  { targets, blocked, onRename }: FeatureMenuOptions,
+  { targets, blocked, usedBy, onRename }: FeatureMenuOptions,
 ): MenuEntry[] {
   const suppressed = record.suppressed === true
+  const usedByEntries: MenuEntry[] =
+    usedBy === null
+      ? []
+      : [
+          {
+            kind: 'item',
+            label: usedBy,
+            onSelect: () => {
+              selectUsers(app, record.id)
+            },
+          },
+        ]
   return [
     {
       kind: 'item',
@@ -369,6 +416,7 @@ function featureMenuEntries(
         setSuppressed(app, targets, !suppressed).catch(reportFailure('Suppressing'))
       },
     },
+    ...usedByEntries,
     {
       kind: 'item',
       label: 'Roll back to here',
@@ -459,15 +507,28 @@ function Strip() {
     }
   }, [records, position])
 
-  const { dragging, bar, ghost, startPress, onPointerMove, onPointerUp, onPointerCancel } =
-    useStripDrag(strip, {
-      // The timeline drag and the marker do not start during a feature command (3.7).
-      canPress: () => renaming === null && app.store.getState().command === null,
-      onRollback: (index) => startRollbackDrag(app, index),
-      onMove: (featureId, target) => {
-        moveFeature(app, featureId, target).catch(reportFailure('Reordering'))
-      },
-    })
+  const {
+    dragging,
+    warning,
+    bar,
+    ghost,
+    hint,
+    startPress,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+  } = useStripDrag(strip, {
+    // The timeline drag and the marker do not start during a feature command (3.7).
+    canPress: () => renaming === null && app.store.getState().command === null,
+    onRollback: (index) => startRollbackDrag(app, index),
+    onFeatureDrag: () => refreshUses(app),
+    dropWarning: (featureId, gap) => dropWarning(app.store.getState(), featureId, gap),
+    onMove: (featureId, target) => {
+      moveFeature(app, featureId, target).catch(reportFailure('Reordering'))
+    },
+  })
+  // The open menu lists the features that use its feature, once their uses are known (3.9).
+  const usedBy = useAppState((state) => (menuFor === null ? null : usedByText(state, menuFor)))
 
   function labelOf(id: string): string {
     return recipe === null ? id : featureLabel(recipe, id, catalog)
@@ -508,6 +569,7 @@ function Strip() {
       : featureMenuEntries(app, menuRecord, menuIndex, {
           targets: targetsOf(menuRecord.id),
           blocked,
+          usedBy,
           onRename: setRenaming,
         })
 
@@ -546,6 +608,7 @@ function Strip() {
         onMenu={(featureId, button) => {
           menuAnchor.current = button
           setMenuFor(featureId)
+          refreshUses(app).catch(reportFailure('Asking what the features use'))
         }}
         onRename={setRenaming}
       />
@@ -557,65 +620,116 @@ function Strip() {
   }
 
   return (
-    <div
-      ref={strip}
-      role="toolbar"
-      aria-label="Features"
-      tabIndex={-1}
-      onKeyDown={moveFocus}
-      onFocus={(event) => {
-        if (event.target.hasAttribute('data-strip-item')) {
-          lastFocused.current = event.target
-        }
-      }}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
-      className="relative flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1"
-    >
-      {children}
-      {records.length === 0 ? (
-        <p
-          data-testid="timeline-empty"
-          className={clsx('px-2 text-xs', COLOR_CLASSES.textMuted.foreground)}
-        >
-          Each step you add appears here. Double-click a step to change it later.
-        </p>
-      ) : null}
-      {dragging === null ? null : (
-        <div
-          ref={bar}
-          aria-hidden="true"
-          className={clsx(
-            'pointer-events-none absolute top-2 left-0 h-10 w-0.5',
-            COLOR_CLASSES.accent.background,
-          )}
-        />
-      )}
-      {dragging === null || dragging === 'marker' ? null : (
-        <div
-          ref={ghost}
-          aria-hidden="true"
-          className={clsx(
-            'pointer-events-none absolute top-2 left-0 flex size-10 items-center justify-center rounded-md border opacity-80 shadow-lg',
-            COLOR_CLASSES.surface.background,
-            COLOR_CLASSES.accent.border,
-            COLOR_CLASSES.elevation.shadow,
-          )}
-        />
-      )}
-      <Menu
-        label="Feature"
-        testId="context-menu"
-        open={menuRecord !== undefined}
-        anchor={menuAnchor}
-        entries={menuEntries}
-        onOpenChange={(open) => {
-          if (!open) {
-            setMenuFor(null)
+    <>
+      <div
+        ref={strip}
+        role="toolbar"
+        aria-label="Features"
+        tabIndex={-1}
+        onKeyDown={moveFocus}
+        onFocus={(event) => {
+          if (event.target.hasAttribute('data-strip-item')) {
+            lastFocused.current = event.target
           }
         }}
-      />
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        className="relative flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1"
+      >
+        {children}
+        {records.length === 0 ? (
+          <p
+            data-testid="timeline-empty"
+            className={clsx('px-2 text-xs', COLOR_CLASSES.textMuted.foreground)}
+          >
+            Each step you add appears here. Double-click a step to change it later.
+          </p>
+        ) : null}
+        {dragging === null ? null : (
+          <div
+            ref={bar}
+            aria-hidden="true"
+            className={clsx(
+              'pointer-events-none absolute top-2 left-0 h-10 w-0.5',
+              warning === null
+                ? COLOR_CLASSES.accent.background
+                : COLOR_CLASSES.warningMark.background,
+            )}
+          />
+        )}
+        {dragging === null || dragging === 'marker' ? null : (
+          <div
+            ref={ghost}
+            aria-hidden="true"
+            className={clsx(
+              'pointer-events-none absolute top-2 left-0 flex size-10 items-center justify-center rounded-md border opacity-80 shadow-lg',
+              COLOR_CLASSES.surface.background,
+              COLOR_CLASSES.accent.border,
+              COLOR_CLASSES.elevation.shadow,
+            )}
+          />
+        )}
+        <Menu
+          label="Feature"
+          testId="context-menu"
+          open={menuRecord !== undefined}
+          anchor={menuAnchor}
+          entries={menuEntries}
+          onOpenChange={(open) => {
+            if (!open) {
+              setMenuFor(null)
+            }
+          }}
+        />
+      </div>
+      {dragging === null || dragging === 'marker' ? null : (
+        <DropHint ref={hint} warning={warning} />
+      )}
+    </>
+  )
+}
+
+type DropHintProps = {
+  readonly ref: RefObject<HTMLDivElement | null>
+  readonly warning: DropWarning | null
+}
+
+/**
+ * The drop warning's chip above the insertion bar while a feature is dragged (3.9): a live region
+ * from the drag's start, so a warning is announced when it appears, and transparent while empty.
+ */
+function DropHint({ ref, warning }: DropHintProps) {
+  const text = useAppState((state) => {
+    if (warning === null) {
+      return ''
+    }
+    const user = selectFeatureLabel(state, warning.user)
+    const feature = selectFeatureLabel(state, warning.feature)
+    return MESSAGES.drop_breaks_use(
+      user,
+      warning.what,
+      feature,
+      warning.moved === warning.user ? 'user' : 'feature',
+    )
+  })
+  return (
+    <div
+      ref={ref}
+      data-testid="drop-hint"
+      // ui.md 3.9 names the status role of this chip.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="status"
+      className={clsx(
+        'pointer-events-none absolute bottom-full left-0 mb-2 rounded-lg border px-2 py-1 text-xs whitespace-nowrap shadow-lg',
+        COLOR_CLASSES.surface.background,
+        COLOR_CLASSES.forcedEdge.border,
+        COLOR_CLASSES.elevation.shadow,
+        COLOR_CLASSES.text.foreground,
+        text === '' && 'opacity-0',
+      )}
+    >
+      {text}
     </div>
   )
 }

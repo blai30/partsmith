@@ -17,7 +17,7 @@ import {
   dimensionPaths,
   drawInputsPlacement,
   entityPoints,
-  glyphCenters,
+  annotationCenters,
   insetBox,
   insideBox,
   polylinePath,
@@ -55,6 +55,8 @@ const TYPING_INSET_PIXELS = 8
 export type OverlayPaint = {
   /** Center of each constraint glyph by constraint id; null hides it. */
   readonly glyphs: ReadonlyMap<string, Vector2 | null>
+  /** Center of each used mark by entity id (3.16.10); null hides it. */
+  readonly usedMarks: ReadonlyMap<string, Vector2 | null>
   /** Center of each dimension label by constraint id; null hides it. */
   readonly labels: ReadonlyMap<string, Vector2 | null>
   /** Text of each dimension label by constraint id: its solved value changes during a drag. */
@@ -88,6 +90,7 @@ export type OverlayPaint = {
 
 export const EMPTY_PAINT: OverlayPaint = {
   glyphs: new Map(),
+  usedMarks: new Map(),
   labels: new Map(),
   labelTexts: new Map(),
   issues: [],
@@ -125,6 +128,8 @@ export type PaintSnapshot = {
   readonly tolerance: number
   /** The sketch's stored constraints, in stored order. */
   readonly constraints: readonly SketchConstraint[]
+  /** The entities that later features use, which show a used mark (3.16.10), in stored order. */
+  readonly usedEntities: readonly string[]
   readonly showConstraints: boolean
   /** Labels placed this session by constraint id; the others go to their default position. */
   readonly labelPositions: ReadonlyMap<string, Vector2>
@@ -166,20 +171,24 @@ function constrainedItems(
   return { points, curves }
 }
 
-/** The constraint glyphs' centers, hidden outside the free area, or none while constraints are hidden. */
-function glyphLayer(snapshot: PaintSnapshot): OverlayPaint['glyphs'] {
+/**
+ * The centers of the constraint glyphs and of the used marks after them, hidden outside the free
+ * area, or none while constraints are hidden (3.16.2, 3.16.10).
+ */
+function glyphLayer(snapshot: PaintSnapshot): Pick<OverlayPaint, 'glyphs' | 'usedMarks'> {
   if (!snapshot.showConstraints) {
-    return new Map<string, Vector2 | null>()
+    return { glyphs: new Map(), usedMarks: new Map() }
   }
-  const centers = glyphCenters(
+  const centers = annotationCenters(
     snapshot.constraints.filter(hasGlyph),
+    snapshot.usedEntities,
     snapshot.solution,
     snapshot.project,
     snapshot.uiScale,
   )
-  return new Map(
-    [...centers].map(([id, center]) => [id, insideBox(center, snapshot.freeArea)] as const),
-  )
+  const inside = (map: ReadonlyMap<string, Vector2 | null>) =>
+    new Map([...map].map(([id, center]) => [id, insideBox(center, snapshot.freeArea)] as const))
+  return { glyphs: inside(centers.glyphs), usedMarks: inside(centers.marks) }
 }
 
 /**
@@ -353,7 +362,7 @@ export function axisLabelLayer(snapshot: PaintSnapshot): OverlayPaint['axisLabel
 export function overlayPaint(snapshot: PaintSnapshot): OverlayPaint {
   const { labels, labelTexts, dimensionLines, dimensionArrows } = dimensionLayer(snapshot)
   return {
-    glyphs: glyphLayer(snapshot),
+    ...glyphLayer(snapshot),
     labels,
     labelTexts,
     issues: issueRings(snapshot.solution).map((ring) =>

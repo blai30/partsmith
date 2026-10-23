@@ -97,6 +97,7 @@ export const BACKGROUND_COMMANDS: ReadonlySet<Command['type']> = new Set([
   'resolve_references',
   'measure',
   'evaluate',
+  'list_uses',
 ])
 
 /** Whether the user waits on a request: every one but a background request (4.4). */

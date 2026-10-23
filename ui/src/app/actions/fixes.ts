@@ -10,7 +10,7 @@ import { featureSelectionItem } from '../../inspector/selection-values'
 import { selectionFieldFor } from '../../inspector/status'
 import { MESSAGES } from '../../messages'
 import { frameRepair } from '../../repair/frame'
-import { selectRepairMode } from '../../repair/repair'
+import { causeGhost, keepCauseGhost, selectRepairMode } from '../../repair/repair'
 import { entitySelectionItem } from '../../sketch/hit'
 import {
   selectFeatureLabel,
@@ -22,6 +22,7 @@ import {
 } from '../../state/selectors'
 import type { Notification, SelectionItem } from '../../state/store'
 import { DEFAULT_FIT_MARGIN } from '../../viewport/camera'
+import { extendBounds, pointsOf } from '../../viewport/math'
 import type { App } from '../createApp'
 import { reportFailure } from '../report'
 import { applyFixInCommand, cancelCommandImplicitly, editFeature, setActiveField } from './command'
@@ -123,12 +124,22 @@ async function shownItems(
     .map((face) => elementSelectionItem(app, face))
 }
 
-/** Frames selection items in the viewport; nothing without a viewport or anything drawn. */
-function frameItems(app: App, items: readonly SelectionItem[]): void {
+/**
+ * Frames selection items in the viewport, with the shown cause's ghost (4.2); nothing without a
+ * viewport or anything drawn.
+ */
+function frameShown(app: App, items: readonly SelectionItem[]): void {
   const viewport = app.viewport()
-  const bounds = items.length === 0 ? null : (viewport?.itemBounds(items) ?? null)
-  if (viewport !== null && bounds !== null) {
-    viewport.zoomToBounds(bounds, DEFAULT_FIT_MARGIN)
+  if (viewport === null) {
+    return
+  }
+  const ghost = causeGhost(app.store.getState())
+  const bounds = extendBounds(
+    items.length === 0 ? null : viewport.itemBounds(items),
+    ghost === undefined ? [] : pointsOf(ghost.positions),
+  )
+  if (bounds !== null) {
+    viewport.zoomToBounds({ min: [...bounds.min], max: [...bounds.max] }, DEFAULT_FIT_MARGIN)
   }
 }
 
@@ -136,7 +147,7 @@ function frameItems(app: App, items: readonly SelectionItem[]): void {
  * A `show` action (4.2): during a feature command, a show of the command's own feature frames its
  * preview and one of another feature first ends the command as an implicit cancel (3.7). Then the
  * feature is selected, or the entity it names while the sketch still has it, `AppState.shown`
- * keeps the cause's ghost, and what it made is framed.
+ * keeps the cause's ghost, and what it made is framed with that ghost.
  */
 async function show(
   app: App,
@@ -168,9 +179,12 @@ async function show(
           record.type === 'datum_plane' ? 'datum_plane' : 'feature',
         )
       : entitySelectionItem(feature, drawn)
+  if (ghost !== null) {
+    keepCauseGhost(state, ghost)
+  }
   // One change, so the selection change does not clear what is shown.
   app.store.setState({ selection: [item], shown: { feature, entity, ghost } })
-  frameItems(app, await shownItems(app, record, drawn))
+  frameShown(app, await shownItems(app, record, drawn))
 }
 
 /**

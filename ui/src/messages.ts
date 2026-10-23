@@ -1,11 +1,15 @@
 import type { Platform } from './app/createApp'
 import { formatShortcut } from './commands/shortcuts'
+import type { SketchEntityType } from './state/store'
 
 // UI-owned messages (ui.md 4.3), each a function of its placeholders. Core messages are shown verbatim
 // and only wrapped by these templates; file names appear as given, without quotation marks. A
 // shortcut placeholder is rendered with `formatShortcut` for the platform.
 
 const BROWSERS = 'Chrome, Edge, Firefox or Safari'
+
+/** The most labels `used_by` names before it counts the rest (3.9). */
+const MAXIMUM_USED_BY_LABELS = 3
 
 export const MESSAGES = {
   unsupported_webgl2: () =>
@@ -151,6 +155,26 @@ export const MESSAGES = {
   attach_label: (label: string) => `Attach '${label}'`,
   attach_after: (label: string, feature: string) =>
     `'${label}' cannot be placed on '${feature}', which comes after it. Pick an origin plane, or a flat face or datum plane made before '${label}'.`,
+  /**
+   * `what` names the used thing with its article ("an edge", 3.9); `dragged` says which of the two
+   * features is being dragged: the user, or the used feature.
+   */
+  drop_breaks_use: (user: string, what: string, feature: string, dragged: 'user' | 'feature') =>
+    `'${user}' uses ${what} made by '${feature}'. Drop ${dragged === 'user' ? `below '${feature}'` : `above '${user}'`} instead?`,
+  /** `labels` are the users' labels, unquoted, in timeline order. */
+  used_by: (labels: readonly string[]) => {
+    const named = labels
+      .slice(0, MAXIMUM_USED_BY_LABELS)
+      .map((label) => `'${label}'`)
+      .join(', ')
+    const more = labels.length - MAXIMUM_USED_BY_LABELS
+    return more > 0 ? `Used by ${named} and ${String(more)} more` : `Used by ${named}`
+  },
+  /** `what` is the noun without its article ("edge", 3.16.10), `entity` the deleted entity's type. */
+  entity_used: (user: string, what: string, entity: SketchEntityType) =>
+    entity === 'point'
+      ? `'${user}' uses the ${what} made from this point.`
+      : `'${user}' uses the ${what} made from this ${entity}. Draw its replacement in the same place and '${user}' will follow it.`,
   /** `unit` is the current unit and `count` the document's `bareNumbers` (3.21). */
   keep_sizes: (unit: string, count: number) =>
     `Keep sizes: add ${unit} to the ${counted(count, 'number')} without a unit`,

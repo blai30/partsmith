@@ -1,7 +1,9 @@
 import { createLatestOnly } from '../../core/queue'
-import type { Edit, FeatureRecord } from '../../generated/protocol'
+import type { DocHandle, Edit, FeatureRecord, Use } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { selectFeatureLabel } from '../../state/selectors'
+import type { AppStore } from '../../state/store'
+import { usesAreCurrent } from '../../timeline/uses'
 import type { App } from '../createApp'
 import { coreUndo } from './document'
 import {
@@ -15,7 +17,8 @@ import {
 import { notify } from './notifications'
 import { withOptional } from './records'
 
-// Timeline edits (ui.md 3.9): rollback marker, reorder, suppress, delete and rename.
+// Timeline edits (ui.md 3.9): rollback marker, reorder, suppress, delete and rename, and the uses
+// of every feature that the drop warning, "Used by" and the used marks of sketches read.
 
 function recordsOf(app: App): readonly FeatureRecord[] {
   return documentOf(app)?.recipe.features ?? []
@@ -249,4 +252,82 @@ export async function renameFeature(app: App, featureId: string, name: string): 
           ],
         }
   })
+}
+
+/** The document revision a `list_uses` request asks about. */
+type UsesInput = { readonly documentHandle: DocHandle; readonly revision: number }
+
+/** The `list_uses` requests of one app: one at a time, the newest waiting (2.5). */
+type UsesRequests = {
+  /** Asks for the uses of `input` unless the request in flight or waiting already does. */
+  submit(input: UsesInput): void
+  /** Resolves when no request is left. */
+  flush(): Promise<void>
+}
+
+const usesRequestsByStore = new WeakMap<AppStore, UsesRequests>()
+
+function sameRevision(first: UsesInput, second: UsesInput): boolean {
+  return first.documentHandle === second.documentHandle && first.revision === second.revision
+}
+
+function usesRequestsOf(app: App): UsesRequests {
+  const existing = usesRequestsByStore.get(app.store)
+  if (existing !== undefined) {
+    return existing
+  }
+  const latest = createLatestOnly<UsesInput, readonly Use[]>(
+    ({ documentHandle }) => app.core.listUses(documentHandle),
+    (uses, { documentHandle, revision }) => {
+      // Stored only while the revision it describes is still the document's.
+      app.store.setState((state) =>
+        state.document?.documentHandle === documentHandle && state.document.revision === revision
+          ? { document: { ...state.document, uses: { revision, uses } } }
+          : {},
+      )
+    },
+    () => {
+      // Uses that are not known warn about nothing (3.9); the next refresh asks again.
+    },
+  )
+  // The input submitted last: while `latest` is busy, the request whose answer comes next.
+  let submitted: UsesInput | null = null
+  const requests: UsesRequests = {
+    submit(input) {
+      if (latest.busy && submitted !== null && sameRevision(submitted, input)) {
+        return
+      }
+      submitted = input
+      latest.submit(input)
+    },
+    flush: () => latest.flush(),
+  }
+  usesRequestsByStore.set(app.store, requests)
+  return requests
+}
+
+/**
+ * Asks the core for `list_uses` when `document.uses` is older than the document's revision (3.9),
+ * outside the mutation queue, since it changes nothing; resolves when the uses are current, or
+ * when the request for the current revision failed (the next refresh asks again).
+ */
+export function refreshUses(app: App): Promise<void> {
+  return refreshUsesAfter(app, null)
+}
+
+/** `refreshUses` once `asked` was asked for: a revision that moved on since is asked for in turn. */
+async function refreshUsesAfter(app: App, asked: UsesInput | null): Promise<void> {
+  const document = documentOf(app)
+  if (document === null || usesAreCurrent(app.store.getState())) {
+    return
+  }
+  const input = { documentHandle: document.documentHandle, revision: document.revision }
+  if (asked !== null && sameRevision(asked, input)) {
+    // The request for this revision failed; the next refresh asks again.
+    return
+  }
+  const requests = usesRequestsOf(app)
+  requests.submit(input)
+  await requests.flush()
+  await refreshUsesAfter(app, input)
 }

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { editFeature } from '../app/actions/command'
 import { clearSelection, select } from '../app/actions/selection'
 import type { App } from '../app/createApp'
+import { installSelectionUpkeep } from '../app/selection-upkeep'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import type {
   Cause,
@@ -55,6 +56,7 @@ const HEIGHT = 600
 
 let restoreSize: () => void
 let frames: FrameQueue
+let stopUpkeep: () => void = () => undefined
 
 beforeEach(installPopoverPolyfill)
 
@@ -66,6 +68,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  stopUpkeep()
   restoreSize()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -165,9 +168,13 @@ function lostDocument(
 
 type Harness = { readonly app: App; readonly core: FakeCoreApi }
 
-/** The whole shell over `document`, with `state` on top of a ready app. */
+/**
+ * The whole shell over `document`, with `state` on top of a ready app, kept as `createApp` keeps
+ * it: what a `show` selected stops being shown once the selection changes.
+ */
 function shell(document: DocumentState, state: Partial<AppState> = {}): Harness {
   const harness = createModelApp({ state: readyState(document, state) })
+  stopUpkeep = installSelectionUpkeep(harness.app)
   renderWithApp(harness.app)
   flush()
   return harness
