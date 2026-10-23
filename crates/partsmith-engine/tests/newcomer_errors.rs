@@ -5,9 +5,9 @@
 //! applied with `apply_fix`, gives the corpus's result in one undo entry; NC09 switches the units with
 //! `set_document_units`. A test named `t150_ncNN_...` checks scenario NCNN.
 //!
-//! The cause lines of NC08 and NC11 (engine.md section 3.21), and NC08's "Then", which applies the revert its cause
-//! line offers, come with phase 4 of the reference stability plan. The parts only the UI shows (NC01's Extrude disabled
-//! reason, NC09's units control) are ui.md's E-110 and E-118.
+//! NC08 and NC11 also give cause lines (engine.md section 3.21), and NC08's "Then" applies the revert its cause line
+//! offers. The parts only the UI shows (NC01's Extrude disabled reason, NC09's units control) are ui.md's E-110 and
+//! E-118.
 
 use crate::common;
 use crate::corpus;
@@ -18,9 +18,9 @@ use common::{
 };
 use corpus::{
     above_the_block, actions, after_edit, apply_as_one_entry, assert_ok_without_messages,
-    assert_undo_restores, box_record, cube20_front_top, document, face_names, fillet, labels,
-    messages, nc01, nc02, nc03, nc04, nc05, nc06, nc07, nc08, nc09, nc10, nc11, nc12, opened,
-    picked, record, solution_messages, volume,
+    assert_undo_restores, box_record, cause, cube20_front_top, document, face_names, fillet,
+    labels, labels_and_kinds, messages, nc01, nc02, nc03, nc04, nc05, nc06, nc07, nc08, nc09, nc10,
+    nc11, nc12, opened, picked, record, solution_messages, volume,
 };
 use partsmith_engine::Session;
 use pretty_assertions::assert_eq;
@@ -371,7 +371,7 @@ fn t150_nc08_a_dimension_value_the_sketch_cannot_take_is_not_solved() {
 
     let (_, edited) = after_edit(&mut session, &nc08());
 
-    // The message offers nothing itself: its cause line offers the revert and Undo (phase 4).
+    // The message offers nothing itself: its cause line offers the revert and Undo.
     assert_only_message(
         &edited,
         "f-sk1",
@@ -383,6 +383,50 @@ fn t150_nc08_a_dimension_value_the_sketch_cannot_take_is_not_solved() {
         ),
         &[],
     );
+}
+
+/// The label and run kind of each action, as owned pairs.
+fn offered(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    pairs
+        .iter()
+        .map(|(label, kind)| ((*label).to_owned(), (*kind).to_owned()))
+        .collect()
+}
+
+#[test]
+fn t150_nc08_the_cause_names_the_changed_dimension_and_offers_its_revert() {
+    let mut session = session();
+
+    let (_, edited) = after_edit(&mut session, &nc08());
+
+    let found = cause(&only_message(&edited, "f-sk1"));
+    assert_eq!(
+        found["text"],
+        "This started after you changed Distance of 'Sketch 1' from 50 mm to 80 mm."
+    );
+    assert_eq!(found["feature"], "f-sk1");
+    assert_eq!(
+        labels_and_kinds(&found),
+        offered(&[
+            ("Set Distance of 'Sketch 1' back to 50 mm", "apply"),
+            ("Undo", "undo")
+        ])
+    );
+}
+
+#[test]
+fn t150_nc08_setting_the_dimension_back_solves_the_sketch() {
+    let mut session = session();
+    let scenario = nc08();
+    let (doc, edited) = after_edit(&mut session, &scenario);
+    let before = saved_text(&mut session, doc);
+    let revert = actions(&cause(&only_message(&edited, "f-sk1")))[0].clone();
+
+    let applied = apply_as_one_entry(&mut session, doc, &revert);
+
+    assert_ok_without_messages(&applied, &["f-sk1"]);
+    assert_eq!(saved_text(&mut session, doc), scenario.setup);
+    assert_undo_restores(&mut session, doc, &revert["label"], &before);
 }
 
 // NC09 Units switch with bare numbers.
@@ -541,6 +585,27 @@ fn t150_nc11_a_deleted_line_is_one_problem_whose_downstream_feature_names_its_ro
         &["Show 'Extrude 1'"],
     );
     assert_eq!(only_message(&edited, "f-fil1")["root"], "f-ext1");
+}
+
+#[test]
+fn t150_nc11_both_messages_name_the_deleted_line_as_their_cause() {
+    let mut session = session();
+
+    let (_, edited) = after_edit(&mut session, &nc11());
+
+    let cause_line =
+        "This started after you deleted the line from (80, 50) to (0, 50) in 'Sketch 1'.";
+    let lost = cause(&only_message(&edited, "f-ext1"));
+    assert_eq!(lost["text"], cause_line);
+    assert_eq!(
+        labels_and_kinds(&lost),
+        offered(&[("Undo", "undo"), ("Show the line", "show")])
+    );
+    assert_eq!(
+        actions(&lost)[1]["run"],
+        json!({"kind": "show", "feature": "f-sk1", "entity": "e-3"})
+    );
+    assert_eq!(cause(&only_message(&edited, "f-fil1"))["text"], cause_line);
 }
 
 // NC12 Hole beside the body.

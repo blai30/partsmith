@@ -25,7 +25,7 @@ use crate::feature::Feature;
 use face::{Element, FaceFacts, FaceReader, Faces, copy_noun};
 use maker::{Maker, NOT_IN_DOCUMENT, world_coordinates};
 
-pub use maker::sketch_coordinates;
+pub use maker::{entity_words, sketch_coordinates};
 pub(crate) use maker::stored_params;
 
 /// The words for the faces, edges or vertices of `body` one message or candidate list names, in order (section

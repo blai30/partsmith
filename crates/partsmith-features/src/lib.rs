@@ -49,7 +49,8 @@ pub use error::{
     Because, Bound, Diagnosis, DocumentNames, Explanation, FallbackCause, FeatureError,
     FeatureWarning, FieldRef, Fix, IgnoredReason, Limit, Loss, LossCandidate, Names, NoEffectHow,
     Noun, Place, Placed, RegionLost, RenderContext, Repair, Severity, describe_copy,
-    describe_elements, describe_face, format_value, joined, made_from_line, sketch_coordinates,
+    describe_elements, describe_face, entity_words, format_value, joined, made_from_line,
+    sketch_coordinates,
 };
 pub use feature::{FEATURE_API_VERSION, Feature};
 pub use naming::{Named, modified_sources, name_by_history, name_shape, topology_info};

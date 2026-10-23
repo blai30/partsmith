@@ -222,6 +222,11 @@ pub enum Command {
         #[serde(default)]
         targets: Vec<MeasureTarget>,
     },
+    /// What every feature uses, from the document alone, without recomputing (engine.md section 3.24).
+    ListUses {
+        /// The document.
+        doc: DocHandle,
+    },
     /// Runs every printability check.
     AnalyzePrint {
         /// The document.
@@ -314,6 +319,7 @@ impl Command {
             Command::PickReference { .. } => "pick_reference",
             Command::ResolveReferences { .. } => "resolve_references",
             Command::Measure { .. } => "measure",
+            Command::ListUses { .. } => "list_uses",
             Command::AnalyzePrint { .. } => "analyze_print",
             Command::Export { .. } => "export",
             Command::ImportStep { .. } => "import_step",
@@ -479,6 +485,12 @@ pub enum CommandResult {
     },
     /// Result of `measure`.
     Measure(Measurement),
+    /// Result of `list_uses`.
+    ListUses {
+        /// What every feature uses, sorted by the user's timeline position, then `field`, then `feature`, then
+        /// `entity` (absent first).
+        uses: Vec<Use>,
+    },
     /// Result of `analyze_print`; the full report travels in the `print_health` event.
     AnalyzePrint {
         /// Overall health of the analyzed bodies.
@@ -515,6 +527,21 @@ pub struct CatalogEntry {
     pub manifest: FeatureManifest,
     /// JSON Schema of the feature's params.
     pub params_schema: serde_json::Value,
+}
+
+/// One thing a feature uses (engine.md section 3.24): a feature it links to, or a feature or sketch entity that an
+/// element name in one of its stored references depends on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Use {
+    /// The feature that uses it.
+    pub user: Id,
+    /// JSON Pointer of the field of `user` that names it, relative to the feature record, for example `/edges/0`.
+    pub field: String,
+    /// The feature it uses, or whose element it uses.
+    pub feature: Id,
+    /// The sketch entity of `feature`'s sketch that made the element used (a lateral face's line, a hole's point).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity: Option<Id>,
 }
 
 /// How a reference resolved.

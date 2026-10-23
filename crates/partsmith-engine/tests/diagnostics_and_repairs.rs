@@ -4,9 +4,10 @@
 //! test per scenario.
 //!
 //! Scenarios come from `corpus`: each setup is opened with its references picked, and "after its edit" is the corpus
-//! edit applied as one labeled `apply_edits`, so the actions it offers carry revision 1. Ghosts (section 3.23) and
-//! causes (section 3.21) come with phase 4 of the reference stability plan; until then no repair has a ghost and no
-//! message has a cause, which tests 115 and 116 check where the spec says so.
+//! edit applied as one labeled `apply_edits`, so the actions it offers carry revision 1. Tests 115 and 116 check that a
+//! document opened fresh has no ghost and no cause and that typed statuses leave the display fields out; the ghosts
+//! (section 3.23) and causes (section 3.21) a session makes are tested in `ghosts_uses_and_units.rs` and
+//! `reference_causes.rs`.
 
 use crate::common;
 use crate::corpus;

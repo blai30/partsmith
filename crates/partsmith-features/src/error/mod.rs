@@ -18,7 +18,8 @@ use partsmith_sketch::{DimensionValues, SketchError, SketchFix, SolveIssue};
 use serde_json::Value;
 
 pub use describe::{
-    describe_copy, describe_elements, describe_face, made_from_line, sketch_coordinates,
+    describe_copy, describe_elements, describe_face, entity_words, made_from_line,
+    sketch_coordinates,
 };
 pub use field::FieldRef;
 pub use fix::{Fix, Place};

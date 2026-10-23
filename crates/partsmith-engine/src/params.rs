@@ -4,6 +4,7 @@
 
 use std::cmp::Ordering;
 
+use partsmith_features::FieldRef;
 use partsmith_model::Id;
 use partsmith_naming::Reference;
 use serde_json::{Map, Value};
@@ -24,6 +25,16 @@ pub(crate) fn field_path(pointer: &str) -> String {
         }
     }
     path
+}
+
+/// The JSON Pointer of a field path (features.md section 3.2), the inverse of `field_path`:
+/// `profile.sketch` is `/profile/sketch` and `edges[1]` is `/edges/1`.
+pub(crate) fn field_pointer(path: &str) -> String {
+    FieldRef {
+        path: path.to_string(),
+        label: String::new(),
+    }
+    .pointer()
 }
 
 /// The value at `pointer` of a record's params.
@@ -295,6 +306,13 @@ mod tests {
         assert_eq!(field_path("/extent/expr"), "extent.expr");
         assert_eq!(field_path("/profile/regions/0"), "profile.regions[0]");
         assert_eq!(field_path("/a~1b/c~0d"), "a/b.c~d");
+    }
+
+    #[test]
+    fn field_paths_become_pointers() {
+        assert_eq!(field_pointer("profile.sketch"), "/profile/sketch");
+        assert_eq!(field_pointer("edges[1]"), "/edges/1");
+        assert_eq!(field_pointer(&field_path("/extent/expr")), "/extent/expr");
     }
 
     #[test]

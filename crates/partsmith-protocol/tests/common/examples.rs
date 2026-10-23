@@ -1,8 +1,7 @@
 //! JSON examples copied verbatim from `docs/spec/protocol.md`, plus a few supplementary records so every command type has a request and a result.
 
 /// Every command type of section 2.5, in the order of test 34.
-// `list_uses` joins this list with its own step (reference stability plan, phase 4).
-pub const COMMAND_TYPES: [&str; 33] = [
+pub const COMMAND_TYPES: [&str; 34] = [
     "engine_info",
     "feature_catalog",
     "list_printer_profiles",
@@ -36,6 +35,7 @@ pub const COMMAND_TYPES: [&str; 33] = [
     "rename_parameter",
     "apply_fix",
     "set_document_units",
+    "list_uses",
 ];
 
 /// Every event type of section 2.7, in the order of test 36.
@@ -204,6 +204,12 @@ pub const SET_DOCUMENT_UNITS_REQUEST: &str =
 pub const SET_DOCUMENT_UNITS_RESULT: &str =
     r#"{"type": "set_document_units", "revision": 5, "kept": 4}"#;
 
+/// The `list_uses` request example of section 2.5.
+pub const LIST_USES_REQUEST: &str = r#"{"type": "list_uses", "doc": 1}"#;
+
+/// The `list_uses` result example of section 2.5: a link, then a use of a feature and of its sketch entity.
+pub const LIST_USES_RESULT: &str = r#"{"type": "list_uses", "uses": [{"user": "f-ext1", "field": "/profile/sketch", "feature": "f-sk1"}, {"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1"}, {"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1", "entity": "e-3"}]}"#;
+
 /// The `document_changed` event example of section 2.7: a dirty document after an edit, with `bare_numbers` last.
 pub const DOCUMENT_CHANGED_EVENT: &str = r#"{"kind": "event", "type": "document_changed", "doc": 1, "revision": 4, "document": {"format": "partsmith", "format_version": 2, "units": "mm", "parameters": [{"id": "p-h", "name": "height", "expr": "50 mm"}], "bodies": [{"id": "b-1", "name": "Block"}], "features": [{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20 mm", "30 mm", "height"], "op": "new"}]}, "dirty": true, "undo": "Change height", "transaction_open": false, "bare_numbers": 0}"#;
 
@@ -257,8 +263,7 @@ pub const MESSAGE_EXAMPLES: [&str; 11] = [
 ];
 
 /// The command examples of section 2.5 (request side), in spec order.
-// The `list_uses` example joins with its own step (reference stability plan, phase 4).
-pub const COMMAND_EXAMPLES: [&str; 32] = [
+pub const COMMAND_EXAMPLES: [&str; 33] = [
     r#"{"type": "engine_info"}"#,
     r#"{"type": "feature_catalog"}"#,
     r#"{"type": "list_printer_profiles"}"#,
@@ -285,6 +290,7 @@ pub const COMMAND_EXAMPLES: [&str; 32] = [
     r#"{"type": "resolve_references", "doc": 1, "references": [{"body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}]}"#,
     r#"{"type": "measure", "doc": 1, "targets": [{"kind": "body", "body": "b-1"}]}"#,
     r#"{"type": "measure", "doc": 1, "targets": [{"kind": "element", "body": "b-1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}}]}"#,
+    LIST_USES_REQUEST,
     r#"{"type": "analyze_print", "doc": 1, "orientation": {"kind": "as_modeled"}}"#,
     r#"{"type": "export", "doc": 1, "format": {"kind": "stl", "binary": true, "per_body": false}}"#,
     r#"{"type": "export", "doc": 1, "format": {"kind": "3mf"}, "bodies": ["b-1", "b-2"], "orientation": {"kind": "as_modeled"}}"#,
@@ -294,8 +300,7 @@ pub const COMMAND_EXAMPLES: [&str; 32] = [
 ];
 
 /// The result examples of section 2.5 (the `ok` value of a response), in spec order.
-// The `list_uses` example joins with its own step (reference stability plan, phase 4).
-pub const RESULT_EXAMPLES: [&str; 26] = [
+pub const RESULT_EXAMPLES: [&str; 27] = [
     r#"{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 2, "kernel": "OCCT 7.9.3"}"#,
     r#"{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}"#,
     r#"{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}"#,
@@ -318,6 +323,7 @@ pub const RESULT_EXAMPLES: [&str; 26] = [
     r#"{"type": "resolve_references", "results": [{"status": "resolved", "matches": [{"body": "b-1", "mesh_id": 12, "kind": "face", "index": 3}]}]}"#,
     r#"{"type": "measure", "volume": 24000.0, "area": 5200.0, "center_of_mass": [0.0, 0.0, 20.0], "bounding_box": {"min": [-10.0, -15.0, 0.0], "max": [10.0, 15.0, 40.0]}, "face_count": 6, "edge_count": 12, "vertex_count": 8}"#,
     r#"{"type": "measure", "area": 600.0, "centroid": [0.0, 0.0, 40.0], "surface": "plane", "normal": [0.0, 0.0, 1.0]}"#,
+    LIST_USES_RESULT,
     r#"{"type": "analyze_print", "health": "warning"}"#,
     r#"{"type": "export", "files": [{"name": "model.stl", "media_type": "model/stl", "data": 0}], "warnings": []}"#,
     r#"{"type": "import_step", "feature": "f-3fa91c0e72b4", "body": "b-0c1d2e3f4a5b"}"#,

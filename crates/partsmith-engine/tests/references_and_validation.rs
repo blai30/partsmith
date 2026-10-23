@@ -16,9 +16,8 @@ use common::{
 };
 use corpus::{
     Scenario, UPPER_BOSS_WALL, actions, axis_xy, block_then, bosses_on_a_moved_box, box_record,
-    datum_offset, datum_plane, distance, document, edited_text, extrude, face_plane, labels,
-    linear_pattern, moved_by_100, r03, record, rectangle, rectangle_region, repairs, sketch, with,
-    without_keys,
+    document, edited_text, face_plane, labels, linear_pattern, moved_by_100, r03, record, repairs,
+    slot, without_keys,
 };
 use partsmith_engine::{Session, ValidateOptions, ValidationReport};
 use partsmith_print::Severity;
@@ -192,27 +191,11 @@ const SPLIT_TOP_FRONT_EDGE: &str = "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)";
 
 /// BLOCK with SLOT(30, 50): a 20 mm slot 5 deep through Y from x 30 to 50 (file-format.md example E10).
 fn slotted_block() -> String {
-    let slot = vec![
-        datum_offset("f-dp1", "XY", "30"),
-        sketch(
-            "f-sk2",
-            datum_plane("f-dp1"),
-            rectangle(5, 30.0, -1.0, 50.0, 51.0),
-        ),
-        with(
-            extrude(
-                "f-ext2",
-                "b-1",
-                "f-sk2",
-                vec![rectangle_region(5, 30.0, -1.0, 50.0, 51.0)],
-                distance("5"),
-                "cut",
-            ),
-            "reverse",
-            json!(true),
-        ),
-    ];
-    Scenario::new(&document(&["b-1"], &block_then(slot)), Vec::new()).setup
+    Scenario::new(
+        &document(&["b-1"], &block_then(slot(30.0, 50.0))),
+        Vec::new(),
+    )
+    .setup
 }
 
 /// The position of the edge named `name` among the edges of `list_elements`.

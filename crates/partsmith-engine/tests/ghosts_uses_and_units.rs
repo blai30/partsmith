@@ -1,24 +1,617 @@
-//! Acceptance test 145 of `docs/spec/engine.md` section 6, document units with Keep sizes (section 3.25), on the
-//! document of newcomer error corpus NC09, plus small tests of the same section: the label of each unit, the typed
-//! method, the request without `keep_sizes`, `bare_numbers` after edits, parameters used as lengths, and the undo,
-//! redo, cancel and dirty state of a units change. A test named `tNNN` is section 6 test NNN.
+//! Acceptance tests 141 to 145 of `docs/spec/engine.md` section 6: ghosts (section 3.23), `list_uses` (section 3.24)
+//! and document units with Keep sizes (section 3.25). Tests 141 and 142 check element, region and cause ghosts on
+//! corpus R16 and newcomer error NC11, tests 143 and 144 what `list_uses` reports, and test 145 the units of NC09. A
+//! test named `tNNN` is section 6 test NNN. Small tests of the same sections follow each group: ghosts that are not
+//! captured (a reference lost since the document was opened, a widened reference), the triangles of a lost face, the
+//! typed statuses without ghosts; `list_uses` of names that repeat a feature, of features that are not in the
+//! document, in timeline order, of a sketch on a datum, through the typed method, and of a document that is not open;
+//! and the label of each unit, the typed units method, the request without `keep_sizes`, `bare_numbers` after edits,
+//! parameters used as lengths, and the undo, redo, cancel and dirty state of a units change.
 //!
-//! Tests 141 and 142 (ghosts, section 3.23) and 143 and 144 (`list_uses`, section 3.24) come with phase 4 of the
-//! reference stability plan.
+//! Scenarios come from `corpus`, opened with their references picked, in a display session unless a test says
+//! otherwise; "after its edit" is the corpus edit applied as one labeled `apply_edits` (`corpus::after_edit`).
 
 use crate::common;
 use crate::corpus;
 
 use common::{
     GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, doc_handle, fixture,
-    get_document, measure_body, new_doc, open, open_text, revision, saved_text, send, session,
-    set_document_units,
+    get_document, headless_session, measure_body, new_doc, open, open_text, revision, saved_text,
+    send, session, set_document_units,
 };
-use corpus::{box_record, document_with, nc09, opened, parameter, record, volume};
+use corpus::{
+    after_edit, angle, assert_ghost_segments, block_back_top, block_right_side, block_then,
+    box_below, box_record, cause, chamfer, circle, cube10, datum_on_face, document, document_with,
+    edited_text, face_plane, fillet, ghost_points, hole, labels_and_kinds, linear_pattern, message,
+    nc09, nc11, opened, origin_plane, parameter, picked, r03, r12, r16, r33, r41, r66, record,
+    rectangle, rectangle_region, reference, repair_ghost, repairs, revolve, sketch, through_all,
+    volume,
+};
+use partsmith_engine::Session;
 use partsmith_model::Units;
 use partsmith_protocol::DocHandle;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+
+/// The typed handle of a document handle a reply gave.
+fn typed(doc: u64) -> DocHandle {
+    DocHandle(u32::try_from(doc).expect("handles in tests are small"))
+}
+
+// Test 141: element ghosts (corpus R16).
+
+/// The front top edge of CUBE20 that corpus R16's rabbet cuts away, as a ghost segment.
+const FRONT_TOP_EDGE: (&[f64], &[f64]) = (&[-10.0, -10.0, 20.0], &[10.0, -10.0, 20.0]);
+
+/// The `add_parameter` edit of an unrelated parameter `x`.
+fn unrelated_parameter() -> Value {
+    json!([{"type": "add_parameter", "index": 0, "parameter": parameter("p-x", "x", "1 mm")}])
+}
+
+#[test]
+fn t141_r16_the_lost_edge_has_its_last_build_as_its_ghost() {
+    let mut session = session();
+
+    let (_, edited) = after_edit(&mut session, &r16());
+
+    let ghost = repair_ghost(&edited, "f-fil1", "/edges/0");
+    assert_eq!(ghost["frame"], "world", "{ghost}");
+    assert_ghost_segments(&edited, &ghost, &[FRONT_TOP_EDGE]);
+}
+
+#[test]
+fn t141_r16_an_unrelated_edit_keeps_an_equal_ghost() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &r16());
+    let captured = repair_ghost(&edited, "f-fil1", "/edges/0");
+
+    let added = apply(
+        &mut session,
+        doc,
+        Some("Add parameter"),
+        unrelated_parameter(),
+    );
+
+    let kept = repair_ghost(&added, "f-fil1", "/edges/0");
+    assert_eq!(
+        (&kept["kind"], &kept["frame"]),
+        (&captured["kind"], &captured["frame"])
+    );
+    assert_eq!(
+        ghost_points(&added, &kept),
+        ghost_points(&edited, &captured)
+    );
+}
+
+#[test]
+fn t141_r16_undo_removes_the_repair_and_redo_captures_the_ghost_again() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &r16());
+    let captured = repair_ghost(&edited, "f-fil1", "/edges/0");
+    apply(
+        &mut session,
+        doc,
+        Some("Add parameter"),
+        unrelated_parameter(),
+    )
+    .ok();
+    send(&mut session, json!({"type": "undo", "doc": doc})).ok();
+
+    let undone = send(&mut session, json!({"type": "undo", "doc": doc}));
+
+    assert_eq!(repairs(&undone, "f-fil1"), Vec::<Value>::new());
+    let redone = send(&mut session, json!({"type": "redo", "doc": doc}));
+    let again = repair_ghost(&redone, "f-fil1", "/edges/0");
+    assert_eq!(
+        ghost_points(&redone, &again),
+        ghost_points(&edited, &captured)
+    );
+}
+
+#[test]
+fn t141_r16_the_document_reopened_has_no_ghost() {
+    let mut session = session();
+
+    let reopened = open_text(&mut session, &edited_text(&r16()));
+
+    let lost = repairs(&reopened, "f-fil1");
+    assert_eq!(lost.len(), 1, "{lost:?}");
+    assert!(lost[0].get("ghost").is_none(), "{}", lost[0]);
+}
+
+#[test]
+fn t141_r16_a_headless_session_captures_no_ghost() {
+    let mut session = headless_session();
+
+    let (_, edited) = after_edit(&mut session, &r16());
+
+    let lost = repairs(&edited, "f-fil1");
+    assert_eq!(lost.len(), 1, "{lost:?}");
+    assert!(lost[0].get("ghost").is_none(), "{}", lost[0]);
+    assert!(edited.buffers.is_empty(), "no buffers in a headless reply");
+}
+
+// Test 142: region and cause ghosts (newcomer error NC11).
+
+/// The cause line of every message newcomer error NC11 gives.
+const NC11_CAUSE: &str =
+    "This started after you deleted the line from (80, 50) to (0, 50) in 'Sketch 1'.";
+
+#[test]
+fn t142_nc11_the_lost_region_has_its_outline_as_its_ghost() {
+    let mut session = session();
+
+    let (_, edited) = after_edit(&mut session, &nc11());
+
+    let ghost = repair_ghost(&edited, "f-ext1", "/profile/regions/0");
+    assert_eq!(ghost["frame"], "sketch", "{ghost}");
+    assert_eq!(
+        ghost_points(&edited, &ghost).len(),
+        8,
+        "16 values, four segments"
+    );
+    assert_ghost_segments(
+        &edited,
+        &ghost,
+        &[
+            (&[0.0, 0.0], &[80.0, 0.0]),
+            (&[80.0, 0.0], &[80.0, 50.0]),
+            (&[80.0, 50.0], &[0.0, 50.0]),
+            (&[0.0, 50.0], &[0.0, 0.0]),
+        ],
+    );
+}
+
+#[test]
+fn t142_nc11_the_cause_has_the_deleted_line_as_its_ghost() {
+    let mut session = session();
+
+    let (_, edited) = after_edit(&mut session, &nc11());
+
+    let found = cause(&message(&edited, "f-ext1", "profile_not_found"));
+    assert_eq!(found["text"], NC11_CAUSE);
+    assert_eq!(
+        labels_and_kinds(&found),
+        [
+            ("Undo".to_owned(), "undo".to_owned()),
+            ("Show the line".to_owned(), "show".to_owned())
+        ]
+    );
+    let ghost = &found["ghost"];
+    assert_eq!(ghost["frame"], "sketch", "{found}");
+    assert_ghost_segments(&edited, ghost, &[(&[80.0, 50.0], &[0.0, 50.0])]);
+}
+
+#[test]
+fn t142_nc11_the_empty_body_names_its_root_and_the_same_cause() {
+    let mut session = session();
+
+    let (_, edited) = after_edit(&mut session, &nc11());
+
+    let empty = message(&edited, "f-fil1", "body_empty");
+    assert_eq!(empty["root"], "f-ext1");
+    assert_eq!(cause(&empty)["text"], NC11_CAUSE);
+}
+
+// Section 3.23: ghosts, rule by rule.
+
+#[test]
+fn a_reference_lost_since_the_document_was_opened_gets_no_ghost_when_it_changes() {
+    let mut session = session();
+    let doc = doc_handle(&open_text(&mut session, &edited_text(&r16())));
+
+    let added = apply(
+        &mut session,
+        doc,
+        Some("Add parameter"),
+        unrelated_parameter(),
+    );
+
+    let lost = repairs(&added, "f-fil1");
+    assert_eq!(lost.len(), 1, "{lost:?}");
+    assert!(lost[0].get("ghost").is_none(), "{}", lost[0]);
+}
+
+#[test]
+fn a_widened_reference_whose_elements_still_exist_has_no_ghost() {
+    let mut session = session();
+
+    let (_, edited) = after_edit(&mut session, &r66());
+
+    let widened = repairs(&edited, "f-fil1");
+    assert!(!widened.is_empty(), "{}", edited.feature_status("f-fil1"));
+    for repair in widened {
+        assert!(repair.get("ghost").is_none(), "{repair}");
+    }
+}
+
+#[test]
+fn a_lost_face_has_its_triangles_as_its_ghost() {
+    let mut session = session();
+
+    // Corpus R33: the top of 'Box 1' at z = 40, which the inserted cut removes, is the face the sketch was on.
+    let (_, edited) = after_edit(&mut session, &r33());
+
+    let ghost = repair_ghost(&edited, "f-sk2", "/plane/face");
+    assert_eq!(
+        (&ghost["kind"], &ghost["frame"]),
+        (&json!("triangles"), &json!("world"))
+    );
+    let points = ghost_points(&edited, &ghost);
+    assert!(
+        points.len() >= 3 && points.len().is_multiple_of(3),
+        "whole triangles: {points:?}"
+    );
+    for point in points {
+        assert!((point[2] - 40.0).abs() <= 1e-4, "{point:?} lies on the top");
+        assert!(
+            point[0].abs() <= 10.0 + 1e-4 && point[1].abs() <= 10.0 + 1e-4,
+            "{point:?} lies within the 20 x 20 top"
+        );
+    }
+}
+
+#[test]
+fn typed_statuses_leave_out_every_ghost_and_keep_the_cause() {
+    let mut session = session();
+    let (doc, edited) = after_edit(&mut session, &r03());
+    let shown = message(&edited, "f-fil1", "reference_missing");
+    assert!(shown["cause"]["ghost"].is_object(), "{shown}");
+    repair_ghost(&edited, "f-fil1", "/edges/0");
+
+    let statuses = serde_json::to_value(
+        session
+            .feature_statuses(typed(doc))
+            .expect("the document is open"),
+    )
+    .expect("statuses serialize");
+
+    let fillet = statuses
+        .as_array()
+        .expect("statuses are a list")
+        .iter()
+        .find(|status| status["id"] == "f-fil1")
+        .expect("the fillet has a status")
+        .clone();
+    let typed_message = &fillet["messages"][0];
+    assert_eq!(typed_message["cause"]["text"], shown["cause"]["text"]);
+    assert!(
+        typed_message["cause"].get("ghost").is_none(),
+        "{typed_message}"
+    );
+    for repair in fillet["repairs"]
+        .as_array()
+        .expect("a status lists repairs")
+    {
+        assert!(repair.get("ghost").is_none(), "{repair}");
+    }
+}
+
+// Tests 143 and 144: `list_uses`.
+
+/// A use as `list_uses` writes it, without `entity` when it has none.
+fn a_use(user: &str, field: &str, feature: &str, entity: Option<&str>) -> Value {
+    let mut used = json!({"user": user, "field": field, "feature": feature});
+    if let Some(entity) = entity {
+        used["entity"] = json!(entity);
+    }
+    used
+}
+
+/// The reply of `list_uses` of a document.
+fn list_uses(session: &mut Session, doc: u64) -> Sent {
+    send(session, json!({"type": "list_uses", "doc": doc}))
+}
+
+/// What `list_uses` reports for `text` opened in a display session, in order.
+fn uses_of(text: &str) -> Vec<Value> {
+    let mut session = session();
+    let doc = doc_handle(&open_text(&mut session, text));
+    list_uses(&mut session, doc).ok()["uses"]
+        .as_array()
+        .expect("list_uses lists uses")
+        .clone()
+}
+
+/// The uses of `user` among `uses`, in order.
+fn uses_by(uses: &[Value], user: &str) -> Vec<Value> {
+    uses.iter()
+        .filter(|used| used["user"] == user)
+        .cloned()
+        .collect()
+}
+
+/// BLOCK with `f-fil1` of 2 on its back top edge and a face sketch `f-sk2` on its right side, picked (test 143).
+fn block_with_a_fillet_and_a_face_sketch() -> String {
+    picked(&document(
+        &["b-1"],
+        &block_then(vec![
+            fillet("f-fil1", "b-1", vec![block_back_top()], "2"),
+            sketch(
+                "f-sk2",
+                face_plane(
+                    "b-1",
+                    block_right_side(),
+                    [80.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                ),
+                vec![circle("e-5", [25.0, 15.0], 4.0)],
+            ),
+        ]),
+    ))
+}
+
+#[test]
+fn t143_list_uses_reports_feature_links_and_the_generators_of_stored_references() {
+    let mut session = session();
+    let doc = doc_handle(&open_text(
+        &mut session,
+        &block_with_a_fillet_and_a_face_sketch(),
+    ));
+    let before = revision(&mut session, doc);
+
+    let listed = list_uses(&mut session, doc);
+
+    assert_eq!(
+        listed.ok(),
+        &json!({"kind": "ok", "type": "list_uses", "uses": [
+            a_use("f-ext1", "/profile/sketch", "f-sk1", None),
+            a_use("f-fil1", "/edges/0", "f-ext1", None),
+            a_use("f-fil1", "/edges/0", "f-ext1", Some("e-3")),
+            a_use("f-sk2", "/plane/face", "f-ext1", Some("e-2"))
+        ]})
+    );
+    assert!(listed.events.is_empty(), "{:?}", listed.event_types());
+    assert_eq!(revision(&mut session, doc), before);
+}
+
+#[test]
+fn t144_r41_a_copy_names_its_source_and_its_pattern_once_each() {
+    let uses = uses_of(&r41().setup);
+
+    assert_eq!(
+        uses_by(&uses, "f-fil1"),
+        [
+            a_use("f-fil1", "/edges/0", "f-box1", None),
+            a_use("f-fil1", "/edges/0", "f-lp1", None),
+            a_use("f-fil1", "/edges/1", "f-box1", None),
+            a_use("f-fil1", "/edges/1", "f-lp1", None)
+        ]
+    );
+}
+
+#[test]
+fn t144_a_merged_name_of_every_copy_adds_no_other_feature() {
+    let top_of_every_copy = json!({
+        "q": "f-box1/top",
+        "fp": "plane|n=0,0,1|c=50,10,10|a=2000|adj=4,4",
+        "merged": {"f-box1/top": ["f-box1/top@f-lp1:*"]}
+    });
+    let text = document(
+        &["b-1"],
+        &[
+            cube10(),
+            linear_pattern("3", "20"),
+            datum_on_face("f-dp1", "b-1", top_of_every_copy, "0"),
+        ],
+    );
+
+    let uses = uses_of(&text);
+
+    assert_eq!(
+        uses_by(&uses, "f-dp1"),
+        [
+            a_use("f-dp1", "/base/face", "f-box1", None),
+            a_use("f-dp1", "/base/face", "f-lp1", None)
+        ]
+    );
+}
+
+#[test]
+fn t144_a_hole_point_names_the_entity_before_its_role() {
+    let rim = reference(
+        "edge(f-box1/top|f-hole1/bore/e-1.center)",
+        "circle|n=0,0,1|c=0,0,0|l=18.849556|r=3|adj=2,1",
+    );
+    let text = document(
+        &["b-1"],
+        &[
+            box_below(),
+            sketch(
+                "f-sk1",
+                origin_plane("XY"),
+                vec![circle("e-1", [0.0, 0.0], 3.0)],
+            ),
+            hole(
+                "f-hole1",
+                "b-1",
+                "f-sk1",
+                &["e-1.center"],
+                "6",
+                through_all(),
+            ),
+            chamfer("f-cha1", "b-1", vec![rim], "0.5"),
+        ],
+    );
+
+    let uses = uses_of(&text);
+
+    assert_eq!(
+        uses_by(&uses, "f-cha1"),
+        [
+            a_use("f-cha1", "/edges/0", "f-box1", None),
+            a_use("f-cha1", "/edges/0", "f-hole1", Some("e-1"))
+        ]
+    );
+}
+
+/// A revolve `f-rev1` of `f-sk1`'s rectangle by `extent` about the front left edge of a box `f-box1` in `b-2`.
+fn revolve_about_an_edge_of_another_body(extent: Value) -> String {
+    let edge = reference(
+        "edge(f-box1/front|f-box1/left)",
+        "line|n=0,0,1|c=-5,-5,5|l=10|adj=2,2",
+    );
+    document(
+        &["b-1", "b-2"],
+        &[
+            box_record("f-box1", "b-2", ["10", "10", "10"], None, "new"),
+            sketch(
+                "f-sk1",
+                origin_plane("XZ"),
+                rectangle(1, 10.0, 0.0, 20.0, 10.0),
+            ),
+            revolve(
+                "f-rev1",
+                "b-1",
+                "f-sk1",
+                vec![rectangle_region(1, 10.0, 0.0, 20.0, 10.0)],
+                json!({"kind": "edge", "body": "b-2", "edge": edge}),
+                extent,
+                "new",
+            ),
+        ],
+    )
+}
+
+#[test]
+fn t144_a_feature_whose_params_fail_validation_reports_its_references_and_no_links() {
+    let unreadable = json!({"kind": "angle", "expr": {"x": 1}});
+
+    let uses = uses_of(&revolve_about_an_edge_of_another_body(unreadable));
+
+    assert_eq!(
+        uses_by(&uses, "f-rev1"),
+        [a_use("f-rev1", "/axis/edge", "f-box1", None)]
+    );
+}
+
+#[test]
+fn a_valid_feature_reports_its_links_and_its_references_sorted_by_field() {
+    let uses = uses_of(&revolve_about_an_edge_of_another_body(angle("270")));
+
+    assert_eq!(
+        uses_by(&uses, "f-rev1"),
+        [
+            a_use("f-rev1", "/axis/edge", "f-box1", None),
+            a_use("f-rev1", "/profile/sketch", "f-sk1", None)
+        ]
+    );
+}
+
+// Section 3.24: `list_uses`, rule by rule.
+
+#[test]
+fn a_feature_named_twice_in_one_reference_is_one_use() {
+    // The fillet's edge is named by two faces of 'Box 1'.
+    let uses = uses_of(&fixture("fillet.ptsm"));
+
+    assert_eq!(uses, [a_use("f-fil1", "/edges/0", "f-box1", None)]);
+}
+
+#[test]
+fn a_feature_that_is_not_in_the_document_is_reported_as_a_use() {
+    let text = document(
+        &["b-1"],
+        &[
+            box_record("f-box1", "b-1", ["20", "20", "20"], None, "new"),
+            fillet(
+                "f-fil1",
+                "b-1",
+                vec![reference(
+                    "edge(f-box1/front|f-gone/x)",
+                    "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2",
+                )],
+                "2",
+            ),
+        ],
+    );
+
+    let uses = uses_of(&text);
+
+    assert_eq!(
+        uses,
+        [
+            a_use("f-fil1", "/edges/0", "f-box1", None),
+            a_use("f-fil1", "/edges/0", "f-gone", None)
+        ]
+    );
+}
+
+#[test]
+fn uses_follow_the_timeline_rather_than_the_ids() {
+    let edge = |sides: &str, x: f64, y: f64| {
+        reference(
+            &format!("edge({sides})"),
+            &format!("line|n=0,0,1|c={x},{y},10|l=20|adj=2,2"),
+        )
+    };
+    let text = document(
+        &["b-1"],
+        &[
+            box_record("f-box1", "b-1", ["20", "20", "20"], None, "new"),
+            fillet(
+                "f-fil2",
+                "b-1",
+                vec![edge("f-box1/front|f-box1/left", -10.0, -10.0)],
+                "1",
+            ),
+            fillet(
+                "f-fil1",
+                "b-1",
+                vec![edge("f-box1/back|f-box1/right", 10.0, 10.0)],
+                "1",
+            ),
+        ],
+    );
+
+    let uses = uses_of(&text);
+
+    assert_eq!(
+        uses,
+        [
+            a_use("f-fil2", "/edges/0", "f-box1", None),
+            a_use("f-fil1", "/edges/0", "f-box1", None)
+        ]
+    );
+}
+
+#[test]
+fn a_sketch_on_a_datum_uses_the_datum() {
+    let uses = uses_of(&r12().setup);
+
+    assert_eq!(
+        uses_by(&uses, "f-sk2"),
+        [a_use("f-sk2", "/plane/feature", "f-dp1", None)]
+    );
+}
+
+#[test]
+fn the_typed_list_uses_returns_the_uses_of_the_protocol() {
+    let mut session = session();
+    let doc = doc_handle(&open_text(
+        &mut session,
+        &block_with_a_fillet_and_a_face_sketch(),
+    ));
+    let listed = list_uses(&mut session, doc).ok()["uses"].clone();
+
+    let typed_uses = session.list_uses(typed(doc)).expect("the document is open");
+
+    assert_eq!(
+        serde_json::to_value(typed_uses).expect("uses serialize"),
+        listed
+    );
+}
+
+#[test]
+fn list_uses_of_a_document_that_is_not_open_fails() {
+    let mut session = session();
+
+    let listed = list_uses(&mut session, 7);
+
+    assert_eq!(listed.error_code(), "unknown_document");
+    assert!(listed.events.is_empty());
+}
 
 /// The document units in `document_changed` of `sent`.
 fn units_of(sent: &Sent) -> Value {

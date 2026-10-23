@@ -14,8 +14,8 @@ use partsmith_model::FORMAT_VERSION;
 use serde_json::{Map, Value, json};
 
 use crate::common::{
-    Sent, apply, doc_handle, element_named, elements, get_document, headless_session, measure_body,
-    number, open_text, revision, saved_text, send,
+    BUFFER_TOLERANCE, Sent, apply, doc_handle, element_named, elements, get_document,
+    headless_session, measure_body, number, open_text, revision, saved_text, send,
 };
 
 /// The label of the `apply_edits` that makes a corpus edit.
@@ -263,6 +263,33 @@ pub fn boolean(target: &str, tools: &[&str], op: &str) -> Value {
     json!({"id": "f-bool1", "type": "boolean", "target": target, "tools": tools, "op": op})
 }
 
+/// A revolve record into `body` about `axis` by `extent`.
+pub fn revolve(
+    feature: &str,
+    body: &str,
+    sketch: &str,
+    regions: Vec<Value>,
+    axis: Value,
+    extent: Value,
+    op: &str,
+) -> Value {
+    json!({
+        "id": feature, "type": "revolve", "body": body,
+        "profile": {"sketch": sketch, "regions": regions},
+        "axis": axis, "extent": extent, "op": op
+    })
+}
+
+/// An angle extent of a revolve.
+pub fn angle(expr: &str) -> Value {
+    json!({"kind": "angle", "expr": expr})
+}
+
+/// The full-turn extent of a revolve.
+pub fn full_turn() -> Value {
+    json!({"kind": "full"})
+}
+
 // Documents.
 
 /// A `.ptsm` text in `units` with these parameters, these bodies, each named after its number (`b-2` is 'Body 2'), and
@@ -465,6 +492,8 @@ pub enum Change {
     Remove(Vec<&'static str>),
     /// A feature moved to a timeline position.
     Move(&'static str, usize),
+    /// The document units set, without keeping sizes (a `set_units` edit).
+    Units(&'static str),
 }
 
 /// A corpus scenario: its setup with its picks, and the changes of its edit.
@@ -589,9 +618,63 @@ pub fn r06a_fillet_only() -> Scenario {
     )
 }
 
-/// Corpus R12: a round pocket 5 deep under a floor fillet made 30 deep, through the block.
-pub fn r12() -> Scenario {
-    let features = block_then(vec![
+/// SLOT(x0, x1) on BLOCK: the datum `f-dp1` XY offset 30, the rectangle `e-5` to `e-8` of `f-sk2` on it from (x0, -1)
+/// to (x1, 51), and `f-ext2`, which cuts it 5 into the block's top (file-format.md example E10 for SLOT(30, 50)).
+pub fn slot(x0: f64, x1: f64) -> Vec<Value> {
+    vec![
+        datum_offset("f-dp1", "XY", "30"),
+        sketch(
+            "f-sk2",
+            datum_plane("f-dp1"),
+            rectangle(5, x0, -1.0, x1, 51.0),
+        ),
+        with(
+            extrude(
+                "f-ext2",
+                "b-1",
+                "f-sk2",
+                vec![rectangle_region(5, x0, -1.0, x1, 51.0)],
+                distance("5"),
+                "cut",
+            ),
+            "reverse",
+            json!(true),
+        ),
+    ]
+}
+
+/// The setup of corpus R10 (a) and R48: BLOCK with SLOT(30, 50) and a fillet `f-fil1` of `2` on the front top edge of
+/// the right piece of the top. Its lengths are numbers without a unit.
+fn slotted_block_with_fillet() -> String {
+    let mut features = block_then(slot(30.0, 50.0));
+    features.push(fillet(
+        "f-fil1",
+        "b-1",
+        vec![reference(
+            "edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)",
+            "line|n=1,0,0|c=65,0,30|l=30|adj=2,2",
+        )],
+        "2",
+    ));
+    document(&["b-1"], &features)
+}
+
+/// Corpus R10 (a): the slot of [`slotted_block_with_fillet`] moved to x 50..81, which cuts the right piece of the top
+/// away.
+pub fn r10a() -> Scenario {
+    Scenario::new(
+        &slotted_block_with_fillet(),
+        vec![Change::Entities(
+            "f-sk2",
+            rectangle(5, 50.0, -1.0, 81.0, 51.0),
+        )],
+    )
+}
+
+/// Corpus R12's features: BLOCK, the datum `f-dp1` XY offset 30, a round pocket `f-ext2` cut `depth` into the top from
+/// the circle `e-5` of `f-sk2`, and a fillet `f-fil1` of 2 on the pocket's floor edge.
+pub fn r12_features(depth: &str) -> Vec<Value> {
+    block_then(vec![
         datum_offset("f-dp1", "XY", "30"),
         sketch(
             "f-sk2",
@@ -604,7 +687,7 @@ pub fn r12() -> Scenario {
                 "b-1",
                 "f-sk2",
                 vec![circle_region("e-5", [40.0, 25.0], 10.0)],
-                distance("5"),
+                distance(depth),
                 "cut",
             ),
             "reverse",
@@ -618,6 +701,63 @@ pub fn r12() -> Scenario {
                 "circle|n=0,0,1|c=40,25,25|l=62.831853|r=10|adj=2,1",
             )],
             "2",
+        ),
+    ])
+}
+
+/// Corpus R12: a round pocket 5 deep under a floor fillet made 30 deep, through the block.
+pub fn r12() -> Scenario {
+    Scenario::new(
+        &document(&["b-1"], &r12_features("5")),
+        vec![Change::Set("f-ext2", "/extent/expr", json!("30"))],
+    )
+}
+
+/// Corpus R13: BLOCK, a lower block x 80..120 (`e-5` to `e-8` of `f-sk2`) joined 20 tall beside it by `f-ext2`, a
+/// fillet `f-fil1` of 2 on the step edge (BLOCK's right top edge), a boss on a face sketch `f-sk3` on the lower block's
+/// top (the circle `e-9` at (100, 25) of radius 5, joined 5 by `f-ext3`) and a fillet `f-fil2` of 1 on the lower
+/// block's right top edge; then the lower block made 30 tall, flush with BLOCK.
+pub fn r13() -> Scenario {
+    let features = block_then(vec![
+        sketch(
+            "f-sk2",
+            origin_plane("XY"),
+            rectangle(5, 80.0, 0.0, 120.0, 50.0),
+        ),
+        extrude(
+            "f-ext2",
+            "b-1",
+            "f-sk2",
+            vec![rectangle_region(5, 80.0, 0.0, 120.0, 50.0)],
+            distance("20"),
+            "join",
+        ),
+        fillet("f-fil1", "b-1", vec![block_right_top()], "2"),
+        sketch(
+            "f-sk3",
+            top_face_plane(
+                "b-1",
+                reference("f-ext2/end-cap", "plane|n=0,0,1|c=100,25,20|a=2000|adj=4,4"),
+                20.0,
+            ),
+            vec![circle("e-9", [100.0, 25.0], 5.0)],
+        ),
+        extrude(
+            "f-ext3",
+            "b-1",
+            "f-sk3",
+            vec![circle_region("e-9", [100.0, 25.0], 5.0)],
+            distance("5"),
+            "join",
+        ),
+        fillet(
+            "f-fil2",
+            "b-1",
+            vec![reference(
+                "edge(f-ext2/end-cap|f-ext2/lateral/e-6)",
+                "line|n=0,1,0|c=120,25,20|l=50|adj=2,2",
+            )],
+            "1",
         ),
     ]);
     Scenario::new(
@@ -706,6 +846,14 @@ pub fn r23a() -> Scenario {
     )
 }
 
+/// Corpus R23 (b): peg A's sketch and extrude deleted, which makes peg B's extrude 'Extrude 1'.
+pub fn r23b() -> Scenario {
+    Scenario::new(
+        &document(&["b-1"], &pegs()),
+        vec![Change::Remove(vec!["f-sk1", "f-ext1"])],
+    )
+}
+
 /// Corpus R25: a datum on a chamfer face, with the chamfer suppressed.
 pub fn r25() -> Scenario {
     let features = vec![
@@ -761,14 +909,25 @@ pub fn r26() -> Scenario {
     )
 }
 
-/// Corpus R26 after its edits as engine.md test 136 applies them, three `apply_edits`: edit (1) ([`after_edit`] of
-/// [`r26`], revision 1); `f-ext1` deleted (revision 2); then `f-ext3`, the same extrude 80 tall, added at its place
-/// (revision 3), which makes it 'Extrude 1'. Returns the handle and the reply of the add.
-pub fn r26_recreated(session: &mut Session) -> (u64, Sent) {
+/// Corpus R26 after edit (1) and the delete of edit (2), the first two of the three `apply_edits` engine.md test 136
+/// applies: edit (1) ([`after_edit`] of [`r26`], revision 1), then `f-ext1` deleted with one `apply_edits` labeled
+/// `Delete` (revision 2), which makes the boss's extrude 'Extrude 1'. Returns the handle, the reply of the delete and
+/// the deleted record.
+pub fn r26_deleted(session: &mut Session) -> (u64, Sent, Value) {
     let (doc, _) = after_edit(session, &r26());
-    let recreated = with(record(session, doc, "f-ext1"), "id", json!("f-ext3"));
+    let deleted = record(session, doc, "f-ext1");
     let deletion = edits(session, doc, &[Change::Remove(vec!["f-ext1"])]);
-    apply(session, doc, Some("Delete"), Value::Array(deletion)).ok();
+    let sent = apply(session, doc, Some("Delete"), Value::Array(deletion));
+    sent.ok();
+    (doc, sent, deleted)
+}
+
+/// Corpus R26 after its edits as engine.md test 136 applies them, three `apply_edits`: [`r26_deleted`] (revisions 1
+/// and 2), then `f-ext3`, the deleted extrude 80 tall under a new id, added at its place (revision 3), which makes it
+/// 'Extrude 1'. Returns the handle and the reply of the add.
+pub fn r26_recreated(session: &mut Session) -> (u64, Sent) {
+    let (doc, _, deleted) = r26_deleted(session);
+    let recreated = with(deleted, "id", json!("f-ext3"));
     let addition = edits(session, doc, &[Change::InsertAt(1, vec![recreated])]);
     let added = apply(session, doc, Some("Add"), Value::Array(addition));
     added.ok();
@@ -806,6 +965,71 @@ pub fn r28() -> Scenario {
     Scenario::new(
         &document(&["b-1"], &features),
         vec![Change::Move("f-fil1", 2)],
+    )
+}
+
+/// Corpus R30 (a): BLOCK, a boss `f-ext2` joined symmetric 40 from the circle `e-5` of `f-sk2` on a datum at its top
+/// (up to z = 50), and a fillet `f-fil1` of 2 on the boss's top rim; then the boss's Operation changed from Join to
+/// Cut.
+pub fn r30a() -> Scenario {
+    let features = block_then(vec![
+        datum_offset("f-dp1", "XY", "30"),
+        sketch(
+            "f-sk2",
+            datum_plane("f-dp1"),
+            vec![circle("e-5", [40.0, 25.0], 10.0)],
+        ),
+        extrude(
+            "f-ext2",
+            "b-1",
+            "f-sk2",
+            vec![circle_region("e-5", [40.0, 25.0], 10.0)],
+            symmetric("40"),
+            "join",
+        ),
+        fillet(
+            "f-fil1",
+            "b-1",
+            vec![reference(
+                "edge(f-ext2/end-cap|f-ext2/lateral/e-5)",
+                "circle|n=0,0,1|c=40,25,50|l=62.831853|r=10|adj=2,1",
+            )],
+            "2",
+        ),
+    ]);
+    Scenario::new(
+        &document(&["b-1"], &features),
+        vec![Change::Set("f-ext2", "/op", json!("cut"))],
+    )
+}
+
+/// Corpus R30 (b): CUBE20 in `b-1`, a 10 x 10 x 10 box `f-box2` in `b-2` at (0, 0, 14.5) reaching into its top,
+/// joined into `b-1` by `f-bool1`, and a fillet `f-fil1` of 1 on the top front edge of 'Box 2'; then the boolean's
+/// Operation changed from Join to Cut.
+pub fn r30b() -> Scenario {
+    let features = vec![
+        cube20(),
+        box_record(
+            "f-box2",
+            "b-2",
+            ["10", "10", "10"],
+            Some(["0", "0", "14.5"]),
+            "new",
+        ),
+        boolean("b-1", &["b-2"], "join"),
+        fillet(
+            "f-fil1",
+            "b-1",
+            vec![reference(
+                "edge(f-box2/front|f-box2/top)",
+                "line|n=1,0,0|c=0,-5,24.5|l=10|adj=2,2",
+            )],
+            "1",
+        ),
+    ];
+    Scenario::new(
+        &document(&["b-1", "b-2"], &features),
+        vec![Change::Set("f-bool1", "/op", json!("cut"))],
     )
 }
 
@@ -1056,6 +1280,11 @@ pub fn r41() -> Scenario {
     )
 }
 
+/// Corpus R48: the setup of R10 (a), whose lengths are numbers without a unit, switched from millimeters to inches.
+pub fn r48() -> Scenario {
+    Scenario::new(&slotted_block_with_fillet(), vec![Change::Units("in")])
+}
+
 /// Corpus R50: a circle drawn inside BLOCK's region.
 pub fn r50() -> Scenario {
     let mut outline = block_outline();
@@ -1134,6 +1363,64 @@ pub fn r56b() -> Scenario {
             Change::Set("f-bool1", "/target", json!("b-2")),
             Change::Set("f-bool1", "/tools", json!(["b-1"])),
         ],
+    )
+}
+
+/// Corpus R57: the 10 x 10 section `e-1` to `e-4` of `f-sk1` on XZ from (10, 0) to (20, 10) revolved 270 degrees about
+/// the Z axis by `f-rev1`, a chamfer `f-cha1` of 1 on the top edge of its end face, and a cut `f-ext2` 3 deep from the
+/// circle `e-11` of radius 2 of a face sketch `f-sk2` on its start face; then the revolve made a full turn.
+pub fn r57() -> Scenario {
+    let features = vec![
+        sketch(
+            "f-sk1",
+            origin_plane("XZ"),
+            rectangle(1, 10.0, 0.0, 20.0, 10.0),
+        ),
+        revolve(
+            "f-rev1",
+            "b-1",
+            "f-sk1",
+            vec![rectangle_region(1, 10.0, 0.0, 20.0, 10.0)],
+            json!({"kind": "origin", "axis": "Z"}),
+            angle("270"),
+            "new",
+        ),
+        chamfer(
+            "f-cha1",
+            "b-1",
+            vec![reference(
+                "edge(f-rev1/end-cap|f-rev1/lateral/e-3)",
+                "line|n=0,1,0|c=0,-15,10|l=10|adj=2,2",
+            )],
+            "1",
+        ),
+        sketch(
+            "f-sk2",
+            face_plane(
+                "b-1",
+                reference("f-rev1/start-cap", "plane|n=0,-1,0|c=15,0,5|a=100|adj=4,4"),
+                [15.0, 0.0, 5.0],
+                [1.0, 0.0, 0.0],
+                [0.0, -1.0, 0.0],
+            ),
+            vec![circle("e-11", [0.0, 0.0], 2.0)],
+        ),
+        with(
+            extrude(
+                "f-ext2",
+                "b-1",
+                "f-sk2",
+                vec![circle_region("e-11", [0.0, 0.0], 2.0)],
+                distance("3"),
+                "cut",
+            ),
+            "reverse",
+            json!(true),
+        ),
+    ];
+    Scenario::new(
+        &document(&["b-1"], &features),
+        vec![Change::Set("f-rev1", "/extent", full_turn())],
     )
 }
 
@@ -1760,7 +2047,8 @@ pub fn record(session: &mut Session, doc: u64, feature: &str) -> Value {
 }
 
 /// The model edits that make `changes` against the document's current records: one `update_feature` per changed
-/// record (each with all its changes, in the order first changed), then the insertions, removals and moves in order.
+/// record (each with all its changes, in the order first changed), then the insertions, removals, moves and units in
+/// order.
 pub fn edits(session: &mut Session, doc: u64, changes: &[Change]) -> Vec<Value> {
     let timeline = features(&get_document(session, doc)["document"]);
     let position = |feature: &str| {
@@ -1799,6 +2087,7 @@ pub fn edits(session: &mut Session, doc: u64, changes: &[Change]) -> Vec<Value> 
             Change::Move(feature, index) => {
                 structural.push(json!({"type": "move_feature", "id": feature, "index": index}));
             }
+            Change::Units(units) => structural.push(json!({"type": "set_units", "units": units})),
         }
     }
     updated
@@ -2022,6 +2311,109 @@ pub fn assert_undo_restores(session: &mut Session, doc: u64, label: &Value, befo
     let undone = send(session, json!({"type": "undo", "doc": doc}));
     assert_eq!(&undone.ok()["label"], label);
     assert_eq!(saved_text(session, doc), before);
+}
+
+// Causes and ghosts (engine.md sections 3.21 and 3.23).
+
+/// The cause of a message; panics when it has none.
+pub fn cause(message: &Value) -> Value {
+    message
+        .get("cause")
+        .filter(|cause| cause.is_object())
+        .cloned()
+        .unwrap_or_else(|| panic!("the message has a cause: {message}"))
+}
+
+/// The label and run kind of each action of a message or a cause, in order.
+pub fn labels_and_kinds(message: &Value) -> Vec<(String, String)> {
+    actions(message)
+        .iter()
+        .map(|action| {
+            (
+                action["label"]
+                    .as_str()
+                    .expect("actions have labels")
+                    .to_owned(),
+                action["run"]["kind"]
+                    .as_str()
+                    .expect("actions say how they run")
+                    .to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// The ghost of the only repair of `feature` at `path` in the only `recomputed` event of `sent`; panics when that
+/// repair has none.
+pub fn repair_ghost(sent: &Sent, feature: &str, path: &str) -> Value {
+    let found: Vec<Value> = repairs(sent, feature)
+        .into_iter()
+        .filter(|repair| repair["path"] == path)
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "{feature} has one repair at {path}: {}",
+        sent.feature_status(feature)
+    );
+    found[0]
+        .get("ghost")
+        .filter(|ghost| ghost.is_object())
+        .cloned()
+        .unwrap_or_else(|| panic!("the repair at {path} has a ghost: {}", found[0]))
+}
+
+/// The points of a ghost whose buffer travels in `sent`: 3 coordinates each in frame `world`, 2 in frame `sketch`.
+pub fn ghost_points(sent: &Sent, ghost: &Value) -> Vec<Vec<f64>> {
+    let dimension = match ghost["frame"].as_str() {
+        Some("world") => 3,
+        Some("sketch") => 2,
+        other => panic!("a ghost's frame is world or sketch, not {other:?}"),
+    };
+    let values = sent.f32_buffer(&ghost["positions"]);
+    assert!(
+        values.len().is_multiple_of(dimension),
+        "a {dimension}D ghost holds whole points: {values:?}"
+    );
+    values
+        .chunks(dimension)
+        .map(|point| point.iter().map(|value| f64::from(*value)).collect())
+        .collect()
+}
+
+/// Whether two points are equal within the buffer tolerance.
+fn same_point(actual: &[f64], expected: &[f64]) -> bool {
+    actual.len() == expected.len()
+        && actual
+            .iter()
+            .zip(expected)
+            .all(|(a, e)| (a - e).abs() <= BUFFER_TOLERANCE * e.abs().max(1.0))
+}
+
+/// Asserts that a `lines` ghost whose buffer travels in `sent` holds exactly the segments `expected` (each a start and
+/// an end point), in any order and each in either direction.
+pub fn assert_ghost_segments(sent: &Sent, ghost: &Value, expected: &[(&[f64], &[f64])]) {
+    assert_eq!(ghost["kind"], "lines", "{ghost}");
+    let points = ghost_points(sent, ghost);
+    assert_eq!(
+        points.len(),
+        2 * expected.len(),
+        "the ghost holds {} segments: {points:?}",
+        expected.len()
+    );
+    let mut unmatched: Vec<&[Vec<f64>]> = points.chunks(2).collect();
+    for (start, end) in expected {
+        let position = unmatched
+            .iter()
+            .position(|segment| {
+                (same_point(&segment[0], start) && same_point(&segment[1], end))
+                    || (same_point(&segment[0], end) && same_point(&segment[1], start))
+            })
+            .unwrap_or_else(|| {
+                panic!("the ghost has the segment from {start:?} to {end:?}: {unmatched:?}")
+            });
+        unmatched.remove(position);
+    }
 }
 
 // Results.

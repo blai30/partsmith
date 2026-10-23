@@ -34,7 +34,7 @@ pub use partsmith_sketch::{EntityState, Placement, SketchStatus};
 
 pub use command::{
     CatalogEntry, Command, CommandResult, ExportFormat, MeasureTarget, Measurement, Resolution,
-    ResolutionStatus,
+    ResolutionStatus, Use,
 };
 pub use diagnostic::{Cause, Diagnostic, FixAction, FixKind, FixRef};
 pub use error::{ErrorCode, ErrorInfo, Span};

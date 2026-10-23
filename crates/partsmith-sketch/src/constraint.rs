@@ -7,6 +7,7 @@ use partsmith_model::{Expr, Id};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
+use crate::message::type_words;
 use crate::params::ValueKind;
 use crate::point_ref::PointRef;
 use crate::reserved::is_reserved;
@@ -208,6 +209,12 @@ impl SketchConstraint {
     /// The JSON type name, for example "point_on_object".
     pub fn type_name(&self) -> &'static str {
         self.kind.type_name()
+    }
+
+    /// `{Type}` of section 4, the type as titles write it: "Horizontal distance", "Point on object". The engine's cause
+    /// lines name a dimension whose value changed by it (engine.md section 3.21).
+    pub fn type_label(&self) -> String {
+        type_words(self.type_name())
     }
 
     /// The expression and driving flag of a dimensional constraint.
@@ -699,6 +706,22 @@ impl JsonSchema for SketchConstraint {
 mod tests {
     use super::*;
     use crate::test_support::{id, point};
+
+    #[test]
+    fn type_labels_are_the_type_names_in_words() {
+        let horizontal = SketchConstraint {
+            id: id("c-1"),
+            kind: ConstraintKind::HorizontalDistance {
+                target: Alignment::Line { line: id("e-1") },
+                dimension: DimensionExpr {
+                    expr: Expr::new("30 mm"),
+                    driving: true,
+                },
+            },
+        };
+
+        assert_eq!(horizontal.type_label(), "Horizontal distance");
+    }
 
     #[test]
     fn referenced_entities_skip_reserved_names_and_repeats() {

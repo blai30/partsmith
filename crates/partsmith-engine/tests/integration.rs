@@ -17,6 +17,7 @@ mod ghosts_uses_and_units;
 mod measure_and_print;
 mod newcomer_errors;
 mod python_codegen;
+mod reference_causes;
 mod references_and_validation;
 mod regressions;
 mod sketches;

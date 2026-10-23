@@ -132,8 +132,9 @@ pub(crate) fn stored_params(names: &dyn Names, sketch: &Id) -> Option<SketchPara
 }
 
 /// A sketch entity in words with its coordinates (section 3.12): `the line from (80, 40) to (70, 50)`, `the arc
-/// from (u1, v1) to (u2, v2)`, `the circle at (u, v)`, `the point at (u, v)`.
-pub(super) fn entity_words(geometry: &Geometry, units: Units) -> String {
+/// from (u1, v1) to (u2, v2)`, `the circle at (u, v)`, `the point at (u, v)`. The engine's cause lines name the sketch
+/// entity an edit changed with it (engine.md section 3.21).
+pub fn entity_words(geometry: &Geometry, units: Units) -> String {
     match *geometry {
         Geometry::Line { start, end } => format!(
             "the line from {} to {}",
@@ -231,5 +232,24 @@ mod tests {
         assert_eq!(entity_words(&circle, Units::Mm), "the circle at (40, 25)");
         assert!(is_round(&circle));
         assert!(!is_round(&line));
+    }
+
+    #[test]
+    fn arcs_read_by_their_ends_and_points_by_their_position_in_document_units() {
+        let quarter = Geometry::Arc {
+            center: [0.0, 0.0],
+            radius: 25.4,
+            start_angle: 0.0,
+            end_angle: std::f64::consts::FRAC_PI_2,
+        };
+        let point = Geometry::Point {
+            position: [12.7, 25.4],
+        };
+
+        assert_eq!(
+            entity_words(&quarter, Units::In),
+            "the arc from (1, 0) to (0, 1)"
+        );
+        assert_eq!(entity_words(&point, Units::In), "the point at (0.5, 1)");
     }
 }

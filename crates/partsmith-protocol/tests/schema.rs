@@ -165,7 +165,6 @@ fn t046_ids_and_mesh_ids_declare_the_javascript_safe_maximum() {
 fn t081_schema_defines_the_diagnostic_fix_repair_and_ghost_types() {
     let schema = schema_json();
 
-    // `Use` joins with list_uses, in its own step (reference stability plan, phase 4).
     for name in [
         "Diagnostic",
         "Cause",
@@ -181,6 +180,7 @@ fn t081_schema_defines_the_diagnostic_fix_repair_and_ghost_types() {
         "GhostFrame",
         "RepairCandidate",
         "RegionCandidate",
+        "Use",
         "Connection",
         "HintFrame",
     ] {

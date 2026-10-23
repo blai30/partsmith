@@ -14,9 +14,8 @@
 //! Phase 1 of the reference stability plan adds two rows (test 152): `apply_fix` of the
 //! `SetField` the lid fillet's "too large" error offers, and a parameter change that loses five
 //! references, measured on the reference part with its lid pattern's count made a parameter and a
-//! fillet added on five edges of the pattern's third copy. Its loss row covers the diagnosis,
-//! descriptions and candidates; causes and ghosts come with phase 4, and so do the rows of
-//! `list_uses` and ghost capture.
+//! fillet added on five edges of the pattern's third copy. Since phase 4 its loss row covers the
+//! diagnosis, descriptions and candidates, the cause and the five ghosts, which it checks are there.
 //!
 //! Phase 3 adds two more: `set_document_units` with `keep_sizes` from mm to in, inside a
 //! transaction, on the reference part with the lengths of its last five features written without a
@@ -27,6 +26,16 @@
 //! recipe, so that row opens the document in a headless session and times
 //! `Session::count_bare_numbers`, the count `document_changed` makes, of the document with a new
 //! size without a unit in its last box: one record inspected, the other 299 inspections reused.
+//!
+//! Phase 4 adds two more: `list_uses` of the reference part, and ghost capture of one lost edge on
+//! it. `Session::call` cannot time a capture alone, since only a command that recomputes captures a
+//! ghost, so that row times, inside a transaction, two `apply_edits` that end in the same state of
+//! the reference part with a fillet on one edge of the lid pattern's third copy and the count a
+//! parameter: one from count 3, where the edge resolves, to count 2, where it is lost and its ghost
+//! is captured, and one from another lid width at count 2, where the ghost is kept. Every state
+//! they visit is visited once before, so both recomputes are cached and send the same events, and
+//! each sample is the first time less the second: the capture, with the cause made at the same
+//! transition.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -262,10 +271,10 @@ fn lid_count_edit(expr: &str) -> Value {
 }
 
 /// Makes the count of the reference part's lid pattern the parameter `lid_count` (3) and adds a
-/// fillet of 0.2 mm on the first `LOST_REFERENCES` sharp outer edges of the pattern's third copy,
-/// in name order (its four top edges and one bottom edge), as their short references; returns the
-/// answer of the last edit.
-fn add_third_lid_fillet(driver: &mut Driver, doc: u64, text: &str) -> Answer {
+/// fillet of 0.2 mm on the first `count` sharp outer edges of the pattern's third copy, in name
+/// order (for `LOST_REFERENCES`, its four top edges and one bottom edge), as their short
+/// references; returns the answer of the last edit.
+fn add_third_lid_fillet(driver: &mut Driver, doc: u64, text: &str, count: usize) -> Answer {
     let mut pattern = reference_record(text, LID_PATTERN);
     pattern["direction"]["count"] = json!("lid_count");
     driver
@@ -292,14 +301,10 @@ fn add_third_lid_fillet(driver: &mut Driver, doc: u64, text: &str) -> Answer {
                 && !name.contains("/fillet/")
                 && fingerprint.starts_with("line|")
         })
-        .take(LOST_REFERENCES)
+        .take(count)
         .map(|element| element["reference"].clone())
         .collect();
-    assert_eq!(
-        edges.len(),
-        LOST_REFERENCES,
-        "straight edges of the third lid"
-    );
+    assert_eq!(edges.len(), count, "straight edges of the third lid");
     let features =
         serde_json::from_str::<Value>(text).expect("the reference part is JSON")["features"]
             .as_array()
@@ -312,6 +317,32 @@ fn add_third_lid_fillet(driver: &mut Driver, doc: u64, text: &str) -> Answer {
     }));
     added.ok();
     added
+}
+
+/// Asserts that the message of the fillet on the third lid in `answer` has a cause and that `lost`
+/// of its repairs have a ghost, so that a row that loses references times its causes and ghosts
+/// (engine.md sections 3.21 and 3.23).
+fn assert_cause_and_ghosts(answer: &Answer, lost: usize) {
+    let status = answer.0.feature_status(THIRD_LID_FILLET);
+    let has_cause = status["messages"][0]["cause"].is_object();
+    let ghosts = status["repairs"].as_array().map_or(0, |repairs| {
+        repairs
+            .iter()
+            .filter(|repair| repair["ghost"].is_object())
+            .count()
+    });
+    assert!(
+        has_cause && ghosts == lost,
+        "the lost references have a cause and {lost} ghosts: {status}"
+    );
+}
+
+/// The `apply_edits` of the ghost capture row that gives the lids `width` and their count `count`.
+fn lid_state(text: &str, doc: u64, width: &str, count: &str) -> Value {
+    json!({
+        "type": "apply_edits", "doc": doc,
+        "edits": [last_five_edit(text, width), lid_count_edit(count)]
+    })
 }
 
 /// The codes of the messages of `feature` in `answer`, in order.
@@ -473,6 +504,8 @@ fn main() -> ExitCode {
         "apply_fix of a SetField of one of the last 5 features of the reference part, inside a transaction",
         "apply_edits inside a transaction of a parameter change that loses 5 references of the last features of the reference part",
         "set_document_units with keep_sizes on the reference part, including the edit set, recompute, tessellation of changed bodies and frame encoding",
+        "list_uses of the reference part",
+        "ghost capture of one lost edge on the reference part",
     ];
     let selected: Vec<&str> = reference_operations
         .into_iter()
@@ -574,7 +607,7 @@ fn main() -> ExitCode {
                 driver
                     .send(json!({"type": "begin_transaction", "doc": doc, "label": "Lids"}))
                     .ok();
-                let added = add_third_lid_fillet(&mut driver, doc, &text);
+                let added = add_third_lid_fillet(&mut driver, doc, &text, LOST_REFERENCES);
                 assert!(
                     message_codes(&added, THIRD_LID_FILLET).is_empty(),
                     "the fillet on the third lid builds: {}",
@@ -598,6 +631,7 @@ fn main() -> ExitCode {
                         ["references_not_found"],
                         "the third lid's edges are lost"
                     );
+                    assert_cause_and_ghosts(&answer, LOST_REFERENCES);
                     time
                 })
             });
@@ -632,6 +666,42 @@ fn main() -> ExitCode {
                         }))
                         .ok();
                     time
+                })
+            });
+            report.measure(reference_operations[8], Duration::from_millis(5), || {
+                let mut driver = Driver::new();
+                let doc = driver.open(&text).doc();
+                median(RUNS, |_| {
+                    let (time, answer) = driver.timed(json!({"type": "list_uses", "doc": doc}));
+                    assert!(
+                        answer.ok()["uses"]
+                            .as_array()
+                            .is_some_and(|uses| !uses.is_empty()),
+                        "the reference part's features use others"
+                    );
+                    time
+                })
+            });
+            report.measure(reference_operations[9], Duration::from_millis(5), || {
+                let mut driver = Driver::new();
+                let doc = driver.open(&text).doc();
+                driver
+                    .send(json!({"type": "begin_transaction", "doc": doc, "label": "Lids"}))
+                    .ok();
+                add_third_lid_fillet(&mut driver, doc, &text, 1);
+                let (width, other_width) = ("24.5 mm", "25 mm");
+                // Each state the samples visit, once, so that every timed recompute is cached.
+                for (lids, count) in [(width, "2"), (other_width, "2"), (width, "3")] {
+                    driver.send(lid_state(&text, doc, lids, count)).ok();
+                }
+                median(RUNS, |_| {
+                    let (capturing, lost) = driver.timed(lid_state(&text, doc, width, "2"));
+                    assert_cause_and_ghosts(&lost, 1);
+                    driver.send(lid_state(&text, doc, other_width, "2")).ok();
+                    let (keeping, kept) = driver.timed(lid_state(&text, doc, width, "2"));
+                    assert_cause_and_ghosts(&kept, 1);
+                    driver.send(lid_state(&text, doc, width, "3")).ok();
+                    capturing.saturating_sub(keeping)
                 })
             });
         }

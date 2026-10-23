@@ -1,10 +1,15 @@
-//! Acceptance tests 98 to 102 of `docs/spec/engine.md` section 6: byte-level calls, determinism, warm reopening, headless sessions and buffer checks.
+//! Acceptance tests 98 to 102 and 151 of `docs/spec/engine.md` section 6: byte-level calls, determinism, warm
+//! reopening, headless sessions and buffer checks, and determinism with causes and ghosts (sections 3.18, 3.21 and
+//! 3.23).
 
 use crate::common;
+use crate::corpus;
 
 use common::{
-    display_options, fixture, headless_session, open, request_frame, send, session, set_height,
+    Sent, display_options, doc_handle, fixture, headless_session, open, open_text, request_frame,
+    send, session, set_height,
 };
+use corpus::{EDIT_LABEL, actions, cause, edits, message, r16, repair_ghost};
 use partsmith_engine::{Session, SessionOptions};
 use partsmith_protocol::{Buffer, decode_response_frame};
 use pretty_assertions::assert_eq;
@@ -135,4 +140,63 @@ fn t102_a_buffer_index_past_the_request_buffers_is_malformed() {
         result["message"],
         "The request is not valid: Buffer 3 does not exist."
     );
+}
+
+// Test 151: determinism with causes and ghosts.
+
+/// The model edits of corpus R16's edit, made against its setup.
+fn r16_edits() -> Value {
+    let scenario = r16();
+    let mut helper = headless_session();
+    let doc = doc_handle(&open_text(&mut helper, &scenario.setup));
+    Value::Array(edits(&mut helper, doc, &scenario.changes))
+}
+
+/// The response frames of the script of test 98 through `Session::call`, followed by corpus R16's setup opened, its
+/// edit applied as one `apply_edits` and `apply_fix` of the first action of the fillet's message, with request ids 1
+/// to 16. Also asserts that the edit's reply carries the fillet's cause and its ghost, so the frames compared hold
+/// both.
+fn run_script_and_r16(options: SessionOptions) -> Vec<Vec<u8>> {
+    let mut session = Session::new(options);
+    let mut frames: Vec<Vec<u8>> = Vec::new();
+    let mut call = |session: &mut Session, command: Value| {
+        let id = u64::try_from(frames.len()).expect("few requests") + 1;
+        let frame = session.call(&request_frame(id, command, &[]));
+        frames.push(frame.clone());
+        Sent::from_frame(&frame)
+    };
+    for command in script() {
+        call(&mut session, command);
+    }
+    let opened = call(
+        &mut session,
+        json!({"type": "open_document", "text": r16().setup, "assets": []}),
+    );
+    let doc = doc_handle(&opened);
+    let edited = call(
+        &mut session,
+        json!({"type": "apply_edits", "doc": doc, "label": EDIT_LABEL, "edits": r16_edits()}),
+    );
+    let lost = message(&edited, "f-fil1", "references_not_found");
+    assert!(cause(&lost)["text"].is_string(), "{lost}");
+    repair_ghost(&edited, "f-fil1", "/edges/0");
+    let first = actions(&lost)[0].clone();
+    let applied = call(
+        &mut session,
+        json!({"type": "apply_fix", "doc": doc, "fix": first["run"]["fix"]}),
+    );
+    applied.ok();
+    frames
+}
+
+#[test]
+fn t151_causes_and_ghosts_give_byte_identical_responses() {
+    let first = run_script_and_r16(display_options());
+    let second = run_script_and_r16(display_options());
+
+    assert_all_succeed(&first);
+    assert_eq!(first.len(), 16);
+    for (index, (one, two)) in first.iter().zip(&second).enumerate() {
+        assert!(one == two, "response frame {} is byte-identical", index + 1);
+    }
 }

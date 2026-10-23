@@ -1,12 +1,13 @@
-//! Acceptance tests for diagnostics, fixes, repairs, `apply_fix` and `set_document_units` (protocol.md section 6, "Diagnostics, fixes, repairs and the commands of ADR 0024", tests 72 to 80 and 83), plus small unit tests of the same shapes.
-//! The `list_uses` half of test 76 arrives with that command (reference stability plan, phase 4). Tests 81 and 82 live in `schema.rs` and the UI.
+//! Acceptance tests for diagnostics, fixes, repairs, `apply_fix`, `set_document_units` and `list_uses` (protocol.md section 6, "Diagnostics, fixes, repairs and the commands of ADR 0024", tests 72 to 80 and 83), plus small unit tests of the same shapes.
+//! Tests 81 and 82 live in `schema.rs` and the UI.
 
 use crate::common;
 
 use common::examples::{
     APPLY_FIX_REQUEST, APPLY_FIX_RESULT, DOCUMENT_CHANGED_EVENT, ELEMENT_REPAIR, ERROR_CODES,
     FEATURE_STATUS_R03, FIX_ACTIONS, FRONT_TOP_EDGE_DESCRIPTOR, FULL_REFERENCE, GHOSTS,
-    INTERNAL_ERROR_OUTCOME, LOSS_REASONS, MERGED_REFERENCE, R16_DIAGNOSTIC, REGION_REPAIR,
+    INTERNAL_ERROR_OUTCOME, LIST_USES_REQUEST, LIST_USES_RESULT, LOSS_REASONS, MERGED_REFERENCE,
+    R16_DIAGNOSTIC, REGION_REPAIR,
     SET_DOCUMENT_UNITS_REQUEST, SET_DOCUMENT_UNITS_RESULT, SKETCH_SOLVED_EVENT,
     SOLVE_ON_FACE_IN_BODY_FRAME, STALE_FIX_MESSAGE, TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME,
     UNKNOWN_PRINTER_DIAGNOSTIC,
@@ -22,7 +23,7 @@ use partsmith_protocol::{
     DocHandle, ElementDescriptor, ElementKind, ErrorCode, ErrorInfo, Event, FeatureState,
     FeatureStatus, FixAction, FixKind, FixRef, FrameError, Ghost, GhostFrame, GhostKind,
     InstanceIndex, LossReason, Message, Outcome, Pick, RegionCandidate, Removal, Repair,
-    RepairCandidate, Request, Response, ResponseFrame, Severity, Span, decode_request_frame,
+    RepairCandidate, Request, Response, ResponseFrame, Severity, Span, Use, decode_request_frame,
     decode_response_frame, encode_response_frame, error_response_frame,
 };
 use serde::Serialize;
@@ -533,6 +534,40 @@ fn t076_set_document_units_without_keep_sizes_keeps_no_sizes() {
             keep_sizes: false,
         }
     );
+}
+
+#[test]
+fn t076_list_uses_request_and_result_round_trip() {
+    let command: Command = parse(LIST_USES_REQUEST);
+    assert_eq!(command, Command::ListUses { doc: DocHandle(1) });
+    assert_eq!(command.type_name(), "list_uses");
+    assert_eq!(written(&command), compact(LIST_USES_REQUEST));
+
+    let result: CommandResult = parse(LIST_USES_RESULT);
+    let a_use = |user: &str, field: &str, feature: &str, entity: Option<&str>| Use {
+        user: id(user),
+        field: field.to_string(),
+        feature: id(feature),
+        entity: entity.map(id),
+    };
+    assert_eq!(
+        result,
+        CommandResult::ListUses {
+            uses: vec![
+                a_use("f-ext1", "/profile/sketch", "f-sk1", None),
+                a_use("f-fil1", "/edges/0", "f-ext1", None),
+                a_use("f-fil1", "/edges/0", "f-ext1", Some("e-3")),
+            ],
+        }
+    );
+    assert_eq!(written(&result), compact(LIST_USES_RESULT));
+
+    let (request, buffers) =
+        decode_request(LIST_USES_REQUEST).expect("the list_uses example decodes from a frame");
+    assert_eq!(request.command, command);
+    assert!(buffers.is_empty());
+    // A request names only its document.
+    assert_malformed_request(r#"{"type":"list_uses","doc":1,"feature":"f-fil1"}"#);
 }
 
 #[test]
