@@ -6,15 +6,15 @@ This spec is the definition of done for the desktop host. Test authors write the
 
 ## 1. Purpose and scope
 
-The desktop app is the same React UI as the web app, running in the operating system's webview (WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux) inside a Tauri 2 shell, with the engine running natively in the same process. The host is thin: it owns one `Session`, forwards protocol frames to it, shows native file dialogs, reads and writes the files the user chose, and asks before closing a window with unsaved changes. It contains no modeling logic (engine.md section 1).
+The desktop app is the same React UI as the web app, running in the operating system's webview (WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux) inside a Tauri 2 shell, with the engine running natively in the same process. The host is thin: it owns one `Session`, forwards protocol frames to it, shows native file dialogs, reads and writes the files the user chose and the assets next to them, and asks before closing a window with unsaved changes. It contains no modeling logic (engine.md section 1).
 
-The webview gets the least privilege that does the job. It can call the engine, ask the user to choose a file in a native dialog, read and write exactly the files the user chose, and report whether it has unsaved changes. It cannot read or list any other path, start processes, open URLs or call any plugin command. No Tauri npm package is used: the UI reads `window.__TAURI__`, which `app.withGlobalTauri` injects (ADR 0014).
+The webview gets the least privilege that does the job. It can call the engine, ask the user to choose a file in a native dialog, read and write exactly the files the user chose and the asset-named files of the `assets/` folder next to each of them (3.4, ADR 0037), and report whether it has unsaved changes. It cannot read or list any other path, start processes, open URLs or call any plugin command. No Tauri npm package is used: the UI reads `window.__TAURI__`, which `app.withGlobalTauri` injects (ADR 0014).
 
 ### 1.1 In this milestone
 
 - `partsmith-desktop`: a library with the testable logic (`Host`, `Files`, `Unsaved`) and a binary `partsmith-desktop` whose Tauri wiring is a thin layer over it.
-- Six host commands: `call` (protocol.md 2.12), `pick_open_file`, `pick_save_file`, `read_file`, `write_file` and `set_unsaved`.
-- File grants: a file becomes readable and writable only after the user picks it in a native dialog; grants persist across restarts (at most 100) so Open recent and Save work after a restart.
+- Eight host commands: `call` (protocol.md 2.12), `pick_open_file`, `pick_save_file`, `read_file`, `write_file`, `read_asset`, `write_asset` and `set_unsaved`.
+- File grants: a file becomes readable and writable only after the user picks it in a native dialog; grants persist across restarts (at most 100) so Open recent and Save work after a restart. A grant also reaches the asset-named files of the `assets/` folder next to its file, for the document's imports (3.2, 3.4); no other grant exists.
 - Native open and save dialogs through `tauri-plugin-dialog`, called from Rust only.
 - A close guard: closing the window while the document has unsaved changes asks first.
 - `tauri.conf.json`, the capability file `capabilities/main.json`, the build script with an app command manifest, a strict content security policy, and the icons.
@@ -60,17 +60,17 @@ desktop/
       lib.rs                       run(), module declarations, public re-exports
       command_names.rs             COMMAND_NAMES, included by build.rs
       host.rs                      Host
-      files.rs                     Files, Dialogs, Granted, FileKind, FileError, grant_of, MAX_GRANTS
+      files.rs                     Files, Dialogs, Granted, FileKind, FileError, grant_of, is_asset_name, MAX_GRANTS
       dialogs.rs                   TauriDialogs (Dialogs over tauri-plugin-dialog)
       close_guard.rs               Unsaved, the close confirmation
-      commands.rs                  the six #[tauri::command] functions
+      commands.rs                  the eight #[tauri::command] functions
     tests/
       integration.rs               the one test binary: declares the files below as modules
       host.rs  files.rs  commands.rs  config.rs  common/mod.rs
     benches/
       budgets.rs                   the Rust budgets of section 5
 ui/src/
-  files/desktop-file-service.ts    TauriInvokeGlobal, GRANT_HEADER, tauriGlobalOf, createDesktopFileService
+  files/desktop-file-service.ts    TauriInvokeGlobal, GRANT_HEADER, ASSET_HEADER, tauriGlobalOf, createDesktopFileService
   files/choose-file-service.ts     chooseFileService
   app/close-guard.ts               installCloseGuard
 ```
@@ -146,7 +146,7 @@ The architecture lists the desktop host as depending on the engine and the proto
 
 ```rust
 /// Every command the desktop host registers, in registration order. build.rs includes this file.
-pub const COMMAND_NAMES: &[&str] = &["call", "pick_open_file", "pick_save_file", "read_file", "write_file", "set_unsaved"];
+pub const COMMAND_NAMES: &[&str] = &["call", "pick_open_file", "pick_save_file", "read_file", "write_file", "read_asset", "write_asset", "set_unsaved"];
 ```
 
 `build.rs`:
@@ -162,9 +162,9 @@ fn main() {
 }
 ```
 
-With an app manifest, Tauri generates one permission per command (`allow-call`, `allow-pick-open-file`, `allow-pick-save-file`, `allow-read-file`, `allow-write-file`, `allow-set-unsaved`; Tauri turns underscores into hyphens) and denies every command a capability does not grant. Without one, every registered command would be open to every window.
+With an app manifest, Tauri generates one permission per command (`allow-call`, `allow-pick-open-file`, `allow-pick-save-file`, `allow-read-file`, `allow-write-file`, `allow-read-asset`, `allow-write-asset`, `allow-set-unsaved`; Tauri turns underscores into hyphens) and denies every command a capability does not grant. Without one, every registered command would be open to every window.
 
-tauri-build writes these permissions on every build to `permissions/autogenerated/`, one file `{command}.toml` per `COMMAND_NAMES` entry with the name unchanged (`call.toml`, `pick_open_file.toml`, `pick_save_file.toml`, `read_file.toml`, `write_file.toml`, `set_unsaved.toml`), each holding the command's `allow-` and `deny-` permission. The folder is committed (it is not in `.gitignore`). tauri-build adds and rewrites files there but never deletes one, so when a command is renamed or removed, its old file must be deleted by hand; test 34 fails until it is.
+tauri-build writes these permissions on every build to `permissions/autogenerated/`, one file `{command}.toml` per `COMMAND_NAMES` entry with the name unchanged (`call.toml`, `pick_open_file.toml`, `pick_save_file.toml`, `read_file.toml`, `write_file.toml`, `read_asset.toml`, `write_asset.toml`, `set_unsaved.toml`), each holding the command's `allow-` and `deny-` permission. The folder is committed (it is not in `.gitignore`). tauri-build adds and rewrites files there but never deletes one, so when a command is renamed or removed, its old file must be deleted by hand; test 34 fails until it is.
 
 ### 2.3 Host
 
@@ -242,10 +242,17 @@ impl Files {
     pub fn read(&self, grant: &str) -> Result<Vec<u8>, FileError>;
     /// Replaces a granted file's contents atomically.
     pub fn write(&self, grant: &str, bytes: &[u8]) -> Result<(), FileError>;
+    /// Reads the asset `name` from the `assets/` folder next to a granted document (3.4, assets).
+    pub fn read_asset(&self, grant: &str, name: &str) -> Result<Vec<u8>, FileError>;
+    /// Writes the asset `name` to the `assets/` folder next to a granted document, keeping an entry that already holds these bytes (3.4, assets).
+    pub fn write_asset(&self, grant: &str, name: &str, bytes: &[u8]) -> Result<(), FileError>;
 }
 
 /// The grant of a path: the first 16 bytes of the BLAKE3 hash of its UTF-8 text, as 32 lowercase hex digits.
 pub fn grant_of(path: &str) -> String;
+
+/// Whether `name` is an asset's file name (file-format.md 3.11): 64 lowercase hex digits, a dot and a lowercase extension of letters and digits.
+pub fn is_asset_name(name: &str) -> bool;
 
 /// Why a file operation failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -264,6 +271,16 @@ pub enum FileError {
     Exists { name: String },
     #[error("The file contents must be sent as bytes.")]
     NotBytes,
+    #[error("\"{name}\" is not the name of an asset.")]
+    NotAnAssetName { name: String },
+    #[error("The bytes sent for {name} are not that asset: their hash is not its name.")]
+    AssetMismatch { name: String },
+    #[error("The assets entry next to the document is a file or a symbolic link, not a folder, so Partsmith does not use it.")]
+    AssetsNotAFolder,
+    #[error("{name} in the assets folder is a folder, not a file.")]
+    AssetIsAFolder { name: String },
+    #[error("{name} in the assets folder is a symbolic link or another entry that is not a file, so Partsmith does not read it.")]
+    NotAFile { name: String },
 }
 
 impl FileError {
@@ -317,7 +334,7 @@ pub const CLOSE_CANCEL: &str = "Cancel";
 
 ### 2.6 Commands
 
-`src/commands.rs` registers exactly these, in `COMMAND_NAMES` order. JavaScript argument names are the camelCase forms of the Rust parameter names (Tauri's default).
+`src/commands.rs` registers exactly these, in `COMMAND_NAMES` order (`read_asset` and `write_asset` are proposed in ADR 0037 and need human review). JavaScript argument names are the camelCase forms of the Rust parameter names (Tauri's default).
 
 | Command | JavaScript call | Rust signature | Result in JavaScript |
 | --- | --- | --- | --- |
@@ -326,11 +343,13 @@ pub const CLOSE_CANCEL: &str = "Cancel";
 | `pick_save_file` | `invoke('pick_save_file', { suggestedName, kind })` | `async fn pick_save_file<R: Runtime>(window: WebviewWindow<R>, files: State<'_, Arc<Files>>, suggested_name: String, kind: FileKind) -> Result<Option<Granted>, FileError>` | `{name, grant}` or `null` |
 | `read_file` | `invoke('read_file', { grant })` | `async fn read_file(files: State<'_, Arc<Files>>, grant: String) -> Result<tauri::ipc::Response, FileError>` | The file's bytes as an `ArrayBuffer` |
 | `write_file` | `invoke('write_file', bytes, { headers: { 'Partsmith-Grant': grant } })` with the bytes as an `ArrayBuffer` | `async fn write_file(request: tauri::ipc::Request<'_>, files: State<'_, Arc<Files>>) -> Result<(), FileError>` | `null` |
+| `read_asset` | `invoke('read_asset', { grant, name })` | `async fn read_asset(files: State<'_, Arc<Files>>, grant: String, name: String) -> Result<tauri::ipc::Response, FileError>` | The asset's bytes as an `ArrayBuffer` |
+| `write_asset` | `invoke('write_asset', bytes, { headers: { 'Partsmith-Grant': grant, 'Partsmith-Asset': name } })` with the bytes as an `ArrayBuffer` | `async fn write_asset(request: tauri::ipc::Request<'_>, files: State<'_, Arc<Files>>) -> Result<(), FileError>` | `null` |
 | `set_unsaved` | `invoke('set_unsaved', { unsaved })` | `fn set_unsaved(unsaved: bool, state: State<'_, Unsaved>)` | `null` |
 
-The two pick commands are generic over the runtime `R` because `configure` is (2.7) and they hand their window to `TauriDialogs<R>` (2.4); the other four commands do not name the window or the runtime.
+The two pick commands are generic over the runtime `R` because `configure` is (2.7) and they hand their window to `TauriDialogs<R>` (2.4); the other six commands do not name the window or the runtime.
 
-The grant of `write_file` travels in the `Partsmith-Grant` header because the body is the raw file; grants are ASCII, so they are valid header values on every platform (a path might not be).
+The grant of `write_file` and `write_asset` travels in the `Partsmith-Grant` header, and the asset name of `write_asset` in the `Partsmith-Asset` header, because the body is the raw file; grants and asset names are ASCII, so they are valid header values on every platform (a path might not be).
 
 ### 2.7 App wiring
 
@@ -343,7 +362,7 @@ pub use dialogs::TauriDialogs;
 pub use files::{Dialogs, FileError, FileKind, Files, Granted, MAX_GRANTS, grant_of};
 pub use host::Host;
 
-/// Adds the dialog plugin, `Arc<Host>` (`Host::default()`), `Unsaved` and the six commands to a builder.
+/// Adds the dialog plugin, `Arc<Host>` (`Host::default()`), `Unsaved` and the eight commands to a builder.
 /// `run` and the command tests share it; the caller manages `Arc<Files>`.
 pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R>;
 
@@ -351,7 +370,7 @@ pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
 pub fn run() -> Result<(), tauri::Error>;
 ```
 
-`configure` adds `.plugin(tauri_plugin_dialog::init())`, manages `Arc::new(Host::default())` and `Unsaved::default()`, and registers the six commands with `tauri::generate_handler!`. `run` calls `configure(tauri::Builder::default())`, manages `Arc<Files>` in `setup` (`Files::load(app.path().app_data_dir()?.join("file-grants.json"))`, or `Files::in_memory()` with a line on standard error when the data directory cannot be resolved), installs the close guard on `WindowEvent::CloseRequested` (3.6), and runs with `tauri::generate_context!()`. `main` calls `run` and, on error, prints `partsmith-desktop: {error}` to standard error and exits with status 1.
+`configure` adds `.plugin(tauri_plugin_dialog::init())`, manages `Arc::new(Host::default())` and `Unsaved::default()`, and registers the eight commands with `tauri::generate_handler!`. `run` calls `configure(tauri::Builder::default())`, manages `Arc<Files>` in `setup` (`Files::load(app.path().app_data_dir()?.join("file-grants.json"))`, or `Files::in_memory()` with a line on standard error when the data directory cannot be resolved), installs the close guard on `WindowEvent::CloseRequested` (3.6), and runs with `tauri::generate_context!()`. `main` calls `run` and, on error, prints `partsmith-desktop: {error}` to standard error and exits with status 1.
 
 Command tests build `configure(tauri::test::mock_builder()).manage(Arc::new(Files::in_memory()))` with `tauri::generate_context!(test = true)`, which compiles the real configuration and capability into Tauri's mock runtime, so the ACL is enforced as in the app. They open a webview window labeled `main` and send requests with `tauri::test::get_ipc_response`, using `tauri::test::INVOKE_KEY` and the app's own origin in the mock runtime as the URL: `tauri://localhost`, or `http://tauri.localhost` on Windows (where Tauri serves the app's custom protocol over `http`). This works because `configure` is generic over the runtime: `run` passes it a `Wry` builder and the tests a `MockRuntime` one, so every command it registers works on both; the pick commands, which take the window, and `TauriDialogs` behind them are generic too (2.4, 2.6).
 
@@ -461,7 +480,7 @@ Rules behind the values:
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "The main window may call the engine, ask for files in native dialogs, use the files the user chose, and report unsaved changes.",
+  "description": "The main window may call the engine, ask for files in native dialogs, use the files the user chose and the assets next to them, and report unsaved changes.",
   "windows": ["main"],
   "permissions": [
     "allow-call",
@@ -469,12 +488,14 @@ Rules behind the values:
     "allow-pick-save-file",
     "allow-read-file",
     "allow-write-file",
+    "allow-read-asset",
+    "allow-write-asset",
     "allow-set-unsaved"
   ]
 }
 ```
 
-No `core:` permission is granted: the UI uses `invoke` and nothing else from Tauri's core API (no events, window, path, menu or app commands), and `invoke` itself needs no permission. No `dialog:` or `fs:` permission is granted, so the dialog plugin's own JavaScript commands are unreachable; Rust calls its API directly. The capability has no `remote` entry, so a page from any other origin gets no command.
+`allow-read-asset` and `allow-write-asset` are the capability change of ADR 0037 (needs human review). No `core:` permission is granted: the UI uses `invoke` and nothing else from Tauri's core API (no events, window, path, menu or app commands), and `invoke` itself needs no permission. No `dialog:` or `fs:` permission is granted, so the dialog plugin's own JavaScript commands are unreachable; Rust calls its API directly. The capability has no `remote` entry, so a page from any other origin gets no command.
 
 ### 2.10 Icons
 
@@ -509,8 +530,11 @@ export type TauriInvokeGlobal = {
   }
 }
 
-/** The header that carries a write_file grant. */
+/** The header that carries the grant of write_file and write_asset. */
 export const GRANT_HEADER = 'Partsmith-Grant'
+
+/** The header that carries the asset name of write_asset. */
+export const ASSET_HEADER = 'Partsmith-Asset'
 
 /** The Tauri global of an environment when its `__TAURI__.core.invoke` is a function, else null. */
 export function tauriGlobalOf(environment: object): TauriInvokeGlobal | null
@@ -565,6 +589,7 @@ Startup (ui.md 3.1 step 2) creates the file service with `chooseFileService(wind
 5. A failure to save the store prints `partsmith-desktop: could not save the file grant store {path}: {reason}` to standard error and does not fail the operation; the grant works for the rest of the session.
 6. `Files::in_memory()` never touches the disk.
 7. The list is guarded by one mutex; the store is written while it is held, so concurrent commands save in order. File contents are read and written outside the lock.
+8. **Assets next to a grant** (ADR 0037, needs human review). `read_asset` and `write_asset` take the grant of a document and reach the `assets/` folder in that document's folder, which is the folder of the file `write_file` writes: the granted path's folder, or for a granted symbolic link the folder of the file it points to (3.4 step 4.1). In it they reach only the entries whose names pass `is_asset_name`. Nothing about assets is stored: no grant is added, and neither command moves its grant in the list. Neither ever lists a folder, deletes or renames anything, changes an entry other than the one it names, follows a symbolic link (neither `assets` itself nor an entry under an asset's name), or creates a folder other than `assets/`. A grant from `pick_save_file` reaches the folder of the chosen file the same way, so Save as writes the assets next to it.
 
 ### 3.3 Picks
 
@@ -589,9 +614,24 @@ Startup (ui.md 3.1 step 2) creates the file service with `chooseFileService(wind
 5. A successful write moves the path to the front of the list.
 6. The command layer: `read_file` returns the bytes as `tauri::ipc::Response`; `write_file` takes the grant from the `Partsmith-Grant` header (missing or not visible ASCII: `UnknownGrant`) and the bytes from a raw body (a JSON body: `NotBytes`). Both run their file work on the blocking pool.
 
+**Assets** (file-format.md 3.11, ADR 0036 option (a), ADR 0037; the grant rule is step 8 of 3.2):
+
+7. The document's folder is the folder of the granted path after the link is followed as in step 4.1 (`canonicalize` when the path is a symbolic link; a link that leads nowhere gives `NotFound` for the link's name). The assets folder is `assets` in it. An asset `name` that fails `is_asset_name` gives `NotAnAssetName { name }` before anything else is looked at.
+8. `read_asset(grant, name)`, stopping at the first failure:
+   1. The name as in step 7, then the grant as in step 1 (`UnknownGrant`).
+   2. `assets`, looked at without following a link (`symlink_metadata`): missing gives `NotFound { name: "assets" }`, a folder goes on, and anything else, a symbolic link included, gives `AssetsNotAFolder`.
+   3. `assets/{name}`, looked at the same way: missing gives `NotFound { name }`. A regular file is opened and read whole when the opened file is the one looked at: on Unix the same device and inode (`std::os::unix::fs::MetadataExt`), elsewhere a regular file of the same length and modification time. Anything else (a symbolic link, a folder, a socket, a pipe, or an entry that changed between the look and the open) gives `NotAFile { name }`, and nothing is read through it.
+9. `write_asset(grant, name, bytes)`, stopping at the first failure:
+   1. The name as in step 7. Its 64 hex digits must be the BLAKE3 hash of `bytes` (`blake3::hash(bytes).to_hex()`, the rule of engine.md 3.14), else `AssetMismatch { name }`, so a write can never put other bytes under an asset's name. Then the grant as in step 1.
+   2. `assets`, looked at as in step 8.2: a folder goes on; a missing one is created with `fs::create_dir`, never its parents, so a missing document folder gives `NotFound { name: "assets" }`; anything else gives `AssetsNotAFolder`, and nothing is written.
+   3. The entry check of file-format.md 3.11 on `assets/{name}`, looked at without following a link. A regular file of `bytes.len()` bytes is opened and read as in step 8.3, and when it holds `bytes` the write ends there and leaves it untouched, even when it is read-only. A folder gives `AssetIsAFolder { name }` and stays. A read-only regular file (as in step 4.2) that does not hold `bytes` gives `Denied { name, detail: "the file is read-only" }` and is not changed. Any other entry is replaced: a writable regular file of another size or with other bytes, a symbolic link whether or not it leads anywhere, a socket or a pipe.
+   4. The replacement is the atomic write of step 4 with the entry itself as the target, never the file a link points to: the temporary file `.{name}.{process id}-{n}.partsmith.tmp` in `assets/` (a name that never passes `is_asset_name`), created with the permissions of the regular file it replaces, if any, else the defaults; all bytes; `sync_all`; and the rename over the entry. On any failure the temporary file is removed.
+10. I/O errors map as in step 3, with `name` the asset's name for the entry and `assets` for the folder. A failed write leaves every other entry of `assets/` as it was, and assets written before it stay (file-format.md 3.11).
+11. The command layer: `read_asset` takes `grant` and `name` from its JSON arguments and returns the bytes as `tauri::ipc::Response`. `write_asset` takes the grant from the `Partsmith-Grant` header (missing or not visible ASCII: `UnknownGrant`), the name from the `Partsmith-Asset` header (missing or not visible ASCII: `NotAnAssetName` with an empty name) and the bytes from a raw body (a JSON body: `NotBytes`). Both run their file work on the blocking pool.
+
 ### 3.5 Errors to the UI
 
-A command that returns `Err(FileError)` rejects the JavaScript `invoke` with `{"reason": ..., "message": ...}`. The desktop file service turns it into `FileServiceError(reason, message)`, and ui.md 3.19 shows its existing messages (for example "Could not save bracket.ptsm: No space left on device (os error 28)" for an `io` failure on Save). Tauri's own rejections (an unknown command, a command the capability does not grant) are strings and become `io` errors with that text.
+A command that returns `Err(FileError)` rejects the JavaScript `invoke` with `{"reason": ..., "message": ...}`. The desktop file service turns it into `FileServiceError(reason, message)`, and ui.md 3.19 shows its existing messages (for example "Could not save bracket.ptsm: No space left on device (os error 28)" for an `io` failure on Save). Tauri's own rejections (an unknown command, a command the capability does not grant) are strings and become `io` errors with that text. The desktop file service gives the errors of `read_asset` and `write_asset` the `entry` `assets/{name}` (3.7), which ui.md 3.19 puts in the details of `assets_not_read` and `save_assets`, never in their text.
 
 ### 3.6 Close guard
 
@@ -608,7 +648,12 @@ A command that returns `Err(FileError)` rejects the JavaScript `invoke` with `{"
 5. `write(target, kind, bytes)` with a desktop handle target invokes `write_file` with an `ArrayBuffer` holding exactly `bytes` (the view's own buffer when the view covers all of an `ArrayBuffer`, else a copy) and the header `Partsmith-Grant: {grant}`. A download target throws `FileServiceError('io', 'The desktop app saves to files, not downloads.')`; a web handle target throws the `permission` error of step 3.
 6. Replies are checked at runtime: a pick reply must be `null` or an object with non-empty string `name` and `grant`; a read reply must be an `ArrayBuffer`. Anything else throws `FileServiceError('io', 'The desktop app sent an unexpected reply to {command}.')`.
 7. A rejection whose value is an object with `reason` `permission`, `not_found` or `io` and a string `message` becomes `FileServiceError(reason, message, { cause })`; any other rejection becomes `FileServiceError('io', text, { cause })`, where `text` is the `Error`'s message, the string itself, or `String(value)`.
-8. Recent files: entries for desktop files hold the desktop handle and `text: null` (ui.md 2.15). Two desktop handles are the same file when their grants are equal; a desktop handle and a web handle are never the same file. Reopening reads through `read_file`: an unknown grant (dropped from the store, 3.2) gives `permission`, so ui.md 3.19 shows "Partsmith needs permission to open {file}. Choose it again to grant access."; a missing file gives `not_found`, which removes the entry.
+8. Recent files: entries for desktop files hold the desktop handle, `folder: null` and `text: null` (ui.md 2.15). Two desktop handles are the same file when their grants are equal; a desktop handle and a web handle are never the same file. Reopening reads through `read_file`: an unknown grant (dropped from the store, 3.2) gives `permission`, so ui.md 3.19 shows "Partsmith needs permission to open {file}. Choose it again to grant access."; a missing file gives `not_found`, which removes the entry.
+
+9. `readHandle(handle, mode)` ignores `mode`, since a grant reads and writes alike.
+10. `reachesFolder(place)` is true for a desktop handle and false for a web one. `chooseFolder` throws `FileServiceError('io', 'The desktop app finds the folder of a file by itself.')`, since the host reaches the folder through the grant and ui.md 3.19 never asks for it on the desktop.
+11. `readAssets(place, names)` with a desktop handle invokes `read_asset` with `{ grant, name }` once per name, in order. An `ArrayBuffer` reply is that asset, and a `not_found` rejection leaves it out. Any other rejection, or a reply that is not an `ArrayBuffer`, is a failure (step 7, or the unexpected-reply error of step 6) with `entry` `assets/{name}` that leaves the asset out while the reading goes on; the first failure is returned. With a web handle it returns no assets and the `permission` error of step 3 as the failure, with `entry` `assets`.
+12. `writeAssets(place, assets)` with a desktop handle invokes `write_asset` once per asset, in order, with an `ArrayBuffer` holding exactly its bytes (as in step 5) and the headers `Partsmith-Grant: {grant}` and `Partsmith-Asset: {name}`. The first rejection throws its `FileServiceError` (step 7) with `entry` `assets/{name}`, and no later asset is sent. With a web handle it throws the `permission` error of step 3 with `entry` `assets`.
 
 `installCloseGuard` subscribes to the store. The unsaved condition is the one ui.md 3.19 uses for `beforeunload`: a document is open and its `dirty` or `localUnsaved` is true. It invokes `set_unsaved` with `{ unsaved }` once at install and then only when the condition changes. A rejected invoke logs `console.warn('Partsmith could not tell the desktop host about unsaved changes.', error)` and is not retried until the next change.
 
@@ -642,6 +687,13 @@ The Linux packages are built on Ubuntu 24.04, so they need glibc 2.39 or later a
 | Path not valid UTF-8 | `FileError::NotUnicode`, reason `io` | `Partsmith can only use files whose path is valid Unicode. Rename the file or its folder.` |
 | Save name gained an extension and that file exists | `FileError::Exists`, reason `io` | `{name} already exists. Choose it in the dialog to replace it.` |
 | `write_file` with a JSON body | `FileError::NotBytes`, reason `io` | `The file contents must be sent as bytes.` |
+| An asset command with a name that is not an asset's (3.4 step 7) | `FileError::NotAnAssetName`, reason `io` | `"{name}" is not the name of an asset.` |
+| `write_asset` bytes whose BLAKE3 hash is not the name | `FileError::AssetMismatch`, reason `io` | `The bytes sent for {name} are not that asset: their hash is not its name.` |
+| `assets` next to the document is a file, a symbolic link or another entry that is not a folder | `FileError::AssetsNotAFolder`, reason `io` | `The assets entry next to the document is a file or a symbolic link, not a folder, so Partsmith does not use it.` |
+| A folder under an asset's name, for `write_asset` | `FileError::AssetIsAFolder`, reason `io` | `{name} in the assets folder is a folder, not a file.` |
+| An entry under an asset's name that is not a regular file, for `read_asset` | `FileError::NotAFile`, reason `io` | `{name} in the assets folder is a symbolic link or another entry that is not a file, so Partsmith does not read it.` |
+| A missing asset or `assets` folder, for `read_asset` | `FileError::NotFound`, reason `not_found` | `{name} was not found.` (the UI leaves that asset out without a message, ui.md 3.19) |
+| `chooseFolder` of the desktop file service | `FileServiceError('io')` | `The desktop app finds the folder of a file by itself.` |
 | Unexpected reply in the UI | `FileServiceError('io')` | `The desktop app sent an unexpected reply to {command}.` |
 | Download target on desktop | `FileServiceError('io')` | `The desktop app saves to files, not downloads.` |
 | A handle from the other host | `FileServiceError('permission')` | `Partsmith has no access to {name}.` |
@@ -661,7 +713,7 @@ Release builds on the reference machine (technical design section 14). The first
 | `Files::load` of a store with 100 paths | 5 ms |
 | `invoke('call')` round trip for `engine_info` from JavaScript, including both copies | 2 ms |
 | A 50 MB response frame from `call` to an `ArrayBuffer` in JavaScript | 250 ms |
-| `read_file` or `write_file` of a 10 MB file through the IPC | 100 ms |
+| `read_file`, `write_file`, `read_asset` or `write_asset` of a 10 MB file through the IPC | 100 ms |
 | Cold start to usable (window shown, core ready, empty document; ui.md `ps:usable`) | 2 s |
 | Viewport, sketch and rebuild budgets | The desktop column of technical design section 14 |
 
@@ -684,7 +736,7 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 8. A `call` invoke from the `main` window whose body is `InvokeBody::Raw(example A)` answers `InvokeResponseBody::Raw` with bytes equal to `Host::default().call(example A)` on a fresh host.
 9. A `call` invoke with the JSON body `{}` answers with a raw error frame with id 0 and code `malformed_frame`.
 10. A `write_file` invoke with a JSON body rejects with `{"reason": "io", "message": "The file contents must be sent as bytes."}`; one with a raw body and no `Partsmith-Grant` header rejects with reason `permission`.
-11. `COMMAND_NAMES` equals the six names of 2.2 in that order.
+11. `COMMAND_NAMES` equals the eight names of 2.2 in that order.
 12. The same `call` invoke from a webview window labeled `other` is rejected by the ACL with a message containing `not allowed`, and nothing reaches the host.
 13. `plugin:dialog|open` and `plugin:dialog|save` invokes from the `main` window are rejected with a message containing `not allowed`; `plugin:fs|read_file` is rejected (the fs plugin is not registered).
 
@@ -746,7 +798,30 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 
 53. `bundle.resources` is an object with exactly one key, `../../THIRD-PARTY-NOTICES.txt`, whose value is `THIRD-PARTY-NOTICES.txt`, and `bundle` has no `licenseFile` key. That path, resolved from `desktop/src-tauri/`, is the repository root's `THIRD-PARTY-NOTICES.txt`, a regular file whose first line is `Third-party notices for the Partsmith desktop app` (delivery.md 2.9). Test 33 checks the rest of the object.
 
-**Manual checks at the gate** (no harness yet; the reviewer records the result per OS): the window opens at 1440 by 900 with the UI in Geist, online and offline, and the Parameters panel of a document with parameters shows their names and expressions in JetBrains Mono; Open, Save, Save as and Export show native dialogs and write the chosen files; Open recent reopens a file after restarting the app; dropping a `.ptsm` opens it; closing with unsaved changes asks; `cargo tauri dev` loads the UI with hot reload.
+**Assets next to a granted document (ADR 0037; `tests/files.rs` unless named)**
+
+In these tests `<dir>/part.ptsm` is granted by `pick_open`, and `S` is the name `blake3::hash(b"solid").to_hex()` followed by `.step`, so its bytes are `solid`.
+
+54. `is_asset_name` accepts `S` and 64 `0` digits followed by `.3mf`, and rejects the same with a capital hex digit, 63 digits, no extension (`<64 digits>.`), a capital extension (`.STEP`), two extensions (`.step.tmp`), a leading `.`, a `/` or `../` before it, and the empty name.
+55. `read_asset(grant, S)` with `<dir>/assets/S` holding `solid` returns `solid`, and leaves the grant list in the same order (it moves no grant). Without that entry it fails with `NotFound { name: S }`, reason `not_found`; without `<dir>/assets` with `NotFound { name: "assets" }`. The names `part.ptsm`, `../part.ptsm` and `S` with a capital extension fail with `NotAnAssetName`, and an ungranted grant with `UnknownGrant`.
+56. (Unix) `read_asset` reads no link and no other entry: with `<dir>/assets/S` a symbolic link to `<dir>/outside.step` holding `solid`, a folder, or a Unix socket (`std::os::unix::net::UnixListener::bind`), it fails with `NotAFile { name: S }`. With `<dir>/assets` a symbolic link to a folder holding `S`, or a regular file, it fails with `AssetsNotAFolder`.
+57. `write_asset(grant, S, b"solid")` without `<dir>/assets` creates it and writes `<dir>/assets/S` holding `solid`; `<dir>/assets` then holds only `S`, and no file ending in `.partsmith.tmp` remains. `write_asset(grant, S, b"other")` fails with `AssetMismatch { name: S }`, and a name that fails `is_asset_name` with `NotAnAssetName`; in a second folder with a granted document, each of these leaves no `assets` folder there. With the granted document's folder deleted, `write_asset` fails with `NotFound { name: "assets" }` and creates no folder.
+58. The entry check keeps and replaces: (a) with `assets/S` already holding `solid`, `write_asset` succeeds and leaves the file untouched (on Unix the same inode; everywhere the same modification time). (b) Holding `stale` (another size), or `solix` (the same size, other bytes), it is replaced and holds `solid`. (c) On Unix, a replaced file with mode `0o640` keeps that mode. (d) The other entries `assets/<64 zeros>.step` (holding `other`) and `assets/notes.txt` (holding `notes`) are unchanged after each of these.
+59. (Unix) Entries that are not files are replaced, never written through: with `assets/S` a symbolic link to `<dir>/outside.step` holding `stale`, a symbolic link to the missing `<dir>/gone.step`, or a Unix socket, `write_asset` leaves `assets/S` a regular file holding `solid`. `outside.step` still holds `stale`, and `gone.step` still does not exist.
+60. Folders and read-only files: with `assets/S` a folder, `write_asset` fails with `AssetIsAFolder { name: S }` and the folder stays. With `assets/S` a read-only file holding `stale` (`Permissions::set_readonly(true)`), it fails with `Denied { name: S, detail: "the file is read-only" }`, reason `permission`, and the file still holds `stale`; holding `solid` instead, it succeeds, and the file is unchanged and still read-only. With `assets` a regular file, it fails with `AssetsNotAFolder` and the file is unchanged. On Unix, with `assets` a symbolic link to `<dir>/shared`, it fails with `AssetsNotAFolder` and `<dir>/shared` stays empty.
+61. (Unix) A linked document: with `<dir>/link.ptsm` a symbolic link to `<dir>/synced/part.ptsm` and the link granted, `write_asset` writes `<dir>/synced/assets/S` and `read_asset` reads it from there, and `<dir>/assets` is never created.
+62. `serde_json::to_value` of `NotAnAssetName`, `AssetMismatch`, `AssetsNotAFolder`, `AssetIsAFolder` and `NotAFile` each has reason `io` and the message of 2.4, for example `{"reason": "io", "message": "The assets entry next to the document is a file or a symbolic link, not a folder, so Partsmith does not use it."}`.
+63. Command wiring (`tests/commands.rs`, as tests 8 to 13): a granted file's `read_asset` invoke with the JSON body `{grant, name: S}` answers `InvokeResponseBody::Raw` with the bytes of `assets/S`. A `write_asset` invoke with a raw body of `solid` and both headers writes `assets/S`. One with a JSON body rejects with `{"reason": "io", "message": "The file contents must be sent as bytes."}`, one without `Partsmith-Grant` with reason `permission`, and one without `Partsmith-Asset` with reason `io` and the message `"" is not the name of an asset.`
+
+**UI (Vitest), assets and the change check**
+
+`A`, `B` and `C` are the asset names of 64 `a`, `b` and `c` digits followed by `.step`.
+
+64. `readAssets({ handle: { kind: 'desktop', name: 'part.ptsm', grant: 'g1' }, folder: null }, [A, B, C])` invokes `('read_asset', { grant: 'g1', name: A })`, then the same for `B` and `C`, in order. With `A` answering the bytes 1, 2, 3, `B` rejecting `{reason: 'not_found', message: 'x'}` and `C` rejecting `{reason: 'io', message: 'Disk failure'}`, it resolves the assets `[A]` and the failure `io` `Disk failure` with `entry` `assets/<C>`. With a web handle it invokes nothing and resolves no assets and a `permission` failure with `entry` `assets`.
+65. `writeAssets` of `[A, B]` to that place invokes `write_asset` with an `ArrayBuffer` of `A`'s bytes and the options `{ headers: { 'Partsmith-Grant': 'g1', 'Partsmith-Asset': A } }`, then the same for `B`. When `A`'s invoke rejects with `{reason: 'permission', message: 'm'}`, it throws `FileServiceError('permission', 'm')` with `entry` `assets/<A>` and makes no second invoke.
+66. `reachesFolder` is true for a desktop handle and false for a fake web handle; `chooseFolder` of a desktop handle throws `FileServiceError('io', 'The desktop app finds the folder of a file by itself.')` and invokes nothing; `readHandle(handle, 'readwrite')` invokes `('read_file', { grant })` exactly as `readHandle(handle)` does.
+
+**Manual checks at the gate** (no harness yet; the reviewer records the result per OS): the window opens at 1440 by 900 with the UI in Geist, online and offline, and the Parameters panel of a document with parameters shows their names and expressions in JetBrains Mono; Open, Save, Save as and Export show native dialogs and write the chosen files; Open recent reopens a file after restarting the app; `examples/import/step-block.ptsm` opens with its imported block, Save as into an empty folder writes `assets/` there with its asset, and a Save after the file was changed by another program shows the change warning; dropping a `.ptsm` opens it; closing with unsaved changes asks; `cargo tauri dev` loads the UI with hot reload.
 
 ## 7. Open issues
 
@@ -759,6 +834,8 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 7. **Two app instances.** Two running instances share the grant store and the webview's data directory; the last store write wins. Single-instance handling is later (section 1.2). The recovery copies (ui.md 3.19) are keyed per document session, so two instances never overwrite each other's copy. An instance leaves out a copy whose session another instance is still running only where the webview shares its Web Locks between the two processes (ui.md 2.15); the gate check records per OS whether it does. Where it does not, a second instance offers the first one's live copy at startup: Open makes its own copy, but Discard removes the first one's until its next recovery write.
 8. **Measured budgets.** The IPC budgets of section 5 are targets until the desktop harness measures them; WebView2's raw IPC is known to be slower than WebKit's for large bodies.
 9. **A core stuck in a long call.** ui.md 4.4 stops a web core that has answered nothing for 10 s by terminating its worker. The desktop core runs `Session::call` on a blocking thread inside the app's process, where nothing can stop a running call from outside: the Tauri transport's `stop()` only rejects the sends that wait, and a restart would wait behind the session mutex until the call ends. So the desktop shows the still-working panel without "Stop and restart core" (`core_still_working_desktop`), and the way out is quitting the app (the close guard asks first while changes are unsaved), whose next start offers the recovery copy of the settled recipe (ui.md 3.19). Offering the button needs request cancellation (protocol.md section 1, Later): a cancel the engine checks between features and inside long kernel operations, answered with the `not_run` status of a canceled recompute, which the desktop transport would send instead of waiting.
+10. **Links in the assets folder (needs human review, ADR 0037).** The desktop follows no symbolic link there: an `assets` that is a link fails Open's reads and every save of a document with imports (`AssetsNotAFolder`), an entry under an asset's name that is a link is not read, and a save replaces it with a regular file (3.4 steps 8 and 9). Python follows a linked `assets` folder (python-api.md 3.1, ADR 0036 point 7), so a project that shares one assets folder through a link works in Python and not on the desktop. ADR 0037 sets out following it, never following it (proposed) and following it for reading only. The assets of a linked document file are kept next to the file it points to (3.4 step 7), where Python keeps them next to the link (python-api.md open issue 10).
+11. **Web Crypto in every webview (gate check).** Save's change check hashes the file with `crypto.subtle.digest` (ui.md 3.19), which exists only in a secure context. The gate check confirms that `window.isSecureContext` is true and `crypto.subtle` exists in WebView2 (`http://tauri.localhost`), WKWebView and WebKitGTK (`tauri://localhost`).
 
 ## 8. Needs human review
 
@@ -771,3 +848,4 @@ Rust tests live in `desktop/src-tauri/tests/` and run with `cargo test -p partsm
 - **Third-party notices in the bundles** (2.8): the notices of delivery.md 2.9 as the one bundle resource, with no license page or agreement in any installer (ADR 0033); whether the AppImage, which bundles LGPL system libraries, stays in M1 (ADR 0034).
 - **Grant store** limits: `MAX_GRANTS` 100 and persistence across restarts (open issue 5).
 - **Close guard wording** (2.5).
+- **The asset commands** (ADR 0037, gap list B-5 and B-6, batched into one capability change): `read_asset` and `write_asset` in `COMMAND_NAMES`, their two `permissions/autogenerated/` files and the permissions `allow-read-asset` and `allow-write-asset` in `capabilities/main.json` (2.2, 2.6, 2.9). Their grant rule (3.2 step 8) reaches only the asset-named entries of `assets/` next to a granted document, with the entry check of ADR 0036 option (a) and bytes checked against the name (3.4 step 9). With them: never following a link in the assets folder (open issue 10), and refusing a read-only asset that holds other bytes (3.4 step 9.3). Save's change check needs no host change (it reads through `read_file`, ui.md 3.19).

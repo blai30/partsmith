@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._client import Client, Reply
-from ._files import write_atomic
+from ._files import holds, write_atomic
 from .errors import EngineError, ExpressionError, FeatureError, PartsmithError, PartsmithWarning
 from .expressions import ATOM, LENGTH_FACTORS, Expr, choices_text, render_value
 from .reports import BoundingBox, PrintReport, bounding_box, point, print_report
@@ -174,19 +174,21 @@ class Document:
         return self._client.command("save_document").result["text"]
 
     def save(self, path: str | os.PathLike[str]) -> None:
-        """Writes the canonical text to `path` and the assets it uses to `assets/` next to it."""
+        """Writes the assets the document uses to `assets/` next to `path`, then the canonical text
+        to `path`, then marks the document saved (file-format.md section 3.11)."""
         path = Path(path)
         reply = self._client.command("save_document")
-        write_atomic(path, reply.result["text"].encode("utf-8"))
         assets = reply.result["assets"]
         if assets:
             folder = path.parent / "assets"
             folder.mkdir(exist_ok=True)
             for asset in assets:
-                # Asset names are content hashes, so an existing file already has these bytes.
+                # The engine's bytes hash to the asset's name, so a file holding them is valid.
                 target = folder / asset["name"]
-                if not target.exists():
-                    write_atomic(target, reply.buffers[asset["data"]])
+                data = reply.buffers[asset["data"]]
+                if not holds(target, data):
+                    write_atomic(target, data)
+        write_atomic(path, reply.result["text"].encode("utf-8"))
         self._client.command("mark_saved", revision=reply.result["revision"])
 
     def to_python(self) -> str:

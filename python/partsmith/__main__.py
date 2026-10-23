@@ -60,7 +60,8 @@ def build(script: Path, output: Path | None) -> int:
     try:
         documents[0].save(target)
     except OSError as error:
-        print(f"error: Cannot write {target}: {error}", file=sys.stderr)
+        # The error names the file or folder that failed: the document, its assets folder or an asset.
+        print(f"error: Cannot write {error.filename}: {error.strerror}", file=sys.stderr)
         return IO_ERROR
     return SUCCESS
 

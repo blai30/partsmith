@@ -2,6 +2,7 @@
 
 import json
 import math
+import os
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -19,6 +20,16 @@ FIXTURES = REPOSITORY_ROOT / "crates" / "partsmith-engine" / "tests" / "fixtures
 
 SCHEMAS = REPOSITORY_ROOT / "docs" / "format"
 """The generated JSON Schemas."""
+
+IMPORT_ASSET = (
+    REPOSITORY_ROOT
+    / "examples"
+    / "import"
+    / "assets"
+    / "b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step"
+)
+"""`S` of python-api.md section 6 (tests 97 to 102, and the unit tests of saving assets): the committed STEP asset of
+features/import.md section 6, a block of volume 6000 whose file name is its BLAKE3 hash."""
 
 RELATIVE_TOLERANCE = 1e-6
 """Volumes and areas hold within 1e-6 relative unless a test states otherwise."""
@@ -279,3 +290,54 @@ def recorded_document(monkeypatch: pytest.MonkeyPatch) -> tuple[Document, Record
     document = Document()
     [session] = sessions
     return document, session
+
+
+def document_with_import() -> Document:
+    """`D` of python-api.md section 6, tests 97 to 102: a new document that imports `IMPORT_ASSET`."""
+    document = Document()
+    document.import_step(IMPORT_ASSET)
+    return document
+
+
+def record_file_operations(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
+    """A list that receives `("fsync",)` for each `os.fsync` and `("replace", <target path>)` for each `os.replace`,
+    in call order; both still do their work."""
+    operations: list[tuple] = []
+    original_fsync = os.fsync
+    original_replace = os.replace
+
+    def fsync(descriptor: int) -> None:
+        operations.append(("fsync",))
+        original_fsync(descriptor)
+
+    def replace(source, target, **options) -> None:
+        operations.append(("replace", Path(target)))
+        original_replace(source, target, **options)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "replace", replace)
+    return operations
+
+
+def record_opened_files(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """A list that receives the path of each `os.open` call, in call order; the call still does its work."""
+    opened: list[Path] = []
+    original_open = os.open
+
+    def open_file(path, flags: int, *arguments, **options) -> int:
+        opened.append(Path(path))
+        return original_open(path, flags, *arguments, **options)
+
+    monkeypatch.setattr(os, "open", open_file)
+    return opened
+
+
+def os_error_text(number: int, path: Path) -> str:
+    """`str()` of an `OSError` the OS raised with errno `number` for `path` (python-api.md section 3.1)."""
+    return f"[Errno {number}] {os.strerror(number)}: {str(path)!r}"
+
+
+def has_temporary_file(folder: Path) -> bool:
+    """Whether `folder` holds a temporary file, a file whose name starts with `.` (python-api.md section 6, tests 97
+    to 103)."""
+    return any(name.startswith(".") for name in os.listdir(folder))

@@ -1,12 +1,26 @@
 """Unit tests of documents, parts, parameters, document units, ids and the current context in
-partsmith.document, and of atomic writes."""
+partsmith.document, of atomic writes, and of saving assets and exporting (python-api.md sections 3.1 and 3.7)."""
 
+import errno
 import inspect
 import os
+import stat
 import warnings
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
-from support import partsmith_warnings, recorded_document, stored, stored_feature
+from support import (
+    IMPORT_ASSET,
+    document_with_import,
+    os_error_text,
+    partsmith_warnings,
+    record_file_operations,
+    record_opened_files,
+    recorded_document,
+    stored,
+    stored_feature,
+)
 
 from partsmith import (
     Axis,
@@ -24,6 +38,7 @@ from partsmith import (
     current_document,
     datum_plane,
     edges,
+    export_stl,
     fillet,
     linear_pattern,
     mm,
@@ -206,10 +221,244 @@ def test_an_atomic_write_replaces_the_file_and_leaves_no_temporary_file(tmp_path
 
 
 def test_a_failed_atomic_write_leaves_no_temporary_file(tmp_path):
-    with pytest.raises(OSError):
-        write_atomic(tmp_path / "missing" / "file.bin", b"data")
+    target = tmp_path / "missing" / "file.bin"
 
+    with pytest.raises(OSError) as raised:
+        write_atomic(target, b"data")
+
+    assert raised.value.filename == str(target)
+    assert raised.value.filename2 is None
     assert os.listdir(tmp_path) == []
+
+
+# Saving with assets (python-api.md section 3.1) and flushed exports (section 3.7).
+
+PIPE_TIMEOUT = 10
+"""Seconds a save may take before the pipe test decides it is waiting to read the pipe."""
+
+
+def assets_entry(folder):
+    """The path of `IMPORT_ASSET`'s name in the `assets` folder of `folder`, with that folder created."""
+    (folder / "assets").mkdir()
+    return folder / "assets" / IMPORT_ASSET.name
+
+
+def save_without_waiting_on_the_pipe(document, path, pipe):
+    """Saves `document` to `path`, failing the test when the save opens the named pipe `pipe` to read it."""
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        saving = executor.submit(document.save, path)
+        try:
+            saving.result(timeout=PIPE_TIMEOUT)
+        except TimeoutError:
+            # A save that opened the pipe to read it waits for a writer; opening one lets it finish.
+            os.close(os.open(pipe, os.O_WRONLY | os.O_NONBLOCK))
+            saving.result()
+            pytest.fail("the save opened the pipe under the asset's name to read it")
+
+
+def swap_after_the_look(monkeypatch, entry, swap):
+    """Calls `swap(entry)` right after the first `os.lstat` of `entry`, as another process could change the entry
+    between the save's look at it and its read."""
+    original_lstat = os.lstat
+    looks = []
+
+    def lstat(path, *arguments, **options):
+        status = original_lstat(path, *arguments, **options)
+        if Path(path) == entry and not looks:
+            looks.append(path)
+            swap(entry)
+        return status
+
+    monkeypatch.setattr(os, "lstat", lstat)
+
+
+def removed(entry):
+    """The entry is removed."""
+    entry.unlink()
+
+
+def link_to_the_asset_bytes(entry):
+    """The entry becomes a symbolic link to `shared.step` next to the `assets` folder, which holds the asset's
+    bytes."""
+    shared = entry.parent.parent / "shared.step"
+    shared.write_bytes(IMPORT_ASSET.read_bytes())
+    entry.unlink(missing_ok=True)
+    entry.symlink_to(shared)
+
+
+def test_a_symbolic_link_to_the_asset_bytes_is_replaced_by_a_regular_file(tmp_path):
+    entry = assets_entry(tmp_path)
+    link_to_the_asset_bytes(entry)
+
+    document_with_import().save(tmp_path / "a.ptsm")
+
+    assert stat.S_ISREG(os.lstat(entry).st_mode)
+    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+    assert (tmp_path / "shared.step").read_bytes() == IMPORT_ASSET.read_bytes()
+
+
+def other_file_with_the_asset_bytes(entry):
+    """Another regular file holding the asset's bytes is moved over the entry."""
+    other = entry.parent.parent / "other.step"
+    other.write_bytes(IMPORT_ASSET.read_bytes())
+    other.rename(entry)
+
+
+def pipe_in_place(entry):
+    """The entry becomes a named pipe."""
+    entry.unlink()
+    os.mkfifo(entry)
+
+
+@pytest.mark.parametrize(
+    "swap", [removed, link_to_the_asset_bytes, other_file_with_the_asset_bytes], ids=["removed", "link", "other-file"]
+)
+def test_an_entry_that_changed_after_the_look_is_replaced_without_being_read(tmp_path, monkeypatch, swap):
+    entry = assets_entry(tmp_path)
+    entry.write_bytes(IMPORT_ASSET.read_bytes())
+    document = document_with_import()
+    swap_after_the_look(monkeypatch, entry, swap)
+    operations = record_file_operations(monkeypatch)
+
+    document.save(tmp_path / "a.ptsm")
+
+    assert operations == [("fsync",), ("replace", entry), ("fsync",), ("replace", tmp_path / "a.ptsm")]
+    assert stat.S_ISREG(os.lstat(entry).st_mode)
+    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes exist on POSIX only")
+def test_a_pipe_under_an_asset_name_is_replaced_without_being_read(tmp_path):
+    document = document_with_import()
+    entry = assets_entry(tmp_path)
+    os.mkfifo(entry)
+
+    save_without_waiting_on_the_pipe(document, tmp_path / "a.ptsm", entry)
+
+    assert stat.S_ISREG(os.lstat(entry).st_mode)
+    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes exist on POSIX only")
+def test_an_entry_swapped_for_a_pipe_after_the_look_is_replaced_without_being_read(tmp_path, monkeypatch):
+    document = document_with_import()
+    entry = assets_entry(tmp_path)
+    entry.write_bytes(IMPORT_ASSET.read_bytes())
+    swap_after_the_look(monkeypatch, entry, pipe_in_place)
+
+    save_without_waiting_on_the_pipe(document, tmp_path / "a.ptsm", entry)
+
+    assert stat.S_ISREG(os.lstat(entry).st_mode)
+    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+
+
+def test_a_file_of_another_size_under_an_asset_name_is_replaced_without_being_read(tmp_path, monkeypatch):
+    entry = assets_entry(tmp_path)
+    entry.write_bytes(b"stale")
+    document = document_with_import()
+    opened = record_opened_files(monkeypatch)
+
+    document.save(tmp_path / "a.ptsm")
+
+    assert entry not in opened
+    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+
+
+def test_a_linked_assets_folder_is_followed(tmp_path):
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    folder = tmp_path / "assets"
+    folder.symlink_to(shared, target_is_directory=True)
+
+    document_with_import().save(tmp_path / "a.ptsm")
+
+    assert folder.is_symlink()
+    assert os.listdir(shared) == [IMPORT_ASSET.name]
+    assert (shared / IMPORT_ASSET.name).read_bytes() == IMPORT_ASSET.read_bytes()
+
+
+def test_a_linked_assets_folder_that_leads_to_no_folder_fails_the_save(tmp_path):
+    folder = tmp_path / "assets"
+    folder.symlink_to(tmp_path / "gone", target_is_directory=True)
+    (tmp_path / "a.ptsm").write_bytes(b"old")
+
+    with pytest.raises(FileExistsError) as raised:
+        document_with_import().save(tmp_path / "a.ptsm")
+
+    assert raised.value.filename == str(folder)
+    assert raised.value.filename2 is None
+    assert (tmp_path / "a.ptsm").read_bytes() == b"old"
+    assert not os.path.lexists(tmp_path / "gone")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="python-api.md section 3.1 states this for Linux and macOS")
+def test_a_read_only_wrong_file_under_an_asset_name_is_replaced(tmp_path):
+    entry = assets_entry(tmp_path)
+    entry.write_bytes(b"stale")
+    entry.chmod(0o444)
+
+    document_with_import().save(tmp_path / "a.ptsm")
+
+    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+
+
+def test_a_save_never_creates_the_parents_of_the_assets_folder(tmp_path):
+    folder = tmp_path / "missing" / "assets"
+
+    with pytest.raises(FileNotFoundError) as raised:
+        document_with_import().save(tmp_path / "missing" / "a.ptsm")
+
+    assert raised.value.filename == str(folder)
+    assert raised.value.filename2 is None
+    assert str(raised.value) == os_error_text(errno.ENOENT, folder)
+    assert os.listdir(tmp_path) == []
+
+
+def test_a_kept_asset_is_neither_flushed_nor_replaced(tmp_path, monkeypatch):
+    entry = assets_entry(tmp_path)
+    entry.write_bytes(IMPORT_ASSET.read_bytes())
+    document = document_with_import()
+    operations = record_file_operations(monkeypatch)
+
+    document.save(tmp_path / "a.ptsm")
+
+    assert operations == [("fsync",), ("replace", tmp_path / "a.ptsm")]
+
+
+def test_an_export_flushes_each_file_before_moving_it_over_its_target(tmp_path, monkeypatch):
+    Document()
+    with Part("Base") as base:
+        box(20, 30, 40)
+    with Part("Lid") as lid:
+        box(20, 30, 5, position=(0, 0, 50))
+    folder = tmp_path / "parts"
+    operations = record_file_operations(monkeypatch)
+
+    export_stl([base, lid], folder, per_part=True)
+
+    assert operations == [("fsync",), ("replace", folder / "Base.stl"), ("fsync",), ("replace", folder / "Lid.stl")]
+
+
+def test_a_failed_export_flush_names_the_file_and_keeps_the_old_one(tmp_path, monkeypatch):
+    Document()
+    with Part("P") as part:
+        box(20, 30, 40)
+    target = tmp_path / "a.stl"
+    target.write_bytes(b"old")
+
+    def full_disk(descriptor):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(os, "fsync", full_disk)
+
+    with pytest.raises(OSError) as raised:
+        export_stl(part, target)
+
+    assert raised.value.errno == errno.ENOSPC
+    assert raised.value.filename == str(target)
+    assert raised.value.filename2 is None
+    assert target.read_bytes() == b"old"
+    assert os.listdir(tmp_path) == ["a.stl"]
 
 
 # Feature messages (python-api.md section 4).

@@ -169,15 +169,16 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
 **B-5. Web and desktop hosts ignore document assets** (`ui/src/core/api.ts`, `ui/src/files`, the open, save and restart actions, `ui/src/test/fakes/core.ts`, `desktop/src-tauri/src/files.rs` and `commands.rs`)
 - **Spec:** engine.md 3.14, protocol.md commands 6 and 7, file-format.md 3.11, technical design 6.
 - **Spec first:** yes.
-  - ui.md: `CoreApi` (lines 374-375), 3.19 (Open reads the sibling `assets/`; Save and Save as write missing assets; on the web without a parent folder, either a directory pick or a notification naming the asset), 4.4 (restart keeps the assets), and new U- and E-tests.
+  - ui.md: `CoreApi` (lines 374-375), 3.19 (Open reads the sibling `assets/`; Save and Save as write the assets as file-format.md 3.11 says (assets first, a wrong entry replaced, then the document, then `markSaved`); on the web without a parent folder, either a directory pick or a notification naming the asset), 4.4 (restart keeps the assets), and new U- and E-tests.
   - desktop.md 1.1, 2.6, 3.2 to 3.4 and 3.7: a command and grant rule for the granted document's sibling `assets/` folder, with the matching `COMMAND_NAMES`, permissions and capability.
-- **Human gate:** the capability review.
+- **Human gate:** the capability review, including the two desktop options of ADR 0036.
 - **Impact:** medium, but it breaks an M1 feature. Every document with an `import` feature, including those Python writes, opens with `asset_missing`, and Save as silently drops the assets. **Size:** L.
 - **Depends on:**
   - B-3 (the recovery entry format).
   - PY-1 (spec the asset write order once, for every host).
   - EX-1 (a real STEP asset to use as an E-test fixture).
   - Batch the desktop command review with B-6.
+- **Status (2026-10-23):** spec written, code not started; human gate open. ADR 0037 (Proposed, needs human review) records the batched capability change and its options. In it, the desktop gets `read_asset` and `write_asset` with ADR 0036 option (a), checks the bytes against the name, follows no link in the assets folder and refuses a read-only wrong asset; the web keeps a folder the user chose. ui.md: `CoreApi` and the core client's buffers (2.5, 2.6), `DocumentState.assets` and `FileReference` (2.8), `FileService` with `readAssets`, `writeAssets`, `chooseFolder` and `reachesFolder`, plus `src/files/assets.ts` (2.15), 3.19 (Open reads the assets the text names, Save writes them in the order of file-format.md 3.11, the web's "Choose folder", `asset_mismatch` opens without assets), 4.3 (eight messages), 4.4 (restart keeps the assets), fixture `step-block.ptsm`, helpers `useFolders` and others over the origin private file system (6.3), tests U-217 to U-222 and U-226 to U-232, E-150, E-151, E-153 and E-154, and open issues 36 and 37. desktop.md: 1, 1.1, 2.1, 2.2, 2.4, 2.6, 2.7, 2.9, 2.11, 3.2 step 8, 3.4 steps 7 to 11, 3.5, 3.7 steps 9 to 12, 4, 5, 8, tests 11 and 54 to 66, and open issues 10 and 11. file-format.md 3.11 now cites both hosts.
 
 **B-6. Save overwrites a file that changed on disk** (`ui/src/files/file-service.ts`, `desktop-file-service.ts`, `document.ts`, desktop `files.rs` and `commands.rs`)
 - **Spec:** ui.md 3.19; desktop.md 2.x (`read_file` returns the modification time).
@@ -188,6 +189,7 @@ B-1, B-2 and B-3 can start alongside the phases, since they do not touch phase c
   - New U- and E-tests.
 - **Impact:** medium. A git pull, a Python `Document.save` or another tab is silently discarded today. **Size:** M.
 - **Depends on:** share the desktop command change and its review with B-5.
+- **Status (2026-10-23):** spec written, code not started. ADR 0037 decision 1 compares a SHA-256 of the bytes Partsmith last read or wrote, taken with Web Crypto, with the file read again right before Save writes anything. Modification time and a host-side compare and write are listed as options. No desktop command changes: the check reads through `read_file`. ui.md 2.8 `FileReference.digest`, 2.15 `fileDigest` and `readHandle`'s mode, the recent and recovery entries' `digest` and `folder`, 3.19 (the change check, `save_conflict` with "Overwrite {file}", "Save as" and "Open the newer file"), tests U-216, U-223 to U-225 and E-152, U-86 amended (the check's read comes between `saveDocument` and `write`), and open issue 38.
 
 **B-7. No way out of a core stuck in a long call** (`ui/src/app/createApp.ts`, `ui/src/viewport/Viewport.tsx`, `ui/src/core/transport.ts`)
 - **Spec:** technical design 14 ("never freezes"), ui.md 2.5, 3.21, 4.4.
@@ -556,6 +558,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Work:** change `document.py:149-163` and add tests in `test_documents.py`.
 - **Impact:** low. **Size:** S.
 - **Depends on:** schedule the spec text with B-5, so the hosts copy the right rule.
+- **Status (2026-10-23):** done, not on `main` yet; review findings 1 to 8 fixed. file-format.md 3.11 holds the write order for every host to cite (ADR 0036, accepted for Python): the order and the failure rules bind every host, while step 1's entry check (read a regular file of the asset's size, replace any other entry) binds Python and is proposed for the desktop and the web until B-5's capability review, and the web's limits (no link detection, no flush) and the linked `assets/` folder (Python follows it) are stated there. python-api.md 2.10, 3.1 and 3.7 hold the Python rule; tests 97 to 102 (the save) and 103 (export errors) pass. `Document.save` (`python/partsmith/document.py`) writes the assets, then the document, then sends `mark_saved`; `python/partsmith/_files.py` flushes each file with `os.fsync` before its `os.replace`, raises a failed write again under the target's name, and has `holds`, which looks with `os.lstat` and reads a regular file of the asset's size through one descriptor opened with `O_NOFOLLOW` and `O_NONBLOCK` and checked with `os.path.samestat`, so an entry swapped for a link or a pipe after the look is never read; `python -m partsmith build` names the failed file. python-api.md open issue 10 records that Python replaces a linked document file while the desktop writes through it, for B-5. The desktop options of ADR 0036 wait for B-5's capability review.
 
 **PY-2. Three GUI options have no dedicated Python keyword**
 - **Spec:** technical design 10 (line 350); python-api.md 2.7 and 3.5 (line 623); features/extrude.md 98, chamfer.md 80, linear_pattern.md 91; features.md test 23.
