@@ -1,11 +1,8 @@
-"""Reference, diagnostic, warning and units acceptance tests (python-api.md section 6, tests 86 to 96), as far as phases
-1 to 3 of the reference stability plan build them (docs/design/reference-stability-and-errors.md sections 10.3 item 8,
-PY1 to PY3; 10.4 item 4: planes and axes taken from elements store an element's `fallback` with `fallback_frame`
-"body" and its `axis_direction` as `direction`; and 10.5 item 6, PY4: `Document.set_units` with Keep sizes, the
-newcomer error corpus's NC09).
-
-Phase 4 adds the rest: test 93's cause line (`This started after you changed parameter 'd'`), when the engine fills
-`cause`.
+"""Reference, diagnostic, warning and units acceptance tests (python-api.md section 6, tests 86 to 96), complete through
+phase 4 of the reference stability plan (docs/design/reference-stability-and-errors.md sections 10.3 item 8, PY1 to
+PY3; 10.4 item 4: planes and axes taken from elements store an element's `fallback` with `fallback_frame` "body" and
+its `axis_direction` as `direction`; 10.5 item 6, PY4: `Document.set_units` with Keep sizes, the newcomer error
+corpus's NC09; and phase 4's cause lines, which test 93's warning carries from the engine).
 """
 
 import inspect
@@ -618,6 +615,7 @@ def test_t093_an_edit_warns_about_the_problems_it_starts():
     assert warning.message.code == "references_not_found"
     assert str(warning.message).startswith("Param.set(): ")
     assert str(warning.message).endswith("is no longer made by 'Extrude 2', which goes all the way through the body.")
+    assert warning.message.cause == "This started after you changed parameter 'd' from 5 mm to 30 mm."
     assert d.value == pytest.approx(30)
     assert fillet_feature.status == "error"
     assert fillet_feature.id in [feature.id for feature in document.features]
