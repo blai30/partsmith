@@ -834,7 +834,7 @@ Each command below lists its fields (Rust types), a request example, and the res
 {"type": "set_focus", "doc": 1, "feature": "f-fil1"}
 ```
 
-13. `commit_transaction {doc}`: records the transaction as one undo entry (none if it applied no edits) and clears the focus. Result `{revision: u64, recorded: bool}`. Emits `document_changed`, and `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh` when a focus was set.
+13. `commit_transaction {doc}`: records the transaction as one undo entry (none if it applied no edits) and clears the focus. Result `{revision: u64, recorded: bool}`. Emits `document_changed`, and `recomputed`, `sketch_solved`, `datum_plane`, `body_mesh` when a focus was set; also `recomputed` when the entry it records makes a cause's `Undo` available (engine.md sections 3.4 and 3.21).
 
 ```json
 {"type": "commit_transaction", "doc": 1}

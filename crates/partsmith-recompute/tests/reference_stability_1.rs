@@ -3,8 +3,8 @@
 //! with the built-in registry with its references picked as the corpus's "Picked references" rule
 //! says (`run_picked`; every setup feature must be ok), applies the scenario's edit to the document
 //! (which keeps those picks, `with_picks`), runs it again on the same recompute, and checks the
-//! "Expect" of the scenario by
-//! geometry (centroids, normals, axes, lengths, volumes) and by the feature's status and messages.
+//! "Expect" of the scenario by geometry (centroids, normals, axes, lengths, volumes) and by the
+//! feature's status and messages.
 //! A scenario with variants has one test per variant; sizes that must behave alike are variants too.
 //!
 //! The tests are a module of the test target `integration` (ADR 0035); run this third alone with
