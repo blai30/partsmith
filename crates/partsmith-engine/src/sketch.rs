@@ -47,12 +47,14 @@ pub(crate) struct SketchWords {
 }
 
 impl SketchWords {
+    /// The words of a sketch labeled `label` in a document in `units`.
+    pub(crate) fn new(label: String, units: Units) -> SketchWords {
+        SketchWords { label, units }
+    }
+
     /// The words of the sketch `feature` of `document`.
     pub(crate) fn of(registry: &Registry, document: &Document, feature: &Id) -> SketchWords {
-        SketchWords {
-            label: feature_label(registry, document, feature),
-            units: document.units,
-        }
+        SketchWords::new(feature_label(registry, document, feature), document.units)
     }
 
     /// The context the sketch crate renders the messages of `params` in, with the driving
@@ -113,7 +115,7 @@ fn rejected_record(
     record: &FeatureRecord,
 ) -> EngineError {
     if let FeatureError::SketchInvalid { error, .. } = error
-        && let Ok(params) = serde_json::from_value(serde_json::Value::Object(record.params.clone()))
+        && let Some(params) = stored_drawing(record)
     {
         return SketchWords::of(registry, document, &record.id).invalid(
             error,
@@ -125,6 +127,17 @@ fn rejected_record(
         message: render_feature_error(error, document, registry, &record.id),
         detail: feature_error_detail(error),
     }
+}
+
+/// The drawing a sketch record stores, when its params read as a sketch, without validating them.
+pub(crate) fn stored_drawing(record: &FeatureRecord) -> Option<SketchParams> {
+    serde_json::from_value(serde_json::Value::Object(record.params.clone())).ok()
+}
+
+/// The sketch entity of a point of a sketch, or of a generator a name records: the part before
+/// any `.`, so `e-1.center` gives `e-1`.
+pub(crate) fn point_entity(text: &str) -> Option<Id> {
+    Id::new(text.split_once('.').map_or(text, |(entity, _)| entity)).ok()
 }
 
 /// The record of a sketch command's feature: `unknown_feature` when missing, `not_a_sketch` when
@@ -610,10 +623,7 @@ mod tests {
 
     /// The words of a sketch labeled "Sketch 1" in a document in millimeters.
     fn words() -> SketchWords {
-        SketchWords {
-            label: "Sketch 1".to_owned(),
-            units: Units::Mm,
-        }
+        SketchWords::new("Sketch 1".to_owned(), Units::Mm)
     }
 
     fn solve_drag_sketch() -> Solved {
@@ -914,6 +924,12 @@ mod tests {
         assert!(!is_finding_field("/profile_findings"));
         assert!(!is_finding_field("/profile_findings_old/0"));
         assert!(!is_finding_field("/edges/0"));
+    }
+
+    #[test]
+    fn an_entity_is_named_without_its_point_role() {
+        assert_eq!(point_entity("e-1.center"), Some(id("e-1")));
+        assert_eq!(point_entity("e-p2"), Some(id("e-p2")));
     }
 
     #[test]

@@ -72,16 +72,7 @@ impl FeatureView<'_> {
         let actions = offers(self, message, &repairs)
             .iter()
             .enumerate()
-            .map(|(index, offer)| {
-                offer.action(|| FixRef {
-                    feature: self.id().clone(),
-                    code: message.code.to_string(),
-                    field: message.pointer.clone(),
-                    cause: false,
-                    index: saturating_u32(index),
-                    revision,
-                })
-            })
+            .map(|(index, offer)| offer.action(|| self.fix_ref(message, false, index, revision)))
             .collect();
         let diagnostic = Diagnostic {
             field: message.pointer.clone(),
@@ -97,6 +88,25 @@ impl FeatureView<'_> {
             )
         };
         (diagnostic, repairs)
+    }
+
+    /// The `FixRef` of the action at `index` of `message` of this feature, or with `cause` of
+    /// its cause, at `revision`.
+    pub(crate) fn fix_ref(
+        &self,
+        message: &Message,
+        cause: bool,
+        index: usize,
+        revision: u64,
+    ) -> FixRef {
+        FixRef {
+            feature: self.id().clone(),
+            code: message.code.to_string(),
+            field: message.pointer.clone(),
+            cause,
+            index: saturating_u32(index),
+            revision,
+        }
     }
 
     /// The repairs of a message, one per entry of `Message::repairs`, in order.

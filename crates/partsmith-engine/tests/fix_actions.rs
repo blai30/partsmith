@@ -27,12 +27,12 @@ use common::{
 };
 use corpus::{
     EDIT_LABEL, UPPER_BOSS_WALL, action, actions, after_edit, apply_as_one_entry, apply_fix,
-    assert_ok_without_messages, assert_undo_restores, axis_xy, back_line_notched, block_back_side,
-    block_edited, block_right_side, block_then, bosses_on_a_moved_box, box_record, coincident,
-    constrained_sketch, cube10, datum_offset, datum_on_a_split_side, datum_on_face, document,
-    document_with, edited_text, extrude, face_names, face_plane, faces_of, features, fix_ref,
-    labels, line, linear_pattern, message, messages, moved_by_100, nc01, nc03, nc04, nc05, nc07,
-    nc10, nc11, opened, origin_plane, parameter, picked_before, point, r03, r06a, r16, r23a,
+    assert_ok_without_messages, assert_stale, assert_undo_restores, axis_xy, back_line_notched,
+    block_back_side, block_edited, block_right_side, block_then, bosses_on_a_moved_box, box_record,
+    coincident, constrained_sketch, cube10, datum_offset, datum_on_a_split_side, datum_on_face,
+    document, document_with, edited_text, extrude, face_names, face_plane, faces_of, features,
+    fix_ref, labels, line, linear_pattern, message, messages, moved_by_100, nc01, nc03, nc04, nc05,
+    nc07, nc10, nc11, opened, origin_plane, parameter, picked_before, point, r03, r06a, r16, r23a,
     r26_recreated, r28, r32b, r32b_chamfered_hole_at_an_arc_end, r32b_moved, r32b_pocket, r33, r50,
     r56b, r66, record, rectangle, rectangle_region, redrawn_beside_a_split,
     redrawn_beside_a_split_with_a_face_sketch, reference, repairs, right_side_redrawn_in_two,
@@ -1748,19 +1748,6 @@ fn t132_nc05_use_2_3_mm_inside_a_transaction_joins_it() {
 }
 
 // Test 133: `stale_fix`.
-
-/// Asserts that a reply is the `stale_fix` error with no events, and that the document is still at `revision` with
-/// `text`.
-fn assert_stale(session: &mut Session, doc: u64, sent: &Sent, revision_before: u64, text: &str) {
-    assert_eq!(sent.error_code(), "stale_fix");
-    assert_eq!(
-        sent.error_message(),
-        "This fix no longer applies because the document changed after it was offered. Look at the problem again."
-    );
-    assert!(sent.events.is_empty(), "{:?}", sent.event_types());
-    assert_eq!(revision(session, doc), revision_before);
-    assert_eq!(saved_text(session, doc), text);
-}
 
 /// Opens corpus R16's edited text in a fresh display session; returns the session, the handle and the first action's
 /// `FixRef` (revision 0).

@@ -17,19 +17,18 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use partsmith_model::Id;
-use partsmith_protocol::{Cause, FixRef, Repair};
-use partsmith_recompute::{FeatureReport, Message};
+use partsmith_protocol::{Cause, Repair};
+use partsmith_recompute::{FeatureReport, Message, Report};
 
-use crate::counts::saturating_u32;
 use crate::document::OpenDocument;
 use crate::ghosts::GhostShape;
 use crate::run::FeatureView;
-use crate::state::{Computed, feature_label, ran};
-use actions::MadeCause;
+use crate::state::{feature_label, ran};
+use actions::{MadeCause, UndoState};
 use changes::Comparison;
 use words::Words;
 
-pub(crate) use actions::{CauseOffer, UndoState};
+pub(crate) use actions::CauseOffer;
 pub(crate) use baseline::Baseline;
 
 /// A message's key (section 3.21): its feature, code and field.
@@ -61,11 +60,11 @@ impl MessageKey {
 
 /// What a feature that left the document leaves behind until the document is closed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Tombstone {
+struct Tombstone {
     /// The label it last had.
-    pub(crate) label: String,
+    label: String,
     /// Its last timeline position.
-    pub(crate) position: usize,
+    position: usize,
 }
 
 /// The last recompute in which a feature ran: its baseline, and the keys of the messages the
@@ -93,16 +92,16 @@ pub(crate) struct Causes {
 }
 
 impl Causes {
-    /// Follows one recompute, `computed`, whose baseline is `now` (section 3.21, "When a cause is
-    /// made"): buries the features that left the document, then, for each feature that ran, makes
-    /// the cause of each message whose key the feature did not have the last time it ran, drops
-    /// the causes of the keys it no longer has, and keeps this recompute as its last. `entry` is
-    /// the undo entry whose command made the latest change of the recipe; `display` says whether
-    /// causes get ghosts.
+    /// Follows one recompute, reported by `report`, whose baseline is `now` (section 3.21, "When a
+    /// cause is made"): buries the features that left the document, then, for each feature that
+    /// ran, makes the cause of each message whose key the feature did not have the last time it
+    /// ran, drops the causes of the keys it no longer has, and keeps this recompute as its last.
+    /// `entry` is the undo entry whose command made the latest change of the recipe; `display`
+    /// says whether causes get ghosts.
     pub(crate) fn observe(
         &mut self,
         now: &Arc<Baseline>,
-        computed: &Computed,
+        report: &Report,
         entry: Option<u64>,
         display: bool,
     ) {
@@ -114,17 +113,17 @@ impl Causes {
             .collect();
         self.bury(now, &present);
         let mut current: BTreeMap<&Id, BTreeSet<MessageKey>> = BTreeMap::new();
-        for report in &computed.report.features {
-            if !ran(report.status) || !present.contains(&report.feature) {
+        for feature in &report.features {
+            if !ran(feature.status) || !present.contains(&feature.feature) {
                 continue;
             }
-            self.make_new(report, now, entry, display);
-            let keys = report
+            self.make_new(feature, now, entry, display);
+            let keys = feature
                 .messages
                 .iter()
-                .map(|message| MessageKey::of_message(&report.feature, message))
+                .map(|message| MessageKey::of_message(&feature.feature, message))
                 .collect();
-            current.insert(&report.feature, keys);
+            current.insert(&feature.feature, keys);
         }
         self.made.retain(|key, _| {
             current
@@ -155,17 +154,22 @@ impl Causes {
         let Some(last) = self.last.get(&report.feature) else {
             return;
         };
+        // `Undo` of the entry is offered only when its command made every change since the
+        // clean snapshot.
+        let entry = entry.filter(|_| now.commands_since(&last.baseline) <= 1);
         for message in &report.messages {
             let key = MessageKey::of_message(&report.feature, message);
             if last.keys.contains(&key) || self.made.contains_key(&key) {
                 continue;
             }
-            let making = Making {
-                feature: &report.feature,
+            let comparison = Comparison::new(
+                &report.feature,
                 message,
-                tombstones: &self.tombstones,
-            };
-            if let Some(made) = making.make(&last.baseline, now, entry, display) {
+                &last.baseline,
+                now,
+                &self.tombstones,
+            );
+            if let Some(made) = made_cause(&comparison, entry, display) {
                 self.made.insert(key, made);
             }
         }
@@ -216,46 +220,19 @@ impl Causes {
     }
 }
 
-/// The making of one message's cause.
-struct Making<'a> {
-    /// The message's feature.
-    feature: &'a Id,
-    /// The message.
-    message: &'a Message,
-    /// The features that left the document.
-    tombstones: &'a BTreeMap<Id, Tombstone>,
-}
-
-impl Making<'_> {
-    /// The cause of the message from its clean snapshot `clean` and the recompute `now`; `None`
-    /// when no change can reach its feature. `entry` made the latest change of the recipe, and
-    /// the cause offers `Undo` of it only when its command made every change since `clean`.
-    fn make(
-        &self,
-        clean: &Baseline,
-        now: &Baseline,
-        entry: Option<u64>,
-        display: bool,
-    ) -> Option<MadeCause> {
-        let comparison = Comparison {
-            feature: self.feature,
-            message: self.message,
-            clean: clean.graph(),
-            now: now.graph(),
-            tombstones: self.tombstones,
-        };
-        let changes = comparison.changes();
-        let primary = comparison.primary(&changes)?;
-        let words = Words::new(&comparison);
-        let change = &changes[primary];
-        let text = format!(
-            "This started after you {}{}.",
-            words.change(change),
-            words::others(comparison.others(&changes, primary))
-        );
-        let entry = entry.filter(|_| now.commands_since(clean) <= 1);
-        Some(MadeCause::of(&words, change, text, entry, display))
-    }
+/// The cause of a message from `comparison`, of its clean snapshot with the recompute now;
+/// `None` when no change can reach its feature. It offers `Undo` of `entry`.
+fn made_cause(comparison: &Comparison<'_>, entry: Option<u64>, display: bool) -> Option<MadeCause> {
+    let changes = comparison.changes();
+    let primary = comparison.primary(&changes)?;
+    let words = Words::new(comparison);
+    let change = &changes[primary];
+    let text = format!(
+        "This started after you {}{}.",
+        words.change(change),
+        words::others(comparison.other_count(&changes, primary))
+    );
+    Some(MadeCause::of(&words, change, text, entry, display))
 }
 
 /// What projects the causes of a document's messages (section 3.21): its causes and the state
@@ -295,16 +272,7 @@ impl<'a> CauseLines<'a> {
             .offers(feature, message, repairs, self.undo)
             .iter()
             .enumerate()
-            .map(|(index, offer)| {
-                offer.action(|| FixRef {
-                    feature: feature.id().clone(),
-                    code: message.code.to_string(),
-                    field: message.pointer.clone(),
-                    cause: true,
-                    index: saturating_u32(index),
-                    revision,
-                })
-            })
+            .map(|(index, offer)| offer.action(|| feature.fix_ref(message, true, index, revision)))
             .collect();
         Some(Cause {
             text: made.text.clone(),

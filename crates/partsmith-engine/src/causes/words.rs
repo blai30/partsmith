@@ -3,17 +3,15 @@
 
 use partsmith_features::{FieldHint, FieldUnit, Registry, entity_words, format_value};
 use partsmith_model::{Expr, Id, SelectionKind};
-use partsmith_sketch::{
-    DimensionValues, MessageContext, SketchConstraint, SketchEntity, SketchParams, ValueKind,
-};
+use partsmith_sketch::{DimensionValues, SketchConstraint, SketchEntity, SketchParams, ValueKind};
 use serde_json::Value;
 
 use super::Tombstone;
 use super::baseline::{Baseline, Evaluation};
-use super::changes::{Change, Comparison, RecordChange, SketchItem, drawing};
+use super::changes::{Change, Comparison, RecordChange, SketchItem};
 use crate::fixes::is_plain_value;
 use crate::params::{field_pointer, value_at};
-use crate::sketch::SKETCH_TYPE;
+use crate::sketch::{SKETCH_TYPE, SketchWords, stored_drawing};
 use crate::state::feature_label;
 
 /// One side of the comparison: the clean snapshot or now.
@@ -177,21 +175,18 @@ impl<'a> Words<'a> {
     fn moved(&self, feature: &Id) -> String {
         let clean = self.baseline(Side::Clean);
         let now = self.baseline(Side::Now);
-        let position = |baseline: &Baseline, of: &Id| baseline.position(of);
         let swapped: Vec<&Id> = now
             .document
             .features
             .iter()
             .map(|record| &record.id)
             .filter(|other| *other != feature && clean.record(other).is_some())
-            .filter(|other| {
-                (position(clean, feature) < position(clean, other))
-                    != (position(now, feature) < position(now, other))
-            })
+            .filter(|other| self.comparison.order_swapped(feature, other))
             .collect();
-        let named = self.comparison.named();
-        let here = position(now, feature).unwrap_or_default();
-        let other = named
+        let here = now.position(feature).unwrap_or_default();
+        let other = self
+            .comparison
+            .named
             .iter()
             .find(|candidate| swapped.contains(candidate))
             .or_else(|| {
@@ -202,12 +197,12 @@ impl<'a> Words<'a> {
             })
             .or_else(|| {
                 swapped.iter().copied().min_by_key(|candidate| {
-                    position(now, candidate).unwrap_or_default().abs_diff(here)
+                    now.position(candidate).unwrap_or_default().abs_diff(here)
                 })
             });
         match other {
             Some(other) => {
-                let side = if position(now, feature) < position(now, other) {
+                let side = if now.position(feature) < now.position(other) {
                     "above"
                 } else {
                     "below"
@@ -352,13 +347,15 @@ impl<'a> Words<'a> {
         });
         match solved {
             Some(found) => Some(found.clone()),
-            None => drawing(baseline.record(sketch)?)?.entity(entity).cloned(),
+            None => stored_drawing(baseline.record(sketch)?)?
+                .entity(entity)
+                .cloned(),
         }
     }
 
     /// The drawing of a sketch on one side.
     fn drawing(&self, side: Side, sketch: &Id) -> Option<SketchParams> {
-        drawing(self.baseline(side).record(sketch)?)
+        stored_drawing(self.baseline(side).record(sketch)?)
     }
 
     /// A constraint of a sketch on one side.
@@ -376,16 +373,10 @@ impl<'a> Words<'a> {
         let solve = baseline.sketch(sketch).map(|result| &result.solved);
         let values = self.dimension_values(side, &params);
         let label = feature_label(self.registry(), &baseline.document, sketch);
-        MessageContext {
-            label: &label,
-            sketch: &params,
-            solved: solve.map(|result| result.entities.as_slice()),
-            values: &values,
-            measured: solve.map(|result| &result.measured),
-            units: self.baseline(Side::Now).units(),
-        }
-        .title(constraint)
-        .unwrap_or_else(|| "a constraint".to_string())
+        SketchWords::new(label, self.baseline(Side::Now).units())
+            .context(&params, &values, solve)
+            .title(constraint)
+            .unwrap_or_else(|| "a constraint".to_string())
     }
 
     /// The driving dimension values of a sketch on one side, those that evaluate.
@@ -394,11 +385,7 @@ impl<'a> Words<'a> {
             .driving_dimensions()
             .into_iter()
             .filter_map(|input| {
-                let kind = match input.kind {
-                    ValueKind::Length => FieldUnit::Length,
-                    ValueKind::Angle => FieldUnit::Angle,
-                };
-                let value = self.value(side, SKETCH_TYPE, input.expr, kind)?;
+                let value = self.value(side, SKETCH_TYPE, input.expr, field_unit(input.kind))?;
                 Some((input.constraint.clone(), value))
             })
             .collect()
@@ -420,10 +407,7 @@ impl<'a> Words<'a> {
     ) -> Option<ShortValue> {
         let found = self.constraint(side, sketch, constraint)?;
         let dimension = found.dimension()?;
-        let kind = match found.value_kind()? {
-            ValueKind::Length => FieldUnit::Length,
-            ValueKind::Angle => FieldUnit::Angle,
-        };
+        let kind = field_unit(found.value_kind()?);
         let value = self.value(side, SKETCH_TYPE, &dimension.expr, kind)?;
         Some(self.expression_words(side, &dimension.expr, kind, value))
     }
@@ -478,8 +462,8 @@ impl<'a> Words<'a> {
 
     /// True when a field holds a toggle: a boolean on either side, absent meaning off.
     fn is_toggle(&self, feature: &Id, hint: &FieldHint) -> bool {
-        [Side::Clean, Side::Now].iter().any(|&side| {
-            self.baseline(side).record(feature).is_some_and(|record| {
+        self.comparison.graphs().iter().any(|graph| {
+            graph.baseline().record(feature).is_some_and(|record| {
                 value_at(&record.params, &field_pointer(&hint.path)).is_some_and(Value::is_boolean)
             })
         })
@@ -487,21 +471,27 @@ impl<'a> Words<'a> {
 
     /// True when a manifest field of a feature names an asset it reads.
     pub(super) fn is_asset_field(&self, feature: &Id, hint: &FieldHint) -> bool {
-        [&self.comparison.clean, &self.comparison.now]
-            .iter()
-            .any(|graph| {
-                graph.dependencies(feature).is_some_and(|dependencies| {
-                    dependencies
-                        .assets
-                        .iter()
-                        .any(|asset| asset.field == hint.path)
-                })
+        self.comparison.graphs().iter().any(|graph| {
+            graph.dependencies(feature).is_some_and(|dependencies| {
+                dependencies
+                    .assets
+                    .iter()
+                    .any(|asset| asset.field == hint.path)
             })
+        })
     }
 
     /// The words of an expression and its value in a field of `kind` on one side.
     fn expression_words(&self, side: Side, expr: &Expr, kind: FieldUnit, value: f64) -> ShortValue {
         with_expression(expr, format_value(kind, value, self.baseline(side).units()))
+    }
+}
+
+/// The unit of a manifest field that holds a dimension's value of `kind`.
+fn field_unit(kind: ValueKind) -> FieldUnit {
+    match kind {
+        ValueKind::Length => FieldUnit::Length,
+        ValueKind::Angle => FieldUnit::Angle,
     }
 }
 

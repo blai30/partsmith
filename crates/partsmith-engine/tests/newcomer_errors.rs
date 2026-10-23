@@ -17,10 +17,11 @@ use common::{
     saved_text, session, set_document_units,
 };
 use corpus::{
-    above_the_block, actions, after_edit, apply_as_one_entry, assert_ok_without_messages,
-    assert_undo_restores, box_record, cause, cube20_front_top, document, face_names, fillet,
-    labels, labels_and_kinds, messages, nc01, nc02, nc03, nc04, nc05, nc06, nc07, nc08, nc09, nc10,
-    nc11, nc12, opened, picked, record, solution_messages, volume,
+    NC11_CAUSE, above_the_block, actions, after_edit, apply_as_one_entry,
+    assert_ok_without_messages, assert_undo_restores, box_record, cause, cube20_front_top,
+    document, face_names, fillet, labels, labels_and_kinds, messages, nc01, nc02, nc03, nc04, nc05,
+    nc06, nc07, nc08, nc09, nc10, nc11, nc12, opened, owned_pairs, picked, record,
+    solution_messages, volume,
 };
 use partsmith_engine::Session;
 use pretty_assertions::assert_eq;
@@ -385,14 +386,6 @@ fn t150_nc08_a_dimension_value_the_sketch_cannot_take_is_not_solved() {
     );
 }
 
-/// The label and run kind of each action, as owned pairs.
-fn offered(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-    pairs
-        .iter()
-        .map(|(label, kind)| ((*label).to_owned(), (*kind).to_owned()))
-        .collect()
-}
-
 #[test]
 fn t150_nc08_the_cause_names_the_changed_dimension_and_offers_its_revert() {
     let mut session = session();
@@ -407,7 +400,7 @@ fn t150_nc08_the_cause_names_the_changed_dimension_and_offers_its_revert() {
     assert_eq!(found["feature"], "f-sk1");
     assert_eq!(
         labels_and_kinds(&found),
-        offered(&[
+        owned_pairs(&[
             ("Set Distance of 'Sketch 1' back to 50 mm", "apply"),
             ("Undo", "undo")
         ])
@@ -593,19 +586,17 @@ fn t150_nc11_both_messages_name_the_deleted_line_as_their_cause() {
 
     let (_, edited) = after_edit(&mut session, &nc11());
 
-    let cause_line =
-        "This started after you deleted the line from (80, 50) to (0, 50) in 'Sketch 1'.";
     let lost = cause(&only_message(&edited, "f-ext1"));
-    assert_eq!(lost["text"], cause_line);
+    assert_eq!(lost["text"], NC11_CAUSE);
     assert_eq!(
         labels_and_kinds(&lost),
-        offered(&[("Undo", "undo"), ("Show the line", "show")])
+        owned_pairs(&[("Undo", "undo"), ("Show the line", "show")])
     );
     assert_eq!(
         actions(&lost)[1]["run"],
         json!({"kind": "show", "feature": "f-sk1", "entity": "e-3"})
     );
-    assert_eq!(cause(&only_message(&edited, "f-fil1"))["text"], cause_line);
+    assert_eq!(cause(&only_message(&edited, "f-fil1"))["text"], NC11_CAUSE);
 }
 
 // NC12 Hole beside the body.

@@ -10,7 +10,8 @@ use std::path::Path;
 
 use partsmith_engine::{SequentialIds, Session, SessionOptions};
 use partsmith_protocol::{
-    Buffer, ErrorCode, Event, Request, Response, decode_response_frame, encode_request_frame,
+    Buffer, DocHandle, ErrorCode, Event, Request, Response, decode_response_frame,
+    encode_request_frame,
 };
 use serde_json::{Value, json};
 
@@ -372,6 +373,11 @@ pub fn open(session: &mut Session, name: &str) -> Sent {
     open_text(session, &fixture(name))
 }
 
+/// The typed handle of a document handle a reply gave, for the typed `Session` methods.
+pub fn typed_handle(doc: u64) -> DocHandle {
+    DocHandle(u32::try_from(doc).expect("handles fit in u32"))
+}
+
 /// The document handle of a successful `new_document` or `open_document`.
 pub fn doc_handle(sent: &Sent) -> u64 {
     sent.ok()["doc"]
@@ -418,6 +424,27 @@ pub fn apply(session: &mut Session, doc: u64, label: Option<&str>, edits: Value)
         command["label"] = json!(label);
     }
     send(session, command)
+}
+
+/// Sends `begin_transaction` with this label.
+pub fn begin(session: &mut Session, doc: u64, label: &str) -> Sent {
+    send(
+        session,
+        json!({"type": "begin_transaction", "doc": doc, "label": label}),
+    )
+}
+
+/// Sends `set_focus` of the open transaction to `feature`.
+pub fn focus(session: &mut Session, doc: u64, feature: &str) -> Sent {
+    send(
+        session,
+        json!({"type": "set_focus", "doc": doc, "feature": feature}),
+    )
+}
+
+/// Sends `commit_transaction`.
+pub fn commit(session: &mut Session, doc: u64) -> Sent {
+    send(session, json!({"type": "commit_transaction", "doc": doc}))
 }
 
 /// Sends `set_document_units` with `units` and `keep_sizes`.

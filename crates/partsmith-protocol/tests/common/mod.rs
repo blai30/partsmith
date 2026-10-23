@@ -1,5 +1,6 @@
 //! Fixtures and helpers shared by the acceptance tests of `docs/spec/protocol.md`.
 
+pub mod engine_output;
 pub mod examples;
 pub mod json_schema;
 
@@ -7,6 +8,7 @@ use std::collections::BTreeSet;
 
 use partsmith_model::Id;
 use partsmith_protocol::{Message, protocol_schema};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 /// Example A of section 2.2: request id 1, `engine_info`, no buffers. 120 bytes, copied from the spec's hex dump.
@@ -131,6 +133,23 @@ pub fn parse_json(text: &str) -> Value {
         .unwrap_or_else(|error| panic!("the example is JSON ({error}): {text}"))
 }
 
+/// `value` with the member `name` set to `replacement`.
+pub fn with_member(value: &Value, name: &str, replacement: Value) -> Value {
+    let mut changed = value.clone();
+    changed[name] = replacement;
+    changed
+}
+
+/// `value`, a JSON object, without its member `name`.
+pub fn without_member(value: &Value, name: &str) -> Value {
+    let mut changed = value.clone();
+    changed
+        .as_object_mut()
+        .unwrap_or_else(|| panic!("{value} is a JSON object"))
+        .remove(name);
+    changed
+}
+
 /// The member names of a JSON object, in the order they were written.
 pub fn object_keys(value: &Value) -> Vec<&str> {
     value
@@ -144,6 +163,11 @@ pub fn object_keys(value: &Value) -> Vec<&str> {
 /// A valid id.
 pub fn id(text: &str) -> Id {
     Id::new(text).unwrap_or_else(|_| panic!("{text:?} is a valid id"))
+}
+
+/// The value `text` holds, with the text in the panic message when it does not deserialize.
+pub fn parse<T: DeserializeOwned>(text: &str) -> T {
+    serde_json::from_str(text).unwrap_or_else(|error| panic!("{text} deserializes: {error}"))
 }
 
 /// A message parsed from JSON with the protocol's own types.

@@ -4,7 +4,7 @@ use crate::common;
 
 use common::{
     EXAMPLE_A_HEADER, EXAMPLE_B_HEADER, example_a, example_b, frame_bytes, frame_from_header,
-    frame_with_messages, header_bytes,
+    frame_with_messages, header_bytes, parse_json, without_member,
 };
 use partsmith_protocol::{
     ErrorCode, ErrorInfo, Event, FrameError, Outcome, Response, ResponseFrame, decode_frame,
@@ -31,12 +31,7 @@ fn messages(items: &[&str]) -> String {
 
 /// A message text without its envelope tag `kind`.
 fn without_kind(message: &str) -> serde_json::Value {
-    let mut value: serde_json::Value = serde_json::from_str(message).expect("the message is JSON");
-    value
-        .as_object_mut()
-        .expect("a message is an object")
-        .remove("kind");
-    value
+    without_member(&parse_json(message), "kind")
 }
 
 /// The event inside an event message text.

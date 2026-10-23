@@ -10,11 +10,11 @@ use std::path::Path;
 
 use common::{
     count, doc_handle, elements, fixture, measure_body, number, open, open_doc, open_text,
-    replace_once, send, session,
+    replace_once, send, session, typed_handle,
 };
 use partsmith_engine::{ValidateOptions, ValidationReport};
 use partsmith_print::Severity;
-use partsmith_protocol::{DocHandle, TessellationQuality};
+use partsmith_protocol::TessellationQuality;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -270,7 +270,7 @@ fn putting_a_document_profile_recomputes_and_retessellates_it() {
     assert_eq!(codes(&recomputed["diagnostics"]), Vec::<&str>::new());
     assert!(number(&put.body_mesh("b-1", "model")["mesh_id"]) > first_mesh);
     assert_ne!(other, doc);
-    let handle = DocHandle(u32::try_from(doc).expect("small handles"));
+    let handle = typed_handle(doc);
     let tolerance = session
         .tolerance(handle, TessellationQuality::Standard)
         .expect("the document is open");

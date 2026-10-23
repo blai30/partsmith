@@ -4,10 +4,10 @@ use crate::common;
 
 use common::{
     GEOMETRY_TOLERANCE, Sent, apply, assert_point3, assert_relative, elements, number, open,
-    open_doc, point3, send, session, set_height,
+    open_doc, point3, send, session, set_height, typed_handle,
 };
 use partsmith_engine::Session;
-use partsmith_protocol::{DocHandle, TessellationQuality};
+use partsmith_protocol::TessellationQuality;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -380,10 +380,7 @@ fn t111_tolerance_resolves_a_quality_without_side_effects() {
     let doc = open_doc(&mut session, "box.ptsm");
 
     let tolerance = session
-        .tolerance(
-            DocHandle(u32::try_from(doc).expect("handles fit in u32")),
-            TessellationQuality::Standard,
-        )
+        .tolerance(typed_handle(doc), TessellationQuality::Standard)
         .expect("the document is open");
 
     assert_relative(

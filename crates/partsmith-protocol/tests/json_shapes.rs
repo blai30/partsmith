@@ -9,8 +9,8 @@ use common::examples::{
     FILLET_DIAGNOSTIC, MESSAGE_EXAMPLES, REGION_REPAIR, all_commands, all_results,
 };
 use common::{
-    compact, header_json, id, message, object_keys, parse_json, schema_json, string_set,
-    string_values, type_of, variant_tags,
+    compact, header_json, id, message, object_keys, parse, parse_json, schema_json, string_set,
+    string_values, type_of, variant_tags, with_member,
 };
 use partsmith_naming::Reference;
 use partsmith_protocol::{
@@ -43,13 +43,6 @@ fn box_mesh_buffers() -> MeshBuffers {
             max: [10.0, 15.0, 40.0],
         },
     }
-}
-
-/// `value` with the member `name` set to `replacement`.
-fn with_member(value: &Value, name: &str, replacement: Value) -> Value {
-    let mut changed = value.clone();
-    changed[name] = replacement;
-    changed
 }
 
 /// A sketch solution parsed from JSON and written back as JSON.
@@ -284,14 +277,12 @@ fn t037_error_codes_are_exactly_the_codes_of_section_4() {
 
 #[test]
 fn t038_export_formats_deserialize_by_kind() {
-    let parse = |text: &str| -> ExportFormat {
-        serde_json::from_str(text).unwrap_or_else(|error| panic!("{text} deserializes: {error}"))
-    };
+    let export_format = parse::<ExportFormat>;
 
-    assert_eq!(parse(r#"{"kind":"3mf"}"#), ExportFormat::ThreeMf);
-    assert_eq!(parse(r#"{"kind":"obj"}"#), ExportFormat::Obj);
+    assert_eq!(export_format(r#"{"kind":"3mf"}"#), ExportFormat::ThreeMf);
+    assert_eq!(export_format(r#"{"kind":"obj"}"#), ExportFormat::Obj);
     assert_eq!(
-        parse(r#"{"kind":"stl","binary":false,"per_body":true}"#),
+        export_format(r#"{"kind":"stl","binary":false,"per_body":true}"#),
         ExportFormat::Stl {
             binary: false,
             per_body: true

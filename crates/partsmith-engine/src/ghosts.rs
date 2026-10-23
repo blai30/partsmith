@@ -11,16 +11,16 @@ use partsmith_features::{BodyState, Repair as FeatureRepair};
 use partsmith_mesh::TessellationTolerance;
 use partsmith_model::Id;
 use partsmith_naming::{Reference, Resolution, resolve};
-use partsmith_occt_sys::{ElementDisplay, Point};
+use partsmith_occt_sys::ElementDisplay;
 use partsmith_protocol::{Buffer, FeatureStatus, Ghost, GhostFrame, GhostKind, Repair};
 use partsmith_recompute::{FeatureReport, Report};
-use partsmith_sketch::{Geometry, RegionRef, SketchEntity};
+use partsmith_sketch::{Geometry, RegionRef};
 
 use crate::causes::{Baseline, Causes, MessageKey};
 use crate::elements::sub_shape_kind;
 use crate::events::Output;
 use crate::state::ran;
-use crate::triangulate::{on_circle, segment_count};
+use crate::triangulate::arc_points;
 
 /// The codes of the messages whose element repair is a lost reference (section 3.23): guessed and
 /// widened references, whose elements still exist, are not among them.
@@ -131,7 +131,7 @@ impl LastRun {
 
 impl Ghosts {
     /// The ghost of the repair of `feature` at `pointer`.
-    pub(crate) fn get(&self, feature: &Id, pointer: &str) -> Option<&GhostShape> {
+    fn get(&self, feature: &Id, pointer: &str) -> Option<&GhostShape> {
         self.kept.get(&(feature.clone(), pointer.to_string()))
     }
 
@@ -246,7 +246,7 @@ fn element_ghost(
             .element_display(sub_shape_kind(name.kind()), index, tolerance)
             .ok()?;
         let (shown, points) = match display {
-            ElementDisplay::Polyline(points) => (GhostKind::Lines, polyline_segments(&points)),
+            ElementDisplay::Polyline(points) => (GhostKind::Lines, segment_ends(&points)),
             ElementDisplay::Triangles(points) => (GhostKind::Triangles, points),
             ElementDisplay::Position(point) => (GhostKind::Points, vec![point]),
         };
@@ -267,7 +267,7 @@ fn element_ghost(
 }
 
 /// Each pair of consecutive points of a polyline, as the two ends of one segment.
-fn polyline_segments(points: &[Point]) -> Vec<Point> {
+fn segment_ends<T: Copy>(points: &[T]) -> Vec<T> {
     points
         .windows(2)
         .flat_map(|pair| [pair[0], pair[1]])
@@ -290,7 +290,7 @@ fn region_ghost(before: &Baseline, sketch: &Id, region: &RegionRef) -> Option<Gh
             continue;
         }
         drawn.push(&entry.entity);
-        let entity: &SketchEntity = result
+        let entity = result
             .solved
             .entities
             .iter()
@@ -322,30 +322,16 @@ fn segments(geometry: &Geometry) -> Vec<f32> {
             arc_points(center, radius, start_angle, sweep)
         }
     };
-    points
-        .windows(2)
-        .flat_map(|pair| [pair[0], pair[1]])
+    segment_ends(&points)
+        .into_iter()
         .flat_map(|point| point.map(|value| value as f32))
-        .collect()
-}
-
-/// The points that split the arc of `sweep` radians counterclockwise from `start` on the circle
-/// `(center, radius)` into `segment_count(sweep)` equal segments, both ends included.
-fn arc_points(center: [f64; 2], radius: f64, start: f64, sweep: f64) -> Vec<[f64; 2]> {
-    let count = segment_count(sweep);
-    (0..=count)
-        .map(|step| {
-            on_circle(
-                center,
-                radius,
-                start + sweep * f64::from(step) / f64::from(count),
-            )
-        })
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
+    use partsmith_occt_sys::Point;
+
     use super::*;
 
     /// The points of a sketch ghost, two coordinates each.
@@ -421,7 +407,7 @@ mod tests {
     fn a_polyline_gives_one_segment_per_pair_of_consecutive_points() {
         let at = |x: f64| Point { x, y: 0.0, z: 0.0 };
 
-        let found = polyline_segments(&[at(0.0), at(1.0), at(2.0)]);
+        let found = segment_ends(&[at(0.0), at(1.0), at(2.0)]);
 
         assert_eq!(found, [at(0.0), at(1.0), at(1.0), at(2.0)]);
     }

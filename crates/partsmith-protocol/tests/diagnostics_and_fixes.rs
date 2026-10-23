@@ -3,18 +3,21 @@
 
 use crate::common;
 
+use common::engine_output::{
+    assert_sent_by_the_engine, edge_and_region_statuses, face_and_point_statuses,
+};
 use common::examples::{
     APPLY_FIX_REQUEST, APPLY_FIX_RESULT, BLOCK_USES_RESULT, DELETED_POINT_MESSAGE,
     DOCUMENT_CHANGED_EVENT, ELEMENT_REPAIR, ERROR_CODES, FEATURE_STATUS_R03, FIX_ACTIONS,
     FRONT_TOP_EDGE_DESCRIPTOR, FULL_REFERENCE, GHOSTS, INTERNAL_ERROR_OUTCOME, LIST_USES_REQUEST,
-    LIST_USES_RESULT, LOSS_REASONS, LOST_FACE_MESSAGE, LOST_FACE_REPAIR, MERGED_REFERENCE,
-    R16_DIAGNOSTIC, R26_CAUSE, REGION_AMBIGUOUS_MESSAGE, REGION_REPAIR, SET_DOCUMENT_UNITS_REQUEST,
-    SET_DOCUMENT_UNITS_RESULT, SKETCH_SOLVED_EVENT, SOLVE_ON_FACE_IN_BODY_FRAME, STALE_FIX_MESSAGE,
-    TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME, UNKNOWN_PRINTER_DIAGNOSTIC,
+    LIST_USES_RESULT, LOSS_REASONS, LOST_FACE_REPAIR, MERGED_REFERENCE, R16_DIAGNOSTIC, R26_CAUSE,
+    REGION_REPAIR, SET_DOCUMENT_UNITS_REQUEST, SET_DOCUMENT_UNITS_RESULT, SKETCH_SOLVED_EVENT,
+    SOLVE_ON_FACE_IN_BODY_FRAME, STALE_FIX_MESSAGE, TOP_FACE_DESCRIPTOR, TRANSACTION_OPEN_OUTCOME,
+    UNKNOWN_PRINTER_DIAGNOSTIC,
 };
 use common::{
-    compact, frame_with_messages, header_bytes, header_json, id, message, object_keys, parse_json,
-    schema_json, variant_tags,
+    compact, frame_with_messages, header_bytes, header_json, id, message, object_keys, parse,
+    parse_json, schema_json, variant_tags, without_member,
 };
 use partsmith_model::Units;
 use partsmith_naming::Reference;
@@ -49,14 +52,21 @@ const NOTICE_STATUS: &str = r#"{"id":"f-fil1","status":"ok","messages":[{"severi
 /// A `pick_reference` result for the front top edge of the right piece of a top split by a slot (corpus setup BLOCK with SLOT(30,50)), with the full reference of section 2.4.
 const SLOT_EDGE_PICK_RESULT: &str = r#"{"type":"pick_reference","element":{"name":"edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)","kind":"edge","body":"b-1","feature":"f-ext1","reference":{"q":"edge(f-ext1/end-cap#2|f-ext1/lateral/e-1)","fp":"line|n=1,0,0|c=65,0,30|l=30|adj=2,2","nb":{"f-ext1/end-cap#2":["f-ext1/lateral/e-2","f-ext2/lateral/e-6"]}},"curve":"line","centroid":[65.0,0.0,30.0],"length":30.0,"direction":[1.0,0.0,0.0],"axis_direction":[1.0,0.0,0.0],"adjacent":["f-ext1/end-cap#2","f-ext1/lateral/e-1","vertex(f-ext1/end-cap#2|f-ext1/lateral/e-1|f-ext1/lateral/e-2)","vertex(f-ext1/end-cap#2|f-ext1/lateral/e-1|f-ext2/lateral/e-6)"]}}"#;
 
-/// The value `text` holds, with the text in the panic message when it does not deserialize.
-fn parse<T: DeserializeOwned>(text: &str) -> T {
-    serde_json::from_str(text).unwrap_or_else(|error| panic!("{text} deserializes: {error}"))
-}
-
 /// `value` as compact JSON text, with keys in declaration order.
 fn written<T: Serialize>(value: &T) -> String {
     serde_json::to_string(value).expect("a protocol value serializes")
+}
+
+/// The value `text` holds, after checking that it writes back as `text` in compact form, its keys in declaration
+/// order.
+fn round_trips<T: DeserializeOwned + Serialize>(text: &str) -> T {
+    let value: T = parse(text);
+    assert_eq!(
+        written(&value),
+        compact(text),
+        "{text} writes back unchanged"
+    );
+    value
 }
 
 /// Decodes a request frame whose one request carries `command`, a JSON text.
@@ -64,6 +74,24 @@ fn decode_request(command: &str) -> Result<(Request, Vec<Buffer>), FrameError> {
     decode_request_frame(&frame_with_messages(&format!(
         r#"[{{"kind":"request","id":5,"command":{command}}}]"#
     )))
+}
+
+/// The command a request frame decodes to when its one request carries `command`, a JSON text, and the frame holds
+/// nothing else.
+fn decodes_alone(command: &str) -> Command {
+    let (request, buffers) = decode_request(command)
+        .unwrap_or_else(|error| panic!("{command} decodes from a request frame: {error:?}"));
+    assert!(buffers.is_empty(), "{command} decodes without buffers");
+    request.command
+}
+
+/// The bytes of `frame`, after checking that they decode to an equal frame.
+fn response_round_trip(frame: &ResponseFrame) -> Vec<u8> {
+    let bytes = encode_response_frame(&frame.events, &frame.response, &frame.buffers)
+        .expect("the response frame encodes");
+    let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
+    assert_eq!(&decoded, frame);
+    bytes
 }
 
 /// Checks that a request frame whose one request carries `command` fails as `InvalidMessage`, which hosts answer with `malformed_request`.
@@ -219,8 +247,8 @@ fn rectangle_outline() -> Vec<f32> {
     ]
 }
 
-/// Checks one ghost against the buffer invariants of section 3.4 and returns how many `f32` values it has.
-fn ghost_values(ghost: &Ghost, buffers: &[Buffer]) -> usize {
+/// Checks one ghost against the buffer invariants of section 3.4 and returns the `f32` values it checked.
+fn ghost_values<'a>(ghost: &Ghost, buffers: &'a [Buffer]) -> &'a [f32] {
     let index = usize::try_from(ghost.positions.0).expect("a buffer index fits in usize");
     let values = buffers
         .get(index)
@@ -249,7 +277,7 @@ fn ghost_values(ghost: &Ghost, buffers: &[Buffer]) -> usize {
         "ghost buffer {index} has {points} points, which do not make whole {:?}",
         ghost.kind
     );
-    values.len()
+    values
 }
 
 /// Every ghost of the `recomputed` events of a decoded frame, each feature's cause ghosts before its repair ghosts, checked against the buffer invariants of section 3.4: its kind, its frame and how many `f32` values it has.
@@ -269,7 +297,8 @@ fn ghosts_in(frame: &ResponseFrame) -> Vec<(GhostKind, GhostFrame, usize)> {
                 ghost.as_ref()
             });
             for ghost in cause_ghosts.chain(repair_ghosts) {
-                ghosts.push((ghost.kind, ghost.frame, ghost_values(ghost, &frame.buffers)));
+                let values = ghost_values(ghost, &frame.buffers);
+                ghosts.push((ghost.kind, ghost.frame, values.len()));
             }
         }
     }
@@ -298,63 +327,8 @@ fn recomputed_round_trip(
         buffers,
     };
 
-    let bytes = encode_response_frame(&frame.events, &frame.response, &frame.buffers)
-        .expect("the response frame encodes");
-    let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
-
-    assert_eq!(decoded, frame);
-    decoded
-}
-
-/// The JSON Pointer of a repair.
-fn repair_path(repair: &Repair) -> &str {
-    let (Repair::Element { path, .. } | Repair::Region { path, .. }) = repair;
-    path
-}
-
-/// Whether the JSON Pointer `path` is `field` or points inside it.
-fn lies_in(path: &str, field: &str) -> bool {
-    path.strip_prefix(field)
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
-}
-
-/// Checks that the status of a feature that ran is one the engine sends (section 2.7): its messages from the most
-/// severe down, its state the one its first message gives, and each repair at or inside the field of a message, in
-/// message order.
-fn assert_sent_by_the_engine(status: &FeatureStatus) {
-    let severities: Vec<Severity> = status
-        .messages
-        .iter()
-        .map(|message| message.severity)
-        .collect();
-    assert!(
-        severities.is_sorted_by(|first, second| first >= second),
-        "messages go from the most severe down: {status:?}"
-    );
-    let state = match severities.first() {
-        Some(Severity::Error) => FeatureState::Error,
-        Some(Severity::Warning) => FeatureState::Warning,
-        Some(Severity::Info) | None => FeatureState::Ok,
-    };
-    assert_eq!(
-        status.status, state,
-        "the state is the one its first message gives: {status:?}"
-    );
-    let mut owner = 0;
-    for repair in &status.repairs {
-        let path = repair_path(repair);
-        owner += status.messages[owner..]
-            .iter()
-            .position(|message| {
-                message
-                    .field
-                    .as_deref()
-                    .is_some_and(|field| lies_in(path, field))
-            })
-            .unwrap_or_else(|| {
-                panic!("the repair at {path} belongs to a message, in message order: {status:?}")
-            });
-    }
+    response_round_trip(&frame);
+    frame
 }
 
 /// The right side of BLOCK, the rectangle x = 80 from (0, 0) to (50, 30) in y and z, as two triangles counterclockwise seen from outside (+X): 18 values.
@@ -499,9 +473,8 @@ fn t074_every_fix_kind_round_trips_and_apply_needs_its_fix() {
     ];
 
     for (text, expected) in cases {
-        let action: FixAction = parse(text);
+        let action: FixAction = round_trips(text);
         assert_eq!(action, expected, "{text}");
-        assert_eq!(written(&action), compact(text));
     }
 
     for text in [r#"{"kind":"apply","fix":null}"#, r#"{"kind":"apply"}"#] {
@@ -554,9 +527,8 @@ fn t075_every_loss_reason_round_trips_and_the_examples_read_as_specified() {
         LossReason::Followed { by: id("f-sk1") },
     ];
     for (text, expected) in LOSS_REASONS.into_iter().zip(expected) {
-        let reason: LossReason = parse(text);
+        let reason: LossReason = round_trips(text);
         assert_eq!(reason, expected, "{text}");
-        assert_eq!(written(&reason), compact(text));
     }
 
     let made_without_absence = LossReason::Removed {
@@ -579,7 +551,7 @@ fn t075_every_loss_reason_round_trips_and_the_examples_read_as_specified() {
 
 #[test]
 fn t076_apply_fix_request_and_result_round_trip_and_the_request_is_strict() {
-    let command: Command = parse(APPLY_FIX_REQUEST);
+    let command: Command = round_trips(APPLY_FIX_REQUEST);
     assert_eq!(
         command,
         Command::ApplyFix {
@@ -594,17 +566,12 @@ fn t076_apply_fix_request_and_result_round_trip_and_the_request_is_strict() {
             },
         }
     );
-    assert_eq!(written(&command), compact(APPLY_FIX_REQUEST));
 
-    let result: CommandResult = parse(APPLY_FIX_RESULT);
+    let result: CommandResult = round_trips(APPLY_FIX_RESULT);
     assert_eq!(result, CommandResult::ApplyFix { revision: 8 });
-    assert_eq!(written(&result), compact(APPLY_FIX_RESULT));
 
     // The example decodes from a request frame, so only the changes below make the requests fail.
-    let (request, buffers) =
-        decode_request(APPLY_FIX_REQUEST).expect("the apply_fix example decodes from a frame");
-    assert_eq!(request.command, command);
-    assert!(buffers.is_empty());
+    assert_eq!(decodes_alone(APPLY_FIX_REQUEST), command);
 
     // An unknown field inside fix, then a fix without revision.
     assert_malformed_request(
@@ -617,7 +584,7 @@ fn t076_apply_fix_request_and_result_round_trip_and_the_request_is_strict() {
 
 #[test]
 fn t076_set_document_units_request_and_result_round_trip() {
-    let command: Command = parse(SET_DOCUMENT_UNITS_REQUEST);
+    let command: Command = round_trips(SET_DOCUMENT_UNITS_REQUEST);
     assert_eq!(
         command,
         Command::SetDocumentUnits {
@@ -627,9 +594,8 @@ fn t076_set_document_units_request_and_result_round_trip() {
         }
     );
     assert_eq!(command.type_name(), "set_document_units");
-    assert_eq!(written(&command), compact(SET_DOCUMENT_UNITS_REQUEST));
 
-    let result: CommandResult = parse(SET_DOCUMENT_UNITS_RESULT);
+    let result: CommandResult = round_trips(SET_DOCUMENT_UNITS_RESULT);
     assert_eq!(
         result,
         CommandResult::SetDocumentUnits {
@@ -637,12 +603,8 @@ fn t076_set_document_units_request_and_result_round_trip() {
             kept: 4,
         }
     );
-    assert_eq!(written(&result), compact(SET_DOCUMENT_UNITS_RESULT));
 
-    let (request, buffers) = decode_request(SET_DOCUMENT_UNITS_REQUEST)
-        .expect("the set_document_units example decodes from a frame");
-    assert_eq!(request.command, command);
-    assert!(buffers.is_empty());
+    assert_eq!(decodes_alone(SET_DOCUMENT_UNITS_REQUEST), command);
 }
 
 #[test]
@@ -661,12 +623,11 @@ fn t076_set_document_units_without_keep_sizes_keeps_no_sizes() {
 
 #[test]
 fn t076_list_uses_request_and_result_round_trip() {
-    let command: Command = parse(LIST_USES_REQUEST);
+    let command: Command = round_trips(LIST_USES_REQUEST);
     assert_eq!(command, Command::ListUses { doc: DocHandle(1) });
     assert_eq!(command.type_name(), "list_uses");
-    assert_eq!(written(&command), compact(LIST_USES_REQUEST));
 
-    let result: CommandResult = parse(LIST_USES_RESULT);
+    let result: CommandResult = round_trips(LIST_USES_RESULT);
     assert_eq!(
         result,
         CommandResult::ListUses {
@@ -677,12 +638,8 @@ fn t076_list_uses_request_and_result_round_trip() {
             ],
         }
     );
-    assert_eq!(written(&result), compact(LIST_USES_RESULT));
 
-    let (request, buffers) =
-        decode_request(LIST_USES_REQUEST).expect("the list_uses example decodes from a frame");
-    assert_eq!(request.command, command);
-    assert!(buffers.is_empty());
+    assert_eq!(decodes_alone(LIST_USES_REQUEST), command);
     // A request names only its document.
     assert_malformed_request(r#"{"type":"list_uses","doc":1,"feature":"f-fil1"}"#);
 }
@@ -725,8 +682,7 @@ fn t077_error_info_writes_detail_and_actions_after_span_only_when_present() {
     );
 
     for text in [INTERNAL_ERROR_OUTCOME, TRANSACTION_OPEN_OUTCOME] {
-        let outcome: Outcome = parse(text);
-        assert_eq!(written(&outcome), compact(text));
+        round_trips::<Outcome>(text);
     }
     let Outcome::Error(transaction_open) = parse::<Outcome>(TRANSACTION_OPEN_OUTCOME) else {
         panic!("the transaction_open example is an error");
@@ -771,17 +727,6 @@ fn t077_error_info_writes_detail_and_actions_after_span_only_when_present() {
 
 #[test]
 fn t078_ghost_buffers_travel_in_the_response_frame() {
-    let fillet: FeatureStatus = parse(FEATURE_STATUS_R03);
-    let extrude = FeatureStatus {
-        id: id("f-ext1"),
-        status: FeatureState::Warning,
-        messages: vec![parse(REGION_AMBIGUOUS_MESSAGE)],
-        repairs: vec![parse(REGION_REPAIR)],
-    };
-    let features = vec![fillet, extrude];
-    for status in &features {
-        assert_sent_by_the_engine(status);
-    }
     // The lost edge from (80, 40, 30) to (70, 50, 30), the deleted line from (80, 40) to (70, 50), and the region outline.
     let buffers = vec![
         Buffer::F32(vec![80.0, 40.0, 30.0, 70.0, 50.0, 30.0]),
@@ -789,7 +734,7 @@ fn t078_ghost_buffers_travel_in_the_response_frame() {
         Buffer::F32(rectangle_outline()),
     ];
 
-    let decoded = recomputed_round_trip(2, features, buffers);
+    let decoded = recomputed_round_trip(2, edge_and_region_statuses(), buffers);
 
     // The cause's deleted line, the lost edge, then the region outline, each one or more segments.
     assert_eq!(
@@ -805,8 +750,7 @@ fn t078_ghost_buffers_travel_in_the_response_frame() {
 #[test]
 fn t079_descriptors_carry_fallback_and_axis_direction_and_picks_may_name_their_body() {
     for text in [TOP_FACE_DESCRIPTOR, FRONT_TOP_EDGE_DESCRIPTOR] {
-        let descriptor: ElementDescriptor = parse(text);
-        assert_eq!(written(&descriptor), compact(text));
+        round_trips::<ElementDescriptor>(text);
     }
 
     // With every field set, fallback follows placement and axis_direction follows fallback, before adjacent.
@@ -858,13 +802,12 @@ fn t079_descriptors_carry_fallback_and_axis_direction_and_picks_may_name_their_b
     );
 
     // The full reference of a pick has one anchor list, of two faces.
-    let full: Reference = parse(FULL_REFERENCE);
+    let full: Reference = round_trips(FULL_REFERENCE);
     assert_eq!(full.anchors.0.len(), 1, "{full:?}");
     assert!(
         full.anchors.0.values().all(|faces| faces.len() == 2),
         "{full:?}"
     );
-    assert_eq!(written(&full), compact(FULL_REFERENCE));
 
     // A headless pick names its body; a display pick leaves it out.
     let headless: Pick = parse(r#"{"mesh_id": 0, "kind": "edge", "index": 4, "body": "b-1"}"#);
@@ -878,9 +821,8 @@ fn t079_descriptors_carry_fallback_and_axis_direction_and_picks_may_name_their_b
         }
     );
     let display_example = r#"{"mesh_id": 12, "kind": "face", "index": 3}"#;
-    let display: Pick = parse(display_example);
+    let display: Pick = round_trips(display_example);
     assert_eq!(display.body, None);
-    assert_eq!(written(&display), compact(display_example));
 }
 
 #[test]
@@ -1147,9 +1089,8 @@ fn ghost_examples_round_trip() {
     ];
 
     for (text, expected) in GHOSTS.into_iter().zip(expected) {
-        let ghost: Ghost = parse(text);
+        let ghost: Ghost = round_trips(text);
         assert_eq!(ghost, expected, "{text}");
-        assert_eq!(written(&ghost), compact(text));
     }
 }
 
@@ -1184,9 +1125,8 @@ fn repair_candidate_without_a_mesh_element_omits_it() {
 
 #[test]
 fn r03_feature_status_round_trips_unchanged() {
-    let status: FeatureStatus = parse(FEATURE_STATUS_R03);
+    let status: FeatureStatus = round_trips(FEATURE_STATUS_R03);
 
-    assert_eq!(written(&status), compact(FEATURE_STATUS_R03));
     let cause = status.messages[0]
         .cause
         .as_ref()
@@ -1280,18 +1220,17 @@ fn short_reference_writes_neither_anchors_nor_merged_names() {
 
 #[test]
 fn solve_sketch_candidate_keeps_a_body_fallback_frame() {
-    let command: Command = parse(SOLVE_ON_FACE_IN_BODY_FRAME);
+    let command: Command = round_trips(SOLVE_ON_FACE_IN_BODY_FRAME);
 
     let value = serde_json::to_value(&command).expect("a command serializes");
 
     assert_eq!(value["candidate"]["plane"]["fallback_frame"], "body");
-    assert_eq!(written(&command), compact(SOLVE_ON_FACE_IN_BODY_FRAME));
 }
 
 #[test]
 fn solve_sketch_candidate_with_an_unknown_fallback_frame_is_a_malformed_request() {
     // The same request with the frame `body` decodes, so the frame's value is what fails below.
-    decode_request(SOLVE_ON_FACE_IN_BODY_FRAME).expect("a candidate with a body frame decodes");
+    decodes_alone(SOLVE_ON_FACE_IN_BODY_FRAME);
     let command = SOLVE_ON_FACE_IN_BODY_FRAME.replace(
         r#""fallback_frame": "body""#,
         r#""fallback_frame": "local""#,
@@ -1309,15 +1248,16 @@ fn apply_fix_without_its_fix_is_rejected() {
 
 #[test]
 fn transaction_open_error_with_its_action_travels_in_a_response_frame() {
-    let response = Response {
-        id: 9,
-        result: parse(TRANSACTION_OPEN_OUTCOME),
+    let frame = ResponseFrame {
+        events: Vec::new(),
+        response: Response {
+            id: 9,
+            result: parse(TRANSACTION_OPEN_OUTCOME),
+        },
+        buffers: Vec::new(),
     };
 
-    let bytes = encode_response_frame(&[], &response, &[]).expect("the response frame encodes");
-    let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
-
-    assert_eq!(decoded.response, response);
+    response_round_trip(&frame);
 }
 
 #[test]
@@ -1393,11 +1333,7 @@ fn apply_fix_without_any_required_part_of_its_fix_is_a_malformed_request() {
     );
 
     for name in ["feature", "code", "cause", "index"] {
-        let mut without = fix.clone();
-        without
-            .as_object_mut()
-            .expect("a fix reference is an object")
-            .remove(name);
+        let without = without_member(&fix, name);
 
         assert_malformed_request(
             &json!({"type": "apply_fix", "doc": 1, "fix": without}).to_string(),
@@ -1574,13 +1510,12 @@ fn repairs_and_their_candidates_ignore_unknown_fields() {
 
 #[test]
 fn headless_pick_reference_decodes_from_a_request_frame() {
-    let (request, buffers) = decode_request(
+    let decoded = decodes_alone(
         r#"{"type":"pick_reference","doc":1,"pick":{"mesh_id":0,"kind":"edge","index":4,"body":"b-1"}}"#,
-    )
-    .expect("a headless pick decodes from a request frame");
+    );
 
     assert_eq!(
-        request.command,
+        decoded,
         Command::PickReference {
             doc: DocHandle(1),
             pick: Pick {
@@ -1591,7 +1526,6 @@ fn headless_pick_reference_decodes_from_a_request_frame() {
             },
         }
     );
-    assert!(buffers.is_empty());
 }
 
 #[test]
@@ -1630,13 +1564,10 @@ fn edge_descriptors_list_their_two_faces_then_their_two_vertices() {
 fn resolve_references_with_a_full_reference_decodes_from_a_request_frame() {
     let command = resolve_references_command(&compact(FULL_REFERENCE));
 
-    let (request, _) = decode_request(&command).expect("a full reference decodes from a frame");
+    let decoded = decodes_alone(&command);
 
-    let Command::ResolveReferences { references, .. } = &request.command else {
-        panic!(
-            "the request is resolve_references, got {:?}",
-            request.command
-        );
+    let Command::ResolveReferences { references, .. } = &decoded else {
+        panic!("the request is resolve_references, got {decoded:?}");
     };
     assert_eq!(references.len(), 1);
     assert_eq!(references[0].reference, parse::<Reference>(FULL_REFERENCE));
@@ -1690,11 +1621,7 @@ fn use_without_its_user_field_or_feature_is_rejected() {
     assert_eq!(read, use_of("f-fil1", "/edges/0", "f-ext1", Some("e-3")));
 
     for name in ["user", "field", "feature"] {
-        let mut without = complete.clone();
-        without
-            .as_object_mut()
-            .expect("a use is an object")
-            .remove(name);
+        let without = without_member(&complete, name);
 
         let result = serde_json::from_value::<Use>(without);
 
@@ -1732,26 +1659,21 @@ fn list_uses_request_without_its_document_is_malformed() {
 #[test]
 fn list_uses_response_frame_carries_every_use_and_no_event() {
     // The result of engine.md test 143; list_uses emits nothing, so its frame holds the response alone.
-    let response = Response {
-        id: 6,
-        result: Outcome::Ok(parse(BLOCK_USES_RESULT)),
+    let frame = ResponseFrame {
+        events: Vec::new(),
+        response: Response {
+            id: 6,
+            result: Outcome::Ok(parse(BLOCK_USES_RESULT)),
+        },
+        buffers: Vec::new(),
     };
 
-    let bytes = encode_response_frame(&[], &response, &[]).expect("the response frame encodes");
-    let decoded = decode_response_frame(&bytes).expect("the response frame decodes");
+    let bytes = response_round_trip(&frame);
 
-    assert_eq!(
-        decoded,
-        ResponseFrame {
-            events: Vec::new(),
-            response,
-            buffers: Vec::new(),
-        }
-    );
-    let Outcome::Ok(CommandResult::ListUses { uses }) = &decoded.response.result else {
+    let Outcome::Ok(CommandResult::ListUses { uses }) = &frame.response.result else {
         panic!(
             "the response is a list_uses result, got {:?}",
-            decoded.response
+            frame.response
         );
     };
     assert_eq!(
@@ -1777,28 +1699,12 @@ fn list_uses_response_frame_carries_every_use_and_no_event() {
 fn face_and_sketch_point_ghosts_travel_in_the_response_frame() {
     // Test 78 carries line ghosts; these are the other kinds of section 3.4: a lost face's triangles in model
     // coordinates (buffer 0) and a deleted sketch point in the sketch's coordinates (buffer 1).
-    let datum_plane = FeatureStatus {
-        id: id("f-dp1"),
-        status: FeatureState::Error,
-        messages: vec![parse(LOST_FACE_MESSAGE)],
-        repairs: vec![parse(LOST_FACE_REPAIR)],
-    };
-    let hole = FeatureStatus {
-        id: id("f-hole1"),
-        status: FeatureState::Warning,
-        messages: vec![parse(DELETED_POINT_MESSAGE)],
-        repairs: Vec::new(),
-    };
-    let features = vec![datum_plane, hole];
-    for status in &features {
-        assert_sent_by_the_engine(status);
-    }
     let buffers = vec![
         Buffer::F32(right_side_triangles()),
         Buffer::F32(vec![20.0, 10.0]),
     ];
 
-    let decoded = recomputed_round_trip(3, features, buffers);
+    let decoded = recomputed_round_trip(3, face_and_point_statuses(), buffers);
 
     assert_eq!(
         ghosts_in(&decoded),
@@ -1913,12 +1819,11 @@ fn cause_action_goes_back_in_apply_fix_with_its_cause_flag() {
         fix: fix.clone(),
     };
 
-    let (request, _) = decode_request(&written(&command))
-        .expect("an apply_fix request with a cause action's fix decodes");
+    let decoded = decodes_alone(&written(&command));
 
-    assert_eq!(request.command, command);
-    let Command::ApplyFix { fix: sent, .. } = &request.command else {
-        panic!("the request is apply_fix, got {:?}", request.command);
+    assert_eq!(decoded, command);
+    let Command::ApplyFix { fix: sent, .. } = &decoded else {
+        panic!("the request is apply_fix, got {decoded:?}");
     };
     assert!(sent.cause, "{sent:?}");
 }

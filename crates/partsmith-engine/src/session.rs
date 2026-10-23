@@ -18,7 +18,6 @@ use partsmith_recompute::Recompute;
 
 use crate::ENGINE_VERSION;
 use crate::assets::{referenced_assets, stored_assets};
-use crate::causes::CauseLines;
 use crate::display::DisplayCache;
 use crate::document::{OpenDocument, SavedText, canonical_text, canonicalize_params};
 use crate::error::EngineError;
@@ -235,7 +234,7 @@ impl Session {
         if let Some(saved) = &open.last_save
             && saved.revision == revision
         {
-            open.baseline = saved.text.clone();
+            open.dirty_baseline = saved.text.clone();
         }
         Ok(())
     }
@@ -262,16 +261,7 @@ impl Session {
 
     /// Status of every feature in timeline order at the current state.
     pub fn feature_statuses(&self, doc: DocHandle) -> Result<Vec<FeatureStatus>, EngineError> {
-        let open = self.open(doc)?;
-        Ok(feature_statuses(
-            &open.document,
-            &self.registry,
-            &open.computed,
-            &open.emitted.display_failures(),
-            open.revision,
-            None,
-            CauseLines::of(open),
-        ))
+        Ok(feature_statuses(self.open(doc)?, &self.registry, None))
     }
 
     /// Every parameter's evaluated value in document order.

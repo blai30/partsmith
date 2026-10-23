@@ -2,16 +2,14 @@
 
 use crate::common;
 
-use common::examples::{
-    ERROR_OUTCOMES, FEATURE_STATUS_R03, MESSAGE_EXAMPLES, R16_DIAGNOSTIC, REGION_REPAIR,
-    all_commands, all_results,
-};
+use common::engine_output::{edge_and_region_statuses, face_and_point_statuses};
+use common::examples::{ERROR_OUTCOMES, MESSAGE_EXAMPLES, all_commands, all_results};
 use common::{
-    EXAMPLE_B_BUFFER, buffer_start, example_a, example_b, header_json, message, parse_json,
+    EXAMPLE_B_BUFFER, buffer_start, example_a, example_b, header_json, message, parse, parse_json,
 };
 use partsmith_protocol::{
-    Buffer, BufferIndex, Command, CommandResult, DocHandle, Frame, MAX_SAFE_INTEGER, Message,
-    Outcome, Request, Response, decode_frame, decode_request_frame, encode_frame,
+    Buffer, BufferIndex, Command, DocHandle, Event, FeatureStatus, Frame, MAX_SAFE_INTEGER,
+    Message, Outcome, Request, Response, decode_frame, decode_request_frame, encode_frame,
     encode_request_frame,
 };
 use proptest::prelude::*;
@@ -27,22 +25,22 @@ fn frame_of_buffers(buffers: Vec<Buffer>) -> Frame {
 /// One message of every kind the spec shows: a request per command example, an `ok` response per result example, the error responses, every event example, and the diagnostic events.
 fn message_pool() -> Vec<Message> {
     let requests = all_commands().into_iter().map(|text| {
-        let command: Command = serde_json::from_str(text)
-            .unwrap_or_else(|error| panic!("the command deserializes ({error}): {text}"));
-        Message::Request(Request { id: 1, command })
+        Message::Request(Request {
+            id: 1,
+            command: parse(text),
+        })
     });
     let ok_responses = all_results().into_iter().map(|text| {
-        let result: CommandResult = serde_json::from_str(text)
-            .unwrap_or_else(|error| panic!("the result deserializes ({error}): {text}"));
         Message::Response(Response {
             id: 1,
-            result: Outcome::Ok(result),
+            result: Outcome::Ok(parse(text)),
         })
     });
     let error_responses = ERROR_OUTCOMES.into_iter().map(|text| {
-        let result: Outcome = serde_json::from_str(text)
-            .unwrap_or_else(|error| panic!("the outcome deserializes ({error}): {text}"));
-        Message::Response(Response { id: 1, result })
+        Message::Response(Response {
+            id: 1,
+            result: parse(text),
+        })
     });
     let examples = MESSAGE_EXAMPLES.into_iter().map(message);
     requests
@@ -53,16 +51,23 @@ fn message_pool() -> Vec<Message> {
         .collect()
 }
 
-/// `recomputed` events with the diagnostics and repairs of ADR 0024: the R03 fillet with its cause and element repair beside an extrude with the region repair of test 68, and the R16 fillet with its actions, cause and reason.
+/// `recomputed` events with the diagnostics, causes and repairs of ADR 0024, as the engine sends them: the line ghosts of revision 2, then the face and point ghosts of revision 3.
 fn diagnostic_events() -> [Message; 2] {
     [
-        message(&format!(
-            r#"{{"kind": "event", "type": "recomputed", "doc": 1, "revision": 2, "features": [{FEATURE_STATUS_R03}, {{"id": "f-ext1", "status": "warning", "messages": [], "repairs": [{REGION_REPAIR}]}}], "parameters": [], "diagnostics": []}}"#
-        )),
-        message(&format!(
-            r#"{{"kind": "event", "type": "recomputed", "doc": 1, "revision": 7, "features": [{{"id": "f-fil1", "status": "error", "messages": [{R16_DIAGNOSTIC}], "repairs": []}}], "parameters": [], "diagnostics": []}}"#
-        )),
+        recomputed(2, edge_and_region_statuses()),
+        recomputed(3, face_and_point_statuses()),
     ]
+}
+
+/// A `recomputed` event of document 1 at `revision` with `features` and no parameters or document diagnostics.
+fn recomputed(revision: u64, features: Vec<FeatureStatus>) -> Message {
+    Message::Event(Event::Recomputed {
+        doc: DocHandle(1),
+        revision,
+        features,
+        parameters: Vec::new(),
+        diagnostics: Vec::new(),
+    })
 }
 
 /// Any message of the pool, with a random request or response id.

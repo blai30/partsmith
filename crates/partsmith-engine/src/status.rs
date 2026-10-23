@@ -2,13 +2,14 @@
 //! section 3.4).
 
 use partsmith_features::Registry;
-use partsmith_model::{Document, Id};
+use partsmith_model::Id;
 use partsmith_naming::{ElementKind, ElementName};
 use partsmith_protocol::{Diagnostic, FeatureState, FeatureStatus, ParameterValue, Severity};
 use partsmith_recompute::Status;
 
 use crate::causes::CauseLines;
 use crate::diagnostics::ElementLookup;
+use crate::document::OpenDocument;
 use crate::run::RunView;
 use crate::state::{BodyView, Computed, display_bodies};
 
@@ -22,18 +23,19 @@ pub(crate) struct DisplayFailure {
     pub(crate) message: String,
 }
 
-/// The status of every feature in timeline order, with the display failures of its document and
-/// the causes of its messages (section 3.21) without their ghosts. Actions carry `revision`;
-/// `elements` gives candidates their mesh element in display sessions.
+/// The status of every feature of the open document `open` in timeline order, with its display
+/// failures and the causes of its messages (section 3.21) without their ghosts. Actions carry
+/// its revision; `elements` gives candidates their mesh element in display sessions.
 pub(crate) fn feature_statuses(
-    document: &Document,
+    open: &OpenDocument,
     registry: &Registry,
-    computed: &Computed,
-    failures: &[DisplayFailure],
-    revision: u64,
     elements: Option<ElementLookup<'_>>,
-    causes: CauseLines<'_>,
 ) -> Vec<FeatureStatus> {
+    let document = &open.document;
+    let computed = &open.computed;
+    let failures = open.emitted.display_failures();
+    let revision = open.revision;
+    let causes = CauseLines::of(open);
     let duplicated: Vec<BodyView> = display_bodies(document, computed)
         .into_iter()
         .filter(|view| view.has_geometry() && has_duplicate_names(view))
@@ -73,7 +75,7 @@ pub(crate) fn feature_statuses(
                     ));
                 }
             }
-            for failure in failures {
+            for failure in &failures {
                 if failure.feature.as_ref() == Some(&report.feature) {
                     status.status = FeatureState::Error;
                     status.messages.push(Diagnostic::new(

@@ -9,7 +9,7 @@ use std::f64::consts::PI;
 use common::{
     BUFFER_TOLERANCE, GEOMETRY_TOLERANCE, Sent, apply, assert_near, assert_point3, assert_relative,
     element_named, elements, headless_session, measure_body, number, open, open_doc, point3,
-    revision, send, session,
+    revision, send, session, typed_handle,
 };
 use partsmith_engine::Session;
 use partsmith_model::Dimension;
@@ -448,7 +448,7 @@ fn t084_headless_reports_carry_no_display_fields() {
 fn t113_the_resolved_printer_profile_is_reported_without_side_effects() {
     let mut session = headless_session();
     let doc = open_doc(&mut session, "box.ptsm");
-    let handle = partsmith_protocol::DocHandle(u32::try_from(doc).expect("handles fit in u32"));
+    let handle = typed_handle(doc);
     let set_printer = |session: &mut Session, printer: &str| {
         apply(
             session,

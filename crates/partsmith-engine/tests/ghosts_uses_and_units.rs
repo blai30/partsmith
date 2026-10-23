@@ -15,28 +15,23 @@ use crate::common;
 use crate::corpus;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, doc_handle, fixture,
-    get_document, headless_session, measure_body, new_doc, open, open_text, revision, saved_text,
-    send, session, set_document_units,
+    GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, begin, commit,
+    doc_handle, fixture, get_document, headless_session, measure_body, new_doc, open, open_text,
+    revision, saved_text, send, session, set_document_units, typed_handle,
 };
 use corpus::{
-    EDIT_LABEL, Scenario, after_edit, angle, assert_ghost_segments, block_back_top,
-    block_right_side, block_then, box_below, box_record, cause, chamfer, circle, cube10,
-    datum_on_face, document, document_with, edited_text, edits, face_plane, fillet, ghost_points,
-    hole, labels_and_kinds, linear_pattern, message, nc09, nc11, opened, origin_plane, parameter,
-    picked, r03, r12, r16, r33, r41, r66, record, rectangle, rectangle_region, reference,
-    repair_ghost, repairs, revolve, sketch, through_all, volume,
+    NC11_CAUSE, after_edit, angle, assert_ghost_segments, block_back_top, block_right_side,
+    block_then, box_below, box_record, cause, chamfer, circle, cube10, datum_on_face, document,
+    document_with, edited_in_a_transaction_focused_on, edited_text, face_plane, fillet,
+    ghost_points, hole, labels_and_kinds, linear_pattern, message, nc09, nc11, opened,
+    origin_plane, owned_pairs, parameter, picked, r03, r12, r16, r33, r41, r66, record, rectangle,
+    rectangle_region, reference, repair_ghost, repairs, revolve, sketch, through_all, volume,
 };
 use partsmith_engine::Session;
 use partsmith_model::Units;
 use partsmith_protocol::DocHandle;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-
-/// The typed handle of a document handle a reply gave.
-fn typed(doc: u64) -> DocHandle {
-    DocHandle(u32::try_from(doc).expect("handles in tests are small"))
-}
 
 // Test 141: element ghosts (corpus R16).
 
@@ -133,10 +128,6 @@ fn t141_r16_a_headless_session_captures_no_ghost() {
 
 // Test 142: region and cause ghosts (newcomer error NC11).
 
-/// The cause line of every message newcomer error NC11 gives.
-const NC11_CAUSE: &str =
-    "This started after you deleted the line from (80, 50) to (0, 50) in 'Sketch 1'.";
-
 #[test]
 fn t142_nc11_the_lost_region_has_its_outline_as_its_ghost() {
     let mut session = session();
@@ -172,10 +163,7 @@ fn t142_nc11_the_cause_has_the_deleted_line_as_its_ghost() {
     assert_eq!(found["text"], NC11_CAUSE);
     assert_eq!(
         labels_and_kinds(&found),
-        [
-            ("Undo".to_owned(), "undo".to_owned()),
-            ("Show the line".to_owned(), "show".to_owned())
-        ]
+        owned_pairs(&[("Undo", "undo"), ("Show the line", "show")])
     );
     let ghost = &found["ghost"];
     assert_eq!(ghost["frame"], "sketch", "{found}");
@@ -210,31 +198,6 @@ fn a_reference_lost_since_the_document_was_opened_gets_no_ghost_when_it_changes(
     let lost = repairs(&added, "f-fil1");
     assert_eq!(lost.len(), 1, "{lost:?}");
     assert!(lost[0].get("ghost").is_none(), "{}", lost[0]);
-}
-
-/// Opens `scenario`'s setup and applies its edit the way the inspector edits a feature: inside a transaction focused on
-/// `focus`, which rolls back every later feature until the commit; the commit's reply.
-fn edited_in_a_transaction_focused_on(
-    session: &mut Session,
-    scenario: &Scenario,
-    focus: &str,
-) -> Sent {
-    let (doc, _, _) = opened(session, &scenario.setup);
-    send(
-        session,
-        json!({"type": "begin_transaction", "doc": doc, "label": EDIT_LABEL}),
-    )
-    .ok();
-    send(
-        session,
-        json!({"type": "set_focus", "doc": doc, "feature": focus}),
-    )
-    .ok();
-    let made = edits(session, doc, &scenario.changes);
-    apply(session, doc, None, Value::Array(made)).ok();
-    let committed = send(session, json!({"type": "commit_transaction", "doc": doc}));
-    committed.ok();
-    committed
 }
 
 #[test]
@@ -328,7 +291,7 @@ fn typed_statuses_leave_out_every_ghost_and_keep_the_cause() {
 
     let statuses = serde_json::to_value(
         session
-            .feature_statuses(typed(doc))
+            .feature_statuses(typed_handle(doc))
             .expect("the document is open"),
     )
     .expect("statuses serialize");
@@ -662,7 +625,9 @@ fn the_typed_list_uses_returns_the_uses_of_the_protocol() {
     ));
     let listed = list_uses(&mut session, doc).ok()["uses"].clone();
 
-    let typed_uses = session.list_uses(typed(doc)).expect("the document is open");
+    let typed_uses = session
+        .list_uses(typed_handle(doc))
+        .expect("the document is open");
 
     assert_eq!(
         serde_json::to_value(typed_uses).expect("uses serialize"),
@@ -829,11 +794,7 @@ fn t145_the_current_units_change_nothing() {
 fn t145_inside_a_transaction_the_edits_join_it() {
     let mut session = session();
     let (doc, _, before) = opened(&mut session, &nc09());
-    send(
-        &mut session,
-        json!({"type": "begin_transaction", "doc": doc, "label": "Units"}),
-    )
-    .ok();
+    begin(&mut session, doc, "Units").ok();
 
     let switched = set_document_units(&mut session, doc, "in", true);
 
@@ -845,10 +806,7 @@ fn t145_inside_a_transaction_the_edits_join_it() {
         "no undo entry of its own: {changed}"
     );
     assert_eq!(changed["transaction"], "Units");
-    let committed = send(
-        &mut session,
-        json!({"type": "commit_transaction", "doc": doc}),
-    );
+    let committed = commit(&mut session, doc);
     assert_eq!(committed.ok()["recorded"], true);
     let undone = send(&mut session, json!({"type": "undo", "doc": doc}));
     assert_eq!(undone.ok()["label"], "Units");
@@ -988,11 +946,7 @@ fn a_units_change_makes_the_document_dirty_and_undo_makes_it_clean() {
 fn cancelling_the_transaction_reverts_the_units() {
     let mut session = session();
     let (doc, _, before) = opened(&mut session, &nc09());
-    send(
-        &mut session,
-        json!({"type": "begin_transaction", "doc": doc, "label": "Units"}),
-    )
-    .ok();
+    begin(&mut session, doc, "Units").ok();
     set_document_units(&mut session, doc, "in", true).ok();
 
     let cancelled = send(

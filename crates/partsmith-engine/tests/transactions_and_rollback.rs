@@ -3,28 +3,13 @@
 use crate::common;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, elements, get_document,
-    measure_body, number, open_doc, revision, saved_text, send, session, set_height, set_rollback,
+    GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_relative, begin, commit, elements,
+    focus, get_document, measure_body, number, open_doc, revision, saved_text, send, session,
+    set_height, set_rollback,
 };
 use partsmith_engine::Session;
 use pretty_assertions::assert_eq;
 use serde_json::json;
-
-/// Opens a transaction with this label.
-fn begin(session: &mut Session, doc: u64, label: &str) -> Sent {
-    send(
-        session,
-        json!({"type": "begin_transaction", "doc": doc, "label": label}),
-    )
-}
-
-/// Sets the focus feature of the open transaction.
-fn focus(session: &mut Session, doc: u64, feature: &str) -> Sent {
-    send(
-        session,
-        json!({"type": "set_focus", "doc": doc, "feature": feature}),
-    )
-}
 
 /// Opens `fillet.ptsm`, begins `Edit fillet` and focuses `f-fil1`; returns the handle and the `set_focus` reply.
 fn focused_fillet(session: &mut Session) -> (u64, Sent) {
@@ -51,10 +36,7 @@ fn t026_a_transaction_undoes_as_one_entry_with_its_label() {
         apply(&mut session, doc, None, json!([set_height(height)])).ok();
     }
 
-    let committed = send(
-        &mut session,
-        json!({"type": "commit_transaction", "doc": doc}),
-    );
+    let committed = commit(&mut session, doc);
     assert_eq!(committed.ok()["recorded"], true);
 
     let undone = send(&mut session, json!({"type": "undo", "doc": doc}));
@@ -102,18 +84,15 @@ fn t029_commit_cancel_and_focus_need_a_transaction() {
     let mut session = session();
     let doc = open_doc(&mut session, "box.ptsm");
 
-    let commit = send(
-        &mut session,
-        json!({"type": "commit_transaction", "doc": doc}),
-    );
-    let cancel = send(
+    let committed = commit(&mut session, doc);
+    let canceled = send(
         &mut session,
         json!({"type": "cancel_transaction", "doc": doc}),
     );
     let focused = focus(&mut session, doc, "f-box1");
 
-    assert_eq!(commit.error_code(), "no_transaction");
-    assert_eq!(cancel.error_code(), "no_transaction");
+    assert_eq!(committed.error_code(), "no_transaction");
+    assert_eq!(canceled.error_code(), "no_transaction");
     assert_eq!(focused.error_code(), "no_transaction");
 }
 
@@ -161,10 +140,7 @@ fn t032_committing_an_empty_transaction_records_nothing() {
     let doc = open_doc(&mut session, "box.ptsm");
     begin(&mut session, doc, "Nothing").ok();
 
-    let committed = send(
-        &mut session,
-        json!({"type": "commit_transaction", "doc": doc}),
-    );
+    let committed = commit(&mut session, doc);
 
     assert_eq!(committed.ok()["recorded"], false);
     assert_eq!(committed.ok()["revision"], 0);
@@ -186,11 +162,7 @@ fn t033_coalesced_slider_edits_undo_to_the_original_text() {
         )
         .ok();
     }
-    send(
-        &mut session,
-        json!({"type": "commit_transaction", "doc": doc}),
-    )
-    .ok();
+    commit(&mut session, doc).ok();
 
     send(&mut session, json!({"type": "undo", "doc": doc})).ok();
 
@@ -239,10 +211,7 @@ fn t036_commit_after_a_focus_shows_the_result_and_removes_the_preview() {
     let mut session = session();
     let (doc, _) = focused_fillet(&mut session);
 
-    let committed = send(
-        &mut session,
-        json!({"type": "commit_transaction", "doc": doc}),
-    );
+    let committed = commit(&mut session, doc);
 
     committed.ok();
     assert_eq!(face_count(committed.body_mesh("b-1", "model")), 7);

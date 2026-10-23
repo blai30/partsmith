@@ -58,7 +58,7 @@ pub(crate) struct OpenDocument {
     /// Drag states by sketch feature.
     pub(crate) drags: BTreeMap<Id, Drag>,
     /// Canonical text the dirty state compares against.
-    pub(crate) baseline: String,
+    pub(crate) dirty_baseline: String,
     /// The latest `save_document`.
     pub(crate) last_save: Option<SavedText>,
     /// Canonical text of the recipe at a revision, computed on demand.
@@ -90,18 +90,18 @@ impl OpenDocument {
         quality: TessellationQuality,
         computed: Computed,
     ) -> Result<OpenDocument, EngineError> {
-        let baseline = canonical_text(&document)?;
+        let dirty_baseline = canonical_text(&document)?;
         Ok(OpenDocument {
             text: SavedText {
                 revision: 0,
-                text: baseline.clone(),
+                text: dirty_baseline.clone(),
             },
             document: Arc::new(document),
             revision: 0,
             history: History::new(undo_limit),
             transaction: None,
             drags: BTreeMap::new(),
-            baseline,
+            dirty_baseline,
             last_save: None,
             assets,
             quality,
@@ -120,10 +120,10 @@ impl OpenDocument {
         Ok(&self.text.text)
     }
 
-    /// True when the canonical text of the current recipe differs from the baseline.
+    /// True when the canonical text of the current recipe differs from the dirty baseline.
     pub(crate) fn dirty(&mut self) -> Result<bool, EngineError> {
         self.refresh_text()?;
-        Ok(self.text.text != self.baseline)
+        Ok(self.text.text != self.dirty_baseline)
     }
 
     /// Computes the canonical text when the revision changed since it was last computed.
@@ -170,7 +170,8 @@ impl OpenDocument {
             self.history.commands(),
         ));
         let entry = self.history.latest_change();
-        self.causes.observe(&now, &self.computed, entry, display);
+        self.causes
+            .observe(&now, &self.computed.report, entry, display);
         if display {
             let tolerance = self.display_tolerance();
             self.ghosts.observe(&now, &self.computed.report, &tolerance);

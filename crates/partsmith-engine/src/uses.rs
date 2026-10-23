@@ -3,13 +3,14 @@
 //! entities that the element names in its stored references depend on.
 
 use partsmith_features::{Link, Registry};
-use partsmith_model::{Document, FeatureRecord, Id};
+use partsmith_model::{Document, FeatureRecord};
 use partsmith_naming::{GeneratorUse, MergedName, Reference};
 use partsmith_protocol::{DocHandle, Use};
 
 use crate::error::EngineError;
 use crate::params::{declared_dependencies, field_pointer, stored_references};
 use crate::session::Session;
+use crate::sketch::point_entity;
 
 impl Session {
     /// What every feature uses, from the document alone (section 3.24): one `Use` per feature
@@ -43,7 +44,7 @@ fn uses(registry: &Registry, document: &Document) -> Vec<Use> {
                     Use {
                         user: record.id.clone(),
                         field: stored.pointer.clone(),
-                        entity: generator.generator.as_deref().and_then(entity_of),
+                        entity: generator.generator.as_deref().and_then(point_entity),
                         feature: generator.feature,
                     },
                 ));
@@ -91,14 +92,10 @@ fn generators(reference: &Reference) -> Vec<GeneratorUse> {
     found
 }
 
-/// The sketch entity a generator names: the part before any `.`, so `e-1.center` gives `e-1`.
-fn entity_of(generator: &str) -> Option<Id> {
-    let entity = generator.split('.').next().unwrap_or(generator);
-    Id::new(entity).ok()
-}
-
 #[cfg(test)]
 mod tests {
+    use partsmith_model::Id;
+
     use super::*;
     use crate::test_support::id;
 
@@ -125,11 +122,5 @@ mod tests {
             .collect();
 
         assert_eq!(found, [id("f-box1"), id("f-box1"), id("f-lp1")]);
-    }
-
-    #[test]
-    fn an_entity_is_named_without_its_point_role() {
-        assert_eq!(entity_of("e-1.center"), Some(id("e-1")));
-        assert_eq!(entity_of("e-p2"), Some(id("e-p2")));
     }
 }

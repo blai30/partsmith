@@ -2,18 +2,17 @@
 
 use crate::common;
 
-use std::collections::BTreeSet;
 use std::path::Path;
 
 use common::examples::{
-    BLOCK_USES_RESULT, COMMAND_EXAMPLES, DELETED_POINT_MESSAGE, ELEMENT_REPAIR, ERROR_OUTCOMES,
-    FULL_REFERENCE, LOST_FACE_MESSAGE, LOST_FACE_REPAIR, MERGED_REFERENCE, MESSAGE_EXAMPLES,
-    R16_DIAGNOSTIC, R26_CAUSE, REGION_REPAIR, RESULT_EXAMPLES, SOLVE_ON_FACE_IN_BODY_FRAME,
-    STALE_FIX_MESSAGE, TYPE_EXAMPLES,
+    COMMAND_EXAMPLES, DELETED_POINT_MESSAGE, ELEMENT_REPAIR, ENGINE_EXAMPLES, ERROR_OUTCOMES,
+    FULL_REFERENCE, LOST_FACE_REPAIR, MERGED_REFERENCE, MESSAGE_EXAMPLES, R16_DIAGNOSTIC,
+    REGION_REPAIR, RESULT_EXAMPLES, SOLVE_ON_FACE_IN_BODY_FRAME, STALE_FIX_MESSAGE, TYPE_EXAMPLES,
 };
 use common::json_schema::validate;
 use common::{
-    definition, parse_json, property, schema_json, string_set, string_values, variant, variant_tags,
+    definition, object_keys, parse_json, property, schema_json, string_set, string_values, variant,
+    variant_tags, with_member, without_member,
 };
 use partsmith_protocol::{MAX_SAFE_INTEGER, protocol_schema};
 use serde_json::{Value, json};
@@ -27,6 +26,21 @@ fn required_names(subschema: &Value) -> Vec<&str> {
         .flatten()
         .filter_map(Value::as_str)
         .collect()
+}
+
+/// Checks that `complete` validates against the `$defs` entry `name`, and that `complete` without any one of its
+/// members still validates exactly when that member is in `optional`.
+fn assert_requires_all_but(schema: &Value, name: &str, complete: &Value, optional: &[&str]) {
+    let pointer = format!("/$defs/{name}");
+    assert_eq!(validate(schema, &pointer, complete), Ok(()), "{complete}");
+    for member in object_keys(complete) {
+        let result = validate(schema, &pointer, &without_member(complete, member));
+        assert_eq!(
+            result.is_ok(),
+            optional.contains(&member),
+            "{name} without {member} validates only when {member} is optional: {result:?}"
+        );
+    }
 }
 
 /// The schema's `maximum` for property `name` of `subschema`.
@@ -297,24 +311,8 @@ fn apply_fix_request_validates_and_rejects_an_unknown_fix_field() {
 fn fix_ref_requires_every_field_but_field() {
     let schema = schema_json();
     let fix = json!({"feature": "f-fil1", "code": "x", "field": "/edges/0", "cause": false, "index": 0, "revision": 1});
-    assert_eq!(validate(&schema, "/$defs/FixRef", &fix), Ok(()));
 
-    for name in ["feature", "code", "field", "cause", "index", "revision"] {
-        let mut without = fix.clone();
-        without
-            .as_object_mut()
-            .expect("a fix reference is an object")
-            .remove(name);
-        let result = validate(&schema, "/$defs/FixRef", &without);
-        if name == "field" {
-            assert_eq!(result, Ok(()), "a fix reference without field");
-        } else {
-            assert!(
-                result.is_err(),
-                "a fix reference without {name} is rejected"
-            );
-        }
-    }
+    assert_requires_all_but(&schema, "FixRef", &fix, &["field"]);
 }
 
 #[test]
@@ -361,11 +359,7 @@ fn both_repair_variants_validate_with_and_without_their_ghost() {
             "{text}"
         );
 
-        let mut without_ghost = repair;
-        without_ghost
-            .as_object_mut()
-            .expect("a repair is an object")
-            .remove("ghost");
+        let mut without_ghost = without_member(&repair, "ghost");
         without_ghost["candidates"] = json!([]);
         assert_eq!(
             validate(&schema, "/$defs/Repair", &without_ghost),
@@ -437,11 +431,7 @@ fn loss_reasons_added_by_the_review_validate_and_other_body_requires_present() {
         validate(&schema, "/$defs/LossReason", &left_the_body),
         Ok(())
     );
-    let mut without_present = left_the_body;
-    without_present
-        .as_object_mut()
-        .expect("a loss reason is an object")
-        .remove("present");
+    let without_present = without_member(&left_the_body, "present");
     assert!(validate(&schema, "/$defs/LossReason", &without_present).is_err());
 }
 
@@ -460,11 +450,11 @@ fn headless_pick_reference_request_validates_and_its_pick_stays_closed() {
 fn region_references_with_and_without_an_outline_validate() {
     let schema = schema_json();
     let with_outline = json!({"reference": {"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000", "outline": "e-1,e-2,e-3,e-4"}, "area": 4000.0, "centroid": [40.0, 25.0]});
-    let mut without_outline = with_outline.clone();
-    without_outline["reference"]
-        .as_object_mut()
-        .expect("a region reference is an object")
-        .remove("outline");
+    let without_outline = with_member(
+        &with_outline,
+        "reference",
+        without_member(&with_outline["reference"], "outline"),
+    );
 
     assert_eq!(
         validate(&schema, "/$defs/RegionInfo", &with_outline),
@@ -513,33 +503,13 @@ fn document_changed_declares_bare_numbers() {
 fn use_requires_its_user_field_and_feature_but_not_its_entity() {
     let schema = schema_json();
     let entry = definition(&schema, "Use");
-
-    let required: BTreeSet<String> = required_names(entry)
-        .into_iter()
-        .map(str::to_string)
-        .collect();
-    assert_eq!(required, string_set(&["user", "field", "feature"]));
     assert!(property(&schema, entry, "entity").is_some());
 
     let complete =
         json!({"user": "f-fil1", "field": "/edges/0", "feature": "f-ext1", "entity": "e-3"});
-    assert_eq!(validate(&schema, "/$defs/Use", &complete), Ok(()));
-    let mut null_entity = complete.clone();
-    null_entity["entity"] = Value::Null;
+    assert_requires_all_but(&schema, "Use", &complete, &["entity"]);
+    let null_entity = with_member(&complete, "entity", Value::Null);
     assert_eq!(validate(&schema, "/$defs/Use", &null_entity), Ok(()));
-    for name in ["entity", "user", "field", "feature"] {
-        let mut without = complete.clone();
-        without
-            .as_object_mut()
-            .expect("a use is an object")
-            .remove(name);
-        let result = validate(&schema, "/$defs/Use", &without);
-        if name == "entity" {
-            assert_eq!(result, Ok(()), "a use without entity");
-        } else {
-            assert!(result.is_err(), "a use without {name} is rejected");
-        }
-    }
 }
 
 #[test]
@@ -589,15 +559,8 @@ fn list_uses_result_requires_its_uses_as_a_list_of_use() {
 #[test]
 fn uses_causes_and_ghosts_the_engine_fills_validate() {
     let schema = schema_json();
-    let shapes = [
-        ("CommandResult", BLOCK_USES_RESULT),
-        ("Cause", R26_CAUSE),
-        ("Diagnostic", DELETED_POINT_MESSAGE),
-        ("Diagnostic", LOST_FACE_MESSAGE),
-        ("Repair", LOST_FACE_REPAIR),
-    ];
 
-    for (name, text) in shapes {
+    for (name, text) in ENGINE_EXAMPLES {
         assert_eq!(
             validate(&schema, &format!("/$defs/{name}"), &parse_json(text)),
             Ok(()),

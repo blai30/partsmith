@@ -24,7 +24,7 @@ use crate::sketch::is_finding_field;
 use crate::state::{self, Computed};
 use labels::Labels;
 
-pub(crate) use edits::{index_beside, update_feature};
+pub(crate) use edits::{constraint_pointer, index_beside, updated};
 pub(crate) use findings::offer_finding_fixes;
 pub(crate) use labels::is_plain_value;
 

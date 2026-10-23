@@ -14,21 +14,15 @@ use crate::corpus;
 
 use common::{
     GEOMETRY_TOLERANCE, assert_near, assert_point3, assert_relative, doc_handle, elements,
-    headless_session, number, open_text, point3, replace_once, session,
+    headless_session, number, open_text, point3, replace_once, session, typed_handle,
 };
 use corpus::{
     Change, actions, after_edit, apply_fix, cube20, document, edited_text, fillet, fix_ref, labels,
     message, messages, nc11, r03, r06a_fillet_only, r12, r16, r25, r41, r50, r54, r63a, r66,
     reference, repairs, statuses, two_areas, volume, without_keys,
 };
-use partsmith_protocol::DocHandle;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-
-/// The protocol handle of a document handle read from a reply.
-fn handle(doc: u64) -> DocHandle {
-    DocHandle(u32::try_from(doc).expect("handles fit in u32"))
-}
 
 /// The only repair of `feature` whose path is `path`.
 fn repair_at(repairs: &[Value], path: &str) -> Value {
@@ -258,7 +252,7 @@ fn t116_headless_and_typed_statuses_leave_out_display_fields() {
     assert_eq!(without_keys(&shown_statuses, &["element"]), hidden_statuses);
     for (session, sent) in [(&display, &shown), (&headless, &hidden)] {
         let typed = session
-            .feature_statuses(handle(doc_handle(sent)))
+            .feature_statuses(typed_handle(doc_handle(sent)))
             .expect("the document is open");
         assert_eq!(
             serde_json::to_value(&typed).expect("statuses serialize"),

@@ -136,15 +136,8 @@ impl FeatureView<'_> {
     ) -> Result<(&FeatureRecord, String), EngineError> {
         let gone = || EngineError::internal("a fix names a constraint that is gone");
         let record = self.run.document.feature(sketch).ok_or_else(gone)?;
-        let position = value_at(&record.params, "/constraints")
-            .and_then(Value::as_array)
-            .and_then(|constraints| {
-                constraints.iter().position(|entry| {
-                    entry.get("id").and_then(Value::as_str) == Some(constraint.as_str())
-                })
-            })
-            .ok_or_else(gone)?;
-        Ok((record, format!("/constraints/{position}")))
+        let pointer = constraint_pointer(record, constraint).ok_or_else(gone)?;
+        Ok((record, pointer))
     }
 
     /// One `update_feature` of this feature with the value of the params key `from` moved to the
@@ -371,9 +364,19 @@ pub(crate) fn index_beside(document: &Document, feature: &Id, place: &Place) -> 
     Some(position + offset)
 }
 
+/// The pointer of the constraint `constraint` in the `constraints` of the sketch record
+/// `record`; `None` when the sketch does not have it.
+pub(crate) fn constraint_pointer(record: &FeatureRecord, constraint: &Id) -> Option<String> {
+    let position = value_at(&record.params, "/constraints")?
+        .as_array()?
+        .iter()
+        .position(|entry| entry.get("id").and_then(Value::as_str) == Some(constraint.as_str()))?;
+    Some(format!("/constraints/{position}"))
+}
+
 /// One `update_feature` of `record` with its params changed by `change`, which says whether the
 /// change applied.
-pub(super) fn updated(
+pub(crate) fn updated(
     record: &FeatureRecord,
     change: impl FnOnce(&mut Value) -> bool,
 ) -> Result<Edit, EngineError> {
@@ -387,7 +390,7 @@ pub(super) fn updated(
 }
 
 /// One `update_feature` of `record` with `params`, which are an object.
-pub(crate) fn update_feature(record: &FeatureRecord, params: Value) -> Result<Edit, EngineError> {
+pub(super) fn update_feature(record: &FeatureRecord, params: Value) -> Result<Edit, EngineError> {
     let Value::Object(params) = params else {
         return Err(EngineError::internal("feature params are an object"));
     };

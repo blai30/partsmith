@@ -2,18 +2,17 @@
 //! message's feature, and the one that started the problem (engine.md section 3.21, "Changes"
 //! and "Primary change").
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 
 use partsmith_features::{FieldHint, Registry};
-use partsmith_model::{FeatureRecord, Id};
+use partsmith_model::{Document, FeatureRecord, Id};
 use partsmith_recompute::{LossReason, Message};
-use partsmith_sketch::SketchParams;
-use serde_json::Value;
 
 use super::Tombstone;
 use super::baseline::{Baseline, Graph, UsedParameters};
-use crate::params::{field_pointer, value_at};
-use crate::sketch::SKETCH_TYPE;
+use crate::params::{field_pointer, stored_references, value_at};
+use crate::sketch::{SKETCH_TYPE, point_entity, stored_drawing};
 
 /// The manifest fields of a sketch that hold its drawing, whose changes a record change names
 /// entity by entity and constraint by constraint instead.
@@ -117,9 +116,49 @@ pub(super) struct Comparison<'a> {
     pub(super) now: Graph<'a>,
     /// The features that left the document, with the label and position they had.
     pub(super) tombstones: &'a BTreeMap<Id, Tombstone>,
+    /// The features the message names, in order: those its reason names (`reason_features`),
+    /// then its `root`.
+    pub(super) named: Vec<Id>,
 }
 
 impl<'a> Comparison<'a> {
+    /// The comparison of the clean snapshot `clean` of `message` of `feature` with the recompute
+    /// `now`.
+    pub(super) fn new(
+        feature: &'a Id,
+        message: &'a Message,
+        clean: &'a Baseline,
+        now: &'a Baseline,
+        tombstones: &'a BTreeMap<Id, Tombstone>,
+    ) -> Comparison<'a> {
+        let found = message
+            .reason
+            .as_ref()
+            .map(reason_features)
+            .unwrap_or_default()
+            .into_iter()
+            .chain(message.root.as_ref());
+        let mut named: Vec<Id> = Vec::new();
+        for named_feature in found {
+            if !named.contains(named_feature) {
+                named.push(named_feature.clone());
+            }
+        }
+        Comparison {
+            feature,
+            message,
+            clean: clean.graph(),
+            now: now.graph(),
+            tombstones,
+            named,
+        }
+    }
+
+    /// The graphs of both recipes: the clean snapshot's, then now's.
+    pub(super) fn graphs(&self) -> [&Graph<'a>; 2] {
+        [&self.clean, &self.now]
+    }
+
     /// The feature registry, for manifests.
     pub(super) fn registry(&self) -> &'a Registry {
         self.now.baseline().registry()
@@ -170,37 +209,15 @@ impl<'a> Comparison<'a> {
                 .into_iter()
                 .map(Change::Parameter),
         );
-        let relies_on_units = |graph: &Graph<'_>| {
+        let relies_on_units = self.graphs().iter().any(|graph| {
             considered
                 .iter()
                 .any(|feature| graph.relies_on_units(feature))
-        };
-        if clean.units() != now.units()
-            && (relies_on_units(&self.clean) || relies_on_units(&self.now))
-        {
+        });
+        if clean.units() != now.units() && relies_on_units {
             changes.push(Change::Units);
         }
         changes
-    }
-
-    /// The features the message names, in order: the `feature`, `by`, `root` and `sketch` of
-    /// its reason, then its `root`.
-    pub(super) fn named(&self) -> Vec<Id> {
-        let mut named: Vec<Id> = Vec::new();
-        let reason = self.message.reason.as_ref();
-        let found = [
-            reason.and_then(reason_feature),
-            reason.and_then(reason_by),
-            reason.and_then(reason_root),
-            reason.and_then(reason_sketch),
-            self.message.root.as_ref(),
-        ];
-        for feature in found.into_iter().flatten() {
-            if !named.contains(feature) {
-                named.push(feature.clone());
-            }
-        }
-        named
     }
 
     /// The position of the primary change among `changes` (section 3.21, "Primary change"):
@@ -220,9 +237,8 @@ impl<'a> Comparison<'a> {
                 .iter()
                 .position(|change| matches!(change, Change::Units))
         };
-        let named = self.named();
-        first_among(&named)
-            .or_else(|| self.parameter_used_directly(changes, &named))
+        first_among(&self.named)
+            .or_else(|| self.parameter_used_directly(changes, &self.named))
             .or_else(|| first_of(self.feature))
             .or_else(|| self.parameter_used_directly(changes, std::slice::from_ref(self.feature)))
             .or_else(|| units().filter(|_| self.relies_on_units(self.feature)))
@@ -239,7 +255,7 @@ impl<'a> Comparison<'a> {
     /// How many changes besides the primary one are counted (section 3.21, `{others}`): every
     /// other change once, except those that reach the message's feature only through the
     /// feature of the primary change.
-    pub(super) fn others(&self, changes: &[Change], primary: usize) -> usize {
+    pub(super) fn other_count(&self, changes: &[Change], primary: usize) -> usize {
         let Some(through) = changes[primary].feature() else {
             return changes.len() - 1;
         };
@@ -270,14 +286,16 @@ impl<'a> Comparison<'a> {
 
     /// True when `feature` uses parameters that `matching` accepts, in the clean snapshot or now.
     fn uses(&self, feature: &Id, matching: impl Fn(&UsedParameters) -> bool) -> bool {
-        [&self.clean, &self.now]
+        self.graphs()
             .iter()
             .any(|graph| graph.parameters(feature).is_some_and(&matching))
     }
 
     /// True when the document units decide a size of `feature`, in the clean snapshot or now.
     fn relies_on_units(&self, feature: &Id) -> bool {
-        self.clean.relies_on_units(feature) || self.now.relies_on_units(feature)
+        self.graphs()
+            .iter()
+            .any(|graph| graph.relies_on_units(feature))
     }
 
     /// What the message's feature reads directly, in the clean snapshot or now: its feature
@@ -328,10 +346,10 @@ impl<'a> Comparison<'a> {
             .iter()
             .enumerate()
             .filter_map(|(index, change)| {
-                Some((position(change.feature()?)?, change.rank(), index))
+                Some((index, position(change.feature()?)?, change.rank()))
             })
-            .max_by(|first, second| first.0.cmp(&second.0).then(second.1.cmp(&first.1)))
-            .map(|(_, _, index)| index)
+            .max_by_key(|&(_, position, rank)| (position, Reverse(rank)))
+            .map(|(index, ..)| index)
     }
 
     /// The change of `feature`'s record between the clean snapshot (`before`) and now
@@ -381,7 +399,7 @@ impl<'a> Comparison<'a> {
         before: &FeatureRecord,
         after: &FeatureRecord,
     ) -> Vec<SketchItem> {
-        let (Some(old), Some(new)) = (drawing(before), drawing(after)) else {
+        let (Some(old), Some(new)) = (stored_drawing(before), stored_drawing(after)) else {
             return Vec::new();
         };
         let mut items: Vec<SketchItem> = Vec::new();
@@ -447,7 +465,7 @@ impl<'a> Comparison<'a> {
                 sketch: named,
                 point,
                 ..
-            } if named == sketch => Id::new(point.split('.').next().unwrap_or(point)).ok(),
+            } if named == sketch => point_entity(point),
             _ => None,
         }
     }
@@ -460,18 +478,19 @@ impl<'a> Comparison<'a> {
         if clean.document.rollback == now.document.rollback {
             return None;
         }
-        let rolled_back = |document: &partsmith_model::Document, feature: &Id| {
+        let rolled_back = |document: &Document, feature: &Id| {
             document
                 .active_features()
                 .iter()
                 .all(|record| record.id != *feature)
         };
-        self.named()
-            .into_iter()
+        self.named
+            .iter()
             .find(|feature| {
                 now.record(feature).is_some()
                     && rolled_back(&clean.document, feature) != rolled_back(&now.document, feature)
             })
+            .cloned()
             .map(Change::Rollback)
     }
 
@@ -526,19 +545,24 @@ impl<'a> Comparison<'a> {
             .collect()
     }
 
+    /// True when `feature` and `other` are in a different order now than in the clean snapshot.
+    pub(super) fn order_swapped(&self, feature: &Id, other: &Id) -> bool {
+        let clean = self.clean.baseline();
+        let now = self.now.baseline();
+        (clean.position(feature) < clean.position(other))
+            != (now.position(feature) < now.position(other))
+    }
+
     /// True when `feature`'s order relative to the message's feature changed; for the message's
     /// feature itself, its order relative to a feature it links to or that starts a name in its
     /// references.
     fn order_changed(&self, feature: &Id) -> bool {
         let clean = self.clean.baseline();
         let now = self.now.baseline();
-        let before = |baseline: &Baseline, first: &Id, second: &Id| {
-            baseline.position(first) < baseline.position(second)
-        };
         let swapped = |other: &Id| {
             now.record(other).is_some()
                 && clean.record(other).is_some()
-                && before(clean, feature, other) != before(now, feature, other)
+                && self.order_swapped(feature, other)
         };
         if feature != self.feature {
             return swapped(self.feature);
@@ -555,49 +579,27 @@ impl<'a> Comparison<'a> {
     }
 }
 
-/// The feature of a reason, when it names one.
-fn reason_feature(reason: &LossReason) -> Option<&Id> {
+/// The features a reason names, in the order a cause looks for their changes: its `feature`,
+/// the feature that removed or that the reference followed (`by`), the failed feature
+/// upstream (`root`) and the sketch of a sketch entity or point.
+fn reason_features(reason: &LossReason) -> Vec<&Id> {
     match reason {
+        LossReason::UpstreamFailed { feature, root } => vec![feature, root],
+        LossReason::EntityDeleted {
+            feature, sketch, ..
+        }
+        | LossReason::PointGone {
+            feature, sketch, ..
+        } => vec![feature, sketch],
         LossReason::NotInDocument { feature }
         | LossReason::Suppressed { feature }
         | LossReason::ComesLater { feature }
         | LossReason::RolledBack { feature }
-        | LossReason::UpstreamFailed { feature, .. }
-        | LossReason::EntityDeleted { feature, .. }
-        | LossReason::PointGone { feature, .. }
         | LossReason::CopyGone { feature, .. }
-        | LossReason::NotInFile { feature } => Some(feature),
-        LossReason::Unknown
-        | LossReason::OtherBody { .. }
-        | LossReason::Removed { .. }
-        | LossReason::Followed { .. } => None,
-    }
-}
-
-/// The feature that removed, or that the reference followed, when a reason names one.
-fn reason_by(reason: &LossReason) -> Option<&Id> {
-    match reason {
-        LossReason::OtherBody { by, .. } => by.as_ref(),
-        LossReason::Removed { by, .. } | LossReason::Followed { by } => Some(by),
-        _ => None,
-    }
-}
-
-/// The root of an `UpstreamFailed` reason.
-fn reason_root(reason: &LossReason) -> Option<&Id> {
-    match reason {
-        LossReason::UpstreamFailed { root, .. } => Some(root),
-        _ => None,
-    }
-}
-
-/// The sketch of a reason about a sketch entity or point.
-fn reason_sketch(reason: &LossReason) -> Option<&Id> {
-    match reason {
-        LossReason::EntityDeleted { sketch, .. } | LossReason::PointGone { sketch, .. } => {
-            Some(sketch)
-        }
-        _ => None,
+        | LossReason::NotInFile { feature } => vec![feature],
+        LossReason::OtherBody { by, .. } => by.iter().collect(),
+        LossReason::Removed { by, .. } | LossReason::Followed { by } => vec![by],
+        LossReason::Unknown => Vec::new(),
     }
 }
 
@@ -612,14 +614,9 @@ fn item_entity(item: &SketchItem) -> Option<&Id> {
     }
 }
 
-/// The drawing of a sketch record, when its params read as a sketch.
-pub(super) fn drawing(record: &FeatureRecord) -> Option<SketchParams> {
-    serde_json::from_value(Value::Object(record.params.clone())).ok()
-}
-
 /// The features that start the face names of the references a record stores.
 fn name_starts(record: &FeatureRecord) -> Vec<Id> {
-    crate::params::stored_references(&record.params)
+    stored_references(&record.params)
         .iter()
         .flat_map(|stored| stored.reference.query.face_parts())
         .filter_map(|face| {

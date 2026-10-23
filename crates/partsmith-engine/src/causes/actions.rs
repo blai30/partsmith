@@ -9,16 +9,17 @@ use partsmith_model::{
 };
 use partsmith_protocol::{FixAction, FixKind, FixRef, Repair};
 use partsmith_recompute::Message;
-use partsmith_sketch::{EntityKind, HintFrame, Placement, SketchPlane};
+use partsmith_sketch::{EntityKind, Placement, SketchPlane};
 use serde_json::{Map, Value};
 
-use super::changes::{Change, RecordChange, SketchItem, drawing};
+use super::changes::{Change, RecordChange, SketchItem};
 use super::words::{Side, Words};
-use crate::fixes::{index_beside, offered_edits, update_feature};
-use crate::frames::placement_in_body;
+use crate::fixes::{constraint_pointer, index_beside, offered_edits, updated};
+use crate::frames::kept_face_plane;
 use crate::ghosts::GhostShape;
 use crate::params::{field_pointer, remove, set, value_at};
-use crate::run::FeatureView;
+use crate::run::{FeatureView, RunView};
+use crate::sketch::stored_drawing;
 use crate::state::built_sketch;
 
 /// The label of the cause action that stores where a sketch stood when it last built without its
@@ -36,7 +37,7 @@ const DIRECTION_TOLERANCE: f64 = 1e-9;
 /// text and feature stay while the key lasts, and its actions are made again from what its
 /// primary change was.
 #[derive(Debug, Clone)]
-pub(crate) struct MadeCause {
+pub(super) struct MadeCause {
     /// `This started after you ...`.
     pub(super) text: String,
     /// The feature the primary change belongs to; `None` for a parameter, units or rollback
@@ -151,11 +152,11 @@ pub(super) enum Show {
 
 /// The state of a document's undo history that `Undo` of a cause depends on.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct UndoState {
+pub(super) struct UndoState {
     /// The serial of the newest undo entry.
-    pub(crate) newest: Option<u64>,
+    pub(super) newest: Option<u64>,
     /// True while a transaction is open.
-    pub(crate) transaction_open: bool,
+    pub(super) transaction_open: bool,
 }
 
 /// One action of a cause: its label and how it runs.
@@ -240,7 +241,7 @@ impl MadeCause {
     /// feature `view`, whose repairs are `repairs`: the revert of the primary change, `Keep the
     /// sketch where it was`, `Undo`, then `Show` when the primary change has no revert; an action
     /// whose edits equal those of an action of the message is left out.
-    pub(crate) fn offers(
+    pub(super) fn offers(
         &self,
         view: &FeatureView<'_>,
         message: &Message,
@@ -279,113 +280,58 @@ impl MadeCause {
     /// one per number without a unit for a units change; none when it would change nothing or
     /// its feature, parameter or neighbor is gone.
     fn reverts(&self, view: &FeatureView<'_>) -> Vec<(String, Vec<Edit>)> {
-        let document = view.run.document;
-        let label = |feature: &Id| view.run.label(feature);
-        let Some(revert) = &self.revert else {
-            return Vec::new();
-        };
-        let single = |label: String, edit: Option<Edit>| {
-            edit.map(|edit| vec![(label, vec![edit])])
-                .unwrap_or_default()
-        };
-        match revert {
-            Revert::Fields {
+        let run = view.run;
+        let single = match self.revert.as_ref() {
+            None => None,
+            Some(Revert::Fields {
                 feature,
                 fields,
-                label: named,
-            } => {
-                let Some(record) = document.feature(feature) else {
-                    return Vec::new();
-                };
-                let words = match named {
-                    FieldsLabel::Value { label: field, old } if feature == view.id() => {
-                        format!("Set {field} back to {old}")
-                    }
-                    FieldsLabel::Value { label: field, old } => {
-                        format!("Set {field} of '{}' back to {old}", label(feature))
-                    }
-                    FieldsLabel::Field(field) => {
-                        format!("Restore {field} of '{}'", label(feature))
-                    }
-                    FieldsLabel::Settings => {
-                        format!("Restore the settings of '{}'", label(feature))
-                    }
-                };
-                single(words, restored(record, fields))
-            }
-            Revert::Dimension {
+                label,
+            }) => fields_revert(view, feature, fields, label),
+            Some(Revert::Dimension {
                 sketch,
                 constraint,
                 expr,
                 kind,
                 old,
-            } => single(
-                format!("Set {kind} of '{}' back to {old}", label(sketch)),
-                document
-                    .feature(sketch)
-                    .and_then(|record| dimension_set_back(record, constraint, expr)),
-            ),
-            Revert::Parameter {
+            }) => run
+                .document
+                .feature(sketch)
+                .and_then(|record| dimension_set_back(record, constraint, expr))
+                .map(|edit| {
+                    let label = format!("Set {kind} of '{}' back to {old}", run.label(sketch));
+                    (label, edit)
+                }),
+            Some(Revert::Parameter {
                 parameter,
                 expr,
                 old,
-            } => {
-                let Some(current) = document.parameter(parameter) else {
-                    return Vec::new();
-                };
-                let edit = (current.expr != *expr).then(|| Edit::UpdateParameter {
-                    parameter: Parameter {
-                        expr: expr.clone(),
-                        ..current.clone()
-                    },
-                });
-                single(format!("Set '{}' back to {old}", current.name), edit)
-            }
-            Revert::Suppression {
+            }) => parameter_set_back(run.document, parameter, expr, old),
+            Some(Revert::Suppression {
                 feature,
                 suppressed,
-            } => {
-                let verb = if *suppressed {
-                    "Suppress"
-                } else {
-                    "Unsuppress"
-                };
-                let edit = document
-                    .feature(feature)
-                    .filter(|record| record.suppressed != *suppressed)
-                    .map(|record| Edit::UpdateFeature {
-                        feature: FeatureRecord {
-                            suppressed: *suppressed,
-                            ..record.clone()
-                        },
-                    });
-                single(format!("{verb} '{}'", label(feature)), edit)
+            }) => suppression_set_back(run, feature, *suppressed),
+            Some(Revert::Move { feature, place }) => {
+                moved_back(run.document, feature, place).map(|edit| {
+                    let (side, beside) = match place {
+                        Place::Below(beside) => ("below", beside),
+                        Place::Above(beside) => ("above", beside),
+                    };
+                    let label = format!(
+                        "Move '{}' back {side} '{}'",
+                        run.label(feature),
+                        run.label(beside)
+                    );
+                    (label, edit)
+                })
             }
-            Revert::Move { feature, place } => {
-                let (side, beside) = match place {
-                    Place::Below(beside) => ("below", beside),
-                    Place::Above(beside) => ("above", beside),
-                };
-                single(
-                    format!("Move '{}' back {side} '{}'", label(feature), label(beside)),
-                    moved_back(document, feature, place),
-                )
-            }
-            Revert::Units { old } => units_reverts(view, *old),
-            Revert::Rollback { marker } => {
-                let words = match marker {
-                    Some(feature) if document.feature(feature).is_none() => return Vec::new(),
-                    Some(feature) => {
-                        format!("Move the rollback marker back above '{}'", label(feature))
-                    }
-                    None => "Move the rollback marker back to the end".to_string(),
-                };
-                let edit = (document.rollback != *marker).then(|| Edit::SetRollback {
-                    rollback: marker.clone(),
-                });
-                single(words, edit)
-            }
-        }
+            Some(Revert::Units { old }) => return units_reverts(view, *old),
+            Some(Revert::Rollback { marker }) => rollback_set_back(run, marker.as_ref()),
+        };
+        single
+            .into_iter()
+            .map(|(label, edit)| (label, vec![edit]))
+            .collect()
     }
 
     /// The edits of `Keep the sketch where it was` (section 3.21, cause action 2): for a sketch
@@ -402,21 +348,13 @@ impl MadeCause {
         if same_placement(&clean, &now) {
             return None;
         }
-        let SketchPlane::Face { body, face, .. } = drawing(view.record)?.plane else {
+        let SketchPlane::Face { body, face, .. } = stored_drawing(view.record)?.plane else {
             return None;
         };
         let motion = view.state_before(&body).motion(&face.query);
-        let plane = SketchPlane::Face {
-            fallback: placement_in_body(&clean, &motion),
-            fallback_frame: HintFrame::Body,
-            body,
-            face,
-        };
-        let mut params = Value::Object(view.record.params.clone());
-        if !set(&mut params, "/plane", serde_json::to_value(plane).ok()?) {
-            return None;
-        }
-        update_feature(view.record, params)
+        let plane = kept_face_plane(&body, &face, &clean, &motion, &motion)?;
+        let value = serde_json::to_value(plane).ok()?;
+        updated(view.record, |params| set(params, "/plane", value))
             .ok()
             .map(|edit| vec![edit])
     }
@@ -493,7 +431,7 @@ fn record_revert(words: &Words<'_>, record: &RecordChange) -> Option<Revert> {
         let SketchItem::Dimension(constraint) = item else {
             return None;
         };
-        let before = drawing(words.baseline(Side::Clean).record(feature)?)?;
+        let before = stored_drawing(words.baseline(Side::Clean).record(feature)?)?;
         let dimension = before.constraint(constraint)?;
         return Some(Revert::Dimension {
             sketch: feature.clone(),
@@ -612,44 +550,110 @@ fn absent_root<'p>(params: &Map<String, Value>, pointer: &'p str) -> &'p str {
 /// One `update_feature` of `record` with each field set back to its value in the clean snapshot
 /// (or removed when it had none); `None` when that changes nothing or a field has no place.
 fn restored(record: &FeatureRecord, fields: &[(String, Option<Value>)]) -> Option<Edit> {
-    let mut params = Value::Object(record.params.clone());
-    for (pointer, old) in fields {
-        match old {
-            Some(value) => {
-                if !set(&mut params, pointer, value.clone()) {
-                    return None;
-                }
-            }
+    let edit = updated(record, |params| {
+        fields.iter().all(|(pointer, old)| match old {
+            Some(value) => set(params, pointer, value.clone()),
             None => {
-                remove(&mut params, pointer);
+                remove(params, pointer);
+                true
             }
+        })
+    })
+    .ok()?;
+    let changes =
+        matches!(&edit, Edit::UpdateFeature { feature } if feature.params != record.params);
+    changes.then_some(edit)
+}
+
+/// The revert of fields of `feature`, labeled as `named` says, the feature's name left out of a
+/// short value's label when it is the message's feature `view`; `None` when the feature is gone
+/// or the revert changes nothing.
+fn fields_revert(
+    view: &FeatureView<'_>,
+    feature: &Id,
+    fields: &[(String, Option<Value>)],
+    named: &FieldsLabel,
+) -> Option<(String, Edit)> {
+    let record = view.run.document.feature(feature)?;
+    let label = match named {
+        FieldsLabel::Value { label: field, old } if feature == view.id() => {
+            format!("Set {field} back to {old}")
         }
-    }
-    if params.as_object() == Some(&record.params) {
-        return None;
-    }
-    update_feature(record, params).ok()
+        FieldsLabel::Value { label: field, old } => {
+            format!("Set {field} of '{}' back to {old}", view.run.label(feature))
+        }
+        FieldsLabel::Field(field) => format!("Restore {field} of '{}'", view.run.label(feature)),
+        FieldsLabel::Settings => format!("Restore the settings of '{}'", view.run.label(feature)),
+    };
+    Some((label, restored(record, fields)?))
+}
+
+/// `Set '{parameter}' back to {old}`: one `update_parameter` of `parameter` with its expression
+/// set back to `expr`; `None` when the parameter is gone or already holds `expr`.
+fn parameter_set_back(
+    document: &Document,
+    parameter: &Id,
+    expr: &Expr,
+    old: &str,
+) -> Option<(String, Edit)> {
+    let current = document.parameter(parameter)?;
+    let edit = (current.expr != *expr).then(|| Edit::UpdateParameter {
+        parameter: Parameter {
+            expr: expr.clone(),
+            ..current.clone()
+        },
+    })?;
+    Some((format!("Set '{}' back to {old}", current.name), edit))
+}
+
+/// `Suppress '{feature}'` or `Unsuppress '{feature}'`: one `update_feature` of `feature` with
+/// `suppressed`; `None` when the feature is gone or already has it.
+fn suppression_set_back(
+    run: &RunView<'_>,
+    feature: &Id,
+    suppressed: bool,
+) -> Option<(String, Edit)> {
+    let record = run
+        .document
+        .feature(feature)
+        .filter(|record| record.suppressed != suppressed)?;
+    let edit = Edit::UpdateFeature {
+        feature: FeatureRecord {
+            suppressed,
+            ..record.clone()
+        },
+    };
+    let verb = if suppressed { "Suppress" } else { "Unsuppress" };
+    Some((format!("{verb} '{}'", run.label(feature)), edit))
+}
+
+/// The rollback marker set back to `marker`, above a feature or at the end; `None` when that
+/// feature is gone or the marker is there already.
+fn rollback_set_back(run: &RunView<'_>, marker: Option<&Id>) -> Option<(String, Edit)> {
+    let document = run.document;
+    let label = match marker {
+        Some(feature) if document.feature(feature).is_none() => return None,
+        Some(feature) => format!(
+            "Move the rollback marker back above '{}'",
+            run.label(feature)
+        ),
+        None => "Move the rollback marker back to the end".to_string(),
+    };
+    let edit = (document.rollback.as_ref() != marker).then(|| Edit::SetRollback {
+        rollback: marker.cloned(),
+    })?;
+    Some((label, edit))
 }
 
 /// One `update_feature` of a sketch's record with the expression of the dimension `constraint`
 /// set back to `expr`; `None` when the sketch no longer has it or it already holds `expr`.
 fn dimension_set_back(record: &FeatureRecord, constraint: &Id, expr: &Expr) -> Option<Edit> {
-    let position = value_at(&record.params, "/constraints")?
-        .as_array()?
-        .iter()
-        .position(|entry| entry.get("id").and_then(Value::as_str) == Some(constraint.as_str()))?;
-    let pointer = format!("/constraints/{position}/expr");
+    let pointer = format!("{}/expr", constraint_pointer(record, constraint)?);
     if value_at(&record.params, &pointer).and_then(Value::as_str) == Some(expr.as_str()) {
         return None;
     }
-    let mut params = Value::Object(record.params.clone());
-    set(
-        &mut params,
-        &pointer,
-        Value::String(expr.as_str().to_string()),
-    )
-    .then_some(())?;
-    update_feature(record, params).ok()
+    let value = Value::String(expr.as_str().to_string());
+    updated(record, |params| set(params, &pointer, value)).ok()
 }
 
 /// One `move_feature` of `feature` to directly below (or above) its neighbor in the clean
@@ -680,14 +684,8 @@ fn units_reverts(view: &FeatureView<'_>, old: Units) -> Vec<(String, Vec<Edit>)>
             let pointer = field_pointer(&hint.path);
             let written = Expr::new(value_at(&record.params, &pointer)?.as_str()?);
             let kept = written.with_unit(old.unit())?;
-            let mut params = Value::Object(record.params.clone());
-            set(
-                &mut params,
-                &pointer,
-                Value::String(kept.as_str().to_string()),
-            )
-            .then_some(())?;
-            let edit = update_feature(record, params).ok()?;
+            let value = Value::String(kept.as_str().to_string());
+            let edit = updated(record, |params| set(params, &pointer, value)).ok()?;
             Some((format!("Use {}", kept.as_str()), vec![edit]))
         })
         .collect()

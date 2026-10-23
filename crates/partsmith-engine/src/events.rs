@@ -13,7 +13,6 @@ use partsmith_protocol::{
 };
 use partsmith_sketch::Placement;
 
-use crate::causes::CauseLines;
 use crate::counts::saturating_u32;
 use crate::display::{DisplayCache, DisplayMesh, MeshKey};
 use crate::document::OpenDocument;
@@ -177,15 +176,7 @@ impl Session {
                     index: shown.mesh.table.find(name)?,
                 })
             };
-            let mut features = feature_statuses(
-                &open.document,
-                registry,
-                &open.computed,
-                &open.emitted.display_failures(),
-                revision,
-                display.then_some(&element),
-                CauseLines::of(open),
-            );
+            let mut features = feature_statuses(open, registry, display.then_some(&element));
             if *display {
                 open.ghosts.add_to(&mut features, &open.causes, output);
             }
