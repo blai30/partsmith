@@ -19,6 +19,8 @@ pub mod shell;
 // The test targets `integration` and `budgets` and the bench each use only some of these helpers.
 #[allow(unused_imports)]
 pub use frames::*;
+#[allow(unused_imports)]
+pub use import::box_step_asset;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -34,10 +36,7 @@ use partsmith_features::{
 use partsmith_message_lint::lint_failures;
 use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit, Id};
 use partsmith_naming::{ElementKind, ElementName, Follow, Motion, Reference};
-use partsmith_occt_sys::{
-    ElementGeometry, GeometryKind, Plane, Point, Shape, StepBody, SubShapeKind, Vector, make_box,
-    write_step,
-};
+use partsmith_occt_sys::{ElementGeometry, GeometryKind, Point, Shape, SubShapeKind, Vector};
 use partsmith_recompute::{BodyReport, FeatureReport, Input, Message, Recompute, Report, Status};
 use partsmith_sketch::Placement;
 use serde_json::Value;
@@ -940,20 +939,6 @@ pub fn asset_name(digit: char) -> String {
     format!("{}.step", digit.to_string().repeat(64))
 }
 
-/// The asset map of a STEP file with one body named `name`, a `make_box` solid of `size` with its corner at the
-/// origin, under `asset_name('0')`.
-pub fn box_step_asset(name: &str, size: [f64; 3]) -> Assets {
-    let [length, width, height] = size;
-    let solid = make_box(&Plane::XY, length, width, height).expect("the kernel makes a valid box");
-    let bytes = write_step(&[StepBody {
-        shape: solid.shape,
-        name: name.to_owned(),
-        color: None,
-    }])
-    .expect("the kernel writes STEP");
-    Assets::from([(asset_name('0'), Arc::from(bytes))])
-}
-
 /// The state of `body` just before `feature` (its `bodies_before`, which holds the bodies it declares).
 pub fn body_before<'a>(run: &'a Run, feature: &str, body: &str) -> &'a BodyState {
     state_before(&run.report, feature, body)
@@ -1412,14 +1397,23 @@ pub fn keep_and_pick(pointer: &str) -> [Fix; 2] {
 
 /// The successions a body's naming map records, as (stored face, faces now) names.
 pub fn successions(state: &BodyState) -> Vec<(String, Vec<String>)> {
-    state
-        .naming()
-        .successions()
-        .0
+    names_now(&state.naming().successions().0)
+}
+
+/// The merge aliases a body's naming map records (naming.md section 3.3 step 2), as (former name,
+/// names now) in key order.
+pub fn aliases(state: &BodyState) -> Vec<(String, Vec<String>)> {
+    names_now(&state.naming().aliases().0)
+}
+
+/// The entries of a naming map's successions or aliases as text, as (stored name, names now) in key
+/// order.
+fn names_now(entries: &BTreeMap<ElementName, Vec<ElementName>>) -> Vec<(String, Vec<String>)> {
+    entries
         .iter()
-        .map(|(key, now)| {
+        .map(|(stored, now)| {
             (
-                key.to_string(),
+                stored.to_string(),
                 now.iter().map(ToString::to_string).collect(),
             )
         })

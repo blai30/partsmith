@@ -1,0 +1,155 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-imp1",
+      "type": "import",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 14000.000000000004,
+      "area": 5000.0,
+      "center_of_mass": [
+        -0.7142857142857145,
+        4.285714285714286,
+        5.0
+      ],
+      "bounding_box": {
+        "min": [
+          -20.0,
+          -15.0,
+          0.0
+        ],
+        "max": [
+          20.0,
+          25.0,
+          10.0
+        ]
+      },
+      "faces": 10,
+      "edges": 24,
+      "vertices": 16
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          123.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

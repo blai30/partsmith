@@ -739,6 +739,16 @@ Imported files (in M1, the STEP files of the `import` feature, features/import.m
 - A document references exactly the assets named by its features' `Dependencies::assets` (features.md section 2.4). A missing referenced asset is reported on the feature that reads it (`asset_missing`), not as a load error.
 - Because names are content hashes, an asset never changes in place, the same file imported twice is stored once, and several documents in one folder can share `assets/`.
 
+**Writing a document with its assets.** A host that saves the result of `save_document` (engine.md section 3.14) to a file writes it in this order, so a document on disk never names an asset that is missing from its folder, whichever step fails ([ADR 0036](../adr/0036-hosts-write-assets-first-and-check-them-against-the-engine.md)):
+
+1. **Assets.** When the result has at least one asset, the host creates `assets/` next to the document if it does not exist; a result without assets creates no folder. It then writes each asset, in the result's order (sorted by name), to `assets/<name>`. A file of that name that holds exactly the asset's bytes is kept. Any other file of that name is replaced, because its BLAKE3 hash does not match its name (a truncated copy, a Git LFS pointer, a file edited by hand) and the engine would refuse it with `asset_mismatch`. Comparing the file with the bytes `save_document` returned is that hash check, since those bytes hash to the name, so a host needs no BLAKE3 of its own.
+2. **Document.** The host writes the text to the document's file.
+3. **`mark_saved`.** The host sends it with the revision `save_document` returned (engine.md section 3.2).
+
+Each file is written atomically, so a reader sees the old file or the whole new one: the bytes go to a new temporary file in the target's folder, whose name never matches the asset name pattern (Python and the desktop start it with `.`), the temporary file is flushed to disk, and it is renamed over the target. A platform whose file interface already replaces a file whole uses that interface instead (the browser's file system API, whose writable stream changes the file only when it is closed). The first step that fails stops the save: the host removes that step's temporary file, reports the error for the file or folder it was writing (the document, `assets/` or `assets/<name>`, never the temporary file), writes nothing after it and sends no `mark_saved`, so the document stays unsaved. Assets written before the failure stay, since they are valid. A save never deletes, renames or changes any other file in `assets/`, because other documents in the folder may use it. A referenced asset the engine does not hold (the document was opened without it, so its import fails with `asset_missing`) is not in the result, and a file of its name is left as it is.
+
+Each host's spec tests this order: Python's `Document.save` in python-api.md section 3.1 (tests 97 to 101). The web and desktop hosts follow it when they write assets.
+
 ## 4. Errors
 
 `{m}` stands for a `StructureError` message (model.md section 4.5).

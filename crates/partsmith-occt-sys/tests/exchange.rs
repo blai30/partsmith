@@ -1,15 +1,17 @@
 //! Acceptance tests for STEP and BRep exchange (kernel spec sections 2.12, 3.8 and tests 78 to
-//! 86).
+//! 86 and 135).
 
 use crate::common;
 
 use common::{
     assert_argument_error, assert_invalid_input, assert_leaves_unchanged, assert_near,
-    assert_relative, box_primitive, cube_a, cylinder_primitive, face_with_role, volume,
+    assert_relative, box_primitive, cube_a, cylinder_primitive, face_with_role, line, region,
+    volume,
 };
 use partsmith_occt_sys::{
-    Color, EdgeRadius, KernelErrorKind, Operation, PrimitiveFace, Shape, StepBody, SubShapeKind,
-    fillet, read_step, shell, write_step,
+    Color, EdgeRadius, KernelError, KernelErrorKind, Operation, PlanarRegion, Plane, PrimitiveFace,
+    Shape, ShapeKind, StepBody, SubShapeKind, compound, fillet, make_profile, read_step, shell,
+    write_step,
 };
 
 /// The color of test 78.
@@ -72,6 +74,34 @@ fn assert_color(actual: Option<Color>, expected: Color) {
     assert_near(actual.red, expected.red, 1e-6, "red");
     assert_near(actual.green, expected.green, 1e-6, "green");
     assert_near(actual.blue, expected.blue, 1e-6, "blue");
+}
+
+/// A region bounded by a square with 10 mm sides whose lower left corner is at (`left`, 0) in plane
+/// coordinates, its sides tagged 1 to 4.
+fn square(left: f64) -> PlanarRegion {
+    let right = left + 10.0;
+    region(vec![
+        line(1, (left, 0.0), (right, 0.0)),
+        line(2, (right, 0.0), (right, 10.0)),
+        line(3, (right, 10.0), (left, 10.0)),
+        line(4, (left, 10.0), (left, 0.0)),
+    ])
+}
+
+/// `FACES` of test 135: the shape of `make_profile` of two squares with 10 mm sides on `Plane::XY`,
+/// [50,60]x[0,10] and [70,80]x[0,10].
+fn two_faces() -> Shape {
+    make_profile(&Plane::XY, &[square(50.0), square(70.0)])
+        .expect("the two squares build")
+        .shape
+}
+
+/// The STEP file of test 135: one body named `Block`, the compound of `BOX` and `FACES`.
+fn block_beside_two_faces() -> Result<Vec<u8>, KernelError> {
+    let shape = compound(&[box_primitive().shape, two_faces()])
+        .expect("the shapes are grouped")
+        .shape;
+    write_step(&[body(shape, "Block")])
 }
 
 /// Asserts that a shape survives the BRep round trip exactly (test 85).
@@ -320,6 +350,47 @@ fn t086_invalid_brep_bytes_fail_to_read() {
     assert_eq!(
         error.user_message(),
         "The cached geometry could not be read, so it will be rebuilt."
+    );
+}
+
+#[test]
+fn t135_faces_fixture_is_a_compound_of_two_faces() {
+    let faces = two_faces();
+
+    assert_eq!(faces.kind(), ShapeKind::Compound);
+    assert_eq!(faces.count(SubShapeKind::Face), 2);
+    assert_eq!(faces.count(SubShapeKind::Solid), 0);
+}
+
+#[test]
+fn t135_body_with_a_solid_and_free_faces_is_written() {
+    let written = block_beside_two_faces();
+
+    assert!(written.is_ok(), "{written:?}");
+}
+
+#[test]
+fn t135_free_faces_are_left_out_of_the_body() {
+    let bytes = block_beside_two_faces().expect("the body contains a solid");
+
+    let import = read_step(&bytes).expect("the file is read");
+
+    assert_eq!(import.bodies.len(), 1);
+    let imported = &import.bodies[0];
+    assert_eq!(imported.name, "Block");
+    assert_relative(volume(&imported.shape), 6000.0, 1e-6, "volume");
+    assert_eq!(imported.shape.count(SubShapeKind::Face), 6);
+}
+
+#[test]
+fn t135_both_free_faces_are_counted_in_one_warning() {
+    let bytes = block_beside_two_faces().expect("the body contains a solid");
+
+    let import = read_step(&bytes).expect("the file is read");
+
+    assert_eq!(
+        import.warnings,
+        ["Skipped 2 shapes that are not closed solids."]
     );
 }
 

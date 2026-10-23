@@ -1319,6 +1319,10 @@ Blends on several threads (section 3.10, item 5):
 
 134. `CB` is `fuse` of `make_box(&Plane { origin: (-10,-10,0), ..Plane::XY }, 20, 20, 20)` with `make_box(&Plane { origin: (10,-20,0), ..Plane::XY }, 20, 40, 20)` (the body of corpus scenario R22a): the tops unify into one `Plane` face with direction (0,0,1) and centroid (40/3, 0, 20), and the cube's front stays the `Plane` face with direction (0,-1,0) and centroid (0,-10,10). `E` is the edge between them, which ends at the side of the wider box. The chamfer of `E` with `TwoDistances { distance: 1, other_distance: 3, face: <the front> }`, and the fillet of `E` with radius 2, each built on `CB` from 8 threads at once, 20 times on each, give every time exactly the outcome of a single-threaded build (`Ok`, byte-identical `to_brep`, bit-identical volume and center of mass, equal topology and history). Native builds only; the WebAssembly build has no threads.
 
+STEP content that is not a solid (section 3.8.1, read item 3):
+
+135. `FACES` is the shape of `make_profile(&Plane::XY, ..)` of two squares with 10 mm sides, [50,60]x[0,10] and [70,80]x[0,10]: a compound of two faces. `write_step(&[StepBody { shape: compound(&[BOX, FACES]).shape, name: "Block", color: None }])` succeeds, since the body contains a solid (section 3.8.1, write item 1), and `read_step` of its bytes returns one body, named `Block`, with volume 6000 relative 1e-6 and 6 faces, and exactly one warning, `Skipped 2 shapes that are not closed solids.`: both faces are skipped and counted in one warning.
+
 ## 7. Open issues
 
 1. **History for constructive operations.** The architecture says operations return `OpResult { shape, history }` with history per input index. For primitives and sweeps the inputs are parameters or a profile, so this spec returns explicit face roles instead (`Primitive::faces`, `SweepResult::faces`), which is what naming needs; `OpResult` is used for every operation on existing shapes.

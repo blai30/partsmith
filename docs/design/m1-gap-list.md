@@ -72,6 +72,7 @@ These claims were spot-checked against the repo while planning, and all hold:
 | 45 | PROTO-1 | Stale `Edit` note in the protocol AGENTS.md, plus a test for it | partsmith-protocol | low | S |
 | 46 | DEL-1 | CC0 legal text and scope | root, README, ADR | low | S |
 | 47 | DEL-2 | npm license check in CI | ui/scripts, ci.yml, ADR | low | S |
+| 48 | IMP-1 | Import warnings show the kernel's sentences | partsmith-occt-sys, partsmith-features | low | S or M |
 
 ## 0. Fold into the reference stability plan now
 
@@ -319,6 +320,7 @@ Add examples after phases 1 to 3, so their expected results are blessed once, ag
   - Close delivery.md open issue 5, and fix the stale `asset_missing` text in import.md test 3 and section 4.
 - **Impact:** medium. **Size:** M.
 - **Depends on:** nothing. It also supplies the fixture for B-5.
+- **Status (2026-10-23):** done, not on `main` yet. No production code changed: the kernel and the feature already meet the new tests, and the four examples are blessed with the volumes of their tests. features/import.md tests 9 (intersect, `import/intersect-step-block`), 10 (`import_warning`, its text also run through the message lint) and 11 (tests 1, 2 and 7 on `import/step-block`, `import/join-step-block` and `import/cut-step-block`, and the asset's name checked against its BLAKE3 hash), kernel.md test 135, and delivery.md open issue 5 resolved. Tests 10 and 135 skip two free faces, not one: the kernel's one-shape text `Skipped 1 shapes that are not closed solids.` is not grammatical, so no test pins it; its fix is features/import.md open issue 3, now item IMP-1 (a human gate for its recommended option). The `asset_missing` text of import.md test 3 and section 4 was already current (commit 3f1bc05). Review fixes: the face checks of tests 1, 7 and 11 also check each face's normal (`assert_face_in_plane`, as test 9 does), `box_step_asset` moved to the import fixtures it builds on, and a committed asset that no example imports, which no runner test hashes, is left to EX-9.
 
 **EX-2. Bed fit, islands, tall-and-thin and resin examples**
 - **Spec:** technical design 16; print.md 1.1, 3.8, 3.9.
@@ -416,7 +418,8 @@ Add examples after phases 1 to 3, so their expected results are blessed once, ag
 - **Work:** new checks in `examples.rs`:
   - every sketch constraint and entity type appears in an example outside `examples/bench`;
   - every manifest option value and reference kind appears in an example of that feature type;
-  - every `CheckKind` has at least one non-ok finding per technology.
+  - every `CheckKind` has at least one non-ok finding per technology;
+  - every file in an `assets/` folder is imported by an example of that folder (delivery.md 2.8). Runner test 4 then checks each asset's name against its bytes, since `partsmith rebuild` fails with `asset_mismatch` on an asset that does not hash to its name (engine.md 3.14); today the bytes of an asset that no example imports are never checked (found by the review of EX-1).
 - **Impact:** low. **Size:** M.
 - **Depends on:** EX-2, EX-3 and EX-5. Without them, the checks fail on arrival.
 
@@ -428,6 +431,21 @@ Add examples after phases 1 to 3, so their expected results are blessed once, ag
   - In python/tests: `export_python`, run the script, then compare canonical text, volume and face count.
 - **Impact:** low. **Size:** M.
 - **Depends on:** PY-2 and phase 2.
+
+### Kernel exchange and the import feature (partsmith-occt-sys, partsmith-features)
+
+**IMP-1. Import warnings show the kernel's sentences** (added on 2026-10-23 by the review of EX-1)
+- **Spec:** features/import.md open issue 3; kernel.md 2.12 and 3.8.1 read item 3; features.md 4.2 (`ImportWarning`) and test 14; docs/guidelines/errors.md.
+- **Problem:** `ImportWarning` shows each string of `StepImport::warnings` as it is. A STEP file with one free face beside a solid reads `Skipped 1 shapes that are not closed solids.`, and a solid that repair could not fix is named by its position in the file (`Solid 2 is not valid after repair; booleans with it may fail.`). Both are kernel text, which features.md test 14 keeps out of rendered messages, and the first is not grammatical. features/import.md test 10 and kernel.md test 135 skip two faces, so no test pins either text.
+- **Spec first:** yes, one of these options:
+  - (a) Reword only the kernel's two strings in kernel.md 3.8.1 read item 3, for example `Skipped 1 shape that is not a closed solid.` and a repair warning without the solid's number. No public API changes, but users still read kernel text, so features.md 4.2 still conflicts with test 14.
+  - (b) `StepImport` returns counts (shapes skipped, solids still invalid after repair) and the feature words them, for example `This import left out 1 shape of the STEP file that is not a closed solid.`, with the kernel's text in the detail. It changes kernel.md 2.12 and 3.8.1 and features.md 4.2 together.
+  - Either way, new tests for one skipped shape and for the repair warning in kernel.md 6 and features/import.md 6.
+  - Recommended: (b), the only option that keeps kernel text out of messages.
+- **Human gate:** public API, for (b) only (the fields of `StepImport` and `ImportWarning`), with an ADR entry.
+- **Work:** `cpp/exchange.cpp` and `src/exchange.rs` in partsmith-occt-sys. For (b), also the `ImportWarning` rendering in partsmith-features and the texts pinned by features/import.md test 10 and kernel.md test 135.
+- **Impact:** low. **Size:** S for (a), M for (b).
+- **Depends on:** nothing.
 
 ### Engine and WebAssembly (partsmith-engine, partsmith-wasm)
 
@@ -646,9 +664,9 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
    - B-3 and B-4 together, then B-5 (with PY-1's spec) and B-6 sharing one desktop capability review, then B-7.
    - In parallel: B-8, B-9, B-10, B-11.
 3. **Wave B (M1 behavior and corpus):** PRINT-1; EX-1 to EX-5; ENG-1, ENG-4 and SK-1 as one wasm CI job; ENG-2.
-4. **Wave C (hardening):** EX-6 to EX-10, PRINT-2, PRINT-3, ENG-3, ENG-5, ENG-6, UI-2 to UI-5, PY-2, PY-3, CLI-2, SK-2, DEL-2.
+4. **Wave C (hardening):** EX-6 to EX-10, IMP-1, PRINT-2, PRINT-3, ENG-3, ENG-5, ENG-6, UI-2 to UI-5, PY-2, PY-3, CLI-2, SK-2, DEL-2.
 
-These items wait for a human: B-1, B-2, B-5, B-6, B-10 (recorded in delivery.md 8), PRINT-2, PRINT-3, PY-2, UI-2, UI-3 (only with axe), DEL-1 and DEL-2.
+These items wait for a human: B-1, B-2, B-5, B-6, B-10 (recorded in delivery.md 8), PRINT-2, PRINT-3, PY-2, UI-2, UI-3 (only with axe), IMP-1 (only with option (b)), DEL-1 and DEL-2.
 
 ## Merged inputs and items left out
 
