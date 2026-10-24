@@ -1,4 +1,4 @@
-//! Acceptance tests for `Files`, `FileKind`, `FileError`, `grant_of` and `Unsaved` (desktop.md section 6, tests 14 to 32), with a fake for the native dialogs.
+//! Acceptance tests for `Files`, `FileKind`, `FileError`, `grant_of` and `Unsaved` (desktop.md section 6, tests 14 to 32, and the Windows tests 68 and 70), with a fake for the native dialogs.
 
 use crate::common;
 
@@ -872,4 +872,119 @@ fn t032_unsaved_starts_false_and_keeps_the_last_value_set() {
 
     unsaved.set(false);
     assert!(!unsaved.get());
+}
+
+/// Opens `path` for reading as another program would hold it: sharing reads alone, never its deletion, so a rename
+/// over the file fails on Windows while the handle is open.
+#[cfg(windows)]
+fn hold_without_sharing_deletion(path: &Path) -> fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    // FILE_SHARE_READ
+    const SHARE_READ: u32 = 1;
+    fs::OpenOptions::new()
+        .read(true)
+        .share_mode(SHARE_READ)
+        .open(path)
+        .expect("the test can open the file")
+}
+
+#[cfg(windows)]
+#[test]
+fn t068_a_write_waits_for_another_program_that_lets_go_of_the_file() {
+    let folder = temporary_folder();
+    let path = file_with(folder.path(), "part.ptsm", b"old contents");
+    let files = Files::in_memory();
+    let grant = grant_by_open(&files, &path).grant;
+    let held = hold_without_sharing_deletion(&path);
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        drop(held);
+    });
+
+    let result = files.write(&grant, b"new");
+
+    release.join().expect("the thread that holds the file ends");
+    assert_eq!(result, Ok(()));
+    assert_eq!(fs::read(&path).expect("the file exists"), b"new");
+    assert_eq!(folder_entries(folder.path()), vec!["part.ptsm".to_owned()]);
+}
+
+#[cfg(windows)]
+#[test]
+fn t068_a_write_fails_after_its_waits_while_another_program_holds_the_file() {
+    let folder = temporary_folder();
+    let path = file_with(folder.path(), "part.ptsm", b"old contents");
+    let files = Files::in_memory();
+    let grant = grant_by_open(&files, &path).grant;
+    let held = hold_without_sharing_deletion(&path);
+
+    let started = std::time::Instant::now();
+    let result = files.write(&grant, b"new");
+    let elapsed = started.elapsed();
+    drop(held);
+
+    let detail = match result {
+        Err(FileError::Denied { detail, .. } | FileError::Io { detail }) => detail,
+        other => panic!("expected a Denied or Io error, got {other:?}"),
+    };
+    assert!(
+        elapsed >= std::time::Duration::from_millis(630),
+        "the write gave up after {elapsed:?}, before the waits of 3.4 step 4.5"
+    );
+    assert!(
+        detail.contains("os error 5") || detail.contains("os error 32"),
+        "{detail}"
+    );
+    assert_eq!(fs::read(&path).expect("the file exists"), b"old contents");
+    assert_eq!(folder_entries(folder.path()), vec!["part.ptsm".to_owned()]);
+}
+
+/// A grant store text of version 1 listing `paths` as they are written, which need not be paths of this machine.
+#[cfg(windows)]
+fn store_text_of(paths: &[&str]) -> String {
+    let mut text = serde_json::to_string_pretty(&json!({ "version": 1, "paths": paths }))
+        .expect("a JSON value always serializes");
+    text.push('\n');
+    text
+}
+
+#[cfg(windows)]
+#[test]
+fn t070_drive_letter_and_network_paths_in_the_store_load_as_grants() {
+    // No test reads these paths, so none reaches the network.
+    let stored = [r"C:\parts\bracket.ptsm", r"\\server\share\bracket.ptsm"];
+    let folder = temporary_folder();
+    let store = store_path(folder.path());
+    write_store(&store, &store_text_of(&stored));
+    let path = file_with(folder.path(), "part.ptsm", b"hello");
+
+    let files = Files::load(store.clone());
+    grant_by_open(&files, &path);
+
+    assert_eq!(
+        stored_paths(&store),
+        [path_text(&path), stored[0], stored[1]].map(str::to_owned)
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn t070_paths_that_windows_does_not_count_as_absolute_load_as_no_grants() {
+    // Relative to the current folder of drive C, and to the current drive.
+    for relative in [r"C:parts\bracket.ptsm", r"\parts\bracket.ptsm"] {
+        let folder = temporary_folder();
+        let store = store_path(folder.path());
+        write_store(&store, &store_text_of(&[relative]));
+        let path = file_with(folder.path(), "part.ptsm", b"hello");
+
+        let files = Files::load(store.clone());
+        grant_by_open(&files, &path);
+
+        assert_eq!(
+            stored_paths(&store),
+            vec![path_text(&path).to_owned()],
+            "{relative}"
+        );
+    }
 }

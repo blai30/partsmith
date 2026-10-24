@@ -5,6 +5,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::thread;
+use std::time::Duration;
 
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
@@ -23,6 +25,16 @@ const ASSETS_FOLDER: &str = "assets";
 
 /// The detail of `Denied` for a read-only file, which an atomic write would otherwise replace (3.4 step 4.2).
 const READ_ONLY: &str = "the file is read-only";
+
+/// The waits before the second to the seventh attempt of a rename that another program blocks on Windows.
+const RENAME_WAITS: [Duration; 6] = [
+    Duration::from_millis(10),
+    Duration::from_millis(20),
+    Duration::from_millis(40),
+    Duration::from_millis(80),
+    Duration::from_millis(160),
+    Duration::from_millis(320),
+];
 
 /// The file kinds the UI opens and saves (ui.md `FileKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -579,7 +591,8 @@ fn is_same_file(looked: &Metadata, opened: &Metadata) -> bool {
     }
 }
 
-/// Writes `bytes` to a new `temporary` file with the target's `permissions`, flushes it to disk and renames it over `target`.
+/// Writes `bytes` to a new `temporary` file with the target's `permissions`, flushes it to disk and renames it over `target`,
+/// trying the rename again while another program blocks it on Windows (3.4 step 4.5).
 fn write_and_rename(
     temporary: &Path,
     target: &Path,
@@ -590,7 +603,29 @@ fn write_and_rename(
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
-    fs::rename(temporary, target)
+    retry_while_busy(|| fs::rename(temporary, target), is_busy, thread::sleep)
+}
+
+/// Whether a failed rename may succeed once another program lets go of the file: on Windows `ERROR_ACCESS_DENIED`,
+/// `ERROR_SHARING_VIOLATION` or `ERROR_LOCK_VIOLATION`; never elsewhere (3.4 step 4.5).
+fn is_busy(error: &io::Error) -> bool {
+    cfg!(windows) && matches!(error.raw_os_error(), Some(5 | 32 | 33))
+}
+
+/// Calls `attempt` until it succeeds, fails with an error `busy` rejects, or has failed after the last of
+/// RENAME_WAITS, calling `wait` with each wait before the next attempt; returns the last attempt's result.
+fn retry_while_busy(
+    mut attempt: impl FnMut() -> io::Result<()>,
+    busy: impl Fn(&io::Error) -> bool,
+    mut wait: impl FnMut(Duration),
+) -> io::Result<()> {
+    for delay in RENAME_WAITS {
+        match attempt() {
+            Err(error) if busy(&error) => wait(delay),
+            result => return result,
+        }
+    }
+    attempt()
 }
 
 /// Creates the temporary file of an atomic write with `permissions` (those of the file it replaces) before any byte is written.
@@ -671,6 +706,8 @@ fn file_name(path: &Path) -> String {
 mod tests {
     use super::*;
 
+    use std::time::Duration;
+
     #[cfg(unix)]
     #[test]
     fn a_temporary_file_has_the_target_permissions_before_any_byte_is_written() {
@@ -699,5 +736,98 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(fs::read(&path).expect("the file is still there"), b"other");
+    }
+
+    /// The waits of desktop.md 3.4 step 4.5 in milliseconds, before the second to the seventh attempt.
+    const WAITS_MILLISECONDS: [u64; 6] = [10, 20, 40, 80, 160, 320];
+
+    /// Runs `retry_while_busy` with an attempt that fails with `failure(n)` for its `n`-th call while that gives an
+    /// error, and succeeds otherwise; returns the result, the number of attempts and the waits asked for, in order.
+    fn retried(
+        failure: impl Fn(usize) -> Option<io::Error>,
+        busy: impl Fn(&io::Error) -> bool,
+    ) -> (io::Result<()>, usize, Vec<Duration>) {
+        let mut attempts = 0;
+        let mut waits = Vec::new();
+        let result = retry_while_busy(
+            || {
+                attempts += 1;
+                failure(attempts).map_or(Ok(()), Err)
+            },
+            busy,
+            |wait| waits.push(wait),
+        );
+        (result, attempts, waits)
+    }
+
+    fn milliseconds(waits: &[u64]) -> Vec<Duration> {
+        waits.iter().copied().map(Duration::from_millis).collect()
+    }
+
+    #[test]
+    fn t067_the_waits_are_10_to_320_ms_and_630_ms_in_all() {
+        assert_eq!(RENAME_WAITS.to_vec(), milliseconds(&WAITS_MILLISECONDS));
+        assert_eq!(
+            RENAME_WAITS.iter().sum::<Duration>(),
+            Duration::from_millis(630)
+        );
+    }
+
+    #[test]
+    fn t067_a_rename_busy_twice_succeeds_on_its_third_attempt_after_10_and_20_ms() {
+        let (result, attempts, waits) = retried(
+            |attempt| (attempt <= 2).then(|| io::Error::other("busy")),
+            |error| error.to_string() == "busy",
+        );
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(attempts, 3);
+        assert_eq!(waits, milliseconds(&[10, 20]));
+    }
+
+    #[test]
+    fn t067_a_rename_that_stays_busy_gives_the_seventh_attempts_error_after_every_wait() {
+        let (result, attempts, waits) = retried(
+            |attempt| Some(io::Error::other(format!("attempt {attempt}"))),
+            |_| true,
+        );
+
+        assert_eq!(
+            result
+                .expect_err("a rename that stays busy fails")
+                .to_string(),
+            "attempt 7"
+        );
+        assert_eq!(attempts, 7);
+        assert_eq!(waits, milliseconds(&WAITS_MILLISECONDS));
+    }
+
+    #[test]
+    fn t067_a_rename_that_fails_otherwise_gives_its_error_at_once() {
+        let (result, attempts, waits) =
+            retried(|_| Some(io::Error::other("no space left")), |_| false);
+
+        assert_eq!(
+            result.expect_err("the rename fails").to_string(),
+            "no space left"
+        );
+        assert_eq!(attempts, 1);
+        assert!(waits.is_empty(), "{waits:?}");
+    }
+
+    #[test]
+    fn t067_access_sharing_and_lock_violations_are_busy_on_windows_alone() {
+        // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION and ERROR_LOCK_VIOLATION.
+        for code in [5, 32, 33] {
+            assert_eq!(
+                is_busy(&io::Error::from_raw_os_error(code)),
+                cfg!(windows),
+                "os error {code}"
+            );
+        }
+        // ERROR_FILE_NOT_FOUND on Windows.
+        assert!(!is_busy(&io::Error::from_raw_os_error(2)));
+        // An error without an operating system code.
+        assert!(!is_busy(&io::Error::other("x")));
     }
 }

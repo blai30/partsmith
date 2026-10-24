@@ -33,13 +33,28 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${String(port)}`,
     trace: 'retain-on-failure',
-    // Lets local runs reuse a preinstalled Chromium instead of downloading one.
-    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
-      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE }
-      : {},
   },
-  // Desktop Chrome: 1280 by 720 at device scale factor 1 (ui.md 6).
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // Every project has 1280 by 720 at device scale factor 1 (ui.md 6). Chromium runs every test; Firefox and WebKit
+  // run the tests tagged @engines, and only when --project names them, so pnpm e2e needs Chromium alone (ui.md 6.8).
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Lets local runs reuse a preinstalled Chromium instead of downloading one.
+        launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
+          ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE }
+          : {},
+      },
+    },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, grep: /@engines/, default: false },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'], deviceScaleFactor: 1 },
+      grep: /@engines/,
+      default: false,
+    },
+  ],
   // The production build, served with the cross-origin isolation headers from vite.config.ts.
   webServer: {
     command: `pnpm build && pnpm preview --port ${String(port)} --strictPort`,

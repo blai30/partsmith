@@ -183,21 +183,25 @@ function sizeParameterRow(page: Page): Locator {
 }
 
 test.describe('themes', () => {
-  test('E-56 the theme commands choose dark, light or the system theme', async ({ page }) => {
-    // The system theme starts light, so "Theme: Dark" is a change.
-    await page.emulateMedia({ colorScheme: 'light' })
-    await openApp(page)
-    await expect(root(page)).not.toContainClass('dark')
-    await runCommand(page, 'Theme: Dark')
-    await expect(root(page)).toContainClass('dark')
-    await reload(page)
-    await expect(root(page)).toContainClass('dark')
-    await runCommand(page, 'Theme: Light')
-    await expect(root(page)).not.toContainClass('dark')
-    await page.emulateMedia({ colorScheme: 'dark' })
-    await runCommand(page, 'Theme: System')
-    await expect(root(page)).toContainClass('dark')
-  })
+  test(
+    'E-56 the theme commands choose dark, light or the system theme',
+    { tag: '@engines' },
+    async ({ page }) => {
+      // The system theme starts light, so "Theme: Dark" is a change.
+      await page.emulateMedia({ colorScheme: 'light' })
+      await openApp(page)
+      await expect(root(page)).not.toContainClass('dark')
+      await runCommand(page, 'Theme: Dark')
+      await expect(root(page)).toContainClass('dark')
+      await reload(page)
+      await expect(root(page)).toContainClass('dark')
+      await runCommand(page, 'Theme: Light')
+      await expect(root(page)).not.toContainClass('dark')
+      await page.emulateMedia({ colorScheme: 'dark' })
+      await runCommand(page, 'Theme: System')
+      await expect(root(page)).toContainClass('dark')
+    },
+  )
 
   test('E-60 the theme toggle switches and stores an explicit theme that wins over the system', async ({
     page,
@@ -397,7 +401,7 @@ test.describe('fonts', () => {
     expect(await typeRuleOffenders(page)).toEqual({ withoutSerifedI: [], slashedZero: [] })
   })
 
-  test('E-144 no font request leaves the app', async ({ page }) => {
+  test('E-144 no font request leaves the app', { tag: '@engines' }, async ({ page }) => {
     const requests: { readonly url: URL; readonly type: string }[] = []
     page.on('request', (request) => {
       requests.push({ url: new URL(request.url()), type: request.resourceType() })

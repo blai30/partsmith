@@ -1,4 +1,4 @@
-//! Acceptance tests for the assets next to a granted document (desktop.md section 6, tests 54 to 62, ADR 0037): `read_asset` and `write_asset` reach only the asset-named entries of `assets/` in the folder of a granted `.ptsm` path, check the bytes against the name, run the entry check of file-format.md 3.11 and follow no link.
+//! Acceptance tests for the assets next to a granted document (desktop.md section 6, tests 54 to 62 and 69, ADR 0037): `read_asset` and `write_asset` reach only the asset-named entries of `assets/` in the folder of a granted `.ptsm` path, check the bytes against the name, run the entry check of file-format.md 3.11 and follow no link.
 
 use crate::common;
 
@@ -36,6 +36,17 @@ fn write_file(path: &Path, contents: &[u8]) {
         fs::create_dir_all(parent).expect("the test can create the file's folder");
     }
     fs::write(path, contents).expect("the test file can be written");
+}
+
+/// A Unix socket bound at `<folder>/socket` and then moved to `entry`. macOS takes a socket path of at most 103
+/// bytes, and an entry of the assets folder in a temporary folder is longer there, so the socket is made at a short path.
+#[cfg(unix)]
+fn socket_at(folder: &Path, entry: &Path) -> std::os::unix::net::UnixListener {
+    let short = folder.join("socket");
+    let listener =
+        std::os::unix::net::UnixListener::bind(&short).expect("the test can bind a socket");
+    fs::rename(&short, entry).expect("the test can move the socket into the assets folder");
+    listener
 }
 
 /// `<folder>/part.ptsm` holding a document, granted by the open dialog in `files`.
@@ -278,8 +289,7 @@ fn t056_read_asset_reads_no_link_and_no_other_entry() {
 
     // A Unix socket.
     fs::remove_dir(&entry).expect("the test can remove the folder");
-    let _listener =
-        std::os::unix::net::UnixListener::bind(&entry).expect("the test can bind a socket");
+    let _listener = socket_at(folder.path(), &entry);
     let error = files
         .read_asset(&grant, &solid_name())
         .expect_err("a socket is not read");
@@ -531,9 +541,7 @@ fn t059_entries_that_are_not_files_are_replaced_never_written_through() {
                     .expect("the test can create a symbolic link");
                 None
             }
-            _ => Some(
-                std::os::unix::net::UnixListener::bind(&entry).expect("the test can bind a socket"),
-            ),
+            _ => Some(socket_at(folder.path(), &entry)),
         };
 
         files
@@ -717,4 +725,43 @@ fn t062_the_asset_errors_serialize_with_reason_io_and_their_messages() {
             "the serialized form of {error:?}"
         );
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn t069_an_assets_folder_that_is_a_junction_is_refused_and_its_target_stays() {
+    let folder = temporary_folder();
+    let files = Files::in_memory();
+    let grant = granted_document(&files, folder.path());
+    let shared = folder.path().join("shared");
+    write_file(&shared.join(solid_name()), SOLID);
+    let assets = folder.path().join("assets");
+    // A directory junction needs no privilege, unlike a symbolic link.
+    let made = std::process::Command::new("cmd")
+        .arg("/C")
+        .arg("mklink")
+        .arg("/J")
+        .arg(&assets)
+        .arg(&shared)
+        .output()
+        .expect("cmd runs");
+    assert!(
+        made.status.success(),
+        "mklink /J made the junction: {}",
+        String::from_utf8_lossy(&made.stderr)
+    );
+
+    assert_eq!(
+        files.read_asset(&grant, &solid_name()),
+        Err(FileError::AssetsNotAFolder)
+    );
+    assert_eq!(
+        files.write_asset(&grant, &solid_name(), SOLID),
+        Err(FileError::AssetsNotAFolder)
+    );
+    assert_eq!(folder_entries(&shared), vec![solid_name()]);
+    assert_eq!(
+        fs::read(shared.join(solid_name())).expect("the shared asset is still there"),
+        SOLID
+    );
 }

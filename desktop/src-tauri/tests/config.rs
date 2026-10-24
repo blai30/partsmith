@@ -1,4 +1,4 @@
-//! Acceptance tests for the checked-in configuration (desktop.md section 6, tests 33 to 35 and 53): `tauri.conf.json`, the capability file, the icons and the third-party notices the bundles ship.
+//! Acceptance tests for the checked-in configuration (desktop.md section 6, tests 33 to 35, 53 and 71): `tauri.conf.json`, the capability file, the icons, the third-party notices the bundles ship and the Windows application manifest.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -268,4 +268,56 @@ fn t053_the_resource_is_the_desktop_notices_of_the_repository_root() {
         text.split('\n').next(),
         Some("Third-party notices for the Partsmith desktop app")
     );
+}
+
+/// The text of the one element `name` of a manifest, from `<name` to the end of its opening tag.
+fn element<'text>(manifest: &'text str, name: &str) -> &'text str {
+    let opening = format!("<{name}");
+    // `<assembly` is also the start of `<assemblyIdentity`, so the name must end where the tag's name does.
+    let starts: Vec<usize> = manifest
+        .match_indices(&opening)
+        .map(|(start, _)| start)
+        .filter(|start| {
+            manifest[start + opening.len()..]
+                .starts_with(|next: char| next.is_whitespace() || next == '>' || next == '/')
+        })
+        .collect();
+    let [start] = starts.as_slice() else {
+        panic!(
+            "the manifest has exactly one {opening} element, found {}",
+            starts.len()
+        );
+    };
+    let rest = &manifest[*start..];
+    let end = rest.find('>').expect("the element's tag ends");
+    &rest[..=end]
+}
+
+#[test]
+fn t071_the_windows_manifest_asks_for_version_6_of_the_common_controls() {
+    let path = crate_folder().join("windows-app-manifest.xml");
+    let manifest = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("reading {} failed: {error}", path.display()));
+
+    assert_eq!(
+        element(&manifest, "assembly"),
+        r#"<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">"#
+    );
+    assert_eq!(manifest.matches("<dependentAssembly>").count(), 1);
+    let identity = element(&manifest, "assemblyIdentity");
+    for attribute in [
+        r#"type="win32""#,
+        r#"name="Microsoft.Windows.Common-Controls""#,
+        r#"version="6.0.0.0""#,
+        r#"processorArchitecture="*""#,
+        r#"publicKeyToken="6595b64144ccf1df""#,
+        r#"language="*""#,
+    ] {
+        assert!(
+            identity
+                .split_whitespace()
+                .any(|part| part.trim_end_matches("/>") == attribute),
+            "the assembly identity has {attribute}: {identity}"
+        );
+    }
 }

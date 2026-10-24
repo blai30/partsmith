@@ -1,4 +1,8 @@
 /// <reference lib="dom" />
+import { execFile } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { expect, test } from '@playwright/test'
 import { longTasks, measures, openApp, pageTime, percentile, watchLongTasks } from './helpers'
 
@@ -6,9 +10,98 @@ import { longTasks, measures, openApp, pageTime, percentile, watchLongTasks } fr
 const BUSY_MILLISECONDS = 120
 const BUSY_REPORTED_MILLISECONDS = 100
 
-test('the production build starts the WebAssembly core in a cross-origin isolated page', async ({
-  page,
-}) => {
+/** The title of the startup check, the one test of the engine subset without an E-test id (ui.md 6.8). */
+const STARTUP_CHECK =
+  'the production build starts the WebAssembly core in a cross-origin isolated page'
+
+/** The E-tests of the engine subset (ui.md 6.8), which run in every project. */
+const ENGINE_TEST_IDS = [
+  'E-1',
+  'E-2',
+  'E-3',
+  'E-4',
+  'E-5',
+  'E-6',
+  'E-8',
+  'E-9',
+  'E-10',
+  'E-12',
+  'E-13',
+  'E-29',
+  'E-33',
+  'E-41',
+  'E-47',
+  'E-52',
+  'E-53',
+  'E-56',
+  'E-127',
+  'E-128',
+  'E-144',
+  'E-147',
+  'E-156',
+]
+
+/** The projects of `ui/playwright.config.ts`, in order: Chromium runs every test, the other two the subset. */
+const PROJECTS = ['chromium', 'firefox', 'webkit']
+
+/**
+ * One test of a listing in one project. Its place, the file, line and column of its declaration with its title, is the
+ * same in every project; a test declared in a loop shares its line with the others of the loop, not its title.
+ */
+type ListedTest = { place: string; title: string; project: string }
+
+/** The suites of Playwright's JSON report, as far as a listing uses them. */
+type ReportSuite = {
+  specs: {
+    file: string
+    line: number
+    column: number
+    title: string
+    tests: { projectName: string }[]
+  }[]
+  suites?: ReportSuite[]
+}
+
+/** The `ui` folder, where `pnpm e2e` runs. */
+const uiFolder = fileURLToPath(new URL('..', import.meta.url))
+
+/** The command line of `@playwright/test`, which `pnpm e2e` runs. */
+const playwrightCommand = createRequire(import.meta.url).resolve('@playwright/test/cli')
+
+/** Every test of a JSON report's suites, once per project it runs in. */
+function listedTests(suites: ReportSuite[]): ListedTest[] {
+  return suites.flatMap((suite) => [
+    ...suite.specs.flatMap((spec) =>
+      spec.tests.map((listed) => ({
+        place: `${spec.file}:${String(spec.line)}:${String(spec.column)} ${spec.title}`,
+        title: spec.title,
+        project: listed.projectName,
+      })),
+    ),
+    ...listedTests(suite.suites ?? []),
+  ])
+}
+
+/**
+ * The tests `playwright test --list` gives with `projectArguments`, read from its JSON report. A listing loads the
+ * configuration and the test files and starts no browser and no web server.
+ */
+async function listTests(projectArguments: string[]): Promise<ListedTest[]> {
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [playwrightCommand, 'test', '--list', '--reporter=json', ...projectArguments],
+    { cwd: uiFolder, maxBuffer: 64 * 1024 * 1024 },
+  )
+  const report = JSON.parse(stdout) as { suites: ReportSuite[] }
+  return listedTests(report.suites)
+}
+
+/** The E-test id that starts a title, or the whole title for the startup check. */
+function engineTestId(title: string): string {
+  return /^(E-\d+) /.exec(title)?.[1] ?? title
+}
+
+test(STARTUP_CHECK, { tag: '@engines' }, async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveTitle('Partsmith')
   const app = page.getByTestId('app')
@@ -62,4 +155,57 @@ test('longTasks and measures report what started at or after a page time', async
   expect(await longest(after)).toBeLessThan(BUSY_REPORTED_MILLISECONDS)
   expect(await measures(page, 'helpers-check', since)).toEqual([2])
   expect(await measures(page, 'helpers-check')).toEqual([1, 2])
+})
+
+// The browser engines (ui.md 6.8).
+
+test(
+  'E-156 every project has the viewport of the tests, and Firefox and WebKit run the subset',
+  { tag: '@engines' },
+  ({ browserName }) => {
+    const { config, project: running } = test.info()
+    const projects = config.projects
+
+    expect(projects.map((project) => project.name)).toEqual(PROJECTS)
+    for (const project of projects) {
+      expect(project.use.viewport, project.name).toEqual({ width: 1280, height: 720 })
+      expect(project.use.deviceScaleFactor, project.name).toBe(1)
+    }
+    const [chromium, ...engines] = projects
+    for (const engine of engines) {
+      expect(engine.grep, engine.name).toEqual(/@engines/)
+      expect(engine.use.launchOptions?.executablePath, engine.name).toBeUndefined()
+    }
+    // Playwright's default grep, which matches every title.
+    expect(chromium.grep).toEqual(/.*/)
+    expect(chromium.use.launchOptions?.executablePath).toBe(
+      process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+    )
+    expect(browserName).toBe(running.name)
+  },
+)
+
+test('E-157 Firefox and WebKit list the engine subset, and the default project is Chromium with every test', async () => {
+  // Four listings take a few seconds each, longer on a busy runner.
+  test.setTimeout(120_000)
+  const [firefox, webkit, everyProject, byDefault] = await Promise.all([
+    listTests(['--project', 'firefox']),
+    listTests(['--project', 'webkit']),
+    listTests(PROJECTS.flatMap((project) => ['--project', project])),
+    listTests([]),
+  ])
+  const subset = [STARTUP_CHECK, ...ENGINE_TEST_IDS].toSorted()
+
+  for (const [project, listed] of [
+    ['firefox', firefox],
+    ['webkit', webkit],
+  ] as const) {
+    expect(new Set(listed.map((entry) => entry.project)), project).toEqual(new Set([project]))
+    expect(listed.map((entry) => engineTestId(entry.title)).toSorted(), project).toEqual(subset)
+  }
+  expect(new Set(byDefault.map((entry) => entry.project))).toEqual(new Set(['chromium']))
+  // A test of another engine that Chromium does not run would be a place the default listing lacks.
+  const defaultPlaces = byDefault.map((entry) => entry.place)
+  expect(new Set(defaultPlaces).size, 'each test once').toBe(defaultPlaces.length)
+  expect(new Set(defaultPlaces)).toEqual(new Set(everyProject.map((entry) => entry.place)))
 })

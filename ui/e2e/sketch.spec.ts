@@ -114,38 +114,46 @@ async function drawDimensionedRectangle(page: Page): Promise<void> {
 }
 
 test.describe('sketching', () => {
-  test('E-12 a rectangle from the origin, dimensioned to fully constrained', async ({ page }) => {
-    await openApp(page)
-    await drawDimensionedRectangle(page)
-  })
+  test(
+    'E-12 a rectangle from the origin, dimensioned to fully constrained',
+    { tag: '@engines' },
+    async ({ page }) => {
+      await openApp(page)
+      await drawDimensionedRectangle(page)
+    },
+  )
 
   // The spec allows either start; continuing from E-12 keeps the double-click on the timeline
   // to E-18 and E-104.
-  test('E-13 Extrude from a sketch takes its region and builds the body', async ({ page }) => {
-    await openApp(page)
-    await drawDimensionedRectangle(page)
-    await page.keyboard.press('e')
-    await expect(app(page)).toHaveAttribute('data-context', 'model')
-    await expect(inspector(page)).toHaveAccessibleName('Extrude')
-    await expect(inspectorField(page, 'profile').getByTestId('selection-field')).toHaveAttribute(
-      'data-count',
-      '1',
-    )
-    await expect(inspectorInput(page, 'Distance')).toBeFocused()
-    await page.keyboard.type('10')
-    await expect(inspectorField(page, 'extent.expr').getByTestId('expression-result')).toHaveText(
-      'mm',
-    )
-    await page.keyboard.press('Enter')
-    await expect(page.getByTestId('timeline-item')).toHaveCount(2)
-    await expect(timelineItem(page, 'Sketch 1')).toHaveAttribute('data-status', 'ok')
-    await expect(timelineItem(page, 'Extrude 1')).toHaveAttribute('data-status', 'ok', {
-      timeout: 15_000,
-    })
-    await bodyRow(page, 'Body 1').click()
-    await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', '40 × 20 × 10 mm')
-    await expect(page.getByTestId('body-center')).toHaveAttribute('data-value', '20, 10, 5 mm')
-  })
+  test(
+    'E-13 Extrude from a sketch takes its region and builds the body',
+    { tag: '@engines' },
+    async ({ page }) => {
+      await openApp(page)
+      await drawDimensionedRectangle(page)
+      await page.keyboard.press('e')
+      await expect(app(page)).toHaveAttribute('data-context', 'model')
+      await expect(inspector(page)).toHaveAccessibleName('Extrude')
+      await expect(inspectorField(page, 'profile').getByTestId('selection-field')).toHaveAttribute(
+        'data-count',
+        '1',
+      )
+      await expect(inspectorInput(page, 'Distance')).toBeFocused()
+      await page.keyboard.type('10')
+      await expect(inspectorField(page, 'extent.expr').getByTestId('expression-result')).toHaveText(
+        'mm',
+      )
+      await page.keyboard.press('Enter')
+      await expect(page.getByTestId('timeline-item')).toHaveCount(2)
+      await expect(timelineItem(page, 'Sketch 1')).toHaveAttribute('data-status', 'ok')
+      await expect(timelineItem(page, 'Extrude 1')).toHaveAttribute('data-status', 'ok', {
+        timeout: 15_000,
+      })
+      await bodyRow(page, 'Body 1').click()
+      await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', '40 × 20 × 10 mm')
+      await expect(page.getByTestId('body-center')).toHaveAttribute('data-value', '20, 10, 5 mm')
+    },
+  )
 
   test('E-14 the Extrude distance is checked live as a length', async ({ page }) => {
     await openApp(page)

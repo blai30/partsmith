@@ -58,24 +58,30 @@ async function openCubeInPrint(page: Page): Promise<void> {
 }
 
 test.describe('Viewport', () => {
-  test('E-41 the view cube sets standard views and Shift+middle drag orbits', async ({ page }) => {
-    await openApp(page)
-    await dropFile(page, 'cube.ptsm')
-    const home = page.getByRole('button', { name: 'Home view', exact: true })
-    await viewCubeButton(page, 'Top view').click()
-    await expectView(page, 'top')
-    // Seen from the top, the cube's Front face is turned away and cannot be clicked, so the Home
-    // view comes first (ui.md 6.5 E-41).
-    await home.click()
-    await expectView(page, 'iso')
-    await viewCubeButton(page, 'Front view').click()
-    await expectView(page, 'front')
-    await viewCubeButton(page, 'Front right top corner view').click()
-    await expectView(page, 'iso')
-    const { cx, cy } = await canvas(page)
-    await dragOnCanvas(page, { x: cx, y: cy }, { x: cx + 100, y: cy }, ['middle'], { shift: true })
-    await expectView(page, 'custom')
-  })
+  test(
+    'E-41 the view cube sets standard views and Shift+middle drag orbits',
+    { tag: '@engines' },
+    async ({ page }) => {
+      await openApp(page)
+      await dropFile(page, 'cube.ptsm')
+      const home = page.getByRole('button', { name: 'Home view', exact: true })
+      await viewCubeButton(page, 'Top view').click()
+      await expectView(page, 'top')
+      // Seen from the top, the cube's Front face is turned away and cannot be clicked, so the Home
+      // view comes first (ui.md 6.5 E-41).
+      await home.click()
+      await expectView(page, 'iso')
+      await viewCubeButton(page, 'Front view').click()
+      await expectView(page, 'front')
+      await viewCubeButton(page, 'Front right top corner view').click()
+      await expectView(page, 'iso')
+      const { cx, cy } = await canvas(page)
+      await dragOnCanvas(page, { x: cx, y: cy }, { x: cx + 100, y: cy }, ['middle'], {
+        shift: true,
+      })
+      await expectView(page, 'custom')
+    },
+  )
 
   test('E-42 the Orthographic control and Shift+P switch the projection', async ({ page }) => {
     await openApp(page)
@@ -185,43 +191,45 @@ test.describe('Viewport', () => {
 })
 
 test.describe('Print and export', () => {
-  test('E-47 Print shows its tools, the overhang map and findings that frame their place', async ({
-    page,
-  }) => {
-    await openApp(page)
-    await dropFile(page, 'overhang.ptsm')
-    await chooseContext(page, 'Print')
-    const buttons = printToolbar(page).getByRole('button')
-    const expected = [
-      'Printer:',
-      'Overhang map',
-      'Checks',
-      'Print check',
-      'Lay on face',
-      'Export 3MF',
-      'Export',
-    ]
-    await expect(buttons).toHaveCount(expected.length)
-    await Promise.all(
-      expected.map((prefix, index) =>
-        expect(buttons.nth(index)).toHaveAccessibleName(new RegExp(`^${escapeRegExp(prefix)}`)),
-      ),
-    )
-    await expect(printTool(page, 'Overhang map')).toHaveAttribute('aria-pressed', 'true')
-    const badge = healthBadge(page)
-    await expect(badge).toHaveAttribute('data-state', /^(warning|error)$/, { timeout: 20_000 })
-    await expect(badge).toHaveAttribute('data-stale', 'false')
-    const legend = page.getByTestId('overhang-legend')
-    await expect(legend).toBeVisible()
-    await expect(legend).toContainText('°')
-    await badge.click()
-    const overhangs = healthItems(page, 'overhangs')
-    await expect(overhangs.first()).toBeVisible()
-    const before = await cameraTarget(page)
-    await overhangs.first().click()
-    await expectTargetChanged(page, before)
-    await expect(page.getByTestId('finding-marker')).toBeVisible()
-  })
+  test(
+    'E-47 Print shows its tools, the overhang map and findings that frame their place',
+    { tag: '@engines' },
+    async ({ page }) => {
+      await openApp(page)
+      await dropFile(page, 'overhang.ptsm')
+      await chooseContext(page, 'Print')
+      const buttons = printToolbar(page).getByRole('button')
+      const expected = [
+        'Printer:',
+        'Overhang map',
+        'Checks',
+        'Print check',
+        'Lay on face',
+        'Export 3MF',
+        'Export',
+      ]
+      await expect(buttons).toHaveCount(expected.length)
+      await Promise.all(
+        expected.map((prefix, index) =>
+          expect(buttons.nth(index)).toHaveAccessibleName(new RegExp(`^${escapeRegExp(prefix)}`)),
+        ),
+      )
+      await expect(printTool(page, 'Overhang map')).toHaveAttribute('aria-pressed', 'true')
+      const badge = healthBadge(page)
+      await expect(badge).toHaveAttribute('data-state', /^(warning|error)$/, { timeout: 20_000 })
+      await expect(badge).toHaveAttribute('data-stale', 'false')
+      const legend = page.getByTestId('overhang-legend')
+      await expect(legend).toBeVisible()
+      await expect(legend).toContainText('°')
+      await badge.click()
+      const overhangs = healthItems(page, 'overhangs')
+      await expect(overhangs.first()).toBeVisible()
+      const before = await cameraTarget(page)
+      await overhangs.first().click()
+      await expectTargetChanged(page, before)
+      await expect(page.getByTestId('finding-marker')).toBeVisible()
+    },
+  )
 
   test('E-48 choosing a printer shows it in the status bar, and undo restores it', async ({
     page,
@@ -308,7 +316,7 @@ test.describe('Print and export', () => {
     await expect(page.getByTestId('health-list')).toBeVisible()
   })
 
-  test('E-52 Export 3MF downloads a 3MF package', async ({ page }) => {
+  test('E-52 Export 3MF downloads a 3MF package', { tag: '@engines' }, async ({ page }) => {
     await openCubeInPrint(page)
     const file = await download(page, () => printTool(page, 'Export 3MF').click())
     expect(file.name).toBe('cube.3mf')
@@ -316,7 +324,7 @@ test.describe('Print and export', () => {
     await expect(notification(page, 'success', 'Exported cube.3mf.')).toBeVisible()
   })
 
-  test('E-53 the export popover exports binary STL', async ({ page }) => {
+  test('E-53 the export popover exports binary STL', { tag: '@engines' }, async ({ page }) => {
     await openCubeInPrint(page)
     const file = await exportFromPopover(page, 'STL')
     expect(file.name).toBe('cube.stl')

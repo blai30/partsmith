@@ -163,42 +163,44 @@ async function expectEveryItem(
 }
 
 test.describe('palette and shortcuts', () => {
-  test('E-10 the palette runs commands, finds other apps’ names and selects bodies', async ({
-    page,
-  }) => {
-    await openApp(page)
-    await dropFile(page, 'rect-sketch.ptsm')
-    await page.keyboard.press('ControlOrMeta+K')
-    await expect(page.getByTestId('palette')).toBeVisible()
-    await expect(page.getByTestId('palette-input')).toBeFocused()
-    await page.keyboard.type('ext')
-    const first = page.getByTestId('palette-option').first()
-    await expect(first).toContainText('Extrude')
-    await expect(first.getByTestId('palette-shortcut')).toHaveText('E')
-    await page.keyboard.press('Enter')
-    await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
-    await expect(inspector(page)).toHaveAccessibleName('Extrude')
-    await page.keyboard.press('Escape')
-    await expect(inspector(page)).toBeHidden()
+  test(
+    'E-10 the palette runs commands, finds other apps’ names and selects bodies',
+    { tag: '@engines' },
+    async ({ page }) => {
+      await openApp(page)
+      await dropFile(page, 'rect-sketch.ptsm')
+      await page.keyboard.press('ControlOrMeta+K')
+      await expect(page.getByTestId('palette')).toBeVisible()
+      await expect(page.getByTestId('palette-input')).toBeFocused()
+      await page.keyboard.type('ext')
+      const first = page.getByTestId('palette-option').first()
+      await expect(first).toContainText('Extrude')
+      await expect(first.getByTestId('palette-shortcut')).toHaveText('E')
+      await page.keyboard.press('Enter')
+      await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
+      await expect(inspector(page)).toHaveAccessibleName('Extrude')
+      await page.keyboard.press('Escape')
+      await expect(inspector(page)).toBeHidden()
 
-    await page.keyboard.press('ControlOrMeta+K')
-    await page.keyboard.type('pad')
-    await expect(
-      page
-        .getByTestId('palette-option')
-        .filter({ hasText: 'Extrude' })
-        .filter({ hasText: 'FreeCAD: Pad' }),
-    ).toHaveCount(1)
-    await page.keyboard.press('Escape')
-    await expect(page.getByTestId('palette')).toBeHidden()
+      await page.keyboard.press('ControlOrMeta+K')
+      await page.keyboard.type('pad')
+      await expect(
+        page
+          .getByTestId('palette-option')
+          .filter({ hasText: 'Extrude' })
+          .filter({ hasText: 'FreeCAD: Pad' }),
+      ).toHaveCount(1)
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('palette')).toBeHidden()
 
-    await dropFile(page, 'cube.ptsm')
-    await page.keyboard.press('ControlOrMeta+K')
-    await page.keyboard.type('Cube')
-    await page.keyboard.press('Enter')
-    await expect(page.getByTestId('viewport')).toHaveAttribute('data-selection-count', '1')
-    await expect(page.getByTestId('selection-title')).toHaveText('Cube')
-  })
+      await dropFile(page, 'cube.ptsm')
+      await page.keyboard.press('ControlOrMeta+K')
+      await page.keyboard.type('Cube')
+      await page.keyboard.press('Enter')
+      await expect(page.getByTestId('viewport')).toHaveAttribute('data-selection-count', '1')
+      await expect(page.getByTestId('selection-title')).toHaveText('Cube')
+    },
+  )
 
   test('E-11 letters typed into a parameter draft stay text; on the canvas they are shortcuts', async ({
     page,
@@ -338,32 +340,34 @@ test.describe('inspector, timeline and browser', () => {
     await expect(inspector(page).getByTestId('inspector-error')).toHaveAttribute('role', 'alert')
   })
 
-  test('E-29 editing a feature previews, Esc discards, Enter commits and undo reverts', async ({
-    page,
-  }) => {
-    await openApp(page)
-    await dropFile(page, 'cube.ptsm')
-    const extrude = timelineItem(page, 'Extrude 1').getByRole('button', { name: 'Extrude 1' })
-    await extrude.dblclick()
-    await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
-    await expect(inspectorInput(page, 'Distance')).toHaveValue('20 mm')
-    await fillInspector(page, 'Distance', '30')
-    await expectPreviewShown(page)
-    await page.keyboard.press('Escape')
-    // The double-click's clicks selected Extrude 1, so the selection inspector may take the place
-    // of the command's (ui.md 3.8, 3.9).
-    await expect(inspector(page)).not.toHaveAttribute('data-mode', 'command')
-    await expectBodySize(page, 'Cube', '20 × 20 × 20 mm')
+  test(
+    'E-29 editing a feature previews, Esc discards, Enter commits and undo reverts',
+    { tag: '@engines' },
+    async ({ page }) => {
+      await openApp(page)
+      await dropFile(page, 'cube.ptsm')
+      const extrude = timelineItem(page, 'Extrude 1').getByRole('button', { name: 'Extrude 1' })
+      await extrude.dblclick()
+      await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
+      await expect(inspectorInput(page, 'Distance')).toHaveValue('20 mm')
+      await fillInspector(page, 'Distance', '30')
+      await expectPreviewShown(page)
+      await page.keyboard.press('Escape')
+      // The double-click's clicks selected Extrude 1, so the selection inspector may take the place
+      // of the command's (ui.md 3.8, 3.9).
+      await expect(inspector(page)).not.toHaveAttribute('data-mode', 'command')
+      await expectBodySize(page, 'Cube', '20 × 20 × 20 mm')
 
-    await extrude.dblclick()
-    await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
-    await fillInspector(page, 'Distance', '30')
-    await page.keyboard.press('Enter')
-    await expect(inspector(page)).not.toHaveAttribute('data-mode', 'command')
-    await expectBodySize(page, 'Cube', '20 × 20 × 30 mm')
-    await page.keyboard.press('ControlOrMeta+Z')
-    await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', '20 × 20 × 20 mm')
-  })
+      await extrude.dblclick()
+      await expect(inspector(page)).toHaveAccessibleName('Extrude 1')
+      await fillInspector(page, 'Distance', '30')
+      await page.keyboard.press('Enter')
+      await expect(inspector(page)).not.toHaveAttribute('data-mode', 'command')
+      await expectBodySize(page, 'Cube', '20 × 20 × 30 mm')
+      await page.keyboard.press('ControlOrMeta+Z')
+      await expect(page.getByTestId('body-size')).toHaveAttribute('data-value', '20 × 20 × 20 mm')
+    },
+  )
 
   test('E-30 essential fields, More options and its remembered state', async ({ page }) => {
     await openApp(page)
@@ -418,21 +422,23 @@ test.describe('inspector, timeline and browser', () => {
     await expect(selectionField(page, 'edges')).toHaveAttribute('data-count', '1')
   })
 
-  test('E-33 hover picks faces, edges and vertices, and the selection filter limits them', async ({
-    page,
-  }) => {
-    await openApp(page)
-    await dropFile(page, 'cube.ptsm')
-    await fitView(page, 'Front')
-    const { cx, cy, H } = await canvas(page)
-    await expectHover(page, cx, cy, 'face')
-    await expectHover(page, cx, cy - 0.4 * H, 'edge')
-    await expectHover(page, cx + 0.4 * H, cy - 0.4 * H, 'vertex')
-    await uncheckFilter(page, 'Edges')
-    await uncheckFilter(page, 'Vertices')
-    await expectHover(page, cx, cy - 0.4 * H + 2, 'face')
-    await expectHover(page, cx + 0.4 * H - 2, cy - 0.4 * H + 2, 'face')
-  })
+  test(
+    'E-33 hover picks faces, edges and vertices, and the selection filter limits them',
+    { tag: '@engines' },
+    async ({ page }) => {
+      await openApp(page)
+      await dropFile(page, 'cube.ptsm')
+      await fitView(page, 'Front')
+      const { cx, cy, H } = await canvas(page)
+      await expectHover(page, cx, cy, 'face')
+      await expectHover(page, cx, cy - 0.4 * H, 'edge')
+      await expectHover(page, cx + 0.4 * H, cy - 0.4 * H, 'vertex')
+      await uncheckFilter(page, 'Edges')
+      await uncheckFilter(page, 'Vertices')
+      await expectHover(page, cx, cy - 0.4 * H + 2, 'face')
+      await expectHover(page, cx + 0.4 * H - 2, cy - 0.4 * H + 2, 'face')
+    },
+  )
 
   test('E-34 click, Shift+click and a click on empty space set the selection', async ({ page }) => {
     await openApp(page)
