@@ -1002,12 +1002,13 @@ test('61: rust-platforms builds for the macOS deployment target of OCCT and the 
   assert.equal(await readFile(environmentFile, 'utf8'), 'MACOSX_DEPLOYMENT_TARGET=13.0\n')
 })
 
-test('61: rust-platforms saves its Rust cache only on main', async () => {
+test('61: rust-platforms saves its Rust cache only on main, also when its tests fail', async () => {
   const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
   const cache = usesStep(steps, 'Swatinem/rust-cache@v2.9.2')
 
   assert.deepEqual(stepMapping(steps[cache], 'with'), {
     'save-if': "${{ github.ref == 'refs/heads/main' }}",
+    'cache-on-failure': 'true',
   })
 })
 

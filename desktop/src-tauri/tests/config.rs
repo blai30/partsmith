@@ -20,11 +20,16 @@ fn repository_root() -> &'static Path {
         .expect("desktop/src-tauri is two folders below the repository root")
 }
 
+/// The text of a file, failing the test when it cannot be read.
+fn read_text(path: &Path) -> String {
+    fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("reading {} failed: {error}", path.display()))
+}
+
 /// Parses a JSON file of the crate folder.
 fn json_file(relative: &str) -> Value {
     let path = crate_folder().join(relative);
-    let text = fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("reading {} failed: {error}", path.display()));
+    let text = read_text(&path);
     serde_json::from_str(&text)
         .unwrap_or_else(|error| panic!("{} is not JSON: {error}", path.display()))
 }
@@ -262,8 +267,7 @@ fn t053_the_resource_is_the_desktop_notices_of_the_repository_root() {
         "{} is a regular file",
         resource.display()
     );
-    let text = fs::read_to_string(&resource)
-        .unwrap_or_else(|error| panic!("reading {} failed: {error}", resource.display()));
+    let text = read_text(&resource);
     assert_eq!(
         text.split('\n').next(),
         Some("Third-party notices for the Partsmith desktop app")
@@ -293,11 +297,36 @@ fn element<'text>(manifest: &'text str, name: &str) -> &'text str {
     &rest[..=end]
 }
 
+/// The tauri-build release whose `src/windows-app-manifest.xml` the committed manifest copies (desktop.md 2.2).
+const MANIFEST_COPIED_FROM_TAURI_BUILD: &str = "2.7.2";
+
+/// The versions of the package `name` that the repository's Cargo.lock locks.
+fn locked_versions(name: &str) -> Vec<String> {
+    let lock = read_text(&repository_root().join("Cargo.lock"));
+    let name_line = format!("name = \"{name}\"");
+    let lines: Vec<&str> = lock.lines().collect();
+    // Cargo.lock gives each package's version on the line after its name.
+    lines
+        .windows(2)
+        .filter(|pair| pair[0] == name_line)
+        .filter_map(|pair| pair[1].strip_prefix("version = \"")?.strip_suffix('"'))
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn t071_the_windows_manifest_is_a_copy_from_the_locked_tauri_build() {
+    assert_eq!(
+        locked_versions("tauri-build"),
+        [MANIFEST_COPIED_FROM_TAURI_BUILD],
+        "Cargo.lock no longer locks the tauri-build that windows-app-manifest.xml was copied from: compare it with \
+         the locked release's src/windows-app-manifest.xml, then update MANIFEST_COPIED_FROM_TAURI_BUILD and desktop.md 2.2"
+    );
+}
+
 #[test]
 fn t071_the_windows_manifest_asks_for_version_6_of_the_common_controls() {
-    let path = crate_folder().join("windows-app-manifest.xml");
-    let manifest = fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("reading {} failed: {error}", path.display()));
+    let manifest = read_text(&crate_folder().join("windows-app-manifest.xml"));
 
     assert_eq!(
         element(&manifest, "assembly"),

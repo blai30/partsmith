@@ -109,10 +109,12 @@ jobs:
           key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
           fail-on-cache-miss: true
       - run: rustup show active-toolchain || rustup toolchain install
-      # Saved on main alone, where every later run can restore it.
+      # Saved on main alone, where every later run can restore it, and also when the tests fail, since its post step
+      # otherwise saves only after a passing job and the first runs are expected to fail.
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       # --no-fail-fast, so one failing test binary does not hide the others.
       - id: crates
         run: cargo test --no-fail-fast -p partsmith-occt-sys -p partsmith-engine -p partsmith-desktop

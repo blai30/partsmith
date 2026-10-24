@@ -6,19 +6,19 @@ Open-source parametric CAD for people who design parts for 3D printing. Sketch, 
 
 ## Try it
 
-**On the web.** The web app deploys to Cloudflare Pages from `main` once CI passes there; its address goes here with the first production deployment. Each pull request gets a preview, linked from the pull request. CI tests the web app in Chromium (Firefox and WebKit follow, B-9 of the gap list).
+**On the web.** The web app deploys to Cloudflare Pages from `main` once CI passes there; its address goes here with the first production deployment. Each pull request gets a preview, linked from the pull request. The web app runs in the current Chrome, Edge, Firefox and Safari on desktop computers, from Chrome and Edge 114, Firefox 128 and Safari 17, and every change is tested in Chromium and every week in Firefox and WebKit.
 
 **On the desktop.** Desktop builds appear on [GitHub Releases](https://github.com/blai30/partsmith/releases) once the first release is published; until then there is nothing to download. Each release holds:
 
 - Windows x64: `Partsmith_{version}_x64-setup.exe`, a per-user installer that downloads WebView2 when it is missing.
-- macOS 13 or later on Apple silicon: `Partsmith_{version}_aarch64.dmg`.
+- macOS 13 or later on Apple silicon, with Safari 17 or later, whose engine the app draws with: `Partsmith_{version}_aarch64.dmg`.
 - Linux x86_64 with glibc 2.39 or later and WebKitGTK 4.1, such as Ubuntu 24.04: `Partsmith_{version}_amd64.deb`, `Partsmith-{version}-1.x86_64.rpm` or `Partsmith_{version}_amd64.AppImage`.
 
 These builds are not signed yet. On Windows, SmartScreen may say "Windows protected your PC": choose More info, then Run anyway. On macOS, the first open is blocked: open System Settings, then Privacy & Security, and choose Open Anyway for Partsmith. On Linux, the .deb, .rpm and .AppImage need glibc 2.39 or later and WebKitGTK 4.1, as on Ubuntu 24.04. To check a download, run sha256sum -c SHA256SUMS --ignore-missing in the folder that holds it.
 
 ## Building
 
-CI builds from source on Linux; the release workflow builds the Windows and macOS apps. On Linux you need:
+CI builds and tests every pull request from source on Linux. The [platforms workflow](.github/workflows/platforms.yml) builds and tests Windows and macOS every week, and the release workflow builds the Windows and macOS apps. On Linux you need:
 
 - Git, CMake, Ninja and a C++17 compiler, for OCCT.
 - [rustup](https://rustup.rs), which installs the Rust of `rust-toolchain.toml` and its WebAssembly target (`rustup toolchain install` in the repository).

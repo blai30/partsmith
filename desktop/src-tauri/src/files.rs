@@ -706,8 +706,6 @@ fn file_name(path: &Path) -> String {
 mod tests {
     use super::*;
 
-    use std::time::Duration;
-
     #[cfg(unix)]
     #[test]
     fn a_temporary_file_has_the_target_permissions_before_any_byte_is_written() {
