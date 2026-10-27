@@ -19,7 +19,8 @@ pub struct SessionOptions {
     pub display: bool,
     /// Generates ids for records the engine creates (STEP import).
     pub id_generator: Box<dyn IdGenerator + Send>,
-    /// Soft upper bound for cached recompute and tessellation results, in bytes.
+    /// Soft upper bound for cached recompute and tessellation results, in bytes, split in halves
+    /// between the two caches (engine.md section 3.17).
     pub cache_budget: usize,
     /// Committed transactions kept per document for undo.
     pub undo_limit: usize,

@@ -28,10 +28,29 @@ use crate::state::{self, Computed};
 use crate::status::{feature_statuses, parameter_values};
 use crate::types::{Asset, EngineInfo, Opened, Saved};
 
-/// Bytes of one cached recompute result the engine assumes when it turns its byte budget into
-/// recompute's entry limit (recompute evicts by entry count in M1, recompute.md section 1), so
-/// the default 1 GiB budget keeps recompute's default of 4096 results.
+/// Bytes of one cached recompute result the engine assumes when it turns recompute's half of
+/// `cache_budget` into recompute's entry limit (recompute evicts by entry count, recompute.md
+/// section 3.7), so the default 1 GiB budget keeps 2048 results (engine.md section 3.17).
 const ESTIMATED_RESULT_BYTES: usize = 256 << 10;
+
+/// The shares of `cache_budget` that the session's two caches get (engine.md section 3.17).
+#[derive(Debug, Clone, Copy)]
+struct CacheShares {
+    /// The tessellation cache's budget in bytes: half of `cache_budget`, rounded down.
+    display_bytes: usize,
+    /// The recompute cache's limit: the other half in results of `ESTIMATED_RESULT_BYTES`.
+    recompute_results: usize,
+}
+
+/// Splits `cache_budget` in halves between the tessellation cache and the recompute cache, so the
+/// two together hold about `cache_budget` beyond what is pinned (engine.md section 3.17).
+fn cache_shares(cache_budget: usize) -> CacheShares {
+    let display_bytes = cache_budget / 2;
+    CacheShares {
+        display_bytes,
+        recompute_results: (cache_budget - display_bytes) / ESTIMATED_RESULT_BYTES,
+    }
+}
 
 /// The engine: open documents, caches and the feature registry.
 pub struct Session {
@@ -76,10 +95,8 @@ impl Session {
     /// Creates a session with the built-in feature registry and printer profiles.
     pub fn new(options: SessionOptions) -> Self {
         let registry = Arc::new(Registry::with_builtins());
-        let recompute = Recompute::with_cache_limit(
-            Arc::clone(&registry),
-            options.cache_budget / ESTIMATED_RESULT_BYTES,
-        );
+        let shares = cache_shares(options.cache_budget);
+        let recompute = Recompute::with_cache_limit(Arc::clone(&registry), shares.recompute_results);
         Session {
             display: options.display,
             undo_limit: options.undo_limit,
@@ -91,7 +108,7 @@ impl Session {
             documents: BTreeMap::new(),
             next_handle: 1,
             next_mesh_id: 1,
-            cache: DisplayCache::new(options.cache_budget),
+            cache: DisplayCache::new(shares.display_bytes),
             inspections: Inspections::default(),
         }
     }
