@@ -9,13 +9,16 @@
 //! cargo test -p partsmith-wasm --test integration web_parity:: -- --ignored
 //! ```
 //!
-//! Asked for, it fails instead of skipping when Node or the built module is missing. It finds both as `web_module.rs` does (set `NODE` to use a Node other than the one on `PATH`). Its frame files, under `CARGO_TARGET_TMPDIR`, are kept when it fails and deleted when it passes.
+//! Asked for, it fails instead of skipping when Node or the built module is missing. It finds both as `web_module.rs` does (set `NODE` to use a Node other than the one on `PATH`). It stops Node at [`NODE_LIMIT`], so a web core that stops answering fails with the request it did not answer. Its frame files, under `CARGO_TARGET_TMPDIR`, are kept when it fails and deleted when it passes.
 
 mod comparison;
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use partsmith_protocol::{Buffer, Request, decode_response_frame, encode_request_frame};
 use partsmith_wasm::call;
@@ -37,6 +40,12 @@ const EXAMPLES: &str = "examples";
 
 /// The folder beside a document that holds the files it may import.
 const ASSETS: &str = "assets";
+
+/// How long the Node script may run: it takes about 15 s here, so a web core that stops answering fails the test long before the 60 minutes of the CI job (engine.md test 154).
+const NODE_LIMIT: Duration = Duration::from_secs(600);
+
+/// How often the test looks whether Node has ended.
+const NODE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// The repository root.
 fn repository_root() -> PathBuf {
@@ -297,38 +306,97 @@ fn read_frames(bytes: &[u8]) -> Vec<Vec<u8>> {
 
 /// How the Node script ended.
 struct NodeExit {
+    /// Whether it exited with status 0.
     success: bool,
-    /// `status {code}`, or how a signal ended it.
-    status: String,
+    /// How it ended, as a failure line writes it after `Node` or `parity.mjs`: `exited with status {code}`, `exited with` how a signal ended it, or `was stopped at its limit of {seconds} s`.
+    end: String,
     /// Its standard error, trimmed.
     stderr: String,
 }
 
 impl NodeExit {
-    /// The end of a script with exit status `status` and standard error `stderr`.
-    fn new(status: ExitStatus, stderr: &[u8]) -> NodeExit {
+    /// The end of a script that exited with `status` and wrote `stderr`.
+    fn exited(status: ExitStatus, stderr: &[u8]) -> NodeExit {
+        let code = status
+            .code()
+            .map_or_else(|| status.to_string(), |code| format!("status {code}"));
         NodeExit {
             success: status.success(),
-            status: status
-                .code()
-                .map_or_else(|| status.to_string(), |code| format!("status {code}")),
-            stderr: String::from_utf8_lossy(stderr).trim().to_owned(),
+            end: format!("exited with {code}"),
+            stderr: trimmed_text(stderr),
         }
+    }
+
+    /// The end of a script that the test stopped after it ran for `limit`, having written `stderr`.
+    fn stopped(limit: Duration, stderr: &[u8]) -> NodeExit {
+        NodeExit {
+            success: false,
+            end: format!("was stopped at its limit of {} s", limit.as_secs_f64()),
+            stderr: trimmed_text(stderr),
+        }
+    }
+}
+
+/// Bytes a process wrote, as trimmed text.
+fn trimmed_text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim().to_owned()
+}
+
+/// Runs `command` with its standard error read, and stops it once it has run for `limit`.
+fn run_within(mut command: Command, limit: Duration) -> NodeExit {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .unwrap_or_else(|error| panic!("{command:?} starts: {error}"));
+    let mut stderr = child.stderr.take().expect("standard error is piped");
+    // Read on its own thread, so that a full pipe cannot hold the process up.
+    let reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr
+            .read_to_end(&mut bytes)
+            .expect("standard error is readable");
+        bytes
+    });
+    let status = wait_within(&mut child, limit);
+    let stderr = reader
+        .join()
+        .expect("reading standard error does not panic");
+    match status {
+        Some(status) => NodeExit::exited(status, &stderr),
+        None => NodeExit::stopped(limit, &stderr),
+    }
+}
+
+/// Waits until `child` ends, or stops it once it has run for `limit`; `None` when it was stopped.
+fn wait_within(child: &mut Child, limit: Duration) -> Option<ExitStatus> {
+    let deadline = Instant::now() + limit;
+    loop {
+        if let Some(status) = child.try_wait().expect("a child's status is readable") {
+            return Some(status);
+        }
+        if Instant::now() >= deadline {
+            child.kill().expect("a running child can be stopped");
+            child.wait().expect("a stopped child ends");
+            return None;
+        }
+        thread::sleep(NODE_POLL_INTERVAL);
     }
 }
 
 /// Runs `tests/node/parity.mjs`, which sends the frames of `requests` through the module and appends its response frames to `responses`.
 fn run_web_core(module: &Path, wasm: &Path, requests: &Path, responses: &Path) -> NodeExit {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/node/parity.mjs");
-    let output = Command::new(node())
+    let mut command = Command::new(node());
+    command
         .arg(&script)
         .arg(module)
         .arg(wasm)
         .arg(requests)
-        .arg(responses)
-        .output()
-        .expect("Node ran a moment ago, so it starts again");
-    NodeExit::new(output.status, &output.stderr)
+        .arg(responses);
+    run_within(command, NODE_LIMIT)
 }
 
 /// The failure lines of one request whose response frame from the web core is `response`: its differences, or which frame does not decode.
@@ -370,9 +438,9 @@ fn failure_lines(exchanges: &[Exchange], responses: &[Vec<u8>], exit: &NodeExit)
         .collect();
     if let Some(unanswered) = exchanges.get(responses.len()) {
         lines.push(format!(
-            "{}: no response from the web core (Node exited with {}: {})",
+            "{}: no response from the web core (Node {}: {})",
             unanswered.label(),
-            exit.status,
+            exit.end,
             exit.stderr
         ));
     } else if responses.len() > exchanges.len() {
@@ -383,8 +451,8 @@ fn failure_lines(exchanges: &[Exchange], responses: &[Vec<u8>], exit: &NodeExit)
         ));
     } else if !exit.success {
         lines.push(format!(
-            "parity.mjs exited with {} after answering every request: {}",
-            exit.status, exit.stderr
+            "parity.mjs {} after answering every request: {}",
+            exit.end, exit.stderr
         ));
     }
     lines
@@ -690,7 +758,7 @@ fn engine_info_response(id: u64) -> Vec<u8> {
 fn clean_exit() -> NodeExit {
     NodeExit {
         success: true,
-        status: "status 0".to_owned(),
+        end: "exited with status 0".to_owned(),
         stderr: String::new(),
     }
 }
@@ -754,7 +822,7 @@ fn the_first_request_without_a_response_is_named_with_how_node_ended() {
     ];
     let exit = NodeExit {
         success: false,
-        status: "status 1".to_owned(),
+        end: "exited with status 1".to_owned(),
         stderr: "RuntimeError: unreachable".to_owned(),
     };
 
@@ -773,7 +841,7 @@ fn a_script_that_fails_after_answering_every_request_is_named() {
     let exchanges = [exchange("engine_info", 1, engine_info_response(1))];
     let exit = NodeExit {
         success: false,
-        status: "status 13".to_owned(),
+        end: "exited with status 13".to_owned(),
         stderr: "unsettled top-level await".to_owned(),
     };
 
@@ -784,6 +852,37 @@ fn a_script_that_fails_after_answering_every_request_is_named() {
         [
             "parity.mjs exited with status 13 after answering every request: unsettled top-level await"
         ]
+    );
+}
+
+#[test]
+fn the_first_request_without_a_response_is_named_with_the_limit_that_stopped_node() {
+    let exchanges = [
+        exchange("engine_info", 1, engine_info_response(1)),
+        exchange("measure", 2, engine_info_response(2)),
+    ];
+    let exit = NodeExit::stopped(NODE_LIMIT, b"loaded\n");
+
+    let lines = failure_lines(&exchanges, &[engine_info_response(1)], &exit);
+
+    assert_eq!(
+        lines,
+        [
+            "examples/box/default.ptsm measure (request 2): no response from the web core (Node was stopped at its limit of 600 s: loaded)"
+        ]
+    );
+}
+
+#[test]
+fn a_script_stopped_after_answering_every_request_is_named() {
+    let exchanges = [exchange("engine_info", 1, engine_info_response(1))];
+    let exit = NodeExit::stopped(NODE_LIMIT, b"");
+
+    let lines = failure_lines(&exchanges, &[engine_info_response(1)], &exit);
+
+    assert_eq!(
+        lines,
+        ["parity.mjs was stopped at its limit of 600 s after answering every request: "]
     );
 }
 
@@ -819,9 +918,50 @@ fn the_failure_names_the_frame_files_and_ends_with_the_rebuild_hint() {
 fn a_status_names_its_exit_code() {
     use std::os::unix::process::ExitStatusExt;
 
-    let exit = NodeExit::new(ExitStatus::from_raw(1 << 8), b"  trap\n");
+    let exit = NodeExit::exited(ExitStatus::from_raw(1 << 8), b"  trap\n");
 
     assert!(!exit.success);
-    assert_eq!(exit.status, "status 1");
+    assert_eq!(exit.end, "exited with status 1");
     assert_eq!(exit.stderr, "trap");
+}
+
+// The time limit.
+
+/// A shell command, as a stand-in for Node.
+#[cfg(unix)]
+fn shell(script: &str) -> Command {
+    let mut command = Command::new("sh");
+    command.arg("-c").arg(script);
+    command
+}
+
+#[cfg(unix)]
+#[test]
+fn a_script_that_ends_within_the_limit_gives_its_status_and_standard_error() {
+    let exit = run_within(shell("echo trap >&2; exit 3"), Duration::from_secs(60));
+
+    assert!(!exit.success);
+    assert_eq!(exit.end, "exited with status 3");
+    assert_eq!(exit.stderr, "trap");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_script_past_the_limit_is_stopped_with_what_it_wrote() {
+    let started = Instant::now();
+
+    // `exec` makes the shell the sleep, so stopping it closes standard error.
+    let exit = run_within(
+        shell("echo loaded >&2; exec sleep 60"),
+        Duration::from_millis(300),
+    );
+
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(!exit.success);
+    assert_eq!(exit.end, "was stopped at its limit of 0.3 s");
+    assert_eq!(exit.stderr, "loaded");
 }

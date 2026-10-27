@@ -1,16 +1,44 @@
 //! The comparison of engine.md test 154: the header of a response frame of the web core and that of the native session, as JSON, by the rules of engine.md section 3.18.
 //!
-//! Objects have the same keys in the same order and arrays the same length; strings, booleans, `null` and numbers written as integers are equal; any other two numbers agree within `max(1e-9 * |native|, 1e-9)`, an arc's `start_angle` and `end_angle` modulo 2π. In the `print_health` event and in a `list_elements` result numbers agree within `max(1e-6 * |native|, 1e-6)`, the tolerance of delivery.md section 2.8, and the findings' `triangles` are left out; of each entry of the header's `buffers` only `element_type` is compared.
+//! Objects have the same keys in the same order and arrays the same length; strings, booleans, `null` and numbers written as integers are equal; any other two numbers agree within `max(1e-9 * |native|, 1e-9)`, an arc's `start_angle` and `end_angle` modulo 2π. In a `list_elements` result numbers agree within `max(1e-9 * |native|, 1e-8)`. In the `print_health` event numbers agree within `max(1e-6 * |native|, 1e-6)`, the tolerance of delivery.md section 2.8, and the findings' `triangles` are left out. Of each entry of the header's `buffers` only `element_type` is compared.
 
 use std::f64::consts::TAU;
 
 use serde_json::{Map, Number, Value, json};
 
-/// Relative tolerance, and absolute floor near zero, of numbers that are not integers (engine.md section 3.18).
-const TOLERANCE: f64 = 1e-9;
+/// How far a number that is not an integer may be from the native one: `max(relative * |native|, floor)`.
+#[derive(Clone, Copy, Debug)]
+struct Tolerance {
+    /// The bound as a fraction of the native number.
+    relative: f64,
+    /// The absolute bound near zero.
+    floor: f64,
+}
 
-/// Relative tolerance, and absolute floor near zero, of the numbers of a print report and of the geometry of element descriptors (delivery.md section 2.8, engine.md section 3.18).
-const PLATFORM_TOLERANCE: f64 = 1e-6;
+impl Tolerance {
+    /// The largest difference allowed from `native`.
+    fn bound(self, native: f64) -> f64 {
+        (self.relative * native.abs()).max(self.floor)
+    }
+}
+
+/// The tolerance of numbers that are not integers (engine.md section 3.18).
+const TOLERANCE: Tolerance = Tolerance {
+    relative: 1e-9,
+    floor: 1e-9,
+};
+
+/// The tolerance of the geometry of element descriptors: a floor ten times higher, since OCCT builds some faces, such as fillets, to a tolerance of its own, which moves their coordinates near zero by up to 1.6e-9 (engine.md section 3.18 and open issue 18).
+const ELEMENT_TOLERANCE: Tolerance = Tolerance {
+    relative: 1e-9,
+    floor: 1e-8,
+};
+
+/// The tolerance of the numbers of a print report (delivery.md section 2.8).
+const PRINT_TOLERANCE: Tolerance = Tolerance {
+    relative: 1e-6,
+    floor: 1e-6,
+};
 
 /// One place where the two headers differ, as a failure line of test 154 writes it.
 #[derive(Debug, PartialEq)]
@@ -35,20 +63,21 @@ pub fn compare_headers(wasm: &Value, native: &Value) -> Vec<Difference> {
 enum Scope {
     /// Numbers within [`TOLERANCE`].
     Frame,
-    /// The `print_health` event: numbers within [`PLATFORM_TOLERANCE`], and every finding's `triangles` left out.
+    /// The `print_health` event: numbers within [`PRINT_TOLERANCE`], and every finding's `triangles` left out.
     PrintHealth,
-    /// A `list_elements` response: numbers within [`PLATFORM_TOLERANCE`].
+    /// A `list_elements` response: numbers within [`ELEMENT_TOLERANCE`].
     ElementList,
     /// An entry of the header's `buffers`: `offset` and `length` left out.
     BufferEntry,
 }
 
 impl Scope {
-    /// The relative tolerance and absolute floor of numbers that are not integers.
-    fn tolerance(self) -> f64 {
+    /// The tolerance of numbers that are not integers.
+    fn tolerance(self) -> Tolerance {
         match self {
-            Scope::PrintHealth | Scope::ElementList => PLATFORM_TOLERANCE,
             Scope::Frame | Scope::BufferEntry => TOLERANCE,
+            Scope::ElementList => ELEMENT_TOLERANCE,
+            Scope::PrintHealth => PRINT_TOLERANCE,
         }
     }
 
@@ -201,29 +230,24 @@ impl Comparison {
     }
 }
 
-/// Whether two numbers agree: equal when both are written as integers (no fraction or exponent), else within `tolerance` relative to the native one, with `tolerance` as the absolute floor.
-fn numbers_agree(wasm: &Number, native: &Number, tolerance: f64) -> bool {
+/// Whether two numbers agree: equal when both are written as integers (no fraction or exponent), else within `tolerance` of the native one.
+fn numbers_agree(wasm: &Number, native: &Number, tolerance: Tolerance) -> bool {
     if !wasm.is_f64() && !native.is_f64() {
         return wasm == native;
     }
     match (wasm.as_f64(), native.as_f64()) {
         (Some(wasm_value), Some(native_value)) => {
-            (wasm_value - native_value).abs() <= bound(native_value, tolerance)
+            (wasm_value - native_value).abs() <= tolerance.bound(native_value)
         }
         _ => false,
     }
 }
 
 /// Whether two angles agree within `tolerance` after taking away whole turns.
-fn angles_agree(wasm: f64, native: f64, tolerance: f64) -> bool {
+fn angles_agree(wasm: f64, native: f64, tolerance: Tolerance) -> bool {
     let difference = wasm - native;
     let residual = difference - (difference / TAU).round() * TAU;
-    residual.abs() <= bound(native, tolerance)
-}
-
-/// The largest difference allowed from `native`: `max(tolerance * |native|, tolerance)`.
-fn bound(native: f64, tolerance: f64) -> f64 {
-    (tolerance * native.abs()).max(tolerance)
+    residual.abs() <= tolerance.bound(native)
 }
 
 /// Whether `key` is an arc angle that whole turns may change.
@@ -538,31 +562,43 @@ fn offsets_and_lengths_outside_the_buffer_table_are_compared() {
     assert_eq!(found.pointer, "/result/length");
 }
 
-/// A `list_elements` response holding one face descriptor with `centroid`.
-fn element_list(name: &str, centroid: [f64; 3]) -> Value {
+/// The area of the face descriptor of most [`element_list`] tests.
+const ELEMENT_AREA: f64 = 58.265482442415;
+
+/// A `list_elements` response holding one face descriptor with `centroid` and `area`.
+fn element_list(name: &str, centroid: [f64; 3], area: f64) -> Value {
     header_with(json!({
         "kind": "response",
         "id": 4,
         "result": {"kind": "ok", "type": "list_elements", "elements": [
-            {"name": name, "kind": "face", "centroid": centroid, "area": 58.265482442415}
+            {"name": name, "kind": "face", "centroid": centroid, "area": area}
         ]}
     }))
 }
 
 #[test]
-fn element_geometry_agrees_within_1e_6() {
-    let native = element_list("f-box1/top", [-14.3, -1.2472724759996512e-9, 9.2]);
+fn element_coordinates_near_zero_agree_within_1e_8() {
+    // The largest gaps of open issue 18: the centroid of the fillet face of `fillet/pipe-tee` and of `fillet/top-loop`.
+    let native = element_list(
+        "f-fil1/round",
+        [-0.00023728924978883015, -1.2472724759996512e-9, 9.2],
+        ELEMENT_AREA,
+    );
 
-    let wasm = element_list("f-box1/top", [-14.3, 3.047509815814846e-13, 9.2]);
+    let wasm = element_list(
+        "f-fil1/round",
+        [-0.00023729083668833084, 3.047509815814846e-13, 9.2],
+        ELEMENT_AREA,
+    );
 
     assert_eq!(compare_headers(&wasm, &native), []);
 }
 
 #[test]
-fn element_geometry_past_1e_6_differs() {
-    let native = element_list("f-box1/top", [-14.3, 0.0, 9.2]);
+fn element_coordinates_near_zero_past_1e_8_differ() {
+    let native = element_list("f-box1/top", [-14.3, 0.0, 9.2], ELEMENT_AREA);
 
-    let wasm = element_list("f-box1/top", [-14.3, 2e-6, 9.2]);
+    let wasm = element_list("f-box1/top", [-14.3, 1.1e-8, 9.2], ELEMENT_AREA);
 
     assert_eq!(
         only_difference(&wasm, &native).pointer,
@@ -571,10 +607,32 @@ fn element_geometry_past_1e_6_differs() {
 }
 
 #[test]
-fn element_names_must_be_equal() {
-    let native = element_list("f-box1/top", [0.0; 3]);
+fn element_geometry_agrees_within_1e_9_relative() {
+    let native = element_list("f-box1/top", [-14.3, 0.0, 9.2], ELEMENT_AREA);
 
-    let wasm = element_list("f-box1/bottom", [0.0; 3]);
+    let wasm = element_list("f-box1/top", [-14.3, 0.0, 9.2], ELEMENT_AREA + 5e-8);
+
+    assert_eq!(compare_headers(&wasm, &native), []);
+}
+
+#[test]
+fn element_geometry_past_1e_9_relative_differs() {
+    let native = element_list("f-box1/top", [-14.3, 0.0, 9.2], ELEMENT_AREA);
+
+    // 1e-7 relative: within a print report's 1e-6, but not within the 1e-9 of element geometry.
+    let wasm = element_list("f-box1/top", [-14.3, 0.0, 9.2], ELEMENT_AREA * (1.0 + 1e-7));
+
+    assert_eq!(
+        only_difference(&wasm, &native).pointer,
+        "/messages/0/result/elements/0/area"
+    );
+}
+
+#[test]
+fn element_names_must_be_equal() {
+    let native = element_list("f-box1/top", [0.0; 3], ELEMENT_AREA);
+
+    let wasm = element_list("f-box1/bottom", [0.0; 3], ELEMENT_AREA);
 
     assert_eq!(
         only_difference(&wasm, &native),

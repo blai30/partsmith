@@ -32,7 +32,7 @@ Every change is built and tested on Linux, in Chromium, before it merges, and ev
 | Auto-update | `tauri-plugin-updater`, the signing key secrets, `bundle.createUpdaterArtifacts` and a `latest.json` asset on the release (desktop.md 1.2). |
 | Line and branch coverage with `cargo-llvm-cov` (technical design section 16, 90 percent target for core crates) | A per-crate threshold decision and a job; it doubles test time, so it waits until the core crates are complete. |
 | The model corpus (500+ models), held-out corpus, naming metric and differential build123d tests (technical design sections 16 and 17) | The corpus itself, baseline storage and a build123d environment. |
-| Performance regression gates and visual tests on fixed hardware | A self-hosted runner on the reference machine (ui.md 6.6 and 6.7). |
+| Performance regression gates and visual tests on fixed hardware | A self-hosted runner on the reference machine (ui.md 6.6 and 6.7, and the web column of engine.md section 5). |
 | `cargo-semver-checks`, fuzzing (`cargo fuzz`) | Public API baselines after the first release; a nightly toolchain job. |
 | Serving oversized core files from Cloudflare R2 | See 3.5 step 3. |
 | Desktop end-to-end tests | A `tauri-driver` harness (desktop.md 1.2). |
@@ -59,7 +59,7 @@ ui/scripts/notices.test.mjs       its unit tests (node:test)
 ui/scripts/notices/               committed license texts the generator reads: standard texts, copies from crate repositories, OCCT's, Rust's, Emscripten's and WebView2's (2.9)
 ui/scripts/check-licenses.mjs     npm license check (2.10)
 ui/scripts/check-licenses.test.mjs  its unit tests (node:test)
-ui/scripts/workflows.test.mjs     tests of the four workflow files (node:test, tests 49 to 54, 57, 59 and 60 to 63)
+ui/scripts/workflows.test.mjs     tests of the four workflow files (node:test, tests 49 to 54, 57, 59 to 63, 66 and 67)
 scripts/occt-source-archive.sh    the OCCT source archive of a release (2.13)
 ui/scripts/occt-source-archive.test.mjs  its tests and those of the commit check of scripts/build-occt.sh (node:test, tests 55 and 58)
 ui/scripts/isolated-git.mjs       the Git environment of tests 52, 55 and 58 (section 6)
@@ -125,7 +125,7 @@ Triggers `push` to `main` and `pull_request`; `concurrency` `ci-${{ github.ref }
 | --- | --- | --- |
 | `occt-native` | | Restores or builds OCCT native into `.occt/native` (unchanged). |
 | `occt-wasm` | | Restores or builds OCCT for WebAssembly into `.occt/wasm` (unchanged). |
-| `kernel-wasm` | `occt-wasm` | `cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten` (unchanged), then `cargo test -p partsmith-sketch --target wasm32-unknown-emscripten` (the sketch suite under Node, sketch.md 3.12 and test 255) and `cargo test -p partsmith-engine --lib --target wasm32-unknown-emscripten dispatch::` (the engine's panic containment under Node, protocol.md test 84), each in a step of its own. |
+| `kernel-wasm` | `occt-wasm` | `cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten`, then `cargo test -p partsmith-sketch --target wasm32-unknown-emscripten` (the sketch suite under Node, sketch.md 3.12 and test 255) and `cargo test -p partsmith-engine --lib --target wasm32-unknown-emscripten dispatch::` (the engine's panic containment under Node, protocol.md test 84), each in a step of its own. |
 | `rust` | `occt-native` | Frees disk space and installs the Tauri Linux packages (3.2), then `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and prints the free disk space after the tests, also when they fail. The workspace includes `partsmith-desktop` and the examples runner. |
 | `deny` | | `cargo-deny` with `deny.toml` (unchanged action; the policy now covers the Tauri tree, 3.2). |
 | `ui` | | In `ui/`: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:scripts`, `pnpm check:licenses` (2.10). |
@@ -989,6 +989,7 @@ Tests 52 to 54, 57 and 59 are in `ui/scripts/workflows.test.mjs` and read the wo
 **WebAssembly test steps (2.4; test 66 in `ui/scripts/workflows.test.mjs`)**
 
 66. The steps of `kernel-wasm` and `core-wasm` in `ci.yml`. `kernel-wasm` has, after its step that uses `Swatinem/rust-cache`, three steps whose `run` is, in this order, `cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten`, `cargo test -p partsmith-sketch --target wasm32-unknown-emscripten` and `cargo test -p partsmith-engine --lib --target wasm32-unknown-emscripten dispatch::`. `core-wasm` has, after its step whose `run` is `scripts/build-wasm.sh` and before its step that uses `actions/upload-artifact`, a step whose `run` is `cargo test -p partsmith-wasm --test integration web_module::` with `env` `PARTSMITH_REQUIRE_WEB_MODULE: "1"`, then a step whose `run` is `cargo test -p partsmith-wasm --test integration web_parity:: -- --ignored`. A `run` written as a block scalar (`|`, which a command holding `:: ` or ending in `::` needs, since a plain YAML value cannot) is read as its one command line. Since a filter that matches no test passes with `running 0 tests`, the test also reads the sources the filters select: `crates/partsmith-wasm/tests/integration.rs` declares `mod web_module;` and `mod web_parity;`, `crates/partsmith-wasm/tests/web_parity.rs` has a `#[test]` with an `#[ignore` attribute next to it, and `crates/partsmith-engine/src/dispatch.rs` defines `fn a_panic_is_an_internal_error_that_poisons_its_document` and `fn a_poisoned_document_saves_its_recipe_from_before_the_failed_command`, the two tests protocol.md test 84 names.
+67. No workflow turns on the performance tests (ui.md 6.7, engine.md section 5, ADR 0043). No `.yml` file of `.github/workflows/`, `ci.yml`, `release.yml`, `nightly.yml` and `platforms.yml` among them, contains the text `PARTSMITH_PERF`, in an `env` at any level or in a `run`, so no job runs a `@perf` test, whose budgets hold only on the reference machine (1.2).
 
 ## 7. Open issues
 

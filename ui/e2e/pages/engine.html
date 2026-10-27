@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Engine benchmark test page</title>
+  </head>
+  <body>
+    <script type="module">
+      // The worker that runs the web core (engine.md section 5): the page is ready once it has put partsmithEngine on
+      // its global scope.
+      const worker = new Worker(new URL('./engine-worker.ts', import.meta.url), { type: 'module' })
+      worker.addEventListener(
+        'message',
+        () => {
+          document.body.dataset.ready = 'true'
+        },
+        { once: true },
+      )
+    </script>
+  </body>
+</html>

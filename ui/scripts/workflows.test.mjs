@@ -1,7 +1,7 @@
-// Acceptance tests 49 to 54, 57, 59 to 63 and 66 of docs/spec/delivery.md section 6 for the workflow files.
+// Acceptance tests 49 to 54, 57, 59 to 63, 66 and 67 of docs/spec/delivery.md section 6 for the workflow files.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -1239,4 +1239,22 @@ test('66: a run written as a block scalar is read as its one command line', () =
   assert.equal(runCommand(['run: |', `  ${WEB_PARITY_TESTS}`]), WEB_PARITY_TESTS)
   assert.equal(runCommand(['run: scripts/build-wasm.sh']), 'scripts/build-wasm.sh')
   assert.equal(runCommand(['run: |', '  cargo build', '  cargo test']), 'cargo build\ncargo test')
+})
+
+// The variable that turns on the performance tests (ui.md 6.7, engine.md section 5), whose budgets hold only on the
+// reference machine (section 1.2).
+const PERFORMANCE_VARIABLE = 'PARTSMITH_PERF'
+
+test('67: no workflow file names PARTSMITH_PERF, so no job runs the performance tests', async () => {
+  const files = (await readdir(workflowsDirectory))
+    .filter((name) => name.endsWith('.yml'))
+    .toSorted()
+  for (const file of ['ci.yml', 'nightly.yml', 'platforms.yml', 'release.yml']) {
+    assert.ok(files.includes(file), `.github/workflows holds ${file}`)
+  }
+  const texts = await Promise.all(files.map((file) => workflowText(file)))
+
+  files.forEach((file, i) => {
+    assert.ok(!texts[i].includes(PERFORMANCE_VARIABLE), `${file} names ${PERFORMANCE_VARIABLE}`)
+  })
 })

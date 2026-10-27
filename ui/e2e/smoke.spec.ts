@@ -123,6 +123,8 @@ test('percentile is the nearest-rank percentile of the values in any order', () 
   expect(percentile(oneToTwenty.slice(0, 10).toReversed(), 0.95)).toBe(10)
   expect(percentile(oneToTwenty, 0.5)).toBe(10)
   expect(percentile(oneToTwenty, 0.95)).toBe(19)
+  // The 4th of 7, which median of partsmith-budgets takes, as the engine's web rows use it (engine.md section 5).
+  expect(percentile([7, 1, 6, 2, 5, 3, 4], 0.5)).toBe(4)
   expect(() => percentile([], 0.5)).toThrow('A percentile needs at least one value.')
 })
 

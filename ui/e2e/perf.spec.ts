@@ -21,6 +21,7 @@ import {
 } from './helpers'
 import type { measureTransfers } from './pages/transfer-harness'
 import { openTimelineMenu } from './support/modeling'
+import { expectWithinBudgets, type Measured } from './support/perf'
 import { wheelAt } from './support/print'
 import { editSketchFromTimeline } from './support/sketch'
 import { serveTestPage } from './support/test-pages'
@@ -44,30 +45,6 @@ const REBUILD_TIMEOUT_MILLISECONDS = 30_000
  * the pick takes seconds, so the default expect timeout would end the run before it reports.
  */
 const PICK_TIMEOUT_MILLISECONDS = 30_000
-
-/** A measured value and the budget it is held to. */
-type Measured = { readonly statistic: string; readonly value: number; readonly budget: number }
-
-/** A value in milliseconds rounded to 0.01 ms, as the annotations write it. */
-function formatMilliseconds(value: number): string {
-  return String(Math.round(value * 100) / 100)
-}
-
-/**
- * Adds one `perf` annotation per measured value, written `{id} {statistic}: {value} ms (budget
- * {budget} ms)`, then holds every value to its budget (ui.md 6.7).
- */
-function expectWithinBudgets(id: string, measured: readonly Measured[]): void {
-  for (const { statistic, value, budget } of measured) {
-    test.info().annotations.push({
-      type: 'perf',
-      description: `${id} ${statistic}: ${formatMilliseconds(value)} ms (budget ${String(budget)} ms)`,
-    })
-  }
-  for (const { statistic, value, budget } of measured) {
-    expect.soft(value, `${id} ${statistic}`).toBeLessThanOrEqual(budget)
-  }
-}
 
 /**
  * The nearest-rank percentile of `values`, or NaN when there is none, so the test still reports
