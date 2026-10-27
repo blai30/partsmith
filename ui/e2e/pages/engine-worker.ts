@@ -3,7 +3,12 @@
 // The module worker of e2e/pages/engine.html (engine.md section 5): it compiles the web core module once, makes new
 // instances of it, and times each request around `callCore`, the path the app's core worker takes. The tests reach its
 // four functions on `partsmithEngine` through Playwright's `Worker.evaluate`.
-import { callCore, wrapEmscriptenModule, type EmscriptenCoreModule, type CoreModule } from '../../src/core/bridge'
+import {
+  callCore,
+  wrapEmscriptenModule,
+  type CoreModule,
+  type EmscriptenCoreModule,
+} from '../../src/core/bridge'
 import { decodeFrame, encodeFrame } from '../../src/core/frame'
 import { PROTOCOL_VERSION, type Command, type Message } from '../../src/generated/protocol'
 
@@ -35,7 +40,9 @@ type InstantiateWasm = (
 ) => WebAssembly.Exports
 
 /** The default export of `partsmith_core.mjs`. */
-type CoreFactory = (options: { readonly instantiateWasm: InstantiateWasm }) => Promise<EmscriptenCoreModule>
+type CoreFactory = (options: {
+  readonly instantiateWasm: InstantiateWasm
+}) => Promise<EmscriptenCoreModule>
 
 /** A running instance and the id of its next request. */
 type Instance = { readonly core: CoreModule; nextId: number }
@@ -43,7 +50,7 @@ type Instance = { readonly core: CoreModule; nextId: number }
 // The global of this dedicated worker; the end-to-end program is type-checked with the DOM library.
 declare const self: {
   partsmithEngine: PartsmithEngine
-  postMessage(message: 'ready'): void
+  postMessage(message: 'ready', transfer: Transferable[]): void
 }
 
 const coreDirectory = `${import.meta.env.BASE_URL}core/`
@@ -80,7 +87,7 @@ async function start(): Promise<number> {
     instances.set(lastInstance, { core: wrapEmscriptenModule(core), nextId: 1 })
     return lastInstance
   } catch (error) {
-    throw new Error(`The web core did not start: ${String(error)}`)
+    throw new Error(`The web core did not start: ${String(error)}`, { cause: error })
   }
 }
 
@@ -106,19 +113,19 @@ function call(instance: number, command: Command): Answer {
     { protocol_version: PROTOCOL_VERSION, messages: [{ kind: 'request', id, command }] },
     [],
   )
+  const startTime = performance.now()
   let response: ArrayBuffer
-  let milliseconds: number
   try {
-    const startTime = performance.now()
     response = callCore(target.core, request)
-    milliseconds = performance.now() - startTime
   } catch (error) {
     // A trap, an abort or an allocation the core refused leaves the instance unusable.
     instances.delete(instance)
     throw new Error(
       `The web core stopped during ${command.type} (request ${String(id)}): ${String(error)}`,
+      { cause: error },
     )
   }
+  const milliseconds = performance.now() - startTime
   return { type: command.type, id, milliseconds, messages: decodeFrame(response).header.messages }
 }
 
@@ -132,4 +139,4 @@ self.partsmithEngine = {
     }
   },
 }
-self.postMessage('ready')
+self.postMessage('ready', [])

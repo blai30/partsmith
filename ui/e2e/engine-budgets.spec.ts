@@ -1,8 +1,16 @@
 /// <reference lib="dom" />
 import { readFile } from 'node:fs/promises'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Route } from '@playwright/test'
 import { percentile } from './helpers'
-import { MEMORY_ROW, TIMED_ROWS, ok, openEngine, type Engine } from './support/engine-budgets'
+import type { Answer } from './pages/engine-worker'
+import {
+  MEMORY_ROW,
+  TIMED_ROWS,
+  ok,
+  openEngine,
+  warmUp,
+  type Engine,
+} from './support/engine-budgets'
 import { expectWithinBudgets } from './support/perf'
 import { serveTestPage } from './support/test-pages'
 
@@ -14,7 +22,10 @@ import { serveTestPage } from './support/test-pages'
 // other's load. Not serial, which would skip the rows after a failed one.
 test.describe.configure({ mode: 'default' })
 
-/** The samples each timed row takes; their median counts. */
+/**
+ * The samples each timed row takes, engine.md section 5's 7; their median counts. The test holds the rows to this
+ * number of its own, apart from the support module's, so a row that takes another number fails.
+ */
 const SAMPLES = 7
 
 /** The module's maximum memory, 4 GiB (`-sMAXIMUM_MEMORY=4GB`), which row 1's bytes stay below. */
@@ -25,9 +36,6 @@ const ROW_TIMEOUT_MILLISECONDS = 300_000
 
 /** A WebAssembly memory grows by whole pages of this size. */
 const WASM_PAGE_BYTES = 65_536
-
-/** The one 50-feature benchmark document (engine.md section 5). */
-const REFERENCE_PART = new URL('../../examples/bench/fifty-features/model.ptsm', import.meta.url)
 
 /** The desktop bench, whose rows the web rows port under the same names (engine.md section 5, "In step"). */
 const DESKTOP_BENCH = new URL('../../crates/partsmith-engine/benches/budgets.rs', import.meta.url)
@@ -90,8 +98,16 @@ const STOPPING_CORE = [
   '}',
 ].join('\n')
 
-/** An answer of the driver's `call`, as `ok` reads it. */
-type Answer = Parameters<typeof ok>[0]
+/** The path of the engine page's worker script, which test 157 answers in place of the dev server. */
+const WORKER_SCRIPT = '/e2e/pages/engine-worker.ts'
+
+/** The stand-in for the worker script of test 157, a module that throws as it runs. */
+const THROWING_WORKER = "throw new Error('stop the worker')"
+
+/** Answers a routed request of test 157 with a 404. */
+function notFound(route: Route): Promise<void> {
+  return route.fulfill({ status: 404, body: 'Not found' })
+}
 
 /** An answer of `close_document` with request `id` that took 0.25 ms and returned `messages`. */
 function closeDocumentAnswer(id: number, messages: Answer['messages']): Answer {
@@ -207,10 +223,7 @@ test("engine test 156: the engine page's driver", async ({ page }) => {
 
 test("engine test 157: the engine page's failures", async ({ page, context }) => {
   // In Chromium a page's routes also serve its workers' requests, as stallCore relies on (ui.md 6.3).
-  await page.route(
-    (url) => url.pathname.endsWith('/core/partsmith_core.wasm'),
-    (route) => route.fulfill({ status: 404, body: 'Not found' }),
-  )
+  await page.route((url) => url.pathname.endsWith('/core/partsmith_core.wasm'), notFound)
   const unbuilt = await openEngine(page, enginePage.url)
   await expect(unbuilt.start()).rejects.toThrow('The web core did not start: TypeError: ')
 
@@ -234,6 +247,22 @@ test("engine test 157: the engine page's failures", async ({ page, context }) =>
     type: 'engine_info',
   })
   await stopping.end(2)
+
+  // The worker's own failures reach openEngine's rejection instead of its timeout.
+  const throwingPage = await context.newPage()
+  await throwingPage.route(
+    (url) => url.pathname.endsWith(WORKER_SCRIPT),
+    // The dev server's response with another body: a worker of a cross-origin isolated page needs its headers to load.
+    async (route) => route.fulfill({ response: await route.fetch(), body: THROWING_WORKER }),
+  )
+  await expect(openEngine(throwingPage, enginePage.url)).rejects.toThrow(
+    "The engine page's worker did not start: Uncaught Error: stop the worker",
+  )
+  const missingPage = await context.newPage()
+  await missingPage.route((url) => url.pathname.endsWith(WORKER_SCRIPT), notFound)
+  await expect(openEngine(missingPage, enginePage.url)).rejects.toThrow(
+    "The engine page's worker did not start: its script did not load",
+  )
 })
 
 test.describe('web-column budgets', () => {
@@ -244,12 +273,9 @@ test.describe('web-column budgets', () => {
     test.setTimeout(ROW_TIMEOUT_MILLISECONDS)
     rowsPage = await browser.newPage()
     const engine = await openEngine(rowsPage, enginePage.url)
-    // One untimed cold open of the reference part, so every row, a row selected alone with -g too, starts on code V8
-    // has already optimized (engine.md section 5, open issue 19).
-    const warmUp = await engine.start()
-    const referencePart = await readFile(REFERENCE_PART, 'utf8')
-    ok(await engine.call(warmUp, { type: 'open_document', text: referencePart, assets: [] }))
-    await engine.end(warmUp)
+    // Every row, a row selected alone with -g too, starts with the code it shares with opening the reference part
+    // already optimized; code only one row runs warms up in that row's first samples (engine.md section 5).
+    await warmUp(engine)
     rowsEngine = engine
   })
 

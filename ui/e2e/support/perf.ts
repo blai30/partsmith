@@ -4,7 +4,11 @@ import { expect, test } from '@playwright/test'
 // engine-budgets.spec.ts (engine.md section 5).
 
 /** A measured value and the budget it is held to. */
-export type Measured = { readonly statistic: string; readonly value: number; readonly budget: number }
+export type Measured = {
+  readonly statistic: string
+  readonly value: number
+  readonly budget: number
+}
 
 /** A value in milliseconds rounded to 0.01 ms, as the annotations write it. */
 function formatMilliseconds(value: number): string {

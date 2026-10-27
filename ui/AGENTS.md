@@ -16,6 +16,8 @@ Print suggestions (ui.md 3.17, print.md 3.12, ADR 0040): `src/print/suggestion.t
 
 Drawing tools (ui.md 3.16.4, 3.16.5): `src/sketch/recipes.ts` and the commits of `src/sketch/drawing.ts` (`drawClick`) decide what each tool adds: ids in order, point order, the inferred snap, direction and tangent constraints, and typed dimensions. features/sketch.md tests 44 to 50 hold that output as `examples/sketch/tool-*.ptsm`, which no UI test reads, so a change to a tool's output updates those tests and examples in the same change.
 
+Engine web budgets (engine.md section 5, ADR 0043): `e2e/engine-budgets.spec.ts` measures the engine's web column by hand (`@perf`, `PARTSMITH_PERF=1`) on `e2e/pages/engine.html`, whose module worker `e2e/pages/engine-worker.ts` compiles `public/core/partsmith_core.wasm` once and times `callCore` on new instances of it. `e2e/support/engine-budgets.ts` holds the driver (`openEngine`, `ok`), the warm-up before the rows (`warmUp`) and the rows of `crates/partsmith-engine/benches/budgets.rs` ported under the same names (`MEMORY_ROW`, `TIMED_ROWS`), so a change to a row of `budgets.rs` (its documents, edits, samples or checks) changes its row here in the same change; engine test 156 checks the names on every e2e run. `e2e/support/perf.ts` holds `expectWithinBudgets`, which `perf.spec.ts` shares.
+
 ## Commands
 
 ```sh
@@ -31,6 +33,7 @@ pnpm notices             # rewrite both third-party notices files after changing
 pnpm check:notices       # both notices files against what the lock files give, as CI's schema job runs it
 pnpm build && pnpm check:dist   # the build in dist/ against the Pages file limit, the headers, the notices and the initial JavaScript limit (delivery.md 2.6)
 pnpm e2e                 # Playwright against the production build and the core in public/core (e2e/README.md); locally set PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
+PARTSMITH_PERF=1 pnpm e2e engine-budgets.spec.ts   # the engine's web-column budgets (engine.md section 5), by hand, one performance file at a time
 pnpm e2e --project firefox   # the tests tagged @engines in Firefox (or --project webkit), as the platforms workflow runs them; the two run only when --project names them (ui.md 6.8); Firefox runs headed, so without a display run it under xvfb-run --auto-servernum
 ```
 

@@ -7,9 +7,13 @@
 //! pick list`. Each operation runs several times and its median is compared with its budget; the
 //! benchmark fails when any median is over budget or when a selected budget cannot be measured.
 //! The budgets hold for a release build on the reference machine (technical design section 14).
-//! The web column is measured by the Playwright benchmark of the WebAssembly build. Resident
-//! memory is read from `/proc/self/status`, so it is measured on Linux only, and first, before
-//! the other operations grow the process.
+//! Resident memory is read from `/proc/self/status`, so it is measured on Linux only, and first,
+//! before the other operations grow the process.
+//!
+//! The web column is measured in Chromium by `ui/e2e/engine-budgets.spec.ts`, whose rows in
+//! `ui/e2e/support/engine-budgets.ts` port these under the same names, with the same documents,
+//! edits, samples and checks. A change to a row here changes its row there in the same change, and
+//! engine.md test 156 fails when a web row's name is no longer a string literal of this file.
 //!
 //! Phase 1 of the reference stability plan adds two rows (test 152): `apply_fix` of the
 //! `SetField` the lid fillet's "too large" error offers, and a parameter change that loses five

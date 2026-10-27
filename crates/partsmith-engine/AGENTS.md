@@ -40,6 +40,8 @@ cargo fmt -p partsmith-engine
 # performance budgets of engine.md section 5 (release build); fails when one is over
 cargo bench -p partsmith-engine --bench budgets
 cargo bench -p partsmith-engine --bench budgets -- pick list   # only operations whose names contain a word
+# the web column in Chromium against ui/public/core (engine.md section 5; scripts/build-wasm.sh first)
+PARTSMITH_PERF=1 pnpm -C ui e2e engine-budgets.spec.ts
 # the panic containment under Node, as CI's kernel-wasm runs it (protocol.md test 84; needs an activated Emscripten SDK)
 source /opt/emsdk/emsdk_env.sh >/dev/null 2>&1
 OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=/opt/occt/7.9.3/wasm cargo test -p partsmith-engine --lib --target wasm32-unknown-emscripten dispatch::
@@ -50,3 +52,4 @@ OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=/opt/occt/7.9.3/wasm cargo test -p partsmith
 - The single entry point for every host; hosts contain no modeling logic.
 - Acceptance tests in `tests/` come from the spec; do not weaken them.
 - `dispatch.rs`'s tests `a_panic_is_an_internal_error_that_poisons_its_document` and `a_poisoned_document_saves_its_recipe_from_before_the_failed_command` are protocol.md test 84 on WebAssembly, and delivery.md test 66 checks their names, so renaming one changes both tests. engine.md test 154, which compares the web core with a native session, lives in `partsmith-wasm` (`tests/web_parity.rs`).
+- The rows of `benches/budgets.rs` are ported to `ui/e2e/support/engine-budgets.ts` under the same names, which measures the web column (engine.md section 5, test 155). A change to a row's documents, edits, samples or checks changes its web row in the same change, and a new row gets a web row or a sentence in section 5 that says why it has none; engine test 156 fails when a web row's name is no longer a string literal of `budgets.rs`.

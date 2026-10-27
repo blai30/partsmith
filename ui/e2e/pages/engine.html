@@ -7,12 +7,26 @@
   <body>
     <script type="module">
       // The worker that runs the web core (engine.md section 5): the page is ready once it has put partsmithEngine on
-      // its global scope.
+      // its global scope, and marks the worker's error when the worker fails instead.
       const worker = new Worker(new URL('./engine-worker.ts', import.meta.url), { type: 'module' })
       worker.addEventListener(
         'message',
         () => {
           document.body.dataset.ready = 'true'
+        },
+        { once: true },
+      )
+      worker.addEventListener(
+        'error',
+        (event) => {
+          // An exception while the worker's modules ran comes as an ErrorEvent; a script or import that did not load
+          // or parse comes as a plain event without a message.
+          document.body.dataset.error =
+            event instanceof ErrorEvent && event.message !== ''
+              ? event.message
+              : 'its script did not load'
+          // Handled here, where openEngine reads it, so the page does not report it again as its own error.
+          event.preventDefault()
         },
         { once: true },
       )
