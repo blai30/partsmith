@@ -1,0 +1,56 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "error",
+      "messages": [
+        {
+          "severity": "error",
+          "code": "profile_not_found",
+          "message": "The region of 'Sketch 1' selected for Profile is gone because its outline is no longer closed.",
+          "field": "/profile",
+          "actions": [
+            {
+              "label": "Show 'Sketch 1'",
+              "kind": "show"
+            },
+            {
+              "label": "Pick a region again",
+              "kind": "pick"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "empty": true
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": []
+  }
+}

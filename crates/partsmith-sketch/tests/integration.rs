@@ -6,6 +6,7 @@ mod common;
 
 mod benchmark_scenarios;
 mod boundary_matching;
+mod cross_target;
 mod diagnosis;
 mod drag;
 mod json;

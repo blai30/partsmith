@@ -78,6 +78,12 @@ jobs:
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten
+      # The sketch suite under Node, held to native values (sketch.md 3.12, test 255).
+      - run: cargo test -p partsmith-sketch --target wasm32-unknown-emscripten
+      # The engine's panic containment under Node (protocol.md test 84).
+      # A block scalar, since a plain YAML value cannot end in a colon.
+      - run: |
+          cargo test -p partsmith-engine --lib --target wasm32-unknown-emscripten dispatch::
 
   rust:
     name: Rust
@@ -215,6 +221,10 @@ jobs:
           cargo test -p partsmith-wasm --test integration web_module::
         env:
           PARTSMITH_REQUIRE_WEB_MODULE: "1"
+      # The module just built against a native session over the engine fixtures and the examples (engine.md test 154).
+      # Ignored by default, since a module built from another tree fails it; asked for, it fails instead of skipping.
+      - run: |
+          cargo test -p partsmith-wasm --test integration web_parity:: -- --ignored
       # The web notices go wherever the core goes. With two paths, the artifact is rooted at ui/public/.
       - uses: actions/upload-artifact@v7.0.2
         with:

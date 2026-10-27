@@ -14,6 +14,8 @@ Files and document assets (ui.md 2.15, 3.19, 4.4, ADR 0037): `src/files/assets.t
 
 Print suggestions (ui.md 3.17, print.md 3.12, ADR 0040): `src/print/suggestion.ts` words a finding's suggestion in millimeters (`suggestionText`, the words the CLI and Python print, kept in step by the shared cases of U-233) and outlines each split plane in the finding's box (`splitPlaneOutline`, and `focusedSplitOutlines` for the focused finding), which the scene draws in the overlay pass and the viewport counts in `data-split-planes`; `HealthRow.suggestion` carries the words to the row's `health-suggestion` line, `findingPoint` in `src/print/health.ts` marks a drain hole at its point, `focusFinding` frames a split finding's box, and `installPrintAnalysis` drops the focused finding when the panel closes, the document, the print orientation or the report changes, or its check is hidden. `findingAt` lives in `src/print/checks.ts`, so both modules read it without importing each other.
 
+Drawing tools (ui.md 3.16.4, 3.16.5): `src/sketch/recipes.ts` and the commits of `src/sketch/drawing.ts` (`drawClick`) decide what each tool adds: ids in order, point order, the inferred snap, direction and tangent constraints, and typed dimensions. features/sketch.md tests 44 to 50 hold that output as `examples/sketch/tool-*.ptsm`, which no UI test reads, so a change to a tool's output updates those tests and examples in the same change.
+
 ## Commands
 
 ```sh

@@ -1,0 +1,59 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "error",
+      "messages": [
+        {
+          "severity": "error",
+          "code": "sketch_not_solved",
+          "message": "'Sketch 1' could not be solved from its current shape. Undo the last change, or drag the geometry closer to the intended shape.",
+          "detail": "not_converged"
+        }
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "error",
+      "messages": [
+        {
+          "severity": "error",
+          "code": "upstream_failed",
+          "message": "'Sketch 1' has an error, so this extrude cannot use it. Fix 'Sketch 1' first.",
+          "actions": [
+            {
+              "label": "Show 'Sketch 1'",
+              "kind": "show"
+            }
+          ],
+          "root": "f-sk1"
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "empty": true
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": []
+  }
+}

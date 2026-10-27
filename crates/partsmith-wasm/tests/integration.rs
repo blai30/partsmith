@@ -12,3 +12,6 @@ mod exports;
 mod pass_through;
 mod response_blocks;
 mod web_module;
+// engine.md test 154 starts Node and reads the repository, which a WebAssembly test build under Node cannot.
+#[cfg(not(target_family = "wasm"))]
+mod web_parity;

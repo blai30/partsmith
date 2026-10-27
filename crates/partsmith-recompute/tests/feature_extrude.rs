@@ -5,18 +5,22 @@
 use crate::feature_support;
 
 use feature_support::{
-    BOX_BELOW, Run, absent_faces, assert_bounding_box, assert_empty, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_axis_direction,
-    assert_face_axis_through, assert_face_count, assert_face_in_plane, assert_face_names,
-    assert_face_normal, assert_has_face, assert_messages_pass_lint, assert_no_face,
-    assert_solid_count, assert_unchanged, assert_volume, body_update, document_text, element_names,
-    face, face_names_with_prefix, id, keep_and_pick, line, message, output_body, parse_document,
-    pick, reference_json, set_field, set_reverse, successions, top_fallback, use_reference,
+    AXIS_TOLERANCE, BOX_BELOW, Run, absent_faces, assert_bounding_box, assert_coordinates,
+    assert_empty, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_axis_direction, assert_face_axis_through, assert_face_count, assert_face_in_plane,
+    assert_face_kind, assert_face_names, assert_face_normal, assert_face_radius, assert_flat_face,
+    assert_has_face, assert_messages_pass_lint, assert_no_face, assert_solid_count,
+    assert_unchanged, assert_volume, assert_volume_faces_and_bounds, body_update, document_text,
+    element_names, face, face_names_with_prefix, id, keep_and_pick, line, message, output_body,
+    parse_document, pick, reference_json, set_field, set_reverse, solved_point,
+    stored_region_match, successions, top_fallback, use_reference,
 };
 use partsmith_features::{
     BodyChange, Bound, Diagnosis, FeatureError, FeatureWarning, Fix, NoEffectHow,
 };
 use partsmith_naming::{ElementKind, Follow};
+use partsmith_occt_sys::GeometryKind;
+use partsmith_sketch::{MatchMethod, RegionLoss, RegionMatch};
 
 /// `SK-RECT`: `RECT(0, 0, 80, 50)` on XY with id `f-sk1`.
 const RECTANGLE_SKETCH: &str = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}]}"#;
@@ -1704,4 +1708,133 @@ fn t055_distance_beyond_the_modeling_limit() {
         )]
     );
     assert_empty(&run, "b-1");
+}
+
+#[test]
+fn t062_a_profile_bounded_by_an_arc_builds_a_block_with_a_round_end() {
+    let run = Run::example("extrude/arc-bounded.ptsm");
+
+    run.assert_all_quiet();
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        149452.431127,
+        6,
+        [0.0, 0.0, 0.0],
+        [105.0, 50.0, 30.0],
+    );
+    assert_face_names(
+        run.body("b-1"),
+        &[
+            "f-ext1/end-cap",
+            "f-ext1/lateral/e-1",
+            "f-ext1/lateral/e-2",
+            "f-ext1/lateral/e-3",
+            "f-ext1/lateral/e-4",
+            "f-ext1/start-cap",
+        ],
+    );
+}
+
+#[test]
+fn t062_the_side_swept_from_the_arc_is_a_cylinder_named_after_the_arc() {
+    let run = Run::example("extrude/arc-bounded.ptsm");
+
+    let side = face(run.body("b-1"), "f-ext1/lateral/e-2");
+    assert_face_kind(&side, GeometryKind::Cylinder);
+    assert_face_radius(&side, 25.0);
+    assert_face_area(&side, 2356.19449);
+    assert_face_axis_direction(&side, [0.0, 0.0, 1.0]);
+    assert_face_axis_through(&side, [80.0, 25.0, 0.0]);
+}
+
+#[test]
+fn t062_the_flat_sides_and_the_caps_of_the_arc_bounded_block() {
+    let run = Run::example("extrude/arc-bounded.ptsm");
+
+    let body = run.body("b-1");
+    // The lines keep the areas of test 1.
+    assert_face_area(&face(body, "f-ext1/lateral/e-1"), 2400.0);
+    assert_face_area(&face(body, "f-ext1/lateral/e-3"), 2400.0);
+    assert_face_area(&face(body, "f-ext1/lateral/e-4"), 1500.0);
+    assert_flat_face(body, "f-ext1/start-cap", 2, 0.0, 4981.747704);
+    assert_flat_face(body, "f-ext1/end-cap", 2, 30.0, 4981.747704);
+}
+
+/// The message of test 63's `profile_not_found`.
+const OPEN_OUTLINE_TEXT: &str = "The region of 'Sketch 1' selected for Profile is gone because its outline is no longer closed.";
+
+#[test]
+fn t063_an_open_outline_loses_the_region_picked_before_the_gap() {
+    let run = Run::example("extrude/open-outline.ptsm");
+
+    // The open ends are a profile finding, not a warning of the sketch feature.
+    run.assert_quiet("f-sk1");
+    let error = run.assert_error("f-ext1", "profile_not_found");
+    let FeatureError::ProfileNotFound { regions, .. } = error else {
+        panic!("expected profile_not_found, got {error:?}");
+    };
+    let losses: Vec<Option<RegionLoss>> =
+        regions.iter().map(|region| region.loss.clone()).collect();
+    // Every entity of the stored key is still in the sketch, so the outline is open.
+    assert_eq!(losses, [Some(RegionLoss::Open)]);
+    assert_empty(&run, "b-1");
+}
+
+#[test]
+fn t063_the_open_outline_offers_show_then_pick_and_no_regions_to_use() {
+    let run = Run::example("extrude/open-outline.ptsm");
+
+    let message = message(&run, "f-ext1", "profile_not_found");
+    assert_eq!(message.pointer.as_deref(), Some("/profile"));
+    assert_eq!(message.text, OPEN_OUTLINE_TEXT);
+    assert_eq!(
+        message.fixes,
+        [
+            Fix::Show {
+                feature: id("f-sk1"),
+                entity: None,
+            },
+            pick("/profile/regions/0"),
+        ],
+    );
+    assert_messages_pass_lint(&run, "f-ext1");
+}
+
+#[test]
+fn t063_connecting_the_ends_matches_the_stored_region_by_its_key() {
+    let run = Run::example("extrude/open-outline-connected.ptsm");
+
+    run.assert_all_quiet();
+    assert!(
+        matches!(
+            stored_region_match(&run, "f-ext1", "f-sk1"),
+            RegionMatch::Resolved {
+                method: MatchMethod::Key,
+                ..
+            }
+        ),
+        "the stored region matches by its key",
+    );
+    // The coincident merges the two ends at their mean (sketch.md section 3.7.3).
+    for point in ["e-1.start", "e-4.end"] {
+        assert_coordinates(
+            point,
+            solved_point(&run, "f-sk1", point),
+            [0.0, 0.15],
+            AXIS_TOLERANCE,
+        );
+    }
+}
+
+#[test]
+fn t063_connecting_the_ends_extrudes_the_closed_outline() {
+    let run = Run::example("extrude/open-outline-connected.ptsm");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        119820.0,
+        6,
+        [0.0, 0.0, 0.0],
+        [80.0, 50.0, 30.0],
+    );
 }

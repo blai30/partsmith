@@ -738,18 +738,23 @@ fn t096_solving_the_output_again_returns_it_bitwise() {
     assert_bitwise(&second.entities, &first.entities, "entities");
 }
 
+/// Whether this target can spawn a thread: this repository builds `wasm32-unknown-emscripten` without threads, since the web core runs in one worker (test 97).
+const SPAWNS_THREADS: bool = !cfg!(target_os = "emscripten");
+
 #[test]
 fn t097_solving_is_deterministic_across_calls_and_threads() {
     let sketch = parallel_sketch();
     let first = sketch.solve();
     let second = sketch.solve();
-    let copy = sketch.clone();
-    let third = thread::spawn(move || copy.solve())
-        .join()
-        .expect("the solve in a spawned thread does not panic");
 
     assert_bitwise(&second, &first, "second solve");
-    assert_bitwise(&third, &first, "solve in another thread");
+    if SPAWNS_THREADS {
+        let copy = sketch.clone();
+        let third = thread::spawn(move || copy.solve())
+            .join()
+            .expect("the solve in a spawned thread does not panic");
+        assert_bitwise(&third, &first, "solve in another thread");
+    }
 }
 
 #[test]

@@ -1,6 +1,8 @@
 //! Runs the built web core module under Node (protocol.md section 2.10). `tests/node/engine_info_round_trip.mjs` loads `ui/public/core/partsmith_core.mjs` with its `.wasm`, round-trips an `engine_info` request through `ps_alloc`, `ps_call` and `ps_free`, and checks the response against this build's engine and format versions (test 48), so a module built before a version change fails. `tests/node/list_uses_round_trip.mjs` round-trips `new_document`, then `list_uses` of the new document (engine.md section 3.24), so a module built before that command existed fails too: adding a command changes neither version. Both scripts share the calling sequence of `tests/node/core.mjs`.
 //!
 //! Build the module with `scripts/build-wasm.sh` first. The tests are skipped, with a message saying why, when Node or the built module is missing, unless `PARTSMITH_REQUIRE_WEB_MODULE` is `1`: then they fail instead, so the CI job that builds the module cannot pass without running the round trips (delivery.md section 6, test 7). Set `NODE` to use a Node other than the one on `PATH`.
+//!
+//! `web_parity.rs` (engine.md test 154) finds the module and Node with the helpers of this file.
 
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -19,7 +21,7 @@ fn core_directory() -> PathBuf {
 }
 
 /// The Node executable: `NODE` when set, else `node` from `PATH`.
-fn node() -> OsString {
+pub fn node() -> OsString {
     env::var_os("NODE").unwrap_or_else(|| OsString::from("node"))
 }
 
@@ -28,8 +30,17 @@ fn round_trip_required(value: Option<&OsStr>) -> bool {
     value == Some(OsStr::new("1"))
 }
 
-/// Why the test cannot run here, if it cannot.
-fn skip_reason(module: &Path, wasm: &Path) -> Option<String> {
+/// The built module's loader and its `.wasm` in [`core_directory`].
+pub fn module_files() -> (PathBuf, PathBuf) {
+    let core = core_directory();
+    (
+        core.join("partsmith_core.mjs"),
+        core.join("partsmith_core.wasm"),
+    )
+}
+
+/// Why a test of the built module cannot run here, if it cannot: a WebAssembly test build, a missing module file or no Node.
+pub fn skip_reason(module: &Path, wasm: &Path) -> Option<String> {
     if cfg!(target_family = "wasm") {
         return Some("WebAssembly test builds cannot start Node as a subprocess.".to_string());
     }
@@ -56,9 +67,7 @@ fn skip_reason(module: &Path, wasm: &Path) -> Option<String> {
 
 /// Runs the Node script `script` of `tests/node` against the built module with `arguments` after the module's two paths, and asserts that it succeeds; skips with a message when it cannot run here (see [`skip_reason`]).
 fn run_round_trip(script: &str, arguments: &[&str]) {
-    let core = core_directory();
-    let module = core.join("partsmith_core.mjs");
-    let wasm = core.join("partsmith_core.wasm");
+    let (module, wasm) = module_files();
     if let Some(reason) = skip_reason(&module, &wasm) {
         assert!(
             !round_trip_required(env::var_os(REQUIRE_VARIABLE).as_deref()),

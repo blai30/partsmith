@@ -38,6 +38,9 @@ cargo fmt -p partsmith-sketch
 cargo bench -p partsmith-sketch --bench solver
 # nightly property run
 PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test integration properties::
+# the suite under Node, as CI's kernel-wasm runs it (spec section 3.12, test 255; needs an activated Emscripten SDK)
+source /opt/emsdk/emsdk_env.sh >/dev/null 2>&1
+cargo test -p partsmith-sketch --target wasm32-unknown-emscripten
 ```
 
 ## Rules
@@ -45,3 +48,4 @@ PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test integration 
 - Pure Rust, no kernel dependency.
 - Solver must meet the 4 ms drag budget on the 500-constraint chain; keep the benchmark green.
 - Results are deterministic: iterate in document or index order only, never over hash maps, and do not parallelize inside a component.
+- Every test also runs on `wasm32-unknown-emscripten`, which has no threads here and reads no files under Node: a test that spawns a thread leaves it out there (as test 97 does), and proptest's saved regressions replay natively only. `tests/cross_target.rs` (test 255) holds native x86_64 Linux values as literals within 1e-9; after an intended solver change, paste the literals its failure prints.

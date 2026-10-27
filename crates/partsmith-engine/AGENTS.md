@@ -40,9 +40,13 @@ cargo fmt -p partsmith-engine
 # performance budgets of engine.md section 5 (release build); fails when one is over
 cargo bench -p partsmith-engine --bench budgets
 cargo bench -p partsmith-engine --bench budgets -- pick list   # only operations whose names contain a word
+# the panic containment under Node, as CI's kernel-wasm runs it (protocol.md test 84; needs an activated Emscripten SDK)
+source /opt/emsdk/emsdk_env.sh >/dev/null 2>&1
+OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=/opt/occt/7.9.3/wasm cargo test -p partsmith-engine --lib --target wasm32-unknown-emscripten dispatch::
 ```
 
 ## Rules
 
 - The single entry point for every host; hosts contain no modeling logic.
 - Acceptance tests in `tests/` come from the spec; do not weaken them.
+- `dispatch.rs`'s tests `a_panic_is_an_internal_error_that_poisons_its_document` and `a_poisoned_document_saves_its_recipe_from_before_the_failed_command` are protocol.md test 84 on WebAssembly, and delivery.md test 66 checks their names, so renaming one changes both tests. engine.md test 154, which compares the web core with a native session, lives in `partsmith-wasm` (`tests/web_parity.rs`).

@@ -7,26 +7,37 @@
 //! motions, the sketch's own messages and fixes, the messages of later features with their texts and
 //! fixes (features.md sections 3.5 and 3.15 and the hole points of features/hole.md), geometry, and
 //! the document after a fix as the engine's `apply_fix` would write it. Tests 30 and 31 check the
-//! modeling limit of a dimension and the dimension values carried by sketch errors.
+//! modeling limit of a dimension and the dimension values carried by sketch errors. Tests 34 to 50 load
+//! the constraint and drawing tool examples and check the solve against the stored geometry: "as stored"
+//! bitwise, "as drawn" within 1e-9 mm.
 
 use crate::feature_support;
 
+use std::f64::consts::FRAC_PI_6;
+
 use feature_support::{
-    AXIS_TOLERANCE, BOTH_TOPS, MOVE_BY_100, Run, TURN_BY_90, assert_bore_through,
-    assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_in_plane,
-    assert_moves, assert_placement, assert_quarter_turns_about_z, assert_relative,
-    assert_sketch_on_top_plane, assert_solid_count, assert_top_at, assert_translation,
-    assert_volume, asset_name, box_step_asset, datum_motion, document, document_text,
-    expression_uses, face, face_motion_before, face_sketch, face_sketch_with, hole_at_point, id,
-    l_shaped_body, link_ids, message, moved_box_document, one_circle, one_point, parse_document,
-    reference_json, saved, sketch_on_pattern_copy_document, sketch_result, top_fallback, turn,
+    AXIS_TOLERANCE, BOTH_TOPS, MOVE_BY_100, Run, TURN_BY_90, assert_absolute, assert_bore_through,
+    assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_axis_through,
+    assert_face_in_plane, assert_face_kind, assert_face_radius, assert_moves, assert_placement,
+    assert_quarter_turns_about_z, assert_relative, assert_sketch_on_top_plane, assert_solid_count,
+    assert_top_at, assert_translation, assert_volume, assert_volume_faces_and_bounds, asset_name,
+    box_step_asset, datum_motion, document, document_text, expression_uses, face,
+    face_motion_before, face_sketch, face_sketch_with, hole_at_point, id, l_shaped_body, link_ids,
+    message, moved_box_document, one_circle, one_point, parse_document, reference_json, saved,
+    sketch_on_pattern_copy_document, sketch_result, solved_point, stored_region,
+    stored_region_match, top_fallback, turn,
 };
 use partsmith_features::{
     Bound, FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
 };
 use partsmith_model::{FeatureInspector, FieldUnit, Id};
 use partsmith_naming::{Follow, Motion, Reference};
-use partsmith_sketch::{Placement, PointRef, SketchError};
+use partsmith_occt_sys::GeometryKind;
+use partsmith_sketch::{
+    Geometry, MatchMethod, Placement, PointRole, RegionMatch, SketchEntity, SketchError,
+    SketchParams, SketchStatus,
+};
+use serde_json::Value;
 
 /// The four lines of `RECT(0, 0, 80, 50)` (features.md section 6.1).
 const RECTANGLE_ENTITIES: &str = r#"[{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}]"#;
@@ -81,16 +92,6 @@ fn run_with_width(bodies: &[&str], features: &[&str]) -> Run {
         bodies,
         features,
     )))
-}
-
-/// The solved position of `point` in sketch `f-sk1`.
-fn solved_point(run: &Run, point: &str) -> [f64; 2] {
-    let reference: PointRef = point
-        .parse()
-        .unwrap_or_else(|error| panic!("{point} is not a point reference: {error}"));
-    sketch_result(run, "f-sk1")
-        .point(&reference)
-        .unwrap_or_else(|| panic!("the sketch has no point {point}"))
 }
 
 /// The fallback placement used by the face planes of the tests: origin `origin`, x axis +X,
@@ -294,7 +295,7 @@ fn t007_driving_dimension_from_a_parameter() {
     run.assert_ok("f-sk1");
     assert_coordinates(
         "e-1.end",
-        solved_point(&run, "e-1.end"),
+        solved_point(&run, "f-sk1", "e-1.end"),
         [100.0, 0.0],
         AXIS_TOLERANCE,
     );
@@ -311,7 +312,7 @@ fn t008_bare_dimension_in_inches() {
     run.assert_ok("f-sk1");
     assert_coordinates(
         "e-1.end",
-        solved_point(&run, "e-1.end"),
+        solved_point(&run, "f-sk1", "e-1.end"),
         [50.8, 0.0],
         AXIS_TOLERANCE,
     );
@@ -346,7 +347,7 @@ fn t010_redundant() {
     run.assert_warnings("f-sk1", &["redundant_constraints"]);
     assert_coordinates(
         "e-1.end",
-        solved_point(&run, "e-1.end"),
+        solved_point(&run, "f-sk1", "e-1.end"),
         [100.0, 0.0],
         AXIS_TOLERANCE,
     );
@@ -459,7 +460,7 @@ fn t018_reference_dimension() {
     run.assert_ok("f-sk1");
     assert_coordinates(
         "e-1.end",
-        solved_point(&run, "e-1.end"),
+        solved_point(&run, "f-sk1", "e-1.end"),
         [100.0, 0.0],
         AXIS_TOLERANCE,
     );
@@ -1372,4 +1373,747 @@ fn t033_on_yz_has_the_region_of_test_1_and_no_body_changes() {
         AXIS_TOLERANCE,
     );
     assert!(run.report.bodies.is_empty(), "the document has no bodies");
+}
+
+// Tests 34 to 50: the constraint and drawing tool examples (spec section 6, before test 34).
+
+/// The stems of the examples of tests 34 to 50 under `examples/sketch/`, in test order.
+const CONSTRAINT_AND_TOOL_EXAMPLES: [&str; 17] = [
+    "parallel",
+    "perpendicular",
+    "collinear",
+    "concentric",
+    "equal",
+    "symmetric",
+    "distance-points",
+    "distance-point-line",
+    "horizontal-vertical-distance",
+    "radius",
+    "tool-rectangle",
+    "tool-center-rectangle",
+    "tool-circle-point-snap",
+    "tool-arc",
+    "tool-tangent",
+    "tool-angle",
+    "tool-diameter",
+];
+
+/// Runs the example `examples/sketch/<stem>.ptsm`.
+fn run_sketch_example(stem: &str) -> Run {
+    Run::example(&format!("sketch/{stem}.ptsm"))
+}
+
+/// The params `f-sk1` stores in the run's document.
+fn stored_sketch(run: &Run) -> SketchParams {
+    let record = run.record("f-sk1");
+    serde_json::from_value(Value::Object(record.params.clone()))
+        .unwrap_or_else(|error| panic!("the params of f-sk1 are a sketch's: {error}"))
+}
+
+/// The entity `entity` of `entities`.
+fn entity_of<'a>(entities: &'a [SketchEntity], entity: &str) -> &'a SketchEntity {
+    entities
+        .iter()
+        .find(|candidate| candidate.id.as_str() == entity)
+        .unwrap_or_else(|| panic!("the sketch has no entity {entity}"))
+}
+
+/// Every number of an entity's geometry as stored: a point's position, a line's start and end, a circle's center
+/// and radius, an arc's center, radius and angles.
+fn geometry_numbers(entity: &SketchEntity) -> Vec<f64> {
+    match &entity.geometry {
+        Geometry::Point { position } => position.to_vec(),
+        Geometry::Line { start, end } => vec![start[0], start[1], end[0], end[1]],
+        Geometry::Circle { center, radius } => vec![center[0], center[1], *radius],
+        Geometry::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        } => vec![center[0], center[1], *radius, *start_angle, *end_angle],
+    }
+}
+
+/// The radius of a circle or arc.
+fn radius_of(entity: &SketchEntity) -> f64 {
+    match &entity.geometry {
+        Geometry::Circle { radius, .. } | Geometry::Arc { radius, .. } => *radius,
+        geometry => panic!("{} has no radius: {geometry:?}", entity.id),
+    }
+}
+
+/// Every coordinate and radius of an entity: its points (sketch.md section 2.4, in role order) and, for a circle or
+/// arc, its radius.
+fn coordinates_and_radius(entity: &SketchEntity) -> Vec<f64> {
+    let mut numbers: Vec<f64> = [
+        PointRole::Point,
+        PointRole::Start,
+        PointRole::End,
+        PointRole::Center,
+    ]
+    .into_iter()
+    .filter_map(|role| entity.point(role))
+    .flatten()
+    .collect();
+    if let Geometry::Circle { radius, .. } | Geometry::Arc { radius, .. } = entity.geometry {
+        numbers.push(radius);
+    }
+    numbers
+}
+
+/// Asserts that `solved` and `stored` are the same entity: id, kind and construction flag.
+fn assert_same_entity(solved: &SketchEntity, stored: &SketchEntity) {
+    assert_eq!(solved.id, stored.id, "entity id");
+    assert_eq!(solved.kind(), stored.kind(), "kind of {}", stored.id);
+    assert_eq!(
+        solved.construction, stored.construction,
+        "construction flag of {}",
+        stored.id
+    );
+}
+
+/// Asserts that `solved` is `stored` bitwise ("as stored", spec section 6 before test 34).
+fn assert_entity_as_stored(solved: &SketchEntity, stored: &SketchEntity) {
+    assert_same_entity(solved, stored);
+    let bits = |entity: &SketchEntity| -> Vec<u64> {
+        geometry_numbers(entity)
+            .into_iter()
+            .map(f64::to_bits)
+            .collect()
+    };
+    assert_eq!(
+        bits(solved),
+        bits(stored),
+        "{} is not as stored: solved {:?}, stored {:?}",
+        stored.id,
+        solved.geometry,
+        stored.geometry,
+    );
+}
+
+/// Asserts that every coordinate and radius of `solved` is within 1e-9 mm of `stored` ("as drawn", spec section 6
+/// before test 34).
+fn assert_entity_as_drawn(solved: &SketchEntity, stored: &SketchEntity) {
+    assert_same_entity(solved, stored);
+    let solved_numbers = coordinates_and_radius(solved);
+    let stored_numbers = coordinates_and_radius(stored);
+    assert_eq!(
+        solved_numbers.len(),
+        stored_numbers.len(),
+        "coordinates of {}",
+        stored.id
+    );
+    for (solved_number, stored_number) in solved_numbers.into_iter().zip(stored_numbers) {
+        assert_absolute(
+            &format!(
+                "{} as drawn: solved {:?}, stored {:?}",
+                stored.id, solved.geometry, stored.geometry
+            ),
+            solved_number,
+            stored_number,
+            AXIS_TOLERANCE,
+        );
+    }
+}
+
+/// Asserts that these entities of `f-sk1` are solved as stored.
+fn assert_as_stored(run: &Run, entities: &[&str]) {
+    let solved = &sketch_result(run, "f-sk1").solved.entities;
+    let stored = stored_sketch(run).entities;
+    for entity in entities {
+        assert_entity_as_stored(entity_of(solved, entity), entity_of(&stored, entity));
+    }
+}
+
+/// Asserts that every entity of `f-sk1` is solved as stored, in the stored order.
+fn assert_all_as_stored(run: &Run) {
+    let solved = &sketch_result(run, "f-sk1").solved.entities;
+    let stored = stored_sketch(run).entities;
+    assert_eq!(solved.len(), stored.len(), "entity count");
+    for (solved_entity, stored_entity) in solved.iter().zip(&stored) {
+        assert_entity_as_stored(solved_entity, stored_entity);
+    }
+}
+
+/// Asserts that these entities of `f-sk1` are solved as drawn.
+fn assert_as_drawn(run: &Run, entities: &[&str]) {
+    let solved = &sketch_result(run, "f-sk1").solved.entities;
+    let stored = stored_sketch(run).entities;
+    for entity in entities {
+        assert_entity_as_drawn(entity_of(solved, entity), entity_of(&stored, entity));
+    }
+}
+
+/// Asserts the status and dof of `f-sk1`'s solve, with no redundant or conflicting constraint and no failed
+/// component.
+fn assert_solved(run: &Run, status: SketchStatus, dof: u32) {
+    let solved = &sketch_result(run, "f-sk1").solved;
+    assert_eq!(solved.status, status, "sketch status");
+    assert_eq!(solved.dof, dof, "remaining degrees of freedom");
+    assert!(
+        solved.redundant.is_empty(),
+        "redundant constraints {:?}",
+        solved.redundant
+    );
+    assert!(
+        solved.conflicting.is_empty(),
+        "conflicting constraints {:?}",
+        solved.conflicting
+    );
+    assert!(!solved.failed, "every component converged");
+}
+
+/// Asserts solved positions of points of `f-sk1` (within 1e-9 mm).
+fn assert_points(run: &Run, expected: &[(&str, [f64; 2])]) {
+    for (point, position) in expected {
+        assert_coordinates(
+            point,
+            solved_point(run, "f-sk1", point),
+            *position,
+            AXIS_TOLERANCE,
+        );
+    }
+}
+
+/// Asserts the solved radius of a circle or arc of `f-sk1` (within 1e-9 mm).
+fn assert_radius(run: &Run, entity: &str, expected: f64) {
+    let solved = &sketch_result(run, "f-sk1").solved.entities;
+    assert_absolute(
+        &format!("radius of {entity}"),
+        radius_of(entity_of(solved, entity)),
+        expected,
+        AXIS_TOLERANCE,
+    );
+}
+
+/// The measured value of the dimension `constraint` of `f-sk1` (mm or rad).
+fn measured(run: &Run, constraint: &str) -> f64 {
+    *sketch_result(run, "f-sk1")
+        .solved
+        .measured
+        .get(&id(constraint))
+        .unwrap_or_else(|| panic!("{constraint} has no measured value"))
+}
+
+/// The keys of the regions of `f-sk1`'s profile, in profile order.
+fn region_keys(run: &Run) -> Vec<String> {
+    sketch_result(run, "f-sk1")
+        .profile
+        .regions
+        .iter()
+        .map(|region| region.key.to_string())
+        .collect()
+}
+
+/// Asserts that the face `name` of `b-1` is a cylinder of `radius` whose axis passes through `point`.
+fn assert_round_side(run: &Run, name: &str, radius: f64, point: [f64; 3]) {
+    let side = face(run.body("b-1"), name);
+    assert_face_kind(&side, GeometryKind::Cylinder);
+    assert_face_radius(&side, radius);
+    assert_face_axis_through(&side, point);
+}
+
+/// The unit vector of `vector`.
+fn unit(vector: [f64; 2]) -> [f64; 2] {
+    let length = vector[0].hypot(vector[1]);
+    [vector[0] / length, vector[1] / length]
+}
+
+/// The cosine of the angle between the line `line` and the radius of the arc `arc` through the point `touch`: a
+/// tangent with a touch point holds where it is 0 (sketch.md sections 3.6.4 and 3.6.5).
+fn tangent_cosine(run: &Run, line: &str, arc: &str, touch: &str) -> f64 {
+    let start = solved_point(run, "f-sk1", &format!("{line}.start"));
+    let end = solved_point(run, "f-sk1", &format!("{line}.end"));
+    let center = solved_point(run, "f-sk1", &format!("{arc}.center"));
+    let touch_point = solved_point(run, "f-sk1", touch);
+    let along = unit([end[0] - start[0], end[1] - start[1]]);
+    let radial = unit([touch_point[0] - center[0], touch_point[1] - center[1]]);
+    along[0] * radial[0] + along[1] * radial[1]
+}
+
+#[test]
+fn examples_of_tests_34_to_50_store_the_region_as_a_pick_of_the_solved_sketch() {
+    // `EXT10` (spec section 6, before test 34): the region as `Region::reference()` writes it.
+    for stem in CONSTRAINT_AND_TOOL_EXAMPLES {
+        let run = run_sketch_example(stem);
+
+        let RegionMatch::Resolved {
+            indices, method, ..
+        } = stored_region_match(&run, "f-ext1", "f-sk1")
+        else {
+            panic!("{stem}: the stored region resolves");
+        };
+        assert_eq!(method, MatchMethod::Key, "{stem}: match by key");
+        let [index] = indices[..] else {
+            panic!("{stem}: the stored region is one region, not {indices:?}");
+        };
+        // Compared as written: a fingerprint's text rounds its numbers (sketch.md section 3.13.6).
+        let picked = sketch_result(&run, "f-sk1").profile.regions[index].reference();
+        assert_eq!(
+            serde_json::to_value(stored_region(&run, "f-ext1")).expect("a region serializes"),
+            serde_json::to_value(picked).expect("a region serializes"),
+            "{stem}: stored as picked",
+        );
+    }
+}
+
+#[test]
+fn t034_parallel_lays_the_top_parallel_to_the_bottom() {
+    let run = run_sketch_example("parallel");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    assert_as_drawn(&run, &["e-1", "e-4"]);
+    assert_points(
+        &run,
+        &[("e-2.end", [60.0, 40.0]), ("e-3.start", [60.0, 40.0])],
+    );
+}
+
+#[test]
+fn t034_parallel_extrudes_a_60_by_40_block() {
+    let run = run_sketch_example("parallel");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        24000.0,
+        6,
+        [0.0, 0.0, 0.0],
+        [60.0, 40.0, 10.0],
+    );
+}
+
+#[test]
+fn t035_perpendicular_stands_the_side_square_to_the_bottom() {
+    let run = run_sketch_example("perpendicular");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    assert_as_drawn(&run, &["e-1", "e-4"]);
+    assert_points(
+        &run,
+        &[("e-2.start", [60.0, 0.0]), ("e-2.end", [60.0, 40.0])],
+    );
+}
+
+#[test]
+fn t035_perpendicular_extrudes_a_60_by_40_block() {
+    let run = run_sketch_example("perpendicular");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        24000.0,
+        6,
+        [0.0, 0.0, 0.0],
+        [60.0, 40.0, 10.0],
+    );
+}
+
+#[test]
+fn t036_collinear_with_the_x_axis_moves_only_the_ends_of_the_bottom_down() {
+    let run = run_sketch_example("collinear");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::UnderConstrained, 6);
+    // The minimum-norm correction moves the two ends of e-1 straight down and changes no other coordinate.
+    assert_points(
+        &run,
+        &[
+            ("e-1.start", [0.0, 0.0]),
+            ("e-1.end", [60.0, 0.0]),
+            ("e-2.start", [60.0, 0.0]),
+            ("e-2.end", [60.0, 40.0]),
+            ("e-4.start", [0.0, 40.0]),
+            ("e-4.end", [0.0, 0.0]),
+        ],
+    );
+    // Every class of e-3's parameters is bitwise equal and in no remaining row (sketch.md section 3.7.3).
+    assert_as_stored(&run, &["e-3"]);
+}
+
+#[test]
+fn t036_collinear_extrudes_a_60_by_40_block() {
+    let run = run_sketch_example("collinear");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        24000.0,
+        6,
+        [0.0, 0.0, 0.0],
+        [60.0, 40.0, 10.0],
+    );
+}
+
+#[test]
+fn t037_concentric_on_the_origin_centers_both_circles_exactly_there() {
+    let run = run_sketch_example("concentric");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::UnderConstrained, 2);
+    // The coincident with the origin freezes e-1's center at 0 and the concentric merges e-2's center into it.
+    assert_as_stored(&run, &["e-1"]);
+    assert_eq!(solved_point(&run, "f-sk1", "e-2.center"), [0.0, 0.0]);
+    assert_radius(&run, "e-1", 20.0);
+    assert_radius(&run, "e-2", 8.0);
+    assert_eq!(region_keys(&run), ["e-1;~e-2", "e-2"]);
+}
+
+#[test]
+fn t037_concentric_extrudes_a_ring_around_the_z_axis() {
+    let run = run_sketch_example("concentric");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        10555.751316,
+        4,
+        [-20.0, -20.0, 0.0],
+        [20.0, 20.0, 10.0],
+    );
+    assert_round_side(&run, "f-ext1/lateral/e-2", 8.0, [0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn t038_equal_makes_the_side_as_long_as_the_bottom() {
+    let run = run_sketch_example("equal");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    assert_as_drawn(&run, &["e-1"]);
+    assert_points(&run, &[("e-2.end", [60.0, 60.0])]);
+}
+
+#[test]
+fn t038_equal_extrudes_a_square_block() {
+    let run = run_sketch_example("equal");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        36000.0,
+        6,
+        [0.0, 0.0, 0.0],
+        [60.0, 60.0, 10.0],
+    );
+}
+
+#[test]
+fn t039_symmetric_about_the_y_axis_centers_the_base() {
+    let run = run_sketch_example("symmetric");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::UnderConstrained, 4);
+    // The minimum-norm correction moves both ends of the base 1 mm left; the apex stays.
+    assert_points(
+        &run,
+        &[
+            ("e-1.start", [-20.0, 0.0]),
+            ("e-1.end", [20.0, 0.0]),
+            ("e-2.end", [0.0, 30.0]),
+        ],
+    );
+}
+
+#[test]
+fn t039_symmetric_extrudes_a_triangle_centered_on_the_y_axis() {
+    let run = run_sketch_example("symmetric");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        6000.0,
+        5,
+        [-20.0, 0.0, 0.0],
+        [20.0, 30.0, 10.0],
+    );
+}
+
+#[test]
+fn t040_distance_between_two_points_sets_the_diagonal() {
+    let run = run_sketch_example("distance-points");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    assert_as_drawn(&run, &["e-1"]);
+    assert_points(&run, &[("e-2.end", [60.0, 45.0])]);
+    assert_absolute(
+        "measured c-11",
+        measured(&run, "c-11"),
+        75.0,
+        AXIS_TOLERANCE,
+    );
+}
+
+#[test]
+fn t040_distance_between_two_points_extrudes_a_60_by_45_block() {
+    let run = run_sketch_example("distance-points");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        27000.0,
+        6,
+        [0.0, 0.0, 0.0],
+        [60.0, 45.0, 10.0],
+    );
+}
+
+#[test]
+fn t041_distance_from_a_point_to_a_line_keeps_the_side_it_was_drawn_on() {
+    let run = run_sketch_example("distance-point-line");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::UnderConstrained, 2);
+    assert_as_drawn(&run, &["e-1", "e-2", "e-3", "e-4"]);
+    // 10 mm below the top edge, on the side the hole was drawn on.
+    assert_points(&run, &[("e-5.center", [30.0, 30.0])]);
+    assert_radius(&run, "e-5", 5.0);
+}
+
+#[test]
+fn t041_distance_from_a_point_to_a_line_extrudes_a_plate_with_a_hole() {
+    let run = run_sketch_example("distance-point-line");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        23214.601837,
+        7,
+        [0.0, 0.0, 0.0],
+        [60.0, 40.0, 10.0],
+    );
+    assert_round_side(&run, "f-ext1/lateral/e-5", 5.0, [30.0, 30.0, 0.0]);
+}
+
+#[test]
+fn t042_signed_horizontal_and_vertical_distances_place_the_circle_right_of_and_below_the_origin() {
+    let run = run_sketch_example("horizontal-vertical-distance");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::UnderConstrained, 1);
+    // u(center) - u(origin) = 20 and v(origin) - v(center) = 15.
+    assert_points(&run, &[("e-1.center", [20.0, -15.0])]);
+    assert_radius(&run, "e-1", 5.0);
+}
+
+#[test]
+fn t042_horizontal_and_vertical_distance_extrude_the_circle_where_they_put_it() {
+    let run = run_sketch_example("horizontal-vertical-distance");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        785.398163,
+        3,
+        [15.0, -20.0, 0.0],
+        [25.0, -10.0, 10.0],
+    );
+}
+
+#[test]
+fn t043_radius_of_an_arc_over_a_40_mm_chord_rises_10_mm() {
+    let run = run_sketch_example("radius");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    assert_as_drawn(&run, &["e-1"]);
+    assert_points(
+        &run,
+        &[
+            ("e-2.center", [20.0, -15.0]),
+            ("e-2.start", [40.0, 0.0]),
+            ("e-2.end", [0.0, 0.0]),
+        ],
+    );
+    assert_radius(&run, "e-2", 25.0);
+}
+
+#[test]
+fn t043_radius_extrudes_the_segment_under_the_arc() {
+    let run = run_sketch_example("radius");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        2795.595113,
+        4,
+        [0.0, 0.0, 0.0],
+        [40.0, 10.0, 10.0],
+    );
+}
+
+#[test]
+fn t044_the_2_point_rectangle_tool_output_comes_back_as_stored() {
+    let run = run_sketch_example("tool-rectangle");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    assert_all_as_stored(&run);
+}
+
+#[test]
+fn t044_the_2_point_rectangle_tool_output_extrudes_a_60_by_40_block() {
+    let run = run_sketch_example("tool-rectangle");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        24000.0,
+        6,
+        [0.0, 0.0, 0.0],
+        [60.0, 40.0, 10.0],
+    );
+}
+
+#[test]
+fn t045_the_center_rectangle_tool_output_comes_back_as_stored() {
+    let run = run_sketch_example("tool-center-rectangle");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    assert_all_as_stored(&run);
+    // Construction geometry is in no profile.
+    assert_eq!(region_keys(&run), ["e-1,e-2,e-3,e-4"]);
+}
+
+#[test]
+fn t045_the_center_rectangle_tool_output_extrudes_a_block_centered_on_the_origin() {
+    let run = run_sketch_example("tool-center-rectangle");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        24000.0,
+        6,
+        [-30.0, -20.0, 0.0],
+        [30.0, 20.0, 10.0],
+    );
+}
+
+#[test]
+fn t046_the_circle_tool_output_with_a_point_snap_comes_back_as_stored() {
+    let run = run_sketch_example("tool-circle-point-snap");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    assert_all_as_stored(&run);
+    // The point is in no region.
+    assert_eq!(region_keys(&run), ["e-2"]);
+}
+
+#[test]
+fn t046_the_circle_tool_output_extrudes_a_disc_of_radius_13() {
+    let run = run_sketch_example("tool-circle-point-snap");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        5309.291585,
+        3,
+        [-13.0, -13.0, 0.0],
+        [13.0, 13.0, 10.0],
+    );
+}
+
+#[test]
+fn t047_the_3_point_arc_tool_output_comes_back_as_stored() {
+    let run = run_sketch_example("tool-arc");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::UnderConstrained, 1);
+    assert_all_as_stored(&run);
+    // The region's counterclockwise boundary follows the line and the arc in their own directions.
+    assert_eq!(region_keys(&run), ["e-1,e-2"]);
+}
+
+#[test]
+fn t047_the_3_point_arc_tool_output_extrudes_a_half_disc() {
+    let run = run_sketch_example("tool-arc");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        6283.185307,
+        4,
+        [0.0, 0.0, 0.0],
+        [40.0, 20.0, 10.0],
+    );
+}
+
+#[test]
+fn t048_tangent_inference_output_comes_back_as_stored() {
+    let run = run_sketch_example("tool-tangent");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::UnderConstrained, 2);
+    assert_all_as_stored(&run);
+}
+
+#[test]
+fn t048_both_inferred_tangents_hold_at_their_touch_points() {
+    let run = run_sketch_example("tool-tangent");
+
+    // c-5 touches at e-1.end, identified with e-2.start; c-8 at e-3.start, identified with e-2.end.
+    for (line, touch) in [("e-1", "e-1.end"), ("e-3", "e-3.start")] {
+        assert_absolute(
+            &format!("cosine between {line} and the radius at {touch}"),
+            tangent_cosine(&run, line, "e-2", touch),
+            0.0,
+            AXIS_TOLERANCE,
+        );
+    }
+}
+
+#[test]
+fn t048_tangent_inference_output_extrudes_a_block_with_a_round_end() {
+    let run = run_sketch_example("tool-tangent");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        9570.796327,
+        6,
+        [0.0, 0.0, 0.0],
+        [50.0, 20.0, 10.0],
+    );
+}
+
+#[test]
+fn t049_the_typed_angle_output_comes_back_as_stored() {
+    let run = run_sketch_example("tool-angle");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    assert_all_as_stored(&run);
+    assert_absolute("measured c-2", measured(&run, "c-2"), 60.0, AXIS_TOLERANCE);
+    assert_absolute(
+        "measured c-3",
+        measured(&run, "c-3"),
+        FRAC_PI_6,
+        AXIS_TOLERANCE,
+    );
+}
+
+#[test]
+fn t049_the_typed_angle_output_extrudes_a_right_triangle() {
+    let run = run_sketch_example("tool-angle");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        7794.228634,
+        5,
+        [0.0, 0.0, 0.0],
+        [51.961524, 30.0, 10.0],
+    );
+}
+
+#[test]
+fn t050_the_typed_diameter_output_comes_back_as_stored() {
+    let run = run_sketch_example("tool-diameter");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    assert_all_as_stored(&run);
+    assert_absolute("measured c-2", measured(&run, "c-2"), 25.0, AXIS_TOLERANCE);
+}
+
+#[test]
+fn t050_the_typed_diameter_output_extrudes_a_25_mm_disc() {
+    let run = run_sketch_example("tool-diameter");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        4908.738521,
+        3,
+        [-12.5, -12.5, 0.0],
+        [12.5, 12.5, 10.0],
+    );
 }

@@ -1,0 +1,77 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "error",
+      "messages": [
+        {
+          "severity": "error",
+          "code": "sketch_conflict",
+          "message": "In 'Sketch 1', Distance 30 mm cannot hold together with Distance 40 mm.",
+          "actions": [
+            {
+              "label": "Delete Distance 30 mm",
+              "kind": "apply"
+            },
+            {
+              "label": "Make Distance 30 mm a reference",
+              "kind": "apply"
+            },
+            {
+              "label": "Delete Distance 40 mm",
+              "kind": "apply"
+            },
+            {
+              "label": "Make Distance 40 mm a reference",
+              "kind": "apply"
+            }
+          ],
+          "detail": "conflicting constraints=c-1,c-2"
+        }
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "error",
+      "messages": [
+        {
+          "severity": "error",
+          "code": "upstream_failed",
+          "message": "'Sketch 1' has an error, so this extrude cannot use it. Fix 'Sketch 1' first.",
+          "actions": [
+            {
+              "label": "Show 'Sketch 1'",
+              "kind": "show"
+            }
+          ],
+          "root": "f-sk1"
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "empty": true
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": []
+  }
+}

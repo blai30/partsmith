@@ -1,4 +1,4 @@
-// Acceptance tests 49 to 54, 57 and 59 to 63 of docs/spec/delivery.md section 6 for the workflow files.
+// Acceptance tests 49 to 54, 57, 59 to 63 and 66 of docs/spec/delivery.md section 6 for the workflow files.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -125,6 +125,21 @@ if [ "$STUB_FAILS" = 1 ]; then
 fi
 printf '%s\\n' "$STUB_ANSWER"
 `
+
+// The WebAssembly test steps of CI (section 2.4, test 66): those of kernel-wasm in order, and those of core-wasm.
+const KERNEL_WASM_TESTS = [
+  'cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten',
+  'cargo test -p partsmith-sketch --target wasm32-unknown-emscripten',
+  'cargo test -p partsmith-engine --lib --target wasm32-unknown-emscripten dispatch::',
+]
+const WEB_MODULE_TESTS = 'cargo test -p partsmith-wasm --test integration web_module::'
+const WEB_PARITY_TESTS = 'cargo test -p partsmith-wasm --test integration web_parity:: -- --ignored'
+
+// The engine's panic containment tests that the filter dispatch:: selects (protocol.md test 84).
+const PANIC_TESTS = [
+  'a_panic_is_an_internal_error_that_poisons_its_document',
+  'a_poisoned_document_saves_its_recipe_from_before_the_failed_command',
+]
 
 /** Creates a temporary directory that is removed when the test ends. */
 async function temporaryDirectory(context) {
@@ -1143,4 +1158,85 @@ test('63: every action of section 2.2 is used by a workflow', async () => {
   for (const action of Object.keys(PINNED_ACTIONS)) {
     assert.ok(used.has(action), `no workflow uses ${action}`)
   }
+})
+
+/** The command line of a step's `run`: its value, or the one line of a block scalar without its line break. */
+function runCommand(step) {
+  return stepValue(step, 'run')?.replace(/\n$/, '')
+}
+
+/** The index of the first step of `steps` at or after `start` that runs `command`; fails the test, naming `job`, when there is none. */
+function commandStepFrom(steps, start, command, job) {
+  const index = steps.findIndex((step, i) => i >= start && runCommand(step) === command)
+  assert.notEqual(index, -1, `${job} has no step after step ${start} that runs ${command}`)
+  return index
+}
+
+/** The text of the repository file at `path`, a path from the repository root. */
+function repositoryText(path) {
+  return readFile(join(repositoryRoot, path), 'utf8')
+}
+
+test('66: kernel-wasm runs the kernel, sketch and engine panic tests on WebAssembly after its Rust cache', async () => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'kernel-wasm'))
+  let previous = usesStep(steps, 'Swatinem/rust-cache@v2.9.2')
+
+  for (const command of KERNEL_WASM_TESTS) {
+    previous = commandStepFrom(steps, previous + 1, command, 'kernel-wasm')
+  }
+})
+
+test('66: core-wasm runs the round trips with the module required, then the parity test, between the build and the upload', async () => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'core-wasm'))
+  const build = commandStep(steps, 'scripts/build-wasm.sh')
+  const roundTrips = commandStepFrom(steps, build + 1, WEB_MODULE_TESTS, 'core-wasm')
+  const parity = commandStepFrom(steps, roundTrips + 1, WEB_PARITY_TESTS, 'core-wasm')
+  const upload = usesStep(steps, 'actions/upload-artifact@v7.0.2')
+
+  assert.equal(
+    unquoted(stepMapping(steps[roundTrips], 'env')?.PARTSMITH_REQUIRE_WEB_MODULE ?? ''),
+    '1',
+  )
+  assert.ok(parity < upload, 'the parity test runs after the upload of core-wasm')
+})
+
+test('66: the filters web_module:: and web_parity:: select modules of the integration binary of partsmith-wasm', async () => {
+  const integration = await repositoryText('crates/partsmith-wasm/tests/integration.rs')
+
+  for (const module of ['web_module', 'web_parity']) {
+    assert.match(
+      integration,
+      new RegExp(`^mod ${module};$`, 'm'),
+      `integration.rs declares mod ${module};`,
+    )
+  }
+})
+
+test('66: the filter web_parity:: selects an ignored test, which -- --ignored runs', async () => {
+  const lines = (await repositoryText('crates/partsmith-wasm/tests/web_parity.rs'))
+    .split('\n')
+    .map((line) => line.trim())
+
+  assert.ok(
+    lines.some(
+      (line, i) =>
+        line === '#[test]' &&
+        [lines[i - 1], lines[i + 1]].some((next) => next?.startsWith('#[ignore')),
+    ),
+    'web_parity.rs has no #[test] with an #[ignore attribute next to it',
+  )
+})
+
+test('66: the filter dispatch:: selects the two panic tests that protocol.md test 84 names', async () => {
+  const dispatch = await repositoryText('crates/partsmith-engine/src/dispatch.rs')
+
+  for (const name of PANIC_TESTS) {
+    assert.match(dispatch, new RegExp(`^\\s*fn ${name}\\(`, 'm'), `dispatch.rs defines fn ${name}`)
+  }
+})
+
+test('66: a run written as a block scalar is read as its one command line', () => {
+  assert.equal(runCommand(['run: |', `  ${WEB_PARITY_TESTS}`]), WEB_PARITY_TESTS)
+  assert.equal(runCommand(['run: scripts/build-wasm.sh']), 'scripts/build-wasm.sh')
+  assert.equal(runCommand(['run: |', '  cargo build', '  cargo test']), 'cargo build\ncargo test')
 })

@@ -38,7 +38,7 @@ use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit, Id, Scop
 use partsmith_naming::{ElementKind, ElementName, Follow, Motion, Reference};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, Point, Shape, SubShapeKind, Vector};
 use partsmith_recompute::{BodyReport, FeatureReport, Input, Message, Recompute, Report, Status};
-use partsmith_sketch::Placement;
+use partsmith_sketch::{Placement, PointRef, RegionMatch, RegionRef, match_region};
 use serde_json::Value;
 
 /// Relative tolerance for volumes and areas (features.md section 6.1).
@@ -527,6 +527,20 @@ pub fn assert_bounding_box(shape: &Shape, min: [f64; 3], max: [f64; 3]) {
     assert_coordinates("bounding box maximum", bounds.max, max, LENGTH_TOLERANCE);
 }
 
+/// Asserts the shape's volume, number of faces and tight bounding box, as a spec's "volume V, N
+/// faces, bbox [min]-[max]" says.
+pub fn assert_volume_faces_and_bounds(
+    shape: &Shape,
+    volume: f64,
+    faces: u32,
+    min: [f64; 3],
+    max: [f64; 3],
+) {
+    assert_volume(shape, volume);
+    assert_face_count(shape, faces);
+    assert_bounding_box(shape, min, max);
+}
+
 /// The face names of a body, sorted by byte order.
 pub fn face_names(state: &BodyState) -> Vec<String> {
     element_names(state, ElementKind::Face)
@@ -957,6 +971,39 @@ pub fn sketch_result<'a>(run: &'a Run, feature: &str) -> &'a SketchResult {
         panic!("{feature} did not output a sketch");
     };
     result
+}
+
+/// The solved position of `point` (such as `e-1.end`) in the sketch `feature`.
+pub fn solved_point(run: &Run, feature: &str, point: &str) -> [f64; 2] {
+    let reference: PointRef = point
+        .parse()
+        .unwrap_or_else(|error| panic!("{point} is not a point reference: {error}"));
+    sketch_result(run, feature)
+        .point(&reference)
+        .unwrap_or_else(|| panic!("{feature} has no point {point}"))
+}
+
+/// The first region the profile of the extrude `extrude` stores.
+pub fn stored_region(run: &Run, extrude: &str) -> RegionRef {
+    let stored = run.record(extrude).params["profile"]["regions"][0].clone();
+    serde_json::from_value(stored)
+        .unwrap_or_else(|error| panic!("{extrude} stores a region reference: {error}"))
+}
+
+/// How the first region `extrude` stores matches the profile of `sketch` in this run (sketch.md section 3.14).
+pub fn stored_region_match(run: &Run, extrude: &str, sketch: &str) -> RegionMatch {
+    let result = sketch_result(run, sketch);
+    let entities: Vec<Id> = result
+        .solved
+        .entities
+        .iter()
+        .map(|entity| entity.id.clone())
+        .collect();
+    match_region(
+        &result.profile.regions,
+        &entities,
+        &stored_region(run, extrude),
+    )
 }
 
 /// The placement of the datum plane that `feature` produced.
