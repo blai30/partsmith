@@ -1,0 +1,13 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["60", "60", "10"], "op": "new"},
+    {"id": "f-tor1", "type": "torus", "body": "b-1", "major_radius": "20", "minor_radius": "5", "op": "intersect"}
+  ]
+}

@@ -9,8 +9,8 @@ use feature_support::{
     BOTH_TOPS, CUBE20, MOVE_BY_100, Run, assert_bounding_box, assert_choice_between, assert_empty,
     assert_error_field, assert_examples_canonical, assert_face_count, assert_face_kind,
     assert_face_normal, assert_face_position, assert_has_face, assert_moved_by_100,
-    assert_solid_count, assert_unchanged, assert_volume, body_changes, face, l_shaped_body,
-    slotted_block,
+    assert_same_body, assert_solid_count, assert_unchanged, assert_volume, body_changes, face,
+    l_shaped_body, link_ids, slotted_block,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -295,4 +295,53 @@ fn the_cut_faces_move_with_the_part() {
     run.assert_all_ok();
     assert_moved_by_100(&run, "f-split1", "b-1", "f-split1/split-positive");
     assert_moved_by_100(&run, "f-split1", "b-2", "f-split1/split-negative");
+}
+
+#[test]
+fn t013_by_a_flat_face_upper_part() {
+    let run = Run::example("split_body/by-face.ptsm");
+
+    run.assert_all_quiet();
+    let upper = run.shape("b-1");
+    assert_volume(upper, 6000.0);
+    assert_face_count(upper, 6);
+    assert_bounding_box(upper, [-10.0, -10.0, 5.0], [10.0, 10.0, 20.0]);
+    assert_section_face(&run, "b-1", "f-split1/split-positive", [0.0, 0.0, -1.0]);
+    let upper_front = face(run.body("b-1"), "f-box1/front#2");
+    assert_face_position(&upper_front, 1, -10.0);
+    assert_face_position(&upper_front, 2, 12.5);
+}
+
+#[test]
+fn t013_by_a_flat_face_lower_part() {
+    let run = Run::example("split_body/by-face.ptsm");
+
+    let lower = run.shape("b-3");
+    assert_volume(lower, 2000.0);
+    assert_face_count(lower, 6);
+    assert_bounding_box(lower, [-10.0, -10.0, 0.0], [10.0, 10.0, 5.0]);
+    assert_section_face(&run, "b-3", "f-split1/split-negative", [0.0, 0.0, 1.0]);
+    let lower_front = face(run.body("b-3"), "f-box1/front#1");
+    assert_face_position(&lower_front, 1, -10.0);
+    assert_face_position(&lower_front, 2, 2.5);
+}
+
+#[test]
+fn t013_by_a_flat_face_splits_as_the_datum_plane_of_test_1() {
+    let run = Run::example("split_body/by-face.ptsm");
+    let reference = Run::example("split_body/into-two-bodies.ptsm");
+
+    assert_same_body(run.body("b-1"), reference.body("b-1"));
+    assert_same_body(run.body("b-3"), reference.body("b-2"));
+}
+
+#[test]
+fn t013_by_a_flat_face_reads_the_face_body_and_writes_both_parts() {
+    let run = Run::example("split_body/by-face.ptsm");
+
+    assert_unchanged(&run, "f-split1", "b-2");
+    assert_eq!(body_changes(&run, "f-split1"), ["b-1 Modify", "b-3 New"]);
+    let dependencies = run.dependencies("f-split1");
+    assert_eq!(link_ids(&dependencies.bodies_read), ["b-2"]);
+    assert_eq!(link_ids(&dependencies.bodies_written), ["b-1", "b-3"]);
 }

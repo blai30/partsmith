@@ -1,0 +1,23 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"},
+    {
+      "id": "f-cone1",
+      "type": "cone",
+      "body": "b-1",
+      "bottom_radius": "5",
+      "top_radius": "0",
+      "height": "10",
+      "plane": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/front", "fp": "plane|n=0,-1,0|c=0,-10,10|a=400"}},
+      "position": ["0", "10", "0"],
+      "op": "join"
+    }
+  ]
+}

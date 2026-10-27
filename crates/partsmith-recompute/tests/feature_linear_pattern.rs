@@ -5,22 +5,17 @@
 
 use crate::feature_support;
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
 use feature_support::linear_pattern::{BODIES, CUBE10, X, direction, pattern};
 use feature_support::{
-    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_bore_through,
-    assert_bounding_box, assert_choice_between, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_position,
-    assert_face_translated, assert_has_face, assert_solid_count, assert_unchanged, assert_volume,
-    body_changes, edge_axis, face, l_shaped_body, leaning_wall_pattern, link_ids, set_field,
+    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_axis_stored_as_picked,
+    assert_bore_through, assert_bounding_box, assert_choice_between, assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_centroid, assert_face_count,
+    assert_face_kind, assert_face_position, assert_face_translated, assert_has_face,
+    assert_same_body, assert_solid_count, assert_unchanged, assert_volume, body_changes, edge_axis,
+    face, l_shaped_body, leaning_wall_pattern, link_ids, set_field,
     sketch_on_pattern_copy_document, turn,
 };
-use partsmith_features::{
-    BodyState, BuildContext, BuildInputs, CancelToken, FeatureError, FeatureOutput, Values,
-};
-use partsmith_model::{EmptyContext, Id, Scope, Units};
+use partsmith_model::Units;
 use partsmith_occt_sys::GeometryKind;
 
 /// The origin Y axis as an axis reference.
@@ -278,53 +273,8 @@ fn t012_too_many_instances() {
 #[test]
 fn t013_canceled_build_returns_canceled() {
     let run = Run::example("linear_pattern/grid.ptsm");
-    let registry = run.recompute.registry();
-    let record = registry
-        .validate_and_canonicalize(run.record("f-lp1"))
-        .expect("the grid pattern record is valid")
-        .record;
-    let dependencies = run.dependencies("f-lp1");
-    let manifest = registry
-        .get("linear_pattern")
-        .expect("linear_pattern is a built-in type")
-        .manifest();
-    let parameters = run.document.evaluate_parameters(&EmptyContext);
-    let scope = Scope {
-        units: run.document.units,
-        parameters: &parameters,
-        context: &EmptyContext,
-    };
-    let values = Values::evaluate(&dependencies.expressions, &scope, manifest);
-    let bodies: BTreeMap<Id, BodyState> =
-        run.feature("f-lp1").bodies_before.iter().cloned().collect();
-    assert!(
-        bodies.keys().any(|body| body.as_str() == "b-1"),
-        "the run recorded the state of b-1 before the pattern"
-    );
-    // features.md section 2.6: the context also takes the bodies' writer chains, which this build does not read.
-    let history: BTreeMap<Id, Vec<(Id, BodyState)>> = BTreeMap::new();
-    let upstream: BTreeMap<Id, Arc<FeatureOutput>> = BTreeMap::new();
-    let assets: BTreeMap<String, Arc<[u8]>> = BTreeMap::new();
-    let cancel = CancelToken::new();
-    cancel.cancel();
-    let context = BuildContext::new(BuildInputs {
-        feature: &record.id,
-        manifest,
-        units: run.document.units,
-        values: &values,
-        bodies: &bodies,
-        history: &history,
-        upstream: &upstream,
-        assets: &assets,
-        cancel: &cancel,
-    });
 
-    let result = registry.build(&record, &context);
-
-    assert!(
-        matches!(result, Err(FeatureError::Canceled)),
-        "a canceled build returns Canceled, not {result:?}",
-    );
+    run.assert_build_canceled("f-lp1");
 }
 
 #[test]
@@ -481,4 +431,63 @@ fn a_spacing_beyond_the_modeling_limit_is_out_of_range() {
         ["Spacing must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."]
     );
     assert_unchanged(&run, "f-lp1", "b-1");
+}
+
+#[test]
+fn t020_direction_from_a_round_face_matches_the_origin_axis() {
+    let run = Run::example("linear_pattern/face-direction.ptsm");
+    let reference = Run::example("linear_pattern/three-apart.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 3000.0);
+    assert_face_count(shape, 18);
+    assert_solid_count(shape, 3);
+    assert_bounding_box(shape, [-5.0, -5.0, 0.0], [45.0, 5.0, 10.0]);
+    assert_face_position(&face(run.body("b-1"), "f-box1/right@f-lp1:2"), 0, 45.0);
+    assert_same_body(run.body("b-1"), reference.body("b-1"));
+}
+
+#[test]
+fn t020_direction_from_a_round_face_reads_its_body() {
+    let run = Run::example("linear_pattern/face-direction.ptsm");
+
+    assert_unchanged(&run, "f-lp1", "b-2");
+    assert_eq!(link_ids(&run.dependencies("f-lp1").bodies_read), ["b-2"]);
+}
+
+#[test]
+fn t020_the_round_face_direction_is_stored_as_a_pick_stores_it() {
+    let run = Run::example("linear_pattern/face-direction.ptsm");
+
+    assert_axis_stored_as_picked(&run, "f-lp1", "/direction/axis", "b-2", "f-cyl1/side");
+}
+
+#[test]
+fn t021_second_direction_reversed_volume_faces_and_bounds() {
+    let run = Run::example("linear_pattern/second-reverse.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_face_count(shape, 36);
+    assert_solid_count(shape, 6);
+    // Test 3's grid with its second row toward -Y.
+    assert_bounding_box(shape, [-5.0, -20.0, 0.0], [45.0, 5.0, 10.0]);
+}
+
+#[test]
+fn t021_second_direction_reversed_puts_the_second_row_toward_minus_y() {
+    let run = Run::example("linear_pattern/second-reverse.ptsm");
+
+    let body = run.body("b-1");
+    for (name, center) in [
+        ("f-box1/top@f-lp1:1", [20.0, 0.0, 10.0]),
+        ("f-box1/top@f-lp1:0.1", [0.0, -15.0, 10.0]),
+        ("f-box1/top@f-lp1:2.1", [40.0, -15.0, 10.0]),
+    ] {
+        let top = face(body, name);
+        assert_face_kind(&top, GeometryKind::Plane);
+        assert_face_centroid(&top, center);
+    }
 }

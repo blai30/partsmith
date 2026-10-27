@@ -1,0 +1,23 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "op": "new"},
+    {
+      "id": "f-tor1",
+      "type": "torus",
+      "body": "b-2",
+      "major_radius": "8",
+      "minor_radius": "2",
+      "plane": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=400"}},
+      "position": ["0", "0", "2"],
+      "op": "new"
+    }
+  ]
+}

@@ -7,7 +7,8 @@ use crate::feature_support;
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_axis_direction, assert_face_count, assert_face_kind,
-    assert_face_names, assert_volume, face,
+    assert_face_names, assert_flat_face, assert_solid_count, assert_unchanged, assert_volume,
+    body_changes, face, link_ids,
 };
 use partsmith_features::{Bound, FeatureError};
 use partsmith_occt_sys::GeometryKind;
@@ -128,4 +129,105 @@ fn t008_tube_within_the_tolerance_of_the_ring_is_out_of_range() {
         ],
     );
     assert_empty(&run, "b-1");
+}
+
+/// Asserts the faces that tests 10 and 11 share: half of the ring of tube radius 2 on either side of the top face of
+/// 'Box 1', which keeps its name with the two discs where the ring meets it taken out.
+fn assert_half_ring_through_the_top(run: &Run) {
+    let body = run.body("b-1");
+    let surface = face(body, "f-tor1/surface");
+    assert_face_kind(&surface, GeometryKind::Torus);
+    assert_face_area(&surface, 394.784176);
+    assert_flat_face(body, "f-box1/top", 2, 20.0, 774.867259);
+}
+
+#[test]
+fn t009_intersect_keeps_the_upper_half() {
+    let run = Run::example("torus/intersect.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 4934.802201);
+    assert_face_count(shape, 2);
+    assert_bounding_box(shape, [-25.0, -25.0, 0.0], [25.0, 25.0, 5.0]);
+    assert_eq!(body_changes(&run, "f-tor1"), ["b-1 Intersect"]);
+}
+
+#[test]
+fn t009_intersect_closes_the_half_with_the_box_bottom() {
+    let run = Run::example("torus/intersect.ptsm");
+
+    let body = run.body("b-1");
+    let surface = face(body, "f-tor1/surface");
+    assert_face_kind(&surface, GeometryKind::Torus);
+    assert_face_area(&surface, 1973.920880);
+    // The ring between radius 15 and 25.
+    assert_flat_face(body, "f-box1/bottom", 2, 0.0, 1256.637061);
+}
+
+#[test]
+fn t010_join_adds_the_upper_half_as_a_handle() {
+    let run = Run::example("torus/join.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 16394.784176);
+    assert_face_count(shape, 7);
+    assert_solid_count(shape, 1);
+    assert_bounding_box(shape, [-20.0, -10.0, 0.0], [20.0, 10.0, 32.0]);
+    assert_eq!(body_changes(&run, "f-tor1"), ["b-1 Join"]);
+    assert_half_ring_through_the_top(&run);
+}
+
+#[test]
+fn t011_cut_removes_the_lower_half_as_a_channel() {
+    let run = Run::example("torus/cut.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 15605.215824);
+    assert_face_count(shape, 7);
+    assert_solid_count(shape, 1);
+    assert_bounding_box(shape, [-20.0, -10.0, 0.0], [20.0, 10.0, 20.0]);
+    assert_eq!(body_changes(&run, "f-tor1"), ["b-1 Cut"]);
+    assert_half_ring_through_the_top(&run);
+}
+
+#[test]
+fn t012_on_a_datum_moves_along_its_normal() {
+    let run = Run::example("torus/on-datum.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 9869.604401);
+    assert_face_count(shape, 1);
+    assert_bounding_box(shape, [-25.0, -15.0, -25.0], [25.0, -5.0, 25.0]);
+}
+
+#[test]
+fn t012_on_a_datum_depends_on_the_datum() {
+    let run = Run::example("torus/on-datum.ptsm");
+
+    assert_eq!(link_ids(&run.dependencies("f-tor1").features), ["f-dp1"]);
+}
+
+#[test]
+fn t013_on_a_face_of_another_body_rests_on_the_face() {
+    let run = Run::example("torus/on-face.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-2");
+    assert_volume(shape, 631.654682);
+    assert_face_count(shape, 1);
+    assert_bounding_box(shape, [-10.0, -10.0, 10.0], [10.0, 10.0, 14.0]);
+    assert_unchanged(&run, "f-tor1", "b-1");
+}
+
+#[test]
+fn t013_on_a_face_of_another_body_reads_that_body() {
+    let run = Run::example("torus/on-face.ptsm");
+
+    let dependencies = run.dependencies("f-tor1");
+    assert_eq!(link_ids(&dependencies.bodies_read), ["b-1"]);
+    assert_eq!(link_ids(&dependencies.bodies_written), ["b-2"]);
 }

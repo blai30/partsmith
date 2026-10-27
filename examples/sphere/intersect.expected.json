@@ -1,0 +1,223 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sph1",
+      "type": "sphere",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 1072.3302924253162,
+      "area": 603.1857894892403,
+      "center_of_mass": [
+        3.180554681463516e-16,
+        -1.5858560195714436e-16,
+        17.0
+      ],
+      "bounding_box": {
+        "min": [
+          -8.0,
+          -8.0,
+          12.0
+        ],
+        "max": [
+          8.0,
+          8.0,
+          20.0
+        ]
+      },
+      "faces": 2,
+      "edges": 1,
+      "vertices": 1
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 2,
+      "infos": 1,
+      "label": "2 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -12.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "info",
+              "findings": [
+                {
+                  "check": "mesh_validity",
+                  "code": "degenerate_triangles",
+                  "severity": "info",
+                  "message": "1 triangle has no area. Slicers ignore it.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      4.898587196589413e-16,
+                      -0.31173661158128174,
+                      12.0
+                    ],
+                    "max": [
+                      0.36896654843236587,
+                      -1.199807826129486e-31,
+                      12.01459556621346
+                    ]
+                  },
+                  "value": 1.0,
+                  "faces": [
+                    1
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "first_layer_contact",
+                  "code": "no_bed_contact",
+                  "severity": "warning",
+                  "message": "The part touches the bed only at points or edges, so it may come loose. Lay a flat face on the bed or add supports.",
+                  "location": {
+                    "kind": "point",
+                    "at": [
+                      4.898587196589413e-16,
+                      -1.199807826129486e-31,
+                      12.0
+                    ]
+                  },
+                  "value": 0.0,
+                  "faces": [
+                    1
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 117.6 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -5.656854249492377,
+                      -5.656196437357316,
+                      12.0
+                    ],
+                    "max": [
+                      5.656854249492374,
+                      5.656196437357316,
+                      14.343145750507617
+                    ]
+                  },
+                  "value": 1.5405746570837813,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    1
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [
+    {"id": "p-d", "name": "hole_d", "expr": "0 mm"}
+  ],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "circle", "center": [0, 0], "radius": 5}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "coincident", "points": ["e-1.center", "origin"]},
+        {"id": "c-2", "type": "diameter", "curve": "e-1", "expr": "hole_d"}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1", "fp": "c=0,0|a=78.539816", "outline": "e-1"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "10"},
+      "op": "new"
+    }
+  ]
+}

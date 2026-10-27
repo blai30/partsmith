@@ -1,0 +1,38 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"},
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "body": "b-2",
+      "radius": "2",
+      "height": "10",
+      "plane": {"kind": "origin", "plane": "YZ"},
+      "position": ["0", "20", "0"],
+      "op": "new"
+    },
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "body": "b-1",
+      "direction": {
+        "axis": {
+          "kind": "face",
+          "body": "b-2",
+          "face": {"q": "f-cyl1/side", "fp": "cylinder|n=1,0,0|c=5,0,20|a=125.663706|r=2|adj=2,3"},
+          "direction": [1, 0, 0]
+        },
+        "count": "3",
+        "spacing": "20"
+      }
+    }
+  ]
+}

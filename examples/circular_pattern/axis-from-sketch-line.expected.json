@@ -1,0 +1,166 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cp1",
+      "type": "circular_pattern",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 188.4955592153876,
+      "area": 263.8937829015427,
+      "center_of_mass": [
+        11.380711874576983,
+        11.380711874576983,
+        2.5
+      ],
+      "bounding_box": {
+        "min": [
+          -1.9999999999999987,
+          -2.0,
+          0.0
+        ],
+        "max": [
+          22.0,
+          22.0,
+          5.0
+        ]
+      },
+      "faces": 9,
+      "edges": 6,
+      "vertices": 6
+    },
+    {
+      "id": "b-2",
+      "name": "Body 2",
+      "empty": true
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          118.0,
+          118.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

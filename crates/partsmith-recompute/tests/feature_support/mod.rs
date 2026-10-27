@@ -28,13 +28,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use partsmith_features::{
-    BodyState, BodyUpdate, CancelToken, DatumResult, Dependencies, Diagnosis, DocumentNames,
-    FallbackCause, FeatureError, FeatureOutput, FeatureWarning, FieldRef, Fix, IgnoredReason,
-    Limit, Link, Loss, Names, OutputData, Placed, Registry, RenderContext, Repair, Severity,
-    SketchResult,
+    BodyState, BodyUpdate, BuildContext, BuildInputs, CancelToken, DatumResult, Dependencies,
+    Diagnosis, DocumentNames, FallbackCause, FeatureError, FeatureOutput, FeatureWarning, FieldRef,
+    Fix, IgnoredReason, Limit, Link, Loss, Names, OutputData, Placed, Registry, RenderContext,
+    Repair, Severity, SketchResult, Values,
 };
 use partsmith_message_lint::lint_failures;
-use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit, Id};
+use partsmith_model::{Document, EmptyContext, FeatureRecord, FieldUnit, Id, Scope};
 use partsmith_naming::{ElementKind, ElementName, Follow, Motion, Reference};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind, Point, Shape, SubShapeKind, Vector};
 use partsmith_recompute::{BodyReport, FeatureReport, Input, Message, Recompute, Report, Status};
@@ -611,6 +611,13 @@ pub fn assert_face_position(geometry: &ElementGeometry, axis: usize, expected: f
     );
 }
 
+/// Asserts a face's area centroid (absolute 1e-5 mm in each coordinate), as a spec's "centered at" says.
+pub fn assert_face_centroid(geometry: &ElementGeometry, expected: [f64; 3]) {
+    for (axis, coordinate) in expected.into_iter().enumerate() {
+        assert_face_position(geometry, axis, coordinate);
+    }
+}
+
 /// Asserts a face's radius (absolute 1e-5 mm).
 pub fn assert_face_radius(geometry: &ElementGeometry, expected: f64) {
     let radius = geometry
@@ -1035,6 +1042,22 @@ pub fn assert_face_in_plane(geometry: &ElementGeometry, axis: usize, position: f
     assert_face_position(geometry, axis, position);
 }
 
+/// Asserts that the face named `name` of `state` lies in the plane where coordinate `axis` (0 for x, 1 for y, 2 for
+/// z) equals `position` and has this area, as a spec's "planar at z=10 with area 78.539816" says, and returns its
+/// geometry for further checks.
+pub fn assert_flat_face(
+    state: &BodyState,
+    name: &str,
+    axis: usize,
+    position: f64,
+    area: f64,
+) -> ElementGeometry {
+    let geometry = face(state, name);
+    assert_face_in_plane(&geometry, axis, position);
+    assert_face_area(&geometry, area);
+    geometry
+}
+
 /// The `.ptsm` files in `examples/<folder>/`, as paths relative to `examples/`, sorted.
 pub fn example_paths(folder: &str) -> Vec<String> {
     let directory = examples_folder().join(folder);
@@ -1123,6 +1146,69 @@ pub fn assert_empty(run: &Run, body: &str) {
 /// end of the run is its state just before `feature`, which must be the last feature writing it.
 pub fn assert_unchanged(run: &Run, feature: &str, body: &str) {
     assert_same_body(run.body(body), body_before(run, feature, body));
+}
+
+impl Run {
+    /// Asserts that building `feature` once more through `Registry::build`, outside recompute, from
+    /// what the run gave it (its canonical record, its evaluated values and the states of its
+    /// declared bodies just before it), with a `CancelToken` that is already canceled, returns
+    /// `Err(Canceled)` (features.md section 2.6). The context holds no writer chains, upstream
+    /// outputs or assets, which a pattern does not read.
+    pub fn assert_build_canceled(&self, feature: &str) {
+        let registry = self.recompute.registry();
+        let record = registry
+            .validate_and_canonicalize(self.record(feature))
+            .unwrap_or_else(|error| panic!("the record of {feature} is invalid: {error}"))
+            .record;
+        let manifest = registry
+            .get(&record.kind)
+            .unwrap_or_else(|| panic!("{} is a built-in type", record.kind))
+            .manifest();
+        let dependencies = self.dependencies(feature);
+        let parameters = self.document.evaluate_parameters(&EmptyContext);
+        let scope = Scope {
+            units: self.document.units,
+            parameters: &parameters,
+            context: &EmptyContext,
+        };
+        let values = Values::evaluate(&dependencies.expressions, &scope, manifest);
+        let bodies: BTreeMap<Id, BodyState> = self
+            .feature(feature)
+            .bodies_before
+            .iter()
+            .cloned()
+            .collect();
+        let body = record
+            .params
+            .get("body")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| panic!("{feature} has a body"));
+        assert!(
+            bodies.keys().any(|id| id.as_str() == body),
+            "the run recorded the state of {body} before {feature}"
+        );
+        let history: BTreeMap<Id, Vec<(Id, BodyState)>> = BTreeMap::new();
+        let upstream: BTreeMap<Id, Arc<FeatureOutput>> = BTreeMap::new();
+        let assets = Assets::new();
+        let cancel = CancelToken::new();
+        cancel.cancel();
+        let context = BuildContext::new(BuildInputs {
+            feature: &record.id,
+            manifest,
+            units: self.document.units,
+            values: &values,
+            bodies: &bodies,
+            history: &history,
+            upstream: &upstream,
+            assets: &assets,
+            cancel: &cancel,
+        });
+        let result = registry.build(&record, &context);
+        assert!(
+            matches!(result, Err(FeatureError::Canceled)),
+            "a canceled build of {feature} returns Canceled, not {result:?}",
+        );
+    }
 }
 
 /// Median build time of `feature` over `runs` runs of `document` with these asset bytes, each with
@@ -1341,6 +1427,47 @@ pub fn picked_in(state: &BodyState, name: &str) -> Reference {
         .find(|info| info.name == name)
         .unwrap_or_else(|| panic!("the body has no element {name}"));
     Reference::from_element(info, &set)
+}
+
+/// Asserts that the edge or face axis `feature` stores at `pointer` (a JSON Pointer into its params, such as
+/// `/axis`) is written as a pick of the element `name` of `body` just before `feature` stores it (features.md
+/// section 6.1): its reference is `Reference::from_element` of that element, and its `direction` is the
+/// direction of the element's fingerprint, which is the pick's `axis_direction` while the body has not moved
+/// (engine.md section 3.9).
+pub fn assert_axis_stored_as_picked(
+    run: &Run,
+    feature: &str,
+    pointer: &str,
+    body: &str,
+    name: &str,
+) {
+    let params = Value::Object(run.record(feature).params.clone());
+    let axis = params
+        .pointer(pointer)
+        .unwrap_or_else(|| panic!("{feature} stores no axis at {pointer}"));
+    let kind = axis["kind"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the axis at {pointer} has a kind"));
+    let stored: Reference = serde_json::from_value(axis[kind].clone()).unwrap_or_else(|error| {
+        panic!("the {kind} axis at {pointer} stores no reference: {error}")
+    });
+    let picked = run.picked_before(feature, body, name);
+    assert_eq!(
+        stored, picked,
+        "the reference at {pointer}/{kind} as a pick stores it"
+    );
+    let direction: [f64; 3] = serde_json::from_value(axis["direction"].clone())
+        .unwrap_or_else(|error| panic!("the axis at {pointer} stores no direction: {error}"));
+    let fingerprint_direction = picked
+        .fingerprint
+        .direction
+        .unwrap_or_else(|| panic!("the fingerprint of {name} has a direction"));
+    assert_coordinates(
+        &format!("the direction at {pointer}"),
+        direction,
+        fingerprint_direction,
+        AXIS_TOLERANCE,
+    );
 }
 
 /// `UseReferences` of one reference at `pointer`.

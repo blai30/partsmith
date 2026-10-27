@@ -1,0 +1,44 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [51.96152422706632, 30]},
+        {"id": "e-2", "type": "line", "start": [51.96152422706632, 30], "end": [0, 30]},
+        {"id": "e-3", "type": "line", "start": [0, 30], "end": [0, 0]}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "coincident", "points": ["e-1.start", "origin"]},
+        {"id": "c-2", "type": "distance", "line": "e-1", "expr": "60 mm"},
+        {"id": "c-3", "type": "angle", "lines": ["x_axis", "e-1"], "expr": "30 deg"},
+        {"id": "c-4", "type": "coincident", "points": ["e-1.end", "e-2.start"]},
+        {"id": "c-5", "type": "point_on_object", "point": "e-2.end", "curve": "y_axis"},
+        {"id": "c-6", "type": "horizontal", "line": "e-2"},
+        {"id": "c-7", "type": "coincident", "points": ["e-2.end", "e-3.start"]},
+        {"id": "c-8", "type": "coincident", "points": ["e-3.end", "origin"]}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3", "fp": "c=17.320508,20|a=779.422863", "outline": "e-1,e-2,e-3"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "10"},
+      "op": "new"
+    }
+  ]
+}

@@ -6,7 +6,8 @@ use crate::feature_support;
 
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_volume, face,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_face_radius,
+    assert_flat_face, assert_unchanged, assert_volume, body_changes, face, link_ids,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -101,4 +102,66 @@ fn t007_radius_below_the_tolerance_is_out_of_range() {
         ],
     );
     assert_empty(&run, "b-1");
+}
+
+#[test]
+fn t008_intersect_keeps_the_lower_half() {
+    let run = Run::example("sphere/intersect.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 1072.330292);
+    assert_face_count(shape, 2);
+    assert_bounding_box(shape, [-8.0, -8.0, 12.0], [8.0, 8.0, 20.0]);
+    assert_eq!(body_changes(&run, "f-sph1"), ["b-1 Intersect"]);
+}
+
+#[test]
+fn t008_intersect_closes_the_half_with_the_box_top() {
+    let run = Run::example("sphere/intersect.ptsm");
+
+    let body = run.body("b-1");
+    let surface = face(body, "f-sph1/surface");
+    assert_face_kind(&surface, GeometryKind::Sphere);
+    assert_face_radius(&surface, 8.0);
+    assert_face_area(&surface, 402.123860);
+    assert_flat_face(body, "f-box1/top", 2, 20.0, 201.061930);
+}
+
+#[test]
+fn t009_on_a_datum_is_centered_on_its_origin() {
+    let run = Run::example("sphere/on-datum.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 4188.790205);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
+}
+
+#[test]
+fn t009_on_a_datum_depends_on_the_datum() {
+    let run = Run::example("sphere/on-datum.ptsm");
+
+    assert_eq!(link_ids(&run.dependencies("f-sph1").features), ["f-dp1"]);
+}
+
+#[test]
+fn t010_on_a_face_of_another_body_rests_on_the_face() {
+    let run = Run::example("sphere/on-face.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-2");
+    assert_volume(shape, 523.598776);
+    assert_face_count(shape, 1);
+    assert_bounding_box(shape, [-5.0, -5.0, 20.0], [5.0, 5.0, 30.0]);
+    assert_unchanged(&run, "f-sph1", "b-1");
+}
+
+#[test]
+fn t010_on_a_face_of_another_body_reads_that_body() {
+    let run = Run::example("sphere/on-face.ptsm");
+
+    let dependencies = run.dependencies("f-sph1");
+    assert_eq!(link_ids(&dependencies.bodies_read), ["b-1"]);
+    assert_eq!(link_ids(&dependencies.bodies_written), ["b-2"]);
 }

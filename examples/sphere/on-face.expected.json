@@ -1,0 +1,373 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sph1",
+      "type": "sphere",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 7999.999999999999,
+      "area": 2400.0,
+      "center_of_mass": [
+        1.2212453270876725e-17,
+        1.7763568394002508e-17,
+        10.0
+      ],
+      "bounding_box": {
+        "min": [
+          -10.0,
+          -10.0,
+          0.0
+        ],
+        "max": [
+          10.0,
+          10.0,
+          20.0
+        ]
+      },
+      "faces": 6,
+      "edges": 12,
+      "vertices": 8
+    },
+    {
+      "id": "b-2",
+      "name": "Body 2",
+      "volume": 523.5987755982989,
+      "area": 314.1592653589792,
+      "center_of_mass": [
+        1.503742282741846e-17,
+        -9.724926293430493e-17,
+        25.0
+      ],
+      "bounding_box": {
+        "min": [
+          -5.0,
+          -5.0,
+          20.0
+        ],
+        "max": [
+          5.0,
+          5.0,
+          30.0
+        ]
+      },
+      "faces": 1,
+      "edges": 0,
+      "vertices": 0
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 3,
+      "infos": 1,
+      "label": "3 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      },
+      {
+        "body": "b-2",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -20.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "info",
+              "findings": [
+                {
+                  "check": "mesh_validity",
+                  "code": "degenerate_triangles",
+                  "severity": "info",
+                  "message": "2 triangles have no area. Slicers ignore them.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      3.061616997868383e-16,
+                      -0.20853152362744803,
+                      20.0
+                    ],
+                    "max": [
+                      0.21829722267574528,
+                      0.20853152362745192,
+                      30.0
+                    ]
+                  },
+                  "value": 2.0,
+                  "faces": [
+                    0
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "first_layer_contact",
+                  "code": "low_bed_contact",
+                  "severity": "warning",
+                  "message": "Only 0.4% of the part's footprint touches the bed (less than 5%). Lay a larger flat face on the bed or add a brim.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -0.3018924871114303,
+                      -0.3018573812853392,
+                      20.0
+                    ],
+                    "max": [
+                      0.30175207197168763,
+                      0.3018573812853391,
+                      20.009122228883413
+                    ]
+                  },
+                  "value": 0.0036377423426985265,
+                  "limit": 0.05,
+                  "faces": [
+                    0
+                  ]
+                },
+                {
+                  "check": "first_layer_contact",
+                  "code": "tall_and_thin",
+                  "severity": "warning",
+                  "message": "The part is 10 mm tall but stands on only 0.3 mm² of the bed, so it may wobble or tip over. Add a brim or lay the part down.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -4.997674418116758,
+                      -4.999418570723188,
+                      20.0
+                    ],
+                    "max": [
+                      5.0,
+                      4.999418570723189,
+                      30.0
+                    ]
+                  },
+                  "value": 16.5851240619107,
+                  "limit": 10.0,
+                  "faces": [
+                    0
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 45.7 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -3.5355339059327355,
+                      -3.5351227733483226,
+                      20.004758892090713
+                    ],
+                    "max": [
+                      3.535533905932734,
+                      3.535122773348322,
+                      21.46446609406726
+                    ]
+                  },
+                  "value": 1.4965853740696702,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    0
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -7,12 +7,13 @@ use crate::feature_support;
 
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, absent_faces,
-    assert_absolute, assert_bounding_box, assert_choice_between, assert_empty, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
-    assert_face_kind, assert_face_radius, assert_has_face, assert_messages_pass_lint,
-    assert_no_face, assert_unchanged, assert_volume, edge_axis, face, face_names_with_prefix,
-    keep_and_pick, l_shaped_body, lean, lean_edge_axis, line, link_ids, message, output_body, pick,
-    successions, turn,
+    assert_absolute, assert_axis_stored_as_picked, assert_bounding_box, assert_choice_between,
+    assert_empty, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_count, assert_face_in_plane, assert_face_kind, assert_face_names,
+    assert_face_radius, assert_flat_face, assert_has_face, assert_messages_pass_lint,
+    assert_no_face, assert_same_body, assert_solid_count, assert_unchanged, assert_volume,
+    body_changes, edge_axis, face, face_names_with_prefix, keep_and_pick, l_shaped_body, lean,
+    lean_edge_axis, line, link_ids, message, output_body, pick, successions, turn,
 };
 use partsmith_features::{Diagnosis, Fix};
 use partsmith_naming::Follow;
@@ -862,4 +863,78 @@ fn t030_axis_edges_not_on_one_line() {
         "The edge selected for Axis now matches 2 edges that do not lie on one line. Pick the one you mean.",
     );
     assert_empty(&run, "b-1");
+}
+
+#[test]
+fn t035_join_fuses_the_ring_with_the_disc() {
+    let run = Run::example("revolve/join.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    // 10625 pi: the disc, 2250 pi, and the ring, 9000 pi, less their overlap between radius 10 and 15 over z 0..5.
+    assert_volume(shape, 33379.421944);
+    assert_face_count(shape, 7);
+    assert_solid_count(shape, 1);
+    assert_bounding_box(shape, [-20.0, -20.0, -5.0], [20.0, 20.0, 30.0]);
+    assert_eq!(body_changes(&run, "f-rev1"), ["b-1 Join"]);
+}
+
+#[test]
+fn t035_join_keeps_the_names_of_both_features() {
+    let run = Run::example("revolve/join.ptsm");
+
+    let body = run.body("b-1");
+    assert_face_names(
+        body,
+        &[
+            "f-cyl1/bottom",
+            "f-cyl1/side",
+            "f-cyl1/top",
+            "f-rev1/lateral/e-1",
+            "f-rev1/lateral/e-2",
+            "f-rev1/lateral/e-3",
+            "f-rev1/lateral/e-4",
+        ],
+    );
+    assert_flat_face(body, "f-cyl1/bottom", 2, -5.0, 706.858347);
+    let disc_side = face(body, "f-cyl1/side");
+    assert_cylinder(&disc_side, 15.0);
+    assert_face_area(&disc_side, 471.238898);
+    // Inside the ring.
+    assert_flat_face(body, "f-cyl1/top", 2, 5.0, 314.159265);
+    // From radius 15 to 20.
+    assert_flat_face(body, "f-rev1/lateral/e-1", 2, 0.0, 549.778714);
+    let outer = face(body, "f-rev1/lateral/e-2");
+    assert_cylinder(&outer, 20.0);
+    assert_face_area(&outer, 3769.911184);
+    assert_flat_face(body, "f-rev1/lateral/e-3", 2, 30.0, 942.477796);
+    // From z = 5 to 30.
+    let inner = face(body, "f-rev1/lateral/e-4");
+    assert_cylinder(&inner, 10.0);
+    assert_face_area(&inner, 1570.796327);
+}
+
+#[test]
+fn t036_axis_from_a_round_face_matches_the_origin_axis() {
+    let run = Run::example("revolve/face-axis.ptsm");
+    let reference = Run::example("revolve/quarter.ptsm");
+
+    run.assert_all_quiet();
+    assert_quarter_turn(&run);
+    assert_same_body(run.body("b-1"), reference.body("b-1"));
+}
+
+#[test]
+fn t036_axis_from_a_round_face_reads_its_body() {
+    let run = Run::example("revolve/face-axis.ptsm");
+
+    assert_unchanged(&run, "f-rev1", "b-2");
+    assert_eq!(link_ids(&run.dependencies("f-rev1").bodies_read), ["b-2"]);
+}
+
+#[test]
+fn t036_the_round_face_axis_is_stored_as_a_pick_stores_it() {
+    let run = Run::example("revolve/face-axis.ptsm");
+
+    assert_axis_stored_as_picked(&run, "f-rev1", "/axis", "b-2", "f-cyl1/side");
 }

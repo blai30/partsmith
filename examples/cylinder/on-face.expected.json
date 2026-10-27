@@ -1,0 +1,180 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 8785.398163397449,
+      "area": 2714.159265358979,
+      "center_of_mass": [
+        1.3409719436558634,
+        -4.852661581489363e-17,
+        9.999999999999998
+      ],
+      "bounding_box": {
+        "min": [
+          -10.0,
+          -10.0,
+          0.0
+        ],
+        "max": [
+          20.0,
+          10.0,
+          20.0
+        ]
+      },
+      "faces": 8,
+      "edges": 14,
+      "vertices": 10
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 1,
+      "infos": 0,
+      "label": "1 warning"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          123.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 78.5 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      10.0,
+                      -3.5355339059327506,
+                      5.0
+                    ],
+                    "max": [
+                      20.0,
+                      3.5355339059327178,
+                      6.464466094067276
+                    ]
+                  },
+                  "value": 1.5489797111449743,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    6
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,330 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 2999.9999999999995,
+      "area": 1800.0,
+      "center_of_mass": [
+        20.0,
+        8.881784197001256e-18,
+        5.0
+      ],
+      "bounding_box": {
+        "min": [
+          -5.0,
+          -5.0,
+          0.0
+        ],
+        "max": [
+          45.0,
+          5.0,
+          10.0
+        ]
+      },
+      "faces": 18,
+      "edges": 36,
+      "vertices": 24
+    },
+    {
+      "id": "b-2",
+      "name": "Body 2",
+      "volume": 125.66370614359174,
+      "area": 150.79644737231007,
+      "center_of_mass": [
+        5.0,
+        -3.958023603599043e-16,
+        20.000000000000004
+      ],
+      "bounding_box": {
+        "min": [
+          0.0,
+          -2.0,
+          18.0
+        ],
+        "max": [
+          10.0,
+          2.0,
+          22.0
+        ]
+      },
+      "faces": 3,
+      "edges": 2,
+      "vertices": 2
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 2,
+      "infos": 0,
+      "label": "2 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          108.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      },
+      {
+        "body": "b-2",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          108.0,
+          128.0,
+          -18.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 14 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      0.0,
+                      -1.4142135623731003,
+                      18.00761060381651
+                    ],
+                    "max": [
+                      10.0,
+                      -0.17431148549532535,
+                      18.58578643762691
+                    ]
+                  },
+                  "value": 1.4617132485452269,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    1
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 14 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      0.0,
+                      0.17431148549530692,
+                      18.00761060381651
+                    ],
+                    "max": [
+                      10.0,
+                      1.4142135623730872,
+                      18.585786437626897
+                    ]
+                  },
+                  "value": 1.4617132485452677,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    1
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

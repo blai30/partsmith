@@ -8,14 +8,15 @@ use feature_support::hole::THROUGH_ALL;
 use feature_support::{
     BOX_BELOW, LENGTH_TOLERANCE, MOVE_BY_100, Run, absent_faces, assert_bounding_box,
     assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_count, assert_face_in_plane, assert_face_kind, assert_face_radius, assert_has_face,
+    assert_face_axis_direction, assert_face_axis_through, assert_face_count, assert_face_in_plane,
+    assert_face_kind, assert_face_position, assert_face_radius, assert_flat_face, assert_has_face,
     assert_messages_pass_lint, assert_no_face, assert_solid_count, assert_translation,
-    assert_unchanged, assert_volume, body_update, face, face_motion, face_names_with_prefix, id,
-    message, moved_box_document, output_body, pick, remove_entry, set_reverse, sketch_result,
-    vertex,
+    assert_unchanged, assert_volume, body_changes, body_update, face, face_motion,
+    face_names_with_prefix, id, message, moved_box_document, output_body, pick, remove_entry,
+    set_reverse, sketch_result, vertex,
 };
 use partsmith_features::{BodyChange, Bound, FeatureError, FeatureWarning};
-use partsmith_occt_sys::GeometryKind;
+use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 use partsmith_recompute::Message;
 
 /// `SK-PTS`: the points `e-p1` (0, 0), `e-p2` (10, 10) and `e-p3` (100, 0) on XY.
@@ -46,11 +47,20 @@ fn assert_through_hole(run: &Run, point: &str) {
     assert_volume(shape, 15717.256661);
     assert_face_count(shape, 7);
     assert_bounding_box(shape, [-20.0, -20.0, -10.0], [20.0, 20.0, 0.0]);
-    let bore = face(run.body("b-1"), &format!("f-hole1/bore/{point}"));
+    assert_bore_wall(run, &format!("f-hole1/bore/{point}"), THROUGH_BORE_AREA);
+    assert_no_face(run.body("b-1"), &format!("f-hole1/entry/{point}"));
+}
+
+/// The area of the wall of a through hole of diameter 6 in the 10 deep `BOX-BELOW`.
+const THROUGH_BORE_AREA: f64 = 188.495559;
+
+/// Asserts that the face named `name` is a wall of diameter 6 (cylindrical, radius 3) with this area, and returns it.
+fn assert_bore_wall(run: &Run, name: &str, area: f64) -> ElementGeometry {
+    let bore = face(run.body("b-1"), name);
     assert_face_kind(&bore, GeometryKind::Cylinder);
     assert_face_radius(&bore, 3.0);
-    assert_face_area(&bore, 188.495559);
-    assert_no_face(run.body("b-1"), &format!("f-hole1/entry/{point}"));
+    assert_face_area(&bore, area);
+    bore
 }
 
 #[test]
@@ -878,4 +888,78 @@ fn a_depth_beyond_the_modeling_limit_is_checked_after_its_own_bound() {
         ["Depth must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."],
     );
     assert_unchanged(&run, "f-hole1", "b-1");
+}
+
+/// Asserts the flat bottom of test 39's and test 40's blind holes, 8 deep, and that they record nothing absent.
+fn assert_blind_bottom_at_8(run: &Run) {
+    assert_flat_face(run.body("b-1"), "f-hole1/bottom/e-p1", 2, -8.0, 28.274334);
+    assert!(absent_faces(run, "f-hole1").is_empty());
+}
+
+#[test]
+fn t038_arc_start_end_and_center_as_points() {
+    let run = Run::example("hole/arc-points.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    // Three holes like test 1's.
+    assert_volume(shape, 15151.769984);
+    assert_face_count(shape, 9);
+    assert_bounding_box(shape, [-20.0, -20.0, -10.0], [20.0, 20.0, 0.0]);
+    assert_eq!(body_changes(&run, "f-hole1"), ["b-1 Cut"]);
+}
+
+#[test]
+fn t038_each_arc_point_names_its_wall() {
+    let run = Run::example("hole/arc-points.ptsm");
+
+    for (point, through) in [
+        ("e-6.start", [10.0, 0.0, 0.0]),
+        ("e-6.end", [0.0, 10.0, 0.0]),
+        ("e-6.center", [0.0, 0.0, 0.0]),
+    ] {
+        let bore = assert_bore_wall(&run, &format!("f-hole1/bore/{point}"), THROUGH_BORE_AREA);
+        assert_face_axis_through(&bore, through);
+    }
+}
+
+#[test]
+fn t039_blind_counterbore() {
+    let run = Run::example("hole/blind-counterbore.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 15506.769953);
+    assert_face_count(shape, 10);
+    let body = run.body("b-1");
+    let counterbore = face(body, "f-hole1/counterbore/e-p1");
+    assert_face_kind(&counterbore, GeometryKind::Cylinder);
+    assert_face_radius(&counterbore, 5.5);
+    assert_face_area(&counterbore, 138.230077);
+    assert_flat_face(body, "f-hole1/counterbore-floor/e-p1", 2, -4.0, 66.758844);
+    // From z = -4 to z = -8.
+    let bore = assert_bore_wall(&run, "f-hole1/bore/e-p1", 75.398224);
+    assert_face_position(&bore, 2, -6.0);
+    assert_blind_bottom_at_8(&run);
+}
+
+#[test]
+fn t040_blind_countersink() {
+    let run = Run::example("hole/blind-countersink.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 15660.707993);
+    assert_face_count(shape, 9);
+    // From radius 6 at z = 0 to radius 3 at z = -3, 3 deep: (12 - 6) / 2 / tan 45 deg.
+    let countersink = face(run.body("b-1"), "f-hole1/countersink/e-p1");
+    assert_face_kind(&countersink, GeometryKind::Cone);
+    assert_face_axis_direction(&countersink, [0.0, 0.0, 1.0]);
+    assert_face_axis_through(&countersink, [0.0, 0.0, 0.0]);
+    assert_face_position(&countersink, 2, -1.333333);
+    assert_face_area(&countersink, 119.957839);
+    // From z = -3 to z = -8.
+    let bore = assert_bore_wall(&run, "f-hole1/bore/e-p1", 94.247780);
+    assert_face_position(&bore, 2, -5.5);
+    assert_blind_bottom_at_8(&run);
 }

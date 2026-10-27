@@ -1,0 +1,204 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cone1",
+      "type": "cone",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 8261.799387799148,
+      "area": 2497.0805519362734,
+      "center_of_mass": [
+        -8.557337075085213e-16,
+        -0.39609922655857693,
+        10.0
+      ],
+      "bounding_box": {
+        "min": [
+          -10.0,
+          -20.0,
+          0.0
+        ],
+        "max": [
+          10.0,
+          10.0,
+          20.0
+        ]
+      },
+      "faces": 7,
+      "edges": 13,
+      "vertices": 9
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 1,
+      "infos": 1,
+      "label": "1 warning"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          133.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "info",
+              "findings": [
+                {
+                  "check": "mesh_validity",
+                  "code": "degenerate_triangles",
+                  "severity": "info",
+                  "message": "1 triangle has no area. Slicers ignore it.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -0.032254224724658116,
+                      -20.0,
+                      10.0
+                    ],
+                    "max": [
+                      -8.881784197001252e-16,
+                      -19.0,
+                      10.498958580432696
+                    ]
+                  },
+                  "value": 1.0,
+                  "faces": [
+                    6
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 36.1 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -3.043807145043618,
+                      -20.0,
+                      5.0
+                    ],
+                    "max": [
+                      3.0438071450435817,
+                      -10.0,
+                      10.0
+                    ]
+                  },
+                  "value": 1.1076240484705893,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    6
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

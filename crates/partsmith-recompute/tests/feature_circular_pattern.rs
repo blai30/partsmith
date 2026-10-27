@@ -7,9 +7,9 @@ use crate::feature_support;
 
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, THROUGH_ALL,
-    assert_absolute, assert_bore_through, assert_bounding_box, assert_choice_between,
-    assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_count, assert_face_kind, assert_face_position, assert_placement,
+    assert_absolute, assert_axis_stored_as_picked, assert_bore_through, assert_bounding_box,
+    assert_choice_between, assert_coordinates, assert_error_field, assert_examples_canonical,
+    assert_face_area, assert_face_centroid, assert_face_count, assert_face_kind, assert_placement,
     assert_quarter_turns_about_z, assert_same_body, assert_solid_count, assert_unchanged,
     assert_volume, body_changes, document, edge_axis, face, face_sketch_with, hole_at_point,
     l_shaped_body, lean, lean_edge_axis, link_ids, one_point, sketch_result, turn,
@@ -34,9 +34,7 @@ fn pattern(extra: &str) -> String {
 fn assert_top_disc(run: &Run, name: &str, center: [f64; 3]) -> ElementGeometry {
     let top = face(run.body("b-1"), name);
     assert_face_kind(&top, GeometryKind::Plane);
-    for (axis, coordinate) in center.into_iter().enumerate() {
-        assert_face_position(&top, axis, coordinate);
-    }
+    assert_face_centroid(&top, center);
     top
 }
 
@@ -388,4 +386,66 @@ fn t015_axis_edges_not_on_one_line() {
         "The edge selected for Axis now matches 2 edges that do not lie on one line. Pick the one you mean.",
     );
     assert_unchanged(&run, "f-cp1", "b-1");
+}
+
+/// Asserts that b-1 is identical to test 2's partial angle: three pegs over 90 degrees about +Z.
+fn assert_partial_angle(run: &Run) {
+    let reference = Run::example("circular_pattern/partial-angle.ptsm");
+    let shape = run.shape("b-1");
+    assert_volume(shape, 188.495559);
+    assert_face_count(shape, 9);
+    assert_bounding_box(shape, [-2.0, -2.0, 0.0], [22.0, 22.0, 5.0]);
+    assert_top_disc(run, "f-cyl1/top@f-cp1:2", [0.0, 20.0, 5.0]);
+    assert_same_body(run.body("b-1"), reference.body("b-1"));
+}
+
+#[test]
+fn t016_axis_from_a_sketch_line_runs_from_its_start_to_its_end() {
+    let run = Run::example("circular_pattern/axis-from-sketch-line.ptsm");
+
+    run.assert_all_quiet();
+    assert_partial_angle(&run);
+}
+
+#[test]
+fn t016_axis_from_a_sketch_line_depends_on_the_sketch() {
+    let run = Run::example("circular_pattern/axis-from-sketch-line.ptsm");
+
+    assert_eq!(link_ids(&run.dependencies("f-cp1").features), ["f-sk1"]);
+}
+
+#[test]
+fn t017_axis_from_a_straight_edge() {
+    let run = Run::example("circular_pattern/axis-from-edge.ptsm");
+
+    run.assert_all_quiet();
+    assert_partial_angle(&run);
+}
+
+#[test]
+fn t017_axis_from_a_straight_edge_reads_its_body() {
+    let run = Run::example("circular_pattern/axis-from-edge.ptsm");
+
+    assert_unchanged(&run, "f-cp1", "b-2");
+    assert_eq!(link_ids(&run.dependencies("f-cp1").bodies_read), ["b-2"]);
+}
+
+#[test]
+fn t017_the_edge_axis_is_stored_as_a_pick_stores_it() {
+    let run = Run::example("circular_pattern/axis-from-edge.ptsm");
+
+    assert_axis_stored_as_picked(
+        &run,
+        "f-cp1",
+        "/axis",
+        "b-2",
+        "edge(f-box2/front|f-box2/left)",
+    );
+}
+
+#[test]
+fn t018_canceled_build_returns_canceled() {
+    let run = Run::example("circular_pattern/six-around.ptsm");
+
+    run.assert_build_canceled("f-cp1");
 }

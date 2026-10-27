@@ -3293,7 +3293,7 @@ export function orientElement(element: HTMLElement, matrix: Float32Array): void
 
 #### 3.16.4 Drawing tools
 
-Each tool's output is fixed (unit tests U-50 to U-54 check `recipes.ts`); "inferred" constraints come from 3.16.5; everything else is requested.
+Each tool's output is fixed (unit tests U-50 to U-54 check `recipes.ts`; features/sketch.md tests 44 to 50 hold each tool's output as a document and change with it); "inferred" constraints come from 3.16.5; everything else is requested.
 
 - **Line / polyline** (`line`, L). Click 1 sets the start S. A rubber band follows the cursor. Click 2 sets the end E and commits a line S to E; segments shorter than 2 CSS pixels are ignored. The chain continues from E: the next line starts at E with an inferred `coincident` between the previous line's end and the new line's start. The chain ends on Esc (the rubber band is discarded, the tool stays), Enter with no draw input focused, a double-click (which commits the segment to the clicked point first), or a click on the chain's first point (committing a closing segment with `coincident` to it).
 - **2-point rectangle** (`rectangle_2point`, R). Click 1 sets corner C1, click 2 the opposite corner C2; a width or height under 2 CSS pixels is ignored. Output: lines L1 C1 to (C2.x, C1.y), L2 (C2.x, C1.y) to C2, L3 C2 to (C1.x, C2.y), L4 (C1.x, C2.y) to C1; `coincident` L1.end-L2.start, L2.end-L3.start, L3.end-L4.start, L4.end-L1.start; `horizontal` L1 and L3; `vertical` L2 and L4. Snaps at C1 apply to L1.start and at C2 to L2.end (inferred).

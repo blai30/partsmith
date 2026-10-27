@@ -6,12 +6,12 @@
 use crate::feature_support;
 
 use feature_support::{
-    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_bore_through,
-    assert_bounding_box, assert_choice_between, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_count, assert_face_kind, assert_face_normal,
-    assert_face_position, assert_face_translated, assert_quarter_turns_about_z, assert_unchanged,
-    assert_volume, body_changes, edge_axis, face, face_motion, l_shaped_body, leaning_wall,
-    left_bottom_edge_axis, moved_box_document,
+    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_axis_stored_as_picked,
+    assert_bore_through, assert_bounding_box, assert_choice_between, assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
+    assert_face_kind, assert_face_normal, assert_face_position, assert_face_translated,
+    assert_quarter_turns_about_z, assert_unchanged, assert_volume, body_changes, edge_axis, face,
+    face_motion, l_shaped_body, leaning_wall, left_bottom_edge_axis, link_ids, moved_box_document,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -315,4 +315,64 @@ fn a_translation_beyond_the_modeling_limit_is_out_of_range() {
         ["Move Z must be at most 1000000 mm, but it is 1e200 mm. Use 1000000 mm or less."]
     );
     assert_unchanged(&run, "f-mv1", "b-1");
+}
+
+#[test]
+fn t014_rotate_about_a_sketch_line_tips_the_box_onto_its_right_side() {
+    let run = Run::example("move_body/rotate-about-sketch-line.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [5.0, -10.0, 0.0], [35.0, 10.0, 10.0]);
+}
+
+#[test]
+fn t014_rotate_about_a_sketch_line_turns_plus_z_toward_plus_x() {
+    let run = Run::example("move_body/rotate-about-sketch-line.ptsm");
+
+    let body = run.body("b-1");
+    let top = face(body, "f-box1/top");
+    assert_face_in_plane(&top, 0, 35.0);
+    assert_face_normal(&top, [1.0, 0.0, 0.0]);
+    let right = face(body, "f-box1/right");
+    assert_face_in_plane(&right, 2, 0.0);
+    assert_face_normal(&right, [0.0, 0.0, -1.0]);
+}
+
+#[test]
+fn t014_rotate_about_a_sketch_line_depends_on_the_sketch() {
+    let run = Run::example("move_body/rotate-about-sketch-line.ptsm");
+
+    assert_eq!(link_ids(&run.dependencies("f-mv1").features), ["f-sk1"]);
+}
+
+#[test]
+fn t015_rotate_about_a_round_face_turns_about_its_axis() {
+    let run = Run::example("move_body/rotate-about-face.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [10.0, -25.0, 0.0], [30.0, -15.0, 30.0]);
+    let front = face(run.body("b-1"), "f-box1/front");
+    assert_face_in_plane(&front, 0, 30.0);
+    assert_face_normal(&front, [1.0, 0.0, 0.0]);
+}
+
+#[test]
+fn t015_rotate_about_a_round_face_reads_its_body() {
+    let run = Run::example("move_body/rotate-about-face.ptsm");
+
+    assert_unchanged(&run, "f-mv1", "b-2");
+    assert_eq!(link_ids(&run.dependencies("f-mv1").bodies_read), ["b-2"]);
+}
+
+#[test]
+fn t015_the_round_face_axis_is_stored_as_a_pick_stores_it() {
+    let run = Run::example("move_body/rotate-about-face.ptsm");
+
+    assert_axis_stored_as_picked(&run, "f-mv1", "/rotation/axis", "b-2", "f-cyl1/side");
 }

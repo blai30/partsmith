@@ -1,0 +1,21 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "op": "new"},
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "body": "b-1",
+      "radius": "5",
+      "height": "20",
+      "position": ["0", "0", "-5"],
+      "op": "intersect"
+    }
+  ]
+}

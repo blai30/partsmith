@@ -6,8 +6,8 @@ use crate::feature_support;
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_face_normal,
-    assert_face_position, assert_messages_pass_lint, assert_solid_count, assert_volume, face,
-    link_ids, message, set_field,
+    assert_face_position, assert_flat_face, assert_messages_pass_lint, assert_solid_count,
+    assert_volume, body_changes, face, link_ids, message, set_field,
 };
 use partsmith_features::Fix;
 use partsmith_occt_sys::GeometryKind;
@@ -327,4 +327,35 @@ fn a_position_beyond_the_modeling_limit_is_out_of_range() {
         ],
     );
     assert_empty(&run, "b-1");
+}
+
+#[test]
+fn t014_intersect_keeps_the_corner_the_cubes_share() {
+    let run = Run::example("box/intersect.ptsm");
+
+    run.assert_all_quiet();
+    let shape = run.shape("b-1");
+    assert_volume(shape, 125.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [0.0, 0.0, 5.0], [5.0, 5.0, 10.0]);
+    assert_eq!(body_changes(&run, "f-box2"), ["b-1 Intersect"]);
+}
+
+#[test]
+fn t014_intersect_names_each_face_after_the_box_that_bounds_it() {
+    let run = Run::example("box/intersect.ptsm");
+
+    let body = run.body("b-1");
+    let faces = [
+        ("f-box2/left", 0, 0.0),
+        ("f-box2/front", 1, 0.0),
+        ("f-box2/bottom", 2, 5.0),
+        ("f-box1/right", 0, 5.0),
+        ("f-box1/back", 1, 5.0),
+        ("f-box1/top", 2, 10.0),
+    ];
+    assert_face_names(body, &faces.map(|(name, _, _)| name));
+    for (name, axis, position) in faces {
+        assert_flat_face(body, name, axis, position, 25.0);
+    }
 }

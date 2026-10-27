@@ -1,0 +1,22 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "20"], "op": "new"},
+    {
+      "id": "f-tor1",
+      "type": "torus",
+      "body": "b-1",
+      "major_radius": "10",
+      "minor_radius": "2",
+      "plane": {"kind": "origin", "plane": "XZ"},
+      "position": ["0", "20", "0"],
+      "op": "cut"
+    }
+  ]
+}

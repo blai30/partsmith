@@ -1,0 +1,200 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-dp1",
+      "type": "datum_plane",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cone1",
+      "type": "cone",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 1832.595714594046,
+      "area": 919.5601865267786,
+      "center_of_mass": [
+        8.92857142857143,
+        -3.722157707221304e-16,
+        9.624965001065152e-17
+      ],
+      "bounding_box": {
+        "min": [
+          5.0,
+          -10.0,
+          -10.0
+        ],
+        "max": [
+          15.000000000000002,
+          10.0,
+          10.0
+        ]
+      },
+      "faces": 3,
+      "edges": 2,
+      "vertices": 2
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 2,
+      "infos": 0,
+      "label": "2 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          118.0,
+          128.0,
+          10.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "first_layer_contact",
+                  "code": "no_bed_contact",
+                  "severity": "warning",
+                  "message": "The part touches the bed only at points or edges, so it may come loose. Lay a flat face on the bed or add supports.",
+                  "location": {
+                    "kind": "point",
+                    "at": [
+                      5.0,
+                      -4.624589118372729e-14,
+                      -10.0
+                    ]
+                  },
+                  "value": 0.0,
+                  "faces": [
+                    0,
+                    1
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 108.4 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      5.0,
+                      -6.087614290087236,
+                      -10.0
+                    ],
+                    "max": [
+                      15.000000000000002,
+                      6.0876142900871635,
+                      -3.9667667014561636
+                    ]
+                  },
+                  "value": 1.1090005598450656,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    1
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

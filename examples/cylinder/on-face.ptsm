@@ -1,0 +1,22 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "op": "new"},
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "body": "b-1",
+      "radius": "5",
+      "height": "10",
+      "plane": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/right", "fp": "plane|n=1,0,0|c=10,0,10|a=400"}},
+      "position": ["0", "10", "0"],
+      "op": "join"
+    }
+  ]
+}

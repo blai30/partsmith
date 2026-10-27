@@ -1330,3 +1330,46 @@ fn a_face_sketch_in_body_coordinates_takes_the_motion_of_its_face() {
         face_motion_before(&run, "f-sk2", "b-1", "f-box1/top")
     );
 }
+
+#[test]
+fn t033_on_yz_places_the_sketch_on_the_yz_plane() {
+    let run = Run::example("sketch/rectangle-yz.ptsm");
+
+    run.assert_all_quiet();
+    let sketch = sketch_result(&run, "f-sk1");
+    assert_placement(
+        &sketch.placement,
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [1.0, 0.0, 0.0],
+    );
+    assert_coordinates(
+        "y axis",
+        sketch.placement.y_axis(),
+        [0.0, 0.0, 1.0],
+        AXIS_TOLERANCE,
+    );
+    assert_coordinates(
+        "to_world([10, 20])",
+        sketch.to_world([10.0, 20.0]),
+        [0.0, 10.0, 20.0],
+        AXIS_TOLERANCE,
+    );
+}
+
+#[test]
+fn t033_on_yz_has_the_region_of_test_1_and_no_body_changes() {
+    let run = Run::example("sketch/rectangle-yz.ptsm");
+
+    let regions = &sketch_result(&run, "f-sk1").profile.regions;
+    assert_eq!(regions.len(), 1, "regions of the rectangle");
+    assert_eq!(regions[0].key.to_string(), "e-1,e-2,e-3,e-4");
+    assert_relative("region area", regions[0].area, 4000.0);
+    assert_coordinates(
+        "region centroid",
+        regions[0].centroid,
+        [40.0, 25.0],
+        AXIS_TOLERANCE,
+    );
+    assert!(run.report.bodies.is_empty(), "the document has no bodies");
+}

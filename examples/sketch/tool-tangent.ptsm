@@ -1,0 +1,54 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [40, 0]},
+        {
+          "id": "e-2",
+          "type": "arc",
+          "center": [40, 10],
+          "radius": 10,
+          "start_angle": 4.71238898038469,
+          "end_angle": 1.5707963267948966
+        },
+        {"id": "e-3", "type": "line", "start": [40, 20], "end": [0, 20]},
+        {"id": "e-4", "type": "line", "start": [0, 20], "end": [0, 0]}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "coincident", "points": ["e-1.start", "origin"]},
+        {"id": "c-2", "type": "horizontal", "line": "e-1"},
+        {"id": "c-3", "type": "distance", "line": "e-1", "expr": "40 mm"},
+        {"id": "c-4", "type": "coincident", "points": ["e-2.start", "e-1.end"]},
+        {"id": "c-5", "type": "tangent", "curves": ["e-1", "e-2"]},
+        {"id": "c-6", "type": "coincident", "points": ["e-3.start", "e-2.end"]},
+        {"id": "c-7", "type": "point_on_object", "point": "e-3.end", "curve": "y_axis"},
+        {"id": "c-8", "type": "tangent", "curves": ["e-3", "e-2"]},
+        {"id": "c-9", "type": "coincident", "points": ["e-3.end", "e-4.start"]},
+        {"id": "c-10", "type": "coincident", "points": ["e-4.end", "origin"]}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=23.979041,10|a=957.079633", "outline": "e-1,e-2,e-3,e-4"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "10"},
+      "op": "new"
+    }
+  ]
+}

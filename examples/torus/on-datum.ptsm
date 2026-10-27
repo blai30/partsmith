@@ -1,0 +1,21 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XZ"}, "offset": "10"},
+    {
+      "id": "f-tor1",
+      "type": "torus",
+      "body": "b-1",
+      "major_radius": "20",
+      "minor_radius": "5",
+      "plane": {"kind": "datum", "feature": "f-dp1"},
+      "op": "new"
+    }
+  ]
+}

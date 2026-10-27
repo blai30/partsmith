@@ -1,0 +1,38 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "point", "position": [12, 5]},
+        {"id": "e-2", "type": "circle", "center": [0, 0], "radius": 13}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "fix", "target": "e-1"},
+        {"id": "c-2", "type": "coincident", "points": ["e-2.center", "origin"]},
+        {"id": "c-3", "type": "point_on_object", "point": "e-1", "curve": "e-2"}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-2", "fp": "c=0,0|a=530.929158", "outline": "e-2"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "10"},
+      "op": "new"
+    }
+  ]
+}

@@ -1,0 +1,186 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-rev1",
+      "type": "revolve",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 33379.42194439154,
+      "area": 8325.220532012952,
+      "center_of_mass": [
+        1.484970630384238e-15,
+        -1.1078983581672416e-15,
+        12.558823529411766
+      ],
+      "bounding_box": {
+        "min": [
+          -20.0,
+          -20.0,
+          -5.0
+        ],
+        "max": [
+          20.0,
+          20.0,
+          30.0
+        ]
+      },
+      "faces": 7,
+      "edges": 6,
+      "vertices": 6
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 1,
+      "infos": 0,
+      "label": "1 warning"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          5.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 549.6 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -20.0,
+                      -20.0,
+                      0.0
+                    ],
+                    "max": [
+                      20.0,
+                      20.0,
+                      0.0
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    3
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
