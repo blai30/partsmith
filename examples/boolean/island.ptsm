@@ -1,0 +1,24 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"},
+    {"id": "b-3", "name": "Body 3"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["4", "10", "20"], "position": ["2", "5", "0"], "op": "new"},
+    {
+      "id": "f-box2",
+      "type": "box",
+      "body": "b-2",
+      "size": ["16", "10", "4"],
+      "position": ["12", "5", "16"],
+      "op": "new"
+    },
+    {"id": "f-box3", "type": "box", "body": "b-3", "size": ["4", "10", "8"], "position": ["18", "5", "8"], "op": "new"},
+    {"id": "f-bool1", "type": "boolean", "target": "b-1", "tools": ["b-2", "b-3"], "op": "join"}
+  ]
+}

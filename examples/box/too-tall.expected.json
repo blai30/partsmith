@@ -1,0 +1,189 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 480000.0,
+      "area": 51200.0,
+      "center_of_mass": [
+        9.296267459527978e-17,
+        -5.684341886080802e-17,
+        150.0
+      ],
+      "bounding_box": {
+        "min": [
+          -20.0,
+          -20.0,
+          0.0
+        ],
+        "max": [
+          20.0,
+          20.0,
+          300.0
+        ]
+      },
+      "faces": 6,
+      "edges": 12,
+      "vertices": 8
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "error",
+      "errors": 1,
+      "warnings": 0,
+      "infos": 0,
+      "label": "1 error"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "error",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "error",
+              "findings": [
+                {
+                  "check": "bed_fit",
+                  "code": "too_tall",
+                  "severity": "error",
+                  "message": "The part is 300 mm tall, taller than the 256 mm build height. Split the part or lay it on its side.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -20.0,
+                      -20.0,
+                      0.0
+                    ],
+                    "max": [
+                      20.0,
+                      20.0,
+                      300.0
+                    ]
+                  },
+                  "value": 300.0,
+                  "limit": 256.0,
+                  "faces": [],
+                  "suggestion": {
+                    "kind": "split",
+                    "planes": [
+                      {
+                        "origin": [
+                          0.0,
+                          0.0,
+                          150.0
+                        ],
+                        "normal": [
+                          0.0,
+                          0.0,
+                          1.0
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

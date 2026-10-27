@@ -1,0 +1,174 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 2500.0,
+      "area": 2050.0,
+      "center_of_mass": [
+        2.720046410331634e-18,
+        0.0,
+        50.0
+      ],
+      "bounding_box": {
+        "min": [
+          -2.5,
+          -2.5,
+          0.0
+        ],
+        "max": [
+          2.5,
+          2.5,
+          100.0
+        ]
+      },
+      "faces": 6,
+      "edges": 12,
+      "vertices": 8
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 1,
+      "infos": 0,
+      "label": "1 warning"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "first_layer_contact",
+                  "code": "tall_and_thin",
+                  "severity": "warning",
+                  "message": "The part is 100 mm tall but stands on only 25 mm² of the bed, so it may wobble or tip over. Add a brim or lay the part down.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -2.5,
+                      -2.5,
+                      0.0
+                    ],
+                    "max": [
+                      2.5,
+                      2.5,
+                      100.0
+                    ]
+                  },
+                  "value": 17.72453850905516,
+                  "limit": 10.0,
+                  "faces": [
+                    1
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

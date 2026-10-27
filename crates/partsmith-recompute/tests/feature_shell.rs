@@ -11,12 +11,13 @@ use std::path::Path;
 
 use feature_support::shell::{ROUNDED_TOP_FACE, rounded_cube_document, shell_record};
 use feature_support::{
-    CUBE20, MOVE_BY_100, Run, assert_bounding_box, assert_element_repair, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
-    assert_face_normal, assert_face_position, assert_face_radius, assert_has_face,
-    assert_list_field, assert_moved_by_100, assert_solid_count, assert_unchanged, assert_volume,
+    CUBE20, LENGTH_TOLERANCE, MOVE_BY_100, Run, assert_bounding_box, assert_coordinates,
+    assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_count, assert_face_in_plane, assert_face_kind, assert_face_normal,
+    assert_face_position, assert_face_radius, assert_has_face, assert_list_field,
+    assert_moved_by_100, assert_no_face, assert_solid_count, assert_unchanged, assert_volume,
     body_update, document, face, face_index, face_names_with_prefix, load_example, parse_document,
-    suggested_limit,
+    point_components, suggested_limit,
 };
 use feature_support::{assert_messages_pass_lint, id, message, pick, set_field};
 use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, Fix, Limit};
@@ -752,6 +753,120 @@ fn t021_arc_join_beside_a_round_as_thick_as_the_wall() {
     // The same cavity, less the round's material, 10 (4 - pi).
     assert_arc_join_kept(&run, 5368.0 + 26.0 * PI, 17);
     assert_no_inner_rounds(&run);
+}
+
+/// The checks of a rounded join of `b-1` in tests 24 and 25: its surface kind, the wall's radius 2
+/// and its area.
+fn assert_round_join(run: &Run, name: &str, kind: GeometryKind, area: f64) {
+    let join = face(run.body("b-1"), name);
+    assert_face_kind(&join, kind);
+    assert_face_radius(&join, 2.0);
+    assert_face_area(&join, area);
+}
+
+/// Test 24: the L-shaped body with its bottom removed. The bottom meets the kept faces only at
+/// convex edges, so the kernel's first attempt opens it and fills the gap at the concave edge
+/// between the step and the taller box with an arc join (naming.md section 3.6.7 rule 4).
+#[test]
+fn t024_arc_join_at_a_concave_edge() {
+    let run = Run::example("shell/concave-edge-join.ptsm");
+
+    run.assert_all_ok();
+    let body = run.body("b-1");
+    let shape = run.shape("b-1");
+    // The L, 12000, less a cavity 16 mm long in y whose section in xz is 452 - pi.
+    assert_volume(shape, 4768.0 + 16.0 * PI);
+    assert_face_count(shape, 16);
+    assert_solid_count(shape, 1);
+    assert_bounding_box(shape, [-20.0, -10.0, 0.0], [20.0, 10.0, 20.0]);
+    // A quarter turn around the concave edge over its 16 mm between the inner walls.
+    assert_round_join(&run, ARC_JOIN, GeometryKind::Cylinder, 16.0 * PI);
+    assert_eq!(
+        face_names_with_prefix(body, "f-sh1/inner/edge("),
+        [ARC_JOIN],
+        "the concave edge is the body's only one"
+    );
+    let step_wall = face(body, "f-sh1/inner/f-box1/top");
+    assert_face_in_plane(&step_wall, 2, 8.0);
+    assert_face_area(&step_wall, 288.0);
+    let riser_wall = face(body, "f-sh1/inner/f-box2/left");
+    assert_face_in_plane(&riser_wall, 0, 2.0);
+    assert_face_area(&riser_wall, 128.0);
+    let rim = face(body, "f-sh1/rim/f-box1/bottom");
+    assert_face_in_plane(&rim, 2, 0.0);
+    assert_face_area(&rim, 224.0);
+    assert_no_face(body, "f-box1/bottom");
+    assert_eq!(
+        face_names_with_prefix(body, "f-sh1/inner/vertex("),
+        Vec::<String>::new(),
+        "each end of the concave edge also has two convex edges, so it gets no join of its own"
+    );
+    assert_eq!(
+        face_names_with_prefix(body, "f-sh1/face"),
+        Vec::<String>::new(),
+        "every face has a name from its origin"
+    );
+}
+
+/// Test 25: `CUBE20` with a 10 mm notch cut from the bottom of its back right quarter, shelled with
+/// its bottom removed. The notch's ceiling and two walls meet at (0,0,10), where all three edges
+/// are concave, so the three arc joins meet in a sphere join (naming.md section 3.6.7 rule 5).
+#[test]
+fn t025_sphere_join_at_a_concave_vertex() {
+    let run = Run::example("shell/concave-vertex-join.ptsm");
+
+    run.assert_all_ok();
+    let body = run.body("b-1");
+    let shape = run.shape("b-1");
+    // The notched cube, 7000, less the 16 x 16 x 18 mm box inside the walls, 4608, without its
+    // part within 2 mm of the notch, 1088 + 82 pi / 3.
+    assert_volume(shape, 3480.0 + 82.0 * PI / 3.0);
+    assert_face_count(shape, 21);
+    assert_solid_count(shape, 1);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
+    let ceiling_joins = [
+        "f-sh1/inner/edge(f-box2/front|f-box2/top)",
+        "f-sh1/inner/edge(f-box2/left|f-box2/top)",
+    ];
+    for name in ceiling_joins {
+        assert_round_join(&run, name, GeometryKind::Cylinder, 8.0 * PI);
+    }
+    // The join between the walls runs the full 10 mm down to the opening.
+    let wall_join = "f-sh1/inner/edge(f-box2/front|f-box2/left)";
+    assert_round_join(&run, wall_join, GeometryKind::Cylinder, 10.0 * PI);
+    assert_eq!(
+        face_names_with_prefix(body, "f-sh1/inner/edge("),
+        [wall_join, ceiling_joins[0], ceiling_joins[1]],
+        "one arc join per concave edge of the notch"
+    );
+    // An eighth of a sphere around the vertex, where the three arc joins meet.
+    let corner = "f-sh1/inner/vertex(f-box2/front|f-box2/left|f-box2/top)";
+    assert_round_join(&run, corner, GeometryKind::Sphere, 2.0 * PI);
+    let center = face(body, corner)
+        .location
+        .unwrap_or_else(|| panic!("the sphere join {corner} has no center"));
+    assert_coordinates(
+        "center of the sphere join",
+        point_components(center),
+        [0.0, 0.0, 10.0],
+        LENGTH_TOLERANCE,
+    );
+    assert_eq!(
+        face_names_with_prefix(body, "f-sh1/inner/vertex("),
+        [corner],
+        "the notch's corner is the body's only concave vertex"
+    );
+    let ceiling_wall = face(body, "f-sh1/inner/f-box2/top");
+    assert_face_in_plane(&ceiling_wall, 2, 12.0);
+    assert_face_area(&ceiling_wall, 64.0);
+    let rim = face(body, "f-sh1/rim/f-box1/bottom");
+    assert_face_in_plane(&rim, 2, 0.0);
+    assert_face_area(&rim, 140.0 + PI);
+    assert_eq!(
+        face_names_with_prefix(body, "f-sh1/face"),
+        Vec::<String>::new(),
+        "every face has a name from its origin"
+    );
 }
 
 #[test]

@@ -1,0 +1,170 @@
+{
+  "printer": "generic-resin",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 70000.0,
+      "area": 17400.0,
+      "center_of_mass": [
+        -7.018829961680239e-16,
+        1.2992781453898975e-15,
+        5.0
+      ],
+      "bounding_box": {
+        "min": [
+          -35.0,
+          -50.0,
+          0.0
+        ],
+        "max": [
+          35.0,
+          50.0,
+          10.0
+        ]
+      },
+      "faces": 6,
+      "edges": 12,
+      "vertices": 8
+    }
+  ],
+  "checks": {
+    "profile": "generic-resin",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 1,
+      "label": "Ready to print"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          65.0,
+          40.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-resin",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "info",
+              "findings": [
+                {
+                  "check": "bed_fit",
+                  "code": "fits_rotated",
+                  "severity": "info",
+                  "message": "The part fits the bed only when turned 90 degrees about Z. Turn it in the slicer.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -35.0,
+                      -50.0,
+                      0.0
+                    ],
+                    "max": [
+                      35.0,
+                      50.0,
+                      10.0
+                    ]
+                  },
+                  "faces": []
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -2,7 +2,7 @@
 
 Printer profiles (FDM and resin), fit classes, the `printer.*` expression values, the tessellation tolerance rule, and the printability checks that run on one body's mesh in a chosen orientation, plus the print health summary.
 
-Spec: `docs/spec/print.md` (the definition of done). Acceptance tests in `tests/` come from its section 6; do not weaken them.
+Spec: `docs/spec/print.md` (the definition of done). Acceptance tests in `tests/` come from its section 6, except 6.18, whose examples the CLI's examples runner checks (delivery.md 2.8); do not weaken them.
 
 ## Public interface (crate root)
 

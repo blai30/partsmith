@@ -1,0 +1,217 @@
+{
+  "printer": "generic-resin",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 29104.000000000007,
+      "area": 29136.0,
+      "center_of_mass": [
+        4.621402521553343e-15,
+        4.609348148416263e-16,
+        15.000000000000004
+      ],
+      "bounding_box": {
+        "min": [
+          -40.0,
+          -25.0,
+          0.0
+        ],
+        "max": [
+          40.0,
+          25.0,
+          30.0
+        ]
+      },
+      "faces": 12,
+      "edges": 24,
+      "vertices": 16
+    }
+  ],
+  "checks": {
+    "profile": "generic-resin",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 2,
+      "infos": 0,
+      "label": "2 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          65.0,
+          40.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-resin",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 30 degrees over 3496 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -38.0,
+                      -23.0,
+                      28.0
+                    ],
+                    "max": [
+                      38.0,
+                      23.0,
+                      28.0
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.5235987755982988,
+                  "faces": [
+                    11
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "trapped_volumes",
+                  "code": "enclosed_hollow",
+                  "severity": "warning",
+                  "message": "An enclosed hollow of 90896 mm³ will trap liquid resin. Add a drain hole near its lowest point.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -38.0,
+                      -23.0,
+                      2.0
+                    ],
+                    "max": [
+                      38.0,
+                      23.0,
+                      28.0
+                    ]
+                  },
+                  "value": 90896.0,
+                  "faces": [
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11
+                  ],
+                  "suggestion": {
+                    "kind": "drain_hole",
+                    "at": [
+                      -38.0,
+                      -23.0,
+                      2.0
+                    ]
+                  }
+                }
+              ],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

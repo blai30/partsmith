@@ -1,0 +1,201 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 1200000.0,
+      "area": 254000.0,
+      "center_of_mass": [
+        5.329070518200751e-16,
+        2.273736754432321e-15,
+        5.0
+      ],
+      "bounding_box": {
+        "min": [
+          -200.0,
+          -150.0,
+          0.0
+        ],
+        "max": [
+          200.0,
+          150.0,
+          10.0
+        ]
+      },
+      "faces": 6,
+      "edges": 12,
+      "vertices": 8
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "error",
+      "errors": 1,
+      "warnings": 0,
+      "infos": 0,
+      "label": "1 error"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "error",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "error",
+              "findings": [
+                {
+                  "check": "bed_fit",
+                  "code": "footprint_too_large",
+                  "severity": "error",
+                  "message": "The part footprint is 400 x 300 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -200.0,
+                      -150.0,
+                      0.0
+                    ],
+                    "max": [
+                      200.0,
+                      150.0,
+                      10.0
+                    ]
+                  },
+                  "value": 400.0,
+                  "limit": 256.0,
+                  "faces": [],
+                  "suggestion": {
+                    "kind": "split",
+                    "planes": [
+                      {
+                        "origin": [
+                          0.0,
+                          0.0,
+                          5.0
+                        ],
+                        "normal": [
+                          1.0,
+                          0.0,
+                          0.0
+                        ]
+                      },
+                      {
+                        "origin": [
+                          0.0,
+                          0.0,
+                          5.0
+                        ],
+                        "normal": [
+                          0.0,
+                          1.0,
+                          0.0
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

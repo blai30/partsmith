@@ -1,0 +1,33 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "printer": "generic-resin",
+  "parameters": [
+    {"id": "p-wall", "name": "wall", "expr": "6 * printer.layer_height"}
+  ],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["140", "wall", "20"], "op": "new"},
+    {
+      "id": "f-box2",
+      "type": "box",
+      "body": "b-2",
+      "size": ["20", "20", "10"],
+      "position": ["0", "30", "0"],
+      "op": "new"
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "body": "b-2",
+      "edges": [
+        {"q": "edge(f-box2/bottom|f-box2/front)", "fp": "line|n=1,0,0|c=0,20,0|l=20"}
+      ],
+      "distance": {"kind": "equal", "expr": "5"}
+    }
+  ]
+}

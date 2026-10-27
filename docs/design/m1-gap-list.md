@@ -341,6 +341,7 @@ Add examples after phases 1 to 3, so their expected results are blessed once, ag
     - `examples/shell/closed-hollow-resin`: `enclosed_hollow` as a warning, with `drain_hole`;
     - `examples/box/resin`: the 30 degree overhang limit, nozzle-free thresholds, the 130 x 80 bed, and `printer.*` without a nozzle.
   - Python twins carry `printer="generic-resin"`.
+  - `box/fits-rotated` is on `generic-resin` (print.md test 121: a square bed fits no turned footprint).
 - **Impact:** medium. **Size:** M.
 - **Depends on:** nothing.
 
@@ -428,7 +429,7 @@ Add examples after phases 1 to 3, so their expected results are blessed once, ag
 - **Work:** new checks in `examples.rs`:
   - every sketch constraint and entity type appears in an example outside `examples/bench`;
   - every manifest option value and reference kind appears in an example of that feature type;
-  - every `CheckKind` has at least one non-ok finding per technology;
+  - every `CheckKind` has at least one non-ok finding per technology, which needs resin examples with a non-ok `mesh_validity`, `first_layer_contact`, `islands` and `small_features` finding that EX-2 does not add;
   - every file in an `assets/` folder is imported by an example of that folder (delivery.md 2.8). Runner test 4 then checks each asset's name against its bytes, since `partsmith rebuild` fails with `asset_mismatch` on an asset that does not hash to its name (engine.md 3.14); today the bytes of an asset that no example imports are never checked (found by the review of EX-1).
 - **Impact:** low. **Size:** M.
 - **Depends on:** EX-2, EX-3 and EX-5. Without them, the checks fail on arrival.

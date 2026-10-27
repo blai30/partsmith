@@ -1,0 +1,405 @@
+{
+  "printer": "generic-resin",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-box2",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cha1",
+      "type": "chamfer",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [
+    {
+      "id": "p-wall",
+      "name": "wall",
+      "value": 0.30000000000000004,
+      "dimension": {
+        "length": 1,
+        "angle": 0
+      }
+    }
+  ],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 840.0000000000001,
+      "area": 5696.0,
+      "center_of_mass": [
+        -1.8318679906315083e-15,
+        -5.476219125432816e-18,
+        10.0
+      ],
+      "bounding_box": {
+        "min": [
+          -70.0,
+          -0.15000000000000002,
+          0.0
+        ],
+        "max": [
+          70.0,
+          0.15000000000000002,
+          20.0
+        ]
+      },
+      "faces": 6,
+      "edges": 12,
+      "vertices": 8
+    },
+    {
+      "id": "b-2",
+      "name": "Body 2",
+      "volume": 3750.0,
+      "area": 1516.4213562373095,
+      "center_of_mass": [
+        0.0,
+        30.55555555555555,
+        5.222222222222222
+      ],
+      "bounding_box": {
+        "min": [
+          -10.0,
+          20.0,
+          -4.440892098500626e-16
+        ],
+        "max": [
+          10.0,
+          40.0,
+          10.0
+        ]
+      },
+      "faces": 7,
+      "edges": 15,
+      "vertices": 10
+    }
+  ],
+  "checks": {
+    "profile": "generic-resin",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "error",
+      "errors": 1,
+      "warnings": 3,
+      "infos": 0,
+      "label": "1 error, 3 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          65.0,
+          20.075,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-resin",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "error",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "error",
+              "findings": [
+                {
+                  "check": "bed_fit",
+                  "code": "footprint_too_large",
+                  "severity": "error",
+                  "message": "The part footprint is 140 x 0.3 mm, larger than the 130 x 80 mm bed. Split the part or scale it down.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -70.0,
+                      -0.15000000000000002,
+                      0.0
+                    ],
+                    "max": [
+                      70.0,
+                      0.15000000000000002,
+                      20.0
+                    ]
+                  },
+                  "value": 140.0,
+                  "limit": 130.0,
+                  "faces": [],
+                  "suggestion": {
+                    "kind": "split",
+                    "planes": [
+                      {
+                        "origin": [
+                          0.0,
+                          0.0,
+                          10.0
+                        ],
+                        "normal": [
+                          1.0,
+                          0.0,
+                          0.0
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "thin_walls",
+                  "code": "thin_wall",
+                  "severity": "warning",
+                  "message": "A wall 0.3 mm thick is thinner than 0.5 mm and may not print. Make it at least 0.5 mm thick.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -70.0,
+                      -0.15000000000000002,
+                      0.0
+                    ],
+                    "max": [
+                      70.0,
+                      -0.15000000000000002,
+                      20.0
+                    ]
+                  },
+                  "value": 0.30000000000000004,
+                  "limit": 0.5,
+                  "faces": [
+                    2
+                  ]
+                },
+                {
+                  "check": "thin_walls",
+                  "code": "thin_wall",
+                  "severity": "warning",
+                  "message": "A wall 0.3 mm thick is thinner than 0.5 mm and may not print. Make it at least 0.5 mm thick.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -70.0,
+                      0.15000000000000002,
+                      0.0
+                    ],
+                    "max": [
+                      70.0,
+                      0.15000000000000002,
+                      20.0
+                    ]
+                  },
+                  "value": 0.30000000000000004,
+                  "limit": 0.5,
+                  "faces": [
+                    0
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      },
+      {
+        "body": "b-2",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          65.0,
+          20.075,
+          4.440892098500626e-16,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-resin",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 30 degrees over 141.4 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -10.0,
+                      20.0,
+                      -4.440892098500626e-16
+                    ],
+                    "max": [
+                      10.0,
+                      25.0,
+                      5.0
+                    ]
+                  },
+                  "value": 0.7853981633974482,
+                  "limit": 0.5235987755982988,
+                  "faces": [
+                    6
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
