@@ -336,14 +336,15 @@ Add examples after phases 1 to 3, so their expected results are blessed once, ag
 - **Spec:** technical design 16; print.md 1.1, 3.8, 3.9.
 - **Spec first:** no. delivery.md 2.8 already allows these under feature folders. A new `examples/checks/` folder would need a 2.8 amendment.
 - **Work:**
-  - FDM: `examples/box/too-tall`, `wide-footprint`, `fits-rotated`, `tall-and-thin`, and `examples/boolean/island` (the print.md test 66 shape).
+  - FDM: `examples/box/too-tall`, `wide-footprint`, `tall-and-thin`, and `examples/boolean/island` (the print.md test 66 shape).
   - Resin, with `"printer": "generic-resin"`:
+    - `examples/box/fits-rotated`: a footprint that fits the 130 x 80 bed only turned (print.md test 121: a square bed fits no turned footprint);
     - `examples/shell/closed-hollow-resin`: `enclosed_hollow` as a warning, with `drain_hole`;
     - `examples/box/resin`: the 30 degree overhang limit, nozzle-free thresholds, the 130 x 80 bed, and `printer.*` without a nozzle.
   - Python twins carry `printer="generic-resin"`.
-  - `box/fits-rotated` is on `generic-resin` (print.md test 121: a square bed fits no turned footprint).
 - **Impact:** medium. **Size:** M.
 - **Depends on:** nothing.
+- **Status (2026-10-27):** done, not on `main` yet. No production code changed. The seven examples above, each with its Python twin and blessed expected results, are print.md 6.18 tests 117 to 123, which name every finding, value, limit, location and suggestion of their checks; no new `examples/` folder, so delivery.md 2.8 is unchanged. Review fixes: the tests now have test functions (`crates/partsmith-cli/tests/print_examples.rs`, rebuilding each example with `partsmith rebuild --checks --json`), so a bless that rewords a message or moves a value fails there instead of passing the examples runner unnoticed; `fits-rotated` is listed with the resin examples. The libm perturbation check of ADR 0041 moved none of their results in its ten modes (kernel.md open issue 14).
 
 **EX-3. Sketch constraint and tool examples, plus an arc-bounded profile**
 - **Spec:** technical design 16; sketch.md 1.1; ui.md 3.16.4 and 3.16.5.
@@ -369,6 +370,7 @@ Add examples after phases 1 to 3, so their expected results are blessed once, ag
 - **Work:** `examples/shell/concave-edge-join` with its twin, loaded by `feature_shell.rs` through `Run::example`. Optionally, a unit test in `shell.rs`.
 - **Impact:** medium. **Size:** S.
 - **Depends on:** phase 3 (shell round faces).
+- **Status (2026-10-27):** done, not on `main` yet. No production code changed: the kernel's arc and sphere joins already meet the new tests. features/shell.md test 24 (`examples/shell/concave-edge-join`: the arc join `f-sh1/inner/edge(f-box1/top|f-box2/left)`, a cylinder of radius 2, as the only edge join, no vertex join and no `f-sh1/face` name) and test 25, the rule 5 case (`examples/shell/concave-vertex-join`: three arc joins and the sphere join `f-sh1/inner/vertex(f-box2/front|f-box2/left|f-box2/top)` at a notch's corner), each with its twin and loaded by `feature_shell.rs` (`t024`, `t025`); shell.md section 1 and its naming table say which join each concave edge and vertex gets. Review fixes: test 24 no longer prescribes a process step; kernel.md open issue 14 records instead that the libm check moved nothing on these examples and that the example's first overhang depends on OCCT dividing the join's quarter-turn edges into exactly 36 steps (π/2 over 2.5° is exactly 36.0, one ulp more gives 37 and other overhang numbers), which only a platforms run can confirm.
 
 **EX-5. Feature option examples**
 - **Spec:** technical design 16; the In M1 lists of the per-feature specs.
@@ -385,6 +387,8 @@ Add examples after phases 1 to 3, so their expected results are blessed once, ag
   - split_body: a split by a flat face, without `merged`.
   - hole: arc start, end and center points; successful blind counterbore and countersink.
   - sketch: a sketch on YZ.
+  - Before blessing, run the libm perturbation check of kernel.md open issue 14 (its ten modes) over the new examples, as EX-2 and EX-4 did: their print checks hold mesh-dependent findings at cone apexes, sphere poles and the overhangs of curved faces. Reshape an example whose `/checks/` move in any mode; do not bless it. Record the outcome in the EX-5 status and in one sentence in kernel.md open issue 14.
+  - The Windows and macOS comparison of the new expected files runs only in CI, in the next platforms run (delivery.md 2.14); the EX-5 status says so. A mismatch there goes to delivery.md open issue 1 (d), never to expected files for one platform.
 - **Impact:** medium. **Size:** L.
 - **Depends on:** phase 2 (axis `direction`, face placement) and phase 3 (hole points).
 

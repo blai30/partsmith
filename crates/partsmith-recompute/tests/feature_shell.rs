@@ -153,8 +153,13 @@ fn assert_rounded_cube_shell(run: &Run, thickness: f64, volume: f64, faces: u32,
         4,
         "the outer rounds keep their names"
     );
+    assert_no_fallback_names(run);
+}
+
+/// Asserts that every face of `b-1` has a name from its origin, none a `f-sh1/face` fallback.
+fn assert_no_fallback_names(run: &Run) {
     assert_eq!(
-        face_names_with_prefix(body, "f-sh1/face"),
+        face_names_with_prefix(run.body("b-1"), "f-sh1/face"),
         Vec::<String>::new(),
         "every face has a name from its origin"
     );
@@ -512,11 +517,7 @@ fn removed_face_beside_a_concave_edge() {
         8,
         "one inner wall per kept face and the bottom of the wall over the opening"
     );
-    assert_eq!(
-        face_names_with_prefix(body, "f-sh1/face"),
-        Vec::<String>::new(),
-        "every face has a name from its origin"
-    );
+    assert_no_fallback_names(&run);
 
     let thin = Run::records(
         &["b-1"],
@@ -801,11 +802,7 @@ fn t024_arc_join_at_a_concave_edge() {
         Vec::<String>::new(),
         "each end of the concave edge also has two convex edges, so it gets no join of its own"
     );
-    assert_eq!(
-        face_names_with_prefix(body, "f-sh1/face"),
-        Vec::<String>::new(),
-        "every face has a name from its origin"
-    );
+    assert_no_fallback_names(&run);
 }
 
 /// Test 25: `CUBE20` with a 10 mm notch cut from the bottom of its back right quarter, shelled with
@@ -862,11 +859,7 @@ fn t025_sphere_join_at_a_concave_vertex() {
     let rim = face(body, "f-sh1/rim/f-box1/bottom");
     assert_face_in_plane(&rim, 2, 0.0);
     assert_face_area(&rim, 140.0 + PI);
-    assert_eq!(
-        face_names_with_prefix(body, "f-sh1/face"),
-        Vec::<String>::new(),
-        "every face has a name from its origin"
-    );
+    assert_no_fallback_names(&run);
 }
 
 #[test]

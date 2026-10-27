@@ -117,6 +117,9 @@ Conventions from features.md section 6.1. Bodies `[b-1]`. `CUBE20`: `{"id": "f-b
 5. **Zero radius.** As 1 with `"radius": "0"`. Expected: error `out_of_range`, field `radius`.
 6. **Performance.** Test 1 builds in under 2 ms (desktop, release).
 7. **Radius below the tolerance.** As 1 with `"radius": "0.0000001"`. Expected: error `out_of_range`, field `radius`, rendered `Radius must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm.` (the value is written with the digits that tell it apart from the bound, features.md section 3.12); b-1 empty.
+8. **Intersect.** `CUBE20`, `{"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": "8", "position": ["0", "0", "20"], "op": "intersect"}` (centered on the top face), as `examples/sphere/intersect`. Expected: ok; volume 1072.330292 (the lower half of the sphere), 2 faces, bbox [-8,-8,12]-[8,8,20]; change `Intersect`; `f-sph1/surface` spherical with radius 8 and area 402.123860; `f-box1/top` planar at z=20 with area 201.061930.
+9. **On a datum.** `{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "10"}`, test 1's sphere with `"plane": {"kind": "datum", "feature": "f-dp1"}`, as `examples/sphere/on-datum`. Expected: ok; as test 2, volume 4188.790205 and bbox [-10,-10,0]-[10,10,20] (centered on the datum's origin (0,0,10)); dependencies `features == ["f-dp1"]`.
+10. **On a face of another body.** Bodies `[b-1, b-2]`; `CUBE20`; `{"id": "f-sph1", "type": "sphere", "body": "b-2", "radius": "5", "plane": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=400"}}, "position": ["0", "0", "5"], "op": "new"}`, as `examples/sphere/on-face`. Expected: ok; b-2 volume 523.598776, 1 face, bbox [-5,-5,20]-[5,5,30] (resting on the top of the cube); b-1 unchanged; f-sph1 dependencies `bodies_read == ["b-1"]`, `bodies_written == ["b-2"]`.
 
 ## Open issues
 

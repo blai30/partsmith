@@ -10,6 +10,7 @@ mod export;
 mod feature_messages;
 mod fmt;
 mod general;
+mod print_examples;
 mod print_suggestions;
 mod rebuild;
 mod regressions;

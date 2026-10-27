@@ -2,7 +2,7 @@
 
 The `partsmith` binary: `validate`, `fmt`, `rebuild`, `export`, `schema`. A thin host over `partsmith_engine::Session` (one headless session per invocation): it parses arguments, reads and writes files and formats reports, with no modeling logic.
 
-Spec: `docs/spec/cli.md`. The examples runner in `tests/examples.rs` follows `docs/spec/delivery.md` section 2.8.
+Spec: `docs/spec/cli.md`. The examples runner in `tests/examples.rs` follows `docs/spec/delivery.md` section 2.8, and `tests/print_examples.rs` holds `docs/spec/print.md` section 6.18 (tests 117 to 123), which rebuild the print check examples.
 
 ## Public interface
 
