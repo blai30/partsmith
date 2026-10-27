@@ -402,9 +402,14 @@ test.describe('fonts', () => {
   })
 
   test('E-144 no font request leaves the app', { tag: '@engines' }, async ({ page }) => {
-    const requests: { readonly url: URL; readonly type: string }[] = []
+    // Whether a request sent Origin tells a CORS fetch from a no-cors one, so a failure shows each request's mode.
+    const requests: { readonly url: URL; readonly type: string; readonly origin: boolean }[] = []
     page.on('request', (request) => {
-      requests.push({ url: new URL(request.url()), type: request.resourceType() })
+      requests.push({
+        url: new URL(request.url()),
+        type: request.resourceType(),
+        origin: request.headers()['origin'] !== undefined,
+      })
     })
     const requestsFor = (path: string) =>
       requests.filter((request) => request.url.pathname === path)

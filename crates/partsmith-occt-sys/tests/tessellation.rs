@@ -1,5 +1,5 @@
 //! Acceptance tests for tessellation into `partsmith_mesh::Mesh` and the display geometry of one
-//! element (kernel spec sections 2.11, 3.7 and tests 71 to 77, 113 and 122 to 126).
+//! element (kernel spec sections 2.11, 3.7 and tests 71 to 77, 113, 122 to 126, 137 and 138).
 
 use crate::common;
 
@@ -10,13 +10,15 @@ use common::{
     OPT, ORIGIN, POINT_TOLERANCE, UP, assert_argument_error, assert_closed, assert_invalid_input,
     assert_near, assert_point_near, assert_relative, assert_same_points, assert_vector_near,
     box_corners, box_primitive, cylinder_primitive, degenerated_edges, directed_edge_uses,
-    edge_between, face_with_role, generated_faces, geometry, hollow_box, mesh_face_ids,
-    rectangle_profile, seam_edge, sphere_primitive, top_front_edge, unbounded_face, weld_exactly,
+    edge_between, face_with_role, fully_rounded_box, generated_faces, geometry, hollow_box, line,
+    mesh_face_ids, rectangle_profile, region, seam_edge, sphere_primitive, top_front_edge,
+    unbounded_face, weld_exactly, z_axis,
 };
-use partsmith_mesh::{Mesh, TessellationTolerance};
+use partsmith_mesh::{Mesh, TessellationTolerance, WELD_TOLERANCE};
 use partsmith_occt_sys::{
     ElementDisplay, KernelError, KernelErrorKind, Operation, Plane, Point, Primitive,
-    PrimitiveFace, Shape, SubShapeKind, Transform, Vector, transform,
+    PrimitiveFace, Shape, SubShapeKind, TaggedCurve, Transform, Vector, make_cone, make_profile,
+    make_torus, revolve, transform,
 };
 
 const TOLERANCE_MESSAGE: &str =
@@ -324,16 +326,15 @@ fn box_faces_do_not_share_mesh_vertices() {
 }
 
 /// Test 113: OCCT's mesher picks its algorithm from the `CSF_MeshAlgo` environment variable
-/// unless the caller names one; the facade names one, so child processes started with the
-/// variable set to either algorithm mesh identically. WebAssembly tests cannot start processes.
+/// when its context is built without a named one; the facade's context is built with one, so
+/// child processes started with the variable set to either algorithm mesh identically.
+/// WebAssembly tests cannot start processes.
 #[cfg(not(target_os = "emscripten"))]
 mod environment {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
-    use partsmith_occt_sys::{EdgeRadius, fillet};
-
-    use crate::common::{OPT, box_primitive, harness_test_name, sphere_primitive};
+    use crate::common::{OPT, fully_rounded_box, harness_test_name, sphere_primitive};
 
     /// Set in the child process of `t113_meshes_do_not_depend_on_the_environment`.
     const PROBE_VARIABLE: &str = "PARTSMITH_OCCT_SYS_MESH_PROBE";
@@ -343,13 +344,7 @@ mod environment {
     /// A digest of the meshes of the result of test 45 and of the sphere of test 11 with `OPT`.
     /// `DefaultHasher::new` uses fixed keys, so the same binary gives the same digest anywhere.
     fn meshes_line() -> String {
-        let edges: Vec<EdgeRadius> = (1..=12)
-            .map(|edge| EdgeRadius { edge, radius: 1.0 })
-            .collect();
-        let rounded = fillet(&box_primitive().shape, &edges)
-            .expect("every edge rounds")
-            .shape;
-        let meshes = [rounded, sphere_primitive().shape]
+        let meshes = [fully_rounded_box(), sphere_primitive().shape]
             .map(|shape| format!("{:?}", shape.tessellate(&OPT).expect("meshed")));
         let mut hasher = DefaultHasher::new();
         meshes.hash(&mut hasher);
@@ -369,7 +364,7 @@ mod environment {
             "t113_meshes_do_not_depend_on_the_environment",
         );
 
-        // Each of OCCT's two algorithms in turn, so one of them differs from the facade's.
+        // Each of OCCT's two algorithms in turn; the facade's context uses neither.
         for algorithm in ["watson", "delabella"] {
             let output = std::process::Command::new(&test_binary)
                 .args([test.as_str(), "--exact", "--nocapture", "--test-threads=1"])
@@ -956,4 +951,168 @@ fn moved_box_vertices_display_at_their_moved_positions() {
             "vertex {vertex}"
         );
     }
+}
+
+// The same triangles everywhere, and closed meshes (section 3.7, item 2).
+
+/// The tolerance of tests 137 and 138: 0.05 mm and the engine's 5 degrees (engine.md section 3.7).
+const FINE: TessellationTolerance = TessellationTolerance {
+    chord_deviation: 0.05,
+    angular_deviation: 5.0_f64.to_radians(),
+};
+
+/// The 20 points with integer coordinates on the circle of radius 25 about the origin, in angle
+/// order from (25, 0) (test 137).
+const CIRCLE_POINTS: [(f64, f64); 20] = [
+    (25.0, 0.0),
+    (24.0, 7.0),
+    (20.0, 15.0),
+    (15.0, 20.0),
+    (7.0, 24.0),
+    (0.0, 25.0),
+    (-7.0, 24.0),
+    (-15.0, 20.0),
+    (-20.0, 15.0),
+    (-24.0, 7.0),
+    (-25.0, 0.0),
+    (-24.0, -7.0),
+    (-20.0, -15.0),
+    (-15.0, -20.0),
+    (-7.0, -24.0),
+    (0.0, -25.0),
+    (7.0, -24.0),
+    (15.0, -20.0),
+    (20.0, -15.0),
+    (24.0, -7.0),
+];
+
+/// The triangles of test 137's face, node indices in output order. Every triangulation of
+/// cocircular points is a Delaunay triangulation, so only the arithmetic picks these.
+const CIRCLE_TRIANGLES: [[u32; 3]; 18] = [
+    [6, 7, 8],
+    [9, 4, 6],
+    [11, 4, 9],
+    [11, 12, 13],
+    [14, 4, 11],
+    [16, 4, 14],
+    [14, 15, 16],
+    [19, 4, 16],
+    [1, 4, 19],
+    [17, 18, 19],
+    [9, 10, 11],
+    [19, 0, 1],
+    [4, 5, 6],
+    [16, 17, 19],
+    [6, 8, 9],
+    [2, 3, 1],
+    [1, 3, 4],
+    [11, 13, 14],
+];
+
+/// Test 137's face: the polygon through `CIRCLE_POINTS` on `Plane::XY`, one line per side.
+fn circle_polygon() -> Shape {
+    let count = CIRCLE_POINTS.len();
+    let curves: Vec<TaggedCurve> = (0..count)
+        .map(|index| {
+            let tag = u32::try_from(index + 1).expect("20 sides");
+            line(
+                tag,
+                CIRCLE_POINTS[index],
+                CIRCLE_POINTS[(index + 1) % count],
+            )
+        })
+        .collect();
+    make_profile(&Plane::XY, &[region(curves)])
+        .expect("the polygon builds")
+        .shape
+}
+
+#[test]
+fn t137_polygon_vertices_are_its_mesh_vertices_in_order() {
+    let mesh = circle_polygon()
+        .tessellate(&FINE)
+        .expect("the polygon tessellates");
+
+    let expected: Vec<[f64; 3]> = CIRCLE_POINTS.iter().map(|&(x, y)| [x, y, 0.0]).collect();
+    assert_eq!(mesh.positions(), expected);
+}
+
+#[test]
+fn t137_cocircular_vertices_give_the_same_triangles_everywhere() {
+    let mesh = circle_polygon()
+        .tessellate(&FINE)
+        .expect("the polygon tessellates");
+
+    assert_eq!(mesh.triangles(), CIRCLE_TRIANGLES);
+}
+
+/// Tessellates `shape` with `FINE`, welds the mesh with `WELD_TOLERANCE` and asserts that every
+/// undirected edge is used by exactly two triangles (test 138).
+fn assert_closed_when_welded(shape: &Shape) {
+    let welded = shape
+        .tessellate(&FINE)
+        .expect("the shape tessellates")
+        .weld(WELD_TOLERANCE)
+        .expect("WELD_TOLERANCE is a valid weld tolerance")
+        .mesh;
+    let triangles: Vec<[usize; 3]> = welded
+        .triangles()
+        .iter()
+        .map(|corners| corners.map(|vertex| vertex as usize))
+        .collect();
+    assert_closed(&triangles);
+}
+
+#[test]
+fn t138_pointed_cone_mesh_is_closed() {
+    let cone = make_cone(&Plane::XY, 10.0, 0.0, 10.0).expect("the pointed cone builds");
+
+    assert_closed_when_welded(&cone.shape);
+}
+
+#[test]
+fn t138_frustum_mesh_is_closed() {
+    let frustum = make_cone(&Plane::XY, 10.0, 5.0, 10.0).expect("the frustum builds");
+
+    assert_closed_when_welded(&frustum.shape);
+}
+
+#[test]
+fn t138_cylinder_mesh_is_closed() {
+    assert_closed_when_welded(&cylinder_primitive().shape);
+}
+
+#[test]
+fn t138_sphere_mesh_is_closed() {
+    assert_closed_when_welded(&sphere_primitive().shape);
+}
+
+#[test]
+fn t138_torus_mesh_is_closed() {
+    let torus = make_torus(&Plane::XY, 20.0, 5.0).expect("the torus builds");
+
+    assert_closed_when_welded(&torus.shape);
+}
+
+#[test]
+fn t138_quarter_revolution_mesh_is_closed() {
+    // The body of `revolve/quarter`: x from 10 to 20, z from 0 to 30, a quarter turn about Z.
+    let rectangle = make_profile(
+        &Plane::XZ,
+        &[region(vec![
+            line(1, (10.0, 0.0), (20.0, 0.0)),
+            line(2, (20.0, 0.0), (20.0, 30.0)),
+            line(3, (20.0, 30.0), (10.0, 30.0)),
+            line(4, (10.0, 30.0), (10.0, 0.0)),
+        ])],
+    )
+    .expect("the rectangle builds");
+    let quarter = revolve(&rectangle, &z_axis(), FRAC_PI_2).expect("the rectangle revolves");
+
+    assert_closed_when_welded(&quarter.shape);
+}
+
+#[test]
+fn t138_fully_rounded_box_mesh_is_closed() {
+    assert_closed_when_welded(&fully_rounded_box());
 }

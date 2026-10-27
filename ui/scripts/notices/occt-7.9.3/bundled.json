@@ -6,7 +6,7 @@
     "text": "FlexLexer.txt"
   },
   {
-    "name": "DELABELLA, in OCCT's mesher",
+    "name": "DELABELLA, in OCCT's mesher and in its copy in partsmith-occt-sys",
     "license": "MIT",
     "path": "src/BRepMesh/delabella.cpp",
     "text": "delabella.txt"

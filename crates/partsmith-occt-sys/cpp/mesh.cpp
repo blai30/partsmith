@@ -6,11 +6,14 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
+#include <BRepMesh_Context.hxx>
+#include <BRepMesh_FaceDiscret.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
 #include <GeomLib.hxx>
 #include <Geom_Surface.hxx>
+#include <IMeshTools_MeshAlgoFactory.hxx>
 #include <IMeshTools_Parameters.hxx>
 #include <Poly_PolygonOnTriangulation.hxx>
 #include <Poly_Triangulation.hxx>
@@ -54,19 +57,21 @@ std::vector<gp_XYZ> from_first_vertex(std::vector<gp_XYZ> points, const TopoDS_E
   return points;
 }
 
-// The meshing parameters of kernel spec section 3.7, item 2.
-IMeshTools_Parameters mesh_parameters(double chord_deviation, double angle) {
-  IMeshTools_Parameters parameters;
+// Meshes `shape` in place with the parameters and face algorithms of kernel spec section 3.7,
+// item 2, as BRepMesh_IncrementalMesh's own Perform does with OCCT's context.
+void mesh(const TopoDS_Shape &shape, double chord_deviation, double angle) {
+  // Built with a named algorithm, so it never reads CSF_MeshAlgo from the environment; its face
+  // algorithms are then replaced by the shim's.
+  const Handle(BRepMesh_Context) context = new BRepMesh_Context(IMeshTools_MeshAlgoType_Delabella);
+  context->SetFaceDiscret(new BRepMesh_FaceDiscret(mesh_algorithm_factory()));
+  BRepMesh_IncrementalMesh mesher;
+  mesher.SetShape(shape);
+  IMeshTools_Parameters &parameters = mesher.ChangeParameters();
   parameters.Deflection = chord_deviation;
   parameters.Angle = angle;
   parameters.Relative = Standard_False;
   parameters.InParallel = Standard_False;
-  // Delabella triangulates each face's nodes at once, where OCCT's default inserts them one by
-  // one, which took seconds on large spheres and on planar faces with many holes (kernel spec
-  // section 3.7, item 2). Naming the algorithm also keeps OCCT from choosing it from the
-  // CSF_MeshAlgo environment variable.
-  parameters.MeshAlgo = IMeshTools_MeshAlgoType_Delabella;
-  return parameters;
+  mesher.Perform(context);
 }
 
 // The triangulation the mesher stored on face `index`, in the frame of the face without
@@ -301,7 +306,7 @@ class MeshBuilder {
 MeshData shape_tessellate(const Shape &shape, double chord_deviation, double angle) {
   // Mesh a copy so the input never carries a triangulation (kernel spec section 3.7, item 2).
   const Shape copy = copy_shape(shape);
-  BRepMesh_IncrementalMesh mesher(copy.get(), mesh_parameters(chord_deviation, angle));
+  mesh(copy.get(), chord_deviation, angle);
   return MeshBuilder(copy).build();
 }
 
@@ -314,7 +319,7 @@ rust::Vec<double> face_display(const TopoDS_Face &face, std::uint32_t index, dou
                                double angle) {
   BRepBuilderAPI_Copy copier(face, Standard_False, Standard_False);
   const TopoDS_Face copy = TopoDS::Face(copier.Shape());
-  BRepMesh_IncrementalMesh mesher(copy, mesh_parameters(chord_deviation, angle));
+  mesh(copy, chord_deviation, angle);
   TopLoc_Location location;
   const Handle(Poly_Triangulation) &triangulation = triangulation_of(copy, index, location);
   // The triangulation lies in the frame of the face without its location, like a whole shape's.

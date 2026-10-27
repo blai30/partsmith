@@ -47,6 +47,8 @@ const SOURCES: &[&str] = &[
     "cpp/queries.cpp",
     "cpp/measure.cpp",
     "cpp/mesh.cpp",
+    "cpp/mesh_algorithm.cpp",
+    "cpp/delabella/delabella.cpp",
     "cpp/exchange.cpp",
     "cpp/shape.cpp",
     "cpp/validity.cpp",
@@ -72,7 +74,19 @@ fn main() {
     build
         .files(SOURCES)
         .include(root.join("include/opencascade"))
-        .std("c++17");
+        .std("c++17")
+        // As OCCT compiles its static toolkits, so its headers declare nothing dllexport or
+        // dllimport on Windows; elsewhere the define changes nothing (kernel spec 3.12 item 5).
+        .define("OCCT_STATIC_BUILD", None);
+    if build.get_compiler().is_like_msvc() {
+        // Standard C++ unwinding, so an exception releases the locks of the frames it leaves
+        // (kernel spec section 3.9 item 9); cl.exe destroys no automatic object without it.
+        build.flag("/EHsc");
+    } else {
+        // No multiplication and addition fused into one operation, which the double-double
+        // arithmetic of the shim's triangulation relies on (kernel spec section 3.7 item 2).
+        build.flag("-ffp-contract=off");
+    }
     if emscripten {
         build.flag("-fwasm-exceptions");
     }

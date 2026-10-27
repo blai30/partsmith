@@ -26,6 +26,8 @@
 
 #include "partsmith-occt-sys/src/ffi.rs.h"
 
+class IMeshTools_MeshAlgoFactory;
+
 namespace partsmith {
 namespace occt {
 namespace detail {
@@ -247,6 +249,13 @@ double solids_volume(const TopoDS_Shape &shape);
 TopoDS_Shape run_boolean(BOPAlgo_Operation operation, const TopoDS_Shape &target,
                          const TopTools_ListOfShape &tools, bool unify,
                          const Handle(BRepTools_History) &history);
+
+// mesh_algorithm.cpp
+
+// The face algorithms of the shim's mesher, by surface type: OCCT's, with the shim's copy of
+// Delabella in double-double arithmetic wherever OCCT's Delabella factory uses its own copy
+// (kernel spec section 3.7, item 2).
+Handle(IMeshTools_MeshAlgoFactory) mesh_algorithm_factory();
 
 // exchange.cpp
 

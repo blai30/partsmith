@@ -712,7 +712,7 @@ Every other name, including `printer`, `printer.fit` and `printer.fit.SLIP`, res
 4. **Print frame.** With `R` the rotation, each welded vertex's print position is `R · p - (0, 0, z_min)`, where `z_min` is the smallest z of `R · p` over vertices used by `W`'s triangles. The bed is the plane `z = 0`, and the part rests on it. Horizontal placement does not affect any check: bed fit compares extents only. The engine computes the displayed bed placement itself (engine spec, print analysis).
 5. **Model frame.** Locations, split planes and drain hole points are reported in model coordinates. A welded vertex's model position is its input position. A print-frame point `q` maps to `Rᵀ · (q + (0, 0, z_min))` and a print-frame direction `d` to `Rᵀ · d`.
 6. **Geometry.** Triangle normals and areas come from print positions (`Mesh::triangle_normal`, `triangle_area` on the rotated welded mesh). Triangles whose normal is `None` are skipped by the normal-based checks.
-7. **Regions.** Where a check flags triangles, a region is a maximal set of flagged welded triangles connected through shared welded edges (an undirected edge of `W`, whatever its use count). Region area is the sum of its triangle areas. Regions are ordered by area, largest first, ties by smallest input triangle index.
+7. **Regions.** Where a check flags triangles, a region is a maximal set of flagged welded triangles connected through shared welded edges (an undirected edge of `W`, whatever its use count). Region area is the sum of its triangle areas. Regions are ordered by area, largest first, and areas that the comparison of delivery.md 2.8 cannot tell apart are equal: in that order, a region whose area is within `max(1e-6 × a, 1e-6)` mm² of the area `a` of the region before it joins that region's group, each group keeps the place of its largest area, and the regions of a group are ordered by smallest input triangle index. Mirror-image regions differ in area only in the last bits, by amounts that depend on the platform's floating-point arithmetic, so an exact comparison ordered the two overhangs of `chamfer/pipe-tee` differently on macOS (delivery.md open issue 1 (d)); a grid of fixed steps would split areas that sit on a step, such as the 6.25 mm² of a 2.5 mm square on a grid of tenths.
 8. **Affected triangles and faces.** Welded triangle indices are mapped to input indices, sorted, de-duplicated and merged into maximal half-open `TriangleRange`s (`{2,3,4,7}` becomes `[{2,5}, {7,8}]`). `faces` are the input face ids of those triangles, distinct and ascending.
 9. **Location.** Unless a check states otherwise, the location is the model-frame bounding box of the vertices of the affected triangles, as `Location::Bounds`, or `Location::Point` when that box is a single point.
 10. **Cap.** Each check lists at most `MAX_FINDINGS_PER_CHECK` findings in its stated order and counts the rest in `omitted`. Only checks whose findings all share one severity can exceed the cap (islands, overhangs, thin walls, small features, trapped volumes).
@@ -933,7 +933,7 @@ The engine's `analyze_print` budget for one 200,000-triangle body is 300 ms (eng
 
 Meshes from mesh.md section 6.1 (`box`, `cube`, `faceted_box`, `open_box`, `flipped_one`, `inside_out`, `void_box`, `fin`, `sphere`) plus:
 
-- **`prism_y(profile, y0, y1)`**: the simple polygon `profile`, given as `(x, z)` points counter-clockwise when seen from -Y (x to the right, z up), extruded from `y = y0` to `y = y1`. Outward-oriented and watertight after welding; caps and side quads may be triangulated in any valid way, and vertices may be shared or duplicated per face.
+- **`prism_y(profile, y0, y1)`**: the simple polygon `profile`, given as `(x, z)` points counter-clockwise when seen from -Y (x to the right, z up), extruded from `y = y0` to `y = y1`. Outward-oriented and watertight after welding; caps and side quads may be triangulated in any valid way, and vertices may be shared or duplicated per face. The side quads come first, in the order of their profile edges, then the caps.
 - **`cylinder(cx, cy, r, n, z0, z1)`**: a prism along Z over the regular `n`-gon with vertex `k` at `(cx + r cos(2πk/n), cy + r sin(2πk/n))`.
 - **`tube(cx, cy, r_out, r_in, n, z0, z1)`**: a prism along Z over the ring between two such `n`-gons (caps as quad strips).
 - **T**: `prism_y([(8,0),(12,0),(12,10),(20,10),(20,14),(0,14),(0,10),(8,10)], 0, 10)`: a stem with two 8 × 10 mm ledges at z = 10.
@@ -1046,7 +1046,7 @@ Tests in this section call `run_only(mesh, profile, ["bed_fit"])` unless they st
 
 ### 6.10 Overhangs
 
-71. `run(&T, &FDM)`: `overhangs` has two findings, each `overhang`, warning, message `Overhang steeper than 45 degrees over 80 mm². Add supports, add a chamfer, or reorient the part.`, value π/2, limit π/4; their locations are bounds `(0,0,10)` to `(8,10,10)` and `(12,0,10)` to `(20,10,10)` (in either order). Health `warning`.
+71. `run(&T, &FDM)`: `overhangs` has two findings, each `overhang`, warning, message `Overhang steeper than 45 degrees over 80 mm². Add supports, add a chamfer, or reorient the part.`, value π/2, limit π/4; their locations are bounds `(12,0,10)` to `(20,10,10)` and then `(0,0,10)` to `(8,10,10)`: the two areas are equal, so the right ledge, whose underside is the side quad of profile edge 2, comes before the left one, edge 6 (section 3.7 item 7). Health `warning`.
 72. The T overhang overlay: every value is either π/2 (within `1e-6`) or 0; the triangles with π/2 have total area 160.
 73. `run(&GAMMA, &FDM)`: two overhang findings, the first over 120 mm² and the second over 40 mm².
 74. `run(&RAMP, &FDM)`: one overhang finding with value `atan(2)` (1.1071487) and message `Overhang steeper than 45 degrees over 111.8 mm². Add supports, add a chamfer, or reorient the part.`
@@ -1056,6 +1056,10 @@ Tests in this section call `run_only(mesh, profile, ["bed_fit"])` unless they st
 78. `run(&LEDGE, &FDM)`: `overhangs` is `ok`, but the ledge underside's triangles have overlay value π/2.
 79. `run(&COMB, &FDM)`: `overhangs` lists 50 findings with `omitted == 10`; the first finding's location is bounds `(0,0,3)` to `(2,2,3)`.
 80. `run(&cube(20), &FDM)`: every overhang overlay value is 0 (the bottom rests on the bed).
+
+Region order (section 3.7 item 7):
+
+112. Areas the corpus cannot tell apart keep triangle order. `LEDGES(w, a1, a2)` is `Mesh::concat` of `box([0,0,10],[w, a1/w, 12])`, `box([2w,0,10],[3w, a2/w, 12])` and `cube(1)`: two boxes whose bottoms, input triangles 0 and 1 and then 12 and 13, face down at z = 10 with areas `a1` and `a2` mm², and a cube that rests on the bed. `run_only(&LEDGES(8, 80 - 1e-9, 80 + 1e-9), &FDM, ["overhangs"])` gives two `overhang` findings, the first with triangles `[{0,2}]` and the second with `[{12,14}]`; `LEDGES(2.5, 6.25 - 1e-12, 6.25 + 1e-12)` gives the same two; `LEDGES(8, 80, 80.01)` gives them the other way round, `[{12,14}]` first. An exact comparison of areas put the second box first in the first two cases, and areas rounded to tenths of a mm² (62 and 63 tenths) in the second.
 
 ### 6.11 Thin walls
 

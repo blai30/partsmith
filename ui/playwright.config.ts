@@ -47,7 +47,13 @@ export default defineConfig({
           : {},
       },
     },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, grep: /@engines/, default: false },
+    {
+      name: 'firefox',
+      // Headless Firefox gave no WebGL2 on the runner, so it runs headed (ui.md 6.8).
+      use: { ...devices['Desktop Firefox'], headless: false },
+      grep: /@engines/,
+      default: false,
+    },
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'], deviceScaleFactor: 1 },

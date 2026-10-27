@@ -5,12 +5,12 @@ use crate::common;
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, FRAC_PI_6};
 
 use common::{
-    TOLERANCE, assert_bounds, assert_check_ok, assert_close, assert_f32_close, assert_point_close,
-    bounds_of, chamfer, check_result, comb, cube, fdm, findings, gamma_shape, ledge, overlay, ramp,
-    resin, rotation_about, run, run_rotated, t_shape,
+    TOLERANCE, assert_bounds, assert_check_ok, assert_close, assert_f32_close, box_mesh, chamfer,
+    check_result, comb, cube, fdm, findings, gamma_shape, ledge, overlay, ramp, ranges, resin,
+    rotation_about, run, run_only, run_rotated, t_shape,
 };
 use partsmith_mesh::{Mesh, Vector3};
-use partsmith_print::{CheckKind, FindingCode, Health, Severity};
+use partsmith_print::{CheckKind, FindingCode, Health, Severity, TriangleRange};
 
 /// Indices of the triangles whose unit normal is within `1e-9` of `normal`.
 fn triangles_facing(mesh: &Mesh, normal: Vector3) -> Vec<usize> {
@@ -23,6 +23,34 @@ fn triangles_facing(mesh: &Mesh, normal: Vector3) -> Vec<usize> {
                     .all(|(component, wanted)| (component - wanted).abs() <= TOLERANCE)
             })
         })
+        .collect()
+}
+
+/// `LEDGES(w, a1, a2)` of test 112: two boxes whose bottoms (input triangles 0 and 1, then 12
+/// and 13) face down at z = 10 with areas `a1` and `a2`, and `cube(1)` resting on the bed.
+fn ledges(width: f64, first_area: f64, second_area: f64) -> Mesh {
+    let first = box_mesh([0.0, 0.0, 10.0], [width, first_area / width, 12.0]);
+    let second = box_mesh(
+        [2.0 * width, 0.0, 10.0],
+        [3.0 * width, second_area / width, 12.0],
+    );
+    Mesh::concat(&[&first, &second, &cube(1.0)]).expect("the ledge parts concatenate")
+}
+
+/// The triangle ranges of the overhang findings of `LEDGES(w, a1, a2)`, in finding order.
+fn ledge_finding_triangles(
+    width: f64,
+    first_area: f64,
+    second_area: f64,
+) -> Vec<Vec<TriangleRange>> {
+    let analysis = run_only(
+        &ledges(width, first_area, second_area),
+        &fdm(),
+        &[CheckKind::Overhangs],
+    );
+    findings(&analysis, CheckKind::Overhangs)
+        .iter()
+        .map(|finding| finding.triangles.clone())
         .collect()
 }
 
@@ -42,16 +70,9 @@ fn t071_t_ledges_are_two_overhangs() {
         assert_close(finding.value.expect("a value"), FRAC_PI_2, TOLERANCE);
         assert_close(finding.limit.expect("a limit"), FRAC_PI_4, TOLERANCE);
     }
-    // The two regions have equal areas, so they may come in either order.
-    let mut locations: Vec<_> = listed
-        .iter()
-        .map(|finding| bounds_of(&finding.location))
-        .collect();
-    locations.sort_by(|first, second| first.0[0].total_cmp(&second.0[0]));
-    assert_point_close(locations[0].0, [0.0, 0.0, 10.0], TOLERANCE);
-    assert_point_close(locations[0].1, [8.0, 10.0, 10.0], TOLERANCE);
-    assert_point_close(locations[1].0, [12.0, 0.0, 10.0], TOLERANCE);
-    assert_point_close(locations[1].1, [20.0, 10.0, 10.0], TOLERANCE);
+    // Equal areas go by triangle order: profile edge 2 (the right ledge) comes before edge 6.
+    assert_bounds(&listed[0].location, [12.0, 0.0, 10.0], [20.0, 10.0, 10.0]);
+    assert_bounds(&listed[1].location, [0.0, 0.0, 10.0], [8.0, 10.0, 10.0]);
     assert_eq!(analysis.report.health, Health::Warning);
 }
 
@@ -199,4 +220,28 @@ fn t080_bottom_resting_on_the_bed_is_not_an_overhang() {
 
     assert_eq!(values.len(), 12);
     assert!(values.iter().all(|value| *value == 0.0), "{values:?}");
+}
+
+#[test]
+fn t112_areas_within_the_tolerance_keep_triangle_order() {
+    assert_eq!(
+        ledge_finding_triangles(8.0, 80.0 - 1e-9, 80.0 + 1e-9),
+        vec![ranges(&[(0, 2)]), ranges(&[(12, 14)])]
+    );
+}
+
+#[test]
+fn t112_areas_on_a_half_tenth_keep_triangle_order() {
+    assert_eq!(
+        ledge_finding_triangles(2.5, 6.25 - 1e-12, 6.25 + 1e-12),
+        vec![ranges(&[(0, 2)]), ranges(&[(12, 14)])]
+    );
+}
+
+#[test]
+fn t112_areas_beyond_the_tolerance_go_largest_first() {
+    assert_eq!(
+        ledge_finding_triangles(8.0, 80.0, 80.01),
+        vec![ranges(&[(12, 14)]), ranges(&[(0, 2)])]
+    );
 }

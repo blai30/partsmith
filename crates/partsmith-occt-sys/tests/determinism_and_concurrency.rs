@@ -1,24 +1,27 @@
-//! Acceptance tests for thread safety and determinism (kernel spec sections 3.10, 3.11 and tests
-//! 90 to 92, 104 to 107, 131, 132 and 134). The WebAssembly build has no threads and cannot
-//! start processes, so the threaded tests and test 107 are ignored or left out there.
+//! Acceptance tests for thread safety and determinism (kernel spec sections 3.9 item 9, 3.10, 3.11
+//! and tests 90 to 92, 104 to 107, 131, 132, 134 and 136). The WebAssembly build has no threads
+//! and cannot start processes, so the threaded tests and test 107 are ignored or left out there.
 
 use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, TAU};
+use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use common::{
     OPT, UP, box_primitive, box_with_displaced_corner, cube_20, cube_a, cube_b, cube_c,
-    cube_with_vertical_rounds, edge_between, face_with_role, l_body, l_body_with_round,
-    planar_face, rectangle_profile, rectangle_with_hole_profile, ring_profile, top_front_edge,
-    xy_plane_at, z_axis,
+    cube_with_vertical_rounds, edge_between, face_with_role, fully_rounded_box, l_body,
+    l_body_with_round, planar_face, rectangle_profile, rectangle_with_hole_profile, ring_profile,
+    top_front_edge, xy_plane_at, z_axis,
 };
 use partsmith_mesh::Mesh;
 use partsmith_occt_sys::{
-    ChamferEdge, ChamferSize, Color, EdgeRadius, ElementGeometry, OpResult, Plane, Point,
-    PrimitiveFace, Shape, StepBody, SubShapeKind, Topology, Transform, Vector, chamfer, common,
-    compound, cut, extrude, fillet, fuse, make_box, make_cone, make_cylinder, make_sphere,
-    make_torus, read_step, revolve, section, shell, split, transform, write_step,
+    ChamferEdge, ChamferSize, Color, EdgeRadius, ElementGeometry, KernelError, KernelErrorKind,
+    OpResult, Plane, Point, PrimitiveFace, Shape, StepBody, StepImport, SubShapeKind, Topology,
+    Transform, Vector, chamfer, common, compound, cut, extrude, fillet, fuse, make_box, make_cone,
+    make_cylinder, make_sphere, make_torus, read_step, revolve, section, shell, split, transform,
+    write_step,
 };
 
 /// Number of threads in the concurrency tests.
@@ -216,6 +219,127 @@ fn t134_fillets_built_on_every_thread_match_a_single_threaded_one() {
     assert_same_on_every_thread(|| Outcome::of_result(&fillet(&body, &edges).expect("CB fillets")));
 }
 
+/// How long test 136 waits for each result from its second thread: far longer than any of its
+/// calls takes, so a lock left held fails the test instead of blocking the test binary.
+const SECOND_THREAD_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Runs `failing` and then `next` on this thread and checks their results, then runs them on a
+/// second thread that sends each result back on a channel and checks those (test 136). A lock
+/// that `failing` left held makes `next` fail on this thread and block on the other one, whose
+/// wait `SECOND_THREAD_TIMEOUT` ends.
+fn assert_no_lock_left_held<FailingResult, NextResult>(
+    failing: fn() -> FailingResult,
+    check_failure: fn(FailingResult),
+    next: fn() -> NextResult,
+    check_next: fn(NextResult),
+) where
+    FailingResult: Send + 'static,
+    NextResult: Send + 'static,
+{
+    check_failure(failing());
+    check_next(next());
+
+    let (failure_sender, failures) = mpsc::channel();
+    let (next_sender, nexts) = mpsc::channel();
+    // Not joined: a thread blocked on a lock never ends.
+    thread::spawn(move || {
+        // A send fails only when the test stopped waiting, so it has failed already.
+        let _ = failure_sender.send(failing());
+        let _ = next_sender.send(next());
+    });
+    check_failure(
+        failures
+            .recv_timeout(SECOND_THREAD_TIMEOUT)
+            .expect("the failing call returns on the second thread"),
+    );
+    check_next(
+        nexts
+            .recv_timeout(SECOND_THREAD_TIMEOUT)
+            .expect("the next call returns on the second thread, so no lock was left held"),
+    );
+}
+
+/// The fillet of BOX's edge between `Front` and `Left` (parallel to Z, between faces 10 and
+/// 20 mm wide) with `radius`.
+fn front_left_fillet(radius: f64) -> Result<OpResult, KernelError> {
+    let block = box_primitive();
+    let edge = edge_between(
+        &block.shape,
+        face_with_role(&block, PrimitiveFace::Front),
+        face_with_role(&block, PrimitiveFace::Left),
+    );
+    fillet(&block.shape, &[EdgeRadius { edge, radius }])
+}
+
+/// Asserts that a fillet failed inside the blend builder's guarded region: OCCT's builder was not
+/// done, which only the shim's `build_blend` reports with this exception and message (kernel spec
+/// section 3.10 item 5).
+fn assert_failed_in_the_blend_builder(result: Result<OpResult, KernelError>) {
+    let error = result.expect_err("a 15 mm round does not fit the 10 mm wide front");
+    assert_eq!(error.kind, KernelErrorKind::Failed, "{error:?}");
+    assert_eq!(error.exception, "StdFail_NotDone", "{error:?}");
+    assert!(
+        error.message.starts_with("BRepFilletAPI_MakeFillet failed"),
+        "{error:?}"
+    );
+}
+
+/// Asserts that a fillet built.
+fn assert_fillet_builds(result: Result<OpResult, KernelError>) {
+    result.expect("a 1 mm round fits");
+}
+
+/// Asserts that STEP bytes could not be read, under the STEP mutex.
+fn assert_unreadable(result: Result<StepImport, KernelError>) {
+    let error = result.expect_err("the bytes are not a STEP file");
+    assert_eq!(error.kind, KernelErrorKind::ReadFailed, "{error:?}");
+    assert_eq!(error.exception, "Partsmith_ReadError", "{error:?}");
+}
+
+/// `read_step` of `write_step` of BOX as one body.
+fn box_step_round_trip() -> Result<StepImport, KernelError> {
+    let body = StepBody {
+        shape: box_primitive().shape,
+        name: "Block".to_owned(),
+        color: None,
+    };
+    read_step(&write_step(&[body])?)
+}
+
+/// Asserts that a STEP file was read with one body.
+fn assert_one_body(result: Result<StepImport, KernelError>) {
+    let import = result.expect("the written BOX reads back");
+    assert_eq!(import.bodies.len(), 1);
+}
+
+#[test]
+#[cfg_attr(
+    target_os = "emscripten",
+    ignore = "the WebAssembly build has no threads"
+)]
+fn t136_a_failed_fillet_leaves_no_lock_held() {
+    assert_no_lock_left_held(
+        || front_left_fillet(15.0),
+        assert_failed_in_the_blend_builder,
+        || front_left_fillet(1.0),
+        assert_fillet_builds,
+    );
+}
+
+#[test]
+#[cfg_attr(
+    target_os = "emscripten",
+    ignore = "the WebAssembly build has no threads"
+)]
+fn t136_an_unreadable_step_file_leaves_no_lock_held() {
+    assert_no_lock_left_held(
+        || read_step(b"hello"),
+        assert_unreadable,
+        box_step_round_trip,
+        assert_one_body,
+    );
+}
+
 #[test]
 fn t092_extrude_is_deterministic() {
     let first = extrude(&rectangle_profile(), UP, 0.0, 30.0).expect("extruded");
@@ -379,16 +503,6 @@ fn knob() -> OpResult {
         .expect("the sphere builds")
         .shape;
     fuse(&cylinder, &[sphere]).expect("the knob fuses")
-}
-
-/// The result of test 45: every BOX edge rounded at radius 1.
-fn fully_rounded_box() -> Shape {
-    let edges: Vec<EdgeRadius> = (1..=12)
-        .map(|edge| EdgeRadius { edge, radius: 1.0 })
-        .collect();
-    fillet(&box_primitive().shape, &edges)
-        .expect("every edge rounds")
-        .shape
 }
 
 // Test 104: closed shells.

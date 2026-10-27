@@ -188,11 +188,25 @@ export function createHarness(width: number, height: number, pixelRatio: number)
   if (!canvas) {
     throw new Error('The test page has no canvas.')
   }
+  // A browser that cannot create the context says why in this event (ui.md 6.5 E-147).
+  let creationError = ''
+  canvas.addEventListener(
+    'webglcontextcreationerror',
+    (event) => {
+      if (event instanceof WebGLContextEvent) {
+        creationError = event.statusMessage
+      }
+    },
+    { once: true },
+  )
   const backend = createWebGl2Backend(canvas)
   // The backend created the context, so this returns the same one.
   const gl = canvas.getContext('webgl2')
   if (!backend || !gl) {
-    throw new Error('createWebGl2Backend returned null although Chromium supports WebGL2.')
+    const reason = creationError === '' ? 'no reason given' : creationError
+    throw new Error(
+      `createWebGl2Backend returned null: this browser gave the canvas no WebGL2 context (${reason}).`,
+    )
   }
   backend.resize(width, height, pixelRatio)
   return {

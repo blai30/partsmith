@@ -171,8 +171,8 @@ test(
       expect(project.use.viewport, project.name).toEqual({ width: 1280, height: 720 })
       expect(project.use.deviceScaleFactor, project.name).toBe(1)
     }
-    const [chromium, ...engines] = projects
-    for (const engine of engines) {
+    const [chromium, firefox, webkit] = projects
+    for (const engine of [firefox, webkit]) {
       expect(engine.grep, engine.name).toEqual(/@engines/)
       expect(engine.use.launchOptions?.executablePath, engine.name).toBeUndefined()
     }
@@ -181,6 +181,10 @@ test(
     expect(chromium.use.launchOptions?.executablePath).toBe(
       process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
     )
+    // Firefox runs headed; the other two keep Playwright's default, headless.
+    expect(firefox.use.headless).toBe(false)
+    expect(chromium.use.headless).toBeUndefined()
+    expect(webkit.use.headless).toBeUndefined()
     expect(browserName).toBe(running.name)
   },
 )

@@ -115,8 +115,10 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
-      # --no-fail-fast, so one failing test binary does not hide the others.
+      # --no-fail-fast, so one failing test binary does not hide the others. A hung test binary ends this step, so the
+      # examples runner and clippy still run (delivery.md open issue 1 (g)).
       - id: crates
+        timeout-minutes: 20
         run: cargo test --no-fail-fast -p partsmith-occt-sys -p partsmith-engine -p partsmith-desktop
       # The expected results blessed on Linux, at the tolerance of delivery.md 2.8. A block scalar, since a plain YAML
       # value cannot end in a colon.
@@ -185,7 +187,8 @@ jobs:
           if-no-files-found: error
 
   # ci.yml's e2e for one engine. Playwright runs the firefox and webkit projects only when --project names them, and
-  # each runs the tests tagged @engines (ui.md 6.8). The browsers run headless, as in e2e.
+  # each runs the tests tagged @engines (ui.md 6.8). Firefox runs headed, so the run has a virtual display; WebKit
+  # stays headless.
   e2e-engines:
     name: End-to-end tests (${{ matrix.browser }})
     needs: core-wasm
@@ -214,7 +217,7 @@ jobs:
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
-      - run: pnpm e2e --project ${{ matrix.browser }}
+      - run: xvfb-run --auto-servernum pnpm e2e --project ${{ matrix.browser }}
       # Its traces can hold the files the page loaded, the core among them, so it is kept 7 days like the others.
       - if: failure()
         uses: actions/upload-artifact@v7.0.2

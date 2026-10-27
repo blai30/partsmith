@@ -359,6 +359,16 @@ pub fn hollow_box(block: &Primitive) -> OpResult {
     shell(&block.shape, &[], 1.0).expect("the box is hollowed")
 }
 
+/// The result of test 45: every BOX edge rounded at radius 1.
+pub fn fully_rounded_box() -> Shape {
+    let edges: Vec<EdgeRadius> = (1..=12)
+        .map(|edge| EdgeRadius { edge, radius: 1.0 })
+        .collect();
+    fillet(&box_primitive().shape, &edges)
+        .expect("every edge rounds")
+        .shape
+}
+
 /// The single seam edge of a shape.
 pub fn seam_edge(shape: &Shape) -> u32 {
     let topology = shape.topology().expect("topology");

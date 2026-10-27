@@ -14,7 +14,7 @@ You may modify OCCT and use your version with Partsmith. The source of each rele
 
 Open CASCADE Technology 7.9.3, LGPL-2.1-only WITH OCCT-exception-1.0, https://github.com/Open-Cascade-SAS/OCCT/tree/V7_9_3, texts [2] [3]
 flex, in OCCT's STEP reader (FlexLexer.h and the generated scanner), see texts, https://github.com/Open-Cascade-SAS/OCCT/blob/V7_9_3/src/FlexLexer/FlexLexer.h, texts [4]
-DELABELLA, in OCCT's mesher, MIT, https://github.com/Open-Cascade-SAS/OCCT/blob/V7_9_3/src/BRepMesh/delabella.cpp, texts [5]
+DELABELLA, in OCCT's mesher and in its copy in partsmith-occt-sys, MIT, https://github.com/Open-Cascade-SAS/OCCT/blob/V7_9_3/src/BRepMesh/delabella.cpp, texts [5]
 strtod of David M. Gay, in OCCT's number parsing, see texts, https://github.com/Open-Cascade-SAS/OCCT/blob/V7_9_3/src/Standard/Standard_Strtod.cxx, texts [6]
 ConvertUTF of Unicode, Inc., in OCCT's UTF iterator, see texts, https://github.com/Open-Cascade-SAS/OCCT/blob/V7_9_3/src/NCollection/NCollection_UtfIterator.lxx, texts [7]
 

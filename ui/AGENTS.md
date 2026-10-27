@@ -27,7 +27,7 @@ pnpm notices             # rewrite both third-party notices files after changing
 pnpm check:notices       # both notices files against what the lock files give, as CI's schema job runs it
 pnpm build && pnpm check:dist   # the build in dist/ against the Pages file limit, the headers, the notices and the initial JavaScript limit (delivery.md 2.6)
 pnpm e2e                 # Playwright against the production build and the core in public/core (e2e/README.md); locally set PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
-pnpm e2e --project firefox   # the tests tagged @engines in Firefox (or --project webkit), as the platforms workflow runs them; the two run only when --project names them (ui.md 6.8)
+pnpm e2e --project firefox   # the tests tagged @engines in Firefox (or --project webkit), as the platforms workflow runs them; the two run only when --project names them (ui.md 6.8); Firefox runs headed, so without a display run it under xvfb-run --auto-servernum
 ```
 
 ## Rules

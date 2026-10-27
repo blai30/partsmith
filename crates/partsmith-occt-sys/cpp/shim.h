@@ -17,6 +17,13 @@
 static_assert(std::string_view(OCC_VERSION_COMPLETE) == "7.9.3",
               "partsmith-occt-sys requires OCCT 7.9.3 (ADR 0003)");
 
+// An exception must destroy the automatic objects of the frames it leaves, so the shim's lock
+// guards release their mutexes (kernel spec section 3.9 item 9). cl.exe does so only with /EHsc,
+// which build.rs passes.
+#if defined(_MSC_VER) && !defined(_CPPUNWIND)
+#error "partsmith-occt-sys needs C++ unwinding: compile the shim with /EHsc"
+#endif
+
 // Translates every C++ exception into a Rust error. cxx picks this up instead of its default,
 // which only catches std::exception, while OCCT throws Standard_Failure.
 namespace rust {

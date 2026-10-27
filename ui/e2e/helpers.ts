@@ -109,12 +109,47 @@ export async function openApp(
   await expectReady(page)
 }
 
-/** Waits until the core runs and the startup document is open (ui.md 3.1). */
+/**
+ * What the page shows of its startup (ui.md 3.1, 4.4), read in one go: the unsupported page's text
+ * (null when that page is not shown) and the core status of `app` (`not rendered` before `app`
+ * exists), where `failed` carries the fatal panel's text.
+ */
+function startupState(
+  page: Page,
+): Promise<{ readonly unsupported: string | null; readonly status: string }> {
+  return page.evaluate(() => {
+    const unsupported = document.querySelector('[data-testid="unsupported"]')?.textContent ?? null
+    const status =
+      document.querySelector('[data-testid="app"]')?.getAttribute('data-core-status') ??
+      'not rendered'
+    if (status !== 'failed') {
+      return { unsupported, status }
+    }
+    const fatal = document.querySelector('[data-testid="core-fatal"] p')?.textContent
+    return { unsupported, status: `failed: ${fatal ?? 'no fatal panel'}` }
+  })
+}
+
+/**
+ * Waits until the core runs and the startup document is open (ui.md 3.1, 6.3). The unsupported page
+ * fails it at once with its text; a wait that ends without `ready`, at its timeout or the test's,
+ * fails with the last status it read, the core's fatal text included.
+ */
 export async function expectReady(page: Page): Promise<void> {
   // Compiling the core's WebAssembly can take longer than the default expect timeout.
-  await expect(page.getByTestId('app')).toHaveAttribute('data-core-status', 'ready', {
-    timeout: OPEN_TIMEOUT_MILLISECONDS,
-  })
+  await expect
+    .poll(
+      async () => {
+        const { unsupported, status } = await startupState(page)
+        // Nothing starts after the unsupported page, so waiting longer cannot help.
+        if (unsupported !== null) {
+          throw new Error(`The app shows its unsupported page instead of starting: ${unsupported}`)
+        }
+        return status
+      },
+      { timeout: OPEN_TIMEOUT_MILLISECONDS },
+    )
+    .toBe('ready')
 }
 
 /**

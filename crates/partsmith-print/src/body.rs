@@ -14,6 +14,11 @@ use crate::{BED_CONTACT_TOLERANCE, MIN_REPORTED_AREA};
 /// volume and print-frame position the checks compute stays finite.
 const MAX_COORDINATE: f64 = 1e100;
 
+/// Region areas closer than this, relative to the larger one or in mm² near zero, count as the
+/// same area: the tolerance of the examples corpus (delivery.md 2.8), so region order does not
+/// follow differences in the last bits that depend on the platform.
+const AREA_ORDER_TOLERANCE: f64 = 1e-6;
+
 /// One body in the print frame.
 ///
 /// `print` is the welded mesh `W` of the spec with its unused vertices dropped, so every vertex
@@ -224,7 +229,8 @@ impl<'input> Body<'input> {
     }
 
     /// Maximal sets of flagged welded triangles connected through shared edges, ordered by area
-    /// (largest first), ties by smallest triangle.
+    /// (largest first), and areas the corpus cannot tell apart by smallest triangle (spec section
+    /// 3.7 item 7).
     pub(crate) fn regions(&self, flagged: &[bool]) -> Vec<Region> {
         let flagged_triangles: Vec<usize> = (0..self.triangle_count())
             .filter(|&triangle| flagged[triangle])
@@ -249,8 +255,12 @@ impl<'input> Body<'input> {
                 triangles: triangles.into_iter().map(index_u32).collect(),
             })
             .collect();
-        // A stable sort keeps the smallest-triangle order among equal areas.
         regions.sort_by(|first, second| second.area.total_cmp(&first.area));
+        // Each run of areas the corpus cannot tell apart goes by smallest triangle. Welding keeps
+        // triangle order, so the smallest welded triangle stands for the smallest input triangle.
+        for group in regions.chunk_by_mut(|before, region| same_area(before.area, region.area)) {
+            group.sort_by_key(|region| region.triangles[0]);
+        }
         regions
     }
 
@@ -377,6 +387,12 @@ fn collapsed_triangles(input_count: usize, triangle_map: &[u32]) -> Vec<u32> {
         .filter(|&triangle| !kept[triangle])
         .map(index_u32)
         .collect()
+}
+
+/// True when `area` is within `max(1e-6 × before, 1e-6)` mm² of `before`, the area of the region
+/// before it in area order, so the two regions belong to one group.
+fn same_area(before: f64, area: f64) -> bool {
+    (before - area).abs() <= (AREA_ORDER_TOLERANCE * before).max(AREA_ORDER_TOLERANCE)
 }
 
 /// The location around points, which must not be empty: their box, or the point itself when
@@ -592,6 +608,86 @@ mod tests {
         let regions = body.regions(&flagged);
         assert_eq!(regions[0].triangles, vec![0]);
         assert_eq!(regions[1].triangles, vec![3]);
+    }
+
+    /// Flat rectangles `width` wide, side by side along x, one per area in order, each as two
+    /// triangles.
+    fn rectangles(width: f64, areas: &[f64]) -> Mesh {
+        let mut positions = Vec::new();
+        let mut triangles = Vec::new();
+        for (index, &area) in (0_u32..).zip(areas) {
+            let start = 2.0 * width * f64::from(index);
+            let depth = area / width;
+            positions.extend([
+                [start, 0.0, 0.0],
+                [start + width, 0.0, 0.0],
+                [start + width, depth, 0.0],
+                [start, depth, 0.0],
+            ]);
+            let base = 4 * index;
+            triangles.extend([[base, base + 1, base + 2], [base, base + 2, base + 3]]);
+        }
+        Mesh::from_triangles(positions, triangles).expect("the rectangles are a valid mesh")
+    }
+
+    /// The triangles of every region of `rectangles(width, areas)`, all flagged, in region order.
+    fn region_triangles(width: f64, areas: &[f64]) -> Vec<Vec<u32>> {
+        let mesh = rectangles(width, areas);
+        let body = Body::prepare(&mesh, Rotation::identity()).expect("prepares");
+        body.regions(&vec![true; body.triangle_count()])
+            .into_iter()
+            .map(|region| region.triangles)
+            .collect()
+    }
+
+    #[test]
+    fn regions_within_the_tolerance_keep_triangle_order() {
+        assert_eq!(
+            region_triangles(8.0, &[80.0 - 1e-9, 80.0 + 1e-9]),
+            vec![vec![0, 1], vec![2, 3]]
+        );
+    }
+
+    #[test]
+    fn regions_on_a_half_tenth_keep_triangle_order() {
+        assert_eq!(
+            region_triangles(2.5, &[6.25 - 1e-12, 6.25 + 1e-12]),
+            vec![vec![0, 1], vec![2, 3]]
+        );
+    }
+
+    #[test]
+    fn regions_beyond_the_tolerance_go_largest_first() {
+        assert_eq!(
+            region_triangles(8.0, &[80.0, 80.01]),
+            vec![vec![2, 3], vec![0, 1]]
+        );
+    }
+
+    #[test]
+    fn regions_join_the_group_of_the_region_before_them() {
+        // Each area is within 8e-5 mm² of the next, the first and the last are not.
+        assert_eq!(
+            region_triangles(8.0, &[80.0 - 7e-5, 80.0, 80.0 + 7e-5]),
+            vec![vec![0, 1], vec![2, 3], vec![4, 5]]
+        );
+    }
+
+    #[test]
+    fn areas_within_a_millionth_are_the_same() {
+        assert!(same_area(80.0, 80.0 - 7.9e-5));
+        assert!(same_area(80.0, 80.0));
+    }
+
+    #[test]
+    fn areas_just_beyond_a_millionth_differ() {
+        assert!(!same_area(80.0, 80.0 - 8.1e-5));
+    }
+
+    #[test]
+    fn small_areas_are_the_same_within_a_millionth_of_a_square_millimeter() {
+        assert!(same_area(0.5, 0.5 - 9e-7));
+        assert!(!same_area(0.5, 0.5 - 1.1e-6));
     }
 
     #[test]

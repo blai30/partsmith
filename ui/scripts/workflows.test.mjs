@@ -1031,6 +1031,13 @@ test('61: rust-platforms runs the crate tests, the examples runner and clippy, t
   assert.equal(stepValue(disk, 'if'), 'always()')
 })
 
+test('61: a hung crate test ends its own step after 20 minutes, so the examples runner and clippy still run', async () => {
+  const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
+  const crates = stepIndex(steps, 'with id crates', (step) => stepValue(step, 'id') === 'crates')
+
+  assert.equal(stepValue(steps[crates], 'timeout-minutes'), '20')
+})
+
 test('62: the platforms workflow builds OCCT for WebAssembly as CI does', async () => {
   assert.deepEqual(
     jobSteps(await workflowJob('platforms.yml', 'occt-wasm')),
@@ -1071,7 +1078,10 @@ test('62: e2e-engines runs the engine subset in Firefox and in WebKit', async ()
     steps,
     'pnpm exec playwright install --with-deps ${{ matrix.browser }}',
   )
-  const run = commandStep(steps, 'pnpm e2e --project ${{ matrix.browser }}')
+  const run = commandStep(
+    steps,
+    'xvfb-run --auto-servernum pnpm e2e --project ${{ matrix.browser }}',
+  )
 
   assert.equal(jobValue(job, 'runs-on'), 'ubuntu-24.04')
   assert.deepEqual(jobBlock(job, 'strategy'), [
