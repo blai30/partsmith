@@ -1,13 +1,16 @@
-//! Acceptance tests 85 to 95, 105 and 112 of `docs/spec/engine.md` section 6: export, STEP import, assets and generated ids.
+//! Acceptance tests 85 to 95, 105, 112, 160 and 161 of `docs/spec/engine.md` section 6: export, STEP import, assets,
+//! generated ids and the golden 3MF files.
 
 use crate::common;
 
-use std::io::Read;
+use std::ffi::OsStr;
+use std::io::{ErrorKind, Read};
+use std::path::Path;
 
 use common::{
-    GEOMETRY_TOLERANCE, Sent, apply, assert_relative, box_step_bytes, doc_handle, fixture,
-    get_document, import_step, measure_body, new_doc, number, open, open_doc, open_text, send,
-    send_with_buffers, session, set_rollback,
+    GEOMETRY_TOLERANCE, Sent, announce, apply, assert_relative, bless_mode, box_step_bytes,
+    doc_handle, fixture, get_document, import_step, measure_body, new_doc, number, open, open_doc,
+    open_text, send, send_with_buffers, session, set_rollback,
 };
 use partsmith_engine::Session;
 use partsmith_protocol::Buffer;
@@ -383,4 +386,100 @@ fn t112_an_import_under_the_rollback_marker_is_inserted_active() {
     assert_eq!(document["rollback"], "f-cyl1");
     assert_eq!(imported.feature_status(&feature)["status"], "ok");
     assert_eq!(imported.feature_status("f-cyl1")["status"], "rolled_back");
+}
+
+/// Where the golden 3MF files are, as their messages name them (engine.md section 3.20).
+const GOLDEN_FOLDER: &str = "crates/partsmith-engine/tests/fixtures";
+
+/// The command that regenerates the golden 3MF files, and only them (engine.md section 3.20).
+const BLESS_GOLDENS: &str =
+    "PARTSMITH_BLESS=1 cargo test -p partsmith-engine --test integration export_and_import::t160";
+
+/// Compares the 3MF export of the fixture `fixture` with the golden file `golden` byte for byte,
+/// or writes the golden when the run blesses and it is missing or differs (engine.md section
+/// 3.20, test 160).
+fn check_golden_3mf(fixture: &str, golden: &str) {
+    let blessing = bless_mode(
+        std::env::var_os("PARTSMITH_BLESS").as_deref(),
+        std::env::var_os("CI").as_deref(),
+    )
+    .unwrap_or_else(|message| panic!("{message}"));
+    let mut session = session();
+    let doc = open_doc(&mut session, fixture);
+    let exported = export(&mut session, doc, json!({"kind": "3mf"}));
+    assert_eq!(file_names(&exported), ["model.3mf"]);
+    let bytes = exported.file_bytes(&files(&exported)[0]);
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join(golden);
+    let shown = format!("{GOLDEN_FOLDER}/{golden}");
+    let current = match std::fs::read(&path) {
+        Ok(current) => Some(current),
+        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(error) => panic!("{shown} is not readable: {error}"),
+    };
+    if current.as_deref() == Some(bytes.as_slice()) {
+        return;
+    }
+    if blessing {
+        std::fs::write(&path, &bytes)
+            .unwrap_or_else(|error| panic!("{shown} cannot be written: {error}"));
+        announce(&format!("blessed {shown}"));
+        return;
+    }
+    match current {
+        None => panic!("{shown} is missing. Run: {BLESS_GOLDENS}"),
+        Some(_) => panic!(
+            "{shown} differs from the 3MF export of {fixture}. On an x86_64 Linux build other than CI's, the build can make the difference, so check CI first. Regenerate it only for a change that engine.md section 3.20 lists: {BLESS_GOLDENS}"
+        ),
+    }
+}
+
+#[test]
+#[cfg_attr(
+    not(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu")),
+    ignore = "golden 3MF bytes are pinned on x86_64 Linux (engine.md section 3.20)"
+)]
+fn t160_the_3mf_export_of_the_box_equals_its_golden_file() {
+    check_golden_3mf("box.ptsm", "box.3mf");
+}
+
+#[test]
+#[cfg_attr(
+    not(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu")),
+    ignore = "golden 3MF bytes are pinned on x86_64 Linux (engine.md section 3.20)"
+)]
+fn t160_the_3mf_export_of_two_bodies_equals_its_golden_file() {
+    check_golden_3mf("two-bodies.ptsm", "two-bodies.3mf");
+}
+
+#[test]
+fn t161_a_bless_in_ci_fails_with_the_bless_in_ci_message() {
+    for bless in ["1", "0"] {
+        assert_eq!(
+            bless_mode(Some(OsStr::new(bless)), Some(OsStr::new("true"))),
+            Err(
+                "PARTSMITH_BLESS is set in CI. Bless expected results locally and commit them."
+                    .to_owned()
+            ),
+            "PARTSMITH_BLESS={bless}"
+        );
+    }
+}
+
+#[test]
+fn t161_a_bless_outside_ci_blesses() {
+    assert_eq!(bless_mode(Some(OsStr::new("1")), None), Ok(true));
+}
+
+#[test]
+fn t161_another_value_outside_ci_does_not_bless() {
+    assert_eq!(bless_mode(Some(OsStr::new("0")), None), Ok(false));
+}
+
+#[test]
+fn t161_no_bless_variable_means_no_bless() {
+    assert_eq!(bless_mode(None, None), Ok(false));
+    assert_eq!(bless_mode(None, Some(OsStr::new("true"))), Ok(false));
 }

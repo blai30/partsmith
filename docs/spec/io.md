@@ -493,7 +493,7 @@ Every 8-bit color survives `read_step(write_step(...))` exactly, because the rou
 
 - Every function is a pure function of its arguments: the same input gives byte-identical output and identical warnings. Nothing depends on the clock, randomness, hash-map iteration order, thread scheduling, memory addresses or the host system.
 - The mesh writers use only exactly rounded IEEE operations (the kernel-free arithmetic of mesh.md, `as f32`, and Rust's shortest float printing) and a deflate implementation whose choices do not depend on CPU features, so identical input is expected to give identical bytes on every target. A difference between targets is a bug, but acceptance tests run on one target.
-- Compressed 3MF bytes depend on the `zip` and deflate crate versions. Golden tests compare the decompressed parts; byte-for-byte golden 3MF files (technical design section 17) must be regenerated when those dependencies change.
+- Compressed 3MF bytes depend on the `zip` and deflate crate versions. This crate's golden tests compare the decompressed parts; the byte-for-byte golden 3MF files of technical design section 17 are the engine's `crates/partsmith-engine/tests/fixtures/box.3mf` and `two-bodies.3mf`, pinned in CI's x86_64 Linux build (engine.md section 3.20 and test 160), and must be regenerated when those dependencies change.
 - STEP bytes are deterministic per kernel.md section 3.11.
 - The functions hold no state and may be called concurrently (STEP calls are serialized inside the kernel).
 

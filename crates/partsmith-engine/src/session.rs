@@ -364,6 +364,8 @@ pub(crate) fn evaluate_in<T>(
 
 #[cfg(test)]
 mod tests {
+    use partsmith_model::Parameter;
+
     use super::*;
 
     fn session() -> Session {
@@ -488,5 +490,62 @@ mod tests {
         assert!(dirty_after_save);
         assert!(dirty_after_stale_mark);
         assert!(!dirty(&mut session, doc));
+    }
+
+    /// The shares of `cache_budget` as `(display_bytes, recompute_results)`.
+    fn shares(cache_budget: usize) -> (usize, usize) {
+        let shares = cache_shares(cache_budget);
+        (shares.display_bytes, shares.recompute_results)
+    }
+
+    #[test]
+    fn t158_a_the_default_budgets_split_in_halves() {
+        assert_eq!(shares(1 << 30), (536_870_912, 2048));
+        assert_eq!(shares(512 << 20), (268_435_456, 1024));
+    }
+
+    #[test]
+    fn t158_a_a_zero_budget_gives_both_caches_nothing() {
+        assert_eq!(shares(0), (0, 0));
+    }
+
+    #[test]
+    fn t158_a_the_odd_byte_goes_to_the_recompute_half() {
+        assert_eq!(shares(786_433), (393_216, 1));
+    }
+
+    #[test]
+    fn t158_a_the_two_shares_stay_within_the_budget() {
+        for budget in [1 << 30, 512 << 20, 0, 786_433] {
+            let (display_bytes, recompute_results) = shares(budget);
+
+            assert!(
+                display_bytes + recompute_results * ESTIMATED_RESULT_BYTES <= budget,
+                "cache_budget {budget}"
+            );
+        }
+    }
+
+    #[test]
+    fn t158_c_the_recompute_cache_keeps_only_its_half_of_the_budget() {
+        let mut session = Session::new(SessionOptions {
+            cache_budget: 786_432,
+            ..SessionOptions::headless()
+        });
+        let doc = session
+            .open_document(include_str!("../tests/fixtures/box.ptsm"), Vec::new())
+            .expect("box.ptsm opens")
+            .doc;
+        let height = Parameter::new(crate::test_support::id("p-h"), "height", "45 mm");
+
+        session
+            .apply_edits(
+                doc,
+                Some("Change height"),
+                vec![Edit::UpdateParameter { parameter: height }],
+            )
+            .expect("the new height applies");
+
+        assert_eq!(session.recompute.cache_len(), 1);
     }
 }

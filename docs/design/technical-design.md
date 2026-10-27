@@ -66,7 +66,7 @@ These decisions come from the kickoff interview. Items marked *proposed* are eng
 | Area | Decision | Why |
 | --- | --- | --- |
 | Name | **Partsmith**. Text source files are `.ptsm`; the zipped sharing bundle is `.ptsz`. | A smith of parts: maker craft plus precision. We found no CAD tool, app or file type using the name. Short three-letter options (.psm, .pts, .prt) are taken by other CAD and point-cloud formats; we found no registered use of .ptsm or .ptsz. A trademark check is still needed before public launch. |
-| License | Apache-2.0, one license for the code, the file-format spec, the examples and the test corpus ([ADR 0028](../adr/0028-single-license-apache-2.md)). | A permissive, widely used open license with an explicit patent grant from every contributor, which matters in a patent-heavy field like CAD: anyone may use, modify, sell or embed Partsmith, personally or commercially. Models made with Partsmith belong to their authors. OCCT and PlaneGCS stay LGPL as separate libraries; publishing their source and allowing relinking, which an open project does anyway, meets the LGPL. GPL code (SolveSpace solver, OpenSCAD) stays out. |
+| License | Apache-2.0, one license for the code, the file-format spec, the examples and the test corpus ([ADR 0028](../adr/0028-single-license-apache-2.md)). | A permissive, widely used open license with an explicit patent grant from every contributor, which matters in a patent-heavy field like CAD: anyone may use, modify, sell or embed Partsmith, personally or commercially. Models made with Partsmith belong to their authors. OCCT stays under the LGPL 2.1 with the Open CASCADE exception and is linked statically; publishing the source of every build and OCCT's, so users can relink, meets the LGPL ([ADR 0034](../adr/0034-occt-linking-and-lgpl-obligations.md)). GPL code (SolveSpace solver, OpenSCAD) stays out. |
 | Development | All code is written by AI agents (Claude Code), with human approval at gates. | Shapes the repo layout, specs, testing and review process (section 17). |
 | Platforms | Desktop (Windows, macOS, Linux) and web, from one shared core. The web build is deployed by CI to Cloudflare Pages. | Desktop runs the core natively and multithreaded; web runs the same core as WASM in a worker. |
 | Print technologies | FDM and resin (MSLA/SLA) in v1 | Resin adds hollowing, drain holes and suction-cup checks, roughly 15–20% more print-module work (section 11). |
@@ -601,7 +601,7 @@ A failed check or a review comment sends the issue back to the implementer; only
 **Guardrails in CI**
 
 - `rustfmt`, `clippy` with warnings as errors, and `#![forbid(unsafe_code)]` everywhere except the FFI crate.
-- `cargo-deny` enforces the license policy: only permissive dependencies, plus the listed LGPL exceptions (OCCT, PlaneGCS). A GPL dependency fails the build, protecting the MIT/Apache license.
+- `cargo-deny` enforces the license policy for crates: only permissive licenses, and a GPL dependency fails the build, protecting the Apache-2.0 license. OCCT is not a crate, so cargo-deny does not cover it: the notices and published source of delivery.md 2.9 and 2.13 do (ADR 0034).
 - `cargo-semver-checks` and schema checks flag any change to the plugin API, protocol or file format.
 - No merge without a green build, a passing corpus and reviewer approval.
 

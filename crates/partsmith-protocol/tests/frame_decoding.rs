@@ -1,4 +1,4 @@
-//! Acceptance tests for strict frame decoding and frame composition (protocol.md section 6, "Frame encoding and decoding", tests 9 to 27).
+//! Acceptance tests for strict frame decoding and frame composition (protocol.md section 6, "Frame encoding and decoding", tests 9 to 27), and for the edits that requests carry ("Edits in requests", test 85).
 
 use crate::common;
 
@@ -6,9 +6,10 @@ use common::{
     EXAMPLE_A_HEADER, EXAMPLE_B_HEADER, example_a, example_b, frame_bytes, frame_from_header,
     frame_with_messages, header_bytes, parse_json, without_member,
 };
+use partsmith_model::Edit;
 use partsmith_protocol::{
-    ErrorCode, ErrorInfo, Event, FrameError, Outcome, Response, ResponseFrame, decode_frame,
-    decode_request_frame, decode_response_frame, error_response_frame,
+    Command, ErrorCode, ErrorInfo, Event, FrameError, Outcome, Response, ResponseFrame,
+    decode_frame, decode_request_frame, decode_response_frame, error_response_frame,
 };
 
 /// A request message (id 1, `engine_info`).
@@ -37,6 +38,13 @@ fn without_kind(message: &str) -> serde_json::Value {
 /// The event inside an event message text.
 fn event(message: &str) -> Event {
     serde_json::from_value(without_kind(message)).expect("the event deserializes")
+}
+
+/// A request frame whose one request (id 5) is an `apply_edits` labeled `label` with the one edit `edit`, a JSON text.
+fn apply_edits_frame(label: &str, edit: &str) -> Vec<u8> {
+    frame_with_messages(&format!(
+        r#"[{{"kind":"request","id":5,"command":{{"type":"apply_edits","doc":1,"label":"{label}","edits":[{edit}]}}}}]"#
+    ))
 }
 
 /// The response inside a response message text.
@@ -331,4 +339,47 @@ fn t027_error_response_frame_has_the_exact_header() {
         buffers: Vec::new(),
     };
     assert_eq!(decode_response_frame(&bytes), Ok(expected));
+}
+
+#[test]
+fn t085_an_unknown_edit_field_is_an_invalid_message_with_the_request_id() {
+    for edit in [
+        r#"{"type":"update_parameter","parameter":{"id":"p-h","name":"height","expr":"50 mm"},"extra":1}"#,
+        // Every field of set_rollback is optional, so the unknown field is all there is to reject.
+        r#"{"type":"set_rollback","extra":1}"#,
+    ] {
+        let error =
+            decode_request_frame(&apply_edits_frame("Change height", edit)).expect_err(edit);
+
+        assert!(
+            matches!(
+                error,
+                FrameError::InvalidMessage {
+                    request_id: Some(5),
+                    ..
+                }
+            ),
+            "{edit}: got {error:?}"
+        );
+        assert_eq!(error.code(), ErrorCode::MalformedRequest, "{edit}");
+    }
+}
+
+#[test]
+fn t085_a_feature_record_in_an_edit_keeps_unknown_keys_as_params() {
+    let edit = r#"{"type":"add_feature","index":0,"feature":{"id":"f-box1","type":"box","body":"b-1","extra":1}}"#;
+
+    let (request, _) = decode_request_frame(&apply_edits_frame("Add box", edit))
+        .expect("a feature record with an unknown key decodes");
+
+    let Command::ApplyEdits { edits, .. } = request.command else {
+        panic!("the request is apply_edits, got {:?}", request.command);
+    };
+    let [Edit::AddFeature { feature, .. }] = edits.as_slice() else {
+        panic!("the one edit is add_feature, got {edits:?}");
+    };
+    assert_eq!(
+        serde_json::to_string(&feature.params).expect("params serialize"),
+        r#"{"body":"b-1","extra":1}"#
+    );
 }

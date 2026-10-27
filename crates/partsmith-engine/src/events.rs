@@ -555,17 +555,45 @@ fn mesh_buffers(mesh: &DisplayMesh, output: &mut Output) -> MeshBuffers {
 #[cfg(test)]
 mod tests {
     use partsmith_features::BodyState;
-    use partsmith_protocol::{FeatureState, Pick};
-    use partsmith_recompute::{CacheKey, Report};
+    use partsmith_protocol::{
+        Diagnostic, FeatureState, FeatureStatus, Pick, Severity, TessellationQuality,
+    };
+    use partsmith_recompute::{CacheKey, Message, Report};
 
     use super::*;
     use crate::test_support::box_session;
 
-    /// Replaces the document's latest recompute by a new run in which `b-1` holds its shape with
-    /// an empty naming map, which no element table accepts, as a state written under `key`.
-    fn break_display(session: &mut Session, doc: DocHandle, key: u8) {
-        let open = session.open_mut(doc).expect("the document is open");
-        let mut report = Report::clone(&open.computed.report);
+    /// The `display_failed` message of `b-1` in `box.ptsm` when its body state has an empty
+    /// naming map (engine.md section 3.8, test 159).
+    fn display_failed() -> Diagnostic {
+        Diagnostic {
+            detail: Some(
+                "body b-1: naming the result failed: The topology does not match the naming map's element counts."
+                    .to_string(),
+            ),
+            ..Diagnostic::new(
+                Severity::Warning,
+                "display_failed",
+                "Body 'Block' cannot be shown, and Partsmith could not tell why. Report this with the details.",
+            )
+        }
+    }
+
+    /// The document's latest report.
+    fn latest_report(session: &Session, doc: DocHandle) -> Arc<Report> {
+        Arc::clone(
+            &session
+                .open(doc)
+                .expect("the document is open")
+                .computed
+                .report,
+        )
+    }
+
+    /// A copy of `report` in which `b-1` holds its shape with an empty naming map, which no
+    /// element table accepts, as a state written under the cache key `key`.
+    fn broken(report: &Report, key: u8) -> Arc<Report> {
+        let mut report = report.clone();
         let shape = report.bodies[0]
             .state
             .shape()
@@ -573,8 +601,24 @@ mod tests {
             .expect("the box has a shape");
         report.bodies[0].state = BodyState::new(shape, Arc::clone(BodyState::empty().naming()));
         report.features[0].key = Some(CacheKey([key; 32]));
-        open.computed.report = Arc::new(report);
-        open.computed.run += 1;
+        Arc::new(report)
+    }
+
+    /// Makes `report` the document's latest recompute: a new run when `new_run`, else the same
+    /// run, as a change of the display without a recompute.
+    fn replace_report(session: &mut Session, doc: DocHandle, report: Arc<Report>, new_run: bool) {
+        let open = session.open_mut(doc).expect("the document is open");
+        open.computed.report = report;
+        if new_run {
+            open.computed.run += 1;
+        }
+    }
+
+    /// Replaces the document's latest recompute by a new run in which `b-1` cannot be displayed,
+    /// as a state written under `key`.
+    fn break_display(session: &mut Session, doc: DocHandle, key: u8) {
+        let report = broken(&latest_report(session, doc), key);
+        replace_report(session, doc, report, true);
     }
 
     /// The events of the document's next emission.
@@ -586,69 +630,78 @@ mod tests {
         output.events
     }
 
-    /// The status of `f-box1` in a `recomputed` event.
-    fn box_status(events: &[Event]) -> partsmith_protocol::FeatureStatus {
-        events
-            .iter()
-            .find_map(|event| match event {
-                Event::Recomputed { features, .. } => features.first().cloned(),
-                _ => None,
-            })
-            .expect("a recomputed event with f-box1")
-    }
-
-    /// The model-layer `body_mesh` events: `(body, has a mesh)`.
-    fn model_meshes(events: &[Event]) -> Vec<(String, bool)> {
+    /// The revision and the status of `f-box1` of each `recomputed` event.
+    fn recomputed(events: &[Event]) -> Vec<(u64, FeatureStatus)> {
         events
             .iter()
             .filter_map(|event| match event {
-                Event::BodyMesh {
-                    body,
-                    layer: Layer::Model,
-                    mesh,
-                    ..
-                } => Some((body.to_string(), mesh.is_some())),
+                Event::Recomputed {
+                    revision, features, ..
+                } => Some((
+                    *revision,
+                    features.first().cloned().expect("box.ptsm has f-box1"),
+                )),
                 _ => None,
             })
             .collect()
     }
 
+    /// The status of `f-box1` in the one `recomputed` event.
+    fn box_status(events: &[Event]) -> FeatureStatus {
+        match recomputed(events).as_slice() {
+            [(_, status)] => status.clone(),
+            other => panic!("expected one recomputed event, got {other:?}"),
+        }
+    }
+
+    /// The `body_mesh` events: `(layer, body, has a mesh)`.
+    fn meshes(events: &[Event]) -> Vec<(Layer, String, bool)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::BodyMesh {
+                    body, layer, mesh, ..
+                } => Some((*layer, body.to_string(), mesh.is_some())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The model-layer `body_mesh` events: `(body, has a mesh)`.
+    fn model_meshes(events: &[Event]) -> Vec<(String, bool)> {
+        meshes(events)
+            .into_iter()
+            .filter(|(layer, _, _)| *layer == Layer::Model)
+            .map(|(_, body, has_mesh)| (body, has_mesh))
+            .collect()
+    }
+
+    /// The status `feature_statuses` reports for `f-box1`.
+    fn queried_box_status(session: &Session, doc: DocHandle) -> FeatureStatus {
+        session
+            .feature_statuses(doc)
+            .expect("the document is open")
+            .first()
+            .cloned()
+            .expect("box.ptsm has f-box1")
+    }
+
     #[test]
-    fn a_body_that_cannot_be_displayed_is_an_error_of_its_feature() {
+    fn t159_a_a_body_that_cannot_be_displayed_is_a_warning_of_its_feature() {
         let (mut session, doc) = box_session(true);
         break_display(&mut session, doc, 7);
 
         let first = events(&mut session, doc);
         let status = box_status(&first);
 
-        assert_eq!(status.status, FeatureState::Error);
-        assert_eq!(status.messages[0].code, "display_failed");
-        assert!(
-            status.messages[0].message.contains("\"Block\""),
-            "{}",
-            status.messages[0].message
-        );
-        assert_eq!(model_meshes(&first), []);
-        assert_eq!(
-            session.feature_statuses(doc).expect("the document is open")[0],
-            status
-        );
+        assert_eq!(meshes(&first), []);
+        assert_eq!(status.status, FeatureState::Warning);
+        assert_eq!(status.messages, [display_failed()]);
+        assert_eq!(queried_box_status(&session, doc), status);
     }
 
     #[test]
-    fn a_failed_display_is_not_retried_until_the_state_changes() {
-        let (mut session, doc) = box_session(true);
-        break_display(&mut session, doc, 7);
-        events(&mut session, doc);
-        session.open_mut(doc).expect("open").emitted.refresh_meshes = true;
-
-        let again = events(&mut session, doc);
-
-        assert_eq!(model_meshes(&again), []);
-    }
-
-    #[test]
-    fn a_shown_body_that_can_no_longer_be_displayed_loses_its_mesh() {
+    fn t159_b_a_shown_body_that_can_no_longer_be_displayed_loses_its_mesh() {
         let (mut session, doc) = box_session(true);
         let opened = events(&mut session, doc);
         assert_eq!(model_meshes(&opened), [("b-1".to_string(), true)]);
@@ -667,24 +720,126 @@ mod tests {
         );
 
         assert_eq!(model_meshes(&broken), [("b-1".to_string(), false)]);
-        assert_eq!(box_status(&broken).status, FeatureState::Error);
+        assert_eq!(box_status(&broken).messages, [display_failed()]);
         assert_eq!(pick, Err(EngineError::StalePick));
     }
 
     #[test]
-    fn a_display_failure_clears_when_the_body_displays_again() {
+    fn t159_c_meshes_sent_again_at_the_same_quality_keep_the_failure() {
         let (mut session, doc) = box_session(true);
-        let good = Arc::clone(&session.open(doc).expect("open").computed.report);
         break_display(&mut session, doc, 7);
         events(&mut session, doc);
 
-        let open = session.open_mut(doc).expect("open");
-        open.computed.report = good;
-        open.computed.run += 1;
+        session
+            .set_tessellation(doc, TessellationQuality::Standard)
+            .expect("the document is open");
+        let again = events(&mut session, doc);
+
+        assert_eq!(meshes(&again), []);
+        assert_eq!(recomputed(&again), []);
+        assert_eq!(
+            queried_box_status(&session, doc).messages,
+            [display_failed()]
+        );
+    }
+
+    #[test]
+    fn t159_d_a_display_failure_clears_when_the_body_displays_again() {
+        let (mut session, doc) = box_session(true);
+        let good = latest_report(&session, doc);
+        break_display(&mut session, doc, 7);
+        events(&mut session, doc);
+
+        replace_report(&mut session, doc, good, true);
+        let repaired = events(&mut session, doc);
+        let status = box_status(&repaired);
+
+        assert_eq!(model_meshes(&repaired), [("b-1".to_string(), true)]);
+        assert_eq!(status.status, FeatureState::Ok);
+        assert_eq!(status.messages, []);
+    }
+
+    #[test]
+    fn t159_e_a_display_that_recovers_without_a_recompute_sends_the_statuses_again() {
+        let (mut session, doc) = box_session(true);
+        let good = latest_report(&session, doc);
+        break_display(&mut session, doc, 7);
+        events(&mut session, doc);
+        let revision = session.revision(doc).expect("the document is open");
+
+        replace_report(&mut session, doc, good, false);
         let repaired = events(&mut session, doc);
 
-        assert_eq!(box_status(&repaired).status, FeatureState::Ok);
         assert_eq!(model_meshes(&repaired), [("b-1".to_string(), true)]);
+        match recomputed(&repaired).as_slice() {
+            [(sent_revision, status)] => {
+                assert_eq!(*sent_revision, revision);
+                assert_eq!(status.status, FeatureState::Ok);
+                assert_eq!(status.messages, []);
+            }
+            other => panic!("expected one recomputed event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn t159_e_a_display_that_fails_without_a_recompute_sends_the_statuses_again() {
+        let (mut session, doc) = box_session(true);
+        events(&mut session, doc);
+        let revision = session.revision(doc).expect("the document is open");
+
+        let report = broken(&latest_report(&session, doc), 7);
+        replace_report(&mut session, doc, report, false);
+        let broken_events = events(&mut session, doc);
+
+        assert_eq!(model_meshes(&broken_events), [("b-1".to_string(), false)]);
+        match recomputed(&broken_events).as_slice() {
+            [(sent_revision, status)] => {
+                assert_eq!(*sent_revision, revision);
+                assert_eq!(status.status, FeatureState::Warning);
+                assert_eq!(status.messages, [display_failed()]);
+            }
+            other => panic!("expected one recomputed event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn display_failed_comes_before_the_features_own_messages_and_raises_ok_to_warning() {
+        let (mut session, doc) = box_session(true);
+        let mut report = Report::clone(&broken(&latest_report(&session, doc), 7));
+        report.features[0].messages.push(Message {
+            severity: partsmith_recompute::Severity::Info,
+            code: "test_notice",
+            pointer: None,
+            text: "This box followed a change on its own.".to_string(),
+            suggestion: None,
+            repairs: Vec::new(),
+            fixes: Vec::new(),
+            detail: None,
+            root: None,
+            reason: None,
+        });
+        replace_report(&mut session, doc, Arc::new(report), true);
+
+        let status = box_status(&events(&mut session, doc));
+        let codes: Vec<&str> = status
+            .messages
+            .iter()
+            .map(|message| message.code.as_str())
+            .collect();
+
+        assert_eq!(status.status, FeatureState::Warning);
+        assert_eq!(codes, ["display_failed", "test_notice"]);
+    }
+
+    #[test]
+    fn headless_sessions_report_no_display_failure() {
+        let (mut session, doc) = box_session(false);
+        break_display(&mut session, doc, 7);
+
+        let status = box_status(&events(&mut session, doc));
+
+        assert_eq!(status.status, FeatureState::Ok);
+        assert_eq!(status.messages, []);
     }
 
     #[test]

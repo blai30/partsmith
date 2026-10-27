@@ -846,4 +846,14 @@ mod tests {
 
         assert_eq!(cache.tables.entries.len(), 1);
     }
+
+    #[test]
+    fn t158_b_the_display_cache_gets_half_of_the_budget() {
+        let session = crate::Session::new(crate::SessionOptions {
+            cache_budget: 8 << 20,
+            ..crate::SessionOptions::headless()
+        });
+
+        assert_eq!(session.cache.budget, 4 << 20);
+    }
 }

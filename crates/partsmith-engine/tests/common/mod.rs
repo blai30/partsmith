@@ -6,6 +6,8 @@
 // The test modules and the bench each use only some of these helpers.
 #![allow(dead_code)]
 
+use std::ffi::OsStr;
+use std::io::Write;
 use std::path::Path;
 
 use partsmith_engine::{SequentialIds, Session, SessionOptions};
@@ -704,4 +706,27 @@ pub fn replace_once(text: &str, from: &str, to: &str) -> String {
         "{from:?} occurs exactly once in the text"
     );
     text.replacen(from, to, 1)
+}
+
+/// The failure of a bless in CI (delivery.md section 2.8).
+const BLESS_IN_CI: &str =
+    "PARTSMITH_BLESS is set in CI. Bless expected results locally and commit them.";
+
+/// Whether a run blesses its expected outputs, from the values of `PARTSMITH_BLESS` and `CI`:
+/// `PARTSMITH_BLESS` is `1`. Refused with the bless-in-CI message when `PARTSMITH_BLESS` is set
+/// (to anything) while `CI` is set. A copy of the examples runner's `bless_mode` (delivery.md
+/// section 2.8), for the golden 3MF files (engine.md section 3.20, tests 160 and 161).
+pub fn bless_mode(bless: Option<&OsStr>, ci: Option<&OsStr>) -> Result<bool, String> {
+    if bless.is_some() && ci.is_some() {
+        return Err(BLESS_IN_CI.to_owned());
+    }
+    Ok(bless == Some(OsStr::new("1")))
+}
+
+/// Prints a line past the test harness's output capture, so bless results show without
+/// `--nocapture`.
+pub fn announce(line: &str) {
+    let mut standard_output = std::io::stdout().lock();
+    // A lost note does not change the result, so a failed write is ignored.
+    let _ = writeln!(standard_output, "{line}");
 }

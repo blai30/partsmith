@@ -435,7 +435,7 @@ The other words, among them the shared cases of print.md 3.12, are print.md test
 
 ## 7. Open issues
 
-1. **Command list.** The architecture names `validate | fmt | rebuild | export | schema`. Print checks are an option of `rebuild` (`--checks`) rather than a separate command, and STEP import is left to the UI and Python in M1.
+1. **Command list.** The architecture names `validate | fmt | rebuild | export | schema`. Print checks are an option of `rebuild` (`--checks`) rather than a separate command. STEP import is left to Python in M1 (`Document.import_step`, python-api.md); the UI's import (ui.md 1.2) and a `partsmith import` command (section 1, Later) come later, so the CLI has no import route in M1.
 2. **Asset discovery.** The CLI passes every hash-named file in `assets/` and relies on the engine ignoring unreferenced ones (engine.md 3.14). A large shared asset folder is read fully; a lazy asset source can come later.
 3. **`rebuild --json` and expected results.** Resolved by [delivery.md](delivery.md) section 2.8: an example's `<stem>.expected.json` is the `rebuild --checks --json` report without `path` and the findings' triangle lists.
 4. **Exit code for feature errors in `validate --rebuild` versus `rebuild`.** Both use exit 1; print findings never affect the exit code. A future `--deny-findings` can change that.
