@@ -1,0 +1,212 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 6944.064000000003,
+      "area": 23302.88,
+      "center_of_mass": [
+        1.046535693378718e-15,
+        -1.0121738741383288e-14,
+        10.115715984184476
+      ],
+      "bounding_box": {
+        "min": [
+          -40.0,
+          -25.0,
+          0.0
+        ],
+        "max": [
+          40.0,
+          25.0,
+          30.0
+        ]
+      },
+      "faces": 11,
+      "edges": 24,
+      "vertices": 16
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 2,
+      "infos": 0,
+      "label": "2 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "thin_walls",
+                  "code": "thin_wall",
+                  "severity": "warning",
+                  "message": "A wall 0.6 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -40.0,
+                      -25.0,
+                      0.0
+                    ],
+                    "max": [
+                      40.0,
+                      25.0,
+                      30.0
+                    ]
+                  },
+                  "value": 0.5999999999999943,
+                  "limit": 0.8,
+                  "faces": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4
+                  ]
+                },
+                {
+                  "check": "thin_walls",
+                  "code": "thin_wall",
+                  "severity": "warning",
+                  "message": "A wall 0.6 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -39.4,
+                      -24.399999999999995,
+                      0.6
+                    ],
+                    "max": [
+                      39.400000000000006,
+                      24.399999999999995,
+                      30.0
+                    ]
+                  },
+                  "value": 0.5999999999999943,
+                  "limit": 0.8,
+                  "faces": [
+                    5,
+                    6,
+                    7,
+                    8,
+                    9
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

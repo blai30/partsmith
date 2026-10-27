@@ -43,11 +43,11 @@
       "kind": "as_modeled"
     },
     "summary": {
-      "health": "warning",
+      "health": "ok",
       "errors": 0,
-      "warnings": 4,
+      "warnings": 0,
       "infos": 1,
-      "label": "4 warnings"
+      "label": "Ready to print"
     },
     "bodies": [
       {
@@ -91,7 +91,7 @@
               ]
             ]
           },
-          "health": "warning",
+          "health": "ok",
           "checks": [
             {
               "check": "mesh_validity",
@@ -149,109 +149,8 @@
             },
             {
               "check": "thin_walls",
-              "status": "warning",
-              "findings": [
-                {
-                  "check": "thin_walls",
-                  "code": "thin_wall",
-                  "severity": "warning",
-                  "message": "A wall 0.006 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
-                  "location": {
-                    "kind": "bounds",
-                    "min": [
-                      -9.396926207859075,
-                      -3.0070579950427896,
-                      0.0
-                    ],
-                    "max": [
-                      10.0,
-                      10.0,
-                      1.4285714285714288
-                    ]
-                  },
-                  "value": 0.006310195180408316,
-                  "limit": 0.8,
-                  "faces": [
-                    0,
-                    1
-                  ]
-                },
-                {
-                  "check": "thin_walls",
-                  "code": "thin_wall",
-                  "severity": "warning",
-                  "message": "A wall 0.006 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
-                  "location": {
-                    "kind": "bounds",
-                    "min": [
-                      -1.736481776669347,
-                      -10.0,
-                      0.0
-                    ],
-                    "max": [
-                      9.53716950748225,
-                      -2.893053425092401,
-                      1.4285714285714288
-                    ]
-                  },
-                  "value": 0.0063106790413866125,
-                  "limit": 0.8,
-                  "faces": [
-                    0,
-                    1
-                  ]
-                },
-                {
-                  "check": "thin_walls",
-                  "code": "thin_wall",
-                  "severity": "warning",
-                  "message": "A wall 0.006 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
-                  "location": {
-                    "kind": "bounds",
-                    "min": [
-                      -9.396926207859094,
-                      -9.848077530122072,
-                      0.0
-                    ],
-                    "max": [
-                      -1.736481776669347,
-                      -3.237496844605411,
-                      1.4285714285714288
-                    ]
-                  },
-                  "value": 0.006310806741027943,
-                  "limit": 0.8,
-                  "faces": [
-                    0,
-                    1
-                  ]
-                },
-                {
-                  "check": "thin_walls",
-                  "code": "thin_wall",
-                  "severity": "warning",
-                  "message": "A wall 0.006 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
-                  "location": {
-                    "kind": "bounds",
-                    "min": [
-                      -10.0,
-                      -3.4202014332566573,
-                      0.0
-                    ],
-                    "max": [
-                      -8.185429327330759,
-                      3.42020143325671,
-                      1.4285714285714288
-                    ]
-                  },
-                  "value": 0.006310376618364531,
-                  "limit": 0.8,
-                  "faces": [
-                    0,
-                    1
-                  ]
-                }
-              ],
+              "status": "ok",
+              "findings": [],
               "omitted": 0
             },
             {

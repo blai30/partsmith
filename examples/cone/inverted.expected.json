@@ -45,9 +45,9 @@
     "summary": {
       "health": "warning",
       "errors": 0,
-      "warnings": 8,
+      "warnings": 2,
       "infos": 1,
-      "label": "8 warnings"
+      "label": "2 warnings"
     },
     "bodies": [
       {
@@ -168,159 +168,8 @@
             },
             {
               "check": "thin_walls",
-              "status": "warning",
-              "findings": [
-                {
-                  "check": "thin_walls",
-                  "code": "thin_wall",
-                  "severity": "warning",
-                  "message": "A wall 0.006 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
-                  "location": {
-                    "kind": "bounds",
-                    "min": [
-                      -5.000000000000001,
-                      -4.330127018922184,
-                      9.0
-                    ],
-                    "max": [
-                      -2.4697933122812357,
-                      2.5000000000000098,
-                      10.000000000000002
-                    ]
-                  },
-                  "value": 0.006293113058787184,
-                  "limit": 0.8,
-                  "faces": [
-                    0,
-                    1
-                  ]
-                },
-                {
-                  "check": "thin_walls",
-                  "code": "thin_wall",
-                  "severity": "warning",
-                  "message": "A wall 0.006 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
-                  "location": {
-                    "kind": "bounds",
-                    "min": [
-                      -4.330127018922188,
-                      2.3882852167287,
-                      9.0
-                    ],
-                    "max": [
-                      1.5035289975213697,
-                      5.000000000000001,
-                      10.000000000000002
-                    ]
-                  },
-                  "value": 0.006299536308159865,
-                  "limit": 0.8,
-                  "faces": [
-                    0,
-                    1
-                  ]
-                },
-                {
-                  "check": "thin_walls",
-                  "code": "thin_wall",
-                  "severity": "warning",
-                  "message": "A wall 0.006 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
-                  "location": {
-                    "kind": "bounds",
-                    "min": [
-                      -0.8682408883346736,
-                      -5.000000000000001,
-                      9.0
-                    ],
-                    "max": [
-                      4.435054165891096,
-                      -2.221989975719898,
-                      10.000000000000002
-                    ]
-                  },
-                  "value": 0.006294446711180153,
-                  "limit": 0.8,
-                  "faces": [
-                    0,
-                    1
-                  ]
-                },
-                {
-                  "check": "thin_walls",
-                  "code": "thin_wall",
-                  "severity": "warning",
-                  "message": "A wall 0.006 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
-                  "location": {
-                    "kind": "bounds",
-                    "min": [
-                      1.5035289975213697,
-                      0.21809693682668005,
-                      9.0
-                    ],
-                    "max": [
-                      4.9952411079092895,
-                      4.768584753741134,
-                      10.000000000000002
-                    ]
-                  },
-                  "value": 0.006293243388541637,
-                  "limit": 0.8,
-                  "faces": [
-                    0,
-                    1
-                  ]
-                },
-                {
-                  "check": "thin_walls",
-                  "code": "thin_wall",
-                  "severity": "warning",
-                  "message": "A wall 0.006 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
-                  "location": {
-                    "kind": "bounds",
-                    "min": [
-                      4.089679368027762,
-                      -2.308743066175196,
-                      9.0
-                    ],
-                    "max": [
-                      5.000000000000001,
-                      0.21809693682668005,
-                      10.000000000000002
-                    ]
-                  },
-                  "value": 0.006292842392775148,
-                  "limit": 0.8,
-                  "faces": [
-                    0,
-                    1
-                  ]
-                },
-                {
-                  "check": "thin_walls",
-                  "code": "thin_wall",
-                  "severity": "warning",
-                  "message": "A wall 0.006 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
-                  "location": {
-                    "kind": "bounds",
-                    "min": [
-                      -2.5000000000000178,
-                      -4.924038765061037,
-                      9.0
-                    ],
-                    "max": [
-                      -0.8682408883346736,
-                      -3.9600549178809104,
-                      10.000000000000002
-                    ]
-                  },
-                  "value": 0.00629953630815947,
-                  "limit": 0.8,
-                  "faces": [
-                    0,
-                    1
-                  ]
-                }
-              ],
+              "status": "ok",
+              "findings": [],
               "omitted": 0
             },
             {

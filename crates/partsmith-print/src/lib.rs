@@ -47,10 +47,15 @@ pub const BED_CONTACT_TOLERANCE: f64 = 0.01;
 /// Vertices whose heights differ by at most this many mm along an edge form one plateau
 /// (islands).
 pub const PLATEAU_TOLERANCE: f64 = 1e-6;
-/// An overhang must exceed the limit by more than this many radians to be flagged.
+/// Angles within this many radians of a limit count as within it: an overhang must exceed its
+/// limit by more to be flagged, and a thickness ray's hit counts up to `WALL_FACING_ANGLE` plus
+/// this.
 pub const ANGLE_TOLERANCE: f64 = 1e-4;
 /// Rays for wall thickness ignore hits closer than this many mm to their start.
 pub const THICKNESS_RAY_START: f64 = 1e-5;
+/// A thickness ray measures a wall only where the face it hits is within this many radians of
+/// opposite the face it starts on: 30 degrees (needs human review, spec section 8).
+pub const WALL_FACING_ANGLE: f64 = std::f64::consts::FRAC_PI_6;
 /// Overhang and thin wall regions smaller than this many mm² are shown in the overlay but not
 /// reported (needs human review, spec section 8).
 pub const MIN_REPORTED_AREA: f64 = 1.0;

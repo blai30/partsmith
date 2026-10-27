@@ -283,6 +283,52 @@ pub fn chamfer() -> Mesh {
     )
 }
 
+/// **WEDGE_45**: an underside meeting a sloped face at 45 degrees along x = 10, with a 0.2 mm
+/// strip of the underside along that edge (side quad 1).
+pub fn wedge_45() -> Mesh {
+    prism_y(
+        &[[0.0, 0.0], [9.8, 0.0], [10.0, 0.0], [0.0, 10.0]],
+        0.0,
+        10.0,
+    )
+}
+
+/// **WEDGE_30**: WEDGE_45 with its underside and sloped face at 30 degrees.
+pub fn wedge_30() -> Mesh {
+    let top = 10.0 * std::f64::consts::FRAC_PI_6.tan();
+    prism_y(
+        &[[0.0, 0.0], [9.8, 0.0], [10.0, 0.0], [0.0, top]],
+        0.0,
+        10.0,
+    )
+}
+
+/// **TAPER**: a wall on the bed, 0.75 mm thick at the bottom and 0.4 mm at the top, whose sides
+/// are 10 degrees from opposite.
+pub fn taper() -> Mesh {
+    prism_y(
+        &[[0.0, 0.0], [0.75, 0.0], [0.575, 2.0], [0.175, 2.0]],
+        0.0,
+        10.0,
+    )
+}
+
+/// A `prism_y` mesh with side quad `quad` split along its other diagonal: its triangles
+/// `[near_start, far_end, near_end]` and `[near_start, far_start, far_end]` become
+/// `[near_start, far_start, near_end]` and `[far_start, far_end, near_end]`, wound the same way.
+pub fn with_other_diagonal(prism: &Mesh, quad: usize) -> Mesh {
+    let mut triangles = prism.triangles().to_vec();
+    let [near_start, far_end, near_end] = triangles[2 * quad];
+    let far_start = triangles[2 * quad + 1][1];
+    triangles[2 * quad] = [near_start, far_start, near_end];
+    triangles[2 * quad + 1] = [far_start, far_end, near_end];
+    mesh_with_face_ids(
+        prism.positions().to_vec(),
+        triangles,
+        prism.face_ids().to_vec(),
+    )
+}
+
 /// **MUSHROOM**: a 0.8 mm stem under a 20 mm cap.
 pub fn mushroom() -> Mesh {
     prism_y(

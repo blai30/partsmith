@@ -3,12 +3,13 @@
 
 use crate::common;
 
-use std::f64::consts::PI;
+use std::f64::consts::{FRAC_PI_6, PI};
 
 use common::{
     TOLERANCE, assert_bounds, assert_check_ok, assert_close, assert_f32_close, assert_point_close,
     bounds_of, box_mesh, cube, cylinder, fdm, findings, inside_out, open_box, overlay, ranges,
-    resin, run, run_only, standard_sphere, suggestion_text, tube, void_box,
+    resin, run, run_only, standard_sphere, suggestion_text, taper, tube, void_box, wedge_30,
+    wedge_45, with_other_diagonal,
 };
 use partsmith_mesh::Mesh;
 use partsmith_print::{
@@ -106,6 +107,83 @@ fn t086_cube_walls_are_as_thick_as_the_cube() {
     assert_eq!(values.len(), 12);
     for value in values {
         assert_f32_close(*value, 20.0, TOLERANCE);
+    }
+}
+
+/// A prism fixture as built, then with the given side quads split along their other diagonals.
+fn both_diagonals(prism: Mesh, quads: &[usize]) -> [Mesh; 2] {
+    let flipped = quads.iter().fold(prism.clone(), |mesh, &quad| {
+        with_other_diagonal(&mesh, quad)
+    });
+    [prism, flipped]
+}
+
+#[test]
+fn t115_acute_edges_are_not_walls() {
+    for mesh in both_diagonals(wedge_45(), &[1]) {
+        let analysis = run_only(&mesh, &fdm(), &[CheckKind::ThinWalls]);
+        let values = &overlay(&analysis, CheckKind::ThinWalls).values;
+
+        assert_check_ok(&analysis, CheckKind::ThinWalls);
+        for (triangle, value) in values.iter().enumerate() {
+            if triangle < 8 {
+                assert_eq!(*value, OVERLAY_NO_VALUE, "side triangle {triangle}");
+            } else if mesh.triangle_normal(triangle).is_some() {
+                assert_f32_close(*value, 10.0, TOLERANCE);
+            }
+        }
+    }
+}
+
+#[test]
+fn t115_faces_exactly_the_facing_angle_apart_are_a_wall() {
+    for mesh in both_diagonals(wedge_30(), &[1]) {
+        let analysis = run_only(&mesh, &fdm(), &[CheckKind::ThinWalls]);
+        let listed = findings(&analysis, CheckKind::ThinWalls);
+
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        let finding = &listed[0];
+        assert_eq!(finding.code, FindingCode::ThinWall);
+        assert_eq!(finding.faces, vec![1]);
+        assert_close(
+            finding.value.expect("a value"),
+            0.2 / 3.0 * FRAC_PI_6.tan(),
+            TOLERANCE,
+        );
+        assert_eq!(
+            finding.message,
+            "A wall 0.038 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick."
+        );
+    }
+}
+
+#[test]
+fn t116_faces_leaning_toward_each_other_are_a_wall() {
+    // Each side leans 0.175 mm over its 2 mm height; the ray from the centroid 4/3 mm up
+    // crosses the 10 degrees between the faces.
+    let slope: f64 = 0.0875;
+    let thinnest =
+        (0.75 - 4.0 / 3.0 * 0.175) * (1.0 + slope * slope).sqrt() / (1.0 - slope * slope);
+
+    for mesh in both_diagonals(taper(), &[1, 3]) {
+        let analysis = run_only(&mesh, &fdm(), &[CheckKind::ThinWalls]);
+        let listed = findings(&analysis, CheckKind::ThinWalls);
+
+        assert_eq!(listed.len(), 2, "{listed:?}");
+        assert_eq!(listed[0].faces, vec![1]);
+        assert_eq!(listed[1].faces, vec![3]);
+        for finding in listed {
+            assert_eq!(finding.code, FindingCode::ThinWall);
+            assert_close(finding.value.expect("a value"), thinnest, TOLERANCE);
+            assert_eq!(
+                finding.message,
+                "A wall 0.523 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick."
+            );
+        }
+        let values = &overlay(&analysis, CheckKind::ThinWalls).values;
+        for bottom_or_top in [0, 1, 4, 5] {
+            assert_f32_close(values[bottom_or_top], 2.0, TOLERANCE);
+        }
     }
 }
 

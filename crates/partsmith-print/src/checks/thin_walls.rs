@@ -1,15 +1,16 @@
 //! Thin walls: thickness measured by a ray through the part from every triangle, and the wall
 //! thickness overlay (spec sections 3.8 and 3.9.6).
 
-use partsmith_mesh::{BoundingVolumeHierarchy, Ray};
+use partsmith_mesh::{BoundingVolumeHierarchy, Ray, Vector3};
 
 use crate::body::Body;
 use crate::checks::EPSILON;
 use crate::format::format_length;
+use crate::geometry::dot;
 use crate::overlay::{Overlay, OverlayInfo, OverlayQuantity, Worse};
 use crate::report::{CheckKind, CheckResult, FindingCode};
 use crate::thresholds::CheckThresholds;
-use crate::{OVERLAY_NO_VALUE, THICKNESS_RAY_START};
+use crate::{ANGLE_TOLERANCE, OVERLAY_NO_VALUE, THICKNESS_RAY_START, WALL_FACING_ANGLE};
 
 /// Runs the check and builds its overlay. Findings are regions in region order.
 pub(crate) fn run(body: &Body, thresholds: &CheckThresholds) -> (CheckResult, Overlay) {
@@ -55,14 +56,26 @@ pub(crate) fn run(body: &Body, thresholds: &CheckThresholds) -> (CheckResult, Ov
 }
 
 /// The distance from the triangle's centroid, against its normal, to where the ray leaves the
-/// solid; `None` without a normal, without a hit, or when the ray enters through a front face.
+/// solid; `None` without a normal, without a hit, when the ray enters through a front face, or
+/// when the face it leaves through has no normal or does not face the triangle (spec section
+/// 3.9.6 item 2).
 fn thickness(body: &Body, hierarchy: &BoundingVolumeHierarchy<'_>, triangle: usize) -> Option<f64> {
     let normal = body.normal(triangle)?;
     let [first, second, third] = body.print().triangle_points(triangle);
     let centroid = [0, 1, 2].map(|axis| (first[axis] + second[axis] + third[axis]) / 3.0);
     let ray = Ray::new(centroid, normal.map(|component| -component)).ok()?;
     let hit = hierarchy.first_hit(&ray, THICKNESS_RAY_START, f64::INFINITY)?;
-    (!hit.front_face).then_some(hit.distance)
+    if hit.front_face {
+        return None;
+    }
+    let hit_normal = body.normal(hit.triangle as usize)?;
+    faces_each_other(normal, hit_normal).then_some(hit.distance)
+}
+
+/// Whether two unit normals are within `WALL_FACING_ANGLE` of opposite, so their faces bound a
+/// wall.
+fn faces_each_other(normal: Vector3, hit_normal: Vector3) -> bool {
+    dot(normal, hit_normal) <= -(WALL_FACING_ANGLE + ANGLE_TOLERANCE).cos()
 }
 
 #[cfg(test)]
@@ -153,6 +166,37 @@ mod tests {
         let mesh = joined(&box_mesh([0.0; 3], [1.0; 3]), &sheet);
         let measured = thickness_at(&mesh, BOTTOM).expect("the ray leaves through the top");
         assert!((measured - 1.0).abs() < 1e-9);
+    }
+
+    /// A downward triangle at z = 0 (welded triangle 0) under a roof triangle that covers it.
+    fn floor_under(roof: [Point3; 3]) -> Mesh {
+        let mut positions: Vec<Point3> = vec![[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]];
+        positions.extend(roof);
+        Mesh::from_triangles(positions, vec![[0, 1, 2], [3, 4, 5]]).expect("valid mesh")
+    }
+
+    #[test]
+    fn a_hit_on_a_face_that_does_not_face_the_rays_face_has_no_thickness() {
+        // The roof rises at 45 degrees toward +x, its normal pointing up and toward -x, so the
+        // floor's ray leaves through it 4/3 mm up. Turned parallel, the same roof is a wall.
+        let sloped = floor_under([[-1.0, -1.0, 0.0], [2.0, -1.0, 3.0], [-1.0, 2.0, 0.0]]);
+        let parallel = floor_under([[-1.0, -1.0, 1.0], [2.0, -1.0, 1.0], [-1.0, 2.0, 1.0]]);
+
+        assert_eq!(thickness_at(&sloped, 0), None);
+        let measured = thickness_at(&parallel, 0).expect("the ray leaves through the roof");
+        assert!((measured - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn faces_exactly_the_facing_angle_apart_face_each_other_and_wider_ones_do_not() {
+        let down = [0.0, 0.0, -1.0];
+        let tilted = |angle: f64| [angle.sin(), 0.0, angle.cos()];
+
+        assert!(faces_each_other(down, tilted(WALL_FACING_ANGLE)));
+        assert!(!faces_each_other(
+            down,
+            tilted(WALL_FACING_ANGLE + 2.0 * ANGLE_TOLERANCE)
+        ));
     }
 
     #[test]
