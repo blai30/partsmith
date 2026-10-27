@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::MAX_FINDINGS_PER_CHECK;
+use crate::format::format_length;
 use crate::rotation::Rotation;
 
 /// One printability check.
@@ -150,6 +151,57 @@ pub enum Suggestion {
         /// Where the hole should go.
         at: Point3,
     },
+}
+
+/// A split plane whose normal is within this of a model axis reads as that axis (spec section
+/// 3.12).
+const AXIS_TOLERANCE: f64 = 1e-9;
+
+impl Suggestion {
+    /// The suggestion in words, in millimeters (spec section 3.12); None for a split without
+    /// planes.
+    pub fn text(&self) -> Option<String> {
+        match self {
+            Suggestion::Split { planes } => {
+                let words: Vec<String> = planes.iter().map(Plane::words).collect();
+                let (last, others) = words.split_last()?;
+                Some(if others.is_empty() {
+                    format!("Split at {last}")
+                } else {
+                    format!("Split at {} and {last}", others.join(", "))
+                })
+            }
+            Suggestion::DrainHole { at } => Some(format!(
+                "Add a drain hole near ({} mm)",
+                format_coordinates(*at)
+            )),
+        }
+    }
+}
+
+impl Plane {
+    /// `x = 150 mm` for a plane along a model axis, else its origin and normal (spec section
+    /// 3.12).
+    fn words(&self) -> String {
+        const AXIS_NAMES: [&str; 3] = ["x", "y", "z"];
+        match (0..3).find(|&axis| self.normal[axis].abs() >= 1.0 - AXIS_TOLERANCE) {
+            Some(axis) => format!(
+                "{} = {} mm",
+                AXIS_NAMES[axis],
+                format_length(self.origin[axis])
+            ),
+            None => format!(
+                "the plane through ({} mm) with normal ({})",
+                format_coordinates(self.origin),
+                format_coordinates(self.normal)
+            ),
+        }
+    }
+}
+
+/// The three coordinates written with `len` and joined by `, `.
+fn format_coordinates(coordinates: [f64; 3]) -> String {
+    coordinates.map(format_length).join(", ")
 }
 
 /// One problem found by a check.
@@ -438,5 +490,63 @@ mod tests {
         let text = serde_json::to_string(&original).expect("findings serialize");
         let parsed: Finding = serde_json::from_str(&text).expect("findings deserialize");
         assert_eq!(parsed, original);
+    }
+
+    /// A split along these `(origin, normal)` planes, in order.
+    fn split(planes: &[(Point3, Vector3)]) -> Suggestion {
+        Suggestion::Split {
+            planes: planes
+                .iter()
+                .map(|&(origin, normal)| Plane { origin, normal })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn four_planes_join_with_commas_and_a_final_and() {
+        let suggestion = split(&[
+            ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+            ([1.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+            ([0.0, 2.0, 0.0], [0.0, 1.0, 0.0]),
+            ([0.0, 0.0, 3.0], [0.0, 0.0, 1.0]),
+        ]);
+        assert_eq!(
+            suggestion.text().as_deref(),
+            Some("Split at x = 0 mm, x = 1 mm, y = 2 mm and z = 3 mm")
+        );
+    }
+
+    #[test]
+    fn a_plane_reads_the_coordinate_of_its_own_axis() {
+        let suggestion = split(&[([7.0, -12.25, 1.0], [0.0, -1.0, 0.0])]);
+        assert_eq!(suggestion.text().as_deref(), Some("Split at y = -12.25 mm"));
+    }
+
+    #[test]
+    fn a_normal_just_inside_the_axis_tolerance_reads_the_axis() {
+        // The z component is 1 - 4.5e-10, at least 1 - 1e-9.
+        let normal = [3e-5, 0.0, (1.0_f64 - 9e-10).sqrt()];
+        let suggestion = split(&[([1.0, 2.0, 3.0], normal)]);
+        assert_eq!(suggestion.text().as_deref(), Some("Split at z = 3 mm"));
+    }
+
+    #[test]
+    fn a_normal_just_outside_the_axis_tolerance_reads_as_a_tilted_plane() {
+        // The z component is 1 - 1.25e-9, below 1 - 1e-9, though it rounds to 1.
+        let normal = [5e-5, 0.0, (1.0_f64 - 2.5e-9).sqrt()];
+        let suggestion = split(&[([1.0, 2.0, 3.0], normal)]);
+        assert_eq!(
+            suggestion.text().as_deref(),
+            Some("Split at the plane through (1, 2, 3 mm) with normal (0, 0, 1)")
+        );
+    }
+
+    #[test]
+    fn a_tilted_plane_writes_minus_zero_components_as_zero() {
+        let suggestion = split(&[([-0.0001, 0.0, 4.0], [0.6, -0.8, -0.0])]);
+        assert_eq!(
+            suggestion.text().as_deref(),
+            Some("Split at the plane through (0, 0, 4 mm) with normal (0.6, -0.8, 0)")
+        );
     }
 }

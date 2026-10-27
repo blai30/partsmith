@@ -407,6 +407,11 @@ pub enum Suggestion {
     DrainHole { at: Point3 },
 }
 
+impl Suggestion {
+    /// The suggestion in words, in millimeters (section 3.12); None for a split without planes.
+    pub fn text(&self) -> Option<String>;
+}
+
 /// One problem found by a check.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Finding {
@@ -880,6 +885,32 @@ The UI shows the label in the status bar badge, colored by `health`; clicking it
 
 `analyze`, `summarize`, profile parsing and serialization are deterministic: the same inputs give identical outputs, independent of hash-map order and, if an implementation parallelizes checks or rays, of thread scheduling. Every order is stated above.
 
+### 3.12 Suggestion words
+
+`Suggestion::text` words a suggestion in millimeters, with `len` of section 3.9.0 for every number, and the CLI prints it as a `suggested:` line under the finding (cli.md 3.3). Python and the UI, which see only the protocol, word it themselves in the same words (ADR 0040): Python as `Suggestion.text` (python-api.md 2.9) and the UI as a line of the finding's row (ui.md 3.17), which also draws it. Every host words it in millimeters, as the messages are, whatever the document's unit (open issue 7), and every length and point carries the unit, so a reader never has to guess it.
+
+- `split`: `Split at {planes}`, with the planes in order, joined by `, ` and the last one by ` and `. A plane whose normal has a component of magnitude at least `1 - 1e-9` along a model axis reads `{axis} = {len(c)} mm`, with `axis` the lowercase axis letter (`x`, `y` or `z`) and `c` the origin's coordinate on that axis, whichever way the normal points. Any other plane reads `the plane through ({len(ox)}, {len(oy)}, {len(oz)} mm) with normal ({len(nx)}, {len(ny)}, {len(nz)})`.
+- `drain_hole`: `Add a drain hole near ({len(x)}, {len(y)}, {len(z)} mm)`. A point carries its unit inside the parentheses, as the UI's coordinate readouts do (`5, 5, 5 mm`, ui.md 2.13).
+- A `split` without planes has no words (`text` is None). Section 3.9.2 never makes one, but the protocol allows it, so hosts treat it as no suggestion: no `suggested:` line, Python `suggestion` None, no row line, nothing drawn, and the UI's cube framing.
+
+Examples: the finding of test 51 reads `Split at x = 150 mm`, test 52 `Split at x = 200 mm and x = 400 mm`, tests 55 and 56 `Split at z = 150 mm` (test 56's normal is `(0, 0, -1)`), the footprint of `box([0,0,0],[600,300,10])` (three pieces along x, two along y) `Split at x = 200 mm, x = 400 mm and y = 150 mm`, the footprint of `box([0,0,0],[300,100,10])` rotated by `about_axis((0,0,1), π/6)` `Split at the plane through (150, 50, 5 mm) with normal (0.866, -0.5, 0)` (test 113), and test 94 `Add a drain hole near (5, 5, 5 mm)`.
+
+Shared cases. The three implementations of these words (this crate, Python's `partsmith.reports` and the UI's `suggestionText`) are kept in step by tests that each cover exactly these cases with exactly these words (test 114, python-api.md test 106, ui.md U-233), origins and points in mm:
+
+1. One plane, origin (150, 50, 5), normal (1, 0, 0): `Split at x = 150 mm`.
+2. Two planes, origins (0, 0, 5) and (0, 0, 5), normals (1, 0, 0) and (0, 1, 0): `Split at x = 0 mm and y = 0 mm`.
+3. Three planes, origins (200, 0, 5), (400, 0, 5) and (0, 150, 5), normals (1, 0, 0), (1, 0, 0) and (0, 1, 0): `Split at x = 200 mm, x = 400 mm and y = 150 mm`.
+4. One plane, origin (5, 5, 150), normal (0, 0, -1): `Split at z = 150 mm`.
+5. One plane, origin (3, 4, 12.5), normal (1e-10, 0, 1): `Split at z = 12.5 mm`.
+6. One plane, origin (0, 0, -0.0004), normal (0, 0, 1): `Split at z = 0 mm`.
+7. One plane, origin (150, 50, 5), normal (0.8660254037844387, -0.49999999999999994, 0): `Split at the plane through (150, 50, 5 mm) with normal (0.866, -0.5, 0)`.
+8. One plane, origin (10, 20, 30), normal (0.6, 0.8, 0): `Split at the plane through (10, 20, 30 mm) with normal (0.6, 0.8, 0)`.
+9. A drain hole at (5, 5.25, 0.0001): `Add a drain hole near (5, 5.25, 0 mm)`.
+10. A drain hole at (-8, 13, 2): `Add a drain hole near (-8, 13, 2 mm)`.
+11. A split without planes: no words.
+
+No case has a coordinate exactly halfway between two thousandths: there `len`, which rounds the binary value half to even, and the UI's `formatNumber`, which rounds the shortest decimal text half away from zero, may differ (150.0625 is `150.062` here and `150.063` in the UI).
+
 ## 4. Errors
 
 `ProfileError` messages:
@@ -1017,14 +1048,15 @@ Tests assert only triangulation-independent facts for the prism fixtures (counts
 
 Tests in this section call `run_only(mesh, profile, ["bed_fit"])` unless they state otherwise.
 
-51. `run_only(&box([0,0,0],[300,100,10]), &FDM, ["bed_fit"])`: one finding `footprint_too_large`, error, message `The part footprint is 300 x 100 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.`, value 300, limit 256, suggestion `split` with one plane `{origin: (150,50,5), normal: (1,0,0)}`, no triangles, no faces, location bounds `(0,0,0)` to `(300,100,10)`.
-52. `box([0,0,0],[600,100,10])`: the split planes are at x = 200 and x = 400, in that order.
+51. `run_only(&box([0,0,0],[300,100,10]), &FDM, ["bed_fit"])`: one finding `footprint_too_large`, error, message `The part footprint is 300 x 100 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.`, value 300, limit 256, suggestion `split` with one plane `{origin: (150,50,5), normal: (1,0,0)}` whose `text()` is `Some("Split at x = 150 mm")`, no triangles, no faces, location bounds `(0,0,0)` to `(300,100,10)`.
+52. `box([0,0,0],[600,100,10])`: the split planes are at x = 200 and x = 400, in that order, and the suggestion's `text()` is `Some("Split at x = 200 mm and x = 400 mm")`.
 53. `box([0,0,0],[256,10,10])` fits (no finding); `box([0,0,0],[256.001,10,10])` gives `footprint_too_large`.
 54. With profile `{"id": "wide", "name": "Wide", "technology": "fdm", "bed": {"kind": "rectangle", "width": 300, "depth": 200, "height": 200}}`, `box([0,0,0],[150,250,10])` gives one finding `fits_rotated`, severity `info`, message `The part fits the bed only when turned 90 degrees about Z. Turn it in the slicer.`, no value, limit or suggestion; health `ok`.
-55. `box([0,0,0],[10,10,300])`: one finding `too_tall`, message `The part is 300 mm tall, taller than the 256 mm build height. Split the part or lay it on its side.`, value 300, limit 256, split plane `{origin: (5,5,150), normal: (0,0,1)}`.
-56. The same box with rotation `about_axis((1,0,0), π/2)`: one finding `footprint_too_large` with message `The part footprint is 10 x 300 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.`, value 300, limit 256, split plane `{origin: (5,5,150), normal: (0,0,-1)}` in model coordinates.
+55. `box([0,0,0],[10,10,300])`: one finding `too_tall`, message `The part is 300 mm tall, taller than the 256 mm build height. Split the part or lay it on its side.`, value 300, limit 256, split plane `{origin: (5,5,150), normal: (0,0,1)}`, suggestion `text()` `Some("Split at z = 150 mm")`.
+56. The same box with rotation `about_axis((1,0,0), π/2)`: one finding `footprint_too_large` with message `The part footprint is 10 x 300 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.`, value 300, limit 256, split plane `{origin: (5,5,150), normal: (0,0,-1)}` in model coordinates, suggestion `text()` `Some("Split at z = 150 mm")`.
 57. `box([0,0,0],[300,10,300])`: findings `footprint_too_large` then `too_tall`.
 58. With profile `{"id": "round", "name": "Round", "technology": "resin", "bed": {"kind": "circle", "diameter": 100, "height": 160}}`: `box([0,0,0],[60,60,10])` fits; `box([0,0,0],[80,80,10])` gives `footprint_too_large` with message `The part footprint needs a 113.137 mm circle, larger than the 100 mm round bed. Split the part or scale it down.`, value `80 × sqrt(2)` within `1e-9`, limit 100, no suggestion.
+113. Split words of whole analyses (section 3.12). `box([0,0,0],[600,300,10])`: one finding `footprint_too_large` with message `The part footprint is 600 x 300 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.`, planes `{origin: (200,150,5), normal: (1,0,0)}`, `{origin: (400,150,5), normal: (1,0,0)}` and `{origin: (300,150,5), normal: (0,1,0)}` in that order, and `text()` `Some("Split at x = 200 mm, x = 400 mm and y = 150 mm")`. `box([0,0,0],[300,100,10])` with rotation `about_axis((0,0,1), π/6)`: one finding `footprint_too_large` with one plane, origin `(150,50,5)` and normal `(cos(π/6), -sin(π/6), 0)`, and `text()` `Some("Split at the plane through (150, 50, 5 mm) with normal (0.866, -0.5, 0)")`.
 
 ### 6.8 First-layer contact
 
@@ -1082,7 +1114,7 @@ Region order (section 3.7 item 7):
 ### 6.13 Trapped volumes
 
 93. `run(&void_box, &FDM)`: `trapped_volumes` has one finding `enclosed_hollow`, severity `info`, message `An enclosed hollow of 1000 mm³ will print as a sealed cavity.`, value 1000, no suggestion, triangles `[{12,24}]`, location bounds `(5,5,5)` to `(15,15,15)`.
-94. `run(&void_box, &RESIN)`: one finding `enclosed_hollow`, severity `warning`, message `An enclosed hollow of 1000 mm³ will trap liquid resin. Add a drain hole near its lowest point.`, suggestion `drain_hole` at `(5,5,5)`.
+94. `run(&void_box, &RESIN)`: one finding `enclosed_hollow`, severity `warning`, message `An enclosed hollow of 1000 mm³ will trap liquid resin. Add a drain hole near its lowest point.`, suggestion `drain_hole` at `(5,5,5)` whose `text()` is `Some("Add a drain hole near (5, 5, 5 mm)")`.
 95. `run(&cube(20), &RESIN)` and `run(&inside_out, &RESIN)`: `trapped_volumes` is `ok`.
 
 ### 6.14 Overlays
@@ -1110,6 +1142,10 @@ Region order (section 3.7 item 7):
 110. A copy of `FDM` with `layer_height = f64::NAN` returns `Err(OutOfRange { field: LayerHeight, .. })` from `to_json()`.
 111. `partsmith_mesh::WELD_TOLERANCE == partsmith_model::LINEAR_TOLERANCE` (mesh.md open issue 1).
 
+### 6.17 Suggestion words
+
+114. The shared cases (section 3.12). For each shared case, `Suggestion::Split { planes }` with the case's planes in order, or `Suggestion::DrainHole { at }` with its point, has `text()` `Some` of the case's words, and the split without planes (`Suggestion::Split { planes: vec![] }`) has `text()` None. One test per case.
+
 ## 7. Open issues
 
 1. **No reason channel in `EvaluationContext`.** The model's trait returns `Option<Quantity>`, so `printer.nozzle` on a resin profile surfaces as the generic `Unknown value 'printer.nozzle'. Check the spelling; printer values look like printer.fit.slip.` A clearer message ("Resin printers have no nozzle...") needs the trait to return a reason; left to the model spec's owner.
@@ -1118,7 +1154,7 @@ Region order (section 3.7 item 7):
 4. **Thin walls ignore direction.** Section 11's rule (below 2 × nozzle) applies to every direction, so FDM floors and roofs thinner than 0.8 mm (for example 0.6 mm, three 0.2 mm layers) are flagged. A layer-based limit for near-horizontal walls is listed as later.
 5. **Islands are found topologically** (local minima of the mesh) rather than by slicing layers as the technical design's resin "layer-island check" describes. For exact meshes the two agree, and this avoids missing islands between sampled layers; planar slicing is still used for small features.
 6. **Profiles live only by id in documents.** A shared document whose printer is a custom profile falls back to `generic-fdm` with the engine's `unknown_printer_profile` warning, silently changing `printer.fit.*` values. Embedding the profile (or its fit values) in the document would need a file-format decision.
-7. **Messages use millimeters** regardless of the document's display units; findings carry `value` and `limit` so a host can reformat them.
+7. **Messages use millimeters** regardless of the document's display units; findings carry `value` and `limit` so a host can reformat them. Suggestions are worded in millimeters in every host too, with the unit after every length and point (section 3.12), so a print check row in a document in inches reads in millimeters throughout, like the printer's numbers in the UI. Showing them in the document's unit would change messages and suggestions together.
 8. **Triangle indices in findings** refer to the analyzed mesh, which must be the mesh the engine ships for display (same triangle order) for highlights and overlays to line up. They are transient display data tied to a `mesh_id`, not stored references (AGENTS.md invariant).
 9. **Thin walls budget not met.** Measured on the shared 4-core development machine: about 90 ms to build the bounding volume hierarchy for 200,000 triangles plus about 2.3 µs per ray, so `thin_walls` takes about 450 to 600 ms against its 120 ms budget, and all checks about 700 ms against 250 ms. Both mesh numbers are within mesh.md's own budgets (400 ms per million triangles, 3 µs per ray), so the two specs disagree. Options: a faster ray traversal in partsmith-mesh (a packet or SIMD traversal, or fewer rays per triangle), or a revised budget. Analysis runs on a background thread and never blocks modeling (technical design section 11), so the gap delays the health badge, not editing. Profiled again on 2026-10-12 (release, medians of alternated runs on the loaded machine): the 200,000-triangle sphere gives `thin_walls` 560 ms and all checks 708 ms; the reference part bench50 (engine.md section 5; two analyzed bodies of 46,564 and 3,540 triangles) takes 1.0 s per `analyze_print` once its meshes exist (1.4 s for the first call of a headless session, whose extra 0.4 s is the kernel tessellation). Of bench50's instructions, 82% are `thin_walls` rays, 15% `small_features` (mostly `Mesh::slice_many`), and every other check together 2.5%, so this crate's own code is not the bottleneck. Its rays cost 16 µs each (random rays from the same centroids 8.9 µs), against about 2.3 µs on the sphere: in partsmith-mesh, the grazing cone of any hierarchy node whose triangles face several directions widens to every direction, so on a machined part almost every node is padded by the wide `3e-2 · R` (4 to 7 mm on bench50, whose base reaches 120 mm from the origin) for every ray. A copy of the hierarchy with that padding at `1e-9 · R` returned the same hits on bench50 at 4.6 µs per thickness ray, which shows the size of the gain, but drops the exactness argument of mesh.md section 3.10. The fix belongs in partsmith-mesh (a padding bound that does not grow with mixed orientations, such as per-triangle grazing tests at leaves), together with a revised budget. The engine's 200,000-triangle budget row is a sphere 500 mm tall analyzed with `generic-resin`, so `small_features` slices 10,000 layers: there it took 71% of 2.42 s, half of all instructions in `Mesh::slice_many` (most of them sorting segment keys per layer to chain the loops) and a fifth in this crate's convex hulls and widths of loops far wider than any limit. `small_features` now skips the hull of a loop whose sampled widths already prove it wide enough (`geometry::minimum_width_bound`, a lower bound on the minimum width, so no result changes), which brought that row to 2.12 s and the 250-layer sphere's `small_features` from 35 to 28 ms; the slicing itself is partsmith-mesh's to speed up.
 

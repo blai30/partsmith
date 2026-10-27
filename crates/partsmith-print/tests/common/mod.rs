@@ -564,6 +564,11 @@ pub fn assert_split_planes(finding: &Finding, expected: &[(Point3, Vector3)]) {
     }
 }
 
+/// The words of the finding's suggestion (spec section 3.12), or None without one.
+pub fn suggestion_text(finding: &Finding) -> Option<String> {
+    finding.suggestion.as_ref().and_then(Suggestion::text)
+}
+
 // ---------------------------------------------------------------------------
 // Report transformations
 // ---------------------------------------------------------------------------

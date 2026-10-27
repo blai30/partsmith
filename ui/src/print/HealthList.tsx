@@ -53,6 +53,15 @@ function sameFinding(first: FindingKey, second: FindingKey | null | undefined): 
   )
 }
 
+/**
+ * A row's accessible name: "{severity}: {message} {body}", with the suggestion's words before the
+ * body name when there are any (3.17).
+ */
+function rowName(row: HealthRow): string {
+  const suggestion = row.suggestion === null ? '' : ` ${row.suggestion}.`
+  return `${SEVERITY_NAMES[row.severity]}: ${row.message}${suggestion} ${row.bodyName}`
+}
+
 /** What the panel says instead of listing findings, or null when it lists them. */
 function noticeFor(
   hasGeometry: boolean,
@@ -101,8 +110,8 @@ function noticeFor(
 
 /**
  * The print check panel (`health-list`, ui.md 3.17): "Print check: {profile name}", "Check
- * again", and one row per finding. Clicking a row, or Enter on it, frames the finding in the
- * viewport.
+ * again", and one row per finding with its suggestion's words. Clicking a row, or Enter on it,
+ * frames the finding in the viewport.
  */
 export function HealthList({
   profileName,
@@ -195,7 +204,7 @@ function FindingsList({ rows, focusedFinding, onFocusFinding, onLayOnFace }: Fin
               data-check={row.key.check}
               data-severity={row.severity}
               aria-current={focused ? 'true' : undefined}
-              aria-label={`${SEVERITY_NAMES[row.severity]}: ${row.message} ${row.bodyName}`}
+              aria-label={rowName(row)}
               onClick={() => {
                 onFocusFinding(row.key)
               }}
@@ -215,6 +224,9 @@ function FindingsList({ rows, focusedFinding, onFocusFinding, onLayOnFace }: Fin
               </span>
               <span className="flex min-w-0 flex-col gap-0.5">
                 <span>{row.message}</span>
+                {row.suggestion === null ? null : (
+                  <span data-testid="health-suggestion">{row.suggestion}</span>
+                )}
                 <span className={clsx('text-xs', COLOR_CLASSES.textMuted.foreground)}>
                   {row.bodyName}
                 </span>

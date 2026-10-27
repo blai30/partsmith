@@ -11,5 +11,6 @@ mod overlays_and_health;
 mod printer_values;
 mod profiles;
 mod rotation_and_options;
+mod suggestion_words;
 mod validity_and_bed_fit;
 mod walls_features_volumes;

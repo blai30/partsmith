@@ -52,7 +52,7 @@ python/
     features.py      Feature, DatumPlane and the feature functions
     selectors.py     Axis, Element, Selection, faces, edges, vertices, Ref
     exporting.py     export_stl, export_3mf, export_obj, export_step
-    reports.py       BoundingBox, PrintReport, Finding
+    reports.py       BoundingBox, PrintReport, Finding, Suggestion, SplitPlane
     errors.py        exception and warning classes
     running.py       run_script, run_code
   tests/
@@ -525,6 +525,20 @@ class BoundingBox:
     max: tuple[float, float, float]
 
 @dataclass(frozen=True)
+class SplitPlane:
+    """A plane a split suggestion cuts along, in model coordinates (millimeters)."""
+    origin: tuple[float, float, float]
+    normal: tuple[float, float, float]     # unit length
+
+@dataclass(frozen=True)
+class Suggestion:
+    """A print.md suggested fix: split the part along planes, or add a drain hole near a point."""
+    kind: str                     # "split" | "drain_hole"
+    text: str                     # print.md 3.12, for example "Split at x = 150 mm" or "Add a drain hole near (5, 5, 5 mm)"
+    planes: tuple[SplitPlane, ...]  # the split planes in order; () for a drain hole
+    at: tuple[float, float, float] | None  # the drain hole's point; None for a split
+
+@dataclass(frozen=True)
 class Finding:
     """One print.md finding, with its part."""
     check: str                    # CheckKind value, for example "overhangs"
@@ -535,6 +549,7 @@ class Finding:
     location: tuple[float, float, float]   # center of the finding's bounds, or its point
     value: float | None
     limit: float | None
+    suggestion: Suggestion | None          # the finding's suggested fix, when it has one
 
 @dataclass(frozen=True)
 class PrintReport:
@@ -679,7 +694,7 @@ Mapping onto feature params (features/<type>.md). `AxisLike` values become featu
 - All export functions require parts of one document (`ValueError("All parts must belong to the same document.")`) and at least one part. They send `export` with `bodies` set to the parts' ids, `tolerance` when `chord` or `angle` is given (`angle` in degrees, converted; the missing value from the standard tolerance), and `orientation` as a `matrix` composed from `rotate` (each `(axis, degrees)` rotation applied after the previous ones about fixed model axes; axes must be `Axis.X`, `Axis.Y` or `Axis.Z`) when `rotate` is non-empty.
 - The single engine file is written to `path` and `[Path(path)]` is returned, except for `export_stl` with `per_part` (one file per part; 3MF, OBJ and STEP always write one file): then `path` is a directory (created with parents), each engine file is written inside it under its engine name, and the paths are returned in body order. Each file is written atomically as in 3.1 (flushed, then moved over the target with `os.replace`). A failed write raises an `OSError` as in 3.1 whose `filename` is the file being written (`str(path)`, or with `per_part` `str(path / <engine name>)`), never a temporary file, and whose `filename2` is None; files written before it stay and nothing after it is written. Engine warnings become `PartsmithWarning`s.
 - `Document.import_step(path, name=None)` reads the file and sends `import_step`; it returns the new part, which holds every solid of the file.
-- `Document.check(...)` sends `analyze_print` with `printer`, an orientation (`face_down` with the element's part body and reference, else the `rotate` matrix, else `as_modeled`; giving both raises `ValueError`), and the parts' ids, then returns a `PrintReport` built from the `print_health` event: `health` and `label` from its summary, and every finding of every body's report in body order, then check order, then the check's own order, with `location` the center of the finding's bounds or its point.
+- `Document.check(...)` sends `analyze_print` with `printer`, an orientation (`face_down` with the element's part body and reference, else the `rotate` matrix, else `as_modeled`; giving both raises `ValueError`), and the parts' ids, then returns a `PrintReport` built from the `print_health` event: `health` and `label` from its summary, and every finding of every body's report in body order, then check order, then the check's own order, with `location` the center of the finding's bounds or its point. A finding's `suggestion` is None when the protocol finding has none, or has a split without planes, which has no words (print.md section 3.12); otherwise it is a `Suggestion` with the protocol suggestion's `kind`, its planes as a tuple of `SplitPlane`s in order (empty for a drain hole), its `at` as a tuple (None for a split), and `text` worded from them as print.md section 3.12 says, in millimeters with `len` of print.md section 3.9.0 (`f"{value:.3f}"` with trailing zeros and a trailing `.` removed and `-0` written `0`), so a script prints the same words as `partsmith rebuild --checks` (cli.md 3.3). Every field of `Suggestion` and `SplitPlane` is hashable, so a `Finding` stays hashable. `Suggestion` and `SplitPlane` are importable from `partsmith.reports` and are kept out of `partsmith.__all__`, so that 2.3, test 77 and the names code generation reserves (3.8 rule 7, which the engine's `export_python` holds) do not change.
 
 ### 3.8 Python code generation
 
@@ -979,6 +994,12 @@ These tests use `S`, the committed asset of [features/import.md](features/import
 101. A failed document write keeps the assets written before it (3.1). (a) With `tmp/a.ptsm` a folder, `D.save(tmp / "a.ptsm")` raises `IsADirectoryError` with `filename` `str(tmp / "a.ptsm")`, not the temporary file, `filename2` None and the text of 3.1; `tmp/assets/S` holds the bytes of `S`, the save sends no `mark_saved`, and neither `tmp` nor `tmp/assets` holds a temporary file. (b) A temporary file that cannot be created is reported under the target's name: a `Document()` with one part and no import, saved to `tmp / "missing" / "a.ptsm"`, raises `FileNotFoundError` with `filename` `str(tmp / "missing" / "a.ptsm")`, `filename2` None and the text of 3.1, and `tmp` stays empty.
 102. A failure without a file name is reported under the file being written (3.1). With `os.fsync` raising `OSError(errno.ENOSPC, "No space left on device")`, as on a full disk, and `tmp/a.ptsm` holding `old`: (a) when its first call fails, `D.save(tmp / "a.ptsm")` raises an `OSError` with `errno` `ENOSPC`, `filename` `str(tmp / "assets" / S)`, `filename2` None and the text `[Errno <ENOSPC>] No space left on device: '<filename>'`; `tmp/assets` is empty (no `S`, no temporary file), `tmp/a.ptsm` still holds `old`, and the save sends no `mark_saved`. (b) When only its second call fails, the `OSError` has `filename` `str(tmp / "a.ptsm")` and `filename2` None; `tmp/assets/S` holds the bytes of `S`, `tmp/a.ptsm` still holds `old`, `tmp` holds exactly `a.ptsm` and `assets` with no temporary file, and the save sends no `mark_saved`.
 103. A failed export write names the file being written (3.7). (a) `export_stl(part, tmp / "a.stl")` of `box(20, 30, 40)` with `tmp/a.stl` a folder raises `IsADirectoryError` with `filename` `str(tmp / "a.stl")`, `filename2` None and the text of 3.1, and `tmp` holds only the folder `a.stl`, with no temporary file. (b) In the setup of test 63, `export_stl([base, lid], tmp / "parts", per_part=True)` with `tmp/parts/Lid.stl` a folder raises `IsADirectoryError` with `filename` `str(tmp / "parts" / "Lid.stl")` and `filename2` None; `tmp/parts/Base.stl` is a binary STL file (written before the failure), and `tmp/parts` holds exactly `Base.stl` and `Lid.stl`, with no temporary file.
+
+**Print suggestions**
+
+104. Split suggestions (3.7, print.md section 3.12). In `Part("P")`: `box(300, 100, 10, position=(150, 50, 0))` (x 0..300, y 0..100). `doc.check()` returns exactly one finding: check `bed_fit`, code `footprint_too_large`, and `suggestion` with `kind` `split`, `planes` a tuple of one `SplitPlane` with `origin` (150, 50, 5) and `normal` (1, 0, 0) within 1e-9, `at` None and `text` `Split at x = 150 mm`; `hash(finding)` does not raise. `doc.check(rotate=[(Axis.Z, 30)])` returns exactly one finding, `footprint_too_large`, whose one plane has `origin` (150, 50, 5) and `normal` (cos 30°, -sin 30°, 0) within 1e-9 and whose `text` is `Split at the plane through (150, 50, 5 mm) with normal (0.866, -0.5, 0)`.
+105. Drain hole suggestions (3.7). In `Part("P")`: `box(20, 20, 20)` and `shell(None, 2)` (a closed hollow x and y in [-8, 8], z in [2, 18]). In `doc.check(printer="generic-resin")`, the finding with check `trapped_volumes` has code `enclosed_hollow`, severity `warning` and `suggestion` with `kind` `drain_hole`, `planes` `()`, `at` (X, Y, 2) within 1e-9 with X and Y each -8 or 8, and `text` `Add a drain hole near (X, Y, 2 mm)` with X and Y written `-8` or `8`; every other finding of that report (the overhang of the hollow's ceiling) has `suggestion` None. `doc.check()` (generic FDM) has the `enclosed_hollow` finding with severity `info` and `suggestion` None.
+106. Suggestion text without the engine: `partsmith.reports.print_report(report, part_of)`, with `part_of` returning one stub part for any body id and `report` a protocol print health report written in the test with one body and one finding per case. Each shared case of print.md section 3.12 gives a `Finding` whose `suggestion` has the case's words as `text`, its `kind`, `planes` the case's planes as `SplitPlane`s in order (`()` for a drain hole) and `at` the case's point (None for a split); the split without planes gives `suggestion` None, and so does a finding without `suggestion`. One test per case.
 
 ## 7. Open issues
 

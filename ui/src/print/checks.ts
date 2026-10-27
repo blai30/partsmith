@@ -1,6 +1,8 @@
-import type { CheckKind } from '../generated/protocol'
+import type { CheckKind, Finding, PrintReport } from '../generated/protocol'
+import type { FindingKey } from '../state/store'
 
-// The printability checks as the UI presents them (ui.md 3.17, print.md 3.9).
+// The printability checks as the UI presents them, and the findings of a report by check (ui.md
+// 3.17, print.md 3.9).
 
 export type PrintCheck = {
   readonly check: CheckKind
@@ -31,4 +33,11 @@ export const ALWAYS_SHOWN_CHECK: CheckKind = 'mesh_validity'
  */
 export function isCheckHidden(hiddenChecks: readonly string[], check: string): boolean {
   return check !== ALWAYS_SHOWN_CHECK && hiddenChecks.includes(check)
+}
+
+/** The finding a key names in a report, or undefined when the report has no such finding. */
+export function findingAt(report: PrintReport | null, key: FindingKey): Finding | undefined {
+  return report?.bodies
+    .find((body) => body.body === key.body)
+    ?.report.checks.find((check) => check.check === key.check)?.findings[key.index]
 }

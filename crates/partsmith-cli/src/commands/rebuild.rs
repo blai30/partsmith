@@ -14,13 +14,18 @@ use serde::Serialize;
 use super::{open, usage_error};
 use crate::arguments::RebuildArguments;
 use crate::error::CliError;
-use crate::messages::MessageMembers;
+use crate::messages::{MessageMembers, NESTED_INDENT};
 use crate::output::{JsonDiagnostic, Output, count, human_number, wire_name};
 use crate::rotation;
 use crate::status::Status;
 
-/// How far a message line is indented under its feature's line.
+/// How far a message line, or a print finding's line, is indented under its feature's line or the
+/// print health line.
 const MESSAGE_INDENT: usize = 4;
+
+/// How far a print finding's suggestion line is indented, as a feature message's action lines are
+/// (section 3.3).
+const SUGGESTION_INDENT: usize = MESSAGE_INDENT + NESTED_INDENT;
 
 /// The report of one rebuild, printed as text or as the JSON document of section 3.3.
 #[derive(Debug, Serialize)]
@@ -347,7 +352,8 @@ impl Report {
     }
 
     /// Prints the human report: the path, one line per feature and message, one line per body,
-    /// and with checks the print health and one line per finding.
+    /// and with checks the print health and one line per finding, followed by its suggestion's
+    /// words when it has any.
     fn write_human(&self, output: &mut Output<'_>) -> io::Result<()> {
         output.line(&self.path)?;
         for feature in &self.features {
@@ -381,12 +387,23 @@ impl Report {
                 for check in &body.report.checks {
                     for finding in &check.findings {
                         output.line(format_args!(
-                            "    {}[{}] {}: {}",
+                            "{:MESSAGE_INDENT$}{}[{}] {}: {}",
+                            "",
                             wire_name(&finding.severity),
                             wire_name(&finding.check),
                             body.body,
                             finding.message
                         ))?;
+                        let words = finding
+                            .suggestion
+                            .as_ref()
+                            .and_then(|suggestion| suggestion.text());
+                        if let Some(words) = words {
+                            output.line(format_args!(
+                                "{:SUGGESTION_INDENT$}suggested: {words}",
+                                ""
+                            ))?;
+                        }
                     }
                 }
             }
@@ -500,6 +517,84 @@ mod tests {
         let ((), stdout, stderr) = capture(|output| report.write_human(output));
         assert!(stderr.is_empty());
         stdout
+    }
+
+    /// The message of the bed fit finding of `checked_report`.
+    const FOOTPRINT_MESSAGE: &str = "The part footprint is 300 x 30 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.";
+
+    /// A report with print checks whose body `b-1` has one bed fit finding with this protocol
+    /// `suggestion` (cli spec section 3.3).
+    fn checked_report(suggestion: serde_json::Value) -> Report {
+        let checks: PrintReport = serde_json::from_value(json!({
+            "profile": "generic-fdm",
+            "orientation": {"kind": "as_modeled"},
+            "summary": {"health": "error", "errors": 1, "warnings": 0, "infos": 0, "label": "1 error"},
+            "bodies": [{
+                "body": "b-1",
+                "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+                "report": {
+                    "profile": "generic-fdm",
+                    "rotation": {"rows": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+                    "health": "error",
+                    "checks": [{
+                        "check": "bed_fit",
+                        "status": "error",
+                        "findings": [{
+                            "check": "bed_fit",
+                            "code": "footprint_too_large",
+                            "severity": "error",
+                            "message": FOOTPRINT_MESSAGE,
+                            "location": {"kind": "bounds", "min": [-150, -15, 0], "max": [150, 15, 40]},
+                            "value": 300.0,
+                            "limit": 256.0,
+                            "triangles": [],
+                            "faces": [],
+                            "suggestion": suggestion
+                        }],
+                        "omitted": 0
+                    }]
+                }
+            }]
+        }))
+        .expect("a valid print report");
+        Report {
+            checks: Some(checks),
+            ..report(Vec::new(), Vec::new())
+        }
+    }
+
+    #[test]
+    fn print_findings_print_their_suggestion_under_them() {
+        let text = human(&checked_report(json!({
+            "kind": "split",
+            "planes": [{"origin": [0, 0, 20], "normal": [1, 0, 0]}]
+        })));
+
+        assert_eq!(
+            text,
+            format!(
+                "box.ptsm\n  print health: 1 error (generic-fdm)\n    error[bed_fit] b-1: {FOOTPRINT_MESSAGE}\n      suggested: Split at x = 0 mm\n"
+            )
+        );
+    }
+
+    #[test]
+    fn a_split_without_planes_prints_no_suggestion_line() {
+        let text = human(&checked_report(json!({"kind": "split", "planes": []})));
+
+        assert_eq!(
+            text,
+            format!(
+                "box.ptsm\n  print health: 1 error (generic-fdm)\n    error[bed_fit] b-1: {FOOTPRINT_MESSAGE}\n"
+            )
+        );
+    }
+
+    #[test]
+    fn print_findings_without_a_suggestion_print_no_suggestion_line() {
+        let text = human(&checked_report(serde_json::Value::Null));
+
+        assert!(!text.contains("suggested:"), "{text}");
     }
 
     #[test]

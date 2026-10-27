@@ -13,6 +13,7 @@ import { originItem } from '../inspector/selection-values'
 import { resolvedTheme } from '../layout/color-scheme'
 import { bedOutline } from '../print/bed'
 import { overhangAnalysis, overhangFields } from '../print/overhang'
+import { focusedSplitOutlines } from '../print/suggestion'
 import { selectRegionCandidates } from '../repair/repair'
 import { regionSelectionItem } from '../sketch/hit'
 import { selectDocumentUnits } from '../state/selectors'
@@ -168,6 +169,7 @@ const SKETCH_POINT_PICK_SIZE = 11
 const ORIGIN_POINT_SIZE = 9
 const PLANE_OUTLINE_WIDTH = 1
 const BED_WIDTH = 1.5
+const SPLIT_PLANE_OUTLINE_WIDTH = 1.5
 /** Grid lines: 1 CSS pixel wide, minor at 35 percent and major at 70 percent opacity (3.12). */
 const GRID_LINE_WIDTH = 1
 const GRID_MINOR_OPACITY = 0.35
@@ -184,6 +186,7 @@ const REPAIR_REGIONS_ID = 'repair:regions'
 const PROBLEM_HALO_PIXELS = 4
 /** How much of `problem` a halo mixes over the viewport background (3.16.2). */
 const PROBLEM_HALO_AMOUNT = 0.3
+/** Datum, origin and split planes: filled at 15 percent and outlined at 60 percent (3.12, 3.17). */
 const PLANE_FILL_OPACITY = 0.15
 const PLANE_OUTLINE_OPACITY = 0.6
 const NON_PART_OPACITY = 0.4
@@ -445,13 +448,33 @@ function sceneDepthRange(
   return depthRange(camera, boundsCenter(sceneBounds), Math.max(boundsDiagonal(sceneBounds) / 2, 1))
 }
 
-/** The four sides of a square as line segments, two points each. */
-function squareOutline(corners: readonly Vector3[]): number[] {
+/** The sides of a polygon as line segments, two points each, the last back to the first. */
+function polygonOutline(corners: readonly Vector3[]): Float32Array {
   const segments: number[] = []
-  for (let i = 0; i < 4; i++) {
-    segments.push(...(corners[i] ?? [0, 0, 0]), ...(corners[(i + 1) % 4] ?? [0, 0, 0]))
+  corners.forEach((corner, i) => {
+    segments.push(...corner, ...(corners[(i + 1) % corners.length] ?? corner))
+  })
+  return new Float32Array(segments)
+}
+
+/** The geometry ids of a split plane's fill and outline, by the plane's index (3.17). */
+function splitPlaneIds(index: number): readonly [string, string] {
+  return [`split:${String(index)}:fill`, `split:${String(index)}:outline`]
+}
+
+/** A convex polygon filled as a fan of triangles from its first corner. */
+function polygonFill(corners: readonly Vector3[]): Geometry {
+  const indices: number[] = []
+  for (let i = 1; i + 1 < corners.length; i++) {
+    indices.push(0, i, i + 1)
   }
-  return segments
+  return {
+    kind: 'fill',
+    positions: new Float32Array(corners.flat()),
+    indices: new Uint32Array(indices),
+    elementIds: new Uint32Array(corners.length),
+    elementCount: 1,
+  }
 }
 
 export function createScene(backend: RenderBackend): Scene {
@@ -474,6 +497,8 @@ export function createScene(backend: RenderBackend): Scene {
   let lastState: AppState | null = null
   /** The side and center of the planes the last frame drew (3.12), whose squares framing shows. */
   let lastPlanes: { readonly side: number; readonly center: Vector3 } | null = null
+  /** How many split planes the last frame drew (3.17), whose geometry goes once they do. */
+  let drawnSplitPlanes = 0
   // Solutions are replaced, never changed, so their bounds and identities can be kept by object.
   const sketchBoxes = new WeakMap<SketchSolution, Bounds | null>()
   const solutionNumbers = new WeakMap<SketchSolution, number>()
@@ -738,6 +763,9 @@ export function createScene(backend: RenderBackend): Scene {
       pending.push(helperPoints)
     }
 
+    // The split planes of the focused print finding, so the cut shows through the body (3.17).
+    pending.push(...splitPlaneDraws(state, theme, scale))
+
     // Print bed (3.12 pass 8).
     const bed = bedDraw(state, theme, scale)
     if (bed !== null) {
@@ -848,14 +876,8 @@ export function createScene(backend: RenderBackend): Scene {
       const signature = JSON.stringify(corners)
       const fillId = `plane:${plane.key}:fill`
       const outlineId = `plane:${plane.key}:outline`
-      uploadGenerated(fillId, signature, () => ({
-        kind: 'fill',
-        positions: new Float32Array(corners.flat()),
-        indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
-        elementIds: new Uint32Array(4),
-        elementCount: 1,
-      }))
-      uploadGenerated(outlineId, signature, () => linesOf(new Float32Array(squareOutline(corners))))
+      uploadGenerated(fillId, signature, () => polygonFill(corners))
+      uploadGenerated(outlineId, signature, () => linesOf(polygonOutline(corners)))
       const label =
         plane.item.kind === 'datum_plane' && document !== null
           ? featureLabel(document.recipe, plane.item.feature ?? '', state.catalog)
@@ -891,6 +913,41 @@ export function createScene(backend: RenderBackend): Scene {
       })
     }
     return { draws, corners: allCorners }
+  }
+
+  /**
+   * The fill and outline draws of the focused finding's split planes, each the polygon where it
+   * cuts the finding's box (3.12 pass 7, 3.17); never picked.
+   */
+  function splitPlaneDraws(state: AppState, theme: ThemeName, scale: number): PendingDraw[] {
+    const outlines = focusedSplitOutlines(state)
+    for (let i = outlines.length; i < drawnSplitPlanes; i++) {
+      for (const id of splitPlaneIds(i)) {
+        remove(id)
+      }
+    }
+    drawnSplitPlanes = outlines.length
+    const color = colorOf(theme, 'problem')
+    const width = SPLIT_PLANE_OUTLINE_WIDTH * scale
+    return outlines.flatMap((corners, i) => {
+      const [fillId, outlineId] = splitPlaneIds(i)
+      const signature = JSON.stringify(corners)
+      uploadGenerated(fillId, signature, () => polygonFill(corners))
+      uploadGenerated(outlineId, signature, () => linesOf(polygonOutline(corners)))
+      return (
+        [
+          [fillId, PLANE_FILL_OPACITY, 0],
+          [outlineId, PLANE_OUTLINE_OPACITY, width],
+        ] as const
+      ).map(
+        ([id, opacity, size]): PendingDraw => ({
+          call: { ...overlayCall(color, 'overlay', opacity, size, false, false), id },
+          elementCount: 1,
+          target: null,
+          states: null,
+        }),
+      )
+    })
   }
 
   /** The print bed outline's draw and its points (3.12 pass 8), or null without a bed. */

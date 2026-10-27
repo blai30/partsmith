@@ -3,8 +3,9 @@ import type { BodyPrint, Finding, PrintReport } from '../generated/protocol'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import type { AppState } from '../state/store'
 import { CUBE_BOUNDS, meshSummary, PEG_BOUNDS } from '../test/fakes/state'
+import { findingAt } from './checks'
 import {
-  findingAt,
+  findingPoint,
   focusedFindingPoint,
   hasPrintableBody,
   healthRows,
@@ -14,13 +15,18 @@ import {
 } from './health'
 import {
   CUBE,
+  HOLLOW_DRAIN,
+  HOLLOW_DRAIN_KEY,
   PEG,
+  SLAB_SPLIT,
+  SLAB_SPLIT_KEY,
   bodyPrint,
   documentState,
   finding,
   printReport,
   printState,
   stateWith,
+  suggestionState,
   type BodyFindings,
   type OmittedCounts,
 } from './fixtures.testing'
@@ -121,6 +127,7 @@ describe('healthRows', () => {
         key: { body: CUBE.id, check: 'overhangs', index: 0 },
         severity: 'warning',
         message: OVERHANG_LARGE.message,
+        suggestion: null,
         bodyName: 'Cube',
       },
     ])
@@ -340,5 +347,75 @@ describe('withOutdatedSuffix', () => {
     expect(withOutdatedSuffix({ ...warnings, state: 'running', stale: true }, 'Checking')).toBe(
       'Checking',
     )
+  })
+})
+
+describe('healthRows suggestions (3.17)', () => {
+  it("gives a row the words of its finding's suggestion, and null without one", () => {
+    const rows = healthRows(stateWith(suggestionState()))
+    expect(rows.map((row) => [row.key, row.suggestion])).toEqual([
+      [SLAB_SPLIT_KEY, 'Split at x = 200 mm and y = 200 mm'],
+      [HOLLOW_DRAIN_KEY, 'Add a drain hole near (-8, -8, 2 mm)'],
+    ])
+    const report = printReport([cube({ overhangs: [OVERHANG_LARGE] })])
+    expect(healthRows(printingState({ report })).map((row) => row.suggestion)).toEqual([null])
+  })
+
+  it('gives a split without planes no words', () => {
+    const empty = finding({
+      check: 'bed_fit',
+      code: 'footprint_too_large',
+      severity: 'error',
+      message: 'Too large.',
+      suggestion: { kind: 'split', planes: [] },
+    })
+    const report = printReport([cube({ bed_fit: [empty] })])
+    expect(healthRows(printingState({ report })).map((row) => row.suggestion)).toEqual([null])
+  })
+
+  it('words suggestions in millimeters in a document in inches too', () => {
+    const state = stateWith(suggestionState())
+    const inches = {
+      ...state,
+      document:
+        state.document === null
+          ? null
+          : { ...state.document, recipe: { ...state.document.recipe, units: 'in' as const } },
+    }
+    expect(healthRows(inches).map((row) => row.suggestion)).toEqual([
+      'Split at x = 200 mm and y = 200 mm',
+      'Add a drain hole near (-8, -8, 2 mm)',
+    ])
+  })
+})
+
+describe('findingPoint (3.17)', () => {
+  it("is a drain hole suggestion's point", () => {
+    expect(findingPoint(HOLLOW_DRAIN)).toEqual([-8, -8, 2])
+  })
+
+  it('is the center of the bounds of a finding with a split suggestion', () => {
+    expect(findingPoint(SLAB_SPLIT)).toEqual([200, 200, 5])
+  })
+
+  it('is the point of a point location without a suggestion', () => {
+    const pointed = finding({
+      check: 'islands',
+      code: 'island',
+      severity: 'warning',
+      message: 'An island.',
+      location: { kind: 'point', at: [1, 2, 3] },
+    })
+    expect(findingPoint(pointed)).toEqual([1, 2, 3])
+  })
+})
+
+describe('focusedFindingPoint with suggestions (3.17)', () => {
+  it("is the focused drain hole's point, not the center of the hollow", () => {
+    expect(focusedFindingPoint(stateWith(suggestionState(HOLLOW_DRAIN_KEY)))).toEqual([-8, -8, 2])
+  })
+
+  it("is the center of a focused split finding's box", () => {
+    expect(focusedFindingPoint(stateWith(suggestionState(SLAB_SPLIT_KEY)))).toEqual([200, 200, 5])
   })
 })

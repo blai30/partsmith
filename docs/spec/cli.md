@@ -169,7 +169,15 @@ One line per feature in timeline order: `  <id> <type> <status>`, followed by on
       ...
 ```
 
-Then one line per body in document order; a body without geometry prints `  <id> "<name>": no geometry`. With `--checks`, then `  print health: <summary label> (<profile id>)` and one line per finding `    <severity>[<check>] <body id>: <message>`, in body order, then check order, then the check's own order.
+Then one line per body in document order; a body without geometry prints `  <id> "<name>": no geometry`. With `--checks`, then `  print health: <summary label> (<profile id>)` and one line per finding `    <severity>[<check>] <body id>: <message>`, in body order, then check order, then the check's own order. A finding with a suggestion is followed by the line `      suggested: <text>`, indented as a feature message's action lines are, with the suggestion's words `Suggestion::text` (print.md section 3.12: millimeters, numbers with at most 3 decimals as in the finding messages); a split without planes has no words and no line. The CLI calls `text` on the suggestion it reaches through the protocol's `PrintReport`, so its dependencies stay `engine`, `model` and `protocol` (ADR 0019). For example:
+
+```text
+  print health: 1 error (generic-fdm)
+    error[bed_fit] b-1: The part footprint is 300 x 30 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.
+      suggested: Split at x = 0 mm
+```
+
+The JSON output carries the suggestion only as the report's geometry (`suggestion` of the finding, item 5), with no text.
 
 5. JSON output:
 
@@ -404,6 +412,26 @@ Tests 55 to 62 write the documents of scenarios of the reference stability corpu
 60. Warnings that keep the user's intent and notices do not fail `validate`. Corpus R66 (recompute.md test 64): `partsmith validate --rebuild r66.ptsm` prints `r66.ptsm: warning[reference_widened] at /features/2/edges/0: ` followed by the message of corpus R66, whose action lines are `  suggested: Keep all 5`, `  suggested: Use only the back top edge of 'Extrude 1' along the line from (80, 50) to (50, 50) in 'Sketch 1'` and `  suggested: Pick an edge again`, in this order, and exits 0; with `--deny-warnings` it exits 1. Corpus R06 (a) with the document of recompute.md test 41 without its second entry: `partsmith validate --rebuild r06.ptsm` prints `r06.ptsm: info[reference_followed] at /features/2/edges/0: ` followed by the notice, then `  suggested: Keep this match` and `  suggested: Pick an edge again`, and no `ok` line, and exits 0, also with `--deny-warnings`; with `--json`, `files[0].ok` is true.
 61. Upstream chains (corpus R54, recompute.md test 46). In `partsmith rebuild --json r54.ptsm`, the message of 'Extrude 2' (f-ext3) is exactly the compact example of 3.3: no `field`, `candidates`, `reason` or `detail`, the action `{"label": "Show 'Datum plane 1'", "kind": "show"}` and `root` `f-dp1`; the text output prints `      suggested: Show 'Datum plane 1'` under its message line.
 62. Reasons in JSON (3.3). In `rebuild --json`, the first message of 'Fillet 1' in corpus R12 at distance 30 (recompute.md test 57) has `reason` `{"kind": "removed", "by": "f-ext2", "how": {"kind": "no_longer_made", "absence": "through"}}`; that of 'Chamfer 1' in corpus R31 (a) (recompute.md test 51) `{"kind": "other_body", "body": "b-2", "by": "f-split1", "by_suppressed": false, "present": true}`; that of 'Fillet 1' in corpus R41 (recompute.md test 61) `{"kind": "copy_gone", "feature": "f-lp1", "instance": {"first": 2, "second": 0}}`; and the notice of corpus R06 (a) (test 60) `{"kind": "followed", "by": "f-sk1"}`. An ambiguous loss (corpus R63 (a), recompute.md test 67) has no `reason`.
+
+**Print suggestions**
+
+63. Suggestion lines (3.3, print.md section 3.12). (a) `box.ptsm` with `f-box1`'s `size` set to `["300 mm", "30 mm", "height"]` and parameter `height` set to `300 mm`: `partsmith rebuild --checks box.ptsm` exits 0 and ends with exactly these lines:
+
+```text
+  print health: 2 errors (generic-fdm)
+    error[bed_fit] b-1: The part footprint is 300 x 30 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.
+      suggested: Split at x = 0 mm
+    error[bed_fit] b-1: The part is 300 mm tall, taller than the 256 mm build height. Split the part or lay it on its side.
+      suggested: Split at z = 150 mm
+```
+
+(b) `box.ptsm` with the feature `{"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2 mm"}` added after `f-box1` (a closed hollow x in [-8, 8], y in [-13, 13], z in [2, 38]): `partsmith rebuild --checks --printer generic-resin box.ptsm` exits 0; its line `    warning[trapped_volumes] b-1: An enclosed hollow of 14976 mm³ will trap liquid resin. Add a drain hole near its lowest point.` is followed by a line matching `^      suggested: Add a drain hole near \((-8|8), (-13|13), 2 mm\)$`, and its `warning[overhangs]` line (the hollow's ceiling) is followed by no `suggested:` line. With `--json`, the `trapped_volumes` finding of `b-1` has a `suggestion` with `kind` `drain_hole` and `at` within 1e-9 of [X, Y, 2], with X and Y the numbers of that text line, and the words `Add a drain hole near (` appear nowhere in the JSON output.
+
+(c) A tilted plane. `box.ptsm` with `f-box1`'s `size` set to `["300 mm", "100 mm", "height"]` and parameter `height` set to `10 mm`: `partsmith rebuild --checks --rotate z:30 box.ptsm` exits 0, and the line after its `    error[bed_fit] b-1: ` line is exactly `      suggested: Split at the plane through (0, 0, 5 mm) with normal (0.866, -0.5, 0)`.
+
+(d) Several planes. `box.ptsm` with `f-box1`'s `size` set to `["600 mm", "300 mm", "height"]` and parameter `height` set to `10 mm`: `partsmith rebuild --checks box.ptsm` exits 0, and the line after `    error[bed_fit] b-1: The part footprint is 600 x 300 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.` is exactly `      suggested: Split at x = -100 mm, x = 100 mm and y = 0 mm`.
+
+The other words, among them the shared cases of print.md 3.12, are print.md test 114's to check, since the CLI prints `Suggestion::text` as it is.
 
 ## 7. Open issues
 

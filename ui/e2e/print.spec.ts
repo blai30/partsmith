@@ -447,6 +447,51 @@ test.describe('Print and export', () => {
   })
 })
 
+test.describe('Print suggestions', () => {
+  test('E-158 a split suggestion is worded on its row, drawn through the part and framed with its box', async ({
+    page,
+  }) => {
+    await openApp(page)
+    await dropFile(page, 'oversize.ptsm')
+    await chooseContext(page, 'Print')
+    await expectCurrentReport(page)
+    await openPrintCheck(page)
+    const row = healthItems(page, 'bed_fit').and(page.locator('[data-severity=error]'))
+    await expect(row.getByTestId('health-suggestion')).toHaveText('Split at x = 0 mm and y = 0 mm')
+    await expect(viewport(page)).toHaveAttribute('data-split-planes', '0')
+    // Moves the view away from the box's center, so framing it is seen to move the view back.
+    const { cx, cy, H } = await canvas(page)
+    await dragOnCanvas(page, { x: cx, y: cy }, { x: cx + 0.3 * H, y: cy }, ['middle'])
+    await expectTargetChanged(page, '0,0,5')
+    await row.click()
+    await expect(page.getByTestId('finding-marker')).toBeVisible()
+    await expect(viewport(page)).toHaveAttribute('data-split-planes', '2')
+    await expect(viewport(page)).toHaveAttribute('data-camera-target', '0,0,5')
+    await page.getByTestId('health-list').getByRole('button', { name: 'Close print check' }).click()
+    await expect(viewport(page)).toHaveAttribute('data-split-planes', '0')
+    await expect(page.getByTestId('finding-marker')).toHaveCount(0)
+  })
+
+  test('E-159 a drain hole suggestion is worded on its row and marked at its point', async ({
+    page,
+  }) => {
+    await openApp(page)
+    await dropFile(page, 'hollow-resin.ptsm')
+    await chooseContext(page, 'Print')
+    await expectCurrentReport(page)
+    await openPrintCheck(page)
+    const row = healthItems(page, 'trapped_volumes').and(page.locator('[data-severity=warning]'))
+    const suggestion = row.getByTestId('health-suggestion')
+    const words = /^Add a drain hole near \((-8|8), (-8|8), 2 mm\)$/
+    await expect(suggestion).toHaveText(words)
+    const [, x = '', y = ''] = words.exec((await suggestion.textContent()) ?? '') ?? []
+    await row.click()
+    await expect(page.getByTestId('finding-marker')).toBeVisible()
+    await expect(viewport(page)).toHaveAttribute('data-camera-target', `${x},${y},2`)
+    await expect(viewport(page)).toHaveAttribute('data-split-planes', '0')
+  })
+})
+
 test.describe('Tooltips after Esc', () => {
   test('E-132 Esc gives focus back without a tooltip', async ({ page }) => {
     await openApp(page)

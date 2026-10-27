@@ -7,6 +7,7 @@ import type { ExportedFile } from '../core/api'
 import type {
   Body,
   BodyPrint,
+  BoundingBox,
   CheckKind,
   CheckResult,
   Document,
@@ -16,11 +17,14 @@ import type {
   PrinterProfile,
   PrintReport,
   Severity,
+  Suggestion,
 } from '../generated/protocol'
 import {
   createAppStore,
+  INITIAL_STATE,
   type AppState,
   type DocumentState,
+  type FindingKey,
   type MeshSummary,
   type PrintState,
 } from '../state/store'
@@ -128,6 +132,8 @@ export type FindingOptions = {
   /** Default: the point (0, 0, 0). */
   readonly location?: Location
   readonly limit?: number
+  /** Default: none. */
+  readonly suggestion?: Suggestion
 }
 
 export function finding(options: FindingOptions): Finding {
@@ -140,6 +146,7 @@ export function finding(options: FindingOptions): Finding {
     ...(options.limit === undefined ? {} : { value: options.limit + 0.2, limit: options.limit }),
     triangles: [],
     faces: [],
+    ...(options.suggestion === undefined ? {} : { suggestion: options.suggestion }),
   }
 }
 
@@ -222,6 +229,80 @@ export function printReport(bodies: readonly BodyPrint[], profile = 'generic-fdm
       label: health === 'ok' ? 'Ready to print' : `${String(counts.error)} errors`,
     },
     bodies: [...bodies],
+  }
+}
+
+// Suggestions (ui.md 3.17, U-236 and U-237; print.md 3.12).
+
+/** A 400 by 400 by 10 mm slab, larger than the generic FDM bed. */
+export const SLAB: Body = { id: 'b-slab', name: 'Slab' }
+export const SLAB_BOUNDS: BoundingBox = { min: [0, 0, 0], max: [400, 400, 10] }
+/** A 20 mm cube around a closed 16 mm hollow. */
+export const HOLLOW: Body = { id: 'b-hollow', name: 'Hollow' }
+export const HOLLOW_BOUNDS: BoundingBox = { min: [-10, -10, 0], max: [10, 10, 20] }
+
+/** The slab's footprint finding: its box as location, split along x = 200 and y = 200. */
+export const SLAB_SPLIT: Finding = finding({
+  check: 'bed_fit',
+  code: 'footprint_too_large',
+  severity: 'error',
+  message:
+    'The part footprint is 400 x 400 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.',
+  location: { kind: 'bounds', min: [0, 0, 0], max: [400, 400, 10] },
+  suggestion: {
+    kind: 'split',
+    planes: [
+      { origin: [200, 200, 5], normal: [1, 0, 0] },
+      { origin: [200, 200, 5], normal: [0, 1, 0] },
+    ],
+  },
+})
+
+/** The hollow's trapped volume finding: the hollow's box as location, a drain hole at a floor corner. */
+export const HOLLOW_DRAIN: Finding = finding({
+  check: 'trapped_volumes',
+  code: 'enclosed_hollow',
+  severity: 'warning',
+  message:
+    'An enclosed hollow of 4096 mm³ will trap liquid resin. Add a drain hole near its lowest point.',
+  location: { kind: 'bounds', min: [-8, -8, 2], max: [8, 8, 18] },
+  suggestion: { kind: 'drain_hole', at: [-8, -8, 2] },
+})
+
+export const SLAB_SPLIT_KEY: FindingKey = { body: SLAB.id, check: 'bed_fit', index: 0 }
+export const HOLLOW_DRAIN_KEY: FindingKey = { body: HOLLOW.id, check: 'trapped_volumes', index: 0 }
+
+/** A report with the slab's split and the hollow's drain hole, for revision 3 of `suggestionDocument`. */
+export function suggestionReport(slabSplit: Finding = SLAB_SPLIT): PrintReport {
+  return printReport([
+    bodyPrint({ body: SLAB.id, meshId: 6, findings: { bed_fit: [slabSplit] } }),
+    bodyPrint({ body: HOLLOW.id, meshId: 7, findings: { trapped_volumes: [HOLLOW_DRAIN] } }),
+  ])
+}
+
+/** The document of `suggestionReport` at revision 3: the Slab and Hollow bodies with their model meshes. */
+export function suggestionDocument(): DocumentState {
+  return documentState({
+    revision: 3,
+    bodies: [SLAB, HOLLOW],
+    meshes: { [SLAB.id]: meshSummary(6, SLAB_BOUNDS), [HOLLOW.id]: meshSummary(7, HOLLOW_BOUNDS) },
+  })
+}
+
+/**
+ * Print context with `suggestionDocument`, its current `suggestionReport`, the print check panel
+ * open and `focusedFinding` focused (none by default), then `overrides`.
+ */
+export function suggestionState(
+  focusedFinding: FindingKey | null = null,
+  overrides: Partial<AppState> = {},
+): Partial<AppState> {
+  return {
+    context: 'print',
+    document: suggestionDocument(),
+    print: printState({ report: suggestionReport(), reportRevision: 3, focusedFinding }),
+    panels: { ...INITIAL_STATE.panels, side: 'health' },
+    ...overrides,
   }
 }
 

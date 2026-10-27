@@ -12,8 +12,8 @@ use serde::Serialize;
 use crate::output::Output;
 
 /// How many spaces more than its message line the action and candidate lines are indented
-/// (cli.md section 2.2).
-const NESTED_INDENT: usize = 2;
+/// (cli.md section 2.2), and the suggestion line of a print finding (section 3.3).
+pub const NESTED_INDENT: usize = 2;
 
 /// What a feature message adds to its severity, code and text in JSON reports, in the order of
 /// cli.md section 3.3, each member omitted when absent or empty. Text reports print its actions and

@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { BoundingBox, Health } from '../../generated/protocol'
+import type { BoundingBox, Health, Orientation } from '../../generated/protocol'
 import {
   CUBE,
   DOCUMENT_HANDLE,
+  HOLLOW_DRAIN_KEY,
+  SLAB_SPLIT,
+  SLAB_SPLIT_KEY,
   bodyPrint,
   createPrintApp,
   documentState,
@@ -10,8 +13,12 @@ import {
   printReport,
   printState,
   setRevision,
+  suggestionReport,
+  suggestionState,
   type PrintApp,
 } from '../../print/fixtures.testing'
+import { focusedFindingPoint } from '../../print/health'
+import { focusedSplitOutlines } from '../../print/suggestion'
 import { DEFAULT_SETTINGS } from '../../settings/settings'
 import { selectHealthBadge } from '../../state/selectors'
 import {
@@ -22,6 +29,7 @@ import {
 } from '../../state/store'
 import { coreErrorFor } from '../../test/fakes/core-api'
 import { deferred } from '../../test/fakes/deferred'
+import { CUBE_TOP_FACE } from '../../test/fakes/documents'
 import { settle } from '../../test/fakes/settle'
 import { meshSummary } from '../../test/fakes/state'
 import {
@@ -832,5 +840,201 @@ describe('analysis when a transaction closes (installPrintAnalysis)', () => {
     await vi.advanceTimersByTimeAsync(1000)
     await settle()
     expect(analyses(harness)).toEqual([])
+  })
+})
+
+// A matcher for a box within 1e-9 of `bounds`.
+function boxCloseTo(bounds: BoundingBox) {
+  return {
+    min: bounds.min.map((value) => expect.closeTo(value, 9)),
+    max: bounds.max.map((value) => expect.closeTo(value, 9)),
+  }
+}
+
+/** Expects every corner of `outline` to have `value` as its coordinate on `axis`. */
+function expectInPlane(
+  outline: readonly (readonly number[])[] | undefined,
+  axis: number,
+  value: number,
+) {
+  expect(outline).toHaveLength(4)
+  for (const corner of outline ?? []) {
+    expect(corner[axis]).toBeCloseTo(value, 9)
+  }
+}
+
+describe('U-236 focusing a suggestion', () => {
+  it('U-236 frames the box of a split finding once, with margin 0.3', () => {
+    const harness = createPrintApp(suggestionState())
+    focusFinding(harness.app, SLAB_SPLIT_KEY)
+    expect(harness.viewport.zoomToBounds).toHaveBeenCalledTimes(1)
+    expect(harness.viewport.zoomToBounds).toHaveBeenCalledWith(
+      boxCloseTo({ min: [0, 0, 0], max: [400, 400, 10] }),
+      0.3,
+    )
+  })
+
+  it("U-236 marks a split finding at its box's center and outlines each plane in the box", () => {
+    const harness = createPrintApp(suggestionState())
+    focusFinding(harness.app, SLAB_SPLIT_KEY)
+    const state = harness.app.store.getState()
+    expect(focusedFindingPoint(state)).toEqual([200, 200, 5])
+    const outlines = focusedSplitOutlines(state)
+    expect(outlines).toHaveLength(2)
+    expectInPlane(outlines[0], 0, 200)
+    expectInPlane(outlines[1], 1, 200)
+  })
+
+  it('U-236 frames the cube around a split without planes, and outlines nothing', () => {
+    const empty = { ...SLAB_SPLIT, suggestion: { kind: 'split' as const, planes: [] } }
+    const harness = createPrintApp(
+      suggestionState(null, {
+        print: printState({ report: suggestionReport(empty), reportRevision: 3 }),
+      }),
+    )
+    focusFinding(harness.app, SLAB_SPLIT_KEY)
+    const side = 0.25 * Math.hypot(400, 400, 10)
+    expect(harness.viewport.zoomToBounds).toHaveBeenCalledWith(cube([200, 200, 5], side), 0.3)
+    expect(focusedSplitOutlines(harness.app.store.getState())).toEqual([])
+  })
+
+  it("U-236 frames a 20 mm cube around a drain hole and marks the hole's point", () => {
+    const harness = createPrintApp(suggestionState())
+    focusFinding(harness.app, HOLLOW_DRAIN_KEY)
+    expect(harness.viewport.zoomToBounds).toHaveBeenCalledTimes(1)
+    expect(harness.viewport.zoomToBounds).toHaveBeenCalledWith(cube([-8, -8, 2], 20), 0.3)
+    const state = harness.app.store.getState()
+    expect(focusedFindingPoint(state)).toEqual([-8, -8, 2])
+    expect(focusedSplitOutlines(state)).toEqual([])
+  })
+
+  it('outlines nothing without a focused finding', () => {
+    const harness = createPrintApp(suggestionState())
+    expect(focusedSplitOutlines(harness.app.store.getState())).toEqual([])
+  })
+
+  it('returns the same outlines while the report and the focused finding stay', () => {
+    const harness = createPrintApp(suggestionState(SLAB_SPLIT_KEY))
+    const state = harness.app.store.getState()
+    const outlines = focusedSplitOutlines(state)
+    expect(focusedSplitOutlines({ ...state, selection: [] })).toBe(outlines)
+  })
+})
+
+/** The number of split planes `focusedSplitOutlines` holds and the marker's point. */
+function shownSuggestion(harness: PrintApp): {
+  readonly planes: number
+  readonly point: readonly number[] | null
+} {
+  const state = harness.app.store.getState()
+  return { planes: focusedSplitOutlines(state).length, point: focusedFindingPoint(state) }
+}
+
+function setPrintOrientation(harness: PrintApp, orientation: Orientation | null): void {
+  harness.app.store.setState((state) => ({ print: { ...state.print, orientation } }))
+}
+
+const SHOWN = { planes: 2, point: [200, 200, 5] }
+const GONE = { planes: 0, point: null }
+
+describe('U-236 the split planes and the marker go (installPrintAnalysis)', () => {
+  const TOP_DOWN: Orientation = {
+    kind: 'face_down',
+    body: SLAB_SPLIT_KEY.body,
+    face: CUBE_TOP_FACE.reference,
+  }
+  const stops: (() => void)[] = []
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    for (const stop of stops.splice(0)) {
+      stop()
+    }
+    vi.useRealTimers()
+  })
+
+  // Print context with the slab's split finding focused and the analysis installed.
+  function focusedApp(orientation: Orientation | null = null): PrintApp {
+    const harness = createPrintApp(
+      suggestionState(null, {
+        print: printState({
+          report: suggestionReport(),
+          reportRevision: 3,
+          orientation,
+          reportOrientation: orientation,
+        }),
+      }),
+    )
+    stops.push(installPrintAnalysis(harness.app))
+    focusFinding(harness.app, SLAB_SPLIT_KEY)
+    // Every test below starts with the planes and the marker shown.
+    expect(shownSuggestion(harness)).toEqual(SHOWN)
+    return harness
+  }
+
+  it('shows the planes and the marker of the focused split', () => {
+    expect(shownSuggestion(focusedApp())).toEqual(SHOWN)
+  })
+
+  it('U-236 they go when the print check panel closes', () => {
+    const harness = focusedApp()
+    harness.app.store.setState((state) => ({ panels: { ...state.panels, side: null } }))
+    expect(shownSuggestion(harness)).toEqual(GONE)
+  })
+
+  it('U-236 they go with a new document revision', () => {
+    const harness = focusedApp()
+    setRevision(harness.app, 4)
+    expect(shownSuggestion(harness)).toEqual(GONE)
+  })
+
+  it('U-236 they go when a face is laid on the bed', () => {
+    const harness = focusedApp()
+    setPrintOrientation(harness, TOP_DOWN)
+    expect(shownSuggestion(harness)).toEqual(GONE)
+  })
+
+  it('U-236 they go when the part prints as modeled again', () => {
+    const harness = focusedApp(TOP_DOWN)
+    setPrintOrientation(harness, null)
+    expect(shownSuggestion(harness)).toEqual(GONE)
+  })
+
+  it("U-236 they go when the finding's check is hidden", () => {
+    const harness = focusedApp()
+    setCheckHidden(harness.app, 'bed_fit', true)
+    expect(shownSuggestion(harness)).toEqual(GONE)
+  })
+
+  it('U-236 they go when a new report replaces the one they were taken from', () => {
+    const harness = focusedApp()
+    setRevision(harness.app, 4)
+    // The stale report's rows stay listed, so its finding can be focused again.
+    focusFinding(harness.app, SLAB_SPLIT_KEY)
+    expect(shownSuggestion(harness)).toEqual(SHOWN)
+    // In the report of revision 4, the same key names a finding split along z only.
+    const tooTall = {
+      ...SLAB_SPLIT,
+      suggestion: { kind: 'split' as const, planes: [{ origin: [200, 200, 5], normal: [0, 0, 1] }] },
+    }
+    harness.app.store.setState((state) => ({
+      print: { ...state.print, report: suggestionReport(tooTall), reportRevision: 4 },
+    }))
+    expect(shownSuggestion(harness)).toEqual(GONE)
+  })
+
+  it('they stay when another check is hidden', () => {
+    const harness = focusedApp()
+    setCheckHidden(harness.app, 'overhangs', true)
+    expect(shownSuggestion(harness)).toEqual(SHOWN)
+  })
+
+  it('they stay when the same orientation is set again', () => {
+    const harness = focusedApp(TOP_DOWN)
+    setPrintOrientation(harness, { ...TOP_DOWN })
+    expect(shownSuggestion(harness)).toEqual(SHOWN)
   })
 })

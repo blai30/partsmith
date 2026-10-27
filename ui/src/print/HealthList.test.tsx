@@ -1,9 +1,18 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { FindingKey } from '../state/store'
+import type { Finding, Suggestion } from '../generated/protocol'
+import type { AppState, FindingKey } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
-import type { HealthRow } from './health'
+import {
+  bodyPrint,
+  documentState,
+  finding,
+  printReport,
+  printState,
+  stateWith,
+} from './fixtures.testing'
+import { healthRows, type HealthRow } from './health'
 import { HealthList, type HealthListProps } from './HealthList'
 
 const PROFILE = 'Generic FDM 0.4 mm'
@@ -13,18 +22,21 @@ const ROWS: readonly HealthRow[] = [
     key: { body: 'b-slab', check: 'bed_fit', index: 0 },
     severity: 'error',
     message: 'The part is 400 × 400 mm, but the bed is 256 × 256 mm. Split it or scale it down.',
+    suggestion: null,
     bodyName: 'Slab',
   },
   {
     key: { body: 'b-mushroom', check: 'overhangs', index: 1 },
     severity: 'warning',
     message: 'Overhang steeper than 45 degrees over 500 mm². Add supports.',
+    suggestion: null,
     bodyName: 'Mushroom',
   },
   {
     key: { body: 'b-mushroom', check: 'trapped_volumes', index: 0 },
     severity: 'info',
     message: 'The body encloses a hollow of 120 mm³. Slicers fill it with infill.',
+    suggestion: null,
     bodyName: 'Mushroom',
   },
 ]
@@ -250,5 +262,132 @@ describe('HealthList and Lay on face (3.17)', () => {
   it('has no orientation line while printing as modeled', () => {
     const { list } = renderList({ orientationBody: null, onPrintAsModeled: vi.fn<() => void>() })
     expect(within(list).queryByRole('button', { name: 'Print as modeled' })).toBeNull()
+  })
+})
+
+// The report of U-235: Slab with a split, Mushroom without a suggestion, Peg with a split without planes.
+const SUGGESTION_SLAB = { id: 'b-slab', name: 'Slab' }
+const SUGGESTION_MUSHROOM = { id: 'b-mushroom', name: 'Mushroom' }
+const SUGGESTION_PEG = { id: 'b-peg', name: 'Peg' }
+const SLAB_MESSAGE =
+  'The part footprint is 400 x 400 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.'
+const MUSHROOM_MESSAGE =
+  'Overhang steeper than 45 degrees over 500 mm². Add supports, add a chamfer, or reorient the part.'
+const PEG_MESSAGE =
+  'The part footprint is 300 x 10 mm, larger than the 256 x 256 mm bed. Split the part or scale it down.'
+const SLAB_WORDS = 'Split at x = 0 mm and y = 0 mm'
+
+function bedFitWith(message: string, suggestion: Suggestion): Finding {
+  return finding({
+    check: 'bed_fit',
+    code: 'footprint_too_large',
+    severity: 'error',
+    message,
+    location: { kind: 'bounds', min: [-200, -200, 0], max: [200, 200, 10] },
+    suggestion,
+  })
+}
+
+const SUGGESTION_REPORT = printReport([
+  bodyPrint({
+    body: SUGGESTION_SLAB.id,
+    meshId: 1,
+    findings: {
+      bed_fit: [
+        bedFitWith(SLAB_MESSAGE, {
+          kind: 'split',
+          planes: [
+            { origin: [0, 0, 5], normal: [1, 0, 0] },
+            { origin: [0, 0, 5], normal: [0, 1, 0] },
+          ],
+        }),
+      ],
+    },
+  }),
+  bodyPrint({
+    body: SUGGESTION_MUSHROOM.id,
+    meshId: 2,
+    findings: {
+      overhangs: [
+        finding({
+          check: 'overhangs',
+          code: 'overhang',
+          severity: 'warning',
+          message: MUSHROOM_MESSAGE,
+        }),
+      ],
+    },
+  }),
+  bodyPrint({
+    body: SUGGESTION_PEG.id,
+    meshId: 3,
+    findings: { bed_fit: [bedFitWith(PEG_MESSAGE, { kind: 'split', planes: [] })] },
+  }),
+])
+
+/** Print context with the U-235 report and the document's units set to `units`. */
+function suggestionReportState(units: 'mm' | 'in' = 'mm'): AppState {
+  const state = stateWith({
+    context: 'print',
+    document: documentState({
+      revision: 3,
+      bodies: [SUGGESTION_SLAB, SUGGESTION_MUSHROOM, SUGGESTION_PEG],
+    }),
+    print: printState({ report: SUGGESTION_REPORT, reportRevision: 3 }),
+  })
+  return state.document === null
+    ? state
+    : { ...state, document: { ...state.document, recipe: { ...state.document.recipe, units } } }
+}
+
+/** The rendered row whose text holds `message`. */
+function rowWith(message: string): HTMLElement {
+  const found = items().find((candidate) => candidate.textContent?.includes(message) === true)
+  if (found === undefined) {
+    throw new Error(`There is no row with ${message}`)
+  }
+  return found
+}
+
+describe('U-235 rows with suggestions', () => {
+  it('U-235 gives the rows the words of their suggestions, null without words', () => {
+    const rows = healthRows(suggestionReportState())
+    expect(rows.map((listed) => [listed.bodyName, listed.suggestion])).toEqual([
+      ['Slab', SLAB_WORDS],
+      ['Peg', null],
+      ['Mushroom', null],
+    ])
+  })
+
+  it('U-235 shows the words after the message and before the body name', () => {
+    renderList({ rows: healthRows(suggestionReportState()) })
+    const slab = rowWith(SLAB_MESSAGE)
+    expect(within(slab).getByTestId('health-suggestion')).toHaveTextContent(SLAB_WORDS)
+    const text = slab.textContent ?? ''
+    expect(text.indexOf(SLAB_MESSAGE)).toBeGreaterThanOrEqual(0)
+    expect(text.indexOf(SLAB_MESSAGE)).toBeLessThan(text.indexOf(SLAB_WORDS))
+    expect(text.indexOf(SLAB_WORDS)).toBeLessThan(text.lastIndexOf('Slab'))
+  })
+
+  it('U-235 names a row with its suggestion between the message and the body name', () => {
+    renderList({ rows: healthRows(suggestionReportState()) })
+    expect(rowWith(SLAB_MESSAGE)).toHaveAccessibleName(`Error: ${SLAB_MESSAGE} ${SLAB_WORDS}. Slab`)
+  })
+
+  it('U-235 gives rows without a suggestion, or with a split without planes, no suggestion line', () => {
+    renderList({ rows: healthRows(suggestionReportState()) })
+    const mushroom = rowWith(MUSHROOM_MESSAGE)
+    expect(within(mushroom).queryByTestId('health-suggestion')).toBeNull()
+    expect(mushroom).toHaveAccessibleName(`Warning: ${MUSHROOM_MESSAGE} Mushroom`)
+    const peg = rowWith(PEG_MESSAGE)
+    expect(within(peg).queryByTestId('health-suggestion')).toBeNull()
+    expect(peg).toHaveAccessibleName(`Error: ${PEG_MESSAGE} Peg`)
+  })
+
+  it('U-235 keeps the words in millimeters in a document in inches', () => {
+    renderList({ rows: healthRows(suggestionReportState('in')) })
+    expect(within(rowWith(SLAB_MESSAGE)).getByTestId('health-suggestion')).toHaveTextContent(
+      SLAB_WORDS,
+    )
   })
 })

@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cancelCommand, editFeature } from '../app/actions/command'
+import { focusFinding, installPrintAnalysis } from '../app/actions/print'
 import type { App } from '../app/createApp'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { cubeDocumentState, readyState } from '../layout/fixtures.testing'
@@ -16,6 +17,7 @@ import {
 import { requestUi } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
+import { SLAB_SPLIT_KEY, suggestionReport } from '../print/fixtures.testing'
 import { planePickingSession, sketchSession } from '../sketch/fixtures.testing'
 import { INITIAL_STATE, type AppState } from '../state/store'
 import type { FakeBackend } from '../test/fakes/backend'
@@ -412,6 +414,32 @@ describe('overlays', () => {
     })
     flush()
     expect(screen.getByTestId('finding-marker')).not.toHaveAttribute('display')
+  })
+
+  it('U-236 mirrors the number of drawn split planes in data-split-planes (3.17)', () => {
+    const { app, viewport } = setUp({
+      context: 'print',
+      print: {
+        ...INITIAL_STATE.print,
+        report: suggestionReport(),
+        reportRevision: cubeDocumentState().revision,
+      },
+      panels: { ...INITIAL_STATE.panels, side: 'health' },
+    })
+    const stop = installPrintAnalysis(app)
+    flush()
+    expect(viewport).toHaveAttribute('data-split-planes', '0')
+    act(() => {
+      focusFinding(app, SLAB_SPLIT_KEY)
+    })
+    flush()
+    expect(viewport).toHaveAttribute('data-split-planes', '2')
+    act(() => {
+      app.store.setState((state) => ({ panels: { ...state.panels, side: null } }))
+    })
+    flush()
+    expect(viewport).toHaveAttribute('data-split-planes', '0')
+    stop()
   })
 
   it('labels the origin planes while a plane is picked, at the positive corner of each square (3.16.1)', () => {

@@ -11,12 +11,12 @@ Spec: `docs/spec/print.md` (the definition of done). Acceptance tests in `tests/
 - `PrinterValues` (`new`): the `EvaluationContext` for `printer.fit.*`, `printer.nozzle` and `printer.layer_height`.
 - `CheckThresholds`, derived by `PrinterProfile::thresholds`.
 - Analysis: `Rotation` (`identity`, `new`, `about_axis`, `face_down`, `rows`, `to_transform`), `CheckKind` (`ALL`), `AnalysisOptions` (default: identity, every check), `analyze` returning `Analysis { report, overlays }`.
-- Results: `BodyReport`, `CheckResult`, `CheckStatus`, `Health`, `Finding`, `FindingCode`, `Severity`, `Location`, `TriangleRange`, `Plane`, `Suggestion`; `Overlay` (`per_vertex`), `OverlayInfo`, `OverlayQuantity`, `Worse`; `HealthSummary` and `summarize`.
+- Results: `BodyReport`, `CheckResult`, `CheckStatus`, `Health`, `Finding`, `FindingCode`, `Severity`, `Location`, `TriangleRange`, `Plane`, `Suggestion` (`text`, the words of spec 3.12 in millimeters, which the CLI prints); `Overlay` (`per_vertex`), `OverlayInfo`, `OverlayQuantity`, `Worse`; `HealthSummary` and `summarize`.
 - Errors: `ProfileError` with `ProfileField`, and `AnalysisError`.
 
 ## Internals
 
-- `src/profile.rs` profiles, input conversion and validation; `thresholds.rs`; `values.rs`; `rotation.rs`; `report.rs` result types and the per-check cap; `overlay.rs`; `health.rs`; `error.rs`; `format.rs` the message number formats (`len`, `num1`, `deg`, `pct` of spec 3.9.0).
+- `src/profile.rs` profiles, input conversion and validation; `thresholds.rs`; `values.rs`; `rotation.rs`; `report.rs` result types, the per-check cap and the suggestion words; `overlay.rs`; `health.rs`; `error.rs`; `format.rs` the message number formats (`len`, `num1`, `deg`, `pct` of spec 3.9.0).
 - `src/analysis.rs` runs the pipeline of spec 3.7: `body.rs` welds the mesh, drops unused vertices (keeping vertex order, so "smallest welded index" ties are unchanged), rotates and lowers it onto the bed, and provides the footprint, the lowest vertex (smallest index on ties), regions (ordered by area, with areas within the corpus tolerance of delivery.md 2.8 of the one before them grouped and ordered by smallest triangle, so mirror images keep one order on every platform; the `MIN_REPORTED_AREA` rule; the region finding of overhangs and thin walls), affected triangles and model-frame locations. One module per check in `src/checks/`.
 - `geometry.rs`: monotone chain hull, hull area, minimum width by rotating calipers, a cheap lower bound on that width from four sampled directions (`minimum_width_bound`, which lets small features skip the hull of loops that are clearly wide enough without changing any result), smallest enclosing circle by Welzl on the hull with a fixed-seed shuffle. `disjoint_sets.rs`: union-find.
 - Bounds the spec leaves open, so no input can panic or exhaust memory or time. They are not in print.md yet and wait for a spec amendment with human review:

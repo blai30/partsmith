@@ -172,6 +172,17 @@ const FIXTURES: readonly FixtureCheck[] = [
       ).not.toHaveCount(0)
     },
   },
+  {
+    file: 'hollow-resin.ptsm',
+    check: async (page) => {
+      await chooseContext(page, 'Print')
+      await expectCurrentReport(page)
+      await openPrintCheck(page)
+      await expect(
+        healthItems(page, 'trapped_volumes').and(page.locator('[data-severity=warning]')),
+      ).not.toHaveCount(0)
+    },
+  },
 ]
 
 test.describe('E-108 fixtures', () => {

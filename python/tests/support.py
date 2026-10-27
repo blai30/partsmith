@@ -11,6 +11,7 @@ import pytest
 
 import partsmith._core
 from partsmith import Document, EngineError, Part, PartsmithWarning, Placement, Ref, run_code
+from partsmith.reports import Finding, PrintReport, print_report
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 """The repository root (python/tests/support.py is two levels below it)."""
@@ -341,3 +342,84 @@ def has_temporary_file(folder: Path) -> bool:
     """Whether `folder` holds a temporary file, a file whose name starts with `.` (python-api.md section 6, tests 97
     to 103)."""
     return any(name.startswith(".") for name in os.listdir(folder))
+
+
+Point3 = tuple[float, float, float]
+"""A point or direction in model coordinates."""
+
+
+def split_suggestion(*planes: tuple[Point3, Point3]) -> dict:
+    """A protocol split suggestion along these (origin, normal) planes, in order (print.md section 2.6)."""
+    return {
+        "kind": "split",
+        "planes": [{"origin": list(origin), "normal": list(normal)} for origin, normal in planes],
+    }
+
+
+def drain_hole_suggestion(at: Point3) -> dict:
+    """A protocol drain hole suggestion at this point (print.md section 2.6)."""
+    return {"kind": "drain_hole", "at": list(at)}
+
+
+def print_health_report(suggestion: dict | None) -> dict:
+    """A protocol print health report with one body `b-1` and one finding, a bed fit error or, for a drain hole, a
+    trapped volume warning, which has `suggestion` when given (python-api.md section 6, test 106)."""
+    drain_hole = suggestion is not None and suggestion["kind"] == "drain_hole"
+    check = "trapped_volumes" if drain_hole else "bed_fit"
+    severity = "warning" if drain_hole else "error"
+    finding = {
+        "check": check,
+        "code": "enclosed_hollow" if drain_hole else "footprint_too_large",
+        "severity": severity,
+        "message": "A message.",
+        "location": {"kind": "bounds", "min": [0.0, 0.0, 0.0], "max": [10.0, 10.0, 10.0]},
+        "triangles": [],
+        "faces": [],
+    }
+    if suggestion is not None:
+        finding["suggestion"] = suggestion
+    return {
+        "profile": "generic-fdm",
+        "orientation": {"kind": "as_modeled"},
+        "summary": {
+            "health": severity,
+            "errors": 0 if drain_hole else 1,
+            "warnings": 1 if drain_hole else 0,
+            "infos": 0,
+            "label": f"1 {severity}",
+        },
+        "bodies": [
+            {
+                "body": "b-1",
+                "transform": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+                "report": {
+                    "profile": "generic-fdm",
+                    "rotation": {"rows": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]},
+                    "health": severity,
+                    "checks": [{"check": check, "status": severity, "findings": [finding], "omitted": 0}],
+                },
+            }
+        ],
+    }
+
+
+class StubPart:
+    """Stands for the part of every body id (`part_of` of `print_report`, python-api.md section 6, test 106)."""
+
+
+STUB_PART = StubPart()
+"""The part `stub_print_report` gives every finding."""
+
+
+def stub_print_report(suggestion: dict | None) -> PrintReport:
+    """The PrintReport `print_report` makes of `print_health_report(suggestion)`, with STUB_PART for every body."""
+    return print_report(print_health_report(suggestion), lambda _body: STUB_PART)
+
+
+def only_finding(suggestion: dict | None) -> Finding:
+    """The one finding of `stub_print_report(suggestion)`, which belongs to STUB_PART."""
+    findings = stub_print_report(suggestion).findings
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.part is STUB_PART
+    return finding

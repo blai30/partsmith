@@ -1,0 +1,14 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "printer": "generic-resin",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-hollow", "name": "Hollow"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-hollow", "size": ["20 mm", "20 mm", "20 mm"], "op": "new"},
+    {"id": "f-sh1", "type": "shell", "body": "b-hollow", "thickness": "2 mm"}
+  ]
+}

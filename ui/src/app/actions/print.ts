@@ -1,9 +1,9 @@
 import { CoreError } from '../../core/client'
 import { createLatestOnly, skipRepeats, type LatestOnly } from '../../core/queue'
-import type { DocHandle, Health, Orientation } from '../../generated/protocol'
+import type { BoundingBox, DocHandle, Finding, Health, Orientation } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
-import { ALWAYS_SHOWN_CHECK } from '../../print/checks'
-import { findingAt, locationCenter } from '../../print/health'
+import { ALWAYS_SHOWN_CHECK, findingAt, isCheckHidden } from '../../print/checks'
+import { findingPoint } from '../../print/health'
 import { orientationToSend, sameOrientation } from '../../print/orientation'
 import type { AppState, AppStore, FindingKey, SelectionItem } from '../../state/store'
 import type { App } from '../createApp'
@@ -232,17 +232,16 @@ export async function openPrintHealth(app: App): Promise<void> {
   }
 }
 
-/** Shows a finding: marks it and frames a cube around its location (3.17). */
-export function focusFinding(app: App, finding: FindingKey): void {
-  app.store.setState((state) => ({ print: { ...state.print, focusedFinding: finding } }))
-  const state = app.store.getState()
-  const located = findingAt(state.print.report, finding)
-  const viewport = app.viewport()
-  if (located === undefined || viewport === null) {
-    return
+/**
+ * What focusing a finding frames (3.17): the box of a split suggestion's finding, which holds all
+ * of its planes, else a cube around the finding's point whose side grows with the body's diagonal.
+ */
+function focusBounds(finding: Finding, bodyBounds: BoundingBox | undefined): BoundingBox {
+  const { location, suggestion } = finding
+  if (suggestion?.kind === 'split' && suggestion.planes.length > 0 && location.kind === 'bounds') {
+    return { min: location.min, max: location.max }
   }
-  const center = locationCenter(located.location)
-  const bodyBounds = state.document?.meshes[finding.body]?.boundingBox
+  const center = findingPoint(finding)
   const diagonal =
     bodyBounds === undefined
       ? 0
@@ -252,22 +251,40 @@ export function focusFinding(app: App, finding: FindingKey): void {
           bodyBounds.max[2] - bodyBounds.min[2],
         )
   const half = Math.max(MINIMUM_FOCUS_SIDE, FOCUS_DIAGONAL_SHARE * diagonal) / 2
-  viewport.zoomToBounds(
-    {
-      min: [center[0] - half, center[1] - half, center[2] - half],
-      max: [center[0] + half, center[1] + half, center[2] + half],
-    },
-    FOCUS_MARGIN,
-  )
+  return {
+    min: [center[0] - half, center[1] - half, center[2] - half],
+    max: [center[0] + half, center[1] + half, center[2] + half],
+  }
 }
 
-/** Whether the focused finding's marker must go: the print check panel closed or the document changed (3.17). */
+/** Shows a finding: marks it, draws its split planes and frames it (3.17). */
+export function focusFinding(app: App, finding: FindingKey): void {
+  app.store.setState((state) => ({ print: { ...state.print, focusedFinding: finding } }))
+  const state = app.store.getState()
+  const located = findingAt(state.print.report, finding)
+  const viewport = app.viewport()
+  if (located === undefined || viewport === null) {
+    return
+  }
+  const bodyBounds = state.document?.meshes[finding.body]?.boundingBox
+  viewport.zoomToBounds(focusBounds(located, bodyBounds), FOCUS_MARGIN)
+}
+
+/**
+ * Whether the focused finding's marker and split planes must go (3.17): the print check panel
+ * closed, the document, the print orientation or the report changed (after which its key can name
+ * another finding), or its check is hidden.
+ */
 function focusOutdated(state: AppState, previous: AppState): boolean {
+  const focused = state.print.focusedFinding
   return (
-    state.print.focusedFinding !== null &&
+    focused !== null &&
     ((previous.panels.side === 'health' && state.panels.side !== 'health') ||
       state.document?.documentHandle !== previous.document?.documentHandle ||
-      state.document?.revision !== previous.document?.revision)
+      state.document?.revision !== previous.document?.revision ||
+      !sameOrientation(state.print.orientation, previous.print.orientation) ||
+      state.print.report !== previous.print.report ||
+      isCheckHidden(state.settings.hiddenChecks, focused.check))
   )
 }
 
@@ -280,8 +297,9 @@ function pickOutdated(state: AppState): boolean {
  * Keeps the Print context's derived state (3.17). The analysis runs on its own in Print context:
  * 300 ms after the document revision or the print orientation last changed with no transaction
  * open (or after the transaction closes), and at once on entering Print when the report is stale or
- * missing. The focused finding is dropped when the print check panel closes or the document
- * changes, and the Lay on face pick ends when Print is left. Returns the function that stops them.
+ * missing. The focused finding is dropped when the print check panel closes, the document, the
+ * print orientation or the report changes, or its check is hidden, and the Lay on face pick ends
+ * when Print is left. Returns the function that stops them.
  */
 export function installPrintAnalysis(app: App): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null

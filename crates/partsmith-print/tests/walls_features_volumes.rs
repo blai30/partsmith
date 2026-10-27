@@ -8,7 +8,7 @@ use std::f64::consts::PI;
 use common::{
     TOLERANCE, assert_bounds, assert_check_ok, assert_close, assert_f32_close, assert_point_close,
     bounds_of, box_mesh, cube, cylinder, fdm, findings, inside_out, open_box, overlay, ranges,
-    resin, run, run_only, standard_sphere, tube, void_box,
+    resin, run, run_only, standard_sphere, suggestion_text, tube, void_box,
 };
 use partsmith_mesh::Mesh;
 use partsmith_print::{
@@ -232,6 +232,10 @@ fn t094_enclosed_hollow_needs_a_drain_hole_on_resin() {
         Some(Suggestion::DrainHole { at }) => assert_point_close(*at, [5.0, 5.0, 5.0], TOLERANCE),
         other => panic!("expected a drain hole suggestion, got {other:?}"),
     }
+    assert_eq!(
+        suggestion_text(finding).as_deref(),
+        Some("Add a drain hole near (5, 5, 5 mm)")
+    );
 }
 
 #[test]

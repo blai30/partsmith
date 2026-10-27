@@ -1,9 +1,10 @@
-import type { Finding, Location, PrintReport, Severity } from '../generated/protocol'
+import type { Finding, Location, Severity } from '../generated/protocol'
 import { counted } from '../messages'
 import { memoized, type HealthBadge } from '../state/selectors'
 import type { AppState, FindingKey } from '../state/store'
 import type { Vector3 } from '../viewport/math'
-import { isCheckHidden, PRINT_CHECKS } from './checks'
+import { findingAt, isCheckHidden, PRINT_CHECKS } from './checks'
+import { suggestionText } from './suggestion'
 
 // The rows of the print check panel and the findings they point at (ui.md 3.17).
 
@@ -13,6 +14,8 @@ export type HealthRow = {
   readonly severity: Severity
   /** The finding's message, verbatim. */
   readonly message: string
+  /** The words of the finding's suggestion (`suggestionText`), or null without any. */
+  readonly suggestion: string | null
   readonly bodyName: string
 }
 
@@ -50,12 +53,16 @@ export const healthRows: (state: AppState) => readonly HealthRow[] = memoized(
       body.report.checks
         .filter((check) => !isCheckHidden(hiddenChecks, check.check))
         .flatMap((check) =>
-          check.findings.map((finding, index) => ({
-            key: { body: body.body, check: check.check, index },
-            severity: finding.severity,
-            message: finding.message,
-            bodyName: names.get(body.body) ?? body.body,
-          })),
+          check.findings.map((finding, index) => {
+            const suggestion = finding.suggestion ?? null
+            return {
+              key: { body: body.body, check: check.check, index },
+              severity: finding.severity,
+              message: finding.message,
+              suggestion: suggestion === null ? null : suggestionText(suggestion),
+              bodyName: names.get(body.body) ?? body.body,
+            }
+          }),
         ),
     )
     // Array sort is stable, so rows that tie keep their report order.
@@ -67,14 +74,7 @@ export const healthRows: (state: AppState) => readonly HealthRow[] = memoized(
   },
 )
 
-/** The finding a key names in a report, or undefined when the report has no such finding. */
-export function findingAt(report: PrintReport | null, key: FindingKey): Finding | undefined {
-  return report?.bodies
-    .find((body) => body.body === key.body)
-    ?.report.checks.find((check) => check.check === key.check)?.findings[key.index]
-}
-
-/** The point a finding is shown at: its point, or the center of its box. */
+/** The center of a finding's location: its point, or the center of its box. */
 export function locationCenter(location: Location): Vector3 {
   if (location.kind === 'point') {
     return location.at
@@ -86,15 +86,22 @@ export function locationCenter(location: Location): Vector3 {
   ]
 }
 
-/** Where the finding marker is drawn, in model coordinates: the focused finding's center, or null. */
+/**
+ * The point a finding is shown at (3.17): a drain hole suggestion's point, else the center of its
+ * location.
+ */
+export function findingPoint(finding: Finding): Vector3 {
+  return finding.suggestion?.kind === 'drain_hole'
+    ? finding.suggestion.at
+    : locationCenter(finding.location)
+}
+
+/** Where the finding marker is drawn, in model coordinates: the focused finding's point, or null. */
 export const focusedFindingPoint: (state: AppState) => Vector3 | null = memoized(
   (state) => [state.print.report, state.print.focusedFinding] as const,
   (report, focused): Vector3 | null => {
-    if (focused === null) {
-      return null
-    }
-    const finding = findingAt(report, focused)
-    return finding === undefined ? null : locationCenter(finding.location)
+    const finding = focused === null ? undefined : findingAt(report, focused)
+    return finding === undefined ? null : findingPoint(finding)
   },
 )
 

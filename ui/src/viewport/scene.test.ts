@@ -10,13 +10,21 @@ import {
   readyState,
   rectSketchDocumentState,
 } from '../layout/fixtures.testing'
+import {
+  HOLLOW_DRAIN_KEY,
+  SLAB_SPLIT_KEY,
+  stateWith,
+  suggestionState,
+} from '../print/fixtures.testing'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import { sketchSession } from '../sketch/fixtures.testing'
 import {
   createAppStore,
+  INITIAL_STATE,
   type ActiveCommand,
   type AppState,
   type DocumentState,
+  type FindingKey,
   type HelperSketch,
   type SelectionItem,
 } from '../state/store'
@@ -1247,5 +1255,152 @@ describe('axis colors (3.12, 3.16.2, U-183)', () => {
     )
     const reference = close(linear('light', 'sketchReference'))
     expect(elementColorsOf(drawById(frame, 'sketch:f-sk1:axes'), 2)).toEqual([reference, reference])
+  })
+})
+
+/** The problem color of the light theme, which the split planes are drawn in (U-237). */
+const SPLIT_PLANE_COLOR = linearFromHex(VIEWPORT_COLORS.light.problem)
+
+/** A scene with no meshes: the split planes come from the finding, not from a body. */
+function emptyScene(): Fixture {
+  const backend = createFakeBackend()
+  return { backend, scene: createScene(backend) }
+}
+
+/** Print context with the suggestion report, the panel open and `focused` focused. */
+function focusState(focused: FindingKey | null, overrides: Partial<AppState> = {}): AppState {
+  return stateWith(suggestionState(focused, overrides))
+}
+
+/** The draws in the problem color on the overlay layer: the split planes' fills and outlines. */
+function splitDraws(frame: RenderFrame): readonly DrawCall[] {
+  return frame.draws.filter(
+    (draw) =>
+      draw.layer === 'overlay' &&
+      [...draw.color].every((value, i) => value === SPLIT_PLANE_COLOR[i]),
+  )
+}
+
+function uploadedGeometry(fixture: Fixture, draw: DrawCall): Geometry {
+  const uploaded = fixture.backend.geometries.get(draw.id)
+  if (uploaded === undefined) {
+    throw new Error(`${draw.id} has no geometry.`)
+  }
+  return uploaded
+}
+
+/** The points of a positions buffer, three floats each. */
+function pointsOf(positions: Float32Array): Vector3[] {
+  const points: Vector3[] = []
+  for (let i = 0; i + 2 < positions.length; i += 3) {
+    points.push([positions[i] ?? 0, positions[i + 1] ?? 0, positions[i + 2] ?? 0])
+  }
+  return points
+}
+
+function fills(fixture: Fixture, frame: RenderFrame): readonly DrawCall[] {
+  return splitDraws(frame).filter((draw) => uploadedGeometry(fixture, draw).kind === 'fill')
+}
+
+function outlines(fixture: Fixture, frame: RenderFrame): readonly DrawCall[] {
+  return splitDraws(frame).filter((draw) => uploadedGeometry(fixture, draw).kind === 'lines')
+}
+
+describe('U-237 split planes in the scene (3.12 pass 7, 3.17)', () => {
+  it('U-237 draws a fill and an outline for each plane, in problem, over everything, never picked', () => {
+    const fixture = emptyScene()
+    const frame = render(fixture, focusState(SLAB_SPLIT_KEY))
+    expect(fills(fixture, frame)).toHaveLength(2)
+    expect(outlines(fixture, frame)).toHaveLength(2)
+    for (const draw of splitDraws(frame)) {
+      expect(draw.depthTest).toBe(false)
+      expect(draw.pickBase).toBeNull()
+    }
+    expect(fills(fixture, frame).map((draw) => draw.opacity)).toEqual([0.15, 0.15])
+    expect(outlines(fixture, frame).map((draw) => [draw.opacity, draw.size])).toEqual([
+      [0.6, 1.5],
+      [0.6, 1.5],
+    ])
+  })
+
+  it('U-237 draws the outlines 1.5 pixels wide times the UI scale', () => {
+    const fixture = emptyScene()
+    const frame = render(
+      fixture,
+      focusState(SLAB_SPLIT_KEY, { settings: { ...DEFAULT_SETTINGS, theme: 'light', uiScale: 2 } }),
+    )
+    expect(outlines(fixture, frame).map((draw) => draw.size)).toEqual([3, 3])
+  })
+
+  it("U-237 fills each plane's corners as a fan from the first corner, one plane at x = 200 and one at y = 200", () => {
+    const fixture = emptyScene()
+    const frame = render(fixture, focusState(SLAB_SPLIT_KEY))
+    const corners = fills(fixture, frame).map((draw) => {
+      const filled = uploadedGeometry(fixture, draw)
+      expect(filled.kind === 'fill' ? [...filled.indices] : null).toEqual([0, 1, 2, 0, 2, 3])
+      return pointsOf(filled.positions)
+    })
+    const onX = corners.filter((points) => points.every((point) => point[0] === 200))
+    const onY = corners.filter((points) => points.every((point) => point[1] === 200))
+    expect(onX).toHaveLength(1)
+    expect(onY).toHaveLength(1)
+    for (const points of corners) {
+      expect(points).toHaveLength(4)
+    }
+  })
+
+  it('U-237 outlines each plane with one segment from each corner to the next, the last back to the first', () => {
+    const fixture = emptyScene()
+    const frame = render(fixture, focusState(SLAB_SPLIT_KEY))
+    const filledCorners = fills(fixture, frame).map((draw) =>
+      JSON.stringify(pointsOf(uploadedGeometry(fixture, draw).positions)),
+    )
+    expect(outlines(fixture, frame)).toHaveLength(2)
+    for (const draw of outlines(fixture, frame)) {
+      const ends = pointsOf(uploadedGeometry(fixture, draw).positions)
+      // Two points per segment: 4 segments of 6 floats.
+      expect(ends).toHaveLength(8)
+      const starts = ends.filter((_, i) => i % 2 === 0)
+      const finishes = ends.filter((_, i) => i % 2 === 1)
+      expect(finishes).toEqual([...starts.slice(1), starts[0]])
+      expect(filledCorners).toContain(JSON.stringify(starts))
+    }
+  })
+
+  it('U-237 draws no split planes without a focused finding, and removes their geometry', () => {
+    const fixture = emptyScene()
+    const ids = splitDraws(render(fixture, focusState(SLAB_SPLIT_KEY))).map((draw) => draw.id)
+    expect(ids).toHaveLength(4)
+    expect(splitDraws(render(fixture, focusState(null)))).toEqual([])
+    for (const id of ids) {
+      expect(fixture.backend.geometries.has(id)).toBe(false)
+    }
+  })
+
+  it('U-237 draws no split planes for a focused drain hole', () => {
+    const fixture = emptyScene()
+    const ids = splitDraws(render(fixture, focusState(SLAB_SPLIT_KEY))).map((draw) => draw.id)
+    expect(ids).toHaveLength(4)
+    expect(splitDraws(render(fixture, focusState(HOLLOW_DRAIN_KEY)))).toEqual([])
+    for (const id of ids) {
+      expect(fixture.backend.geometries.has(id)).toBe(false)
+    }
+  })
+
+  it('U-237 draws no split planes after the print check panel closes', () => {
+    const fixture = emptyScene()
+    const ids = splitDraws(render(fixture, focusState(SLAB_SPLIT_KEY))).map((draw) => draw.id)
+    expect(ids).toHaveLength(4)
+    const closed = focusState(null, { panels: { ...INITIAL_STATE.panels, side: null } })
+    expect(splitDraws(render(fixture, closed))).toEqual([])
+    for (const id of ids) {
+      expect(fixture.backend.geometries.has(id)).toBe(false)
+    }
+  })
+
+  it('draws the split planes in Model context too while the panel shows the finding', () => {
+    const fixture = emptyScene()
+    const frame = render(fixture, focusState(SLAB_SPLIT_KEY, { context: 'model' }))
+    expect(splitDraws(frame)).toHaveLength(4)
   })
 })

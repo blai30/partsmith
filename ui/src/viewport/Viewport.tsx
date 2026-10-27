@@ -15,6 +15,7 @@ import { MESSAGES } from '../messages'
 import { requestUi } from '../layout/requests'
 import { markTiming, TIMING_NAMES } from '../performance/marks'
 import { focusedFindingPoint } from '../print/health'
+import { focusedSplitOutlines } from '../print/suggestion'
 import { selectDocumentUnits } from '../state/selectors'
 import type { AppState, SectionState, ViewState } from '../state/store'
 import { isSessionVisible } from '../state/visibility'
@@ -350,6 +351,7 @@ export function Viewport({ legend = null, children }: ViewportProps) {
   const selectionCount = useAppState((state) => state.selection.length)
   const gridSpacing = useAppState(gridSpacingText)
   const findingPoint = useAppState(focusedFindingPoint)
+  const splitPlanes = useAppState((state) => focusedSplitOutlines(state).length)
   // The controller draws a frame when the print state changes, which places the marker (3.17).
   const findingMarker = useRef<SVGCircleElement>(null)
   const platform = app.platform
@@ -479,6 +481,7 @@ export function Viewport({ legend = null, children }: ViewportProps) {
       data-hover-key={hoverKey ?? undefined}
       data-selection-count={selectionCount}
       data-grid-spacing={gridSpacing}
+      data-split-planes={splitPlanes}
       className="col-start-2 row-start-2 min-h-0 min-w-0"
     >
       {/* The spec makes the view one focusable application that takes the camera keys (3.13). */}
