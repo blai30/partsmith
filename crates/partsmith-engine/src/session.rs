@@ -96,7 +96,8 @@ impl Session {
     pub fn new(options: SessionOptions) -> Self {
         let registry = Arc::new(Registry::with_builtins());
         let shares = cache_shares(options.cache_budget);
-        let recompute = Recompute::with_cache_limit(Arc::clone(&registry), shares.recompute_results);
+        let recompute =
+            Recompute::with_cache_limit(Arc::clone(&registry), shares.recompute_results);
         Session {
             display: options.display,
             undo_limit: options.undo_limit,

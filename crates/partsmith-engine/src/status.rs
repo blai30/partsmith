@@ -3,29 +3,29 @@
 
 use partsmith_features::Registry;
 use partsmith_model::Id;
-use partsmith_naming::{ElementKind, ElementName};
-use partsmith_protocol::{Diagnostic, FeatureState, FeatureStatus, ParameterValue, Severity};
+use partsmith_protocol::{Diagnostic, FeatureState, FeatureStatus, ParameterValue};
 use partsmith_recompute::Status;
 
 use crate::causes::CauseLines;
 use crate::diagnostics::ElementLookup;
 use crate::document::OpenDocument;
 use crate::run::RunView;
-use crate::state::{BodyView, Computed, display_bodies};
+use crate::state::Computed;
 
-/// A body whose display mesh could not be built (section 3.8): the error is reported on the
-/// feature whose output holds the body state, and the body shows no mesh.
+/// A body whose display mesh could not be built (section 3.8): its `display_failed` warning is
+/// reported on the feature whose output holds the body state, and the body shows no mesh.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DisplayFailure {
     /// The feature whose output holds the body state.
     pub(crate) feature: Option<Id>,
-    /// The diagnostic message.
-    pub(crate) message: String,
+    /// The `display_failed` warning.
+    pub(crate) diagnostic: Diagnostic,
 }
 
 /// The status of every feature of the open document `open` in timeline order, with its display
-/// failures and the causes of its messages (section 3.21) without their ghosts. Actions carry
-/// its revision; `elements` gives candidates their mesh element in display sessions.
+/// failures first among its messages (section 3.8) and the causes of its messages (section 3.21)
+/// without their ghosts. Actions carry its revision; `elements` gives candidates their mesh
+/// element in display sessions.
 pub(crate) fn feature_statuses(
     open: &OpenDocument,
     registry: &Registry,
@@ -36,10 +36,6 @@ pub(crate) fn feature_statuses(
     let failures = open.emitted.display_failures();
     let revision = open.revision;
     let causes = CauseLines::of(open);
-    let duplicated: Vec<BodyView> = display_bodies(document, computed)
-        .into_iter()
-        .filter(|view| view.has_geometry() && has_duplicate_names(view))
-        .collect();
     let run = RunView::new(document, registry, &computed.report);
     computed
         .report
@@ -50,39 +46,24 @@ pub(crate) fn feature_statuses(
             let mut status = FeatureStatus {
                 id: report.feature.clone(),
                 status: state(report.status),
-                messages: Vec::with_capacity(report.messages.len()),
+                messages: failures
+                    .iter()
+                    .filter(|failure| failure.feature.as_ref() == Some(&report.feature))
+                    .map(|failure| failure.diagnostic.clone())
+                    .collect(),
                 repairs: Vec::new(),
             };
-            // A report entry whose feature the document lacks keeps its status without messages.
+            // The feature built, so a body it cannot show makes it a warning (section 3.4).
+            if !status.messages.is_empty() && status.status == FeatureState::Ok {
+                status.status = FeatureState::Warning;
+            }
+            // A report entry whose feature the document lacks gets none of its own messages.
             if let Some(feature) = run.feature_at(position) {
                 for message in &report.messages {
                     let (mut diagnostic, repairs) = feature.project(message, revision, elements);
                     diagnostic.cause = causes.cause(&feature, message, &repairs, revision);
                     status.messages.push(diagnostic);
                     status.repairs.extend(repairs);
-                }
-            }
-            for view in &duplicated {
-                if view.provider.as_ref() == Some(&report.feature) {
-                    status.status = FeatureState::Error;
-                    status.messages.push(Diagnostic::new(
-                        Severity::Error,
-                        "duplicate_element_name",
-                        format!(
-                            "Two elements of body {} have the same name. This is a bug in Partsmith; please report it.",
-                            view.body
-                        ),
-                    ));
-                }
-            }
-            for failure in &failures {
-                if failure.feature.as_ref() == Some(&report.feature) {
-                    status.status = FeatureState::Error;
-                    status.messages.push(Diagnostic::new(
-                        Severity::Error,
-                        "display_failed",
-                        failure.message.clone(),
-                    ));
                 }
             }
             status
@@ -100,18 +81,6 @@ fn state(status: Status) -> FeatureState {
         Status::Suppressed => FeatureState::Suppressed,
         Status::RolledBack | Status::NotRun => FeatureState::RolledBack,
     }
-}
-
-/// True when two elements of one kind of the body's naming map share a name.
-fn has_duplicate_names(view: &BodyView) -> bool {
-    let naming = view.state.naming();
-    [ElementKind::Face, ElementKind::Edge, ElementKind::Vertex]
-        .iter()
-        .any(|&kind| {
-            let mut names: Vec<&ElementName> = naming.names(kind).map(|(_, name)| name).collect();
-            names.sort();
-            names.windows(2).any(|pair| pair[0] == pair[1])
-        })
 }
 
 /// Every parameter's value, or its error, in document order.

@@ -4,14 +4,14 @@ use std::collections::BTreeMap;
 use std::mem::size_of;
 use std::sync::{Arc, OnceLock};
 
-use partsmith_features::BodyState;
+use partsmith_features::{BodyState, FeatureError};
 use partsmith_mesh::{
     BoundingBox, EdgePolyline, Mesh, RenderBuffers, TessellationTolerance, VertexMarker,
 };
 use partsmith_naming::{
     EdgeInfo, ElementInfo, ElementKind, ElementName, ElementSet, FaceInfo, TopologyInfo, VertexInfo,
 };
-use partsmith_occt_sys::{Shape, SubShapeKind};
+use partsmith_occt_sys::{KernelError, Shape, SubShapeKind};
 use partsmith_protocol::ElementDescriptor;
 
 use crate::counts::saturating_u32;
@@ -64,8 +64,8 @@ impl ElementTable {
         if state.is_empty() {
             return Err(EngineError::internal("an element table needs a shape"));
         }
-        let topology = state.topology().map_err(EngineError::unexpected)?;
-        let element_set = state.element_set().map_err(EngineError::unexpected)?;
+        let topology = state.topology().map_err(feature_failure)?;
+        let element_set = state.element_set().map_err(feature_failure)?;
         let naming = state.naming();
         let consistent = [
             (ElementKind::Face, topology.faces.len()),
@@ -88,12 +88,8 @@ impl ElementTable {
                     index,
                 })
                 .collect();
-            entries.sort_by(|first, second| {
-                first
-                    .name
-                    .cmp(&second.name)
-                    .then(first.index.cmp(&second.index))
-            });
+            // Names are unique per kind (section 3.8), so the name alone orders the entries.
+            entries.sort_by(|first, second| first.name.cmp(&second.name));
             entries
         };
         let faces = entries(ElementKind::Face, &|_| true);
@@ -266,9 +262,7 @@ impl DisplayMesh {
         table: Arc<ElementTable>,
         tolerance: &TessellationTolerance,
     ) -> Result<DisplayMesh, EngineError> {
-        let kernel = shape
-            .tessellate(tolerance)
-            .map_err(EngineError::unexpected)?;
+        let kernel = shape.tessellate(tolerance).map_err(kernel_failure)?;
         let face_ids = kernel
             .face_ids()
             .iter()
@@ -310,7 +304,7 @@ impl DisplayMesh {
             if !marked {
                 let vertex = shape
                     .element(SubShapeKind::Vertex, entry.index)
-                    .map_err(EngineError::unexpected)?;
+                    .map_err(kernel_failure)?;
                 markers.push(VertexMarker {
                     vertex_id: display_id,
                     position: [vertex.centroid.x, vertex.centroid.y, vertex.centroid.z],
@@ -326,9 +320,13 @@ impl DisplayMesh {
             edges,
             markers,
         )
-        .map_err(EngineError::unexpected)?;
+        .map_err(|error| {
+            EngineError::internal(format!(
+                "the kernel's tessellation is not a valid mesh: {error:?}"
+            ))
+        })?;
         let buffers = mesh.render_buffers();
-        let bounding_box = shape.bounding_box().map_err(EngineError::unexpected)?;
+        let bounding_box = shape.bounding_box().map_err(kernel_failure)?;
         Ok(DisplayMesh {
             table,
             mesh,
@@ -463,6 +461,18 @@ impl<K: Ord + Clone, T> Store<K, T> {
         }
         total
     }
+}
+
+/// The internal error of a kernel failure while displaying a body state, with the kernel's
+/// technical text as its detail (section 3.8).
+fn kernel_failure(error: KernelError) -> EngineError {
+    EngineError::internal(error.detail())
+}
+
+/// The internal error of a body state whose topology or element set cannot be built, with the
+/// feature error's technical text as its detail, or its code when it has none (section 3.8).
+fn feature_failure(error: FeatureError) -> EngineError {
+    EngineError::internal(error.detail().unwrap_or_else(|| error.code().to_string()))
 }
 
 /// The session's element tables and display meshes, kept under a byte budget. Values that an

@@ -8,8 +8,8 @@ use partsmith_features::Registry;
 use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName};
 use partsmith_protocol::{
-    Buffer, BufferIndex, DocHandle, Event, Layer, MeshBuffers, MeshElement, SketchDisplay,
-    SketchSolution,
+    Buffer, BufferIndex, Diagnostic, DocHandle, Event, Layer, MeshBuffers, MeshElement, Severity,
+    SketchDisplay, SketchSolution,
 };
 use partsmith_sketch::Placement;
 
@@ -51,8 +51,9 @@ pub(crate) struct Emitted {
     changed: Option<Changed>,
     /// The recompute run the last `recomputed` described.
     run: u64,
-    /// Send `recomputed` again with the latest recompute's statuses, whose cause actions changed
-    /// without a recompute: a commit made `Undo` available (section 3.4).
+    /// Send `recomputed` again with the latest recompute's statuses, which changed without a
+    /// recompute: a commit made `Undo` available, or display failures appeared or cleared
+    /// (section 3.4).
     restate: bool,
     /// The last solution of each sketch.
     sketches: BTreeMap<Id, SketchSolution>,
@@ -164,7 +165,8 @@ impl Session {
             let preview = record_layer(&mut open.emitted.preview, preview, next_mesh_id);
             (model, preview)
         });
-        if open.computed.run != open.emitted.run || std::mem::take(&mut open.emitted.restate) {
+        let restate = std::mem::take(&mut open.emitted.restate);
+        if open.computed.run != open.emitted.run || restate {
             open.emitted.run = open.computed.run;
             let shown = &open.emitted.model.shown;
             let element = |body: &Id, name: &ElementName| {
@@ -370,6 +372,7 @@ fn mesh_changes(
         })
         .collect();
     let emitted = &mut open.emitted;
+    let failures = emitted.display_failures();
     let mut planner = MeshPlanner {
         document: &open.document,
         cache,
@@ -377,6 +380,10 @@ fn mesh_changes(
     };
     let model = planner.changes(&mut emitted.model, model);
     let preview = planner.changes(&mut emitted.preview, preview);
+    // The statuses report display failures, so they are sent again when these change.
+    if emitted.display_failures() != failures {
+        emitted.restate_statuses();
+    }
     (model, preview)
 }
 
@@ -444,20 +451,25 @@ impl MeshPlanner<'_> {
     }
 }
 
-/// The diagnostic of a body whose display mesh could not be built.
+/// The `display_failed` warning of a body whose display mesh could not be built (section 3.8).
 fn display_failure(document: &Document, view: &BodyView, error: &EngineError) -> DisplayFailure {
     let name = document
         .body(&view.body)
         .map_or_else(|| view.body.to_string(), |body| body.name.clone());
-    let detail = match error {
-        EngineError::Internal { detail, .. } => detail.clone(),
-        other => other.to_string(),
-    };
+    // Building a table or mesh fails with internal errors, whose detail is the technical text.
+    let text = error.detail().unwrap_or_else(|| format!("{error:?}"));
     DisplayFailure {
         feature: view.provider.clone(),
-        message: format!(
-            "Partsmith could not display body \"{name}\" ({detail}). Please report this."
-        ),
+        diagnostic: Diagnostic {
+            detail: Some(format!("body {}: {text}", view.body)),
+            ..Diagnostic::new(
+                Severity::Warning,
+                "display_failed",
+                format!(
+                    "Body '{name}' cannot be shown, and Partsmith could not tell why. Report this with the details."
+                ),
+            )
+        },
     }
 }
 
@@ -555,9 +567,7 @@ fn mesh_buffers(mesh: &DisplayMesh, output: &mut Output) -> MeshBuffers {
 #[cfg(test)]
 mod tests {
     use partsmith_features::BodyState;
-    use partsmith_protocol::{
-        Diagnostic, FeatureState, FeatureStatus, Pick, Severity, TessellationQuality,
-    };
+    use partsmith_protocol::{FeatureState, FeatureStatus, Pick, TessellationQuality};
     use partsmith_recompute::{CacheKey, Message, Report};
 
     use super::*;
