@@ -939,14 +939,12 @@ export function createScene(backend: RenderBackend): Scene {
           [fillId, PLANE_FILL_OPACITY, 0],
           [outlineId, PLANE_OUTLINE_OPACITY, width],
         ] as const
-      ).map(
-        ([id, opacity, size]): PendingDraw => ({
-          call: { ...overlayCall(color, 'overlay', opacity, size, false, false), id },
-          elementCount: 1,
-          target: null,
-          states: null,
-        }),
-      )
+      ).map(([id, opacity, size]): PendingDraw => ({
+        call: { ...overlayCall(color, 'overlay', opacity, size, false, false), id },
+        elementCount: 1,
+        target: null,
+        states: null,
+      }))
     })
   }
 

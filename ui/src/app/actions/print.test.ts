@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { BoundingBox, Health, Orientation } from '../../generated/protocol'
+import type { BoundingBox, Finding, Health, Orientation } from '../../generated/protocol'
 import {
   CUBE,
   DOCUMENT_HANDLE,
@@ -1016,9 +1016,9 @@ describe('U-236 the split planes and the marker go (installPrintAnalysis)', () =
     focusFinding(harness.app, SLAB_SPLIT_KEY)
     expect(shownSuggestion(harness)).toEqual(SHOWN)
     // In the report of revision 4, the same key names a finding split along z only.
-    const tooTall = {
+    const tooTall: Finding = {
       ...SLAB_SPLIT,
-      suggestion: { kind: 'split' as const, planes: [{ origin: [200, 200, 5], normal: [0, 0, 1] }] },
+      suggestion: { kind: 'split', planes: [{ origin: [200, 200, 5], normal: [0, 0, 1] }] },
     }
     harness.app.store.setState((state) => ({
       print: { ...state.print, report: suggestionReport(tooTall), reportRevision: 4 },
