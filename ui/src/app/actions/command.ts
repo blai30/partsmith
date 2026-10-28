@@ -988,7 +988,7 @@ function withCutDirection(
 export type CommandFieldOptions = {
   /**
    * A text edit of an expression field: only the first one since the field gained focus is a
-   * change of the command history (3.7).
+   * change of the command history, and a changed text is pending until its field reports it (3.7).
    */
   readonly typing?: boolean
 }
@@ -1009,6 +1009,11 @@ export function setCommandField(
   const typing = options.typing === true
   const record = !typing || session.typingField !== path
   session.typingField = typing ? path : null
+  if (typing && typeof value === 'string' && value !== getParam(command.params, path)) {
+    // A changed text is pending until its field reports it; an unchanged one renders nothing new,
+    // so its field would never report it.
+    session.pendingFields.add(path)
+  }
   const written = setParam(session.feature, command.params, path, value)
   const operation =
     path === 'op' && value !== command.params['op']

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { showPickHint } from '../app/actions/notifications'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import { pressEnterAsResultShows } from '../expression/enter-timing.testing'
+import { pressEnter, whenResultShows } from '../expression/enter-timing.testing'
 import type {
   BoundingBox,
   Diagnostic,
@@ -121,6 +121,38 @@ function status(
   state: FeatureStatus['status'] = 'error',
 ): FeatureStatus {
   return { id: 'f-fil1', status: state, messages: [...messages], repairs: [] }
+}
+
+/**
+ * E-13's Extrude with its distance retyped as 10, whose evaluation the test settles: the field
+ * then shows the result `mm` (3.7).
+ */
+async function extrudeEvaluatingDistance() {
+  const command: ActiveCommand = {
+    ...NEW_EXTRUDE,
+    params: {
+      profile: { sketch: 'f-sk1', regions: [RECT_REGION.reference] },
+      extent: { kind: 'distance', expr: '10 mm' },
+      op: 'new',
+    },
+    activeField: null,
+  }
+  const { app, core, user } = renderInspector(rectSketchDocumentState(), { command })
+  const field = inspectorField('extent.expr')
+  const result = within(field).getByTestId('expression-result')
+  await waitFor(() => {
+    expect(result).toHaveTextContent('= 10 mm')
+  })
+  const evaluation = deferred<{ value: number; dimension: Dimension }>()
+  core.stub('evaluate', () => evaluation.promise)
+  const distance = within(field).getByRole('combobox', { name: 'Distance' })
+  await user.clear(distance)
+  await user.paste('10')
+  await settle()
+  const settleEvaluation = () => {
+    evaluation.resolve({ value: 10, dimension: { length: 0, angle: 0 } })
+  }
+  return { app, core, distance, result, settleEvaluation }
 }
 
 const SMALLER_FIX: FixRef = {
@@ -450,30 +482,22 @@ describe('the command inspector (3.7)', () => {
     })
   })
 
-  it('E-13 confirms with Enter pressed as the result shows, before the field reports it (3.5)', async () => {
-    const command: ActiveCommand = {
-      ...NEW_EXTRUDE,
-      params: {
-        profile: { sketch: 'f-sk1', regions: [RECT_REGION.reference] },
-        extent: { kind: 'distance', expr: '10 mm' },
-        op: 'new',
-      },
-      activeField: null,
-    }
-    const { app, core, user } = renderInspector(rectSketchDocumentState(), { command })
-    const field = inspectorField('extent.expr')
-    const result = within(field).getByTestId('expression-result')
-    await waitFor(() => {
-      expect(result).toHaveTextContent('= 10 mm')
+  it('E-13 confirms with Enter pressed as the result shows (3.5)', async () => {
+    const { app, core, distance, result, settleEvaluation } = await extrudeEvaluatingDistance()
+    await whenResultShows(result, 'mm', settleEvaluation, () => {
+      pressEnter(distance)
     })
-    const evaluation = deferred<{ value: number; dimension: Dimension }>()
-    core.stub('evaluate', () => evaluation.promise)
-    const distance = within(field).getByRole('combobox', { name: 'Distance' })
-    await user.clear(distance)
-    await user.paste('10')
-    await settle()
-    await pressEnterAsResultShows(distance, result, 'mm', () => {
-      evaluation.resolve({ value: 10, dimension: { length: 0, angle: 0 } })
+    await waitFor(() => {
+      expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    })
+    expect(app.store.getState().command).toBeNull()
+  })
+
+  it('E-13 confirms with OK clicked as the result shows (3.7)', async () => {
+    const { app, core, result, settleEvaluation } = await extrudeEvaluatingDistance()
+    const ok = within(inspector()).getByTestId('inspector-ok')
+    await whenResultShows(result, 'mm', settleEvaluation, () => {
+      ok.click()
     })
     await waitFor(() => {
       expect(core.callsTo('commitTransaction')).toEqual([[1]])

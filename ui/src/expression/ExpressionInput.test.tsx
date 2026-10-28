@@ -13,7 +13,7 @@ import { deferred, type Deferred } from '../test/fakes/deferred'
 import { settle } from '../test/fakes/settle'
 import { hasTabularFigures, isCode, NO_CONTEXTUAL_LIGATURES } from '../test/type-roles'
 import { COLOR_CLASSES } from '../theme/roles'
-import { pressEnterAsResultShows } from './enter-timing.testing'
+import { pressEnter, whenResultShows } from './enter-timing.testing'
 import { ExpressionInput, type ExpressionInputProps, type ExpressionState } from './ExpressionInput'
 import { useExpression } from './useExpression'
 
@@ -257,14 +257,50 @@ describe('ExpressionInput', () => {
       },
     )
     await settle()
-    await pressEnterAsResultShows(input, screen.getByTestId('expression-result'), 'mm', () => {
-      result.resolve({ value: 10, dimension: { length: 0, angle: 0 } })
-    })
+    await whenResultShows(
+      screen.getByTestId('expression-result'),
+      'mm',
+      () => {
+        result.resolve({ value: 10, dimension: { length: 0, angle: 0 } })
+      },
+      () => {
+        pressEnter(input)
+      },
+    )
     const valid: ExpressionState = { state: 'valid', value: 10, dimension: LENGTH }
     expect(ownerCalls.slice(-2)).toEqual([
       ['change', '10', valid],
       ['commit', '10', valid],
     ])
+  })
+
+  it('tells the owner a result in the commit that shows it, before any input can arrive (2.13)', async () => {
+    const heard: (readonly [string, ExpressionState])[] = []
+    const result = deferred<Evaluation>()
+    setUp(
+      {
+        initial: '10',
+        onChange: (value, state) => {
+          heard.push([value, state])
+        },
+      },
+      (core) => {
+        core.stub('evaluate', () => result.promise)
+      },
+    )
+    await settle()
+    let heardAsShown: unknown = null
+    await whenResultShows(
+      screen.getByTestId('expression-result'),
+      'mm',
+      () => {
+        result.resolve({ value: 10, dimension: { length: 0, angle: 0 } })
+      },
+      () => {
+        heardAsShown = heard.at(-1)
+      },
+    )
+    expect(heardAsShown).toEqual(['10', { state: 'valid', value: 10, dimension: LENGTH }])
   })
 
   it('U-43 Esc calls onCancel', async () => {

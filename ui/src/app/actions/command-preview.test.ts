@@ -11,7 +11,9 @@ import {
   RECT_SKETCH_SOLUTION,
   withFeatureChanges,
 } from '../../test/fakes/documents'
+import { getParam } from '../../inspector/model'
 import {
+  activeCommand,
   appliedEdits,
   createTestApp,
   type FakeApp,
@@ -85,6 +87,33 @@ describe('field status', () => {
     setFieldStatus(fake.app, 'extent.expr', { error: null, pending: false })
     await settle()
     expect(appliedEdits(fake)).toHaveLength(1)
+    expect(fake.app.store.getState().command?.preview).toBe('shown')
+  })
+
+  it('a typed text previews nothing until its field reports it (3.7)', async () => {
+    const fake = await cubeExtrude()
+    setCommandField(fake.app, 'extent.expr', '30', { typing: true })
+    await settle()
+    expect(fake.transport.commandTypes()).not.toContain('apply_edits')
+    expect(fake.app.store.getState().command?.preview).toBe('none')
+    setFieldStatus(fake.app, 'extent.expr', { error: null, pending: false })
+    await settle()
+    expect(appliedEdits(fake)).toEqual([
+      [
+        expect.objectContaining({
+          type: 'update_feature',
+          feature: expect.objectContaining({ extent: { kind: 'distance', expr: '30' } }),
+        }),
+      ],
+    ])
+    expect(fake.app.store.getState().command?.preview).toBe('shown')
+  })
+
+  it("a typed text equal to the field's text leaves the field settled (3.7)", async () => {
+    const fake = await cubeExtrude()
+    const text = getParam(activeCommand(fake.app).params, 'extent.expr')
+    setCommandField(fake.app, 'extent.expr', text, { typing: true })
+    await settle()
     expect(fake.app.store.getState().command?.preview).toBe('shown')
   })
 

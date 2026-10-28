@@ -49,15 +49,6 @@ export function ExpressionField({
         noteFieldFocused(app, field.path)
       }}
       onChange={(next, state) => {
-        const status = {
-          error: state.state === 'invalid' ? state.message : null,
-          pending: state.state === 'pending',
-        }
-        // The field is pending before a text still being evaluated is set, and until a settled
-        // one is, so no preview carries a text without its result (3.7).
-        if (status.pending) {
-          setFieldStatus(app, field.path, status)
-        }
         if (next !== value) {
           // An optional field left empty is removed from the params (2.12); the edits since the
           // field gained focus are one change of the command history (3.7).
@@ -68,9 +59,10 @@ export function ExpressionField({
             { typing: true },
           )
         }
-        if (!status.pending) {
-          setFieldStatus(app, field.path, status)
-        }
+        setFieldStatus(app, field.path, {
+          error: state.state === 'invalid' ? state.message : null,
+          pending: state.state === 'pending',
+        })
       }}
       // Enter confirms the command (3.5), also when pressed before the text was evaluated.
       onCommit={() => {
