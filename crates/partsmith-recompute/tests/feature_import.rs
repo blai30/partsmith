@@ -1,7 +1,7 @@
 //! Acceptance tests of the `import` feature (docs/spec/features/import.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/import/`. The placeholder examples get asset bytes written with the kernel at test
-//! time, as the spec's fixtures define them (`VOID_TWICE` and `BOTH` by editing the STEP text the
+//! `examples/import/`, except the joins of tests 15 and 16, whose documents are written here. The
+//! placeholder examples and those joins get asset bytes written with the kernel at test time, as the spec's fixtures define them (`VOID_TWICE` and `BOTH` by editing the STEP text the
 //! kernel wrote); the step-block examples (tests 9 and 11) get the committed file `S` of
 //! `examples/import/assets/`, the bytes `partsmith rebuild` reads.
 
@@ -13,7 +13,7 @@ use feature_support::import::{assets, block, block_bytes, step_bytes, void_liste
 use feature_support::{
     Assets, Run, aliases, assert_bounding_box, assert_empty, assert_examples_canonical,
     assert_face_count, assert_face_in_plane, assert_face_names, assert_messages_pass_lint,
-    assert_shell_count, assert_solid_count, assert_volume, asset_name, body_changes,
+    assert_shell_count, assert_solid_count, assert_volume, asset_name, body_changes, document,
     examples_folder, face, load_example,
 };
 use partsmith_features::FeatureError;
@@ -21,6 +21,7 @@ use partsmith_occt_sys::{
     PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, ShapeKind, StepBody,
     SubShapeKind, TaggedCurve, compound, cut, make_box, make_profile, write_step,
 };
+use partsmith_recompute::Message;
 
 /// The fixture `S`: the name of the committed STEP file of the block in `examples/import/assets/`.
 const COMMITTED_ASSET: &str =
@@ -44,8 +45,9 @@ const TWO_SHAPES_LEFT_OUT: &str =
 const ONE_SHAPE_LEFT_OUT: &str =
     "This import left out 1 shape of the STEP file that is not a closed solid.";
 
-/// The message of tests 13 and 14: the solid of `VOID_TWICE` or `BOTH` kept invalid.
-const ONE_SOLID_KEPT: &str = "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so features that change it may fail or give a wrong shape.";
+/// The message of tests 13 to 15: the solid of `VOID_TWICE` or `BOTH` kept invalid, the same for
+/// every op.
+const ONE_SOLID_KEPT: &str = "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.";
 
 /// The detail of test 10: the kernel's sentence for the two faces of `SKIPPED`.
 const TWO_SHAPES_DETAIL: &str = "read_step: Skipped 2 shapes that are not closed solids.";
@@ -59,6 +61,12 @@ const ONE_SOLID_DETAIL: &str =
 
 /// The detail of both warnings of test 14: the kernel's sentences in its order.
 const BOTH_DETAIL: &str = "read_step: Solid 1 is not valid after repair; booleans with it may fail. Skipped 1 shape that is not a closed solid.";
+
+/// The plate of features/import.md tests 7 and 15, spanning [-20,-15,0]-[20,25,10].
+const PLATE: &str = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "10"], "position": ["0", "5", "0"], "op": "new"}"#;
+
+/// The box of test 16, spanning [45,55]x[45,55]x[0,10], apart from the imported block.
+const BOX_APART: &str = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "position": ["50", "50", "0"], "op": "new"}"#;
 
 /// The face names of the solid of `VOID_TWICE`, `f-imp1/face#1` to `f-imp1/face#12` (test 13).
 fn hollow_face_names() -> Vec<String> {
@@ -193,11 +201,28 @@ fn both_bytes() -> Arc<[u8]> {
     hollow_bytes_with_the_void_twice(shape)
 }
 
-/// Asserts the messages of the import: each passes the message lint and holds none of the
-/// sentences of its detail (features.md test 14).
+/// Runs `box_record` in b-1, then `IMP("join")` with the asset map `{A: bytes}` (tests 15 and 16).
+fn run_join(box_record: &str, bytes: Arc<[u8]>) -> Run {
+    let import = format!(
+        r#"{{"id": "f-imp1", "type": "import", "body": "b-1", "asset": "{}", "op": "join"}}"#,
+        asset_name('0')
+    );
+    Run::with_assets(document(&["b-1"], &[box_record, &import]), &assets(bytes))
+}
+
+/// The messages of the import, failing the test when it has none, so that the assertions over
+/// each never pass for an import that does not warn.
+fn import_messages(run: &Run) -> &[Message] {
+    let messages = &run.feature("f-imp1").messages;
+    assert!(!messages.is_empty(), "the import warns; {}", run.summary());
+    messages
+}
+
+/// Asserts the messages of the import: there is one at least, and each passes the message lint and
+/// holds none of the sentences of its detail (features.md test 14).
 fn assert_messages_hold_no_kernel_sentence(run: &Run) {
     assert_messages_pass_lint(run, "f-imp1");
-    for message in &run.feature("f-imp1").messages {
+    for message in import_messages(run) {
         let detail = message
             .detail
             .as_deref()
@@ -215,9 +240,10 @@ fn assert_messages_hold_no_kernel_sentence(run: &Run) {
     }
 }
 
-/// Asserts that every message of the import has `detail`, no pointer and no fixes.
+/// Asserts that the import has a message at least, and that each is an import warning with
+/// `detail`, no pointer and no fixes.
 fn assert_import_warning_details(run: &Run, detail: &str) {
-    for message in &run.feature("f-imp1").messages {
+    for message in import_messages(run) {
         assert_eq!(message.code, "import_warning");
         assert_eq!(message.detail.as_deref(), Some(detail));
         assert_eq!(message.pointer, None);
@@ -608,7 +634,7 @@ fn t012_one_skipped_shape_leaves_the_block_alone() {
 }
 
 #[test]
-fn t013_an_invalid_solid_warns_that_features_that_change_it_may_go_wrong() {
+fn t013_an_invalid_solid_warns_that_its_shape_may_be_wrong() {
     let run = run_example("import/new-body.ptsm", void_twice_bytes());
 
     run.assert_warnings("f-imp1", &["import_warning"]);
@@ -658,6 +684,46 @@ fn t014_both_keep_the_invalid_solid_alone() {
     let run = run_example("import/new-body.ptsm", both_bytes());
 
     assert_invalid_hollow_block(&run);
+}
+
+#[test]
+fn t015_an_invalid_solid_joined_warns_as_with_op_new() {
+    let run = run_join(PLATE, void_twice_bytes());
+
+    run.assert_warnings("f-imp1", &["import_warning"]);
+    assert_eq!(run.messages("f-imp1"), [ONE_SOLID_KEPT]);
+    assert_messages_hold_no_kernel_sentence(&run);
+}
+
+#[test]
+fn t015_an_invalid_solid_joined_warning_has_the_kernels_sentence_in_its_detail() {
+    let run = run_join(PLATE, void_twice_bytes());
+
+    assert_import_warning_details(&run, ONE_SOLID_DETAIL);
+}
+
+#[test]
+fn t015_an_invalid_solid_joined_changes_the_body_by_a_join() {
+    let run = run_join(PLATE, void_twice_bytes());
+
+    assert_eq!(body_changes(&run, "f-imp1"), ["b-1 Join"]);
+}
+
+#[test]
+fn t016_import_warnings_come_before_the_body_rules_warnings() {
+    let run = run_join(BOX_APART, one_face_bytes());
+
+    run.assert_warnings("f-imp1", &["import_warning", "separate_solid"]);
+    assert_eq!(run.messages("f-imp1")[0], ONE_SHAPE_LEFT_OUT);
+}
+
+#[test]
+fn t016_the_block_is_joined_apart_from_the_box() {
+    let run = run_join(BOX_APART, one_face_bytes());
+
+    let shape = run.shape("b-1");
+    assert_solid_count(shape, 2);
+    assert_volume(shape, 7000.0);
 }
 
 #[test]

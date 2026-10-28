@@ -12,8 +12,8 @@ use partsmith_model::Units;
 
 /// The text test 18 expects of each sample of `import_warnings`, in its order.
 const RENDERED: [&str; 4] = [
-    "This import kept 2 solids of the STEP file that are not valid and could not be repaired, so features that change them may fail or give a wrong shape.",
-    "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so features that change it may fail or give a wrong shape.",
+    "This import kept 2 solids of the STEP file that are not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.",
+    "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.",
     "This import left out 3 shapes of the STEP file that are not closed solids.",
     "This import left out 1 shape of the STEP file that is not a closed solid.",
 ];

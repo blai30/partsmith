@@ -1,0 +1,271 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-box2",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 1530.9999999999998,
+      "area": 6165.0,
+      "center_of_mass": [
+        3.726322664924888,
+        0.0,
+        8.136838667537546
+      ],
+      "bounding_box": {
+        "min": [
+          -20.0,
+          -10.0,
+          0.0
+        ],
+        "max": [
+          20.0,
+          10.0,
+          20.0
+        ]
+      },
+      "faces": 16,
+      "edges": 40,
+      "vertices": 26
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 4,
+      "infos": 0,
+      "label": "4 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 361 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      0.5,
+                      -9.5,
+                      19.5
+                    ],
+                    "max": [
+                      19.5,
+                      9.5,
+                      19.5
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    14
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 9.5 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      0.0,
+                      -9.5,
+                      10.0
+                    ],
+                    "max": [
+                      0.5,
+                      9.5,
+                      10.0
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    12
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "thin_walls",
+                  "code": "thin_wall",
+                  "severity": "warning",
+                  "message": "A wall 0.5 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -20.0,
+                      -10.0,
+                      0.0
+                    ],
+                    "max": [
+                      20.0,
+                      10.0,
+                      20.0
+                    ]
+                  },
+                  "value": 0.5,
+                  "limit": 0.8,
+                  "faces": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6
+                  ]
+                },
+                {
+                  "check": "thin_walls",
+                  "code": "thin_wall",
+                  "severity": "warning",
+                  "message": "A wall 0.5 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -19.5,
+                      -9.5,
+                      0.5
+                    ],
+                    "max": [
+                      19.5,
+                      9.5,
+                      19.5
+                    ]
+                  },
+                  "value": 0.5,
+                  "limit": 0.8,
+                  "faces": [
+                    7,
+                    8,
+                    9,
+                    10,
+                    11,
+                    13,
+                    14
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

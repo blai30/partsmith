@@ -705,10 +705,10 @@ impl fmt::Display for FeatureWarning {
 fn import_text(content: ImportContent, count: usize) -> String {
     match (content, count) {
         (ImportContent::InvalidSolids, 1) => {
-            "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so features that change it may fail or give a wrong shape.".to_string()
+            "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.".to_string()
         }
         (ImportContent::InvalidSolids, _) => format!(
-            "This import kept {count} solids of the STEP file that are not valid and could not be repaired, so features that change them may fail or give a wrong shape."
+            "This import kept {count} solids of the STEP file that are not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape."
         ),
         (ImportContent::SkippedShapes, 1) => {
             "This import left out 1 shape of the STEP file that is not a closed solid.".to_string()

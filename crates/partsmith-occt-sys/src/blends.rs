@@ -233,14 +233,6 @@ mod tests {
         u32::try_from(position + 1).expect("few edges")
     }
 
-    /// The faces generated from an element.
-    fn generated_faces(fate: &crate::ElementFate) -> usize {
-        fate.generated
-            .iter()
-            .filter(|sub_shape| sub_shape.kind == SubShapeKind::Face)
-            .count()
-    }
-
     /// A 20 mm cube with a 10 mm cube notch at its top corner: the notch's inner corner is a
     /// concave vertex where three concave edges meet.
     fn notched_cube() -> Shape {
@@ -365,24 +357,6 @@ mod tests {
         .expect_err("infinity is rejected");
 
         assert_eq!(error.message, crate::values::NOT_FINITE_MESSAGE);
-    }
-
-    #[test]
-    fn chamfer_corner_faces_come_from_the_vertices() {
-        let block = make_box(&Plane::XY, 10.0, 20.0, 30.0).expect("box").shape;
-        let edges: Vec<ChamferEdge> = (1..=12)
-            .map(|edge| ChamferEdge {
-                edge,
-                size: ChamferSize::Equal { distance: 1.0 },
-            })
-            .collect();
-
-        let result = chamfer(&block, &edges).expect("every edge is chamfered");
-
-        assert_eq!(result.shape.count(SubShapeKind::Face), 26);
-        for fate in &result.history.inputs[0].vertices {
-            assert_eq!(generated_faces(fate), 1, "{fate:?}");
-        }
     }
 
     #[test]

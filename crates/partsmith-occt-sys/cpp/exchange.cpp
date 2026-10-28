@@ -184,7 +184,8 @@ class StepCollector {
     }
   }
 
-  // Repairs a solid and adds it as a body (kernel spec section 3.8.1, read item 3).
+  // Repairs a solid and adds it as a body, counted when it is still invalid (kernel spec section
+  // 3.8.1, read item 3).
   void add_body(const TopoDS_Shape &solid, const TopLoc_Location &location,
                 const std::string &name, const Quantity_Color *color) {
     ShapeFix_Shape fixer(solid);

@@ -52,11 +52,16 @@ fn defined_entity(line: &str) -> Option<u64> {
 /// and 141) on `step`, the STEP text `write_step` wrote for one solid with one void: the void of
 /// its `BREP_WITH_VOIDS('',#o,(#v))` entity listed twice, as the entity
 /// `#n = ORIENTED_CLOSED_SHELL('',*,#s,.F.);`, `n` one more than the largest entity number, on
-/// its own line before the last `ENDSEC;`, and `(#v)` replaced by `(#v,#n)`.
+/// its own line before the last `ENDSEC;`, and `(#v)` replaced by `(#v,#n)`. The kernel's tests
+/// make the same edit (`void_listed_twice` in `crates/partsmith-occt-sys/tests/exchange.rs`, the
+/// reference), with the same checks of the text it edits.
 pub fn void_listed_twice(step: &str) -> String {
-    let start = step
-        .find("BREP_WITH_VOIDS(")
-        .expect("the solid is written with its void");
+    let mut entities = step.match_indices("BREP_WITH_VOIDS(");
+    let (start, _) = entities.next().expect("the solid is written with its void");
+    assert!(
+        entities.next().is_none(),
+        "the STEP text has one BREP_WITH_VOIDS entity"
+    );
     let length = step[start..]
         .find(");")
         .expect("the BREP_WITH_VOIDS entity is closed");
@@ -74,8 +79,8 @@ pub fn void_listed_twice(step: &str) -> String {
         .map(|(_, value)| value.trim())
         .expect("the void is defined on one line");
     assert!(
-        void_shell.starts_with("ORIENTED_CLOSED_SHELL("),
-        "the void is an oriented closed shell: {void_shell}"
+        void_shell.starts_with("ORIENTED_CLOSED_SHELL('',*,") && void_shell.ends_with(",.F.);"),
+        "the void is a reversed oriented closed shell: {void_shell}"
     );
     let copy = step
         .lines()

@@ -521,15 +521,7 @@ fn t023_negative_depth_with_a_countersink() {
 
 #[test]
 fn t024_through_all_with_a_head_deeper_than_the_body() {
-    let plate = r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "2"], "position": ["0", "0", "-2"], "op": "new"}"#;
-    let counterbore = hole(
-        r#"["e-p1"]"#,
-        &format!(
-            r#""hole_type": {{"kind": "counterbore", "diameter": "11", "depth": "4"}}, {THROUGH_ALL}"#
-        ),
-    );
-
-    let run = Run::records(&["b-1"], &[plate, POINTS_SKETCH, &counterbore]);
+    let run = Run::example("hole/head-deeper-than-body.ptsm");
 
     run.assert_all_ok();
     let shape = run.shape("b-1");

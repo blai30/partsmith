@@ -1,42 +1,27 @@
 //! Acceptance tests of the `chamfer` feature (docs/spec/features/chamfer.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
 //! `examples/chamfer/`; the documents of tests 15 and 16 (corpus R22) are written here until their
-//! examples exist.
+//! examples exist (features.md open issue 22).
 
 use crate::feature_support;
 
 use std::f64::consts::FRAC_1_SQRT_2;
 
 use feature_support::{
-    CUBE20, FRONT_TOP_EDGE, LENGTH_TOLERANCE, MOVE_BY_100, PLATE, PLATE_TOP_EDGES, RISER_EDGE,
-    RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_absolute, assert_bounding_box,
-    assert_coordinates, assert_element_repair, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_count, assert_face_kind, assert_limiting_face, assert_list_field,
-    assert_messages_pass_lint, assert_moved_by_100, assert_placement, assert_relative,
-    assert_skipped_as_smooth, assert_unchanged, assert_volume, body_update, document, edge, face,
-    face_names, face_sketch, message, one_point, point_components, remove_entry, set_field,
-    sketch_result, suggested_limit,
+    BOX_EDGE_NAMES, BOX_VERTEX_NAMES, CUBE20, FRONT_TOP_EDGE, LENGTH_TOLERANCE, MOVE_BY_100, PLATE,
+    PLATE_TOP_EDGES, RISER_EDGE, RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_absolute,
+    assert_bounding_box, assert_coordinates, assert_element_repair, assert_error_field,
+    assert_examples_canonical, assert_face_area, assert_face_centroid, assert_face_count,
+    assert_face_kind, assert_face_names, assert_face_normal, assert_limiting_face,
+    assert_list_field, assert_messages_pass_lint, assert_moved_by_100, assert_placement,
+    assert_relative, assert_skipped_as_smooth, assert_unchanged, assert_volume, body_update,
+    document, edge, face, face_index, face_names, face_sketch, message, one_point,
+    point_components, prefixed, remove_entry, set_field, sketch_result, suggested_limit,
+    with_edges_reversed,
 };
 use partsmith_features::{BodyChange, FeatureError, Fix};
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
-
-/// The box of fillet.md test 11, 30 x 20 x 10 mm in `b-1` spanning [-15,-10,0]-[15,10,10].
-const BOX302010: &str =
-    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["30", "20", "10"], "op": "new"}"#;
-
-/// `f-fil1` of fillet.md test 11: the four vertical edges of `BOX302010` filleted at radius 3, so
-/// the top loop is one tangent chain of four lines and four arcs.
-const VERTICAL_FILLETS: &str = r#"{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-15,-10,5|l=10"}, {"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=15,-10,5|l=10"}, {"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-15,10,5|l=10"}, {"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=15,10,5|l=10"}], "radius": "3"}"#;
-
-/// The front top edge of the box after `VERTICAL_FILLETS`, between the arcs of the front corners.
-/// Its first face is the front wall.
-const FILLETED_FRONT_TOP_EDGE: &str =
-    r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,10|l=24"}"#;
-
-/// The top arc of the front left fillet after `VERTICAL_FILLETS` (radius 3 around (-12,-7,10)),
-/// in the same tangent chain as `FILLETED_FRONT_TOP_EDGE`. Its first face is the top.
-const FRONT_LEFT_TOP_ARC: &str = r#"{"q": "edge(f-box1/top|f-fil1/fillet/edge(f-box1/front|f-box1/left))", "fp": "circle|n=0,0,1|c=-13.909859,-8.909859,10|l=4.712389|r=3"}"#;
 
 /// `CHA(edges, distance)`: the chamfer `f-cha1` of `b-1`, with `distance` a JSON object.
 fn chamfer_record(edges: &[&str], distance: &str) -> String {
@@ -325,23 +310,10 @@ fn smooth_edge_skipped() {
 
 #[test]
 fn t012_edge_order_does_not_matter() {
-    let distance = r#"{"kind": "two_distances", "expr": "1", "second_expr": "2"}"#;
-    let orders = [
-        [FILLETED_FRONT_TOP_EDGE, FRONT_LEFT_TOP_ARC],
-        [FRONT_LEFT_TOP_ARC, FILLETED_FRONT_TOP_EDGE],
-    ];
+    let listed = Run::example("chamfer/edge-order.ptsm");
+    let reversed = Run::new(with_edges_reversed(&listed.document, "f-cha1"));
 
-    let runs = orders.map(|edges| {
-        Run::records(
-            &["b-1"],
-            &[
-                BOX302010,
-                VERTICAL_FILLETS,
-                &chamfer_record(&edges, distance),
-            ],
-        )
-    });
-
+    let runs = [listed, reversed];
     for run in &runs {
         run.assert_all_ok();
     }
@@ -659,4 +631,116 @@ fn t018_removing_the_limiting_edge_chamfers_the_other_at_the_requested_distance(
     run.assert_all_ok();
     // The stepped body's 7040 less 3 x 3 / 2 x 20.
     assert_volume(run.shape("b-1"), 6950.0);
+}
+
+/// The center of `CUBE20`, which spans [-10,-10,0]-[10,10,20].
+const CUBE20_CENTER: [f64; 3] = [0.0, 0.0, 10.0];
+
+/// The outward normal of the face `f-box1/<side>` of `CUBE20`.
+fn cube_face_normal(face: &str) -> [f64; 3] {
+    match face {
+        "f-box1/front" => [0.0, -1.0, 0.0],
+        "f-box1/back" => [0.0, 1.0, 0.0],
+        "f-box1/left" => [-1.0, 0.0, 0.0],
+        "f-box1/right" => [1.0, 0.0, 0.0],
+        "f-box1/bottom" => [0.0, 0.0, -1.0],
+        "f-box1/top" => [0.0, 0.0, 1.0],
+        other => panic!("{other} is not a face of CUBE20"),
+    }
+}
+
+/// The sum of the outward normals of the faces that an edge or vertex name lists, such as
+/// `edge(f-box1/front|f-box1/top)`.
+fn summed_normals(element: &str) -> [f64; 3] {
+    let faces = element
+        .split_once('(')
+        .and_then(|(_, faces)| faces.strip_suffix(')'))
+        .unwrap_or_else(|| panic!("{element} is not an edge or vertex name"));
+    faces
+        .split('|')
+        .map(cube_face_normal)
+        .fold([0.0; 3], |sum, normal| {
+            [sum[0] + normal[0], sum[1] + normal[1], sum[2] + normal[2]]
+        })
+}
+
+/// The point `distance` from the center of `CUBE20` along each of the outward normals that sum to
+/// `normals`: an edge's midpoint or a corner at 10 mm.
+fn from_cube_center(normals: [f64; 3], distance: f64) -> [f64; 3] {
+    [0, 1, 2].map(|axis| CUBE20_CENTER[axis] + distance * normals[axis])
+}
+
+#[test]
+fn t019_every_edge_of_a_cube() {
+    let run = Run::example("chamfer/every-edge.ptsm");
+
+    run.assert_all_ok();
+    let body = run.body("b-1");
+    let shape = run.shape("b-1");
+    // 8000 less a prism of section 2 along each edge without its last 2 mm at either end (384 in
+    // all) and 20/3 at each corner.
+    assert_volume(shape, 7562.666667);
+    assert_face_count(shape, 26);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
+    let top = face(body, "f-box1/top");
+    assert_face_kind(&top, GeometryKind::Plane);
+    assert_face_area(&top, 256.0);
+    // The six faces of the box, one chamfer face per edge and one corner face per corner of the
+    // cube, and no other faces.
+    let names: Vec<String> = ["back", "bottom", "front", "left", "right", "top"]
+        .map(|side| format!("f-box1/{side}"))
+        .into_iter()
+        .chain(prefixed("f-cha1/chamfer/", &BOX_EDGE_NAMES))
+        .chain(prefixed("f-cha1/corner/", &BOX_VERTEX_NAMES))
+        .collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    assert_face_names(body, &names);
+}
+
+#[test]
+fn t019_each_chamfer_face_lies_along_its_edge() {
+    let run = Run::example("chamfer/every-edge.ptsm");
+
+    let body = run.body("b-1");
+    for edge in BOX_EDGE_NAMES {
+        let chamfer = face(body, &format!("f-cha1/chamfer/{edge}"));
+        assert_face_kind(&chamfer, GeometryKind::Plane);
+        // A 16 mm strip, 2 sqrt(2) mm wide.
+        assert_face_area(&chamfer, 32.0 * 2.0_f64.sqrt());
+        let normals = summed_normals(edge);
+        assert_face_normal(&chamfer, normals.map(|component| component * FRAC_1_SQRT_2));
+        // The edge's midpoint, 10 mm from the center along each normal, moved 1 mm against each.
+        assert_face_centroid(&chamfer, from_cube_center(normals, 10.0 - 1.0));
+    }
+    let front_top = face(body, "f-cha1/chamfer/edge(f-box1/front|f-box1/top)");
+    assert_face_normal(&front_top, [0.0, -FRAC_1_SQRT_2, FRAC_1_SQRT_2]);
+    assert_face_centroid(&front_top, [0.0, -9.0, 19.0]);
+}
+
+#[test]
+fn t019_each_corner_face_lies_at_its_corner() {
+    let run = Run::example("chamfer/every-edge.ptsm");
+
+    let body = run.body("b-1");
+    let topology = run.shape("b-1").topology().expect("topology of the body");
+    for vertex in BOX_VERTEX_NAMES {
+        let name = format!("f-cha1/corner/{vertex}");
+        let corner = face(body, &name);
+        assert_face_kind(&corner, GeometryKind::Plane);
+        let index = face_index(body, &name).unwrap_or_else(|| panic!("{name} is a face"));
+        let bounds = &topology.faces[index as usize - 1];
+        assert_eq!(bounds.edges.len(), 3, "edges of {name}");
+        assert_eq!(bounds.vertices.len(), 3, "vertices of {name}");
+        assert_face_area(&corner, 2.0 * 3.0_f64.sqrt());
+        // The corner, 10 mm from the center along each normal, moved 4/3 mm against each.
+        assert_face_centroid(
+            &corner,
+            from_cube_center(summed_normals(vertex), 10.0 - 4.0 / 3.0),
+        );
+    }
+    let front_left_top = face(
+        body,
+        "f-cha1/corner/vertex(f-box1/front|f-box1/left|f-box1/top)",
+    );
+    assert_face_centroid(&front_left_top, [-26.0 / 3.0, -26.0 / 3.0, 56.0 / 3.0]);
 }

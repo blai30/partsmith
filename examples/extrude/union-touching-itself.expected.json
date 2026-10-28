@@ -1,0 +1,208 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 36858.40734641021,
+      "area": 10600.0,
+      "center_of_mass": [
+        40.0,
+        23.721488713254548,
+        5.0
+      ],
+      "bounding_box": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          80.0,
+          50.0,
+          10.0
+        ]
+      },
+      "faces": 9,
+      "edges": 21,
+      "vertices": 14
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "error",
+      "errors": 1,
+      "warnings": 1,
+      "infos": 0,
+      "label": "1 error, 1 warning"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          88.0,
+          103.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "error",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "error",
+              "findings": [
+                {
+                  "check": "mesh_validity",
+                  "code": "non_manifold_edges",
+                  "severity": "error",
+                  "message": "1 edge is shared by more than two triangles. Separate the touching parts or rebuild the body.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      40.0,
+                      50.0,
+                      0.0
+                    ],
+                    "max": [
+                      40.0,
+                      50.0,
+                      10.0
+                    ]
+                  },
+                  "value": 1.0,
+                  "faces": [
+                    3,
+                    4,
+                    6,
+                    7
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "thin_walls",
+                  "code": "thin_wall",
+                  "severity": "warning",
+                  "message": "A wall 0.003 mm thick is thinner than 0.8 mm and may not print. Make it at least 0.8 mm thick.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      36.17316567634911,
+                      49.238795325112854,
+                      0.0
+                    ],
+                    "max": [
+                      43.82683432365093,
+                      50.0,
+                      10.0
+                    ]
+                  },
+                  "value": 0.003173349898481523,
+                  "limit": 0.8,
+                  "faces": [
+                    6,
+                    7
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

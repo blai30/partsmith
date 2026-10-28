@@ -9,14 +9,15 @@ use std::f64::consts::PI;
 
 use feature_support::fillet::{fillet_record, plate_document};
 use feature_support::{
-    CUBE20, FRONT_TOP_EDGE, MOVE_BY_100, RISER_EDGE, RISER_SENTENCE, Run, STEP,
-    STEP_BOTTOM_LEFT_EDGE, assert_bounding_box, assert_element_repair, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_kind,
-    assert_face_radius, assert_limiting_face, assert_list_field, assert_messages_pass_lint,
-    assert_moved_by_100, assert_same_body, assert_skipped_as_smooth, assert_unchanged,
-    assert_volume, body_update, document_text, face, face_names_with_prefix, id, message,
-    output_body, parse_document, remove_entry, round_down_to_two_significant_digits, set_field,
-    suggested_limit, use_reference,
+    BOX_EDGE_NAMES, BOX_VERTEX_NAMES, CUBE20, FRONT_TOP_EDGE, MOVE_BY_100, RISER_EDGE,
+    RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_bounding_box, assert_element_repair,
+    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
+    assert_face_kind, assert_face_radius, assert_limiting_face, assert_list_field,
+    assert_messages_pass_lint, assert_moved_by_100, assert_same_body, assert_skipped_as_smooth,
+    assert_unchanged, assert_volume, body_update, document_text, face, face_names_with_prefix, id,
+    message, output_body, parse_document, prefixed, remove_entry,
+    round_down_to_two_significant_digits, set_field, suggested_limit, use_reference,
+    with_edges_reversed,
 };
 use partsmith_features::{
     BodyChange, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, NoEffectHow,
@@ -24,44 +25,9 @@ use partsmith_features::{
 use partsmith_model::Units;
 use partsmith_occt_sys::GeometryKind;
 
-/// The names of the twelve edges of a box `f-box1`.
-const BOX_EDGE_NAMES: [&str; 12] = [
-    "edge(f-box1/front|f-box1/top)",
-    "edge(f-box1/back|f-box1/top)",
-    "edge(f-box1/left|f-box1/top)",
-    "edge(f-box1/right|f-box1/top)",
-    "edge(f-box1/bottom|f-box1/front)",
-    "edge(f-box1/back|f-box1/bottom)",
-    "edge(f-box1/bottom|f-box1/left)",
-    "edge(f-box1/bottom|f-box1/right)",
-    "edge(f-box1/front|f-box1/left)",
-    "edge(f-box1/front|f-box1/right)",
-    "edge(f-box1/back|f-box1/left)",
-    "edge(f-box1/back|f-box1/right)",
-];
-
-/// The names of the eight corner vertices of a box `f-box1`.
-const BOX_VERTEX_NAMES: [&str; 8] = [
-    "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
-    "vertex(f-box1/back|f-box1/bottom|f-box1/right)",
-    "vertex(f-box1/back|f-box1/left|f-box1/top)",
-    "vertex(f-box1/back|f-box1/right|f-box1/top)",
-    "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
-    "vertex(f-box1/bottom|f-box1/front|f-box1/right)",
-    "vertex(f-box1/front|f-box1/left|f-box1/top)",
-    "vertex(f-box1/front|f-box1/right|f-box1/top)",
-];
-
 /// "Use {value}": `SetField` of the radius to the expression `value`.
 fn use_radius(value: &str) -> Fix {
     set_field("radius", "Radius", serde_json::json!(value))
-}
-
-/// `names` with `prefix` put in front of each, sorted by byte order.
-fn prefixed(prefix: &str, names: &[&str]) -> Vec<String> {
-    let mut prefixed: Vec<String> = names.iter().map(|name| format!("{prefix}{name}")).collect();
-    prefixed.sort();
-    prefixed
 }
 
 #[test]
@@ -501,16 +467,8 @@ fn t017_radius_below_the_tolerance() {
 
 #[test]
 fn t018_edge_order_does_not_matter() {
-    // `E-FT`, `E-BT` and `E-LT` of `CUBE20`.
-    let edges = [
-        FRONT_TOP_EDGE,
-        r#"{"q": "edge(f-box1/back|f-box1/top)", "fp": "line|n=1,0,0|c=0,10,20|l=20"}"#,
-        r#"{"q": "edge(f-box1/left|f-box1/top)", "fp": "line|n=0,1,0|c=-10,0,20|l=20"}"#,
-    ];
-    let reversed = [edges[2], edges[1], edges[0]];
-
-    let listed = Run::records(&["b-1"], &[CUBE20, &fillet_record(&edges, "1")]);
-    let reversed = Run::records(&["b-1"], &[CUBE20, &fillet_record(&reversed, "1")]);
+    let listed = Run::example("fillet/edge-order.ptsm");
+    let reversed = Run::new(with_edges_reversed(&listed.document, "f-fil1"));
 
     listed.assert_all_ok();
     reversed.assert_all_ok();

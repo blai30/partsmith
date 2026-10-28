@@ -1,0 +1,269 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-mv1",
+      "type": "move_body",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 1761.7108735504344,
+      "area": 3591.6105373056553,
+      "center_of_mass": [
+        50.00000000000003,
+        9.679809504652076e-17,
+        8.619523761524666
+      ],
+      "bounding_box": {
+        "min": [
+          40.0,
+          -10.0,
+          -4.440892098500626e-16
+        ],
+        "max": [
+          60.0,
+          10.0,
+          20.0
+        ]
+      },
+      "faces": 54,
+      "edges": 100,
+      "vertices": 48
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 2,
+      "infos": 1,
+      "label": "2 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          78.0,
+          128.0,
+          4.440892098500626e-16,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "info",
+              "findings": [
+                {
+                  "check": "mesh_validity",
+                  "code": "degenerate_triangles",
+                  "severity": "info",
+                  "message": "16 triangles have no area. Slicers ignore them.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      40.0,
+                      -8.114151564890713,
+                      1.8858484351092866
+                    ],
+                    "max": [
+                      60.0,
+                      8.03939126853623,
+                      20.0
+                    ]
+                  },
+                  "value": 16.0,
+                  "faces": [
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11,
+                    12,
+                    34,
+                    35,
+                    36,
+                    37,
+                    38,
+                    39,
+                    40,
+                    41
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 96.6 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      40.5857864376269,
+                      -9.414213562373094,
+                      0.0019035568362839594
+                    ],
+                    "max": [
+                      59.4142135623731,
+                      9.414213562373096,
+                      0.6287011554273767
+                    ]
+                  },
+                  "value": 1.5007786050917475,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    5,
+                    6,
+                    9,
+                    10,
+                    13,
+                    17,
+                    18,
+                    19
+                  ]
+                },
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 52.1 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      41.292893218813454,
+                      -8.707106781186546,
+                      18.70710678118655
+                    ],
+                    "max": [
+                      58.707106781186546,
+                      8.707106781186546,
+                      19.0
+                    ]
+                  },
+                  "value": 1.5489797111449948,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    36,
+                    37,
+                    40,
+                    41,
+                    45,
+                    51,
+                    52,
+                    53
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

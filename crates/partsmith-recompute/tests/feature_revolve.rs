@@ -446,10 +446,7 @@ fn t024_curved_axis_edge() {
 fn t025_union_of_regions_split_by_a_line() {
     // Features.md sections 3.7 and 3.10: the pieces of e-1 and e-3 on either side of the dropped
     // line merge, so the union revolves to the ring of test 1.
-    let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XZ"}, "entities": [{"id": "e-1", "type": "line", "start": [10, 0], "end": [20, 0]}, {"id": "e-2", "type": "line", "start": [20, 0], "end": [20, 30]}, {"id": "e-3", "type": "line", "start": [20, 30], "end": [10, 30]}, {"id": "e-4", "type": "line", "start": [10, 30], "end": [10, 0]}, {"id": "e-5", "type": "line", "start": [15, 0], "end": [15, 30]}]}"#;
-    let profile = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-3,e-4,e-5", "fp": "c=12.5,15|a=150"}, {"key": "e-1,e-2,e-3,~e-5", "fp": "c=17.5,15|a=150"}]}"#;
-
-    let run = Run::records(&["b-1"], &[sketch, &revolve(profile, AXIS_Z, FULL, "new")]);
+    let run = Run::example("revolve/union-split-by-line.ptsm");
 
     assert_full_ring(&run);
     assert_no_face(run.body("b-1"), "f-rev1/lateral/e-5");

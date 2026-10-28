@@ -59,6 +59,34 @@ pub const CUBE20: &str =
 pub const FRONT_TOP_EDGE: &str =
     r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20"}"#;
 
+/// The names of the twelve edges of a box `f-box1`.
+pub const BOX_EDGE_NAMES: [&str; 12] = [
+    "edge(f-box1/front|f-box1/top)",
+    "edge(f-box1/back|f-box1/top)",
+    "edge(f-box1/left|f-box1/top)",
+    "edge(f-box1/right|f-box1/top)",
+    "edge(f-box1/bottom|f-box1/front)",
+    "edge(f-box1/back|f-box1/bottom)",
+    "edge(f-box1/bottom|f-box1/left)",
+    "edge(f-box1/bottom|f-box1/right)",
+    "edge(f-box1/front|f-box1/left)",
+    "edge(f-box1/front|f-box1/right)",
+    "edge(f-box1/back|f-box1/left)",
+    "edge(f-box1/back|f-box1/right)",
+];
+
+/// The names of the eight corner vertices of a box `f-box1`.
+pub const BOX_VERTEX_NAMES: [&str; 8] = [
+    "vertex(f-box1/back|f-box1/bottom|f-box1/left)",
+    "vertex(f-box1/back|f-box1/bottom|f-box1/right)",
+    "vertex(f-box1/back|f-box1/left|f-box1/top)",
+    "vertex(f-box1/back|f-box1/right|f-box1/top)",
+    "vertex(f-box1/bottom|f-box1/front|f-box1/left)",
+    "vertex(f-box1/bottom|f-box1/front|f-box1/right)",
+    "vertex(f-box1/front|f-box1/left|f-box1/top)",
+    "vertex(f-box1/front|f-box1/right|f-box1/top)",
+];
+
 /// The 20 x 20 x 2.4 mm plate of the dress-up "too large" tests.
 pub const PLATE: &str =
     r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "2.4"], "op": "new"}"#;
@@ -795,6 +823,31 @@ pub fn element_names(state: &BodyState, kind: ElementKind) -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+/// `names` with `prefix` put in front of each, sorted by byte order.
+pub fn prefixed(prefix: &str, names: &[&str]) -> Vec<String> {
+    let mut prefixed: Vec<String> = names.iter().map(|name| format!("{prefix}{name}")).collect();
+    prefixed.sort();
+    prefixed
+}
+
+/// `document` with the `edges` of `feature` listed in reverse order: the second document of the
+/// edge order tests (features/fillet.md test 18, features/chamfer.md test 12).
+pub fn with_edges_reversed(document: &Document, feature: &str) -> Document {
+    let mut reversed = document.clone();
+    let record = reversed
+        .features
+        .iter_mut()
+        .find(|record| record.id.as_str() == feature)
+        .unwrap_or_else(|| panic!("the document has no feature {feature}"));
+    record
+        .params
+        .get_mut("edges")
+        .and_then(Value::as_array_mut)
+        .unwrap_or_else(|| panic!("{feature} lists no edges"))
+        .reverse();
+    reversed
 }
 
 /// The face names of a body that start with `prefix`, sorted by byte order.

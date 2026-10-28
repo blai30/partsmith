@@ -16,7 +16,7 @@ use feature_support::{
     assert_face_count, assert_face_in_plane, assert_face_kind, assert_face_normal,
     assert_face_position, assert_face_radius, assert_has_face, assert_list_field,
     assert_moved_by_100, assert_no_face, assert_solid_count, assert_unchanged, assert_volume,
-    body_update, document, face, face_index, face_names_with_prefix, load_example, parse_document,
+    body_update, document, face, face_index, face_names_with_prefix, parse_document,
     point_components, suggested_limit,
 };
 use feature_support::{assert_messages_pass_lint, id, message, pick, set_field};
@@ -40,10 +40,6 @@ const L_BODY: [&str; 2] = [
     r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}"#,
     r#"{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "position": ["10", "0", "10"], "op": "join"}"#,
 ];
-
-/// The step face of `L_BODY`, the left half of the lower box's top, which meets the taller box at
-/// a concave edge.
-const STEP_FACE: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=-10,0,10|a=400"}"#;
 
 /// The top of the taller box of `L_BODY`, at z = 20.
 const HIGH_TOP_FACE: &str = r#"{"q": "f-box2/top", "fp": "plane|n=0,0,1|c=10,0,20|a=400"}"#;
@@ -480,11 +476,11 @@ fn t011_empty_body() {
     );
 }
 
-/// shell.md open issue 3: a removed face beside a concave edge. The step face of the L-shaped body
-/// borders the concave edge where it meets the taller box, which the kernel's first attempt cannot
-/// open; its fallback (kernel.md section 3.4.8 item 3) cuts out the cavity instead.
+/// Test 26 (shell.md open issue 3): a removed face beside a concave edge. The step face of the
+/// L-shaped body borders the concave edge where it meets the taller box, which the kernel's first
+/// attempt cannot open; its fallback (kernel.md section 3.4.8 item 3) cuts out the cavity instead.
 #[test]
-fn removed_face_beside_a_concave_edge() {
+fn t026_removed_face_beside_a_concave_edge() {
     let run = Run::example("shell/step-face-removed.ptsm");
 
     run.assert_all_ok();
@@ -518,13 +514,24 @@ fn removed_face_beside_a_concave_edge() {
         "one inner wall per kept face and the bottom of the wall over the opening"
     );
     assert_no_fallback_names(&run);
+}
 
-    let thin = Run::records(
-        &["b-1"],
-        &[L_BODY[0], L_BODY[1], &shell_record("0.5", &[STEP_FACE])],
-    );
-    thin.assert_all_ok();
-    assert_volume(thin.shape("b-1"), 1531.0);
+#[test]
+fn t026_thin_wall_beside_a_concave_edge() {
+    let run = Run::example("shell/step-face-removed-thin.ptsm");
+
+    run.assert_all_ok();
+    let body = run.body("b-1");
+    let shape = run.shape("b-1");
+    // The L less a cavity of 39 x 19 x 9.5 and 19 x 19 x 9.5.
+    assert_volume(shape, 1531.0);
+    assert_face_count(shape, 16);
+    assert_face_area(&face(body, "f-sh1/rim/f-box1/top"), 29.5);
+    assert_face_area(&face(body, "f-sh1/inner/f-box1/top"), 9.5);
+    let step_wall = face(body, "f-sh1/inner/f-box2/left");
+    assert_face_kind(&step_wall, GeometryKind::Plane);
+    assert_face_position(&step_wall, 0, 0.5);
+    assert_face_area(&step_wall, 180.5);
 }
 
 #[test]
@@ -570,27 +577,26 @@ fn assert_top_open(run: &Run, center_x: f64) {
     assert_face_position(&end, 2, 19.5);
 }
 
+/// Test 14's second document: its example without the move `f-mv1`, with the removed top picked
+/// where it lies unmoved, at x = 0.
+fn without_the_move(moved: &Document) -> Document {
+    let mut unmoved = moved.clone();
+    unmoved
+        .features
+        .retain(|record| record.id.as_str() != "f-mv1");
+    let shell = unmoved
+        .features
+        .iter_mut()
+        .find(|record| record.id.as_str() == "f-sh1")
+        .expect("the example has the shell f-sh1");
+    shell.params["remove_faces"][0]["fp"] = "plane|n=0,0,1|c=0,0,20|a=256".into();
+    unmoved
+}
+
 #[test]
 fn t014_moved_body() {
-    let every_edge = load_example("fillet/every-edge.ptsm");
-    let records: Vec<String> = every_edge
-        .features
-        .iter()
-        .map(|record| serde_json::to_string(record).expect("records serialize"))
-        .collect();
-    let records: Vec<&str> = records.iter().map(String::as_str).collect();
-    let moved_top = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=50,0,20|a=256"}"#;
-    let top = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=256"}"#;
-    let move_record =
-        r#"{"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["50", "0", "0"]}"#;
-    let moved_shell = shell_record("1", &[moved_top]);
-    let shell = shell_record("1", &[top]);
-
-    let moved = Run::new(document(
-        &["b-1"],
-        &[records[0], records[1], move_record, &moved_shell],
-    ));
-    let unmoved = Run::new(document(&["b-1"], &[records[0], records[1], &shell]));
+    let moved = Run::example("shell/moved-body.ptsm");
+    let unmoved = Run::new(without_the_move(&moved.document));
 
     moved.assert_all_ok();
     unmoved.assert_all_ok();
@@ -600,7 +606,12 @@ fn t014_moved_body() {
     assert_volume(expected, 1280.0 + 460.0 * PI / 3.0);
     assert_face_count(expected, 54);
     let shape = moved.shape("b-1");
-    assert_volume(shape, expected.volume().expect("a volume"));
+    let [moved_volume, unmoved_volume] =
+        [shape, expected].map(|shape| shape.volume().expect("a volume"));
+    assert!(
+        (moved_volume - unmoved_volume).abs() <= 1e-9 * unmoved_volume.abs(),
+        "the moved body's volume {moved_volume} differs from the unmoved {unmoved_volume} by more than 1e-9 relative"
+    );
     assert_face_count(shape, 54);
     assert_bounding_box(shape, [40.0, -10.0, 0.0], [60.0, 10.0, 20.0]);
     assert_top_open(&unmoved, 0.0);

@@ -1,6 +1,6 @@
 //! Acceptance tests for fillet, chamfer and shell (kernel spec sections 2.8, 3.4.6 to 3.4.9, 3.5
-//! and tests 44 to 53, 68, 102, 103, 110, 115 and 131 to 133), including the history behavior the
-//! spec asks to verify on the built library (section 7, open issues 3 and 4).
+//! and tests 44 to 53, 68, 102, 103, 110, 115, 131 to 133 and 142), including the history behavior
+//! the spec asks to verify on the built library (section 7, open issues 3 and 4).
 
 use crate::common;
 
@@ -454,6 +454,212 @@ fn two_distance_chamfer_on_a_face_out_of_range_is_rejected() {
         Operation::Chamfer,
         "Face 7 does not exist in this body.",
     );
+}
+
+/// Test 142: every edge of BOX chamfered with `Equal { distance: 1 }`.
+fn chamfer_every_box_edge(block: &Primitive) -> OpResult {
+    let edges: Vec<ChamferEdge> = (1..=12)
+        .map(|edge| ChamferEdge {
+            edge,
+            size: ChamferSize::Equal { distance: 1.0 },
+        })
+        .collect();
+    chamfer(&block.shape, &edges).expect("every edge is chamfered")
+}
+
+/// `point` moved by `distance` against each of `normals`: into a box, when they are the outward
+/// normals of box faces holding the point.
+fn moved_against(point: Point, normals: &[Vector], distance: f64) -> Point {
+    normals.iter().fold(point, |moved, normal| {
+        Point::new(
+            moved.x - distance * normal.x,
+            moved.y - distance * normal.y,
+            moved.z - distance * normal.z,
+        )
+    })
+}
+
+/// The outward normals of the input faces of `shape` in `faces`.
+fn outward_normals(shape: &Shape, faces: &[u32]) -> Vec<Vector> {
+    faces
+        .iter()
+        .map(|face| face_direction(shape, *face))
+        .collect()
+}
+
+/// The faces that the input vertices of test 142 generate: the corner faces.
+fn corner_faces(result: &OpResult) -> Vec<u32> {
+    result.history.inputs[0]
+        .vertices
+        .iter()
+        .flat_map(generated_faces)
+        .collect()
+}
+
+/// The faces that the input edges of test 142 generate: the chamfer faces.
+fn chamfer_faces(result: &OpResult) -> Vec<u32> {
+    result.history.inputs[0]
+        .edges
+        .iter()
+        .flat_map(generated_faces)
+        .collect()
+}
+
+#[test]
+fn t142_chamfer_of_every_box_edge() {
+    let block = box_primitive();
+
+    let result = chamfer_every_box_edge(&block);
+
+    let shape = &result.shape;
+    assert!(shape.is_valid().expect("validity check"));
+    assert_eq!(shape.count(SubShapeKind::Face), 26);
+    assert_eq!(faces_of_kind(shape, GeometryKind::Plane).len(), 26);
+    assert_eq!(shape.count(SubShapeKind::Edge), 48);
+    assert_eq!(shape.count(SubShapeKind::Vertex), 24);
+    // 6000 less a prism of section 1/2 along each edge without its last millimeter at either end
+    // (108 in all) and 5/6 at each corner.
+    assert_relative(volume(shape), 5885.333333333333, 1e-9, "volume");
+    // 1744 + 216 sqrt(2) + 4 sqrt(3).
+    assert_relative(
+        shape.area().expect("the shape can be measured"),
+        2056.398332702864,
+        1e-9,
+        "area",
+    );
+}
+
+#[test]
+fn t142_every_output_face_has_an_origin() {
+    let block = box_primitive();
+
+    let result = chamfer_every_box_edge(&block);
+
+    assert_every_face_has_an_origin(&result);
+}
+
+#[test]
+fn t142_each_box_face_keeps_one_image() {
+    let block = box_primitive();
+
+    let result = chamfer_every_box_edge(&block);
+
+    let faces = &result.history.inputs[0].faces;
+    assert_eq!(faces.len(), 6);
+    for (position, fate) in faces.iter().enumerate() {
+        assert_eq!(fate.modified.len(), 1, "face {}: {fate:?}", position + 1);
+    }
+}
+
+#[test]
+fn t142_each_edge_is_deleted_and_generates_its_chamfer_face() {
+    let block = box_primitive();
+    let topology = block.shape.topology().expect("topology");
+
+    let result = chamfer_every_box_edge(&block);
+
+    let edges = &result.history.inputs[0].edges;
+    assert_eq!(edges.len(), 12);
+    for (position, fate) in edges.iter().enumerate() {
+        let edge = index_from_position(position);
+        assert!(fate.is_deleted(), "edge {edge}: {fate:?}");
+        let generated = generated_faces(fate);
+        assert_eq!(generated.len(), 1, "edge {edge}: {fate:?}");
+        let input = geometry(&block.shape, SubShapeKind::Edge, edge);
+        let normals = outward_normals(&block.shape, &topology.edges[position].faces);
+        assert_eq!(normals.len(), 2, "edge {edge} lies between two faces");
+        let bevel = geometry(&result.shape, SubShapeKind::Face, generated[0]);
+        assert_eq!(bevel.kind, GeometryKind::Plane, "edge {edge}");
+        assert_relative(
+            bevel.measure,
+            2.0_f64.sqrt() * (input.measure - 2.0),
+            1e-9,
+            &format!("area of the chamfer face of edge {edge}"),
+        );
+        assert_point_near(
+            bevel.centroid,
+            moved_against(input.centroid, &normals, 0.5),
+            POINT_TOLERANCE,
+            &format!("centroid of the chamfer face of edge {edge}"),
+        );
+    }
+}
+
+#[test]
+fn t142_each_corner_vertex_generates_its_corner_face() {
+    let block = box_primitive();
+    let topology = block.shape.topology().expect("topology");
+
+    let result = chamfer_every_box_edge(&block);
+
+    let vertices = &result.history.inputs[0].vertices;
+    assert_eq!(vertices.len(), 8);
+    let output_topology = result.shape.topology().expect("topology of the result");
+    for (position, fate) in vertices.iter().enumerate() {
+        let vertex = index_from_position(position);
+        let generated = generated_faces(fate);
+        assert_eq!(generated.len(), 1, "vertex {vertex}: {fate:?}");
+        let corner = generated[0];
+        let bounds = &output_topology.faces[corner as usize - 1];
+        assert_eq!(
+            bounds.edges.len(),
+            3,
+            "edges of the corner face of vertex {vertex}"
+        );
+        assert_eq!(
+            bounds.vertices.len(),
+            3,
+            "vertices of the corner face of vertex {vertex}"
+        );
+        let face = geometry(&result.shape, SubShapeKind::Face, corner);
+        assert_eq!(face.kind, GeometryKind::Plane, "vertex {vertex}");
+        assert_relative(
+            face.measure,
+            3.0_f64.sqrt() / 2.0,
+            1e-9,
+            &format!("area of the corner face of vertex {vertex}"),
+        );
+        let point = geometry(&block.shape, SubShapeKind::Vertex, vertex).centroid;
+        let normals = outward_normals(&block.shape, &topology.vertices[position].faces);
+        assert_eq!(
+            normals.len(),
+            3,
+            "vertex {vertex} is a corner of three faces"
+        );
+        assert_point_near(
+            face.centroid,
+            moved_against(point, &normals, 2.0 / 3.0),
+            POINT_TOLERANCE,
+            &format!("centroid of the corner face of vertex {vertex}"),
+        );
+    }
+}
+
+#[test]
+fn t142_corner_faces_come_only_from_their_vertices() {
+    let block = box_primitive();
+
+    let result = chamfer_every_box_edge(&block);
+
+    let corners = corner_faces(&result);
+    let bevels = chamfer_faces(&result);
+    assert_eq!(corners.len(), 8);
+    assert_eq!(bevels.len(), 12);
+    for corner in &corners {
+        assert!(
+            !bevels.contains(corner),
+            "corner face {corner} is in an edge's generated list"
+        );
+    }
+    for (position, fate) in result.history.inputs[0].faces.iter().enumerate() {
+        for image in &fate.modified {
+            assert!(
+                !corners.contains(image) && !bevels.contains(image),
+                "face {} lists the chamfer or corner face {image} in modified",
+                position + 1
+            );
+        }
+    }
 }
 
 #[test]
