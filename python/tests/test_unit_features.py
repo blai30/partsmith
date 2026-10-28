@@ -1,14 +1,13 @@
 """Unit tests of the feature records partsmith.features builds and of their argument checks."""
 
 import pytest
-from support import descriptor, reference_json, stored_feature
+from support import descriptor, reference_json, stored_params
 
 from partsmith import (
     Axis,
     Circle,
     DatumPlane,
     Document,
-    Feature,
     FeatureError,
     Line,
     Part,
@@ -50,12 +49,6 @@ from partsmith.selectors import _ElementTable
 pytestmark = pytest.mark.filterwarnings("ignore::partsmith.PartsmithWarning")
 
 
-def params(document: Document, feature: Feature) -> dict:
-    """The stored params of a feature, without the record keys."""
-    record = stored_feature(document, feature.id)
-    return {key: value for key, value in record.items() if key not in ("id", "type", "name", "suppressed")}
-
-
 @pytest.fixture
 def document():
     """A new document whose part P holds a box, current part inside the test."""
@@ -78,7 +71,12 @@ def test_a_default_primitive_stores_only_sizes_and_op():
     with Part("P"):
         cylinder_feature = cylinder(5, 10)
 
-    assert params(document, cylinder_feature) == {"body": "b-000000000001", "radius": "5", "height": "10", "op": "new"}
+    assert stored_params(document, cylinder_feature) == {
+        "body": "b-000000000001",
+        "radius": "5",
+        "height": "10",
+        "op": "new",
+    }
 
 
 def test_a_primitive_stores_its_plane_and_position():
@@ -86,14 +84,14 @@ def test_a_primitive_stores_its_plane_and_position():
     with Part("P"):
         sphere_feature = sphere(3, plane=Plane.XZ, position=(1, 2 * mm, "3"))
 
-    stored = params(document, sphere_feature)
+    stored = stored_params(document, sphere_feature)
     assert stored["plane"] == {"kind": "origin", "plane": "XZ"}
     assert stored["position"] == ["1", "2 mm", "3"]
 
 
 def test_cone_and_torus_store_their_sizes(document):
-    assert params(document, cone(5, 0, 10, op="join"))["bottom_radius"] == "5"
-    assert params(document, torus(10, 2, op="join"))["minor_radius"] == "2"
+    assert stored_params(document, cone(5, 0, 10, op="join"))["bottom_radius"] == "5"
+    assert stored_params(document, torus(10, 2, op="join"))["minor_radius"] == "2"
 
 
 def test_a_primitive_op_must_be_known(document):
@@ -107,7 +105,7 @@ def test_a_primitive_position_needs_three_values(document):
 
 
 def test_extrude_stores_a_symmetric_extent_and_reverse(document, plate_sketch):
-    stored = params(document, extrude(plate_sketch, 6, symmetric=True, reverse=True))
+    stored = stored_params(document, extrude(plate_sketch, 6, symmetric=True, reverse=True))
 
     assert stored["extent"] == {"kind": "symmetric", "expr": "6"}
     assert stored["reverse"] is True
@@ -127,19 +125,19 @@ def test_a_symmetric_extrude_needs_a_distance(document, plate_sketch):
 
 
 def test_extrude_stores_opposite_distance_as_the_opposite_expression(document, plate_sketch):
-    stored = params(document, extrude(plate_sketch, 6, opposite_distance=2 * mm))
+    stored = stored_params(document, extrude(plate_sketch, 6, opposite_distance=2 * mm))
 
     assert stored["extent"] == {"kind": "two_sides", "expr": "6", "opposite_expr": "2 mm"}
 
 
 def test_extrude_stores_a_zero_opposite_distance_as_two_sides(document, plate_sketch):
-    stored = params(document, extrude(plate_sketch, 6, opposite_distance=0))
+    stored = stored_params(document, extrude(plate_sketch, 6, opposite_distance=0))
 
     assert stored["extent"] == {"kind": "two_sides", "expr": "6", "opposite_expr": "0"}
 
 
 def test_a_two_sided_extrude_stores_reverse_beside_its_extent(document, plate_sketch):
-    stored = params(document, extrude(plate_sketch, 6, opposite_distance=2, reverse=True))
+    stored = stored_params(document, extrude(plate_sketch, 6, opposite_distance=2, reverse=True))
 
     assert stored["extent"]["kind"] == "two_sides"
     assert stored["reverse"] is True
@@ -180,26 +178,26 @@ def test_a_rejected_two_sided_extrude_adds_nothing(document, plate_sketch):
 
 
 def test_chamfer_stores_an_equal_distance_without_a_second_distance(document):
-    stored = params(document, chamfer(edges().top(), 1))
+    stored = stored_params(document, chamfer(edges().top(), 1))
 
     assert stored["distance"] == {"kind": "equal", "expr": "1"}
 
 
 def test_chamfer_stores_a_second_distance_as_two_distances(document):
-    stored = params(document, chamfer(edges().top(), 1, second_distance=2 * mm))
+    stored = stored_params(document, chamfer(edges().top(), 1, second_distance=2 * mm))
 
     assert stored["distance"] == {"kind": "two_distances", "expr": "1", "second_expr": "2 mm"}
 
 
 def test_chamfer_stores_a_second_distance_equal_to_the_distance_as_two_distances(document):
-    stored = params(document, chamfer(edges().top(), 1, second_distance=1))
+    stored = stored_params(document, chamfer(edges().top(), 1, second_distance=1))
 
     assert stored["distance"] == {"kind": "two_distances", "expr": "1", "second_expr": "1"}
 
 
 def test_chamfer_stores_flip_only_when_true(document):
-    flipped = params(document, chamfer(edges().top(), 1, second_distance=2, flip=True))
-    unflipped = params(document, chamfer(edges().top(), 1, second_distance=2, flip=False))
+    flipped = stored_params(document, chamfer(edges().top(), 1, second_distance=2, flip=True))
+    unflipped = stored_params(document, chamfer(edges().top(), 1, second_distance=2, flip=False))
 
     assert flipped["distance"]["flip"] is True
     assert "flip" not in unflipped["distance"]
@@ -222,7 +220,7 @@ def test_chamfer_second_distance_must_not_be_a_bool(document):
 def test_extrude_takes_regions_by_key(document, plate_sketch):
     [region] = plate_sketch.regions()
 
-    stored = params(document, extrude(plate_sketch, 5, regions=[Region(region.key)]))
+    stored = stored_params(document, extrude(plate_sketch, 5, regions=[Region(region.key)]))
 
     # A region without a fingerprint takes the fingerprint and outline of the current solve (python-api.md 2.6).
     assert stored["profile"]["regions"] == [{"key": region.key, "fp": region.fp, "outline": region.outline}]
@@ -231,8 +229,8 @@ def test_extrude_takes_regions_by_key(document, plate_sketch):
 def test_extrude_stores_a_region_with_its_outline_only_when_it_has_one(document, plate_sketch):
     [region] = plate_sketch.regions()
 
-    with_outline = params(document, extrude(plate_sketch, 5, regions=[region]))
-    without_outline = params(document, extrude(plate_sketch, 5, regions=[Region(region.key, region.fp)]))
+    with_outline = stored_params(document, extrude(plate_sketch, 5, regions=[region]))
+    without_outline = stored_params(document, extrude(plate_sketch, 5, regions=[Region(region.key, region.fp)]))
 
     assert region.outline is not None
     assert with_outline["profile"]["regions"] == [{"key": region.key, "fp": region.fp, "outline": region.outline}]
@@ -247,7 +245,7 @@ def test_extrude_refuses_an_unknown_region_key(document, plate_sketch):
 def test_extrude_takes_a_sketch_feature_object(document, plate_sketch):
     sketch_feature = document.features[-1]
 
-    stored = params(document, extrude(sketch_feature, 5))
+    stored = stored_params(document, extrude(sketch_feature, 5))
 
     assert stored["profile"]["sketch"] == plate_sketch.id
 
@@ -262,7 +260,7 @@ def test_revolve_stores_an_angle_extent_about_a_sketch_line(document):
         Rectangle(5, 5, center=(30, 10))
         axis = Line((0, 0), (0, 10), construction=True)
 
-    stored = params(document, revolve(sketch, axis, 90 * deg))
+    stored = stored_params(document, revolve(sketch, axis, 90 * deg))
 
     assert stored["axis"] == {"kind": "sketch_line", "sketch": sketch.id, "line": axis.id}
     assert stored["extent"] == {"kind": "angle", "expr": "90 deg"}
@@ -272,7 +270,7 @@ def test_hole_stores_counterbore_tip_and_reverse(document):
     with Sketch(datum_plane(Plane.XY, offset=40)) as sketch:
         point = Point(0, 0)
 
-    stored = params(document, hole(point, 5, 10, counterbore=(8, 2), tip_angle=118 * deg, reverse=False))
+    stored = stored_params(document, hole(point, 5, 10, counterbore=(8, 2), tip_angle=118 * deg, reverse=False))
 
     assert stored == {
         "body": "b-000000000001",
@@ -291,7 +289,7 @@ def test_hole_of_a_sketch_takes_every_point_entity(document):
         Circle(1)
         second = Point(5, 0, construction=True)
 
-    stored = params(document, hole(sketch, 2, countersink=(4, 90 * deg)))
+    stored = stored_params(document, hole(sketch, 2, countersink=(4, 90 * deg)))
 
     assert stored["points"] == [first.id, second.id]
     assert stored["hole_type"] == {"kind": "countersink", "diameter": "4", "angle": "90 deg"}
@@ -302,7 +300,7 @@ def test_hole_points_of_a_circle_use_the_center_address(document):
     with Sketch(datum_plane(Plane.XY, offset=40)):
         circle = Circle(1)
 
-    assert params(document, hole(circle.center, 2))["points"] == [f"{circle.id}.center"]
+    assert stored_params(document, hole(circle.center, 2))["points"] == [f"{circle.id}.center"]
 
 
 def test_hole_takes_counterbore_or_countersink(document, plate_sketch):
@@ -328,7 +326,7 @@ def test_boolean_stores_tools_and_keep_tools():
         box(5, 5, 5)
         boolean_feature = boolean(tool, op="intersect", keep_tools=True)
 
-    assert params(document, boolean_feature) == {
+    assert stored_params(document, boolean_feature) == {
         "target": base.id,
         "tools": [tool.id],
         "op": "intersect",
@@ -349,7 +347,7 @@ def test_boolean_op_must_be_known(document):
 def test_mirror_into_another_part_stores_op_new_and_target(document):
     image = Part("Image")
 
-    stored = params(document, mirror(Plane.YZ, into=image))
+    stored = stored_params(document, mirror(Plane.YZ, into=image))
 
     assert (stored["op"], stored["target"]) == ("new", image.id)
 
@@ -357,21 +355,21 @@ def test_mirror_into_another_part_stores_op_new_and_target(document):
 def test_a_mirror_on_a_flat_face(document):
     face = faces().max(Axis.X)
 
-    stored = params(document, mirror(face))
+    stored = stored_params(document, mirror(face))
 
     assert stored["plane"]["kind"] == "face"
     assert stored["plane"]["face"]["q"] == face[0].reference.q
 
 
 def test_linear_pattern_stores_both_directions(document):
-    stored = params(document, linear_pattern(Axis.X, 2, 30, second=(Axis.Y, 3, 40)))
+    stored = stored_params(document, linear_pattern(Axis.X, 2, 30, second=(Axis.Y, 3, 40)))
 
     assert stored["direction"] == {"axis": {"kind": "origin", "axis": "X"}, "count": "2", "spacing": "30"}
     assert stored["second_direction"] == {"axis": {"kind": "origin", "axis": "Y"}, "count": "3", "spacing": "40"}
 
 
 def test_linear_pattern_stores_reverse_in_its_first_direction(document):
-    stored = params(document, linear_pattern(Axis.X, 2, 30, reverse=True))
+    stored = stored_params(document, linear_pattern(Axis.X, 2, 30, reverse=True))
 
     assert stored["direction"] == {
         "axis": {"kind": "origin", "axis": "X"},
@@ -382,14 +380,14 @@ def test_linear_pattern_stores_reverse_in_its_first_direction(document):
 
 
 def test_linear_pattern_stores_second_reverse_in_its_second_direction(document):
-    stored = params(document, linear_pattern(Axis.X, 2, 30, second=(Axis.Y, 3, 40), second_reverse=True))
+    stored = stored_params(document, linear_pattern(Axis.X, 2, 30, second=(Axis.Y, 3, 40), second_reverse=True))
 
     assert "reverse" not in stored["direction"]
     assert stored["second_direction"]["reverse"] is True
 
 
 def test_linear_pattern_omits_reverse_when_false(document):
-    stored = params(
+    stored = stored_params(
         document, linear_pattern(Axis.X, 2, 30, reverse=False, second=(Axis.Y, 3, 40), second_reverse=False)
     )
 
@@ -414,10 +412,10 @@ def test_linear_pattern_second_takes_no_reverse_flag(document):
 
 
 def test_circular_pattern_omits_the_full_turn(document):
-    stored = params(document, circular_pattern(Axis.Z, 1))
+    stored = stored_params(document, circular_pattern(Axis.Z, 1))
 
     assert "angle" not in stored
-    assert params(document, circular_pattern(Axis.Z, 1, 90 * deg, reverse=True))["angle"] == "90 deg"
+    assert stored_params(document, circular_pattern(Axis.Z, 1, 90 * deg, reverse=True))["angle"] == "90 deg"
 
 
 def test_datum_plane_returns_a_datum_plane_with_its_params():
@@ -426,24 +424,24 @@ def test_datum_plane_returns_a_datum_plane_with_its_params():
     plane = datum_plane(Plane.XZ, offset=expr("5 mm"), flip=True)
 
     assert isinstance(plane, DatumPlane)
-    assert params(document, plane) == {"base": {"kind": "origin", "plane": "XZ"}, "offset": "5 mm", "flip": True}
+    assert stored_params(document, plane) == {"base": {"kind": "origin", "plane": "XZ"}, "offset": "5 mm", "flip": True}
     assert plane.placement.normal == pytest.approx((0, 1, 0))
 
 
 def test_a_zero_offset_is_omitted():
     document = Document()
 
-    assert params(document, datum_plane(Plane.XY)) == {"base": {"kind": "origin", "plane": "XY"}}
+    assert stored_params(document, datum_plane(Plane.XY)) == {"base": {"kind": "origin", "plane": "XY"}}
 
 
 def test_a_datum_plane_on_a_datum_plane(document):
     base = datum_plane(Plane.XY, offset=10)
 
-    assert params(document, datum_plane(base, 5))["base"] == {"kind": "datum", "feature": base.id}
+    assert stored_params(document, datum_plane(base, 5))["base"] == {"kind": "datum", "feature": base.id}
 
 
 def test_move_omits_a_zero_translation_and_stores_a_rotation(document):
-    stored = params(document, move(rotate=(Axis.Z, 90 * deg)))
+    stored = stored_params(document, move(rotate=(Axis.Z, 90 * deg)))
 
     assert stored == {
         "body": "b-000000000001",
@@ -454,7 +452,7 @@ def test_move_omits_a_zero_translation_and_stores_a_rotation(document):
 def test_split_into_a_part_stores_its_target(document):
     other = Part("Other")
 
-    stored = params(document, split(datum_plane(Plane.XY, offset=20), into=other, flip=True))
+    stored = stored_params(document, split(datum_plane(Plane.XY, offset=20), into=other, flip=True))
 
     assert (stored["target"], stored["flip"]) == (other.id, True)
 
@@ -469,7 +467,7 @@ def test_feature_stores_its_params_as_json():
     document = Document()
     Part("P", id="b-1")
 
-    stored = params(document, feature("box", body="b-1", size=["1", 2 * mm, expr("3")], op="new"))
+    stored = stored_params(document, feature("box", body="b-1", size=["1", 2 * mm, expr("3")], op="new"))
 
     assert stored == {"body": "b-1", "size": ["1", "2 mm", "3"], "op": "new"}
 
@@ -621,7 +619,7 @@ def test_an_element_without_an_axis_direction_stores_no_direction():
 def test_a_pattern_along_an_edge_element_stores_its_axis_direction(document):
     [front_top] = edges().top().min(Axis.Y)
 
-    stored = params(document, linear_pattern(front_top, 2, 40))
+    stored = stored_params(document, linear_pattern(front_top, 2, 40))
 
     assert stored["direction"]["axis"]["direction"] == [1, 0, 0]
 
@@ -629,7 +627,7 @@ def test_a_pattern_along_an_edge_element_stores_its_axis_direction(document):
 def test_a_move_about_an_edge_element_stores_its_axis_direction(document):
     [front_top] = edges().top().min(Axis.Y)
 
-    stored = params(document, move(rotate=(front_top, 90 * deg)))
+    stored = stored_params(document, move(rotate=(front_top, 90 * deg)))
 
     assert stored["rotation"]["axis"]["direction"] == [1, 0, 0]
 

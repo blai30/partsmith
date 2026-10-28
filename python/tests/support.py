@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 import partsmith._core
-from partsmith import Document, EngineError, Part, PartsmithWarning, Placement, Ref, run_code
+from partsmith import Document, EngineError, Feature, Part, PartsmithWarning, Placement, Ref, run_code
 from partsmith.reports import Finding, PrintReport, print_report
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +23,9 @@ FIXTURES = REPOSITORY_ROOT / "crates" / "partsmith-engine" / "tests" / "fixtures
 
 SCHEMAS = REPOSITORY_ROOT / "docs" / "format"
 """The generated JSON Schemas."""
+
+EXAMPLES = REPOSITORY_ROOT / "examples"
+"""The examples corpus (delivery.md section 2.8)."""
 
 IMPORT_ASSET = (
     REPOSITORY_ROOT
@@ -66,6 +69,31 @@ def fixture_text(name: str) -> str:
     return fixture_path(name).read_text(encoding="utf-8")
 
 
+def example_models(examples: Path = EXAMPLES) -> list[Path]:
+    """Every example's `.ptsm` path under the corpus folder `examples`, sorted: the `.ptsm` files outside the `assets`
+    folders below `examples` (delivery.md section 2.8)."""
+    return sorted(path for path in examples.rglob("*.ptsm") if "assets" not in path.relative_to(examples).parts)
+
+
+def twin_of(model: Path) -> Path:
+    """The twin path of an example: the same path with `.py`."""
+    return model.with_suffix(".py")
+
+
+def twinned_models(examples: Path = EXAMPLES) -> list[Path]:
+    """Every example under the corpus folder `examples` that has a Python twin, sorted."""
+    return [model for model in example_models(examples) if twin_of(model).is_file()]
+
+
+def example_id(model: Path) -> str:
+    """The example's path under `examples/` without extension, for example `hole/deleted-point`."""
+    return model.relative_to(EXAMPLES).with_suffix("").as_posix()
+
+
+TWINNED = twinned_models()
+"""Every example that has a Python twin."""
+
+
 def stored(document: Document) -> dict:
     """The document's canonical text parsed as JSON."""
     return json.loads(document.to_text())
@@ -77,6 +105,22 @@ def stored_feature(document: Document, feature_id: str) -> dict:
         if record["id"] == feature_id:
             return record
     raise AssertionError(f"the document has no feature {feature_id}")
+
+
+def stored_params(document: Document, feature: Feature) -> dict:
+    """The stored params of a feature, without the record keys."""
+    record = stored_feature(document, feature.id)
+    return {key: value for key, value in record.items() if key not in ("id", "type", "name", "suppressed")}
+
+
+def approximately(value: float) -> object:
+    """A volume or area expectation within the spec's relative tolerance."""
+    return pytest.approx(value, rel=RELATIVE_TOLERANCE)
+
+
+def near(point: tuple[float, ...]) -> object:
+    """A coordinate expectation within 1e-6 mm."""
+    return pytest.approx(point, abs=ABSOLUTE_TOLERANCE)
 
 
 def reference_json(reference: Ref) -> dict:
@@ -305,7 +349,26 @@ def response_message(frame: bytes) -> dict:
 
 
 ORIGINAL_SESSION = partsmith._core.Session
-"""The extension's session class, which `RecordingSession` wraps."""
+"""The extension's session class, which the sessions of `document_with_session` wrap."""
+
+
+def document_with_session[Wrapper](
+    monkeypatch: pytest.MonkeyPatch, wrapper: Callable[..., Wrapper]
+) -> tuple[Document, Wrapper]:
+    """A new document whose session is `wrapper(**options)`, a class that wraps `ORIGINAL_SESSION(**options)`, with that
+    session; only this document's session is replaced, so documents made after it get the extension's own."""
+    sessions: list[Wrapper] = []
+
+    def wrapped_session(**options: bool) -> Wrapper:
+        session = wrapper(**options)
+        sessions.append(session)
+        return session
+
+    with monkeypatch.context() as patch:
+        patch.setattr(partsmith._core, "Session", wrapped_session)
+        document = Document()
+    [session] = sessions
+    return document, session
 
 
 class RecordingSession:
@@ -325,17 +388,7 @@ class RecordingSession:
 def recorded_document(monkeypatch: pytest.MonkeyPatch) -> tuple[Document, RecordingSession]:
     """A new document whose session is a `RecordingSession`, with that session; the document's creation is its first
     exchange."""
-    sessions: list[RecordingSession] = []
-
-    def recording_session(**options: bool) -> RecordingSession:
-        session = RecordingSession(**options)
-        sessions.append(session)
-        return session
-
-    monkeypatch.setattr(partsmith._core, "Session", recording_session)
-    document = Document()
-    [session] = sessions
-    return document, session
+    return document_with_session(monkeypatch, RecordingSession)
 
 
 def document_with_import() -> Document:

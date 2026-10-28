@@ -37,17 +37,7 @@ from partsmith import (
     split,
     torus,
 )
-from support import ABSOLUTE_TOLERANCE, PI, RELATIVE_TOLERANCE, stored, stored_feature
-
-
-def approximately(value: float) -> object:
-    """A volume or area expectation within the spec's relative tolerance."""
-    return pytest.approx(value, rel=RELATIVE_TOLERANCE)
-
-
-def near(point: tuple[float, ...]) -> object:
-    """A coordinate expectation within 1e-6 mm."""
-    return pytest.approx(point, abs=ABSOLUTE_TOLERANCE)
+from support import ABSOLUTE_TOLERANCE, PI, approximately, near, stored, stored_feature
 
 
 def build_rectangle_script():

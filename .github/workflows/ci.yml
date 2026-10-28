@@ -362,6 +362,9 @@ jobs:
       - run: maturin develop --release
         working-directory: python
       - run: pytest python/tests
+      # One line per row of python-api.md section 5; a row over its budget warns, a row that cannot be measured fails.
+      - name: Measure the Python budgets
+        run: pytest python/tests -m budgets -s
       # Test 76: builds the release wheel and installs it with python3.12 and python3.13 (delivery.md test 10).
       - name: Build and install the wheel
         run: pytest python/tests -m packaging

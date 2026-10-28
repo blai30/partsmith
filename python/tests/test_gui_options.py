@@ -6,18 +6,19 @@ In tests 107 to 112, "a call of `f` with the arguments `a`, `b`, ..." is one sta
 """
 
 import re
-from pathlib import Path
 
 import pytest
 from support import (
-    ABSOLUTE_TOLERANCE,
-    RELATIVE_TOLERANCE,
-    REPOSITORY_ROOT,
+    EXAMPLES,
+    TWINNED,
+    approximately,
     assert_round_trip,
     call_arguments,
+    example_id,
     generic_calls,
+    near,
     reference_text,
-    stored_feature,
+    stored_params,
 )
 
 from partsmith import (
@@ -36,28 +37,9 @@ from partsmith import (
     linear_pattern,
 )
 
-EXAMPLES = REPOSITORY_ROOT / "examples"
-"""The examples corpus (delivery.md section 2.8)."""
-
 DELETED_POINT = EXAMPLES / "hole" / "deleted-point.ptsm"
 """The one example whose generated script keeps a generic call: its hole names the point `e-p2`, which its sketch does
 not have (python-api.md test 113)."""
-
-
-def approximately(value: float) -> object:
-    """A volume or area expectation within the spec's relative tolerance."""
-    return pytest.approx(value, rel=RELATIVE_TOLERANCE)
-
-
-def near(point: tuple[float, ...]) -> object:
-    """A coordinate expectation within 1e-6 mm."""
-    return pytest.approx(point, abs=ABSOLUTE_TOLERANCE)
-
-
-def params(document: Document, feature: Feature) -> dict:
-    """The stored params of a feature, without the record keys."""
-    record = stored_feature(document, feature.id)
-    return {key: value for key, value in record.items() if key not in ("id", "type", "name", "suppressed")}
 
 
 def value_error(message: str) -> object:
@@ -116,7 +98,7 @@ def test_t107_two_sided_extrude_stores_both_distances(case):
     expected = TWO_SIDED_EXTRUDES[case]
     document, _, feature = two_sided_extrude(case)
 
-    stored = params(document, feature)
+    stored = stored_params(document, feature)
 
     assert stored["extent"] == expected["extent"]
     if expected["reverse"]:
@@ -218,7 +200,7 @@ def two_distance_chamfer(case: str) -> tuple[Document, Part, Feature]:
 def test_t109_two_distance_chamfer_stores_both_distances_on_the_picked_edge(case):
     document, _, feature = two_distance_chamfer(case)
 
-    stored = params(document, feature)
+    stored = stored_params(document, feature)
 
     assert stored["distance"] == TWO_DISTANCE_CHAMFERS[case]["distance"]
     assert [reference["q"] for reference in stored["edges"]] == [FRONT_TOP]
@@ -241,7 +223,7 @@ def test_t109_two_distance_chamfer_measures_the_first_distance_on_the_front_unle
 @pytest.mark.parametrize("case", TWO_DISTANCE_CHAMFERS)
 def test_t109_two_distance_chamfer_is_written_with_second_distance_and_round_trips(case, tmp_path):
     document, _, feature = two_distance_chamfer(case)
-    [edge] = params(document, feature)["edges"]
+    [edge] = stored_params(document, feature)["edges"]
     expected = [reference_text(edge), "1", *TWO_DISTANCE_CHAMFERS[case]["keywords"], f'id="{feature.id}"']
 
     code = document.to_python()
@@ -312,7 +294,7 @@ def test_t111_reversed_pattern_stores_reverse_in_its_direction(case):
     expected = REVERSED_PATTERNS[case]
     document, _, feature = reversed_pattern(case)
 
-    stored = params(document, feature)
+    stored = stored_params(document, feature)
 
     assert stored["direction"] == expected["direction"]
     assert stored.get("second_direction") == expected["second_direction"]
@@ -354,14 +336,6 @@ def test_t112_second_reverse_needs_second():
 
 
 # Test 113: dedicated forms across the corpus.
-
-TWINNED = sorted(twin.with_suffix(".ptsm") for twin in EXAMPLES.rglob("*.py") if "assets" not in twin.parts)
-"""Every example that has a Python twin (delivery.md section 2.8)."""
-
-
-def example_id(model: Path) -> str:
-    """The example's path under `examples/` without extension, for example `hole/deleted-point`."""
-    return model.relative_to(EXAMPLES).with_suffix("").as_posix()
 
 
 @pytest.mark.parametrize("model", TWINNED, ids=example_id)

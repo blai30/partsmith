@@ -13,9 +13,10 @@ from pathlib import Path
 import pytest
 from support import (
     ABSOLUTE_TOLERANCE,
+    EXAMPLES,
     FIXTURES,
     RELATIVE_TOLERANCE,
-    REPOSITORY_ROOT,
+    TWINNED,
     assert_round_trip,
     feature_statuses,
     fixture_text,
@@ -54,9 +55,6 @@ from partsmith import (
     param,
     run_code,
 )
-
-EXAMPLES = REPOSITORY_ROOT / "examples"
-"""The examples corpus (delivery.md section 2.8)."""
 
 FACE_SKETCH_DOCUMENT = {
     "format": "partsmith",
@@ -227,8 +225,7 @@ def generated_scripts_without_index() -> list:
     sources.append(pytest.param(plate_without_outline_text, id="test 87"))
     sources.extend(
         pytest.param(lambda directory, path=path: path, id=f"example {path.relative_to(EXAMPLES).as_posix()}")
-        for path in sorted(EXAMPLES.rglob("*.ptsm"))
-        if "assets" not in path.relative_to(EXAMPLES).parts and path.with_suffix(".py").is_file()
+        for path in TWINNED
     )
     return sources
 

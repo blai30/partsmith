@@ -195,7 +195,16 @@ impl Feature for Extrude {
                 positional.push(PythonValue::expression(expr, names));
                 keywords.push(flag("symmetric"));
             }
-            ExtrudeExtent::TwoSides { .. } => return None,
+            ExtrudeExtent::TwoSides {
+                expr,
+                opposite_expr,
+            } => {
+                positional.push(PythonValue::expression(expr, names));
+                keywords.push((
+                    "opposite_distance".to_string(),
+                    PythonValue::expression(opposite_expr, names),
+                ));
+            }
             ExtrudeExtent::ThroughAll => {}
         }
         if params.reverse {
@@ -363,6 +372,18 @@ mod tests {
         names
     }
 
+    /// Params of an extrude of the rectangle on `b-1` with `extent`, `reverse` and `op`.
+    fn rectangle_params(extent: serde_json::Value, reverse: bool, op: &str) -> ExtrudeParams {
+        serde_json::from_value(json!({
+            "body": "b-1",
+            "profile": rectangle_profile(),
+            "extent": extent,
+            "reverse": reverse,
+            "op": op,
+        }))
+        .expect("valid params")
+    }
+
     #[test]
     fn python_writes_the_spec_example() {
         let record: FeatureRecord = serde_json::from_value(json!({
@@ -379,17 +400,17 @@ mod tests {
     #[test]
     fn python_writes_the_sketch_and_distance() {
         let names = rectangle_names();
-        let params = |extent: serde_json::Value, op: &str| -> ExtrudeParams {
-            serde_json::from_value(json!({"body": "b-1", "profile": rectangle_profile(), "extent": extent, "reverse": true, "op": op})).expect("valid params")
-        };
 
         let distance = Extrude::python(
-            &params(json!({"kind": "distance", "expr": "30 mm"}), "new"),
+            &rectangle_params(json!({"kind": "distance", "expr": "30 mm"}), true, "new"),
             &names,
         )
         .expect("a dedicated form");
-        let through = Extrude::python(&params(json!({"kind": "through_all"}), "cut"), &names)
-            .expect("a dedicated form");
+        let through = Extrude::python(
+            &rectangle_params(json!({"kind": "through_all"}), true, "cut"),
+            &names,
+        )
+        .expect("a dedicated form");
 
         assert_eq!(distance.render(0), "extrude(sketch_1, 30*mm, reverse=True)");
         assert_eq!(
@@ -414,16 +435,12 @@ mod tests {
         );
     }
 
-    /// Params of the rectangle extrude on `b-1` with `extent`, `reverse` and op new.
-    fn two_sided_params(extent: serde_json::Value, reverse: bool) -> ExtrudeParams {
-        serde_json::from_value(json!({"body": "b-1", "profile": rectangle_profile(), "extent": extent, "reverse": reverse, "op": "new"})).expect("valid params")
-    }
-
     #[test]
     fn python_writes_the_opposite_distance_after_the_distance() {
-        let params = two_sided_params(
+        let params = rectangle_params(
             json!({"kind": "two_sides", "expr": "1", "opposite_expr": "2"}),
             false,
+            "new",
         );
 
         let python = Extrude::python(&params, &rectangle_names()).expect("a dedicated form");
@@ -436,9 +453,10 @@ mod tests {
 
     #[test]
     fn python_writes_reverse_after_the_opposite_distance() {
-        let params = two_sided_params(
+        let params = rectangle_params(
             json!({"kind": "two_sides", "expr": "1", "opposite_expr": "2"}),
             true,
+            "new",
         );
 
         let python = Extrude::python(&params, &rectangle_names()).expect("a dedicated form");
@@ -451,9 +469,10 @@ mod tests {
 
     #[test]
     fn python_writes_a_zero_opposite_distance() {
-        let params = two_sided_params(
+        let params = rectangle_params(
             json!({"kind": "two_sides", "expr": "20", "opposite_expr": "0"}),
             false,
+            "new",
         );
 
         let python = Extrude::python(&params, &rectangle_names()).expect("a dedicated form");
@@ -471,7 +490,7 @@ mod tests {
             names.regions.insert(id("f-sk1"), Vec::new());
             names
         };
-        let params: ExtrudeParams = serde_json::from_value(json!({"body": "b-1", "profile": rectangle_profile(), "extent": {"kind": "symmetric", "expr": "4"}, "op": "new"})).expect("valid params");
+        let params = rectangle_params(json!({"kind": "symmetric", "expr": "4"}), false, "new");
 
         let python = Extrude::python(&params, &names).expect("a dedicated form");
 

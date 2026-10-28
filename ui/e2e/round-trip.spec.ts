@@ -31,10 +31,12 @@ import {
   asObjects,
   blessDocument,
   blessMode,
+  blessWrites,
   committedDocument,
   differenceMessage,
   firstDifference,
   missingMessage,
+  readCommittedDocument,
   type Json,
   type JsonObject,
 } from './support/round-trip'
@@ -302,6 +304,8 @@ const ROWS: readonly Row[] = [
       await confirm(page, 'Box 1')
       await fitView(page, 'Front')
       await clickCanvas(page, 0, -0.4)
+      // A click selects once the core gives the edge's reference, which F then preselects (as E-32).
+      await expect(page.getByTestId('selection-title')).toHaveText('1 edge')
       await page.keyboard.press('f')
       await expect(inspectorInput(page, 'Radius')).toHaveValue('1 mm')
       await confirm(page, 'Fillet 1')
@@ -372,7 +376,7 @@ test.describe('E-160 documents the UI writes', () => {
       const saved = await download(page, () => page.keyboard.press('ControlOrMeta+S'))
       const downloaded = JSON.parse(saved.bytes.toString('utf8')) as Json
       row.facts(downloaded)
-      if (bless) {
+      if (bless && blessWrites(downloaded, await readCommittedDocument(row.file))) {
         await blessDocument(row.file, saved.bytes)
       }
       const committed = await committedDocument(row.file)
@@ -386,7 +390,7 @@ test.describe('E-160 documents the UI writes', () => {
 })
 
 /** A literal saved document for the comparison's own tests: one body and one fillet. */
-const document: JsonObject = {
+const literalDocument: JsonObject = {
   format_version: 2,
   bodies: [{ id: 'b-0123456789ab', name: 'Body 1' }],
   features: [
@@ -401,9 +405,9 @@ const document: JsonObject = {
   ],
 }
 
-/** `document` with `change` applied to a deep copy. */
+/** `literalDocument` with `change` applied to a deep copy. */
 function changed(change: (copy: JsonObject) => void): JsonObject {
-  const copy = structuredClone(document)
+  const copy = structuredClone(literalDocument)
   change(copy)
   return copy
 }
@@ -415,7 +419,7 @@ function feature(copy: JsonObject): JsonObject {
 
 test.describe('E-160 comparison of a download with its committed document', () => {
   test('E-160 the same document matches', () => {
-    expect(firstDifference(document, structuredClone(document))).toBeNull()
+    expect(firstDifference(literalDocument, structuredClone(literalDocument))).toBeNull()
   })
 
   test('E-160 generated ids of one prefix match', () => {
@@ -424,7 +428,7 @@ test.describe('E-160 comparison of a download with its committed document', () =
       feature(copy)['body'] = 'b-ba9876543210'
     })
 
-    expect(firstDifference(renumbered, document)).toBeNull()
+    expect(firstDifference(renumbered, literalDocument)).toBeNull()
   })
 
   test('E-160 a generated id does not match an id of another prefix', () => {
@@ -432,7 +436,7 @@ test.describe('E-160 comparison of a download with its committed document', () =
       feature(copy)['body'] = 'f-0123456789ab'
     })
 
-    expect(firstDifference(otherPrefix, document)).toEqual({
+    expect(firstDifference(otherPrefix, literalDocument)).toEqual({
       pointer: '/features/0/body',
       actual: '"f-0123456789ab"',
       expected: '"b-0123456789ab"',
@@ -446,7 +450,7 @@ test.describe('E-160 comparison of a download with its committed document', () =
       feature(copy)['edges'] = edges
     })
 
-    expect(firstDifference(repicked, document)).toBeNull()
+    expect(firstDifference(repicked, literalDocument)).toBeNull()
   })
 
   test('E-160 numbers within 1e-9 match and farther ones do not', () => {
@@ -457,8 +461,8 @@ test.describe('E-160 comparison of a download with its committed document', () =
       feature(copy)['position'] = [0.5001, 0, 10]
     })
 
-    expect(firstDifference(close, document)).toBeNull()
-    expect(firstDifference(far, document)).toEqual({
+    expect(firstDifference(close, literalDocument)).toBeNull()
+    expect(firstDifference(far, literalDocument)).toEqual({
       pointer: '/features/0/position/0',
       actual: '0.5001',
       expected: '0.5',
@@ -470,7 +474,7 @@ test.describe('E-160 comparison of a download with its committed document', () =
       feature(copy)['radius'] = '2 mm'
     })
 
-    expect(firstDifference(otherRadius, document)).toEqual({
+    expect(firstDifference(otherRadius, literalDocument)).toEqual({
       pointer: '/features/0/radius',
       actual: '"2 mm"',
       expected: '"1 mm"',
@@ -482,7 +486,7 @@ test.describe('E-160 comparison of a download with its committed document', () =
       feature(copy)['suppressed'] = false
     })
 
-    expect(firstDifference(newField, document)).toEqual({
+    expect(firstDifference(newField, literalDocument)).toEqual({
       pointer: '/features/0',
       actual: 'the keys ["id","type","body","edges","radius","position","suppressed"]',
       expected: 'the keys ["id","type","body","edges","radius","position"]',
@@ -495,7 +499,7 @@ test.describe('E-160 comparison of a download with its committed document', () =
       copy['features'] = [{ radius: radius ?? null, ...rest }]
     })
 
-    expect(firstDifference(reordered, document)?.pointer).toBe('/features/0')
+    expect(firstDifference(reordered, literalDocument)?.pointer).toBe('/features/0')
   })
 
   test('E-160 arrays of other lengths are a difference of items', () => {
@@ -506,7 +510,7 @@ test.describe('E-160 comparison of a download with its committed document', () =
       ]
     })
 
-    expect(firstDifference(extraBody, document)).toEqual({
+    expect(firstDifference(extraBody, literalDocument)).toEqual({
       pointer: '/bodies',
       actual: '2 items',
       expected: '1 items',
@@ -517,7 +521,7 @@ test.describe('E-160 comparison of a download with its committed document', () =
     const rollback = changed((copy) => {
       copy['rollback'] = 'f-0123456789ab'
     })
-    const difference = firstDifference(rollback, document)
+    const difference = firstDifference(rollback, literalDocument)
 
     expect(difference?.pointer).toBe('')
     expect(
@@ -538,6 +542,27 @@ test.describe('E-160 comparison of a download with its committed document', () =
     expect(missingMessage('picks.ptsm')).toBe(
       'ui/e2e/fixtures/gui/picks.ptsm is missing. Run: PARTSMITH_BLESS=1 pnpm -C ui e2e round-trip.spec.ts',
     )
+  })
+
+  test('E-160 a bless writes a missing document', () => {
+    expect(blessWrites(literalDocument, null)).toBe(true)
+  })
+
+  test('E-160 a bless keeps a committed document that still matches, ids and references aside', () => {
+    const rerun = changed((copy) => {
+      feature(copy)['id'] = 'f-ba9876543210'
+      feature(copy)['edges'] = [{ q: 'edge(f-ba9876543210/top|f-ba9876543210/front)', fp: 'line' }]
+    })
+
+    expect(blessWrites(rerun, literalDocument)).toBe(false)
+  })
+
+  test('E-160 a bless writes over a committed document that differs', () => {
+    const otherRadius = changed((copy) => {
+      feature(copy)['radius'] = '2 mm'
+    })
+
+    expect(blessWrites(otherRadius, literalDocument)).toBe(true)
   })
 
   test('E-160 a bless in CI is refused, and a bless runs only with PARTSMITH_BLESS=1', () => {

@@ -9,6 +9,7 @@ strict run on the reference machine adds `-W "error:Over budget:UserWarning"`, w
 Tests 114 and 115 carry no mark, so the default suite runs them.
 """
 
+import functools
 import re
 import subprocess
 import sys
@@ -17,7 +18,7 @@ import warnings
 from collections.abc import Callable, Sequence
 
 import pytest
-from support import REPOSITORY_ROOT
+from support import ORIGINAL_SESSION, REPOSITORY_ROOT, document_with_session
 
 import partsmith._core
 from partsmith import Axis, Document, Part, box, faces, linear_pattern, run_script
@@ -44,9 +45,6 @@ import partsmith
 print((time.perf_counter() - started) * 1000)
 """
 """Row 1's script: a new interpreter times `import partsmith` itself and prints the milliseconds."""
-
-ORIGINAL_SESSION = partsmith._core.Session
-"""The extension's session class, which `TimedSession` wraps."""
 
 
 def median(samples: Sequence[float]) -> float:
@@ -78,7 +76,7 @@ def milliseconds(operation: Callable[[], object]) -> float:
 
 class TimedSession:
     """An engine session that adds the time spent inside each `call` (the engine, with the frame decoding and encoding
-    in Rust) to `engine_milliseconds`."""
+    in Rust) to `engine_milliseconds`; a row gets one with `document_with_session`."""
 
     def __init__(self, **options: bool) -> None:
         self._session = ORIGINAL_SESSION(**options)
@@ -90,24 +88,6 @@ class TimedSession:
             return self._session.call(frame)
         finally:
             self.engine_milliseconds += (time.perf_counter() - started) * 1000
-
-
-def timed_document(monkeypatch: pytest.MonkeyPatch) -> tuple[Document, TimedSession]:
-    """A new document whose session is a `TimedSession`, with that session."""
-    sessions: list[TimedSession] = []
-
-    def timed_session(**options: bool) -> TimedSession:
-        session = TimedSession(**options)
-        sessions.append(session)
-        return session
-
-    monkeypatch.setattr(partsmith._core, "Session", timed_session)
-    try:
-        document = Document()
-    finally:
-        monkeypatch.setattr(partsmith._core, "Session", ORIGINAL_SESSION)
-    [session] = sessions
-    return document, session
 
 
 @pytest.mark.budgets
@@ -132,7 +112,7 @@ def test_row_2_overhead_per_call(monkeypatch):
         `with_box`): its time less the time spent inside the session's `call`."""
 
         def measure() -> float:
-            document, session = timed_document(monkeypatch)
+            document, session = document_with_session(monkeypatch, TimedSession)
             try:
                 with Part("P") as part:
                     if with_box:
@@ -185,7 +165,7 @@ def test_row_4_selection_filtering():
             lambda: selection.sort_by(Axis.X),
             lambda: selection.filter(lambda element: element.area > 50),
         ]
-        medians = [median(samples(lambda: milliseconds(selection_filter))) for selection_filter in filters]
+        medians = [median(samples(functools.partial(milliseconds, selection_filter))) for selection_filter in filters]
     finally:
         document.close()
 
@@ -206,6 +186,29 @@ def test_row_5_refs_of_12_edges():
             document.close()
 
     check_budget("Compiling a Selection of 12 edges to full references", median(samples(measure)), 15)
+
+
+# Row 2's timed session.
+
+
+def test_a_timed_session_adds_the_time_spent_in_each_call(monkeypatch):
+    document, session = document_with_session(monkeypatch, TimedSession)
+    try:
+        created = session.engine_milliseconds
+        document.set_units("in")
+
+        assert created > 0
+        assert session.engine_milliseconds > created
+    finally:
+        document.close()
+
+
+def test_only_the_new_document_gets_the_timed_session(monkeypatch):
+    document, _ = document_with_session(monkeypatch, TimedSession)
+    try:
+        assert partsmith._core.Session is ORIGINAL_SESSION
+    finally:
+        document.close()
 
 
 # Test 114: the row tests are collected only with their mark.

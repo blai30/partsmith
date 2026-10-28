@@ -7,9 +7,4 @@ body_2 = Part("Body 2", id="b-2")
 
 with body_1:
     box(10, 10, 10, id="f-box1")
-    feature(
-        "linear_pattern",
-        id="f-lp1",
-        body="b-1",
-        direction={"axis": {"kind": "origin", "axis": "X"}, "count": "3", "spacing": "20", "reverse": True},
-    )
+    linear_pattern(Axis.X, 3, 20, reverse=True, id="f-lp1")

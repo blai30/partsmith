@@ -117,6 +117,9 @@ Some files are generated and committed. Regenerate them with:
 PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::
 PARTSMITH_BLESS=1 pytest python/tests/test_examples.py
 
+# The documents the UI writes, which needs the web core of scripts/build-wasm.sh
+PARTSMITH_BLESS=1 pnpm -C ui e2e round-trip.spec.ts
+
 # The engine's golden 3MF files, only for a change that docs/spec/engine.md section 3.20 lists
 PARTSMITH_BLESS=1 cargo test -p partsmith-engine --test integration export_and_import::t160
 

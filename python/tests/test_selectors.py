@@ -14,12 +14,7 @@ from partsmith import (
     fillet,
     vertices,
 )
-from support import ABSOLUTE_TOLERANCE, RELATIVE_TOLERANCE, reference_json, stored_feature
-
-
-def near(point: tuple[float, ...]) -> object:
-    """A coordinate expectation within 1e-6 mm."""
-    return pytest.approx(point, abs=ABSOLUTE_TOLERANCE)
+from support import ABSOLUTE_TOLERANCE, RELATIVE_TOLERANCE, near, reference_json, stored_feature
 
 
 def names(selection) -> list[str]:

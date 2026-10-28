@@ -11,10 +11,9 @@ with body_1:
         3,
         id="f-fil1",
     )
-    feature(
-        "chamfer",
+    chamfer(
+        [Ref("edge(f-box1/front|f-box1/top)", "line|n=1,0,0|c=0,-10,10|l=24"), Ref("edge(f-box1/top|f-fil1/fillet/edge(f-box1/front|f-box1/left))", "circle|n=0,0,1|c=-13.909859,-8.909859,10|l=4.712389|r=3")],
+        1,
+        second_distance=2,
         id="f-cha1",
-        body="b-1",
-        edges=[{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,10|l=24"}, {"q": "edge(f-box1/top|f-fil1/fillet/edge(f-box1/front|f-box1/left))", "fp": "circle|n=0,0,1|c=-13.909859,-8.909859,10|l=4.712389|r=3"}],
-        distance={"kind": "two_distances", "expr": "1", "second_expr": "2"},
     )

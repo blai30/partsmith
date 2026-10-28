@@ -9,7 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    check_canceled, essential, hint, into_keyword, is_false, length_in_range, manifest,
+    check_canceled, essential, flag, hint, into_keyword, is_false, length_in_range, manifest,
     selection_hint, target_hint, unit_hint,
 };
 use super::copy::{self, Source};
@@ -241,20 +241,23 @@ impl Feature for LinearPattern {
         )
     }
 
-    /// `linear_pattern(direction, count, spacing, second=(axis, count, spacing), into=...)`
-    /// (linear_pattern.md section 2). A reversed direction has no dedicated form. None when an
-    /// axis or the target has no variable.
+    /// `linear_pattern(direction, count, spacing, reverse=True, second=(axis, count, spacing),
+    /// second_reverse=True, into=...)` (linear_pattern.md section 2, python-api.md section 3.5),
+    /// each keyword only when set. None when an axis or the target has no variable.
     fn python(params: &LinearPatternParams, names: &dyn PythonNames) -> Option<PythonCall> {
-        if directions(params).any(|(_, direction)| direction.reverse) {
-            return None;
-        }
         let mut call = PythonCall::new("linear_pattern");
         call.positional = direction_values(&params.direction, names)?;
+        if params.direction.reverse {
+            call.keywords.push(flag("reverse"));
+        }
         if let Some(second) = &params.second_direction {
             call.keywords.push((
                 "second".to_string(),
                 PythonValue::Tuple(direction_values(second, names)?),
             ));
+            if second.reverse {
+                call.keywords.push(flag("second_reverse"));
+            }
         }
         call.keywords
             .extend(into_keyword(names, params.op, params.target.as_ref())?);

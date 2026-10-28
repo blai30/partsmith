@@ -1,4 +1,4 @@
-//! Documents committed for the UI's end-to-end tests are canonical at the current format version (ui.md section 6.2), so a `FORMAT_VERSION` bump that leaves one behind fails here. The CLI checks `examples/` the same way.
+//! Documents committed for the UI's end-to-end tests, the documents the UI writes in `gui/` among them, are canonical at the current format version (ui.md section 6.2), so a `FORMAT_VERSION` bump that leaves one behind fails here. The CLI checks `examples/` the same way.
 
 use crate::common;
 
@@ -12,6 +12,15 @@ use pretty_assertions::assert_eq;
 /// The Playwright fixtures of ui.md section 6.2.
 fn ui_fixtures_directory() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/e2e/fixtures")
+}
+
+/// The UI's committed documents, sorted by path: the fixtures written by hand, then in `gui/` the
+/// documents the UI writes (ui.md section 6.2).
+fn ui_documents() -> Vec<PathBuf> {
+    let fixtures = ui_fixtures_directory();
+    let mut documents = documents_in(&fixtures);
+    documents.extend(documents_in(&fixtures.join("gui")));
+    documents
 }
 
 /// The documents directly in `directory`, sorted by path.
@@ -57,8 +66,16 @@ fn a_document_at_an_older_version_is_stale() {
 }
 
 #[test]
+fn ui_documents_include_the_documents_the_ui_writes() {
+    let picks = ui_fixtures_directory().join("gui").join("picks.ptsm");
+
+    assert!(ui_documents().contains(&picks));
+}
+
+#[test]
 fn ui_fixtures_are_canonical_at_the_current_format_version() {
-    let documents = documents_in(&ui_fixtures_directory());
+    let fixtures = ui_fixtures_directory();
+    let documents = ui_documents();
     assert!(!documents.is_empty(), "the UI has fixtures");
 
     let stale: Vec<String> = documents
@@ -66,7 +83,9 @@ fn ui_fixtures_are_canonical_at_the_current_format_version() {
         .filter_map(|path| {
             let text = fs::read_to_string(path)
                 .unwrap_or_else(|error| panic!("{} cannot be read: {error}", path.display()));
-            let name = path.file_name().expect("a listed file has a name");
+            let name = path
+                .strip_prefix(&fixtures)
+                .expect("a listed file is under the fixtures");
             stale_reason(&text).map(|reason| format!("{}: {reason}", name.display()))
         })
         .collect();

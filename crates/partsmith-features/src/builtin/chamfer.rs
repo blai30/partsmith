@@ -7,8 +7,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    body_hint, essential, hint, is_false, manifest, options_hint, positive_length, references,
-    require_selection, selection_hint, solid_body, unit_hint,
+    body_hint, call, essential, flag, hint, is_false, manifest, options_hint, positive_length,
+    references, require_selection, selection_hint, solid_body, unit_hint,
 };
 use super::dressup::{
     SelectedEdge, face_limit, finish_blend, kept_edges, no_effect, run_or_search, select_edges,
@@ -235,19 +235,30 @@ impl Feature for Chamfer {
         )
     }
 
-    /// `chamfer(edges, distance)` for an equal distance: the edges as references, the distance as
-    /// an expression; the generator's `with <part>:` block gives the body. A two-distance chamfer
-    /// has no dedicated form.
+    /// `chamfer(edges, distance)`, with `second_distance=` and `flip=True` for two distances
+    /// (python-api.md section 3.5): the edges as references, the distances as expressions; the
+    /// generator's `with <part>:` block gives the body.
     fn python(params: &ChamferParams, names: &dyn PythonNames) -> Option<PythonCall> {
-        let ChamferDistance::Equal { expr } = &params.distance else {
-            return None;
+        let (expr, keywords) = match &params.distance {
+            ChamferDistance::Equal { expr } => (expr, Vec::new()),
+            ChamferDistance::TwoDistances {
+                expr,
+                second_expr,
+                flip,
+            } => {
+                let second = PythonValue::expression(second_expr, names);
+                let mut keywords = vec![("second_distance".to_string(), second)];
+                if *flip {
+                    keywords.push(flag("flip"));
+                }
+                (expr, keywords)
+            }
         };
-        let mut call = PythonCall::new("chamfer");
-        call.positional = vec![
+        let positional = vec![
             references(&params.edges),
             PythonValue::expression(expr, names),
         ];
-        Some(call)
+        Some(call("chamfer", positional, keywords))
     }
 }
 

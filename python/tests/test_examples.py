@@ -23,10 +23,17 @@ from pathlib import Path
 
 import pytest
 from partsmith import Document, run_code, run_script
-from support import REPOSITORY_ROOT, assert_round_trip, generic_calls
-
-EXAMPLES = REPOSITORY_ROOT / "examples"
-"""The examples corpus."""
+from support import (
+    REPOSITORY_ROOT,
+    TWINNED,
+    assert_round_trip,
+    example_id,
+    example_models,
+    generic_calls,
+    twin_of,
+    twinned_models,
+    write_text,
+)
 
 BLESS_IN_CI = "PARTSMITH_BLESS is set in CI. Bless expected results locally and commit them."
 """The failure of a bless requested in CI (delivery.md section 4)."""
@@ -37,21 +44,6 @@ def bless_mode(environment: Mapping[str, str]) -> bool:
     if "PARTSMITH_BLESS" in environment and "CI" in environment:
         pytest.fail(BLESS_IN_CI, pytrace=False)
     return environment.get("PARTSMITH_BLESS") == "1"
-
-
-def example_models() -> list[Path]:
-    """Every example's `.ptsm` path, sorted."""
-    return sorted(path for path in EXAMPLES.rglob("*.ptsm") if "assets" not in path.relative_to(EXAMPLES).parts)
-
-
-def example_id(model: Path) -> str:
-    """The example's path under `examples/` without extension, for example `box/default`."""
-    return model.relative_to(EXAMPLES).with_suffix("").as_posix()
-
-
-def twin_of(model: Path) -> Path:
-    """The twin path of an example."""
-    return model.with_suffix(".py")
 
 
 def expected_of(model: Path) -> Path:
@@ -128,10 +120,6 @@ def bless_twin(model: Path, capsys: pytest.CaptureFixture[str]) -> None:
         print(f"blessed {shown(twin)}")
 
 
-TWINNED = [model for model in example_models() if twin_of(model).is_file()]
-"""Every example that has a twin."""
-
-
 @pytest.mark.parametrize("model", TWINNED, ids=example_id)
 def test_check_1_twin_rebuilds_the_example_byte_for_byte(model: Path, capsys: pytest.CaptureFixture[str]) -> None:
     bless = bless_mode(os.environ)
@@ -195,6 +183,32 @@ def test_bless_runs_only_when_the_variable_is_1() -> None:
     assert bless_mode({"PARTSMITH_BLESS": "0"}) is False
     assert bless_mode({"CI": "true"}) is False
     assert bless_mode({}) is False
+
+
+# The corpus listing, in a corpus folder made for the test.
+
+
+def test_a_corpus_below_a_folder_named_assets_lists_its_examples(tmp_path: Path) -> None:
+    examples = tmp_path / "assets" / "examples"
+    model = write_text(examples / "box" / "default.ptsm", "{}")
+    write_text(examples / "box" / "default.py", "")
+
+    assert twinned_models(examples) == [model]
+
+
+def test_the_assets_folders_below_the_corpus_hold_no_example(tmp_path: Path) -> None:
+    examples = tmp_path / "examples"
+    write_text(examples / "import" / "assets" / "block.ptsm", "{}")
+    write_text(examples / "import" / "assets" / "block.py", "")
+
+    assert twinned_models(examples) == []
+
+
+def test_a_script_without_a_document_beside_it_is_not_a_twin(tmp_path: Path) -> None:
+    examples = tmp_path / "examples"
+    write_text(examples / "box" / "helper.py", "")
+
+    assert twinned_models(examples) == []
 
 
 # Test 72: twin check 4 on literal texts (delivery.md section 6).

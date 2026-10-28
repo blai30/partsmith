@@ -75,18 +75,36 @@ export async function blessDocument(file: string, bytes: Buffer): Promise<void> 
   console.log(`blessed ${shownPath(file)}`)
 }
 
-/** The JSON of the committed document `file`; throws the missing-document message when there is none. */
-export async function committedDocument(file: string): Promise<Json> {
+/** The JSON of the committed document `file`, or null when there is none. */
+export async function readCommittedDocument(file: string): Promise<Json | null> {
   let text: string
   try {
     text = await readFile(fixturePath(`gui/${file}`), 'utf8')
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      throw new Error(missingMessage(file), { cause: error })
+      return null
     }
     throw error
   }
   return JSON.parse(text) as Json
+}
+
+/** The JSON of the committed document `file`; throws the missing-document message when there is none. */
+export async function committedDocument(file: string): Promise<Json> {
+  const committed = await readCommittedDocument(file)
+  if (committed === null) {
+    throw new Error(missingMessage(file))
+  }
+  return committed
+}
+
+/**
+ * Whether a bless writes the download over the committed document: only when that document is
+ * missing (null) or the comparison finds a difference, as the examples' bless writes only files that
+ * are missing or differ (delivery.md 2.8), so a document that still matches keeps its ids.
+ */
+export function blessWrites(downloaded: Json, committed: Json | null): boolean {
+  return committed === null || firstDifference(downloaded, committed) !== null
 }
 
 /** Whether a JSON value is an object (not an array or null). */

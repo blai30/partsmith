@@ -129,6 +129,7 @@ def extrude(
     *,
     regions: Sequence[Region] | None = None,
     symmetric: bool = False,
+    opposite_distance: Value | None = None,
     reverse: bool = False,
     through_all: bool = False,
     op: str | None = None,
@@ -137,20 +138,26 @@ def extrude(
     suppressed: bool = False,
     id: str | None = None,
 ) -> Feature:
-    """Sweeps sketch regions along the sketch normal: by `distance` (centered with `symmetric`),
-    or through the whole part with `through_all=True`."""
+    """Sweeps sketch regions along the sketch normal: by `distance` (centered with `symmetric`,
+    or with `opposite_distance` against the normal too), or through the whole part with
+    `through_all=True`."""
     target = _target("extrude", part)
+    two_sides = opposite_distance is not None
     if (distance is None) == (not through_all):
         raise ValueError("extrude() needs exactly one of distance and through_all=True.")
+    if symmetric and two_sides:
+        raise ValueError("extrude() takes symmetric=True or opposite_distance, not both.")
     if symmetric and distance is None:
         raise ValueError("extrude() symmetric=True needs a distance.")
+    if two_sides and distance is None:
+        raise ValueError("extrude() opposite_distance needs a distance.")
     if through_all:
         extent: dict = {"kind": "through_all"}
     else:
-        extent = {
-            "kind": "symmetric" if symmetric else "distance",
-            "expr": render_value(distance, "extrude() distance"),
-        }
+        kind = "symmetric" if symmetric else "two_sides" if two_sides else "distance"
+        extent = {"kind": kind, "expr": render_value(distance, "extrude() distance")}
+        if two_sides:
+            extent["opposite_expr"] = render_value(opposite_distance, "extrude() opposite_distance")
     params: dict = {
         "body": target.id,
         "profile": _profile("extrude", profile, regions, target.document),
@@ -214,17 +221,30 @@ def chamfer(
     edges: object,
     distance: Value,
     *,
+    second_distance: Value | None = None,
+    flip: bool = False,
     part: Part | None = None,
     name: str | None = None,
     suppressed: bool = False,
     id: str | None = None,
 ) -> Feature:
-    """Bevels edges by the same distance on both faces."""
+    """Bevels edges by `distance` on both faces, or by `distance` on the first face of each edge
+    and `second_distance` on the other; `flip` swaps the two."""
     target = _target("chamfer", part)
+    if flip and second_distance is None:
+        raise ValueError("chamfer() flip=True needs a second_distance.")
+    expr = render_value(distance, "chamfer() distance")
+    if second_distance is None:
+        chamfer_distance: dict = {"kind": "equal", "expr": expr}
+    else:
+        second_expr = render_value(second_distance, "chamfer() second_distance")
+        chamfer_distance = {"kind": "two_distances", "expr": expr, "second_expr": second_expr}
+        if flip:
+            chamfer_distance["flip"] = True
     params = {
         "body": target.id,
         "edges": element_references("chamfer", edges, "edge"),
-        "distance": {"kind": "equal", "expr": render_value(distance, "chamfer() distance")},
+        "distance": chamfer_distance,
     }
     return _add("chamfer", target.document, params, name=name, suppressed=suppressed, id=id)
 
@@ -435,7 +455,9 @@ def linear_pattern(
     count: Value,
     spacing: Value,
     *,
+    reverse: bool = False,
     second: tuple[AxisLike, Value, Value] | None = None,
+    second_reverse: bool = False,
     into: Part | None = None,
     part: Part | None = None,
     name: str | None = None,
@@ -443,13 +465,18 @@ def linear_pattern(
     id: str | None = None,
 ) -> Feature:
     """Copies the part `count` times `spacing` apart along a direction, and optionally along a
-    second one."""
+    second one; `reverse` and `second_reverse` send the copies against their direction."""
     target = _target("linear_pattern", part)
-    params: dict = {"body": target.id, "direction": _direction("linear_pattern()", direction, count, spacing)}
+    if second_reverse and second is None:
+        raise ValueError("linear_pattern() second_reverse=True needs second=(axis, count, spacing).")
+    params: dict = {
+        "body": target.id,
+        "direction": _direction("linear_pattern()", direction, count, spacing, reverse),
+    }
     if second is not None:
         if not isinstance(second, Sequence) or len(second) != 3:
             raise TypeError("linear_pattern() second must be (axis, count, spacing).")
-        params["second_direction"] = _direction("linear_pattern() second", *second)
+        params["second_direction"] = _direction("linear_pattern() second", *second, second_reverse)
     params.update(_into("linear_pattern", target, into))
     return _add("linear_pattern", target.document, params, name=name, suppressed=suppressed, id=id)
 
@@ -816,13 +843,17 @@ def _into(function: str, target: Part, into: Part | None) -> dict:
     return {"op": "new", "target": target.document._own_part(into, f"{function}() into").id}
 
 
-def _direction(name: str, axis: object, count: object, spacing: object) -> dict:
-    """One `LinearPatternDirection`; `name` names it in error messages."""
-    return {
+def _direction(name: str, axis: object, count: object, spacing: object, reverse: bool) -> dict:
+    """One `LinearPatternDirection`, with `reverse` only when true; `name` names it in error
+    messages."""
+    direction: dict = {
         "axis": axis_reference("linear_pattern", axis),
         "count": render_value(count, f"{name} count"),
         "spacing": render_value(spacing, f"{name} spacing"),
     }
+    if reverse:
+        direction["reverse"] = True
+    return direction
 
 
 def _pair(name: str, values: object, keys: tuple[str, str]) -> dict:
