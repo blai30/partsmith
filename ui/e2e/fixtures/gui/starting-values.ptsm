@@ -1,0 +1,31 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [
+    {"id": "p-e3935a57c86d", "name": "width", "expr": "40 mm"}
+  ],
+  "bodies": [
+    {"id": "b-0e621a614faf", "name": "Body 1"},
+    {"id": "b-230b2cf3b558", "name": "Body 2"}
+  ],
+  "features": [
+    {"id": "f-7b82df5ce996", "type": "box", "body": "b-0e621a614faf", "size": ["10 mm", "10 mm", "10 mm"], "op": "new"},
+    {
+      "id": "f-3b37e2b65230",
+      "type": "fillet",
+      "body": "b-0e621a614faf",
+      "edges": [
+        {"q": "edge(f-7b82df5ce996/front|f-7b82df5ce996/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10|adj=2,2"}
+      ],
+      "radius": "1 mm"
+    },
+    {
+      "id": "f-4f9f2ff32f62",
+      "type": "split_body",
+      "body": "b-0e621a614faf",
+      "plane": {"kind": "origin", "plane": "XZ"},
+      "target": "b-230b2cf3b558"
+    }
+  ]
+}

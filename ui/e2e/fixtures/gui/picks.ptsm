@@ -1,0 +1,101 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-cube", "name": "Cube"},
+    {"id": "b-ee6d77191e4e", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [-10, -10], "end": [10, -10]},
+        {"id": "e-2", "type": "line", "start": [10, -10], "end": [10, 10]},
+        {"id": "e-3", "type": "line", "start": [10, 10], "end": [-10, 10]},
+        {"id": "e-4", "type": "line", "start": [-10, 10], "end": [-10, -10]}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "coincident", "points": ["e-1.end", "e-2.start"]},
+        {"id": "c-2", "type": "coincident", "points": ["e-2.end", "e-3.start"]},
+        {"id": "c-3", "type": "coincident", "points": ["e-3.end", "e-4.start"]},
+        {"id": "c-4", "type": "coincident", "points": ["e-4.end", "e-1.start"]},
+        {"id": "c-5", "type": "horizontal", "line": "e-1"},
+        {"id": "c-6", "type": "horizontal", "line": "e-3"},
+        {"id": "c-7", "type": "vertical", "line": "e-2"},
+        {"id": "c-8", "type": "vertical", "line": "e-4"},
+        {"id": "c-9", "type": "distance", "line": "e-1", "expr": "20 mm"},
+        {"id": "c-10", "type": "distance", "line": "e-4", "expr": "20 mm"},
+        {"id": "c-11", "type": "horizontal_distance", "points": ["e-1.start", "origin"], "expr": "10 mm"},
+        {"id": "c-12", "type": "vertical_distance", "points": ["e-1.start", "origin"], "expr": "10 mm"}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-cube",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=0,0|a=400"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "20 mm"},
+      "op": "new"
+    },
+    {
+      "id": "f-3db70b34c022",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-cube",
+        "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=0,0,20|a=400|adj=4,4"},
+        "fallback": {"origin": [0, 0, 20], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-5ad8971a1675", "type": "point", "position": [0, 0]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-b9d561c6df62",
+      "type": "hole",
+      "body": "b-cube",
+      "sketch": "f-3db70b34c022",
+      "points": ["e-5ad8971a1675"],
+      "diameter": "3.2 mm",
+      "extent": {"kind": "through_all"}
+    },
+    {
+      "id": "f-68ed079584ae",
+      "type": "chamfer",
+      "body": "b-cube",
+      "edges": [
+        {"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-1)", "fp": "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2"}
+      ],
+      "distance": {"kind": "two_distances", "expr": "2", "second_expr": "1 mm", "flip": true}
+    },
+    {
+      "id": "f-6d20902115d0",
+      "type": "linear_pattern",
+      "body": "b-cube",
+      "direction": {
+        "axis": {
+          "kind": "edge",
+          "body": "b-cube",
+          "edge": {"q": "edge(f-ext1/lateral/e-1|f-ext1/start-cap)", "fp": "line|n=1,0,0|c=0,-10,0|l=20|adj=2,2"},
+          "direction": [1, 0, 0]
+        },
+        "count": "2",
+        "spacing": "30",
+        "reverse": true
+      },
+      "op": "new",
+      "target": "b-ee6d77191e4e"
+    }
+  ]
+}
