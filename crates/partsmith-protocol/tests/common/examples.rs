@@ -191,6 +191,12 @@ pub const ELEMENT_REPAIR: &str = r#"{"kind": "element", "path": "/edges/0", "bod
 /// The region repair of test 68, with two candidate sets and a ghost in buffer 2.
 pub const REGION_REPAIR: &str = r#"{"kind":"region","path":"/profile/regions/0","sketch":"f-sk1","region":{"key":"e-1,e-2,e-3,e-4","fp":"c=40,25|a=4000","outline":"e-1,e-2,e-3,e-4"},"resolution":"ambiguous","description":"the region of 'Sketch 1' around (40, 25)","candidates":[{"regions":[{"key":"e-1,e-3,e-4,e-9","fp":"c=40,25|a=4000","outline":"e-1,e-9,e-3,e-4"}],"description":"the region of 'Sketch 1' around (40, 25)"},{"regions":[{"key":"e-1,e-5,e-6,e-7","fp":"c=175,10|a=1000","outline":"e-1,e-5,e-6,e-7"}],"description":"the region of 'Sketch 1' around (175, 10)"}],"ghost":{"positions":2,"kind":"lines","frame":"sketch"}}"#;
 
+/// The `put_printer_profile` request example of section 2.5: a profile in the input form.
+pub const PUT_PRINTER_PROFILE_REQUEST: &str = r#"{"type": "put_printer_profile", "profile": {"id": "my-mk4", "name": "My MK4", "technology": "fdm", "layer_height": 0.15}}"#;
+
+/// The `list_printer_profiles` result example of section 2.5: `generic-fdm` in the written form.
+pub const LIST_PRINTER_PROFILES_RESULT: &str = r#"{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}"#;
+
 /// The `apply_fix` request example of section 2.5.
 pub const APPLY_FIX_REQUEST: &str = r#"{"type": "apply_fix", "doc": 1, "fix": {"feature": "f-fil1", "code": "references_not_found", "field": "/edges", "cause": false, "index": 0, "revision": 7}}"#;
 
@@ -268,7 +274,7 @@ pub const COMMAND_EXAMPLES: [&str; 33] = [
     r#"{"type": "engine_info"}"#,
     r#"{"type": "feature_catalog"}"#,
     r#"{"type": "list_printer_profiles"}"#,
-    r#"{"type": "put_printer_profile", "profile": {"id": "my-mk4", "name": "My MK4", "technology": "fdm", "layer_height": 0.15}}"#,
+    PUT_PRINTER_PROFILE_REQUEST,
     r#"{"type": "new_document", "units": "mm"}"#,
     r#"{"type": "open_document", "text": "{\n  \"format\": \"partsmith\",\n  ...\n}\n", "assets": []}"#,
     r#"{"type": "save_document", "doc": 1}"#,
@@ -304,7 +310,7 @@ pub const COMMAND_EXAMPLES: [&str; 33] = [
 pub const RESULT_EXAMPLES: [&str; 27] = [
     r#"{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 2, "kernel": "OCCT 7.9.3"}"#,
     r#"{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}"#,
-    r#"{"type": "list_printer_profiles", "profiles": [{"id": "generic-fdm", "name": "Generic FDM 0.4 mm", "technology": "fdm", "bed": {"kind": "rectangle", "width": 256.0, "depth": 256.0, "height": 256.0}, "nozzle_diameter": 0.4, "layer_height": 0.2, "max_overhang_angle": 0.7853981633974483, "max_bridge_length": 10.0, "fit": {"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}}]}"#,
+    LIST_PRINTER_PROFILES_RESULT,
     r#"{"type": "put_printer_profile"}"#,
     r#"{"type": "new_document", "doc": 1}"#,
     r#"{"type": "open_document", "doc": 2}"#,

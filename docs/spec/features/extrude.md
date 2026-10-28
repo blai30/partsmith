@@ -90,14 +90,14 @@ Label `Extrude`, category `create`, icon `extrude`, version 1. Fields in display
 
 ### Python
 
-Dedicated form: `extrude(profile, distance, regions=..., symmetric=..., reverse=..., through_all=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11:
+Dedicated form: `extrude(profile, distance, regions=..., symmetric=..., opposite_distance=..., reverse=..., through_all=..., op=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11:
 
 - `profile`: the sketch's variable, plus `regions=[Region("<key>", "<fp>"), ...]` when the stored regions are not all of the sketch's regions in solved order.
-- `distance` extent: `distance` is `extent.expr`. `symmetric`: the same plus `symmetric=True`. `through_all`: no `distance`, and `through_all=True`.
+- `distance` extent: `distance` is `extent.expr`. `symmetric`: the same plus `symmetric=True`. `two_sides`: the same plus `opposite_distance=` with `extent.opposite_expr` ([ADR 0048](../../adr/0048-python-keywords-gui-round-trip-and-python-budgets.md)). `through_all`: no `distance`, and `through_all=True`.
 - `reverse=True` when `reverse` is true; `op` when it differs from the default op of `body`.
-- A `two_sides` extent has no dedicated form: the hook returns `None` and the generic form is used.
+- Every extent has a dedicated form; the hook returns `None` only when a `PythonNames` lookup it needs does (the profile's sketch has no variable, or no solved regions).
 
-With `f-sk1` as `sketch_1` and op `new` as the default, the JSON above is `extrude(sketch_1, 30*mm, id="f-ext1")`. Generic form (features.md section 3.11):
+With `f-sk1` as `sketch_1` and op `new` as the default, the JSON above is `extrude(sketch_1, 30*mm, id="f-ext1")`, and with the two-sided extent above it is `extrude(sketch_1, 20*mm, opposite_distance=10*mm, id="f-ext1")`. Generic form (features.md section 3.11):
 
 ```python
 feature(

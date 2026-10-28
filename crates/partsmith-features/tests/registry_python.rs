@@ -63,14 +63,15 @@ fn probe_record(name: Option<&str>, suppressed: bool) -> FeatureRecord {
     probe
 }
 
-/// The extrude record of `extrude_record` with a `two_sides` extent, which has no dedicated form (test 23).
-fn two_sides_extrude() -> FeatureRecord {
-    let mut two_sides = extrude_record();
-    two_sides.params.insert(
-        "extent".to_string(),
-        json!({"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}),
-    );
-    two_sides
+/// The import record of features.md section 6.2 test 23, whose type has no dedicated form (features/import.md).
+fn import_record() -> FeatureRecord {
+    record(json!({
+        "id": "f-imp1",
+        "type": "import",
+        "body": "b-1",
+        "asset": "b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step",
+        "op": "new"
+    }))
 }
 
 /// The box record with two sizes of features.md section 6.2 test 23, whose params are invalid.
@@ -476,13 +477,13 @@ fn t022_python_dedicated_is_the_dedicated_form() {
 }
 
 #[test]
-fn t023_extrude_with_two_sides_uses_the_generic_form() {
+fn t023_import_uses_the_generic_form() {
     let registry = Registry::with_builtins();
-    let two_sides = two_sides_extrude();
+    let import = import_record();
 
     assert_eq!(
-        registry.python(&two_sides, &ScriptNames),
-        registry.python_generic(&two_sides)
+        registry.python(&import, &ScriptNames),
+        registry.python_generic(&import)
     );
 }
 
@@ -524,7 +525,7 @@ fn t023_records_of_the_generic_form_have_no_dedicated_form() {
     let registry = Registry::with_builtins();
 
     for generic in [
-        two_sides_extrude(),
+        import_record(),
         invalid_box(),
         gear_demo_record(),
         rectangle_sketch_record(),

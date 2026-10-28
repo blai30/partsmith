@@ -1,8 +1,10 @@
 """Helpers shared by the acceptance tests of docs/spec/python-api.md section 6."""
 
+import ast
 import json
 import math
 import os
+import re
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -158,6 +160,49 @@ def python_literal(value: object) -> str:
         members = (f"{python_string(key)}: {python_literal(item)}" for key, item in value.items())
         return "{" + ", ".join(members) + "}"
     raise TypeError(f"no literal rule for {value!r} in these tests")
+
+
+GENERIC_CALL = re.compile(r"^\s*(?:[A-Za-z_][A-Za-z0-9_]* = )?feature\(")
+"""A generic call (delivery.md section 2.8, twin check 4): a line that starts, after its indentation and an optional
+`<variable> = ` (python-api.md section 3.8 rule 7), with `feature(`."""
+
+
+def generic_calls(code: str) -> int:
+    """How many generic `feature(...)` calls a script writes (delivery.md section 2.8, twin check 4)."""
+    return sum(1 for line in code_lines(code) if GENERIC_CALL.match(line))
+
+
+def call_arguments(code: str, function: str) -> list[list[str]]:
+    """The arguments of each statement of `code` that calls `function`, in source order, each argument as its source
+    text (`<keyword>=<value>` for a keyword), whether the statement is on one line or has one argument per line
+    (python-api.md section 3.8 rule 11)."""
+    calls = []
+    for node in ast.walk(ast.parse(code)):
+        if not isinstance(node, (ast.Expr, ast.Assign)) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        if not isinstance(call.func, ast.Name) or call.func.id != function:
+            continue
+        positional = [ast.get_source_segment(code, argument) for argument in call.args]
+        keywords = [
+            f"{keyword.arg}={ast.get_source_segment(code, keyword.value)}"
+            if keyword.arg is not None
+            else f"**{ast.get_source_segment(code, keyword.value)}"
+            for keyword in call.keywords
+        ]
+        calls.append((node.lineno, positional + keywords))
+    return [arguments for _, arguments in sorted(calls)]
+
+
+def reference_text(reference: dict) -> str:
+    """A stored reference as a dedicated form writes it (python-api.md section 3.8 rule 9): `Ref("<q>", "<fp>")`, then
+    `anchors=` and `merged=` when the reference has them."""
+    arguments = [python_string(reference["q"]), python_string(reference["fp"])]
+    if "nb" in reference:
+        arguments.append(f"anchors={python_literal(reference['nb'])}")
+    if "merged" in reference:
+        arguments.append(f"merged={python_literal(reference['merged'])}")
+    return f"Ref({', '.join(arguments)})"
 
 
 def write_text(path: Path, text: str) -> Path:

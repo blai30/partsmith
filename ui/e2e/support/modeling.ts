@@ -2,6 +2,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 import {
   bodyRow,
+  canvas,
   inspector,
   inspectorField,
   inspectorInput,
@@ -10,8 +11,9 @@ import {
 } from '../helpers'
 
 // Helpers for the modeling end-to-end tests: the Model toolbar's groups, inspector fields and
-// choices, previews, body sizes, editing from the timeline, an item's context menu, timeline labels
-// and drags. The shared helpers of ui.md 6.3 are in ../helpers.ts.
+// choices, picks on the canvas, confirming a command, previews, body sizes, editing from the
+// timeline, an item's context menu, timeline labels and drags. The shared helpers of ui.md 6.3 are
+// in ../helpers.ts.
 
 /** Opens a toolbar group ("Shapes", "Pattern") and runs one of its commands. */
 export async function runFromGroup(page: Page, group: string, title: string): Promise<void> {
@@ -40,6 +42,70 @@ export async function chooseOption(page: Page, label: string, option: string): P
     return
   }
   await panel.getByRole('combobox', { name: label, exact: true }).selectOption({ label: option })
+}
+
+/** Clicks the canvas at an offset from its center given in canvas heights (`H`). */
+export async function clickCanvas(
+  page: Page,
+  dxInHeights: number,
+  dyInHeights: number,
+): Promise<void> {
+  const box = await canvas(page)
+  await page.mouse.click(box.cx + dxInHeights * box.H, box.cy + dyInHeights * box.H)
+}
+
+/**
+ * Clicks the canvas at an offset in canvas heights while a command is active and waits until the
+ * selection field holds `count` items and the preview has settled for the new params (`shown`
+ * when they are complete, `none` otherwise), so the next click picks the current meshes.
+ */
+export async function pickOnCanvas(
+  page: Page,
+  dxInHeights: number,
+  dyInHeights: number,
+  path: string,
+  count: number,
+  preview: 'shown' | 'none',
+): Promise<void> {
+  await clickCanvas(page, dxInHeights, dyInHeights)
+  await expect(selectionField(page, path)).toHaveAttribute('data-count', String(count))
+  await expect(inspector(page)).toHaveAttribute('data-preview', preview, { timeout: 15_000 })
+}
+
+/** Gives the viewport keyboard focus, where Enter confirms a complete command (ui.md 3.5). */
+export async function focusViewport(page: Page): Promise<void> {
+  await page.getByRole('application', { name: '3D view' }).focus()
+}
+
+/**
+ * Moves focus to the viewport unless it is already where Enter confirms a command: the viewport,
+ * or an inspector control that is not a button (ui.md 3.5 Enter ladder).
+ */
+export async function focusWhereEnterConfirms(page: Page): Promise<void> {
+  const ready = await page.evaluate(() => {
+    const focused = document.activeElement
+    if (!(focused instanceof HTMLElement)) {
+      return false
+    }
+    if (focused.getAttribute('role') === 'application') {
+      return true
+    }
+    return (
+      focused.closest('[data-testid=inspector]') !== null &&
+      focused.closest('button, [role=button]') === null
+    )
+  })
+  if (!ready) {
+    await focusViewport(page)
+  }
+}
+
+/** Confirms the active command with Enter and expects the new feature to be ok. */
+export async function confirmAndExpectOk(page: Page, label: string): Promise<void> {
+  await page.keyboard.press('Enter')
+  // The preview's item is in the timeline before OK, so the command must have ended first.
+  await expect(page.locator('[data-testid=inspector][data-mode=command]')).toHaveCount(0)
+  await expect(timelineItem(page, label)).toHaveAttribute('data-status', 'ok', { timeout: 15_000 })
 }
 
 /** Waits until the command's preview is drawn for its latest params. */

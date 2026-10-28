@@ -78,7 +78,7 @@ Label `Chamfer`, category `modify`, icon `chamfer`, version 1.
 
 ### Python
 
-Dedicated form: `chamfer(edges, distance)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: `edges` as references (one alone, several as a list), `distance` from `distance.expr` of an `equal` distance; the `with <part>:` block gives `body`. A `two_distances` chamfer has no dedicated form: the hook returns `None` and the generic form is used. Generic form of the JSON above:
+Dedicated form: `chamfer(edges, distance, second_distance=..., flip=...)` (python-api.md section 2.7), produced by the `Feature::python` hook with the shared rules of features.md section 3.11: `edges` as references (one alone, several as a list), `distance` from `distance.expr`; for `two_distances`, `second_distance=` with `distance.second_expr`, then `flip=True` when `flip` is true ([ADR 0048](../../adr/0048-python-keywords-gui-round-trip-and-python-budgets.md)); the `with <part>:` block gives `body`. Both kinds have a dedicated form, so the hook never returns `None`. With the edge's reference written `Ref("edge(f-box1/front|f-box1/top)", "line|n=1,0,0|c=0,-10,20|l=20")`, the JSON above is `chamfer(Ref(...), 1*mm, id="f-cha1")`, and its two distances flipped (`"expr": "1 mm", "second_expr": "3 mm", "flip": true`) are `chamfer(Ref(...), 1*mm, second_distance=3*mm, flip=True, id="f-cha1")`. Generic form of the JSON above:
 
 ```python
 feature(

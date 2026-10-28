@@ -128,6 +128,7 @@ impl FitClass {
 /// Clearance per side between mating surfaces, in mm, for each fit class. A hole for a pin of
 /// diameter `d` is `d + 2 × clearance`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct FitClasses {
     /// Clearance of parts pushed together that hold by friction.
     pub press: f64,
@@ -181,9 +182,11 @@ impl FitClasses {
 
 /// A printer the model will be printed on. Deserialization fills omitted fields from the
 /// technology's generic profile and validates (section 3.1), so a deserialized profile is always
-/// valid.
+/// valid. Its JSON Schema is the written form in both schemars contracts, closed to unknown fields
+/// as serde reads it (section 3.1); `ProfileInput`'s is the input form.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "ProfileInput")]
+#[schemars(!try_from, deny_unknown_fields)]
 pub struct PrinterProfile {
     /// Stable id, a valid `partsmith_model::Id`; documents refer to it in `Document::printer`.
     pub id: Id,
@@ -472,23 +475,7 @@ fn builtin_id(text: &str) -> Id {
 
 #[cfg(test)]
 mod tests {
-    use schemars::generate::SchemaSettings;
-
     use super::*;
-
-    /// The names a JSON Schema lists as required, sorted.
-    fn required_fields<T: JsonSchema>(settings: SchemaSettings) -> Vec<String> {
-        let schema = settings.into_generator().into_root_schema_for::<T>();
-        let value = serde_json::to_value(schema).expect("schemas serialize");
-        let mut names: Vec<String> = value["required"]
-            .as_array()
-            .expect("an object schema lists its required fields")
-            .iter()
-            .filter_map(|name| name.as_str().map(String::from))
-            .collect();
-        names.sort();
-        names
-    }
 
     /// A valid profile input with only the required fields.
     fn input(technology: Technology) -> ProfileInput {
@@ -717,31 +704,6 @@ mod tests {
     fn unknown_profile_id_is_not_builtin() {
         assert_eq!(builtin_profile("generic-fdm"), Some(generic_fdm()));
         assert_eq!(builtin_profile("Generic-FDM"), None);
-    }
-
-    #[test]
-    fn profile_schema_reads_the_input_form() {
-        assert_eq!(
-            required_fields::<PrinterProfile>(SchemaSettings::default().for_deserialize()),
-            vec!["id", "name", "technology"]
-        );
-    }
-
-    #[test]
-    fn profile_schema_writes_every_field_but_the_optional_nozzle() {
-        assert_eq!(
-            required_fields::<PrinterProfile>(SchemaSettings::default().for_serialize()),
-            vec![
-                "bed",
-                "fit",
-                "id",
-                "layer_height",
-                "max_bridge_length",
-                "max_overhang_angle",
-                "name",
-                "technology"
-            ]
-        );
     }
 
     #[test]

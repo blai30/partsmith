@@ -7,7 +7,7 @@ Spec: `docs/spec/print.md` (the definition of done). Acceptance tests in `tests/
 ## Public interface (crate root)
 
 - Constants: `DEFAULT_PROFILE_ID`, `BED_CONTACT_TOLERANCE`, `PLATEAU_TOLERANCE`, `ANGLE_TOLERANCE`, `THICKNESS_RAY_START`, `WALL_FACING_ANGLE`, `MIN_REPORTED_AREA`, `MAX_FINDINGS_PER_CHECK`, `OVERLAY_NO_VALUE`.
-- Profiles: `Technology`, `Bed` (`height`, `center`), `FitClass`, `FitClasses` (`defaults`, `clearance`), `PrinterProfile` (`from_json`, `to_json`, `validate`, `tessellation_tolerance`, `thresholds`; deserializes through `ProfileInput`, so it is always valid), `ProfileInput`, `FitInput`, `builtin_profiles`, `builtin_profile`, `generic_fdm`, `generic_resin`.
+- Profiles: `Technology`, `Bed` (`height`, `center`), `FitClass`, `FitClasses` (`defaults`, `clearance`), `PrinterProfile` (`from_json`, `to_json`, `validate`, `tessellation_tolerance`, `thresholds`; deserializes through `ProfileInput`, so it is always valid, while its JSON Schema is the written form, closed like `FitClasses`: `#[schemars(!try_from, deny_unknown_fields)]`, spec 3.1), `ProfileInput`, `FitInput`, `builtin_profiles`, `builtin_profile`, `generic_fdm`, `generic_resin`.
 - `PrinterValues` (`new`): the `EvaluationContext` for `printer.fit.*`, `printer.nozzle` and `printer.layer_height`.
 - `CheckThresholds`, derived by `PrinterProfile::thresholds`.
 - Analysis: `Rotation` (`identity`, `new`, `about_axis`, `face_down`, `rows`, `to_transform`), `CheckKind` (`ALL`), `AnalysisOptions` (default: identity, every check), `analyze` returning `Analysis { report, overlays }`.

@@ -1,7 +1,8 @@
-//! Acceptance tests for the generated protocol JSON Schema (protocol.md section 6, test 41 of "JSON shapes", "Schema", tests 43 to 46, and test 81).
+//! Acceptance tests for the generated protocol JSON Schema (protocol.md section 6, test 41 of "JSON shapes", "Schema", tests 43 to 46, test 81, and test 87 (a) of "Closed types in results and events").
 
 use crate::common;
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use common::examples::{
@@ -11,8 +12,8 @@ use common::examples::{
 };
 use common::json_schema::validate;
 use common::{
-    definition, object_keys, parse_json, property, schema_json, string_set, string_values, variant,
-    variant_tags, with_member, without_member,
+    assert_requires_all_but, definition, parse_json, property, schema_json, string_set,
+    string_values, variant, variant_tags, with_member, without_member,
 };
 use partsmith_protocol::{MAX_SAFE_INTEGER, protocol_schema};
 use serde_json::{Value, json};
@@ -28,27 +29,78 @@ fn required_names(subschema: &Value) -> Vec<&str> {
         .collect()
 }
 
-/// Checks that `complete` validates against the `$defs` entry `name`, and that `complete` without any one of its
-/// members still validates exactly when that member is in `optional`.
-fn assert_requires_all_but(schema: &Value, name: &str, complete: &Value, optional: &[&str]) {
-    let pointer = format!("/$defs/{name}");
-    assert_eq!(validate(schema, &pointer, complete), Ok(()), "{complete}");
-    for member in object_keys(complete) {
-        let result = validate(schema, &pointer, &without_member(complete, member));
-        assert_eq!(
-            result.is_ok(),
-            optional.contains(&member),
-            "{name} without {member} validates only when {member} is optional: {result:?}"
-        );
-    }
-}
-
 /// The schema's `maximum` for property `name` of `subschema`.
 fn maximum_of(schema: &Value, subschema: &Value, name: &str) -> Option<u64> {
     property(schema, subschema, name)
         .unwrap_or_else(|| panic!("the schema declares no property {name}"))
         .get("maximum")
         .and_then(Value::as_u64)
+}
+
+/// The closed types of section 3.6 that results and events carry, sorted.
+const CLOSED_IN_RESULTS_AND_EVENTS: [&str; 10] = [
+    "Bed",
+    "Body",
+    "Document",
+    "FitClasses",
+    "FixRef",
+    "Parameter",
+    "Placement",
+    "PrinterProfile",
+    "Reference",
+    "RegionRef",
+];
+
+/// Adds to `names` the `$defs` entry of every `$ref` inside `value`.
+fn add_referenced_definitions(value: &Value, names: &mut Vec<String>) {
+    match value {
+        Value::Object(members) => {
+            for (keyword, member) in members {
+                let target = member
+                    .as_str()
+                    .and_then(|reference| reference.strip_prefix("#/$defs/"));
+                match target {
+                    Some(name) if keyword == "$ref" => names.push(name.to_string()),
+                    _ => add_referenced_definitions(member, names),
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                add_referenced_definitions(item, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The `$defs` entries that `roots` reach through `$ref`, the roots included.
+fn reachable_definitions(schema: &Value, roots: &[&str]) -> BTreeSet<String> {
+    let mut reached = BTreeSet::new();
+    let mut pending: Vec<String> = roots.iter().map(|root| root.to_string()).collect();
+    while let Some(name) = pending.pop() {
+        if !reached.contains(&name) {
+            add_referenced_definitions(definition(schema, &name), &mut pending);
+            reached.insert(name);
+        }
+    }
+    reached
+}
+
+/// Whether `subschema`, or a subschema inside it, closes an object to unknown members, leaving out maps whose keys
+/// follow a pattern.
+fn closes_an_object(subschema: &Value) -> bool {
+    match subschema {
+        Value::Object(members) => {
+            let closed = ["additionalProperties", "unevaluatedProperties"]
+                .into_iter()
+                .any(|keyword| members.get(keyword) == Some(&Value::Bool(false)));
+            (closed && !members.contains_key("patternProperties"))
+                || members.values().any(closes_an_object)
+        }
+        Value::Array(items) => items.iter().any(closes_an_object),
+        _ => false,
+    }
 }
 
 /// The `oneOf` entry of `Message` whose `kind` is `kind`.
@@ -575,4 +627,16 @@ fn uses_causes_and_ghosts_the_engine_fills_validate() {
     let mut unknown_frame = parse_json(DELETED_POINT_MESSAGE);
     unknown_frame["cause"]["ghost"]["frame"] = json!("body");
     assert!(validate(&schema, "/$defs/Diagnostic", &unknown_frame).is_err());
+}
+
+#[test]
+fn t087_results_and_events_reach_exactly_the_closed_types_of_section_3_6() {
+    let schema = schema_json();
+
+    let closed: Vec<String> = reachable_definitions(&schema, &["Response", "Event"])
+        .into_iter()
+        .filter(|name| closes_an_object(definition(&schema, name)))
+        .collect();
+
+    assert_eq!(closed, CLOSED_IN_RESULTS_AND_EVENTS);
 }

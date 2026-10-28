@@ -86,9 +86,11 @@ line-length = 120
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # The wheel build of test 76 compiles the release engine; run it with `pytest -m packaging`.
-addopts = "-m 'not packaging'"
+# The budgets of section 5 time the release build; run them with `pytest -m budgets -s`.
+addopts = "-m 'not packaging and not budgets'"
 markers = [
     "packaging: builds and installs the release wheel (slow; run with -m packaging)",
+    "budgets: measures the budgets of python-api.md section 5 (run with -m budgets -s)",
 ]
 ```
 
@@ -103,6 +105,7 @@ python -m venv .venv && . .venv/bin/activate && pip install maturin pytest
 pytest python/tests
 (cd python && maturin build --release)      # target/wheels/partsmith-0.1.0-cp312-abi3-*.whl
 pytest python/tests -m packaging            # test 76; needs python3.12 and python3.13 on PATH
+pytest python/tests -m budgets -s           # the budgets of section 5, one line per row
 ```
 
 ### 2.2 `partsmith._core`
@@ -407,11 +410,13 @@ class DatumPlane(Feature):
     def placement(self) -> Placement: ...
 
 def extrude(profile: Sketch, distance: Value | None = None, *, regions: Sequence[Region] | None = None,
-            symmetric: bool = False, reverse: bool = False, through_all: bool = False, **common) -> Feature: ...
+            symmetric: bool = False, opposite_distance: Value | None = None, reverse: bool = False,
+            through_all: bool = False, **common) -> Feature: ...
 def revolve(profile: Sketch, axis: AxisLike, angle: Value | None = None, *, regions: Sequence[Region] | None = None,
             reverse: bool = False, **common) -> Feature: ...
 def fillet(edges: Edges, radius: Value, **common) -> Feature: ...
-def chamfer(edges: Edges, distance: Value, **common) -> Feature: ...
+def chamfer(edges: Edges, distance: Value, *, second_distance: Value | None = None, flip: bool = False,
+            **common) -> Feature: ...
 def shell(faces: Faces | None, thickness: Value, **common) -> Feature: ...
 def hole(points: Sketch | PointLike | Sequence[PointLike], diameter: Value, depth: Value | None = None, *,
          counterbore: tuple[Value, Value] | None = None, countersink: tuple[Value, Value] | None = None,
@@ -426,8 +431,9 @@ def torus(major_radius: Value, minor_radius: Value, *, plane: PlaneLike = Plane.
           position: Point3 = (0, 0, 0), **common) -> Feature: ...
 def boolean(tools: Part | Sequence[Part], *, op: str = "cut", keep_tools: bool = False, **common) -> Feature: ...
 def mirror(plane: PlaneLike, *, into: Part | None = None, **common) -> Feature: ...
-def linear_pattern(direction: AxisLike, count: Value, spacing: Value, *,
-                   second: tuple[AxisLike, Value, Value] | None = None, into: Part | None = None, **common) -> Feature: ...
+def linear_pattern(direction: AxisLike, count: Value, spacing: Value, *, reverse: bool = False,
+                   second: tuple[AxisLike, Value, Value] | None = None, second_reverse: bool = False,
+                   into: Part | None = None, **common) -> Feature: ...
 def circular_pattern(axis: AxisLike, count: Value, angle: Value = "360 deg", *, reverse: bool = False,
                      into: Part | None = None, **common) -> Feature: ...
 def datum_plane(base: PlaneLike, offset: Value = 0, *, flip: bool = False, name: str | None = None,
@@ -654,22 +660,26 @@ python -m partsmith --version
   - any other status, including `ok` with info notices only: the feature is kept silently. Info notices are never emitted; `Feature.messages` lists them.
 - Element arguments must not be empty (`SelectionError("<function>() needs at least one <kind>; the selection is empty.")`) and must have the kind the parameter needs (`SelectionError("<function>() takes edges, got faces.")`). `Ref` literals carry no kind and are accepted as given.
 - `extrude` and `revolve` without `regions` use every region of the `profile` sketch in the order of its `sketch_solved` event; `regions=[...]` selects those regions of that sketch, in the given order (a `Region` whose `fp` is `None` takes the fingerprint of the region with its key in the current solve; an unknown key raises `ValueError`). For `extrude`, exactly one of `distance` and `through_all=True` must be given (`ValueError` otherwise).
-- Stored records without a dedicated form use the generic `feature(...)` form in generated code: an extrude with a `two_sides` extent, a linear pattern direction with `reverse: true`, and every `import` feature (features/import.md).
+- **Options of the GUI** ([ADR 0048](../adr/0048-python-keywords-gui-round-trip-and-python-budgets.md)). Each keyword below is the GUI field's label in snake case (the feature specs' manifests), so every option the inspector offers for a built-in feature has a Python form (technical design section 10), except `import`, which has none (below). Python checks the combinations before it sends anything, so a `ValueError` here leaves the document unchanged:
+  - `extrude(..., opposite_distance=...)` makes a two-sided extent (features/extrude.md, field Opposite distance): `distance` along the extrude direction and `opposite_distance` against it, each at least 0 and not both 0, which the feature checks. `opposite_distance=0` is stored as given, a two-sided extent with `"opposite_expr": "0"`, never as a one-sided one. `extrude` checks its extent arguments in this order and raises the first that fails: (1) exactly one of `distance` and `through_all=True` (`ValueError("extrude() needs exactly one of distance and through_all=True.")`); (2) not both `symmetric=True` and `opposite_distance` (`ValueError("extrude() takes symmetric=True or opposite_distance, not both.")`), a pair that no distance makes valid; (3) `symmetric=True` needs `distance` (`ValueError("extrude() symmetric=True needs a distance.")`); (4) `opposite_distance` needs `distance` (`ValueError("extrude() opposite_distance needs a distance.")`, which is what `through_all=True` with `opposite_distance` gets). So `extrude(sketch, opposite_distance=10)` fails rule 1, and `extrude(sketch, symmetric=True, opposite_distance=10, through_all=True)` rule 2.
+  - `chamfer(..., second_distance=...)` makes a two-distance chamfer (features/chamfer.md, fields Second distance and Flip): `distance` on the first face of each edge's stored reference and `second_distance` on the other; `flip=True` swaps them and needs `second_distance` (`ValueError("chamfer() flip=True needs a second_distance.")`). `second_distance` equal to `distance` is stored as given, as two distances.
+  - `linear_pattern(..., reverse=True)` sends the copies against the first direction, and `second_reverse=True` against the second (features/linear_pattern.md, fields Reverse and Second reverse); `second_reverse` needs `second` (`ValueError("linear_pattern() second_reverse=True needs second=(axis, count, spacing).")`).
+- Generated code writes every built-in record in its dedicated form, these options included. It uses the generic `feature(...)` form only for `import` features (features/import.md), for types without a hook (plugins), and for records whose params do not validate or name something the generator has no variable for (3.8 rule 6, features.md section 3.11), such as a hole whose point is no longer in its sketch (`examples/hole/deleted-point`).
 
 Mapping onto feature params (features/<type>.md). `AxisLike` values become features.md `AxisRef`s: `Axis.X`, `Axis.Y`, `Axis.Z` give `{"kind": "origin", "axis": "X"}` and so on, a `Line` of a finished sketch gives `{"kind": "sketch_line", "sketch", "line"}`, a straight edge `Element` gives `{"kind": "edge", "body", "edge", "direction"}`, a round face `Element` gives `{"kind": "face", "body", "face", "direction"}`, each with the element's full reference (3.6) and its `axis_direction` as `direction` (features.md section 2.5), and a `Ref` with `part` gives the edge form (the face form when its fingerprint text starts with a surface type) on that part's body, with `direction` only when the `Ref` has one; any other `Axis` raises `ValueError("Only Axis.X, Axis.Y, Axis.Z, sketch lines, straight edges and round faces can be used as axes.")`. `PlaneLike` values become `PlaneRef`s: origin planes, `DatumPlane`s (`{"kind": "datum", "feature"}`) and planar face `Element`s or `Ref`s with `part` (`{"kind": "face", "body", "face"}`). Where features.md and this table differ, features.md wins.
 
 | Python | Feature type | Params set |
 | --- | --- | --- |
-| `extrude(profile, distance, regions, symmetric, reverse, through_all)` | `extrude` | `body`, `profile` `{sketch, regions: [RegionRef]}`, `extent` (`{"kind": "distance", "expr"}`, `{"kind": "symmetric", "expr"}` or `{"kind": "through_all"}`), `reverse` when true, `op` |
+| `extrude(profile, distance, regions, symmetric, opposite_distance, reverse, through_all)` | `extrude` | `body`, `profile` `{sketch, regions: [RegionRef]}`, `extent` (`{"kind": "distance", "expr"}`, `{"kind": "symmetric", "expr"}`, `{"kind": "two_sides", "expr", "opposite_expr"}` with `opposite_distance` as `opposite_expr`, or `{"kind": "through_all"}`), `reverse` when true, `op` |
 | `revolve(profile, axis, angle, regions, reverse)` | `revolve` | `body`, `profile` (as for `extrude`), `axis` (`AxisRef`), `extent` (`{"kind": "full"}` when `angle` is `None`, else `{"kind": "angle", "expr"}`), `reverse` when true, `op` |
 | `fillet(edges, radius)` | `fillet` | `body`, `edges` (references), `radius` |
-| `chamfer(edges, distance)` | `chamfer` | `body`, `edges`, `distance` `{"kind": "equal", "expr"}` |
+| `chamfer(edges, distance, second_distance, flip)` | `chamfer` | `body`, `edges`, `distance`: `{"kind": "equal", "expr"}`, or with `second_distance` `{"kind": "two_distances", "expr", "second_expr"}` with `second_distance` as `second_expr` and `"flip": true` when `flip` |
 | `shell(faces, thickness)` | `shell` | `body`, `thickness`, `remove_faces` (omitted when `faces` is `None`: a closed hollow) |
 | `hole(points, diameter, depth, counterbore, countersink, tip_angle, reverse)` | `hole` | `body`, `sketch`, `points` (point addresses; a `Sketch` argument gives all its point entities in stored order), `diameter`, `hole_type` (simple, counterbore with diameter and depth, or countersink with diameter and angle), `extent` (through all when `depth` is `None`, else to `depth`), `tip_angle` when given, `reverse` when true |
 | `box`, `cylinder`, `sphere`, `cone`, `torus` | same name | `body`, the size params (`size` as `[length, width, height]` for a box; `radius`, `height`, `bottom_radius`, `top_radius`, `major_radius`, `minor_radius` as named), `plane` (`PlaneRef`) when not `Plane.XY`, `position` when not zero, `op` |
 | `boolean(tools, op, keep_tools)` | `boolean` | `target` (the part's body), `tools` (body ids), `op`, `keep_tools` when true |
 | `mirror(plane, into)` | `mirror` | `body`, `plane` (`PlaneRef`); `op` `new` and `target` exactly when `into` is given, neither otherwise (join, the default) |
-| `linear_pattern(direction, count, spacing, second, into)` | `linear_pattern` | `body`, `direction` `{axis, count, spacing}`, `second_direction` when given; `op` `new` and `target` exactly when `into` is given |
+| `linear_pattern(direction, count, spacing, reverse, second, second_reverse, into)` | `linear_pattern` | `body`, `direction` `{axis, count, spacing}` with `"reverse": true` when `reverse`, `second_direction` `{axis, count, spacing}` when `second` is given, with `"reverse": true` when `second_reverse`; `op` `new` and `target` exactly when `into` is given |
 | `circular_pattern(axis, count, angle, reverse, into)` | `circular_pattern` | `body`, `axis`, `count`, `angle`, `reverse` when true; `op` `new` and `target` exactly when `into` is given |
 | `datum_plane(base, offset, flip)` | `datum_plane` | `base` (`PlaneRef`), `offset`, `flip` when true |
 | `move(part, translate, rotate)` | `move_body` | `body`, `translation`, `rotation` `{axis, angle}` when given |
@@ -726,7 +736,7 @@ For a canonical document text `T` whose features all build without an `error` st
 
 For a script `S` written by hand: `D1 = run_code(S)`, `D2 = run_code(D1.to_python())`, and `D2.to_text() == D1.to_text()`.
 
-CI runs the first form for every engine fixture, for the documents of test 86 (which hold every field file format version 2 adds), and for every example that has a Python twin, and the second for every Python twin; an example is any `.ptsm` file under `examples/`, and its twin is the same path with `.py` (delivery.md section 2.8).
+CI runs the first form for every engine fixture, for the documents of test 86 (which hold every field file format version 2 adds), for every example that has a Python twin, and for the documents the UI writes (`ui/e2e/fixtures/gui/`, saved by ui.md's E-160 with random ids, starting values, picked references and axis directions, new-body targets and renames, delivery.md section 2.8), and the second for every Python twin; an example is any `.ptsm` file under `examples/`, and its twin is the same path with `.py` (delivery.md section 2.8).
 
 ### 3.10 Mapping onto engine commands
 
@@ -771,7 +781,7 @@ Ids given with `id=` are used as is. Otherwise Python generates them in the `Seq
 | `FeatureError` | a feature (or sketch) builds with status `error` | `<function>(): ` followed by the feature's error message |
 | `SelectionError` | empty or wrong-kind selections, ambiguous single-element arguments, selectors without a part | the messages in 3.4 to 3.6 |
 | `PartsmithError` | misuse outside the required context, closed documents | the messages in 3.1 to 3.4 |
-| `ValueError` | invalid argument values (non-finite numbers, too few polygon points, both or neither of `distance` and `through_all`, a `Region` without `fp` whose key the sketch does not have, parts from several documents, `rotate` with a non-origin axis) | a sentence naming the argument |
+| `ValueError` | invalid argument values (non-finite numbers, too few polygon points, both or neither of `distance` and `through_all`, `opposite_distance` without `distance` or with `symmetric=True`, `flip=True` without `second_distance`, `second_reverse=True` without `second`, a `Region` without `fp` whose key the sketch does not have, parts from several documents, `rotate` with a non-origin axis) | a sentence naming the argument (3.5 gives the option combinations' sentences) |
 | `TypeError` | arguments of the wrong type | a sentence naming the argument |
 | `OSError` | file reads and writes | from the OS; a failed write keeps the OS's `errno` and `strerror` and names the file or folder being written as its only `filename`, never a temporary file (3.1, 3.7) |
 | `PartsmithWarning` | feature warnings of severity warning, problems an edit starts (3.2), export warnings, indexing a selection by position (3.6) | `<function>(): ` followed by the engine message for feature messages; the engine message for export warnings; the text of 3.6 for `selection_index` |
@@ -786,15 +796,25 @@ Ids given with `id=` are used as is. Otherwise Python generates them in the `Seq
 
 ## 5. Performance budgets
 
-Release wheel, reference machine:
+Release wheel, or the release build `maturin develop --release` installs, on the reference machine (technical design section 14):
 
-| Operation | Budget |
-| --- | --- |
-| `import partsmith` | 150 ms |
-| Python overhead per API call (excluding engine time) | 2 ms |
-| A 50-feature script, end to end | the engine's full-rebuild budget (1 s) plus 50 × 2 ms plus 200 ms |
-| `Selection` filtering over 1000 elements | 5 ms |
-| Compiling a `Selection` of 12 edges to full references (3.6): 12 `pick_reference`, the body state's element set built once | 15 ms |
+| Row | Operation | Budget |
+| --- | --- | --- |
+| 1 | `import partsmith` | 150 ms |
+| 2 | Python overhead per API call (excluding engine time) | 2 ms |
+| 3 | A 50-feature script, end to end | the engine's full-rebuild budget (1 s) plus 50 × 2 ms plus 200 ms: 1300 ms |
+| 4 | `Selection` filtering over 1000 elements | 5 ms |
+| 5 | Compiling a `Selection` of 12 edges to full references (3.6): 12 `pick_reference`, the body state's element set built once | 15 ms |
+
+**How the rows are measured** ([ADR 0048](../adr/0048-python-keywords-gui-round-trip-and-python-budgets.md)). `python/tests/test_budgets.py` holds one test per row, each marked `budgets`, which `pytest python/tests` leaves out as it leaves out `packaging` (2.1); `pytest python/tests -m budgets -s` runs them, and `-k` selects rows by the test names `test_row_1_import`, `test_row_2_overhead_per_call`, `test_row_3_fifty_features`, `test_row_4_selection_filtering` and `test_row_5_refs_of_12_edges`. Each test runs its operation once untimed, then 7 times, each time between two `time.perf_counter()` calls, and takes `median(samples)` of the 7 milliseconds (the 4th smallest, as `median` of `partsmith-budgets` does, engine.md section 5); a row that times several operations takes each one's median and reports the largest. It then calls `check_budget(name, value, budget)`, both helpers of `test_budgets.py`, which prints `{name}: {value} ms (budget {budget} ms)`, with `{name}` the row's name below and both numbers written with two decimals, and, when the value is over the budget, emits `UserWarning("Over budget: {name} ({value} ms > {budget} ms)")` with the numbers written the same way. The test passes either way, on every machine, since neither CI's runners nor development machines are the reference machine; it fails only when a row cannot be measured (its code raises). So every run shows every row's number. The rows, with their names:
+
+1. `import partsmith`: a new interpreter (`sys.executable -c`) times `import partsmith` between its own two `time.perf_counter()` calls and prints the difference, so the interpreter's start-up is not counted; the untimed first run fills the file cache.
+2. `Python overhead per API call`: three operations, each sample of each in a new `Document()` with an untimed `Part("P")`: `box(20, 30, 40)` (a feature function) as the part's first feature, and, after an untimed `box(20, 30, 40)`, `faces().top()` (a selector and a filter) and the part's `volume()` (a measure). A sample's value is the operation's time less the time spent inside `partsmith._core.Session.call` during it (the engine, with the frame decoding and encoding in Rust), which the test times by wrapping the document's session.
+3. `A 50-feature script, end to end`: `run_script` of `examples/bench/fifty-features/model.py`, the twin of the engine's reference part (engine.md section 5), from the call to its return, in the test's interpreter, where `partsmith` is already imported (row 1 times the import); each run's document is closed after its time is taken.
+4. `Selection filtering over 1000 elements`: a `Document()` with `Part("Grid")` holding `box(10, 10, 10)` and `linear_pattern(Axis.X, 13, 20, second=(Axis.Y, 13, 20))`, 1014 faces (the grid of engine.md section 5's `list_elements` rows), and `selection = faces()`, all untimed; the test times each of `selection.top()`, `selection.max(Axis.X)`, `selection.parallel_to(Axis.Z)`, `selection.perpendicular_to(Axis.Z)`, `selection.planar()`, `selection.largest()`, `selection.sort_by(Axis.X)` and `selection.filter(lambda element: element.area > 50)`, none of which sends a command (3.6).
+5. `Compiling a Selection of 12 edges to full references`: each sample makes a new `Document()` with a `Part("P")` holding `box(20, 30, 40)` and lists `edges()` (12 edges), untimed, so the body's state is new to the engine, and then times `refs()` of that selection, whose 12 `pick_reference` commands build the state's element set once (3.6).
+
+The `python` job of CI runs `pytest python/tests -m budgets -s` (delivery.md section 2.4). On the reference machine, a release is checked strictly with `pytest python/tests -m budgets -s -W "error:Over budget:UserWarning"`, whose filter (pytest's own `-W`) turns each over-budget warning into a failure of its test.
 
 ## 6. Acceptance tests
 
@@ -960,7 +980,7 @@ with Sketch(
 79. On `box(20, 30, 40)`, `shell(None, 2)` stores no `remove_faces` and gives volume 24000 - 16 × 26 × 36 = 9024; `export_python` emits it as `shell(None, 2, id="<id>")` (rule 8: the stored expression is `2`).
 80. `revolve` of the sketch of test 23 with `reverse=True` stores `"reverse": true`, gives volume 2500π, and `export_python` emits `reverse=True` before `id=`.
 81. A `boolean` record with op `cut` is emitted without `op`; with op `join` it is emitted with `op="join"`.
-82. An extrude with extent `{"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}` is emitted in the generic form `feature("extrude", ...)` with every stored param, and the round trip of 3.9 holds.
+82. A two-sided extrude has a dedicated form (3.5, ADR 0048). In `Part("P", id="b-1")`, a sketch `with Sketch(Plane.XY, id="f-sk1") as sketch:` holding `Rectangle(40, 20)`, then `extrude(sketch, 20*mm, opposite_distance=10*mm, id="f-ext1")`, stores the extent `{"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}`; `export_python` emits the line `    extrude(sketch_1, 20*mm, opposite_distance=10*mm, id="f-ext1")` and no generic `feature("extrude", ...)` call, and the round trip of 3.9 holds.
 
 **Reserved sketch references**
 
@@ -1002,6 +1022,23 @@ These tests use `S`, the committed asset of [features/import.md](features/import
 105. Drain hole suggestions (3.7). In `Part("P")`: `box(20, 20, 20)` and `shell(None, 2)` (a closed hollow x and y in [-8, 8], z in [2, 18]). In `doc.check(printer="generic-resin")`, the finding with check `trapped_volumes` has code `enclosed_hollow`, severity `warning` and `suggestion` with `kind` `drain_hole`, `planes` `()`, `at` (X, Y, 2) within 1e-9 with X and Y each -8 or 8, and `text` `Add a drain hole near (X, Y, 2 mm)` with X and Y written `-8` or `8`; every other finding of that report (the overhang of the hollow's ceiling) has `suggestion` None. `doc.check()` (generic FDM) has the `enclosed_hollow` finding with severity `info` and `suggestion` None.
 106. Suggestion text without the engine: `partsmith.reports.print_report(report, part_of)`, with `part_of` returning one stub part for any body id and `report` a protocol print health report written in the test with one body and one finding per case. Each shared case of print.md section 3.12 gives a `Finding` whose `suggestion` has the case's words as `text`, its `kind`, `planes` the case's planes as `SplitPlane`s in order (`()` for a drain hole) and `at` the case's point (None for a split); the split without planes gives `suggestion` None, and so does a finding without `suggestion`. One test per case.
 
+**Options of the GUI** (3.5, [ADR 0048](../adr/0048-python-keywords-gui-round-trip-and-python-budgets.md))
+
+In tests 107 to 112, "a call of `f` with the arguments `a`, `b`, ..." means one statement of the generated script that calls `f` with exactly those arguments in that order, written on one line or one argument per line (3.8 rule 11), and `<id>` is the feature's id. Each document of these tests also satisfies the round trip of 3.9.
+
+107. Two-sided extrudes. In `Part("P")`, a sketch on `Plane.XY` holding `Rectangle(80, 50, center=(40, 25))` (features/extrude.md's `SK-RECT`), each in a new document: (a) `extrude(sketch, 20, opposite_distance=10)` stores `"extent": {"kind": "two_sides", "expr": "20", "opposite_expr": "10"}` and no `reverse`, and gives volume 120000 and bounding box (0, 0, -10) to (80, 50, 20) (features/extrude.md test 5); (b) the same with `reverse=True` stores `"reverse": true` as well and gives volume 120000 and bounding box (0, 0, -20) to (80, 50, 10); (c) `extrude(sketch, 20, opposite_distance=0)` stores `"opposite_expr": "0"`, a two-sided extent, and gives volume 80000 (features/extrude.md test 7). `export_python` writes the extrudes as a call of `extrude` with the arguments `sketch_1`, `20`, `opposite_distance=10`, `id="<id>"`; with `sketch_1`, `20`, `opposite_distance=10`, `reverse=True`, `id="<id>"`; and with `sketch_1`, `20`, `opposite_distance=0`, `id="<id>"`.
+108. Two-sided extrude arguments, in the order of 3.5. After the sketch of test 107: `extrude(sketch, opposite_distance=10, through_all=True)` raises `ValueError` with the message `extrude() opposite_distance needs a distance.`; `extrude(sketch, 20, symmetric=True, opposite_distance=10)` and `extrude(sketch, symmetric=True, opposite_distance=10, through_all=True)` each raise `ValueError` with the message `extrude() takes symmetric=True or opposite_distance, not both.`; and `extrude(sketch, opposite_distance=10)` raises `ValueError` with the message `extrude() needs exactly one of distance and through_all=True.`; afterwards `len(doc.features)` is 1 (the sketch alone).
+109. Two-distance chamfers. In `Part("P")` with `box(20, 20, 20, id="f-box1")` (features/chamfer.md's `CUBE20`), `edge = edges().top().min(Axis.Y)`, the front top edge, whose full reference is `edge(f-box1/front|f-box1/top)`, with the front face first; each in a new document: (a) `chamfer(edge, 1, second_distance=3)` stores `"distance": {"kind": "two_distances", "expr": "1", "second_expr": "3"}` and gives volume 7970, `faces().min(Axis.Y)[0].area` (the front) 380 and `faces().top()[0].area` 340, 1 mm measured on the front (features/chamfer.md test 2); (b) the same with `flip=True` stores `"flip": true` as well and gives volume 7970, front 340 and top 380 (its test 3). `export_python` writes the chamfers as a call of `chamfer` with the arguments `Ref("edge(f-box1/front|f-box1/top)", ...)` (the stored reference as 3.8 rule 9 writes it), `1`, `second_distance=3`, `id="<id>"`, and in (b) with `flip=True` before `id="<id>"`.
+110. `chamfer(edges().top(), 1, flip=True)` on `box(20, 20, 20)` raises `ValueError` with the message `chamfer() flip=True needs a second_distance.`, and the document keeps one feature.
+111. Reversed pattern directions. In `Part("P")` with `box(10, 10, 10)` (features/linear_pattern.md's `CUBE10`), each in a new document: (a) `linear_pattern(Axis.X, 3, 20, reverse=True)` stores `"direction": {"axis": {"kind": "origin", "axis": "X"}, "count": "3", "spacing": "20", "reverse": true}` and gives bounding box (-45, -5, 0) to (5, 5, 10) (its test 4); (b) `linear_pattern(Axis.X, 3, 20, second=(Axis.Y, 2, 15), second_reverse=True)` stores a `direction` without `reverse` and `"second_direction": {"axis": {"kind": "origin", "axis": "Y"}, "count": "2", "spacing": "15", "reverse": true}`, and gives volume 6000 and bounding box (-5, -20, 0) to (45, 5, 10) (its test 21); (c) `linear_pattern(Axis.X, 3, 20, reverse=True, second=(Axis.Y, 2, 15), second_reverse=True)` stores both and gives volume 6000 and bounding box (-45, -20, 0) to (5, 5, 10). `export_python` writes them as a call of `linear_pattern` with the arguments `Axis.X`, `3`, `20`, `reverse=True`, `id="<id>"`; with `Axis.X`, `3`, `20`, `second=(Axis.Y, 2, 15)`, `second_reverse=True`, `id="<id>"`; and with `Axis.X`, `3`, `20`, `reverse=True`, `second=(Axis.Y, 2, 15)`, `second_reverse=True`, `id="<id>"`.
+112. `linear_pattern(Axis.X, 3, 20, second_reverse=True)` on `box(10, 10, 10)` raises `ValueError` with the message `linear_pattern() second_reverse=True needs second=(axis, count, spacing).`, and the document keeps one feature.
+113. Dedicated forms across the corpus (3.5, 3.8 rule 6). `export_python` of every example that has a Python twin (delivery.md section 2.8) writes no generic call (a line that starts, after its indentation and an optional `<variable> = `, with `feature(`), except one for `examples/hole/deleted-point.ptsm`, whose hole names the point `e-p2` that its sketch does not have.
+
+**Budgets** (section 5)
+
+114. The budget tests are collected only with their mark. A test without the `budgets` mark runs `python -m pytest --collect-only -q python/tests/test_budgets.py` in a subprocess (the test's own interpreter, from the repository root), with `-m budgets` and without: with it, the tests it lists are exactly the five of section 5, one per row, by their names (`test_row_1_import` to `test_row_5_refs_of_12_edges`); with the default `addopts` of 2.1, it lists none of them. The lines the five print are checked by the python job's step (delivery.md test 10), since running them here would time the release build inside the default suite.
+115. The budget check, on literal values, in tests without the `budgets` mark: `median([7, 1, 6, 2, 5, 3, 4])` is 4. `check_budget("import partsmith", 151, 150)` prints `import partsmith: 151.00 ms (budget 150.00 ms)`, emits exactly one `UserWarning`, whose text is `Over budget: import partsmith (151.00 ms > 150.00 ms)`, and returns without raising; `check_budget("import partsmith", 150, 150)` prints `import partsmith: 150.00 ms (budget 150.00 ms)` and emits no warning.
+
 ## 7. Open issues
 
 1. **`param` ranges.** The technical design's `param("wall", 2*mm, min=..., max=...)` needs `min` and `max` fields on `Parameter`, which the architecture does not have; deferred.
@@ -1014,3 +1051,4 @@ These tests use `S`, the committed asset of [features/import.md](features/import
 8. **Warnings after edits.** The study (PY3) says `cause` is None in scripts unless an edit in the same session started it, but a feature function's own new feature never has a cause. Section 3.2 therefore emits a warning for each problem that `Param.set`, `Document.set_units`, `rollback` and the `printer` setter add, which is where a script sees a cause; the edit is kept, as in the UI.
 9. **Reasons are not attributes.** The error guidelines list `code`, `field`, `suggestion`, `actions`, `candidates`, `cause` and `detail` for Python, and section 4 follows them; the loss reason that cli.md prints (recompute.md `LossReason`) is not an attribute, since its words are in the message.
 10. **A document file that is a symbolic link.** `save` writes the document with `os.replace` (3.1), which replaces a link at `path` with a regular file, and the export functions do the same (3.7), while the desktop writes through a linked document file to the file it points to (desktop.md section 3.4 step 4.1, its test 51). So after a Python save of a linked `part.ptsm` the link is gone and the file it pointed to keeps the old text, and after a desktop save that file holds the new text. file-format.md section 3.11 leaves the document write to each host's atomic write, so the hosts differ here. Both keep the assets next to the link itself, where the CLI reads them too (ADR 0037 decision 6). Which document write both hosts follow is ADR 0037's options (A) to (C), for human review; its recommended (A) changes Python, as gap list item PY-1's follow-up describes.
+11. **Budgets on the development container and on CI.** Measured on 2026-10-28 in the development container (4 cores, the build `maturin develop --release` installs), with the rules of section 5: row 1 61 ms; row 2 0.18 ms (`box`), 0.48 ms (`faces().top()`) and 0.08 ms (`volume`); row 3 3872 ms, over its 1300 ms, while the engine's own `open_document` row of the same document measured 2698 ms against its 1 s on the same container (`cargo bench -p partsmith-engine --bench budgets`); row 4 2.09 ms (the largest, `max(Axis.X)`); row 5 0.96 ms. Row 3 rests on the engine's full-rebuild budget, so it is checked when the engine's row is, on the reference machine, which does not exist yet (delivery.md section 1.2). Until then it warns on every run (section 5), in CI and on development machines, and a warning that is not about row 3 points at the Python package.

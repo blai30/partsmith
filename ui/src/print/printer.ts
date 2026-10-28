@@ -100,19 +100,13 @@ function buildVolume(bed: Bed): string {
 /**
  * The key numbers of a profile under its name in the printer menu (3.17). FDM: "{width} × {depth} ×
  * {height} mm bed · {nozzle} mm nozzle" (a round bed reads "⌀{diameter} × {height} mm bed");
- * resin: "{width} × {depth} × {height} mm". A value the profile leaves out is left out.
+ * resin: "{width} × {depth} × {height} mm". An FDM profile without a nozzle shows its bed alone.
  */
 export function printerDetail(printer: PrinterProfile): string {
-  // The core lists every profile with all its fields; the schema shares the input form, where they are optional.
-  const bed = printer.bed ?? null
+  const volume = `${buildVolume(printer.bed)} mm`
   if (printer.technology === 'resin') {
-    return bed === null ? '' : `${buildVolume(bed)} mm`
+    return volume
   }
   const nozzle = printer.nozzle_diameter ?? null
-  return [
-    bed === null ? null : `${buildVolume(bed)} mm bed`,
-    nozzle === null ? null : `${millimeters(nozzle)} mm nozzle`,
-  ]
-    .filter((part) => part !== null)
-    .join(' · ')
+  return nozzle === null ? `${volume} bed` : `${volume} bed · ${millimeters(nozzle)} mm nozzle`
 }

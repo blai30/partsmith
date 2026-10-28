@@ -23,11 +23,15 @@ import {
 import { openProblems } from './support/documents'
 import {
   chooseOption,
+  clickCanvas,
+  confirmAndExpectOk,
   dragTo,
   expectBodySize,
   expectPreviewShown,
   fillInspector,
+  focusWhereEnterConfirms,
   openTimelineMenu,
+  pickOnCanvas,
   runFromGroup,
   selectionField,
   timelineGap,
@@ -36,12 +40,6 @@ import {
 
 // Feature commands, the inspector, previews, the timeline, the browser, the palette and the
 // parameters panel against the production build and the real core (ui.md 3.3 to 3.11, 6.5).
-
-/** Clicks the canvas at an offset from its center given in canvas heights (`H`). */
-async function clickCanvas(page: Page, dxInHeights: number, dyInHeights: number): Promise<void> {
-  const box = await canvas(page)
-  await page.mouse.click(box.cx + dxInHeights * box.H, box.cy + dyInHeights * box.H)
-}
 
 /** Expects the timeline to hold items with these labels, in order. */
 async function expectTimelineLabels(page: Page, labels: readonly string[]): Promise<void> {
@@ -78,60 +76,6 @@ async function leaveParametersField(page: Page): Promise<void> {
 function menuItem(menu: Locator, name: string): Locator {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return menu.getByRole('menuitem', { name: new RegExp(`^${escaped}(\\s|$)`) })
-}
-
-/** Gives the viewport keyboard focus, where Enter confirms a complete command (ui.md 3.5). */
-async function focusViewport(page: Page): Promise<void> {
-  await page.getByRole('application', { name: '3D view' }).focus()
-}
-
-/** Confirms the active command with Enter and expects the new feature to be ok. */
-async function confirmAndExpectOk(page: Page, label: string): Promise<void> {
-  await page.keyboard.press('Enter')
-  // The preview's item is in the timeline before OK, so the command must have ended first.
-  await expect(page.locator('[data-testid=inspector][data-mode=command]')).toHaveCount(0)
-  await expect(timelineItem(page, label)).toHaveAttribute('data-status', 'ok', { timeout: 15_000 })
-}
-
-/**
- * Moves focus to the viewport unless it is already where Enter confirms a command: the viewport,
- * or an inspector control that is not a button (ui.md 3.5 Enter ladder).
- */
-async function focusWhereEnterConfirms(page: Page): Promise<void> {
-  const ready = await page.evaluate(() => {
-    const focused = document.activeElement
-    if (!(focused instanceof HTMLElement)) {
-      return false
-    }
-    if (focused.getAttribute('role') === 'application') {
-      return true
-    }
-    return (
-      focused.closest('[data-testid=inspector]') !== null &&
-      focused.closest('button, [role=button]') === null
-    )
-  })
-  if (!ready) {
-    await focusViewport(page)
-  }
-}
-
-/**
- * Clicks the canvas at an offset in canvas heights while a command is active and waits until the
- * selection field holds `count` items and the preview has settled for the new params (`shown`
- * when they are complete, `none` otherwise), so the next click picks the current meshes.
- */
-async function pickOnCanvas(
-  page: Page,
-  dxInHeights: number,
-  dyInHeights: number,
-  path: string,
-  count: number,
-  preview: 'shown' | 'none',
-): Promise<void> {
-  await clickCanvas(page, dxInHeights, dyInHeights)
-  await expect(selectionField(page, path)).toHaveAttribute('data-count', String(count))
-  await expect(inspector(page)).toHaveAttribute('data-preview', preview, { timeout: 15_000 })
 }
 
 /** Unchecks one entry of the viewport's Selection filter menu and closes the menu. */

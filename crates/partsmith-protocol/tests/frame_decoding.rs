@@ -1,16 +1,18 @@
-//! Acceptance tests for strict frame decoding and frame composition (protocol.md section 6, "Frame encoding and decoding", tests 9 to 27), and for the edits that requests carry ("Edits in requests", test 85).
+//! Acceptance tests for strict frame decoding and frame composition (protocol.md section 6, "Frame encoding and decoding", tests 9 to 27), for the edits that requests carry ("Edits in requests", test 85), and for the closed profiles in results ("Closed types in results and events", test 87 (b)).
 
 use crate::common;
 
+use common::examples::LIST_PRINTER_PROFILES_RESULT;
 use common::{
     EXAMPLE_A_HEADER, EXAMPLE_B_HEADER, example_a, example_b, frame_bytes, frame_from_header,
-    frame_with_messages, header_bytes, parse_json, without_member,
+    frame_with_messages, header_bytes, parse_json, with_member, without_member,
 };
 use partsmith_model::Edit;
 use partsmith_protocol::{
     Command, ErrorCode, ErrorInfo, Event, FrameError, Outcome, Response, ResponseFrame,
     decode_frame, decode_request_frame, decode_response_frame, error_response_frame,
 };
+use serde_json::{Value, json};
 
 /// A request message (id 1, `engine_info`).
 const REQUEST: &str = r#"{"kind":"request","id":1,"command":{"type":"engine_info"}}"#;
@@ -45,6 +47,12 @@ fn apply_edits_frame(label: &str, edit: &str) -> Vec<u8> {
     frame_with_messages(&format!(
         r#"[{{"kind":"request","id":5,"command":{{"type":"apply_edits","doc":1,"label":"{label}","edits":[{edit}]}}}}]"#
     ))
+}
+
+/// A response frame whose one message is a successful response (id 1) with `result`, a result as JSON.
+fn result_frame(result: &Value) -> Vec<u8> {
+    let outcome = with_member(result, "kind", json!("ok"));
+    frame_with_messages(&json!([{"kind": "response", "id": 1, "result": outcome}]).to_string())
 }
 
 /// The response inside a response message text.
@@ -381,5 +389,29 @@ fn t085_a_feature_record_in_an_edit_keeps_unknown_keys_as_params() {
     assert_eq!(
         serde_json::to_string(&feature.params).expect("params serialize"),
         r#"{"body":"b-1","extra":1}"#
+    );
+}
+
+#[test]
+fn t087_a_list_result_with_an_unknown_member_decodes_as_without_it() {
+    let result = parse_json(LIST_PRINTER_PROFILES_RESULT);
+    let expected =
+        decode_response_frame(&result_frame(&result)).expect("the result example decodes");
+
+    let decoded = decode_response_frame(&result_frame(&with_member(&result, "extra", json!(1))));
+
+    assert_eq!(decoded, Ok(expected));
+}
+
+#[test]
+fn t087_a_listed_profile_with_an_unknown_member_fails_to_decode() {
+    let mut result = parse_json(LIST_PRINTER_PROFILES_RESULT);
+    result["profiles"][0]["extra"] = json!(1);
+
+    let decoded = decode_response_frame(&result_frame(&result));
+
+    assert!(
+        matches!(decoded, Err(FrameError::InvalidMessage { .. })),
+        "got {decoded:?}"
     );
 }

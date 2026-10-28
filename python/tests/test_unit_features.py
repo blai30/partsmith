@@ -22,6 +22,7 @@ from partsmith import (
     Sketch,
     boolean,
     box,
+    chamfer,
     circular_pattern,
     cone,
     cylinder,
@@ -123,6 +124,99 @@ def test_extrude_needs_exactly_one_extent(document, plate_sketch):
 def test_a_symmetric_extrude_needs_a_distance(document, plate_sketch):
     with pytest.raises(ValueError, match="symmetric=True needs a distance"):
         extrude(plate_sketch, through_all=True, symmetric=True)
+
+
+def test_extrude_stores_opposite_distance_as_the_opposite_expression(document, plate_sketch):
+    stored = params(document, extrude(plate_sketch, 6, opposite_distance=2 * mm))
+
+    assert stored["extent"] == {"kind": "two_sides", "expr": "6", "opposite_expr": "2 mm"}
+
+
+def test_extrude_stores_a_zero_opposite_distance_as_two_sides(document, plate_sketch):
+    stored = params(document, extrude(plate_sketch, 6, opposite_distance=0))
+
+    assert stored["extent"] == {"kind": "two_sides", "expr": "6", "opposite_expr": "0"}
+
+
+def test_a_two_sided_extrude_stores_reverse_beside_its_extent(document, plate_sketch):
+    stored = params(document, extrude(plate_sketch, 6, opposite_distance=2, reverse=True))
+
+    assert stored["extent"]["kind"] == "two_sides"
+    assert stored["reverse"] is True
+
+
+def test_a_two_sided_extrude_refuses_symmetric_before_a_missing_distance(document, plate_sketch):
+    with pytest.raises(ValueError, match=r"^extrude\(\) takes symmetric=True or opposite_distance, not both\.$"):
+        extrude(plate_sketch, symmetric=True, opposite_distance=2, through_all=True)
+
+
+def test_opposite_distance_needs_a_distance(document, plate_sketch):
+    with pytest.raises(ValueError, match=r"^extrude\(\) opposite_distance needs a distance\.$"):
+        extrude(plate_sketch, opposite_distance=2, through_all=True)
+
+
+def test_opposite_distance_alone_needs_exactly_one_extent(document, plate_sketch):
+    with pytest.raises(ValueError, match=r"^extrude\(\) needs exactly one of distance and through_all=True\.$"):
+        extrude(plate_sketch, opposite_distance=2)
+
+
+def test_opposite_distance_must_be_finite(document, plate_sketch):
+    with pytest.raises(ValueError, match=r"opposite_distance must be a finite number"):
+        extrude(plate_sketch, 6, opposite_distance=float("inf"))
+
+
+def test_opposite_distance_must_not_be_a_bool(document, plate_sketch):
+    with pytest.raises(TypeError, match=r"opposite_distance must be a number"):
+        extrude(plate_sketch, 6, opposite_distance=True)
+
+
+def test_a_rejected_two_sided_extrude_adds_nothing(document, plate_sketch):
+    features_before = len(document.features)
+
+    with pytest.raises(ValueError):
+        extrude(plate_sketch, 6, symmetric=True, opposite_distance=2)
+
+    assert len(document.features) == features_before
+
+
+def test_chamfer_stores_an_equal_distance_without_a_second_distance(document):
+    stored = params(document, chamfer(edges().top(), 1))
+
+    assert stored["distance"] == {"kind": "equal", "expr": "1"}
+
+
+def test_chamfer_stores_a_second_distance_as_two_distances(document):
+    stored = params(document, chamfer(edges().top(), 1, second_distance=2 * mm))
+
+    assert stored["distance"] == {"kind": "two_distances", "expr": "1", "second_expr": "2 mm"}
+
+
+def test_chamfer_stores_a_second_distance_equal_to_the_distance_as_two_distances(document):
+    stored = params(document, chamfer(edges().top(), 1, second_distance=1))
+
+    assert stored["distance"] == {"kind": "two_distances", "expr": "1", "second_expr": "1"}
+
+
+def test_chamfer_stores_flip_only_when_true(document):
+    flipped = params(document, chamfer(edges().top(), 1, second_distance=2, flip=True))
+    unflipped = params(document, chamfer(edges().top(), 1, second_distance=2, flip=False))
+
+    assert flipped["distance"]["flip"] is True
+    assert "flip" not in unflipped["distance"]
+
+
+def test_chamfer_flip_needs_a_second_distance(document):
+    features_before = len(document.features)
+
+    with pytest.raises(ValueError, match=r"^chamfer\(\) flip=True needs a second_distance\.$"):
+        chamfer(edges().top(), 1, flip=True)
+
+    assert len(document.features) == features_before
+
+
+def test_chamfer_second_distance_must_not_be_a_bool(document):
+    with pytest.raises(TypeError, match=r"second_distance must be a number"):
+        chamfer(edges().top(), 1, second_distance=True)
 
 
 def test_extrude_takes_regions_by_key(document, plate_sketch):
@@ -274,6 +368,49 @@ def test_linear_pattern_stores_both_directions(document):
 
     assert stored["direction"] == {"axis": {"kind": "origin", "axis": "X"}, "count": "2", "spacing": "30"}
     assert stored["second_direction"] == {"axis": {"kind": "origin", "axis": "Y"}, "count": "3", "spacing": "40"}
+
+
+def test_linear_pattern_stores_reverse_in_its_first_direction(document):
+    stored = params(document, linear_pattern(Axis.X, 2, 30, reverse=True))
+
+    assert stored["direction"] == {
+        "axis": {"kind": "origin", "axis": "X"},
+        "count": "2",
+        "spacing": "30",
+        "reverse": True,
+    }
+
+
+def test_linear_pattern_stores_second_reverse_in_its_second_direction(document):
+    stored = params(document, linear_pattern(Axis.X, 2, 30, second=(Axis.Y, 3, 40), second_reverse=True))
+
+    assert "reverse" not in stored["direction"]
+    assert stored["second_direction"]["reverse"] is True
+
+
+def test_linear_pattern_omits_reverse_when_false(document):
+    stored = params(
+        document, linear_pattern(Axis.X, 2, 30, reverse=False, second=(Axis.Y, 3, 40), second_reverse=False)
+    )
+
+    assert "reverse" not in stored["direction"]
+    assert "reverse" not in stored["second_direction"]
+
+
+def test_linear_pattern_second_reverse_needs_second(document):
+    features_before = len(document.features)
+
+    with pytest.raises(
+        ValueError, match=r"^linear_pattern\(\) second_reverse=True needs second=\(axis, count, spacing\)\.$"
+    ):
+        linear_pattern(Axis.X, 2, 30, second_reverse=True)
+
+    assert len(document.features) == features_before
+
+
+def test_linear_pattern_second_takes_no_reverse_flag(document):
+    with pytest.raises(TypeError, match=r"linear_pattern\(\) second must be \(axis, count, spacing\)\."):
+        linear_pattern(Axis.X, 2, 30, second=(Axis.Y, 3, 40, True))
 
 
 def test_circular_pattern_omits_the_full_turn(document):

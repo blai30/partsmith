@@ -194,6 +194,25 @@ pub fn schema_json() -> Value {
     serde_json::from_str(&protocol_schema()).expect("the protocol schema is JSON")
 }
 
+/// Checks that `complete` validates against the `$defs` entry `name`, and that `complete` without any one of its
+/// members still validates exactly when that member is in `optional`.
+pub fn assert_requires_all_but(schema: &Value, name: &str, complete: &Value, optional: &[&str]) {
+    let pointer = format!("/$defs/{name}");
+    assert_eq!(
+        json_schema::validate(schema, &pointer, complete),
+        Ok(()),
+        "{complete}"
+    );
+    for member in object_keys(complete) {
+        let result = json_schema::validate(schema, &pointer, &without_member(complete, member));
+        assert_eq!(
+            result.is_ok(),
+            optional.contains(&member),
+            "{name} without {member} validates only when {member} is optional: {result:?}"
+        );
+    }
+}
+
 /// The `$defs` entry `name` of the protocol schema.
 pub fn definition<'a>(schema: &'a Value, name: &str) -> &'a Value {
     schema

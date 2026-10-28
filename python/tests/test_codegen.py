@@ -21,7 +21,6 @@ from partsmith import (
     cylinder,
     extrude,
     faces,
-    feature,
     mm,
     param,
     revolve,
@@ -37,8 +36,8 @@ from support import (
     code_lines,
     fixture_path,
     fixture_text,
+    generic_calls,
     open_text,
-    python_literal,
     python_string,
     stored_feature,
 )
@@ -414,33 +413,29 @@ def test_t081_boolean_join_is_emitted_with_op():
     assert f'    boolean(tool, op="join", id="{feature_id}")' in lines
 
 
-def test_t082_two_sided_extrude_uses_the_generic_form_and_round_trips(tmp_path):
+def test_t082_two_sided_extrude_stores_its_two_sides():
     document = Document()
     with Part("P", id="b-1"):
         with Sketch(Plane.XY, id="f-sk1") as sketch:
             Rectangle(40, 20)
-        regions = [{"key": region.key, "fp": region.fp} for region in sketch.regions()]
-        extrude_feature = feature(
-            "extrude",
-            id="f-ext1",
-            body="b-1",
-            profile={"sketch": "f-sk1", "regions": regions},
-            extent={"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"},
-            op="new",
-        )
-    record = stored_feature(document, extrude_feature.id)
-    params = {key: value for key, value in record.items() if key not in ("id", "type")}
-    expected_block = (
-        "    feature(\n"
-        '        "extrude",\n'
-        '        id="f-ext1",\n'
-        + "".join(f"        {key}={python_literal(value)},\n" for key, value in params.items())
-        + "    )\n"
-    )
+        extrude(sketch, 20 * mm, opposite_distance=10 * mm, id="f-ext1")
+
+    assert stored_feature(document, "f-ext1")["extent"] == {
+        "kind": "two_sides",
+        "expr": "20 mm",
+        "opposite_expr": "10 mm",
+    }
+
+
+def test_t082_two_sided_extrude_uses_its_dedicated_form_and_round_trips(tmp_path):
+    document = Document()
+    with Part("P", id="b-1"):
+        with Sketch(Plane.XY, id="f-sk1") as sketch:
+            Rectangle(40, 20)
+        extrude(sketch, 20 * mm, opposite_distance=10 * mm, id="f-ext1")
 
     code = document.to_python()
 
-    assert list(params) == ["body", "profile", "extent", "op"]
-    assert expected_block in code
+    assert '    extrude(sketch_1, 20*mm, opposite_distance=10*mm, id="f-ext1")' in code_lines(code)
+    assert generic_calls(code) == 0
     assert_round_trip(document.to_text(), tmp_path)
-

@@ -8,4 +8,5 @@ mod diagnostics_and_fixes;
 mod frame_decoding;
 mod frame_encoding;
 mod json_shapes;
+mod printer_profiles;
 mod schema;

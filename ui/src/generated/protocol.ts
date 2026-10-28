@@ -2566,48 +2566,74 @@ label: string
 /**
  * A printer the model will be printed on. Deserialization fills omitted fields from the
  * technology's generic profile and validates (section 3.1), so a deserialized profile is always
- * valid.
+ * valid. Its JSON Schema is the written form in both schemars contracts, closed to unknown fields
+ * as serde reads it (section 3.1); `ProfileInput`'s is the input form.
  * 
  * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
  * via the `definition` "PrinterProfile".
  */
 export interface PrinterProfile {
 /**
- * Profile id; validated as a `partsmith_model::Id` by the conversion (`InvalidId`).
+ * Stable id, a valid `partsmith_model::Id`; documents refer to it in `Document::printer`.
  */
-id: string
+id: Id
 /**
- * Display name.
+ * Display name, 1 to 100 characters.
  */
 name: string
 /**
- * FDM or resin; selects the generic profile that fills omitted fields.
+ * FDM or resin.
  */
 technology: Technology
 /**
- * Replaces the whole bed when present.
+ * Plate shape and build height.
  */
-bed?: (Bed | null)
+bed: Bed
 /**
- * Nozzle diameter in mm (FDM only).
+ * Nozzle diameter in mm; required for FDM, absent for resin (omitted when `None`).
  */
 nozzle_diameter?: (number | null)
 /**
  * Layer height in mm.
  */
-layer_height?: (number | null)
+layer_height: number
 /**
- * Steepest printable overhang from vertical, in radians.
+ * Steepest printable overhang, measured from vertical, in radians.
  */
-max_overhang_angle?: (number | null)
+max_overhang_angle: number
 /**
- * Longest unsupported horizontal span in mm.
+ * Longest unsupported horizontal span in mm (used by the bridges check, later).
  */
-max_bridge_length?: (number | null)
+max_bridge_length: number
 /**
- * Replaces only the fit classes it names.
+ * Fit class clearances.
  */
-fit?: (FitInput | null)
+fit: FitClasses
+}
+/**
+ * Clearance per side between mating surfaces, in mm, for each fit class. A hole for a pin of
+ * diameter `d` is `d + 2 × clearance`.
+ * 
+ * This interface was referenced by `PartsmithProtocol`'s JSON-Schema
+ * via the `definition` "FitClasses".
+ */
+export interface FitClasses {
+/**
+ * Clearance of parts pushed together that hold by friction.
+ */
+press: number
+/**
+ * Clearance of a tight fit that assembles by hand.
+ */
+snug: number
+/**
+ * Clearance of parts that slide or rotate freely.
+ */
+slip: number
+/**
+ * Clearance with generous play.
+ */
+loose: number
 }
 /**
  * The document recipe. Geometry is never stored; it is regenerated from this.

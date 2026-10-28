@@ -1258,3 +1258,36 @@ test('67: no workflow file names PARTSMITH_PERF, so no job runs the performance 
     assert.ok(!texts[i].includes(PERFORMANCE_VARIABLE), `${file} names ${PERFORMANCE_VARIABLE}`)
   })
 })
+
+// The test steps of ci.yml's python job (section 2.4, test 73), in the order they run.
+const PYTHON_SUITE = 'pytest python/tests'
+const PYTHON_BUDGETS = 'pytest python/tests -m budgets -s'
+const PYTHON_BUDGETS_STEP = 'Measure the Python budgets'
+const PYTHON_PACKAGING = 'pytest python/tests -m packaging'
+
+/** The indexes of the python job's suite, budgets and packaging steps, each found after the one before it. */
+function pythonTestSteps(steps) {
+  const suite = commandStepFrom(steps, 0, PYTHON_SUITE, 'python')
+  const budgets = commandStepFrom(steps, suite + 1, PYTHON_BUDGETS, 'python')
+  const packaging = commandStepFrom(steps, budgets + 1, PYTHON_PACKAGING, 'python')
+  return [suite, budgets, packaging]
+}
+
+test('73: the python job measures the budgets after the suite and before the wheel', async () => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'python'))
+  const [, budgets] = pythonTestSteps(steps)
+
+  assert.equal(stepValue(steps[budgets], 'name'), PYTHON_BUDGETS_STEP)
+})
+
+test('73: no test step of the python job may fail without failing the job', async () => {
+  const steps = jobSteps(await workflowJob('ci.yml', 'python'))
+
+  for (const index of pythonTestSteps(steps)) {
+    assert.equal(
+      stepValue(steps[index], 'continue-on-error'),
+      undefined,
+      `the python step that runs ${runCommand(steps[index])} sets continue-on-error`,
+    )
+  }
+})

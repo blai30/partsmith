@@ -529,12 +529,97 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_reversed_direction_has_no_dedicated_form() {
-        let mut second = direction(Y, "2", "15");
-        second["reverse"] = json!(true);
-        let params = pattern(direction(X, "3", "20"), json!({"second_direction": second}));
+    /// `direction(axis, count, spacing)` with `"reverse": true`.
+    fn reversed(axis: &str, count: &str, spacing: &str) -> Value {
+        let mut reversed = direction(axis, count, spacing);
+        reversed["reverse"] = json!(true);
+        reversed
+    }
 
-        assert_eq!(python::<LinearPattern>(&params), None);
+    #[test]
+    fn python_writes_reverse_after_the_spacing() {
+        let params = pattern(reversed(X, "3", "20"), json!({}));
+
+        assert_eq!(
+            python::<LinearPattern>(&params).as_deref(),
+            Some("linear_pattern(Axis.X, 3, 20, reverse=True)")
+        );
+    }
+
+    #[test]
+    fn python_writes_second_reverse_after_second() {
+        let params = pattern(
+            direction(X, "3", "20"),
+            json!({"second_direction": reversed(Y, "2", "15")}),
+        );
+
+        assert_eq!(
+            python::<LinearPattern>(&params).as_deref(),
+            Some("linear_pattern(Axis.X, 3, 20, second=(Axis.Y, 2, 15), second_reverse=True)")
+        );
+    }
+
+    #[test]
+    fn python_writes_both_reverses_before_into() {
+        let params = pattern(
+            reversed(X, "3", "20"),
+            json!({"second_direction": reversed(Y, "2", "15"), "op": "new", "target": "b-2"}),
+        );
+
+        // The call is longer than 88 characters on one line, so it takes one argument per line.
+        assert_eq!(
+            python::<LinearPattern>(&params),
+            Some(
+                [
+                    "linear_pattern(",
+                    "    Axis.X,",
+                    "    3,",
+                    "    20,",
+                    "    reverse=True,",
+                    "    second=(Axis.Y, 2, 15),",
+                    "    second_reverse=True,",
+                    "    into=part_2,",
+                    ")",
+                ]
+                .join("\n")
+            )
+        );
+    }
+
+    #[test]
+    fn python_writes_no_reverse_for_a_direction_stored_without_it() {
+        let mut forward = direction(X, "3", "20");
+        forward["reverse"] = json!(false);
+        let params = pattern(forward, json!({}));
+
+        assert_eq!(
+            python::<LinearPattern>(&params).as_deref(),
+            Some("linear_pattern(Axis.X, 3, 20)")
+        );
+    }
+
+    #[test]
+    fn python_writes_the_spec_example_with_both_directions_reversed() {
+        let params = pattern(
+            reversed(X, "3", "20 mm"),
+            json!({"second_direction": reversed(Y, "2", "15 mm")}),
+        );
+
+        assert_eq!(
+            python::<LinearPattern>(&params),
+            Some(
+                [
+                    "linear_pattern(",
+                    "    Axis.X,",
+                    "    3,",
+                    "    20*mm,",
+                    "    reverse=True,",
+                    "    second=(Axis.Y, 2, 15*mm),",
+                    "    second_reverse=True,",
+                    ")",
+                ]
+                .join("\n")
+            )
+        );
     }
 }

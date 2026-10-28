@@ -3491,34 +3491,27 @@
       ]
     },
     "PrinterProfile": {
-      "description": "A printer the model will be printed on. Deserialization fills omitted fields from the\ntechnology's generic profile and validates (section 3.1), so a deserialized profile is always\nvalid.",
+      "description": "A printer the model will be printed on. Deserialization fills omitted fields from the\ntechnology's generic profile and validates (section 3.1), so a deserialized profile is always\nvalid. Its JSON Schema is the written form in both schemars contracts, closed to unknown fields\nas serde reads it (section 3.1); `ProfileInput`'s is the input form.",
       "type": "object",
       "properties": {
         "id": {
-          "description": "Profile id; validated as a `partsmith_model::Id` by the conversion (`InvalidId`).",
-          "type": "string"
+          "description": "Stable id, a valid `partsmith_model::Id`; documents refer to it in `Document::printer`.",
+          "$ref": "#/$defs/Id"
         },
         "name": {
-          "description": "Display name.",
+          "description": "Display name, 1 to 100 characters.",
           "type": "string"
         },
         "technology": {
-          "description": "FDM or resin; selects the generic profile that fills omitted fields.",
+          "description": "FDM or resin.",
           "$ref": "#/$defs/Technology"
         },
         "bed": {
-          "description": "Replaces the whole bed when present.",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Bed"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "description": "Plate shape and build height.",
+          "$ref": "#/$defs/Bed"
         },
         "nozzle_diameter": {
-          "description": "Nozzle diameter in mm (FDM only).",
+          "description": "Nozzle diameter in mm; required for FDM, absent for resin (omitted when `None`).",
           "type": [
             "number",
             "null"
@@ -3527,45 +3520,67 @@
         },
         "layer_height": {
           "description": "Layer height in mm.",
-          "type": [
-            "number",
-            "null"
-          ],
+          "type": "number",
           "format": "double"
         },
         "max_overhang_angle": {
-          "description": "Steepest printable overhang from vertical, in radians.",
-          "type": [
-            "number",
-            "null"
-          ],
+          "description": "Steepest printable overhang, measured from vertical, in radians.",
+          "type": "number",
           "format": "double"
         },
         "max_bridge_length": {
-          "description": "Longest unsupported horizontal span in mm.",
-          "type": [
-            "number",
-            "null"
-          ],
+          "description": "Longest unsupported horizontal span in mm (used by the bridges check, later).",
+          "type": "number",
           "format": "double"
         },
         "fit": {
-          "description": "Replaces only the fit classes it names.",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/FitInput"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "description": "Fit class clearances.",
+          "$ref": "#/$defs/FitClasses"
         }
       },
       "additionalProperties": false,
       "required": [
         "id",
         "name",
-        "technology"
+        "technology",
+        "bed",
+        "layer_height",
+        "max_overhang_angle",
+        "max_bridge_length",
+        "fit"
+      ]
+    },
+    "FitClasses": {
+      "description": "Clearance per side between mating surfaces, in mm, for each fit class. A hole for a pin of\ndiameter `d` is `d + 2 × clearance`.",
+      "type": "object",
+      "properties": {
+        "press": {
+          "description": "Clearance of parts pushed together that hold by friction.",
+          "type": "number",
+          "format": "double"
+        },
+        "snug": {
+          "description": "Clearance of a tight fit that assembles by hand.",
+          "type": "number",
+          "format": "double"
+        },
+        "slip": {
+          "description": "Clearance of parts that slide or rotate freely.",
+          "type": "number",
+          "format": "double"
+        },
+        "loose": {
+          "description": "Clearance with generous play.",
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "press",
+        "snug",
+        "slip",
+        "loose"
       ]
     },
     "Document": {

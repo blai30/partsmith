@@ -719,13 +719,73 @@ mod tests {
     }
 
     #[test]
-    fn two_distances_have_no_dedicated_python_form() {
+    fn python_writes_two_distances_with_the_second_distance() {
         let call = Chamfer::python(
             &params(&[FRONT_TOP], two_distances("1", "3", false)),
             &ScriptNames::default(),
-        );
+        )
+        .expect("a dedicated form");
 
-        assert_eq!(call, None);
+        // The call is longer than 88 characters on one line, so it takes one argument per line.
+        assert_eq!(
+            call.render(0),
+            [
+                "chamfer(",
+                r#"    Ref("edge(f-box1/front|f-box1/top)", "line|n=1,0,0|c=0,-10,20|l=20"),"#,
+                "    1,",
+                "    second_distance=3,",
+                ")",
+            ]
+            .join("\n")
+        );
+    }
+
+    #[test]
+    fn python_writes_flip_after_the_second_distance() {
+        let call = Chamfer::python(
+            &params(&[FRONT_TOP], two_distances("1 mm", "3 mm", true)),
+            &ScriptNames::default(),
+        )
+        .expect("a dedicated form");
+
+        assert_eq!(
+            call.render(0),
+            [
+                "chamfer(",
+                r#"    Ref("edge(f-box1/front|f-box1/top)", "line|n=1,0,0|c=0,-10,20|l=20"),"#,
+                "    1*mm,",
+                "    second_distance=3*mm,",
+                "    flip=True,",
+                ")",
+            ]
+            .join("\n")
+        );
+    }
+
+    #[test]
+    fn python_writes_the_spec_example_of_two_distances_flipped() {
+        let record: FeatureRecord = serde_json::from_value(json!({
+            "id": "f-cha1", "type": "chamfer", "body": "b-1",
+            "edges": [serde_json::from_str::<serde_json::Value>(FRONT_TOP).expect("valid reference JSON")],
+            "distance": {"kind": "two_distances", "expr": "1 mm", "second_expr": "3 mm", "flip": true}
+        }))
+        .expect("a valid record");
+
+        let python = registry().python(&record, &ScriptNames::default());
+
+        assert_eq!(
+            python.render(0),
+            [
+                "chamfer(",
+                r#"    Ref("edge(f-box1/front|f-box1/top)", "line|n=1,0,0|c=0,-10,20|l=20"),"#,
+                "    1*mm,",
+                "    second_distance=3*mm,",
+                "    flip=True,",
+                r#"    id="f-cha1","#,
+                ")",
+            ]
+            .join("\n")
+        );
     }
 
     #[test]

@@ -117,10 +117,8 @@ describe('printerDetail', () => {
     expect(printerDetail(GENERIC_RESIN)).toBe('130 × 80 × 160 mm')
   })
 
-  it('leaves out values the profile does not have', () => {
-    expect(printerDetail({ ...GENERIC_FDM, bed: null })).toBe('0.4 mm nozzle')
+  it('leaves out a nozzle the profile does not have', () => {
     expect(printerDetail({ ...GENERIC_FDM, nozzle_diameter: null })).toBe('256 × 256 × 256 mm bed')
-    expect(printerDetail({ ...GENERIC_RESIN, bed: null })).toBe('')
   })
 
   it('writes numbers with formatNumber in mm', () => {

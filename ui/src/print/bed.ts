@@ -77,8 +77,8 @@ export function bedOutlineSegments(bed: Bed, body: BodyPrint): Float32Array | nu
 /**
  * The bed outline the viewport draws in Print context after a report: the bed of the report's
  * profile, mapped into model coordinates by the first analyzed body's transform. Null outside
- * Print, without a report or an analyzed body, and when the profile or its bed is unknown. The same
- * array comes back until the context, the report or the printers change.
+ * Print, without a report or an analyzed body, and when the profile is unknown. The same array
+ * comes back until the context, the report or the printers change.
  */
 export const bedOutline: (state: AppState) => Float32Array | null = memoized(
   (state) => [state.context, state.print.report, state.printers] as const,
@@ -87,8 +87,7 @@ export const bedOutline: (state: AppState) => Float32Array | null = memoized(
     if (context !== 'print' || report === null || body === undefined) {
       return null
     }
-    // The core lists every profile with all its fields; the schema shares the input form, where the bed is optional.
-    const bed = findPrinter(printers, report.profile)?.bed
-    return bed === undefined || bed === null ? null : bedOutlineSegments(bed, body)
+    const printer = findPrinter(printers, report.profile)
+    return printer === undefined ? null : bedOutlineSegments(printer.bed, body)
   },
 )

@@ -1,5 +1,6 @@
 //! Acceptance tests for printer profiles, fit classes and profile input (spec sections 6.2 and
-//! 6.16), plus the JSON round trip property of section 3.1.
+//! 6.16), plus the JSON round trip property, the written form's schema and the closed fit
+//! classes of section 3.1.
 
 use crate::common;
 
@@ -10,6 +11,9 @@ use partsmith_print::{
     ProfileInput, Technology, builtin_profile, builtin_profiles, generic_fdm, generic_resin,
 };
 use proptest::prelude::*;
+use schemars::JsonSchema;
+use schemars::generate::SchemaSettings;
+use serde_json::Value;
 
 /// `generic_fdm().to_json()`, exactly as section 2.2 shows it, with the trailing newline.
 const GENERIC_FDM_JSON: &str = r#"{
@@ -453,6 +457,119 @@ fn t110_to_json_refuses_a_non_finite_layer_height() {
         ),
         "expected a layer height range error, got {result:?}"
     );
+}
+
+/// The fields the written form requires (section 3.1): every field but `nozzle_diameter`.
+const WRITTEN_FORM_REQUIRED: [&str; 8] = [
+    "bed",
+    "fit",
+    "id",
+    "layer_height",
+    "max_bridge_length",
+    "max_overhang_angle",
+    "name",
+    "technology",
+];
+
+/// The four fit classes, each of which `FitClasses` requires.
+const FIT_CLASSES_REQUIRED: [&str; 4] = ["loose", "press", "slip", "snug"];
+
+/// Both schemars contracts, named for the assertion messages.
+fn schema_contracts() -> [(&'static str, SchemaSettings); 2] {
+    [
+        ("deserialize", SchemaSettings::default().for_deserialize()),
+        ("serialize", SchemaSettings::default().for_serialize()),
+    ]
+}
+
+/// The root JSON Schema of `T` generated with `settings`, as JSON.
+fn root_schema<T: JsonSchema>(settings: SchemaSettings) -> Value {
+    let schema = settings.into_generator().into_root_schema_for::<T>();
+    serde_json::to_value(schema).expect("schemas serialize")
+}
+
+/// The `$defs` entry `name` of a root schema.
+#[track_caller]
+fn schema_definition<'a>(root: &'a Value, name: &str) -> &'a Value {
+    root.pointer(&format!("/$defs/{name}"))
+        .unwrap_or_else(|| panic!("the schema has no $defs entry {name}: {root}"))
+}
+
+/// The names a schema object lists as `required`, sorted.
+fn required_names(schema: &Value) -> Vec<&str> {
+    let mut names: Vec<&str> = schema["required"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the schema lists no required fields: {schema}"))
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    names.sort_unstable();
+    names
+}
+
+#[test]
+fn t124_profile_schema_requires_every_field_but_the_nozzle_in_both_contracts() {
+    for (contract, settings) in schema_contracts() {
+        let root = root_schema::<PrinterProfile>(settings);
+
+        assert_eq!(
+            required_names(&root),
+            WRITTEN_FORM_REQUIRED,
+            "{contract} contract"
+        );
+    }
+}
+
+#[test]
+fn t124_profile_schema_rejects_unknown_fields_in_both_contracts() {
+    for (contract, settings) in schema_contracts() {
+        let root = root_schema::<PrinterProfile>(settings);
+
+        assert_eq!(
+            root["additionalProperties"],
+            Value::Bool(false),
+            "{contract} contract"
+        );
+    }
+}
+
+#[test]
+fn t124_fit_classes_schema_requires_all_four_classes_in_both_contracts() {
+    for (contract, settings) in schema_contracts() {
+        let root = root_schema::<PrinterProfile>(settings);
+
+        assert_eq!(
+            required_names(schema_definition(&root, "FitClasses")),
+            FIT_CLASSES_REQUIRED,
+            "{contract} contract"
+        );
+    }
+}
+
+#[test]
+fn t124_fit_classes_schema_rejects_unknown_fields_in_both_contracts() {
+    for (contract, settings) in schema_contracts() {
+        let root = root_schema::<PrinterProfile>(settings);
+
+        assert_eq!(
+            schema_definition(&root, "FitClasses")["additionalProperties"],
+            Value::Bool(false),
+            "{contract} contract"
+        );
+    }
+}
+
+#[test]
+fn t124_fit_classes_reject_an_unknown_field() {
+    let classes = r#"{"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4}"#;
+    let with_extra = r#"{"press": 0.05, "snug": 0.1, "slip": 0.2, "loose": 0.4, "extra": 1}"#;
+
+    assert_eq!(
+        serde_json::from_str::<FitClasses>(classes).ok(),
+        Some(FitClasses::defaults(Technology::Fdm))
+    );
+    let result = serde_json::from_str::<FitClasses>(with_extra);
+    assert!(result.is_err(), "{result:?}");
 }
 
 /// A bed inside the valid ranges of section 3.1.

@@ -390,20 +390,78 @@ mod tests {
         .expect("a dedicated form");
         let through = Extrude::python(&params(json!({"kind": "through_all"}), "cut"), &names)
             .expect("a dedicated form");
-        let two_sides = Extrude::python(
-            &params(
-                json!({"kind": "two_sides", "expr": "1", "opposite_expr": "2"}),
-                "new",
-            ),
-            &names,
-        );
 
         assert_eq!(distance.render(0), "extrude(sketch_1, 30*mm, reverse=True)");
         assert_eq!(
             through.render(0),
             r#"extrude(sketch_1, reverse=True, through_all=True, op="cut")"#
         );
-        assert_eq!(two_sides, None);
+    }
+
+    #[test]
+    fn python_writes_the_spec_example_with_two_sides() {
+        let record: FeatureRecord = serde_json::from_value(json!({
+            "id": "f-ext1", "type": "extrude", "body": "b-1", "profile": rectangle_profile(),
+            "extent": {"kind": "two_sides", "expr": "20 mm", "opposite_expr": "10 mm"}, "op": "new"
+        }))
+        .expect("a valid record");
+
+        let python = Registry::with_builtins().python(&record, &rectangle_names());
+
+        assert_eq!(
+            python.render(0),
+            r#"extrude(sketch_1, 20*mm, opposite_distance=10*mm, id="f-ext1")"#
+        );
+    }
+
+    /// Params of the rectangle extrude on `b-1` with `extent`, `reverse` and op new.
+    fn two_sided_params(extent: serde_json::Value, reverse: bool) -> ExtrudeParams {
+        serde_json::from_value(json!({"body": "b-1", "profile": rectangle_profile(), "extent": extent, "reverse": reverse, "op": "new"})).expect("valid params")
+    }
+
+    #[test]
+    fn python_writes_the_opposite_distance_after_the_distance() {
+        let params = two_sided_params(
+            json!({"kind": "two_sides", "expr": "1", "opposite_expr": "2"}),
+            false,
+        );
+
+        let python = Extrude::python(&params, &rectangle_names()).expect("a dedicated form");
+
+        assert_eq!(
+            python.render(0),
+            "extrude(sketch_1, 1, opposite_distance=2)"
+        );
+    }
+
+    #[test]
+    fn python_writes_reverse_after_the_opposite_distance() {
+        let params = two_sided_params(
+            json!({"kind": "two_sides", "expr": "1", "opposite_expr": "2"}),
+            true,
+        );
+
+        let python = Extrude::python(&params, &rectangle_names()).expect("a dedicated form");
+
+        assert_eq!(
+            python.render(0),
+            "extrude(sketch_1, 1, opposite_distance=2, reverse=True)"
+        );
+    }
+
+    #[test]
+    fn python_writes_a_zero_opposite_distance() {
+        let params = two_sided_params(
+            json!({"kind": "two_sides", "expr": "20", "opposite_expr": "0"}),
+            false,
+        );
+
+        let python = Extrude::python(&params, &rectangle_names()).expect("a dedicated form");
+
+        assert_eq!(
+            python.render(0),
+            "extrude(sketch_1, 20, opposite_distance=0)"
+        );
     }
 
     #[test]
