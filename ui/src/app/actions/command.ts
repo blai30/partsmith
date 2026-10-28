@@ -672,20 +672,24 @@ async function openFeatureCommand(
     showCoreError(app, error)
     return
   }
-  const taken = usedIds(document.recipe)
+  // Steps 3 and 4 read the app state once the transaction has begun, so a click the core answered
+  // meanwhile (one made right before the key) is preselected rather than cleared.
+  const begun = app.store.getState()
+  const current = begun.document ?? document
+  const taken = usedIds(current.recipe)
   const featureId = generateId('f', (id) => taken.has(id))
-  const lastTargetBody = lastTargetBodyOf(document)
+  const lastTargetBody = lastTargetBodyOf(current)
   const session = createSession(app, {
     featureId,
     feature,
     recordExtras: {},
-    statusesBefore: document.featureStatus,
+    statusesBefore: current.featureStatus,
     lastTargetBody,
   })
   const saved = options.restore ?? null
   const opening =
     saved === null
-      ? openingParams(app, session, state, finishedSketch)
+      ? openingParams(app, session, begun, finishedSketch)
       : restoredOpening(app, session, saved)
   const model = buildInspectorModel({ feature, params: opening.params, errors: {} })
   app.store.setState({

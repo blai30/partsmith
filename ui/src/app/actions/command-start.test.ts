@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { RegionInfo, SketchEntity } from '../../generated/protocol'
+import type { ElementDescriptor, RegionInfo, SketchEntity } from '../../generated/protocol'
 import {
   cubeDocumentState,
   readyState,
@@ -17,13 +17,23 @@ import {
   solvedSketch,
 } from '../../sketch/fixtures.testing'
 import type { AppState } from '../../state/store'
-import { CUBE_TOP_FRONT_EDGE, RECT_REGION, RECT_SKETCH_SOLUTION } from '../../test/fakes/documents'
+import { appliedEdits, startWithDocument } from '../../test/fakes/app'
+import { deferred } from '../../test/fakes/deferred'
+import {
+  CUBE_DOCUMENT,
+  CUBE_TOP_FRONT_EDGE,
+  RECT_REGION,
+  RECT_SKETCH_SOLUTION,
+} from '../../test/fakes/documents'
 import { elementItem, featureItem, regionItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
+import type { PickResult } from '../../viewport/picking'
 import { capturePick, setCommandField, startFeatureCommand } from './command'
+import { pickAt } from './selection'
 
 // How a feature command opens (ui.md 3.3, 3.7 steps 4 and 5): the finished sketch hands off to the
-// next feature, a selected sketch stands for its region or points, and the active field.
+// next feature, a selected sketch stands for its region or points, a click the core answers while
+// the transaction begins is preselected, and the active field.
 
 /** A state editing sketch `f-sk1` with these entities. */
 function editingSketch(entities: SketchEntity[], regions: RegionInfo[] = []): Partial<AppState> {
@@ -155,5 +165,75 @@ describe('the command Repeat starts again (3.5)', () => {
     expect(app.store.getState().lastFeatureType).toBe('fillet')
     await startFeatureCommand(app, 'sketch')
     expect(app.store.getState().lastFeatureType).toBe('fillet')
+  })
+})
+
+describe('a click the core answers while the command begins its transaction (3.7 steps 2 and 4)', () => {
+  /** A click on the cube's top front edge, which pick_reference turns into its descriptor. */
+  const TOP_FRONT_EDGE_PICK: PickResult = {
+    kind: 'mesh',
+    body: 'b-cube',
+    meshId: 1,
+    element: 'edge',
+    index: 0,
+    key: 'mesh:1:edge:0',
+    world: [0, -10, 20],
+  }
+
+  it('a Fillet started while the click’s pick_reference is in flight takes the picked edge', async () => {
+    const { app, core } = createModelApp({ state: readyState(cubeDocumentState()) })
+    const picked = deferred<ElementDescriptor>()
+    const begun = deferred<undefined>()
+    core.stub('pickReference', () => picked.promise)
+    core.stub('beginTransaction', () => begun.promise)
+    const click = pickAt(app, TOP_FRONT_EDGE_PICK, { toggle: false })
+    const start = startFeatureCommand(app, 'fillet')
+    // The core answers in request order: the click first, while the transaction is still beginning.
+    picked.resolve(CUBE_TOP_FRONT_EDGE)
+    await click
+    expect(app.store.getState().selection).toEqual([elementItem(CUBE_TOP_FRONT_EDGE)])
+    begun.resolve(undefined)
+    await start
+    const { command, selection } = app.store.getState()
+    expect(command?.params).toMatchObject({
+      edges: [CUBE_TOP_FRONT_EDGE.reference],
+      body: 'b-cube',
+    })
+    expect(selection).toEqual([])
+    await settle()
+    expect(app.store.getState().command?.preview).toBe('shown')
+  })
+
+  it('the first preview applies the Fillet on that edge, the core answering in request order', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    fake.transport.handle('pick_reference', () => ({
+      result: { type: 'pick_reference', element: CUBE_TOP_FRONT_EDGE },
+    }))
+    const begun = deferred<undefined>()
+    fake.transport.handle('begin_transaction', async (command, core, buffers) => {
+      await begun.promise
+      return core.reply(command, buffers)
+    })
+    const click = pickAt(fake.app, TOP_FRONT_EDGE_PICK, { toggle: false })
+    const start = startFeatureCommand(fake.app, 'fillet')
+    await click
+    begun.resolve(undefined)
+    await start
+    await settle()
+    expect(fake.transport.commandTypes().slice(0, 2)).toEqual([
+      'pick_reference',
+      'begin_transaction',
+    ])
+    expect(appliedEdits(fake).flat()).toContainEqual(
+      expect.objectContaining({
+        type: 'add_feature',
+        feature: expect.objectContaining({
+          type: 'fillet',
+          body: 'b-cube',
+          edges: [CUBE_TOP_FRONT_EDGE.reference],
+        }),
+      }),
+    )
+    expect(fake.app.store.getState().command?.preview).toBe('shown')
   })
 })
