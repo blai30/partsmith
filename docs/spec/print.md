@@ -31,6 +31,7 @@
 - Mass and cost estimates from material density.
 - Background, incremental analysis with per-face result caching (the engine runs analysis on request in M1).
 - Persisting user profiles on disk (hosts own that; M1 profiles live in the session).
+- Host routes that put custom profiles into a session ([ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists the options for the CLI and Python; ui.md 1.2 lists the UI's): in M1 only the engine's `put_printer_profile` adds session profiles, and no host sends it (protocol.md section 2.5 command 4).
 
 ## 2. Public API
 
@@ -74,7 +75,7 @@ pub enum Technology {
 
 /// Build plate shape and build volume height. Bed coordinates: a rectangle spans `[0, width] × [0, depth]`; a circle is centered on the origin.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Bed {
     /// Rectangular plate.
     Rectangle { width: f64, depth: f64, height: f64 },
@@ -105,6 +106,7 @@ pub enum FitClass {
 
 /// Clearance per side between mating surfaces, in mm, for each fit class. A hole for a pin of diameter `d` is `d + 2 × clearance`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct FitClasses {
     pub press: f64,
     pub snug: f64,
@@ -120,8 +122,10 @@ impl FitClasses {
 }
 
 /// A printer the model will be printed on. Deserialization fills omitted fields from the technology's generic profile and validates (section 3.1), so a deserialized profile is always valid.
+/// Its JSON Schema is the written form in both schemars contracts, closed to unknown fields as serde reads it (section 3.1); `ProfileInput`'s is the input form.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "ProfileInput")]
+#[schemars(!try_from, deny_unknown_fields)]
 pub struct PrinterProfile {
     /// Stable id, a valid `partsmith_model::Id`; documents refer to it in `Document::printer`.
     pub id: Id,
@@ -660,6 +664,8 @@ Deserializing a `PrinterProfile` (through `from_json`, serde, or the protocol's 
 | 10 | `press`, `snug`, `slip`, `loose`, in that order, each in `[-1, 5]` mm | `OutOfRange` (`Fit(class)`) |
 | 11 | `press <= snug <= slip <= loose`; the first adjacent pair that decreases is reported | `FitOrder` |
 
+A profile has two JSON forms. The input form is `ProfileInput`'s: only `id`, `name` and `technology` are required, and `fit` may name only some classes. The written form is what `to_json` and serde write: every field, except `nozzle_diameter` on a resin profile, and `fit` with all four classes. Each type's JSON Schema (`schemars`) describes one form, whatever the contract: `ProfileInput`'s the input form, and `PrinterProfile`'s the written form (`#[schemars(!try_from)]`, section 2.2), although serde reads a `PrinterProfile` through `ProfileInput`. So `PrinterProfile`'s schema requires `id`, `name`, `technology`, `bed`, `layer_height`, `max_overhang_angle`, `max_bridge_length` and `fit`, leaves `nozzle_diameter` optional, and takes `fit` as `FitClasses`, which requires all four classes, both closed to unknown fields as rule 1 reads them (`deny_unknown_fields` in the schema of `PrinterProfile`, and in the serde attribute of `FitClasses`, which nothing deserializes on its own). The protocol reads profiles in the input form and lists them in the written form (protocol.md section 2.9).
+
 Negative clearances are allowed (an interference press fit). `to_json` first runs `validate()` and returns its error, so a profile edited in code into an invalid state (for example a non-finite value) is reported, never written. It then writes `canonical::to_string(&value)` with `value = canonical::to_value(self)`, partsmith-model's canonical writer (file-format.md: `to_value` turns any `Serialize` value into a normalized `serde_json::Value`, and `to_string` takes that value); `to_value` fails only on a non-finite number, which a valid profile cannot hold. The text has every field in declaration order, 2-space indent, the `bed` and `fit` objects on one line, numbers in canonical form, trailing newline. Resin profiles omit `nozzle_diameter`. For every valid profile `p`, `from_json` of the text `p.to_json()` returns equals `p`, and `to_json` of a parsed canonical text reproduces it byte for byte.
 
 ### 3.2 Fit classes
@@ -1150,6 +1156,7 @@ Both values are the same for either diagonal of every side quad: each quad's two
 109. The first input example of section 2.2 re-serialized as `ProfileInput` has exactly the keys `id`, `name`, `technology`, `layer_height`; input with `"fit": {"slack": 0.3}` and input with `"bed": {"kind": "rectangle", "width": 200, "depth": 200, "height": 200, "x": 1}` fail to deserialize as `ProfileInput`.
 110. A copy of `FDM` with `layer_height = f64::NAN` returns `Err(OutOfRange { field: LayerHeight, .. })` from `to_json()`.
 111. `partsmith_mesh::WELD_TOLERANCE == partsmith_model::LINEAR_TOLERANCE` (mesh.md open issue 1).
+124. The written form's schema (section 3.1). The root JSON Schema of `PrinterProfile`, generated with `SchemaSettings::default().for_deserialize()` and with `SchemaSettings::default().for_serialize()`, lists as `required` in both exactly `id`, `name`, `technology`, `bed`, `layer_height`, `max_overhang_angle`, `max_bridge_length` and `fit`, and has `"additionalProperties": false`; the `$defs/FitClasses` of each generated root schema requires exactly `press`, `snug`, `slip` and `loose`, and has `"additionalProperties": false`. Test 124 replaces the unit tests `profile_schema_reads_the_input_form` and `profile_schema_writes_every_field_but_the_optional_nozzle` of `src/profile.rs`, and their helper `required_fields` and the `SchemaSettings` import go with them. The written form itself is tests 1, 4 and 5 (`to_json` writes through the same `Serialize`), and the input form's schema is protocol.md test 86.
 
 ### 6.17 Suggestion words
 
@@ -1174,7 +1181,7 @@ The print check examples of gap list item EX-2: bed fit, islands, tall and thin,
 3. **Angles in profile JSON are radians** (`max_overhang_angle`), following the architecture convention and the protocol's `angular_deviation`. Hand-edited profiles would be friendlier in degrees; the UI shows degrees.
 4. **Thin walls ignore direction.** Section 11's rule (below 2 × nozzle) applies to every direction, so FDM floors and roofs thinner than 0.8 mm (for example 0.6 mm, three 0.2 mm layers) are flagged. A layer-based limit for near-horizontal walls is listed as later.
 5. **Islands are found topologically** (local minima of the mesh) rather than by slicing layers as the technical design's resin "layer-island check" describes. For exact meshes the two agree, and this avoids missing islands between sampled layers; planar slicing is still used for small features.
-6. **Profiles live only by id in documents.** A shared document whose printer is a custom profile falls back to `generic-fdm` with the engine's `unknown_printer_profile` warning, silently changing `printer.fit.*` values. Embedding the profile (or its fit values) in the document would need a file-format decision.
+6. **Profiles live only by id in documents.** A shared document whose printer is a custom profile falls back to `generic-fdm` with the engine's `unknown_printer_profile` warning, silently changing `printer.fit.*` values. Embedding the profile (or its fit values) in the document would need a file-format decision. [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists this as option (c) for custom profiles. The warning's message asks to install the profile, which no M1 host can do (ADR 0047).
 7. **Messages use millimeters** regardless of the document's display units; findings carry `value` and `limit` so a host can reformat them. Suggestions are worded in millimeters in every host too, with the unit after every length and point (section 3.12), so a print check row in a document in inches reads in millimeters throughout, like the printer's numbers in the UI. Showing them in the document's unit would change messages and suggestions together.
 8. **Triangle indices in findings** refer to the analyzed mesh, which must be the mesh the engine ships for display (same triangle order) for highlights and overlays to line up. They are transient display data tied to a `mesh_id`, not stored references (AGENTS.md invariant).
 9. **Thin walls budget not met.** Measured on the shared 4-core development machine: about 90 ms to build the bounding volume hierarchy for 200,000 triangles plus about 2.3 µs per ray, so `thin_walls` takes about 450 to 600 ms against its 120 ms budget, and all checks about 700 ms against 250 ms. Both mesh numbers are within mesh.md's own budgets (400 ms per million triangles, 3 µs per ray), so the two specs disagree. Options: a faster ray traversal in partsmith-mesh (a packet or SIMD traversal, or fewer rays per triangle), or a revised budget. Analysis runs on a background thread and never blocks modeling (technical design section 11), so the gap delays the health badge, not editing. Profiled again on 2026-10-12 (release, medians of alternated runs on the loaded machine): the 200,000-triangle sphere gives `thin_walls` 560 ms and all checks 708 ms; the reference part bench50 (engine.md section 5; two analyzed bodies of 46,564 and 3,540 triangles) takes 1.0 s per `analyze_print` once its meshes exist (1.4 s for the first call of a headless session, whose extra 0.4 s is the kernel tessellation). Of bench50's instructions, 82% are `thin_walls` rays, 15% `small_features` (mostly `Mesh::slice_many`), and every other check together 2.5%, so this crate's own code is not the bottleneck. Its rays cost 16 µs each (random rays from the same centroids 8.9 µs), against about 2.3 µs on the sphere: in partsmith-mesh, the grazing cone of any hierarchy node whose triangles face several directions widens to every direction, so on a machined part almost every node is padded by the wide `3e-2 · R` (4 to 7 mm on bench50, whose base reaches 120 mm from the origin) for every ray. A copy of the hierarchy with that padding at `1e-9 · R` returned the same hits on bench50 at 4.6 µs per thickness ray, which shows the size of the gain, but drops the exactness argument of mesh.md section 3.10. The fix belongs in partsmith-mesh (a padding bound that does not grow with mixed orientations, such as per-triangle grazing tests at leaves), together with a revised budget. The engine's 200,000-triangle budget row is a sphere 500 mm tall analyzed with `generic-resin`, so `small_features` slices 10,000 layers: there it took 71% of 2.42 s, half of all instructions in `Mesh::slice_many` (most of them sorting segment keys per layer to chain the loops) and a fifth in this crate's convex hulls and widths of loops far wider than any limit. `small_features` now skips the hull of a loop whose sampled widths already prove it wide enough (`geometry::minimum_width_bound`, a lower bound on the minimum width, so no result changes), which brought that row to 2.12 s and the 250-layer sphere's `small_features` from 35 to 28 ms; the slicing itself is partsmith-mesh's to speed up.

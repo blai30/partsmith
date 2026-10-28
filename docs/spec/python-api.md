@@ -28,6 +28,7 @@ Code is a first-class way to model (technical design section 10): a build123d-st
 - Operators on parts (`+`, `-`, `&`), `offset`, `grid`, standard hole and thread tables (`M3`), sweep, loft and the rest of the parity matrix.
 - Generating selector expressions or shapes (`Rectangle`) instead of `Ref` literals and individual entities.
 - Round trip of documents with imported STEP geometry (their code uses the generic `feature("import", ...)` form and needs the asset).
+- Custom printer profiles: a route that puts a profile in print.md's input form into the session (`put_printer_profile`); [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists the options. Each `Document`'s session has only the built-in profiles (no `Document` sends `put_printer_profile`), so in M1 `Document(printer=...)`, `Document.printer` and `check(printer=...)` name `generic-fdm` or `generic-resin`. A document whose `printer` names another id keeps it, and the engine uses `generic-fdm` with the document warning `unknown_printer_profile` (engine.md section 3.4); `check(printer=...)` with another id raises `EngineError` with code `unknown_printer_profile` (engine.md section 3.12, engine test 80).
 - `export_3mf(..., arrange=True)`, mesh access as arrays, notebook viewers.
 - Published stub package and editor extension.
 

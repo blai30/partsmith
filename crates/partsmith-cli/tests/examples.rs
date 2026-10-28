@@ -1,16 +1,20 @@
 //! The examples runner (delivery spec section 2.8): the layout, canonical form and feature coverage
-//! of `examples/`, every example rebuilt and compared with its expected results, and the comparison
-//! rules' own tests (delivery spec section 6, tests 20 to 25).
+//! of `examples/`, every example rebuilt and compared with its expected results, every example that
+//! builds exported to STL, 3MF, OBJ and STEP, and the own tests of the comparison rules and of the
+//! export check (delivery spec section 6, tests 20 to 25 and 68 to 70).
 //!
-//! After an intended change, regenerate the expected results and review them in the pull request:
+//! After an intended change, regenerate the expected results, run the module again without
+//! `PARTSMITH_BLESS` (the export check reads the expected results the bless rewrites), and review
+//! them in the pull request:
 //!
 //! ```sh
 //! PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::
+//! cargo test -p partsmith-cli --test integration examples::
 //! ```
 
 use std::collections::BTreeSet;
 use std::env;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
@@ -21,7 +25,7 @@ use std::thread;
 
 use partsmith_engine::{Session, SessionOptions};
 use pretty_assertions::assert_eq;
-use serde_json::{Number, Value};
+use serde_json::{Number, Value, json};
 
 /// The failure of a bless requested in CI (delivery spec section 4).
 const BLESS_IN_CI: &str =
@@ -217,6 +221,14 @@ fn example_files() -> Vec<String> {
     files
 }
 
+/// The JSON in the file at `path`, or `None` when the file cannot be read or is not JSON. The
+/// runner tests that read an example's files this way leave each failure to the test that reports
+/// it, so none of them stops at a file.
+fn read_json(path: &Path) -> Option<Value> {
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
 /// One example, `examples/<path>.ptsm`, and its companion files.
 #[derive(Debug)]
 struct Example {
@@ -250,12 +262,25 @@ impl Example {
         self.path.rsplit_once('/').map_or("", |(folder, _)| folder)
     }
 
-    /// The parsed `.ptsm` text, or `None` when it is not JSON (the canonical form check reports
-    /// that).
+    /// The parsed `.ptsm` text, or `None` when it cannot be read or is not JSON (the canonical
+    /// form check and the rebuild check report either).
     fn document(&self) -> Option<Value> {
-        let text = fs::read_to_string(repository_root().join(self.model()))
-            .unwrap_or_else(|error| panic!("cannot read {}: {error}", self.model()));
-        serde_json::from_str(&text).ok()
+        read_json(&repository_root().join(self.model()))
+    }
+
+    /// The parsed expected results, or `None` when they are missing, cannot be read or are not
+    /// JSON (the rebuild check reports each).
+    fn expected_results(&self) -> Option<Value> {
+        read_json(&repository_root().join(self.expected()))
+    }
+
+    /// Whether the example builds by its expected results and its document, so the export check
+    /// exports it (delivery spec section 2.8, "Export examples").
+    fn builds(&self) -> bool {
+        match (self.expected_results(), self.document()) {
+            (Some(results), Some(document)) => builds(&results, &document),
+            _ => false,
+        }
     }
 
     /// The `type` of every feature record of the example.
@@ -411,23 +436,28 @@ fn project(mut report: Value) -> Value {
     report
 }
 
+/// The `error` member of a JSON report, the diagnostic of the problem that stopped a file (cli spec
+/// section 2.2), as `error[<code>]: <message>`; `None` without one.
+fn reported_error(report: &Value) -> Option<String> {
+    let error = report.get("error")?;
+    let text = |key: &str| error.get(key).and_then(Value::as_str).unwrap_or("?");
+    Some(format!("error[{}]: {}", text("code"), text("message")))
+}
+
 /// Why the JSON printed by `partsmith rebuild --checks --json` is not a rebuild report: the
 /// failure document `{"path", "error"}` of a file that could not be rebuilt (cli spec section 3.3),
 /// which also exits with 1, or a document without a `features` array. `None` for a report.
 fn rebuild_failure(report: &Value) -> Option<String> {
-    if let Some(error) = report.get("error") {
-        let text = |key: &str| error.get(key).and_then(Value::as_str).unwrap_or("?");
-        return Some(format!("error[{}]: {}", text("code"), text("message")));
-    }
-    if !report.get("features").is_some_and(Value::is_array) {
-        return Some("the report has no features array".to_owned());
-    }
-    None
+    reported_error(report).or_else(|| {
+        let has_features = report.get("features").is_some_and(Value::is_array);
+        (!has_features).then(|| "the report has no features array".to_owned())
+    })
 }
 
-/// Why `partsmith rebuild --checks --json` exited with a status other than 0 or 1: its standard
-/// error, or, when that is empty, the reason in the failure document on standard output. With
-/// `--json`, a file that cannot be read exits with 3 and reports only there (cli spec section 2.2).
+/// Why a `partsmith rebuild` or `partsmith export` run with `--json` failed: its standard error,
+/// or, when that is empty, the `error` member of the JSON on standard output, and empty without
+/// either. With `--json`, a file that cannot be read exits with 3 and reports only there (cli spec
+/// section 2.2).
 fn exit_reason(standard_output: &[u8], standard_error: &[u8]) -> String {
     let standard_error = String::from_utf8_lossy(standard_error)
         .trim_end()
@@ -437,7 +467,7 @@ fn exit_reason(standard_output: &[u8], standard_error: &[u8]) -> String {
     }
     serde_json::from_slice::<Value>(standard_output)
         .ok()
-        .and_then(|report| rebuild_failure(&report))
+        .and_then(|report| reported_error(&report))
         .unwrap_or_default()
 }
 
@@ -458,13 +488,13 @@ fn expected_text(report: &Value) -> String {
     format!("{text}\n")
 }
 
-/// Runs `partsmith <command> <model>` once for every example, in parallel over
-/// `available_parallelism()` workers, and returns the outputs in example order. Each output then
-/// belongs to exactly one example, even when it spans several lines.
-fn run_each(examples: &[Example], command: &[&str]) -> Vec<io::Result<Output>> {
+/// Runs `partsmith` once with each argument list of `runs`, in parallel over
+/// `available_parallelism()` workers, and returns the outputs in the order of `runs`. Each output
+/// then belongs to exactly one run, even when it spans several lines.
+fn run_each<S: AsRef<OsStr> + Sync>(runs: &[Vec<S>]) -> Vec<io::Result<Output>> {
     let workers = thread::available_parallelism()
         .map_or(1, NonZeroUsize::get)
-        .min(examples.len())
+        .min(runs.len())
         .max(1);
     let next = AtomicUsize::new(0);
     thread::scope(|scope| {
@@ -474,11 +504,9 @@ fn run_each(examples: &[Example], command: &[&str]) -> Vec<io::Result<Output>> {
                     let mut outputs = Vec::new();
                     loop {
                         let index = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(example) = examples.get(index) else {
+                        let Some(arguments) = runs.get(index) else {
                             break outputs;
                         };
-                        let model = example.model();
-                        let arguments = command.iter().copied().chain([model.as_str()]);
                         outputs.push((index, partsmith(arguments)));
                     }
                 })
@@ -491,6 +519,20 @@ fn run_each(examples: &[Example], command: &[&str]) -> Vec<io::Result<Output>> {
         outputs.sort_by_key(|(index, _)| *index);
         outputs.into_iter().map(|(_, output)| output).collect()
     })
+}
+
+/// The arguments of `partsmith <command> <model>` for each of `examples`, in their order.
+fn model_runs(examples: &[Example], command: &[&str]) -> Vec<Vec<String>> {
+    examples
+        .iter()
+        .map(|example| {
+            command
+                .iter()
+                .map(|argument| (*argument).to_owned())
+                .chain([example.model()])
+                .collect()
+        })
+        .collect()
 }
 
 /// What an example's expected results file holds compared with its report.
@@ -579,6 +621,25 @@ fn check_twin(example: &Example, report: &Value, bless: bool, problems: &mut Pro
     }
 }
 
+/// The JSON a `partsmith --json` run printed, once it started and exited with one of `statuses`;
+/// otherwise the step that failed, worded to follow `partsmith <command>` (delivery spec section
+/// 4).
+fn printed_json(run: io::Result<Output>, statuses: &[i32]) -> Result<Value, String> {
+    let output = run.map_err(|error| format!("could not start: {error}"))?;
+    if !output
+        .status
+        .code()
+        .is_some_and(|code| statuses.contains(&code))
+    {
+        return Err(format!(
+            "exited with {}: {}",
+            exit_description(output.status),
+            exit_reason(&output.stdout, &output.stderr)
+        ));
+    }
+    serde_json::from_slice(&output.stdout).map_err(|error| format!("printed invalid JSON: {error}"))
+}
+
 /// Checks one example's rebuild output against its expected results and its twin rule.
 fn check_example(
     example: &Example,
@@ -587,49 +648,110 @@ fn check_example(
     problems: &mut Problems,
 ) {
     let model = example.model();
-    let output = match rebuild {
-        Ok(output) => output,
-        Err(error) => {
-            problems.add(
-                &model,
-                format!("{model}: partsmith rebuild could not start: {error}"),
-            );
-            return;
-        }
-    };
     // Exit 1 means a feature failed, which the expected results record.
-    if !matches!(output.status.code(), Some(0 | 1)) {
-        problems.add(
-            &model,
-            format!(
-                "{model}: partsmith rebuild exited with {}: {}",
-                exit_description(output.status),
-                exit_reason(&output.stdout, &output.stderr)
-            ),
-        );
-        return;
-    }
-    let report = match serde_json::from_slice::<Value>(&output.stdout) {
-        Ok(report) => report,
-        Err(error) => {
-            problems.add(
-                &model,
-                format!("{model}: partsmith rebuild printed invalid JSON: {error}"),
-            );
+    let report = printed_json(rebuild, &[0, 1]).and_then(|report| {
+        // A file that could not be rebuilt is never compared with, or blessed as, expected results.
+        rebuild_failure(&report).map_or(Ok(report), |failure| Err(format!("failed: {failure}")))
+    });
+    let report = match report {
+        Ok(report) => project(report),
+        Err(failure) => {
+            problems.add(&model, format!("{model}: partsmith rebuild {failure}"));
             return;
         }
     };
-    // A file that could not be rebuilt is never compared with, or blessed as, expected results.
-    if let Some(failure) = rebuild_failure(&report) {
-        problems.add(
-            &model,
-            format!("{model}: partsmith rebuild failed: {failure}"),
-        );
-        return;
-    }
-    let report = project(report);
     check_twin(example, &report, bless, problems);
     check_expected(example, &report, bless, problems);
+}
+
+/// The formats every example that builds is exported to, in the order an example's export
+/// problems come in (delivery spec section 2.8, "Export examples").
+const EXPORT_FORMATS: [&str; 4] = ["stl", "3mf", "obj", "step"];
+
+/// The items of `value[key]` when it is an array; none otherwise.
+fn items<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
+    value[key].as_array().into_iter().flatten()
+}
+
+/// Whether an example with these expected results and this document builds: no feature has status
+/// `error`, and a body without `"empty": true` has a document record (the body with the same `id`)
+/// that is neither hidden nor of a role other than `part`, a body `partsmith export` takes by
+/// default (delivery spec section 2.8, "Export examples"; engine spec section 3.13 item 1).
+fn builds(results: &Value, document: &Value) -> bool {
+    let exported_by_default = |body: &Value| {
+        items(document, "bodies")
+            .find(|record| record["id"] == body["id"])
+            .is_some_and(|record| {
+                record["visible"] != false && record.get("role").is_none_or(|role| role == "part")
+            })
+    };
+    items(results, "features").all(|feature| feature["status"] != "error")
+        && items(results, "bodies").any(|body| body["empty"] != true && exported_by_default(body))
+}
+
+/// The file `example` is exported to in `format`: in `directory`, named after the example's path
+/// with `.` for `/` (a character no folder or stem holds, so each example has its own name) and
+/// with the format as its extension.
+fn export_output(directory: &Path, example: &Example, format: &str) -> PathBuf {
+    directory.join(format!("{}.{format}", example.path.replace('/', ".")))
+}
+
+/// The arguments of `partsmith export --json <model> -o <output>`, the format coming from the
+/// extension of `output`.
+fn export_arguments(example: &Example, output: &Path) -> Vec<OsString> {
+    vec![
+        "export".into(),
+        "--json".into(),
+        example.model().into(),
+        "-o".into(),
+        output.into(),
+    ]
+}
+
+/// The mismatches between the report of an export to `format` at `output` and the file it wrote,
+/// or the first step that failed before the comparison, worded to follow
+/// `partsmith export to <format>` (delivery spec sections 2.8 and 4).
+fn export_mismatches(
+    format: &str,
+    output: &Path,
+    export: io::Result<Output>,
+) -> Result<Vec<String>, String> {
+    let mut report = printed_json(export, &[0])?;
+    let bytes = fs::read(output)
+        .map_err(|error| format!("wrote no file: {error}"))?
+        .len();
+    // Warnings are not compared: the expected `mesh_validity` findings hold what they report.
+    if let Some(members) = report.as_object_mut() {
+        members.shift_remove("warnings");
+    }
+    let expected = json!({
+        "files": [{
+            "path": output.display().to_string(),
+            "media_type": format!("model/{format}"),
+            "bytes": bytes
+        }]
+    });
+    Ok(compare(&report, &expected))
+}
+
+/// Checks one export of `example` to `format` at `output` (runner test 5).
+fn check_export(
+    example: &Example,
+    format: &str,
+    output: &Path,
+    export: io::Result<Output>,
+    problems: &mut Problems,
+) {
+    let model = example.model();
+    let run = format!("{model}: partsmith export to {format}");
+    match export_mismatches(format, output, export) {
+        Ok(mismatches) => {
+            for mismatch in mismatches {
+                problems.add(&model, format!("{run}: {mismatch}"));
+            }
+        }
+        Err(failure) => problems.add(&model, format!("{run} {failure}")),
+    }
 }
 
 /// The problem `partsmith fmt --check <model>` found, or `None` when the example is canonical. A
@@ -717,7 +839,7 @@ fn examples_follow_the_layout() {
 #[test]
 fn examples_are_canonical() {
     let examples = examples();
-    let checks = run_each(&examples, &["fmt", "--check"]);
+    let checks = run_each(&model_runs(&examples, &["fmt", "--check"]));
     let mut problems = Problems::default();
     for (example, check) in examples.iter().zip(checks) {
         let model = example.model();
@@ -765,10 +887,37 @@ fn examples_rebuild_as_expected() {
     )
     .unwrap_or_else(|message| panic!("{message}"));
     let examples = examples();
-    let rebuilds = run_each(&examples, &["rebuild", "--checks", "--json"]);
+    let rebuilds = run_each(&model_runs(&examples, &["rebuild", "--checks", "--json"]));
     let mut problems = Problems::default();
     for (example, rebuild) in examples.iter().zip(rebuilds) {
         check_example(example, rebuild, bless, &mut problems);
+    }
+    problems.assert_none();
+}
+
+// Delivery spec section 2.8, runner test 5.
+#[test]
+fn examples_export_to_every_format() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let examples: Vec<Example> = examples().into_iter().filter(Example::builds).collect();
+    // Within an example, the exports and so its problems follow the format order of
+    // `EXPORT_FORMATS`.
+    let exports: Vec<(&Example, &str, PathBuf)> = examples
+        .iter()
+        .flat_map(|example| {
+            EXPORT_FORMATS.map(|format| {
+                let output = export_output(directory.path(), example, format);
+                (example, format, output)
+            })
+        })
+        .collect();
+    let runs: Vec<Vec<OsString>> = exports
+        .iter()
+        .map(|(example, _, output)| export_arguments(example, output))
+        .collect();
+    let mut problems = Problems::default();
+    for ((example, format, output), export) in exports.iter().zip(run_each(&runs)) {
+        check_export(example, format, output, export, &mut problems);
     }
     problems.assert_none();
 }
@@ -818,6 +967,35 @@ fn exit_reason_without_standard_error_is_the_failure_document() {
         reason,
         r#"error[io_error]: cannot read "examples/box/x.ptsm": Permission denied (os error 13)"#
     );
+}
+
+#[test]
+fn exit_reason_without_standard_error_is_the_error_of_an_export_report() {
+    let report = br#"{"files": [], "warnings": [], "error": {"severity": "error", "code": "nothing_to_export", "message": "There is no visible body with geometry to export."}}"#;
+
+    let reason = exit_reason(report, b"");
+
+    assert_eq!(
+        reason,
+        "error[nothing_to_export]: There is no visible body with geometry to export."
+    );
+}
+
+#[test]
+fn exit_reason_of_a_rebuild_without_standard_error_or_an_error_member_is_empty() {
+    // A missing features array says why a rebuild that exited with 0 or 1 failed, not why it
+    // exited with another status (delivery spec section 4).
+    let reason = exit_reason(br#"{"path": "a.ptsm", "printer": "generic-fdm"}"#, b"");
+
+    assert_eq!(reason, "");
+}
+
+#[test]
+fn exit_reason_is_empty_without_standard_error_or_an_error_member() {
+    // An export report has no features array, which is not a reason of its own.
+    let reason = exit_reason(br#"{"files": [], "warnings": []}"#, b"");
+
+    assert_eq!(reason, "");
 }
 
 #[test]
@@ -1130,6 +1308,422 @@ fn t025_bless_outside_ci_is_allowed() {
 fn t025_no_bless_variable_means_no_bless() {
     assert_eq!(bless_mode(None, None), Ok(false));
     assert_eq!(bless_mode(None, Some(OsStr::new("true"))), Ok(false));
+}
+
+/// The expected results test 68 starts from: a box with a body of geometry and a fillet that
+/// warns.
+const BUILDING_RESULTS: &str = r#"{"features": [{"id": "f-box1", "type": "box", "status": "ok", "messages": []}, {"id": "f-fil1", "type": "fillet", "status": "warning", "messages": []}], "bodies": [{"id": "b-1", "name": "Body 1", "empty": true}, {"id": "b-2", "name": "Body 2", "volume": 6000.0}]}"#;
+
+/// The document record of `b-2` in test 68, visible and a part by default.
+const BODY_2: &str = r#"{"id": "b-2", "name": "Body 2"}"#;
+
+/// A document whose bodies are `b-1` and `b-2`, with `body_2` the record of `b-2` (test 68).
+fn document_with(body_2: &str) -> Value {
+    literal(&format!(
+        r#"{{"bodies": [{{"id": "b-1", "name": "Body 1"}}, {body_2}]}}"#
+    ))
+}
+
+#[test]
+fn t068_results_with_geometry_and_no_failed_feature_build() {
+    assert!(builds(&literal(BUILDING_RESULTS), &document_with(BODY_2)));
+}
+
+#[test]
+fn t068_a_failed_feature_keeps_an_example_with_geometry_from_building() {
+    // As `import/join`.
+    let results = literal(&BUILDING_RESULTS.replace(
+        r#""type": "fillet", "status": "warning""#,
+        r#""type": "fillet", "status": "error""#,
+    ));
+
+    assert!(!builds(&results, &document_with(BODY_2)));
+}
+
+#[test]
+fn t068_results_without_bodies_do_not_build() {
+    // As `datum_plane/flip`.
+    let results = literal(
+        r#"{"features": [{"id": "f-dp1", "type": "datum_plane", "status": "ok", "messages": []}], "bodies": []}"#,
+    );
+
+    assert!(!builds(&results, &document_with(BODY_2)));
+}
+
+#[test]
+fn t068_results_whose_bodies_are_all_empty_do_not_build() {
+    // As `sketch/face-plane-empty-body`.
+    let results = literal(
+        r#"{"features": [{"id": "f-sk1", "type": "sketch", "status": "ok", "messages": []}], "bodies": [{"id": "b-1", "name": "Body 1", "empty": true}]}"#,
+    );
+
+    assert!(!builds(&results, &document_with(BODY_2)));
+}
+
+#[test]
+fn t068_a_hidden_body_with_geometry_does_not_count() {
+    let document = document_with(r#"{"id": "b-2", "name": "Body 2", "visible": false}"#);
+
+    assert!(!builds(&literal(BUILDING_RESULTS), &document));
+}
+
+#[test]
+fn t068_a_body_with_a_role_other_than_part_does_not_count() {
+    let document = document_with(r#"{"id": "b-2", "name": "Body 2", "role": "support_blocker"}"#);
+
+    assert!(!builds(&literal(BUILDING_RESULTS), &document));
+}
+
+#[test]
+fn t068_a_body_written_out_as_visible_and_a_part_counts() {
+    let document =
+        document_with(r#"{"id": "b-2", "name": "Body 2", "visible": true, "role": "part"}"#);
+
+    assert!(builds(&literal(BUILDING_RESULTS), &document));
+}
+
+/// The example of tests 69 and 70's literal reports.
+fn box_default() -> Example {
+    Example {
+        path: "box/default".to_owned(),
+    }
+}
+
+/// A run that exited with 0 and printed `standard_output`, with empty standard error. Exit 0 is
+/// the one status `ExitStatus::default()` gives on every platform; other statuses come from the
+/// built binary.
+fn exited_with_0(standard_output: &[u8]) -> io::Result<Output> {
+    Ok(Output {
+        status: ExitStatus::default(),
+        stdout: standard_output.to_vec(),
+        stderr: Vec::new(),
+    })
+}
+
+/// A temporary directory holding `<output>` of test 69, a file of 1200 bytes.
+fn step_output() -> (tempfile::TempDir, PathBuf) {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let output = directory.path().join("default.step");
+    fs::write(&output, vec![0; 1200]).expect("the output can be written");
+    (directory, output)
+}
+
+/// The report of test 69: the STEP file at `output` with 1200 bytes, and a warning. `output` is a
+/// JSON string value, so a Windows path keeps its backslashes.
+fn step_report(output: &Path) -> Value {
+    json!({
+        "files": [{
+            "path": output.display().to_string(),
+            "media_type": "model/step",
+            "bytes": 1200
+        }],
+        "warnings": [{
+            "severity": "warning",
+            "code": "non_manifold_edges",
+            "message": "Body \"Body 1\" has 1 edge shared by more than two triangles. Slicers may repair it."
+        }]
+    })
+}
+
+/// The problems of an export of `box/default` to `step` at `output` that exited with 0 and printed
+/// `report`.
+fn step_problems(report: &Value, output: &Path) -> Option<String> {
+    let mut problems = Problems::default();
+    let export = exited_with_0(report.to_string().as_bytes());
+
+    check_export(&box_default(), "step", output, export, &mut problems);
+
+    problems.report()
+}
+
+#[test]
+fn t069_a_report_naming_the_file_written_gives_no_problem_whatever_its_warnings() {
+    let (_directory, output) = step_output();
+
+    assert_eq!(step_problems(&step_report(&output), &output), None);
+}
+
+#[test]
+fn t069_another_size_is_reported_at_its_pointer() {
+    let (_directory, output) = step_output();
+    let mut report = step_report(&output);
+    report["files"][0]["bytes"] = json!(1199);
+
+    assert_eq!(
+        step_problems(&report, &output).as_deref(),
+        Some(
+            "examples/box/default.ptsm: partsmith export to step: /files/0/bytes is 1199, expected 1200"
+        )
+    );
+}
+
+#[test]
+fn t069_another_media_type_is_reported_at_its_pointer() {
+    let (_directory, output) = step_output();
+    let mut report = step_report(&output);
+    report["files"][0]["media_type"] = json!("model/stl");
+
+    assert_eq!(
+        step_problems(&report, &output).as_deref(),
+        Some(
+            r#"examples/box/default.ptsm: partsmith export to step: /files/0/media_type is "model/stl", expected "model/step""#
+        )
+    );
+}
+
+#[test]
+fn t069_a_second_file_is_unexpected() {
+    let (_directory, output) = step_output();
+    let mut report = step_report(&output);
+    let first = report["files"][0].clone();
+    report["files"]
+        .as_array_mut()
+        .expect("files is an array")
+        .push(first);
+
+    assert_eq!(
+        step_problems(&report, &output).as_deref(),
+        Some("examples/box/default.ptsm: partsmith export to step: /files/1 is unexpected")
+    );
+}
+
+#[test]
+fn t069_no_file_in_the_report_is_reported_missing() {
+    let (_directory, output) = step_output();
+    let mut report = step_report(&output);
+    report["files"] = json!([]);
+
+    assert_eq!(
+        step_problems(&report, &output).as_deref(),
+        Some("examples/box/default.ptsm: partsmith export to step: /files/0 is missing")
+    );
+}
+
+#[test]
+fn t069_an_error_member_is_unexpected() {
+    let (_directory, output) = step_output();
+    let mut report = step_report(&output);
+    report["error"] = json!({
+        "severity": "error",
+        "code": "export_failed",
+        "message": "The STEP writer failed."
+    });
+
+    assert_eq!(
+        step_problems(&report, &output).as_deref(),
+        Some("examples/box/default.ptsm: partsmith export to step: /error is unexpected")
+    );
+}
+
+#[test]
+fn t069_a_report_without_files_is_reported() {
+    let (_directory, output) = step_output();
+    let mut report = step_report(&output);
+    report
+        .as_object_mut()
+        .expect("the report is an object")
+        .shift_remove("files");
+
+    assert_eq!(
+        step_problems(&report, &output).as_deref(),
+        Some("examples/box/default.ptsm: partsmith export to step: /files is missing")
+    );
+}
+
+#[test]
+fn t069_a_run_that_wrote_no_file_is_reported_instead_of_the_comparison() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let output = directory.path().join("default.step");
+
+    let report =
+        step_problems(&step_report(&output), &output).expect("a missing file is a problem");
+
+    assert_eq!(report.lines().count(), 1, "{report}");
+    assert!(
+        report.starts_with("examples/box/default.ptsm: partsmith export to step wrote no file: "),
+        "{report}"
+    );
+}
+
+#[test]
+fn t070_nothing_to_export_is_reported_with_the_error_of_the_report() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let example = Example {
+        path: "datum_plane/flip".to_owned(),
+    };
+    let output = export_output(directory.path(), &example, "stl");
+    let export = partsmith(export_arguments(&example, &output));
+    let mut problems = Problems::default();
+
+    check_export(&example, "stl", &output, export, &mut problems);
+
+    assert_eq!(
+        problems.report().as_deref(),
+        Some(
+            "examples/datum_plane/flip.ptsm: partsmith export to stl exited with 1: error[nothing_to_export]: There is no visible body with geometry to export."
+        )
+    );
+}
+
+#[test]
+fn t070_a_report_that_is_not_json_is_reported_before_the_missing_file() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let output = directory.path().join("default.obj");
+    let mut problems = Problems::default();
+
+    check_export(
+        &box_default(),
+        "obj",
+        &output,
+        exited_with_0(b"not json"),
+        &mut problems,
+    );
+
+    let report = problems.report().expect("invalid JSON is a problem");
+    assert_eq!(report.lines().count(), 1, "{report}");
+    assert!(
+        report.starts_with(
+            "examples/box/default.ptsm: partsmith export to obj printed invalid JSON: "
+        ),
+        "{report}"
+    );
+}
+
+#[test]
+fn t070_an_unreadable_example_is_reported_with_the_error_of_the_report() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let example = Example {
+        path: "box/not-an-example".to_owned(),
+    };
+    let output = export_output(directory.path(), &example, "stl");
+    let export = partsmith(export_arguments(&example, &output));
+    let mut problems = Problems::default();
+
+    check_export(&example, "stl", &output, export, &mut problems);
+
+    let report = problems.report().expect("a missing file is a problem");
+    let expected = r#"examples/box/not-an-example.ptsm: partsmith export to stl exited with 3: error[io_error]: cannot read "examples/box/not-an-example.ptsm": "#;
+    assert_eq!(report.lines().count(), 1, "{report}");
+    assert!(report.starts_with(expected), "{report}");
+}
+
+#[test]
+fn an_export_that_cannot_start_is_reported() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let output = directory.path().join("default.stl");
+    let export = Err(io::Error::new(io::ErrorKind::NotFound, "no such program"));
+    let mut problems = Problems::default();
+
+    check_export(&box_default(), "stl", &output, export, &mut problems);
+
+    assert_eq!(
+        problems.report().as_deref(),
+        Some("examples/box/default.ptsm: partsmith export to stl could not start: no such program")
+    );
+}
+
+#[test]
+fn examples_export_to_stl_3mf_obj_and_step_in_that_order() {
+    assert_eq!(EXPORT_FORMATS, ["stl", "3mf", "obj", "step"]);
+}
+
+#[test]
+fn export_arguments_ask_for_json_and_name_the_example_and_the_output() {
+    let arguments = export_arguments(&box_default(), Path::new("out/default.stl"));
+
+    assert_eq!(
+        arguments,
+        [
+            "export",
+            "--json",
+            "examples/box/default.ptsm",
+            "-o",
+            "out/default.stl"
+        ]
+        .map(OsString::from)
+    );
+}
+
+#[test]
+fn model_runs_end_each_command_with_the_example() {
+    let runs = model_runs(&[box_default()], &["fmt", "--check"]);
+
+    assert_eq!(runs, [["fmt", "--check", "examples/box/default.ptsm"]]);
+}
+
+#[test]
+fn export_outputs_are_one_file_per_example_and_format_in_the_directory() {
+    let directory = Path::new("exports");
+    let mut outputs = BTreeSet::new();
+
+    for example in examples() {
+        for format in EXPORT_FORMATS {
+            let output = export_output(directory, &example, format);
+
+            assert_eq!(output.parent(), Some(directory), "{}", output.display());
+            assert_eq!(
+                output.extension(),
+                Some(OsStr::new(format)),
+                "{}",
+                output.display()
+            );
+            assert!(
+                outputs.insert(output.clone()),
+                "{} repeats",
+                output.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn an_example_with_geometry_and_no_failed_feature_builds() {
+    assert!(box_default().builds());
+}
+
+#[test]
+fn examples_that_cannot_be_exported_do_not_build() {
+    // A failing feature, no body and only an empty body (delivery spec section 2.8).
+    for path in [
+        "import/join",
+        "datum_plane/flip",
+        "sketch/face-plane-empty-body",
+    ] {
+        let example = Example {
+            path: path.to_owned(),
+        };
+
+        assert!(!example.builds(), "{path}");
+    }
+}
+
+#[test]
+fn an_example_whose_files_cannot_be_read_does_not_build() {
+    // Runner tests 2 and 4 report the files; the export check goes on to the other examples.
+    let example = Example {
+        path: "box/not-an-example".to_owned(),
+    };
+
+    assert!(!example.builds());
+}
+
+#[test]
+fn a_file_that_cannot_be_read_has_no_json() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    // A directory cannot be read as a file on any platform.
+    let model = directory.path().join("default.ptsm");
+    fs::create_dir(&model).expect("the directory can be created");
+
+    assert_eq!(read_json(&model), None);
+}
+
+#[test]
+fn a_file_that_is_not_json_has_no_json() {
+    let directory = tempfile::tempdir().expect("a temporary directory can be created");
+    let model = directory.path().join("default.ptsm");
+    fs::write(&model, "not json").expect("the file can be written");
+
+    assert_eq!(read_json(&model), None);
 }
 
 #[test]

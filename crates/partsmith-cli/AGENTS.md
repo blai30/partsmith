@@ -23,7 +23,7 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 - Feature messages (cli.md section 2.2): `rebuild` prints `    <severity>[<code>] at <location>: <message>` under its feature, with the location `/features/<index>` followed by the message's field, and `validate --rebuild` prints them as diagnostic lines; under each come one `suggested: <label>` line per action and one `candidate: <q>, <relation>` line per candidate, indented two spaces more. In JSON a message carries `field`, `suggestion`, `actions` (`label` and `kind`), `candidates` (`reference`, `description`, `relation`, `meaning`, `distance`, `score`), `reason`, `root` and `detail`, after `feature` in `validate`; `detail` is never printed as text and no message has a `cause`.
 - `validate` fails a file on an error, on a warning whose code says a stored reference no longer means what it meant (`reference_missing`, `reference_ambiguous`, `reference_guessed`, `region_missing`, `region_ambiguous`, `region_remapped`, `plane_fallback`), and on any warning with `--deny-warnings`; info notices never fail it.
 - Print findings (cli.md section 3.3): `rebuild --checks` prints `    <severity>[<check>] <body id>: <message>`, followed by `      suggested: <text>` when the finding has a suggestion with words (`partsmith_print::Suggestion::text`, reached through the protocol's `PrintReport`); the JSON carries the suggestion's geometry only.
-- `rebuild --json` is the report the examples runner compares with `examples/**/<stem>.expected.json`.
+- `rebuild --json` is the report the examples runner compares with `examples/**/<stem>.expected.json`, and `export --json` the report its runner test 5 compares with the file each run writes, for every example that builds and each of `stl`, `3mf`, `obj` and `step` (delivery.md section 2.8, "Export examples"; nothing is stored or blessed).
 - `schema --write` in the repository root regenerates `docs/format/ptsm.schema.json` and `docs/format/protocol.schema.json`; `tests/schema.rs` fails when the checked-in files are stale.
 
 ## Internals
@@ -43,7 +43,7 @@ export OCCT_ROOT=/opt/occt/7.9.3/native
 cargo test -p partsmith-cli
 cargo test -p partsmith-cli --bins                 # unit tests only
 cargo test -p partsmith-cli --test integration validate::   # one acceptance test file, a module of tests/integration.rs
-PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::   # regenerate examples' expected results
+PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::   # regenerate examples' expected results, then run again without it
 cargo clippy -p partsmith-cli --all-targets -- -D warnings
 cargo fmt -p partsmith-cli
 cargo run -p partsmith-cli -- schema --write       # regenerate docs/format/*.schema.json

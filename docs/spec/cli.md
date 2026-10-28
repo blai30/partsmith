@@ -23,6 +23,7 @@ The CLI serves makers who script batch exports, CI jobs that validate models and
 - `partsmith import` (STEP or mesh to a new `.ptsm`).
 - `.ptsz` pack and unpack.
 - Watch mode and slicer handoff (`partsmith send`).
+- Custom printer profiles: a route that puts a profile in print.md's input form into the session (`put_printer_profile`); [ADR 0047](../adr/0047-printer-profiles-listed-whole-and-no-custom-profiles-in-m1-hosts.md) lists the options. A CLI session has only the built-in profiles, so in M1 `--printer` names `generic-fdm` or `generic-resin`.
 - Running Python scripts (done by `python -m partsmith`, python-api.md).
 - Colored output and progress bars.
 
@@ -51,7 +52,7 @@ partsmith schema [--write | --check] [--out-dir <DIR>] [<NAME>]
 | `--json` | `validate`, `rebuild`, `export` | Print one JSON document on standard output instead of text. |
 | `--check` | `fmt`, `schema` | Do not write; fail when a file would change. |
 | `--checks` | `rebuild` | Also run print analysis and report findings. |
-| `--printer <ID>` | `rebuild`, `export` | Use this printer profile instead of the document's `printer` (for `printer.*` values, tessellation and checks). Not saved. |
+| `--printer <ID>` | `rebuild`, `export` | Use this printer profile instead of the document's `printer` (for `printer.*` values, tessellation and checks). Not saved. An installed profile, which in M1 is a built-in one (`generic-fdm` or `generic-resin`, print.md section 3.3; custom profiles are Later, section 1). |
 | `--rotate <AXIS:DEGREES>` | `rebuild`, `export` | Rotation about the model axis `x`, `y` or `z` (case-insensitive) by a finite number of degrees, for example `x:90`. Repeatable; each rotation applies after the previous ones, about fixed model axes. Gives an `Orientation::Matrix` for checks and export. |
 | `-o`, `--output <PATH>` | `export` | Output file, or output directory with `--per-body`. Required. |
 | `--format <FORMAT>` | `export` | `stl`, `3mf`, `obj`, `step` or `py`. Default: from the output extension. |
@@ -263,7 +264,7 @@ A parameter that failed to evaluate has `error` instead of `value` and `dimensio
 5. Calls `Session::export` (mesh and STEP formats) with `ExportRequest { format, bodies, tolerance, orientation }`, where `tolerance` is present when `--chord` or `--angle` is given (the other value from `Session::tolerance(doc, Standard)`) and `orientation` is present when `--rotate` is given. For `py`, calls `export_python`; with `--json` the file's `media_type` is `text/x-python`.
 6. Without `--per-body`, writes the single file to `--output`; the parent directory must exist (exit 3 otherwise). With `--per-body`, `--output` is a directory, created with its parents when missing, and each engine file is written inside it under its engine name. Existing files are overwritten. Writes are atomic (temporary file, then rename).
 7. Human output: each written path on its own line on standard output; engine warnings on standard error as `warning[<code>]: <message>`.
-8. JSON output:
+8. JSON output, with one entry in `files` per written file: its path (2.2: the `--output` value exactly as given or, with `--per-body`, that directory joined with the file's engine name), its media type (engine.md section 3.13 item 5) and `bytes`, the length of the file written. The examples runner compares this report with the file written for every example that builds and each of `stl`, `3mf`, `obj` and `step` (delivery.md section 2.8, runner test 5):
 
 ```json
 {
