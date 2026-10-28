@@ -2,8 +2,8 @@
 //! section 3.4).
 
 use partsmith_features::Registry;
-use partsmith_model::Id;
-use partsmith_protocol::{Diagnostic, FeatureState, FeatureStatus, ParameterValue};
+use partsmith_model::{Document, Id};
+use partsmith_protocol::{Diagnostic, FeatureState, FeatureStatus, ParameterValue, Severity};
 use partsmith_recompute::Status;
 
 use crate::causes::CauseLines;
@@ -18,8 +18,29 @@ use crate::state::Computed;
 pub(crate) struct DisplayFailure {
     /// The feature whose output holds the body state.
     pub(crate) feature: Option<Id>,
-    /// The `display_failed` warning.
-    pub(crate) diagnostic: Diagnostic,
+    /// The body.
+    pub(crate) body: Id,
+    /// The failure's technical text.
+    pub(crate) text: String,
+}
+
+impl DisplayFailure {
+    /// The `display_failed` warning, with the body's name in `document`, so a rename shows
+    /// without trying the display again (a name is not part of a body state). None when the
+    /// body is no longer in `document`.
+    pub(crate) fn diagnostic(&self, document: &Document) -> Option<Diagnostic> {
+        let name = &document.body(&self.body)?.name;
+        Some(Diagnostic {
+            detail: Some(format!("body {}: {}", self.body, self.text)),
+            ..Diagnostic::new(
+                Severity::Warning,
+                "display_failed",
+                format!(
+                    "Body '{name}' cannot be shown, and Partsmith could not tell why. Report this with the details."
+                ),
+            )
+        })
+    }
 }
 
 /// The status of every feature of the open document `open` in timeline order, with its display
@@ -49,7 +70,7 @@ pub(crate) fn feature_statuses(
                 messages: failures
                     .iter()
                     .filter(|failure| failure.feature.as_ref() == Some(&report.feature))
-                    .map(|failure| failure.diagnostic.clone())
+                    .filter_map(|failure| failure.diagnostic(document))
                     .collect(),
                 repairs: Vec::new(),
             };
@@ -114,6 +135,18 @@ pub(crate) fn document_diagnostics(computed: &Computed) -> Vec<Diagnostic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::id;
+
+    #[test]
+    fn a_display_failure_of_a_body_that_left_the_document_reports_nothing() {
+        let failure = DisplayFailure {
+            feature: Some(id("f-box1")),
+            body: id("b-1"),
+            text: "the mesh is empty".to_string(),
+        };
+
+        assert_eq!(failure.diagnostic(&Document::default()), None);
+    }
 
     #[test]
     fn statuses_map_one_to_one() {

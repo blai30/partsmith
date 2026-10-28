@@ -8,8 +8,8 @@ use partsmith_features::Registry;
 use partsmith_model::{Document, Id};
 use partsmith_naming::{ElementKind, ElementName};
 use partsmith_protocol::{
-    Buffer, BufferIndex, Diagnostic, DocHandle, Event, Layer, MeshBuffers, MeshElement, Severity,
-    SketchDisplay, SketchSolution,
+    Buffer, BufferIndex, DocHandle, Event, Layer, MeshBuffers, MeshElement, SketchDisplay,
+    SketchSolution,
 };
 use partsmith_sketch::Placement;
 
@@ -94,7 +94,7 @@ pub(crate) struct LayerState {
     failures: BTreeMap<Id, Failed>,
 }
 
-/// A mesh that could not be built: the body state and tolerance that failed, and its diagnostic.
+/// A mesh that could not be built: the body state and tolerance that failed, and the failure.
 #[derive(Debug, Clone)]
 struct Failed {
     /// The body state and tolerance.
@@ -373,11 +373,7 @@ fn mesh_changes(
         .collect();
     let emitted = &mut open.emitted;
     let failures = emitted.display_failures();
-    let mut planner = MeshPlanner {
-        document: &open.document,
-        cache,
-        refresh,
-    };
+    let mut planner = MeshPlanner { cache, refresh };
     let model = planner.changes(&mut emitted.model, model);
     let preview = planner.changes(&mut emitted.preview, preview);
     // The statuses report display failures, so they are sent again when these change.
@@ -389,8 +385,6 @@ fn mesh_changes(
 
 /// What deciding one layer's changes reads and writes besides the layer.
 struct MeshPlanner<'a> {
-    /// The recipe, for body names.
-    document: &'a Document,
     /// The display cache.
     cache: &'a mut DisplayCache,
     /// Re-send every shown mesh with a new id.
@@ -429,7 +423,7 @@ impl MeshPlanner<'_> {
                     });
                 }
                 Err(error) => {
-                    let failure = display_failure(self.document, &view, &error);
+                    let failure = display_failure(&view, &error);
                     failures.insert(body.clone(), Failed { key, failure });
                     if current.is_some() {
                         changes.push(MeshChange { body, mesh: None });
@@ -451,25 +445,14 @@ impl MeshPlanner<'_> {
     }
 }
 
-/// The `display_failed` warning of a body whose display mesh could not be built (section 3.8).
-fn display_failure(document: &Document, view: &BodyView, error: &EngineError) -> DisplayFailure {
-    let name = document
-        .body(&view.body)
-        .map_or_else(|| view.body.to_string(), |body| body.name.clone());
-    // Building a table or mesh fails with internal errors, whose detail is the technical text.
-    let text = error.detail().unwrap_or_else(|| format!("{error:?}"));
+/// The failure of a body whose display mesh could not be built (section 3.8).
+fn display_failure(view: &BodyView, error: &EngineError) -> DisplayFailure {
     DisplayFailure {
         feature: view.provider.clone(),
-        diagnostic: Diagnostic {
-            detail: Some(format!("body {}: {text}", view.body)),
-            ..Diagnostic::new(
-                Severity::Warning,
-                "display_failed",
-                format!(
-                    "Body '{name}' cannot be shown, and Partsmith could not tell why. Report this with the details."
-                ),
-            )
-        },
+        body: view.body.clone(),
+        // Building a table or mesh fails with internal errors, whose detail is the technical
+        // text.
+        text: error.detail().unwrap_or_else(|| format!("{error:?}")),
     }
 }
 
@@ -567,7 +550,9 @@ fn mesh_buffers(mesh: &DisplayMesh, output: &mut Output) -> MeshBuffers {
 #[cfg(test)]
 mod tests {
     use partsmith_features::BodyState;
-    use partsmith_protocol::{FeatureState, FeatureStatus, Pick, TessellationQuality};
+    use partsmith_protocol::{
+        Diagnostic, FeatureState, FeatureStatus, Pick, Severity, TessellationQuality,
+    };
     use partsmith_recompute::{CacheKey, Message, Report};
 
     use super::*;
@@ -656,12 +641,17 @@ mod tests {
             .collect()
     }
 
-    /// The status of `f-box1` in the one `recomputed` event.
-    fn box_status(events: &[Event]) -> FeatureStatus {
+    /// The revision and the status of `f-box1` of the one `recomputed` event.
+    fn only_recomputed(events: &[Event]) -> (u64, FeatureStatus) {
         match recomputed(events).as_slice() {
-            [(_, status)] => status.clone(),
+            [only] => only.clone(),
             other => panic!("expected one recomputed event, got {other:?}"),
         }
+    }
+
+    /// The status of `f-box1` in the one `recomputed` event.
+    fn box_status(events: &[Event]) -> FeatureStatus {
+        only_recomputed(events).1
     }
 
     /// The `body_mesh` events: `(layer, body, has a mesh)`.
@@ -780,15 +770,12 @@ mod tests {
         replace_report(&mut session, doc, good, false);
         let repaired = events(&mut session, doc);
 
+        let (sent_revision, status) = only_recomputed(&repaired);
+
         assert_eq!(model_meshes(&repaired), [("b-1".to_string(), true)]);
-        match recomputed(&repaired).as_slice() {
-            [(sent_revision, status)] => {
-                assert_eq!(*sent_revision, revision);
-                assert_eq!(status.status, FeatureState::Ok);
-                assert_eq!(status.messages, []);
-            }
-            other => panic!("expected one recomputed event, got {other:?}"),
-        }
+        assert_eq!(sent_revision, revision);
+        assert_eq!(status.status, FeatureState::Ok);
+        assert_eq!(status.messages, []);
     }
 
     #[test]
@@ -801,15 +788,37 @@ mod tests {
         replace_report(&mut session, doc, report, false);
         let broken_events = events(&mut session, doc);
 
+        let (sent_revision, status) = only_recomputed(&broken_events);
+
         assert_eq!(model_meshes(&broken_events), [("b-1".to_string(), false)]);
-        match recomputed(&broken_events).as_slice() {
-            [(sent_revision, status)] => {
-                assert_eq!(*sent_revision, revision);
-                assert_eq!(status.status, FeatureState::Warning);
-                assert_eq!(status.messages, [display_failed()]);
-            }
-            other => panic!("expected one recomputed event, got {other:?}"),
-        }
+        assert_eq!(sent_revision, revision);
+        assert_eq!(status.status, FeatureState::Warning);
+        assert_eq!(status.messages, [display_failed()]);
+    }
+
+    #[test]
+    fn t159_f_a_renamed_body_that_cannot_be_displayed_is_named_by_its_new_name() {
+        let (mut session, doc) = box_session(true);
+        let report = broken(&latest_report(&session, doc), 7);
+        replace_report(&mut session, doc, Arc::clone(&report), true);
+        events(&mut session, doc);
+
+        let open = session.open_mut(doc).expect("the document is open");
+        let mut renamed = Document::clone(&open.document);
+        renamed.bodies[0].name = "Lid".to_string();
+        open.change(renamed);
+        replace_report(&mut session, doc, report, true);
+        let after_rename = events(&mut session, doc);
+        let status = box_status(&after_rename);
+        let expected = Diagnostic {
+            message: "Body 'Lid' cannot be shown, and Partsmith could not tell why. Report this with the details."
+                .to_string(),
+            ..display_failed()
+        };
+
+        assert_eq!(meshes(&after_rename), []);
+        assert_eq!(status.messages, [expected]);
+        assert_eq!(queried_box_status(&session, doc), status);
     }
 
     #[test]

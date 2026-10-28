@@ -395,6 +395,38 @@ const GOLDEN_FOLDER: &str = "crates/partsmith-engine/tests/fixtures";
 const BLESS_GOLDENS: &str =
     "PARTSMITH_BLESS=1 cargo test -p partsmith-engine --test integration export_and_import::t160";
 
+/// What test 160 does with a golden 3MF file that it does not fail on (engine.md section 3.20).
+#[derive(Debug, PartialEq)]
+enum GoldenOutcome {
+    /// The golden equals the export.
+    Unchanged,
+    /// The run blesses a missing or differing golden: the export is written and `line` printed.
+    Bless { line: String },
+}
+
+/// What test 160 does with the golden file `golden`, whose bytes are `current` (none when it is
+/// missing), given the 3MF export `exported` of the fixture `fixture` and whether the run blesses:
+/// its outcome, or the text it fails with (engine.md section 3.20).
+fn golden_outcome(
+    current: Option<&[u8]>,
+    exported: &[u8],
+    blessing: bool,
+    fixture: &str,
+    golden: &str,
+) -> Result<GoldenOutcome, String> {
+    let shown = format!("{GOLDEN_FOLDER}/{golden}");
+    match current {
+        Some(current) if current == exported => Ok(GoldenOutcome::Unchanged),
+        _ if blessing => Ok(GoldenOutcome::Bless {
+            line: format!("blessed {shown}"),
+        }),
+        None => Err(format!("{shown} is missing. Run: {BLESS_GOLDENS}")),
+        Some(_) => Err(format!(
+            "{shown} differs from the 3MF export of {fixture}. On an x86_64 Linux build other than CI's, the build can make the difference, so check CI first. Regenerate it only for a change that engine.md section 3.20 lists: {BLESS_GOLDENS}"
+        )),
+    }
+}
+
 /// Compares the 3MF export of the fixture `fixture` with the golden file `golden` byte for byte,
 /// or writes the golden when the run blesses and it is missing or differs (engine.md section
 /// 3.20, test 160).
@@ -413,26 +445,20 @@ fn check_golden_3mf(fixture: &str, golden: &str) {
         .join("tests")
         .join("fixtures")
         .join(golden);
-    let shown = format!("{GOLDEN_FOLDER}/{golden}");
     let current = match std::fs::read(&path) {
         Ok(current) => Some(current),
         Err(error) if error.kind() == ErrorKind::NotFound => None,
-        Err(error) => panic!("{shown} is not readable: {error}"),
+        Err(error) => panic!("{GOLDEN_FOLDER}/{golden} is not readable: {error}"),
     };
-    if current.as_deref() == Some(bytes.as_slice()) {
-        return;
-    }
-    if blessing {
-        std::fs::write(&path, &bytes)
-            .unwrap_or_else(|error| panic!("{shown} cannot be written: {error}"));
-        announce(&format!("blessed {shown}"));
-        return;
-    }
-    match current {
-        None => panic!("{shown} is missing. Run: {BLESS_GOLDENS}"),
-        Some(_) => panic!(
-            "{shown} differs from the 3MF export of {fixture}. On an x86_64 Linux build other than CI's, the build can make the difference, so check CI first. Regenerate it only for a change that engine.md section 3.20 lists: {BLESS_GOLDENS}"
-        ),
+    match golden_outcome(current.as_deref(), &bytes, blessing, fixture, golden) {
+        Ok(GoldenOutcome::Unchanged) => {}
+        Ok(GoldenOutcome::Bless { line }) => {
+            std::fs::write(&path, &bytes).unwrap_or_else(|error| {
+                panic!("{GOLDEN_FOLDER}/{golden} cannot be written: {error}")
+            });
+            announce(&line);
+        }
+        Err(message) => panic!("{message}"),
     }
 }
 
@@ -452,6 +478,48 @@ fn t160_the_3mf_export_of_the_box_equals_its_golden_file() {
 )]
 fn t160_the_3mf_export_of_two_bodies_equals_its_golden_file() {
     check_golden_3mf("two-bodies.ptsm", "two-bodies.3mf");
+}
+
+#[test]
+fn t160_a_golden_equal_to_the_export_is_left_alone() {
+    for blessing in [false, true] {
+        assert_eq!(
+            golden_outcome(Some(b"PK"), b"PK", blessing, "box.ptsm", "box.3mf"),
+            Ok(GoldenOutcome::Unchanged),
+            "blessing: {blessing}"
+        );
+    }
+}
+
+#[test]
+fn t160_a_bless_writes_a_missing_or_differing_golden_and_prints_its_line() {
+    let blessed = Ok(GoldenOutcome::Bless {
+        line: "blessed crates/partsmith-engine/tests/fixtures/box.3mf".to_owned(),
+    });
+
+    for current in [None, Some(b"PK".as_slice())] {
+        assert_eq!(
+            golden_outcome(current, b"PK2", true, "box.ptsm", "box.3mf"),
+            blessed,
+            "current: {current:?}"
+        );
+    }
+}
+
+#[test]
+fn t160_a_missing_golden_fails_with_the_command_that_blesses_it() {
+    assert_eq!(
+        golden_outcome(None, b"PK", false, "box.ptsm", "box.3mf"),
+        Err("crates/partsmith-engine/tests/fixtures/box.3mf is missing. Run: PARTSMITH_BLESS=1 cargo test -p partsmith-engine --test integration export_and_import::t160".to_owned())
+    );
+}
+
+#[test]
+fn t160_a_differing_golden_fails_with_the_build_and_the_listed_changes() {
+    assert_eq!(
+        golden_outcome(Some(b"PK"), b"PK2", false, "two-bodies.ptsm", "two-bodies.3mf"),
+        Err("crates/partsmith-engine/tests/fixtures/two-bodies.3mf differs from the 3MF export of two-bodies.ptsm. On an x86_64 Linux build other than CI's, the build can make the difference, so check CI first. Regenerate it only for a change that engine.md section 3.20 lists: PARTSMITH_BLESS=1 cargo test -p partsmith-engine --test integration export_and_import::t160".to_owned())
+    );
 }
 
 #[test]
