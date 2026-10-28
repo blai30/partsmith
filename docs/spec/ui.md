@@ -1776,6 +1776,8 @@ export function useExpression(text: string, unit: FieldUnit | 'any', label: stri
 
 Pressing Enter in an `invalid` state with a non-null `range` keeps the input focused and selects that range (`setSelectionRange(range.start, range.end)`), so the user can retype the offending part; the message stays in `field-error`.
 
+Pressing Enter in a `valid` or `empty` state reports that state through `onChange` before it calls `onCommit`, unless the owner has already been told it, so an owner that counts the field as pending until told otherwise, as the command inspector's confirm does (3.7), sees the field settled when the commit arrives, even when Enter comes right after the result shows.
+
 Name completion, in every `ExpressionInput` (inspector fields, the selection inspector's dimension and size fields, the Parameters panel and the section offset; the sketch draw inputs and the dimension editor are plain text inputs and have none):
 
 - Names: the document's parameters, shown as "{name} = {value}" (the value formatted as in 3.11), and the `printer.*` names of print.md (`printer.fit.press`, `printer.fit.snug`, `printer.fit.slip`, `printer.fit.loose`, `printer.layer_height`, and `printer.nozzle` for an FDM profile), shown as the name.

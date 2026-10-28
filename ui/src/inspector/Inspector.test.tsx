@@ -3,7 +3,14 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { showPickHint } from '../app/actions/notifications'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
-import type { BoundingBox, Diagnostic, FeatureStatus, FixRef } from '../generated/protocol'
+import { pressEnterAsResultShows } from '../expression/enter-timing.testing'
+import type {
+  BoundingBox,
+  Diagnostic,
+  Dimension,
+  FeatureStatus,
+  FixRef,
+} from '../generated/protocol'
 import {
   activeCommandWith,
   CYLINDRICAL_FACE,
@@ -39,6 +46,7 @@ import {
   regionItem,
   sketchPointItem,
 } from '../test/fakes/selection'
+import { deferred } from '../test/fakes/deferred'
 import { stubResizeObserver } from '../test/fakes/resize-observer'
 import { settle } from '../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
@@ -328,6 +336,84 @@ describe('the command inspector (3.7)', () => {
     })
   })
 
+  it('previews a retyped value only once its text is evaluated (3.7)', async () => {
+    const { core, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
+    const field = inspectorField('radius')
+    await waitFor(() => {
+      expect(within(field).getByTestId('expression-result')).toHaveTextContent('= 2 mm')
+    })
+    const evaluation = deferred<{ value: number; dimension: Dimension }>()
+    core.stub('evaluate', () => evaluation.promise)
+    const previewOfThree = [
+      1,
+      null,
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'update_feature',
+          feature: expect.objectContaining({ radius: '3' }),
+        }),
+      ]),
+    ]
+    const radius = within(field).getByRole('combobox', { name: 'Radius' })
+    await user.type(radius, '3', { initialSelectionStart: 0, initialSelectionEnd: 4 })
+    await settle()
+    expect(radius).toHaveValue('3')
+    expect(core.callsTo('applyEdits')).not.toContainEqual(previewOfThree)
+    await act(async () => {
+      evaluation.resolve({ value: 3, dimension: { length: 0, angle: 0 } })
+      await settle()
+    })
+    expect(core.callsTo('applyEdits')).toContainEqual(previewOfThree)
+  })
+
+  it('previews nothing of a text still being evaluated when its optional field is emptied (3.7)', async () => {
+    const hole = activeCommandWith({
+      featureType: 'hole',
+      featureId: 'f-hole9',
+      title: 'Hole',
+      params: {
+        points: ['e-p1'],
+        sketch: 'f-sk1',
+        body: 'b-cube',
+        diameter: '3.2 mm',
+        hole_type: { kind: 'simple' },
+        extent: { kind: 'through_all' },
+        tip_angle: '118 deg',
+      },
+      applied: true,
+      preview: 'shown',
+    })
+    const { core, user } = renderInspector(cubeDocumentState(), { command: hole })
+    await user.click(within(inspector()).getByTestId('inspector-more'))
+    const field = inspectorField('tip_angle')
+    await waitFor(() => {
+      expect(within(field).getByTestId('expression-result')).toHaveTextContent('= 118°')
+    })
+    core.stub('evaluate', () => deferred<{ value: number; dimension: Dimension }>().promise)
+    const tipAngle = within(field).getByRole('combobox', { name: 'Tip angle' })
+    await user.type(tipAngle, '9', { initialSelectionStart: 0, initialSelectionEnd: 7 })
+    await user.clear(tipAngle)
+    await settle()
+    const previews = core.callsTo('applyEdits')
+    expect(previews).not.toContainEqual([
+      1,
+      null,
+      expect.arrayContaining([
+        expect.objectContaining({ feature: expect.objectContaining({ tip_angle: '9' }) }),
+      ]),
+    ])
+    expect(previews.at(-1)).toEqual([
+      1,
+      null,
+      [
+        expect.objectContaining({
+          type: 'update_feature',
+          feature: expect.not.objectContaining({ tip_angle: expect.anything() }),
+        }),
+      ],
+    ])
+  })
+
   it('U-66 OK commits the transaction', async () => {
     const { core, user } = renderInspector(filletDocument(), { command: EDIT_FILLET })
     await user.click(within(inspector()).getByTestId('inspector-ok'))
@@ -362,6 +448,37 @@ describe('the command inspector (3.7)', () => {
     await waitFor(() => {
       expect(core.callsTo('commitTransaction')).toEqual([[1]])
     })
+  })
+
+  it('E-13 confirms with Enter pressed as the result shows, before the field reports it (3.5)', async () => {
+    const command: ActiveCommand = {
+      ...NEW_EXTRUDE,
+      params: {
+        profile: { sketch: 'f-sk1', regions: [RECT_REGION.reference] },
+        extent: { kind: 'distance', expr: '10 mm' },
+        op: 'new',
+      },
+      activeField: null,
+    }
+    const { app, core, user } = renderInspector(rectSketchDocumentState(), { command })
+    const field = inspectorField('extent.expr')
+    const result = within(field).getByTestId('expression-result')
+    await waitFor(() => {
+      expect(result).toHaveTextContent('= 10 mm')
+    })
+    const evaluation = deferred<{ value: number; dimension: Dimension }>()
+    core.stub('evaluate', () => evaluation.promise)
+    const distance = within(field).getByRole('combobox', { name: 'Distance' })
+    await user.clear(distance)
+    await user.paste('10')
+    await settle()
+    await pressEnterAsResultShows(distance, result, 'mm', () => {
+      evaluation.resolve({ value: 10, dimension: { length: 0, angle: 0 } })
+    })
+    await waitFor(() => {
+      expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    })
+    expect(app.store.getState().command).toBeNull()
   })
 
   it('fills a body field from its Choose menu of bodies with geometry', async () => {

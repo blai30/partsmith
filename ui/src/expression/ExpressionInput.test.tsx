@@ -13,6 +13,7 @@ import { deferred, type Deferred } from '../test/fakes/deferred'
 import { settle } from '../test/fakes/settle'
 import { hasTabularFigures, isCode, NO_CONTEXTUAL_LIGATURES } from '../test/type-roles'
 import { COLOR_CLASSES } from '../theme/roles'
+import { pressEnterAsResultShows } from './enter-timing.testing'
 import { ExpressionInput, type ExpressionInputProps, type ExpressionState } from './ExpressionInput'
 import { useExpression } from './useExpression'
 
@@ -236,6 +237,34 @@ describe('ExpressionInput', () => {
     expect(onCommit).not.toHaveBeenCalled()
     expect(input.selectionStart).toBe(4)
     expect(input.selectionEnd).toBe(5)
+  })
+
+  it('Enter as the result shows tells the owner the valid state before onCommit (3.5)', async () => {
+    const ownerCalls: (readonly [string, string, ExpressionState])[] = []
+    const result = deferred<Evaluation>()
+    const { input } = setUp(
+      {
+        initial: '10',
+        onChange: (value, state) => {
+          ownerCalls.push(['change', value, state])
+        },
+        onCommit: (value, state) => {
+          ownerCalls.push(['commit', value, state])
+        },
+      },
+      (core) => {
+        core.stub('evaluate', () => result.promise)
+      },
+    )
+    await settle()
+    await pressEnterAsResultShows(input, screen.getByTestId('expression-result'), 'mm', () => {
+      result.resolve({ value: 10, dimension: { length: 0, angle: 0 } })
+    })
+    const valid: ExpressionState = { state: 'valid', value: 10, dimension: LENGTH }
+    expect(ownerCalls.slice(-2)).toEqual([
+      ['change', '10', valid],
+      ['commit', '10', valid],
+    ])
   })
 
   it('U-43 Esc calls onCancel', async () => {

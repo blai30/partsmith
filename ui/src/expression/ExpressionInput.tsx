@@ -87,6 +87,7 @@ export type ExpressionInputProps = {
   readonly code?: boolean
   /** Called with the text on every edit, and again when the state of the text changes. */
   readonly onChange: (value: string, state: ExpressionState) => void
+  /** Called on Enter with a valid or empty text, after `onChange` has reported that state. */
   readonly onCommit?: (value: string, state: ExpressionState) => void
   readonly onCancel?: () => void
   readonly onFocus?: () => void
@@ -282,6 +283,16 @@ export function ExpressionInput({
     setSuggestions(null)
   }
 
+  /** Tells the owner a settled state it has not heard yet; the report effect then finds nothing new. */
+  function reportSettled(text: string, settled: ExpressionState): void {
+    const last = reported.current
+    if (last !== null && last.value === text && sameState(last.state, settled)) {
+      return
+    }
+    reported.current = { value: text, state: settled }
+    onChange(text, settled)
+  }
+
   /** What Enter does for a settled state: selects the offending range or commits. Returns whether it acted. */
   function settleEnter(text: string, settled: ExpressionState): boolean {
     if (settled.state === 'invalid' && settled.range !== null) {
@@ -289,6 +300,9 @@ export function ExpressionInput({
       return true
     }
     if (onCommit !== undefined && (settled.state === 'valid' || settled.state === 'empty')) {
+      // Enter can come after the render that shows the result and before the effect that reports
+      // it, and an owner that still holds the text as pending would drop the commit (2.13, 3.5).
+      reportSettled(text, settled)
       onCommit(text, settled)
       return true
     }
