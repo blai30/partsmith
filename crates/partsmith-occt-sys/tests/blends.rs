@@ -487,22 +487,9 @@ fn outward_normals(shape: &Shape, faces: &[u32]) -> Vec<Vector> {
         .collect()
 }
 
-/// The faces that the input vertices of test 142 generate: the corner faces.
-fn corner_faces(result: &OpResult) -> Vec<u32> {
-    result.history.inputs[0]
-        .vertices
-        .iter()
-        .flat_map(generated_faces)
-        .collect()
-}
-
-/// The faces that the input edges of test 142 generate: the chamfer faces.
-fn chamfer_faces(result: &OpResult) -> Vec<u32> {
-    result.history.inputs[0]
-        .edges
-        .iter()
-        .flat_map(generated_faces)
-        .collect()
+/// The faces that any of `fates` generates, in input order.
+fn faces_generated_by(fates: &[ElementFate]) -> Vec<u32> {
+    fates.iter().flat_map(generated_faces).collect()
 }
 
 #[test]
@@ -641,8 +628,9 @@ fn t142_corner_faces_come_only_from_their_vertices() {
 
     let result = chamfer_every_box_edge(&block);
 
-    let corners = corner_faces(&result);
-    let bevels = chamfer_faces(&result);
+    let input = &result.history.inputs[0];
+    let corners = faces_generated_by(&input.vertices);
+    let bevels = faces_generated_by(&input.edges);
     assert_eq!(corners.len(), 8);
     assert_eq!(bevels.len(), 12);
     for corner in &corners {
@@ -651,7 +639,7 @@ fn t142_corner_faces_come_only_from_their_vertices() {
             "corner face {corner} is in an edge's generated list"
         );
     }
-    for (position, fate) in result.history.inputs[0].faces.iter().enumerate() {
+    for (position, fate) in input.faces.iter().enumerate() {
         for image in &fate.modified {
             assert!(
                 !corners.contains(image) && !bevels.contains(image),

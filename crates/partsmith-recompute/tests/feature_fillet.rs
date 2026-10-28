@@ -10,12 +10,12 @@ use std::f64::consts::PI;
 use feature_support::fillet::{fillet_record, plate_document};
 use feature_support::{
     BOX_EDGE_NAMES, BOX_VERTEX_NAMES, CUBE20, FRONT_TOP_EDGE, MOVE_BY_100, RISER_EDGE,
-    RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_bounding_box, assert_element_repair,
-    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
-    assert_face_kind, assert_face_radius, assert_limiting_face, assert_list_field,
-    assert_messages_pass_lint, assert_moved_by_100, assert_same_body, assert_skipped_as_smooth,
-    assert_unchanged, assert_volume, body_update, document_text, face, face_names_with_prefix, id,
-    message, output_body, parse_document, prefixed, remove_entry,
+    RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_bounding_box, assert_edge_queries,
+    assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_count, assert_face_kind, assert_face_radius, assert_limiting_face,
+    assert_list_field, assert_messages_pass_lint, assert_moved_by_100, assert_same_body,
+    assert_skipped_as_smooth, assert_unchanged, assert_volume, body_update, document_text, face,
+    face_names_with_prefix, id, message, output_body, parse_document, prefixed, remove_entry,
     round_down_to_two_significant_digits, set_field, suggested_limit, use_reference,
     with_edges_reversed,
 };
@@ -470,6 +470,14 @@ fn t018_edge_order_does_not_matter() {
     let listed = Run::example("fillet/edge-order.ptsm");
     let reversed = Run::new(with_edges_reversed(&listed.document, "f-fil1"));
 
+    // `E-FT`, `E-BT` and `E-LT`, then the same edges in reverse order.
+    let edges = [
+        "edge(f-box1/front|f-box1/top)",
+        "edge(f-box1/back|f-box1/top)",
+        "edge(f-box1/left|f-box1/top)",
+    ];
+    assert_edge_queries(&listed, "f-fil1", &edges);
+    assert_edge_queries(&reversed, "f-fil1", &[edges[2], edges[1], edges[0]]);
     listed.assert_all_ok();
     reversed.assert_all_ok();
     let (first, second) = (listed.shape("b-1"), reversed.shape("b-1"));

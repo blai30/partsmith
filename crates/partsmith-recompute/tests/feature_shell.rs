@@ -15,9 +15,9 @@ use feature_support::{
     assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_count, assert_face_in_plane, assert_face_kind, assert_face_normal,
     assert_face_position, assert_face_radius, assert_has_face, assert_list_field,
-    assert_moved_by_100, assert_no_face, assert_solid_count, assert_unchanged, assert_volume,
-    body_update, document, face, face_index, face_names_with_prefix, parse_document,
-    point_components, suggested_limit,
+    assert_moved_by_100, assert_no_face, assert_relative_within, assert_solid_count,
+    assert_unchanged, assert_volume, body_update, document, face, face_index,
+    face_names_with_prefix, feature_record_mut, parse_document, point_components, suggested_limit,
 };
 use feature_support::{assert_messages_pass_lint, id, message, pick, set_field};
 use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, Fix, Limit};
@@ -584,12 +584,8 @@ fn without_the_move(moved: &Document) -> Document {
     unmoved
         .features
         .retain(|record| record.id.as_str() != "f-mv1");
-    let shell = unmoved
-        .features
-        .iter_mut()
-        .find(|record| record.id.as_str() == "f-sh1")
-        .expect("the example has the shell f-sh1");
-    shell.params["remove_faces"][0]["fp"] = "plane|n=0,0,1|c=0,0,20|a=256".into();
+    feature_record_mut(&mut unmoved, "f-sh1").params["remove_faces"][0]["fp"] =
+        "plane|n=0,0,1|c=0,0,20|a=256".into();
     unmoved
 }
 
@@ -608,9 +604,11 @@ fn t014_moved_body() {
     let shape = moved.shape("b-1");
     let [moved_volume, unmoved_volume] =
         [shape, expected].map(|shape| shape.volume().expect("a volume"));
-    assert!(
-        (moved_volume - unmoved_volume).abs() <= 1e-9 * unmoved_volume.abs(),
-        "the moved body's volume {moved_volume} differs from the unmoved {unmoved_volume} by more than 1e-9 relative"
+    assert_relative_within(
+        "volume of the moved body against the unmoved one",
+        moved_volume,
+        unmoved_volume,
+        1e-9,
     );
     assert_face_count(shape, 54);
     assert_bounding_box(shape, [40.0, -10.0, 0.0], [60.0, 10.0, 20.0]);

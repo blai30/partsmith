@@ -244,9 +244,7 @@ impl Run {
     /// The record of `feature` in the document.
     pub fn record(&self, feature: &str) -> &FeatureRecord {
         self.document
-            .features
-            .iter()
-            .find(|record| record.id.as_str() == feature)
+            .feature(&id(feature))
             .unwrap_or_else(|| panic!("the document has no feature {feature}"))
     }
 
@@ -493,9 +491,14 @@ pub fn link_ids(links: &[Link]) -> Vec<&str> {
 
 /// Asserts `actual` equals `expected` within the relative tolerance `MEASURE_TOLERANCE`.
 pub fn assert_relative(what: &str, actual: f64, expected: f64) {
+    assert_relative_within(what, actual, expected, MEASURE_TOLERANCE);
+}
+
+/// Asserts `actual` equals `expected` within a relative tolerance.
+pub fn assert_relative_within(what: &str, actual: f64, expected: f64, tolerance: f64) {
     let difference = (actual - expected).abs();
     assert!(
-        difference <= MEASURE_TOLERANCE * expected.abs(),
+        difference <= tolerance * expected.abs(),
         "{what}: expected {expected}, got {actual} (relative difference {})",
         difference / expected.abs(),
     );
@@ -832,22 +835,50 @@ pub fn prefixed(prefix: &str, names: &[&str]) -> Vec<String> {
     prefixed
 }
 
+/// The record of `feature` in `document`, for a test that makes a second document from its
+/// example (features.md section 6.1).
+pub fn feature_record_mut<'document>(
+    document: &'document mut Document,
+    feature: &str,
+) -> &'document mut FeatureRecord {
+    document
+        .features
+        .iter_mut()
+        .find(|record| record.id.as_str() == feature)
+        .unwrap_or_else(|| panic!("the document has no feature {feature}"))
+}
+
 /// `document` with the `edges` of `feature` listed in reverse order: the second document of the
 /// edge order tests (features/fillet.md test 18, features/chamfer.md test 12).
 pub fn with_edges_reversed(document: &Document, feature: &str) -> Document {
     let mut reversed = document.clone();
-    let record = reversed
-        .features
-        .iter_mut()
-        .find(|record| record.id.as_str() == feature)
-        .unwrap_or_else(|| panic!("the document has no feature {feature}"));
-    record
+    feature_record_mut(&mut reversed, feature)
         .params
         .get_mut("edges")
         .and_then(Value::as_array_mut)
         .unwrap_or_else(|| panic!("{feature} lists no edges"))
         .reverse();
     reversed
+}
+
+/// Asserts that the `edges` of `feature` in the run's document hold these queries, in this order,
+/// so an edge order test compares the orders its spec names.
+pub fn assert_edge_queries(run: &Run, feature: &str, queries: &[&str]) {
+    let edges = run
+        .record(feature)
+        .params
+        .get("edges")
+        .and_then(Value::as_array)
+        .unwrap_or_else(|| panic!("{feature} lists no edges"));
+    let listed: Vec<&str> = edges
+        .iter()
+        .map(|edge| {
+            edge["q"]
+                .as_str()
+                .unwrap_or_else(|| panic!("an edge of {feature} has no query: {edge}"))
+        })
+        .collect();
+    assert_eq!(listed, queries, "the edges of {feature}, in order");
 }
 
 /// The face names of a body that start with `prefix`, sorted by byte order.

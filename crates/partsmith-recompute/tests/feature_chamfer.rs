@@ -10,14 +10,14 @@ use std::f64::consts::FRAC_1_SQRT_2;
 use feature_support::{
     BOX_EDGE_NAMES, BOX_VERTEX_NAMES, CUBE20, FRONT_TOP_EDGE, LENGTH_TOLERANCE, MOVE_BY_100, PLATE,
     PLATE_TOP_EDGES, RISER_EDGE, RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_absolute,
-    assert_bounding_box, assert_coordinates, assert_element_repair, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_centroid, assert_face_count,
-    assert_face_kind, assert_face_names, assert_face_normal, assert_limiting_face,
-    assert_list_field, assert_messages_pass_lint, assert_moved_by_100, assert_placement,
-    assert_relative, assert_skipped_as_smooth, assert_unchanged, assert_volume, body_update,
-    document, edge, face, face_index, face_names, face_sketch, message, one_point,
-    point_components, prefixed, remove_entry, set_field, sketch_result, suggested_limit,
-    with_edges_reversed,
+    assert_bounding_box, assert_coordinates, assert_edge_queries, assert_element_repair,
+    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_centroid,
+    assert_face_count, assert_face_kind, assert_face_names, assert_face_normal,
+    assert_limiting_face, assert_list_field, assert_messages_pass_lint, assert_moved_by_100,
+    assert_placement, assert_relative, assert_relative_within, assert_skipped_as_smooth,
+    assert_unchanged, assert_volume, body_update, document, edge, face, face_index, face_names,
+    face_sketch, message, one_point, point_components, prefixed, remove_entry, set_field,
+    sketch_result, suggested_limit, with_edges_reversed,
 };
 use partsmith_features::{BodyChange, FeatureError, Fix};
 use partsmith_model::{Document, Units};
@@ -313,6 +313,13 @@ fn t012_edge_order_does_not_matter() {
     let listed = Run::example("chamfer/edge-order.ptsm");
     let reversed = Run::new(with_edges_reversed(&listed.document, "f-cha1"));
 
+    // The front top edge and the top arc of the front left fillet, then the other order.
+    let edges = [
+        "edge(f-box1/front|f-box1/top)",
+        "edge(f-box1/top|f-fil1/fillet/edge(f-box1/front|f-box1/left))",
+    ];
+    assert_edge_queries(&listed, "f-cha1", &edges);
+    assert_edge_queries(&reversed, "f-cha1", &[edges[1], edges[0]]);
     let runs = [listed, reversed];
     for run in &runs {
         run.assert_all_ok();
@@ -322,9 +329,11 @@ fn t012_edge_order_does_not_matter() {
             .volume()
             .expect("the chamfered body has a volume")
     });
-    assert!(
-        (listed - reversed).abs() <= 1e-9 * listed.abs(),
-        "the volume is {listed} with the edges in listed order and {reversed} in reversed order"
+    assert_relative_within(
+        "volume with the edges in reversed order against listed order",
+        reversed,
+        listed,
+        1e-9,
     );
     assert_eq!(
         face_names(runs[0].body("b-1")),
