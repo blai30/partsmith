@@ -11,7 +11,7 @@ use super::describe::{made_from_line, new_faces_are_flat, rim_generator};
 use super::field::{FieldRef, is_list_entry};
 use super::fix::Fix;
 use super::loss::{Loss, LossCandidate, Repair, Severity};
-use super::message::{FallbackCause, IgnoredReason, NoEffectHow, Placed, plural};
+use super::message::{FallbackCause, IgnoredReason, ImportContent, NoEffectHow, Placed, plural};
 use super::render::{
     Entry, RenderContext, Renderer, candidate_fixes, joined, loss_fixes, lost_reference_text,
     plain_text, region_gone_text, region_matches_text, selected_for,
@@ -247,10 +247,14 @@ pub enum FeatureWarning {
         /// The driving dimension values of the solve, so the messages name dimensions by title and value.
         values: DimensionValues,
     },
-    /// The kernel skipped or repaired content of an imported file.
+    /// The kernel left out content of an imported STEP file or could not repair it (features/import.md section 3.3).
     ImportWarning {
-        /// The kernel's warning text.
-        message: String,
+        /// What is counted.
+        content: ImportContent,
+        /// How many solids or shapes of the file.
+        count: usize,
+        /// `read_step: ` and the kernel's sentences, its technical text.
+        detail: String,
     },
 }
 
@@ -414,7 +418,7 @@ impl FeatureWarning {
                     issues_text(issues, |issue| issue.render(context))
                 })
                 .unwrap_or_else(|| issues_text(issues, ToString::to_string)),
-            FeatureWarning::ImportWarning { message } => message.clone(),
+            FeatureWarning::ImportWarning { content, count, .. } => import_text(*content, *count),
         }
     }
 
@@ -621,6 +625,7 @@ impl FeatureWarning {
                 Some(detail)
             }
             FeatureWarning::PointMissing { point, .. } => Some(point.clone()),
+            FeatureWarning::ImportWarning { detail, .. } => Some(detail.clone()),
             _ => None,
         }
     }
@@ -693,6 +698,24 @@ impl FeatureWarning {
 impl fmt::Display for FeatureWarning {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&plain_text(|renderer| self.text(renderer)))
+    }
+}
+
+/// The message of an import warning (section 4.2): `count` solids or shapes of `content`, in the singular for one.
+fn import_text(content: ImportContent, count: usize) -> String {
+    match (content, count) {
+        (ImportContent::InvalidSolids, 1) => {
+            "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so features that change it may fail or give a wrong shape.".to_string()
+        }
+        (ImportContent::InvalidSolids, _) => format!(
+            "This import kept {count} solids of the STEP file that are not valid and could not be repaired, so features that change them may fail or give a wrong shape."
+        ),
+        (ImportContent::SkippedShapes, 1) => {
+            "This import left out 1 shape of the STEP file that is not a closed solid.".to_string()
+        }
+        (ImportContent::SkippedShapes, _) => format!(
+            "This import left out {count} shapes of the STEP file that are not closed solids."
+        ),
     }
 }
 

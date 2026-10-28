@@ -100,6 +100,16 @@ pub enum IgnoredReason {
     TipAngleThroughAll,
 }
 
+/// What an import warning counts: content of the STEP file the kernel left out or could not repair (kernel.md
+/// section 3.8.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImportContent {
+    /// Shapes left out because they are not closed solids (`StepImport::skipped_shapes`).
+    SkippedShapes,
+    /// Solids kept although still invalid after repair (`StepImport::invalid_solids`).
+    InvalidSolids,
+}
+
 /// Why a sketch on a face could not be placed on it (section 3.6, features/sketch.md section 3.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FallbackCause {

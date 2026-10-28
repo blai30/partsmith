@@ -25,8 +25,8 @@ pub use field::FieldRef;
 pub use fix::{Fix, Place};
 pub use loss::{Loss, LossCandidate, RegionLost, Repair, Severity};
 pub use message::{
-    Bound, DocumentNames, FallbackCause, IgnoredReason, Names, NoEffectHow, Noun, Placed,
-    format_value,
+    Bound, DocumentNames, FallbackCause, IgnoredReason, ImportContent, Names, NoEffectHow, Noun,
+    Placed, format_value,
 };
 pub use render::{Because, Diagnosis, Explanation, RenderContext, joined};
 pub use too_large::Limit;

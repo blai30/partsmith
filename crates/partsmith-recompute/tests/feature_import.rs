@@ -1,24 +1,25 @@
 //! Acceptance tests of the `import` feature (docs/spec/features/import.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
 //! `examples/import/`. The placeholder examples get asset bytes written with the kernel at test
-//! time, as the spec's fixtures define them; the step-block examples (tests 9 and 11) get the
-//! committed file `S` of `examples/import/assets/`, the bytes `partsmith rebuild` reads.
+//! time, as the spec's fixtures define them (`VOID_TWICE` and `BOTH` by editing the STEP text the
+//! kernel wrote); the step-block examples (tests 9 and 11) get the committed file `S` of
+//! `examples/import/assets/`, the bytes `partsmith rebuild` reads.
 
 use crate::feature_support;
 
 use std::sync::Arc;
 
-use feature_support::import::{assets, block, block_bytes, step_bytes};
+use feature_support::import::{assets, block, block_bytes, step_bytes, void_listed_twice};
 use feature_support::{
     Assets, Run, aliases, assert_bounding_box, assert_empty, assert_examples_canonical,
     assert_face_count, assert_face_in_plane, assert_face_names, assert_messages_pass_lint,
-    assert_solid_count, assert_volume, asset_name, body_changes, examples_folder, face,
-    load_example,
+    assert_shell_count, assert_solid_count, assert_volume, asset_name, body_changes,
+    examples_folder, face, load_example,
 };
 use partsmith_features::FeatureError;
 use partsmith_occt_sys::{
     PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, ShapeKind, StepBody,
-    SubShapeKind, TaggedCurve, compound, make_profile,
+    SubShapeKind, TaggedCurve, compound, cut, make_box, make_profile, write_step,
 };
 
 /// The fixture `S`: the name of the committed STEP file of the block in `examples/import/assets/`.
@@ -35,8 +36,36 @@ const BLOCK_FACES: [&str; 6] = [
     "f-imp1/face#6",
 ];
 
-/// The text of the kernel's one warning for the two faces of `SKIPPED` (test 10).
-const SKIPPED_TWO_SHAPES: &str = "Skipped 2 shapes that are not closed solids.";
+/// The message of test 10: the two faces of `SKIPPED` left out.
+const TWO_SHAPES_LEFT_OUT: &str =
+    "This import left out 2 shapes of the STEP file that are not closed solids.";
+
+/// The message of tests 12 and 14: the face of `ONE_FACE` or `BOTH` left out.
+const ONE_SHAPE_LEFT_OUT: &str =
+    "This import left out 1 shape of the STEP file that is not a closed solid.";
+
+/// The message of tests 13 and 14: the solid of `VOID_TWICE` or `BOTH` kept invalid.
+const ONE_SOLID_KEPT: &str = "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so features that change it may fail or give a wrong shape.";
+
+/// The detail of test 10: the kernel's sentence for the two faces of `SKIPPED`.
+const TWO_SHAPES_DETAIL: &str = "read_step: Skipped 2 shapes that are not closed solids.";
+
+/// The detail of test 12: the kernel's sentence for the face of `ONE_FACE`.
+const ONE_SHAPE_DETAIL: &str = "read_step: Skipped 1 shape that is not a closed solid.";
+
+/// The detail of test 13: the kernel's sentence for the solid of `VOID_TWICE`.
+const ONE_SOLID_DETAIL: &str =
+    "read_step: Solid 1 is not valid after repair; booleans with it may fail.";
+
+/// The detail of both warnings of test 14: the kernel's sentences in its order.
+const BOTH_DETAIL: &str = "read_step: Solid 1 is not valid after repair; booleans with it may fail. Skipped 1 shape that is not a closed solid.";
+
+/// The face names of the solid of `VOID_TWICE`, `f-imp1/face#1` to `f-imp1/face#12` (test 13).
+fn hollow_face_names() -> Vec<String> {
+    (1..=12)
+        .map(|number| format!("f-imp1/face#{number}"))
+        .collect()
+}
 
 /// The fixture `TWO`: a STEP file with two 10 mm cubes named `A` and `B`, the second moved to x = 50.
 fn two_cubes_bytes() -> Arc<[u8]> {
@@ -98,6 +127,119 @@ fn skipped_bytes() -> Arc<[u8]> {
         name: "Block".to_owned(),
         color: None,
     }])
+}
+
+/// The fixture `FACE` of kernel.md test 139: the shape of `make_profile` of the square
+/// [50,60]x[0,10] alone on `Plane::XY`, one face.
+fn one_face() -> Shape {
+    make_profile(&Plane::XY, &[square(50.0)])
+        .expect("the kernel makes the square")
+        .shape
+}
+
+/// The fixture `ONE_FACE`: `SKIPPED` with only the first square, [50,60]x[0,10], beside the block.
+fn one_face_bytes() -> Arc<[u8]> {
+    let solid = block("Block", &Plane::XY, [10.0, 20.0, 30.0]).shape;
+    let shape = compound(&[solid, one_face()])
+        .expect("the kernel groups the block and the face")
+        .shape;
+    step_bytes(&[StepBody {
+        shape,
+        name: "Block".to_owned(),
+        color: None,
+    }])
+}
+
+/// `HOLLOW` of kernel.md test 140: the block of `BYTES` with the closed cavity [2,8]x[2,18]x[2,28].
+fn hollow() -> Shape {
+    let solid = block("Block", &Plane::XY, [10.0, 20.0, 30.0]).shape;
+    let cavity_corner = Plane {
+        origin: Point::new(2.0, 2.0, 2.0),
+        ..Plane::XY
+    };
+    let cavity = make_box(&cavity_corner, 6.0, 16.0, 26.0)
+        .expect("the kernel makes the cavity box")
+        .shape;
+    cut(&solid, &[cavity])
+        .expect("the kernel cuts the cavity out")
+        .shape
+}
+
+/// The STEP text `write_step` gives for `shape` as one body named `Hollow`, with its void listed
+/// twice (kernel.md tests 140 and 141).
+fn hollow_bytes_with_the_void_twice(shape: Shape) -> Arc<[u8]> {
+    let bytes = write_step(&[StepBody {
+        shape,
+        name: "Hollow".to_owned(),
+        color: None,
+    }])
+    .expect("the kernel writes STEP");
+    let step = String::from_utf8(bytes).expect("STEP text is UTF-8");
+    Arc::from(void_listed_twice(&step).into_bytes())
+}
+
+/// The fixture `VOID_TWICE`: `HOLLOW` written as one body named `Hollow`, its void listed twice,
+/// so its solid is still invalid after repair.
+fn void_twice_bytes() -> Arc<[u8]> {
+    hollow_bytes_with_the_void_twice(hollow())
+}
+
+/// The fixture `BOTH`: `VOID_TWICE` made from `HOLLOW` with the square of `ONE_FACE` in the same
+/// part.
+fn both_bytes() -> Arc<[u8]> {
+    let shape = compound(&[hollow(), one_face()])
+        .expect("the kernel groups the hollow block and the face")
+        .shape;
+    hollow_bytes_with_the_void_twice(shape)
+}
+
+/// Asserts the messages of the import: each passes the message lint and holds none of the
+/// sentences of its detail (features.md test 14).
+fn assert_messages_hold_no_kernel_sentence(run: &Run) {
+    assert_messages_pass_lint(run, "f-imp1");
+    for message in &run.feature("f-imp1").messages {
+        let detail = message
+            .detail
+            .as_deref()
+            .expect("the kernel's sentences are in the detail");
+        let sentences = detail
+            .strip_prefix("read_step: ")
+            .unwrap_or_else(|| panic!("the detail names read_step: {detail:?}"));
+        for sentence in sentences.split_inclusive(". ").map(str::trim) {
+            assert!(
+                !message.text.contains(sentence),
+                "{:?} holds the kernel's sentence {sentence:?}",
+                message.text
+            );
+        }
+    }
+}
+
+/// Asserts that every message of the import has `detail`, no pointer and no fixes.
+fn assert_import_warning_details(run: &Run, detail: &str) {
+    for message in &run.feature("f-imp1").messages {
+        assert_eq!(message.code, "import_warning");
+        assert_eq!(message.detail.as_deref(), Some(detail));
+        assert_eq!(message.pointer, None);
+        assert!(message.fixes.is_empty(), "fixes: {:?}", message.fixes);
+    }
+}
+
+/// Asserts the solid of test 13 in b-1: the solid of `VOID_TWICE` as the kernel read it.
+fn assert_invalid_hollow_block(run: &Run) {
+    let shape = run.shape("b-1");
+    assert_solid_count(shape, 1);
+    assert_face_count(shape, 12);
+    // 6000 minus the cavity's 2496, twice (kernel.md test 140).
+    assert_volume(shape, 1008.0);
+    assert_bounding_box(shape, [0.0, 0.0, 0.0], [10.0, 20.0, 30.0]);
+    assert!(
+        !shape.is_valid().expect("the kernel checks the solid"),
+        "the solid is still invalid after repair"
+    );
+    let names = hollow_face_names();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    assert_face_names(run.body("b-1"), &names);
 }
 
 /// The bytes of the committed file `S` in `examples/import/assets/`.
@@ -418,23 +560,19 @@ fn t009_intersect_aliases_the_block_bottom_to_the_box_bottom() {
 }
 
 #[test]
-fn t010_skipped_content_warns_with_the_kernel_text() {
+fn t010_skipped_content_warns_once_with_its_count() {
     let run = run_example("import/new-body.ptsm", skipped_bytes());
 
     run.assert_warnings("f-imp1", &["import_warning"]);
-    assert_eq!(run.messages("f-imp1"), [SKIPPED_TWO_SHAPES]);
-    assert_messages_pass_lint(&run, "f-imp1");
+    assert_eq!(run.messages("f-imp1"), [TWO_SHAPES_LEFT_OUT]);
+    assert_messages_hold_no_kernel_sentence(&run);
 }
 
 #[test]
-fn t010_skipped_content_warning_has_no_pointer_detail_or_fixes() {
+fn t010_skipped_content_warning_has_the_kernels_sentence_in_its_detail() {
     let run = run_example("import/new-body.ptsm", skipped_bytes());
 
-    let message = &run.feature("f-imp1").messages[0];
-    assert_eq!(message.code, "import_warning");
-    assert_eq!(message.pointer, None);
-    assert_eq!(message.detail, None);
-    assert!(message.fixes.is_empty(), "fixes: {:?}", message.fixes);
+    assert_import_warning_details(&run, TWO_SHAPES_DETAIL);
 }
 
 #[test]
@@ -443,6 +581,100 @@ fn t010_skipped_content_leaves_the_block_alone() {
 
     assert_block_shape(&run);
     assert_face_names(run.body("b-1"), &BLOCK_FACES);
+}
+
+#[test]
+fn t012_one_skipped_shape_warns_in_the_singular() {
+    let run = run_example("import/new-body.ptsm", one_face_bytes());
+
+    run.assert_warnings("f-imp1", &["import_warning"]);
+    assert_eq!(run.messages("f-imp1"), [ONE_SHAPE_LEFT_OUT]);
+    assert_messages_hold_no_kernel_sentence(&run);
+}
+
+#[test]
+fn t012_one_skipped_shape_warning_has_the_kernels_sentence_in_its_detail() {
+    let run = run_example("import/new-body.ptsm", one_face_bytes());
+
+    assert_import_warning_details(&run, ONE_SHAPE_DETAIL);
+}
+
+#[test]
+fn t012_one_skipped_shape_leaves_the_block_alone() {
+    let run = run_example("import/new-body.ptsm", one_face_bytes());
+
+    assert_block_shape(&run);
+    assert_face_names(run.body("b-1"), &BLOCK_FACES);
+}
+
+#[test]
+fn t013_an_invalid_solid_warns_that_features_that_change_it_may_go_wrong() {
+    let run = run_example("import/new-body.ptsm", void_twice_bytes());
+
+    run.assert_warnings("f-imp1", &["import_warning"]);
+    assert_eq!(run.messages("f-imp1"), [ONE_SOLID_KEPT]);
+    assert_messages_hold_no_kernel_sentence(&run);
+}
+
+#[test]
+fn t013_an_invalid_solid_warning_has_the_kernels_sentence_in_its_detail() {
+    let run = run_example("import/new-body.ptsm", void_twice_bytes());
+
+    assert_import_warning_details(&run, ONE_SOLID_DETAIL);
+}
+
+#[test]
+fn t013_the_invalid_solid_is_kept_as_the_kernel_read_it() {
+    let run = run_example("import/new-body.ptsm", void_twice_bytes());
+
+    assert_invalid_hollow_block(&run);
+}
+
+#[test]
+fn t013_the_invalid_solid_starts_the_body() {
+    let run = run_example("import/new-body.ptsm", void_twice_bytes());
+
+    assert_eq!(body_changes(&run, "f-imp1"), ["b-1 New"]);
+}
+
+#[test]
+fn t014_both_warn_about_the_invalid_solid_first() {
+    let run = run_example("import/new-body.ptsm", both_bytes());
+
+    run.assert_warnings("f-imp1", &["import_warning", "import_warning"]);
+    assert_eq!(run.messages("f-imp1"), [ONE_SOLID_KEPT, ONE_SHAPE_LEFT_OUT]);
+    assert_messages_hold_no_kernel_sentence(&run);
+}
+
+#[test]
+fn t014_both_warnings_carry_every_kernel_sentence_in_its_order() {
+    let run = run_example("import/new-body.ptsm", both_bytes());
+
+    assert_import_warning_details(&run, BOTH_DETAIL);
+}
+
+#[test]
+fn t014_both_keep_the_invalid_solid_alone() {
+    let run = run_example("import/new-body.ptsm", both_bytes());
+
+    assert_invalid_hollow_block(&run);
+}
+
+#[test]
+fn one_face_fixture_is_one_face_without_a_solid() {
+    let face = one_face();
+
+    assert_eq!(face.count(SubShapeKind::Face), 1);
+    assert_eq!(face.count(SubShapeKind::Solid), 0);
+}
+
+#[test]
+fn hollow_fixture_is_the_block_with_a_closed_cavity() {
+    let shape = hollow();
+
+    assert_solid_count(&shape, 1);
+    assert_shell_count(&shape, 2);
+    assert_volume(&shape, 3504.0);
 }
 
 #[test]

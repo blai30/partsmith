@@ -188,7 +188,8 @@ pub struct ImportedSolid {
 pub struct ImportedStep {
     /// Solids in file order (the order of `partsmith_occt_sys::read_step`).
     pub solids: Vec<ImportedSolid>,
-    /// The kernel's warnings about skipped or repaired content, unchanged.
+    /// The kernel's technical sentences about content it left out or could not repair (kernel.md section 3.8.1), passed
+    /// through unchanged, for details and logs; no host shows them as messages.
     pub warnings: Vec<String>,
 }
 

@@ -73,6 +73,7 @@ These claims were spot-checked against the repo while planning, and all held the
 | 46 | DEL-1 | CC0 legal text and scope | root, README, ADR | low | S |
 | 47 | DEL-2 | npm license check in CI | ui/scripts, ci.yml, ADR | low | S |
 | 48 | IMP-1 | Import warnings show the kernel's sentences | partsmith-occt-sys, partsmith-features | low | S or M |
+| 49 | ENG-7 | A STEP solid without volume makes measure report a bug | partsmith-engine (or partsmith-occt-sys read_step) | low | S |
 
 ## 0. Fold into the reference stability plan now
 
@@ -478,6 +479,7 @@ Add examples after phases 1 to 3, so their expected results are blessed once, ag
 - **Work:** `cpp/exchange.cpp` and `src/exchange.rs` in partsmith-occt-sys. For (b), also the `ImportWarning` rendering in partsmith-features and the texts pinned by features/import.md test 10 and kernel.md test 135.
 - **Impact:** low. **Size:** S for (a), M for (b).
 - **Depends on:** nothing.
+- **Status (2026-10-28, spec):** spec text written for option (b), no code yet (ADR 0045, proposed, needs human review, with the options still open). `StepImport` gains `skipped_shapes` and `invalid_solids` and keeps its sentences as technical text, the one-shape sentence now singular (kernel.md sections 2.12 and 3.8.1, tests 135 and 139 to 141, open issue 15); `ImportWarning { content: ImportContent, count, detail }` words the counts, at most one warning per kind, invalid solids first, with every kernel sentence in the detail (features.md sections 2.1, 2.8 and 4.2, test 18 and open issue 21; features/import.md sections 3.3 and 4, tests 10 and 12 to 14, open issue 3). `partsmith-io` passes `warnings` through as before (io.md section 3.8 now calls them technical text), so it, the engine, the protocol and the examples do not change. The repair fixture is `write_step`'s text of a box with a cavity whose void is listed twice (kernel.md test 140's `VOID_TWICE`, whose volume counts the cavity twice): of the defects tried, only that and a void that is its own outer shell stayed invalid after repair. The second has no volume, and a defect it showed in the engine, found while writing this spec, is now item ENG-7. kernel.md tests 139 to 141 are in `tests/exchange.rs`, so CI runs them natively (`rust`), under Node (`kernel-wasm`) and on Windows and macOS (`rust-platforms` of the platforms workflow); the spec's probes ran natively only, the implementer runs `source /opt/emsdk/emsdk_env.sh && cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten --test integration exchange::` here before the track is done, and Windows and macOS stay unverified until the platforms workflow runs.
 
 ### Engine and WebAssembly (partsmith-engine, partsmith-wasm)
 
@@ -549,6 +551,13 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Depends on:** nothing.
 - **Status (2026-10-27, spec):** spec text written, no code yet (ADR 0044). engine.md 3.20 describes `box.3mf` and `two-bodies.3mf`, pinned on CI's `rust` build (ubuntu-24.04, OCCT built by `scripts/build-occt.sh` with that image's compiler and C library, which the reference container matches; test 160 runs on x86_64 Linux with glibc only), the five changes after which a regenerated golden is expected (zip or its deflate backend or level; an OCCT bump or a change of the tessellation or kernel build flags; the compiler or C library that builds or runs OCCT; how the fixtures' box and cylinder are built; an intended change of the package or its inputs), and regeneration only with `PARTSMITH_BLESS=1 cargo test -p partsmith-engine --test integration export_and_import::t160`, refused under `CI` with the examples' message; delivery.md 2.8, its README list and its error table name it. Tests 160 (one per golden, ignored on every other target) and 161 (the bless rule, as delivery.md test 25) are appended after test 159, since new tests take the next ids; 3.13 step 7, open issue 18 and io.md 3.9 name the goldens.
 - **Status (2026-10-27):** done here; the first CI run confirms the bytes. `box.3mf` (1,123 bytes) and `two-bodies.3mf` (6,406 bytes) were blessed in the reference container (Ubuntu 24.04.5, GCC 13.3, glibc 2.39, OCCT 7.9.3 from `/opt/occt/7.9.3/native`), tests 160 and 161 pass, and the engine's AGENTS.md has the command, its filter and the pinned build. Until CI's `rust` job passes test 160 with them they count as blessed outside CI (engine.md 3.20); on Windows and macOS (`platforms.yml`) test 160 shows as ignored. Review fix: `golden_outcome` decides test 160 without reading a file, and four more `t160_` tests, run on every target, check its outcomes (equal, bless with its `blessed` line, and the whole missing and differing texts).
+
+**ENG-7. A STEP solid without volume makes measure report a bug** (added on 2026-10-28 by the spec of IMP-1)
+- **Spec:** engine.md 3.11 (measure); kernel.md 3.8.1 read item 3; docs/guidelines/errors.md (Tone).
+- **Problem:** a STEP solid whose void is its own outer shell has no volume, stays invalid after repair and builds through the import feature with its `import_warning`. `partsmith rebuild` of a document importing it then fails with `internal_error`: `Session::measure` (`crates/partsmith-engine/src/inspect.rs:155`) asks the kernel for the body's center of mass and maps the kernel's error to `EngineError::unexpected`, which presents a user's file as a Partsmith bug.
+- **Spec first:** yes, one of: measure reports a body without volume as a user condition (no center of mass, with a message that names the body), or `read_step` leaves such solids out and counts them (kernel.md 3.8.1 and ADR 0045's counts).
+- **Impact:** low. **Size:** S.
+- **Depends on:** IMP-1.
 
 ### ui/ (outside the blockers)
 

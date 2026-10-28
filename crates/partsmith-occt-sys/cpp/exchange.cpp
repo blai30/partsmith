@@ -114,8 +114,10 @@ class StepCollector {
         colors_(XCAFDoc_DocumentTool::ColorTool(document->Main())) {}
 
   StepImportData finish() {
-    if (skipped_ > 0) {
-      data_.warnings.push_back(rust::String("Skipped " + std::to_string(skipped_) +
+    if (data_.skipped_shapes == 1) {
+      data_.warnings.push_back(rust::String("Skipped 1 shape that is not a closed solid."));
+    } else if (data_.skipped_shapes > 1) {
+      data_.warnings.push_back(rust::String("Skipped " + std::to_string(data_.skipped_shapes) +
                                             " shapes that are not closed solids."));
     }
     if (data_.bodies.empty()) {
@@ -163,7 +165,7 @@ class StepCollector {
     for (TopExp_Explorer shells(part, TopAbs_SHELL, TopAbs_SOLID); shells.More(); shells.Next()) {
       const TopoDS_Shell &shell = TopoDS::Shell(shells.Current());
       if (!BRep_Tool::IsClosed(shell)) {
-        ++skipped_;
+        ++data_.skipped_shapes;
         continue;
       }
       BRepBuilderAPI_MakeSolid maker(shell);
@@ -177,7 +179,7 @@ class StepCollector {
                                          {TopAbs_VERTEX, TopAbs_EDGE}};
     for (const auto &[type, owner] : loose) {
       for (TopExp_Explorer explorer(part, type, owner); explorer.More(); explorer.Next()) {
-        ++skipped_;
+        ++data_.skipped_shapes;
       }
     }
   }
@@ -191,6 +193,7 @@ class StepCollector {
     for (TopExp_Explorer solids(fixer.Shape(), TopAbs_SOLID); solids.More(); solids.Next()) {
       const TopoDS_Shape body = solids.Current().Moved(location);
       if (!BRepCheck_Analyzer(body).IsValid()) {
+        ++data_.invalid_solids;
         data_.warnings.push_back(rust::String("Solid " + std::to_string(data_.bodies.size() + 1) +
                                               " is not valid after repair; booleans with it "
                                               "may fail."));
@@ -206,8 +209,8 @@ class StepCollector {
 
   Handle(XCAFDoc_ShapeTool) shapes_;
   Handle(XCAFDoc_ColorTool) colors_;
-  StepImportData data_;
-  std::size_t skipped_ = 0;
+  // Value-initialized, so both counts start at zero.
+  StepImportData data_{};
 };
 
 // The first bytes of every stream `shape_to_brep` writes: BinTools_ShapeSet::Write starts with

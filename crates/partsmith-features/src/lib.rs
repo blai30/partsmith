@@ -47,8 +47,8 @@ pub use context::{
 pub use deps::{AssetLink, Dependencies, ExprUse, Link};
 pub use error::{
     Because, Bound, Diagnosis, DocumentNames, Explanation, FallbackCause, FeatureError,
-    FeatureWarning, FieldRef, Fix, IgnoredReason, Limit, Loss, LossCandidate, Names, NoEffectHow,
-    Noun, Place, Placed, RegionLost, RenderContext, Repair, Severity, describe_copy,
+    FeatureWarning, FieldRef, Fix, IgnoredReason, ImportContent, Limit, Loss, LossCandidate, Names,
+    NoEffectHow, Noun, Place, Placed, RegionLost, RenderContext, Repair, Severity, describe_copy,
     describe_elements, describe_face, entity_words, format_value, joined, made_from_line,
     sketch_coordinates,
 };

@@ -271,9 +271,12 @@ pub(crate) mod bridge {
         blue: f64,
     }
 
-    /// The bodies and warnings of a STEP import.
+    /// The bodies of a STEP import, the counts of what was left out or could not be repaired,
+    /// and the sentences that describe them.
     struct StepImportData {
         bodies: Vec<StepBodyData>,
+        skipped_shapes: usize,
+        invalid_solids: usize,
         warnings: Vec<String>,
     }
 

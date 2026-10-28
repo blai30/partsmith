@@ -2,7 +2,7 @@
 
 use partsmith_model::{Category, FeatureManifest, Id};
 use partsmith_naming::{FaceSource, Motion, Successions, roles};
-use partsmith_occt_sys::{Shape, SubShapeKind, read_step};
+use partsmith_occt_sys::{Operation, Shape, StepImport, SubShapeKind, read_step};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ use super::common::{
 };
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
-use crate::error::{FeatureError, FeatureWarning, FieldRef};
+use crate::error::{FeatureError, FeatureWarning, FieldRef, ImportContent};
 use crate::feature::Feature;
 use crate::name_shape;
 use crate::output::{FeatureOutput, Tool};
@@ -81,19 +81,15 @@ impl Feature for Import {
 
     /// Reads the STEP bytes, groups every solid of the file into one tool whose faces are all
     /// `<id>/face`, numbered by naming.md's geometric order, and combines it with the body by
-    /// `op`. The kernel's notes about skipped or repaired content come first as warnings
-    /// (import.md section 3.3).
+    /// `op`. What the kernel left out or could not repair comes first as warnings (import.md
+    /// section 3.3).
     fn build(
         params: &ImportParams,
         context: &BuildContext<'_>,
     ) -> Result<FeatureOutput, FeatureError> {
         let bytes = context.asset("asset", &params.asset)?;
         let imported = read_step(bytes)?;
-        let warnings = imported
-            .warnings
-            .into_iter()
-            .map(|message| FeatureWarning::ImportWarning { message })
-            .collect();
+        let warnings = import_warnings(&imported);
         let solids: Vec<Shape> = imported.bodies.into_iter().map(|body| body.shape).collect();
         let tool = imported_tool(context, solids)?;
         apply_tool(context, &params.body, params.op, tool, warnings)
@@ -108,6 +104,25 @@ fn is_step_asset(asset: &str) -> bool {
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     })
+}
+
+/// One warning for the solids the kernel kept invalid, then one for the shapes it left out, each
+/// only when there are any, and both with every sentence of the kernel as their detail (import.md
+/// section 3.3 step 2).
+fn import_warnings(imported: &StepImport) -> Vec<FeatureWarning> {
+    let detail = format!("{}: {}", Operation::ReadStep, imported.warnings.join(" "));
+    [
+        (ImportContent::InvalidSolids, imported.invalid_solids),
+        (ImportContent::SkippedShapes, imported.skipped_shapes),
+    ]
+    .into_iter()
+    .filter(|&(_, count)| count > 0)
+    .map(|(content, count)| FeatureWarning::ImportWarning {
+        content,
+        count,
+        detail: detail.clone(),
+    })
+    .collect()
 }
 
 /// The tool of the imported solids: the only solid as it is, several grouped in read order, with
@@ -137,7 +152,10 @@ mod tests {
     use std::sync::Arc;
 
     use partsmith_model::FeatureRecord;
-    use partsmith_occt_sys::{Plane, Point, StepBody, make_box, write_step};
+    use partsmith_occt_sys::{
+        PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, StepBody, TaggedCurve,
+        compound, make_box, make_profile, write_step,
+    };
     use serde_json::json;
 
     use super::*;
@@ -177,6 +195,44 @@ mod tests {
             })
             .collect();
         Arc::from(write_step(&bodies).expect("the kernel writes STEP"))
+    }
+
+    /// STEP bytes of one body named `Block`: the box [0,10]x[0,20]x[0,30] with the square face
+    /// [50,60]x[0,10] of `Plane::XY` beside it, which the kernel leaves out.
+    fn block_beside_a_face() -> Arc<[u8]> {
+        let corners = [(50.0, 0.0), (60.0, 0.0), (60.0, 10.0), (50.0, 10.0)];
+        let curves = (0..corners.len())
+            .map(|position| {
+                let (start, end) = (corners[position], corners[(position + 1) % corners.len()]);
+                TaggedCurve {
+                    tag: position as u32 + 1,
+                    curve: PlanarCurve::Line {
+                        start: Point2 {
+                            x: start.0,
+                            y: start.1,
+                        },
+                        end: Point2 { x: end.0, y: end.1 },
+                    },
+                }
+            })
+            .collect();
+        let square = PlanarRegion {
+            outer: PlanarLoop { curves },
+            holes: Vec::new(),
+        };
+        let face = make_profile(&Plane::XY, &[square])
+            .expect("the square builds")
+            .shape;
+        let block = make_box(&Plane::XY, 10.0, 20.0, 30.0)
+            .expect("the box builds")
+            .shape;
+        let shape = compound(&[block, face]).expect("grouped").shape;
+        let body = StepBody {
+            shape,
+            name: "Block".to_string(),
+            color: None,
+        };
+        Arc::from(write_step(&[body]).expect("the kernel writes STEP"))
     }
 
     /// Builds the import with these asset bytes and `b-1` in `state`.
@@ -299,6 +355,33 @@ mod tests {
 
         assert_volume(updated_shape(&output, "b-1"), 6750.0);
         assert_eq!(update(&output, "b-1").change, BodyChange::Join);
+    }
+
+    #[test]
+    fn a_file_of_valid_solids_gives_no_import_warning() {
+        let output = run(
+            &import("new"),
+            step(&[([0.0, 0.0, 0.0], [10.0, 20.0, 30.0])]),
+            None,
+        )
+        .expect("the import builds");
+
+        assert_eq!(output.warnings, []);
+    }
+
+    #[test]
+    fn a_skipped_shape_is_one_warning_with_its_count_and_the_kernels_sentence() {
+        let output = run(&import("new"), block_beside_a_face(), None).expect("the import builds");
+
+        // Features/import.md section 3.3 step 2: the count worded by the feature, the kernel's sentence in the detail.
+        assert_eq!(
+            output.warnings,
+            [FeatureWarning::ImportWarning {
+                content: ImportContent::SkippedShapes,
+                count: 1,
+                detail: "read_step: Skipped 1 shape that is not a closed solid.".to_string(),
+            }]
+        );
     }
 
     #[test]
