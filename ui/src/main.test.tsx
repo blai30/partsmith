@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react'
+import type { Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { stubMatchMedia } from './layout/test-app.testing'
 import { MESSAGES } from './messages'
@@ -7,13 +8,31 @@ import { createFakeStorage } from './test/fakes/storage'
 import { COLOR_CLASSES } from './theme/roles'
 
 // main.tsx runs when imported: each test imports a fresh copy into a page with a #root element.
+// main.tsx never unmounts its root, so each test unmounts the roots it made, and no effect or
+// timer of the app outlives the test.
+const roots: Root[] = []
 
 beforeEach(() => {
   vi.resetModules()
   document.body.innerHTML = '<div id="root"></div>'
+  vi.doMock('react-dom/client', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('react-dom/client')>()
+    return {
+      ...actual,
+      createRoot: (...parameters: Parameters<typeof actual.createRoot>) => {
+        const root = actual.createRoot(...parameters)
+        roots.push(root)
+        return root
+      },
+    }
+  })
 })
 
 afterEach(() => {
+  for (const root of roots.splice(0)) {
+    root.unmount()
+  }
+  vi.doUnmock('react-dom/client')
   document.body.innerHTML = ''
   vi.unstubAllGlobals()
   vi.restoreAllMocks()

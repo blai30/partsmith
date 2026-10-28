@@ -1,5 +1,7 @@
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { App as AppShell } from '../App'
+import { AppProvider } from '../app/AppProvider'
 import { announce } from '../app/actions/notifications'
 import { select } from '../app/actions/selection'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
@@ -69,6 +71,21 @@ describe('selection announcements (3.6)', () => {
       vi.advanceTimersByTime(500)
     })
     expect(screen.getByText('Selection cleared')).toBeInTheDocument()
+  })
+
+  it('leaves the selection the app starts with unannounced under StrictMode', () => {
+    vi.useFakeTimers()
+    const { app } = createModelApp({ state: readyState(cubeDocumentState()) })
+    render(
+      <AppProvider app={app}>
+        <AppShell />
+      </AppProvider>,
+      { reactStrictMode: true },
+    )
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    expect(screen.queryByText('Selection cleared')).toBeNull()
   })
 })
 

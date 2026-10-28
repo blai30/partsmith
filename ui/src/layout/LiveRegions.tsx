@@ -23,13 +23,14 @@ export function LiveRegions() {
   const announcement = useAppState((state) => state.announcement)
   const selection = useAppState((state) => state.selection)
   const [selectionText, setSelectionText] = useState('')
-  const first = useRef(true)
+  // The selection last seen here, so the one the app starts with is not news, even when
+  // StrictMode runs this effect a second time on mount.
+  const seen = useRef(selection)
   useEffect(() => {
-    if (first.current) {
-      // The selection the app starts with is not news.
-      first.current = false
+    if (selection === seen.current) {
       return undefined
     }
+    seen.current = selection
     const timer = setTimeout(() => {
       setSelectionText(selectionMessage(selection))
     }, SELECTION_ANNOUNCE_DELAY_MILLISECONDS)
