@@ -73,6 +73,7 @@ import {
   takes,
   withSiblingBody,
 } from './preselection'
+import { clicksLanded } from './selection'
 import { enterSketch, finishSketch, sketchFaceBody, sketchPlaneOf, startNewSketch } from './sketch'
 import { setSuppressed } from './timeline'
 
@@ -611,11 +612,16 @@ const startsOneAtATime = createOneAtATime<AppStore>()
 
 /**
  * Runs one start of a feature command after any start still in progress (a double-click, a held
- * key), so the second never begins a transaction while the first is opening one. With nothing in
- * progress it starts at once.
+ * key), so the second never begins a transaction while the first is opening one, and after OK
+ * while it runs, so the start acts on what OK leaves (3.7). With neither, it starts at once.
  */
 function oneStartAtATime(app: App, start: () => Promise<void>): Promise<void> {
-  return startsOneAtATime(app.store, start)
+  return startsOneAtATime(app.store, async () => {
+    if (confirmRunning(app)) {
+      await confirmSettled(app)
+    }
+    await start()
+  })
 }
 
 /**
@@ -624,25 +630,25 @@ function oneStartAtATime(app: App, start: () => Promise<void>): Promise<void> {
  */
 function alreadyOpen(app: App, featureType: string, editedFeature: string | null): boolean {
   const command = commandOf(app)
-  // A command OK is committing is on its way out, so starting it again opens a new one after it (3.7).
-  if (command === null || confirmRunning(app)) {
-    return false
-  }
   return (
+    command !== null &&
     command.history.length === 0 &&
     command.featureType === featureType &&
     (editedFeature === null ? !command.editing : command.featureId === editedFeature)
   )
 }
 
-/** Starts a command that creates a feature of this type (3.7). */
+/**
+ * Starts a command that creates a feature of this type (3.7), or a new sketch (3.16.1), which
+ * starts one at a time with them, so a feature key pressed right after Sketch opens after it.
+ */
 export function startFeatureCommand(
   app: App,
   featureType: string,
   options: OpenOptions = {},
 ): Promise<void> {
   if (featureType === 'sketch') {
-    return startNewSketch(app)
+    return oneStartAtATime(app, () => startNewSketch(app))
   }
   return oneStartAtATime(app, () => openFeatureCommand(app, featureType, options))
 }
@@ -840,7 +846,7 @@ async function openFeatureEdit(app: App, featureId: string, options: OpenOptions
   const label = featureLabel(document.recipe, featureId, state.catalog)
   const handle = document.documentHandle
   try {
-    await app.mutations.run(() => app.core.beginTransaction(handle, `Edit ${label}`))
+    await app.mutations.run(() => app.core.beginTransaction(handle, editLabel(label)))
   } catch (error) {
     showCoreError(app, error)
     return
@@ -1441,15 +1447,13 @@ export function confirmCommand(app: App): Promise<void> {
   if (session.confirming !== null || !previewable(app, session, command)) {
     return Promise.resolve()
   }
-  const committing = commitCommand(app, session, command, document)
-  session.confirming = committing.then(
-    () => {
-      session.confirming = null
-    },
-    () => {
-      session.confirming = null
-    },
-  )
+  // Clicks on the model made before OK land in the command first, however late the core answers.
+  const committing = commitCommand(app, session, document, clicksLanded(app))
+  const settled = (): void => {
+    session.confirming = null
+  }
+  // Registered before the caller awaits OK, so OK has settled when the caller goes on.
+  session.confirming = committing.then(settled, settled)
   return committing
 }
 
@@ -1466,13 +1470,40 @@ export function confirmSettled(app: App): Promise<void> {
   return sessions.get(app.store)?.confirming ?? Promise.resolve()
 }
 
+/** The label of the transaction that edits a feature, "Edit {label}" (3.7). */
+function editLabel(label: string): string {
+  return `Edit ${label}`
+}
+
+/**
+ * While OK runs, the label of the undo entry it records, which is its transaction's (3.7): what
+ * Mod+Z undoes then (3.20). Null when OK is not running.
+ */
+export function confirmingLabel(app: App): string | null {
+  const command = commandOf(app)
+  if (command === null || !confirmRunning(app)) {
+    return null
+  }
+  return command.editing ? editLabel(command.title) : command.title
+}
+
+/**
+ * Commits the command once the clicks made before OK have landed in it, if it is still complete,
+ * with its latest params applied first.
+ */
 async function commitCommand(
   app: App,
   session: CommandSession,
-  command: ActiveCommand,
   document: DocumentState,
+  clicks: Promise<void>,
 ): Promise<void> {
+  let params: Params
   try {
+    await clicks
+    const command = commandOf(app)
+    if (command === null || sessionOf(app) !== session || !previewable(app, session, command)) {
+      return
+    }
     if (!sameValue(session.submitted, command.params) || helperChanged(session, command)) {
       submitPreview(session, command.params)
     }
@@ -1481,11 +1512,11 @@ async function commitCommand(
       return
     }
     await app.mutations.run(() => app.core.commitTransaction(document.documentHandle))
+    params = commandOf(app)?.params ?? command.params
   } catch (error) {
     showCoreError(app, error)
     return
   }
-  const params = commandOf(app)?.params ?? command.params
   endSession(app)
   for (const sketch of new Set(referencedSketches(params))) {
     setSessionVisible(app, `feature:${sketch}`, false)
@@ -1547,7 +1578,7 @@ async function restoreCommand(app: App, saved: SavedCommand): Promise<void> {
  */
 export async function cancelCommandImplicitly(app: App): Promise<void> {
   if (confirmRunning(app)) {
-    // What ends a command while OK runs comes after the commit, which leaves nothing to cancel.
+    // What ends a command while OK runs ends only what a failed confirm leaves open.
     await confirmSettled(app)
   }
   const command = commandOf(app)

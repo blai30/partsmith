@@ -157,9 +157,7 @@ describe('pickAt while OK runs (3.7)', () => {
     const click = pickAt(
       fake.app,
       { kind: 'item', item: originItem('YZ'), world: null },
-      {
-        toggle: false,
-      },
+      { toggle: false },
     )
     commit.resolve(undefined)
     await confirmed

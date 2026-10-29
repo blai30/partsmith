@@ -106,7 +106,9 @@ export function clicksLanded(app: App): Promise<void> {
 
 /**
  * A click on a pick target: selects it (toggles with a modifier), or feeds an active feature
- * command. `pointer` is the click's ray, which a face picked for a hole center needs (3.7).
+ * command. `pointer` is the click's ray, which a face picked for a hole center needs (3.7). A
+ * click made before OK lands in the command first, and OK waits for it; one made while OK runs
+ * goes where a click goes once OK has settled.
  */
 export function pickAt(
   app: App,
@@ -114,7 +116,8 @@ export function pickAt(
   modifiers: { readonly toggle: boolean },
   pointer?: PointerRay,
 ): Promise<void> {
-  const landing = landClick(app, sample, modifiers, pointer)
+  const runningConfirm = confirmRunning(app) ? confirmSettled(app) : null
+  const landing = landClick(app, sample, modifiers, runningConfirm, pointer)
   const earlier = clicksLanded(app)
   landingClicks.set(
     app.store,
@@ -127,15 +130,15 @@ async function landClick(
   app: App,
   sample: PickResult,
   modifiers: { readonly toggle: boolean },
+  runningConfirm: Promise<void> | null,
   pointer?: PointerRay,
 ): Promise<void> {
   const item = await itemFor(app, sample)
   if (item === null) {
     return
   }
-  if (confirmRunning(app)) {
-    // A click while OK runs goes where a click goes once it has settled (3.7).
-    await confirmSettled(app)
+  if (runningConfirm !== null) {
+    await runningConfirm
   }
   if (app.store.getState().command !== null) {
     await capturePick(app, item, pointer)

@@ -58,7 +58,12 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { setBodyVisible, setLocked, setSessionVisible } from '../app/actions/bodies'
-import { confirmRunning, editFeature } from '../app/actions/command'
+import {
+  confirmingLabel,
+  confirmRunning,
+  confirmSettled,
+  editFeature,
+} from '../app/actions/command'
 import { setContext } from '../app/actions/context'
 import {
   newDocument,
@@ -119,6 +124,7 @@ import { CONSTRAINT_ICONS } from './icons'
 import { keywordsFor } from './keywords'
 import {
   disabledWith,
+  explainDisabled,
   type Availability,
   type CommandCategory,
   type CommandDefinition,
@@ -195,13 +201,35 @@ function needsCore(app: App): Availability {
     : disabledWith('core_not_running', MESSAGES.core_not_running())
 }
 
-/** needsDocument, and disabled while a feature command is active (export uses the model state, 3.18). */
+/**
+ * needsDocument, and disabled while a feature command is active (export uses the model state,
+ * 3.18), but not while its OK runs, which the command then waits for (`afterConfirm`, 3.7).
+ */
 function needsDocumentOutsideCommand(app: App): Availability {
   const active = stateOf(app).command
-  if (active !== null) {
+  if (active !== null && !confirmRunning(app)) {
     return disabledWith('finish_command_first', MESSAGES.finish_command_first(active.title))
   }
   return needsDocument(app)
+}
+
+/**
+ * The run of a command that needsDocumentOutsideCommand gates: pressed while OK runs (Mod+S right
+ * after Enter), it waits for OK and runs on the document OK leaves, or says why not when a failed
+ * confirm left the command open (3.7).
+ */
+function afterConfirm(run: CommandDefinition['run']): CommandDefinition['run'] {
+  return async (app, source) => {
+    if (confirmRunning(app)) {
+      await confirmSettled(app)
+      const availability = needsDocumentOutsideCommand(app)
+      if (availability.state === 'disabled') {
+        explainDisabled(app, availability)
+        return
+      }
+    }
+    await run(app, source)
+  }
 }
 
 /** Whether a sketch is being edited (not while a plane is picked for a new one). */
@@ -728,7 +756,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       shortcuts: ['Mod+S'],
       contexts: ALL,
       availability: needsDocumentOutsideCommand,
-      run: (app) => save(app),
+      run: afterConfirm((app) => save(app)),
     }),
     command({
       id: 'file.save_as',
@@ -738,7 +766,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       shortcuts: ['Mod+Shift+S'],
       contexts: ALL,
       availability: needsDocumentOutsideCommand,
-      run: (app) => saveAs(app),
+      run: afterConfirm((app) => saveAs(app)),
     }),
     command({
       id: 'file.export',
@@ -748,9 +776,9 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       shortcuts: ['Mod+Shift+E'],
       contexts: ALL,
       availability: needsDocumentOutsideCommand,
-      run: (app) => {
+      run: afterConfirm((app) => {
         requestUi(app, { kind: 'export' })
-      },
+      }),
     }),
 
     // Edit.
@@ -763,6 +791,11 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       contexts: ALL,
       availability: undoAvailability,
       detail: (app) => {
+        // While OK runs, Mod+Z waits for it and undoes what it records (3.7).
+        const committing = confirmingLabel(app)
+        if (committing !== null) {
+          return `Undo ${committing}`
+        }
         const active = stateOf(app).command
         if (active !== null) {
           const step = active.history.at(-1)
@@ -783,7 +816,8 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       availability: redoAvailability,
       detail: (app) => {
         const active = stateOf(app).command
-        if (active !== null) {
+        // While OK runs, Mod+Shift+Z waits for it and redoes in the document (3.7).
+        if (active !== null && !confirmRunning(app)) {
           const step = active.future.at(-1)
           return step === undefined ? null : `Redo change to ${step.field}`
         }
@@ -800,7 +834,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       shortcuts: ['Delete', 'Backspace'],
       contexts: ALL,
       availability: deleteAvailability,
-      run: (app) => deleteSelection(app),
+      run: afterConfirm((app) => deleteSelection(app)),
     }),
     command({
       id: 'edit.rename',
@@ -811,7 +845,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       contexts: ALL,
       availability: (app) =>
         renameTarget(stateOf(app)) === null ? HIDDEN : needsDocumentOutsideCommand(app),
-      run: (app) => {
+      run: afterConfirm((app) => {
         const target = renameTarget(stateOf(app))
         if (target === null) {
           return
@@ -826,7 +860,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
           setBrowserOpen(app, true)
         }
         requestUi(app, { kind: 'rename', key: target.key, where })
-      },
+      }),
     }),
     command({
       id: 'edit.edit_feature',
@@ -847,7 +881,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       icon: CircleX,
       contexts: MODEL_PRINT,
       availability: suppressAvailability(true),
-      run: suppressSelection(true),
+      run: afterConfirm(suppressSelection(true)),
     }),
     command({
       id: 'edit.unsuppress',
@@ -856,7 +890,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       icon: CircleCheck,
       contexts: MODEL_PRINT,
       availability: suppressAvailability(false),
-      run: suppressSelection(false),
+      run: afterConfirm(suppressSelection(false)),
     }),
     command({
       id: 'edit.repeat',
@@ -1209,9 +1243,9 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       contexts: PRINT,
       // Changing the printer is an edit, which waits for the active command (3.7).
       availability: needsDocumentOutsideCommand,
-      run: (app) => {
+      run: afterConfirm((app) => {
         requestUi(app, { kind: 'printer' })
-      },
+      }),
     }),
     command({
       id: 'print.overhangs',
@@ -1275,7 +1309,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         icon: FileOutput,
         contexts: ALL,
         availability: needsDocumentOutsideCommand,
-        run: (app) => exportModel(app, { format: entry.format, scope: 'visible' }),
+        run: afterConfirm((app) => exportModel(app, { format: entry.format, scope: 'visible' })),
       }),
     ),
 
@@ -1289,7 +1323,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
         contexts: ALL,
         availability: needsDocumentOutsideCommand,
         checked: (app) => stateOf(app).document?.recipe.units === unit,
-        run: (app) => setUnits(app, unit),
+        run: afterConfirm((app) => setUnits(app, unit)),
       }),
     ),
 

@@ -3,7 +3,7 @@ import type { Command, Edit, ElementDescriptor, Reference } from '../../generate
 import { MESSAGES } from '../../messages'
 import { selectSketchRecord } from '../../state/selectors'
 import { currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
-import { deferred } from '../../test/fakes/deferred'
+import { deferred, type Deferred } from '../../test/fakes/deferred'
 import {
   CUBE_DOCUMENT,
   CUBE_FEATURES_DOCUMENT,
@@ -17,7 +17,9 @@ import { stateWithDocument } from '../../test/fakes/state'
 import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
 import type { PickResult } from '../../viewport/picking'
+import type { App } from '../createApp'
 import { startFeatureCommand } from './command'
+import { setContext } from './context'
 import { pickAt, select } from './selection'
 import {
   createSketchOn,
@@ -227,33 +229,42 @@ describe('startNewSketch (3.16.1)', () => {
   })
 })
 
+/** A click on the cube's top face, which pick_reference turns into its descriptor. */
+const TOP_FACE_PICK: PickResult = {
+  kind: 'mesh',
+  body: 'b-cube',
+  meshId: 1,
+  element: 'face',
+  index: 0,
+  key: 'mesh:1:face:0',
+  world: [0, 0, 20],
+}
+
+/**
+ * Holds the core's answer to every pick_reference, the top face, until the test resolves the
+ * returned promise. The fake core answers in request order, so every later request waits too.
+ */
+function holdTopFacePicks(fake: FakeApp): Deferred<undefined> {
+  const picked = deferred<undefined>()
+  fake.transport.handle('pick_reference', async () => {
+    await picked.promise
+    return { result: { type: 'pick_reference', element: CUBE_TOP_FACE } }
+  })
+  return picked
+}
+
+/** Clicks the top face with its pick_reference answered only once Sketch has been pressed. */
+async function clickTopFaceThenSketch(fake: FakeApp): Promise<void> {
+  const picked = holdTopFacePicks(fake)
+  const click = pickAt(fake.app, TOP_FACE_PICK, { toggle: false })
+  const started = startNewSketch(fake.app)
+  picked.resolve(undefined)
+  await click
+  await started
+  await settle()
+}
+
 describe('a click the core answers after Sketch is pressed (3.16.1)', () => {
-  /** A click on the cube's top face, which pick_reference turns into its descriptor. */
-  const TOP_FACE_PICK: PickResult = {
-    kind: 'mesh',
-    body: 'b-cube',
-    meshId: 1,
-    element: 'face',
-    index: 0,
-    key: 'mesh:1:face:0',
-    world: [0, 0, 20],
-  }
-
-  /** Clicks the top face with its pick_reference answered only once Sketch has been pressed. */
-  async function clickTopFaceThenSketch(fake: FakeApp): Promise<void> {
-    const picked = deferred<undefined>()
-    fake.transport.handle('pick_reference', async () => {
-      await picked.promise
-      return { result: { type: 'pick_reference', element: CUBE_TOP_FACE } }
-    })
-    const click = pickAt(fake.app, TOP_FACE_PICK, { toggle: false })
-    const started = startNewSketch(fake.app)
-    picked.resolve(undefined)
-    await click
-    await started
-    await settle()
-  }
-
   it('a face clicked right before Sketch takes the new sketch', async () => {
     const fake = await cube()
     await clickTopFaceThenSketch(fake)
@@ -275,6 +286,70 @@ describe('a click the core answers after Sketch is pressed (3.16.1)', () => {
       face: CUBE_TOP_FACE.reference,
     })
   })
+})
+
+describe('a feature key pressed right after Sketch (3.7, 3.16.1)', () => {
+  // A new sketch starts from the Sketch command and from the Sketch context alike.
+  const SKETCH_STARTS = [
+    ['the Sketch command', (app: App) => startFeatureCommand(app, 'sketch')],
+    ['the Sketch context', (app: App) => setContext(app, 'sketch')],
+  ] as const
+
+  it.each(SKETCH_STARTS)(
+    'with a click on its way, opens its command after %s has put the sketch on the face',
+    async (_start, startSketch) => {
+      const fake = await cube()
+      const picked = holdTopFacePicks(fake)
+      const click = pickAt(fake.app, TOP_FACE_PICK, { toggle: false })
+      const sketched = startSketch(fake.app)
+      const started = startFeatureCommand(fake.app, 'chamfer')
+      picked.resolve(undefined)
+      await Promise.all([click, sketched, started])
+      await settle()
+      const types = fake.transport.commandTypes()
+      expect(
+        types.filter((type) => type === 'apply_edits' || type === 'begin_transaction'),
+      ).toEqual(['apply_edits', 'begin_transaction'])
+      expect(newSketchEdit(fake).command?.label).toBe('New sketch')
+      expect(newSketchEdit(fake).edit?.feature['plane']).toMatchObject({
+        kind: 'face',
+        face: CUBE_TOP_FACE.reference,
+      })
+      expect(fake.app.store.getState().notifications).toEqual([])
+      expect(fake.app.store.getState()).toMatchObject({
+        context: 'model',
+        sketch: null,
+        command: { featureType: 'chamfer' },
+      })
+    },
+  )
+
+  it.each(SKETCH_STARTS)(
+    'opens its command after %s, still canceling the open command, has opened plane picking',
+    async (_start, startSketch) => {
+      const fake = await cube()
+      await startFeatureCommand(fake.app, 'fillet')
+      await settle()
+      fake.transport.clearRequests()
+      const canceled = deferred<undefined>()
+      fake.transport.handle('cancel_transaction', async (command, core, buffers) => {
+        await canceled.promise
+        return core.reply(command, buffers)
+      })
+      const sketched = startSketch(fake.app)
+      const started = startFeatureCommand(fake.app, 'chamfer')
+      canceled.resolve(undefined)
+      await Promise.all([sketched, started])
+      await settle()
+      expect(fake.transport.commandTypes()).toEqual(['cancel_transaction', 'begin_transaction'])
+      expect(fake.app.store.getState().notifications).toEqual([])
+      expect(fake.app.store.getState()).toMatchObject({
+        context: 'model',
+        sketch: null,
+        command: { featureType: 'chamfer' },
+      })
+    },
+  )
 })
 
 describe('enterSketch, setSketchTool and finishSketch (3.16)', () => {
