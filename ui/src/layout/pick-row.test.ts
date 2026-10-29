@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { confirmCommand } from '../app/actions/command'
 import { MESSAGES } from '../messages'
 import { planePickingSession } from '../sketch/fixtures.testing'
 import type { ActiveCommand } from '../state/store'
 import { MAC_WEB } from '../test/fakes/app'
 import type { FeatureRecord } from '../test/fakes/documents'
+import { deferred } from '../test/fakes/deferred'
 import { attachCall, cubeWithSketch, lostFaceSketch } from '../test/fakes/repairs'
 import { bodyItem, datumItem, originItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
@@ -74,6 +76,29 @@ describe('pickRow', () => {
     pickRow(app, bodyItem('b-cube', 'Cube'), false)
     expect(app.store.getState().command?.params.base).toBeUndefined()
     expect(app.store.getState().selection.map((item) => item.key)).toEqual(['body:b-cube'])
+  })
+
+  it('selects a row the active field accepts once OK, running meanwhile, has closed it (3.7)', async () => {
+    const { app, core } = createModelApp({
+      state: readyState(cubeDocumentState(), {
+        command: {
+          ...DATUM_COMMAND,
+          params: { base: { kind: 'origin', plane: 'XY' }, offset: '10 mm' },
+          applied: true,
+          preview: 'shown',
+        },
+      }),
+    })
+    const committed = deferred<{ revision: number; recorded: boolean }>()
+    core.stub('commitTransaction', () => committed.promise)
+    const confirmed = confirmCommand(app)
+    await settle()
+    pickRow(app, originItem('YZ'), false)
+    committed.resolve({ revision: 2, recorded: true })
+    await confirmed
+    await settle()
+    expect(app.store.getState().command).toBeNull()
+    expect(app.store.getState().selection.map((item) => item.key)).toEqual(['origin:YZ'])
   })
 })
 

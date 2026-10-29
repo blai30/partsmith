@@ -58,7 +58,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { setBodyVisible, setLocked, setSessionVisible } from '../app/actions/bodies'
-import { editFeature } from '../app/actions/command'
+import { confirmRunning, editFeature } from '../app/actions/command'
 import { setContext } from '../app/actions/context'
 import {
   newDocument,
@@ -263,8 +263,9 @@ function redoAvailability(app: App): Availability {
   if (core.state !== 'enabled') {
     return core
   }
-  // In a command, redo steps forward through its history (3.7, 3.20).
-  if (state.command !== null) {
+  // In a command, redo steps forward through its history (3.7, 3.20); while OK runs, redo waits
+  // for it and then redoes in the document.
+  if (state.command !== null && !confirmRunning(app)) {
     return state.command.future.length > 0
       ? ENABLED
       : disabledWith('finish_command_first', MESSAGES.finish_command_first(state.command.title))

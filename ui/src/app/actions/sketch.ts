@@ -60,7 +60,7 @@ import { coreRedo, coreUndo } from './document'
 import { documentOf, showCoreError } from './edits'
 import { reportChange } from './loss-notifications'
 import { dismiss, notify } from './notifications'
-import { select, toggledByKey } from './selection'
+import { clicksLanded, select, toggledByKey } from './selection'
 import { commitSketchChange } from './sketch-commit'
 import { createSketchOn, pickPlane, sketchPlaneOf } from './sketch-plane'
 import { refreshUses } from './timeline'
@@ -196,6 +196,8 @@ async function leaveForPlanePicking(app: App): Promise<void> {
 /** Sketch mode for a new sketch: on the one selected plane, else plane picking (3.16.1). */
 export async function startNewSketch(app: App): Promise<void> {
   await leaveForPlanePicking(app)
+  // A click made right before Sketch is in the selection first, however late the core answers it.
+  await clicksLanded(app)
   const { selection } = app.store.getState()
   const [only] = selection
   if (selection.length === 1 && only !== undefined && sketchPlaneOf(only) !== null) {

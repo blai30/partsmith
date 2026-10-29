@@ -123,8 +123,11 @@ type CommandSession = {
   appliedHelper: string | null
   /** The expression field whose text has changed since it gained focus, which is one change (3.7). */
   typingField: string | null
-  /** Whether OK is on its way, so a second Enter or click while it runs commits nothing more. */
-  confirming: boolean
+  /**
+   * OK on its way, settled whatever its outcome, or null: a second Enter or click while it runs
+   * commits nothing more, and what else arrives meanwhile waits for it (3.7).
+   */
+  confirming: Promise<void> | null
 }
 
 const sessions = new WeakMap<AppStore, CommandSession>()
@@ -452,7 +455,7 @@ function createSession(app: App, input: SessionInput): CommandSession {
     addedBody: null,
     appliedHelper: null,
     typingField: null,
-    confirming: false,
+    confirming: null,
     preview: createLatestOnly<PreviewRequest, void>(
       (request) => app.mutations.run(() => applyPreview(app, session, request.params)),
       (_output, request) => {
@@ -621,8 +624,11 @@ function oneStartAtATime(app: App, start: () => Promise<void>): Promise<void> {
  */
 function alreadyOpen(app: App, featureType: string, editedFeature: string | null): boolean {
   const command = commandOf(app)
+  // A command OK is committing is on its way out, so starting it again opens a new one after it (3.7).
+  if (command === null || confirmRunning(app)) {
+    return false
+  }
   return (
-    command !== null &&
     command.history.length === 0 &&
     command.featureType === featureType &&
     (editedFeature === null ? !command.editing : command.featureId === editedFeature)
@@ -1421,18 +1427,51 @@ export async function capturePick(
   commitPick(app, session, command, field, params, command.helper)
 }
 
-/** OK: applies the latest params and commits the transaction as one undo entry (3.7). */
-export async function confirmCommand(app: App): Promise<void> {
+/**
+ * OK: applies the latest params and commits the transaction as one undo entry (3.7). A second OK
+ * while it runs does nothing; what else acts on the command meanwhile waits for `confirmSettled`.
+ */
+export function confirmCommand(app: App): Promise<void> {
   const session = sessionOf(app)
   const command = commandOf(app)
   const document = documentOf(app)
   if (session === null || command === null || document === null) {
-    return
+    return Promise.resolve()
   }
-  if (session.confirming || !previewable(app, session, command)) {
-    return
+  if (session.confirming !== null || !previewable(app, session, command)) {
+    return Promise.resolve()
   }
-  session.confirming = true
+  const committing = commitCommand(app, session, command, document)
+  session.confirming = committing.then(
+    () => {
+      session.confirming = null
+    },
+    () => {
+      session.confirming = null
+    },
+  )
+  return committing
+}
+
+/** Whether OK is running for the active command (3.7). */
+export function confirmRunning(app: App): boolean {
+  return (sessions.get(app.store)?.confirming ?? null) !== null
+}
+
+/**
+ * Resolves once OK, when it is running, has settled, whatever its outcome (3.7): what arrives
+ * meanwhile then acts on what it left, the document or the command a failed confirm leaves open.
+ */
+export function confirmSettled(app: App): Promise<void> {
+  return sessions.get(app.store)?.confirming ?? Promise.resolve()
+}
+
+async function commitCommand(
+  app: App,
+  session: CommandSession,
+  command: ActiveCommand,
+  document: DocumentState,
+): Promise<void> {
   try {
     if (!sameValue(session.submitted, command.params) || helperChanged(session, command)) {
       submitPreview(session, command.params)
@@ -1445,8 +1484,6 @@ export async function confirmCommand(app: App): Promise<void> {
   } catch (error) {
     showCoreError(app, error)
     return
-  } finally {
-    session.confirming = false
   }
   const params = commandOf(app)?.params ?? command.params
   endSession(app)
@@ -1472,6 +1509,10 @@ export function confirmIfComplete(app: App): boolean {
 
 /** Cancel: reverts the transaction; nothing is recorded (3.7). */
 export async function cancelCommand(app: App): Promise<void> {
+  if (confirmRunning(app)) {
+    // Esc, Cancel or the close button while OK runs cancel only what a failed confirm leaves open.
+    await confirmSettled(app)
+  }
   const command = commandOf(app)
   const document = documentOf(app)
   if (command === null) {
@@ -1505,6 +1546,10 @@ async function restoreCommand(app: App, saved: SavedCommand): Promise<void> {
  * sketch, a context change). A command with changes offers Restore in `command_canceled` (3.7).
  */
 export async function cancelCommandImplicitly(app: App): Promise<void> {
+  if (confirmRunning(app)) {
+    // What ends a command while OK runs comes after the commit, which leaves nothing to cancel.
+    await confirmSettled(app)
+  }
   const command = commandOf(app)
   if (command === null) {
     return

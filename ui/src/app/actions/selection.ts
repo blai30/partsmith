@@ -1,9 +1,9 @@
 import { CoreError } from '../../core/client'
 import type { ElementDescriptor } from '../../generated/protocol'
-import type { HoverTarget, SelectionItem } from '../../state/store'
+import type { AppStore, HoverTarget, SelectionItem } from '../../state/store'
 import type { PickResult, PointerRay } from '../../viewport/picking'
 import type { App } from '../createApp'
-import { capturePick } from './command'
+import { capturePick, confirmRunning, confirmSettled } from './command'
 import { showCoreError } from './edits'
 
 // The app selection and hover (ui.md 3.6).
@@ -12,6 +12,9 @@ const ELEMENT_NOUNS = { face: 'Face', edge: 'Edge', vertex: 'Vertex' } as const
 
 /** Pick errors that mean the click hit geometry that is gone or not pickable: ignored silently. */
 const IGNORED_PICK_ERRORS: ReadonlySet<string> = new Set(['stale_pick', 'preview_not_pickable'])
+
+/** Each store's clicks on the model, settled once every one has landed where it goes. */
+const landingClicks = new WeakMap<AppStore, Promise<void>>()
 
 /**
  * The selection with each item toggled by key: removed when it is selected, else added after the
@@ -94,10 +97,33 @@ async function itemFor(app: App, sample: PickResult): Promise<SelectionItem | nu
 }
 
 /**
+ * Resolves once every click on the model made so far has landed in the selection or the command,
+ * however late the core answered it, so what reads the selection next sees it (3.16.1).
+ */
+export function clicksLanded(app: App): Promise<void> {
+  return landingClicks.get(app.store) ?? Promise.resolve()
+}
+
+/**
  * A click on a pick target: selects it (toggles with a modifier), or feeds an active feature
  * command. `pointer` is the click's ray, which a face picked for a hole center needs (3.7).
  */
-export async function pickAt(
+export function pickAt(
+  app: App,
+  sample: PickResult,
+  modifiers: { readonly toggle: boolean },
+  pointer?: PointerRay,
+): Promise<void> {
+  const landing = landClick(app, sample, modifiers, pointer)
+  const earlier = clicksLanded(app)
+  landingClicks.set(
+    app.store,
+    Promise.all([earlier, landing.catch(() => undefined)]).then(() => undefined),
+  )
+  return landing
+}
+
+async function landClick(
   app: App,
   sample: PickResult,
   modifiers: { readonly toggle: boolean },
@@ -106,6 +132,10 @@ export async function pickAt(
   const item = await itemFor(app, sample)
   if (item === null) {
     return
+  }
+  if (confirmRunning(app)) {
+    // A click while OK runs goes where a click goes once it has settled (3.7).
+    await confirmSettled(app)
   }
   if (app.store.getState().command !== null) {
     await capturePick(app, item, pointer)

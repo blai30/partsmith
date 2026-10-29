@@ -3,6 +3,7 @@ import type { Command, Edit, ElementDescriptor, Reference } from '../../generate
 import { MESSAGES } from '../../messages'
 import { selectSketchRecord } from '../../state/selectors'
 import { currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
+import { deferred } from '../../test/fakes/deferred'
 import {
   CUBE_DOCUMENT,
   CUBE_FEATURES_DOCUMENT,
@@ -15,8 +16,9 @@ import { elementItem, originItem } from '../../test/fakes/selection'
 import { stateWithDocument } from '../../test/fakes/state'
 import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
+import type { PickResult } from '../../viewport/picking'
 import { startFeatureCommand } from './command'
-import { select } from './selection'
+import { pickAt, select } from './selection'
 import {
   createSketchOn,
   enterSketch,
@@ -222,6 +224,56 @@ describe('startNewSketch (3.16.1)', () => {
     expect(state.context).toBe('sketch')
     expect(state.sketch).toMatchObject({ sketchId: null, tool: null })
     expect(fake.transport.commandTypes()).not.toContain('apply_edits')
+  })
+})
+
+describe('a click the core answers after Sketch is pressed (3.16.1)', () => {
+  /** A click on the cube's top face, which pick_reference turns into its descriptor. */
+  const TOP_FACE_PICK: PickResult = {
+    kind: 'mesh',
+    body: 'b-cube',
+    meshId: 1,
+    element: 'face',
+    index: 0,
+    key: 'mesh:1:face:0',
+    world: [0, 0, 20],
+  }
+
+  /** Clicks the top face with its pick_reference answered only once Sketch has been pressed. */
+  async function clickTopFaceThenSketch(fake: FakeApp): Promise<void> {
+    const picked = deferred<undefined>()
+    fake.transport.handle('pick_reference', async () => {
+      await picked.promise
+      return { result: { type: 'pick_reference', element: CUBE_TOP_FACE } }
+    })
+    const click = pickAt(fake.app, TOP_FACE_PICK, { toggle: false })
+    const started = startNewSketch(fake.app)
+    picked.resolve(undefined)
+    await click
+    await started
+    await settle()
+  }
+
+  it('a face clicked right before Sketch takes the new sketch', async () => {
+    const fake = await cube()
+    await clickTopFaceThenSketch(fake)
+    expect(newSketchEdit(fake).edit?.feature['plane']).toMatchObject({
+      kind: 'face',
+      body: 'b-cube',
+      face: CUBE_TOP_FACE.reference,
+    })
+    expect(fake.app.store.getState().sketch?.sketchId).toBe(newSketchEdit(fake).edit?.feature.id)
+  })
+
+  it('a face clicked right before Sketch replaces the plane selected before it', async () => {
+    const fake = await cube()
+    select(fake.app, [originItem('XZ')], 'replace')
+    await clickTopFaceThenSketch(fake)
+    expect(fake.transport.commandsOfType('apply_edits')).toHaveLength(1)
+    expect(newSketchEdit(fake).edit?.feature['plane']).toMatchObject({
+      kind: 'face',
+      face: CUBE_TOP_FACE.reference,
+    })
   })
 })
 

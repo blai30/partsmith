@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { PickResult } from '../../viewport/picking'
 import { createTestApp, currentDocument, startWithDocument } from '../../test/fakes/app'
+import { deferred } from '../../test/fakes/deferred'
 import { CUBE_DOCUMENT, CUBE_FRONT_FACE, CUBE_TOP_FACE } from '../../test/fakes/documents'
 import { bodyItem, elementItem, featureItem, originItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
+import { confirmCommand, startFeatureCommand } from './command'
 import { clearSelection, pickAt, select, setHover, toggledByKey } from './selection'
 
 const CUBE = bodyItem('b-cube', 'Cube')
@@ -136,5 +138,33 @@ describe('pickAt (3.6)', () => {
     await settle()
     expect(keys(fake.app.store.getState().selection)).toEqual(['origin:XY'])
     expect(fake.transport.commandTypes()).not.toContain('pick_reference')
+  })
+})
+
+describe('pickAt while OK runs (3.7)', () => {
+  it('a click selects once the command has closed instead of going into it', async () => {
+    const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
+    select(fake.app, [XY], 'replace')
+    await startFeatureCommand(fake.app, 'datum_plane')
+    await settle()
+    const commit = deferred<undefined>()
+    fake.transport.handle('commit_transaction', async (command, core, buffers) => {
+      await commit.promise
+      return core.reply(command, buffers)
+    })
+    const confirmed = confirmCommand(fake.app)
+    await settle()
+    const click = pickAt(
+      fake.app,
+      { kind: 'item', item: originItem('YZ'), world: null },
+      {
+        toggle: false,
+      },
+    )
+    commit.resolve(undefined)
+    await confirmed
+    await click
+    expect(fake.app.store.getState().command).toBeNull()
+    expect(keys(fake.app.store.getState().selection)).toEqual(['origin:YZ'])
   })
 })

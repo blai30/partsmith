@@ -1,4 +1,4 @@
-import { capturePick } from '../app/actions/command'
+import { capturePick, confirmRunning, confirmSettled } from '../app/actions/command'
 import { select } from '../app/actions/selection'
 import { pickPlane } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
@@ -34,6 +34,15 @@ function pickingPlane(state: AppState): boolean {
  * plane row while a plane is picked, else selects the item (toggling with Shift or Mod).
  */
 export function pickRow(app: App, item: SelectionItem, toggle: boolean): void {
+  if (confirmRunning(app)) {
+    // A click while OK runs goes where a click goes once it has settled (3.7).
+    confirmSettled(app)
+      .then(() => {
+        pickRow(app, item, toggle)
+      })
+      .catch(reportFailure('Picking a row'))
+    return
+  }
   const state = app.store.getState()
   if (pickingPlane(state) && (item.kind === 'origin_plane' || item.kind === 'datum_plane')) {
     pickPlane(app, item).catch(reportFailure('Placing the sketch'))

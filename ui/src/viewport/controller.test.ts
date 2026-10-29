@@ -1,6 +1,6 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { setHoveredField } from '../app/actions/command'
+import { confirmCommand, setHoveredField } from '../app/actions/command'
 import { undo } from '../app/actions/document'
 import { enterSketch } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
@@ -923,6 +923,37 @@ describe('clicks (3.6)', () => {
       expect(fixture.core.callsTo('setFocus')).toEqual([[1, 'f-ext1']])
     })
     expect(fixture.core.callsTo('beginTransaction')).toEqual([[1, 'Edit Extrude 1']])
+  })
+
+  it('a double-click on a face while OK runs edits its feature once the commit has landed (3.7)', async () => {
+    const fixture = setUp({
+      state: {
+        command: {
+          ...FILLET_EDGES_COMMAND,
+          featureType: 'datum_plane',
+          title: 'Datum plane',
+          params: { base: { kind: 'origin', plane: 'XY' }, offset: '10 mm' },
+          activeField: null,
+          applied: true,
+        },
+      },
+      prepare: (core) => {
+        core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FACE))
+      },
+    })
+    const committed = deferred<{ revision: number; recorded: boolean }>()
+    fixture.core.stub('commitTransaction', () => committed.promise)
+    const confirmed = confirmCommand(fixture.app)
+    await settle()
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 200, 150)
+    click(fixture.canvas, 200, 150)
+    fireEvent.dblClick(fixture.canvas, { button: 0, clientX: 200, clientY: 150 })
+    committed.resolve({ revision: 2, recorded: true })
+    await confirmed
+    await waitFor(() => {
+      expect(fixture.core.callsTo('beginTransaction')).toEqual([[1, 'Edit Extrude 1']])
+    })
   })
 
   it('a double-click on a face of a feature missing from the document edits nothing', async () => {

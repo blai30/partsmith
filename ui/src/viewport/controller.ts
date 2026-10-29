@@ -1,4 +1,4 @@
-import { editFeature } from '../app/actions/command'
+import { confirmRunning, confirmSettled, editFeature } from '../app/actions/command'
 import { layOnFace } from '../app/actions/print'
 import { clearSelection, elementSelectionItem, pickAt } from '../app/actions/selection'
 import { enterSketch, pickPlane, recordSketchView } from '../app/actions/sketch'
@@ -855,6 +855,10 @@ export function createViewportController(options: {
   }
 
   async function doubleClick(x: number, y: number): Promise<void> {
+    if (confirmRunning(app)) {
+      // A double-click while OK runs edits once the commit has landed (3.7).
+      await confirmSettled(app)
+    }
     const state = store.getState()
     if (state.command !== null || state.context === 'sketch') {
       return

@@ -26,7 +26,13 @@ import { loadCoreData, markCoreFailed, markCoreReady, openUntitled } from '../co
 import type { App } from '../createApp'
 import { adoptRecoveryEntry, endRecoverySession, removeRecoveryEntry } from '../recovery-copy'
 import { measureToNextFrame } from '../timing'
-import { cancelCommand, redoCommandChange, undoCommandChange } from './command'
+import {
+  cancelCommand,
+  confirmRunning,
+  confirmSettled,
+  redoCommandChange,
+  undoCommandChange,
+} from './command'
 import {
   chooseFolderOf,
   explainMissingAssets,
@@ -878,9 +884,13 @@ export function applyEdits(app: App, label: string, edits: readonly Edit[]): Pro
 
 /**
  * Undo (Mod+Z, 3.20): in a feature command it undoes the command's last change, or cancels the
- * command when there is none; in sketch mode views undo first.
+ * command when there is none; in sketch mode views undo first. While OK runs it waits for it, so
+ * Mod+Z right after OK undoes the feature it confirmed (3.7).
  */
 export async function undo(app: App): Promise<void> {
+  if (confirmRunning(app)) {
+    await confirmSettled(app)
+  }
   const state = app.store.getState()
   if (state.command !== null) {
     await undoCommandChange(app)
@@ -892,8 +902,14 @@ export async function undo(app: App): Promise<void> {
   await coreUndo(app)
 }
 
-/** Redo (Mod+Shift+Z, 3.20); in a feature command it redoes the command's last undone change. */
+/**
+ * Redo (Mod+Shift+Z, 3.20); in a feature command it redoes the command's last undone change. While
+ * OK runs it waits for it and then redoes in the document (3.7).
+ */
 export async function redo(app: App): Promise<void> {
+  if (confirmRunning(app)) {
+    await confirmSettled(app)
+  }
   if (app.store.getState().command !== null) {
     await redoCommandChange(app)
     return

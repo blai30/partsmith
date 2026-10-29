@@ -2,7 +2,7 @@ import { generateId, usedIds } from '../../core/ids'
 import type { Parameter } from '../../generated/protocol'
 import type { DocumentState } from '../../state/store'
 import type { App } from '../createApp'
-import { runInCommand } from './command'
+import { confirmRunning, confirmSettled, runInCommand } from './command'
 import {
   commitBuiltEdits,
   documentOf,
@@ -15,7 +15,8 @@ import { withOptional } from './records'
 // Parameter edits (ui.md 3.11). Each resolves whether the core accepted the change; with
 // `onRefused`, the core's refusal goes to the caller (for the field) instead of a notification.
 // During a feature command they join its transaction (3.7): no label of their own, OK records
-// them with the feature and Cancel reverts them.
+// them with the feature and Cancel reverts them. One made while OK runs waits for it, and is a
+// labeled change of its own once the commit has landed.
 
 /** Whether a feature command's transaction is open, which parameter edits join. */
 function inCommand(app: App): boolean {
@@ -26,11 +27,14 @@ function inCommand(app: App): boolean {
  * Applies parameter edits, built from the document when their turn in the mutation queue comes:
  * inside the open command's transaction, else as one labeled undo entry.
  */
-function commitParameterEdits(
+async function commitParameterEdits(
   app: App,
   build: EditsBuilder,
   options: RefusalOptions,
 ): Promise<boolean> {
+  if (confirmRunning(app)) {
+    await confirmSettled(app)
+  }
   if (!inCommand(app)) {
     return commitBuiltEdits(app, build, options)
   }
@@ -91,6 +95,9 @@ export async function renameParameter(
   name: string,
   options: RefusalOptions = {},
 ): Promise<boolean> {
+  if (confirmRunning(app)) {
+    await confirmSettled(app)
+  }
   if (inCommand(app)) {
     return runInCommand(
       app,
