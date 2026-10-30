@@ -858,7 +858,7 @@ Release builds on the reference machine (technical design section 14), measured 
 
 A regression over 10% against the stored baseline blocks the merge (technical design section 16).
 
-**The desktop column** runs with `cargo bench -p partsmith-engine --bench budgets`, every row or those whose names contain one of the words given after `--` (`-- pick list`). Each row times 7 samples and takes their median (`median` of `partsmith-budgets`, the 4th smallest; the memory row reads one value), and `Report` prints every row against its budget and fails the run when a row is over budget or a selected row cannot be measured.
+**The desktop column** runs with `cargo bench -p partsmith-engine --bench budgets`, every row or those whose names contain one of the words given after `--` (`-- pick list`). Each row times 7 samples and takes their median (`median` of `partsmith-budgets`, the 4th smallest; the memory row reads one value), and `Report` prints every row against its budget and fails the run when a row is over budget or a selected row cannot be measured. Two desktop budgets also set rows of cli.md section 5: `partsmith rebuild` of the reference part has the budget of `open_document of the reference part, cold session` plus 100 ms, and `partsmith export` of it to binary STL that budget and the one of `export of the reference part to binary STL at standard quality` plus 100 ms, so a change to either changes those CLI rows in the same change.
 
 **The web column** is measured by `ui/e2e/engine-budgets.spec.ts`, in Chromium, against the module that `scripts/build-wasm.sh` built into `ui/public/core/` from the tree under test, with the `wasm-release` profile and the link arguments the app ships (ADR 0043):
 

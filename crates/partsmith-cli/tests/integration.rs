@@ -5,6 +5,7 @@
 mod common;
 mod corpus;
 
+mod budgets;
 mod examples;
 mod export;
 mod feature_messages;

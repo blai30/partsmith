@@ -3,6 +3,8 @@
 //! Every test runs the built `partsmith` binary with `std::process::Command` in a temporary
 //! directory, with copies of the engine's test documents (engine spec section 3.20).
 
+pub mod workload;
+
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};

@@ -2,7 +2,7 @@
 
 The `partsmith` binary: `validate`, `fmt`, `rebuild`, `export`, `schema`. A thin host over `partsmith_engine::Session` (one headless session per invocation): it parses arguments, reads and writes files and formats reports, with no modeling logic.
 
-Spec: `docs/spec/cli.md`. The examples runner in `tests/examples.rs` follows `docs/spec/delivery.md` section 2.8, and `tests/print_examples.rs` holds `docs/spec/print.md` section 6.18 (tests 117 to 123), which rebuild the print check examples.
+Spec: `docs/spec/cli.md`. The examples runner in `tests/examples.rs` follows `docs/spec/delivery.md` section 2.8, and `tests/print_examples.rs` holds `docs/spec/print.md` section 6.18 (tests 117 to 123), which rebuild the print check examples. `benches/budgets.rs` measures the budgets of cli.md section 5 on `partsmith-budgets` (ADR 0027): it runs the binary Cargo builds for benchmarks (the release profile) through `std::process::Command` in a temporary directory, once untimed and then 11 times per row, and a row whose run does not exit 0 is reported not measured.
 
 ## Public interface
 
@@ -43,6 +43,7 @@ export OCCT_ROOT=/opt/occt/7.9.3/native
 cargo test -p partsmith-cli
 cargo test -p partsmith-cli --bins                 # unit tests only
 cargo test -p partsmith-cli --test integration validate::   # one acceptance test file, a module of tests/integration.rs
+cargo bench -p partsmith-cli --bench budgets       # the budgets of cli.md section 5; words after -- select rows (-- validate fmt)
 PARTSMITH_BLESS=1 cargo test -p partsmith-cli --test integration examples::   # regenerate examples' expected results, then run again without it
 cargo clippy -p partsmith-cli --all-targets -- -D warnings
 cargo fmt -p partsmith-cli
@@ -54,3 +55,4 @@ cargo run -p partsmith-cli -- schema --write       # regenerate docs/format/*.sc
 - Acceptance tests in `tests/` come from the spec; do not weaken them. `tests/regressions.rs` holds end-to-end tests for spec behavior that section 6 does not test.
 - `tests/feature_messages.rs` (tests 55 to 62) runs documents of the reference stability corpus after their edits, which `tests/corpus` (a module of the test binary, beside `tests/common`) writes with the engine: each setup's references picked in a headless session as the corpus's "Picked references" rule says, then the edit applied as one `apply_edits`.
 - Hosts contain no modeling logic: anything a model needs belongs in the engine.
+- `tests/common/workload.rs` writes the 200 KB document of the budget rows with `budget_document()` (`plate.ptsm` 133 times over, each copy with its own ids), which test 64 in `tests/budgets.rs` checks. The bench includes that file alone with `#[path]`, so it uses only `std`, `serde_json` and `partsmith_engine`.

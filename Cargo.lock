@@ -2473,6 +2473,7 @@ name = "partsmith-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "partsmith-budgets",
  "partsmith-engine",
  "partsmith-model",
  "partsmith-protocol",

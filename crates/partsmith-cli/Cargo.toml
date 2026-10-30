@@ -18,6 +18,10 @@ path = "src/main.rs"
 [[test]]
 name = "integration"
 
+[[bench]]
+name = "budgets"
+harness = false
+
 [dependencies]
 # The `string` feature lets the version text come from the engine at run time.
 clap = { workspace = true, features = ["string"] }
@@ -30,6 +34,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+partsmith-budgets.workspace = true
 pretty_assertions.workspace = true
 
 [lints]
