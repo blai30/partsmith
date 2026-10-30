@@ -5,29 +5,17 @@ use crate::common;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use common::{grant_by_open, path_text, pick_save_path};
+use common::{
+    SOLID, UNKNOWN_GRANT, folder_entries, grant_by_open, make_read_only, path_text, pick_save_path,
+    solid_name, stored_paths, temporary_folder,
+};
 use partsmith_desktop::{ASSET_EXTENSIONS, FileError, FileKind, Files, is_asset_name};
-use serde_json::{Value, json};
+use serde_json::json;
 use tempfile::TempDir;
-
-/// The bytes of the asset `S`.
-const SOLID: &[u8] = b"solid";
-
-/// A grant that looks valid but names no picked file.
-const UNKNOWN_GRANT: &str = "0123456789abcdef0123456789abcdef";
-
-/// `S`: the BLAKE3 hash of `solid` followed by `.step`.
-fn solid_name() -> String {
-    format!("{}.step", blake3::hash(SOLID).to_hex())
-}
 
 /// An asset name of 64 zeros with `extension`.
 fn zeros_name(extension: &str) -> String {
     format!("{}.{extension}", "0".repeat(64))
-}
-
-fn temporary_folder() -> TempDir {
-    tempfile::tempdir().expect("a temporary folder can be created")
 }
 
 /// Writes `contents` to `path`, creating its folder.
@@ -54,34 +42,6 @@ fn granted_document(files: &Files, folder: &Path) -> String {
     let path = folder.join("part.ptsm");
     write_file(&path, b"{}");
     grant_by_open(files, &path).grant
-}
-
-/// The names of the entries of a folder, sorted.
-fn folder_entries(folder: &Path) -> Vec<String> {
-    let mut names: Vec<String> = fs::read_dir(folder)
-        .expect("the folder can be listed")
-        .map(|entry| {
-            entry
-                .expect("the folder entry can be read")
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect();
-    names.sort();
-    names
-}
-
-/// The paths listed in a grant store file, most recent first.
-fn stored_paths(store: &Path) -> Vec<String> {
-    let text = fs::read_to_string(store).expect("the grant store exists");
-    let value: Value = serde_json::from_str(&text).expect("the grant store is JSON");
-    value["paths"]
-        .as_array()
-        .expect("the grant store lists paths")
-        .iter()
-        .map(|path| path.as_str().expect("each path is a string").to_owned())
-        .collect()
 }
 
 /// Two granted documents in their own folders, `first` granted before `second`, with grants kept in `store`.
@@ -578,13 +538,6 @@ fn t060_a_folder_under_the_asset_name_fails_and_stays() {
 
     assert_eq!(error, FileError::NotAFile { name: solid_name() });
     assert!(entry.is_dir(), "the folder stays");
-}
-
-/// Makes a file read-only.
-fn make_read_only(path: &Path) {
-    let mut permissions = fs::metadata(path).expect("the file exists").permissions();
-    permissions.set_readonly(true);
-    fs::set_permissions(path, permissions).expect("the test can make the file read-only");
 }
 
 #[test]

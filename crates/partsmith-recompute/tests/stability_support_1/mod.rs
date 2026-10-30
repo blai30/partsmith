@@ -20,7 +20,7 @@ use partsmith_features::{BodyState, SketchResult};
 use partsmith_naming::{ElementKind, ElementName, MatchMethod, Resolution};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 use partsmith_recompute::{FeatureReport, Message, Report, Severity, Status};
-use partsmith_sketch::{Id, RegionRef, match_region};
+use partsmith_sketch::RegionRef;
 use serde_json::{Value, json};
 
 use super::feature_support;
@@ -149,15 +149,9 @@ pub fn diagnose_region(sketch: &SketchResult, region: &Value) -> String {
             )
         })
         .collect();
-    let entities: Vec<Id> = sketch
-        .solved
-        .entities
-        .iter()
-        .map(|entity| entity.id.clone())
-        .collect();
     format!(
         "region {region} matches {:?}; the sketch's regions are {regions:?}",
-        match_region(&sketch.profile.regions, &entities, &region_ref)
+        match_in_sketch(sketch, &region_ref)
     )
 }
 

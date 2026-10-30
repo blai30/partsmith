@@ -7,25 +7,20 @@ use std::collections::BTreeMap;
 use std::f64::consts::PI;
 
 use common::benchmark::{
-    CHAIN_FREE_END, LONG_OUTLINE_LINES, REDRAWN_LINE, SPLIT_CELLS, SPLIT_LINE, cell,
-    chain_benchmark, entity_ids, grid_benchmark, long_outline_benchmark,
-    redrawn_long_outline_benchmark, split_grid_benchmark,
+    CHAIN_FREE_END, CHAIN_LINKS, LONG_OUTLINE_LINES, REDRAWN_LINE, SPLIT_CELLS, SPLIT_LINE, cell,
+    entity_ids, grid_benchmark, long_outline_benchmark, redrawn_long_outline_benchmark,
+    split_grid_benchmark,
 };
 use common::matching::{resolved, succession};
 use common::residuals::assert_constraints_hold;
 use common::{
-    Sketch, TOLERANCE, arc_parts, assert_bitwise, assert_relative, drag_point, find, frame, id,
-    initial,
+    TOLERANCE, arc_parts, assert_bitwise, assert_relative, chain_drag_cursor, chain_sketch,
+    chain_with_slot_radius, drag_point, find, frame, initial,
 };
 use partsmith_sketch::{
     Geometry, MatchMethod, ProfileFinding, Region, RegionMatch, SketchStatus, build_profile,
     match_region,
 };
-
-fn chain_sketch() -> Sketch {
-    let (params, values) = chain_benchmark();
-    Sketch { params, values }
-}
 
 #[test]
 fn t197_chain_benchmark_solves_unchanged_with_25_dof() {
@@ -59,8 +54,7 @@ fn t198_chain_drag_keeps_every_constraint_and_follows_the_cursor() {
     let fix_reference = initial(&session).entities.clone();
 
     for i in 1..=100 {
-        let step = f64::from(i);
-        let cursor = [start[0] - step, start[1] + step];
+        let cursor = chain_drag_cursor(start, i);
 
         let result = frame(&mut session, cursor);
 
@@ -83,10 +77,7 @@ fn t198_chain_drag_keeps_every_constraint_and_follows_the_cursor() {
 
 #[test]
 fn t199_chain_with_larger_slot_radius_converges() {
-    let mut sketch = chain_sketch();
-    for k in 0..25 {
-        sketch.values.insert(id(&format!("c-{k}-10")), 6.0);
-    }
+    let sketch = chain_with_slot_radius(6.0);
 
     let result = sketch.solve();
 
@@ -103,7 +94,7 @@ fn t199_chain_with_larger_slot_radius_converges() {
             );
         }
     }
-    assert_eq!(arcs, 50);
+    assert_eq!(arcs, 2 * CHAIN_LINKS);
 }
 
 #[test]

@@ -9,15 +9,15 @@ use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, absent_faces,
     assert_absolute, assert_axis_stored_as_picked, assert_bounding_box, assert_choice_between,
     assert_empty, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_count, assert_face_in_plane, assert_face_kind, assert_face_names,
-    assert_face_radius, assert_flat_face, assert_has_face, assert_messages_pass_lint,
-    assert_no_face, assert_same_body, assert_solid_count, assert_unchanged, assert_volume,
+    assert_face_count, assert_face_in_plane, assert_face_names, assert_flat_face, assert_has_face,
+    assert_messages_pass_lint, assert_no_face, assert_round_face, assert_same_body,
+    assert_solid_count, assert_unchanged, assert_volume, assert_volume_faces_and_bounds,
     body_changes, edge_axis, face, face_names_with_prefix, keep_and_pick, l_shaped_body, lean,
     lean_edge_axis, line, link_ids, message, output_body, pick, successions, turn,
 };
 use partsmith_features::{Diagnosis, Fix};
 use partsmith_naming::Follow;
-use partsmith_occt_sys::{ElementGeometry, GeometryKind};
+use partsmith_occt_sys::GeometryKind;
 
 /// `SK-RING`: `RECT(10, 0, 20, 30)` on XZ with id `f-sk1`, so x from 10 to 20 and z from 0 to 30.
 const RING_SKETCH: &str = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XZ"}, "entities": [{"id": "e-1", "type": "line", "start": [10, 0], "end": [20, 0]}, {"id": "e-2", "type": "line", "start": [20, 0], "end": [20, 30]}, {"id": "e-3", "type": "line", "start": [20, 30], "end": [10, 30]}, {"id": "e-4", "type": "line", "start": [10, 30], "end": [10, 0]}]}"#;
@@ -79,32 +79,27 @@ fn run_ring_about(axis: &str) -> Run {
     )
 }
 
-/// Asserts that a face is a cylinder of this radius.
-fn assert_cylinder(geometry: &ElementGeometry, radius: f64) {
-    assert_face_kind(geometry, GeometryKind::Cylinder);
-    assert_face_radius(geometry, radius);
-}
-
 /// The result of test 1, shared by tests 5, 12 and 25.
 fn assert_full_ring(run: &Run) {
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 28274.333882);
-    assert_face_count(shape, 4);
-    assert_bounding_box(shape, [-20.0, -20.0, 0.0], [20.0, 20.0, 30.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        28274.333882,
+        4,
+        [-20.0, -20.0, 0.0],
+        [20.0, 20.0, 30.0],
+    );
     let body = run.body("b-1");
     let bottom = face(body, "f-rev1/lateral/e-1");
     assert_face_area(&bottom, 942.477796);
     assert_face_in_plane(&bottom, 2, 0.0);
-    let outer = face(body, "f-rev1/lateral/e-2");
+    let outer = assert_round_face(body, "f-rev1/lateral/e-2", GeometryKind::Cylinder, 20.0);
     assert_face_area(&outer, 3769.911184);
-    assert_cylinder(&outer, 20.0);
     let top = face(body, "f-rev1/lateral/e-3");
     assert_face_area(&top, 942.477796);
     assert_face_in_plane(&top, 2, 30.0);
-    let inner = face(body, "f-rev1/lateral/e-4");
+    let inner = assert_round_face(body, "f-rev1/lateral/e-4", GeometryKind::Cylinder, 10.0);
     assert_face_area(&inner, 1884.955592);
-    assert_cylinder(&inner, 10.0);
     assert_no_face(body, "f-rev1/start-cap");
     assert_no_face(body, "f-rev1/end-cap");
 }
@@ -112,10 +107,13 @@ fn assert_full_ring(run: &Run) {
 /// The result of test 2, shared by test 4.
 fn assert_quarter_turn(run: &Run) {
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 7068.583471);
-    assert_face_count(shape, 6);
-    assert_bounding_box(shape, [0.0, 0.0, 0.0], [20.0, 20.0, 30.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        7068.583471,
+        6,
+        [0.0, 0.0, 0.0],
+        [20.0, 20.0, 30.0],
+    );
     let start_cap = face(run.body("b-1"), "f-rev1/start-cap");
     assert_face_area(&start_cap, 300.0);
     assert_face_in_plane(&start_cap, 1, 0.0);
@@ -231,10 +229,13 @@ fn t010_profile_touches_the_axis() {
     let run = Run::example("revolve/profile-on-axis.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 9424.777961);
-    assert_face_count(shape, 3);
-    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 30.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        9424.777961,
+        3,
+        [-10.0, -10.0, 0.0],
+        [10.0, 10.0, 30.0],
+    );
     assert_has_face(run.body("b-1"), "f-rev1/lateral/e-1");
     assert_has_face(run.body("b-1"), "f-rev1/lateral/e-2");
     assert_has_face(run.body("b-1"), "f-rev1/lateral/e-3");
@@ -246,10 +247,13 @@ fn t011_sphere_from_a_half_disc() {
     let run = Run::example("revolve/sphere.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 4188.790205);
-    assert_face_count(shape, 1);
-    assert_bounding_box(shape, [-10.0, -10.0, -10.0], [10.0, 10.0, 10.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        4188.790205,
+        1,
+        [-10.0, -10.0, -10.0],
+        [10.0, 10.0, 10.0],
+    );
     assert_face_area(&face(run.body("b-1"), "f-rev1/lateral/e-1"), 1256.637061);
 }
 
@@ -286,10 +290,13 @@ fn t015_revolve_about_x_on_xy() {
     let run = Run::example("revolve/about-x.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 28274.333882);
-    assert_face_count(shape, 4);
-    assert_bounding_box(shape, [0.0, -20.0, -20.0], [30.0, 20.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        28274.333882,
+        4,
+        [0.0, -20.0, -20.0],
+        [30.0, 20.0, 20.0],
+    );
 }
 
 #[test]
@@ -297,10 +304,13 @@ fn t016_axis_from_a_body_edge() {
     let run = Run::example("revolve/edge-axis.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 37699.111843);
-    assert_face_count(shape, 4);
-    assert_bounding_box(shape, [-30.0, -25.0, 0.0], [20.0, 25.0, 30.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        37699.111843,
+        4,
+        [-30.0, -25.0, 0.0],
+        [20.0, 25.0, 30.0],
+    );
     assert_unchanged(&run, "f-rev1", "b-2");
     assert_eq!(link_ids(&run.dependencies("f-rev1").bodies_read), ["b-2"]);
 }
@@ -310,14 +320,17 @@ fn t017_groove_cut() {
     let run = Run::example("revolve/groove-cut.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 75398.223686);
-    assert_face_count(shape, 7);
-    assert_bounding_box(shape, [-30.0, -30.0, 0.0], [30.0, 30.0, 30.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        75398.223686,
+        7,
+        [-30.0, -30.0, 0.0],
+        [30.0, 30.0, 30.0],
+    );
     let body = run.body("b-1");
     assert_face_in_plane(&face(body, "f-rev1/lateral/e-1"), 2, 20.0);
-    assert_cylinder(&face(body, "f-rev1/lateral/e-2"), 20.0);
-    assert_cylinder(&face(body, "f-rev1/lateral/e-4"), 10.0);
+    assert_round_face(body, "f-rev1/lateral/e-2", GeometryKind::Cylinder, 20.0);
+    assert_round_face(body, "f-rev1/lateral/e-4", GeometryKind::Cylinder, 10.0);
 }
 
 #[test]
@@ -325,10 +338,13 @@ fn t018_intersect() {
     let run = Run::example("revolve/intersect.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 28274.333882);
-    assert_face_count(shape, 4);
-    assert_bounding_box(shape, [-20.0, -20.0, 0.0], [20.0, 20.0, 30.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        28274.333882,
+        4,
+        [-20.0, -20.0, 0.0],
+        [20.0, 20.0, 30.0],
+    );
 }
 
 #[test]
@@ -634,8 +650,7 @@ fn t033_a_side_line_split_by_a_collinear_line_keeps_the_whole_opening() {
         )],
     );
     for side in ["f-rev1/lateral/e-2", "f-rev1/lateral/e-6"] {
-        let geometry = face(&after_revolve, side);
-        assert_cylinder(&geometry, 20.0);
+        let geometry = assert_round_face(&after_revolve, side, GeometryKind::Cylinder, 20.0);
         assert_face_area(&geometry, 1884.955592);
     }
     run.assert_followed("f-sh1", Follow::Extended, "/remove_faces/0");
@@ -894,20 +909,17 @@ fn t035_join_keeps_the_names_of_both_features() {
         ],
     );
     assert_flat_face(body, "f-cyl1/bottom", 2, -5.0, 706.858347);
-    let disc_side = face(body, "f-cyl1/side");
-    assert_cylinder(&disc_side, 15.0);
+    let disc_side = assert_round_face(body, "f-cyl1/side", GeometryKind::Cylinder, 15.0);
     assert_face_area(&disc_side, 471.238898);
     // Inside the ring.
     assert_flat_face(body, "f-cyl1/top", 2, 5.0, 314.159265);
     // From radius 15 to 20.
     assert_flat_face(body, "f-rev1/lateral/e-1", 2, 0.0, 549.778714);
-    let outer = face(body, "f-rev1/lateral/e-2");
-    assert_cylinder(&outer, 20.0);
+    let outer = assert_round_face(body, "f-rev1/lateral/e-2", GeometryKind::Cylinder, 20.0);
     assert_face_area(&outer, 3769.911184);
     assert_flat_face(body, "f-rev1/lateral/e-3", 2, 30.0, 942.477796);
     // From z = 5 to 30.
-    let inner = face(body, "f-rev1/lateral/e-4");
-    assert_cylinder(&inner, 10.0);
+    let inner = assert_round_face(body, "f-rev1/lateral/e-4", GeometryKind::Cylinder, 10.0);
     assert_face_area(&inner, 1570.796327);
 }
 

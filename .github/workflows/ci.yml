@@ -223,6 +223,7 @@ jobs:
           PARTSMITH_REQUIRE_WEB_MODULE: "1"
       # The module just built against a native session over the engine fixtures and the examples (engine.md test 154).
       # Ignored by default, since a module built from another tree fails it; asked for, it fails instead of skipping.
+      # A block scalar, since a plain YAML value cannot hold a colon followed by a space.
       - run: |
           cargo test -p partsmith-wasm --test integration web_parity:: -- --ignored
       # The web notices go wherever the core goes. With two paths, the artifact is rooted at ui/public/.

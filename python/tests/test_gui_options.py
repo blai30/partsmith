@@ -15,6 +15,7 @@ from support import (
     assert_round_trip,
     call_arguments,
     example_id,
+    generated_script,
     generic_calls,
     near,
     reference_text,
@@ -340,11 +341,7 @@ def test_t112_second_reverse_needs_second():
 
 @pytest.mark.parametrize("model", TWINNED, ids=example_id)
 def test_t113_generated_script_writes_dedicated_forms(model):
-    document = Document.open(model)
-    try:
-        code = document.to_python()
-    finally:
-        document.close()
+    code = generated_script(model)
 
     assert generic_calls(code) == (1 if model == DELETED_POINT else 0)
 

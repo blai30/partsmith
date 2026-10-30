@@ -6,7 +6,8 @@ use crate::common;
 use common::examples::{LIST_PRINTER_PROFILES_RESULT, PUT_PRINTER_PROFILE_REQUEST};
 use common::json_schema::validate;
 use common::{
-    assert_requires_all_but, definition, parse_json, property, schema_json, variant, with_member,
+    assert_accepts_but_rejects, assert_requires_all_but, definition, parse_json, property,
+    schema_json, variant, with_member,
 };
 use partsmith_print::{PrinterProfile, ProfileInput, generic_fdm, generic_resin};
 use partsmith_protocol::{CommandResult, Message, Outcome, Response};
@@ -40,21 +41,6 @@ fn engine_profiles() -> Vec<PrinterProfile> {
     let converted =
         PrinterProfile::try_from(input).expect("the put example converts to a valid profile");
     vec![generic_fdm(), generic_resin(), converted]
-}
-
-/// Checks that the `$defs` entry `name` accepts `accepted` and rejects `rejected`, so the rejection comes from what
-/// tells the two apart and not from a missing definition.
-fn assert_accepts_but_rejects(schema: &Value, name: &str, accepted: &Value, rejected: &Value) {
-    let pointer = format!("/$defs/{name}");
-    assert_eq!(
-        validate(schema, &pointer, accepted),
-        Ok(()),
-        "{name} accepts {accepted}"
-    );
-    assert!(
-        validate(schema, &pointer, rejected).is_err(),
-        "{name} rejects {rejected}"
-    );
 }
 
 /// The `$ref` of the property `name` of `subschema`.

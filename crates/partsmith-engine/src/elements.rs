@@ -398,14 +398,10 @@ impl<'a> Describer<'a> {
         ids.sort_unstable();
         ids.dedup();
         let entries = self.table.entries(kind);
-        let mut names: Vec<String> = ids
-            .iter()
+        ids.iter()
             .filter_map(|&id| entries.get(id as usize))
             .map(|entry| entry.name.as_str().to_owned())
-            .collect();
-        // Only a repeated name (an internal error, section 3.8) gives two equal neighbors.
-        names.dedup();
-        names
+            .collect()
     }
 
     /// The feature of the face with kernel index `face` and its timeline position.

@@ -3,6 +3,7 @@
 //! tests over test-only features.
 
 use crate::common;
+use crate::feature_support::import::block_bytes;
 
 use std::sync::Arc;
 
@@ -15,7 +16,7 @@ use common::{
     test_on_body, test_probe, upstream, with_action,
 };
 use partsmith_message_lint::assert_passes_lint;
-use partsmith_occt_sys::{Plane, StepBody, SubShapeKind, make_box, write_step};
+use partsmith_occt_sys::SubShapeKind;
 use partsmith_recompute::{Fix, Report};
 use serde_json::{Value, json};
 
@@ -447,14 +448,7 @@ fn t040_a_missing_asset_fails_before_building() {
     );
     assert_eq!(harness.cache_len(), 0);
 
-    let block = make_box(&Plane::XY, 10.0, 20.0, 30.0).expect("the block builds");
-    let bytes = write_step(&[StepBody {
-        shape: block.shape,
-        name: "Block".into(),
-        color: None,
-    }])
-    .expect("the block is written as STEP");
-    harness.assets.insert(asset, Arc::from(bytes));
+    harness.assets.insert(asset, block_bytes());
     let present_plan = harness.plan(&document);
     let present = harness.run(&document);
 

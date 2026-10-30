@@ -14,7 +14,9 @@ mod checks;
 mod picks;
 mod records;
 
-pub use super::feature_support::{asset_name, axis_distance, id, saved, try_element};
+pub use super::feature_support::{
+    asset_name, axis_distance, id, match_in_sketch, saved, try_element,
+};
 pub use checks::{Checks, ExactMessage, plain_words_problem};
 pub use picks::{run_picked, stored, with_picks};
 pub use records::*;
@@ -29,6 +31,7 @@ use partsmith_occt_sys::{ElementGeometry, GeometryKind, Plane, Point, Shape, Sub
 use partsmith_recompute::Message;
 use serde_json::Value;
 
+use super::feature_support::import::{step_body, step_bytes};
 use super::feature_support::{
     Assets, Run, document_text, face_names, parse_document, point_components,
 };
@@ -163,12 +166,7 @@ pub fn plate_bytes(holes: &[[f64; 2]]) -> Arc<[u8]> {
             .expect("the kernel cuts the holes")
             .shape
     };
-    let bodies = [partsmith_occt_sys::StepBody {
-        shape,
-        name: "Plate".to_owned(),
-        color: None,
-    }];
-    Arc::from(partsmith_occt_sys::write_step(&bodies).expect("the kernel writes STEP"))
+    step_bytes(&[step_body("Plate", shape)])
 }
 
 // Reading results.

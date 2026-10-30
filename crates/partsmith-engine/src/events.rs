@@ -14,7 +14,7 @@ use partsmith_protocol::{
 use partsmith_sketch::Placement;
 
 use crate::counts::saturating_u32;
-use crate::display::{DisplayCache, DisplayMesh, MeshKey};
+use crate::display::{DisplayCache, DisplayError, DisplayMesh, MeshKey};
 use crate::document::OpenDocument;
 use crate::error::EngineError;
 use crate::fixes::offer_finding_fixes;
@@ -165,6 +165,7 @@ impl Session {
             let preview = record_layer(&mut open.emitted.preview, preview, next_mesh_id);
             (model, preview)
         });
+        // `restate_statuses` asks for the statuses again within the same run, once.
         let restate = std::mem::take(&mut open.emitted.restate);
         if open.computed.run != open.emitted.run || restate {
             open.emitted.run = open.computed.run;
@@ -423,7 +424,7 @@ impl MeshPlanner<'_> {
                     });
                 }
                 Err(error) => {
-                    let failure = display_failure(&view, &error);
+                    let failure = display_failure(&view, error);
                     failures.insert(body.clone(), Failed { key, failure });
                     if current.is_some() {
                         changes.push(MeshChange { body, mesh: None });
@@ -446,13 +447,11 @@ impl MeshPlanner<'_> {
 }
 
 /// The failure of a body whose display mesh could not be built (section 3.8).
-fn display_failure(view: &BodyView, error: &EngineError) -> DisplayFailure {
+fn display_failure(view: &BodyView, error: DisplayError) -> DisplayFailure {
     DisplayFailure {
         feature: view.provider.clone(),
         body: view.body.clone(),
-        // Building a table or mesh fails with internal errors, whose detail is the technical
-        // text.
-        text: error.detail().unwrap_or_else(|| format!("{error:?}")),
+        text: error.text,
     }
 }
 
@@ -558,9 +557,9 @@ mod tests {
     use super::*;
     use crate::test_support::box_session;
 
-    /// The `display_failed` message of `b-1` in `box.ptsm` when its body state has an empty
-    /// naming map (engine.md section 3.8, test 159).
-    fn display_failed() -> Diagnostic {
+    /// The `display_failed` message of `b-1` in `box.ptsm`, named `name`, when its body state has
+    /// an empty naming map (engine.md section 3.8, test 159).
+    fn display_failed(name: &str) -> Diagnostic {
         Diagnostic {
             detail: Some(
                 "body b-1: naming the result failed: The topology does not match the naming map's element counts."
@@ -569,7 +568,9 @@ mod tests {
             ..Diagnostic::new(
                 Severity::Warning,
                 "display_failed",
-                "Body 'Block' cannot be shown, and Partsmith could not tell why. Report this with the details.",
+                format!(
+                    "Body '{name}' cannot be shown, and Partsmith could not tell why. Report this with the details."
+                ),
             )
         }
     }
@@ -586,8 +587,8 @@ mod tests {
     }
 
     /// A copy of `report` in which `b-1` holds its shape with an empty naming map, which no
-    /// element table accepts, as a state written under the cache key `key`.
-    fn broken(report: &Report, key: u8) -> Arc<Report> {
+    /// element table accepts, as a state written under a cache key of its own.
+    fn broken(report: &Report) -> Report {
         let mut report = report.clone();
         let shape = report.bodies[0]
             .state
@@ -595,8 +596,8 @@ mod tests {
             .cloned()
             .expect("the box has a shape");
         report.bodies[0].state = BodyState::new(shape, Arc::clone(BodyState::empty().naming()));
-        report.features[0].key = Some(CacheKey([key; 32]));
-        Arc::new(report)
+        report.features[0].key = Some(CacheKey([7; 32]));
+        report
     }
 
     /// Makes `report` the document's latest recompute: a new run when `new_run`, else the same
@@ -609,11 +610,10 @@ mod tests {
         }
     }
 
-    /// Replaces the document's latest recompute by a new run in which `b-1` cannot be displayed,
-    /// as a state written under `key`.
-    fn break_display(session: &mut Session, doc: DocHandle, key: u8) {
-        let report = broken(&latest_report(session, doc), key);
-        replace_report(session, doc, report, true);
+    /// Replaces the document's latest recompute by a new run in which `b-1` cannot be displayed.
+    fn break_display(session: &mut Session, doc: DocHandle) {
+        let report = broken(&latest_report(session, doc));
+        replace_report(session, doc, Arc::new(report), true);
     }
 
     /// The events of the document's next emission.
@@ -689,14 +689,14 @@ mod tests {
     #[test]
     fn t159_a_a_body_that_cannot_be_displayed_is_a_warning_of_its_feature() {
         let (mut session, doc) = box_session(true);
-        break_display(&mut session, doc, 7);
+        break_display(&mut session, doc);
 
         let first = events(&mut session, doc);
         let status = box_status(&first);
 
         assert_eq!(meshes(&first), []);
         assert_eq!(status.status, FeatureState::Warning);
-        assert_eq!(status.messages, [display_failed()]);
+        assert_eq!(status.messages, [display_failed("Block")]);
         assert_eq!(queried_box_status(&session, doc), status);
     }
 
@@ -707,7 +707,7 @@ mod tests {
         assert_eq!(model_meshes(&opened), [("b-1".to_string(), true)]);
         let shown = session.open(doc).expect("open").emitted.model.shown["b-1"].mesh_id;
 
-        break_display(&mut session, doc, 7);
+        break_display(&mut session, doc);
         let broken = events(&mut session, doc);
         let pick = session.pick_reference(
             doc,
@@ -720,14 +720,14 @@ mod tests {
         );
 
         assert_eq!(model_meshes(&broken), [("b-1".to_string(), false)]);
-        assert_eq!(box_status(&broken).messages, [display_failed()]);
+        assert_eq!(box_status(&broken).messages, [display_failed("Block")]);
         assert_eq!(pick, Err(EngineError::StalePick));
     }
 
     #[test]
     fn t159_c_meshes_sent_again_at_the_same_quality_keep_the_failure() {
         let (mut session, doc) = box_session(true);
-        break_display(&mut session, doc, 7);
+        break_display(&mut session, doc);
         events(&mut session, doc);
 
         session
@@ -739,7 +739,7 @@ mod tests {
         assert_eq!(recomputed(&again), []);
         assert_eq!(
             queried_box_status(&session, doc).messages,
-            [display_failed()]
+            [display_failed("Block")]
         );
     }
 
@@ -747,7 +747,7 @@ mod tests {
     fn t159_d_a_display_failure_clears_when_the_body_displays_again() {
         let (mut session, doc) = box_session(true);
         let good = latest_report(&session, doc);
-        break_display(&mut session, doc, 7);
+        break_display(&mut session, doc);
         events(&mut session, doc);
 
         replace_report(&mut session, doc, good, true);
@@ -763,7 +763,7 @@ mod tests {
     fn t159_e_a_display_that_recovers_without_a_recompute_sends_the_statuses_again() {
         let (mut session, doc) = box_session(true);
         let good = latest_report(&session, doc);
-        break_display(&mut session, doc, 7);
+        break_display(&mut session, doc);
         events(&mut session, doc);
         let revision = session.revision(doc).expect("the document is open");
 
@@ -784,8 +784,8 @@ mod tests {
         events(&mut session, doc);
         let revision = session.revision(doc).expect("the document is open");
 
-        let report = broken(&latest_report(&session, doc), 7);
-        replace_report(&mut session, doc, report, false);
+        let report = broken(&latest_report(&session, doc));
+        replace_report(&mut session, doc, Arc::new(report), false);
         let broken_events = events(&mut session, doc);
 
         let (sent_revision, status) = only_recomputed(&broken_events);
@@ -793,13 +793,13 @@ mod tests {
         assert_eq!(model_meshes(&broken_events), [("b-1".to_string(), false)]);
         assert_eq!(sent_revision, revision);
         assert_eq!(status.status, FeatureState::Warning);
-        assert_eq!(status.messages, [display_failed()]);
+        assert_eq!(status.messages, [display_failed("Block")]);
     }
 
     #[test]
     fn t159_f_a_renamed_body_that_cannot_be_displayed_is_named_by_its_new_name() {
         let (mut session, doc) = box_session(true);
-        let report = broken(&latest_report(&session, doc), 7);
+        let report = Arc::new(broken(&latest_report(&session, doc)));
         replace_report(&mut session, doc, Arc::clone(&report), true);
         events(&mut session, doc);
 
@@ -810,21 +810,16 @@ mod tests {
         replace_report(&mut session, doc, report, true);
         let after_rename = events(&mut session, doc);
         let status = box_status(&after_rename);
-        let expected = Diagnostic {
-            message: "Body 'Lid' cannot be shown, and Partsmith could not tell why. Report this with the details."
-                .to_string(),
-            ..display_failed()
-        };
 
         assert_eq!(meshes(&after_rename), []);
-        assert_eq!(status.messages, [expected]);
+        assert_eq!(status.messages, [display_failed("Lid")]);
         assert_eq!(queried_box_status(&session, doc), status);
     }
 
     #[test]
     fn display_failed_comes_before_the_features_own_messages_and_raises_ok_to_warning() {
         let (mut session, doc) = box_session(true);
-        let mut report = Report::clone(&broken(&latest_report(&session, doc), 7));
+        let mut report = broken(&latest_report(&session, doc));
         report.features[0].messages.push(Message {
             severity: partsmith_recompute::Severity::Info,
             code: "test_notice",
@@ -853,7 +848,7 @@ mod tests {
     #[test]
     fn headless_sessions_report_no_display_failure() {
         let (mut session, doc) = box_session(false);
-        break_display(&mut session, doc, 7);
+        break_display(&mut session, doc);
 
         let status = box_status(&events(&mut session, doc));
 

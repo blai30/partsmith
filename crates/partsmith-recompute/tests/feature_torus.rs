@@ -8,7 +8,7 @@ use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_axis_direction, assert_face_count, assert_face_kind,
     assert_face_names, assert_flat_face, assert_solid_count, assert_unchanged, assert_volume,
-    body_changes, face, link_ids,
+    assert_volume_faces_and_bounds, body_changes, face, link_ids,
 };
 use partsmith_features::{Bound, FeatureError};
 use partsmith_occt_sys::GeometryKind;
@@ -36,10 +36,13 @@ fn t001_default_is_ok() {
 fn t001_default_volume_faces_and_bounds() {
     let run = Run::example("torus/default.ptsm");
 
-    let shape = run.shape("b-1");
-    assert_volume(shape, 9869.604401);
-    assert_face_count(shape, 1);
-    assert_bounding_box(shape, [-25.0, -25.0, -5.0], [25.0, 25.0, 5.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        9869.604401,
+        1,
+        [-25.0, -25.0, -5.0],
+        [25.0, 25.0, 5.0],
+    );
 }
 
 #[test]
@@ -146,10 +149,13 @@ fn t009_intersect_keeps_the_upper_half() {
     let run = Run::example("torus/intersect.ptsm");
 
     run.assert_all_quiet();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 4934.802201);
-    assert_face_count(shape, 2);
-    assert_bounding_box(shape, [-25.0, -25.0, 0.0], [25.0, 25.0, 5.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        4934.802201,
+        2,
+        [-25.0, -25.0, 0.0],
+        [25.0, 25.0, 5.0],
+    );
     assert_eq!(body_changes(&run, "f-tor1"), ["b-1 Intersect"]);
 }
 
@@ -198,10 +204,13 @@ fn t012_on_a_datum_moves_along_its_normal() {
     let run = Run::example("torus/on-datum.ptsm");
 
     run.assert_all_quiet();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 9869.604401);
-    assert_face_count(shape, 1);
-    assert_bounding_box(shape, [-25.0, -15.0, -25.0], [25.0, -5.0, 25.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        9869.604401,
+        1,
+        [-25.0, -15.0, -25.0],
+        [25.0, -5.0, 25.0],
+    );
 }
 
 #[test]
@@ -216,10 +225,13 @@ fn t013_on_a_face_of_another_body_rests_on_the_face() {
     let run = Run::example("torus/on-face.ptsm");
 
     run.assert_all_quiet();
-    let shape = run.shape("b-2");
-    assert_volume(shape, 631.654682);
-    assert_face_count(shape, 1);
-    assert_bounding_box(shape, [-10.0, -10.0, 10.0], [10.0, 10.0, 14.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-2"),
+        631.654682,
+        1,
+        [-10.0, -10.0, 10.0],
+        [10.0, 10.0, 14.0],
+    );
     assert_unchanged(&run, "f-tor1", "b-1");
 }
 

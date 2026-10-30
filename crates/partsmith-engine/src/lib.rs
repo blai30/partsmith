@@ -50,7 +50,7 @@ mod words;
 
 pub use error::EngineError;
 pub use options::{DEFAULT_CACHE_BUDGET, SessionOptions};
-pub use partsmith_model::SequentialIds;
+pub use partsmith_model::{SequentialIds, is_asset_name};
 pub use session::Session;
 pub use types::{
     Asset, Committed, EngineInfo, ExportRequest, Exported, ExportedFile, FeatureMessage, Imported,

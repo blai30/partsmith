@@ -41,7 +41,12 @@ pub fn fixtures_directory() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../partsmith-engine/tests/fixtures")
 }
 
-/// The repository root, where the checked-in schema files live under `docs/format`.
+/// The comparison tolerance of the examples corpus, relative with the same absolute floor, for
+/// numbers that are not both integers (delivery spec section 2.8).
+pub const CORPUS_TOLERANCE: f64 = 1e-6;
+
+/// The repository root, where the checked-in schema files live under `docs/format` and the
+/// examples corpus under `examples`.
 pub fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }

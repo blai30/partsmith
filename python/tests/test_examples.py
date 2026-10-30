@@ -22,18 +22,20 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
-from partsmith import Document, run_code, run_script
 from support import (
     REPOSITORY_ROOT,
     TWINNED,
     assert_round_trip,
     example_id,
     example_models,
+    generated_script,
     generic_calls,
     twin_of,
     twinned_models,
     write_text,
 )
+
+from partsmith import run_code, run_script
 
 BLESS_IN_CI = "PARTSMITH_BLESS is set in CI. Bless expected results locally and commit them."
 """The failure of a bless requested in CI (delivery.md section 4)."""
@@ -101,15 +103,6 @@ def check_4_problem(example: str, twin: str, generated: str) -> str | None:
         f"examples/{example}.py writes more generic feature(...) calls than its generated script "
         f"({written} against {expected}). Run: PARTSMITH_BLESS=1 pytest python/tests/test_examples.py"
     )
-
-
-def generated_script(model: Path) -> str:
-    """The script `export_python` generates for an example: `Document.open(<stem>.ptsm).to_python()`."""
-    document = Document.open(model)
-    try:
-        return document.to_python()
-    finally:
-        document.close()
 
 
 def bless_twin(model: Path, capsys: pytest.CaptureFixture[str]) -> None:

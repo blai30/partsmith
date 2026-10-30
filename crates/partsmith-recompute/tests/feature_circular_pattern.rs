@@ -11,8 +11,9 @@ use feature_support::{
     assert_choice_between, assert_coordinates, assert_error_field, assert_examples_canonical,
     assert_face_area, assert_face_centroid, assert_face_count, assert_face_kind, assert_placement,
     assert_quarter_turns_about_z, assert_same_body, assert_solid_count, assert_unchanged,
-    assert_volume, body_changes, document, edge_axis, face, face_sketch_with, hole_at_point,
-    l_shaped_body, lean, lean_edge_axis, link_ids, one_point, sketch_result, turn,
+    assert_volume, assert_volume_faces_and_bounds, body_changes, document, edge_axis, face,
+    face_sketch_with, hole_at_point, l_shaped_body, lean, lean_edge_axis, link_ids, one_point,
+    sketch_result, turn,
 };
 use partsmith_model::Units;
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
@@ -75,10 +76,13 @@ fn t002_partial_angle_volume_faces_and_bounds() {
     let run = Run::example("circular_pattern/partial-angle.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 188.495559);
-    assert_face_count(shape, 9);
-    assert_bounding_box(shape, [-2.0, -2.0, 0.0], [22.0, 22.0, 5.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        188.495559,
+        9,
+        [-2.0, -2.0, 0.0],
+        [22.0, 22.0, 5.0],
+    );
 }
 
 #[test]
@@ -102,10 +106,13 @@ fn t004_four_around_a_full_turn() {
     let run = Run::example("circular_pattern/four-around.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 251.327412);
-    assert_face_count(shape, 12);
-    assert_bounding_box(shape, [-22.0, -22.0, 0.0], [22.0, 22.0, 5.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        251.327412,
+        12,
+        [-22.0, -22.0, 0.0],
+        [22.0, 22.0, 5.0],
+    );
 }
 
 #[test]
@@ -391,10 +398,13 @@ fn t015_axis_edges_not_on_one_line() {
 /// Asserts that b-1 is identical to test 2's partial angle: three pegs over 90 degrees about +Z.
 fn assert_partial_angle(run: &Run) {
     let reference = Run::example("circular_pattern/partial-angle.ptsm");
-    let shape = run.shape("b-1");
-    assert_volume(shape, 188.495559);
-    assert_face_count(shape, 9);
-    assert_bounding_box(shape, [-2.0, -2.0, 0.0], [22.0, 22.0, 5.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        188.495559,
+        9,
+        [-2.0, -2.0, 0.0],
+        [22.0, 22.0, 5.0],
+    );
     assert_top_disc(run, "f-cyl1/top@f-cp1:2", [0.0, 20.0, 5.0]);
     assert_same_body(run.body("b-1"), reference.body("b-1"));
 }

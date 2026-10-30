@@ -5,7 +5,9 @@
 
 use crate::common;
 
-use common::samples::{IMPORT_FEATURE, every_warning, import_warning, import_warnings};
+use common::samples::{
+    IMPORT_FEATURE, IMPORT_SAMPLES, every_warning, import_warning, import_warnings,
+};
 use common::{labeled_warning, labeled_warning_fixes};
 use partsmith_features::{Diagnosis, FeatureWarning, ImportContent, Severity};
 use partsmith_model::Units;
@@ -18,14 +20,6 @@ const RENDERED: [&str; 4] = [
     "This import left out 1 shape of the STEP file that is not a closed solid.",
 ];
 
-/// The details of the samples of `import_warnings`, in its order.
-const DETAILS: [&str; 4] = [
-    "read_step: Solid 1 is not valid after repair; booleans with it may fail. Solid 2 is not valid after repair; booleans with it may fail.",
-    "read_step: Solid 1 is not valid after repair; booleans with it may fail.",
-    "read_step: Skipped 3 shapes that are not closed solids.",
-    "read_step: Skipped 1 shape that is not a closed solid.",
-];
-
 /// Words of the kernel's sentences that no rendered import warning contains.
 const KERNEL_WORDS: [&str; 4] = ["read_step", "Skipped", "Solid 1", "after repair"];
 
@@ -36,28 +30,28 @@ fn rendered(warning: &FeatureWarning) -> String {
 
 #[test]
 fn t018_two_invalid_solids_are_counted_in_the_plural() {
-    let warning = import_warning(ImportContent::InvalidSolids, 2, DETAILS[0]);
+    let warning = import_warning(ImportContent::InvalidSolids, 2, IMPORT_SAMPLES[0].2);
 
     assert_eq!(rendered(&warning), RENDERED[0]);
 }
 
 #[test]
 fn t018_one_invalid_solid_is_counted_in_the_singular() {
-    let warning = import_warning(ImportContent::InvalidSolids, 1, DETAILS[1]);
+    let warning = import_warning(ImportContent::InvalidSolids, 1, IMPORT_SAMPLES[1].2);
 
     assert_eq!(rendered(&warning), RENDERED[1]);
 }
 
 #[test]
 fn t018_three_skipped_shapes_are_counted_in_the_plural() {
-    let warning = import_warning(ImportContent::SkippedShapes, 3, DETAILS[2]);
+    let warning = import_warning(ImportContent::SkippedShapes, 3, IMPORT_SAMPLES[2].2);
 
     assert_eq!(rendered(&warning), RENDERED[2]);
 }
 
 #[test]
 fn t018_one_skipped_shape_is_counted_in_the_singular() {
-    let warning = import_warning(ImportContent::SkippedShapes, 1, DETAILS[3]);
+    let warning = import_warning(ImportContent::SkippedShapes, 1, IMPORT_SAMPLES[3].2);
 
     assert_eq!(rendered(&warning), RENDERED[3]);
 }
@@ -104,7 +98,10 @@ fn t018_the_detail_is_the_one_each_warning_carries() {
         .map(FeatureWarning::detail)
         .collect();
 
-    assert_eq!(details, DETAILS.map(|detail| Some(detail.to_string())));
+    assert_eq!(
+        details,
+        IMPORT_SAMPLES.map(|(_, _, detail)| Some(detail.to_string()))
+    );
 }
 
 #[test]

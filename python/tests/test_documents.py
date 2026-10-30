@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 from support import (
     IMPORT_ASSET,
+    IMPORT_ASSET_BYTES,
     RELATIVE_TOLERANCE,
     document_with_import,
+    fail_fsync_on_call,
     has_temporary_file,
     os_error_text,
     record_file_operations,
@@ -154,9 +156,6 @@ def test_t067_rotate_and_face_down_together_raise():
 ASSET_NAME = IMPORT_ASSET.name
 """`S`, the file name of the committed asset."""
 
-ASSET_BYTES = IMPORT_ASSET.read_bytes()
-"""The bytes of `S`."""
-
 ASSET_VOLUME = 6000
 """The volume of the block `S` holds."""
 
@@ -189,20 +188,6 @@ def record_commands(monkeypatch, session, operations):
 def sent_command_types(session, first_exchange):
     """The types of the commands `session` was sent from exchange `first_exchange` on."""
     return [command["type"] for command, _result in session.exchanges[first_exchange:]]
-
-
-def fail_fsync_on_call(monkeypatch, failing_call):
-    """Makes the `failing_call`-th call of `os.fsync` (counted from 1) raise the error of a full disk."""
-    calls = []
-    original_fsync = os.fsync
-
-    def fsync(descriptor):
-        calls.append(descriptor)
-        if len(calls) == failing_call:
-            raise OSError(errno.ENOSPC, "No space left on device")
-        original_fsync(descriptor)
-
-    monkeypatch.setattr(os, "fsync", fsync)
 
 
 def symbolic_link(link: Path, target: Path) -> None:
@@ -240,7 +225,7 @@ def test_t097_the_saved_folder_holds_the_document_and_its_asset(tmp_path):
 
     document.save(tmp_path / "a.ptsm")
 
-    assert (tmp_path / "assets" / ASSET_NAME).read_bytes() == ASSET_BYTES
+    assert (tmp_path / "assets" / ASSET_NAME).read_bytes() == IMPORT_ASSET_BYTES
     assert (tmp_path / "a.ptsm").read_bytes() == document.to_text().encode("utf-8")
     assert sorted(os.listdir(tmp_path)) == ["a.ptsm", "assets"]
     assert os.listdir(tmp_path / "assets") == [ASSET_NAME]
@@ -287,7 +272,7 @@ def stale_file(assets: Path, tmp_path: Path) -> dict[Path, bytes | None]:
 
 def last_byte_changed(assets: Path, tmp_path: Path) -> dict[Path, bytes | None]:
     """Case (b): the bytes of `S` with the last byte changed, so the size is the same."""
-    changed = bytearray(ASSET_BYTES)
+    changed = bytearray(IMPORT_ASSET_BYTES)
     changed[-1] ^= 0x01
     (assets / ASSET_NAME).write_bytes(bytes(changed))
     return {}
@@ -324,7 +309,7 @@ def test_t098_a_wrong_entry_under_an_asset_name_is_replaced(tmp_path, wrong_entr
     entry = assets / ASSET_NAME
     assert not entry.is_symlink()
     assert entry.is_file()
-    assert entry.read_bytes() == ASSET_BYTES
+    assert entry.read_bytes() == IMPORT_ASSET_BYTES
     for outside, contents in untouched.items():
         if contents is None:
             assert not os.path.lexists(outside)
@@ -337,7 +322,7 @@ def test_t098_a_wrong_entry_under_an_asset_name_is_replaced(tmp_path, wrong_entr
 def test_t099_a_save_leaves_other_entries_alone(tmp_path, monkeypatch):
     assets = tmp_path / "assets"
     assets.mkdir()
-    others = {ASSET_NAME: ASSET_BYTES, "0" * 64 + ".step": b"other", "notes.txt": b"notes"}
+    others = {ASSET_NAME: IMPORT_ASSET_BYTES, "0" * 64 + ".step": b"other", "notes.txt": b"notes"}
     for name, contents in others.items():
         (assets / name).write_bytes(contents)
     document = document_with_import()
@@ -448,7 +433,7 @@ def test_t101_a_failed_document_write_keeps_the_assets_written_before_it(tmp_pat
     assert raised.value.filename == str(target)
     assert raised.value.filename2 is None
     assert str(raised.value) == os_error_text(errno.EISDIR, target)
-    assert (tmp_path / "assets" / ASSET_NAME).read_bytes() == ASSET_BYTES
+    assert (tmp_path / "assets" / ASSET_NAME).read_bytes() == IMPORT_ASSET_BYTES
     assert "mark_saved" not in sent_command_types(session, first_exchange)
     assert sorted(os.listdir(tmp_path)) == ["a.ptsm", "assets"]
     assert os.listdir(tmp_path / "assets") == [ASSET_NAME]
@@ -502,7 +487,7 @@ def test_t102_a_failed_document_flush_is_reported_under_the_document_name(tmp_pa
     assert raised.value.errno == errno.ENOSPC
     assert raised.value.filename == str(target)
     assert raised.value.filename2 is None
-    assert (tmp_path / "assets" / ASSET_NAME).read_bytes() == ASSET_BYTES
+    assert (tmp_path / "assets" / ASSET_NAME).read_bytes() == IMPORT_ASSET_BYTES
     assert target.read_bytes() == b"old"
     assert sorted(os.listdir(tmp_path)) == ["a.ptsm", "assets"]
     assert os.listdir(tmp_path / "assets") == [ASSET_NAME]

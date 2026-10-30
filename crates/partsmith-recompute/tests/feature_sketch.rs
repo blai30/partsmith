@@ -15,17 +15,17 @@ use crate::feature_support;
 
 use std::f64::consts::FRAC_PI_6;
 
+use feature_support::import::box_step_asset;
 use feature_support::{
     AXIS_TOLERANCE, BOTH_TOPS, MOVE_BY_100, Run, TURN_BY_90, assert_absolute, assert_bore_through,
     assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_axis_through,
-    assert_face_in_plane, assert_face_kind, assert_face_radius, assert_moves, assert_placement,
-    assert_quarter_turns_about_z, assert_relative, assert_sketch_on_top_plane, assert_solid_count,
+    assert_face_in_plane, assert_moves, assert_placement, assert_quarter_turns_about_z,
+    assert_relative, assert_round_face, assert_sketch_on_top_plane, assert_solid_count,
     assert_top_at, assert_translation, assert_volume, assert_volume_faces_and_bounds, asset_name,
-    box_step_asset, datum_motion, document, document_text, expression_uses, face,
-    face_motion_before, face_sketch, face_sketch_with, hole_at_point, id, l_shaped_body, link_ids,
-    message, moved_box_document, one_circle, one_point, parse_document, reference_json, saved,
-    sketch_on_pattern_copy_document, sketch_result, solved_point, stored_region,
-    stored_region_match, top_fallback, turn,
+    datum_motion, document, document_text, expression_uses, face, face_motion_before, face_sketch,
+    face_sketch_with, hole_at_point, id, l_shaped_body, link_ids, message, moved_box_document,
+    one_circle, one_point, parse_document, reference_json, saved, sketch_on_pattern_copy_document,
+    sketch_result, solved_point, stored_region, stored_region_match, top_fallback, turn,
 };
 use partsmith_features::{
     Bound, FallbackCause, FeatureError, FeatureWarning, Fix, Placed, Registry, Repair,
@@ -1606,14 +1606,6 @@ fn region_keys(run: &Run) -> Vec<String> {
         .collect()
 }
 
-/// Asserts that the face `name` of `b-1` is a cylinder of `radius` whose axis passes through `point`.
-fn assert_round_side(run: &Run, name: &str, radius: f64, point: [f64; 3]) {
-    let side = face(run.body("b-1"), name);
-    assert_face_kind(&side, GeometryKind::Cylinder);
-    assert_face_radius(&side, radius);
-    assert_face_axis_through(&side, point);
-}
-
 /// The unit vector of `vector`.
 fn unit(vector: [f64; 2]) -> [f64; 2] {
     let length = vector[0].hypot(vector[1]);
@@ -1770,7 +1762,13 @@ fn t037_concentric_extrudes_a_ring_around_the_z_axis() {
         [-20.0, -20.0, 0.0],
         [20.0, 20.0, 10.0],
     );
-    assert_round_side(&run, "f-ext1/lateral/e-2", 8.0, [0.0, 0.0, 0.0]);
+    let side = assert_round_face(
+        run.body("b-1"),
+        "f-ext1/lateral/e-2",
+        GeometryKind::Cylinder,
+        8.0,
+    );
+    assert_face_axis_through(&side, [0.0, 0.0, 0.0]);
 }
 
 #[test]
@@ -1878,7 +1876,13 @@ fn t041_distance_from_a_point_to_a_line_extrudes_a_plate_with_a_hole() {
         [0.0, 0.0, 0.0],
         [60.0, 40.0, 10.0],
     );
-    assert_round_side(&run, "f-ext1/lateral/e-5", 5.0, [30.0, 30.0, 0.0]);
+    let side = assert_round_face(
+        run.body("b-1"),
+        "f-ext1/lateral/e-5",
+        GeometryKind::Cylinder,
+        5.0,
+    );
+    assert_face_axis_through(&side, [30.0, 30.0, 0.0]);
 }
 
 #[test]

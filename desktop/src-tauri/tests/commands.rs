@@ -8,7 +8,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use common::{error_info, example_a, grant_by_open, new_document_frame, ok_result, response_frame};
+use common::{
+    SOLID, UNKNOWN_GRANT, error_info, example_a, grant_by_open, new_document_frame, ok_result,
+    response_frame, solid_name, temporary_folder,
+};
 use partsmith_desktop::{COMMAND_NAMES, Files, Host, Unsaved, configure};
 use partsmith_protocol::{CommandResult, DocHandle, ErrorCode};
 use serde_json::{Value, json};
@@ -132,7 +135,7 @@ fn grant_headers(grant: &str) -> HeaderMap {
 
 /// A temporary folder holding `part.ptsm` with `hello`, and in-memory grants that include it.
 fn granted_part() -> (TempDir, PathBuf, Arc<Files>, String) {
-    let folder = tempfile::tempdir().expect("a temporary folder can be created");
+    let folder = temporary_folder();
     let path = folder.path().join("part.ptsm");
     fs::write(&path, b"hello").expect("the test file can be written");
     let files = Arc::new(Files::in_memory());
@@ -347,7 +350,7 @@ fn read_file_with_an_unknown_grant_rejects_with_permission() {
     let answer = invoke(
         &main,
         "read_file",
-        InvokeBody::Json(json!({ "grant": "0123456789abcdef0123456789abcdef" })),
+        InvokeBody::Json(json!({ "grant": UNKNOWN_GRANT })),
         HeaderMap::new(),
     );
 
@@ -399,11 +402,6 @@ fn write_file_with_a_grant_header_that_is_not_visible_ascii_rejects_with_permiss
     assert_eq!(fs::read(&path).expect("the file exists"), b"hello");
 }
 
-/// `S` of desktop.md section 6: the BLAKE3 hash of `solid` followed by `.step`.
-fn solid_name() -> String {
-    format!("{}.step", blake3::hash(b"solid").to_hex())
-}
-
 /// Headers carrying `grant` in `Partsmith-Grant` and `name` in `Partsmith-Asset`.
 fn asset_headers(grant: &str, name: &str) -> HeaderMap {
     let mut headers = grant_headers(grant);
@@ -429,7 +427,7 @@ fn t063_read_asset_answers_with_the_raw_bytes_of_the_asset() {
     let (folder, _path, files, grant) = granted_part();
     let assets = folder.path().join("assets");
     fs::create_dir(&assets).expect("the test can create a folder");
-    fs::write(assets.join(solid_name()), b"solid").expect("the test asset can be written");
+    fs::write(assets.join(solid_name()), SOLID).expect("the test asset can be written");
     let app = app_with(files);
     let main = window(&app, "main");
 
@@ -440,7 +438,7 @@ fn t063_read_asset_answers_with_the_raw_bytes_of_the_asset() {
         HeaderMap::new(),
     );
 
-    assert_eq!(raw_answer(answer), b"solid");
+    assert_eq!(raw_answer(answer), SOLID);
 }
 
 #[test]
@@ -452,14 +450,14 @@ fn t063_write_asset_writes_a_raw_body_under_the_asset_name_its_headers_give() {
     let answer = invoke(
         &main,
         "write_asset",
-        InvokeBody::Raw(b"solid".to_vec()),
+        InvokeBody::Raw(SOLID.to_vec()),
         asset_headers(&grant, &solid_name()),
     );
 
     assert_eq!(json_answer(answer), Value::Null);
     assert_eq!(
         fs::read(folder.path().join("assets").join(solid_name())).expect("the asset exists"),
-        b"solid"
+        SOLID
     );
 }
 
@@ -492,7 +490,7 @@ fn t063_write_asset_without_a_grant_header_rejects_with_permission() {
     let answer = invoke(
         &main,
         "write_asset",
-        InvokeBody::Raw(b"solid".to_vec()),
+        InvokeBody::Raw(SOLID.to_vec()),
         asset_header_only(&solid_name()),
     );
 
@@ -512,7 +510,7 @@ fn t063_write_asset_without_an_asset_header_rejects_with_an_empty_name() {
     let answer = invoke(
         &main,
         "write_asset",
-        InvokeBody::Raw(b"solid".to_vec()),
+        InvokeBody::Raw(SOLID.to_vec()),
         grant_headers(&grant),
     );
 

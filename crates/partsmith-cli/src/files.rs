@@ -6,15 +6,12 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use partsmith_engine::{Asset, EngineError};
-use partsmith_model::LoadError;
+use partsmith_model::{LoadError, is_asset_name};
 
 use crate::error::{CliError, UsageError};
 
 /// The name reports give standard input.
 const STANDARD_INPUT_NAME: &str = "<stdin>";
-
-/// Length of the lowercase hex BLAKE3 hash that names an asset.
-const ASSET_HASH_LENGTH: usize = 64;
 
 /// One document to read: a file, or standard input for `-`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,19 +135,6 @@ fn write_error(path: &Path) -> impl FnOnce(io::Error) -> CliError {
     move |source| CliError::Write { path, source }
 }
 
-/// Whether a file name matches `^[0-9a-f]{64}\.[a-z0-9]+$`, the content-hash name of an asset.
-fn is_asset_name(name: &str) -> bool {
-    let Some((hash, extension)) = name.split_once('.') else {
-        return false;
-    };
-    let is_lower_hex = |byte: u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte);
-    let is_lower_alphanumeric = |byte: u8| byte.is_ascii_digit() || byte.is_ascii_lowercase();
-    hash.len() == ASSET_HASH_LENGTH
-        && hash.bytes().all(is_lower_hex)
-        && !extension.is_empty()
-        && extension.bytes().all(is_lower_alphanumeric)
-}
-
 /// Writes `contents` to `path` atomically (`write_atomically`); a failure names the path.
 pub fn write(path: &Path, contents: &[u8]) -> Result<(), CliError> {
     write_atomically(path, contents).map_err(write_error(path))
@@ -252,29 +236,6 @@ mod tests {
             Input::StandardInput.assets().expect("no assets to read"),
             Vec::new()
         );
-    }
-
-    #[test]
-    fn asset_names_are_a_hash_and_an_extension() {
-        assert!(is_asset_name(&format!("{HASH}.step")));
-        assert!(is_asset_name(&format!("{HASH}.3mf")));
-    }
-
-    #[test]
-    fn asset_names_need_lowercase_hex_of_64_characters() {
-        assert!(!is_asset_name(&format!("{}.step", HASH.to_uppercase())));
-        assert!(!is_asset_name(&format!("{}.step", &HASH[1..])));
-        assert!(!is_asset_name(&format!("{HASH}0.step")));
-        assert!(!is_asset_name(&format!("{}g.step", &HASH[1..])));
-    }
-
-    #[test]
-    fn asset_names_need_one_lowercase_alphanumeric_extension() {
-        assert!(!is_asset_name(HASH));
-        assert!(!is_asset_name(&format!("{HASH}.")));
-        assert!(!is_asset_name(&format!("{HASH}.STEP")));
-        assert!(!is_asset_name(&format!("{HASH}.step.bak")));
-        assert!(!is_asset_name(&format!("{HASH}.st-p")));
     }
 
     #[test]

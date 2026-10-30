@@ -5,17 +5,12 @@ use crate::common;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use common::{DialogCall, FakeDialogs, grant_by_open, path_text, pick_save_path};
+use common::{
+    DialogCall, FakeDialogs, UNKNOWN_GRANT, folder_entries, grant_by_open, make_read_only,
+    path_text, pick_save_path, stored_paths, temporary_folder,
+};
 use partsmith_desktop::{FileError, FileKind, Files, Granted, MAX_GRANTS, Unsaved, grant_of};
-use serde_json::{Value, json};
-use tempfile::TempDir;
-
-/// A grant that looks valid but names no picked file.
-const UNKNOWN_GRANT: &str = "0123456789abcdef0123456789abcdef";
-
-fn temporary_folder() -> TempDir {
-    tempfile::tempdir().expect("a temporary folder can be created")
-}
+use serde_json::json;
 
 /// Writes `contents` to `name` in `folder` and returns its path.
 fn file_with(folder: &Path, name: &str, contents: &[u8]) -> PathBuf {
@@ -29,47 +24,17 @@ fn store_path(folder: &Path) -> PathBuf {
     folder.join("file-grants.json")
 }
 
-/// The paths listed in a grant store file, most recent first.
-fn stored_paths(store: &Path) -> Vec<String> {
-    let text = fs::read_to_string(store).expect("the grant store exists");
-    let value: Value = serde_json::from_str(&text).expect("the grant store is JSON");
-    assert_eq!(value["version"], 1, "the grant store has version 1");
-    value["paths"]
-        .as_array()
-        .expect("the grant store lists paths")
-        .iter()
-        .map(|path| path.as_str().expect("each path is a string").to_owned())
-        .collect()
-}
-
 /// Writes a grant store file with exactly `text`.
 fn write_store(store: &Path, text: &str) {
     fs::write(store, text).expect("the test grant store can be written");
 }
 
-/// A grant store text of version 1 listing `paths`.
-fn store_text(paths: &[&Path]) -> String {
-    let texts: Vec<&str> = paths.iter().map(|path| path_text(path)).collect();
-    let mut text = serde_json::to_string_pretty(&json!({ "version": 1, "paths": texts }))
+/// A grant store text of version 1 listing `paths` as they are written, which need not be paths of this machine.
+fn store_text(paths: &[&str]) -> String {
+    let mut text = serde_json::to_string_pretty(&json!({ "version": 1, "paths": paths }))
         .expect("a JSON value always serializes");
     text.push('\n');
     text
-}
-
-/// The names of the entries of a folder, sorted.
-fn folder_entries(folder: &Path) -> Vec<String> {
-    let mut names: Vec<String> = fs::read_dir(folder)
-        .expect("the folder can be listed")
-        .map(|entry| {
-            entry
-                .expect("the folder entry can be read")
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect();
-    names.sort();
-    names
 }
 
 fn granted(path: &Path) -> Granted {
@@ -250,9 +215,7 @@ fn write_through_a_symbolic_link_replaces_the_file_it_points_to_and_keeps_the_li
 fn write_to_a_read_only_file_fails_with_denied_and_leaves_it_unchanged() {
     let folder = temporary_folder();
     let path = file_with(folder.path(), "part.ptsm", b"old contents");
-    let mut permissions = fs::metadata(&path).expect("the file exists").permissions();
-    permissions.set_readonly(true);
-    fs::set_permissions(&path, permissions).expect("the test can make the file read-only");
+    make_read_only(&path);
     let files = Files::in_memory();
     let grant = grant_by_open(&files, &path).grant;
 
@@ -670,7 +633,7 @@ fn loading_a_store_with_duplicate_paths_keeps_their_first_occurrence() {
         ["a.ptsm", "b.ptsm", "c.ptsm"].map(|name| file_with(folder.path(), name, b"hello"));
     write_store(
         &store,
-        &store_text(&[first.as_path(), second.as_path(), first.as_path()]),
+        &store_text(&[path_text(&first), path_text(&second), path_text(&first)]),
     );
 
     let files = Files::load(store.clone());
@@ -689,7 +652,7 @@ fn loading_a_store_with_more_than_max_grants_paths_keeps_the_first_100() {
     let paths: Vec<PathBuf> = (0..=MAX_GRANTS)
         .map(|i| file_with(folder.path(), &format!("part-{i:03}.ptsm"), b"hello"))
         .collect();
-    let listed: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    let listed: Vec<&str> = paths.iter().map(|path| path_text(path)).collect();
     write_store(&store, &store_text(&listed));
 
     let files = Files::load(store);
@@ -940,15 +903,6 @@ fn t068_a_write_fails_after_its_waits_while_another_program_holds_the_file() {
     assert_eq!(folder_entries(folder.path()), vec!["part.ptsm".to_owned()]);
 }
 
-/// A grant store text of version 1 listing `paths` as they are written, which need not be paths of this machine.
-#[cfg(windows)]
-fn store_text_of(paths: &[&str]) -> String {
-    let mut text = serde_json::to_string_pretty(&json!({ "version": 1, "paths": paths }))
-        .expect("a JSON value always serializes");
-    text.push('\n');
-    text
-}
-
 #[cfg(windows)]
 #[test]
 fn t070_drive_letter_and_network_paths_in_the_store_load_as_grants() {
@@ -956,7 +910,7 @@ fn t070_drive_letter_and_network_paths_in_the_store_load_as_grants() {
     let stored = [r"C:\parts\bracket.ptsm", r"\\server\share\bracket.ptsm"];
     let folder = temporary_folder();
     let store = store_path(folder.path());
-    write_store(&store, &store_text_of(&stored));
+    write_store(&store, &store_text(&stored));
     let path = file_with(folder.path(), "part.ptsm", b"hello");
 
     let files = Files::load(store.clone());
@@ -975,7 +929,7 @@ fn t070_paths_that_windows_does_not_count_as_absolute_load_as_no_grants() {
     for relative in [r"C:parts\bracket.ptsm", r"\parts\bracket.ptsm"] {
         let folder = temporary_folder();
         let store = store_path(folder.path());
-        write_store(&store, &store_text_of(&[relative]));
+        write_store(&store, &store_text(&[relative]));
         let path = file_with(folder.path(), "part.ptsm", b"hello");
 
         let files = Files::load(store.clone());

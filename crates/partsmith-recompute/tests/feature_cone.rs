@@ -5,10 +5,10 @@
 use crate::feature_support;
 
 use feature_support::{
-    Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_axis_direction, assert_face_axis_through, assert_face_count,
-    assert_face_kind, assert_face_names, assert_face_normal, assert_flat_face, assert_no_face,
-    assert_volume, body_changes, face, face_index, link_ids,
+    Run, assert_empty, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_axis_direction, assert_face_axis_through, assert_face_count, assert_face_kind,
+    assert_face_names, assert_face_normal, assert_flat_face, assert_no_face, assert_volume,
+    assert_volume_faces_and_bounds, body_changes, face, face_index, link_ids,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -35,10 +35,13 @@ fn t001_frustum_is_ok() {
 fn t001_frustum_volume_faces_and_bounds() {
     let run = Run::example("cone/frustum.ptsm");
 
-    let shape = run.shape("b-1");
-    assert_volume(shape, 1832.595715);
-    assert_face_count(shape, 3);
-    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 10.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        1832.595715,
+        3,
+        [-10.0, -10.0, 0.0],
+        [10.0, 10.0, 10.0],
+    );
 }
 
 #[test]
@@ -57,10 +60,13 @@ fn t002_pointed_cone() {
     let run = Run::example("cone/pointed.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 1047.197551);
-    assert_face_count(shape, 2);
-    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 10.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        1047.197551,
+        2,
+        [-10.0, -10.0, 0.0],
+        [10.0, 10.0, 10.0],
+    );
 }
 
 #[test]
@@ -76,10 +82,13 @@ fn t003_inverted_cone() {
     let run = Run::example("cone/inverted.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 261.799388);
-    assert_face_count(shape, 2);
-    assert_bounding_box(shape, [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        261.799388,
+        2,
+        [-5.0, -5.0, 0.0],
+        [5.0, 5.0, 10.0],
+    );
     assert_face_names(run.body("b-1"), &["f-cone1/top", "f-cone1/side"]);
 }
 
@@ -131,10 +140,13 @@ fn t009_nearly_equal_radii_make_a_cylinder() {
     let run = Run::example("cone/nearly-equal-radii.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 785.398163);
-    assert_face_count(shape, 3);
-    assert_bounding_box(shape, [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        785.398163,
+        3,
+        [-5.0, -5.0, 0.0],
+        [5.0, 5.0, 10.0],
+    );
     assert_face_kind(
         &face(run.body("b-1"), "f-cone1/side"),
         GeometryKind::Cylinder,
@@ -146,10 +158,13 @@ fn t010_apex_below_the_tolerance() {
     let run = Run::example("cone/apex-below-tolerance.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 1047.197551);
-    assert_face_count(shape, 2);
-    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 10.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        1047.197551,
+        2,
+        [-10.0, -10.0, 0.0],
+        [10.0, 10.0, 10.0],
+    );
     assert_face_names(run.body("b-1"), &["f-cone1/bottom", "f-cone1/side"]);
 }
 
@@ -186,9 +201,13 @@ fn t013_intersect_cuts_the_cone_at_the_box_top() {
     run.assert_all_quiet();
     let shape = run.shape("b-1");
     // The frustum of test 1.
-    assert_volume(shape, 1832.595715);
-    assert_face_count(shape, 3);
-    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 10.0]);
+    assert_volume_faces_and_bounds(
+        shape,
+        1832.595715,
+        3,
+        [-10.0, -10.0, 0.0],
+        [10.0, 10.0, 10.0],
+    );
     assert_eq!(body_changes(&run, "f-cone1"), ["b-1 Intersect"]);
 }
 
@@ -210,10 +229,13 @@ fn t014_cut_opens_a_cone_into_the_top_face() {
     let run = Run::example("cone/cut.ptsm");
 
     run.assert_all_quiet();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 7869.100306);
-    assert_face_count(shape, 7);
-    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        7869.100306,
+        7,
+        [-10.0, -10.0, 0.0],
+        [10.0, 10.0, 20.0],
+    );
     assert_eq!(body_changes(&run, "f-cone1"), ["b-1 Cut"]);
 }
 
@@ -234,10 +256,13 @@ fn t015_on_a_datum_points_its_axis_along_the_datum_normal() {
     let run = Run::example("cone/on-datum.ptsm");
 
     run.assert_all_quiet();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 1832.595715);
-    assert_face_count(shape, 3);
-    assert_bounding_box(shape, [5.0, -10.0, -10.0], [15.0, 10.0, 10.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        1832.595715,
+        3,
+        [5.0, -10.0, -10.0],
+        [15.0, 10.0, 10.0],
+    );
     let body = run.body("b-1");
     let bottom = assert_flat_face(body, "f-cone1/bottom", 0, 5.0, 314.159265);
     assert_face_normal(&bottom, [-1.0, 0.0, 0.0]);
@@ -257,10 +282,13 @@ fn t016_on_a_face_of_the_body_joins_at_the_face_center() {
     let run = Run::example("cone/on-face.ptsm");
 
     run.assert_all_quiet();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 8261.799388);
-    assert_face_count(shape, 7);
-    assert_bounding_box(shape, [-10.0, -20.0, 0.0], [10.0, 10.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        8261.799388,
+        7,
+        [-10.0, -20.0, 0.0],
+        [10.0, 10.0, 20.0],
+    );
     assert_eq!(body_changes(&run, "f-cone1"), ["b-1 Join"]);
 }
 

@@ -446,6 +446,28 @@ impl Sketch {
     }
 }
 
+/// The chain benchmark of spec section 5.2 (`benchmark::chain_benchmark`).
+pub fn chain_sketch() -> Sketch {
+    let (params, values) = benchmark::chain_benchmark();
+    Sketch { params, values }
+}
+
+/// The chain benchmark with every link's slot radius `c-<link>-10` set to `radius` (test 199 sets 6).
+pub fn chain_with_slot_radius(radius: f64) -> Sketch {
+    let mut sketch = chain_sketch();
+    for link in 0..benchmark::CHAIN_LINKS {
+        sketch.values.insert(id(&format!("c-{link}-10")), radius);
+    }
+    sketch
+}
+
+/// The cursor of frame `frame_number` of the chain drag (test 198): `frame_number` mm left of and
+/// above `start`, where the free end lies before the drag.
+pub fn chain_drag_cursor(start: [f64; 2], frame_number: u32) -> [f64; 2] {
+    let step = f64::from(frame_number);
+    [start[0] - step, start[1] + step]
+}
+
 /// A drag target on a point reference.
 pub fn drag_point(point: &str) -> DragTarget {
     DragTarget::Point {

@@ -1132,7 +1132,7 @@ pub fn every_error() -> Vec<(FeatureError, &'static str)> {
 pub fn every_warning() -> Vec<(FeatureWarning, &'static str)> {
     let mut samples = phase_1_and_2_warnings();
     samples.extend(phase_3_warnings());
-    samples.extend([(
+    samples.push((
         FeatureWarning::RedundantConstraints {
             issues: vec![SolveIssue::Redundant {
                 constraint: id("c-2"),
@@ -1142,7 +1142,7 @@ pub fn every_warning() -> Vec<(FeatureWarning, &'static str)> {
             values: sample_sketch_values(),
         },
         SAMPLE_SKETCH,
-    )]);
+    ));
     samples.extend(
         import_warnings()
             .into_iter()
@@ -1163,31 +1163,37 @@ pub fn import_warning(content: ImportContent, count: usize, detail: &str) -> Fea
     }
 }
 
-/// The four `ImportWarning` samples of section 6.5 test 18, each with its own detail: two invalid solids, one, three
-/// skipped shapes, one.
+/// The content, count and detail of the four `ImportWarning` samples of section 6.5 test 18, each with its own
+/// detail: two invalid solids, one, three skipped shapes, one.
+pub const IMPORT_SAMPLES: [(ImportContent, usize, &str); 4] = [
+    (
+        ImportContent::InvalidSolids,
+        2,
+        "read_step: Solid 1 is not valid after repair; booleans with it may fail. Solid 2 is not valid after repair; booleans with it may fail.",
+    ),
+    (
+        ImportContent::InvalidSolids,
+        1,
+        "read_step: Solid 1 is not valid after repair; booleans with it may fail.",
+    ),
+    (
+        ImportContent::SkippedShapes,
+        3,
+        "read_step: Skipped 3 shapes that are not closed solids.",
+    ),
+    (
+        ImportContent::SkippedShapes,
+        1,
+        "read_step: Skipped 1 shape that is not a closed solid.",
+    ),
+];
+
+/// The four `ImportWarning` samples of section 6.5 test 18, built from `IMPORT_SAMPLES` in its order.
 pub fn import_warnings() -> Vec<FeatureWarning> {
-    vec![
-        import_warning(
-            ImportContent::InvalidSolids,
-            2,
-            "read_step: Solid 1 is not valid after repair; booleans with it may fail. Solid 2 is not valid after repair; booleans with it may fail.",
-        ),
-        import_warning(
-            ImportContent::InvalidSolids,
-            1,
-            "read_step: Solid 1 is not valid after repair; booleans with it may fail.",
-        ),
-        import_warning(
-            ImportContent::SkippedShapes,
-            3,
-            "read_step: Skipped 3 shapes that are not closed solids.",
-        ),
-        import_warning(
-            ImportContent::SkippedShapes,
-            1,
-            "read_step: Skipped 1 shape that is not a closed solid.",
-        ),
-    ]
+    IMPORT_SAMPLES
+        .iter()
+        .map(|&(content, count, detail)| import_warning(content, count, detail))
+        .collect()
 }
 
 /// The diagnoses the phase 1 and phase 2 rows are rendered with: none, one that explains everything a phase 1 message

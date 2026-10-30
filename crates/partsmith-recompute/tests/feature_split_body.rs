@@ -9,8 +9,8 @@ use feature_support::{
     BOTH_TOPS, CUBE20, MOVE_BY_100, Run, assert_bounding_box, assert_choice_between, assert_empty,
     assert_error_field, assert_examples_canonical, assert_face_count, assert_face_kind,
     assert_face_normal, assert_face_position, assert_has_face, assert_moved_by_100,
-    assert_same_body, assert_solid_count, assert_unchanged, assert_volume, body_changes, face,
-    l_shaped_body, link_ids, slotted_block,
+    assert_same_body, assert_solid_count, assert_unchanged, assert_volume,
+    assert_volume_faces_and_bounds, body_changes, face, l_shaped_body, link_ids, slotted_block,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -49,10 +49,13 @@ fn t001_split_into_two_bodies_upper_part() {
     let run = Run::example("split_body/into-two-bodies.ptsm");
 
     run.assert_all_ok();
-    let upper = run.shape("b-1");
-    assert_volume(upper, 6000.0);
-    assert_face_count(upper, 6);
-    assert_bounding_box(upper, [-10.0, -10.0, 5.0], [10.0, 10.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        6000.0,
+        6,
+        [-10.0, -10.0, 5.0],
+        [10.0, 10.0, 20.0],
+    );
     assert_section_face(&run, "b-1", "f-split1/split-positive", [0.0, 0.0, -1.0]);
 }
 
@@ -60,10 +63,13 @@ fn t001_split_into_two_bodies_upper_part() {
 fn t001_split_into_two_bodies_lower_part() {
     let run = Run::example("split_body/into-two-bodies.ptsm");
 
-    let lower = run.shape("b-2");
-    assert_volume(lower, 2000.0);
-    assert_face_count(lower, 6);
-    assert_bounding_box(lower, [-10.0, -10.0, 0.0], [10.0, 10.0, 5.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-2"),
+        2000.0,
+        6,
+        [-10.0, -10.0, 0.0],
+        [10.0, 10.0, 5.0],
+    );
     assert_section_face(&run, "b-2", "f-split1/split-negative", [0.0, 0.0, 1.0]);
 }
 
@@ -302,10 +308,13 @@ fn t013_by_a_flat_face_upper_part() {
     let run = Run::example("split_body/by-face.ptsm");
 
     run.assert_all_quiet();
-    let upper = run.shape("b-1");
-    assert_volume(upper, 6000.0);
-    assert_face_count(upper, 6);
-    assert_bounding_box(upper, [-10.0, -10.0, 5.0], [10.0, 10.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        6000.0,
+        6,
+        [-10.0, -10.0, 5.0],
+        [10.0, 10.0, 20.0],
+    );
     assert_section_face(&run, "b-1", "f-split1/split-positive", [0.0, 0.0, -1.0]);
     let upper_front = face(run.body("b-1"), "f-box1/front#2");
     assert_face_position(&upper_front, 1, -10.0);
@@ -316,10 +325,13 @@ fn t013_by_a_flat_face_upper_part() {
 fn t013_by_a_flat_face_lower_part() {
     let run = Run::example("split_body/by-face.ptsm");
 
-    let lower = run.shape("b-3");
-    assert_volume(lower, 2000.0);
-    assert_face_count(lower, 6);
-    assert_bounding_box(lower, [-10.0, -10.0, 0.0], [10.0, 10.0, 5.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-3"),
+        2000.0,
+        6,
+        [-10.0, -10.0, 0.0],
+        [10.0, 10.0, 5.0],
+    );
     assert_section_face(&run, "b-3", "f-split1/split-negative", [0.0, 0.0, 1.0]);
     let lower_front = face(run.body("b-3"), "f-box1/front#1");
     assert_face_position(&lower_front, 1, -10.0);

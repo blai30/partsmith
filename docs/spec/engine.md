@@ -73,6 +73,9 @@ impl SessionOptions {
 /// Deterministic ids (model.md): one counter per kind, for example `f-000000000001`.
 pub use partsmith_model::SequentialIds;
 
+/// Whether a file name is an asset's content-hash name (model.md section 2.6, file-format.md section 3.11).
+pub use partsmith_model::is_asset_name;
+
 /// A file the document references, stored under its content-hash name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asset { pub name: String, pub bytes: Vec<u8> }

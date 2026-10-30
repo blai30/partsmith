@@ -9,13 +9,11 @@ use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_6, PI};
 
 use crate::common;
 
-use common::{assert_json_close, entry, items, number, repository_root, run_in, text};
+use common::{
+    CORPUS_TOLERANCE, assert_json_close, entry, items, number, repository_root, run_in, text,
+};
 use pretty_assertions::assert_eq;
 use serde_json::{Map, Value, json};
-
-/// The comparison tolerance of the examples corpus (delivery spec section 2.8): relative, with
-/// the same absolute floor.
-const TOLERANCE: f64 = 1e-6;
 
 /// The report of `partsmith rebuild --checks --json examples/<example>.ptsm`, run from the
 /// repository root.
@@ -47,7 +45,11 @@ fn assert_record(array: &Value, expected: Value) {
         .keys()
         .map(|key| (key.clone(), record[key].clone()))
         .collect();
-    assert_json_close(&json!({ &id: named }), &json!({ &id: expected }), TOLERANCE);
+    assert_json_close(
+        &json!({ &id: named }),
+        &json!({ &id: expected }),
+        CORPUS_TOLERANCE,
+    );
 }
 
 /// Panics unless the checks' summary is `expected` (print spec section 2.7).
@@ -113,7 +115,11 @@ fn assert_checks(report: &Value, expected: &[(&str, Value)]) {
             assert!(actual.contains_key(&key), "{id} has the check of {finding}");
         }
     }
-    assert_json_close(&Value::Object(actual), &Value::Object(wanted), TOLERANCE);
+    assert_json_close(
+        &Value::Object(actual),
+        &Value::Object(wanted),
+        CORPUS_TOLERANCE,
+    );
 }
 
 /// The corner `(±38, ±23, 2)` of the closed hollow's floor on the side of the drain hole point

@@ -20,10 +20,13 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use partsmith_protocol::{Buffer, Request, decode_response_frame, encode_request_frame};
+use partsmith_protocol::{
+    Buffer, Request, decode_request_frame, decode_response_frame, encode_request_frame,
+};
 use partsmith_wasm::call;
 use serde_json::{Value, json};
 
+use crate::common::header_json;
 use crate::web_module::{module_files, node, skip_reason};
 
 use comparison::compare_headers;
@@ -273,9 +276,7 @@ fn run_natively(documents: &[ParityDocument]) -> Vec<Exchange> {
 fn frame_header(frame: &[u8]) -> Result<Value, String> {
     decode_response_frame(frame).map_err(|error| error.to_string())?;
     // A frame that decodes holds its magic, its header length and its header.
-    let length_field: [u8; 4] = frame[4..8].try_into().expect("four bytes");
-    let length = usize::try_from(u32::from_le_bytes(length_field)).expect("u32 fits in usize");
-    serde_json::from_slice(&frame[8..8 + length]).map_err(|error| error.to_string())
+    header_json(frame).map_err(|error| error.to_string())
 }
 
 /// Frames in the format of both frame files: each after its length as a little-endian `u32`.
@@ -402,21 +403,15 @@ fn run_web_core(module: &Path, wasm: &Path, requests: &Path, responses: &Path) -
 /// The failure lines of one request whose response frame from the web core is `response`: its differences, or which frame does not decode.
 fn exchange_lines(exchange: &Exchange, response: &[u8]) -> Vec<String> {
     let label = exchange.label();
-    let wasm = match frame_header(response) {
-        Ok(header) => header,
-        Err(error) => {
-            return vec![format!(
-                "{label}: the web core's response frame does not decode: {error}"
-            )];
-        }
+    let header = |frame: &[u8], side: &str| {
+        frame_header(frame)
+            .map_err(|error| format!("{label}: {side} response frame does not decode: {error}"))
     };
-    let native = match frame_header(&exchange.native) {
-        Ok(header) => header,
-        Err(error) => {
-            return vec![format!(
-                "{label}: the native response frame does not decode: {error}"
-            )];
-        }
+    let headers = header(response, "the web core's")
+        .and_then(|wasm| Ok((wasm, header(&exchange.native, "the native")?)));
+    let (wasm, native) = match headers {
+        Ok(headers) => headers,
+        Err(line) => return vec![line],
     };
     compare_headers(&wasm, &native)
         .into_iter()
@@ -641,8 +636,7 @@ fn commands(exchanges: &[Exchange]) -> Vec<&str> {
 
 /// The command of a request frame as JSON.
 fn request_command(frame: &[u8]) -> Value {
-    let (request, _) =
-        partsmith_protocol::decode_request_frame(frame).expect("request frames decode");
+    let (request, _) = decode_request_frame(frame).expect("request frames decode");
     serde_json::to_value(request.command).expect("commands serialize")
 }
 
@@ -728,8 +722,7 @@ fn open_document_sends_the_assets_of_its_document() {
 
     let exchanges = run_natively(&[document]);
 
-    let (_, buffers) = partsmith_protocol::decode_request_frame(&exchanges[0].request)
-        .expect("request frames decode");
+    let (_, buffers) = decode_request_frame(&exchanges[0].request).expect("request frames decode");
     assert_eq!(buffers, expected);
 }
 

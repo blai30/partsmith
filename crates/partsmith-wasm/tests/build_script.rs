@@ -19,12 +19,8 @@ const MODULE_PROFILE_TABLE: &str = "[profile.wasm-release]";
 
 /// The link arguments (`"link-arg=..."` entries) of the Emscripten table of a Cargo configuration.
 fn configured_link_arguments(configuration: &str) -> Vec<&str> {
-    let Some(start) = configuration.find(EMSCRIPTEN_TABLE) else {
-        return Vec::new();
-    };
-    configuration[start + EMSCRIPTEN_TABLE.len()..]
-        .lines()
-        .take_while(|line| !line.trim_start().starts_with('['))
+    table_lines(configuration, EMSCRIPTEN_TABLE)
+        .into_iter()
         .flat_map(|line| line.split('"'))
         .filter_map(|text| text.strip_prefix("link-arg="))
         .collect()

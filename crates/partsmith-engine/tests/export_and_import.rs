@@ -5,12 +5,11 @@ use crate::common;
 
 use std::ffi::OsStr;
 use std::io::{ErrorKind, Read};
-use std::path::Path;
 
 use common::{
     GEOMETRY_TOLERANCE, Sent, announce, apply, assert_relative, bless_mode, box_step_bytes,
-    doc_handle, fixture, get_document, import_step, measure_body, new_doc, number, open, open_doc,
-    open_text, send, send_with_buffers, session, set_rollback,
+    doc_handle, fixture, fixture_path, get_document, import_step, measure_body, new_doc, number,
+    open, open_doc, open_text, send, send_with_buffers, session, set_rollback,
 };
 use partsmith_engine::Session;
 use partsmith_protocol::Buffer;
@@ -441,21 +440,18 @@ fn check_golden_3mf(fixture: &str, golden: &str) {
     let exported = export(&mut session, doc, json!({"kind": "3mf"}));
     assert_eq!(file_names(&exported), ["model.3mf"]);
     let bytes = exported.file_bytes(&files(&exported)[0]);
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join(golden);
+    let path = fixture_path(golden);
+    let shown = format!("{GOLDEN_FOLDER}/{golden}");
     let current = match std::fs::read(&path) {
         Ok(current) => Some(current),
         Err(error) if error.kind() == ErrorKind::NotFound => None,
-        Err(error) => panic!("{GOLDEN_FOLDER}/{golden} is not readable: {error}"),
+        Err(error) => panic!("{shown} is not readable: {error}"),
     };
     match golden_outcome(current.as_deref(), &bytes, blessing, fixture, golden) {
         Ok(GoldenOutcome::Unchanged) => {}
         Ok(GoldenOutcome::Bless { line }) => {
-            std::fs::write(&path, &bytes).unwrap_or_else(|error| {
-                panic!("{GOLDEN_FOLDER}/{golden} cannot be written: {error}")
-            });
+            std::fs::write(&path, &bytes)
+                .unwrap_or_else(|error| panic!("{shown} cannot be written: {error}"));
             announce(&line);
         }
         Err(message) => panic!("{message}"),

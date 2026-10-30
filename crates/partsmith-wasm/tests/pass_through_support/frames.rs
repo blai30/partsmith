@@ -3,7 +3,7 @@
 use partsmith_protocol::ResponseFrame;
 use serde_json::Value;
 
-use crate::common::ok_result;
+use crate::common::{header_json, ok_result};
 
 use super::documents::feature_record;
 
@@ -225,12 +225,9 @@ pub fn only_solution_message(frame: &ResponseFrame, feature: &str) -> Value {
 
 // Frames as their bytes hold them.
 
-/// The header of a frame as its bytes hold it, each object's keys in the order the frame writes them (the workspace builds `serde_json` with `preserve_order`).
+/// The header of a frame as its bytes hold it, each object's keys in the order the frame writes them (see [`header_json`]).
 fn wire_header(frame: &[u8]) -> Value {
-    let length_field: [u8; 4] = frame[4..8].try_into().expect("frames have a header length");
-    let length =
-        usize::try_from(u32::from_le_bytes(length_field)).expect("header lengths fit in usize");
-    serde_json::from_slice(&frame[8..8 + length]).expect("frame headers are JSON")
+    header_json(frame).expect("frame headers are JSON")
 }
 
 /// The messages of a frame as its bytes hold them, in order (see [`wire_header`]).

@@ -59,13 +59,15 @@ ui/scripts/notices.test.mjs       its unit tests (node:test)
 ui/scripts/notices/               committed license texts the generator reads: standard texts, copies from crate repositories, OCCT's, Rust's, Emscripten's and WebView2's (2.9)
 ui/scripts/check-licenses.mjs     npm license check (2.10)
 ui/scripts/check-licenses.test.mjs  its unit tests (node:test)
-ui/scripts/workflows.test.mjs     tests of the four workflow files (node:test, tests 49 to 54, 57, 59 to 63, 66, 67 and 73)
+ui/scripts/workflows.test.mjs     tests of the four workflow files (node:test, tests 49 to 54, 57, 59 to 63, 66, 67, 73 and 79)
+ui/scripts/test-roots.test.mjs    every test file of a crate declared by a test root (node:test, test 80, ADR 0035)
 scripts/occt-source-archive.sh    the OCCT source archive of a release (2.13)
 ui/scripts/occt-source-archive.test.mjs  its tests and those of the commit check of scripts/build-occt.sh (node:test, tests 55 and 58)
 ui/scripts/isolated-git.mjs       the Git environment of tests 52, 55 and 58 (section 6)
 ui/package.json                   scripts "check:dist", "test:scripts", "notices", "check:notices" and "check:licenses"
 README.md                         what users and contributors read first (2.12)
 crates/partsmith-cli/tests/examples.rs   examples runner: layout, coverage, rebuild and export checks (2.8)
+crates/partsmith-cli/tests/examples/    its export check (export.rs) and coverage checks (coverage.rs), with their tests
 python/tests/test_examples.py     Python twin checks (2.8)
 python/tests/test_gui_documents.py  the round trip of the documents the UI writes (2.8)
 python/tests/test_budgets.py      the Python budgets (python-api.md section 5), run by the python job (2.4)
@@ -322,7 +324,7 @@ Allowed locations: `examples/<type>/<stem>.ptsm`, where `<type>` is a feature ty
 
 **Qualifying for a Python twin.** An example qualifies when it has no `import` feature (a script cannot carry asset bytes, features/import.md) and no feature in its expected results has status `error` (a feature function that fails raises `FeatureError`, python-api.md 3.5). These are the conditions of python-api.md 3.9's first form.
 
-**Rust runner (`crates/partsmith-cli/tests/examples.rs`).** One integration test file, a module of the CLI's one test binary, run by `cargo test --workspace` (and alone by `cargo test -p partsmith-cli --test integration examples::`). It finds the repository root from `CARGO_MANIFEST_DIR` and runs the built binary (`CARGO_BIN_EXE_partsmith`) with the repository root as working directory. Its tests:
+**Rust runner (`crates/partsmith-cli/tests/examples.rs`).** One integration test module of the CLI's one test binary, with the export check in `tests/examples/export.rs` and the coverage checks in `tests/examples/coverage.rs` as its submodules, run by `cargo test --workspace` (and alone by `cargo test -p partsmith-cli --test integration examples::`). It finds the repository root from `CARGO_MANIFEST_DIR` and runs the built binary (`CARGO_BIN_EXE_partsmith`) with the repository root as working directory. Its tests:
 
 1. `examples_follow_the_layout`: every file under `examples/` outside `assets/` is an allowed `.ptsm`, `.expected.json` or `.py` path; every `.expected.json` and `.py` has its `.ptsm`; no example has a `rollback` member.
 2. `examples_are_canonical`: `partsmith fmt --check` over every example exits 0.
@@ -1058,7 +1060,7 @@ Tests 52 to 54, 57 and 59 are in `ui/scripts/workflows.test.mjs` and read the wo
 66. The steps of `kernel-wasm` and `core-wasm` in `ci.yml`. `kernel-wasm` has, after its step that uses `Swatinem/rust-cache`, three steps whose `run` is, in this order, `cargo test -p partsmith-occt-sys --target wasm32-unknown-emscripten`, `cargo test -p partsmith-sketch --target wasm32-unknown-emscripten` and `cargo test -p partsmith-engine --lib --target wasm32-unknown-emscripten dispatch::`. `core-wasm` has, after its step whose `run` is `scripts/build-wasm.sh` and before its step that uses `actions/upload-artifact`, a step whose `run` is `cargo test -p partsmith-wasm --test integration web_module::` with `env` `PARTSMITH_REQUIRE_WEB_MODULE: "1"`, then a step whose `run` is `cargo test -p partsmith-wasm --test integration web_parity:: -- --ignored`. A `run` written as a block scalar (`|`, which a command holding `:: ` or ending in `::` needs, since a plain YAML value cannot) is read as its one command line. Since a filter that matches no test passes with `running 0 tests`, the test also reads the sources the filters select: `crates/partsmith-wasm/tests/integration.rs` declares `mod web_module;` and `mod web_parity;`, `crates/partsmith-wasm/tests/web_parity.rs` has a `#[test]` with an `#[ignore` attribute next to it, and `crates/partsmith-engine/src/dispatch.rs` defines `fn a_panic_is_an_internal_error_that_poisons_its_document` and `fn a_poisoned_document_saves_its_recipe_from_before_the_failed_command`, the two tests protocol.md test 84 names.
 67. No workflow turns on the performance tests (ui.md 6.7, engine.md section 5, ADR 0043). No `.yml` file of `.github/workflows/`, `ci.yml`, `release.yml`, `nightly.yml` and `platforms.yml` among them, contains the text `PARTSMITH_PERF`, in an `env` at any level or in a `run`, so no job runs a `@perf` test, whose budgets hold only on the reference machine (1.2).
 
-**Export examples (2.8; `crates/partsmith-cli/tests/examples.rs`, run by `cargo test --workspace`)**
+**Export examples (2.8; `crates/partsmith-cli/tests/examples/export.rs`, run by `cargo test --workspace`)**
 
 Runner test 5 itself runs over the corpus in the `rust` job (test 3) and, on Windows and macOS, in the platforms workflow (2.14). Tests 68 to 70 check its parts on literal JSON, files they write and, in test 70, the built binary. Literal reports carry `<output>` as a JSON string value, since a Windows temporary path holds backslashes.
 
@@ -1075,7 +1077,7 @@ Runner test 5 itself runs over the corpus in the `rust` job (test 3) and, on Win
 
 73. The steps of `ci.yml`'s `python` job. It has, in this order, a step whose `run` is `pytest python/tests`, a step named `Measure the Python budgets` whose `run` is `pytest python/tests -m budgets -s`, and a step whose `run` is `pytest python/tests -m packaging`; none of the three has `continue-on-error`. So the budgets run on every CI run after the suite, a row that cannot be measured fails the job, and a row over its budget only warns, since the step adds no `-W` (python-api.md section 5).
 
-**Corpus coverage (2.8; `crates/partsmith-cli/tests/examples.rs`, run by `cargo test --workspace`)**
+**Corpus coverage (2.8; `crates/partsmith-cli/tests/examples/coverage.rs`, run by `cargo test --workspace`)**
 
 Runner tests 6 to 9 themselves run over the corpus in the `rust` job (test 3) and, on Windows and macOS, in the platforms workflow (2.14). Tests 74 to 78 check their parts on literal documents, literal expected results and literal file lists, with the engine's registry, schemas and printer profiles where a test names them. An example is given by its path below `examples/` without extension, as runner test 1 classifies it, and a test that keeps some problems compares them in the order the runner test sorts them.
 
@@ -1088,6 +1090,10 @@ Runner tests 6 to 9 themselves run over the corpus in the `rust` job (test 3) an
 **The browser install of the platforms workflow (2.14, open issue 16; test 79 in `ui/scripts/workflows.test.mjs`)**
 
 79. A slow mirror ends the install, not the job. In `platforms.yml`'s `e2e-engines`, the step whose `run` is `pnpm exec playwright install --with-deps ${{ matrix.browser }}` is named `Install ${{ matrix.browser }} and its system packages`, so GitHub's timeout error names the step and the engine, and has `timeout-minutes: 10`, under the job's 60. The report upload after it sets no `if-no-files-found`, so after a failed install it adds only the warning of 2.14, not a second error.
+
+**Test roots (ADR 0035; `ui/scripts/test-roots.test.mjs`, `node:test`, run by `pnpm test:scripts`)**
+
+80. Every test file is built. ADR 0035 builds a crate's integration tests as one binary, and a file of `tests/` that no root declares is never compiled, formatted or linted. The test reads the root `Cargo.toml`'s `members`, each `<folder>/*` standing for the folders in that folder, and for every member with a `tests/` folder: its `Cargo.toml` sets `autotests = false` in `[package]`; its roots are its `[[test]]` targets, `tests/<name>.rs` or the target's `path`; every other `.rs` file directly in `tests/`, and every folder of `tests/` that holds a `mod.rs`, is declared by a root; every other `.rs` file of such a folder is declared by its `mod.rs`; and every `.rs` file of a folder `tests/<stem>/` beside a file `tests/<stem>.rs` is declared by that file (`web_parity/` of `partsmith-wasm`, `examples/` of `partsmith-cli`). A file declares a module with a line `mod <name>;` or `pub mod <name>;`, attributes such as `#[cfg(...)]` allowed above it. Folders with neither a `mod.rs` nor a `<stem>.rs` beside them, such as `fixtures/` and `node/`, and folders below the first level are not read. One failure lists every member without `autotests = false` or without a `[[test]]` target, and every file not declared, each with the line that declares it and the file that line goes in. The same rules on literal manifests and files: a module declared under `#[cfg(...)]` counts as declared; a `[[test]]` named `budgets` is a root, which nothing declares; and a manifest without `autotests = false`, a `tests/<stem>.rs` that no root declares, a file of a `mod.rs` folder that its `mod.rs` does not declare, and a file of `tests/<stem>/` that `tests/<stem>.rs` does not declare each give exactly one problem.
 
 ## 7. Open issues
 

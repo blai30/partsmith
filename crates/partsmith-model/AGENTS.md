@@ -11,6 +11,7 @@ Spec (the definition of done): `docs/spec/model.md`, `docs/spec/expressions.md`,
 - Values: `Units`, `Color`, `BodyRole`, with `UnitsError`, `ColorError`.
 - Records: `Document` (lookups, `active_features`, `contains_id`, `used_ids`, `check_structure`, `validate`, `apply`, `apply_all`, `rename_parameter_edits`, `units_edits`, `bare_numbers`, `evaluate_parameters`, `normalize`), `Parameter`, `Body`, `FeatureRecord`.
 - Names: `validate_parameter_name`, `validate_label`, `is_valid_feature_type`, `LabelField`, `NameError`, `LabelError`.
+- Assets: `is_asset_name`, the content-hash file name of an asset (file-format.md section 3.11) that the engine, the features, the CLI and the desktop check.
 - Registry seam: `FeatureInspector`, `FeatureLinks`, `ExprLink` (`pointer`, `expr`, `unit`), `OpaqueFeatures`.
 - Problems: `StructureError`, `ValidationError`.
 - Edits: `Edit` (15 variants), `Step`, `Transaction`, `RecordKind`, `EditError`, `TransactionError`; `UndoLog` (`commit`, `record`, `undo`, `redo`, labels, counts) and `UndoError`.

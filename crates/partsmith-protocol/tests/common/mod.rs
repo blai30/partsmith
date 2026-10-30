@@ -96,6 +96,13 @@ pub fn frame_with_messages(messages: &str) -> Vec<u8> {
     )
 }
 
+/// Builds a request frame without buffers whose one request (id 5) carries `command`, a JSON text.
+pub fn request_frame(command: &str) -> Vec<u8> {
+    frame_with_messages(&format!(
+        r#"[{{"kind":"request","id":5,"command":{command}}}]"#
+    ))
+}
+
 /// The value of a frame's little-endian header length field.
 pub fn header_length(frame: &[u8]) -> usize {
     let field: [u8; 4] = frame[4..8]
@@ -211,6 +218,21 @@ pub fn assert_requires_all_but(schema: &Value, name: &str, complete: &Value, opt
             "{name} without {member} validates only when {member} is optional: {result:?}"
         );
     }
+}
+
+/// Checks that the `$defs` entry `name` accepts `accepted` and rejects `rejected`, so the rejection comes from what
+/// tells the two apart and not from a missing definition.
+pub fn assert_accepts_but_rejects(schema: &Value, name: &str, accepted: &Value, rejected: &Value) {
+    let pointer = format!("/$defs/{name}");
+    assert_eq!(
+        json_schema::validate(schema, &pointer, accepted),
+        Ok(()),
+        "{name} accepts {accepted}"
+    );
+    assert!(
+        json_schema::validate(schema, &pointer, rejected).is_err(),
+        "{name} rejects {rejected}"
+    );
 }
 
 /// The `$defs` entry `name` of the protocol schema.

@@ -9,9 +9,10 @@ use crate::feature_support;
 use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_2, PI};
 
+use feature_support::import::box_step_asset;
 use feature_support::{
-    Run, assert_messages_pass_lint, asset_name, body_before, box_step_asset, document_text, id,
-    parse_document, pick, remove_entry, set_field, set_reverse, use_reference,
+    Run, assert_messages_pass_lint, asset_name, body_before, document_text, id, parse_document,
+    pick, remove_entry, set_field, set_reverse, use_reference,
 };
 use partsmith_features::{
     Because, Diagnosis, Explanation, FeatureError, FeatureWarning, Fix, Repair, describe_elements,

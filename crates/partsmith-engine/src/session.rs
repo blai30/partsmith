@@ -34,7 +34,7 @@ use crate::types::{Asset, EngineInfo, Opened, Saved};
 const ESTIMATED_RESULT_BYTES: usize = 256 << 10;
 
 /// The shares of `cache_budget` that the session's two caches get (engine.md section 3.17).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CacheShares {
     /// The tessellation cache's budget in bytes: half of `cache_budget`, rounded down.
     display_bytes: usize,
@@ -385,6 +385,7 @@ mod tests {
     use partsmith_model::Parameter;
 
     use super::*;
+    use crate::test_support::opened_with;
 
     fn session() -> Session {
         Session::new(SessionOptions::headless())
@@ -510,32 +511,53 @@ mod tests {
         assert!(!dirty(&mut session, doc));
     }
 
-    /// The shares of `cache_budget` as `(display_bytes, recompute_results)`.
-    fn shares(cache_budget: usize) -> (usize, usize) {
-        let shares = cache_shares(cache_budget);
-        (shares.display_bytes, shares.recompute_results)
-    }
-
     #[test]
     fn t158_a_the_default_budgets_split_in_halves() {
-        assert_eq!(shares(1 << 30), (536_870_912, 2048));
-        assert_eq!(shares(512 << 20), (268_435_456, 1024));
+        assert_eq!(
+            cache_shares(1 << 30),
+            CacheShares {
+                display_bytes: 536_870_912,
+                recompute_results: 2048
+            }
+        );
+        assert_eq!(
+            cache_shares(512 << 20),
+            CacheShares {
+                display_bytes: 268_435_456,
+                recompute_results: 1024
+            }
+        );
     }
 
     #[test]
     fn t158_a_a_zero_budget_gives_both_caches_nothing() {
-        assert_eq!(shares(0), (0, 0));
+        assert_eq!(
+            cache_shares(0),
+            CacheShares {
+                display_bytes: 0,
+                recompute_results: 0
+            }
+        );
     }
 
     #[test]
     fn t158_a_the_odd_byte_goes_to_the_recompute_half() {
-        assert_eq!(shares(786_433), (393_216, 1));
+        assert_eq!(
+            cache_shares(786_433),
+            CacheShares {
+                display_bytes: 393_216,
+                recompute_results: 1
+            }
+        );
     }
 
     #[test]
     fn t158_a_the_two_shares_stay_within_the_budget() {
         for budget in [1 << 30, 512 << 20, 0, 786_433] {
-            let (display_bytes, recompute_results) = shares(budget);
+            let CacheShares {
+                display_bytes,
+                recompute_results,
+            } = cache_shares(budget);
 
             assert!(
                 display_bytes + recompute_results * ESTIMATED_RESULT_BYTES <= budget,
@@ -546,14 +568,13 @@ mod tests {
 
     #[test]
     fn t158_c_the_recompute_cache_keeps_only_its_half_of_the_budget() {
-        let mut session = Session::new(SessionOptions {
-            cache_budget: 786_432,
-            ..SessionOptions::headless()
-        });
-        let doc = session
-            .open_document(include_str!("../tests/fixtures/box.ptsm"), Vec::new())
-            .expect("box.ptsm opens")
-            .doc;
+        let (mut session, doc) = opened_with(
+            SessionOptions {
+                cache_budget: 786_432,
+                ..SessionOptions::headless()
+            },
+            include_str!("../tests/fixtures/box.ptsm"),
+        );
         let height = Parameter::new(crate::test_support::id("p-h"), "height", "45 mm");
 
         session

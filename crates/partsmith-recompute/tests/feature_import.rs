@@ -9,17 +9,19 @@ use crate::feature_support;
 
 use std::sync::Arc;
 
-use feature_support::import::{assets, block, block_bytes, step_bytes, void_listed_twice};
+use feature_support::import::{
+    assets, block, block_bytes, block_solid, step_body, step_bytes, void_listed_twice,
+};
 use feature_support::{
     Assets, Run, aliases, assert_bounding_box, assert_empty, assert_examples_canonical,
     assert_face_count, assert_face_in_plane, assert_face_names, assert_messages_pass_lint,
-    assert_shell_count, assert_solid_count, assert_volume, asset_name, body_changes, document,
-    examples_folder, face, load_example,
+    assert_shell_count, assert_solid_count, assert_volume, assert_volume_faces_and_bounds,
+    asset_name, body_changes, document, examples_folder, face, load_example,
 };
 use partsmith_features::FeatureError;
 use partsmith_occt_sys::{
-    PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, ShapeKind, StepBody,
-    SubShapeKind, TaggedCurve, compound, cut, make_box, make_profile, write_step,
+    PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, ShapeKind, SubShapeKind,
+    TaggedCurve, compound, cut, make_box, make_profile, write_step,
 };
 use partsmith_recompute::Message;
 
@@ -115,52 +117,48 @@ fn square(left: f64) -> PlanarRegion {
     }
 }
 
+/// The shape of `make_profile` on `Plane::XY` of one `square` for each of `lefts`.
+fn squares(lefts: &[f64]) -> Shape {
+    let regions: Vec<PlanarRegion> = lefts.iter().map(|&left| square(left)).collect();
+    make_profile(&Plane::XY, &regions)
+        .expect("the kernel makes the squares")
+        .shape
+}
+
 /// The fixture `FACES`: the shape of `make_profile` of two squares with 10 mm sides on
 /// `Plane::XY`, [50,60]x[0,10] and [70,80]x[0,10], a compound of two faces that bound no solid.
 fn two_faces() -> Shape {
-    make_profile(&Plane::XY, &[square(50.0), square(70.0)])
-        .expect("the kernel makes the two squares")
-        .shape
+    squares(&[50.0, 70.0])
+}
+
+/// One part named `Block` holding the block of `BYTES` and, beside it, `extra`.
+fn block_beside(extra: Shape) -> Arc<[u8]> {
+    let shape = compound(&[block_solid(), extra])
+        .expect("the kernel groups the block and what lies beside it")
+        .shape;
+    step_bytes(&[step_body("Block", shape)])
 }
 
 /// The fixture `SKIPPED`: one part named `Block` holding the block of `BYTES` and, beside it, the
 /// two faces of `FACES`.
 fn skipped_bytes() -> Arc<[u8]> {
-    let solid = block("Block", &Plane::XY, [10.0, 20.0, 30.0]).shape;
-    let shape = compound(&[solid, two_faces()])
-        .expect("the kernel groups the block and the faces")
-        .shape;
-    step_bytes(&[StepBody {
-        shape,
-        name: "Block".to_owned(),
-        color: None,
-    }])
+    block_beside(two_faces())
 }
 
 /// The fixture `FACE` of kernel.md test 139: the shape of `make_profile` of the square
 /// [50,60]x[0,10] alone on `Plane::XY`, one face.
 fn one_face() -> Shape {
-    make_profile(&Plane::XY, &[square(50.0)])
-        .expect("the kernel makes the square")
-        .shape
+    squares(&[50.0])
 }
 
 /// The fixture `ONE_FACE`: `SKIPPED` with only the first square, [50,60]x[0,10], beside the block.
 fn one_face_bytes() -> Arc<[u8]> {
-    let solid = block("Block", &Plane::XY, [10.0, 20.0, 30.0]).shape;
-    let shape = compound(&[solid, one_face()])
-        .expect("the kernel groups the block and the face")
-        .shape;
-    step_bytes(&[StepBody {
-        shape,
-        name: "Block".to_owned(),
-        color: None,
-    }])
+    block_beside(one_face())
 }
 
 /// `HOLLOW` of kernel.md test 140: the block of `BYTES` with the closed cavity [2,8]x[2,18]x[2,28].
 fn hollow() -> Shape {
-    let solid = block("Block", &Plane::XY, [10.0, 20.0, 30.0]).shape;
+    let solid = block_solid();
     let cavity_corner = Plane {
         origin: Point::new(2.0, 2.0, 2.0),
         ..Plane::XY
@@ -176,12 +174,7 @@ fn hollow() -> Shape {
 /// The STEP text `write_step` gives for `shape` as one body named `Hollow`, with its void listed
 /// twice (kernel.md tests 140 and 141).
 fn hollow_bytes_with_the_void_twice(shape: Shape) -> Arc<[u8]> {
-    let bytes = write_step(&[StepBody {
-        shape,
-        name: "Hollow".to_owned(),
-        color: None,
-    }])
-    .expect("the kernel writes STEP");
+    let bytes = write_step(&[step_body("Hollow", shape)]).expect("the kernel writes STEP");
     let step = String::from_utf8(bytes).expect("STEP text is UTF-8");
     Arc::from(void_listed_twice(&step).into_bytes())
 }
@@ -263,9 +256,7 @@ fn assert_invalid_hollow_block(run: &Run) {
         !shape.is_valid().expect("the kernel checks the solid"),
         "the solid is still invalid after repair"
     );
-    let names = hollow_face_names();
-    let names: Vec<&str> = names.iter().map(String::as_str).collect();
-    assert_face_names(run.body("b-1"), &names);
+    assert_face_names(run.body("b-1"), &hollow_face_names());
 }
 
 /// The bytes of the committed file `S` in `examples/import/assets/`.
@@ -292,10 +283,13 @@ fn run_committed_example(relative_path: &str) -> Run {
 /// Asserts the shape of test 1: the imported block alone in b-1, with volume 6000, 6 faces and the
 /// bounding box [0,0,0]-[10,20,30].
 fn assert_block_shape(run: &Run) {
-    let shape = run.shape("b-1");
-    assert_volume(shape, 6000.0);
-    assert_face_count(shape, 6);
-    assert_bounding_box(shape, [0.0, 0.0, 0.0], [10.0, 20.0, 30.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        6000.0,
+        6,
+        [0.0, 0.0, 0.0],
+        [10.0, 20.0, 30.0],
+    );
 }
 
 /// Asserts the result of test 1: every feature ok and the imported block alone in b-1.
@@ -357,10 +351,13 @@ fn assert_joined_to_the_cube(run: &Run) {
 /// Asserts the result of test 7: the block cut through the plate.
 fn assert_cut_through_the_plate(run: &Run) {
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 14000.0);
-    assert_face_count(shape, 10);
-    assert_bounding_box(shape, [-20.0, -15.0, 0.0], [20.0, 25.0, 10.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        14000.0,
+        10,
+        [-20.0, -15.0, 0.0],
+        [20.0, 25.0, 10.0],
+    );
     assert_eq!(body_changes(run, "f-imp1"), ["b-1 Cut"]);
 }
 
@@ -540,10 +537,13 @@ fn t009_intersect_volume_faces_and_bounds() {
     let run = run_committed_example("import/intersect-step-block.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 250.0);
-    assert_face_count(shape, 6);
-    assert_bounding_box(shape, [0.0, 0.0, 0.0], [5.0, 5.0, 10.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        250.0,
+        6,
+        [0.0, 0.0, 0.0],
+        [5.0, 5.0, 10.0],
+    );
 }
 
 #[test]

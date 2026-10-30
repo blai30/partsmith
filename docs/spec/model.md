@@ -377,6 +377,8 @@ pub fn validate_parameter_name(name: &str) -> Result<(), NameError>;
 pub fn validate_label(field: LabelField, text: &str) -> Result<(), LabelError>;
 /// True when `kind` is a valid feature type name (section 3.5).
 pub fn is_valid_feature_type(kind: &str) -> bool;
+/// True when `name` is an asset's file name (file-format.md section 3.11): 64 lowercase hex digits, a dot and a lowercase alphanumeric extension, `^[0-9a-f]{64}\.[a-z0-9]+$`.
+pub fn is_asset_name(name: &str) -> bool;
 
 /// Which label a `LabelError` is about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -78,6 +78,15 @@ impl FileKind {
             FileKind::Step => &["step", "stp"],
         }
     }
+
+    /// Whether the extension of `path`, compared without case, is one of the kind's.
+    fn matches(self, path: &Path) -> bool {
+        path.extension().is_some_and(|extension| {
+            self.extensions()
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known))
+        })
+    }
 }
 
 /// A file the user chose in a dialog: its file name and the grant that names it.
@@ -213,13 +222,10 @@ pub fn grant_of(path: &str) -> String {
 
 /// Whether `name` is an asset's file name (file-format.md 3.11): 64 lowercase hex digits, a dot and one of `ASSET_EXTENSIONS`.
 pub fn is_asset_name(name: &str) -> bool {
-    name.split_once('.').is_some_and(|(hash, extension)| {
-        hash.len() == 64
-            && hash
-                .bytes()
-                .all(|digit| matches!(digit, b'0'..=b'9' | b'a'..=b'f'))
-            && ASSET_EXTENSIONS.contains(&extension)
-    })
+    partsmith_engine::is_asset_name(name)
+        && name
+            .split_once('.')
+            .is_some_and(|(_, extension)| ASSET_EXTENSIONS.contains(&extension))
 }
 
 /// `NotAnAssetName` unless `name` is an asset's file name.
@@ -348,14 +354,11 @@ impl Files {
             });
         }
         let entry = assets.join(name);
-        let not_a_file = || FileError::NotAFile {
-            name: name.to_owned(),
-        };
         match look(&entry)? {
             Some(looked) if looked.is_file() => read_looked(&entry, &looked)
                 .map_err(|error| FileError::from_io(&error, &entry))?
-                .ok_or_else(not_a_file),
-            Some(_) => Err(not_a_file()),
+                .ok_or_else(|| not_a_file(name)),
+            Some(_) => Err(not_a_file(name)),
             None => Err(FileError::NotFound {
                 name: name.to_owned(),
             }),
@@ -379,26 +382,12 @@ impl Files {
         }
         let entry = assets.join(name);
         let permissions = match look(&entry)? {
-            Some(looked) if looked.is_dir() => {
-                return Err(FileError::NotAFile {
-                    name: name.to_owned(),
-                });
-            }
+            Some(looked) if looked.is_dir() => return Err(not_a_file(name)),
             Some(looked) if looked.is_file() => {
-                if looked.len() == bytes.len() as u64
-                    && read_looked(&entry, &looked)
-                        .map_err(|error| FileError::from_io(&error, &entry))?
-                        .is_some_and(|held| held == bytes)
-                {
+                if entry_holds(&entry, &looked, bytes)? {
                     return Ok(());
                 }
-                if looked.permissions().readonly() {
-                    return Err(FileError::Denied {
-                        name: name.to_owned(),
-                        detail: READ_ONLY.to_owned(),
-                    });
-                }
-                Some(looked.permissions())
+                Some(writable(&looked).map_err(|error| FileError::from_io(&error, &entry))?)
             }
             // A symbolic link, a socket or a pipe is replaced with a new file of default permissions.
             Some(_) | None => None,
@@ -411,14 +400,8 @@ impl Files {
     /// The grant of a file that is not a `.ptsm` document, such as an export target, reaches none.
     fn assets_folder(&self, grant: &str) -> Result<PathBuf, FileError> {
         let path = PathBuf::from(self.path_of(grant)?);
-        let is_document = path.extension().is_some_and(|extension| {
-            FileKind::Ptsm
-                .extensions()
-                .iter()
-                .any(|known| extension.eq_ignore_ascii_case(known))
-        });
         match path.parent() {
-            Some(folder) if is_document => Ok(folder.join(ASSETS_FOLDER)),
+            Some(folder) if FileKind::Ptsm.matches(&path) => Ok(folder.join(ASSETS_FOLDER)),
             _ => Err(FileError::UnknownGrant),
         }
     }
@@ -536,12 +519,19 @@ fn followed(path: &Path) -> io::Result<PathBuf> {
 /// The permissions of an existing `target`, None when it does not exist yet, and `PermissionDenied` when it is read-only.
 fn writable_permissions(target: &Path) -> io::Result<Option<Permissions>> {
     match fs::metadata(target) {
-        Ok(metadata) if metadata.permissions().readonly() => {
-            Err(io::Error::new(io::ErrorKind::PermissionDenied, READ_ONLY))
-        }
-        Ok(metadata) => Ok(Some(metadata.permissions())),
+        Ok(metadata) => writable(&metadata).map(Some),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
+    }
+}
+
+/// The permissions of an existing file, and `PermissionDenied` when it is read-only, which an atomic write would otherwise replace.
+fn writable(metadata: &Metadata) -> io::Result<Permissions> {
+    let permissions = metadata.permissions();
+    if permissions.readonly() {
+        Err(io::Error::new(io::ErrorKind::PermissionDenied, READ_ONLY))
+    } else {
+        Ok(permissions)
     }
 }
 
@@ -560,6 +550,22 @@ fn assets_folder_exists(assets: &Path) -> Result<bool, FileError> {
         Some(metadata) if metadata.is_dir() => Ok(true),
         Some(_) => Err(FileError::AssetsNotAFolder),
         None => Ok(false),
+    }
+}
+
+/// Whether the regular file `looked` at under `entry` holds exactly `bytes`, the entry check of file-format.md 3.11.
+fn entry_holds(entry: &Path, looked: &Metadata, bytes: &[u8]) -> Result<bool, FileError> {
+    if looked.len() != bytes.len() as u64 {
+        return Ok(false);
+    }
+    let held = read_looked(entry, looked).map_err(|error| FileError::from_io(&error, entry))?;
+    Ok(held.is_some_and(|held| held == bytes))
+}
+
+/// `NotAFile` for the asset `name`.
+fn not_a_file(name: &str) -> FileError {
+    FileError::NotAFile {
+        name: name.to_owned(),
     }
 }
 
@@ -679,15 +685,7 @@ fn utf8_path(path: PathBuf) -> Result<String, FileError> {
 
 /// `path` with `.` and the kind's first extension appended when its extension, compared without case, is not one of the kind's.
 fn with_extension_of(path: &str, kind: FileKind) -> String {
-    let extension = Path::new(path)
-        .extension()
-        .and_then(|extension| extension.to_str());
-    let has_extension = extension.is_some_and(|extension| {
-        kind.extensions()
-            .iter()
-            .any(|known| known.eq_ignore_ascii_case(extension))
-    });
-    if has_extension {
+    if kind.matches(Path::new(path)) {
         path.to_owned()
     } else {
         format!("{path}.{}", kind.extensions()[0])

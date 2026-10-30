@@ -1,6 +1,6 @@
 //! The `import` feature: puts the solids of a STEP asset into a body (docs/spec/features/import.md).
 
-use partsmith_model::{Category, FeatureManifest, Id};
+use partsmith_model::{Category, FeatureManifest, Id, is_asset_name};
 use partsmith_naming::{FaceSource, Motion, Successions, roles};
 use partsmith_occt_sys::{Operation, Shape, StepImport, SubShapeKind, read_step};
 use schemars::JsonSchema;
@@ -19,9 +19,6 @@ use crate::params::BodyOp;
 
 /// The extension of a STEP asset name.
 const STEP_EXTENSION: &str = ".step";
-
-/// The number of hex digits of a BLAKE3 hash, which names an asset.
-const HASH_DIGITS: usize = 64;
 
 /// Puts the solids of a STEP asset into a body.
 #[derive(Clone, Copy, Debug, Default)]
@@ -96,14 +93,9 @@ impl Feature for Import {
     }
 }
 
-/// True for a STEP asset name: 64 lowercase hex digits followed by `.step`.
+/// True for a STEP asset name: an asset's file name (`is_asset_name`) ending in `.step`.
 fn is_step_asset(asset: &str) -> bool {
-    asset.strip_suffix(STEP_EXTENSION).is_some_and(|hash| {
-        hash.len() == HASH_DIGITS
-            && hash
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    })
+    is_asset_name(asset) && asset.ends_with(STEP_EXTENSION)
 }
 
 /// One warning for the solids the kernel kept invalid, then one for the shapes it left out, each

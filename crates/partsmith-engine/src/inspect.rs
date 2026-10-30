@@ -196,7 +196,9 @@ impl Session {
             .identity
             .as_ref()
             .ok_or_else(|| EngineError::internal("an element table needs geometry"))?;
-        self.cache.table(identity, &view.state)
+        self.cache
+            .table(identity, &view.state)
+            .map_err(EngineError::from)
     }
 }
 

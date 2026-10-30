@@ -52,7 +52,8 @@ pub use inspect::{ExprLink, FeatureInspector, FeatureLinks, OpaqueFeatures};
 pub use manifest::{Category, FeatureManifest, FieldHint, FieldUnit, OptionHint, SelectionKind};
 pub use names::{
     LabelError, LabelField, MAX_FEATURE_TYPE_LENGTH, MAX_LABEL_LENGTH, MAX_PARAMETER_NAME_LENGTH,
-    NameError, RESERVED_NAMES, is_valid_feature_type, validate_label, validate_parameter_name,
+    NameError, RESERVED_NAMES, is_asset_name, is_valid_feature_type, validate_label,
+    validate_parameter_name,
 };
 pub use structure::StructureError;
 pub use undo::{UndoError, UndoLog};

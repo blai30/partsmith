@@ -13,7 +13,19 @@ use crate::output::Output;
 
 /// How many spaces more than its message line the action and candidate lines are indented
 /// (cli.md section 2.2), and the suggestion line of a print finding (section 3.3).
-pub const NESTED_INDENT: usize = 2;
+const NESTED_INDENT: usize = 2;
+
+/// Writes `suggested: <words>` under a line indented `message_indent` spaces, indented two spaces
+/// more: an action of a feature message (cli.md section 2.2) or the words of a print finding's
+/// suggestion (section 3.3).
+pub fn write_suggested(
+    output: &mut Output<'_>,
+    message_indent: usize,
+    words: &str,
+) -> io::Result<()> {
+    let indent = message_indent + NESTED_INDENT;
+    output.line(format_args!("{:indent$}suggested: {words}", ""))
+}
 
 /// What a feature message adds to its severity, code and text in JSON reports, in the order of
 /// cli.md section 3.3, each member omitted when absent or empty. Text reports print its actions and
@@ -80,10 +92,10 @@ impl MessageMembers {
     /// indented two spaces more: one `suggested: <label>` per action in the order offered, then one
     /// `candidate: <q>, <relation>` per candidate.
     pub fn write_lines(&self, output: &mut Output<'_>, message_indent: usize) -> io::Result<()> {
-        let indent = message_indent + NESTED_INDENT;
         for action in &self.actions {
-            output.line(format_args!("{:indent$}suggested: {}", "", action.label))?;
+            write_suggested(output, message_indent, &action.label)?;
         }
+        let indent = message_indent + NESTED_INDENT;
         for candidate in &self.candidates {
             output.line(format_args!(
                 "{:indent$}candidate: {}, {}",

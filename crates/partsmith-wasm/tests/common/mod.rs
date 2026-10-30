@@ -70,6 +70,15 @@ pub fn send_for_document(id: u64, command_type: &str, doc: &Value) -> ResponseFr
     response_frame(&call(&document_command_frame(id, command_type, doc)))
 }
 
+/// The header of a frame as JSON, each object's keys in the order the frame writes them (the workspace builds
+/// `serde_json` with `preserve_order`), or why it is not JSON. The frame holds at least its magic and header length.
+pub fn header_json(frame: &[u8]) -> serde_json::Result<Value> {
+    let length_field: [u8; 4] = frame[4..8].try_into().expect("frames have a header length");
+    let length =
+        usize::try_from(u32::from_le_bytes(length_field)).expect("header lengths fit in usize");
+    serde_json::from_slice(&frame[8..8 + length])
+}
+
 /// Decodes bytes the bridge returned as a response frame, failing the test with the decoder's message when they are not one.
 pub fn response_frame(bytes: &[u8]) -> ResponseFrame {
     decode_response_frame(bytes)

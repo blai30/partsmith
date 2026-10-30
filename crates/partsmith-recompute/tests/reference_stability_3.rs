@@ -597,13 +597,7 @@ fn check_nothing_changes(
             .expect("a valid region ref");
     let sketch = sketch_result(&session, "f-sk1");
     let profile = &sketch.profile;
-    let entities: Vec<partsmith_sketch::Id> = sketch
-        .solved
-        .entities
-        .iter()
-        .map(|entity| entity.id.clone())
-        .collect();
-    match partsmith_sketch::match_region(&profile.regions, &entities, &stored) {
+    match match_in_sketch(sketch, &stored) {
         partsmith_sketch::RegionMatch::Resolved {
             indices, method, ..
         } => {

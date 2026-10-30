@@ -1,7 +1,8 @@
-//! Helpers shared by the acceptance tests of `docs/spec/desktop.md` section 6: protocol frames, a fake for the native dialogs, and file grants made through it.
+//! Helpers shared by the acceptance tests of `docs/spec/desktop.md` section 6: protocol frames, a fake for the native dialogs, file grants made through it, temporary folders, the grant store and the asset `S`.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use partsmith_desktop::{Dialogs, FileError, FileKind, Files, Granted};
@@ -9,6 +10,14 @@ use partsmith_protocol::{
     Command, CommandResult, ErrorInfo, Outcome, Request, ResponseFrame, decode_response_frame,
     encode_request_frame,
 };
+use serde_json::Value;
+use tempfile::TempDir;
+
+/// A grant that looks valid but names no picked file.
+pub const UNKNOWN_GRANT: &str = "0123456789abcdef0123456789abcdef";
+
+/// The bytes of the asset `S` of desktop.md section 6.
+pub const SOLID: &[u8] = b"solid";
 
 /// Example A of protocol.md section 2.2: request id 1, `engine_info`, no buffers. 120 bytes, copied from the spec's hex dump.
 pub const EXAMPLE_A_HEX: &str = "
@@ -161,4 +170,50 @@ pub fn pick_save_path(
     kind: FileKind,
 ) -> Result<Option<Granted>, FileError> {
     files.pick_save(&FakeDialogs::choosing(path), "suggested.ptsm", kind)
+}
+
+/// `S` of desktop.md section 6: the BLAKE3 hash of `solid` followed by `.step`.
+pub fn solid_name() -> String {
+    format!("{}.step", blake3::hash(SOLID).to_hex())
+}
+
+/// A new temporary folder, deleted with its contents when dropped.
+pub fn temporary_folder() -> TempDir {
+    tempfile::tempdir().expect("a temporary folder can be created")
+}
+
+/// The names of the entries of a folder, sorted.
+pub fn folder_entries(folder: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(folder)
+        .expect("the folder can be listed")
+        .map(|entry| {
+            entry
+                .expect("the folder entry can be read")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// The paths listed in a grant store file, most recent first. The store has version 1, the one format the host writes.
+pub fn stored_paths(store: &Path) -> Vec<String> {
+    let text = fs::read_to_string(store).expect("the grant store exists");
+    let value: Value = serde_json::from_str(&text).expect("the grant store is JSON");
+    assert_eq!(value["version"], 1, "the grant store has version 1");
+    value["paths"]
+        .as_array()
+        .expect("the grant store lists paths")
+        .iter()
+        .map(|path| path.as_str().expect("each path is a string").to_owned())
+        .collect()
+}
+
+/// Makes a file read-only.
+pub fn make_read_only(path: &Path) {
+    let mut permissions = fs::metadata(path).expect("the file exists").permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(path, permissions).expect("the test can make the file read-only");
 }

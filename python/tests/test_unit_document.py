@@ -12,7 +12,9 @@ from pathlib import Path
 import pytest
 from support import (
     IMPORT_ASSET,
+    IMPORT_ASSET_BYTES,
     document_with_import,
+    fail_fsync_on_call,
     os_error_text,
     partsmith_warnings,
     record_file_operations,
@@ -281,7 +283,7 @@ def link_to_the_asset_bytes(entry):
     """The entry becomes a symbolic link to `shared.step` next to the `assets` folder, which holds the asset's
     bytes."""
     shared = entry.parent.parent / "shared.step"
-    shared.write_bytes(IMPORT_ASSET.read_bytes())
+    shared.write_bytes(IMPORT_ASSET_BYTES)
     entry.unlink(missing_ok=True)
     entry.symlink_to(shared)
 
@@ -293,14 +295,14 @@ def test_a_symbolic_link_to_the_asset_bytes_is_replaced_by_a_regular_file(tmp_pa
     document_with_import().save(tmp_path / "a.ptsm")
 
     assert stat.S_ISREG(os.lstat(entry).st_mode)
-    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
-    assert (tmp_path / "shared.step").read_bytes() == IMPORT_ASSET.read_bytes()
+    assert entry.read_bytes() == IMPORT_ASSET_BYTES
+    assert (tmp_path / "shared.step").read_bytes() == IMPORT_ASSET_BYTES
 
 
 def other_file_with_the_asset_bytes(entry):
     """Another regular file holding the asset's bytes is moved over the entry."""
     other = entry.parent.parent / "other.step"
-    other.write_bytes(IMPORT_ASSET.read_bytes())
+    other.write_bytes(IMPORT_ASSET_BYTES)
     other.rename(entry)
 
 
@@ -315,7 +317,7 @@ def pipe_in_place(entry):
 )
 def test_an_entry_that_changed_after_the_look_is_replaced_without_being_read(tmp_path, monkeypatch, swap):
     entry = assets_entry(tmp_path)
-    entry.write_bytes(IMPORT_ASSET.read_bytes())
+    entry.write_bytes(IMPORT_ASSET_BYTES)
     document = document_with_import()
     swap_after_the_look(monkeypatch, entry, swap)
     operations = record_file_operations(monkeypatch)
@@ -324,7 +326,7 @@ def test_an_entry_that_changed_after_the_look_is_replaced_without_being_read(tmp
 
     assert operations == [("fsync",), ("replace", entry), ("fsync",), ("replace", tmp_path / "a.ptsm")]
     assert stat.S_ISREG(os.lstat(entry).st_mode)
-    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+    assert entry.read_bytes() == IMPORT_ASSET_BYTES
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes exist on POSIX only")
@@ -336,20 +338,20 @@ def test_a_pipe_under_an_asset_name_is_replaced_without_being_read(tmp_path):
     save_without_waiting_on_the_pipe(document, tmp_path / "a.ptsm", entry)
 
     assert stat.S_ISREG(os.lstat(entry).st_mode)
-    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+    assert entry.read_bytes() == IMPORT_ASSET_BYTES
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes exist on POSIX only")
 def test_an_entry_swapped_for_a_pipe_after_the_look_is_replaced_without_being_read(tmp_path, monkeypatch):
     document = document_with_import()
     entry = assets_entry(tmp_path)
-    entry.write_bytes(IMPORT_ASSET.read_bytes())
+    entry.write_bytes(IMPORT_ASSET_BYTES)
     swap_after_the_look(monkeypatch, entry, pipe_in_place)
 
     save_without_waiting_on_the_pipe(document, tmp_path / "a.ptsm", entry)
 
     assert stat.S_ISREG(os.lstat(entry).st_mode)
-    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+    assert entry.read_bytes() == IMPORT_ASSET_BYTES
 
 
 def test_a_file_of_another_size_under_an_asset_name_is_replaced_without_being_read(tmp_path, monkeypatch):
@@ -361,7 +363,7 @@ def test_a_file_of_another_size_under_an_asset_name_is_replaced_without_being_re
     document.save(tmp_path / "a.ptsm")
 
     assert entry not in opened
-    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+    assert entry.read_bytes() == IMPORT_ASSET_BYTES
 
 
 def test_a_linked_assets_folder_is_followed(tmp_path):
@@ -374,7 +376,7 @@ def test_a_linked_assets_folder_is_followed(tmp_path):
 
     assert folder.is_symlink()
     assert os.listdir(shared) == [IMPORT_ASSET.name]
-    assert (shared / IMPORT_ASSET.name).read_bytes() == IMPORT_ASSET.read_bytes()
+    assert (shared / IMPORT_ASSET.name).read_bytes() == IMPORT_ASSET_BYTES
 
 
 def test_a_linked_assets_folder_that_leads_to_no_folder_fails_the_save(tmp_path):
@@ -399,7 +401,7 @@ def test_a_read_only_wrong_file_under_an_asset_name_is_replaced(tmp_path):
 
     document_with_import().save(tmp_path / "a.ptsm")
 
-    assert entry.read_bytes() == IMPORT_ASSET.read_bytes()
+    assert entry.read_bytes() == IMPORT_ASSET_BYTES
 
 
 def test_a_save_never_creates_the_parents_of_the_assets_folder(tmp_path):
@@ -416,7 +418,7 @@ def test_a_save_never_creates_the_parents_of_the_assets_folder(tmp_path):
 
 def test_a_kept_asset_is_neither_flushed_nor_replaced(tmp_path, monkeypatch):
     entry = assets_entry(tmp_path)
-    entry.write_bytes(IMPORT_ASSET.read_bytes())
+    entry.write_bytes(IMPORT_ASSET_BYTES)
     document = document_with_import()
     operations = record_file_operations(monkeypatch)
 
@@ -446,10 +448,7 @@ def test_a_failed_export_flush_names_the_file_and_keeps_the_old_one(tmp_path, mo
     target = tmp_path / "a.stl"
     target.write_bytes(b"old")
 
-    def full_disk(descriptor):
-        raise OSError(errno.ENOSPC, "No space left on device")
-
-    monkeypatch.setattr(os, "fsync", full_disk)
+    fail_fsync_on_call(monkeypatch, 1)
 
     with pytest.raises(OSError) as raised:
         export_stl(part, target)

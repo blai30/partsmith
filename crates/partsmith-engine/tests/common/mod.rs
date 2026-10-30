@@ -8,7 +8,7 @@
 
 use std::ffi::OsStr;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use partsmith_engine::{SequentialIds, Session, SessionOptions};
 use partsmith_protocol::{
@@ -26,12 +26,17 @@ pub const X_AXIS: [f64; 3] = [1.0, 0.0, 0.0];
 /// The unit vector along Z.
 pub const Z_AXIS: [f64; 3] = [0.0, 0.0, 1.0];
 
-/// The text of a fixture in `tests/fixtures/` (engine.md section 3.20).
-pub fn fixture(name: &str) -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+/// The path of a fixture in `tests/fixtures/` (engine.md section 3.20).
+pub fn fixture_path(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
-        .join(name);
+        .join(name)
+}
+
+/// The text of a fixture in `tests/fixtures/` (engine.md section 3.20).
+pub fn fixture(name: &str) -> String {
+    let path = fixture_path(name);
     std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("fixture {} is readable: {error}", path.display()))
 }

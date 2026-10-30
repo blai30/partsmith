@@ -47,8 +47,11 @@ fn rebuild(text: &str, arguments: &[&str]) -> Run {
 /// The line right after the only line that starts with `prefix`.
 fn line_after_the_one_starting_with<'a>(run: &'a Run, prefix: &str) -> &'a str {
     let lines = run.stdout_lines();
-    let matching: Vec<usize> = (0..lines.len())
-        .filter(|&index| lines[index].starts_with(prefix))
+    let matching: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.starts_with(prefix))
+        .map(|(index, _)| index)
         .collect();
     assert_eq!(
         matching.len(),
@@ -65,7 +68,8 @@ fn line_after_the_one_starting_with<'a>(run: &'a Run, prefix: &str) -> &'a str {
 /// written `-8` or `8` and `-13` or `13`.
 fn drain_hole_corner(line: &str) -> (f64, f64) {
     let inside = line
-        .strip_prefix("      suggested: Add a drain hole near (")
+        .strip_prefix(SUGGESTED)
+        .and_then(|rest| rest.strip_prefix("Add a drain hole near ("))
         .and_then(|rest| rest.strip_suffix(", 2 mm)"))
         .unwrap_or_else(|| panic!("a drain hole line at z = 2, got {line:?}"));
     let (x, y) = inside

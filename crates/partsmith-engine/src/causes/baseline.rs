@@ -419,19 +419,15 @@ pub(super) struct UsedParameters {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::id;
-    use crate::{Session, SessionOptions};
+    use crate::SessionOptions;
+    use crate::test_support::{id, opened_with};
 
     /// `fillet.ptsm`: a box sized by the parameter `height`, and a fillet on one of its edges.
     const FILLET: &str = include_str!("../../tests/fixtures/fillet.ptsm");
 
     /// The baseline of `text` as a headless session opened it.
     fn baseline_of(text: &str) -> Baseline {
-        let mut session = Session::new(SessionOptions::headless());
-        let doc = session
-            .open_document(text, Vec::new())
-            .expect("the document opens")
-            .doc;
+        let (session, doc) = opened_with(SessionOptions::headless(), text);
         let open = &session.documents[&doc];
         Baseline::of(
             Arc::clone(&session.registry),

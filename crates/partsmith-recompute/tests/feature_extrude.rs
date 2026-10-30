@@ -8,8 +8,8 @@ use feature_support::{
     AXIS_TOLERANCE, BOX_BELOW, Run, absent_faces, assert_bounding_box, assert_coordinates,
     assert_empty, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_axis_direction, assert_face_axis_through, assert_face_count, assert_face_in_plane,
-    assert_face_kind, assert_face_names, assert_face_normal, assert_face_radius, assert_flat_face,
-    assert_has_face, assert_messages_pass_lint, assert_no_face, assert_solid_count,
+    assert_face_names, assert_face_normal, assert_flat_face, assert_has_face,
+    assert_messages_pass_lint, assert_no_face, assert_round_face, assert_solid_count,
     assert_unchanged, assert_volume, assert_volume_faces_and_bounds, body_update, document_text,
     element_names, face, face_names_with_prefix, id, keep_and_pick, line, message, output_body,
     parse_document, pick, reference_json, set_field, set_reverse, solved_point,
@@ -1716,9 +1716,12 @@ fn t062_a_profile_bounded_by_an_arc_builds_a_block_with_a_round_end() {
 fn t062_the_side_swept_from_the_arc_is_a_cylinder_named_after_the_arc() {
     let run = Run::example("extrude/arc-bounded.ptsm");
 
-    let side = face(run.body("b-1"), "f-ext1/lateral/e-2");
-    assert_face_kind(&side, GeometryKind::Cylinder);
-    assert_face_radius(&side, 25.0);
+    let side = assert_round_face(
+        run.body("b-1"),
+        "f-ext1/lateral/e-2",
+        GeometryKind::Cylinder,
+        25.0,
+    );
     assert_face_area(&side, 2356.19449);
     assert_face_axis_direction(&side, [0.0, 0.0, 1.0]);
     assert_face_axis_through(&side, [80.0, 25.0, 0.0]);

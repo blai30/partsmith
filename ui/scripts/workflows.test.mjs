@@ -105,7 +105,8 @@ const PINNED_ACTIONS = {
 // The workflow files of section 2.1.
 const WORKFLOW_FILES = ['ci.yml', 'release.yml', 'nightly.yml', 'platforms.yml']
 
-// The jobs that run cargo test on Windows and macOS, and the commands of their two test steps (section 2.14).
+// The jobs that run on Windows and macOS (section 2.14), and rust-platforms' three test steps: the crate tests, then
+// the examples runner and clippy, which also run after failing crate tests.
 const PLATFORM_JOBS = ['occt-platforms', 'rust-platforms']
 const CRATE_TESTS =
   'cargo test --no-fail-fast -p partsmith-occt-sys -p partsmith-engine -p partsmith-desktop'
@@ -145,6 +146,16 @@ const PANIC_TESTS = [
   'a_poisoned_document_saves_its_recipe_from_before_the_failed_command',
 ]
 
+// The variable that turns on the performance tests (ui.md 6.7, engine.md section 5), whose budgets hold only on the
+// reference machine (section 1.2).
+const PERFORMANCE_VARIABLE = 'PARTSMITH_PERF'
+
+// The test steps of ci.yml's python job (section 2.4, test 73), in the order they run.
+const PYTHON_SUITE = 'pytest python/tests'
+const PYTHON_BUDGETS = 'pytest python/tests -m budgets -s'
+const PYTHON_BUDGETS_STEP = 'Measure the Python budgets'
+const PYTHON_PACKAGING = 'pytest python/tests -m packaging'
+
 /** Creates a temporary directory that is removed when the test ends. */
 async function temporaryDirectory(context) {
   const directory = await mkdtemp(join(tmpdir(), 'partsmith-workflows-'))
@@ -155,6 +166,12 @@ async function temporaryDirectory(context) {
 /** The text of the workflow file `file`. */
 function workflowText(file) {
   return readFile(join(workflowsDirectory, file), 'utf8')
+}
+
+/** The texts of the workflow files `files`, as `[file, text]` pairs in the order of `files`. */
+async function workflowTexts(files) {
+  const texts = await Promise.all(files.map(workflowText))
+  return files.map((file, i) => [file, texts[i]])
 }
 
 /**
@@ -179,18 +196,57 @@ function workflowJobs(text) {
   return jobs
 }
 
-/** The job `id` of the workflow file `file`; fails the test when the file has no such job. */
-async function workflowJob(file, id) {
-  const job = workflowJobs(await workflowText(file)).find((listed) => listed.id === id)
+/** The job `id` of `jobs`, the jobs of the workflow file `file`; fails the test when there is no such job. */
+function findJob(jobs, file, id) {
+  const job = jobs.find((listed) => listed.id === id)
   assert.ok(job, `${file} has no job ${id}`)
   return job
 }
 
+/** The job `id` of the workflow file `file`; fails the test when the file has no such job. */
+async function workflowJob(file, id) {
+  return findJob(workflowJobs(await workflowText(file)), file, id)
+}
+
+/**
+ * The lines below the top-level key `key` of a workflow's text, such as its `on` or `env`, with their two-space
+ * indentation removed and comments and blank lines left out; fails the test when the text has no such key.
+ */
+function topLevelLines(text, key) {
+  const block = blockBelow(text.split('\n'), `${key}:`, 2)
+  assert.ok(block, `the workflow has no top-level ${key}`)
+  return block
+}
+
+/** The value of the key `key` of a job, the rest of its line `    key: value`; undefined when the job has none. */
+function jobValue(job, key) {
+  const prefix = `    ${key}:`
+  const line = job.lines.find((jobLine) => jobLine.startsWith(prefix))
+  return line === undefined ? undefined : line.slice(prefix.length).trim()
+}
+
 /** The `timeout-minutes` of a job as a number, or undefined when it sets none. */
 function timeoutMinutes(job) {
-  const prefix = '    timeout-minutes: '
-  const line = job.lines.find((jobLine) => jobLine.startsWith(prefix))
-  return line === undefined ? undefined : Number(line.slice(prefix.length))
+  const value = jobValue(job, 'timeout-minutes')
+  return value === undefined ? undefined : Number(value)
+}
+
+/** The jobs a job needs, in order: none, one written alone, or a list written `[a, b]`. */
+function jobNeeds(job) {
+  const value = jobValue(job, 'needs')
+  if (value === undefined) {
+    return []
+  }
+  const list = /^\[(.*)\]$/.exec(value)
+  return list === null ? [value] : list[1].split(',').map((need) => need.trim())
+}
+
+/**
+ * The lines below the key `key` of a job, such as its `strategy`, `defaults` or `env`, with the six spaces of their
+ * indentation removed and comments and blank lines left out; undefined when the job has no such key.
+ */
+function jobBlock(job, key) {
+  return blockBelow(job.lines, `    ${key}:`, 6)
 }
 
 /**
@@ -209,23 +265,23 @@ function jobSteps(job) {
   return steps
 }
 
+/** The value of `key` in a step: the rest of its line, or for a block scalar (`|`) the lines below it. */
+function stepValue(step, key) {
+  const index = step.findIndex((line) => line.startsWith(`${key}:`))
+  if (index === -1) {
+    return undefined
+  }
+  const value = step[index].slice(key.length + 1).trim()
+  return value === '|' ? `${indentedLines(step, index).join('\n')}\n` : value
+}
+
 /**
  * The lines of the mapping `key` of a step, such as its `env` or `with`, with their indentation of two spaces
  * removed, so that its entries start the lines as a step's keys do; undefined when the step has no such key.
  */
 function mappingLines(step, key) {
   const index = step.indexOf(`${key}:`)
-  if (index === -1) {
-    return undefined
-  }
-  const lines = []
-  for (const line of step.slice(index + 1)) {
-    if (!line.startsWith('  ')) {
-      break
-    }
-    lines.push(line.slice(2))
-  }
-  return lines
+  return index === -1 ? undefined : indentedLines(step, index)
 }
 
 /**
@@ -234,18 +290,70 @@ function mappingLines(step, key) {
  */
 function stepMapping(step, key) {
   const lines = mappingLines(step, key)
-  if (lines === undefined) {
-    return undefined
-  }
-  const entries = {}
+  return lines === undefined ? undefined : mappingEntries(lines)
+}
+
+/** The entries `key: value` of mapping lines that start at their first character, as an object of the values as written. */
+function mappingEntries(lines) {
+  const mapping = {}
   // The lines of a block scalar are indented further, so they match no entry and belong to the entry above them.
   for (const line of lines) {
-    const entry = /^([\w-]+): (.*)$/.exec(line)
+    const entry = /^([\w-]+): ?(.*)$/.exec(line)
     if (entry !== null) {
-      entries[entry[1]] = entry[2]
+      mapping[entry[1]] = entry[2]
     }
   }
-  return entries
+  return mapping
+}
+
+/** A scalar as YAML reads it: the text inside matching single or double quotes, else the text itself. */
+function unquoted(value) {
+  const quoted = /^(["'])(.*)\1$/.exec(value)
+  return quoted === null ? value : quoted[2]
+}
+
+/**
+ * The lines after the line at `start` of `lines` that are indented by at least two spaces, up to the first that is
+ * not, with two spaces removed.
+ */
+function indentedLines(lines, start) {
+  const block = []
+  for (const line of lines.slice(start + 1)) {
+    if (!line.startsWith('  ')) {
+      break
+    }
+    block.push(line.slice(2))
+  }
+  return block
+}
+
+/**
+ * The lines below the line `keyLine` of `lines` that are indented by at least `indent` spaces, up to the first that is
+ * not, with `indent` spaces removed and comments and blank lines left out; undefined when `lines` has no line `keyLine`.
+ */
+function blockBelow(lines, keyLine, indent) {
+  const start = lines.indexOf(keyLine)
+  if (start === -1) {
+    return undefined
+  }
+  const prefix = ' '.repeat(indent)
+  const block = []
+  for (const line of lines.slice(start + 1)) {
+    if (isBlankOrComment(line)) {
+      continue
+    }
+    if (!line.startsWith(prefix)) {
+      break
+    }
+    block.push(line.slice(indent))
+  }
+  return block
+}
+
+/** Whether a workflow line holds nothing but spaces or a comment. */
+function isBlankOrComment(line) {
+  const trimmed = line.trim()
+  return trimmed === '' || trimmed.startsWith('#')
 }
 
 /** The index of the first step of `steps` for which `matches` is true; fails the test, naming `what`, when none is. */
@@ -265,24 +373,59 @@ function commandStep(steps, command) {
   return stepIndex(steps, `that runs ${command}`, (step) => stepValue(step, 'run') === command)
 }
 
-/** The value of `key` in a step: the rest of its line, or for a block scalar (`|`) the lines below it. */
-function stepValue(step, key) {
-  const index = step.findIndex((line) => line.startsWith(`${key}:`))
-  if (index === -1) {
-    return undefined
-  }
-  const value = step[index].slice(key.length + 1).trim()
-  if (value !== '|') {
-    return value
-  }
-  const block = []
-  for (const line of step.slice(index + 1)) {
-    if (!line.startsWith('  ')) {
-      break
-    }
-    block.push(line.slice(2))
-  }
-  return `${block.join('\n')}\n`
+/** The index of the step of `steps` with the `id` `id`; fails the test when there is none. */
+function idStep(steps, id) {
+  return stepIndex(steps, `with id ${id}`, (step) => stepValue(step, 'id') === id)
+}
+
+/** The index of the step of `steps` that uses `action` at its release of section 2.2; fails the test when there is none. */
+function usesStep(steps, action) {
+  const used = pinned(action)
+  return stepIndex(steps, `that uses ${used}`, (step) => stepValue(step, 'uses') === used)
+}
+
+/** The index of the step of `steps` that uses `action` at any version and whose `with` sets `path` to `path`. */
+function cacheStep(steps, action, path) {
+  return stepIndex(
+    steps,
+    `that uses ${action} for ${path}`,
+    (step) => usesAction(step, action) && stepMapping(step, 'with')?.path === path,
+  )
+}
+
+/** The `with` of the step of `steps` that `cacheStep` finds. */
+function cacheOptions(steps, action, path) {
+  return stepMapping(steps[cacheStep(steps, action, path)], 'with')
+}
+
+/** The steps of the workflow `text` that use `action` at any version, in order. */
+function actionSteps(text, action) {
+  return workflowJobs(text).flatMap((job) =>
+    jobSteps(job).filter((step) => usesAction(step, action)),
+  )
+}
+
+/** Whether `step` uses `action` (its name before `@`) at any version. */
+function usesAction(step, action) {
+  return stepValue(step, 'uses')?.startsWith(`${action}@`) === true
+}
+
+/** The `uses` value of `action` at its release of section 2.2, such as `ilammy/msvc-dev-cmd@v1.13.0`. */
+function pinned(action) {
+  assert.ok(Object.hasOwn(PINNED_ACTIONS, action), `${action} is not in section 2.2`)
+  return `${action}@${PINNED_ACTIONS[action]}`
+}
+
+/** The command line of a step's `run`: its value, or the one line of a block scalar without its line break. */
+function stepCommand(step) {
+  return stepValue(step, 'run')?.replace(/\n$/, '')
+}
+
+/** The index of the first step of `steps` at or after `start` that runs `command`; fails the test, naming `job`, when there is none. */
+function commandStepFrom(steps, start, command, job) {
+  const index = steps.findIndex((step, i) => i >= start && stepCommand(step) === command)
+  assert.notEqual(index, -1, `${job} has no step after step ${start} that runs ${command}`)
+  return index
 }
 
 /**
@@ -292,8 +435,8 @@ function stepValue(step, key) {
  */
 async function runSkipCheck(context, answer) {
   const properties = await workflowJob('nightly.yml', 'properties')
-  const step = jobSteps(properties).find((listed) => stepValue(listed, 'id') === 'skip')
-  assert.ok(step, 'nightly.yml properties has no step with id skip')
+  const steps = jobSteps(properties)
+  const step = steps[idStep(steps, 'skip')]
   const directory = await temporaryDirectory(context)
   const stubDirectory = join(directory, 'stub')
   const stubPath = join(stubDirectory, 'gh')
@@ -331,22 +474,17 @@ async function runSkipCheck(context, answer) {
 }
 
 test('49: every job sets the timeout-minutes of sections 2.4, 2.5, 2.11 and 2.14', async () => {
-  const files = Object.keys(EXPECTED_TIMEOUTS)
-  const texts = await Promise.all(files.map(workflowText))
-  files.forEach((file, i) => {
-    const actual = workflowJobs(texts[i]).map((job) => [job.id, timeoutMinutes(job)])
+  for (const [file, text] of await workflowTexts(Object.keys(EXPECTED_TIMEOUTS))) {
+    const actual = workflowJobs(text).map((job) => [job.id, timeoutMinutes(job)])
     assert.deepEqual(actual, Object.entries(EXPECTED_TIMEOUTS[file]), file)
-  })
+  }
 })
 
 test('50: the schema job installs the packages first and checks the notices only when they are installed', async () => {
   const steps = jobSteps(await workflowJob('ci.yml', 'schema'))
-  const commands = steps.map((step) => stepValue(step, 'run'))
-  const install = steps.findIndex((step) => stepValue(step, 'id') === 'install')
-  const schemaWrite = commands.indexOf('cargo run -p partsmith-cli -- schema --write')
-  assert.notEqual(install, -1, 'ci.yml schema has no step with id install')
-  assert.notEqual(schemaWrite, -1, 'ci.yml schema does not run schema --write')
-  assert.equal(commands[install], 'pnpm -C ui install --frozen-lockfile')
+  const install = idStep(steps, 'install')
+  const schemaWrite = commandStep(steps, 'cargo run -p partsmith-cli -- schema --write')
+  assert.equal(stepValue(steps[install], 'run'), 'pnpm -C ui install --frozen-lockfile')
   assert.ok(install < schemaWrite, 'the install comes after schema --write')
   assert.equal(stepValue(steps.at(-1), 'run'), 'pnpm -C ui check:notices')
   assert.equal(
@@ -572,10 +710,10 @@ test('53: the deploy job checks the source stamp after downloading web-dist and 
     steps,
     'that downloads web-dist',
     (step) =>
-      stepValue(step, 'uses')?.startsWith('actions/download-artifact@') &&
+      usesAction(step, 'actions/download-artifact') &&
       stepMapping(step, 'with')?.name === 'web-dist',
   )
-  const pages = stepIndex(steps, 'with id pages', (step) => stepValue(step, 'id') === 'pages')
+  const pages = idStep(steps, 'pages')
 
   assert.equal(stepValue(steps[check], 'if'), "steps.secrets.outputs.available == 'true'")
   assert.ok(
@@ -678,18 +816,9 @@ test('57: the notices statements name the stamp, the archive and its script', as
   }
 })
 
-/** The steps of the workflow `text` that use `action` (its name before `@`), in order. */
-function actionSteps(text, action) {
-  return workflowJobs(text).flatMap((job) =>
-    jobSteps(job).filter((step) => stepValue(step, 'uses')?.startsWith(`${action}@`)),
-  )
-}
-
 test('59: every artifact the workflows upload is kept 7 days', async () => {
-  const files = Object.keys(EXPECTED_UPLOADS)
-  const texts = await Promise.all(files.map(workflowText))
-  files.forEach((file, i) => {
-    const uploads = actionSteps(texts[i], 'actions/upload-artifact').map((step) =>
+  for (const [file, text] of await workflowTexts(Object.keys(EXPECTED_UPLOADS))) {
+    const uploads = actionSteps(text, 'actions/upload-artifact').map((step) =>
       stepMapping(step, 'with'),
     )
 
@@ -698,24 +827,21 @@ test('59: every artifact the workflows upload is kept 7 days', async () => {
       EXPECTED_UPLOADS[file].map((name) => [name, '7']),
       file,
     )
-  })
+  }
 })
 
 /** Whether `step` downloads the artifact `core-wasm` into `ui/public`. */
 function downloadsCoreIntoPublic(step) {
   const options = stepMapping(step, 'with')
   return (
-    stepValue(step, 'uses')?.startsWith('actions/download-artifact@') === true &&
+    usesAction(step, 'actions/download-artifact') &&
     options?.name === 'core-wasm' &&
     options.path === 'ui/public'
   )
 }
 
 test('59: every core-wasm artifact holds the web notices next to the core, and the jobs that need it download it into ui/public', async () => {
-  const files = Object.keys(CORE_DOWNLOADS)
-  const texts = await Promise.all(files.map(workflowText))
-  files.forEach((file, i) => {
-    const text = texts[i]
+  for (const [file, text] of await workflowTexts(Object.keys(CORE_DOWNLOADS))) {
     const upload = actionSteps(text, 'actions/upload-artifact').find(
       (step) => stepMapping(step, 'with')?.name === 'core-wasm',
     )
@@ -729,120 +855,19 @@ test('59: every core-wasm artifact holds the web notices next to the core, and t
     )
     // The jobs alone would not catch an artifact without the notices: they take them from their checkout.
     for (const id of CORE_DOWNLOADS[file]) {
-      const job = jobs.find((listed) => listed.id === id)
-      assert.ok(job, `${file} has no job ${id}`)
       stepIndex(
-        jobSteps(job),
+        jobSteps(findJob(jobs, file, id)),
         `in ${id} of ${file} that downloads core-wasm into ui/public`,
         downloadsCoreIntoPublic,
       )
     }
-  })
+  }
 })
-
-/**
- * The lines below the top-level key `key` of a workflow's text, such as its `on` or `env`, with their two-space
- * indentation removed and comments and blank lines left out; fails the test when the text has no such key.
- */
-function topLevelLines(text, key) {
-  const lines = text.split('\n')
-  const start = lines.indexOf(`${key}:`)
-  assert.notEqual(start, -1, `the workflow has no top-level ${key}`)
-  const block = []
-  for (const line of lines.slice(start + 1)) {
-    if (/^\S/.test(line)) {
-      break
-    }
-    if (!isBlankOrComment(line)) {
-      block.push(line.slice(2))
-    }
-  }
-  return block
-}
-
-/** Whether a workflow line holds nothing but spaces or a comment. */
-function isBlankOrComment(line) {
-  const trimmed = line.trim()
-  return trimmed === '' || trimmed.startsWith('#')
-}
-
-/** The entries `key: value` of mapping lines that start at their first character, as an object of the values as written. */
-function mappingEntries(lines) {
-  const mapping = {}
-  for (const line of lines) {
-    const entry = /^([\w-]+): ?(.*)$/.exec(line)
-    if (entry !== null) {
-      mapping[entry[1]] = entry[2]
-    }
-  }
-  return mapping
-}
-
-/** The value of the key `key` of a job, the rest of its line `    key: value`; undefined when the job has none. */
-function jobValue(job, key) {
-  const prefix = `    ${key}:`
-  const line = job.lines.find((jobLine) => jobLine.startsWith(prefix))
-  return line === undefined ? undefined : line.slice(prefix.length).trim()
-}
-
-/**
- * The lines below the key `key` of a job, such as its `strategy`, `defaults` or `env`, with the six spaces of their
- * indentation removed and comments and blank lines left out; undefined when the job has no such key.
- */
-function jobBlock(job, key) {
-  const index = job.lines.indexOf(`    ${key}:`)
-  if (index === -1) {
-    return undefined
-  }
-  const block = []
-  for (const line of job.lines.slice(index + 1)) {
-    if (isBlankOrComment(line)) {
-      continue
-    }
-    if (!line.startsWith('      ')) {
-      break
-    }
-    block.push(line.slice(6))
-  }
-  return block
-}
-
-/** The jobs a job needs, in order: none, one written alone, or a list written `[a, b]`. */
-function jobNeeds(job) {
-  const value = jobValue(job, 'needs')
-  if (value === undefined) {
-    return []
-  }
-  const list = /^\[(.*)\]$/.exec(value)
-  return list === null ? [value] : list[1].split(',').map((need) => need.trim())
-}
-
-/** A scalar as YAML reads it: the text inside matching single or double quotes, else the text itself. */
-function unquoted(value) {
-  const quoted = /^(["'])(.*)\1$/.exec(value)
-  return quoted === null ? value : quoted[2]
-}
-
-/** The index of the step of `steps` that uses `action` at any version and whose `with` sets `path` to `path`. */
-function cacheStep(steps, action, path) {
-  return stepIndex(
-    steps,
-    `that uses ${action} for ${path}`,
-    (step) =>
-      stepValue(step, 'uses')?.startsWith(`${action}@`) === true &&
-      stepMapping(step, 'with')?.path === path,
-  )
-}
-
-/** The index of the step of `steps` that uses exactly `action`, such as `ilammy/msvc-dev-cmd@v1.13.0`. */
-function usesStep(steps, action) {
-  return stepIndex(steps, `that uses ${action}`, (step) => stepValue(step, 'uses') === action)
-}
 
 /** The OCCT native cache key of release.yml's bundle job, which the platforms jobs share (sections 2.14 and 3.2). */
 async function bundleOcctKey() {
   const steps = jobSteps(await workflowJob('release.yml', 'bundle'))
-  return stepMapping(steps[cacheStep(steps, 'actions/cache', '.occt/native')], 'with').key
+  return cacheOptions(steps, 'actions/cache', '.occt/native').key
 }
 
 /** The step of release.yml's bundle job named `name`. */
@@ -946,12 +971,9 @@ test("61: both platforms jobs use the OCCT cache key of the release's bundle job
   const occt = jobSteps(await workflowJob('platforms.yml', 'occt-platforms'))
   const rust = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
   const cache = occt[cacheStep(occt, 'actions/cache', '.occt/native')]
-  const restore = stepMapping(
-    rust[cacheStep(rust, 'actions/cache/restore', '.occt/native')],
-    'with',
-  )
+  const restore = cacheOptions(rust, 'actions/cache/restore', '.occt/native')
 
-  assert.equal(stepValue(cache, 'uses'), 'actions/cache@v6.1.0')
+  assert.equal(stepValue(cache, 'uses'), pinned('actions/cache'))
   assert.equal(stepMapping(cache, 'with').key, key)
   assert.equal(restore.key, key)
   assert.equal(restore['fail-on-cache-miss'], 'true')
@@ -961,7 +983,7 @@ test('61: occt-platforms sets up the compiler and builds OCCT only on a cache mi
   const steps = jobSteps(await workflowJob('platforms.yml', 'occt-platforms'))
   const miss = "steps.occt.outputs.cache-hit != 'true'"
   const cache = cacheStep(steps, 'actions/cache', '.occt/native')
-  const msvc = usesStep(steps, 'ilammy/msvc-dev-cmd@v1.13.0')
+  const msvc = usesStep(steps, 'ilammy/msvc-dev-cmd')
   const ninja = commandStep(
     steps,
     stepValue(await bundleStep('Install Ninja and set the deployment target'), 'run'),
@@ -995,7 +1017,7 @@ test('61: occt-platforms prints the free disk space after the build, also when i
 test('61: rust-platforms links with MSVC on Windows as the release does', async () => {
   const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
   const release = await bundleStep('Use the MSVC linker for Rust')
-  const msvc = usesStep(steps, 'ilammy/msvc-dev-cmd@v1.13.0')
+  const msvc = usesStep(steps, 'ilammy/msvc-dev-cmd')
   const linker = namedStep(steps, 'Use the MSVC linker for Rust')
 
   assert.equal(stepValue(steps[msvc], 'if'), "runner.os == 'Windows'")
@@ -1023,7 +1045,7 @@ test('61: rust-platforms builds for the macOS deployment target of OCCT and the 
 
 test('61: rust-platforms saves its Rust cache only on main, also when its tests fail', async () => {
   const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
-  const cache = usesStep(steps, 'Swatinem/rust-cache@v2.9.2')
+  const cache = usesStep(steps, 'Swatinem/rust-cache')
 
   assert.deepEqual(stepMapping(steps[cache], 'with'), {
     'save-if': "${{ github.ref == 'refs/heads/main' }}",
@@ -1033,7 +1055,7 @@ test('61: rust-platforms saves its Rust cache only on main, also when its tests 
 
 test('61: rust-platforms runs the crate tests, the examples runner and clippy, then prints the free disk space', async () => {
   const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
-  const crates = stepIndex(steps, 'with id crates', (step) => stepValue(step, 'id') === 'crates')
+  const crates = idStep(steps, 'crates')
   const [examples, clippy, disk] = steps.slice(crates + 1)
 
   assert.equal(stepValue(steps[crates], 'run'), CRATE_TESTS)
@@ -1052,7 +1074,7 @@ test('61: rust-platforms runs the crate tests, the examples runner and clippy, t
 
 test('61: a hung crate test ends its own step after 20 minutes, so the examples runner and clippy still run', async () => {
   const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
-  const crates = stepIndex(steps, 'with id crates', (step) => stepValue(step, 'id') === 'crates')
+  const crates = idStep(steps, 'crates')
 
   assert.equal(stepValue(steps[crates], 'timeout-minutes'), '20')
 })
@@ -1068,14 +1090,8 @@ test("62: the platforms workflow's core-wasm builds the web core without CI's na
   const job = await workflowJob('platforms.yml', 'core-wasm')
   const steps = jobSteps(job)
   const ciSteps = jobSteps(await workflowJob('ci.yml', 'core-wasm'))
-  const ciKey = stepMapping(
-    ciSteps[cacheStep(ciSteps, 'actions/cache/restore', '.occt/wasm')],
-    'with',
-  ).key
-  const restore = stepMapping(
-    steps[cacheStep(steps, 'actions/cache/restore', '.occt/wasm')],
-    'with',
-  )
+  const ciKey = cacheOptions(ciSteps, 'actions/cache/restore', '.occt/wasm').key
+  const restore = cacheOptions(steps, 'actions/cache/restore', '.occt/wasm')
 
   assert.equal(restore.key, ciKey)
   assert.equal(restore['fail-on-cache-miss'], 'true')
@@ -1111,7 +1127,7 @@ test('62: e2e-engines runs the engine subset in Firefox and in WebKit', async ()
     'the install, the browser and the run are out of order',
   )
   assert.equal(stepMapping(steps[run], 'env'), undefined)
-  assert.equal(stepValue(steps.at(-1), 'uses'), 'actions/upload-artifact@v7.0.2')
+  assert.equal(stepValue(steps.at(-1), 'uses'), pinned('actions/upload-artifact'))
   assert.equal(stepValue(steps.at(-1), 'if'), 'failure()')
 })
 
@@ -1137,9 +1153,8 @@ function usedActions(text) {
 }
 
 test('63: every action is pinned to the exact release of section 2.2', async () => {
-  const texts = await Promise.all(WORKFLOW_FILES.map(workflowText))
-  for (const [i, file] of WORKFLOW_FILES.entries()) {
-    for (const used of usedActions(texts[i])) {
+  for (const [file, text] of await workflowTexts(WORKFLOW_FILES)) {
+    for (const used of usedActions(text)) {
       const at = used.lastIndexOf('@')
       const action = used.slice(0, at)
 
@@ -1161,18 +1176,6 @@ test('63: every action of section 2.2 is used by a workflow', async () => {
   }
 })
 
-/** The command line of a step's `run`: its value, or the one line of a block scalar without its line break. */
-function runCommand(step) {
-  return stepValue(step, 'run')?.replace(/\n$/, '')
-}
-
-/** The index of the first step of `steps` at or after `start` that runs `command`; fails the test, naming `job`, when there is none. */
-function commandStepFrom(steps, start, command, job) {
-  const index = steps.findIndex((step, i) => i >= start && runCommand(step) === command)
-  assert.notEqual(index, -1, `${job} has no step after step ${start} that runs ${command}`)
-  return index
-}
-
 /** The text of the repository file at `path`, a path from the repository root. */
 function repositoryText(path) {
   return readFile(join(repositoryRoot, path), 'utf8')
@@ -1180,7 +1183,7 @@ function repositoryText(path) {
 
 test('66: kernel-wasm runs the kernel, sketch and engine panic tests on WebAssembly after its Rust cache', async () => {
   const steps = jobSteps(await workflowJob('ci.yml', 'kernel-wasm'))
-  let previous = usesStep(steps, 'Swatinem/rust-cache@v2.9.2')
+  let previous = usesStep(steps, 'Swatinem/rust-cache')
 
   for (const command of KERNEL_WASM_TESTS) {
     previous = commandStepFrom(steps, previous + 1, command, 'kernel-wasm')
@@ -1192,7 +1195,7 @@ test('66: core-wasm runs the round trips with the module required, then the pari
   const build = commandStep(steps, 'scripts/build-wasm.sh')
   const roundTrips = commandStepFrom(steps, build + 1, WEB_MODULE_TESTS, 'core-wasm')
   const parity = commandStepFrom(steps, roundTrips + 1, WEB_PARITY_TESTS, 'core-wasm')
-  const upload = usesStep(steps, 'actions/upload-artifact@v7.0.2')
+  const upload = usesStep(steps, 'actions/upload-artifact')
 
   assert.equal(
     unquoted(stepMapping(steps[roundTrips], 'env')?.PARTSMITH_REQUIRE_WEB_MODULE ?? ''),
@@ -1237,34 +1240,23 @@ test('66: the filter dispatch:: selects the two panic tests that protocol.md tes
 })
 
 test('66: a run written as a block scalar is read as its one command line', () => {
-  assert.equal(runCommand(['run: |', `  ${WEB_PARITY_TESTS}`]), WEB_PARITY_TESTS)
-  assert.equal(runCommand(['run: scripts/build-wasm.sh']), 'scripts/build-wasm.sh')
-  assert.equal(runCommand(['run: |', '  cargo build', '  cargo test']), 'cargo build\ncargo test')
+  assert.equal(stepCommand(['run: |', `  ${WEB_PARITY_TESTS}`]), WEB_PARITY_TESTS)
+  assert.equal(stepCommand(['run: scripts/build-wasm.sh']), 'scripts/build-wasm.sh')
+  assert.equal(stepCommand(['run: |', '  cargo build', '  cargo test']), 'cargo build\ncargo test')
 })
-
-// The variable that turns on the performance tests (ui.md 6.7, engine.md section 5), whose budgets hold only on the
-// reference machine (section 1.2).
-const PERFORMANCE_VARIABLE = 'PARTSMITH_PERF'
 
 test('67: no workflow file names PARTSMITH_PERF, so no job runs the performance tests', async () => {
   const files = (await readdir(workflowsDirectory))
     .filter((name) => name.endsWith('.yml'))
     .toSorted()
-  for (const file of ['ci.yml', 'nightly.yml', 'platforms.yml', 'release.yml']) {
+  for (const file of WORKFLOW_FILES) {
     assert.ok(files.includes(file), `.github/workflows holds ${file}`)
   }
-  const texts = await Promise.all(files.map((file) => workflowText(file)))
 
-  files.forEach((file, i) => {
-    assert.ok(!texts[i].includes(PERFORMANCE_VARIABLE), `${file} names ${PERFORMANCE_VARIABLE}`)
-  })
+  for (const [file, text] of await workflowTexts(files)) {
+    assert.ok(!text.includes(PERFORMANCE_VARIABLE), `${file} names ${PERFORMANCE_VARIABLE}`)
+  }
 })
-
-// The test steps of ci.yml's python job (section 2.4, test 73), in the order they run.
-const PYTHON_SUITE = 'pytest python/tests'
-const PYTHON_BUDGETS = 'pytest python/tests -m budgets -s'
-const PYTHON_BUDGETS_STEP = 'Measure the Python budgets'
-const PYTHON_PACKAGING = 'pytest python/tests -m packaging'
 
 /** The indexes of the python job's suite, budgets and packaging steps, each found after the one before it. */
 function pythonTestSteps(steps) {
@@ -1288,7 +1280,7 @@ test('73: no test step of the python job may fail without failing the job', asyn
     assert.equal(
       stepValue(steps[index], 'continue-on-error'),
       undefined,
-      `the python step that runs ${runCommand(steps[index])} sets continue-on-error`,
+      `the python step that runs ${stepCommand(steps[index])} sets continue-on-error`,
     )
   }
 })
@@ -1307,6 +1299,6 @@ test('79: after a failed install, the report upload only warns that it found no 
   const steps = jobSteps(await workflowJob('platforms.yml', 'e2e-engines'))
   const upload = steps.at(-1)
 
-  assert.equal(stepValue(upload, 'uses'), 'actions/upload-artifact@v7.0.2')
+  assert.equal(stepValue(upload, 'uses'), pinned('actions/upload-artifact'))
   assert.equal(stepMapping(upload, 'with')['if-no-files-found'], undefined)
 })

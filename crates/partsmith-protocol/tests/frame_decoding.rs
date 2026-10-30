@@ -5,7 +5,7 @@ use crate::common;
 use common::examples::LIST_PRINTER_PROFILES_RESULT;
 use common::{
     EXAMPLE_A_HEADER, EXAMPLE_B_HEADER, example_a, example_b, frame_bytes, frame_from_header,
-    frame_with_messages, header_bytes, parse_json, with_member, without_member,
+    frame_with_messages, header_bytes, parse_json, request_frame, with_member, without_member,
 };
 use partsmith_model::Edit;
 use partsmith_protocol::{
@@ -33,7 +33,7 @@ fn messages(items: &[&str]) -> String {
 }
 
 /// A message text without its envelope tag `kind`.
-fn without_kind(message: &str) -> serde_json::Value {
+fn without_kind(message: &str) -> Value {
     without_member(&parse_json(message), "kind")
 }
 
@@ -44,8 +44,8 @@ fn event(message: &str) -> Event {
 
 /// A request frame whose one request (id 5) is an `apply_edits` labeled `label` with the one edit `edit`, a JSON text.
 fn apply_edits_frame(label: &str, edit: &str) -> Vec<u8> {
-    frame_with_messages(&format!(
-        r#"[{{"kind":"request","id":5,"command":{{"type":"apply_edits","doc":1,"label":"{label}","edits":[{edit}]}}}}]"#
+    request_frame(&format!(
+        r#"{{"type":"apply_edits","doc":1,"label":"{label}","edits":[{edit}]}}"#
     ))
 }
 

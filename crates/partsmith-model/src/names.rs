@@ -1,4 +1,5 @@
-//! Parameter names, labels and feature type names (model.md sections 3.3 to 3.5).
+//! Parameter names, labels and feature type names (model.md sections 3.3 to 3.5), and asset file
+//! names (file-format.md section 3.11).
 
 use std::fmt;
 
@@ -81,6 +82,23 @@ pub fn is_valid_feature_type(kind: &str) -> bool {
             character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
         })
         && kind.len() <= MAX_FEATURE_TYPE_LENGTH
+}
+
+/// Number of lowercase hex digits of the BLAKE3 hash that names an asset.
+const ASSET_HASH_LENGTH: usize = 64;
+
+/// True when `name` is an asset's file name (file-format.md section 3.11): 64 lowercase hex digits,
+/// a dot and a lowercase alphanumeric extension, `^[0-9a-f]{64}\.[a-z0-9]+$`.
+pub fn is_asset_name(name: &str) -> bool {
+    let Some((hash, extension)) = name.split_once('.') else {
+        return false;
+    };
+    let is_lower_hex = |byte: u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte);
+    let is_lower_alphanumeric = |byte: u8| byte.is_ascii_digit() || byte.is_ascii_lowercase();
+    hash.len() == ASSET_HASH_LENGTH
+        && hash.bytes().all(is_lower_hex)
+        && !extension.is_empty()
+        && extension.bytes().all(is_lower_alphanumeric)
 }
 
 /// Which label a `LabelError` is about.
@@ -311,5 +329,30 @@ mod tests {
             PARAMETER_NAME_PATTERN.ends_with(&format!(",{}}}$", MAX_PARAMETER_NAME_LENGTH - 1))
         );
         assert!(FEATURE_TYPE_PATTERN.ends_with(&format!(",{}}}$", MAX_FEATURE_TYPE_LENGTH - 1)));
+    }
+
+    const HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn asset_names_are_a_hash_and_an_extension() {
+        assert!(is_asset_name(&format!("{HASH}.step")));
+        assert!(is_asset_name(&format!("{HASH}.3mf")));
+    }
+
+    #[test]
+    fn asset_names_need_lowercase_hex_of_64_characters() {
+        assert!(!is_asset_name(&format!("{}.step", HASH.to_uppercase())));
+        assert!(!is_asset_name(&format!("{}.step", &HASH[1..])));
+        assert!(!is_asset_name(&format!("{HASH}0.step")));
+        assert!(!is_asset_name(&format!("{}g.step", &HASH[1..])));
+    }
+
+    #[test]
+    fn asset_names_need_one_lowercase_alphanumeric_extension() {
+        assert!(!is_asset_name(HASH));
+        assert!(!is_asset_name(&format!("{HASH}.")));
+        assert!(!is_asset_name(&format!("{HASH}.STEP")));
+        assert!(!is_asset_name(&format!("{HASH}.step.bak")));
+        assert!(!is_asset_name(&format!("{HASH}.st-p")));
     }
 }

@@ -28,8 +28,8 @@ pub(crate) struct TableEntry {
 }
 
 /// The displayed elements of one body state (section 3.8): faces, edges without seams, and the
-/// vertices of those edges, each sorted by name, repeated names by kernel index. An element's
-/// display id is its position. The table shares the body state's topology, which the feature that
+/// vertices of those edges, each sorted by name (names are unique per kind, section 3.8). An
+/// element's display id is its position. The table shares the body state's topology, which the feature that
 /// built the state usually carried (features.md section 2.7), so building a table queries no
 /// kernel topology, and its element set, which the table builds, so whatever builds the table
 /// (the first mesh of the state, or the first query of a headless session) pays for it and every
@@ -60,25 +60,13 @@ pub(crate) struct ElementTable {
 
 impl ElementTable {
     /// The table of a body state with a shape.
-    pub(crate) fn build(state: &BodyState) -> Result<ElementTable, EngineError> {
+    pub(crate) fn build(state: &BodyState) -> Result<ElementTable, DisplayError> {
         if state.is_empty() {
-            return Err(EngineError::internal("an element table needs a shape"));
+            return Err(DisplayError::new("an element table needs a shape"));
         }
-        let topology = state.topology().map_err(feature_failure)?;
-        let element_set = state.element_set().map_err(feature_failure)?;
+        let topology = state.topology()?;
+        let element_set = state.element_set()?;
         let naming = state.naming();
-        let consistent = [
-            (ElementKind::Face, topology.faces.len()),
-            (ElementKind::Edge, topology.edges.len()),
-            (ElementKind::Vertex, topology.vertices.len()),
-        ]
-        .iter()
-        .all(|&(kind, count)| naming.count(kind) as usize == count);
-        if !consistent {
-            return Err(EngineError::internal(
-                "a naming map and its shape have different element counts",
-            ));
-        }
         let entries = |kind: ElementKind, shown: &dyn Fn(u32) -> bool| {
             let mut entries: Vec<TableEntry> = naming
                 .names(kind)
@@ -261,16 +249,14 @@ impl DisplayMesh {
         shape: &Shape,
         table: Arc<ElementTable>,
         tolerance: &TessellationTolerance,
-    ) -> Result<DisplayMesh, EngineError> {
-        let kernel = shape.tessellate(tolerance).map_err(kernel_failure)?;
+    ) -> Result<DisplayMesh, DisplayError> {
+        let kernel = shape.tessellate(tolerance)?;
         let face_ids = kernel
             .face_ids()
             .iter()
             .map(|&face| table.display_id(ElementKind::Face, face))
             .collect::<Option<Vec<u32>>>()
-            .ok_or_else(|| {
-                EngineError::internal("a tessellated face is not in the element table")
-            })?;
+            .ok_or_else(|| DisplayError::new("a tessellated face is not in the element table"))?;
         let edges: Vec<EdgePolyline> = kernel
             .edges()
             .iter()
@@ -302,9 +288,7 @@ impl DisplayMesh {
             .zip(marked)
         {
             if !marked {
-                let vertex = shape
-                    .element(SubShapeKind::Vertex, entry.index)
-                    .map_err(kernel_failure)?;
+                let vertex = shape.element(SubShapeKind::Vertex, entry.index)?;
                 markers.push(VertexMarker {
                     vertex_id: display_id,
                     position: [vertex.centroid.x, vertex.centroid.y, vertex.centroid.z],
@@ -321,12 +305,12 @@ impl DisplayMesh {
             markers,
         )
         .map_err(|error| {
-            EngineError::internal(format!(
+            DisplayError::new(format!(
                 "the kernel's tessellation is not a valid mesh: {error:?}"
             ))
         })?;
         let buffers = mesh.render_buffers();
-        let bounding_box = shape.bounding_box().map_err(kernel_failure)?;
+        let bounding_box = shape.bounding_box()?;
         Ok(DisplayMesh {
             table,
             mesh,
@@ -463,16 +447,42 @@ impl<K: Ord + Clone, T> Store<K, T> {
     }
 }
 
-/// The internal error of a kernel failure while displaying a body state, with the kernel's
-/// technical text as its detail (section 3.8).
-fn kernel_failure(error: KernelError) -> EngineError {
-    EngineError::internal(error.detail())
+/// Why a body state's element table or display mesh cannot be built: the technical text that its
+/// `display_failed` message carries and that a query's internal error keeps as its detail
+/// (section 3.8).
+#[derive(Debug)]
+pub(crate) struct DisplayError {
+    /// The technical text.
+    pub(crate) text: String,
 }
 
-/// The internal error of a body state whose topology or element set cannot be built, with the
-/// feature error's technical text as its detail, or its code when it has none (section 3.8).
-fn feature_failure(error: FeatureError) -> EngineError {
-    EngineError::internal(error.detail().unwrap_or_else(|| error.code().to_string()))
+impl DisplayError {
+    /// A failure the engine words itself.
+    pub(crate) fn new(text: impl Into<String>) -> DisplayError {
+        DisplayError { text: text.into() }
+    }
+}
+
+impl From<KernelError> for DisplayError {
+    /// A kernel failure, with the kernel's technical text.
+    fn from(error: KernelError) -> DisplayError {
+        DisplayError::new(error.detail())
+    }
+}
+
+impl From<FeatureError> for DisplayError {
+    /// A topology or element set that cannot be built, with the feature error's technical text,
+    /// or its code when it has none.
+    fn from(error: FeatureError) -> DisplayError {
+        DisplayError::new(error.detail().unwrap_or_else(|| error.code().to_string()))
+    }
+}
+
+impl From<DisplayError> for EngineError {
+    /// The internal error of a query that needed the table or mesh.
+    fn from(error: DisplayError) -> EngineError {
+        EngineError::internal(error.text)
+    }
 }
 
 /// The session's element tables and display meshes, kept under a byte budget. Values that an
@@ -504,7 +514,7 @@ impl DisplayCache {
         &mut self,
         key: &StateKey,
         state: &BodyState,
-    ) -> Result<Arc<ElementTable>, EngineError> {
+    ) -> Result<Arc<ElementTable>, DisplayError> {
         self.tick += 1;
         if let Some(table) = self.tables.get(key, self.tick) {
             return Ok(table);
@@ -522,14 +532,14 @@ impl DisplayCache {
         &mut self,
         key: &MeshKey,
         state: &BodyState,
-    ) -> Result<Arc<DisplayMesh>, EngineError> {
+    ) -> Result<Arc<DisplayMesh>, DisplayError> {
         self.tick += 1;
         if let Some(mesh) = self.meshes.get(key, self.tick) {
             return Ok(mesh);
         }
         let shape = state
             .shape()
-            .ok_or_else(|| EngineError::internal("a display mesh needs a shape"))?;
+            .ok_or_else(|| DisplayError::new("a display mesh needs a shape"))?;
         let table = self.table(&key.state, state)?;
         let mesh = Arc::new(DisplayMesh::build(shape, table, &key.tolerance())?);
         self.meshes
@@ -556,7 +566,7 @@ mod tests {
     use partsmith_recompute::CacheKey;
 
     use super::*;
-    use crate::test_support::id;
+    use crate::test_support::{id, opened_with};
 
     fn state_key(byte: u8) -> StateKey {
         StateKey {
@@ -682,16 +692,14 @@ mod tests {
         display: bool,
         fixture: &str,
     ) -> (crate::Session, partsmith_protocol::DocHandle) {
-        let mut session = crate::Session::new(crate::SessionOptions {
-            display,
-            cache_budget: 0,
-            ..crate::SessionOptions::headless()
-        });
-        let doc = session
-            .open_document(fixture, Vec::new())
-            .expect("the fixture opens")
-            .doc;
-        (session, doc)
+        opened_with(
+            crate::SessionOptions {
+                display,
+                cache_budget: 0,
+                ..crate::SessionOptions::headless()
+            },
+            fixture,
+        )
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use partsmith_features::Registry;
-use partsmith_model::Document;
+use partsmith_model::{Document, is_asset_name};
 
 use crate::error::EngineError;
 use crate::types::Asset;
@@ -41,16 +41,13 @@ pub(crate) fn referenced_assets(
     Ok(stored)
 }
 
-/// True when `name` is `<64 lowercase hex>.<ext>` with the BLAKE3 hash of `bytes`.
+/// True when `name` is an asset's file name (`is_asset_name`) whose hash is the BLAKE3 hash of
+/// `bytes`.
 pub(crate) fn asset_matches(name: &str, bytes: &[u8]) -> bool {
-    let Some((hash, extension)) = name.split_once('.') else {
-        return false;
-    };
-    let valid_extension = !extension.is_empty()
-        && extension
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit());
-    valid_extension && hash == blake3::hash(bytes).to_hex().as_str()
+    is_asset_name(name)
+        && name
+            .split_once('.')
+            .is_some_and(|(hash, _)| hash == blake3::hash(bytes).to_hex().as_str())
 }
 
 /// The content-addressed name of an asset: the BLAKE3 hash of `bytes` and `extension`.

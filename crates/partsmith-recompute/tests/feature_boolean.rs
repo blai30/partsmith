@@ -7,7 +7,8 @@ use crate::feature_support;
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
     assert_face_count, assert_face_kind, assert_face_position, assert_has_face, assert_solid_count,
-    assert_unchanged, assert_volume, body_changes, face, id, link_ids,
+    assert_unchanged, assert_volume, assert_volume_faces_and_bounds, body_changes, face, id,
+    link_ids,
 };
 use partsmith_features::{Because, Diagnosis, Fix};
 use partsmith_occt_sys::GeometryKind;
@@ -39,10 +40,13 @@ fn t001_join_volume_faces_and_bounds() {
     let run = Run::example("boolean/join.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 12000.0);
-    assert_face_count(shape, 6);
-    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [20.0, 10.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        12000.0,
+        6,
+        [-10.0, -10.0, 0.0],
+        [20.0, 10.0, 20.0],
+    );
 }
 
 #[test]
@@ -87,10 +91,13 @@ fn t003_cut_volume_faces_and_bounds() {
     let run = Run::example("boolean/cut.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 4000.0);
-    assert_face_count(shape, 6);
-    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [0.0, 10.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        4000.0,
+        6,
+        [-10.0, -10.0, 0.0],
+        [0.0, 10.0, 20.0],
+    );
     assert_empty(&run, "b-2");
 }
 
@@ -108,10 +115,13 @@ fn t004_intersect() {
     let run = Run::example("boolean/intersect.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 4000.0);
-    assert_face_count(shape, 6);
-    assert_bounding_box(shape, [0.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        4000.0,
+        6,
+        [0.0, -10.0, 0.0],
+        [10.0, 10.0, 20.0],
+    );
 }
 
 #[test]
@@ -119,10 +129,13 @@ fn t005_cut_with_two_tools() {
     let run = Run::example("boolean/cut-two-tools.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 3750.0);
-    assert_face_count(shape, 10);
-    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [0.0, 10.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        3750.0,
+        10,
+        [-10.0, -10.0, 0.0],
+        [0.0, 10.0, 20.0],
+    );
     assert_empty(&run, "b-2");
     assert_empty(&run, "b-3");
 }
@@ -132,10 +145,13 @@ fn t006_intersect_with_two_tools_keeps_what_is_inside_every_tool() {
     let run = Run::example("boolean/intersect-two-tools.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 250.0);
-    assert_face_count(shape, 6);
-    assert_bounding_box(shape, [0.0, -5.0, 15.0], [5.0, 5.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        250.0,
+        6,
+        [0.0, -5.0, 15.0],
+        [5.0, 5.0, 20.0],
+    );
 }
 
 #[test]
@@ -304,8 +320,11 @@ fn t017_unsuppressing_the_tool_gives_test_1() {
     let run = Run::records(&BODIES, &[BOX1, BOX2, &boolean(r#"["b-2"]"#, "join")]);
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 12000.0);
-    assert_face_count(shape, 6);
-    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [20.0, 10.0, 20.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        12000.0,
+        6,
+        [-10.0, -10.0, 0.0],
+        [20.0, 10.0, 20.0],
+    );
 }

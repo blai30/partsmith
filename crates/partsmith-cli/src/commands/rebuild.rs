@@ -14,7 +14,7 @@ use serde::Serialize;
 use super::{open, usage_error};
 use crate::arguments::RebuildArguments;
 use crate::error::CliError;
-use crate::messages::{MessageMembers, NESTED_INDENT};
+use crate::messages::{MessageMembers, write_suggested};
 use crate::output::{JsonDiagnostic, Output, count, human_number, wire_name};
 use crate::rotation;
 use crate::status::Status;
@@ -22,10 +22,6 @@ use crate::status::Status;
 /// How far a message line, or a print finding's line, is indented under its feature's line or the
 /// print health line.
 const MESSAGE_INDENT: usize = 4;
-
-/// How far a print finding's suggestion line is indented, as a feature message's action lines are
-/// (section 3.3).
-const SUGGESTION_INDENT: usize = MESSAGE_INDENT + NESTED_INDENT;
 
 /// The report of one rebuild, printed as text or as the JSON document of section 3.3.
 #[derive(Debug, Serialize)]
@@ -379,37 +375,41 @@ impl Report {
             output.line(body.human_line())?;
         }
         if let Some(checks) = &self.checks {
-            output.line(format_args!(
-                "  print health: {} ({})",
-                checks.summary.label, checks.profile
-            ))?;
-            for body in &checks.bodies {
-                for check in &body.report.checks {
-                    for finding in &check.findings {
-                        output.line(format_args!(
-                            "{:MESSAGE_INDENT$}{}[{}] {}: {}",
-                            "",
-                            wire_name(&finding.severity),
-                            wire_name(&finding.check),
-                            body.body,
-                            finding.message
-                        ))?;
-                        let words = finding
-                            .suggestion
-                            .as_ref()
-                            .and_then(|suggestion| suggestion.text());
-                        if let Some(words) = words {
-                            output.line(format_args!(
-                                "{:SUGGESTION_INDENT$}suggested: {words}",
-                                ""
-                            ))?;
-                        }
-                    }
-                }
-            }
+            write_findings(output, checks)?;
         }
         Ok(())
     }
+}
+
+/// Prints the print health line of `checks` and one line per finding, followed by its suggestion's
+/// words when it has any (section 3.3).
+fn write_findings(output: &mut Output<'_>, checks: &PrintReport) -> io::Result<()> {
+    output.line(format_args!(
+        "  print health: {} ({})",
+        checks.summary.label, checks.profile
+    ))?;
+    for body in &checks.bodies {
+        for check in &body.report.checks {
+            for finding in &check.findings {
+                output.line(format_args!(
+                    "{:MESSAGE_INDENT$}{}[{}] {}: {}",
+                    "",
+                    wire_name(&finding.severity),
+                    wire_name(&finding.check),
+                    body.body,
+                    finding.message
+                ))?;
+                let words = finding
+                    .suggestion
+                    .as_ref()
+                    .and_then(|suggestion| suggestion.text());
+                if let Some(words) = words {
+                    write_suggested(output, MESSAGE_INDENT, &words)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 impl BodyReport {

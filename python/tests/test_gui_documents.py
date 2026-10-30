@@ -12,10 +12,11 @@ names the command that writes it.
 """
 
 import re
+from contextlib import closing
 from pathlib import Path
 
 import pytest
-from support import REPOSITORY_ROOT, assert_round_trip, feature_statuses, generic_calls
+from support import REPOSITORY_ROOT, assert_round_trip, feature_statuses, generated_script, generic_calls
 
 from partsmith import Document
 
@@ -59,11 +60,8 @@ def document_path(name: str, folder: Path = GUI_DOCUMENTS) -> Path:
 
 @pytest.mark.parametrize("name", DOCUMENT_NAMES)
 def test_t071_check_1_every_feature_is_ok(name):
-    document = Document.open(document_path(name))
-    try:
+    with closing(Document.open(document_path(name))) as document:
         problems = status_problems(name, feature_statuses(document))
-    finally:
-        document.close()
 
     assert not problems, "\n".join(problems)
 
@@ -77,11 +75,7 @@ def test_t071_check_2_document_round_trips_through_python(name, tmp_path):
 
 @pytest.mark.parametrize("name", DOCUMENT_NAMES)
 def test_t071_check_3_generated_script_has_no_generic_call(name):
-    document = Document.open(document_path(name))
-    try:
-        problem = generic_call_problem(name, document.to_python())
-    finally:
-        document.close()
+    problem = generic_call_problem(name, generated_script(document_path(name)))
 
     assert problem is None, problem
 

@@ -12,8 +12,8 @@ use common::examples::{
 };
 use common::json_schema::validate;
 use common::{
-    assert_requires_all_but, definition, parse_json, property, schema_json, string_set,
-    string_values, variant, variant_tags, with_member, without_member,
+    assert_accepts_but_rejects, assert_requires_all_but, definition, parse_json, property,
+    schema_json, string_set, string_values, variant, variant_tags, with_member, without_member,
 };
 use partsmith_protocol::{MAX_SAFE_INTEGER, protocol_schema};
 use serde_json::{Value, json};
@@ -55,14 +55,15 @@ const CLOSED_IN_RESULTS_AND_EVENTS: [&str; 10] = [
 fn add_referenced_definitions(value: &Value, names: &mut Vec<String>) {
     match value {
         Value::Object(members) => {
-            for (keyword, member) in members {
-                let target = member
-                    .as_str()
-                    .and_then(|reference| reference.strip_prefix("#/$defs/"));
-                match target {
-                    Some(name) if keyword == "$ref" => names.push(name.to_string()),
-                    _ => add_referenced_definitions(member, names),
-                }
+            let target = members
+                .get("$ref")
+                .and_then(Value::as_str)
+                .and_then(|reference| reference.strip_prefix("#/$defs/"));
+            if let Some(name) = target {
+                names.push(name.to_string());
+            }
+            for member in members.values() {
+                add_referenced_definitions(member, names);
             }
         }
         Value::Array(items) => {
@@ -275,10 +276,8 @@ fn t081_schema_defines_the_diagnostic_fix_repair_and_ghost_types() {
 
     // FixRef, which requests carry, rejects unknown properties.
     let fix = json!({"feature": "f-fil1", "code": "x", "cause": false, "index": 0, "revision": 1});
-    assert_eq!(validate(&schema, "/$defs/FixRef", &fix), Ok(()));
-    let mut with_extra = fix;
-    with_extra["extra"] = json!(1);
-    assert!(validate(&schema, "/$defs/FixRef", &with_extra).is_err());
+    let with_extra = with_member(&fix, "extra", json!(1));
+    assert_accepts_but_rejects(&schema, "FixRef", &fix, &with_extra);
 }
 
 #[test]
@@ -446,11 +445,10 @@ fn hint_frame_allows_exactly_world_and_body() {
 fn face_plane_with_a_body_fallback_frame_validates_and_an_unknown_frame_does_not() {
     let schema = schema_json();
     let command = parse_json(SOLVE_ON_FACE_IN_BODY_FRAME);
-    assert_eq!(validate(&schema, "/$defs/Command", &command), Ok(()));
-
-    let mut unknown = command;
+    let mut unknown = command.clone();
     unknown["candidate"]["plane"]["fallback_frame"] = json!("local");
-    assert!(validate(&schema, "/$defs/Command", &unknown).is_err());
+
+    assert_accepts_but_rejects(&schema, "Command", &command, &unknown);
 }
 
 #[test]
@@ -491,11 +489,10 @@ fn loss_reasons_added_by_the_review_validate_and_other_body_requires_present() {
 fn headless_pick_reference_request_validates_and_its_pick_stays_closed() {
     let schema = schema_json();
     let command = json!({"type": "pick_reference", "doc": 1, "pick": {"mesh_id": 0, "kind": "edge", "index": 4, "body": "b-1"}});
-    assert_eq!(validate(&schema, "/$defs/Command", &command), Ok(()));
-
-    let mut with_extra = command;
+    let mut with_extra = command.clone();
     with_extra["pick"]["feature"] = json!("f-box1");
-    assert!(validate(&schema, "/$defs/Command", &with_extra).is_err());
+
+    assert_accepts_but_rejects(&schema, "Command", &command, &with_extra);
 }
 
 #[test]
@@ -568,11 +565,9 @@ fn use_requires_its_user_field_and_feature_but_not_its_entity() {
 fn list_uses_request_names_only_its_document() {
     let schema = schema_json();
     let command = json!({"type": "list_uses", "doc": 1});
-    assert_eq!(validate(&schema, "/$defs/Command", &command), Ok(()));
+    let with_extra = with_member(&command, "feature", json!("f-fil1"));
 
-    let mut with_extra = command;
-    with_extra["feature"] = json!("f-fil1");
-    assert!(validate(&schema, "/$defs/Command", &with_extra).is_err());
+    assert_accepts_but_rejects(&schema, "Command", &command, &with_extra);
     let without_doc = json!({"type": "list_uses"});
     assert!(validate(&schema, "/$defs/Command", &without_doc).is_err());
 }

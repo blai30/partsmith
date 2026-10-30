@@ -13,11 +13,12 @@ use feature_support::shell::{ROUNDED_TOP_FACE, rounded_cube_document, shell_reco
 use feature_support::{
     CUBE20, LENGTH_TOLERANCE, MOVE_BY_100, Run, assert_bounding_box, assert_coordinates,
     assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_count, assert_face_in_plane, assert_face_kind, assert_face_normal,
-    assert_face_position, assert_face_radius, assert_has_face, assert_list_field,
-    assert_moved_by_100, assert_no_face, assert_relative_within, assert_solid_count,
-    assert_unchanged, assert_volume, body_update, document, face, face_index,
-    face_names_with_prefix, feature_record_mut, parse_document, point_components, suggested_limit,
+    assert_face_centroid, assert_face_count, assert_face_kind, assert_face_normal,
+    assert_face_position, assert_flat_face, assert_has_face, assert_list_field,
+    assert_moved_by_100, assert_no_face, assert_relative_within, assert_round_face,
+    assert_solid_count, assert_unchanged, assert_volume, assert_volume_faces_and_bounds,
+    body_update, document, face, face_index, face_names_with_prefix, feature_record_mut,
+    parse_document, point_components, suggested_limit,
 };
 use feature_support::{assert_messages_pass_lint, id, message, pick, set_field};
 use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, Fix, Limit};
@@ -118,9 +119,7 @@ fn assert_arc_join_kept(run: &Run, volume: f64, faces: u32) {
     assert_volume(shape, volume);
     assert_face_count(shape, faces);
     assert_solid_count(shape, 1);
-    let join = face(run.body("b-1"), ARC_JOIN);
-    assert_face_kind(&join, GeometryKind::Cylinder);
-    assert_face_radius(&join, 2.0);
+    assert_round_face(run.body("b-1"), ARC_JOIN, GeometryKind::Cylinder, 2.0);
 }
 
 /// Tests 19, 20 and 22: `CUBE20` with `VERTICAL_ROUNDS`, shelled with its top removed and a wall of
@@ -259,10 +258,13 @@ fn assert_too_thick(
 /// The geometry and names of test 1: `BOX805030` shelled 2 mm with the top removed.
 fn assert_open_top_geometry(run: &Run) {
     let body = run.body("b-1");
-    let shape = run.shape("b-1");
-    assert_volume(shape, 22112.0);
-    assert_face_count(shape, 11);
-    assert_bounding_box(shape, [-40.0, -25.0, 0.0], [40.0, 25.0, 30.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        22112.0,
+        11,
+        [-40.0, -25.0, 0.0],
+        [40.0, 25.0, 30.0],
+    );
     let inner_bottom = face(body, "f-sh1/inner/f-box1/bottom");
     assert_face_kind(&inner_bottom, GeometryKind::Plane);
     assert_face_position(&inner_bottom, 2, 2.0);
@@ -321,9 +323,7 @@ fn t003_closed_hollow() {
     run.assert_all_ok();
     let body = run.body("b-1");
     let shape = run.shape("b-1");
-    assert_volume(shape, 29104.0);
-    assert_face_count(shape, 12);
-    assert_bounding_box(shape, [-40.0, -25.0, 0.0], [40.0, 25.0, 30.0]);
+    assert_volume_faces_and_bounds(shape, 29104.0, 12, [-40.0, -25.0, 0.0], [40.0, 25.0, 30.0]);
     assert_eq!(
         face_names_with_prefix(body, "f-sh1/inner/"),
         [
@@ -442,10 +442,13 @@ fn t009_cylinder_cup() {
     let run = Run::example("shell/cylinder-cup.ptsm");
 
     run.assert_all_ok();
-    let shape = run.shape("b-1");
-    assert_volume(shape, 11586.193706);
-    assert_face_count(shape, 5);
-    assert_bounding_box(shape, [-20.0, -20.0, 0.0], [20.0, 20.0, 40.0]);
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        11586.193706,
+        5,
+        [-20.0, -20.0, 0.0],
+        [20.0, 20.0, 40.0],
+    );
 }
 
 #[test]
@@ -572,9 +575,7 @@ fn assert_top_open(run: &Run, center_x: f64) {
     assert_face_kind(&end, GeometryKind::Plane);
     assert_face_area(&end, 16.0);
     assert_face_normal(&end, [0.0, 1.0, 0.0]);
-    assert_face_position(&end, 0, center_x);
-    assert_face_position(&end, 1, -8.0);
-    assert_face_position(&end, 2, 19.5);
+    assert_face_centroid(&end, [center_x, -8.0, 19.5]);
 }
 
 /// Test 14's second document: its example without the move `f-mv1`, with the removed top picked
@@ -641,9 +642,7 @@ fn t015_rounds_thicker_than_the_wall() {
     let inner_rounds = face_names_with_prefix(body, "f-sh1/inner/f-fil1/");
     assert_eq!(inner_rounds.len(), 4, "each round has an inner face");
     for name in &inner_rounds {
-        let inner_round = face(body, name);
-        assert_face_kind(&inner_round, GeometryKind::Cylinder);
-        assert_face_radius(&inner_round, 1.0);
+        assert_round_face(body, name, GeometryKind::Cylinder, 1.0);
     }
 }
 
@@ -687,12 +686,12 @@ fn t019_wall_thinner_than_the_rounds() {
 
     // The 20 mm prism minus a 19 mm deep cavity: an 18 mm square with corners of radius 1.
     assert_rounded_cube_shell(&run, 1.0, 1600.0 + 61.0 * PI, 19, 304.0);
-    let inner_round = face(
+    assert_round_face(
         run.body("b-1"),
         "f-sh1/inner/f-fil1/fillet/edge(f-box1/front|f-box1/right)",
+        GeometryKind::Cylinder,
+        1.0,
     );
-    assert_face_kind(&inner_round, GeometryKind::Cylinder);
-    assert_face_radius(&inner_round, 1.0);
 }
 
 #[test]
@@ -768,9 +767,7 @@ fn t021_arc_join_beside_a_round_as_thick_as_the_wall() {
 /// The checks of a rounded join of `b-1` in tests 24 and 25: its surface kind, the wall's radius 2
 /// and its area.
 fn assert_round_join(run: &Run, name: &str, kind: GeometryKind, area: f64) {
-    let join = face(run.body("b-1"), name);
-    assert_face_kind(&join, kind);
-    assert_face_radius(&join, 2.0);
+    let join = assert_round_face(run.body("b-1"), name, kind, 2.0);
     assert_face_area(&join, area);
 }
 
@@ -796,15 +793,9 @@ fn t024_arc_join_at_a_concave_edge() {
         [ARC_JOIN],
         "the concave edge is the body's only one"
     );
-    let step_wall = face(body, "f-sh1/inner/f-box1/top");
-    assert_face_in_plane(&step_wall, 2, 8.0);
-    assert_face_area(&step_wall, 288.0);
-    let riser_wall = face(body, "f-sh1/inner/f-box2/left");
-    assert_face_in_plane(&riser_wall, 0, 2.0);
-    assert_face_area(&riser_wall, 128.0);
-    let rim = face(body, "f-sh1/rim/f-box1/bottom");
-    assert_face_in_plane(&rim, 2, 0.0);
-    assert_face_area(&rim, 224.0);
+    assert_flat_face(body, "f-sh1/inner/f-box1/top", 2, 8.0, 288.0);
+    assert_flat_face(body, "f-sh1/inner/f-box2/left", 0, 2.0, 128.0);
+    assert_flat_face(body, "f-sh1/rim/f-box1/bottom", 2, 0.0, 224.0);
     assert_no_face(body, "f-box1/bottom");
     assert_eq!(
         face_names_with_prefix(body, "f-sh1/inner/vertex("),
@@ -862,12 +853,8 @@ fn t025_sphere_join_at_a_concave_vertex() {
         [corner],
         "the notch's corner is the body's only concave vertex"
     );
-    let ceiling_wall = face(body, "f-sh1/inner/f-box2/top");
-    assert_face_in_plane(&ceiling_wall, 2, 12.0);
-    assert_face_area(&ceiling_wall, 64.0);
-    let rim = face(body, "f-sh1/rim/f-box1/bottom");
-    assert_face_in_plane(&rim, 2, 0.0);
-    assert_face_area(&rim, 140.0 + PI);
+    assert_flat_face(body, "f-sh1/inner/f-box2/top", 2, 12.0, 64.0);
+    assert_flat_face(body, "f-sh1/rim/f-box1/bottom", 2, 0.0, 140.0 + PI);
     assert_no_fallback_names(&run);
 }
 

@@ -362,7 +362,7 @@ mod tests {
 
     use super::*;
     use crate::SessionOptions;
-    use crate::test_support::id;
+    use crate::test_support::{id, opened_with};
 
     /// `box.ptsm` (a 20 x 30 x 40 box on XY) with `features` after its box.
     fn box_then(features: Vec<Value>) -> String {
@@ -392,12 +392,7 @@ mod tests {
 
     /// A session with `text` open.
     fn opened(text: &str) -> (Session, DocHandle) {
-        let mut session = Session::new(SessionOptions::headless());
-        let doc = session
-            .open_document(text, Vec::new())
-            .expect("the document opens")
-            .doc;
-        (session, doc)
+        opened_with(SessionOptions::headless(), text)
     }
 
     /// The placement `solve_sketch` gives `f-sk1` with its fallback at `origin` in `frame`, a

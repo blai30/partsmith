@@ -16,8 +16,8 @@ use common::examples::{
     UNKNOWN_PRINTER_DIAGNOSTIC,
 };
 use common::{
-    compact, frame_with_messages, header_bytes, header_json, id, message, object_keys, parse,
-    parse_json, schema_json, variant_tags, without_member,
+    compact, header_bytes, header_json, id, message, object_keys, parse, parse_json, request_frame,
+    schema_json, variant_tags, without_member,
 };
 use partsmith_model::Units;
 use partsmith_naming::Reference;
@@ -71,9 +71,7 @@ fn round_trips<T: DeserializeOwned + Serialize>(text: &str) -> T {
 
 /// Decodes a request frame whose one request carries `command`, a JSON text.
 fn decode_request(command: &str) -> Result<(Request, Vec<Buffer>), FrameError> {
-    decode_request_frame(&frame_with_messages(&format!(
-        r#"[{{"kind":"request","id":5,"command":{command}}}]"#
-    )))
+    decode_request_frame(&request_frame(command))
 }
 
 /// The command a request frame decodes to when its one request carries `command`, a JSON text, and the frame holds

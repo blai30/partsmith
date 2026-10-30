@@ -39,8 +39,7 @@ jobs:
       matrix:
         runner: [windows-2025, macos-15]
     runs-on: ${{ matrix.runner }}
-    # A cold OCCT build took 56 minutes on Linux (2026-10-13); the first runs here measure Windows and macOS
-    # (delivery.md open issue 16).
+    # A cold occt-platforms job took 48 minutes on Windows and 21 on macOS (2026-10-26, delivery.md open issue 16).
     timeout-minutes: 150
     defaults:
       run:
@@ -110,7 +109,8 @@ jobs:
           fail-on-cache-miss: true
       - run: rustup show active-toolchain || rustup toolchain install
       # Saved on main alone, where every later run can restore it, and also when the tests fail, since its post step
-      # otherwise saves only after a passing job and the first runs are expected to fail.
+      # otherwise saves only after a passing job: a run while a failure is being fixed then restores the dependency
+      # builds of the one before instead of building them cold (delivery.md 3.2).
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -155,7 +155,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ninja-build
           scripts/build-occt.sh wasm "$GITHUB_WORKSPACE/.occt/wasm"
 
-  # ci.yml's core-wasm without the native OCCT and the web_module round trip, which CI runs on every change.
+  # ci.yml's core-wasm without the native OCCT, the web_module round trip and the web_parity comparison, which CI runs
+  # on every change.
   core-wasm:
     name: Web core (WebAssembly)
     needs: occt-wasm
@@ -216,9 +217,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      # Its time is apt's download from the Ubuntu mirror: 15 s to 3 minutes in 14 of the first 16 installs, 21 and 53
-      # minutes on the third run's slow mirror. The timeout ends such an install under this step's name, so the row
-      # fails at about 11 minutes instead of running into the job's 60 (delivery.md open issue 16).
+      # Its time is apt's download from the Ubuntu mirror, under 3 minutes on most runs and up to 53 on a slow mirror
+      # (delivery.md 2.14 and open issue 16). The timeout ends such an install under this step's name, so the row fails
+      # at about 11 minutes instead of running into the job's 60.
       - name: Install ${{ matrix.browser }} and its system packages
         timeout-minutes: 10
         run: pnpm exec playwright install --with-deps ${{ matrix.browser }}

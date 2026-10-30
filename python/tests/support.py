@@ -1,12 +1,14 @@
 """Helpers shared by the acceptance tests of docs/spec/python-api.md section 6."""
 
 import ast
+import errno
 import json
 import math
 import os
 import re
 import warnings
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -36,6 +38,9 @@ IMPORT_ASSET = (
 )
 """`S` of python-api.md section 6 (tests 97 to 102, and the unit tests of saving assets): the committed STEP asset of
 features/import.md section 6, a block of volume 6000 whose file name is its BLAKE3 hash."""
+
+IMPORT_ASSET_BYTES = IMPORT_ASSET.read_bytes()
+"""The bytes of `S`."""
 
 RELATIVE_TOLERANCE = 1e-6
 """Volumes and areas hold within 1e-6 relative unless a test states otherwise."""
@@ -88,6 +93,12 @@ def twinned_models(examples: Path = EXAMPLES) -> list[Path]:
 def example_id(model: Path) -> str:
     """The example's path under `examples/` without extension, for example `hole/deleted-point`."""
     return model.relative_to(EXAMPLES).with_suffix("").as_posix()
+
+
+def generated_script(path: Path) -> str:
+    """The script `export_python` generates for the document at `path`: `Document.open(path).to_python()`."""
+    with closing(Document.open(path)) as document:
+        return document.to_python()
 
 
 TWINNED = twinned_models()
@@ -416,6 +427,20 @@ def record_file_operations(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
     monkeypatch.setattr(os, "fsync", fsync)
     monkeypatch.setattr(os, "replace", replace)
     return operations
+
+
+def fail_fsync_on_call(monkeypatch: pytest.MonkeyPatch, failing_call: int) -> None:
+    """Makes the `failing_call`-th call of `os.fsync` (counted from 1) raise the error of a full disk."""
+    calls = []
+    original_fsync = os.fsync
+
+    def fsync(descriptor: int) -> None:
+        calls.append(descriptor)
+        if len(calls) == failing_call:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", fsync)
 
 
 def record_opened_files(monkeypatch: pytest.MonkeyPatch) -> list[Path]:

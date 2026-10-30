@@ -4,8 +4,11 @@
 
 use crate::common;
 
-use common::benchmark::{CHAIN_FREE_END, CHAIN_LINKS, chain_benchmark};
-use common::{Sketch, TOLERANCE, arc_parts, drag_point, find, frame, id};
+use common::benchmark::{CHAIN_FREE_END, CHAIN_LINKS};
+use common::{
+    TOLERANCE, arc_parts, assert_point_close, chain_drag_cursor, chain_sketch,
+    chain_with_slot_radius, drag_point, find, frame, point_ref,
+};
 use partsmith_sketch::SketchEntity;
 
 /// The points test 255 holds, one per link: the pivots `e-k-al.center` for `k` from 1 to 24, then the free end.
@@ -98,20 +101,18 @@ const RADIUS_6: ChainPoints = [
     [433.0127018922194, 9.999999999999991],
 ];
 
-/// The chain benchmark of section 5.2.
-fn chain_sketch() -> Sketch {
-    let (params, values) = chain_benchmark();
-    Sketch { params, values }
-}
-
 /// The points test 255 holds, read from `entities`, a solved chain.
 fn chain_points(entities: &[SketchEntity]) -> ChainPoints {
-    let mut points = [[0.0; 2]; CHAIN_LINKS];
-    for (k, point) in points.iter_mut().enumerate().take(CHAIN_LINKS - 1) {
-        *point = arc_parts(find(entities, &format!("e-{}-al", k + 1))).center;
-    }
-    points[CHAIN_LINKS - 1] = arc_parts(find(entities, "e-24-ar")).center;
-    points
+    let free_end = point_ref(CHAIN_FREE_END).entity;
+    std::array::from_fn(|index| {
+        let link = index + 1;
+        let entity = if link < CHAIN_LINKS {
+            format!("e-{link}-al")
+        } else {
+            free_end.to_string()
+        };
+        arc_parts(find(entities, &entity)).center
+    })
 }
 
 /// `points` as a Rust constant named `name`, each number in the shortest form that reads back to the same `f64`, in the form of the literals of this file.
@@ -171,8 +172,7 @@ fn t255_chain_drag_frames_50_and_100_hold_the_native_values() {
 
     // The frames of test 198.
     for i in 1..=100 {
-        let step = f64::from(i);
-        let result = frame(&mut session, [start[0] - step, start[1] + step]);
+        let result = frame(&mut session, chain_drag_cursor(start, i));
         match i {
             50 => after_50 = Some(chain_points(&result.entities)),
             100 => after_100 = Some(chain_points(&result.entities)),
@@ -196,11 +196,8 @@ fn t255_chain_drag_frames_50_and_100_hold_the_native_values() {
 
 #[test]
 fn t255_chain_with_radius_6_holds_the_native_values() {
-    let mut sketch = chain_sketch();
     // The values of test 199.
-    for k in 0..CHAIN_LINKS {
-        sketch.values.insert(id(&format!("c-{k}-10")), 6.0);
-    }
+    let sketch = chain_with_slot_radius(6.0);
 
     let result = sketch.solve();
 
@@ -221,16 +218,8 @@ fn chain_points_are_the_pivots_then_the_free_end() {
         20.0 * 30_f64.to_radians().cos(),
         20.0 * 30_f64.to_radians().sin(),
     ];
-    assert!(
-        (points[0][0] - step[0]).abs() <= TOLERANCE && (points[0][1] - step[1]).abs() <= TOLERANCE,
-        "{:?}",
-        points[0]
-    );
-    assert!(
-        (points[1][0] - 2.0 * step[0]).abs() <= TOLERANCE && points[1][1].abs() <= TOLERANCE,
-        "{:?}",
-        points[1]
-    );
+    assert_point_close(points[0], step, TOLERANCE, "first pivot");
+    assert_point_close(points[1], [2.0 * step[0], 0.0], TOLERANCE, "second pivot");
     assert_eq!(
         points[CHAIN_LINKS - 1],
         arc_parts(find(&sketch.params.entities, "e-24-ar")).center

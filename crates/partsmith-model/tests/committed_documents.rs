@@ -9,9 +9,26 @@ use common::{E1, with_format_version};
 use partsmith_model::{FILE_EXTENSION, FORMAT_VERSION, load, save};
 use pretty_assertions::assert_eq;
 
+/// The repository root.
+fn repository_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
 /// The Playwright fixtures of ui.md section 6.2.
 fn ui_fixtures_directory() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/e2e/fixtures")
+    repository_root().join("ui/e2e/fixtures")
+}
+
+/// The fixtures that are copies of an example, each with the example's path from the repository
+/// root (ui.md section 6.2).
+const EXAMPLE_COPIES: [(&str, &str); 2] = [
+    ("part-50.ptsm", "examples/bench/fifty-features/model.ptsm"),
+    ("step-block.ptsm", "examples/import/step-block.ptsm"),
+];
+
+/// The bytes of the file at `path`.
+fn file_bytes(path: &Path) -> Vec<u8> {
+    fs::read(path).unwrap_or_else(|error| panic!("{} cannot be read: {error}", path.display()))
 }
 
 /// The UI's committed documents, sorted by path: the fixtures written by hand, then in `gui/` the
@@ -91,4 +108,16 @@ fn ui_fixtures_are_canonical_at_the_current_format_version() {
         .collect();
 
     assert_eq!(stale, Vec::<String>::new());
+}
+
+#[test]
+fn ui_copies_of_examples_are_byte_identical() {
+    for (name, example) in EXAMPLE_COPIES {
+        let copy = file_bytes(&ui_fixtures_directory().join(name));
+        let original = file_bytes(&repository_root().join(example));
+        assert!(
+            copy == original,
+            "ui/e2e/fixtures/{name} differs from {example}. Copy the example over it (ui.md 6.2)."
+        );
+    }
 }
