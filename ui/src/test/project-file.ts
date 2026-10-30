@@ -24,7 +24,8 @@ function projectUrl(path: string): URL {
 
 /**
  * The text of the file at `path` in Vite's project root, the ui folder, read through Node, which runs Vitest. `path`
- * starts with `/`, like the keys of `import.meta.glob`.
+ * starts with `/`, like the keys of `import.meta.glob`; one that starts with `/..` reaches the repository above the ui
+ * folder (U-247 reads `examples/` that way).
  */
 export async function readProjectFile(path: string): Promise<string> {
   return (await fileSystem()).readFileSync(projectUrl(path), 'utf8')

@@ -1,4 +1,4 @@
-// Acceptance tests 49 to 54, 57, 59 to 63, 66 and 67 of docs/spec/delivery.md section 6 for the workflow files.
+// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73 and 79 of docs/spec/delivery.md section 6 for the workflow files.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -113,6 +113,10 @@ const EXAMPLES_RUNNER = 'cargo test -p partsmith-cli --test integration examples
 const PLATFORM_CLIPPY =
   'cargo clippy -p partsmith-occt-sys -p partsmith-engine -p partsmith-desktop --all-targets -- -D warnings'
 const AFTER_CRATE_TESTS = "${{ !cancelled() && steps.crates.outcome != 'skipped' }}"
+
+// The step of e2e-engines that installs its engine with the engine's system packages, and its name (section 2.14).
+const ENGINE_INSTALL = 'pnpm exec playwright install --with-deps ${{ matrix.browser }}'
+const ENGINE_INSTALL_STEP = 'Install ${{ matrix.browser }} and its system packages'
 
 // A stand-in for gh that appends its arguments, separated by NUL, as one line to $STUB_CALLS, then prints
 // $STUB_ANSWER or, when $STUB_FAILS is 1, fails as an API error does.
@@ -1089,10 +1093,7 @@ test('62: e2e-engines runs the engine subset in Firefox and in WebKit', async ()
   const job = await workflowJob('platforms.yml', 'e2e-engines')
   const steps = jobSteps(job)
   const install = commandStep(steps, 'pnpm install --frozen-lockfile')
-  const browsers = commandStep(
-    steps,
-    'pnpm exec playwright install --with-deps ${{ matrix.browser }}',
-  )
+  const browsers = commandStep(steps, ENGINE_INSTALL)
   const run = commandStep(
     steps,
     'xvfb-run --auto-servernum pnpm e2e --project ${{ matrix.browser }}',
@@ -1290,4 +1291,22 @@ test('73: no test step of the python job may fail without failing the job', asyn
       `the python step that runs ${runCommand(steps[index])} sets continue-on-error`,
     )
   }
+})
+
+test('79: a slow mirror ends the browser install after 10 minutes, not the job', async () => {
+  const job = await workflowJob('platforms.yml', 'e2e-engines')
+  const steps = jobSteps(job)
+  const install = commandStep(steps, ENGINE_INSTALL)
+
+  assert.equal(stepValue(steps[install], 'name'), ENGINE_INSTALL_STEP)
+  assert.equal(stepValue(steps[install], 'timeout-minutes'), '10')
+  assert.ok(10 < timeoutMinutes(job), "the browser install may take the whole job's time")
+})
+
+test('79: after a failed install, the report upload only warns that it found no files', async () => {
+  const steps = jobSteps(await workflowJob('platforms.yml', 'e2e-engines'))
+  const upload = steps.at(-1)
+
+  assert.equal(stepValue(upload, 'uses'), 'actions/upload-artifact@v7.0.2')
+  assert.equal(stepMapping(upload, 'with')['if-no-files-found'], undefined)
 })

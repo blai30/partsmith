@@ -1,4 +1,5 @@
-//! Acceptance tests for the print check examples (print spec section 6.18, tests 117 to 123).
+//! Acceptance tests for the print check examples (print spec section 6.18, tests 117 to 123 and 125
+//! to 127).
 //!
 //! Each test rebuilds its example with `partsmith rebuild --checks --json`, as the examples runner
 //! (`examples.rs`) does, and checks every value the spec test names, so a bless that changes one
@@ -406,5 +407,129 @@ fn t123_resin_thresholds_overhang_limit_and_printer_values() {
                 }]),
             ),
         ],
+    );
+}
+
+#[test]
+fn t125_island_on_resin() {
+    let report = rebuild("boolean/island-resin");
+
+    assert_printer(&report, "generic-resin");
+    assert_record(
+        &report["bodies"],
+        json!({"id": "b-1", "volume": 1760.0, "bounding_box": {"min": [0.0, 0.0, 0.0], "max": [20.0, 10.0, 20.0]}, "faces": 10}),
+    );
+    assert_record(&report["bodies"], json!({"id": "b-2", "empty": true}));
+    assert_record(&report["bodies"], json!({"id": "b-3", "empty": true}));
+    assert_summary(
+        &report,
+        json!({"health": "warning", "errors": 0, "warnings": 3, "infos": 0, "label": "3 warnings"}),
+    );
+    assert_checks(
+        &report,
+        &[(
+            "b-1",
+            json!([
+                {
+                    "check": "islands",
+                    "code": "island",
+                    "severity": "warning",
+                    "message": "Part of the model starts in mid-air 8 mm above the bed. Add supports or reorient the part.",
+                    "location": {"kind": "bounds", "min": [16.0, 0.0, 8.0], "max": [20.0, 10.0, 8.0]},
+                    "value": 8.0
+                },
+                {
+                    "check": "overhangs",
+                    "code": "overhang",
+                    "severity": "warning",
+                    "message": "Overhang steeper than 30 degrees over 120 mm². Add supports, add a chamfer, or reorient the part.",
+                    "location": {"kind": "bounds", "min": [4.0, 0.0, 16.0], "max": [16.0, 10.0, 16.0]},
+                    "value": FRAC_PI_2,
+                    "limit": FRAC_PI_6
+                },
+                {
+                    "check": "overhangs",
+                    "code": "overhang",
+                    "severity": "warning",
+                    "message": "Overhang steeper than 30 degrees over 40 mm². Add supports, add a chamfer, or reorient the part.",
+                    "location": {"kind": "bounds", "min": [16.0, 0.0, 8.0], "max": [20.0, 10.0, 8.0]},
+                    "value": FRAC_PI_2,
+                    "limit": FRAC_PI_6
+                }
+            ]),
+        )],
+    );
+}
+
+#[test]
+fn t126_wedge_on_its_edge_on_resin() {
+    let report = rebuild("extrude/wedge-on-edge-resin");
+
+    assert_printer(&report, "generic-resin");
+    assert_record(
+        &report["bodies"],
+        json!({"id": "b-1", "volume": 1000.0, "bounding_box": {"min": [-5.0, -10.0, 0.0], "max": [5.0, 0.0, 20.0]}, "faces": 5}),
+    );
+    assert_summary(
+        &report,
+        json!({"health": "warning", "errors": 0, "warnings": 2, "infos": 0, "label": "2 warnings"}),
+    );
+    assert_checks(
+        &report,
+        &[(
+            "b-1",
+            json!([
+                {
+                    "check": "first_layer_contact",
+                    "code": "no_bed_contact",
+                    "severity": "warning",
+                    "message": "The part touches the bed only at points or edges, so it may come loose. Lay a flat face on the bed or add supports.",
+                    "location": {"kind": "point", "at": [0.0, 0.0, 0.0]},
+                    "value": 0.0
+                },
+                {
+                    "check": "small_features",
+                    "code": "small_detail",
+                    "severity": "warning",
+                    "message": "A detail 0.013 mm wide is narrower than 0.2 mm and may not print. Make it at least 0.2 mm wide.",
+                    "location": {"kind": "bounds", "min": [-5.0, -10.0, 0.0], "max": [5.0, 0.0, 20.0]},
+                    "value": 0.0125,
+                    "limit": 0.2
+                }
+            ]),
+        )],
+    );
+}
+
+#[test]
+fn t127_corners_touching_on_resin() {
+    let report = rebuild("extrude/corners-touching-resin");
+
+    assert_printer(&report, "generic-resin");
+    assert_record(
+        &report["features"],
+        json!({"id": "f-ext1", "status": "ok", "messages": []}),
+    );
+    assert_record(
+        &report["bodies"],
+        json!({"id": "b-1", "volume": 2000.0, "bounding_box": {"min": [-10.0, -10.0, 0.0], "max": [10.0, 10.0, 10.0]}, "faces": 12}),
+    );
+    assert_summary(
+        &report,
+        json!({"health": "error", "errors": 1, "warnings": 0, "infos": 0, "label": "1 error"}),
+    );
+    assert_checks(
+        &report,
+        &[(
+            "b-1",
+            json!([{
+                "check": "mesh_validity",
+                "code": "non_manifold_edges",
+                "severity": "error",
+                "message": "1 edge is shared by more than two triangles. Separate the touching parts or rebuild the body.",
+                "location": {"kind": "bounds", "min": [0.0, 0.0, 0.0], "max": [0.0, 0.0, 10.0]},
+                "value": 1.0
+            }]),
+        )],
     );
 }

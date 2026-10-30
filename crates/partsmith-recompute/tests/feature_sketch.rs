@@ -7,9 +7,9 @@
 //! motions, the sketch's own messages and fixes, the messages of later features with their texts and
 //! fixes (features.md sections 3.5 and 3.15 and the hole points of features/hole.md), geometry, and
 //! the document after a fix as the engine's `apply_fix` would write it. Tests 30 and 31 check the
-//! modeling limit of a dimension and the dimension values carried by sketch errors. Tests 34 to 50 load
-//! the constraint and drawing tool examples and check the solve against the stored geometry: "as stored"
-//! bitwise, "as drawn" within 1e-9 mm.
+//! modeling limit of a dimension and the dimension values carried by sketch errors. Tests 34 to 51 load
+//! the constraint, drawing tool and record form examples and check the solve against the stored geometry:
+//! "as stored" bitwise, "as drawn" within 1e-9 mm.
 
 use crate::feature_support;
 
@@ -1375,10 +1375,10 @@ fn t033_on_yz_has_the_region_of_test_1_and_no_body_changes() {
     assert!(run.report.bodies.is_empty(), "the document has no bodies");
 }
 
-// Tests 34 to 50: the constraint and drawing tool examples (spec section 6, before test 34).
+// Tests 34 to 51: the constraint, drawing tool and record form examples (spec section 6, before test 34).
 
-/// The stems of the examples of tests 34 to 50 under `examples/sketch/`, in test order.
-const CONSTRAINT_AND_TOOL_EXAMPLES: [&str; 17] = [
+/// The stems of the examples of tests 34 to 51 under `examples/sketch/`, in test order.
+const CONSTRAINT_AND_TOOL_EXAMPLES: [&str; 18] = [
     "parallel",
     "perpendicular",
     "collinear",
@@ -1396,6 +1396,7 @@ const CONSTRAINT_AND_TOOL_EXAMPLES: [&str; 17] = [
     "tool-tangent",
     "tool-angle",
     "tool-diameter",
+    "point-and-line-forms",
 ];
 
 /// Runs the example `examples/sketch/<stem>.ptsm`.
@@ -1632,7 +1633,7 @@ fn tangent_cosine(run: &Run, line: &str, arc: &str, touch: &str) -> f64 {
 }
 
 #[test]
-fn examples_of_tests_34_to_50_store_the_region_as_a_pick_of_the_solved_sketch() {
+fn examples_of_tests_34_to_51_store_the_region_as_a_pick_of_the_solved_sketch() {
     // `EXT10` (spec section 6, before test 34): the region as `Region::reference()` writes it.
     for stem in CONSTRAINT_AND_TOOL_EXAMPLES {
         let run = run_sketch_example(stem);
@@ -2115,5 +2116,40 @@ fn t050_the_typed_diameter_output_extrudes_a_25_mm_disc() {
         3,
         [-12.5, -12.5, 0.0],
         [12.5, 12.5, 10.0],
+    );
+}
+
+#[test]
+fn t051_points_forms_and_line_forms_of_distances_move_every_line_onto_a_40_by_25_rectangle() {
+    let run = run_sketch_example("point-and-line-forms");
+
+    run.assert_all_quiet();
+    assert_solved(&run, SketchStatus::FullyConstrained, 0);
+    // Each line keeps the direction it was drawn in: its start and end land on these corners.
+    assert_points(
+        &run,
+        &[
+            ("e-1.start", [0.0, 0.0]),
+            ("e-1.end", [40.0, 0.0]),
+            ("e-2.start", [40.0, 0.0]),
+            ("e-2.end", [40.0, 25.0]),
+            ("e-3.start", [40.0, 25.0]),
+            ("e-3.end", [0.0, 25.0]),
+            ("e-4.start", [0.0, 25.0]),
+            ("e-4.end", [0.0, 0.0]),
+        ],
+    );
+}
+
+#[test]
+fn t051_points_forms_and_line_forms_of_distances_extrude_a_40_by_25_block() {
+    let run = run_sketch_example("point-and-line-forms");
+
+    assert_volume_faces_and_bounds(
+        run.shape("b-1"),
+        10000.0,
+        6,
+        [0.0, 0.0, 0.0],
+        [40.0, 25.0, 10.0],
     );
 }

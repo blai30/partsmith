@@ -1,0 +1,48 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [1, 2], "end": [38, -1]},
+        {"id": "e-2", "type": "line", "start": [38, -1], "end": [41, 23]},
+        {"id": "e-3", "type": "line", "start": [41, 23], "end": [-2, 26]},
+        {"id": "e-4", "type": "line", "start": [-2, 26], "end": [1, 2]}
+      ],
+      "constraints": [
+        {"id": "c-1", "type": "coincident", "points": ["e-1.end", "e-2.start"]},
+        {"id": "c-2", "type": "coincident", "points": ["e-2.end", "e-3.start"]},
+        {"id": "c-3", "type": "coincident", "points": ["e-3.end", "e-4.start"]},
+        {"id": "c-4", "type": "coincident", "points": ["e-4.end", "e-1.start"]},
+        {"id": "c-5", "type": "coincident", "points": ["e-1.start", "origin"]},
+        {"id": "c-6", "type": "horizontal", "points": ["e-1.start", "e-1.end"]},
+        {"id": "c-7", "type": "vertical", "points": ["e-2.start", "e-2.end"]},
+        {"id": "c-8", "type": "horizontal", "points": ["e-3.start", "e-3.end"]},
+        {"id": "c-9", "type": "vertical", "points": ["e-4.start", "e-4.end"]},
+        {"id": "c-10", "type": "horizontal_distance", "line": "e-1", "expr": "40 mm"},
+        {"id": "c-11", "type": "vertical_distance", "line": "e-2", "expr": "25 mm"}
+      ]
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=20,12.5|a=1000", "outline": "e-1,e-2,e-3,e-4"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "10"},
+      "op": "new"
+    }
+  ]
+}

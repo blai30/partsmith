@@ -1,0 +1,205 @@
+{
+  "printer": "generic-resin",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 999.9999999999999,
+      "area": 712.3105625617661,
+      "center_of_mass": [
+        5.684341886080802e-17,
+        -5.0,
+        13.333333333333334
+      ],
+      "bounding_box": {
+        "min": [
+          -5.0,
+          -10.0,
+          0.0
+        ],
+        "max": [
+          5.0,
+          0.0,
+          20.0
+        ]
+      },
+      "faces": 5,
+      "edges": 9,
+      "vertices": 6
+    }
+  ],
+  "checks": {
+    "profile": "generic-resin",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 2,
+      "infos": 0,
+      "label": "2 warnings"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          65.0,
+          45.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-resin",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "first_layer_contact",
+                  "code": "no_bed_contact",
+                  "severity": "warning",
+                  "message": "The part touches the bed only at points or edges, so it may come loose. Lay a flat face on the bed or add supports.",
+                  "location": {
+                    "kind": "point",
+                    "at": [
+                      0.0,
+                      0.0,
+                      0.0
+                    ]
+                  },
+                  "value": 0.0,
+                  "faces": [
+                    0,
+                    1,
+                    3,
+                    4
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "small_features",
+                  "code": "small_detail",
+                  "severity": "warning",
+                  "message": "A detail 0.013 mm wide is narrower than 0.2 mm and may not print. Make it at least 0.2 mm wide.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -5.0,
+                      -10.0,
+                      0.0
+                    ],
+                    "max": [
+                      5.0,
+                      0.0,
+                      20.0
+                    ]
+                  },
+                  "value": 0.0125,
+                  "limit": 0.2,
+                  "faces": [
+                    0,
+                    1,
+                    3,
+                    4
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

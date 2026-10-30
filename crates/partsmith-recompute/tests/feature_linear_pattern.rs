@@ -491,3 +491,83 @@ fn t021_second_direction_reversed_puts_the_second_row_toward_minus_y() {
         assert_face_centroid(&top, center);
     }
 }
+
+/// Asserts the grid of tests 22 to 24 in `run`'s b-1: test 3's grid, its second row toward +Y.
+fn assert_grid_with_second_row_toward_plus_y(run: &Run) {
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_face_count(shape, 36);
+    assert_solid_count(shape, 6);
+    assert_bounding_box(shape, [-5.0, -5.0, 0.0], [45.0, 20.0, 10.0]);
+    let body = run.body("b-1");
+    for (name, center) in [
+        ("f-box1/top@f-lp1:1", [20.0, 0.0, 10.0]),
+        ("f-box1/top@f-lp1:0.1", [0.0, 15.0, 10.0]),
+        ("f-box1/top@f-lp1:2.1", [40.0, 15.0, 10.0]),
+    ] {
+        let top = face(body, name);
+        assert_face_kind(&top, GeometryKind::Plane);
+        assert_face_centroid(&top, center);
+    }
+}
+
+#[test]
+fn t022_second_direction_from_a_sketch_line_runs_from_its_start_to_its_end() {
+    let run = Run::example("linear_pattern/second-sketch-line-direction.ptsm");
+
+    run.assert_all_quiet();
+    assert_grid_with_second_row_toward_plus_y(&run);
+}
+
+#[test]
+fn t023_second_direction_from_an_edge_follows_its_stored_direction() {
+    let run = Run::example("linear_pattern/second-edge-direction.ptsm");
+
+    run.assert_all_quiet();
+    assert_grid_with_second_row_toward_plus_y(&run);
+}
+
+#[test]
+fn t023_the_second_edge_direction_is_stored_as_a_pick_stores_it() {
+    let run = Run::example("linear_pattern/second-edge-direction.ptsm");
+
+    assert_axis_stored_as_picked(
+        &run,
+        "f-lp1",
+        "/second_direction/axis",
+        "b-1",
+        "edge(f-box1/left|f-box1/top)",
+    );
+}
+
+#[test]
+fn t024_second_direction_from_a_round_face_follows_its_stored_direction() {
+    let run = Run::example("linear_pattern/second-face-direction.ptsm");
+
+    run.assert_all_quiet();
+    assert_grid_with_second_row_toward_plus_y(&run);
+}
+
+#[test]
+fn t024_the_rod_of_the_second_direction_is_unchanged() {
+    let run = Run::example("linear_pattern/second-face-direction.ptsm");
+
+    assert_unchanged(&run, "f-lp1", "b-2");
+    let rod = run.shape("b-2");
+    assert_volume(rod, 125.663706);
+    assert_face_count(rod, 3);
+    assert_bounding_box(rod, [18.0, -10.0, 18.0], [22.0, 0.0, 22.0]);
+}
+
+#[test]
+fn t024_the_second_round_face_direction_is_stored_as_a_pick_stores_it() {
+    let run = Run::example("linear_pattern/second-face-direction.ptsm");
+
+    assert_axis_stored_as_picked(
+        &run,
+        "f-lp1",
+        "/second_direction/axis",
+        "b-2",
+        "f-cyl1/side",
+    );
+}

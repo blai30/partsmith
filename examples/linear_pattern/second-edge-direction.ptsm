@@ -1,0 +1,29 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"},
+    {
+      "id": "f-lp1",
+      "type": "linear_pattern",
+      "body": "b-1",
+      "direction": {"axis": {"kind": "origin", "axis": "X"}, "count": "3", "spacing": "20"},
+      "second_direction": {
+        "axis": {
+          "kind": "edge",
+          "body": "b-1",
+          "edge": {"q": "edge(f-box1/left|f-box1/top)", "fp": "line|n=0,1,0|c=-5,0,10|l=10|adj=2,2"},
+          "direction": [0, 1, 0]
+        },
+        "count": "2",
+        "spacing": "15"
+      }
+    }
+  ]
+}

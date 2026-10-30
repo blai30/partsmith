@@ -216,7 +216,12 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
+      # Its time is apt's download from the Ubuntu mirror: 15 s to 3 minutes in 14 of the first 16 installs, 21 and 53
+      # minutes on the third run's slow mirror. The timeout ends such an install under this step's name, so the row
+      # fails at about 11 minutes instead of running into the job's 60 (delivery.md open issue 16).
+      - name: Install ${{ matrix.browser }} and its system packages
+        timeout-minutes: 10
+        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
       - run: xvfb-run --auto-servernum pnpm e2e --project ${{ matrix.browser }}
       # Its traces can hold the files the page loaded, the core among them, so it is kept 7 days like the others.
       - if: failure()

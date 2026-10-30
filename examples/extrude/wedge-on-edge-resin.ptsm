@@ -1,0 +1,36 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "printer": "generic-resin",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XZ"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [5, 20]},
+        {"id": "e-2", "type": "line", "start": [5, 20], "end": [-5, 20]},
+        {"id": "e-3", "type": "line", "start": [-5, 20], "end": [0, 0]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3", "fp": "c=0,13.333333|a=100", "outline": "e-1,e-2,e-3"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "10"},
+      "op": "new"
+    }
+  ]
+}
