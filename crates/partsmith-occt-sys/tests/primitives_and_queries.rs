@@ -12,9 +12,9 @@ use common::{
     assert_invalid_input, assert_near, assert_parallel, assert_point_near, assert_relative,
     assert_same_points, assert_vector_near, box_corners, box_primitive, cube_a, cube_at,
     cylinder_primitive, degenerated_edges, edge_between, face_direction, face_with_role,
-    faces_of_kind, fillet_top_front, generated_faces, geometry, hollow_box, index_from_position,
-    line, planar_face, rectangle_curves, rectangle_profile, region, seam_edge, sphere_primitive,
-    stair, top_front_edge, volume, xy_plane_at, z_axis,
+    faces_of_kind, fillet_top_front, fully_rounded_box, generated_faces, geometry, hollow_box,
+    index_from_position, line, planar_face, rectangle_curves, rectangle_profile, region, seam_edge,
+    sphere_primitive, stair, top_front_edge, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
     Continuity, EdgeNormals, EdgeRadius, GeometryKind, LINEAR_TOLERANCE, Operation, Plane, Point,
@@ -1532,12 +1532,7 @@ fn assert_consistent(topology: &Topology) {
 
 #[test]
 fn t112_topology_relations_are_inverse_of_each_other() {
-    let edges: Vec<EdgeRadius> = (1..=12)
-        .map(|edge| EdgeRadius { edge, radius: 1.0 })
-        .collect();
-    let rounded = fillet(&box_primitive().shape, &edges)
-        .expect("every edge rounds")
-        .shape;
+    let rounded = fully_rounded_box();
     let pair = compound(&[
         make_box(&Plane::XY, 10.0, 10.0, 10.0)
             .expect("the first cube builds")
@@ -1603,12 +1598,7 @@ fn t116_volume_is_exact_on_planes_and_cylinders() {
 fn t116_volume_adds_numeric_faces_to_exact_ones() {
     // Test 45: every BOX edge rounded at radius 1. With the inner box (8, 18, 28), its volume is
     // the inner box, a slab on each face, a quarter cylinder along each edge and the corners.
-    let edges: Vec<EdgeRadius> = (1..=12)
-        .map(|edge| EdgeRadius { edge, radius: 1.0 })
-        .collect();
-    let rounded = fillet(&box_primitive().shape, &edges)
-        .expect("every edge rounds")
-        .shape;
+    let rounded = fully_rounded_box();
     let expected = 8.0 * 18.0 * 28.0
         + 2.0 * (8.0 * 18.0 + 18.0 * 28.0 + 8.0 * 28.0)
         + PI * (8.0 + 18.0 + 28.0)

@@ -9,11 +9,12 @@ use std::f64::consts::PI;
 use common::{
     POINT_TOLERANCE, UP, assert_argument_error, assert_bounds, assert_invalid_input,
     assert_leaves_unchanged, assert_near, assert_parallel, assert_point_near, assert_relative,
-    assert_vector_near, box_primitive, box_with_displaced_corner, cube_20, cube_a, cube_at,
-    cube_edge, cube_with_vertical_rounds, cylinder_primitive, edge_at, edge_between,
-    face_direction, face_groups, face_with_role, faces_of_kind, fillet_top_front, generated_faces,
-    geometry, hollow_box, index_from_position, l_body, l_body_with_round, line, planar_face,
-    rectangle_profile, region, seam_edge, swept_face, top_front_edge, volume, xy_plane_at, z_axis,
+    assert_vector_near, box_edge_chamfers, box_edge_radii, box_primitive,
+    box_with_displaced_corner, cube_20, cube_a, cube_at, cube_edge, cube_with_vertical_rounds,
+    cylinder_primitive, edge_at, edge_between, face_direction, face_groups, face_with_role,
+    faces_of_kind, fillet_top_front, fully_rounded_box, generated_faces, geometry, hollow_box,
+    index_from_position, l_body, l_body_with_round, line, planar_face, rectangle_profile, region,
+    seam_edge, swept_face, top_front_edge, volume, xy_plane_at, z_axis,
 };
 use partsmith_occt_sys::{
     ChamferEdge, ChamferSize, EdgeRadius, ElementFate, GeometryKind, KernelError, KernelErrorKind,
@@ -28,11 +29,6 @@ const FILLET_FAILED: &str =
 /// The shell message of section 4.3 (tests 53, 102 and 103).
 const SHELL_FAILED: &str =
     "Partsmith's geometry kernel could not build the shell. A thinner wall may work.";
-
-/// Every edge of BOX with the same radius.
-fn all_edges(radius: f64) -> Vec<EdgeRadius> {
-    (1..=12).map(|edge| EdgeRadius { edge, radius }).collect()
-}
 
 /// Test 51: BOX shelled with its `Top` removed and a 1 mm wall.
 fn open_box_shell(block: &Primitive) -> OpResult {
@@ -185,7 +181,7 @@ fn t044_trimmed_faces_keep_one_image() {
 fn t045_fillet_of_every_box_edge() {
     let block = box_primitive();
 
-    let result = fillet(&block.shape, &all_edges(1.0)).expect("every edge is filleted");
+    let result = fillet(&block.shape, &box_edge_radii(1.0)).expect("every edge is filleted");
 
     assert_eq!(result.shape.count(SubShapeKind::Face), 26);
     assert_eq!(faces_of_kind(&result.shape, GeometryKind::Plane).len(), 6);
@@ -200,7 +196,7 @@ fn t045_fillet_of_every_box_edge() {
 fn t045_each_corner_vertex_generates_its_corner_face() {
     let block = box_primitive();
 
-    let result = fillet(&block.shape, &all_edges(1.0)).expect("every edge is filleted");
+    let result = fillet(&block.shape, &box_edge_radii(1.0)).expect("every edge is filleted");
 
     let vertices = &result.history.inputs[0].vertices;
     assert_eq!(vertices.len(), 8);
@@ -216,7 +212,7 @@ fn t045_each_corner_vertex_generates_its_corner_face() {
 
 #[test]
 fn t046_fillet_radius_too_large_fails() {
-    let error = fillet(&box_primitive().shape, &all_edges(6.0))
+    let error = fillet(&box_primitive().shape, &box_edge_radii(6.0))
         .expect_err("a 6 mm round does not fit a 10 mm wide box");
 
     assert!(
@@ -458,24 +454,14 @@ fn two_distance_chamfer_on_a_face_out_of_range_is_rejected() {
 
 /// Test 142: every edge of BOX chamfered with `Equal { distance: 1 }`.
 fn chamfer_every_box_edge(block: &Primitive) -> OpResult {
-    let edges: Vec<ChamferEdge> = (1..=12)
-        .map(|edge| ChamferEdge {
-            edge,
-            size: ChamferSize::Equal { distance: 1.0 },
-        })
-        .collect();
-    chamfer(&block.shape, &edges).expect("every edge is chamfered")
+    chamfer(&block.shape, &box_edge_chamfers(1.0)).expect("every edge is chamfered")
 }
 
 /// `point` moved by `distance` against each of `normals`: into a box, when they are the outward
 /// normals of box faces holding the point.
 fn moved_against(point: Point, normals: &[Vector], distance: f64) -> Point {
     normals.iter().fold(point, |moved, normal| {
-        Point::new(
-            moved.x - distance * normal.x,
-            moved.y - distance * normal.y,
-            moved.z - distance * normal.z,
-        )
+        moved.offset(normal.scaled(-distance))
     })
 }
 
@@ -1352,7 +1338,7 @@ fn t131_closed_hollow_thicker_than_the_rounds_has_a_sharp_cavity() {
 #[test]
 fn t131_closed_hollow_of_a_box_with_every_edge_rounded() {
     // Test 45's spherical corners vanish too.
-    let (rounded, _) = fully_rounded_box();
+    let rounded = fully_rounded_box();
 
     let result = shell(&rounded, &[], 2.0).expect("the rounded BOX is hollowed with a 2 mm wall");
 
@@ -1681,10 +1667,8 @@ fn t132_wall_as_thick_as_a_round_beside_a_removed_concave_edge_cuts_a_sharp_cavi
 
 /// Test 45: every BOX edge rounded at radius 1 (rounds meeting in spherical corners), and the
 /// index of its top, the `Plane` face with direction (0,0,1) at z = 30.
-fn fully_rounded_box() -> (Shape, u32) {
-    let rounded = fillet(&box_primitive().shape, &all_edges(1.0))
-        .expect("every edge rounds")
-        .shape;
+fn fully_rounded_box_and_top() -> (Shape, u32) {
+    let rounded = fully_rounded_box();
     let top = planar_face(&rounded, UP, Point::new(5.0, 10.0, 30.0));
     (rounded, top)
 }
@@ -1706,7 +1690,7 @@ fn assert_rounds_generate_nothing(rounded: &Shape, result: &OpResult) {
 #[test]
 fn t132_opening_tangent_to_rounds_thinner_than_the_wall() {
     // The top meets its rounds tangentially.
-    let (rounded, top) = fully_rounded_box();
+    let (rounded, top) = fully_rounded_box_and_top();
 
     let result = shell(&rounded, &[top], 2.0).expect("the rounded BOX shells open 2 mm thick");
 
@@ -1736,7 +1720,7 @@ fn t132_opening_tangent_to_rounds_thinner_than_the_wall() {
 
 #[test]
 fn t132_opening_tangent_to_rounds_as_thick_as_the_wall() {
-    let (rounded, top) = fully_rounded_box();
+    let (rounded, top) = fully_rounded_box_and_top();
 
     let result = shell(&rounded, &[top], 1.0).expect("the rounded BOX shells open 1 mm thick");
 
@@ -1811,7 +1795,7 @@ fn assert_wall_ends(body: &Shape, face: u32, result: &OpResult, thickness: f64) 
 
 #[test]
 fn t133_opening_tangent_to_rounds_thicker_than_the_wall() {
-    let (rounded, top) = fully_rounded_box();
+    let (rounded, top) = fully_rounded_box_and_top();
 
     let result = shell(&rounded, &[top], 0.5).expect("the rounded BOX shells open 0.5 mm thick");
 
@@ -2050,7 +2034,7 @@ fn fillet_leaves_its_input_unchanged() {
     let block = box_primitive();
 
     assert_leaves_unchanged(&block.shape, || {
-        fillet(&block.shape, &all_edges(1.0)).expect("every edge is filleted");
+        fillet(&block.shape, &box_edge_radii(1.0)).expect("every edge is filleted");
     });
 }
 
@@ -2102,7 +2086,7 @@ fn t110_fillet_next_to_an_invalid_corner_is_repaired() {
 #[test]
 fn t115_shell_of_a_moved_body_matches_the_unmoved_one() {
     // Test 45's rounds make the shell offset located blend surfaces.
-    let (rounded, top) = fully_rounded_box();
+    let (rounded, top) = fully_rounded_box_and_top();
     let shift = Vector::new(50.0, 0.0, 0.0);
     let motions = [
         Transform::translation(shift),
@@ -2143,7 +2127,7 @@ fn t115_shell_of_a_moved_body_matches_the_unmoved_one() {
 
 #[test]
 fn t115_shell_of_a_moved_and_fused_body_matches_the_unmoved_one() {
-    let (rounded, _) = fully_rounded_box();
+    let rounded = fully_rounded_box();
     let moved = transform(
         &rounded,
         &Transform::translation(Vector::new(50.0, 0.0, 0.0)),

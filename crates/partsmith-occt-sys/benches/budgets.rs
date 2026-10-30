@@ -19,9 +19,9 @@ use partsmith_budgets::{Report, median_time_of};
 use partsmith_mesh::TessellationTolerance;
 use partsmith_occt_sys::{
     Axis, EdgeRadius, GeometryKind, PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane,
-    Point, Point2, Shape, StepBody, SubShapeKind, TaggedCurve, Transform, Vector, cut, extrude,
-    fillet, fuse, make_box, make_cone, make_cylinder, make_profile, make_sphere, make_torus,
-    read_step, shell, transform, write_step,
+    Point, Point2, Shape, SubShapeKind, TaggedCurve, Transform, Vector, cut, extrude, fillet, fuse,
+    make_box, make_cone, make_cylinder, make_profile, make_sphere, make_torus, read_step, shell,
+    transform, write_step,
 };
 
 /// Times each operation runs; the median counts.
@@ -339,9 +339,7 @@ fn main() -> ExitCode {
         .expect("the box builds")
         .shape;
     // Every edge of the box rounded at radius 1 (kernel spec test 45).
-    let every_edge: Vec<EdgeRadius> = (1..=12)
-        .map(|edge| EdgeRadius { edge, radius: 1.0 })
-        .collect();
+    let every_edge = common::box_edge_radii(1.0);
     report.measure("fillet, 12 edges of a box", milliseconds(40), || {
         median_time_of(RUNS, || fillet(&block, &every_edge))
     });
@@ -525,11 +523,7 @@ fn main() -> ExitCode {
             Shape::from_brep(&bytes)
         })
     });
-    let bodies = [StepBody {
-        shape: part.clone(),
-        name: "Part".to_owned(),
-        color: None,
-    }];
+    let bodies = [common::uncolored_body(part.clone(), "Part")];
     report.measure("write_step, part", milliseconds(100), || {
         median_time_of(RUNS, || write_step(&bodies))
     });

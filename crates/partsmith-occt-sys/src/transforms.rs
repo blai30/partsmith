@@ -112,19 +112,8 @@ pub fn compound(shapes: &[Shape]) -> Result<OpResult, KernelError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        PlanarCurve, PlanarLoop, PlanarRegion, Point, Point2, ShapeKind, TaggedCurve, Vector, fuse,
-        make_box, make_profile,
-    };
-
-    /// A 10 mm cube with its corner at `(x, y, z)`.
-    fn cube_at(x: f64, y: f64, z: f64) -> Shape {
-        let corner = Plane {
-            origin: Point::new(x, y, z),
-            ..Plane::XY
-        };
-        make_box(&corner, 10.0, 10.0, 10.0).expect("cube").shape
-    }
+    use crate::test_support::{cube_at, square_face_at};
+    use crate::{Point, ShapeKind, Vector, fuse};
 
     #[test]
     fn plane_sides_follow_the_flag() {
@@ -195,36 +184,9 @@ mod tests {
         assert!(result.shape.is_valid().expect("validity"));
     }
 
-    /// A 10 mm square face on `Plane::XY`, a shape without a solid.
-    fn square_face() -> Shape {
-        let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
-        let curves = (0..4)
-            .map(|position| {
-                let (start, end) = (corners[position], corners[(position + 1) % 4]);
-                TaggedCurve {
-                    tag: 1,
-                    curve: PlanarCurve::Line {
-                        start: Point2 {
-                            x: start.0,
-                            y: start.1,
-                        },
-                        end: Point2 { x: end.0, y: end.1 },
-                    },
-                }
-            })
-            .collect();
-        let region = PlanarRegion {
-            outer: PlanarLoop { curves },
-            holes: Vec::new(),
-        };
-        make_profile(&Plane::XY, &[region])
-            .expect("the square builds")
-            .shape
-    }
-
     #[test]
     fn moving_a_face_needs_no_solid() {
-        let face = square_face();
+        let face = square_face_at(0.0);
 
         let moved =
             transform(&face, &Transform::translation(Vector::new(0.0, 0.0, 1.0))).expect("moved");
@@ -240,7 +202,7 @@ mod tests {
 
     #[test]
     fn mirroring_a_face_needs_no_solid() {
-        let face = square_face();
+        let face = square_face_at(0.0);
 
         let mirrored = transform(&face, &Transform::mirror(&Plane::YZ)).expect("mirrored");
 

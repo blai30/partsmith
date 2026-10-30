@@ -10,10 +10,10 @@ use std::thread;
 use std::time::Duration;
 
 use common::{
-    OPT, UP, box_primitive, box_with_displaced_corner, cube_20, cube_a, cube_b, cube_c,
-    cube_with_vertical_rounds, edge_between, face_with_role, fully_rounded_box, l_body,
-    l_body_with_round, planar_face, rectangle_profile, rectangle_with_hole_profile, ring_profile,
-    top_front_edge, xy_plane_at, z_axis,
+    OPT, UP, box_edge_chamfers, box_edge_radii, box_primitive, box_with_displaced_corner, cube_20,
+    cube_a, cube_b, cube_c, cube_with_vertical_rounds, edge_between, face_with_role,
+    fully_rounded_box, l_body, l_body_with_round, planar_face, rectangle_profile,
+    rectangle_with_hole_profile, ring_profile, top_front_edge, uncolored_body, xy_plane_at, z_axis,
 };
 use partsmith_mesh::Mesh;
 use partsmith_occt_sys::{
@@ -298,12 +298,10 @@ fn assert_unreadable(result: Result<StepImport, KernelError>) {
 
 /// `read_step` of `write_step` of BOX as one body.
 fn box_step_round_trip() -> Result<StepImport, KernelError> {
-    let body = StepBody {
-        shape: box_primitive().shape,
-        name: "Block".to_owned(),
-        color: None,
-    };
-    read_step(&write_step(&[body])?)
+    read_step(&write_step(&[uncolored_body(
+        box_primitive().shape,
+        "Block",
+    )])?)
 }
 
 /// Asserts that a STEP file was read with one body.
@@ -410,12 +408,7 @@ fn results_do_not_depend_on_earlier_operations() {
     let block = box_primitive();
     let edge = top_front_edge(&block);
     fillet(&block.shape, &[EdgeRadius { edge, radius: 2.0 }]).expect("filleted");
-    write_step(&[StepBody {
-        shape: block.shape.clone(),
-        name: "Bracket".to_owned(),
-        color: None,
-    }])
-    .expect("written");
+    write_step(&[uncolored_body(block.shape.clone(), "Bracket")]).expect("written");
 
     let after = fuse(&cube_a().shape, &[cube_b().shape]).expect("fused");
 
@@ -677,19 +670,12 @@ fn common_case() -> Outcome {
 }
 
 fn fillet_case() -> Outcome {
-    let edges: Vec<EdgeRadius> = (1..=12)
-        .map(|edge| EdgeRadius { edge, radius: 1.0 })
-        .collect();
+    let edges = box_edge_radii(1.0);
     Outcome::of_result(&fillet(&box_primitive().shape, &edges).expect("every edge rounds"))
 }
 
 fn equal_chamfer_case() -> Outcome {
-    let edges: Vec<ChamferEdge> = (1..=12)
-        .map(|edge| ChamferEdge {
-            edge,
-            size: ChamferSize::Equal { distance: 1.0 },
-        })
-        .collect();
+    let edges = box_edge_chamfers(1.0);
     Outcome::of_result(&chamfer(&box_primitive().shape, &edges).expect("every edge bevels"))
 }
 
@@ -769,12 +755,7 @@ fn write_step_case() -> Outcome {
 }
 
 fn read_step_case() -> Outcome {
-    let body = StepBody {
-        shape: knob().shape,
-        name: "Knob".to_owned(),
-        color: None,
-    };
-    let bytes = write_step(&[body]).expect("written");
+    let bytes = write_step(&[uncolored_body(knob().shape, "Knob")]).expect("written");
     let import = read_step(&bytes).expect("read");
     let first = &import.bodies[0];
     let rest = format!("{} {:?} {:?}", first.name, first.color, import.warnings);

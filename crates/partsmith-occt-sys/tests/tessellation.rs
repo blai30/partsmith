@@ -11,8 +11,8 @@ use common::{
     assert_near, assert_point_near, assert_relative, assert_same_points, assert_vector_near,
     box_corners, box_primitive, cylinder_primitive, degenerated_edges, directed_edge_uses,
     edge_between, face_with_role, fully_rounded_box, generated_faces, geometry, hollow_box, line,
-    mesh_face_ids, rectangle_profile, region, seam_edge, sphere_primitive, top_front_edge,
-    unbounded_face, weld_exactly, z_axis,
+    mesh_face_ids, rectangle, rectangle_profile, region, seam_edge, sphere_primitive,
+    top_front_edge, unbounded_face, weld_exactly, z_axis,
 };
 use partsmith_mesh::{Mesh, TessellationTolerance, WELD_TOLERANCE};
 use partsmith_occt_sys::{
@@ -1097,17 +1097,9 @@ fn t138_torus_mesh_is_closed() {
 #[test]
 fn t138_quarter_revolution_mesh_is_closed() {
     // The body of `revolve/quarter`: x from 10 to 20, z from 0 to 30, a quarter turn about Z.
-    let rectangle = make_profile(
-        &Plane::XZ,
-        &[region(vec![
-            line(1, (10.0, 0.0), (20.0, 0.0)),
-            line(2, (20.0, 0.0), (20.0, 30.0)),
-            line(3, (20.0, 30.0), (10.0, 30.0)),
-            line(4, (10.0, 30.0), (10.0, 0.0)),
-        ])],
-    )
-    .expect("the rectangle builds");
-    let quarter = revolve(&rectangle, &z_axis(), FRAC_PI_2).expect("the rectangle revolves");
+    let profile = make_profile(&Plane::XZ, &[region(rectangle((10.0, 0.0), (20.0, 30.0)))])
+        .expect("the rectangle builds");
+    let quarter = revolve(&profile, &z_axis(), FRAC_PI_2).expect("the rectangle revolves");
 
     assert_closed_when_welded(&quarter.shape);
 }

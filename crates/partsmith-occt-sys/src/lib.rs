@@ -16,6 +16,8 @@ mod profiles;
 mod shape;
 mod sweeps;
 mod tessellation;
+#[cfg(test)]
+mod test_support;
 mod transforms;
 mod values;
 

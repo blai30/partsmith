@@ -79,9 +79,9 @@ void DelabellaBaseAlgorithm::buildBaseTriangulation() {
 
   const std::unique_ptr<delabella::IDelaBella, DestroyTriangulator> triangulator(
       delabella::IDelaBella::Create());
-  int triangulated = 0;
+  int hull_vertices = 0;
   try {
-    triangulated =
+    hull_vertices =
         triangulator->Triangulate(static_cast<int>(positions.size()), &points[0], &points[1],
                                   static_cast<int>(2 * sizeof(double)));
   } catch (const std::exception &exception) {
@@ -89,8 +89,10 @@ void DelabellaBaseAlgorithm::buildBaseTriangulation() {
     // Standard_Failure no triangulation (kernel spec sections 3.7 item 7 and 3.9 item 7).
     throw Standard_Failure(exception.what());
   }
-  // Nodes all on one line give no triangles, and the face then no triangulation.
-  if (triangulated <= 0) {
+  // The count of hull vertices is 0 when the copy gives no output (also when it cannot allocate)
+  // and negative when all nodes lie on one line. Either gives no triangles, and the face then no
+  // triangulation.
+  if (hull_vertices <= 0) {
     return;
   }
   for (const delabella::DelaBella_Triangle *triangle = triangulator->GetFirstDelaunayTriangle();
@@ -126,10 +128,9 @@ using WatsonNodeInsertion =
 // An algorithm that registers the surface's nodes before the face is triangulated.
 template <class Algorithm>
 Handle(IMeshTools_MeshAlgo) with_surface_nodes_first() {
-  Algorithm *algorithm = new Algorithm;
-  const Handle(IMeshTools_MeshAlgo) owner = algorithm;
+  const Handle(Algorithm) algorithm = new Algorithm;
   algorithm->SetPreProcessSurfaceNodes(Standard_True);
-  return owner;
+  return Handle(IMeshTools_MeshAlgo)(algorithm);
 }
 
 // Gives each face the algorithm OCCT 7.9.3's BRepMesh_DelabellaMeshAlgoFactory gives it, by

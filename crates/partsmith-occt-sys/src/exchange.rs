@@ -151,50 +151,14 @@ impl Shape {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, TaggedCurve, Transform,
-        Vector, compound, fuse, make_box, make_profile, section, transform,
-    };
+    use crate::test_support::{cube_at, square_face_at};
+    use crate::{Plane, Point, Transform, Vector, compound, fuse, section, transform};
 
-    /// A 10 mm cube with its corner at `(x, 0, 0)`.
-    fn cube_at(x: f64) -> Shape {
-        let corner = Plane {
-            origin: Point::new(x, 0.0, 0.0),
-            ..Plane::XY
-        };
-        make_box(&corner, 10.0, 10.0, 10.0).expect("cube").shape
-    }
-
-    /// A face of `Plane::XY` bounded by the square with 10 mm sides whose lower left corner is at
-    /// `(x, 0)`.
-    fn square_face_at(x: f64) -> Shape {
-        let corners = [(x, 0.0), (x + 10.0, 0.0), (x + 10.0, 10.0), (x, 10.0)];
-        let curves = (0..corners.len())
-            .map(|position| {
-                let (start, end) = (corners[position], corners[(position + 1) % corners.len()]);
-                TaggedCurve {
-                    tag: position as u32 + 1,
-                    curve: PlanarCurve::Line {
-                        start: Point2 {
-                            x: start.0,
-                            y: start.1,
-                        },
-                        end: Point2 { x: end.0, y: end.1 },
-                    },
-                }
-            })
-            .collect();
-        let square = PlanarRegion {
-            outer: PlanarLoop { curves },
-            holes: Vec::new(),
-        };
-        make_profile(&Plane::XY, &[square]).expect("square").shape
-    }
-
-    /// A body named `name` holding the cube at `x` and the square face at `x + 50` beside it.
+    /// A body named `name` holding the cube at `(x, 0, 0)` and the square face at `x + 50` beside
+    /// it.
     fn cube_beside_a_face(x: f64, name: &str) -> StepBody {
         StepBody {
-            shape: compound(&[cube_at(x), square_face_at(x + 50.0)])
+            shape: compound(&[cube_at(x, 0.0, 0.0), square_face_at(x + 50.0)])
                 .expect("grouped")
                 .shape,
             name: name.to_owned(),
@@ -211,7 +175,9 @@ mod tests {
 
     #[test]
     fn body_of_two_solids_reads_as_two_bodies_with_its_name() {
-        let pair = fuse(&cube_at(0.0), &[cube_at(20.0)]).expect("fused").shape;
+        let pair = fuse(&cube_at(0.0, 0.0, 0.0), &[cube_at(20.0, 0.0, 0.0)])
+            .expect("fused")
+            .shape;
         let bodies = [StepBody {
             shape: pair,
             name: "Pair".to_owned(),
@@ -227,7 +193,7 @@ mod tests {
     #[test]
     fn a_file_of_valid_solids_counts_nothing() {
         let bodies = [StepBody {
-            shape: cube_at(0.0),
+            shape: cube_at(0.0, 0.0, 0.0),
             name: "Cube".to_owned(),
             color: None,
         }];
@@ -262,9 +228,12 @@ mod tests {
             origin: Point::new(0.0, 0.0, 5.0),
             ..Plane::XY
         };
-        let edges = section(&cube_at(100.0), &middle).expect("the four edges of the section");
+        let edges =
+            section(&cube_at(100.0, 0.0, 0.0), &middle).expect("the four edges of the section");
         let bodies = [StepBody {
-            shape: compound(&[cube_at(0.0), edges]).expect("grouped").shape,
+            shape: compound(&[cube_at(0.0, 0.0, 0.0), edges])
+                .expect("grouped")
+                .shape,
             name: "Edges".to_owned(),
             color: None,
         }];
@@ -278,7 +247,7 @@ mod tests {
     #[test]
     fn moved_body_keeps_its_position() {
         let moved = transform(
-            &cube_at(0.0),
+            &cube_at(0.0, 0.0, 0.0),
             &Transform::translation(Vector::new(100.0, 0.0, 0.0)),
         )
         .expect("moved")

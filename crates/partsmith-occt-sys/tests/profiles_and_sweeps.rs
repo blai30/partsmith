@@ -8,8 +8,9 @@ use std::f64::consts::{FRAC_PI_2, PI};
 use common::{
     POINT_TOLERANCE, UP, arc, assert_bounds, assert_invalid_input, assert_leaves_unchanged,
     assert_near, assert_point_near, assert_relative, assert_vector_near, circle, circle_profile,
-    face_direction, geometry, index_from_position, line, rectangle_curves, rectangle_profile,
-    rectangle_with_hole_profile, region, ring_profile, swept_face, volume, z_axis,
+    face_direction, geometry, index_from_position, line, rectangle, rectangle_curves,
+    rectangle_profile, rectangle_with_hole_profile, region, ring_profile, swept_face, volume,
+    z_axis,
 };
 use partsmith_occt_sys::{
     Axis, GeometryKind, Operation, PlanarProfile, Plane, Point, ShapeKind, SubShapeKind, SweepFace,
@@ -56,12 +57,7 @@ fn half_disc(arc_start: f64, arc_end: f64) -> Vec<TaggedCurve> {
 
 /// `RING` moved to x from -5 to 5, crossing the Z axis.
 fn ring_across_the_axis() -> PlanarProfile {
-    let curves = vec![
-        line(1, (-5.0, 0.0), (5.0, 0.0)),
-        line(2, (5.0, 0.0), (5.0, 10.0)),
-        line(3, (5.0, 10.0), (-5.0, 10.0)),
-        line(4, (-5.0, 10.0), (-5.0, 0.0)),
-    ];
+    let curves = rectangle((-5.0, 0.0), (5.0, 10.0));
     make_profile(&Plane::XZ, &[region(curves)]).expect("the shifted ring builds")
 }
 
@@ -472,12 +468,7 @@ fn t031_negative_angle_turns_the_other_way() {
 
 #[test]
 fn t032_curve_on_the_axis_generates_no_face() {
-    let curves = vec![
-        line(1, (0.0, 0.0), (10.0, 0.0)),
-        line(2, (10.0, 0.0), (10.0, 10.0)),
-        line(3, (10.0, 10.0), (0.0, 10.0)),
-        line(4, (0.0, 10.0), (0.0, 0.0)),
-    ];
+    let curves = rectangle((0.0, 0.0), (10.0, 10.0));
     let profile = make_profile(&Plane::XZ, &[region(curves)]).expect("the rectangle builds");
 
     let result = revolve(&profile, &z_axis(), 2.0 * PI).expect("the revolution builds");

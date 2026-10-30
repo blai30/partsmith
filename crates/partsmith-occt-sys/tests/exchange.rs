@@ -5,13 +5,13 @@ use crate::common;
 
 use common::{
     assert_argument_error, assert_invalid_input, assert_leaves_unchanged, assert_near,
-    assert_relative, box_primitive, cube_a, cylinder_primitive, face_with_role, line, region,
-    volume, xy_plane_at,
+    assert_relative, box_primitive, cube_a, cylinder_primitive, face_with_role, fully_rounded_box,
+    rectangle, region, uncolored_body, volume, xy_plane_at,
 };
 use partsmith_occt_sys::{
-    Color, EdgeRadius, KernelError, KernelErrorKind, Operation, PlanarRegion, Plane, PrimitiveFace,
-    Shape, ShapeKind, StepBody, StepImport, SubShapeKind, compound, cut, fillet, make_box,
-    make_profile, read_step, shell, write_step,
+    Color, KernelError, KernelErrorKind, Operation, PlanarRegion, Plane, PrimitiveFace, Shape,
+    ShapeKind, StepBody, StepImport, SubShapeKind, compound, cut, make_box, make_profile,
+    read_step, shell, write_step,
 };
 
 /// The color of test 78.
@@ -32,15 +32,6 @@ DATA;
 ENDSEC;
 END-ISO-10303-21;
 ";
-
-/// A body without color.
-fn body(shape: Shape, name: &str) -> StepBody {
-    StepBody {
-        shape,
-        name: name.to_owned(),
-        color: None,
-    }
-}
 
 /// The STEP text as a string.
 fn text(bytes: &[u8]) -> String {
@@ -79,29 +70,34 @@ fn assert_color(actual: Option<Color>, expected: Color) {
 /// A region bounded by a square with 10 mm sides whose lower left corner is at (`left`, 0) in plane
 /// coordinates, its sides tagged 1 to 4.
 fn square(left: f64) -> PlanarRegion {
-    let right = left + 10.0;
-    region(vec![
-        line(1, (left, 0.0), (right, 0.0)),
-        line(2, (right, 0.0), (right, 10.0)),
-        line(3, (right, 10.0), (left, 10.0)),
-        line(4, (left, 10.0), (left, 0.0)),
-    ])
+    region(rectangle((left, 0.0), (left + 10.0, 10.0)))
+}
+
+/// The shape of `make_profile` on `Plane::XY` of one `square` per entry of `lefts`.
+fn squares(lefts: &[f64]) -> Shape {
+    let regions: Vec<PlanarRegion> = lefts.iter().map(|&left| square(left)).collect();
+    make_profile(&Plane::XY, &regions)
+        .expect("the squares build")
+        .shape
+}
+
+/// A STEP file of one body named `Block`, the compound of `BOX` and `faces`.
+fn block_beside(faces: Shape) -> Result<Vec<u8>, KernelError> {
+    let shape = compound(&[box_primitive().shape, faces])
+        .expect("the shapes are grouped")
+        .shape;
+    write_step(&[uncolored_body(shape, "Block")])
 }
 
 /// `FACES` of test 135: the shape of `make_profile` of two squares with 10 mm sides on `Plane::XY`,
 /// [50,60]x[0,10] and [70,80]x[0,10].
 fn two_faces() -> Shape {
-    make_profile(&Plane::XY, &[square(50.0), square(70.0)])
-        .expect("the two squares build")
-        .shape
+    squares(&[50.0, 70.0])
 }
 
 /// The STEP file of test 135: one body named `Block`, the compound of `BOX` and `FACES`.
 fn block_beside_two_faces() -> Result<Vec<u8>, KernelError> {
-    let shape = compound(&[box_primitive().shape, two_faces()])
-        .expect("the shapes are grouped")
-        .shape;
-    write_step(&[body(shape, "Block")])
+    block_beside(two_faces())
 }
 
 /// The kernel's sentence for a solid that repair could not fix, the first body of the file (tests
@@ -114,17 +110,12 @@ const ONE_SHAPE_SKIPPED: &str = "Skipped 1 shape that is not a closed solid.";
 /// `FACE` of test 139: the shape of `make_profile` of the square [50,60]x[0,10] alone on
 /// `Plane::XY`, one face.
 fn one_face() -> Shape {
-    make_profile(&Plane::XY, &[square(50.0)])
-        .expect("the square builds")
-        .shape
+    squares(&[50.0])
 }
 
 /// The STEP file of test 139: one body named `Block`, the compound of `BOX` and `FACE`.
 fn block_beside_one_face() -> Vec<u8> {
-    let shape = compound(&[box_primitive().shape, one_face()])
-        .expect("the shapes are grouped")
-        .shape;
-    write_step(&[body(shape, "Block")]).expect("the body contains a solid")
+    block_beside(one_face()).expect("the body contains a solid")
 }
 
 /// `HOLLOW` of test 140: `BOX` with the closed cavity [2,8]x[2,18]x[2,28], one solid of two shells.
@@ -139,7 +130,7 @@ fn hollow() -> Shape {
 
 /// The STEP text `write_step` gives for `shape` as one body named `Hollow`.
 fn hollow_step(shape: Shape) -> String {
-    text(&write_step(&[body(shape, "Hollow")]).expect("the body contains a solid"))
+    text(&write_step(&[uncolored_body(shape, "Hollow")]).expect("the body contains a solid"))
 }
 
 /// The entity number of a reference such as `#47`.
@@ -151,16 +142,24 @@ fn entity_number(reference: &str) -> u64 {
         .unwrap_or_else(|| panic!("{reference:?} is an entity reference"))
 }
 
+/// The number and text of every entity a line of a STEP text defines (`#<n> = <text>;`), the text
+/// from its `=` to its `;` without spaces at either end.
+fn entity_definitions(step: &str) -> impl Iterator<Item = (u64, &str)> {
+    step.lines().filter_map(|line| {
+        let (reference, value) = line.trim_start().split_once('=')?;
+        let number = reference
+            .trim()
+            .strip_prefix('#')
+            .filter(|digits| digits.bytes().all(|byte| byte.is_ascii_digit()))?
+            .parse()
+            .ok()?;
+        Some((number, value.trim().trim_end_matches(';').trim_end()))
+    })
+}
+
 /// The number of every entity a line of a STEP text defines (`#<n> = ...`).
 fn defined_entities(step: &str) -> impl Iterator<Item = u64> {
-    step.lines().filter_map(|line| {
-        let (reference, _) = line.trim_start().split_once('=')?;
-        let reference = reference.trim();
-        reference
-            .strip_prefix('#')
-            .filter(|digits| digits.bytes().all(|byte| byte.is_ascii_digit()))
-            .map(|_| entity_number(reference))
-    })
+    entity_definitions(step).map(|(number, _)| number)
 }
 
 /// The `BREP_WITH_VOIDS` entity of a STEP text: its whole text up to its closing `);`, which must
@@ -191,13 +190,20 @@ fn void_references(entity: &str) -> Vec<&str> {
 
 /// The text of the entity `#<number>`, from its `=` to its `;`, without spaces at either end.
 fn entity_text(step: &str, number: u64) -> &str {
-    step.lines()
-        .find_map(|line| {
-            let (reference, value) = line.trim_start().split_once('=')?;
-            let defines = reference.trim().strip_prefix('#')?.parse::<u64>().ok()? == number;
-            defines.then(|| value.trim().trim_end_matches(';').trim_end())
-        })
+    entity_definitions(step)
+        .find(|(defined, _)| *defined == number)
+        .map(|(_, text)| text)
         .unwrap_or_else(|| panic!("the STEP text defines #{number} on one line"))
+}
+
+/// The only void of the one `BREP_WITH_VOIDS` entity of a STEP text: its reference `#v` and the
+/// text of the entity it refers to.
+fn only_void(step: &str) -> (&str, &str) {
+    let entity = brep_with_voids(step);
+    let voids = void_references(entity);
+    assert_eq!(voids.len(), 1, "the solid has one void: {entity}");
+    let void = voids[0];
+    (void, entity_text(step, entity_number(void)))
 }
 
 /// `VOID_TWICE` of test 140, from `step`: the void of its one `BREP_WITH_VOIDS` entity listed
@@ -205,10 +211,7 @@ fn entity_text(step: &str, number: u64) -> &str {
 /// entity number, on its own line before the last `ENDSEC;`, and `(#v)` replaced by `(#v,#n)`.
 fn void_listed_twice(step: &str) -> String {
     let entity = brep_with_voids(step);
-    let voids = void_references(entity);
-    assert_eq!(voids.len(), 1, "the solid has one void: {entity}");
-    let void = voids[0];
-    let void_shell = entity_text(step, entity_number(void));
+    let (void, void_shell) = only_void(step);
     assert!(
         void_shell.starts_with("ORIENTED_CLOSED_SHELL('',*,") && void_shell.ends_with(",.F.)"),
         "the void is a reversed oriented closed shell: {void_shell}"
@@ -323,8 +326,8 @@ fn t078_step_text_holds_srgb_components() {
 #[test]
 fn t079_two_bodies_round_trip_in_order() {
     let bodies = [
-        body(box_primitive().shape, "First"),
-        body(cylinder_primitive().shape, "Second"),
+        uncolored_body(box_primitive().shape, "First"),
+        uncolored_body(cylinder_primitive().shape, "Second"),
     ];
 
     let import = read_step(&write_step(&bodies).expect("written")).expect("read");
@@ -362,7 +365,7 @@ fn t080_step_output_is_deterministic() {
 
 #[test]
 fn t081_file_units_are_converted_to_millimeters() {
-    let bytes = write_step(&[body(cube_a().shape, "Cube")]).expect("written");
+    let bytes = write_step(&[uncolored_body(cube_a().shape, "Cube")]).expect("written");
     let step = text(&bytes);
     assert!(
         step.contains("SI_UNIT(.MILLI.,.METRE.)"),
@@ -378,7 +381,7 @@ fn t081_file_units_are_converted_to_millimeters() {
 
 #[test]
 fn t082_unnamed_body_is_written_with_a_default_name() {
-    let bytes = write_step(&[body(box_primitive().shape, "")]).expect("written");
+    let bytes = write_step(&[uncolored_body(box_primitive().shape, "")]).expect("written");
 
     assert!(text(&bytes).contains("'Body 1'"));
     let import = read_step(&bytes).expect("read");
@@ -388,7 +391,7 @@ fn t082_unnamed_body_is_written_with_a_default_name() {
 
 #[test]
 fn t082_unnamed_part_reads_with_an_empty_name() {
-    let bytes = write_step(&[body(box_primitive().shape, "")]).expect("written");
+    let bytes = write_step(&[uncolored_body(box_primitive().shape, "")]).expect("written");
     let unnamed = text(&bytes).replace("'Body 1'", "''");
 
     let import = read_step(unnamed.as_bytes()).expect("read");
@@ -427,7 +430,8 @@ fn t084_nothing_to_export_is_rejected() {
 
 #[test]
 fn t084_body_without_solid_is_rejected() {
-    let error = write_step(&[body(Shape::empty(), "Empty")]).expect_err("the body has no solid");
+    let error =
+        write_step(&[uncolored_body(Shape::empty(), "Empty")]).expect_err("the body has no solid");
 
     assert_invalid_input(
         &error,
@@ -464,12 +468,9 @@ fn t085_box_survives_the_brep_round_trip() {
 
 #[test]
 fn t085_filleted_box_survives_the_brep_round_trip() {
-    let edges: Vec<EdgeRadius> = (1..=12)
-        .map(|edge| EdgeRadius { edge, radius: 1.0 })
-        .collect();
-    let rounded = fillet(&box_primitive().shape, &edges).expect("every edge is filleted");
+    let rounded = fully_rounded_box();
 
-    assert_brep_round_trip(&rounded.shape);
+    assert_brep_round_trip(&rounded);
 }
 
 #[test]
@@ -525,9 +526,7 @@ fn t135_free_faces_are_left_out_of_the_body() {
 
     let import = read_step(&bytes).expect("the file is read");
 
-    assert_eq!(import.bodies.len(), 1);
-    let imported = &import.bodies[0];
-    assert_eq!(imported.name, "Block");
+    let imported = only_body(&import, "Block");
     assert_relative(volume(&imported.shape), 6000.0, 1e-6, "volume");
     assert_eq!(imported.shape.count(SubShapeKind::Face), 6);
 }
@@ -599,10 +598,7 @@ fn t140_hollow_is_one_solid_with_a_closed_cavity() {
 fn t140_hollow_is_written_as_a_solid_with_one_reversed_closed_void() {
     let step = hollow_step(hollow());
 
-    let entity = brep_with_voids(&step);
-    let voids = void_references(entity);
-    assert_eq!(voids.len(), 1, "{entity}");
-    let void_shell = entity_text(&step, entity_number(voids[0]));
+    let (_, void_shell) = only_void(&step);
     assert!(
         void_shell.starts_with("ORIENTED_CLOSED_SHELL('',*,#") && void_shell.ends_with(",.F.)"),
         "{void_shell}"
@@ -722,7 +718,7 @@ fn step_writing_leaves_the_bodies_unchanged() {
     let shape = box_primitive().shape;
 
     assert_leaves_unchanged(&shape, || {
-        write_step(&[body(shape.clone(), "Bracket")]).expect("written");
+        write_step(&[uncolored_body(shape.clone(), "Bracket")]).expect("written");
     });
 }
 
@@ -760,11 +756,12 @@ fn truncated_brep_bytes_fail_to_read() {
 /// and reads what the child wrote. WebAssembly tests cannot start processes.
 #[cfg(not(target_os = "emscripten"))]
 mod standard_streams {
-    use super::{EMPTY_STEP, body};
-    use crate::common::{OPT, box_primitive, face_with_role, harness_test_name, xy_plane_at};
-    use partsmith_occt_sys::{
-        EdgeRadius, PrimitiveFace, Shape, fillet, read_step, shell, split, write_step,
+    use super::EMPTY_STEP;
+    use crate::common::{
+        OPT, box_edge_radii, box_primitive, face_with_role, harness_test_name, uncolored_body,
+        xy_plane_at,
     };
+    use partsmith_occt_sys::{PrimitiveFace, Shape, fillet, read_step, shell, split, write_step};
 
     /// Set in the child process `kernel_prints_nothing` starts.
     const QUIET_PROBE_VARIABLE: &str = "PARTSMITH_OCCT_SYS_QUIET_PROBE";
@@ -784,12 +781,9 @@ mod standard_streams {
         Shape::from_brep(&bytes).expect("the bytes reload");
         read_step(b"not a step file").expect_err("the bytes are not STEP");
         read_step(EMPTY_STEP.as_bytes()).expect_err("the file has no solid");
-        let step = write_step(&[body(block.shape.clone(), "Bracket")]).expect("written");
+        let step = write_step(&[uncolored_body(block.shape.clone(), "Bracket")]).expect("written");
         read_step(&step).expect("read back");
-        let edges: Vec<EdgeRadius> = (1..=12)
-            .map(|edge| EdgeRadius { edge, radius: 6.0 })
-            .collect();
-        fillet(&block.shape, &edges).expect_err("the radius is too large");
+        fillet(&block.shape, &box_edge_radii(6.0)).expect_err("the radius is too large");
         let top = face_with_role(&block, PrimitiveFace::Top);
         shell(&block.shape, &[top], 6.0).expect_err("the wall is too thick");
         split(&block.shape, &xy_plane_at(0.0, 0.0, 10.0)).expect("the box splits");

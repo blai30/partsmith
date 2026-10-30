@@ -241,30 +241,12 @@ pub fn revolve(
 mod tests {
     use super::*;
     use crate::profiles::{PlanarLoop, TaggedCurve};
+    use crate::test_support::square_region;
     use crate::{Plane, Point, make_profile};
 
+    /// The 10 mm square at the origin of `Plane::XY`, its sides tagged 1 to 4.
     fn square_profile() -> PlanarProfile {
-        let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
-        let curves = (0..4)
-            .map(|position| {
-                let (start, end) = (corners[position], corners[(position + 1) % 4]);
-                TaggedCurve {
-                    tag: u32::try_from(position + 1).expect("four sides"),
-                    curve: PlanarCurve::Line {
-                        start: Point2 {
-                            x: start.0,
-                            y: start.1,
-                        },
-                        end: Point2 { x: end.0, y: end.1 },
-                    },
-                }
-            })
-            .collect();
-        let region = PlanarRegion {
-            outer: PlanarLoop { curves },
-            holes: Vec::new(),
-        };
-        make_profile(&Plane::XY, &[region]).expect("the square builds")
+        make_profile(&Plane::XY, &[square_region(0.0)]).expect("the square builds")
     }
 
     fn face_of(result: &SweepResult, role: SweepFace) -> crate::ElementGeometry {

@@ -8,10 +8,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use partsmith_mesh::{Mesh, Point3, TessellationTolerance};
 use partsmith_occt_sys::{
-    Axis, EdgeRadius, ElementFate, ElementGeometry, GeometryKind, KernelError, KernelErrorKind,
-    OpResult, Operation, PlanarCurve, PlanarLoop, PlanarProfile, PlanarRegion, Plane, Point,
-    Point2, Primitive, PrimitiveFace, Shape, SubShapeKind, SweepFace, SweepResult, TaggedCurve,
-    Vector, cut, fillet, fuse, make_box, make_cylinder, make_profile, make_sphere, shell,
+    Axis, ChamferEdge, ChamferSize, EdgeRadius, ElementFate, ElementGeometry, GeometryKind,
+    KernelError, KernelErrorKind, OpResult, Operation, PlanarCurve, PlanarLoop, PlanarProfile,
+    PlanarRegion, Plane, Point, Point2, Primitive, PrimitiveFace, Shape, StepBody, SubShapeKind,
+    SweepFace, SweepResult, TaggedCurve, Vector, cut, fillet, fuse, make_box, make_cylinder,
+    make_profile, make_sphere, shell,
 };
 
 /// Default tolerance for points and vectors: "vectors and points compare within 1e-9" (section 6).
@@ -359,14 +360,35 @@ pub fn hollow_box(block: &Primitive) -> OpResult {
     shell(&block.shape, &[], 1.0).expect("the box is hollowed")
 }
 
+/// Every edge of `BOX`, 1 to 12 in order, rounded at `radius`.
+pub fn box_edge_radii(radius: f64) -> Vec<EdgeRadius> {
+    (1..=12).map(|edge| EdgeRadius { edge, radius }).collect()
+}
+
+/// Every edge of `BOX`, 1 to 12 in order, chamfered with `Equal { distance }`.
+pub fn box_edge_chamfers(distance: f64) -> Vec<ChamferEdge> {
+    (1..=12)
+        .map(|edge| ChamferEdge {
+            edge,
+            size: ChamferSize::Equal { distance },
+        })
+        .collect()
+}
+
 /// The result of test 45: every BOX edge rounded at radius 1.
 pub fn fully_rounded_box() -> Shape {
-    let edges: Vec<EdgeRadius> = (1..=12)
-        .map(|edge| EdgeRadius { edge, radius: 1.0 })
-        .collect();
-    fillet(&box_primitive().shape, &edges)
+    fillet(&box_primitive().shape, &box_edge_radii(1.0))
         .expect("every edge rounds")
         .shape
+}
+
+/// A STEP body without color.
+pub fn uncolored_body(shape: Shape, name: &str) -> StepBody {
+    StepBody {
+        shape,
+        name: name.to_owned(),
+        color: None,
+    }
 }
 
 /// The single seam edge of a shape.
@@ -460,14 +482,22 @@ pub fn region_with_holes(outer: Vec<TaggedCurve>, holes: Vec<Vec<TaggedCurve>>) 
     }
 }
 
+/// The axis-aligned rectangle from `lower_left` to `upper_right`: four lines counterclockwise from
+/// the lower left corner, tagged 1 to 4.
+pub fn rectangle(lower_left: (f64, f64), upper_right: (f64, f64)) -> Vec<TaggedCurve> {
+    let (left, bottom) = lower_left;
+    let (right, top) = upper_right;
+    vec![
+        line(1, (left, bottom), (right, bottom)),
+        line(2, (right, bottom), (right, top)),
+        line(3, (right, top), (left, top)),
+        line(4, (left, top), (left, bottom)),
+    ]
+}
+
 /// The curves of `RECT`: lines tagged 1 to 4 around the 80 x 50 rectangle at the origin.
 pub fn rectangle_curves() -> Vec<TaggedCurve> {
-    vec![
-        line(1, (0.0, 0.0), (80.0, 0.0)),
-        line(2, (80.0, 0.0), (80.0, 50.0)),
-        line(3, (80.0, 50.0), (0.0, 50.0)),
-        line(4, (0.0, 50.0), (0.0, 0.0)),
-    ]
+    rectangle((0.0, 0.0), (80.0, 50.0))
 }
 
 /// `RECT`: the rectangle profile of test 15 on `Plane::XY`.
@@ -489,12 +519,7 @@ pub fn rectangle_with_hole_profile() -> PlanarProfile {
 
 /// The curves of `RING`: lines tagged 1 to 4 around x from 10 to 20, y from 0 to 10.
 pub fn ring_curves() -> Vec<TaggedCurve> {
-    vec![
-        line(1, (10.0, 0.0), (20.0, 0.0)),
-        line(2, (20.0, 0.0), (20.0, 10.0)),
-        line(3, (20.0, 10.0), (10.0, 10.0)),
-        line(4, (10.0, 10.0), (10.0, 0.0)),
-    ]
+    rectangle((10.0, 0.0), (20.0, 10.0))
 }
 
 /// `RING`: the profile of test 30 on `Plane::XZ`.

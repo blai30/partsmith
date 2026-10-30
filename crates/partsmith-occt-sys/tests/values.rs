@@ -5,7 +5,7 @@ use crate::common;
 
 use std::f64::consts::FRAC_PI_2;
 
-use common::{assert_point_near, assert_vector_near, box_primitive, z_axis};
+use common::{assert_point_near, assert_vector_near, box_primitive, uncolored_body, z_axis};
 use partsmith_mesh::TessellationTolerance;
 use partsmith_message_lint::assert_passes_lint;
 use partsmith_occt_sys::{
@@ -288,12 +288,8 @@ fn assert_plain_message(text: &str) {
 fn host_check_messages() -> Vec<String> {
     let block = box_primitive().shape;
     let nothing = write_step(&[]).expect_err("there are no bodies");
-    let no_solid = write_step(&[StepBody {
-        shape: Shape::empty(),
-        name: "Bracket".to_owned(),
-        color: None,
-    }])
-    .expect_err("the body has no solid");
+    let no_solid = write_step(&[uncolored_body(Shape::empty(), "Bracket")])
+        .expect_err("the body has no solid");
     let bad_color = write_step(&[StepBody {
         shape: block.clone(),
         name: "Bracket".to_owned(),
