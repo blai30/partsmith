@@ -1,0 +1,46 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
+        {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
+        {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]},
+        {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 25]},
+        {"id": "e-6", "type": "line", "start": [80, 25], "end": [80, 50]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000", "outline": "e-1,e-2,e-3,e-4"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "30"},
+      "op": "new"
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "body": "b-1",
+      "thickness": "2",
+      "remove_faces": [
+        {"q": "f-ext1/lateral/e-2", "fp": "plane|n=1,0,0|c=80,25,15|a=1500|adj=4,4"}
+      ]
+    }
+  ]
+}

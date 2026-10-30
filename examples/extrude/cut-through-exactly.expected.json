@@ -1,0 +1,173 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-dp1",
+      "type": "datum_plane",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-ext2",
+      "type": "extrude",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 110575.22203923062,
+      "area": 17056.63706143592,
+      "center_of_mass": [
+        40.00000000000001,
+        25.0,
+        15.0
+      ],
+      "bounding_box": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          80.0,
+          50.0,
+          30.0
+        ]
+      },
+      "faces": 7,
+      "edges": 14,
+      "vertices": 10
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          88.0,
+          103.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

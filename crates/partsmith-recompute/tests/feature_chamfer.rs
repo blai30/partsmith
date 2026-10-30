@@ -1,7 +1,7 @@
 //! Acceptance tests of the `chamfer` feature (docs/spec/features/chamfer.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/chamfer/`; the documents of tests 15 and 16 (corpus R22) are written here until their
-//! examples exist (features.md open issue 22).
+//! `examples/chamfer/`, the corpus R22 documents of tests 15 and 16 among them (`join-renames-top`
+//! and `join-behind`), whose documents with the join's id changed the tests make from them.
 
 use crate::feature_support;
 
@@ -16,8 +16,8 @@ use feature_support::{
     assert_limiting_face, assert_list_field, assert_messages_pass_lint, assert_moved_by_100,
     assert_placement, assert_relative, assert_relative_within, assert_skipped_as_smooth,
     assert_unchanged, assert_volume, body_update, document, edge, face, face_index, face_names,
-    face_sketch, message, one_point, point_components, prefixed, remove_entry, set_field,
-    sketch_result, suggested_limit, with_edges_reversed,
+    face_sketch, feature_record_mut, id, load_example, message, one_point, point_components,
+    prefixed, remove_entry, set_field, sketch_result, suggested_limit, with_edges_reversed,
 };
 use partsmith_features::{BodyChange, FeatureError, Fix};
 use partsmith_model::{Document, Units};
@@ -379,35 +379,12 @@ fn t014_distance_below_the_tolerance() {
 // names a join inserted before it gives the faces (section 3.3 step 4), with the join's id sorting before and after
 // `f-box1`.
 
-/// The chamfer of tests 15 and 16: 1 mm on the front and 3 mm on the top of `CUBE20`'s front top edge, as picked
-/// before the join was inserted.
-fn picked_side_chamfer() -> String {
-    chamfer_record(
-        &[
-            r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-10,20|l=20|adj=2,2"}"#,
-        ],
-        r#"{"kind": "two_distances", "expr": "1", "second_expr": "3"}"#,
-    )
-}
-
-/// `CUBE20`, the join `join` inserted before the chamfer, then the chamfer of tests 15 and 16.
-fn joined_then_chamfered(join: &str) -> Run {
-    Run::records(&["b-1"], &[CUBE20, join, &picked_side_chamfer()])
-}
-
-/// The box of test 15 with id `join_id`, joined beside `CUBE20` (x 10..30, y -20..20): the tops merge, the fronts do
-/// not.
-fn base_beside(join_id: &str) -> String {
-    format!(
-        r#"{{"id": "{join_id}", "type": "box", "body": "b-1", "size": ["20", "40", "20"], "position": ["20", "0", "0"], "op": "join"}}"#
-    )
-}
-
-/// The box of test 16 with id `join_id`, joined behind `CUBE20` (x -10..10, y 10..30): the tops merge.
-fn box_behind(join_id: &str) -> String {
-    format!(
-        r#"{{"id": "{join_id}", "type": "box", "body": "b-1", "size": ["20", "20", "20"], "position": ["0", "20", "0"], "op": "join"}}"#
-    )
+/// The example `example` with the id of the box joined before the chamfer changed from `join` to `renamed`: the
+/// second documents of tests 15 and 16, whose join sorts after `f-box1`.
+fn with_join_renamed(example: &Document, join: &str, renamed: &str) -> Document {
+    let mut document = example.clone();
+    feature_record_mut(&mut document, join).id = id(renamed);
+    document
 }
 
 /// The name of the edge between two faces (naming.md section 3.6: adjacent face names, sorted).
@@ -457,7 +434,7 @@ fn assert_picked_sides(run: &Run, top: &str, edge_name: &str) {
 #[test]
 fn t015_the_sides_survive_a_join_that_renames_the_top() {
     // `f-base1` sorts before `f-box1`, so the merged top is `f-base1/top` and the edge's name now sorts the top first.
-    let run = joined_then_chamfered(&base_beside("f-base1"));
+    let run = Run::example("chamfer/join-renames-top.ptsm");
 
     run.assert_ok("f-cha1");
     assert_picked_sides(&run, "f-base1/top", "edge(f-base1/top|f-box1/front)");
@@ -465,9 +442,9 @@ fn t015_the_sides_survive_a_join_that_renames_the_top() {
 
 #[test]
 fn t015_the_sides_do_not_depend_on_the_joins_id() {
-    let before = joined_then_chamfered(&base_beside("f-base1"));
+    let before = Run::example("chamfer/join-renames-top.ptsm");
     // `f-side1` sorts after `f-box1`, so the merged top keeps the name `f-box1/top`.
-    let after = joined_then_chamfered(&base_beside("f-side1"));
+    let after = Run::new(with_join_renamed(&before.document, "f-base1", "f-side1"));
 
     after.assert_ok("f-cha1");
     assert_picked_sides(&after, "f-box1/top", "edge(f-box1/front|f-box1/top)");
@@ -502,7 +479,7 @@ fn t015_the_sides_do_not_depend_on_the_joins_id() {
 #[test]
 fn t016_the_sides_survive_a_join_behind() {
     // `f-a1` sorts before `f-box1`, so the merged top is `f-a1/top`.
-    let run = joined_then_chamfered(&box_behind("f-a1"));
+    let run = Run::example("chamfer/join-behind.ptsm");
 
     run.assert_ok("f-cha1");
     let body = run.body("b-1");
@@ -514,7 +491,8 @@ fn t016_the_sides_survive_a_join_behind() {
 #[test]
 fn t016_the_side_never_depends_on_the_inserted_features_id() {
     // `f-rear1` sorts after `f-box1`, so the merged top keeps the name `f-box1/top`.
-    let run = joined_then_chamfered(&box_behind("f-rear1"));
+    let example = load_example("chamfer/join-behind.ptsm");
+    let run = Run::new(with_join_renamed(&example, "f-a1", "f-rear1"));
 
     run.assert_ok("f-cha1");
     let body = run.body("b-1");

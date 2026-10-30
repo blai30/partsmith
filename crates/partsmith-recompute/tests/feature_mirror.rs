@@ -1,17 +1,17 @@
 //! Acceptance tests of the `mirror` feature (docs/spec/features/mirror.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/mirror/`; the document of test 13 (a sketch on the mirror image, ADR 0023) is written
-//! here until its example exists.
+//! `examples/mirror/`, that of test 13 (a sketch on the mirror image, ADR 0023) among them
+//! (`sketch-on-image`), from which the test makes its document with the mirror plane moved.
 
 use crate::feature_support;
 
 use feature_support::{
-    AXIS_TOLERANCE, Run, THROUGH_ALL, assert_bore_through, assert_bounding_box, assert_coordinates,
+    AXIS_TOLERANCE, Run, assert_bore_through, assert_bounding_box, assert_coordinates,
     assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
     assert_face_kind, assert_face_normal, assert_face_position, assert_has_face, assert_moves,
     assert_sketch_on_top_plane, assert_solid_count, assert_unchanged, assert_volume, body_changes,
-    document, face, face_motion, face_sketch_with, hole_at_point, link_ids, message, one_point,
-    pick, set_field, sketch_result,
+    face, face_motion, feature_record_mut, link_ids, load_example, message, pick, set_field,
+    sketch_result,
 };
 use partsmith_features::{FeatureWarning, NoEffectHow};
 use partsmith_occt_sys::GeometryKind;
@@ -276,32 +276,11 @@ fn t011_empty_source() {
 // Test 13: the reflection that makes the image is the motion of its faces, so a sketch whose fallback is in body
 // coordinates keeps its place and drawing on the image (features.md section 3.6, open issue 9).
 
-/// The document of test 13: a datum plane on YZ at `offset`, `BOX-R(10)`, its mirror image across the datum, a face
-/// sketch on the image's top with its fallback stored as its reflection, in the coordinates of 'Box 1', and a hole
-/// through all at its point (2, 3).
-fn sketch_on_image_document(offset: &str) -> partsmith_model::Document {
-    document(
-        &BODIES,
-        &[
-            &format!(
-                r#"{{"id": "f-dp1", "type": "datum_plane", "base": {{"kind": "origin", "plane": "YZ"}}, "offset": "{offset}"}}"#
-            ),
-            &box_r("10"),
-            &mirror(r#"{"kind": "datum", "feature": "f-dp1"}"#, ""),
-            &face_sketch_with(
-                r#"{"q": "f-box1/top@f-mir1:1", "fp": "plane|n=0,0,1|c=-10,0,10|a=100|adj=4,4"}"#,
-                r#"{"origin": [10, 0, 10], "x_axis": [-1, 0, 0], "normal": [0, 0, 1]}"#,
-                Some("body"),
-                &one_point([2.0, 3.0]),
-            ),
-            &hole_at_point("1", THROUGH_ALL),
-        ],
-    )
-}
-
 #[test]
 fn t013_a_sketch_on_the_mirror_image_keeps_its_place() {
-    let run = Run::new(sketch_on_image_document("0"));
+    // The datum plane on YZ, `BOX-R(10)`, its image across the datum, a face sketch on the image's top with its
+    // fallback stored as its reflection, in the coordinates of 'Box 1', and a hole through all at its point (2, 3).
+    let run = Run::example("mirror/sketch-on-image.ptsm");
 
     // No `sketch_turned_over`: the reflection moves the hint with the face.
     run.assert_all_ok();
@@ -319,8 +298,13 @@ fn t013_a_sketch_on_the_mirror_image_keeps_its_place() {
 
 #[test]
 fn t013_the_sketch_follows_the_mirror_plane() {
-    // The plane moves to x = -10 and the image to x -35..-25.
-    let run = Run::new(sketch_on_image_document("-10"));
+    // The plane moves to x = -10 and the image to x -35..-25. The example's datum lies at its default offset, 0.
+    let mut moved = load_example("mirror/sketch-on-image.ptsm");
+    feature_record_mut(&mut moved, "f-dp1")
+        .params
+        .insert("offset".to_owned(), json!("-10"));
+
+    let run = Run::new(moved);
 
     run.assert_all_ok();
     assert_sketch_on_top_plane(&run, "f-sk2", [-30.0, 0.0, 10.0]);

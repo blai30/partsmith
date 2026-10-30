@@ -1,7 +1,7 @@
 //! Acceptance tests of the `split_body` feature (docs/spec/features/split_body.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/split_body/`; the documents of tests 11 and 12 (planes on faces, features.md section
-//! 3.6) are written here until their examples exist.
+//! `examples/split_body/`, that of test 12 (a plane on a face split into coplanar pieces, features.md
+//! section 3.6) among them (`by-split-face`); test 11 expects a warning and writes its document here.
 
 use crate::feature_support;
 
@@ -10,7 +10,7 @@ use feature_support::{
     assert_error_field, assert_examples_canonical, assert_face_count, assert_face_kind,
     assert_face_normal, assert_face_position, assert_has_face, assert_moved_by_100,
     assert_same_body, assert_solid_count, assert_unchanged, assert_volume, body_changes, face,
-    l_shaped_body, link_ids, slotted_block,
+    l_shaped_body, link_ids,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -258,19 +258,9 @@ fn t011_a_plane_face_in_two_planes() {
 
 #[test]
 fn t012_a_plane_face_split_into_coplanar_pieces() {
-    // b-2 holds the slotted block moved down by 25, so its top, in two pieces, lies at z = 5.
-    let mut features: Vec<String> = vec![CUBE20.to_owned()];
-    features.extend(slotted_block("b-2"));
-    features.push(
-        r#"{"id": "f-mv1", "type": "move_body", "body": "b-2", "translation": ["0", "0", "-25"]}"#
-            .to_owned(),
-    );
-    features.push(
-        r#"{"id": "f-split1", "type": "split_body", "body": "b-1", "plane": {"kind": "face", "body": "b-2", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}}}"#
-            .to_owned(),
-    );
-    let features: Vec<&str> = features.iter().map(String::as_str).collect();
-    let run = Run::records(&BODIES, &features);
+    // b-2 holds the slotted block of features/datum_plane.md test 17 moved down by 25, so its top, in two pieces, lies
+    // at z = 5.
+    let run = Run::example("split_body/by-split-face.ptsm");
 
     run.assert_quiet("f-split1");
     // The reference resolves to both pieces in the plane z = 5, so b-1 keeps the part above it, as test 2.

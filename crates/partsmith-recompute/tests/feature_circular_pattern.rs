@@ -1,21 +1,23 @@
 //! Acceptance tests of the `circular_pattern` feature (docs/spec/features/circular_pattern.md
 //! section 6), run as documents through recompute (features.md section 6.1). Geometry documents are
-//! the examples in `examples/circular_pattern/`; the documents of tests 12 to 15 (frames on the
-//! model) are written here until their examples exist.
+//! the examples in `examples/circular_pattern/`, those of tests 12 to 14 (frames on the model)
+//! among them (`sketch-on-copy`, `turned-edge-axis` and `leaning-edge`), from which the tests make
+//! their other documents.
 
 use crate::feature_support;
 
 use feature_support::{
-    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, THROUGH_ALL,
-    assert_absolute, assert_axis_stored_as_picked, assert_bore_through, assert_bounding_box,
-    assert_choice_between, assert_coordinates, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_centroid, assert_face_count, assert_face_kind, assert_placement,
+    BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, assert_absolute,
+    assert_axis_stored_as_picked, assert_bore_through, assert_bounding_box, assert_choice_between,
+    assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_centroid, assert_face_count, assert_face_kind, assert_placement,
     assert_quarter_turns_about_z, assert_same_body, assert_solid_count, assert_unchanged,
-    assert_volume, body_changes, document, edge_axis, face, face_sketch_with, hole_at_point,
-    l_shaped_body, lean, lean_edge_axis, link_ids, one_point, sketch_result, turn,
+    assert_volume, body_changes, edge_axis, face, feature_record_mut, l_shaped_body, link_ids,
+    load_example, remove_axis_direction, sketch_result, with_shared_point_moved,
 };
 use partsmith_model::Units;
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
+use serde_json::json;
 
 /// The bodies of every circular pattern test.
 const BODIES: [&str; 2] = ["b-1", "b-2"];
@@ -227,28 +229,9 @@ fn t011_fractional_count_below_1() {
 // Tests 12 to 15: copies carry their rotation as the motion of their faces, and an axis keeps the side the user picked
 // (features.md sections 3.6 and 3.9).
 
-/// The document of test 12: `PEG`, three copies over `angle`, a face sketch on copy 2's top with its fallback in the
-/// coordinates of 'Cylinder 1', and a hole through all at its point.
-fn sketch_on_copy_document(angle: &str) -> partsmith_model::Document {
-    document(
-        &BODIES,
-        &[
-            PEG,
-            &pattern(&format!(r#""count": "3", "angle": "{angle}""#)),
-            &face_sketch_with(
-                r#"{"q": "f-cyl1/top@f-cp1:2", "fp": "plane|n=0,0,1|c=0,20,5|a=12.566371|adj=1,1"}"#,
-                r#"{"origin": [20, 0, 5], "x_axis": [1, 0, 0], "normal": [0, 0, 1]}"#,
-                Some("body"),
-                &one_point([0.0, 0.0]),
-            ),
-            &hole_at_point("1", THROUGH_ALL),
-        ],
-    )
-}
-
 #[test]
 fn t012_a_sketch_on_a_copys_face_follows_the_angle() {
-    let run = Run::new(sketch_on_copy_document("90 deg"));
+    let run = Run::example("circular_pattern/sketch-on-copy.ptsm");
 
     run.assert_all_ok();
     let sketch = sketch_result(&run, "f-sk2");
@@ -265,7 +248,10 @@ fn t012_a_sketch_on_a_copys_face_follows_the_angle() {
 
 #[test]
 fn t012_the_sketch_follows_a_wider_angle() {
-    let run = Run::new(sketch_on_copy_document("120 deg"));
+    let mut wider = load_example("circular_pattern/sketch-on-copy.ptsm");
+    feature_record_mut(&mut wider, "f-cp1").params["angle"] = json!("120 deg");
+
+    let run = Run::new(wider);
 
     run.assert_all_ok();
     let origin = sketch_result(&run, "f-sk2").placement.origin;
@@ -280,30 +266,10 @@ fn t012_the_sketch_follows_a_wider_angle() {
     assert_volume(run.shape("b-1"), 184.568568);
 }
 
-/// `PEG`, the box `f-box2` in b-2 with its front left edge on the Z axis, a half turn of b-2 about X inserted before
-/// the pattern, and the pattern of test 13 about that edge as picked before the turn, with the axis's `extra` members.
-fn pattern_about_a_turned_edge(extra: &str) -> Run {
-    Run::records(
-        &BODIES,
-        &[
-            PEG,
-            r#"{"id": "f-box2", "type": "box", "body": "b-2", "size": ["10", "10", "10"], "position": ["5", "5", "0"], "op": "new"}"#,
-            &turn("b-2", "X", "180 deg"),
-            &format!(
-                r#"{{"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {}, "count": "3", "angle": "90 deg"}}"#,
-                edge_axis(
-                    "b-2",
-                    r#"{"q": "edge(f-box2/front|f-box2/left)", "fp": "line|n=0,0,1|c=0,0,5|l=10"}"#,
-                    extra
-                )
-            ),
-        ],
-    )
-}
-
 #[test]
 fn t013_a_half_turn_of_the_part_turns_the_axis() {
-    let run = pattern_about_a_turned_edge(r#", "direction": [0, 0, 1]"#);
+    // The axis edge as picked before the half turn of b-2 about X was inserted, with its direction.
+    let run = Run::example("circular_pattern/turned-edge-axis.ptsm");
 
     run.assert_all_ok();
     // The edge still lies on the Z axis and its stored direction turns with the part to -Z.
@@ -312,35 +278,31 @@ fn t013_a_half_turn_of_the_part_turns_the_axis() {
 
 #[test]
 fn t013_without_a_stored_direction_the_fingerprint_keeps_its_side() {
-    let run = pattern_about_a_turned_edge("");
+    let mut unstored = load_example("circular_pattern/turned-edge-axis.ptsm");
+    remove_axis_direction(&mut unstored, "f-cp1", &["axis"]);
+
+    let run = Run::new(unstored);
 
     run.assert_all_ok();
     // The fingerprint's +Z, as test 2.
     assert_bounding_box(run.shape("b-1"), [-2.0, -2.0, 0.0], [22.0, 22.0, 5.0]);
 }
 
-/// The wall `LEAN(top_x)` in b-2, `PEG`, and the pattern of test 14 about the wall's leaning edge.
-fn pattern_about_a_leaning_edge(top_x: i32) -> Run {
-    let [sketch, extrude] = lean(top_x);
-    Run::records(
-        &BODIES,
-        &[
-            &sketch,
-            &extrude,
-            PEG,
-            &format!(
-                r#"{{"id": "f-cp1", "type": "circular_pattern", "body": "b-1", "axis": {}, "count": "2", "angle": "90 deg"}}"#,
-                lean_edge_axis("")
-            ),
-        ],
-    )
-}
-
 #[test]
 fn t014_an_axis_edge_that_leans_keeps_its_side() {
-    for top_x in [-4, -5, -3] {
-        let run = pattern_about_a_leaning_edge(top_x);
+    // The example's wall is `LEAN(-5)`; the test moves the point that `e-12` ends and `e-13` starts at.
+    let leaning = Run::example("circular_pattern/leaning-edge.ptsm");
+    let others = [-4.0, -3.0].map(|top_x| {
+        Run::new(with_shared_point_moved(
+            &leaning.document,
+            "f-sk5",
+            ["e-12", "e-13"],
+            [top_x, 30.0],
+        ))
+    });
+    let [upright, leaning_right] = &others;
 
+    for (top_x, run) in [(-4, upright), (-5, &leaning), (-3, leaning_right)] {
         run.assert_all_ok();
         // The axis keeps a positive z, so the copy turns toward +Y.
         let bounds = run

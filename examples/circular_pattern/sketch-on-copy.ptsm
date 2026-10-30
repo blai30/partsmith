@@ -1,0 +1,53 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "body": "b-1",
+      "radius": "2",
+      "height": "5",
+      "position": ["20", "0", "0"],
+      "op": "new"
+    },
+    {
+      "id": "f-cp1",
+      "type": "circular_pattern",
+      "body": "b-1",
+      "axis": {"kind": "origin", "axis": "Z"},
+      "count": "3",
+      "angle": "90 deg"
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-cyl1/top@f-cp1:2", "fp": "plane|n=0,0,1|c=0,20,5|a=12.566371|adj=1,1"},
+        "fallback": {"origin": [20, 0, 5], "x_axis": [1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-p1", "type": "point", "position": [0, 0]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk2",
+      "points": ["e-p1"],
+      "diameter": "1",
+      "extent": {"kind": "through_all"}
+    }
+  ]
+}

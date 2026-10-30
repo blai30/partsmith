@@ -1,6 +1,7 @@
 //! Acceptance tests of the `extrude` feature (docs/spec/features/extrude.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/extrude/`.
+//! `examples/extrude/`, from which the tests make their other documents; the edits of tests 47 to
+//! 49 are in their examples, with the references stored before them.
 
 use crate::feature_support;
 
@@ -11,9 +12,9 @@ use feature_support::{
     assert_face_names, assert_face_normal, assert_flat_face, assert_has_face,
     assert_messages_pass_lint, assert_no_face, assert_round_face, assert_solid_count,
     assert_unchanged, assert_volume, assert_volume_faces_and_bounds, body_update, document_text,
-    element_names, face, face_names_with_prefix, id, keep_and_pick, line, message, output_body,
-    parse_document, pick, reference_json, set_field, set_reverse, solved_point,
-    stored_region_match, successions, top_fallback, use_reference,
+    element_names, face, face_names_with_prefix, feature_record_mut, id, keep_and_pick, line,
+    load_example, message, output_body, parse_document, pick, reference_json, set_field,
+    set_reverse, solved_point, stored_region_match, successions, top_fallback, use_reference,
 };
 use partsmith_features::{
     BodyChange, Bound, Diagnosis, FeatureError, FeatureWarning, Fix, NoEffectHow,
@@ -618,12 +619,7 @@ fn t030_region_matched_by_fingerprint() {
 fn t031_a_hole_circle_drawn_again() {
     // The stored hole circle e-6 is gone and e-5 is drawn in its place: e-5 is new geometry, so its disc fills
     // the hole and the profile is the whole rectangle (features.md open issue 10).
-    let sketch = r#"{"id": "f-sk1", "type": "sketch", "plane": {"kind": "origin", "plane": "XY"}, "entities": [{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}, {"id": "e-5", "type": "circle", "center": [40, 25], "radius": 10}]}"#;
-    let profile = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4;~e-6", "fp": "c=40,25|a=3685.840735"}]}"#;
-    let run = Run::records(
-        &["b-1"],
-        &[sketch, &extrude(profile, &distance("10"), "new")],
-    );
+    let run = Run::example("extrude/region-by-outer-boundary.ptsm");
 
     run.assert_notices("f-ext1", &["region_split"]);
     assert!(
@@ -919,15 +915,13 @@ fn t046_two_sides_below_the_tolerance() {
 
 // Tests 47 to 57 use `BLOCK`: `SK-RECT` and the extrude of `P-RECT-V2`, the rectangle region as a pick stores it
 // since file format version 2, distance 30, op new (x 0..80, y 0..50, z 0..30). Sketch edits are applied to the
-// document as it stands; the documents below are the documents after the edit.
+// document as it stands; the examples and the documents below are the documents after the edit, with the references
+// stored before it.
 
 /// `P-RECT-V2`: the region of `SK-RECT` with its outline.
 const RECTANGLE_PROFILE_V2: &str = r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000", "outline": "e-1,e-2,e-3,e-4"}]}"#;
 
-/// The right top edge of `BLOCK`, as stored before the edit (corpus R06).
-const RIGHT_TOP_EDGE: &str = r#"{"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-2)", "fp": "line|n=0,1,0|c=80,25,30|l=50|adj=2,2"}"#;
-
-/// The back top edge of `BLOCK`, as stored before the edit (corpus R07 and R66).
+/// The back top edge of `BLOCK`, as stored before the edit (corpus R66).
 const BACK_TOP_EDGE: &str = r#"{"q": "edge(f-ext1/end-cap|f-ext1/lateral/e-3)", "fp": "line|n=1,0,0|c=40,50,30|l=80|adj=2,2"}"#;
 
 /// The lines of `SK-RECT` without `removed`, followed by `added`.
@@ -977,16 +971,10 @@ fn followed_in_the_sketch() -> Diagnosis {
     }
 }
 
-/// `BLOCK` after deleting `e-2` and drawing `e-9` in its place (corpus R06a), with the fillet of radius 2 on the right
-/// top edge as stored before the edit, or `stored` in its place.
-fn redrawn_right_side(stored: &str) -> Run {
-    let lines = rectangle_lines(&["e-2"], &[line("e-9", [80, 0], [80, 50])]);
-    block_run(&lines, "30", &[&fillet(stored, "2")])
-}
-
 #[test]
 fn t047_a_side_line_deleted_and_drawn_again_is_followed() {
-    let run = redrawn_right_side(RIGHT_TOP_EDGE);
+    // Corpus R06a: `e-2` deleted and `e-9` drawn in its place, with the fillet's edge as stored before the edit.
+    let run = Run::example("extrude/side-line-redrawn.ptsm");
 
     run.assert_ok("f-ext1");
     let after_extrude = output_body(&run, "f-ext1", "b-1");
@@ -1012,7 +1000,7 @@ fn t047_a_side_line_deleted_and_drawn_again_is_followed() {
 
 #[test]
 fn t047_the_fillet_stays_on_the_right_top_edge() {
-    let run = redrawn_right_side(RIGHT_TOP_EDGE);
+    let run = Run::example("extrude/side-line-redrawn.ptsm");
 
     let rounded = face(
         run.body("b-1"),
@@ -1025,33 +1013,33 @@ fn t047_the_fillet_stays_on_the_right_top_edge() {
 
 #[test]
 fn t047_keeping_the_match_stores_the_new_edge_and_ends_the_notice() {
-    let run = redrawn_right_side(RIGHT_TOP_EDGE);
+    let run = Run::example("extrude/side-line-redrawn.ptsm");
     let kept = run.picked_before("f-fil1", "b-1", "edge(f-ext1/end-cap|f-ext1/lateral/e-9)");
-    let kept_json = serde_json::to_string(&kept).expect("references serialize");
+    // `KeepMatch` as the engine's `apply_fix` would write it: the edge the run resolves in place of the stored one.
+    let mut kept_document = run.document.clone();
+    feature_record_mut(&mut kept_document, "f-fil1").params["edges"][0] =
+        serde_json::to_value(&kept).expect("references serialize");
 
-    let after = redrawn_right_side(&kept_json);
+    let after = Run::new(kept_document);
 
     assert_eq!(
         kept.query.to_string(),
         "edge(f-ext1/end-cap|f-ext1/lateral/e-9)"
     );
-    after.assert_ok("f-fil1");
+    after.assert_quiet("f-fil1");
     assert_volume(after.shape("b-1"), 119957.079633);
-}
-
-/// `BLOCK` after deleting `e-3` and drawing `e-9` in its place, at the extrude distance `distance_expr`, with a fillet
-/// of radius 2 on the back top edge as stored before the edit (corpus R07).
-fn redrawn_back_side(distance_expr: &str) -> Run {
-    let lines = rectangle_lines(&["e-3"], &[line("e-9", [80, 50], [0, 50])]);
-    block_run(&lines, distance_expr, &[&fillet(BACK_TOP_EDGE, "2")])
 }
 
 #[test]
 fn t048_the_follow_lasts_through_the_next_edit() {
-    let after_first_edit = redrawn_back_side("30");
+    // Corpus R07a: the example is the document after edit (2), the distance set to 80; the test makes the document
+    // after edit (1), `e-3` deleted and `e-9` drawn in its place, from it.
+    let run = Run::example("extrude/back-line-redrawn-taller.ptsm");
+    let mut first_edit = run.document.clone();
+    feature_record_mut(&mut first_edit, "f-ext1").params["extent"]["expr"] =
+        serde_json::json!("30");
+    let after_first_edit = Run::new(first_edit);
     after_first_edit.assert_notices("f-fil1", &["reference_followed"]);
-
-    let run = redrawn_back_side("80");
 
     run.assert_ok("f-ext1");
     run.assert_notices("f-fil1", &["reference_followed"]);
@@ -1075,23 +1063,10 @@ fn t048_the_follow_lasts_through_the_next_edit() {
     assert_volume(run.shape("b-1"), 319931.327412);
 }
 
-/// `BLOCK` with `e-2` ending at (80, 25) and `e-6` continuing it (corpus R49), and a shell of thickness 2 opening
-/// the right side as stored before the edit.
-fn split_right_side() -> Run {
-    let lines = rectangle_lines(
-        &["e-2"],
-        &[
-            line("e-2", [80, 0], [80, 25]),
-            line("e-6", [80, 25], [80, 50]),
-        ],
-    );
-    let shell = r#"{"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2", "remove_faces": [{"q": "f-ext1/lateral/e-2", "fp": "plane|n=1,0,0|c=80,25,15|a=1500|adj=4,4"}]}"#;
-    block_run(&lines, "30", &[shell])
-}
-
 #[test]
 fn t049_a_side_line_split_by_a_collinear_line_keeps_the_whole_opening() {
-    let run = split_right_side();
+    // Corpus R49: `e-2` ends at (80, 25) and `e-6` continues it, with the shell's face as stored before the edit.
+    let run = Run::example("extrude/side-line-split.ptsm");
 
     run.assert_ok("f-ext1");
     let after_extrude = output_body(&run, "f-ext1", "b-1");
@@ -1211,32 +1186,33 @@ fn t050_the_widened_edge_offers_keep_all_use_only_the_first_line_and_pick() {
     );
 }
 
-/// `BLOCK`, `f-dp1` datum XY offset 30, `f-sk2` on it with the circle `e-5` center (40, 25) radius 10, and `f-ext2`,
-/// a cut of that circle with `extent` (corpus R12 and R30 (a)).
-fn round_cut(extent: &str) -> Run {
-    let datum = r#"{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "30"}"#;
-    let sketch = r#"{"id": "f-sk2", "type": "sketch", "plane": {"kind": "datum", "feature": "f-dp1"}, "entities": [{"id": "e-5", "type": "circle", "center": [40, 25], "radius": 10}]}"#;
-    let cut = format!(
-        r#"{{"id": "f-ext2", "type": "extrude", "body": "b-1", "profile": {{"sketch": "f-sk2", "regions": [{{"key": "e-5", "fp": "c=40,25|a=314.159265"}}]}}, "extent": {extent}, "op": "cut"}}"#
-    );
-    block_run(&rectangle_lines(&[], &[]), "30", &[datum, sketch, &cut])
-}
-
 /// A reversed distance extent.
 fn reversed_distance(expr: &str) -> String {
     format!(r#"{{"kind": "distance", "expr": "{expr}"}}, "reverse": true"#)
 }
 
+/// Test 51's example, a cut of the circle `e-5` from the top down exactly through `BLOCK` (corpus R12), with its
+/// distance `depth`, or as it is for `None`.
+fn round_cut(depth: Option<&str>) -> Run {
+    let mut document = load_example("extrude/cut-through-exactly.ptsm");
+    if let Some(depth) = depth {
+        feature_record_mut(&mut document, "f-ext2").params["extent"]["expr"] =
+            serde_json::json!(depth);
+    }
+    Run::new(document)
+}
+
 #[test]
 fn t051_a_cut_that_goes_all_the_way_through_records_its_end_cap_absent() {
-    for depth in ["30", "40"] {
-        let run = round_cut(&reversed_distance(depth));
+    for depth in [None, Some("40")] {
+        let run = round_cut(depth);
 
         run.assert_ok("f-ext2");
         assert_eq!(
             absent_faces(&run, "f-ext2"),
             [("f-ext2/end-cap".to_string(), "Through".to_string())],
-            "distance {depth}"
+            "distance {}",
+            depth.unwrap_or("30"),
         );
         let shape = run.shape("b-1");
         assert_volume(shape, 110575.222039);
@@ -1246,7 +1222,7 @@ fn t051_a_cut_that_goes_all_the_way_through_records_its_end_cap_absent() {
 
 #[test]
 fn t051_a_pocket_records_nothing_absent() {
-    let run = round_cut(&reversed_distance("5"));
+    let run = round_cut(Some("5"));
 
     run.assert_ok("f-ext2");
     assert!(absent_faces(&run, "f-ext2").is_empty());
@@ -1255,17 +1231,7 @@ fn t051_a_pocket_records_nothing_absent() {
 
 #[test]
 fn t056_a_region_whose_lines_survive_matches_by_boundary() {
-    let run = Run::records(
-        &["b-1"],
-        &[
-            RECTANGLE_SKETCH,
-            &extrude(
-                r#"{"sketch": "f-sk1", "regions": [{"key": "e-1,e-2,e-3,e-9", "fp": "c=40,25|a=4000"}]}"#,
-                &distance("30"),
-                "new",
-            ),
-        ],
-    );
+    let run = Run::example("extrude/region-lines-survive.ptsm");
 
     run.assert_ok("f-ext1");
     assert!(run.messages("f-ext1").is_empty());
@@ -1274,7 +1240,8 @@ fn t056_a_region_whose_lines_survive_matches_by_boundary() {
 
 #[test]
 fn t057_a_cut_whose_end_reaches_the_outside_records_end_outside() {
-    let run = round_cut(r#"{"kind": "symmetric", "expr": "40"}"#);
+    // Corpus R30 (a): the tool spans z 10..50.
+    let run = Run::example("extrude/cut-ends-outside.ptsm");
 
     run.assert_ok("f-ext2");
     assert_face_in_plane(&face(run.body("b-1"), "f-ext2/start-cap"), 2, 10.0);
@@ -1287,7 +1254,8 @@ fn t057_a_cut_whose_end_reaches_the_outside_records_end_outside() {
 
 #[test]
 fn t057_the_same_cut_from_the_top_goes_through() {
-    let run = round_cut(&reversed_distance("30"));
+    // Test 51's document.
+    let run = round_cut(None);
 
     assert_eq!(
         absent_faces(&run, "f-ext2"),

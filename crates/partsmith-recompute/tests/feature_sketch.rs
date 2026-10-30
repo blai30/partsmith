@@ -1,7 +1,10 @@
 //! Acceptance tests of the `sketch` feature (docs/spec/features/sketch.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/sketch/`; the documents of tests 20 to 29 and 32 (frames on the model, phase 2 of the
-//! reference stability plan) are written here until their examples exist.
+//! `examples/sketch/`, from which the tests make their other documents: test 20 runs corpus R32 (a),
+//! `examples/references/moved-face-sketch`, tests 25 and 27 `on-split-face` and `on-pattern-copy`,
+//! and test 32 test 25's document with another face. The other tests of 21 to 29 (frames on the
+//! model, phase 2 of the reference stability plan) expect an error or a warning and write their
+//! documents here.
 //!
 //! Tests 20 to 29 and 32 check what the sketch feature and the features built on it compute: placements,
 //! motions, the sketch's own messages and fixes, the messages of later features with their texts and
@@ -23,8 +26,8 @@ use feature_support::{
     assert_relative, assert_round_face, assert_sketch_on_top_plane, assert_solid_count,
     assert_top_at, assert_translation, assert_volume, assert_volume_faces_and_bounds, asset_name,
     datum_motion, document, document_text, expression_uses, face, face_motion_before, face_sketch,
-    face_sketch_with, hole_at_point, id, l_shaped_body, link_ids, message, moved_box_document,
-    one_circle, one_point, parse_document, reference_json, saved, sketch_on_pattern_copy_document,
+    face_sketch_with, feature_record_mut, hole_at_point, id, l_shaped_body, link_ids, load_example,
+    message, moved_box_document, one_circle, one_point, parse_document, reference_json, saved,
     sketch_result, solved_point, stored_region, stored_region_match, top_fallback, turn,
 };
 use partsmith_features::{
@@ -37,7 +40,7 @@ use partsmith_sketch::{
     Geometry, MatchMethod, Placement, PointRole, RegionMatch, SketchEntity, SketchError,
     SketchParams, SketchStatus,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// The four lines of `RECT(0, 0, 80, 50)` (features.md section 6.1).
 const RECTANGLE_ENTITIES: &str = r#"[{"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]}, {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]}, {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]}, {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}]"#;
@@ -622,7 +625,8 @@ fn attached_faces(fixes: &[Fix]) -> Vec<&str> {
 
 #[test]
 fn t020_the_part_moves_and_the_sketch_moves_with_its_face() {
-    let run = Run::new(moved_box_document(MOVE_BY_100, Some("body")));
+    // Corpus R32 (a): the move inserted before the face sketch, whose fallback is in body coordinates.
+    let run = Run::example("references/moved-face-sketch.ptsm");
 
     run.assert_all_ok();
     assert_sketch_on_top_plane(&run, "f-sk2", [100.0, 0.0, 10.0]);
@@ -640,7 +644,11 @@ fn t020_the_part_moves_and_the_sketch_moves_with_its_face() {
 
 #[test]
 fn t020_the_part_turns_and_the_sketch_turns_with_its_face() {
-    let run = Run::new(moved_box_document(TURN_BY_90, Some("body")));
+    let mut turned = load_example("references/moved-face-sketch.ptsm");
+    *feature_record_mut(&mut turned, "f-mv1") =
+        serde_json::from_str(TURN_BY_90).expect("a move body record");
+
+    let run = Run::new(turned);
 
     run.assert_all_ok();
     let sketch = sketch_result(&run, "f-sk2");
@@ -1003,38 +1011,10 @@ fn t024_turning_the_drawing_back_drills_the_hole_where_it_was_drawn() {
     assert_volume(run.shape("b-1"), 119803.650459);
 }
 
-/// The document of test 25: `BLOCK`, the slot of naming.md test 84 cut into its top, and a face sketch on the top
-/// stored as `face`.
-fn slotted_block_document(face: &str) -> partsmith_model::Document {
-    let [sketch, extrude_1] = block("");
-    document(
-        &["b-1"],
-        &[
-            &sketch,
-            &extrude_1,
-            &datum_above_xy("30"),
-            &sketch_on_datum("f-sk3", "f-dp1", &rectangle_11([30.0, -1.0], [50.0, 51.0])),
-            &extrude(
-                "f-ext3",
-                "f-sk3",
-                (RECTANGLE_11_KEY, "c=40,25|a=1040"),
-                "5",
-                r#", "reverse": true"#,
-                "cut",
-            ),
-            &face_sketch(
-                face,
-                [0.0, 0.0, 30.0],
-                Some("body"),
-                &one_point([10.0, 10.0]),
-            ),
-        ],
-    )
-}
-
 #[test]
 fn t025_a_face_split_into_coplanar_pieces_keeps_the_placement() {
-    let run = Run::new(slotted_block_document(BLOCK_TOP));
+    // `BLOCK`, the slot of naming.md test 84 cut into its top, and a face sketch on the top as a pick stored it.
+    let run = Run::example("sketch/on-split-face.ptsm");
 
     run.assert_quiet("f-sk2");
     assert_sketch_on_top_plane(&run, "f-sk2", [0.0, 0.0, 30.0]);
@@ -1082,9 +1062,11 @@ fn t026_faces_in_two_planes_use_the_saved_position_and_offer_both() {
 
 #[test]
 fn t027_a_sketch_on_a_pattern_copy_follows_the_spacing() {
-    for (spacing, offset) in [("60", 60.0), ("80", 80.0)] {
-        let run = Run::new(sketch_on_pattern_copy_document(spacing));
+    let example = Run::example("sketch/on-pattern-copy.ptsm");
+    let mut wider = example.document.clone();
+    feature_record_mut(&mut wider, "f-lp1").params["direction"]["spacing"] = json!("80");
 
+    for (run, offset) in [(example, 60.0), (Run::new(wider), 80.0)] {
         run.assert_all_ok();
         assert_sketch_on_top_plane(&run, "f-sk2", [offset, 0.0, 10.0]);
         assert_translation(&sketch_result(&run, "f-sk2").motion, [offset, 0.0, 0.0]);
@@ -1274,9 +1256,13 @@ fn t031_values_travel_with_sketch_errors() {
 #[test]
 fn t032_a_face_taken_by_its_position_among_pieces_is_a_guess() {
     // Test 25's document with the left piece's name, without anchors, under the right piece's shape.
-    let run = Run::new(slotted_block_document(
-        r#"{"q": "f-ext1/end-cap#1", "fp": "plane|n=0,0,1|c=65,25,30|a=1500|adj=4,4"}"#,
-    ));
+    let mut guessed = load_example("sketch/on-split-face.ptsm");
+    feature_record_mut(&mut guessed, "f-sk2").params["plane"]["face"] = json!({
+        "q": "f-ext1/end-cap#1",
+        "fp": "plane|n=0,0,1|c=65,25,30|a=1500|adj=4,4"
+    });
+
+    let run = Run::new(guessed);
 
     run.assert_warnings("f-sk2", &["reference_guessed"]);
     assert_eq!(

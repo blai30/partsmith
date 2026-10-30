@@ -1,0 +1,182 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-dp1",
+      "type": "datum_plane",
+      "status": "ok",
+      "messages": [
+        {
+          "severity": "info",
+          "code": "reference_followed",
+          "message": "The top of 'Box 1' selected for Base plane was removed by 'Shell 1', which left its rim in the same place, so the rim is used.",
+          "field": "/base/face",
+          "actions": [
+            {
+              "label": "Keep this match",
+              "kind": "apply"
+            },
+            {
+              "label": "Pick a face again",
+              "kind": "pick"
+            }
+          ],
+          "reason": {
+            "kind": "followed",
+            "by": "f-sh1"
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 22112.000000000007,
+      "area": 22632.0,
+      "center_of_mass": [
+        -7.207612863196023e-16,
+        6.589037082471443e-16,
+        10.573082489146172
+      ],
+      "bounding_box": {
+        "min": [
+          -40.0,
+          -25.0,
+          0.0
+        ],
+        "max": [
+          40.0,
+          25.0,
+          30.0
+        ]
+      },
+      "faces": 11,
+      "edges": 24,
+      "vertices": 16
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

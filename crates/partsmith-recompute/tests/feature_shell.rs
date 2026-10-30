@@ -1,6 +1,7 @@
 //! Acceptance tests of the `shell` feature (docs/spec/features/shell.md section 6), run as
 //! documents through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/shell/`.
+//! `examples/shell/`, from which the tests make their other documents (the radius or thickness
+//! changed, a record or member left out).
 
 use crate::feature_support;
 
@@ -17,7 +18,8 @@ use feature_support::{
     assert_face_position, assert_flat_face, assert_has_face, assert_list_field,
     assert_moved_by_100, assert_no_face, assert_relative_within, assert_round_face,
     assert_solid_count, assert_unchanged, assert_volume, body_update, document, face, face_index,
-    face_names_with_prefix, feature_record_mut, parse_document, point_components, suggested_limit,
+    face_names_with_prefix, feature_record_mut, load_example, parse_document, point_components,
+    suggested_limit,
 };
 use feature_support::{assert_messages_pass_lint, id, message, pick, set_field};
 use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, Fix, Limit};
@@ -34,43 +36,9 @@ const TOP_FACE: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=40
 /// `F-LOST`: a face reference that matches nothing.
 const LOST_FACE: &str = r#"{"q": "f-box9/top", "fp": "plane|n=0,0,1|c=500,500,500|a=1"}"#;
 
-/// The L-shaped body of fillet.md test 4: a 40 x 20 x 10 mm box with a 20 x 20 x 10 mm box
-/// joined on the right half of its top, spanning [-20,-10,0]-[20,10,20].
-const L_BODY: [&str; 2] = [
-    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "20", "10"], "op": "new"}"#,
-    r#"{"id": "f-box2", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "position": ["10", "0", "10"], "op": "join"}"#,
-];
-
-/// The top of the taller box of `L_BODY`, at z = 20.
-const HIGH_TOP_FACE: &str = r#"{"q": "f-box2/top", "fp": "plane|n=0,0,1|c=10,0,20|a=400"}"#;
-
-/// The rounded join of the inner walls at the concave edge where the step face of `L_BODY` meets
-/// the taller box.
+/// The rounded join of the inner walls at the concave edge where the step face of the L-shaped body
+/// of fillet.md test 4 meets the taller box (tests 21 and 24).
 const ARC_JOIN: &str = "f-sh1/inner/edge(f-box1/top|f-box2/left)";
-
-/// The box of test 15 (newcomer error corpus NC06): 40 x 40 x 20 mm, spanning
-/// [-20,-20,0]-[20,20,20].
-const BOX404020: &str =
-    r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["40", "40", "20"], "op": "new"}"#;
-
-/// The top face of `BOX404020` as test 15 stores it.
-const BOX404020_TOP_FACE: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,20|a=1600"}"#;
-
-/// Test 15: `BOX404020` with its four edges parallel to Z rounded by `f-fil1` at `radius`, shelled
-/// 2 mm with its top removed.
-fn nc06_run(radius: &str) -> Run {
-    let rounds = format!(
-        r#"{{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-20,-20,10|l=20"}}, {{"q": "edge(f-box1/front|f-box1/right)", "fp": "line|n=0,0,1|c=20,-20,10|l=20"}}, {{"q": "edge(f-box1/back|f-box1/left)", "fp": "line|n=0,0,1|c=-20,20,10|l=20"}}, {{"q": "edge(f-box1/back|f-box1/right)", "fp": "line|n=0,0,1|c=20,20,10|l=20"}}], "radius": "{radius}"}}"#
-    );
-    Run::records(
-        &["b-1"],
-        &[
-            BOX404020,
-            &rounds,
-            &shell_record("2", &[BOX404020_TOP_FACE]),
-        ],
-    )
-}
 
 /// The cylinder of tests 9 and 16: radius 20 and height 40, spanning [-20,-20,0]-[20,20,40].
 const CYL20: &str = r#"{"id": "f-cyl1", "type": "cylinder", "body": "b-1", "radius": "20", "height": "40", "op": "new"}"#;
@@ -95,19 +63,11 @@ fn cylinder_cup_run(thickness: &str) -> Run {
     )
 }
 
-/// Test 21: `L_BODY` with its vertical edge between the lower box's front and left faces rounded
-/// by `f-fil1` at `radius` (none when `None`), shelled 2 mm with `HIGH_TOP_FACE` removed.
-fn rounded_l_run(radius: Option<&str>) -> Run {
-    let shell = shell_record("2", &[HIGH_TOP_FACE]);
-    match radius {
-        Some(radius) => {
-            let round = format!(
-                r#"{{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{{"q": "edge(f-box1/front|f-box1/left)", "fp": "line|n=0,0,1|c=-20,-10,5|l=10"}}], "radius": "{radius}"}}"#
-            );
-            Run::records(&["b-1"], &[L_BODY[0], L_BODY[1], &round, &shell])
-        }
-        None => Run::records(&["b-1"], &[L_BODY[0], L_BODY[1], &shell]),
-    }
+/// Test 21's example with the round `f-fil1` at `radius` instead of 1.
+fn rounded_l_document(radius: &str) -> Document {
+    let mut document = load_example("shell/arc-join-beside-round.ptsm");
+    feature_record_mut(&mut document, "f-fil1").params["radius"] = radius.into();
+    document
 }
 
 /// The checks of test 21: all ok, one solid, the volume and the face count, and the arc join at
@@ -121,10 +81,17 @@ fn assert_arc_join_kept(run: &Run, volume: f64, faces: u32) {
     assert_round_face(run.body("b-1"), ARC_JOIN, GeometryKind::Cylinder, 2.0);
 }
 
-/// Tests 19, 20 and 22: `CUBE20` with `VERTICAL_ROUNDS`, shelled with its top removed and a wall of
-/// `thickness`.
+/// Test 20: `CUBE20` with `VERTICAL_ROUNDS`, shelled with its top removed and a wall of `thickness`.
 fn rounded_cube_run(thickness: &str) -> Run {
     Run::new(rounded_cube_document(thickness, &[ROUNDED_TOP_FACE]))
+}
+
+/// Test 19's example, `CUBE20` with its four edges parallel to Z rounded at radius 2 and shelled with its top removed,
+/// with a wall of `thickness` instead of 2.
+fn rounded_cube_with_thickness(thickness: &str) -> Document {
+    let mut document = load_example("shell/rounded-cube.ptsm");
+    feature_record_mut(&mut document, "f-sh1").params["thickness"] = thickness.into();
+    document
 }
 
 /// The checks of test 19 for every thickness: all ok, one solid, the volume, the face count and
@@ -614,7 +581,9 @@ fn t014_moved_body() {
 
 #[test]
 fn t015_walls_thicker_than_the_fillets_rounds() {
-    let run = nc06_run("1");
+    // Newcomer error corpus NC06: a 40 x 40 x 20 mm box with its four edges parallel to Z rounded at radius 1, shelled
+    // 2 mm with its top removed.
+    let run = Run::example("shell/walls-thicker-than-rounds.ptsm");
 
     // The 40 mm prism with 1 mm rounds minus an 18 mm deep cavity with a sharp 36 mm square
     // section.
@@ -627,7 +596,10 @@ fn t015_walls_thicker_than_the_fillets_rounds() {
 
 #[test]
 fn t015_rounds_thicker_than_the_wall() {
-    let run = nc06_run("3 mm");
+    let mut document = load_example("shell/walls-thicker-than-rounds.ptsm");
+    feature_record_mut(&mut document, "f-fil1").params["radius"] = "3 mm".into();
+
+    let run = Run::new(document);
 
     // The 40 mm prism with 3 mm rounds minus an 18 mm deep cavity: a 36 mm square with corners of
     // radius 1.
@@ -677,7 +649,7 @@ fn cylinder_wall_as_thick_as_the_radius_fails() {
 
 #[test]
 fn t019_wall_thinner_than_the_rounds() {
-    let run = rounded_cube_run("1");
+    let run = Run::new(rounded_cube_with_thickness("1"));
 
     // The 20 mm prism minus a 19 mm deep cavity: an 18 mm square with corners of radius 1.
     assert_rounded_cube_shell(&run, 1.0, 1600.0 + 61.0 * PI, 19, 304.0);
@@ -691,7 +663,8 @@ fn t019_wall_thinner_than_the_rounds() {
 
 #[test]
 fn t019_wall_as_thick_as_the_rounds() {
-    let run = rounded_cube_run("2");
+    // The wall of ui.md's fixture.
+    let run = Run::example("shell/rounded-cube.ptsm");
 
     // The 20 mm prism minus a 18 mm deep cavity with a sharp 16 mm square section.
     assert_rounded_cube_shell(&run, 2.0, 3072.0 + 80.0 * PI, 15, 288.0);
@@ -704,7 +677,7 @@ fn t019_wall_as_thick_as_the_rounds() {
 
 #[test]
 fn t019_wall_thicker_than_the_rounds() {
-    let run = rounded_cube_run("3");
+    let run = Run::new(rounded_cube_with_thickness("3"));
 
     // The 20 mm prism minus a 17 mm deep cavity with a sharp 14 mm square section.
     assert_rounded_cube_shell(&run, 3.0, 4348.0 + 80.0 * PI, 15, 238.0);
@@ -725,7 +698,12 @@ fn t020_too_thick_past_the_rounds() {
 
 #[test]
 fn t021_arc_join_without_a_round() {
-    let run = rounded_l_run(None);
+    let mut document = load_example("shell/arc-join-beside-round.ptsm");
+    document
+        .features
+        .retain(|record| record.id.as_str() != "f-fil1");
+
+    let run = Run::new(document);
 
     // L, 12000, less a cavity 18 mm deep with its arc join at the concave edge, 6592 - 16 pi.
     assert_arc_join_kept(&run, 5408.0 + 16.0 * PI, 16);
@@ -733,7 +711,7 @@ fn t021_arc_join_without_a_round() {
 
 #[test]
 fn t021_arc_join_beside_a_round_thicker_than_the_wall() {
-    let run = rounded_l_run(Some("3"));
+    let run = Run::new(rounded_l_document("3"));
 
     // L less the round's material, 10 (9 - 9 pi / 4), less the cavity with its inner corner
     // rounded at radius 1 over its 6 mm in the lower box, 6592 - 16 pi - 6 (1 - pi / 4).
@@ -742,7 +720,7 @@ fn t021_arc_join_beside_a_round_thicker_than_the_wall() {
 
 #[test]
 fn t021_arc_join_beside_a_round_thinner_than_the_wall() {
-    let run = rounded_l_run(Some("1"));
+    let run = Run::example("shell/arc-join-beside-round.ptsm");
 
     // The same cavity, less the round's material, 10 (1 - pi / 4): the round's inner offset
     // vanishes into a sharp corner while the concave edge keeps its arc join.
@@ -752,7 +730,7 @@ fn t021_arc_join_beside_a_round_thinner_than_the_wall() {
 
 #[test]
 fn t021_arc_join_beside_a_round_as_thick_as_the_wall() {
-    let run = rounded_l_run(Some("2"));
+    let run = Run::new(rounded_l_document("2"));
 
     // The same cavity, less the round's material, 10 (4 - pi).
     assert_arc_join_kept(&run, 5368.0 + 26.0 * PI, 17);
@@ -855,7 +833,7 @@ fn t025_sphere_join_at_a_concave_vertex() {
 
 #[test]
 fn t022_wall_just_under_the_rounds() {
-    let run = rounded_cube_run("1.9995");
+    let run = Run::example("shell/walls-just-under-rounds.ptsm");
 
     // The rounds' offsets would be 0.0005 mm thin, so they vanish: the 20 mm prism minus an
     // 18.0005 mm deep cavity with a sharp 16.001 mm square section.
@@ -875,7 +853,13 @@ fn t022_wall_just_under_the_rounds() {
 
 #[test]
 fn t022_closed_hollow_just_under_the_rounds() {
-    let run = Run::new(rounded_cube_document("1.9995", &[]));
+    let mut document = load_example("shell/walls-just-under-rounds.ptsm");
+    feature_record_mut(&mut document, "f-sh1")
+        .params
+        .remove("remove_faces")
+        .expect("the example removes the top");
+
+    let run = Run::new(document);
 
     // The cube with its rounds minus a sharp cube cavity of side 16.001 mm.
     assert_rounded_cube_shell(

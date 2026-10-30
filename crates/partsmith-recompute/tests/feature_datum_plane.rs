@@ -1,7 +1,8 @@
 //! Acceptance tests of the `datum_plane` feature (docs/spec/features/datum_plane.md section 6),
 //! run as documents through recompute (features.md section 6.1). Geometry documents are the
-//! examples in `examples/datum_plane/`; the documents of tests 16, 17 and 19 (frames on the model)
-//! are written here until their examples exist.
+//! examples in `examples/datum_plane/`, those of tests 17 to 19 (frames on the model) among them
+//! (`on-split-face`, `on-shelled-top` and `on-moved-face`), from which the tests make their other
+//! documents; test 16 expects a warning and writes its document here.
 
 use crate::feature_support;
 
@@ -10,10 +11,11 @@ use std::f64::consts::FRAC_1_SQRT_2;
 use feature_support::{
     AXIS_TOLERANCE, BOTH_TOPS, Run, assert_choice_between, assert_coordinates,
     assert_element_repair, assert_examples_canonical, assert_messages_pass_lint, assert_moves,
-    assert_placement, assert_translation, datum_motion, datum_placement, id, keep_and_pick,
-    l_shaped_body, link_ids, slotted_block, use_reference,
+    assert_placement, assert_translation, datum_motion, datum_placement, feature_record_mut, id,
+    keep_and_pick, l_shaped_body, link_ids, load_example, turn, use_reference,
 };
 use partsmith_features::{Diagnosis, Fix};
+use partsmith_model::Document;
 use partsmith_naming::{Follow, Motion};
 
 /// A box of size 10 at position (3, 4, 0) in `b-1`: x from -2 to 8, y from -1 to 9, z from 0 to 10.
@@ -294,20 +296,7 @@ fn t014_expression_offset() {
 #[test]
 fn t018_a_shell_inserted_under_the_datums_face_keeps_it_on_the_rim() {
     // Corpus R58: the shell removes the top, and its rim continues it in the same plane.
-    let top = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4"}"#;
-    let run = Run::records(
-        &["b-1"],
-        &[
-            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["80", "50", "30"], "op": "new"}"#,
-            &format!(
-                r#"{{"id": "f-sh1", "type": "shell", "body": "b-1", "thickness": "2", "remove_faces": [{top}]}}"#
-            ),
-            &datum_plane(
-                &format!(r#"{{"kind": "face", "body": "b-1", "face": {top}}}"#),
-                r#", "offset": "-2""#,
-            ),
-        ],
-    );
+    let run = Run::example("datum_plane/on-shelled-top.ptsm");
     // Recompute's diagnosis names the shell whose rim the reference followed (recompute.md section 3.10).
     let diagnosis = Diagnosis {
         by: Some(id("f-sh1")),
@@ -360,13 +349,8 @@ fn t016_faces_in_two_planes() {
 
 #[test]
 fn t017_a_face_split_into_coplanar_pieces_keeps_its_plane() {
-    let mut features: Vec<String> = slotted_block("b-1").to_vec();
-    features.push(datum_plane(
-        r#"{"kind": "face", "body": "b-1", "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}}"#,
-        r#", "offset": "5""#,
-    ));
-    let features: Vec<&str> = features.iter().map(String::as_str).collect();
-    let run = Run::records(&["b-1"], &features);
+    // The slot of naming.md test 84 splits the end cap into `f-ext1/end-cap#1` and `#2`.
+    let run = Run::example("datum_plane/on-split-face.ptsm");
 
     run.assert_quiet("f-dp1");
     assert_placement(
@@ -377,37 +361,26 @@ fn t017_a_face_split_into_coplanar_pieces_keeps_its_plane() {
     );
 }
 
-/// A box 10 x 10 x 10 in `b-1`, the Move body `f-mv1` with `extra` members, a datum plane on the box's top as picked
-/// before the move, and the records `after`.
-fn datum_on_moved_top_then(extra: &str, after: &[&str]) -> Run {
-    let mut features = vec![
-        r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}"#.to_owned(),
-        format!(r#"{{"id": "f-mv1", "type": "move_body", "body": "b-1", {extra}}}"#),
-        datum_plane(
-            r#"{"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=100"}}"#,
-            "",
-        ),
-    ];
-    features.extend(after.iter().map(|record| (*record).to_owned()));
-    let features: Vec<&str> = features.iter().map(String::as_str).collect();
-    Run::records(&["b-1"], &features)
+/// Test 19's example with its Move body a half turn about the X axis in place of the translation, so the top faces -Z
+/// at z = -10.
+fn turned_over(example: &Document) -> Document {
+    let mut turned = example.clone();
+    *feature_record_mut(&mut turned, "f-mv1") =
+        serde_json::from_str(&turn("b-1", "X", "180 deg")).expect("a move body record");
+    turned
 }
 
-/// `datum_on_moved_top_then` without further records.
-fn datum_on_moved_top(extra: &str) -> Run {
-    datum_on_moved_top_then(extra, &[])
-}
-
-/// A half turn about the X axis, as the members of a Move body.
-const HALF_TURN_ABOUT_X: &str =
-    r#""rotation": {"axis": {"kind": "origin", "axis": "X"}, "angle": "180 deg"}"#;
-
-/// The datum `f-dp2` of test 10: 5 above `f-dp1`.
-const DATUM_ON_DATUM: &str = r#"{"id": "f-dp2", "type": "datum_plane", "base": {"kind": "datum", "feature": "f-dp1"}, "offset": "5"}"#;
+/// The rotation of 180 degrees about X: (x, y, z) to (x, -y, -z).
+const HALF_TURN_ABOUT_X: [([f64; 3], [f64; 3]); 3] = [
+    ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+    ([1.0, 2.0, 3.0], [1.0, -2.0, -3.0]),
+    ([0.0, 0.0, 10.0], [0.0, 0.0, -10.0]),
+];
 
 #[test]
 fn t019_a_slide_along_the_face_does_not_move_the_datums_frame() {
-    let run = datum_on_moved_top(r#""translation": ["100", "0", "0"]"#);
+    // The box moved by (100, 0, 0) before the datum on its top.
+    let run = Run::example("datum_plane/on-moved-face.ptsm");
 
     run.assert_all_ok();
     // As before this change: the face placement rule takes the origin and x axis from the world.
@@ -423,7 +396,7 @@ fn t019_a_slide_along_the_face_does_not_move_the_datums_frame() {
 
 #[test]
 fn t019_a_face_turned_over_turns_the_datum_and_its_motion() {
-    let run = datum_on_moved_top(HALF_TURN_ABOUT_X);
+    let run = Run::new(turned_over(&load_example("datum_plane/on-moved-face.ptsm")));
 
     run.assert_all_ok();
     // The top now lies at z = -10, facing -Z.
@@ -433,30 +406,13 @@ fn t019_a_face_turned_over_turns_the_datum_and_its_motion() {
         [1.0, 0.0, 0.0],
         [0.0, 0.0, -1.0],
     );
-    // The rotation of 180 degrees about X: (x, y, z) to (x, -y, -z).
-    assert_moves(
-        datum_motion(&run, "f-dp1"),
-        &[
-            ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
-            ([1.0, 2.0, 3.0], [1.0, -2.0, -3.0]),
-            ([0.0, 0.0, 10.0], [0.0, 0.0, -10.0]),
-        ],
-    );
+    assert_moves(datum_motion(&run, "f-dp1"), &HALF_TURN_ABOUT_X);
 }
 
 #[test]
 fn t019_an_origin_base_and_a_datum_base_pass_on_their_motion() {
-    // Test 1's datum on XY passes on the identity, and f-dp2 of test 10 the motion of f-dp1.
-    let run = Run::records(
-        &[],
-        &[
-            &datum_plane(
-                r#"{"kind": "origin", "plane": "XY"}"#,
-                r#", "offset": "10""#,
-            ),
-            DATUM_ON_DATUM,
-        ],
-    );
+    // Test 10's example: test 1's datum on XY passes on the identity, and f-dp2 the motion of f-dp1.
+    let run = Run::example("datum_plane/chained.ptsm");
 
     run.assert_all_ok();
     assert_eq!(*datum_motion(&run, "f-dp1"), Motion::IDENTITY);
@@ -465,11 +421,19 @@ fn t019_an_origin_base_and_a_datum_base_pass_on_their_motion() {
 
 #[test]
 fn t019_a_datum_on_a_datum_on_a_turned_face_passes_on_the_turn() {
-    // Section 3.2 step 4: a datum base passes on that datum's motion.
-    let run = datum_on_moved_top_then(HALF_TURN_ABOUT_X, &[DATUM_ON_DATUM]);
+    // Section 3.2 step 4: a datum base passes on that datum's motion. Test 10's f-dp2 is placed after f-dp1.
+    let datum_on_datum = load_example("datum_plane/chained.ptsm")
+        .feature(&id("f-dp2"))
+        .expect("test 10's example has f-dp2")
+        .clone();
+    let mut document = turned_over(&load_example("datum_plane/on-moved-face.ptsm"));
+    document.features.push(datum_on_datum);
+
+    let run = Run::new(document);
 
     run.assert_all_ok();
     assert_eq!(datum_motion(&run, "f-dp2"), datum_motion(&run, "f-dp1"));
+    assert_moves(datum_motion(&run, "f-dp2"), &HALF_TURN_ABOUT_X);
 }
 
 #[test]

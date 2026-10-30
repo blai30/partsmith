@@ -1,0 +1,203 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-dp1",
+      "type": "datum_plane",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-box1",
+      "type": "box",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-mir1",
+      "type": "mirror",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 1992.1460183660256,
+      "area": 1229.845130209103,
+      "center_of_mass": [
+        0.031539782974006295,
+        -0.011827418615252364,
+        5.0
+      ],
+      "bounding_box": {
+        "min": [
+          -15.0,
+          -5.0,
+          0.0
+        ],
+        "max": [
+          15.0,
+          5.0,
+          10.0
+        ]
+      },
+      "faces": 13,
+      "edges": 26,
+      "vertices": 18
+    },
+    {
+      "id": "b-2",
+      "name": "Body 2",
+      "empty": true
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 1,
+      "infos": 0,
+      "label": "1 warning"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "small_features",
+                  "code": "small_hole",
+                  "severity": "warning",
+                  "message": "A hole 1 mm across is smaller than 2 mm and may close up. Make it at least 2 mm, or drill it out after printing.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -8.5,
+                      2.5,
+                      0.0
+                    ],
+                    "max": [
+                      -7.5,
+                      3.5,
+                      10.0
+                    ]
+                  },
+                  "value": 0.9997620270799082,
+                  "limit": 2.0,
+                  "faces": [
+                    12
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

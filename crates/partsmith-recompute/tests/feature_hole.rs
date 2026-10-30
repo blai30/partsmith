@@ -1,19 +1,19 @@
 //! Acceptance tests of the `hole` feature (docs/spec/features/hole.md section 6), run as documents
 //! through recompute (features.md section 6.1). Geometry documents are the examples in
-//! `examples/hole/`.
+//! `examples/hole/`; test 37 runs the document of features/sketch.md test 20,
+//! `examples/references/moved-face-sketch`.
 
 use crate::feature_support;
 
 use feature_support::hole::THROUGH_ALL;
 use feature_support::{
-    BOX_BELOW, LENGTH_TOLERANCE, MOVE_BY_100, Run, absent_faces, assert_bounding_box,
-    assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_axis_direction, assert_face_axis_through, assert_face_count, assert_face_kind,
-    assert_face_position, assert_flat_face, assert_has_face, assert_messages_pass_lint,
-    assert_no_face, assert_round_face, assert_solid_count, assert_translation, assert_unchanged,
-    assert_volume, body_changes, body_update, face, face_motion, face_names_with_prefix, id,
-    message, moved_box_document, output_body, pick, remove_entry, set_reverse, sketch_result,
-    vertex,
+    BOX_BELOW, LENGTH_TOLERANCE, Run, absent_faces, assert_bounding_box, assert_coordinates,
+    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_axis_direction,
+    assert_face_axis_through, assert_face_count, assert_face_kind, assert_face_position,
+    assert_flat_face, assert_has_face, assert_messages_pass_lint, assert_no_face,
+    assert_round_face, assert_solid_count, assert_translation, assert_unchanged, assert_volume,
+    body_changes, body_update, face, face_motion, face_names_with_prefix, id, message, output_body,
+    pick, remove_entry, set_reverse, sketch_result, vertex,
 };
 use partsmith_features::{BodyChange, Bound, FeatureError, FeatureWarning};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
@@ -703,7 +703,8 @@ fn t032_tools_decided_by_the_cut_and_by_their_shared_volume() {
 
 #[test]
 fn t036_a_through_hole_records_its_bottom_absent() {
-    let run = run_hole(&hole(r#"["e-p1"]"#, THROUGH_ALL));
+    // Test 1's document.
+    let run = Run::example("hole/simple-through.ptsm");
 
     run.assert_ok("f-hole1");
     assert_eq!(
@@ -714,10 +715,8 @@ fn t036_a_through_hole_records_its_bottom_absent() {
 
 #[test]
 fn t036_a_blind_hole_records_nothing_absent() {
-    let run = run_hole(&hole(
-        r#"["e-p1"]"#,
-        r#""extent": {"kind": "distance", "expr": "5"}"#,
-    ));
+    // Test 2's document.
+    let run = Run::example("hole/blind-flat.ptsm");
 
     run.assert_ok("f-hole1");
     assert!(absent_faces(&run, "f-hole1").is_empty());
@@ -725,14 +724,8 @@ fn t036_a_blind_hole_records_nothing_absent() {
 
 #[test]
 fn t036_a_hole_that_starts_inside_the_body_ends_outside() {
-    let datum = r#"{"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "-5"}"#;
-    let sketch = POINTS_SKETCH.replace(
-        r#""plane": {"kind": "origin", "plane": "XY"}"#,
-        r#""plane": {"kind": "datum", "feature": "f-dp1"}"#,
-    );
-    let through = hole(r#"["e-p1"]"#, THROUGH_ALL);
-
-    let run = Run::records(&["b-1"], &[BOX_BELOW, datum, &sketch, &through]);
+    // The points sketch lies on a datum at z = -5, inside `BOX-BELOW`.
+    let run = Run::example("hole/from-inside-body.ptsm");
 
     run.assert_ok("f-hole1");
     assert_eq!(
@@ -743,7 +736,8 @@ fn t036_a_hole_that_starts_inside_the_body_ends_outside() {
 
 #[test]
 fn t037_the_holes_faces_move_with_the_part() {
-    let run = Run::new(moved_box_document(MOVE_BY_100, Some("body")));
+    // The document of features/sketch.md test 20 (corpus R32a).
+    let run = Run::example("references/moved-face-sketch.ptsm");
 
     run.assert_all_ok();
     let motion = face_motion(&run, "f-hole1", "b-1", "f-hole1/bore/e-p1");

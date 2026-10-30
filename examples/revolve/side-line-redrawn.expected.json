@@ -1,0 +1,182 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-rev1",
+      "type": "revolve",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-fil1",
+      "type": "fillet",
+      "status": "ok",
+      "messages": [
+        {
+          "severity": "info",
+          "code": "reference_followed",
+          "message": "The top edge of 'Revolve 1' along a curve of 'Sketch 1' selected for Edges now follows the top rim of 'Revolve 1', because its curve was replaced in 'Sketch 1'.",
+          "field": "/edges/0",
+          "actions": [
+            {
+              "label": "Keep this match",
+              "kind": "apply"
+            },
+            {
+              "label": "Pick an edge again",
+              "kind": "pick"
+            }
+          ],
+          "reason": {
+            "kind": "followed",
+            "by": "f-sk1"
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 28168.872718220853,
+      "area": 7430.172414323431,
+      "center_of_mass": [
+        -3.6161690820051266e-15,
+        -7.508727409225346e-16,
+        14.945530019377419
+      ],
+      "bounding_box": {
+        "min": [
+          -20.0,
+          -20.0,
+          0.0
+        ],
+        "max": [
+          20.0000001,
+          20.0,
+          30.0000001
+        ]
+      },
+      "faces": 5,
+      "edges": 5,
+      "vertices": 5
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "ok",
+      "errors": 0,
+      "warnings": 0,
+      "infos": 0,
+      "label": "Ready to print"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "ok",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

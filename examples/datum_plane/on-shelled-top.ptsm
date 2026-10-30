@@ -1,0 +1,31 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {"id": "f-box1", "type": "box", "body": "b-1", "size": ["80", "50", "30"], "op": "new"},
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "body": "b-1",
+      "thickness": "2",
+      "remove_faces": [
+        {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4"}
+      ]
+    },
+    {
+      "id": "f-dp1",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,30|a=4000|adj=4,4"}
+      },
+      "offset": "-2"
+    }
+  ]
+}

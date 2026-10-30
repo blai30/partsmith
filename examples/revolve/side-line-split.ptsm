@@ -1,0 +1,47 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XZ"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [10, 0], "end": [20, 0]},
+        {"id": "e-3", "type": "line", "start": [20, 30], "end": [10, 30]},
+        {"id": "e-4", "type": "line", "start": [10, 30], "end": [10, 0]},
+        {"id": "e-2", "type": "line", "start": [20, 0], "end": [20, 15]},
+        {"id": "e-6", "type": "line", "start": [20, 15], "end": [20, 30]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-rev1",
+      "type": "revolve",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=15,15|a=300", "outline": "e-1,e-2,e-3,e-4"}
+        ]
+      },
+      "axis": {"kind": "origin", "axis": "Z"},
+      "extent": {"kind": "full"},
+      "op": "new"
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "body": "b-1",
+      "thickness": "2",
+      "remove_faces": [
+        {"q": "f-rev1/lateral/e-2", "fp": "cylinder|n=0,0,1|c=0,0,15|a=3769.911184|r=20|adj=2,3"}
+      ]
+    }
+  ]
+}

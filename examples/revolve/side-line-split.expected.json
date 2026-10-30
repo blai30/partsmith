@@ -1,0 +1,207 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-rev1",
+      "type": "revolve",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sh1",
+      "type": "shell",
+      "status": "ok",
+      "messages": [
+        {
+          "severity": "info",
+          "code": "reference_followed",
+          "message": "The side of 'Revolve 1' made from the line from (20, 0) to (20, 15) in 'Sketch 1' selected for Faces to remove now also covers the side of 'Revolve 1' made from the line from (20, 15) to (20, 30) in 'Sketch 1', because its curve continues in 'Sketch 1'.",
+          "field": "/remove_faces/0",
+          "actions": [
+            {
+              "label": "Keep this match",
+              "kind": "apply"
+            },
+            {
+              "label": "Pick a face again",
+              "kind": "pick"
+            }
+          ],
+          "reason": {
+            "kind": "followed",
+            "by": "f-sk1"
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 7363.8931800144765,
+      "area": 7841.415263360124,
+      "center_of_mass": [
+        -1.2103717231483762e-14,
+        1.2662800099621276e-17,
+        15.000000000000004
+      ],
+      "bounding_box": {
+        "min": [
+          -20.0,
+          -20.0,
+          0.0
+        ],
+        "max": [
+          20.0,
+          20.0,
+          30.0
+        ]
+      },
+      "faces": 8,
+      "edges": 8,
+      "vertices": 8
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 1,
+      "infos": 0,
+      "label": "1 warning"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          128.0,
+          128.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "overhangs",
+                  "code": "overhang",
+                  "severity": "warning",
+                  "message": "Overhang steeper than 45 degrees over 804 mm². Add supports, add a chamfer, or reorient the part.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -20.0,
+                      -20.0,
+                      28.0
+                    ],
+                    "max": [
+                      20.0,
+                      20.0,
+                      28.0
+                    ]
+                  },
+                  "value": 1.5707963267948966,
+                  "limit": 0.7853981633974483,
+                  "faces": [
+                    4
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

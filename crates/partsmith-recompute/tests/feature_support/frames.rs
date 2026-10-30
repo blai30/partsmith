@@ -4,11 +4,12 @@
 
 use partsmith_model::Document;
 use partsmith_naming::{ElementName, Motion};
+use serde_json::{Value, json};
 
 use super::{
     AXIS_TOLERANCE, LENGTH_TOLERANCE, Run, assert_absolute, assert_coordinates,
-    assert_face_axis_through, assert_placement, body_before, document, face, line, output_body,
-    sketch_result,
+    assert_face_axis_through, assert_placement, body_before, document, face, feature_record_mut,
+    line, output_body, sketch_result,
 };
 
 /// `PL(ox, oy, oz)` of features/sketch.md section 6 as JSON: origin `(ox, oy, oz)`, x axis +X, normal +Z.
@@ -112,28 +113,6 @@ pub fn moved_box_document(motion: &str, frame: Option<&str>) -> Document {
     box_top_sketch_document(&[motion], frame)
 }
 
-/// The document of features/sketch.md test 27, which linear_pattern.md test 16 also runs: a box 20 x 20 x 10 in `b-1`,
-/// its linear pattern `f-lp1` along X with count 2 and `spacing`, a face sketch `f-sk2` on the copy's top in body
-/// coordinates with a point `e-p1` at (5, 5), and a hole `f-hole1` of diameter 4 through all at the point.
-pub fn sketch_on_pattern_copy_document(spacing: &str) -> Document {
-    document(
-        &["b-1"],
-        &[
-            r#"{"id": "f-box1", "type": "box", "body": "b-1", "size": ["20", "20", "10"], "op": "new"}"#,
-            &format!(
-                r#"{{"id": "f-lp1", "type": "linear_pattern", "body": "b-1", "direction": {{"axis": {{"kind": "origin", "axis": "X"}}, "count": "2", "spacing": "{spacing}"}}}}"#
-            ),
-            &face_sketch(
-                r#"{"q": "f-box1/top@f-lp1:1", "fp": "plane|n=0,0,1|c=60,0,10|a=400|adj=4,4"}"#,
-                [0.0, 0.0, 10.0],
-                Some("body"),
-                &one_point([5.0, 5.0]),
-            ),
-            &hole_at_point("4", THROUGH_ALL),
-        ],
-    )
-}
-
 /// Asserts that the bore of `f-hole1` at `e-p1` has its axis through `point` at the end of the run.
 #[track_caller]
 pub fn assert_bore_through(run: &Run, point: [f64; 3]) {
@@ -224,68 +203,57 @@ pub fn leaning_wall_pattern(lean: i32, extra: &str) -> Document {
     )
 }
 
-/// `LEAN(x)` of revolve.md test 28: the sketch `f-sk5` on XZ with `e-11` (-6, 0)-(-4, 0), `e-12` (-4, 0)-(x, 30),
-/// `e-13` (x, 30)-(-6, 30) and `e-14` (-6, 30)-(-6, 0), and `f-ext5`, its extrude of 10 into `b-2`: a wall in y -10..0
-/// whose face at y = 0 lies in the XZ plane and whose edge along `e-12` leans when `x` is not -4.
-pub fn lean(top_x: i32) -> [String; 2] {
-    let lines = [
-        line("e-11", [-6, 0], [-4, 0]),
-        line("e-12", [-4, 0], [top_x, 30]),
-        line("e-13", [top_x, 30], [-6, 30]),
-        line("e-14", [-6, 30], [-6, 0]),
-    ];
-    [
-        format!(
-            r#"{{"id": "f-sk5", "type": "sketch", "plane": {{"kind": "origin", "plane": "XZ"}}, "entities": [{}]}}"#,
-            lines.join(", ")
-        ),
-        r#"{"id": "f-ext5", "type": "extrude", "body": "b-2", "profile": {"sketch": "f-sk5", "regions": [{"key": "e-11,e-12,e-13,e-14", "fp": "c=-5,15|a=60"}]}, "extent": {"kind": "distance", "expr": "10"}, "op": "new"}"#.to_owned(),
-    ]
+/// `document` with the point that the line `lines[0]` of the sketch `sketch` ends at and the line `lines[1]` starts at
+/// moved to `to`: corpus R38's edit, by which its tests make their other documents from their example (`e-3` and `e-4`
+/// of `leaning_wall`, `e-12` and `e-13` of revolve.md test 28's `LEAN(x)`). Fails the test when the two lines do not
+/// share that point.
+pub fn with_shared_point_moved(
+    document: &Document,
+    sketch: &str,
+    lines: [&str; 2],
+    to: [f64; 2],
+) -> Document {
+    let mut moved = document.clone();
+    let entities = feature_record_mut(&mut moved, sketch)
+        .params
+        .get_mut("entities")
+        .and_then(Value::as_array_mut)
+        .unwrap_or_else(|| panic!("{sketch} has no entities"));
+    let [ending, starting] = lines.map(|line| {
+        entities
+            .iter()
+            .position(|entity| entity["id"] == line)
+            .unwrap_or_else(|| panic!("{sketch} has no line {line}"))
+    });
+    assert_eq!(
+        entities[starting]["start"], entities[ending]["end"],
+        "{} of {sketch} starts where {} ends",
+        lines[1], lines[0]
+    );
+    entities[ending]["end"] = json!(to);
+    entities[starting]["start"] = json!(to);
+    moved
 }
 
-/// The edge of `lean` along `e-12` on the wall's face at y = 0, as an axis of `b-2`, followed by `extra` members such
-/// as `, "direction": [0, 0, 1]`, or none.
-pub fn lean_edge_axis(extra: &str) -> String {
-    edge_axis(
-        "b-2",
-        r#"{"q": "edge(f-ext5/lateral/e-12|f-ext5/start-cap)", "fp": "line|n=0,0,1|c=-4,0,15|l=30|adj=2,2"}"#,
-        extra,
-    )
-}
-
-/// The block and slot of datum_plane.md test 17 in `body`: `f-sk1` with `RECT(0, 0, 80, 50)`, `f-ext1`, its extrude of
-/// 30, `f-dp9` at z = 30, `f-sk9` on it with the slot x 30..50, y -1..51, and `f-ext9`, its cut of 5 reversed, which
-/// splits the end cap into `f-ext1/end-cap#1` and `#2` (naming.md test 84).
-pub fn slotted_block(body: &str) -> [String; 5] {
-    let rectangle = [
-        line("e-1", [0, 0], [80, 0]),
-        line("e-2", [80, 0], [80, 50]),
-        line("e-3", [80, 50], [0, 50]),
-        line("e-4", [0, 50], [0, 0]),
-    ];
-    let slot = [
-        line("e-11", [30, -1], [50, -1]),
-        line("e-12", [50, -1], [50, 51]),
-        line("e-13", [50, 51], [30, 51]),
-        line("e-14", [30, 51], [30, -1]),
-    ];
-    [
-        format!(
-            r#"{{"id": "f-sk1", "type": "sketch", "plane": {{"kind": "origin", "plane": "XY"}}, "entities": [{}]}}"#,
-            rectangle.join(", ")
-        ),
-        format!(
-            r#"{{"id": "f-ext1", "type": "extrude", "body": "{body}", "profile": {{"sketch": "f-sk1", "regions": [{{"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}}]}}, "extent": {{"kind": "distance", "expr": "30"}}, "op": "new"}}"#
-        ),
-        r#"{"id": "f-dp9", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "30"}"#.to_owned(),
-        format!(
-            r#"{{"id": "f-sk9", "type": "sketch", "plane": {{"kind": "datum", "feature": "f-dp9"}}, "entities": [{}]}}"#,
-            slot.join(", ")
-        ),
-        format!(
-            r#"{{"id": "f-ext9", "type": "extrude", "body": "{body}", "profile": {{"sketch": "f-sk9", "regions": [{{"key": "e-11,e-12,e-13,e-14", "fp": "c=40,25|a=1040"}}]}}, "extent": {{"kind": "distance", "expr": "5"}}, "reverse": true, "op": "cut"}}"#
-        ),
-    ]
+/// Removes the stored `direction` of the axis that `path` names in the parameters of `feature` (`["axis"]`,
+/// `["direction", "axis"]` or `["rotation", "axis"]`): the example as written before file format version 2, from which
+/// the tests of an axis with and without a stored direction make their second document. Fails the test when that axis
+/// stores no direction.
+pub fn remove_axis_direction(document: &mut Document, feature: &str, path: &[&str]) {
+    let params = &mut feature_record_mut(document, feature).params;
+    let (parameter, members) = path
+        .split_first()
+        .expect("the path names a parameter of the feature");
+    params
+        .get_mut(*parameter)
+        .and_then(|value| {
+            members
+                .iter()
+                .try_fold(value, |value, member| value.get_mut(*member))
+        })
+        .and_then(Value::as_object_mut)
+        .and_then(|axis| axis.shift_remove("direction"))
+        .unwrap_or_else(|| panic!("the axis {path:?} of {feature} stores no direction"));
 }
 
 /// Asserts that `motion` moves each point of `moves` from its first position to its second (absolute 1e-9), so a test

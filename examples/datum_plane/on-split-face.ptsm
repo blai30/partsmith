@@ -1,0 +1,73 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"}
+  ],
+  "features": [
+    {
+      "id": "f-sk1",
+      "type": "sketch",
+      "plane": {"kind": "origin", "plane": "XY"},
+      "entities": [
+        {"id": "e-1", "type": "line", "start": [0, 0], "end": [80, 0]},
+        {"id": "e-2", "type": "line", "start": [80, 0], "end": [80, 50]},
+        {"id": "e-3", "type": "line", "start": [80, 50], "end": [0, 50]},
+        {"id": "e-4", "type": "line", "start": [0, 50], "end": [0, 0]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext1",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk1",
+        "regions": [
+          {"key": "e-1,e-2,e-3,e-4", "fp": "c=40,25|a=4000"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "30"},
+      "op": "new"
+    },
+    {"id": "f-dp9", "type": "datum_plane", "base": {"kind": "origin", "plane": "XY"}, "offset": "30"},
+    {
+      "id": "f-sk9",
+      "type": "sketch",
+      "plane": {"kind": "datum", "feature": "f-dp9"},
+      "entities": [
+        {"id": "e-11", "type": "line", "start": [30, -1], "end": [50, -1]},
+        {"id": "e-12", "type": "line", "start": [50, -1], "end": [50, 51]},
+        {"id": "e-13", "type": "line", "start": [50, 51], "end": [30, 51]},
+        {"id": "e-14", "type": "line", "start": [30, 51], "end": [30, -1]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-ext9",
+      "type": "extrude",
+      "body": "b-1",
+      "profile": {
+        "sketch": "f-sk9",
+        "regions": [
+          {"key": "e-11,e-12,e-13,e-14", "fp": "c=40,25|a=1040"}
+        ]
+      },
+      "extent": {"kind": "distance", "expr": "5"},
+      "reverse": true,
+      "op": "cut"
+    },
+    {
+      "id": "f-dp1",
+      "type": "datum_plane",
+      "base": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-ext1/end-cap", "fp": "plane|n=0,0,1|c=40,25,30|a=4000|adj=4,4"}
+      },
+      "offset": "5"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "format": "partsmith",
+  "format_version": 2,
+  "units": "mm",
+  "parameters": [],
+  "bodies": [
+    {"id": "b-1", "name": "Body 1"},
+    {"id": "b-2", "name": "Body 2"}
+  ],
+  "features": [
+    {"id": "f-dp1", "type": "datum_plane", "base": {"kind": "origin", "plane": "YZ"}},
+    {
+      "id": "f-box1",
+      "type": "box",
+      "body": "b-1",
+      "size": ["10", "10", "10"],
+      "position": ["10", "0", "0"],
+      "op": "new"
+    },
+    {"id": "f-mir1", "type": "mirror", "body": "b-1", "plane": {"kind": "datum", "feature": "f-dp1"}},
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "plane": {
+        "kind": "face",
+        "body": "b-1",
+        "face": {"q": "f-box1/top@f-mir1:1", "fp": "plane|n=0,0,1|c=-10,0,10|a=100|adj=4,4"},
+        "fallback": {"origin": [10, 0, 10], "x_axis": [-1, 0, 0], "normal": [0, 0, 1]},
+        "fallback_frame": "body"
+      },
+      "entities": [
+        {"id": "e-p1", "type": "point", "position": [2, 3]}
+      ],
+      "constraints": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "body": "b-1",
+      "sketch": "f-sk2",
+      "points": ["e-p1"],
+      "diameter": "1",
+      "extent": {"kind": "through_all"}
+    }
+  ]
+}

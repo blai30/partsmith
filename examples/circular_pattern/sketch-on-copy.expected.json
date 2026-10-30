@@ -1,0 +1,197 @@
+{
+  "printer": "generic-fdm",
+  "features": [
+    {
+      "id": "f-cyl1",
+      "type": "cylinder",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-cp1",
+      "type": "circular_pattern",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-sk2",
+      "type": "sketch",
+      "status": "ok",
+      "messages": []
+    },
+    {
+      "id": "f-hole1",
+      "type": "hole",
+      "status": "ok",
+      "messages": []
+    }
+  ],
+  "parameters": [],
+  "bodies": [
+    {
+      "id": "b-1",
+      "name": "Body 1",
+      "volume": 184.56856839840037,
+      "area": 278.0309498426967,
+      "center_of_mass": [
+        11.622854680419048,
+        11.197322765525431,
+        2.5000000000000004
+      ],
+      "bounding_box": {
+        "min": [
+          -1.9999999999999987,
+          -2.0,
+          0.0
+        ],
+        "max": [
+          22.0,
+          22.0,
+          5.0
+        ]
+      },
+      "faces": 10,
+      "edges": 8,
+      "vertices": 8
+    },
+    {
+      "id": "b-2",
+      "name": "Body 2",
+      "empty": true
+    }
+  ],
+  "checks": {
+    "profile": "generic-fdm",
+    "orientation": {
+      "kind": "as_modeled"
+    },
+    "summary": {
+      "health": "warning",
+      "errors": 0,
+      "warnings": 1,
+      "infos": 0,
+      "label": "1 warning"
+    },
+    "bodies": [
+      {
+        "body": "b-1",
+        "transform": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          118.0,
+          118.0,
+          -0.0,
+          1.0
+        ],
+        "report": {
+          "profile": "generic-fdm",
+          "rotation": {
+            "rows": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          },
+          "health": "warning",
+          "checks": [
+            {
+              "check": "mesh_validity",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "bed_fit",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "first_layer_contact",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "islands",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "overhangs",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "thin_walls",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            },
+            {
+              "check": "small_features",
+              "status": "warning",
+              "findings": [
+                {
+                  "check": "small_features",
+                  "code": "small_hole",
+                  "severity": "warning",
+                  "message": "A hole 1 mm across is smaller than 2 mm and may close up. Make it at least 2 mm, or drill it out after printing.",
+                  "location": {
+                    "kind": "bounds",
+                    "min": [
+                      -0.4999999999999988,
+                      19.5,
+                      0.0
+                    ],
+                    "max": [
+                      0.5000000000000012,
+                      20.5,
+                      5.0
+                    ]
+                  },
+                  "value": 0.9997620270799061,
+                  "limit": 2.0,
+                  "faces": [
+                    9
+                  ]
+                }
+              ],
+              "omitted": 0
+            },
+            {
+              "check": "trapped_volumes",
+              "status": "ok",
+              "findings": [],
+              "omitted": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

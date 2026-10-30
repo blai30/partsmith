@@ -301,7 +301,8 @@ fn t017_a_tool_whose_feature_is_suppressed() {
 
 #[test]
 fn t017_unsuppressing_the_tool_gives_test_1() {
-    let run = Run::records(&BODIES, &[BOX1, BOX2, &boolean(r#"["b-2"]"#, "join")]);
+    // Test 1's document.
+    let run = Run::example("boolean/join.ptsm");
 
     run.assert_all_ok();
     let shape = run.shape("b-1");

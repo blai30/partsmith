@@ -1,7 +1,9 @@
 //! Acceptance tests of the `linear_pattern` feature (docs/spec/features/linear_pattern.md section
 //! 6), run as documents through recompute (features.md section 6.1). Geometry documents are the
-//! examples in `examples/linear_pattern/`; the documents of tests 16 to 19 (frames on the model) are
-//! written here until their examples exist.
+//! examples in `examples/linear_pattern/`, those of tests 17 and 18 (frames on the model) among
+//! them (`leaning-edge` and `turned-edge-direction`), from which the tests make their other
+//! documents; test 16 runs the document of features/sketch.md test 27,
+//! `examples/sketch/on-pattern-copy`.
 
 use crate::feature_support;
 
@@ -12,10 +14,10 @@ use feature_support::{
     assert_examples_canonical, assert_face_area, assert_face_centroid, assert_face_count,
     assert_face_kind, assert_face_position, assert_face_translated, assert_has_face,
     assert_same_body, assert_solid_count, assert_unchanged, assert_volume, body_changes, edge_axis,
-    face, l_shaped_body, leaning_wall_pattern, link_ids, set_field,
-    sketch_on_pattern_copy_document, turn,
+    face, feature_record_mut, l_shaped_body, link_ids, load_example, remove_axis_direction,
+    set_field, with_shared_point_moved,
 };
-use partsmith_model::Units;
+use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
 
 /// The origin Y axis as an axis reference.
@@ -296,9 +298,13 @@ fn t015_fractional_count_below_1() {
 
 #[test]
 fn t016_a_sketch_on_a_copys_face_follows_the_spacing() {
-    for (spacing, offset) in [("60", 60.0), ("80", 80.0)] {
-        let run = Run::new(sketch_on_pattern_copy_document(spacing));
+    // The document of features/sketch.md test 27, at its spacing of 60 and at 80.
+    let example = Run::example("sketch/on-pattern-copy.ptsm");
+    let mut wider = example.document.clone();
+    feature_record_mut(&mut wider, "f-lp1").params["direction"]["spacing"] =
+        serde_json::json!("80");
 
+    for (run, offset) in [(example, 60.0), (Run::new(wider), 80.0)] {
         run.assert_all_ok();
         assert_face_translated(
             &run,
@@ -311,15 +317,21 @@ fn t016_a_sketch_on_a_copys_face_follows_the_spacing() {
     }
 }
 
-/// The R38 setup with its left wall leaning by `lean`, and the pattern of test 17 along its bottom edge, with the
-/// axis's `extra` members.
-fn pattern_along_leaning_wall(lean: i32, extra: &str) -> Run {
-    Run::new(leaning_wall_pattern(lean, extra))
+/// The example of test 17 (corpus R38) with its left wall's top corner at (`lean_x`, 20), the shared point of `e-3`'s
+/// end and `e-4`'s start, and the axis's stored `direction` kept or left out.
+fn leaning_wall_document(lean_x: f64, direction: bool) -> Document {
+    let example = load_example("linear_pattern/leaning-edge.ptsm");
+    let mut document = with_shared_point_moved(&example, "f-sk1", ["e-3", "e-4"], [lean_x, 20.0]);
+    if !direction {
+        remove_axis_direction(&mut document, "f-lp1", &["direction", "axis"]);
+    }
+    document
 }
 
 #[test]
 fn t017_the_pattern_of_the_upright_wall_goes_along_the_edge() {
-    let run = pattern_along_leaning_wall(0, "");
+    // Before the edit.
+    let run = Run::new(leaning_wall_document(0.0, false));
 
     run.assert_all_ok();
     assert_bounding_box(run.shape("b-1"), [0.0, 0.0, 0.0], [40.0, 50.0, 10.0]);
@@ -327,8 +339,12 @@ fn t017_the_pattern_of_the_upright_wall_goes_along_the_edge() {
 
 #[test]
 fn t017_an_edge_direction_that_leans_keeps_its_side() {
-    for extra in ["", r#", "direction": [0, 1, 0]"#] {
-        let run = pattern_along_leaning_wall(-1, extra);
+    // The example leans to (-1, 20) and stores the direction.
+    let leaning_left = [
+        Run::new(leaning_wall_document(-1.0, false)),
+        Run::example("linear_pattern/leaning-edge.ptsm"),
+    ];
+    for run in &leaning_left {
         run.assert_all_ok();
         // The copy is offset by (-1.498129, 29.962570, 0), along (-0.049938, 0.998752, 0).
         assert_bounding_box(
@@ -336,8 +352,10 @@ fn t017_an_edge_direction_that_leans_keeps_its_side() {
             [-2.498129, 0.0, 0.0],
             [40.0, 49.962570, 10.0],
         );
+    }
 
-        let run = pattern_along_leaning_wall(1, extra);
+    for direction in [false, true] {
+        let run = Run::new(leaning_wall_document(1.0, direction));
         run.assert_all_ok();
         // Offset (1.498129, 29.962570, 0).
         assert_bounding_box(
@@ -348,33 +366,10 @@ fn t017_an_edge_direction_that_leans_keeps_its_side() {
     }
 }
 
-/// `CUBE10`, a half turn of it about Z inserted before the pattern, and the pattern of test 18 along its front top
-/// edge as picked before the turn, with the axis's `extra` members.
-fn pattern_after_a_half_turn(extra: &str) -> Run {
-    Run::records(
-        &BODIES,
-        &[
-            CUBE10,
-            &turn("b-1", "Z", "180 deg"),
-            &pattern(
-                &direction(
-                    &edge_axis(
-                        "b-1",
-                        r#"{"q": "edge(f-box1/front|f-box1/top)", "fp": "line|n=1,0,0|c=0,-5,10|l=10"}"#,
-                        extra,
-                    ),
-                    "2",
-                    "20",
-                ),
-                "",
-            ),
-        ],
-    )
-}
-
 #[test]
 fn t018_a_half_turn_of_the_part_turns_a_stored_direction() {
-    let run = pattern_after_a_half_turn(r#", "direction": [1, 0, 0]"#);
+    // The front top edge of `CUBE10` as picked before the half turn about Z was inserted, with its direction.
+    let run = Run::example("linear_pattern/turned-edge-direction.ptsm");
 
     run.assert_all_ok();
     // The stored direction turns with the part to -X.
@@ -384,7 +379,10 @@ fn t018_a_half_turn_of_the_part_turns_a_stored_direction() {
 #[test]
 fn t018_without_a_stored_direction_the_fingerprint_keeps_its_side() {
     // As written before format version 2: the fingerprint's +X.
-    let run = pattern_after_a_half_turn("");
+    let mut unstored = load_example("linear_pattern/turned-edge-direction.ptsm");
+    remove_axis_direction(&mut unstored, "f-lp1", &["direction", "axis"]);
+
+    let run = Run::new(unstored);
 
     run.assert_all_ok();
     assert_bounding_box(run.shape("b-1"), [-5.0, -5.0, 0.0], [25.0, 5.0, 10.0]);
