@@ -10,14 +10,14 @@ use std::f64::consts::FRAC_1_SQRT_2;
 use feature_support::{
     BOX_EDGE_NAMES, BOX_VERTEX_NAMES, CUBE20, FRONT_TOP_EDGE, LENGTH_TOLERANCE, MOVE_BY_100, PLATE,
     PLATE_TOP_EDGES, RISER_EDGE, RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_absolute,
-    assert_coordinates, assert_edge_queries, assert_element_repair, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_centroid, assert_face_count,
-    assert_face_kind, assert_face_names, assert_face_normal, assert_limiting_face,
-    assert_list_field, assert_messages_pass_lint, assert_moved_by_100, assert_placement,
-    assert_relative, assert_relative_within, assert_skipped_as_smooth, assert_unchanged,
-    assert_volume, assert_volume_faces_and_bounds, body_update, document, edge, face, face_index,
-    face_names, face_sketch, message, one_point, point_components, prefixed, remove_entry,
-    set_field, sketch_result, suggested_limit, with_edges_reversed,
+    assert_bounding_box, assert_coordinates, assert_edge_queries, assert_element_repair,
+    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_centroid,
+    assert_face_count, assert_face_kind, assert_face_names, assert_face_normal,
+    assert_limiting_face, assert_list_field, assert_messages_pass_lint, assert_moved_by_100,
+    assert_placement, assert_relative, assert_relative_within, assert_skipped_as_smooth,
+    assert_unchanged, assert_volume, body_update, document, edge, face, face_index, face_names,
+    face_sketch, message, one_point, point_components, prefixed, remove_entry, set_field,
+    sketch_result, suggested_limit, with_edges_reversed,
 };
 use partsmith_features::{BodyChange, FeatureError, Fix};
 use partsmith_model::{Document, Units};
@@ -64,13 +64,10 @@ fn t001_equal_distance() {
 
     run.assert_all_ok();
     let body = run.body("b-1");
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        7960.0,
-        7,
-        [-10.0, -10.0, 0.0],
-        [10.0, 10.0, 20.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 7960.0);
+    assert_face_count(shape, 7);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
     let chamfer = face(body, "f-cha1/chamfer/edge(f-box1/front|f-box1/top)");
     assert_face_kind(&chamfer, GeometryKind::Plane);
     assert_face_area(&chamfer, 56.568542);
@@ -116,13 +113,10 @@ fn t004_top_loop() {
     let run = Run::example("chamfer/top-loop.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        3850.666667,
-        10,
-        [-10.0, -10.0, 0.0],
-        [10.0, 10.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 3850.666667);
+    assert_face_count(shape, 10);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 10.0]);
     assert_face_area(&face(run.body("b-1"), "f-box1/top"), 256.0);
 }
 
@@ -695,13 +689,9 @@ fn t019_every_edge_of_a_cube() {
     let shape = run.shape("b-1");
     // 8000 less a prism of section 2 along each edge without its last 2 mm at either end (384 in
     // all) and 20/3 at each corner.
-    assert_volume_faces_and_bounds(
-        shape,
-        7562.666667,
-        26,
-        [-10.0, -10.0, 0.0],
-        [10.0, 10.0, 20.0],
-    );
+    assert_volume(shape, 7562.666667);
+    assert_face_count(shape, 26);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
     let top = face(body, "f-box1/top");
     assert_face_kind(&top, GeometryKind::Plane);
     assert_face_area(&top, 256.0);

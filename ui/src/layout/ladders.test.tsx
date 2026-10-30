@@ -10,9 +10,9 @@ import type { ActiveCommand, AppState } from '../state/store'
 import { coreErrorFor, type FakeCoreApi } from '../test/fakes/core-api'
 import { deferred, type Deferred } from '../test/fakes/deferred'
 import { CUBE_TOP_FACE, CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
-import { bodyItem, elementItem, sketchLineItem } from '../test/fakes/selection'
+import { bodyItem, elementItem, meshPick, sketchLineItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
-import type { PickResult } from '../viewport/picking'
+import { commandEdges, selectionKeys } from '../test/fakes/test-app'
 import {
   cubeDocumentState,
   FILLET_EDGES_COMMAND,
@@ -305,21 +305,8 @@ describe('escapeStep (3.5)', () => {
 // Enter, Mod+Z and Esc act on what the input made before the key leaves (ui.md 3.5, 3.20, U-244,
 // U-245). Each test holds a core answer with a deferred promise and answers it after the key.
 
-/** A click on a cube element, which pick_reference turns into `element`. */
-function meshClick(element: ElementDescriptor, index: number): PickResult {
-  return {
-    kind: 'mesh',
-    body: 'b-cube',
-    meshId: 1,
-    element: element.kind,
-    index,
-    key: `mesh:1:${element.kind}:${String(index)}`,
-    world: element.centroid,
-  }
-}
-
-const EDGE_CLICK = meshClick(CUBE_TOP_FRONT_EDGE, 4)
-const FACE_CLICK = meshClick(CUBE_TOP_FACE, 0)
+const EDGE_CLICK = meshPick(CUBE_TOP_FRONT_EDGE, 4)
+const FACE_CLICK = meshPick(CUBE_TOP_FACE, 0)
 
 /** A Fillet on the cube's top front edge: complete, its preview drawn. */
 const COMPLETE_FILLET: ActiveCommand = {
@@ -351,12 +338,6 @@ async function answerPick(
 
 function pressEnter(target: Element): boolean {
   return fireEvent.keyDown(target, { key: 'Enter' })
-}
-
-/** The edges of the open command, or null without one. */
-function commandEdges(app: App): unknown {
-  const command = app.store.getState().command
-  return command === null ? null : (command.params['edges'] ?? [])
 }
 
 /** Whether an `applyEdits` call carried the Fillet with `edges`. */
@@ -453,9 +434,7 @@ describe('U-244 Enter and Mod+Z wait for a click on its way (3.5, 3.20)', () => 
     expect(core.callsTo('commitTransaction')).toEqual([[1]])
     expect(core.callsTo('beginTransaction')).toEqual([])
     expect(app.store.getState().command).toBeNull()
-    expect(app.store.getState().selection.map((item) => item.key)).toEqual([
-      `element:b-cube:${CUBE_TOP_FACE.name}`,
-    ])
+    expect(selectionKeys(app)).toEqual([`element:b-cube:${CUBE_TOP_FACE.name}`])
   })
 
   it('U-244 (f) guard: a click, Enter and a feature key open that command with what the click selected and confirm nothing', async () => {

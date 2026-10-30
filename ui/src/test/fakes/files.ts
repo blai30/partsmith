@@ -1,6 +1,7 @@
 import type { AssetFile } from '../../files/assets'
 import {
   FileServiceError,
+  noFolderAccessError,
   type DesktopFileHandle,
   type DocumentPlace,
   type FileHandle,
@@ -243,11 +244,7 @@ export function createFakeFileService(
     async writeAssets(place, assets) {
       record('writeAssets', [place, assets])
       if (!reaches(place)) {
-        throw new FileServiceError(
-          'io',
-          `Partsmith has no access to the folder of ${place.handle.name}.`,
-          { entry: 'assets' },
-        )
+        throw noFolderAccessError(place)
       }
       if (service.writeAssetsError !== null) {
         throw service.writeAssetsError

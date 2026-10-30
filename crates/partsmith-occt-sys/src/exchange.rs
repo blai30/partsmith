@@ -154,11 +154,10 @@ mod tests {
     use crate::test_support::{cube_at, square_face_at};
     use crate::{Plane, Point, Transform, Vector, compound, fuse, section, transform};
 
-    /// A body named `name` holding the cube at `(x, 0, 0)` and the square face at `x + 50` beside
-    /// it.
+    /// A body named `name` holding the cube at `x` and the square face at `x + 50` beside it.
     fn cube_beside_a_face(x: f64, name: &str) -> StepBody {
         StepBody {
-            shape: compound(&[cube_at(x, 0.0, 0.0), square_face_at(x + 50.0)])
+            shape: compound(&[cube_at(x), square_face_at(x + 50.0)])
                 .expect("grouped")
                 .shape,
             name: name.to_owned(),
@@ -175,9 +174,7 @@ mod tests {
 
     #[test]
     fn body_of_two_solids_reads_as_two_bodies_with_its_name() {
-        let pair = fuse(&cube_at(0.0, 0.0, 0.0), &[cube_at(20.0, 0.0, 0.0)])
-            .expect("fused")
-            .shape;
+        let pair = fuse(&cube_at(0.0), &[cube_at(20.0)]).expect("fused").shape;
         let bodies = [StepBody {
             shape: pair,
             name: "Pair".to_owned(),
@@ -193,7 +190,7 @@ mod tests {
     #[test]
     fn a_file_of_valid_solids_counts_nothing() {
         let bodies = [StepBody {
-            shape: cube_at(0.0, 0.0, 0.0),
+            shape: cube_at(0.0),
             name: "Cube".to_owned(),
             color: None,
         }];
@@ -228,12 +225,9 @@ mod tests {
             origin: Point::new(0.0, 0.0, 5.0),
             ..Plane::XY
         };
-        let edges =
-            section(&cube_at(100.0, 0.0, 0.0), &middle).expect("the four edges of the section");
+        let edges = section(&cube_at(100.0), &middle).expect("the four edges of the section");
         let bodies = [StepBody {
-            shape: compound(&[cube_at(0.0, 0.0, 0.0), edges])
-                .expect("grouped")
-                .shape,
+            shape: compound(&[cube_at(0.0), edges]).expect("grouped").shape,
             name: "Edges".to_owned(),
             color: None,
         }];
@@ -247,7 +241,7 @@ mod tests {
     #[test]
     fn moved_body_keeps_its_position() {
         let moved = transform(
-            &cube_at(0.0, 0.0, 0.0),
+            &cube_at(0.0),
             &Transform::translation(Vector::new(100.0, 0.0, 0.0)),
         )
         .expect("moved")

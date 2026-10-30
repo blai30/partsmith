@@ -1,5 +1,7 @@
 import { fireEvent } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { rejectionOf } from '../test/fakes/deferred'
+import { utf8 } from '../test/fakes/documents'
 import {
   createWebFileService,
   type DesktopFileHandle,
@@ -9,8 +11,7 @@ import {
 } from './file-service'
 
 const CONTENT = '{"format": 1}'
-// Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's, which toEqual tells apart.
-const BYTES = Uint8Array.from(new TextEncoder().encode(CONTENT))
+const BYTES = utf8(CONTENT)
 const PTSM_PICKER_TYPE = {
   description: 'Partsmith model',
   accept: { 'application/json': ['.ptsm'] },
@@ -110,15 +111,6 @@ function provideFileSystemAccess(open: Mock, save: Mock): void {
     configurable: true,
     writable: true,
   })
-}
-
-async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
-  try {
-    await promise
-  } catch (error) {
-    return error
-  }
-  throw new Error('The promise resolved.')
 }
 
 const ORIGINAL_CREATE_OBJECT_URL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')

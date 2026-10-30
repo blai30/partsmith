@@ -8,6 +8,7 @@ import {
   fixtureBytes,
   inspector,
   inspectorInput,
+  notificationCoded,
   openApp,
   runCommand,
   sketchToScreen,
@@ -222,7 +223,7 @@ test.describe('lost references and their fixes', () => {
     await lost
       .getByRole('button', { name: "Set Count of 'Linear pattern 1' back to 3", exact: true })
       .click()
-    const stale = page.locator('[data-testid=notification][data-code=stale_fix]')
+    const stale = notificationCoded(page, 'stale_fix')
     await expect(stale).toHaveCount(1)
     await expect(stale).toHaveAttribute('data-severity', 'error')
     await expect(stale.getByText(STALE_FIX, { exact: true })).toBeVisible()

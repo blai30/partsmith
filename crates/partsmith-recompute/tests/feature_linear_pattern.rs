@@ -11,9 +11,9 @@ use feature_support::{
     assert_bore_through, assert_bounding_box, assert_choice_between, assert_error_field,
     assert_examples_canonical, assert_face_area, assert_face_centroid, assert_face_count,
     assert_face_kind, assert_face_position, assert_face_translated, assert_has_face,
-    assert_same_body, assert_solid_count, assert_unchanged, assert_volume,
-    assert_volume_faces_and_bounds, body_changes, edge_axis, face, l_shaped_body,
-    leaning_wall_pattern, link_ids, set_field, sketch_on_pattern_copy_document, turn,
+    assert_same_body, assert_solid_count, assert_unchanged, assert_volume, body_changes, edge_axis,
+    face, l_shaped_body, leaning_wall_pattern, link_ids, set_field,
+    sketch_on_pattern_copy_document, turn,
 };
 use partsmith_model::Units;
 use partsmith_occt_sys::GeometryKind;
@@ -85,13 +85,10 @@ fn t003_grid_volume_faces_and_bounds() {
     let run = Run::example("linear_pattern/grid.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        6000.0,
-        36,
-        [-5.0, -5.0, 0.0],
-        [45.0, 20.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_face_count(shape, 36);
+    assert_bounding_box(shape, [-5.0, -5.0, 0.0], [45.0, 20.0, 10.0]);
 }
 
 #[test]
@@ -226,13 +223,10 @@ fn t009_new_body() {
 
     run.assert_all_ok();
     assert_unchanged(&run, "f-lp1", "b-1");
-    assert_volume_faces_and_bounds(
-        run.shape("b-2"),
-        2000.0,
-        12,
-        [15.0, -5.0, 0.0],
-        [45.0, 5.0, 10.0],
-    );
+    let copies = run.shape("b-2");
+    assert_volume(copies, 2000.0);
+    assert_face_count(copies, 12);
+    assert_bounding_box(copies, [15.0, -5.0, 0.0], [45.0, 5.0, 10.0]);
     assert_eq!(body_changes(&run, "f-lp1"), ["b-2 New"]);
 }
 
@@ -560,13 +554,10 @@ fn t024_the_rod_of_the_second_direction_is_unchanged() {
     let run = Run::example("linear_pattern/second-face-direction.ptsm");
 
     assert_unchanged(&run, "f-lp1", "b-2");
-    assert_volume_faces_and_bounds(
-        run.shape("b-2"),
-        125.663706,
-        3,
-        [18.0, -10.0, 18.0],
-        [22.0, 0.0, 22.0],
-    );
+    let rod = run.shape("b-2");
+    assert_volume(rod, 125.663706);
+    assert_face_count(rod, 3);
+    assert_bounding_box(rod, [18.0, -10.0, 18.0], [22.0, 0.0, 22.0]);
 }
 
 #[test]

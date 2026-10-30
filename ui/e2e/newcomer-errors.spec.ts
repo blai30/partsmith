@@ -9,6 +9,7 @@ import {
   inspectorInput,
   modelTool,
   notification,
+  notificationCoded,
   openApp,
   runCommand,
   sketchToScreen,
@@ -338,9 +339,7 @@ test.describe('newcomer errors', () => {
       "This started after you deleted the line from (80, 50) to (0, 50) in 'Sketch 1'.",
     )
     expect(await notificationActions(lost)).toEqual(["Show what 'Extrude 1' lost", 'Undo'])
-    await expect(page.locator('[data-testid=notification][data-code=feature_failed]')).toHaveCount(
-      0,
-    )
+    await expect(notificationCoded(page, 'feature_failed')).toHaveCount(0)
 
     await openProblems(page)
     const row = problemRow(page, 'f-ext1')

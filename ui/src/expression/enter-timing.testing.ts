@@ -5,10 +5,11 @@
 import { deferred } from '../test/fakes/deferred'
 import { settle } from '../test/fakes/settle'
 
-type ActEnvironment = { IS_REACT_ACT_ENVIRONMENT?: boolean | undefined }
+/** The global flag through which React tells whether updates run inside `act`. */
+export type ActEnvironment = { IS_REACT_ACT_ENVIRONMENT?: boolean | undefined }
 
 /** How long the result may take to show, well within a test's timeout so the failure says why. */
-export const RESULT_TIMEOUT_MS = 2_000
+export const RESULT_TIMEOUT_MILLISECONDS = 2_000
 
 /** Presses Enter in `input` as a browser delivers it: a `keydown` that bubbles and can be canceled. */
 export function pressEnter(input: HTMLElement): void {
@@ -22,7 +23,7 @@ export function pressEnter(input: HTMLElement): void {
  * `result` shows `text`, then lets the app settle. Outside an act environment React schedules its
  * work as in a browser, so the action comes right after the commit that shows the result and
  * before the passive effects of that render, which React runs in a later task. Fails at once when
- * `result` already shows `text`, and after `RESULT_TIMEOUT_MS` when it never does.
+ * `result` already shows `text`, and after `RESULT_TIMEOUT_MILLISECONDS` when it never does.
  */
 export async function whenResultShows(
   result: HTMLElement,
@@ -41,7 +42,7 @@ export async function whenResultShows(
   })
   const timeout = setTimeout(() => {
     shown.reject(new Error(`The result never showed '${text}'.`))
-  }, RESULT_TIMEOUT_MS)
+  }, RESULT_TIMEOUT_MILLISECONDS)
   const environment = globalThis as ActEnvironment
   const actEnvironment = environment.IS_REACT_ACT_ENVIRONMENT
   environment.IS_REACT_ACT_ENVIRONMENT = false

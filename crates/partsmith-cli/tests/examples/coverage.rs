@@ -341,8 +341,9 @@ pub(super) fn finding_problems(
 }
 
 /// The problems of runner test 9: every file of `files` (relative to `examples/`) in the `assets/`
-/// folder of an example folder that runner test 1 allows with the feature types `types`, whose path below `assets/` is the `asset`
-/// of no `import` record of an example in that folder, each about that file's path.
+/// folder of an example folder that runner test 1 allows with the feature types `types`, whose path
+/// below `assets/` is the `asset` of no `import` record of an example in that folder, each about
+/// that file's path.
 pub(super) fn asset_problems(
     files: &[String],
     types: &BTreeSet<String>,

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { pickRow } from '../../layout/pick-row'
 import { registerMissingCommands } from '../../layout/test-app.testing'
-import type { PickResult } from '../../viewport/picking'
 import {
   activeCommand,
   createTestApp,
@@ -18,7 +17,13 @@ import {
   featuresOf,
 } from '../../test/fakes/documents'
 import { editsOf, type ErrorReply } from '../../test/fakes/protocol'
-import { bodyItem, elementItem, featureItem, originItem } from '../../test/fakes/selection'
+import {
+  bodyItem,
+  elementItem,
+  featureItem,
+  meshPick,
+  originItem,
+} from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
 import { confirmCommand, startFeatureCommand } from './command'
 import { clearSelection, pickAt, select, setHover, toggledByKey } from './selection'
@@ -29,18 +34,6 @@ const XY = originItem('XY')
 
 function keys(items: readonly { readonly key: string }[]): string[] {
   return items.map((item) => item.key)
-}
-
-function meshPick(index: number): PickResult {
-  return {
-    kind: 'mesh',
-    body: 'b-cube',
-    meshId: 1,
-    element: 'face',
-    index,
-    key: `mesh:1:face:${String(index)}`,
-    world: [0, 0, 20],
-  }
 }
 
 describe('select', () => {
@@ -98,7 +91,7 @@ describe('pickAt (3.6)', () => {
     fake.transport.handle('pick_reference', () => ({
       result: { type: 'pick_reference', element: CUBE_TOP_FACE },
     }))
-    await pickAt(fake.app, meshPick(3), { toggle: false })
+    await pickAt(fake.app, meshPick(CUBE_TOP_FACE, 3), { toggle: false })
     await settle()
     expect(fake.transport.commandsOfType('pick_reference')).toEqual([
       {
@@ -124,7 +117,7 @@ describe('pickAt (3.6)', () => {
     fake.transport.handle('pick_reference', () => ({
       result: { type: 'pick_reference', element: CUBE_TOP_FACE },
     }))
-    await pickAt(fake.app, meshPick(3), { toggle: true })
+    await pickAt(fake.app, meshPick(CUBE_TOP_FACE, 3), { toggle: true })
     await settle()
     expect(keys(fake.app.store.getState().selection)).toEqual([
       'element:b-cube:f-ext1/side-0',
@@ -140,7 +133,7 @@ describe('pickAt (3.6)', () => {
       fake.transport.handle('pick_reference', () => ({
         error: { code, message: 'The picked geometry changed since it was displayed. Pick again.' },
       }))
-      await pickAt(fake.app, meshPick(3), { toggle: false })
+      await pickAt(fake.app, meshPick(CUBE_TOP_FACE, 3), { toggle: false })
       await settle()
       expect(keys(fake.app.store.getState().selection)).toEqual(['body:b-cube'])
       expect(fake.app.store.getState().notifications).toEqual([])
@@ -211,7 +204,7 @@ async function topFaceClickOnItsWay(): Promise<{
 }> {
   const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT)
   const picked = holdPicks(fake)
-  const click = pickAt(fake.app, meshPick(0), { toggle: false })
+  const click = pickAt(fake.app, meshPick(CUBE_TOP_FACE, 0), { toggle: false })
   await settle()
   expect(fake.transport.commandTypes()).toContain('pick_reference')
   return { fake, picked, click }
@@ -297,7 +290,7 @@ describe('U-241 clicks and selection changes land in the order they were made (3
     registerMissingCommands(fake.app)
     select(fake.app, [featureItem('f-sk1', 'Sketch 1')], 'replace')
     const picked = holdPicks(fake)
-    const click = pickAt(fake.app, meshPick(0), { toggle: false })
+    const click = pickAt(fake.app, meshPick(CUBE_TOP_FACE, 0), { toggle: false })
     pickRow(fake.app, CUBE, false)
     const deleted = fake.app.commands.run(fake.app, 'edit.delete', 'shortcut')
     picked.resolve(null)

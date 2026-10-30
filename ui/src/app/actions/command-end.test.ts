@@ -6,8 +6,9 @@ import { createModelApp } from '../../layout/test-app.testing'
 import type { FakeCoreApi } from '../../test/fakes/core-api'
 import { deferred } from '../../test/fakes/deferred'
 import { CUBE_TOP_FACE, CUBE_TOP_FRONT_EDGE } from '../../test/fakes/documents'
+import { meshPick } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
-import type { PickResult } from '../../viewport/picking'
+import { commandEdges, notificationCodes, selectionKeys } from '../../test/fakes/test-app'
 import type { App } from '../createApp'
 import { cancelCommand, startFeatureCommand } from './command'
 import { setContext } from './context'
@@ -23,19 +24,6 @@ import { reattachSketch } from './sketch'
 type Timing = 'late' | 'at once'
 
 const TIMINGS: readonly Timing[] = ['late', 'at once']
-
-/** A click on a cube element, which `pick_reference` turns into `element`. */
-function meshClick(element: ElementDescriptor, index: number): PickResult {
-  return {
-    kind: 'mesh',
-    body: 'b-cube',
-    meshId: 1,
-    element: element.kind,
-    index,
-    key: `mesh:1:${element.kind}:${String(index)}`,
-    world: element.centroid,
-  }
-}
 
 /** cube.ptsm with a new command of `featureType` open and nothing picked. */
 async function withCommand(featureType: string): Promise<{ app: App; core: FakeCoreApi }> {
@@ -58,7 +46,7 @@ async function clickThenEnd(
   const picked = deferred<ElementDescriptor>()
   core.stub('pickReference', () => picked.promise)
   const index = element.kind === 'face' ? 0 : 4
-  const click = pickAt(app, meshClick(element, index), { toggle: false })
+  const click = pickAt(app, meshPick(element, index), { toggle: false })
   if (timing === 'at once') {
     picked.resolve(element)
     await click
@@ -75,16 +63,6 @@ function changeLabels(core: FakeCoreApi): unknown[] {
   return core.callsTo('applyEdits').map((call) => call[1])
 }
 
-/** The edges of the open command: empty when it has none, null without a command. */
-function commandEdges(app: App): unknown {
-  const command = app.store.getState().command
-  return command === null ? null : (command.params['edges'] ?? [])
-}
-
-function shownCodes(app: App): (string | undefined)[] {
-  return app.store.getState().notifications.map((notification) => notification.code)
-}
-
 describe('U-246 what ends a feature command acts on the clicks made into it (3.6, 3.7)', () => {
   it.each(TIMINGS)(
     'U-246 (a) a click on a face into a Shell, then Sketch, cancels the Shell with Restore for plane picking (%s)',
@@ -98,7 +76,7 @@ describe('U-246 what ends a feature command acts on the clicks made into it (3.6
         command: null,
         selection: [],
       })
-      expect(shownCodes(fake.app)).toEqual(['command_canceled'])
+      expect(notificationCodes(fake.app)).toEqual(['command_canceled'])
     },
   )
 
@@ -111,7 +89,7 @@ describe('U-246 what ends a feature command acts on the clicks made into it (3.6
       )
       expect(fake.app.store.getState().command?.featureType).toBe('fillet')
       expect(commandEdges(fake.app)).toEqual([])
-      expect(shownCodes(fake.app)).toEqual(['command_canceled'])
+      expect(notificationCodes(fake.app)).toEqual(['command_canceled'])
     },
   )
 
@@ -128,7 +106,7 @@ describe('U-246 what ends a feature command acts on the clicks made into it (3.6
         [1, 'Fillet'],
       ])
       expect(commandEdges(fake.app)).toEqual([])
-      expect(shownCodes(fake.app)).toEqual(['command_canceled'])
+      expect(notificationCodes(fake.app)).toEqual(['command_canceled'])
     },
   )
 
@@ -143,7 +121,7 @@ describe('U-246 what ends a feature command acts on the clicks made into it (3.6
         command: null,
         selection: [],
       })
-      expect(shownCodes(fake.app)).toEqual(['command_canceled'])
+      expect(notificationCodes(fake.app)).toEqual(['command_canceled'])
     },
   )
 
@@ -156,7 +134,7 @@ describe('U-246 what ends a feature command acts on the clicks made into it (3.6
       })
       expect(fake.app.store.getState()).toMatchObject({ command: null, selection: [] })
       expect(fake.core.callsTo('cancelTransaction')).toHaveLength(1)
-      expect(shownCodes(fake.app)).toEqual([])
+      expect(notificationCodes(fake.app)).toEqual([])
     },
   )
 
@@ -166,7 +144,7 @@ describe('U-246 what ends a feature command acts on the clicks made into it (3.6
       const fake = await withCommand('fillet')
       await clickThenEnd(fake, CUBE_TOP_FRONT_EDGE, timing, () => cancelCommand(fake.app))
       expect(fake.app.store.getState()).toMatchObject({ command: null, selection: [] })
-      expect(shownCodes(fake.app)).toEqual([])
+      expect(notificationCodes(fake.app)).toEqual([])
     },
   )
 
@@ -180,7 +158,7 @@ describe('U-246 what ends a feature command acts on the clicks made into it (3.6
       const fake = await withCommand('fillet')
       await clickThenEnd(fake, CUBE_TOP_FRONT_EDGE, timing, () => setContext(fake.app, context))
       expect(fake.app.store.getState()).toMatchObject({ context, command: null, selection: [] })
-      expect(shownCodes(fake.app)).toEqual(['command_canceled'])
+      expect(notificationCodes(fake.app)).toEqual(['command_canceled'])
     },
   )
 
@@ -196,8 +174,8 @@ describe('U-246 what ends a feature command acts on the clicks made into it (3.6
         ),
       )
       expect(fake.app.store.getState().command).toBeNull()
-      expect(fake.app.store.getState().selection.map((item) => item.key)).toEqual(['feature:f-sk1'])
-      expect(shownCodes(fake.app)).toEqual(['command_canceled'])
+      expect(selectionKeys(fake.app)).toEqual(['feature:f-sk1'])
+      expect(notificationCodes(fake.app)).toEqual(['command_canceled'])
     },
   )
 })

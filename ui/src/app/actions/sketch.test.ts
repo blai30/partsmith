@@ -19,13 +19,12 @@ import {
   CUBE_SKETCH_SOLUTION,
   CUBE_TOP_FACE,
 } from '../../test/fakes/documents'
-import { elementItem, featureItem, originItem } from '../../test/fakes/selection'
+import { elementItem, featureItem, meshPick, originItem } from '../../test/fakes/selection'
 import { stateWithDocument } from '../../test/fakes/state'
 import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
 import { createFakeViewport, type FakeViewport } from '../../test/fakes/viewport'
 import { DEFAULT_CAMERA, orbit, standardViewRotation, type Camera } from '../../viewport/camera'
-import type { PickResult } from '../../viewport/picking'
 import type { App } from '../createApp'
 import { startFeatureCommand } from './command'
 import { setContext } from './context'
@@ -242,15 +241,7 @@ describe('startNewSketch (3.16.1)', () => {
 })
 
 /** A click on the cube's top face, which pick_reference turns into its descriptor. */
-const TOP_FACE_PICK: PickResult = {
-  kind: 'mesh',
-  body: 'b-cube',
-  meshId: 1,
-  element: 'face',
-  index: 0,
-  key: 'mesh:1:face:0',
-  world: [0, 0, 20],
-}
+const TOP_FACE_PICK = meshPick(CUBE_TOP_FACE, 0)
 
 /**
  * Holds the core's answer to every pick_reference, the top face, until the test resolves the

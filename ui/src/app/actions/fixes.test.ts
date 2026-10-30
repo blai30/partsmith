@@ -10,6 +10,7 @@ import {
   createTestApp,
   onlyNotification,
   runAction,
+  selectionKeys,
 } from '../../test/fakes/app'
 import { coreErrorFor, createFakeCoreApi, type FakeCoreApi } from '../../test/fakes/core-api'
 import {
@@ -97,10 +98,6 @@ function cubeApp(): Harness {
     ),
   })
   return { app, core, viewport }
-}
-
-function selectionKeys(app: App): string[] {
-  return app.store.getState().selection.map((item) => item.key)
 }
 
 describe('runFixAction (4.2)', () => {

@@ -5,13 +5,18 @@ use crate::{
     make_profile,
 };
 
-/// A 10 mm cube with its corner at `(x, y, z)`.
-pub(crate) fn cube_at(x: f64, y: f64, z: f64) -> Shape {
-    let corner = Plane {
-        origin: Point::new(x, y, z),
+/// A 10 mm cube with its lowest corner at `corner`.
+pub(crate) fn cube_with_corner(corner: Point) -> Shape {
+    let placement = Plane {
+        origin: corner,
         ..Plane::XY
     };
-    make_box(&corner, 10.0, 10.0, 10.0).expect("cube").shape
+    make_box(&placement, 10.0, 10.0, 10.0).expect("cube").shape
+}
+
+/// A 10 mm cube with its corner at `(x, 0, 0)`.
+pub(crate) fn cube_at(x: f64) -> Shape {
+    cube_with_corner(Point::new(x, 0.0, 0.0))
 }
 
 /// The region bounded by the square with 10 mm sides whose lower left corner is at `(left, 0)`:

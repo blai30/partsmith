@@ -1,5 +1,6 @@
 import type { ElementDescriptor, RegionInfo } from '../../generated/protocol'
 import type { OriginName, SelectionItem } from '../../state/store'
+import type { PickResult } from '../../viewport/picking'
 
 // Selection items with the keys of ui.md 3.6, written out apart from the app's own builders so
 // tests check them against an independent copy.
@@ -23,6 +24,19 @@ export function elementItem(element: ElementDescriptor, bodyName = 'Cube'): Sele
     body: element.body,
     feature: element.feature,
     element,
+  }
+}
+
+/** A click on primitive `index` of mesh 1, which `pick_reference` turns into `element`. */
+export function meshPick(element: ElementDescriptor, index: number): PickResult {
+  return {
+    kind: 'mesh',
+    body: element.body,
+    meshId: 1,
+    element: element.kind,
+    index,
+    key: `mesh:1:${element.kind}:${String(index)}`,
+    world: element.centroid,
   }
 }
 

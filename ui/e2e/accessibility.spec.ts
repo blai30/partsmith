@@ -9,6 +9,7 @@ import {
   runCommand,
   test,
   timelineItem,
+  viewSurface,
 } from './helpers'
 import { openProblems } from './support/documents'
 import { editFeatureFromTimeline, focusViewport } from './support/modeling'
@@ -235,11 +236,6 @@ const SKETCH_STOPS = [
   'timeline: Collapse timeline',
 ] as const
 
-/** The 3D view's focusable surface (3.13). */
-function view(page: Page): Locator {
-  return page.getByRole('application', { name: '3D view', exact: true })
-}
-
 /** A timeline item's button, which holds the strip's one stop (3.9). */
 function timelineButton(page: Page, label: string): Locator {
   return timelineItem(page, label).getByRole('button', { name: label, exact: true })
@@ -355,7 +351,7 @@ test.describe('keyboard and target size (3.24)', () => {
       .focus()
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('notification')).toHaveCount(0)
-    await expect(view(page)).toBeFocused()
+    await expect(viewSurface(page)).toBeFocused()
 
     // A command's inspector gives focus back to the control that had it.
     await timelineButton(page, 'Sketch 1').focus()
@@ -376,11 +372,11 @@ test.describe('keyboard and target size (3.24)', () => {
     await expect(inspector(page)).toHaveAttribute('data-mode', 'command')
     await page.keyboard.press('Escape')
     await expect(inspector(page)).toBeHidden()
-    await expect(view(page)).toBeFocused()
+    await expect(viewSurface(page)).toBeFocused()
 
     // (c) In sketch mode the overlay's glyphs and labels follow the 3D view, then the slot.
     await editSketchFromTimeline(page, 'Sketch 1')
-    await view(page).focus()
+    await viewSurface(page).focus()
     const sketchStops = await walk(page, 'Tab', (stop) => stop.startsWith('timeline: '))
     expect(sketchStops, 'the stops after the 3D view in sketch mode').toEqual(SKETCH_STOPS)
   })

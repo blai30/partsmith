@@ -11,6 +11,7 @@ import {
   type FileService,
   type FileServiceErrorReason,
   type OpenedFile,
+  withEntry,
 } from './file-service'
 
 // The desktop file service (desktop.md 3.7): native dialogs, the files the user chose and the assets
@@ -70,10 +71,7 @@ function hostRejectionError(rejection: unknown): FileServiceError {
 /** A failure of the host's asset command for one asset, with the entry `assets/{name}` (3.5). */
 function assetError(error: unknown, name: string): FileServiceError {
   const failure = error instanceof FileServiceError ? error : hostRejectionError(error)
-  return new FileServiceError(failure.reason, failure.message, {
-    cause: failure.cause,
-    entry: assetEntry(name),
-  })
+  return withEntry(failure, assetEntry(name))
 }
 
 function unexpectedReply(command: string): FileServiceError {

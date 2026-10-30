@@ -209,6 +209,20 @@ export function noAccessError(name: string, options?: FileServiceErrorOptions): 
   return new FileServiceError('permission', `Partsmith has no access to ${name}.`, options)
 }
 
+/** The error for the assets of a document whose folder the page does not reach (3.19). */
+export function noFolderAccessError(place: DocumentPlace): FileServiceError {
+  return new FileServiceError(
+    'io',
+    `Partsmith has no access to the folder of ${place.handle.name}.`,
+    { entry: ASSETS_FOLDER },
+  )
+}
+
+/** The same failure, about `entry` of the document's folder (3.19). */
+export function withEntry(error: FileServiceError, entry: string): FileServiceError {
+  return new FileServiceError(error.reason, error.message, { cause: error.cause, entry })
+}
+
 function pickerType(kind: FileKind): FilePickerType {
   const type = FILE_TYPES[kind]
   return { description: type.description, accept: { [type.mediaType]: type.extensions } }
@@ -226,9 +240,7 @@ export function isDomError(error: unknown, name: string): boolean {
  */
 function fileServiceError(error: unknown, name: string, entry?: string): FileServiceError {
   if (error instanceof FileServiceError) {
-    return entry === undefined
-      ? error
-      : new FileServiceError(error.reason, error.message, { cause: error.cause, entry })
+    return entry === undefined ? error : withEntry(error, entry)
   }
   const options = { cause: error, ...(entry === undefined ? {} : { entry }) }
   if (isDomError(error, 'NotFoundError')) {
@@ -323,6 +335,20 @@ export async function folderHolds(
   }
 }
 
+/** Whether two handles name one file: desktop handles with equal grants, or web handles to the same entry. */
+export async function isSameHandle(first: FileHandle, second: FileHandle): Promise<boolean> {
+  // Each host's handles come only from that host, so a desktop and a web handle are never the same file.
+  if (first.kind === 'desktop' || second.kind === 'desktop') {
+    return first.kind === 'desktop' && second.kind === 'desktop' && first.grant === second.grant
+  }
+  try {
+    return await first.isSameEntry(second)
+  } catch {
+    // A handle whose file is gone cannot be compared; it is a different entry.
+    return false
+  }
+}
+
 /** The folder of a place the web reaches: a web handle with a folder; null otherwise. */
 function webFolderOf(place: DocumentPlace): FileSystemDirectoryHandle | null {
   return place.handle.kind === 'desktop' ? null : place.folder
@@ -346,19 +372,25 @@ async function assetsFolderOf(
  * keeps its bytes when that fails), a folder fails and stays, and a missing entry is created and
  * removed again when its write fails, so no empty file is left under an asset's name.
  */
-async function writeAsset(assets: FileSystemDirectoryHandle, asset: AssetFile): Promise<void> {
+async function writeAsset(
+  assetsFolder: FileSystemDirectoryHandle,
+  asset: AssetFile,
+): Promise<void> {
   const entry = assetEntry(asset.name)
   let file: FileSystemFileHandle
   try {
-    file = await assets.getFileHandle(asset.name)
+    file = await assetsFolder.getFileHandle(asset.name)
   } catch (error) {
     if (!isDomError(error, 'NotFoundError')) {
       throw fileServiceError(error, asset.name, entry)
     }
     try {
-      await writeFileHandle(await assets.getFileHandle(asset.name, { create: true }), asset.bytes)
+      await writeFileHandle(
+        await assetsFolder.getFileHandle(asset.name, { create: true }),
+        asset.bytes,
+      )
     } catch (writeError) {
-      await assets.removeEntry(asset.name).catch(() => undefined)
+      await assetsFolder.removeEntry(asset.name).catch(() => undefined)
       throw fileServiceError(writeError, asset.name, entry)
     }
     return
@@ -530,9 +562,9 @@ export function createWebFileService(environment: Window & typeof globalThis): F
       if (folder === null) {
         return { assets: [], failure: null }
       }
-      let assets: FileSystemDirectoryHandle
+      let assetsFolder: FileSystemDirectoryHandle
       try {
-        assets = await assetsFolderOf(folder, false)
+        assetsFolder = await assetsFolderOf(folder, false)
       } catch (error) {
         // A folder without `assets` holds no asset.
         const failure = fileServiceError(error, ASSETS_FOLDER, ASSETS_FOLDER)
@@ -541,7 +573,7 @@ export function createWebFileService(environment: Window & typeof globalThis): F
       return readingOf(
         names.map(async (name) => {
           try {
-            const file = await (await assets.getFileHandle(name)).getFile()
+            const file = await (await assetsFolder.getFileHandle(name)).getFile()
             return { name, bytes: await bytesOf(file) }
           } catch (error) {
             // A missing asset is left out; any other failure leaves it out too.
@@ -556,11 +588,7 @@ export function createWebFileService(environment: Window & typeof globalThis): F
     async writeAssets(place, assets) {
       const folder = webFolderOf(place)
       if (folder === null) {
-        throw new FileServiceError(
-          'io',
-          `Partsmith has no access to the folder of ${place.handle.name}.`,
-          { entry: ASSETS_FOLDER },
-        )
+        throw noFolderAccessError(place)
       }
       let assetsFolder: FileSystemDirectoryHandle
       try {

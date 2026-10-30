@@ -15,7 +15,7 @@ const fixtures = new URL('fixtures/', import.meta.url)
  * How long opening the app or a fixture may take: the core compiles, then rebuilds the document.
  * Opening `dense.ptsm` alone takes about 25 seconds, and longer on a busy runner.
  */
-const OPEN_TIMEOUT_MILLISECONDS = 60_000
+export const OPEN_TIMEOUT_MILLISECONDS = 60_000
 
 /** The fraction of the view that fitting leaves on each side (ui.md 2.11 `fitBounds`). */
 const FIT_MARGIN = 0.1
@@ -568,6 +568,11 @@ export function pickerCalls(page: Page): Promise<PickerCall[]> {
   }, FOLDERS_KEY)
 }
 
+/** The names along a slash-separated path of the origin private file system, from its root. */
+function pathParts(path: string): string[] {
+  return path.split('/').filter((part) => part !== '')
+}
+
 /** Writes `bytes` to the file at a slash-separated path of the origin private file system, creating its folders. */
 export async function writeFolderFile(
   page: Page,
@@ -591,55 +596,49 @@ export async function writeFolderFile(
       await writable.write(new Uint8Array(content))
       await writable.close()
     },
-    { parts: path.split('/').filter((part) => part !== ''), content: [...bytes] },
+    { parts: pathParts(path), content: [...bytes] },
   )
 }
 
 /** The bytes of the file at a slash-separated path of the origin private file system, or null when there is none. */
 export async function readFolderFile(page: Page, path: string): Promise<Buffer | null> {
-  const content = await page.evaluate(
-    async (parts) => {
-      const name = parts.at(-1)
-      if (name === undefined) {
+  const content = await page.evaluate(async (parts) => {
+    const name = parts.at(-1)
+    if (name === undefined) {
+      return null
+    }
+    try {
+      const folder = await parts
+        .slice(0, -1)
+        .reduce<Promise<FileSystemDirectoryHandle>>(
+          async (parent, part) => (await parent).getDirectoryHandle(part),
+          navigator.storage.getDirectory(),
+        )
+      const file = await (await folder.getFileHandle(name)).getFile()
+      return [...new Uint8Array(await file.arrayBuffer())]
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotFoundError') {
         return null
       }
-      try {
-        const folder = await parts
-          .slice(0, -1)
-          .reduce<Promise<FileSystemDirectoryHandle>>(
-            async (parent, part) => (await parent).getDirectoryHandle(part),
-            navigator.storage.getDirectory(),
-          )
-        const file = await (await folder.getFileHandle(name)).getFile()
-        return [...new Uint8Array(await file.arrayBuffer())]
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'NotFoundError') {
-          return null
-        }
-        throw error
-      }
-    },
-    path.split('/').filter((part) => part !== ''),
-  )
+      throw error
+    }
+  }, pathParts(path))
   return content === null ? null : Buffer.from(content)
 }
 
 /** The sorted names of the entries of the folder at a slash-separated path of the origin private file system. */
 export function folderNames(page: Page, path: string): Promise<string[]> {
-  return page.evaluate(
-    async (parts) => {
-      const folder = await parts.reduce<Promise<FileSystemDirectoryHandle>>(
-        async (parent, part) => (await parent).getDirectoryHandle(part),
-        navigator.storage.getDirectory(),
-      )
-      const names: string[] = []
-      for await (const name of folder.keys()) {
-        names.push(name)
-      }
-      return names.toSorted()
-    },
-    path.split('/').filter((part) => part !== ''),
-  )
+  return page.evaluate(async (parts) => {
+    const folder = await parts.reduce<Promise<FileSystemDirectoryHandle>>(
+      async (parent, part) => (await parent).getDirectoryHandle(part),
+      navigator.storage.getDirectory(),
+    )
+    const names: string[] = []
+    for await (const name of folder.keys()) {
+      names.push(name)
+    }
+    return names.toSorted()
+  }, pathParts(path))
 }
 
 /**
@@ -693,6 +692,16 @@ export function notification(page: Page, severity: string, message: string): Loc
   return page
     .locator(`[data-testid=notification][data-severity=${severity}]`)
     .filter({ has: page.getByText(message, { exact: true }) })
+}
+
+/** The shown notification with this `data-code`. */
+export function notificationCoded(page: Page, code: string): Locator {
+  return page.locator(`[data-testid=notification][data-code=${code}]`)
+}
+
+/** The 3D view's focusable surface (ui.md 3.13). */
+export function viewSurface(page: Page): Locator {
+  return page.getByRole('application', { name: '3D view', exact: true })
 }
 
 /** The inspector panel. */
@@ -755,14 +764,24 @@ export function bodyRow(page: Page, name: string): Locator {
   return browserRow(page, 'body', name)
 }
 
-/** Renames a body in the browser: click its row, F2, type the new name, Enter (ui.md 3.10). */
-export async function renameBody(page: Page, from: string, to: string): Promise<void> {
+/**
+ * Starts renaming a body in the browser (click its row, F2, type the new name, Enter, ui.md 3.10)
+ * without waiting for the core to answer. Returns the time Enter was pressed, which sends the rename.
+ */
+export async function sendRename(page: Page, from: string, to: string): Promise<number> {
   await bodyRow(page, from).click()
   await page.keyboard.press('F2')
   const field = page.getByTestId('browser').getByRole('textbox', { name: 'Name', exact: true })
   await expect(field).toBeFocused()
   await page.keyboard.type(to)
+  const sentAt = Date.now()
   await page.keyboard.press('Enter')
+  return sentAt
+}
+
+/** Renames a body in the browser (`sendRename`) and waits for its row to show the new name. */
+export async function renameBody(page: Page, from: string, to: string): Promise<void> {
+  await sendRename(page, from, to)
   await expect(bodyRow(page, to)).toBeVisible()
 }
 

@@ -75,6 +75,17 @@ export function activeCommand(app: App): ActiveCommand {
   return command
 }
 
+/** The edges of the active command: empty when it has none, null without a command. */
+export function commandEdges(app: App): unknown {
+  const command = app.store.getState().command
+  return command === null ? null : (command.params['edges'] ?? [])
+}
+
+/** The keys of the selection, in order. */
+export function selectionKeys(app: App): string[] {
+  return app.store.getState().selection.map((item) => item.key)
+}
+
 /** The messages of the shown notifications, oldest first. */
 export function notificationMessages(app: App): string[] {
   return app.store.getState().notifications.map((notification) => notification.message)
@@ -94,6 +105,25 @@ export function notificationWith(app: App, message: string | RegExp): Notificati
     throw new Error(`No notification matches ${String(message)}; shown: ${shown || 'none'}.`)
   }
   return found
+}
+
+/** The shown notification with this code; throws when there is none. */
+export function notificationCoded(app: App, code: string): Notification {
+  const found = app.store
+    .getState()
+    .notifications.find((notification) => notification.code === code)
+  if (found === undefined) {
+    const shown = app.store
+      .getState()
+      .notifications.map((notification) => notification.code ?? notification.message)
+    throw new Error(`No ${code} notification is shown; shown: ${shown.join(', ') || 'none'}.`)
+  }
+  return found
+}
+
+/** The codes of the shown notifications, oldest first. */
+export function notificationCodes(app: App): (string | undefined)[] {
+  return app.store.getState().notifications.map((notification) => notification.code)
 }
 
 /** The one shown notification: expects exactly one. */

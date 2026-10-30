@@ -10,12 +10,16 @@ import {
 import { createMemoryRecovery, type RecoveryEntry } from '../../files/recovery'
 import type { Edit, FeatureRecord } from '../../generated/protocol'
 import { isUnsaved } from '../../state/selectors'
-import type { Notification } from '../../state/store'
 import type { App } from '../createApp'
 import {
   actionLabels,
+  clickAction,
   currentDocument,
   type FakeApp,
+  forgetCalls,
+  journalSteps,
+  notificationCoded,
+  notificationCodes,
   openTestDocument,
   runAction,
   startFakeApp,
@@ -28,7 +32,13 @@ import {
   assetValues,
   BLOCK_DOCUMENT,
 } from '../../test/fakes/assets'
-import { bodiesOf, CUBE_DOCUMENT, documentFile, documentText } from '../../test/fakes/documents'
+import {
+  bodiesOf,
+  CUBE_DOCUMENT,
+  documentFile,
+  documentText,
+  utf8,
+} from '../../test/fakes/documents'
 import {
   callsOf,
   createDesktopHandle,
@@ -39,7 +49,6 @@ import { deferred, type Deferred } from '../../test/fakes/deferred'
 import { settle } from '../../test/fakes/settle'
 import { startFeatureCommand } from './command'
 import { applyEdits, newDocument, openFile, save, saveAs } from './document'
-import { dismiss } from './notifications'
 
 // Documents with imports and their assets folder (ui.md 3.19, 4.4, ADR 0037): Open reads the
 // assets the text names, says why imports are missing, "Choose folder" reopens with the assets,
@@ -71,40 +80,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's. */
-function utf8(text: string): Uint8Array {
-  return Uint8Array.from(new TextEncoder().encode(text))
-}
-
 /** The digest of the text `block.ptsm` holds on disk. */
 function blockDigest(): Promise<string> {
   return fileDigest(utf8(documentText(BLOCK_DOCUMENT)))
-}
-
-/** The shown notification with this code; throws when there is none. */
-function notificationCoded(app: App, code: string): Notification {
-  const found = app.store
-    .getState()
-    .notifications.find((notification) => notification.code === code)
-  if (found === undefined) {
-    const shown = app.store
-      .getState()
-      .notifications.map((notification) => notification.code ?? notification.message)
-    throw new Error(`No ${code} notification is shown; shown: ${shown.join(', ') || 'none'}.`)
-  }
-  return found
-}
-
-/** The codes of the shown notifications, oldest first. */
-function shownCodes(app: App): readonly (string | undefined)[] {
-  return app.store.getState().notifications.map((notification) => notification.code)
-}
-
-/** Clicks a notification button as the notification list does: dismiss, then run (3.22). */
-async function click(app: App, notification: Notification, label: string): Promise<void> {
-  dismiss(app, notification.id)
-  runAction(notification, label)
-  await settle()
 }
 
 /** The status of "Import 1" in the shown document. */
@@ -130,18 +108,6 @@ function stubClipboard(): Mock<(text: string) => Promise<void>> {
   return writeText
 }
 
-/** The journal without recovery writes, which the session schedules on its own. */
-function steps(fake: FakeApp): readonly string[] {
-  return fake.journal.filter((entry) => !entry.startsWith('recovery.'))
-}
-
-/** Forgets what was sent and called so far. */
-function forget(fake: FakeApp): void {
-  fake.transport.clearRequests()
-  fake.files.clearCalls()
-  fake.journal.length = 0
-}
-
 /** A web handle of `block.ptsm` with the folder that holds it (and `siblings`) and `A`. */
 type WebBlock = {
   readonly fake: FakeApp
@@ -165,7 +131,7 @@ async function blockWithoutFolder(siblings: readonly FileHandle[] = []): Promise
   const fake = await startFakeApp()
   const place = webPlace(fake, siblings)
   await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT, place.handle)
-  forget(fake)
+  forgetCalls(fake)
   return { fake, ...place }
 }
 
@@ -173,13 +139,13 @@ async function blockWithoutFolder(siblings: readonly FileHandle[] = []): Promise
 async function blockWithFolder(siblings: readonly FileHandle[] = []): Promise<WebBlock> {
   const opened = await blockWithoutFolder(siblings)
   opened.fake.files.folderChoices.push({ kind: 'chosen', folder: opened.folder })
-  await click(
+  await clickAction(
     opened.fake.app,
     notificationCoded(opened.fake.app, 'assets_folder_needed'),
     'Choose folder',
   )
   expect(importStatus(opened.fake.app)).toBe('ok')
-  forget(opened.fake)
+  forgetCalls(opened.fake)
   return opened
 }
 
@@ -209,11 +175,13 @@ describe('Open reads the assets the text names (3.19 openFile step 3)', () => {
     const fake = await startFakeApp()
     const handle = createDesktopHandle('block.ptsm', 'g1')
     fake.files.putAssets(handle, [ASSET_A, ASSET_B])
-    forget(fake)
+    forgetCalls(fake)
     await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT, handle)
     expect(callsOf(fake.files, 'readAssets')).toEqual([[{ handle, folder: null }, [A]]])
     expect(
-      steps(fake).filter((step) => step === 'files.readAssets' || step === 'command:open_document'),
+      journalSteps(fake).filter(
+        (step) => step === 'files.readAssets' || step === 'command:open_document',
+      ),
     ).toEqual(['files.readAssets', 'command:open_document'])
     expect(openedAssets(fake)).toEqual([[{ name: A, bytes: [1, 2, 3] }]])
     expect(assetValues(currentDocument(fake.app).assets)).toEqual([{ name: A, bytes: [1, 2, 3] }])
@@ -225,7 +193,7 @@ describe('Open reads the assets the text names (3.19 openFile step 3)', () => {
     const fake = await startFakeApp()
     const handle = createDesktopHandle('cube.ptsm', 'g1')
     fake.files.putAssets(handle, [ASSET_A, ASSET_B])
-    forget(fake)
+    forgetCalls(fake)
     await openTestDocument(fake, 'cube.ptsm', CUBE_DOCUMENT, handle)
     expect(callsOf(fake.files, 'readAssets')).toEqual([])
     expect(fake.transport.commandsOfType('open_document')[0]?.assets ?? []).toEqual([])
@@ -235,7 +203,7 @@ describe('Open reads the assets the text names (3.19 openFile step 3)', () => {
   it('a web handle with a folder reads the assets through that folder', async () => {
     const fake = await startFakeApp()
     const { handle, folder } = webPlace(fake)
-    forget(fake)
+    forgetCalls(fake)
     await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT, handle, folder)
     expect(callsOf(fake.files, 'readAssets')).toEqual([[{ handle, folder }, [A]]])
     expect(currentDocument(fake.app).file).toMatchObject({ name: 'block.ptsm', handle, folder })
@@ -244,7 +212,7 @@ describe('Open reads the assets the text names (3.19 openFile step 3)', () => {
 
   it('a dropped file, without a handle, reads no assets', async () => {
     const fake = await startFakeApp()
-    forget(fake)
+    forgetCalls(fake)
     await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT)
     expect(callsOf(fake.files, 'readAssets')).toEqual([])
     expect(fake.transport.commandsOfType('open_document')[0]?.assets ?? []).toEqual([])
@@ -258,7 +226,7 @@ describe('a folder that cannot be read (3.19 openFile steps 4 and 6)', () => {
     fake.files.readAssetsFailure = new FileServiceError('io', 'Disk failure', {
       entry: `assets/${A}`,
     })
-    forget(fake)
+    forgetCalls(fake)
     await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT, handle)
     expect(fake.transport.commandsOfType('open_document')[0]?.assets ?? []).toEqual([])
     const notification = notificationCoded(fake.app, 'assets_not_read')
@@ -267,7 +235,7 @@ describe('a folder that cannot be read (3.19 openFile steps 4 and 6)', () => {
       'Partsmith could not read some imported files from the assets folder next to block.ptsm, so their geometry is missing.',
     )
     expect(actionLabels(notification)).toEqual(['Copy details'])
-    expect(shownCodes(fake.app)).toEqual(['assets_not_read'])
+    expect(notificationCodes(fake.app)).toEqual(['assets_not_read'])
     const writeText = stubClipboard()
     runAction(notification, 'Copy details')
     await settle()
@@ -284,12 +252,12 @@ describe('a folder that cannot be read (3.19 openFile steps 4 and 6)', () => {
     const fake = await startFakeApp({ core: { mismatchedAssets: [A] } })
     const handle = createDesktopHandle('block.ptsm', 'g1')
     fake.files.putAssets(handle, [ASSET_A])
-    forget(fake)
+    forgetCalls(fake)
     await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT, handle)
     expect(openedAssets(fake)).toEqual([[{ name: A, bytes: [1, 2, 3] }], []])
     expect(currentDocument(fake.app).name).toBe('block')
     expect(importStatus(fake.app)).toBe('error')
-    expect(shownCodes(fake.app)).not.toContain('open_failed')
+    expect(notificationCodes(fake.app)).not.toContain('open_failed')
     const notification = notificationCoded(fake.app, 'assets_mismatch')
     expect(notification.severity).toBe('warning')
     expect(notification.message).toBe(
@@ -310,7 +278,7 @@ describe('a folder that cannot be read (3.19 openFile steps 4 and 6)', () => {
     expect(currentDocument(fake.app).assets).toEqual([])
     fake.transport.die('The worker crashed.')
     await settle()
-    forget(fake)
+    forgetCalls(fake)
     await fake.app.restartCore()
     await settle()
     const [reopened] = fake.transport.commandsOfType('open_document')
@@ -334,7 +302,7 @@ describe('a folder that cannot be read (3.19 openFile steps 4 and 6)', () => {
     const notification = notificationCoded(fake.app, 'assets_folder_needed')
     expect(notification.message).toBe(FOLDER_NEEDED)
     expect(actionLabels(notification)).toEqual(['Choose folder'])
-    expect(shownCodes(fake.app)).not.toContain('assets_not_read')
+    expect(notificationCodes(fake.app)).not.toContain('assets_not_read')
   })
 })
 
@@ -349,7 +317,7 @@ describe('why imports are missing (3.19 openFile step 6)', () => {
     expect(actionLabels(notification)).toEqual(['Choose folder'])
     expect(notification.features).toEqual(['f-imp1'])
     vi.advanceTimersByTime(60_000)
-    expect(shownCodes(fake.app)).toContain('assets_folder_needed')
+    expect(notificationCodes(fake.app)).toContain('assets_folder_needed')
   })
 
   it('U-221 (a) the warning goes once f-imp1 is no longer in error', async () => {
@@ -358,7 +326,7 @@ describe('why imports are missing (3.19 openFile step 6)', () => {
     await applyEdits(fake.app, 'Suppress', [{ type: 'update_feature', feature: SUPPRESSED_IMPORT }])
     await settle()
     expect(importStatus(fake.app)).toBe('suppressed')
-    expect(shownCodes(fake.app)).not.toContain('assets_folder_needed')
+    expect(notificationCodes(fake.app)).not.toContain('assets_folder_needed')
   })
 
   it('U-221 (b) a dropped file with the File System Access API shows assets_without_folder with "Open..."', async () => {
@@ -371,8 +339,8 @@ describe('why imports are missing (3.19 openFile step 6)', () => {
     )
     expect(actionLabels(notification)).toEqual(['Open...'])
     expect(notification.features).toEqual(['f-imp1'])
-    forget(fake)
-    await click(fake.app, notification, 'Open...')
+    forgetCalls(fake)
+    await clickAction(fake.app, notification, 'Open...')
     expect(callsOf(fake.files, 'pickToOpen')).toEqual([[]])
   })
 
@@ -405,7 +373,7 @@ describe('why imports are missing (3.19 openFile step 6)', () => {
       'assets_unsupported',
       'assets_not_read',
     ]) {
-      expect(shownCodes(fake.app)).not.toContain(code)
+      expect(notificationCodes(fake.app)).not.toContain(code)
     }
   })
 
@@ -445,9 +413,13 @@ describe('Choose folder (3.19)', () => {
     await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
     await settle()
     const settled = currentDocument(fake.app).recipe
-    forget(fake)
+    forgetCalls(fake)
     fake.files.folderChoices.push({ kind: 'other', name: 'parts' })
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     expect(callsOf(fake.files, 'chooseFolder')).toEqual([[handle]])
     const wrong = notificationCoded(fake.app, 'assets_wrong_folder')
     expect(wrong.severity).toBe('error')
@@ -456,12 +428,12 @@ describe('Choose folder (3.19)', () => {
     )
     expect(actionLabels(wrong)).toEqual(['Choose folder'])
 
-    forget(fake)
+    forgetCalls(fake)
     fake.files.folderChoices.push({ kind: 'chosen', folder })
-    await click(fake.app, wrong, 'Choose folder')
+    await clickAction(fake.app, wrong, 'Choose folder')
     expect(callsOf(fake.files, 'readAssets')).toEqual([[{ handle, folder }, [A]]])
     expect(
-      steps(fake).filter((step) =>
+      journalSteps(fake).filter((step) =>
         ['files.readAssets', 'command:open_document', 'command:close_document'].includes(step),
       ),
     ).toEqual(['files.readAssets', 'command:open_document', 'command:close_document'])
@@ -481,14 +453,18 @@ describe('Choose folder (3.19)', () => {
     expect(importStatus(fake.app)).toBe('ok')
     const [recent] = await fake.recent.list()
     expect(recent).toMatchObject({ handle, folder })
-    expect(shownCodes(fake.app)).not.toContain('assets_folder_needed')
-    expect(shownCodes(fake.app)).not.toContain('assets_wrong_folder')
+    expect(notificationCodes(fake.app)).not.toContain('assets_folder_needed')
+    expect(notificationCodes(fake.app)).not.toContain('assets_wrong_folder')
   })
 
   it('U-222 without unsaved changes the reopened document is not unsaved', async () => {
     const { fake, folder } = await blockWithoutFolder()
     fake.files.folderChoices.push({ kind: 'chosen', folder })
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     const document = currentDocument(fake.app)
     expect(document.localUnsaved).toBe(false)
     expect(isUnsaved(document)).toBe(false)
@@ -497,7 +473,11 @@ describe('Choose folder (3.19)', () => {
   it('U-222 a canceled dialog sends nothing and shows assets_folder_needed again for f-imp1', async () => {
     const { fake, handle } = await blockWithoutFolder()
     fake.files.folderChoices.push({ kind: 'canceled' })
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     expect(callsOf(fake.files, 'chooseFolder')).toEqual([[handle]])
     expect(fake.transport.commandTypes()).toEqual([])
     expect(callsOf(fake.files, 'readAssets')).toEqual([])
@@ -511,7 +491,11 @@ describe('Choose folder (3.19)', () => {
     const { fake, handle } = await blockWithoutFolder()
     const empty = createFakeFolderHandle('empty', [handle])
     fake.files.folderChoices.push({ kind: 'chosen', folder: empty })
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     expect(callsOf(fake.files, 'readAssets')).toEqual([[{ handle, folder: empty }, [A]]])
     expect(fake.transport.commandsOfType('open_document')).toEqual([])
     expect(fake.app.store.getState().notifications).toEqual([])
@@ -525,11 +509,11 @@ describe('Choose folder (3.19)', () => {
     ).toBe(true)
     await startFeatureCommand(fake.app, 'fillet')
     await settle()
-    forget(fake)
+    forgetCalls(fake)
     runAction(notification, 'Choose folder')
     await settle()
     expect(callsOf(fake.files, 'chooseFolder')).toEqual([])
-    expect(shownCodes(fake.app)).toContain('finish_command_first')
+    expect(notificationCodes(fake.app)).toContain('finish_command_first')
   })
 
   it('a folder whose asset the core refuses leaves the document as it is and shows assets_mismatch', async () => {
@@ -537,9 +521,13 @@ describe('Choose folder (3.19)', () => {
     const { handle, folder } = webPlace(fake)
     await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT, handle)
     const { documentHandle } = currentDocument(fake.app)
-    forget(fake)
+    forgetCalls(fake)
     fake.files.folderChoices.push({ kind: 'chosen', folder })
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     expect(openedAssets(fake)).toEqual([[{ name: A, bytes: [1, 2, 3] }]])
     expect(fake.transport.commandsOfType('close_document')).toEqual([])
     expect(currentDocument(fake.app).documentHandle).toBe(documentHandle)
@@ -552,7 +540,11 @@ describe('Choose folder (3.19)', () => {
     const { fake } = await blockWithoutFolder()
     const message = 'Must be handling a user gesture to show a file picker.'
     vi.spyOn(fake.files, 'chooseFolder').mockRejectedValue(new FileServiceError('io', message))
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     const shown = fake.app.store
       .getState()
       .notifications.find((notification) => notification.message === message)
@@ -564,7 +556,11 @@ describe('Choose folder (3.19)', () => {
     const { fake, folder } = await blockWithoutFolder()
     const reading = holdReadAssets(fake)
     fake.files.folderChoices.push({ kind: 'chosen', folder })
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
     await settle()
     const settled = currentDocument(fake.app).recipe
@@ -582,7 +578,11 @@ describe('Choose folder (3.19)', () => {
     fake.transport.pause()
     const renamed = applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
     fake.files.folderChoices.push({ kind: 'chosen', folder })
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     fake.transport.resume()
     await renamed
     await settle()
@@ -605,7 +605,11 @@ describe('Choose folder (3.19)', () => {
       return core.reply(command, buffers)
     })
     fake.files.folderChoices.push({ kind: 'chosen', folder })
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     expect(fake.transport.commandsOfType('open_document')).toHaveLength(1)
     const renamed = applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
     opening.resolve()
@@ -625,7 +629,11 @@ describe('Choose folder (3.19)', () => {
     const { documentHandle } = currentDocument(fake.app)
     const reading = holdReadAssets(fake)
     fake.files.folderChoices.push({ kind: 'chosen', folder })
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     await startFeatureCommand(fake.app, 'fillet')
     await settle()
     reading.resolve()
@@ -633,7 +641,7 @@ describe('Choose folder (3.19)', () => {
     expect(fake.transport.commandsOfType('open_document')).toEqual([])
     expect(currentDocument(fake.app).documentHandle).toBe(documentHandle)
     expect(fake.app.store.getState().command?.featureType).toBe('fillet')
-    expect(shownCodes(fake.app)).toContain('finish_command_first')
+    expect(notificationCodes(fake.app)).toContain('finish_command_first')
     const again = notificationCoded(fake.app, 'assets_folder_needed')
     expect(again.features).toEqual(['f-imp1'])
     expect(actionLabels(again)).toEqual(['Choose folder'])
@@ -643,7 +651,11 @@ describe('Choose folder (3.19)', () => {
     const { fake, folder } = await blockWithoutFolder()
     const reading = holdReadAssets(fake)
     fake.files.folderChoices.push({ kind: 'chosen', folder })
-    await click(fake.app, notificationCoded(fake.app, 'assets_folder_needed'), 'Choose folder')
+    await clickAction(
+      fake.app,
+      notificationCoded(fake.app, 'assets_folder_needed'),
+      'Choose folder',
+    )
     await newDocument(fake.app)
     await settle()
     reading.resolve()
@@ -657,7 +669,7 @@ describe('Choose folder (3.19)', () => {
     const notification = notificationCoded(fake.app, 'assets_folder_needed')
     await newDocument(fake.app)
     await settle()
-    forget(fake)
+    forgetCalls(fake)
     fake.files.folderChoices.push({ kind: 'chosen', folder })
     runAction(notification, 'Choose folder')
     await settle()
@@ -678,7 +690,7 @@ async function renamedDesktopBlock(): Promise<{
   await openTestDocument(fake, 'block.ptsm', BLOCK_DOCUMENT, handle)
   await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
   await settle()
-  forget(fake)
+  forgetCalls(fake)
   return { fake, handle }
 }
 
@@ -687,7 +699,7 @@ describe('Save writes the assets first (3.19 writing the document)', () => {
     const { fake, handle } = await renamedDesktopBlock()
     await save(fake.app)
     await settle()
-    expect(steps(fake)).toEqual([
+    expect(journalSteps(fake)).toEqual([
       'command:save_document',
       'files.readHandle',
       'files.writeAssets',
@@ -708,7 +720,7 @@ describe('Save writes the assets first (3.19 writing the document)', () => {
       { type: 'update_body', body: { id: 'b-cube', name: 'Box' } },
     ])
     await settle()
-    forget(fake)
+    forgetCalls(fake)
     await save(fake.app)
     await settle()
     expect(callsOf(fake.files, 'writeAssets')).toEqual([])
@@ -771,11 +783,11 @@ describe('Save as into another web folder (3.19 writing the document, step 3)', 
     const target = createFakeFileHandle('block.ptsm')
     const copy = createFakeFolderHandle('copy', [target])
     await saveTo(fake, target)
-    forget(fake)
+    forgetCalls(fake)
     fake.files.folderChoices.push({ kind: 'chosen', folder: copy })
-    await click(fake.app, notificationCoded(fake.app, 'save_folder_needed'), 'Choose folder')
+    await clickAction(fake.app, notificationCoded(fake.app, 'save_folder_needed'), 'Choose folder')
     expect(callsOf(fake.files, 'chooseFolder')).toEqual([[target]])
-    expect(steps(fake).filter((step) => step !== 'files.chooseFolder')).toEqual([
+    expect(journalSteps(fake).filter((step) => step !== 'files.chooseFolder')).toEqual([
       'command:save_document',
       'files.writeAssets',
       'files.write',
@@ -802,14 +814,14 @@ describe('Save as into another web folder (3.19 writing the document, step 3)', 
     const target = createFakeFileHandle('block.ptsm')
     await saveTo(fake, target)
     fake.files.folderChoices.push({ kind: 'other', name: 'parts' })
-    await click(fake.app, notificationCoded(fake.app, 'save_folder_needed'), 'Choose folder')
+    await clickAction(fake.app, notificationCoded(fake.app, 'save_folder_needed'), 'Choose folder')
     const wrong = notificationCoded(fake.app, 'assets_wrong_folder')
     expect(wrong.message).toBe(
       'parts is not the folder that holds block.ptsm. Choose the folder block.ptsm is in.',
     )
-    forget(fake)
+    forgetCalls(fake)
     fake.files.folderChoices.push({ kind: 'canceled' })
-    await click(fake.app, wrong, 'Choose folder')
+    await clickAction(fake.app, wrong, 'Choose folder')
     expect(callsOf(fake.files, 'chooseFolder')).toEqual([[target]])
   })
 
@@ -818,13 +830,13 @@ describe('Save as into another web folder (3.19 writing the document, step 3)', 
     const target = createFakeFileHandle('block.ptsm')
     await saveTo(fake, target)
     fake.files.folderChoices.push({ kind: 'canceled' })
-    await click(fake.app, notificationCoded(fake.app, 'save_folder_needed'), 'Choose folder')
+    await clickAction(fake.app, notificationCoded(fake.app, 'save_folder_needed'), 'Choose folder')
     expect(callsOf(fake.files, 'writeAssets')).toEqual([])
     expect(callsOf(fake.files, 'write')).toEqual([])
     expect(currentDocument(fake.app).file?.handle).toBe(handle)
     const again = notificationCoded(fake.app, 'save_folder_needed')
-    forget(fake)
-    await click(fake.app, again, 'Choose folder')
+    forgetCalls(fake)
+    await clickAction(fake.app, again, 'Choose folder')
     expect(callsOf(fake.files, 'chooseFolder')).toEqual([[target]])
   })
 
@@ -835,7 +847,7 @@ describe('Save as into another web folder (3.19 writing the document, step 3)', 
     const notification = notificationCoded(fake.app, 'save_folder_needed')
     await newDocument(fake.app)
     await settle()
-    forget(fake)
+    forgetCalls(fake)
     fake.files.folderChoices.push({
       kind: 'chosen',
       folder: createFakeFolderHandle('copy', [target]),
@@ -857,7 +869,7 @@ describe('Save as into another web folder (3.19 writing the document, step 3)', 
     // A Save as into the document's own folder, which holds the new file, writes at once.
     await saveTo(fake, other)
     expect(currentDocument(fake.app).file?.handle).toBe(other)
-    forget(fake)
+    forgetCalls(fake)
     fake.files.folderChoices.push({
       kind: 'chosen',
       folder: createFakeFolderHandle('copy', [target]),
@@ -877,7 +889,7 @@ describe('Save as into another web folder (3.19 writing the document, step 3)', 
       { place: { handle: sibling, folder }, assets: [{ name: A, bytes: [1, 2, 3] }] },
     ])
     expect(fake.files.writes).toHaveLength(1)
-    expect(shownCodes(fake.app)).not.toContain('save_folder_needed')
+    expect(notificationCodes(fake.app)).not.toContain('save_folder_needed')
   })
 })
 
@@ -888,7 +900,7 @@ describe('a core restart keeps the assets (4.4)', () => {
     expect(before.file?.digest).toBe(await blockDigest())
     fake.transport.die('The worker crashed.')
     await settle()
-    forget(fake)
+    forgetCalls(fake)
     await fake.app.restartCore()
     await settle()
     const [reopened] = fake.transport.commandsOfType('open_document')
@@ -927,7 +939,7 @@ async function stashedBlock(): Promise<{
   if (entry === undefined) {
     throw new Error('New kept no recovery entry of the block.')
   }
-  forget(opened.fake)
+  forgetCalls(opened.fake)
   return { ...opened, entry }
 }
 
@@ -957,7 +969,7 @@ describe('recovery and recent files keep the place (3.19, 2.15)', () => {
     await recovery.write(entry)
     const fake = await startFakeApp({ recovery })
     fake.files.putAssets(folder, [ASSET_A])
-    forget(fake)
+    forgetCalls(fake)
     runAction(notificationCoded(fake.app, 'recovered'), 'Open')
     await settle()
     expect(callsOf(fake.files, 'readAssets')).toEqual([[{ handle, folder }, [A]]])
@@ -971,7 +983,7 @@ describe('recovery and recent files keep the place (3.19, 2.15)', () => {
     const fake = await startFakeApp()
     const { handle, folder } = webPlace(fake)
     await fake.recent.remember({ name: 'block.ptsm', handle, folder, text: '' })
-    forget(fake)
+    forgetCalls(fake)
     await openFile(fake.app, documentFile('block.ptsm', BLOCK_DOCUMENT, handle))
     await settle()
     expect(callsOf(fake.files, 'readAssets')).toEqual([[{ handle, folder }, [A]]])
@@ -985,7 +997,7 @@ describe('recovery and recent files keep the place (3.19, 2.15)', () => {
     const elsewhere = createFakeFolderHandle('elsewhere')
     fake.files.putAssets(elsewhere, [ASSET_A])
     await fake.recent.remember({ name: 'block.ptsm', handle, folder: elsewhere, text: '' })
-    forget(fake)
+    forgetCalls(fake)
     await openFile(fake.app, documentFile('block.ptsm', BLOCK_DOCUMENT, handle))
     await settle()
     const places = callsOf(fake.files, 'readAssets').map(([place]) => place as DocumentPlace)

@@ -11,9 +11,9 @@ use feature_support::{
     assert_empty, assert_error_field, assert_examples_canonical, assert_face_area,
     assert_face_count, assert_face_in_plane, assert_face_names, assert_flat_face, assert_has_face,
     assert_messages_pass_lint, assert_no_face, assert_round_face, assert_same_body,
-    assert_solid_count, assert_unchanged, assert_volume, assert_volume_faces_and_bounds,
-    body_changes, edge_axis, face, face_names_with_prefix, keep_and_pick, l_shaped_body, lean,
-    lean_edge_axis, line, link_ids, message, output_body, pick, successions, turn,
+    assert_solid_count, assert_unchanged, assert_volume, body_changes, edge_axis, face,
+    face_names_with_prefix, keep_and_pick, l_shaped_body, lean, lean_edge_axis, line, link_ids,
+    message, output_body, pick, successions, turn,
 };
 use partsmith_features::{Diagnosis, Fix};
 use partsmith_naming::Follow;
@@ -82,13 +82,10 @@ fn run_ring_about(axis: &str) -> Run {
 /// The result of test 1, shared by tests 5, 12 and 25.
 fn assert_full_ring(run: &Run) {
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        28274.333882,
-        4,
-        [-20.0, -20.0, 0.0],
-        [20.0, 20.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 28274.333882);
+    assert_face_count(shape, 4);
+    assert_bounding_box(shape, [-20.0, -20.0, 0.0], [20.0, 20.0, 30.0]);
     let body = run.body("b-1");
     let bottom = face(body, "f-rev1/lateral/e-1");
     assert_face_area(&bottom, 942.477796);
@@ -107,13 +104,10 @@ fn assert_full_ring(run: &Run) {
 /// The result of test 2, shared by test 4.
 fn assert_quarter_turn(run: &Run) {
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        7068.583471,
-        6,
-        [0.0, 0.0, 0.0],
-        [20.0, 20.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 7068.583471);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [0.0, 0.0, 0.0], [20.0, 20.0, 30.0]);
     let start_cap = face(run.body("b-1"), "f-rev1/start-cap");
     assert_face_area(&start_cap, 300.0);
     assert_face_in_plane(&start_cap, 1, 0.0);
@@ -229,13 +223,10 @@ fn t010_profile_touches_the_axis() {
     let run = Run::example("revolve/profile-on-axis.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        9424.777961,
-        3,
-        [-10.0, -10.0, 0.0],
-        [10.0, 10.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 9424.777961);
+    assert_face_count(shape, 3);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 30.0]);
     assert_has_face(run.body("b-1"), "f-rev1/lateral/e-1");
     assert_has_face(run.body("b-1"), "f-rev1/lateral/e-2");
     assert_has_face(run.body("b-1"), "f-rev1/lateral/e-3");
@@ -247,13 +238,10 @@ fn t011_sphere_from_a_half_disc() {
     let run = Run::example("revolve/sphere.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        4188.790205,
-        1,
-        [-10.0, -10.0, -10.0],
-        [10.0, 10.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 4188.790205);
+    assert_face_count(shape, 1);
+    assert_bounding_box(shape, [-10.0, -10.0, -10.0], [10.0, 10.0, 10.0]);
     assert_face_area(&face(run.body("b-1"), "f-rev1/lateral/e-1"), 1256.637061);
 }
 
@@ -290,13 +278,10 @@ fn t015_revolve_about_x_on_xy() {
     let run = Run::example("revolve/about-x.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        28274.333882,
-        4,
-        [0.0, -20.0, -20.0],
-        [30.0, 20.0, 20.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 28274.333882);
+    assert_face_count(shape, 4);
+    assert_bounding_box(shape, [0.0, -20.0, -20.0], [30.0, 20.0, 20.0]);
 }
 
 #[test]
@@ -304,13 +289,10 @@ fn t016_axis_from_a_body_edge() {
     let run = Run::example("revolve/edge-axis.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        37699.111843,
-        4,
-        [-30.0, -25.0, 0.0],
-        [20.0, 25.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 37699.111843);
+    assert_face_count(shape, 4);
+    assert_bounding_box(shape, [-30.0, -25.0, 0.0], [20.0, 25.0, 30.0]);
     assert_unchanged(&run, "f-rev1", "b-2");
     assert_eq!(link_ids(&run.dependencies("f-rev1").bodies_read), ["b-2"]);
 }
@@ -320,13 +302,10 @@ fn t017_groove_cut() {
     let run = Run::example("revolve/groove-cut.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        75398.223686,
-        7,
-        [-30.0, -30.0, 0.0],
-        [30.0, 30.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 75398.223686);
+    assert_face_count(shape, 7);
+    assert_bounding_box(shape, [-30.0, -30.0, 0.0], [30.0, 30.0, 30.0]);
     let body = run.body("b-1");
     assert_face_in_plane(&face(body, "f-rev1/lateral/e-1"), 2, 20.0);
     assert_round_face(body, "f-rev1/lateral/e-2", GeometryKind::Cylinder, 20.0);
@@ -338,13 +317,10 @@ fn t018_intersect() {
     let run = Run::example("revolve/intersect.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        28274.333882,
-        4,
-        [-20.0, -20.0, 0.0],
-        [20.0, 20.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 28274.333882);
+    assert_face_count(shape, 4);
+    assert_bounding_box(shape, [-20.0, -20.0, 0.0], [20.0, 20.0, 30.0]);
 }
 
 #[test]

@@ -7,6 +7,7 @@ import {
   activeCommand,
   currentDocument,
   type FakeApp,
+  selectionKeys,
   startWithDocument,
 } from '../../test/fakes/app'
 import { deferred, type Deferred } from '../../test/fakes/deferred'
@@ -18,9 +19,8 @@ import {
   featuresOf,
 } from '../../test/fakes/documents'
 import { createFakeFileHandle } from '../../test/fakes/files'
-import { elementItem } from '../../test/fakes/selection'
+import { elementItem, meshPick } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
-import type { PickResult } from '../../viewport/picking'
 import { capturePick, confirmCommand, editFeature, startFeatureCommand } from './command'
 import { redo, undo } from './document'
 import { updateParameter } from './parameters'
@@ -132,20 +132,7 @@ function filletEdges(fake: FakeApp): unknown {
 /** A click on the model, which pick_reference turns into `element`. */
 function clickOn(fake: FakeApp, element: ElementDescriptor, index: number): Promise<void> {
   fake.transport.handle('pick_reference', () => ({ result: { type: 'pick_reference', element } }))
-  const sample: PickResult = {
-    kind: 'mesh',
-    body: element.body,
-    meshId: 1,
-    element: element.kind,
-    index,
-    key: `mesh:1:${element.kind}:${String(index)}`,
-    world: element.centroid,
-  }
-  return pickAt(fake.app, sample, { toggle: false })
-}
-
-function selectionKeys(fake: FakeApp): string[] {
-  return fake.app.store.getState().selection.map((item) => item.key)
+  return pickAt(fake.app, meshPick(element, index), { toggle: false })
 }
 
 describe('Mod+Z and Mod+Shift+Z while OK runs (3.7, 3.20)', () => {
@@ -360,7 +347,7 @@ describe('clicks on the model around OK (3.7)', () => {
     await settle()
     expect(relevantTypes(fake)).toEqual(['apply_edits', 'commit_transaction'])
     expect(filletEdges(fake)).toEqual([CUBE_TOP_FRONT_EDGE.reference, SECOND_EDGE.reference])
-    expect(selectionKeys(fake)).toEqual([])
+    expect(selectionKeys(fake.app)).toEqual([])
     expect(fake.app.store.getState().command).toBeNull()
   })
 
@@ -371,7 +358,7 @@ describe('clicks on the model around OK (3.7)', () => {
     await land()
     await click
     expect(filletEdges(fake)).toEqual([CUBE_TOP_FRONT_EDGE.reference])
-    expect(selectionKeys(fake)).toEqual([`element:b-cube:${SECOND_EDGE.name}`])
+    expect(selectionKeys(fake.app)).toEqual([`element:b-cube:${SECOND_EDGE.name}`])
   })
 
   it('a face clicked while OK applies the last pick is selected once the commit has landed', async () => {
@@ -385,7 +372,7 @@ describe('clicks on the model around OK (3.7)', () => {
     await Promise.all([confirmed, click])
     await settle()
     expect(filletEdges(fake)).toEqual([CUBE_TOP_FRONT_EDGE.reference, SECOND_EDGE.reference])
-    expect(selectionKeys(fake)).toEqual([`element:b-cube:${CUBE_TOP_FACE.name}`])
+    expect(selectionKeys(fake.app)).toEqual([`element:b-cube:${CUBE_TOP_FACE.name}`])
   })
 })
 

@@ -1,12 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { utf8 } from '../test/fakes/documents'
 import { fileDigest, fileDigestOrNull } from './digest'
 
 // The digest Save compares to see a change made elsewhere (ui.md 2.15, 3.19, ADR 0037 decision 1).
-
-function utf8(text: string): Uint8Array {
-  // Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's.
-  return Uint8Array.from(new TextEncoder().encode(text))
-}
 
 afterEach(() => {
   vi.restoreAllMocks()

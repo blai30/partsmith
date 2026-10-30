@@ -8,6 +8,7 @@ import {
   inspectorInput,
   modelTool,
   timelineItem,
+  viewSurface,
 } from '../helpers'
 
 // Helpers for the modeling end-to-end tests: the Model toolbar's groups, inspector fields and
@@ -74,7 +75,7 @@ export async function pickOnCanvas(
 
 /** Gives the viewport keyboard focus, where Enter confirms a complete command (ui.md 3.5). */
 export async function focusViewport(page: Page): Promise<void> {
-  await page.getByRole('application', { name: '3D view' }).focus()
+  await viewSurface(page).focus()
 }
 
 /**

@@ -16,6 +16,7 @@ import {
   openApp,
   renameBody,
   runCommand,
+  sendRename,
   stallCore,
   test,
   timelineItem,
@@ -26,7 +27,6 @@ import {
   heldRecoveryLocks,
   recentFileNames,
   recoveryOffers,
-  sendRename,
   storedRecoveries,
   timelineItems,
 } from './support/documents'

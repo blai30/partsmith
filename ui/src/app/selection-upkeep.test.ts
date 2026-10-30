@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Edit, ElementDescriptor } from '../generated/protocol'
-import { currentDocument, startWithDocument } from '../test/fakes/app'
+import { currentDocument, selectionKeys, startWithDocument } from '../test/fakes/app'
 import {
   CUBE_DOCUMENT,
   CUBE_FRONT_FACE,
@@ -15,10 +15,6 @@ import { runFixAction } from './actions/fixes'
 import { select } from './actions/selection'
 
 const RENAME: readonly Edit[] = [{ type: 'update_body', body: { id: 'b-cube', name: 'Box' } }]
-
-function selectedKeys(fake: Awaited<ReturnType<typeof startWithDocument>>): string[] {
-  return fake.app.store.getState().selection.map((item) => item.key)
-}
 
 describe('selection after rebuilds (3.6)', () => {
   it('U-82 after a mesh change, a face that resolves missing leaves the selection and one that resolves stays', async () => {
@@ -48,7 +44,7 @@ describe('selection after rebuilds (3.6)', () => {
         ],
       },
     ])
-    expect(selectedKeys(fake)).toEqual([front.key])
+    expect(selectionKeys(fake.app)).toEqual([front.key])
   })
 
   it('resolves the selected faces of every body when several bodies are remeshed by one change', async () => {
@@ -74,7 +70,7 @@ describe('selection after rebuilds (3.6)', () => {
     // last must still ask about the faces of both.
     const asked = fake.transport.commandsOfType('resolve_references').at(-1)?.references ?? []
     expect(asked.map((reference) => reference.body)).toEqual(['b-cube', 'b-peg'])
-    expect(selectedKeys(fake)).toEqual([])
+    expect(selectionKeys(fake.app)).toEqual([])
   })
 
   it('an ambiguous face leaves the selection too', async () => {
@@ -85,7 +81,7 @@ describe('selection after rebuilds (3.6)', () => {
     }))
     await applyEdits(fake.app, 'Rename', RENAME)
     await settle()
-    expect(selectedKeys(fake)).toEqual([])
+    expect(selectionKeys(fake.app)).toEqual([])
   })
 
   it('asks nothing when no face, edge or vertex is selected', async () => {
@@ -94,7 +90,7 @@ describe('selection after rebuilds (3.6)', () => {
     await applyEdits(fake.app, 'Rename', RENAME)
     await settle()
     expect(fake.transport.commandTypes()).not.toContain('resolve_references')
-    expect(selectedKeys(fake)).toEqual(['body:b-cube'])
+    expect(selectionKeys(fake.app)).toEqual(['body:b-cube'])
   })
 
   it('features and bodies that no longer exist leave the selection', async () => {
@@ -106,7 +102,7 @@ describe('selection after rebuilds (3.6)', () => {
     )
     await applyEdits(fake.app, 'Delete Shell 1', [{ type: 'remove_feature', id: 'f-sh1' }])
     await settle()
-    expect(selectedKeys(fake)).toEqual(['feature:f-fil1'])
+    expect(selectionKeys(fake.app)).toEqual(['feature:f-fil1'])
   })
 })
 

@@ -10,12 +10,12 @@ use std::f64::consts::PI;
 use feature_support::fillet::{fillet_record, plate_document};
 use feature_support::{
     BOX_EDGE_NAMES, BOX_VERTEX_NAMES, CUBE20, FRONT_TOP_EDGE, MOVE_BY_100, RISER_EDGE,
-    RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_edge_queries, assert_element_repair,
-    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
-    assert_face_kind, assert_limiting_face, assert_list_field, assert_messages_pass_lint,
-    assert_moved_by_100, assert_round_face, assert_same_body, assert_skipped_as_smooth,
-    assert_unchanged, assert_volume, assert_volume_faces_and_bounds, body_update, document_text,
-    face, face_names_with_prefix, id, message, output_body, parse_document, prefixed, remove_entry,
+    RISER_SENTENCE, Run, STEP, STEP_BOTTOM_LEFT_EDGE, assert_bounding_box, assert_edge_queries,
+    assert_element_repair, assert_error_field, assert_examples_canonical, assert_face_area,
+    assert_face_count, assert_face_kind, assert_limiting_face, assert_list_field,
+    assert_messages_pass_lint, assert_moved_by_100, assert_round_face, assert_same_body,
+    assert_skipped_as_smooth, assert_unchanged, assert_volume, body_update, document_text, face,
+    face_names_with_prefix, id, message, output_body, parse_document, prefixed, remove_entry,
     round_down_to_two_significant_digits, set_field, suggested_limit, use_reference,
     with_edges_reversed,
 };
@@ -41,13 +41,10 @@ fn t001_one_convex_edge() {
 
     run.assert_all_ok();
     let body = run.body("b-1");
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        7982.831853,
-        7,
-        [-10.0, -10.0, 0.0],
-        [10.0, 10.0, 20.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 7982.831853);
+    assert_face_count(shape, 7);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
     let fillet = assert_round_face(
         body,
         "f-fil1/fillet/edge(f-box1/front|f-box1/top)",
@@ -70,13 +67,10 @@ fn t002_top_loop_of_a_box() {
 
     run.assert_all_ok();
     let body = run.body("b-1");
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        5917.227116,
-        10,
-        [-15.0, -10.0, 0.0],
-        [15.0, 10.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 5917.227116);
+    assert_face_count(shape, 10);
+    assert_bounding_box(shape, [-15.0, -10.0, 0.0], [15.0, 10.0, 10.0]);
     assert_face_area(&face(body, "f-box1/top"), 416.0);
     assert_eq!(
         face_names_with_prefix(body, "f-fil1/fillet/"),
@@ -96,13 +90,10 @@ fn t003_every_edge_of_a_cube() {
 
     run.assert_all_ok();
     let body = run.body("b-1");
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        7804.696111,
-        26,
-        [-10.0, -10.0, 0.0],
-        [10.0, 10.0, 20.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 7804.696111);
+    assert_face_count(shape, 26);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
     assert_eq!(
         face_names_with_prefix(body, "f-fil1/fillet/"),
         prefixed("f-fil1/fillet/", &BOX_EDGE_NAMES),
@@ -124,13 +115,10 @@ fn t004_concave_edge_adds_material() {
     let run = Run::example("fillet/concave-edge.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        12017.168147,
-        9,
-        [-20.0, -10.0, 0.0],
-        [20.0, 10.0, 20.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 12017.168147);
+    assert_face_count(shape, 9);
+    assert_bounding_box(shape, [-20.0, -10.0, 0.0], [20.0, 10.0, 20.0]);
 }
 
 #[test]
@@ -293,13 +281,10 @@ fn t011_tangent_chain() {
     assert_volume(first_shape, 5922.743339);
     assert_face_count(first_shape, 10);
     let body = run.body("b-1");
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        5902.689635,
-        18,
-        [-15.0, -10.0, 0.0],
-        [15.0, 10.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 5902.689635);
+    assert_face_count(shape, 18);
+    assert_bounding_box(shape, [-15.0, -10.0, 0.0], [15.0, 10.0, 10.0]);
     assert_eq!(
         face_names_with_prefix(body, "f-fil2/fillet/"),
         prefixed(

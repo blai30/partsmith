@@ -18,6 +18,7 @@ import { removeRecoveryEntry } from '../recovery-copy'
 import { confirmRunning, confirmSettled, redoCommandChange, undoCommandChange } from './command'
 import {
   chooseFolderOf,
+  fileHandleOf,
   isOffered,
   offerOf,
   showSaveAssetsError,
@@ -32,7 +33,7 @@ import {
   runChange,
   showCoreError,
 } from './edits'
-import { showSaveError } from './files'
+import { showOpenFailed, showSaveError } from './files'
 import { announce, notify } from './notifications'
 import { redoInSketch, undoInSketch } from './sketch'
 
@@ -147,10 +148,10 @@ async function overwrite(app: App, offer: DocumentOffer, digest: string): Promis
   if (!isOffered(app, offer) || refusedDuringCommand(app)) {
     return
   }
-  app.store.setState((state) =>
-    state.document?.file === null || state.document?.file === undefined
+  app.store.setState(({ document }) =>
+    document === null || document.file === null
       ? {}
-      : { document: { ...state.document, file: { ...state.document.file, digest } } },
+      : { document: { ...document, file: { ...document.file, digest } } },
   )
   await save(app)
 }
@@ -158,7 +159,7 @@ async function overwrite(app: App, offer: DocumentOffer, digest: string): Promis
 /** "Open the newer file" of `save_conflict`: opens the file again, which keeps the unsaved document as a `replaced` entry (3.19). */
 async function openNewerFile(app: App, offer: DocumentOffer): Promise<void> {
   const file = documentOf(app)?.file ?? null
-  if (file?.handle === null || file?.handle === undefined || !isOffered(app, offer)) {
+  if (file === null || file.handle === null || !isOffered(app, offer)) {
     return
   }
   let opened: OpenedFile
@@ -168,12 +169,7 @@ async function openNewerFile(app: App, offer: DocumentOffer): Promise<void> {
     if (!(error instanceof FileServiceError)) {
       throw error
     }
-    notify(app, {
-      severity: 'error',
-      message: MESSAGES.open_failed(file.name, error.message),
-      code: 'open_failed',
-      actions: [],
-    })
+    showOpenFailed(app, file.name, error.message)
     return
   }
   await openFile(app, opened, file.folder)
@@ -205,9 +201,7 @@ async function wroteAssets(
     if (!(error instanceof FileServiceError)) {
       throw error
     }
-    showSaveAssetsError(app, target.name, error, () => {
-      void saveAs(app)
-    })
+    showSaveAssetsError(app, target.name, error, () => saveAs(app))
     return false
   }
   return true
@@ -360,11 +354,6 @@ async function writeDocument(app: App, write: DocumentWrite): Promise<void> {
   }
 }
 
-/** Whether the shown document is still the session with this recovery id. */
-function isSession(app: App, recoveryId: string): boolean {
-  return documentOf(app)?.recoveryId === recoveryId
-}
-
 /**
  * Save's write to the document's file as it is when the write's turn comes (3.19), so a Save
  * pressed while another save writes goes to the file and folder that one left; none once another
@@ -373,12 +362,11 @@ function isSession(app: App, recoveryId: string): boolean {
 function saveToFile(app: App, recoveryId: string): DocumentWrite | null {
   const document = documentOf(app)
   const file = document?.file ?? null
-  const handle = file?.handle ?? null
-  if (document === null || file === null || handle === null || !isSession(app, recoveryId)) {
+  if (document?.recoveryId !== recoveryId || file === null || file.handle === null) {
     return null
   }
   return {
-    target: { kind: 'handle', name: file.name, handle },
+    target: { kind: 'handle', name: file.name, handle: file.handle },
     folder: file.folder,
     checksChange: true,
     offer: offerOf(document),
@@ -391,7 +379,7 @@ export async function save(app: App): Promise<void> {
   if (document === null || refusedDuringCommand(app)) {
     return
   }
-  if ((document.file?.handle ?? null) === null) {
+  if (fileHandleOf(document) === null) {
     await saveAs(app)
     return
   }
@@ -430,7 +418,7 @@ export async function saveAs(app: App): Promise<void> {
   // No change check: the dialog confirmed replacing the file.
   await writeInTurn(app, () => {
     const shown = documentOf(app)
-    return shown === null || !isSession(app, recoveryId)
+    return shown?.recoveryId !== recoveryId
       ? null
       : { target, folder: holds ? folder : null, checksChange: false, offer: offerOf(shown) }
   })

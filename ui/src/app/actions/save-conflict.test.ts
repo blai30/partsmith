@@ -2,23 +2,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fileDigest } from '../../files/digest'
 import { FileServiceError } from '../../files/file-service'
 import { createMemoryRecovery, type RecoveryEntry } from '../../files/recovery'
-import type { Document, Edit } from '../../generated/protocol'
+import type { Edit } from '../../generated/protocol'
 import type { Notification } from '../../state/store'
-import type { App } from '../createApp'
 import {
   actionLabels,
+  clickAction,
   currentDocument,
   type FakeApp,
+  forgetCalls,
+  journalSteps,
+  notificationCoded,
+  notificationCodes,
   runAction,
   startFakeApp,
   startWithDocument,
 } from '../../test/fakes/app'
-import { CUBE_DOCUMENT, bodiesOf, documentText } from '../../test/fakes/documents'
+import { CUBE_DOCUMENT, bodiesOf, cubeNamed, documentText, utf8 } from '../../test/fakes/documents'
 import { callsOf, calledMethods, createFakeFileHandle } from '../../test/fakes/files'
 import { deferred } from '../../test/fakes/deferred'
 import { settle } from '../../test/fakes/settle'
 import { applyEdits, newDocument, save, saveAs } from './document'
-import { dismiss } from './notifications'
 
 // Save stops when the file was changed elsewhere (ui.md 3.19 step 2, ADR 0037 decision 1): the
 // digest of what the session last read or wrote against the file read again right before
@@ -27,61 +30,19 @@ import { dismiss } from './notifications'
 const CONFLICT =
   'cube.ptsm was changed elsewhere after you opened or saved it, so Partsmith did not save over it.'
 
-/** Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's. */
-function utf8(text: string): Uint8Array {
-  return Uint8Array.from(new TextEncoder().encode(text))
-}
-
 function rename(name: string): readonly Edit[] {
   return [{ type: 'update_body', body: { id: 'b-cube', name } }]
-}
-
-function withCubeNamed(name: string): Document {
-  return { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name }] }
 }
 
 /** `T`: the bytes of `cube.ptsm` as it was opened. */
 const ORIGINAL = documentText(CUBE_DOCUMENT)
 
 /** `T2`: the same file after another program renamed its body to "Lid". */
-const CHANGED = documentText(withCubeNamed('Lid'))
+const CHANGED = documentText(cubeNamed('Lid'))
 
 afterEach(() => {
   vi.restoreAllMocks()
 })
-
-/** The shown notification with this code; throws when there is none. */
-function notificationCoded(app: App, code: string): Notification {
-  const found = app.store
-    .getState()
-    .notifications.find((notification) => notification.code === code)
-  if (found === undefined) {
-    throw new Error(`No ${code} notification is shown.`)
-  }
-  return found
-}
-
-function shownCodes(app: App): readonly (string | undefined)[] {
-  return app.store.getState().notifications.map((notification) => notification.code)
-}
-
-/** Clicks a notification button as the notification list does: dismiss, then run (3.22). */
-async function click(app: App, notification: Notification, label: string): Promise<void> {
-  dismiss(app, notification.id)
-  runAction(notification, label)
-  await settle()
-}
-
-function forget(fake: FakeApp): void {
-  fake.transport.clearRequests()
-  fake.files.clearCalls()
-  fake.journal.length = 0
-}
-
-/** The journal without recovery writes, which the session schedules on its own. */
-function steps(fake: FakeApp): readonly string[] {
-  return fake.journal.filter((entry) => !entry.startsWith('recovery.'))
-}
 
 /** The text of the last write. */
 function writtenText(fake: FakeApp): string {
@@ -114,7 +75,7 @@ async function renamedCube(): Promise<{
   const fake = await startWithDocument('cube.ptsm', CUBE_DOCUMENT, { handle })
   await applyEdits(fake.app, 'Rename', rename('Box'))
   await settle()
-  forget(fake)
+  forgetCalls(fake)
   return { fake, handle }
 }
 
@@ -129,7 +90,7 @@ async function conflicted(): Promise<{
   await save(fake.app)
   await settle()
   const notification = notificationCoded(fake.app, 'save_conflict')
-  forget(fake)
+  forgetCalls(fake)
   return { fake, handle, notification }
 }
 
@@ -148,7 +109,7 @@ describe('the change check (3.19 step 2)', () => {
     const { fake, handle } = await renamedCube()
     await save(fake.app)
     await settle()
-    expect(steps(fake)).toEqual([
+    expect(journalSteps(fake)).toEqual([
       'command:save_document',
       'files.readHandle',
       'files.write',
@@ -166,13 +127,13 @@ describe('the change check (3.19 step 2)', () => {
     fake.files.contents.set(handle, `${ORIGINAL}`)
     await save(fake.app)
     await settle()
-    expect(steps(fake)).toEqual([
+    expect(journalSteps(fake)).toEqual([
       'command:save_document',
       'files.readHandle',
       'files.write',
       'command:mark_saved',
     ])
-    expect(shownCodes(fake.app)).not.toContain('save_conflict')
+    expect(notificationCodes(fake.app)).not.toContain('save_conflict')
   })
 
   it('U-223 (c) a file holding other bytes stops the save before anything is written', async () => {
@@ -230,10 +191,14 @@ describe('the change check (3.19 step 2)', () => {
     expect(warn).toHaveBeenCalledTimes(1)
     await applyEdits(fake.app, 'Rename', rename('Box'))
     await settle()
-    forget(fake)
+    forgetCalls(fake)
     await save(fake.app)
     await settle()
-    expect(steps(fake)).toEqual(['command:save_document', 'files.write', 'command:mark_saved'])
+    expect(journalSteps(fake)).toEqual([
+      'command:save_document',
+      'files.write',
+      'command:mark_saved',
+    ])
   })
 
   it('U-223 (f) a second Save pressed while the first writes waits for it and shows no save_conflict', async () => {
@@ -249,8 +214,8 @@ describe('the change check (3.19 step 2)', () => {
     writing.release()
     await Promise.all([first, second])
     await settle()
-    expect(shownCodes(fake.app)).not.toContain('save_conflict')
-    expect(steps(fake)).toEqual([
+    expect(notificationCodes(fake.app)).not.toContain('save_conflict')
+    expect(journalSteps(fake)).toEqual([
       'command:save_document',
       'files.readHandle',
       'command:apply_edits',
@@ -288,7 +253,7 @@ describe('the change check (3.19 step 2)', () => {
     ])
     expect(callsOf(fake.files, 'readHandle').map(([read]) => read)).toEqual([copy])
     expect(fake.files.contents.get(handle)).toBe(ORIGINAL)
-    expect(shownCodes(fake.app)).not.toContain('save_conflict')
+    expect(notificationCodes(fake.app)).not.toContain('save_conflict')
     expect(currentDocument(fake.app).file?.handle).toBe(copy)
   })
 
@@ -310,8 +275,8 @@ describe('the change check (3.19 step 2)', () => {
 describe("the conflict's actions (3.19 save_conflict)", () => {
   it('U-224 "Overwrite cube.ptsm" reads again, writes the document and marks it saved', async () => {
     const { fake, handle, notification } = await conflicted()
-    await click(fake.app, notification, 'Overwrite cube.ptsm')
-    expect(steps(fake)).toEqual([
+    await clickAction(fake.app, notification, 'Overwrite cube.ptsm')
+    expect(journalSteps(fake)).toEqual([
       'command:save_document',
       'files.readHandle',
       'files.write',
@@ -323,17 +288,17 @@ describe("the conflict's actions (3.19 save_conflict)", () => {
 
     await applyEdits(fake.app, 'Rename', rename('Peg'))
     await settle()
-    forget(fake)
+    forgetCalls(fake)
     await save(fake.app)
     await settle()
-    expect(shownCodes(fake.app)).not.toContain('save_conflict')
+    expect(notificationCodes(fake.app)).not.toContain('save_conflict')
     expect(writtenText(fake)).toContain('"name": "Peg"')
   })
 
   it('U-224 "Overwrite cube.ptsm" warns again when the file changed once more, and writes nothing', async () => {
     const { fake, handle, notification } = await conflicted()
-    fake.files.contents.set(handle, documentText(withCubeNamed('Cap')))
-    await click(fake.app, notification, 'Overwrite cube.ptsm')
+    fake.files.contents.set(handle, documentText(cubeNamed('Cap')))
+    await clickAction(fake.app, notification, 'Overwrite cube.ptsm')
     expect(callsOf(fake.files, 'write')).toEqual([])
     expect(notificationCoded(fake.app, 'save_conflict').message).toBe(CONFLICT)
     expect(currentDocument(fake.app).dirty).toBe(true)
@@ -349,7 +314,7 @@ describe("the conflict's actions (3.19 save_conflict)", () => {
   it('U-224 "Open the newer file" opens the file again and keeps the unsaved document as a stash', async () => {
     const { fake, handle, notification } = await conflicted()
     const { recoveryId, recipe } = currentDocument(fake.app)
-    await click(fake.app, notification, 'Open the newer file')
+    await clickAction(fake.app, notification, 'Open the newer file')
     expect(callsOf(fake.files, 'readHandle').map((args) => args[0])).toEqual([handle])
     const document = currentDocument(fake.app)
     expect(bodiesOf(document.recipe)[0]?.name).toBe('Lid')
@@ -370,7 +335,7 @@ describe("the conflict's actions (3.19 save_conflict)", () => {
     const { fake, notification } = await conflicted()
     const { recoveryId } = currentDocument(fake.app)
     fake.files.readError = new FileServiceError('not_found', 'cube.ptsm was not found.')
-    await click(fake.app, notification, 'Open the newer file')
+    await clickAction(fake.app, notification, 'Open the newer file')
     expect(notificationCoded(fake.app, 'open_failed').message).toBe(
       'Could not open cube.ptsm. cube.ptsm was not found.',
     )
@@ -382,7 +347,7 @@ describe("the conflict's actions (3.19 save_conflict)", () => {
     const { fake, notification } = await conflicted()
     const target = createFakeFileHandle('cube-copy.ptsm')
     fake.files.nextSaveTarget = { kind: 'handle', name: 'cube-copy.ptsm', handle: target }
-    await click(fake.app, notification, 'Save as')
+    await clickAction(fake.app, notification, 'Save as')
     expect(fake.files.saveRequests).toEqual([{ suggestedName: 'cube.ptsm', kind: 'ptsm' }])
     expect(callsOf(fake.files, 'readHandle')).toEqual([])
     expect(fake.files.writes.at(-1)?.target).toMatchObject({ kind: 'handle', handle: target })
@@ -394,7 +359,7 @@ describe("the conflict's actions (3.19 save_conflict)", () => {
     const { fake, notification } = await conflicted()
     await newDocument(fake.app)
     await settle()
-    forget(fake)
+    forgetCalls(fake)
     runAction(notification, label)
     await settle()
     expect(calledMethods(fake.files)).toEqual([])
@@ -411,7 +376,7 @@ describe("the conflict's actions (3.19 save_conflict)", () => {
       await saveAs(fake.app)
       await settle()
       expect(currentDocument(fake.app).file?.handle).toBe(other)
-      forget(fake)
+      forgetCalls(fake)
       runAction(notification, label)
       await settle()
       expect(calledMethods(fake.files)).toEqual([])
@@ -425,7 +390,7 @@ function entryOf(handle: FileSystemFileHandle, digest: string | null): RecoveryE
   return {
     id: 'kept',
     name: 'cube',
-    text: JSON.stringify(withCubeNamed('Box'), null, 2),
+    text: JSON.stringify(cubeNamed('Box'), null, 2),
     savedAt: Date.UTC(2026, 9, 12, 9, 30),
     handle,
     folder: null,
@@ -441,7 +406,7 @@ async function openedEntry(entry: RecoveryEntry): Promise<FakeApp> {
   const fake = await startFakeApp({ recovery })
   runAction(notificationCoded(fake.app, 'recovered'), 'Open')
   await settle()
-  forget(fake)
+  forgetCalls(fake)
   return fake
 }
 
@@ -480,7 +445,7 @@ describe('no check without a known digest (3.19)', () => {
     fake.files.contents.set(handle, ORIGINAL)
     await save(fake.app)
     await settle()
-    expect(steps(fake)).toEqual([
+    expect(journalSteps(fake)).toEqual([
       'command:save_document',
       'files.readHandle',
       'files.write',

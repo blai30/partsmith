@@ -29,11 +29,11 @@ pub(crate) struct TableEntry {
 
 /// The displayed elements of one body state (section 3.8): faces, edges without seams, and the
 /// vertices of those edges, each sorted by name (names are unique per kind, section 3.8). An
-/// element's display id is its position. The table shares the body state's topology, which the feature that
-/// built the state usually carried (features.md section 2.7), so building a table queries no
-/// kernel topology, and its element set, which the table builds, so whatever builds the table
-/// (the first mesh of the state, or the first query of a headless session) pays for it and every
-/// pick of the state finds it built (engine.md open issue 11).
+/// element's display id is its position. The table shares the body state's topology, which the
+/// feature that built the state usually carried (features.md section 2.7), so building a table
+/// queries no kernel topology, and its element set, which the table builds, so whatever builds the
+/// table (the first mesh of the state, or the first query of a headless session) pays for it and
+/// every pick of the state finds it built (engine.md open issue 11).
 #[derive(Debug)]
 pub(crate) struct ElementTable {
     /// Displayed faces.

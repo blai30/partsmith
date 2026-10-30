@@ -5,10 +5,9 @@ use crate::feature_support;
 
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_kind, assert_face_names, assert_face_normal,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_face_normal,
     assert_face_position, assert_flat_face, assert_messages_pass_lint, assert_solid_count,
-    assert_volume, assert_volume_faces_and_bounds, body_changes, face, link_ids, message,
-    set_field,
+    assert_volume, body_changes, face, link_ids, message, set_field,
 };
 use partsmith_features::Fix;
 use partsmith_occt_sys::GeometryKind;
@@ -39,13 +38,10 @@ fn t001_default_placement_is_ok() {
 fn t001_default_placement_volume_faces_and_bounds() {
     let run = Run::example("box/default.ptsm");
 
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        6000.0,
-        6,
-        [-5.0, -10.0, 0.0],
-        [5.0, 10.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [-5.0, -10.0, 0.0], [5.0, 10.0, 30.0]);
 }
 
 #[test]
@@ -179,13 +175,10 @@ fn t007_join_overlapping_merges_coplanar_faces() {
     let run = Run::example("box/join-overlapping.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        1500.0,
-        6,
-        [-5.0, -5.0, 0.0],
-        [10.0, 5.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 1500.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [-5.0, -5.0, 0.0], [10.0, 5.0, 10.0]);
 }
 
 #[test]
@@ -193,13 +186,10 @@ fn t008_cut_a_square_hole() {
     let run = Run::example("box/cut-square-hole.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        15000.0,
-        10,
-        [-20.0, -20.0, 0.0],
-        [20.0, 20.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 15000.0);
+    assert_face_count(shape, 10);
+    assert_bounding_box(shape, [-20.0, -20.0, 0.0], [20.0, 20.0, 10.0]);
 }
 
 #[test]
@@ -344,13 +334,10 @@ fn t014_intersect_keeps_the_corner_the_cubes_share() {
     let run = Run::example("box/intersect.ptsm");
 
     run.assert_all_quiet();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        125.0,
-        6,
-        [0.0, 0.0, 5.0],
-        [5.0, 5.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 125.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [0.0, 0.0, 5.0], [5.0, 5.0, 10.0]);
     assert_eq!(body_changes(&run, "f-box2"), ["b-1 Intersect"]);
 }
 

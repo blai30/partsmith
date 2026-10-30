@@ -20,6 +20,7 @@ import { measureToNextFrame } from '../timing'
 import { cancelCommand } from './command'
 import { explainMissingAssets, folderOfFile, readDocumentAssets } from './document-assets'
 import { documentOf, showCoreError, type StoppedNotice } from './edits'
+import { showFileError, showOpenFailed } from './files'
 import { notify } from './notifications'
 import { leaveSketchHistory } from './sketch'
 
@@ -32,6 +33,7 @@ export function documentName(fileName: string): string {
   return fileName.replace(PTSM_EXTENSION, '')
 }
 
+/** The UTF-8 bytes of a document's text, as it is written to its file. */
 export function textBytes(text: string): Uint8Array {
   return Uint8Array.from(new TextEncoder().encode(text))
 }
@@ -157,12 +159,7 @@ async function openText(
       return retried === null ? null : { ...retried, refusal: error }
     }
     if (error instanceof CoreError) {
-      notify(app, {
-        severity: 'error',
-        message: MESSAGES.open_failed(source.fileName, error.message),
-        code: 'open_failed',
-        actions: [],
-      })
+      showOpenFailed(app, source.fileName, error.message)
       return null
     }
     showCoreError(app, error, { stopped: source.stopped })
@@ -392,7 +389,7 @@ export async function openWithPicker(app: App): Promise<void> {
     if (!(error instanceof FileServiceError)) {
       throw error
     }
-    notify(app, { severity: 'error', message: error.message, actions: [] })
+    showFileError(app, error)
     return
   }
   if (file !== null) {
@@ -437,12 +434,7 @@ export async function openRecent(app: App, entry: RecentFile): Promise<void> {
       })
       await app.recent.forget(entry.id)
     } else {
-      notify(app, {
-        severity: 'error',
-        message: MESSAGES.open_failed(entry.name, error.message),
-        code: 'open_failed',
-        actions: [],
-      })
+      showOpenFailed(app, entry.name, error.message)
     }
     return
   }

@@ -61,14 +61,18 @@ export function documentText(document: Document): string {
   return `${JSON.stringify(document, null, 2)}\n`
 }
 
+/** The UTF-8 bytes of a text, copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's. */
+export function utf8(text: string): Uint8Array {
+  return Uint8Array.from(new TextEncoder().encode(text))
+}
+
 /** A file as the file service returns it, holding the recipe's text. */
 export function documentFile(
   name: string,
   document: Document,
   handle: FileHandle | null = null,
 ): OpenedFile {
-  // Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's.
-  return { name, bytes: Uint8Array.from(new TextEncoder().encode(documentText(document))), handle }
+  return { name, bytes: utf8(documentText(document)), handle }
 }
 
 export const CUBE_REGION: RegionInfo = {
@@ -140,6 +144,11 @@ export const CUBE_DOCUMENT: Document = {
   parameters: [],
   bodies: [{ id: 'b-cube', name: 'Cube' }],
   features: [CUBE_SKETCH, CUBE_EXTRUDE],
+}
+
+/** CUBE_DOCUMENT with its body named `name`. */
+export function cubeNamed(name: string): Document {
+  return { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name }] }
 }
 
 const VERTICAL_EDGES = [

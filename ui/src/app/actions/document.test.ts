@@ -3,7 +3,7 @@ import { CoreFatalError } from '../../core/transport'
 import { fileDigest } from '../../files/digest'
 import { FileServiceError } from '../../files/file-service'
 import { createMemoryRecovery } from '../../files/recovery'
-import type { Document, Edit } from '../../generated/protocol'
+import type { Edit } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { selectOriginVisible } from '../../state/selectors'
 import {
@@ -11,6 +11,7 @@ import {
   createFakeApp,
   currentDocument,
   type FakeApp,
+  journalSteps,
   notificationWith,
   openTestDocument,
   runAction,
@@ -20,11 +21,13 @@ import {
 import {
   CUBE_DOCUMENT,
   CUBE_TOP_FACE,
+  cubeNamed,
   documentFile,
   documentText,
   bodiesOf,
   featuresOf,
   NC09_DOCUMENT,
+  utf8,
 } from '../../test/fakes/documents'
 import { createFakeFileHandle } from '../../test/fakes/files'
 import { elementItem } from '../../test/fakes/selection'
@@ -49,15 +52,6 @@ import { select } from './selection'
 const RENAME_TO_BOX: readonly Edit[] = [
   { type: 'update_body', body: { id: 'b-cube', name: 'Box' } },
 ]
-
-/** Copied into this realm's Uint8Array: under jsdom, TextEncoder returns Node's. */
-function utf8(text: string): Uint8Array {
-  return Uint8Array.from(new TextEncoder().encode(text))
-}
-
-function renamed(name: string): Document {
-  return { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name }] }
-}
 
 /** cube.ptsm opened from a file handle, then renamed to "Box" so it is dirty. */
 async function dirtyCubeWithHandle(): Promise<{ fake: FakeApp; handle: FileSystemFileHandle }> {
@@ -152,7 +146,7 @@ describe('startCore (3.1)', () => {
     await recovery.write({
       id: 'kept',
       name: 'cube',
-      text: JSON.stringify(renamed('Box'), null, 2),
+      text: JSON.stringify(cubeNamed('Box'), null, 2),
       savedAt: Date.UTC(2026, 9, 12, 9, 30),
       handle: null,
       folder: null,
@@ -175,7 +169,7 @@ describe('startCore (3.1)', () => {
     await recovery.write({
       id: 'kept',
       name: 'cube',
-      text: JSON.stringify(renamed('Box'), null, 2),
+      text: JSON.stringify(cubeNamed('Box'), null, 2),
       savedAt: Date.UTC(2026, 9, 12, 9, 30),
       handle,
       folder: null,
@@ -197,7 +191,7 @@ describe('startCore (3.1)', () => {
     await recovery.write({
       id: 'kept',
       name: 'cube',
-      text: JSON.stringify(renamed('Box'), null, 2),
+      text: JSON.stringify(cubeNamed('Box'), null, 2),
       savedAt: Date.UTC(2026, 9, 12, 9, 30),
       handle: null,
       folder: null,
@@ -329,7 +323,7 @@ describe('replacing a document during a feature command (3.7)', () => {
 
   it('U-109 Open cancels the command before closing the document, so nothing is stashed', async () => {
     const fake = await cubeWithBoxPreview()
-    await openFile(fake.app, documentFile('other.ptsm', renamed('Other')))
+    await openFile(fake.app, documentFile('other.ptsm', cubeNamed('Other')))
     await settle()
     const cancel = fake.journal.indexOf('command:cancel_transaction')
     expect(cancel).toBeGreaterThanOrEqual(0)
@@ -396,7 +390,7 @@ describe('openFile (3.19)', () => {
     fake.transport.handle('open_document', () => ({ error: { code: 'parse_error', message } }))
     await openFile(fake.app, {
       name: 'broken.ptsm',
-      bytes: Uint8Array.from(new TextEncoder().encode('not json')),
+      bytes: utf8('not json'),
       handle: null,
     })
     await settle()
@@ -408,7 +402,7 @@ describe('openFile (3.19)', () => {
 
   it('U-79 with a dirty current document the stash is written before closeDocument', async () => {
     const { fake } = await dirtyCubeWithHandle()
-    await openFile(fake.app, documentFile('other.ptsm', renamed('Other')))
+    await openFile(fake.app, documentFile('other.ptsm', cubeNamed('Other')))
     await settle()
     const write = fake.journal.indexOf('recovery.write')
     expect(write).toBeGreaterThanOrEqual(0)
@@ -597,7 +591,7 @@ describe('save (3.19)', () => {
     const revision = currentDocument(fake.app).revision
     await save(fake.app)
     await settle()
-    expect(fake.journal.filter((entry) => !entry.startsWith('recovery.'))).toEqual([
+    expect(journalSteps(fake)).toEqual([
       'command:save_document',
       'files.readHandle',
       'files.write',
@@ -607,7 +601,7 @@ describe('save (3.19)', () => {
     const [write] = fake.files.writes
     expect(write?.kind).toBe('ptsm')
     expect(write?.target).toEqual({ kind: 'handle', name: 'cube.ptsm', handle })
-    expect(new TextDecoder().decode(write?.bytes)).toBe(documentText(renamed('Box')))
+    expect(new TextDecoder().decode(write?.bytes)).toBe(documentText(cubeNamed('Box')))
     expect(fake.transport.commandsOfType('mark_saved')).toEqual([
       { type: 'mark_saved', doc: currentDocument(fake.app).documentHandle, revision },
     ])
@@ -715,7 +709,7 @@ describe('saveAs (3.19)', () => {
     const { fake } = await dirtyCubeWithHandle()
     await saveAs(fake.app)
     await settle()
-    expect(fake.journal.filter((entry) => !entry.startsWith('recovery.'))).toEqual([
+    expect(journalSteps(fake)).toEqual([
       'files.chooseSaveTarget',
       'command:save_document',
       'files.write',

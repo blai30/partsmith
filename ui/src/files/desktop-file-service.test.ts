@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ASSET_A, ASSET_B, ASSET_C_NAME } from '../test/fakes/assets'
+import { rejectionOf } from '../test/fakes/deferred'
 import { createFakeFileHandle, createFakeFolderHandle } from '../test/fakes/files'
 import { createFakeTauri, rejects, resolves, type FakeScript } from '../test/fakes/tauri'
 import {
@@ -24,15 +25,6 @@ function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
 function serviceAnswering(script: FakeScript) {
   const fake = createFakeTauri(script)
   return { service: createDesktopFileService(fake.tauri), invocations: fake.invocations }
-}
-
-async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
-  try {
-    await promise
-  } catch (error) {
-    return error
-  }
-  throw new Error('The promise resolved.')
 }
 
 function asArrayBuffer(value: unknown): ArrayBuffer {

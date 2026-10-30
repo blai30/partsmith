@@ -559,6 +559,13 @@ export function createScene(backend: RenderBackend): Scene {
     signatures.set(id, signature)
   }
 
+  /** Uploads a convex polygon's fill and outline geometry, again only when its corners changed. */
+  function uploadPolygon(fillId: string, outlineId: string, corners: readonly Vector3[]): void {
+    const signature = JSON.stringify(corners)
+    uploadGenerated(fillId, signature, () => polygonFill(corners))
+    uploadGenerated(outlineId, signature, () => linesOf(polygonOutline(corners)))
+  }
+
   function meshIds(layer: 'model' | 'preview', entry: MeshEntry) {
     const base = `${layer}:${String(entry.documentHandle)}:${entry.body}`
     return { faces: `${base}:faces`, edges: `${base}:edges`, vertices: `${base}:vertices` }
@@ -873,11 +880,9 @@ export function createScene(backend: RenderBackend): Scene {
     for (const plane of planeKinds) {
       const corners = squareCorners(plane.placement, planes.side, planes.center)
       allCorners.push(corners)
-      const signature = JSON.stringify(corners)
       const fillId = `plane:${plane.key}:fill`
       const outlineId = `plane:${plane.key}:outline`
-      uploadGenerated(fillId, signature, () => polygonFill(corners))
-      uploadGenerated(outlineId, signature, () => linesOf(polygonOutline(corners)))
+      uploadPolygon(fillId, outlineId, corners)
       const label =
         plane.item.kind === 'datum_plane' && document !== null
           ? featureLabel(document.recipe, plane.item.feature ?? '', state.catalog)
@@ -931,9 +936,7 @@ export function createScene(backend: RenderBackend): Scene {
     const width = SPLIT_PLANE_OUTLINE_WIDTH * scale
     return outlines.flatMap((corners, i) => {
       const [fillId, outlineId] = splitPlaneIds(i)
-      const signature = JSON.stringify(corners)
-      uploadGenerated(fillId, signature, () => polygonFill(corners))
-      uploadGenerated(outlineId, signature, () => linesOf(polygonOutline(corners)))
+      uploadPolygon(fillId, outlineId, corners)
       return (
         [
           [fillId, PLANE_FILL_OPACITY, 0],

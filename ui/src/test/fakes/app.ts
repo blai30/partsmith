@@ -1,12 +1,13 @@
 import { startFeatureCommand } from '../../app/actions/command'
 import { openFile, startCore } from '../../app/actions/document'
+import { dismiss } from '../../app/actions/notifications'
 import { createApp, type App, type Platform } from '../../app/createApp'
 import type { FileHandle } from '../../files/file-service'
 import { createMemoryRecentFiles, type RecentFilesStore } from '../../files/recent'
 import { createMemoryRecovery, type RecoveryStore } from '../../files/recovery'
 import type { Document, Edit } from '../../generated/protocol'
-import type { AppStore, DocumentState } from '../../state/store'
-import { currentDocument, LINUX_WEB } from './test-app'
+import type { AppStore, DocumentState, Notification } from '../../state/store'
+import { currentDocument, LINUX_WEB, runAction } from './test-app'
 import { CUBE_DOCUMENT, documentFile, documentText, featuresOf } from './documents'
 import { createFakeFileService, type FakeFileService } from './files'
 import { editsOf, withoutNulls } from './protocol'
@@ -126,10 +127,31 @@ export async function startWithDocument(
 ): Promise<FakeApp> {
   const fake = await startFakeApp(options)
   await openTestDocument(fake, name, document, options.handle ?? null, options.folder ?? null)
+  forgetCalls(fake)
+  return fake
+}
+
+/** Forgets the requests, file service calls and journal entries made so far. */
+export function forgetCalls(fake: FakeApp): void {
   fake.transport.clearRequests()
   fake.files.clearCalls()
   fake.journal.length = 0
-  return fake
+}
+
+/** The journal without the recovery store calls, which the session makes on its own. */
+export function journalSteps(fake: FakeApp): readonly string[] {
+  return fake.journal.filter((entry) => !entry.startsWith('recovery.'))
+}
+
+/** Clicks a notification button as the notification list does (dismiss, then run, ui.md 3.22), and lets what it started settle. */
+export async function clickAction(
+  app: App,
+  notification: Notification,
+  label: string,
+): Promise<void> {
+  dismiss(app, notification.id)
+  runAction(notification, label)
+  await settle()
 }
 
 /** cube.ptsm open with a Fillet command started on it. */

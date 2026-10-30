@@ -62,6 +62,7 @@ import { bodyItem, elementItem, featureItem } from '../test/fakes/selection'
 import { stubResizeObserver, type FakeResizeObservers } from '../test/fakes/resize-observer'
 import { settle } from '../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
+import { notificationCodes, selectionKeys } from '../test/fakes/test-app'
 import { ELEMENT_STATE, type RenderFrame } from './backend'
 import {
   DEFAULT_CAMERA,
@@ -850,13 +851,10 @@ describe('clicks (3.6)', () => {
     pickElement(fixture, 'face', 0)
     click(fixture.canvas, 200, 150, { shiftKey: true })
     await settle()
-    expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual([
-      'body:b-cube',
-      'element:b-cube:f-ext1/end-cap',
-    ])
+    expect(selectionKeys(fixture.app)).toEqual(['body:b-cube', 'element:b-cube:f-ext1/end-cap'])
     click(fixture.canvas, 200, 150, { shiftKey: true })
     await settle()
-    expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual(['body:b-cube'])
+    expect(selectionKeys(fixture.app)).toEqual(['body:b-cube'])
   })
 
   it('clears the selection on a click on empty space', async () => {
@@ -871,7 +869,7 @@ describe('clicks (3.6)', () => {
     pickElement(fixture, 'face', 0)
     click(fixture.canvas, 200, 150)
     await settle()
-    expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual(['body:b-cube'])
+    expect(selectionKeys(fixture.app)).toEqual(['body:b-cube'])
     expect(fixture.app.store.getState().notifications).toEqual([])
   })
 
@@ -889,7 +887,7 @@ describe('clicks (3.6)', () => {
     fireEvent.pointerUp(fixture.canvas, { ...init, buttons: 0, clientX: 210, clientY: 150 })
     await settle()
     expect(fixture.core.callsTo('pickReference')).toEqual([])
-    expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual(['body:b-cube'])
+    expect(selectionKeys(fixture.app)).toEqual(['body:b-cube'])
   })
 
   it('treats a press that moved 4 pixels as a click', async () => {
@@ -1073,14 +1071,6 @@ function doubleClick(canvas: HTMLCanvasElement, x: number, y: number): void {
   fireEvent.dblClick(canvas, { button: 0, clientX: x, clientY: y })
 }
 
-function selectionKeys(fixture: Fixture): string[] {
-  return fixture.app.store.getState().selection.map((item) => item.key)
-}
-
-function shownCodes(fixture: Fixture): (string | undefined)[] {
-  return fixture.app.store.getState().notifications.map((notification) => notification.code)
-}
-
 /** The index in the core's calls of the first call to `method` that matches `matches`, or -1. */
 function callIndex(
   fixture: Fixture,
@@ -1103,7 +1093,7 @@ describe('U-242 clicks in the view land in the order they were made (3.6, 3.7 st
     expect(fixture.core.callsTo('pickReference')).toEqual([
       [1, { mesh_id: 1, kind: 'face', index: 0 }],
     ])
-    expect(selectionKeys(fixture)).toEqual([TOP_FACE_KEY])
+    expect(selectionKeys(fixture.app)).toEqual([TOP_FACE_KEY])
   })
 
   it('U-242 (b) a click while OK runs is picked once the commit is answered, against the confirmed model', async () => {
@@ -1116,7 +1106,7 @@ describe('U-242 clicks in the view land in the order they were made (3.6, 3.7 st
     await confirmed
     await settle()
     expect(fixture.app.store.getState().command).toBeNull()
-    expect(selectionKeys(fixture)).toEqual([TOP_FACE_KEY])
+    expect(selectionKeys(fixture.app)).toEqual([TOP_FACE_KEY])
   })
 
   it('U-242 (c) a double-click right after Esc edits what it finds once the cancel is answered', async () => {
@@ -1142,7 +1132,7 @@ describe('U-242 clicks in the view land in the order they were made (3.6, 3.7 st
     await settle()
     picked.resolve(CUBE_TOP_FACE)
     await settle()
-    expect(selectionKeys(fixture)).toEqual(['body:b-cube'])
+    expect(selectionKeys(fixture.app)).toEqual(['body:b-cube'])
   })
 
   it('U-242 (e) a click that waits for the cancel is picked with the camera of the click', async () => {
@@ -1160,7 +1150,7 @@ describe('U-242 clicks in the view land in the order they were made (3.6, 3.7 st
     pickFrames[0]?.eye.forEach((value, axis) => {
       expect(value).toBeCloseTo(expected[axis] ?? Number.NaN, 6)
     })
-    expect(selectionKeys(fixture)).toEqual([TOP_FACE_KEY])
+    expect(selectionKeys(fixture.app)).toEqual([TOP_FACE_KEY])
   })
 
   it('U-242 (f) Sketch pressed after a click that waits for the cancel puts the new sketch on that face', async () => {
@@ -1224,7 +1214,7 @@ describe('U-242 clicks in the view land in the order they were made (3.6, 3.7 st
     expect(sketched).toBeLessThan(callIndex(fixture, 'beginTransaction'))
     expect(fixture.app.store.getState()).toMatchObject({ context: 'model', sketch: null })
     expect(fixture.app.store.getState().command?.featureType).toBe('extrude')
-    expect(shownCodes(fixture)).not.toContain('command_canceled')
+    expect(notificationCodes(fixture.app)).not.toContain('command_canceled')
   })
 
   it('U-242 (i) a feature key pressed after a double-click on a face opens after the edit it asks for', async () => {
@@ -1245,7 +1235,7 @@ describe('U-242 clicks in the view land in the order they were made (3.6, 3.7 st
       [1, 'Fillet'],
     ])
     expect(fixture.app.store.getState().command?.featureType).toBe('fillet')
-    expect(shownCodes(fixture)).not.toContain('command_canceled')
+    expect(notificationCodes(fixture.app)).not.toContain('command_canceled')
   })
 
   it('U-242 (j) a right click right after Esc selects the face it finds once the cancel is answered, then opens the menu', async () => {
@@ -1258,7 +1248,7 @@ describe('U-242 clicks in the view land in the order they were made (3.6, 3.7 st
     answerEnd()
     await canceled
     await settle()
-    expect(selectionKeys(fixture)).toEqual([TOP_FACE_KEY])
+    expect(selectionKeys(fixture.app)).toEqual([TOP_FACE_KEY])
     expect(requests).toEqual([{ x: 200, y: 150 }])
   })
 
@@ -1274,7 +1264,7 @@ describe('U-242 clicks in the view land in the order they were made (3.6, 3.7 st
     await confirmed
     await settle()
     expect(fixture.app.store.getState().command).toBeNull()
-    expect(selectionKeys(fixture)).toEqual([TOP_FACE_KEY])
+    expect(selectionKeys(fixture.app)).toEqual([TOP_FACE_KEY])
     expect(requests).toEqual([{ x: 200, y: 150 }])
   })
 })
@@ -1388,9 +1378,7 @@ describe('selection after rebuilds (3.6)', () => {
         { body: 'b-cube', reference: CUBE_FRONT_FACE.reference },
       ],
     ])
-    expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual([
-      'element:b-cube:f-ext1/side-0',
-    ])
+    expect(selectionKeys(fixture.app)).toEqual(['element:b-cube:f-ext1/side-0'])
     expect(indicesWith(fixture, rebuilt.positions, ELEMENT_STATE.selected)).toEqual([1])
   })
 })
@@ -1804,9 +1792,7 @@ describe('right clicks and the context menu (3.13)', () => {
     pickElement(fixture, 'face', 0)
     rightClick(fixture.canvas, 200, 150)
     await settle()
-    expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual([
-      'element:b-cube:f-ext1/end-cap',
-    ])
+    expect(selectionKeys(fixture.app)).toEqual(['element:b-cube:f-ext1/end-cap'])
     expect(requests).toEqual([{ x: 200, y: 150 }])
   })
 
@@ -1826,10 +1812,7 @@ describe('right clicks and the context menu (3.13)', () => {
     const requests = menuRequests(fixture.app)
     rightClick(fixture.canvas, 200, 150)
     await settle()
-    expect(fixture.app.store.getState().selection.map((item) => item.key)).toEqual([
-      'element:b-cube:f-ext1/end-cap',
-      front.key,
-    ])
+    expect(selectionKeys(fixture.app)).toEqual(['element:b-cube:f-ext1/end-cap', front.key])
     expect(requests).toHaveLength(1)
   })
 

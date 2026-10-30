@@ -4,6 +4,7 @@ import type { App } from '../app/createApp'
 import type { FeatureRecord, RegionInfo, SketchSolution } from '../generated/protocol'
 import { MESSAGES } from '../messages'
 import { TEST_CATALOG } from '../test/fakes/catalog'
+import { selectionKeys } from '../test/fakes/test-app'
 import { lineEntity, pointEntity, SKETCH_ID, solutionFor, solvedSketch } from './fixtures.testing'
 import { sketchHarness } from './view.testing'
 
@@ -32,10 +33,6 @@ function showSolution(app: App, solution: SketchSolution): void {
           },
         },
   )
-}
-
-function selectionKeys(app: App): string[] {
-  return app.store.getState().selection.map((item) => item.key)
 }
 
 describe('finishSketch selection (3.16.11)', () => {

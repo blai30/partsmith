@@ -19,3 +19,13 @@ export function deferred<Value>(): Deferred<Value> {
   })
   return { promise, resolve, reject }
 }
+
+/** What a promise rejects with; throws when it resolves. */
+export async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise
+  } catch (error) {
+    return error
+  }
+  throw new Error('The promise resolved.')
+}

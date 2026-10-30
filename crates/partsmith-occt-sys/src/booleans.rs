@@ -62,8 +62,8 @@ mod tests {
 
     #[test]
     fn fuse_of_separate_solids_leaves_them_unchanged() {
-        let first = cube_at(0.0, 0.0, 0.0);
-        let second = cube_at(20.0, 0.0, 0.0);
+        let first = cube_at(0.0);
+        let second = cube_at(20.0);
         let before = [
             first.to_brep().expect("bytes"),
             second.to_brep().expect("bytes"),
@@ -78,11 +78,7 @@ mod tests {
 
     #[test]
     fn common_of_separate_solids_is_empty() {
-        let result = common(
-            &cube_at(0.0, 0.0, 0.0),
-            &[cube_at(20.0, 0.0, 0.0), cube_at(0.0, 0.0, 0.0)],
-        )
-        .expect("disjoint");
+        let result = common(&cube_at(0.0), &[cube_at(20.0), cube_at(0.0)]).expect("disjoint");
 
         assert_eq!(result.shape.count(SubShapeKind::Solid), 0);
         assert_eq!(result.history.inputs.len(), 3);
@@ -96,7 +92,7 @@ mod tests {
 
     #[test]
     fn untouched_tool_faces_of_a_fuse_keep_their_images() {
-        let result = fuse(&cube_at(0.0, 0.0, 0.0), &[cube_at(20.0, 0.0, 0.0)]).expect("fused");
+        let result = fuse(&cube_at(0.0), &[cube_at(20.0)]).expect("fused");
 
         for input in &result.history.inputs {
             assert!(input.faces.iter().all(|fate| fate.modified.len() == 1));

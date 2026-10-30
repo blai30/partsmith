@@ -4,11 +4,11 @@ import {
   ASSETS_FOLDER,
   FileServiceError,
   folderHolds,
+  isSameHandle,
   type AssetReading,
   type DocumentPlace,
   type FileHandle,
 } from '../../files/file-service'
-import { isSameHandle } from '../../files/recent'
 import type { DocHandle } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { adoptDocument } from '../../state/core-events'
@@ -17,6 +17,7 @@ import type { AppState, DocumentState, FileReference, Notification } from '../..
 import { settledRecipeOf } from '../connection'
 import type { App } from '../createApp'
 import { documentOf, refusedDuringCommand, showCoreError } from './edits'
+import { showFileError } from './files'
 import { copyDetails } from './fixes'
 import { notify } from './notifications'
 import { leaveSketchHistory } from './sketch'
@@ -37,7 +38,12 @@ function fileNameOf(document: {
 export type DocumentOffer = { readonly recoveryId: string; readonly handle: FileHandle | null }
 
 export function offerOf(document: DocumentState): DocumentOffer {
-  return { recoveryId: document.recoveryId, handle: document.file?.handle ?? null }
+  return { recoveryId: document.recoveryId, handle: fileHandleOf(document) }
+}
+
+/** The handle of a document's file; null without one. */
+export function fileHandleOf(document: DocumentState): FileHandle | null {
+  return document.file?.handle ?? null
 }
 
 /**
@@ -50,15 +56,13 @@ export function isOffered(app: App, offer: DocumentOffer): boolean {
   return (
     document !== null &&
     document.recoveryId === offer.recoveryId &&
-    (document.file?.handle ?? null) === offer.handle
+    fileHandleOf(document) === offer.handle
   )
 }
 
 /** The place of a file reference with a handle; null without one. */
 function placeOf(file: FileReference | null): DocumentPlace | null {
-  return file?.handle === null || file?.handle === undefined
-    ? null
-    : { handle: file.handle, folder: file.folder }
+  return file === null || file.handle === null ? null : { handle: file.handle, folder: file.folder }
 }
 
 /**
@@ -171,7 +175,7 @@ export function showSaveAssetsError(
   app: App,
   fileName: string,
   failure: FileServiceError,
-  saveAs: () => void,
+  saveAs: () => Promise<void>,
 ): void {
   notifyWithDetails(
     app,
@@ -179,7 +183,14 @@ export function showSaveAssetsError(
       severity: 'error',
       message: MESSAGES.save_assets(fileName),
       code: 'save_assets',
-      actions: [{ label: 'Save as', run: saveAs }],
+      actions: [
+        {
+          label: 'Save as',
+          run: () => {
+            void saveAs()
+          },
+        },
+      ],
     },
     failureDetail(failure),
   )
@@ -220,7 +231,7 @@ export function explainMissingAssets(
   if (features.length === 0) {
     return
   }
-  if (document.file?.handle !== null && document.file?.handle !== undefined) {
+  if (fileHandleOf(document) !== null) {
     showFolderNeeded(app, offerOf(document), fileName, features)
     return
   }
@@ -288,7 +299,7 @@ export async function chooseFolderOf(
     if (!(error instanceof FileServiceError)) {
       throw error
     }
-    notify(app, { severity: 'error', message: error.message, actions: [] })
+    showFileError(app, error)
     return null
   }
   if (choice.kind === 'chosen') {

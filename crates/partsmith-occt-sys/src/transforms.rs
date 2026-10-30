@@ -112,7 +112,7 @@ pub fn compound(shapes: &[Shape]) -> Result<OpResult, KernelError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{cube_at, square_face_at};
+    use crate::test_support::{cube_at, cube_with_corner, square_face_at};
     use crate::{Point, ShapeKind, Vector, fuse};
 
     #[test]
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn compound_leaves_its_inputs_unchanged() {
-        let cube = cube_at(0.0, 0.0, 0.0);
+        let cube = cube_at(0.0);
         let before = cube.to_brep().expect("bytes");
 
         compound(std::slice::from_ref(&cube)).expect("grouped");
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn compound_lists_shared_elements_once() {
-        let cube = cube_at(0.0, 0.0, 0.0);
+        let cube = cube_at(0.0);
 
         let result = compound(&[cube.clone(), cube.clone()]).expect("grouped");
 
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn mirror_keeps_every_index() {
-        let cube = cube_at(1.0, 2.0, 3.0);
+        let cube = cube_with_corner(Point::new(1.0, 2.0, 3.0));
 
         let result = transform(&cube, &Transform::mirror(&Plane::XZ)).expect("mirrored");
 
@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn scale_about_a_center_keeps_the_center() {
-        let cube = cube_at(0.0, 0.0, 0.0);
+        let cube = cube_at(0.0);
 
         let result =
             transform(&cube, &Transform::scale(Point::new(10.0, 10.0, 10.0), 0.5)).expect("scaled");
@@ -218,7 +218,8 @@ mod tests {
 
     #[test]
     fn split_keeps_a_solid_the_plane_misses() {
-        let pair = fuse(&cube_at(0.0, 0.0, 0.0), &[cube_at(20.0, 0.0, 20.0)])
+        let above_the_plane = cube_with_corner(Point::new(20.0, 0.0, 20.0));
+        let pair = fuse(&cube_at(0.0), &[above_the_plane])
             .expect("separate cubes")
             .shape;
         let plane = Plane {

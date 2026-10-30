@@ -7,18 +7,21 @@ import {
   expectReady,
   fixtureBytes,
   folderNames,
+  notificationCoded,
+  OPEN_TIMEOUT_MILLISECONDS,
   openApp,
   pickerCalls,
   queuePick,
   readFolderFile,
   renameBody,
+  sendRename,
   stallCore,
   test,
   timelineItem,
   useFolders,
   writeFolderFile,
 } from './helpers'
-import { buttonNames, notificationActions, sendRename } from './support/documents'
+import { buttonNames, notificationActions } from './support/documents'
 
 // Documents with imports and their assets folder, and saves that stop when the file was changed
 // elsewhere (ui.md 3.19, 4.4, 6.5 E-150 to E-154, ADR 0037). The tests run on the origin private
@@ -29,19 +32,17 @@ import { buttonNames, notificationActions, sendRename } from './support/document
 const S = 'b8d947e1aae9d107df35bea403414dc9ae3df630b84426c70e92770948bdfdb4.step'
 
 /** Opening a document rebuilds it in the real core, which on a busy runner takes a while. */
-const OPEN_TIMEOUT = { timeout: 60_000 }
+const OPEN_TIMEOUT = { timeout: OPEN_TIMEOUT_MILLISECONDS }
 
 const FOLDER_NEEDED =
   'The imported geometry of step-block.ptsm is missing, because the browser has not given Partsmith the folder that holds it and its assets folder. Choose the folder step-block.ptsm is in.'
 
+const WRONG_FOLDER =
+  'other is not the folder that holds step-block.ptsm. Choose the folder step-block.ptsm is in.'
+
 /** The bytes of `S`. */
 function assetBytes(): Promise<Buffer> {
   return readFile(new URL(`../../examples/import/assets/${S}`, import.meta.url))
-}
-
-/** The notification with this `data-code`. */
-function coded(page: Page, code: string): Locator {
-  return page.locator(`[data-testid=notification][data-code=${code}]`)
 }
 
 /** The button of a notification, by its exact name. */
@@ -74,14 +75,12 @@ async function openWithFolder(page: Page): Promise<void> {
   await page.keyboard.press('ControlOrMeta+O')
   await expect(page.getByTestId('document-name')).toHaveText('step-block', OPEN_TIMEOUT)
   await expectImport(page, 'error')
-  const needed = coded(page, 'assets_folder_needed')
+  const needed = notificationCoded(page, 'assets_folder_needed')
   await expect(needed).toContainText(FOLDER_NEEDED)
   await queuePick(page, 'other')
   await button(needed, 'Choose folder').click()
-  const wrong = coded(page, 'assets_wrong_folder')
-  await expect(wrong).toContainText(
-    'other is not the folder that holds step-block.ptsm. Choose the folder step-block.ptsm is in.',
-  )
+  const wrong = notificationCoded(page, 'assets_wrong_folder')
+  await expect(wrong).toContainText(WRONG_FOLDER)
   await queuePick(page, 'work')
   await button(wrong, 'Choose folder').click()
   await expectImport(page, 'ok')
@@ -96,16 +95,14 @@ test.describe('Assets and files changed elsewhere', () => {
     await page.keyboard.press('ControlOrMeta+O')
     await expect(page.getByTestId('document-name')).toHaveText('step-block', OPEN_TIMEOUT)
     await expectImport(page, 'error')
-    const needed = coded(page, 'assets_folder_needed')
+    const needed = notificationCoded(page, 'assets_folder_needed')
     await expect(needed).toContainText(FOLDER_NEEDED)
     await expect(button(needed, 'Choose folder')).toBeVisible()
 
     await queuePick(page, 'other')
     await button(needed, 'Choose folder').click()
-    const wrong = coded(page, 'assets_wrong_folder')
-    await expect(wrong).toContainText(
-      'other is not the folder that holds step-block.ptsm. Choose the folder step-block.ptsm is in.',
-    )
+    const wrong = notificationCoded(page, 'assets_wrong_folder')
+    await expect(wrong).toContainText(WRONG_FOLDER)
     expect((await pickerCalls(page)).at(-1)).toEqual({
       picker: 'showDirectoryPicker',
       options: { mode: 'readwrite', startIn: 'step-block.ptsm' },
@@ -114,7 +111,7 @@ test.describe('Assets and files changed elsewhere', () => {
     await queuePick(page, 'work')
     await button(wrong, 'Choose folder').click()
     await expectImport(page, 'ok')
-    await expect(coded(page, 'assets_folder_needed')).toHaveCount(0)
+    await expect(notificationCoded(page, 'assets_folder_needed')).toHaveCount(0)
     await expect(page.getByTestId('document-name')).toHaveAttribute('data-dirty', 'false')
     await expectBlock(page, 'Body 1')
   })
@@ -129,7 +126,7 @@ test.describe('Assets and files changed elsewhere', () => {
 
     await queuePick(page, 'copy/step-block.ptsm')
     await page.keyboard.press('ControlOrMeta+Shift+S')
-    const needed = coded(page, 'save_folder_needed')
+    const needed = notificationCoded(page, 'save_folder_needed')
     await expect(button(needed, 'Choose folder')).toBeVisible()
     expect(await folderNames(page, 'copy')).not.toContain('assets')
 
@@ -183,7 +180,7 @@ test.describe('Assets and files changed elsewhere', () => {
     // Another program writes the file.
     await writeFolderFile(page, 'work/cube.ptsm', lid)
     await page.keyboard.press('ControlOrMeta+S')
-    const conflict = coded(page, 'save_conflict')
+    const conflict = notificationCoded(page, 'save_conflict')
     await expect(conflict).toContainText(
       'cube.ptsm was changed elsewhere after you opened or saved it, so Partsmith did not save over it.',
     )
@@ -212,7 +209,7 @@ test.describe('Assets and files changed elsewhere', () => {
     await writeFolderFile(page, 'work/cube.ptsm', own)
     await page.keyboard.press('ControlOrMeta+S')
     await expect(name).toHaveAttribute('data-dirty', 'false')
-    await expect(coded(page, 'save_conflict')).toHaveCount(0)
+    await expect(notificationCoded(page, 'save_conflict')).toHaveCount(0)
     expect((await readFolderFile(page, 'work/cube.ptsm'))?.toString('utf8')).toContain(
       '"name": "Peg"',
     )
@@ -220,7 +217,7 @@ test.describe('Assets and files changed elsewhere', () => {
     await renameBody(page, 'Peg', 'Pin')
     await writeFolderFile(page, 'work/cube.ptsm', lid)
     await page.keyboard.press('ControlOrMeta+S')
-    await button(coded(page, 'save_conflict'), 'Open the newer file').click()
+    await button(notificationCoded(page, 'save_conflict'), 'Open the newer file').click()
     await expect(bodyRow(page, 'Lid')).toBeVisible(OPEN_TIMEOUT)
     await expect(name).toHaveAttribute('data-dirty', 'false')
     const stashed = page
@@ -254,7 +251,7 @@ test.describe('Assets and files changed elsewhere', () => {
     await openApp(page)
     await dropFile(page, 'step-block.ptsm')
     await expectImport(page, 'error')
-    const without = coded(page, 'assets_without_folder')
+    const without = notificationCoded(page, 'assets_without_folder')
     await expect(without).toContainText(
       'The imported geometry of step-block.ptsm is missing, because Partsmith has no file of it to find its assets folder by. Open the file with Open... instead.',
     )
@@ -264,14 +261,14 @@ test.describe('Assets and files changed elsewhere', () => {
     await openApp(second, { fileSystemAccess: false })
     await dropFile(second, 'step-block.ptsm')
     await expectImport(second, 'error')
-    const unsupported = coded(second, 'assets_unsupported')
+    const unsupported = notificationCoded(second, 'assets_unsupported')
     await expect(unsupported).toContainText(
       'The imported geometry of step-block.ptsm is missing, because this browser does not let Partsmith reach files next to the one you chose. Open it in Chrome or Edge, or in the Partsmith desktop app.',
     )
     expect(await buttonNames(unsupported)).toEqual(['Dismiss'])
 
     await dropFile(second, 'cube.ptsm')
-    await expect(coded(second, 'assets_unsupported')).toHaveCount(0)
-    await expect(coded(second, 'assets_without_folder')).toHaveCount(0)
+    await expect(notificationCoded(second, 'assets_unsupported')).toHaveCount(0)
+    await expect(notificationCoded(second, 'assets_without_folder')).toHaveCount(0)
   })
 })

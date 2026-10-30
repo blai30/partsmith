@@ -1,5 +1,5 @@
 import { createStoreAccess, RECENT_STORE, requestResult } from './database'
-import { isFileHandle, isFolderHandle, type FileHandle } from './file-service'
+import { isFileHandle, isFolderHandle, isSameHandle, type FileHandle } from './file-service'
 
 export type RecentFile = {
   readonly id: string
@@ -46,20 +46,6 @@ async function isSameFile(entry: RecentFile, file: RememberedFile): Promise<bool
     return file.handle === null && entry.handle === null && entry.name === file.name
   }
   return isSameHandle(file.handle, entry.handle)
-}
-
-/** Whether two handles name one file: desktop handles with equal grants, or web handles to the same entry. */
-export async function isSameHandle(first: FileHandle, second: FileHandle): Promise<boolean> {
-  // Each host's handles come only from that host, so a desktop and a web handle are never the same file.
-  if (first.kind === 'desktop' || second.kind === 'desktop') {
-    return first.kind === 'desktop' && second.kind === 'desktop' && first.grant === second.grant
-  }
-  try {
-    return await first.isSameEntry(second)
-  } catch {
-    // A handle whose file is gone cannot be compared; it is a different entry.
-    return false
-  }
 }
 
 type RememberPlan = {

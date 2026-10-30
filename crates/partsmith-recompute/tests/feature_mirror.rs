@@ -9,9 +9,9 @@ use feature_support::{
     AXIS_TOLERANCE, Run, THROUGH_ALL, assert_bore_through, assert_bounding_box, assert_coordinates,
     assert_error_field, assert_examples_canonical, assert_face_area, assert_face_count,
     assert_face_kind, assert_face_normal, assert_face_position, assert_has_face, assert_moves,
-    assert_sketch_on_top_plane, assert_solid_count, assert_unchanged, assert_volume,
-    assert_volume_faces_and_bounds, body_changes, document, face, face_motion, face_sketch_with,
-    hole_at_point, link_ids, message, one_point, pick, set_field, sketch_result,
+    assert_sketch_on_top_plane, assert_solid_count, assert_unchanged, assert_volume, body_changes,
+    document, face, face_motion, face_sketch_with, hole_at_point, link_ids, message, one_point,
+    pick, set_field, sketch_result,
 };
 use partsmith_features::{FeatureWarning, NoEffectHow};
 use partsmith_occt_sys::GeometryKind;
@@ -99,13 +99,10 @@ fn t002_join_touching_fuses() {
     let run = Run::example("mirror/join-touching.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        2000.0,
-        6,
-        [-10.0, -5.0, 0.0],
-        [10.0, 5.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 2000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [-10.0, -5.0, 0.0], [10.0, 5.0, 10.0]);
 }
 
 #[test]
@@ -123,13 +120,10 @@ fn t003_new_body_leaves_the_source() {
 fn t003_new_body_holds_the_image() {
     let run = Run::example("mirror/new-body.ptsm");
 
-    assert_volume_faces_and_bounds(
-        run.shape("b-2"),
-        1000.0,
-        6,
-        [-15.0, -5.0, 0.0],
-        [-5.0, 5.0, 10.0],
-    );
+    let image = run.shape("b-2");
+    assert_volume(image, 1000.0);
+    assert_face_count(image, 6);
+    assert_bounding_box(image, [-15.0, -5.0, 0.0], [-5.0, 5.0, 10.0]);
     assert_has_face(run.body("b-2"), "f-box1/top@f-mir1:1");
     assert_eq!(body_changes(&run, "f-mir1"), ["b-2 New"]);
 }
@@ -224,13 +218,10 @@ fn t008_across_a_datum() {
     let run = Run::example("mirror/across-datum.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        2000.0,
-        12,
-        [5.0, -5.0, 0.0],
-        [35.0, 5.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 2000.0);
+    assert_face_count(shape, 12);
+    assert_bounding_box(shape, [5.0, -5.0, 0.0], [35.0, 5.0, 10.0]);
 }
 
 #[test]
@@ -238,13 +229,10 @@ fn t009_across_its_own_face() {
     let run = Run::example("mirror/across-own-face.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        2000.0,
-        6,
-        [5.0, -5.0, 0.0],
-        [25.0, 5.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 2000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [5.0, -5.0, 0.0], [25.0, 5.0, 10.0]);
 }
 
 #[test]

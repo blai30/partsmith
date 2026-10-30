@@ -11,9 +11,9 @@ use feature_support::{
     assert_face_axis_direction, assert_face_axis_through, assert_face_count, assert_face_kind,
     assert_face_position, assert_flat_face, assert_has_face, assert_messages_pass_lint,
     assert_no_face, assert_round_face, assert_solid_count, assert_translation, assert_unchanged,
-    assert_volume, assert_volume_faces_and_bounds, body_changes, body_update, face, face_motion,
-    face_names_with_prefix, id, message, moved_box_document, output_body, pick, remove_entry,
-    set_reverse, sketch_result, vertex,
+    assert_volume, body_changes, body_update, face, face_motion, face_names_with_prefix, id,
+    message, moved_box_document, output_body, pick, remove_entry, set_reverse, sketch_result,
+    vertex,
 };
 use partsmith_features::{BodyChange, Bound, FeatureError, FeatureWarning};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
@@ -43,13 +43,10 @@ fn run_hole(hole: &str) -> Run {
 /// The geometry of test 1, shared by tests 14, 16, 17 and 20: a through hole of diameter 6 at
 /// sketch point `point`, which names its wall.
 fn assert_through_hole(run: &Run, point: &str) {
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        15717.256661,
-        7,
-        [-20.0, -20.0, -10.0],
-        [20.0, 20.0, 0.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 15717.256661);
+    assert_face_count(shape, 7);
+    assert_bounding_box(shape, [-20.0, -20.0, -10.0], [20.0, 20.0, 0.0]);
     assert_bore_wall(run, &format!("f-hole1/bore/{point}"), THROUGH_BORE_AREA);
     assert_no_face(run.body("b-1"), &format!("f-hole1/entry/{point}"));
 }
@@ -521,13 +518,10 @@ fn t024_through_all_with_a_head_deeper_than_the_body() {
     let run = Run::example("hole/head-deeper-than-body.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        3009.933644,
-        7,
-        [-20.0, -20.0, -2.0],
-        [20.0, 20.0, 0.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 3009.933644);
+    assert_face_count(shape, 7);
+    assert_bounding_box(shape, [-20.0, -20.0, -2.0], [20.0, 20.0, 0.0]);
     let body = run.body("b-1");
     let wall = assert_round_face(
         body,
@@ -898,13 +892,9 @@ fn t038_arc_start_end_and_center_as_points() {
     run.assert_all_quiet();
     let shape = run.shape("b-1");
     // Three holes like test 1's.
-    assert_volume_faces_and_bounds(
-        shape,
-        15151.769984,
-        9,
-        [-20.0, -20.0, -10.0],
-        [20.0, 20.0, 0.0],
-    );
+    assert_volume(shape, 15151.769984);
+    assert_face_count(shape, 9);
+    assert_bounding_box(shape, [-20.0, -20.0, -10.0], [20.0, 20.0, 0.0]);
     assert_eq!(body_changes(&run, "f-hole1"), ["b-1 Cut"]);
 }
 

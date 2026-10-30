@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { ASSET_A, ASSET_B, ASSET_C_NAME } from '../test/fakes/assets'
+import { rejectionOf } from '../test/fakes/deferred'
 import {
   domError,
   fakeWebFile,
@@ -62,15 +63,6 @@ function documentFolder(assets?: FakeWebFolder | FakeWebFile): {
   const document = fakeWebFile('block.ptsm', Uint8Array.of(123, 125))
   const folder = fakeWebFolder('work', assets === undefined ? [document] : [document, assets])
   return { folder, document }
-}
-
-async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
-  try {
-    await promise
-  } catch (error) {
-    return error
-  }
-  throw new Error('The promise resolved.')
 }
 
 describe('FileServiceError (2.15)', () => {

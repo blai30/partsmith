@@ -25,9 +25,8 @@ import {
   RECT_REGION,
   RECT_SKETCH_SOLUTION,
 } from '../../test/fakes/documents'
-import { elementItem, featureItem, regionItem } from '../../test/fakes/selection'
+import { elementItem, featureItem, meshPick, regionItem } from '../../test/fakes/selection'
 import { settle } from '../../test/fakes/settle'
-import type { PickResult } from '../../viewport/picking'
 import { capturePick, setCommandField, startFeatureCommand } from './command'
 import { pickAt } from './selection'
 
@@ -170,15 +169,7 @@ describe('the command Repeat starts again (3.5)', () => {
 
 describe('a click the core answers while the command begins its transaction (3.7 steps 2 and 4)', () => {
   /** A click on the cube's top front edge, which pick_reference turns into its descriptor. */
-  const TOP_FRONT_EDGE_PICK: PickResult = {
-    kind: 'mesh',
-    body: 'b-cube',
-    meshId: 1,
-    element: 'edge',
-    index: 0,
-    key: 'mesh:1:edge:0',
-    world: [0, -10, 20],
-  }
+  const TOP_FRONT_EDGE_PICK = meshPick(CUBE_TOP_FRONT_EDGE, 0)
 
   it('a Fillet started while the click’s pick_reference is in flight takes the picked edge', async () => {
     const { app, core } = createModelApp({ state: readyState(cubeDocumentState()) })

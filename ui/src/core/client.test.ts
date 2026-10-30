@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Command, Event as ProtocolEvent, FixAction, Request } from '../generated/protocol'
+import { rejectionOf } from '../test/fakes/deferred'
 import { emptyDocument } from '../test/fakes/documents'
 import { readRequest, responseFrame, type ResponseBody } from '../test/fakes/protocol'
 import { CoreError, createCoreClient } from './client'
@@ -68,15 +69,6 @@ function documentChanged(revision: number): ProtocolEvent {
 
 function recomputed(revision: number): ProtocolEvent {
   return { type: 'recomputed', doc: 1, revision, features: [], parameters: [], diagnostics: [] }
-}
-
-async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
-  try {
-    await promise
-  } catch (error) {
-    return error
-  }
-  throw new Error('The promise resolved.')
 }
 
 afterEach(() => {

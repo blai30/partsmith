@@ -6,8 +6,8 @@ use crate::feature_support;
 
 use feature_support::{
     Run, assert_bounding_box, assert_empty, assert_error_field, assert_examples_canonical,
-    assert_face_area, assert_face_kind, assert_face_names, assert_flat_face, assert_round_face,
-    assert_unchanged, assert_volume, assert_volume_faces_and_bounds, body_changes, face, link_ids,
+    assert_face_area, assert_face_count, assert_face_kind, assert_face_names, assert_flat_face,
+    assert_round_face, assert_unchanged, assert_volume, body_changes, face, link_ids,
 };
 use partsmith_occt_sys::GeometryKind;
 
@@ -27,13 +27,10 @@ fn t001_default_is_ok() {
 fn t001_default_volume_faces_and_bounds() {
     let run = Run::example("sphere/default.ptsm");
 
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        4188.790205,
-        1,
-        [-10.0, -10.0, -10.0],
-        [10.0, 10.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 4188.790205);
+    assert_face_count(shape, 1);
+    assert_bounding_box(shape, [-10.0, -10.0, -10.0], [10.0, 10.0, 10.0]);
 }
 
 #[test]
@@ -59,13 +56,10 @@ fn t003_dome_on_a_box() {
     let run = Run::example("sphere/dome-on-box.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        8261.799388,
-        7,
-        [-10.0, -10.0, 0.0],
-        [10.0, 10.0, 25.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 8261.799388);
+    assert_face_count(shape, 7);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 25.0]);
 }
 
 #[test]
@@ -73,13 +67,10 @@ fn t004_dimple_in_a_box() {
     let run = Run::example("sphere/dimple-in-box.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        7738.200612,
-        7,
-        [-10.0, -10.0, 0.0],
-        [10.0, 10.0, 20.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 7738.200612);
+    assert_face_count(shape, 7);
+    assert_bounding_box(shape, [-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
 }
 
 #[test]
@@ -118,13 +109,10 @@ fn t008_intersect_keeps_the_lower_half() {
     let run = Run::example("sphere/intersect.ptsm");
 
     run.assert_all_quiet();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        1072.330292,
-        2,
-        [-8.0, -8.0, 12.0],
-        [8.0, 8.0, 20.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 1072.330292);
+    assert_face_count(shape, 2);
+    assert_bounding_box(shape, [-8.0, -8.0, 12.0], [8.0, 8.0, 20.0]);
     assert_eq!(body_changes(&run, "f-sph1"), ["b-1 Intersect"]);
 }
 
@@ -160,13 +148,10 @@ fn t010_on_a_face_of_another_body_rests_on_the_face() {
     let run = Run::example("sphere/on-face.ptsm");
 
     run.assert_all_quiet();
-    assert_volume_faces_and_bounds(
-        run.shape("b-2"),
-        523.598776,
-        1,
-        [-5.0, -5.0, 20.0],
-        [5.0, 5.0, 30.0],
-    );
+    let shape = run.shape("b-2");
+    assert_volume(shape, 523.598776);
+    assert_face_count(shape, 1);
+    assert_bounding_box(shape, [-5.0, -5.0, 20.0], [5.0, 5.0, 30.0]);
     assert_unchanged(&run, "f-sph1", "b-1");
 }
 

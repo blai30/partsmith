@@ -8,9 +8,9 @@ use crate::feature_support;
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_axis_stored_as_picked,
     assert_bore_through, assert_bounding_box, assert_choice_between, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_in_plane, assert_face_kind,
-    assert_face_normal, assert_face_position, assert_face_translated, assert_quarter_turns_about_z,
-    assert_unchanged, assert_volume, assert_volume_faces_and_bounds, body_changes, edge_axis, face,
+    assert_examples_canonical, assert_face_area, assert_face_count, assert_face_in_plane,
+    assert_face_kind, assert_face_normal, assert_face_position, assert_face_translated,
+    assert_quarter_turns_about_z, assert_unchanged, assert_volume, body_changes, edge_axis, face,
     face_motion, l_shaped_body, leaning_wall, left_bottom_edge_axis, link_ids, moved_box_document,
 };
 use partsmith_occt_sys::GeometryKind;
@@ -42,13 +42,10 @@ fn t001_translate_volume_faces_and_bounds() {
     let run = Run::example("move_body/translate.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        6000.0,
-        6,
-        [0.0, -10.0, 0.0],
-        [10.0, 10.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [0.0, -10.0, 0.0], [10.0, 10.0, 30.0]);
 }
 
 #[test]
@@ -111,13 +108,10 @@ fn t005_references_survive_a_move() {
     let run = Run::example("move_body/move-then-fillet.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        991.415927,
-        7,
-        [45.0, -5.0, 0.0],
-        [55.0, 5.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 991.415927);
+    assert_face_count(shape, 7);
+    assert_bounding_box(shape, [45.0, -5.0, 0.0], [55.0, 5.0, 10.0]);
 }
 
 #[test]
@@ -328,13 +322,10 @@ fn t014_rotate_about_a_sketch_line_tips_the_box_onto_its_right_side() {
     let run = Run::example("move_body/rotate-about-sketch-line.ptsm");
 
     run.assert_all_quiet();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        6000.0,
-        6,
-        [5.0, -10.0, 0.0],
-        [35.0, 10.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [5.0, -10.0, 0.0], [35.0, 10.0, 10.0]);
 }
 
 #[test]
@@ -362,13 +353,10 @@ fn t015_rotate_about_a_round_face_turns_about_its_axis() {
     let run = Run::example("move_body/rotate-about-face.ptsm");
 
     run.assert_all_quiet();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        6000.0,
-        6,
-        [10.0, -25.0, 0.0],
-        [30.0, -15.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [10.0, -25.0, 0.0], [30.0, -15.0, 30.0]);
     let front = face(run.body("b-1"), "f-box1/front");
     assert_face_in_plane(&front, 0, 30.0);
     assert_face_normal(&front, [1.0, 0.0, 0.0]);

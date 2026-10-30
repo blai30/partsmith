@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
 
-// The root of the `integration` target (ADR 0035): a line that a root lacks goes there, or into the first root without it.
+// The root of the `integration` target (ADR 0035). A missing `mod` line for a file or folder directly in `tests/` is
+// suggested for it, or for the member's first `[[test]]` root when the member has no `integration` target.
 const INTEGRATION_ROOT = 'integration.rs'
 
 /** The patterns of the `members` list of the workspace manifest `manifest`, as written. */

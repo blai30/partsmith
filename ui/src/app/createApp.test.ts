@@ -13,6 +13,7 @@ import {
   CUBE_SKETCH_SOLUTION,
   CUBE_TOP_FACE,
   bodiesOf,
+  cubeNamed,
 } from '../test/fakes/documents'
 import { createFakeFileHandle } from '../test/fakes/files'
 import { deferred } from '../test/fakes/deferred'
@@ -36,10 +37,6 @@ const RENAME_TO_BOX: readonly Edit[] = [
 const RENAME_TO_BLOCK: readonly Edit[] = [
   { type: 'update_body', body: { id: 'b-cube', name: 'Block' } },
 ]
-
-function renamed(name: string): Document {
-  return { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name }] }
-}
 
 function documentChanged(doc: number, revision: number, document: Document): ProtocolEvent {
   return {
@@ -92,7 +89,7 @@ async function advance(milliseconds: number): Promise<void> {
 }
 
 /** The cube renamed, as a settled change makes it. */
-const R1 = renamed('Box')
+const R1 = cubeNamed('Box')
 /** R1 with a box the open Box command previews. */
 const R2: Document = {
   ...R1,
@@ -114,7 +111,7 @@ const R3: Document = R2
 
 /** The recipe of the settled change made at a time, in U-154. */
 function recipeAt(milliseconds: number): Document {
-  return renamed(`Box at ${String(milliseconds)}`)
+  return cubeNamed(`Box at ${String(milliseconds)}`)
 }
 
 function navigatorWith(fields: {
@@ -235,7 +232,7 @@ describe('core events in the store', () => {
     const { documentHandle, revision } = currentDocument(fake.app)
     fake.transport.handle('apply_edits', () => ({
       result: { type: 'apply_edits', revision },
-      events: [documentChanged(documentHandle, revision - 1, renamed('Stale'))],
+      events: [documentChanged(documentHandle, revision - 1, cubeNamed('Stale'))],
     }))
     await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
     await settle()
@@ -250,7 +247,7 @@ describe('core events in the store', () => {
     const { documentHandle, revision } = currentDocument(fake.app)
     fake.transport.handle('apply_edits', () => ({
       result: { type: 'apply_edits', revision },
-      events: [documentChanged(documentHandle, revision, renamed('Block'))],
+      events: [documentChanged(documentHandle, revision, cubeNamed('Block'))],
     }))
     await applyEdits(fake.app, 'Rename', RENAME_TO_BLOCK)
     await settle()
@@ -380,7 +377,9 @@ describe('recovery copy (3.19)', () => {
     await expect(fake.recovery.list()).resolves.toEqual([])
     await advance(1_000)
     const entries = await fake.recovery.list()
-    expect(entries.map((entry) => entry.text)).toEqual([JSON.stringify(renamed('Block'), null, 2)])
+    expect(entries.map((entry) => entry.text)).toEqual([
+      JSON.stringify(cubeNamed('Block'), null, 2),
+    ])
   })
 
   it('writes nothing for a clean document', async () => {
@@ -528,7 +527,7 @@ describe('recovery copy across saves and restarts (3.19, 4.4)', () => {
     expect(await fake.recovery.list()).toHaveLength(1)
     await advance(2_000)
     const texts = (await fake.recovery.list()).map((entry) => entry.text)
-    expect(texts).toEqual([JSON.stringify(renamed('Block'), null, 2)])
+    expect(texts).toEqual([JSON.stringify(cubeNamed('Block'), null, 2)])
   })
 
   it('U-166 a write that falls due while the core restarts is written right after the restart', async () => {

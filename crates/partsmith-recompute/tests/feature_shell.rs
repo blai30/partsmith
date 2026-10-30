@@ -16,9 +16,8 @@ use feature_support::{
     assert_face_centroid, assert_face_count, assert_face_kind, assert_face_normal,
     assert_face_position, assert_flat_face, assert_has_face, assert_list_field,
     assert_moved_by_100, assert_no_face, assert_relative_within, assert_round_face,
-    assert_solid_count, assert_unchanged, assert_volume, assert_volume_faces_and_bounds,
-    body_update, document, face, face_index, face_names_with_prefix, feature_record_mut,
-    parse_document, point_components, suggested_limit,
+    assert_solid_count, assert_unchanged, assert_volume, body_update, document, face, face_index,
+    face_names_with_prefix, feature_record_mut, parse_document, point_components, suggested_limit,
 };
 use feature_support::{assert_messages_pass_lint, id, message, pick, set_field};
 use partsmith_features::{BodyChange, Diagnosis, Explanation, FeatureError, Fix, Limit};
@@ -258,13 +257,10 @@ fn assert_too_thick(
 /// The geometry and names of test 1: `BOX805030` shelled 2 mm with the top removed.
 fn assert_open_top_geometry(run: &Run) {
     let body = run.body("b-1");
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        22112.0,
-        11,
-        [-40.0, -25.0, 0.0],
-        [40.0, 25.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 22112.0);
+    assert_face_count(shape, 11);
+    assert_bounding_box(shape, [-40.0, -25.0, 0.0], [40.0, 25.0, 30.0]);
     let inner_bottom = face(body, "f-sh1/inner/f-box1/bottom");
     assert_face_kind(&inner_bottom, GeometryKind::Plane);
     assert_face_position(&inner_bottom, 2, 2.0);
@@ -323,7 +319,9 @@ fn t003_closed_hollow() {
     run.assert_all_ok();
     let body = run.body("b-1");
     let shape = run.shape("b-1");
-    assert_volume_faces_and_bounds(shape, 29104.0, 12, [-40.0, -25.0, 0.0], [40.0, 25.0, 30.0]);
+    assert_volume(shape, 29104.0);
+    assert_face_count(shape, 12);
+    assert_bounding_box(shape, [-40.0, -25.0, 0.0], [40.0, 25.0, 30.0]);
     assert_eq!(
         face_names_with_prefix(body, "f-sh1/inner/"),
         [
@@ -442,13 +440,10 @@ fn t009_cylinder_cup() {
     let run = Run::example("shell/cylinder-cup.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        11586.193706,
-        5,
-        [-20.0, -20.0, 0.0],
-        [20.0, 20.0, 40.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 11586.193706);
+    assert_face_count(shape, 5);
+    assert_bounding_box(shape, [-20.0, -20.0, 0.0], [20.0, 20.0, 40.0]);
 }
 
 #[test]

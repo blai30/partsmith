@@ -15,8 +15,8 @@ use feature_support::import::{
 use feature_support::{
     Assets, Run, aliases, assert_bounding_box, assert_empty, assert_examples_canonical,
     assert_face_count, assert_face_in_plane, assert_face_names, assert_messages_pass_lint,
-    assert_shell_count, assert_solid_count, assert_volume, assert_volume_faces_and_bounds,
-    asset_name, body_changes, document, examples_folder, face, load_example,
+    assert_shell_count, assert_solid_count, assert_volume, asset_name, body_changes, document,
+    examples_folder, face, load_example,
 };
 use partsmith_features::FeatureError;
 use partsmith_occt_sys::{
@@ -283,13 +283,10 @@ fn run_committed_example(relative_path: &str) -> Run {
 /// Asserts the shape of test 1: the imported block alone in b-1, with volume 6000, 6 faces and the
 /// bounding box [0,0,0]-[10,20,30].
 fn assert_block_shape(run: &Run) {
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        6000.0,
-        6,
-        [0.0, 0.0, 0.0],
-        [10.0, 20.0, 30.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 6000.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [0.0, 0.0, 0.0], [10.0, 20.0, 30.0]);
 }
 
 /// Asserts the result of test 1: every feature ok and the imported block alone in b-1.
@@ -351,13 +348,10 @@ fn assert_joined_to_the_cube(run: &Run) {
 /// Asserts the result of test 7: the block cut through the plate.
 fn assert_cut_through_the_plate(run: &Run) {
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        14000.0,
-        10,
-        [-20.0, -15.0, 0.0],
-        [20.0, 25.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 14000.0);
+    assert_face_count(shape, 10);
+    assert_bounding_box(shape, [-20.0, -15.0, 0.0], [20.0, 25.0, 10.0]);
     assert_eq!(body_changes(run, "f-imp1"), ["b-1 Cut"]);
 }
 
@@ -537,13 +531,10 @@ fn t009_intersect_volume_faces_and_bounds() {
     let run = run_committed_example("import/intersect-step-block.ptsm");
 
     run.assert_all_ok();
-    assert_volume_faces_and_bounds(
-        run.shape("b-1"),
-        250.0,
-        6,
-        [0.0, 0.0, 0.0],
-        [5.0, 5.0, 10.0],
-    );
+    let shape = run.shape("b-1");
+    assert_volume(shape, 250.0);
+    assert_face_count(shape, 6);
+    assert_bounding_box(shape, [0.0, 0.0, 0.0], [5.0, 5.0, 10.0]);
 }
 
 #[test]

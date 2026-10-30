@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { RESULT_TIMEOUT_MS, whenResultShows } from './enter-timing.testing'
+import {
+  type ActEnvironment,
+  RESULT_TIMEOUT_MILLISECONDS,
+  whenResultShows,
+} from './enter-timing.testing'
 
 // The timing helper fails with a reason, and leaves the act environment as it found it, when the
 // result it waits for cannot show.
-
-type ActEnvironment = { IS_REACT_ACT_ENVIRONMENT?: boolean | undefined }
 
 afterEach(() => {
   vi.useRealTimers()
@@ -36,7 +38,7 @@ describe('whenResultShows', () => {
       (error: unknown) => error,
     )
     expect(environment.IS_REACT_ACT_ENVIRONMENT).toBe(false)
-    await vi.advanceTimersByTimeAsync(RESULT_TIMEOUT_MS)
+    await vi.advanceTimersByTimeAsync(RESULT_TIMEOUT_MILLISECONDS)
     expect(await failure).toEqual(new Error("The result never showed 'mm'."))
     expect(action).not.toHaveBeenCalled()
     expect(environment.IS_REACT_ACT_ENVIRONMENT).toBe(actEnvironment)

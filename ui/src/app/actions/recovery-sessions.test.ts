@@ -8,17 +8,18 @@ import {
 import type { Document, Edit } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import type { App } from '../createApp'
-import type { Notification } from '../../state/store'
 import {
   actionLabels,
+  clickAction,
   currentDocument,
+  notificationCoded,
+  notificationCodes,
   notificationWith,
   openTestDocument,
-  runAction,
   startFakeApp,
   startWithDocument,
 } from '../../test/fakes/app'
-import { CUBE_DOCUMENT, TWO_BODIES_DOCUMENT, bodiesOf } from '../../test/fakes/documents'
+import { CUBE_DOCUMENT, TWO_BODIES_DOCUMENT, bodiesOf, cubeNamed } from '../../test/fakes/documents'
 import { createFakeFileHandle } from '../../test/fakes/files'
 import { createFakeIndexedDb, type FakeIndexedDb } from '../../test/fakes/indexed-db'
 import { createFakeLocks, type FakeLockPage } from '../../test/fakes/locks'
@@ -37,10 +38,6 @@ function renameBody(body: string, name: string): readonly Edit[] {
   return [{ type: 'update_body', body: { id: body, name } }]
 }
 
-function withCubeNamed(name: string): Document {
-  return { ...CUBE_DOCUMENT, bodies: [{ id: 'b-cube', name }] }
-}
-
 /** The text of a recipe as the recovery copy stores it (3.19). */
 function stored(recipe: Document): string {
   return JSON.stringify(recipe, null, 2)
@@ -57,12 +54,6 @@ function offers(app: App): string[] {
     .getState()
     .notifications.map((notification) => notification.message)
     .filter((message) => OFFER.test(message))
-}
-
-/** Clicks a notification's action: the notification goes, then the action runs (3.22). */
-function click(app: App, notification: Notification, label: string): void {
-  dismiss(app, notification.id)
-  runAction(notification, label)
 }
 
 /** Advances the fake clock, then lets the writes it starts finish, IndexedDB ones included. */
@@ -178,7 +169,7 @@ describe('a replaced document (3.19)', () => {
     await advance(20_000)
     const cubeWrites = recovery.writes.filter((entry) => entry.id === cubeSession)
     expect(cubeWrites.map((entry) => entry.reason)).toEqual(['replaced'])
-    expect(cubeWrites[0]?.text).toBe(stored(withCubeNamed('Box')))
+    expect(cubeWrites[0]?.text).toBe(stored(cubeNamed('Box')))
   })
 })
 
@@ -207,7 +198,7 @@ describe('two sessions at once (2.15, 3.19)', () => {
       recovery: storeOn(pageB),
     })
     expect(offers(second.app)).toEqual([])
-    const codes = second.app.store.getState().notifications.map((notification) => notification.code)
+    const codes = notificationCodes(second.app)
     expect(codes).not.toContain('recovered')
     expect(codes).not.toContain('recovered_more')
 
@@ -218,7 +209,7 @@ describe('two sessions at once (2.15, 3.19)', () => {
     await applyEdits(first.app, 'Rename', renameBody('b-cube', 'Block'))
     await advance(2_000)
     expect(storedTexts(database)).toEqual({
-      [firstSession]: stored(withCubeNamed('Block')),
+      [firstSession]: stored(cubeNamed('Block')),
       [secondSession]: stored(currentDocument(second.app).recipe),
     })
 
@@ -235,7 +226,7 @@ describe('two sessions at once (2.15, 3.19)', () => {
     expect(offers(third.app)).toEqual([
       `Partsmith kept unsaved changes to two-bodies from ${shownTime(savedAt)}.`,
     ])
-    click(third.app, notificationWith(third.app, OFFER), 'Discard')
+    await clickAction(third.app, notificationWith(third.app, OFFER), 'Discard')
     await settle(30)
     expect(database.records('partsmith', 'recovery')).toEqual([])
   })
@@ -246,7 +237,7 @@ function entryNamed(name: string, savedAt: number): RecoveryEntry {
   return {
     id: `session-${name}`,
     name,
-    text: stored(withCubeNamed(name.toUpperCase())),
+    text: stored(cubeNamed(name.toUpperCase())),
     savedAt,
     handle: null,
     folder: null,
@@ -273,15 +264,13 @@ describe('the startup offer (3.1 step 5, 3.19)', () => {
     await advance(10_000)
     expect(offers(fake.app)).toHaveLength(1)
 
-    click(fake.app, first, 'Discard')
-    await settle()
+    await clickAction(fake.app, first, 'Discard')
     await expect(recovery.list()).resolves.toEqual([b, a])
     expect(offers(fake.app)).toEqual([
       `Partsmith kept unsaved changes to b from ${shownTime(2000)}, and to 1 other document.`,
     ])
 
-    click(fake.app, notificationWith(fake.app, OFFER), 'Open')
-    await settle()
+    await clickAction(fake.app, notificationWith(fake.app, OFFER), 'Open')
     const opened = currentDocument(fake.app)
     expect(opened).toMatchObject({ name: 'b', localUnsaved: true })
     expect(bodiesOf(opened.recipe)[0]?.name).toBe('B')
@@ -312,8 +301,7 @@ describe('the startup offer (3.1 step 5, 3.19)', () => {
     const [stash] = await recovery.list()
     expect(stash).toMatchObject({ id: stashedSession, reason: 'replaced', handle })
 
-    click(fake.app, notificationWith(fake.app, MESSAGES.stashed('cube')), 'Reopen')
-    await settle()
+    await clickAction(fake.app, notificationWith(fake.app, MESSAGES.stashed('cube')), 'Reopen')
     const reopened = currentDocument(fake.app)
     expect(reopened).toMatchObject({ name: 'cube', localUnsaved: true })
     expect(reopened.file?.handle).toBe(handle)
@@ -330,8 +318,7 @@ describe('the startup offer (3.1 step 5, 3.19)', () => {
     // A full IndexedDB: nothing new is stored.
     const full: RecoveryStore = { ...memory, write: async () => false }
     const fake = await startFakeApp({ recovery: full })
-    click(fake.app, notificationWith(fake.app, OFFER), 'Open')
-    await settle()
+    await clickAction(fake.app, notificationWith(fake.app, OFFER), 'Open')
     expect(currentDocument(fake.app)).toMatchObject({ name: 'b', localUnsaved: true })
     await expect(full.list()).resolves.toEqual([kept])
   })
@@ -344,12 +331,8 @@ describe('the startup offer (3.1 step 5, 3.19)', () => {
     fake.transport.handle('open_document', () => ({
       error: { code: 'parse_error', message: 'The file is not valid JSON: line 1, column 1.' },
     }))
-    click(fake.app, notificationWith(fake.app, OFFER), 'Open')
-    await settle()
-    const refused = fake.app.store
-      .getState()
-      .notifications.find((notification) => notification.code === 'open_failed')
-    expect(refused?.severity).toBe('error')
+    await clickAction(fake.app, notificationWith(fake.app, OFFER), 'Open')
+    expect(notificationCoded(fake.app, 'open_failed').severity).toBe('error')
     expect(currentDocument(fake.app).name).toBe('Untitled')
     await expect(recovery.list()).resolves.toEqual([kept])
   })
