@@ -93,6 +93,7 @@ import {
   finishSketch,
   setSketchTool,
 } from '../app/actions/sketch'
+import { afterStarts } from '../app/actions/starts'
 import { deleteFeatures, setSuppressed } from '../app/actions/timeline'
 import type { App, Platform } from '../app/createApp'
 import { DOCUMENT_UNITS } from '../expression/format'
@@ -153,6 +154,8 @@ type CommandInput = {
   readonly shortcuts?: readonly string[]
   readonly contexts: readonly AppContext[]
   readonly availability?: (app: App) => Availability
+  /** The availability or the action reads the app selection (3.6). */
+  readonly readsSelection?: boolean
   readonly checked?: (app: App) => boolean
   readonly detail?: (app: App) => string | null
   readonly run: CommandDefinition['run']
@@ -175,6 +178,7 @@ function command(input: CommandInput): CommandDefinition {
     ...definition,
     ...(input.label === undefined ? {} : { label: input.label }),
     ...(input.description === undefined ? {} : { description: input.description }),
+    ...(input.readsSelection === undefined ? {} : { readsSelection: input.readsSelection }),
     ...(input.checked === undefined ? {} : { checked: input.checked }),
     ...(input.detail === undefined ? {} : { detail: input.detail }),
   }
@@ -828,6 +832,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'edit.delete',
+      readsSelection: true,
       title: 'Delete',
       category: 'Edit',
       icon: Trash2,
@@ -838,6 +843,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'edit.rename',
+      readsSelection: true,
       title: 'Rename',
       category: 'Edit',
       icon: TextCursorInput,
@@ -864,6 +870,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'edit.edit_feature',
+      readsSelection: true,
       title: 'Edit feature',
       category: 'Edit',
       icon: Pencil,
@@ -876,6 +883,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'edit.suppress',
+      readsSelection: true,
       title: 'Suppress',
       category: 'Edit',
       icon: CircleX,
@@ -885,6 +893,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'edit.unsuppress',
+      readsSelection: true,
       title: 'Unsuppress',
       category: 'Edit',
       icon: CircleCheck,
@@ -894,6 +903,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'edit.repeat',
+      readsSelection: true,
       title: 'Repeat',
       label: (app) => {
         const repeated = repeatedCommand(app)
@@ -1020,6 +1030,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'view.look_at',
+      readsSelection: true,
       title: 'Look at',
       category: 'View',
       icon: ScanEye,
@@ -1077,6 +1088,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'view.visibility',
+      readsSelection: true,
       title: 'Show or hide selection',
       category: 'View',
       icon: Eye,
@@ -1115,6 +1127,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     ),
     command({
       id: 'view.lock',
+      readsSelection: true,
       title: 'Lock selection',
       category: 'View',
       icon: Lock,
@@ -1133,6 +1146,7 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
     }),
     command({
       id: 'view.unlock',
+      readsSelection: true,
       title: 'Unlock selection',
       category: 'View',
       icon: LockOpen,
@@ -1230,8 +1244,9 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       shortcuts: ['Mod+Enter'],
       contexts: SKETCH,
       availability: whileEditingSketch,
-      // Finish sketch selects what the sketch made, so the next step shows (3.16.11).
-      run: (app) => finishSketch(app, { selectResult: true }),
+      // Finish sketch selects what the sketch made, so the next step shows (3.16.11), once a way
+      // into sketch mode in progress has run (3.16.1).
+      run: (app) => afterStarts(app, () => finishSketch(app, { selectResult: true })),
     }),
 
     // Print.

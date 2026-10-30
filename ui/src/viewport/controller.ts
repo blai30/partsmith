@@ -9,7 +9,7 @@ import {
   setSelection,
 } from '../app/actions/selection'
 import { openSketch, pickPlane, recordSketchView } from '../app/actions/sketch'
-import { startInTurn } from '../app/actions/starts'
+import { startInProgress, startInTurn } from '../app/actions/starts'
 import { onCoreEvent, type App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import type { BoundingBox, ElementDescriptor } from '../generated/protocol'
@@ -791,12 +791,13 @@ export function createViewportController(options: {
     }
     const result = pickAtPoint(x, y, view)
     if (sketch !== null && sketch.sketchId === null) {
-      // A start, which takes its turn among the starts now (3.7 step 1) rather than holding the
-      // clicks after it.
       const placed = pickSketchPlane(result)
-      if (!inTurn) {
-        await placed
+      if (inTurn) {
+        // A start takes its turn among the starts (3.7 step 1); the clicks after it go on.
+        placed.catch(reportFailure('Placing the sketch'))
+        return
       }
+      await placed
       return
     }
     if (state.context === 'print' && state.print.pickingFace && state.command === null) {
@@ -884,6 +885,15 @@ export function createViewportController(options: {
    */
   function doubleClick(x: number, y: number): Promise<void> {
     const ending = commandEnding(app)
+    const state = store.getState()
+    if (
+      ending === null &&
+      !startInProgress(app) &&
+      (state.command !== null || state.context === 'sketch')
+    ) {
+      // Nothing on its way changes the command or sketch mode a double-click finds there.
+      return Promise.resolve()
+    }
     const atClick = camera
     const picking = ending === null ? doubleClickTarget(x, y, atClick) : null
     return startInTurn(app, async (inputBefore) => {

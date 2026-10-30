@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { notify } from '../app/actions/notifications'
+import { inputLanded, inputOnItsWay } from '../app/actions/selection'
 import { recordPaletteRecent } from '../app/actions/settings'
 import type { App, Platform } from '../app/createApp'
 import { reportFailure } from '../app/report'
@@ -78,6 +79,11 @@ export type CommandDefinition = {
   readonly shortcutContexts?: readonly AppContext[]
   /** Only on this host; absent means every host. */
   readonly host?: 'web' | 'desktop'
+  /**
+   * Whether the availability or the action reads the app selection, so the command checks and runs
+   * once the clicks and selection changes on their way have landed (3.6).
+   */
+  readonly readsSelection?: boolean
   availability(app: App): Availability
   /** For toggle commands: the current state, shown as aria-pressed and a check mark. */
   checked?(app: App): boolean
@@ -213,6 +219,9 @@ export function createCommandRegistry(): CommandRegistry {
       if (!onHost(definition, app.platform)) {
         return
       }
+      if (definition.readsSelection === true && inputOnItsWay(app)) {
+        await inputLanded(app)
+      }
       const availability = definition.availability(app)
       if (availability.state === 'disabled') {
         explainDisabled(app, availability)
@@ -233,7 +242,9 @@ export function createCommandRegistry(): CommandRegistry {
           onHost(definition, app.platform) &&
           shortcutsActiveIn(definition, context) &&
           chords.some((bound) => platformChord(bound, app.platform) === chord) &&
-          definition.availability(app).state !== 'hidden'
+          (definition.availability(app).state !== 'hidden' ||
+            // What the selection will be once the clicks on their way land decides (3.6).
+            (definition.readsSelection === true && inputOnItsWay(app)))
         ) {
           return definition
         }
