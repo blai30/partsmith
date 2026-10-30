@@ -1,5 +1,5 @@
-//! Acceptance tests 68, 71 to 84, 113, 162 and 163 of `docs/spec/engine.md` section 6: measure, evaluate, printer profiles,
-//! print analysis and bodies without volume.
+//! Acceptance tests 68, 71 to 84, 113 and 162 to 165 of `docs/spec/engine.md` section 6: measure, evaluate, printer
+//! profiles, print analysis, bodies without volume and small bodies.
 //!
 //! The spec numbers its tests 68, 71, 72, ...; there are no tests 69 and 70.
 
@@ -9,9 +9,9 @@ use std::f64::consts::PI;
 
 use common::{
     BUFFER_TOLERANCE, GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_near,
-    assert_point3, assert_relative, element_named, elements, headless_session, import_step,
-    measure_body, new_doc, number, open, open_doc, point3, python_script, revision,
-    self_void_bytes, send, session, typed_handle,
+    assert_point3, assert_relative, bounding_box, doc_handle, element_named, elements, fixture,
+    headless_session, import_step, measure_body, new_doc, number, open, open_doc, open_text,
+    point3, python_script, replace_once, revision, self_void_bytes, send, session, typed_handle,
 };
 use partsmith_engine::Session;
 use partsmith_model::Dimension;
@@ -32,6 +32,19 @@ fn rotation_about_x(angle: f64) -> Value {
     let (sine, cosine) = angle.sin_cos();
     json!([[1.0, 0.0, 0.0], [0.0, cosine, -sine], [0.0, sine, cosine]])
 }
+
+/// The keys of a body's measurement (test 68).
+const BODY_MEASUREMENT_KEYS: [&str; 9] = [
+    "area",
+    "bounding_box",
+    "center_of_mass",
+    "edge_count",
+    "face_count",
+    "kind",
+    "type",
+    "vertex_count",
+    "volume",
+];
 
 /// The keys of a JSON object, sorted.
 fn sorted_keys(value: &Value) -> Vec<&str> {
@@ -89,20 +102,7 @@ fn t068_measuring_a_body_reports_mass_properties_and_counts_only() {
     assert_eq!(measured["face_count"], 6);
     assert_eq!(measured["edge_count"], 12);
     assert_eq!(measured["vertex_count"], 8);
-    assert_eq!(
-        sorted_keys(&measured),
-        [
-            "area",
-            "bounding_box",
-            "center_of_mass",
-            "edge_count",
-            "face_count",
-            "kind",
-            "type",
-            "vertex_count",
-            "volume"
-        ]
-    );
+    assert_eq!(sorted_keys(&measured), BODY_MEASUREMENT_KEYS);
 }
 
 #[test]
@@ -751,4 +751,62 @@ fn t163_a_body_without_volume_generates_python_and_saves_its_asset() {
             .contains(asset),
         "the saved document's import names the asset {asset}"
     );
+}
+
+/// Measures the body of `box.ptsm` with its box resized to a cube with sides `side` (an
+/// expression) in a headless session (test 165).
+fn measure_small_cube(side: &str) -> Value {
+    let mut session = headless_session();
+    let text = replace_once(
+        &fixture("box.ptsm"),
+        r#""size": ["20 mm", "30 mm", "height"]"#,
+        &format!(r#""size": ["{side}", "{side}", "{side}"]"#),
+    );
+    let doc = doc_handle(&open_text(&mut session, &text));
+    measure_body(&mut session, doc, "b-1")
+}
+
+/// Asserts the measurement of a box feature's cube with sides `side` mm: its volume and area
+/// relative 1e-9, its center of mass and bounding box within 1e-9 times its side, and test 68's
+/// keys.
+fn assert_small_cube_measured(measured: &Value, side: f64) {
+    let half = side / 2.0;
+    let volume = side.powi(3);
+    let area = 6.0 * side.powi(2);
+    assert_near(number(&measured["volume"]), volume, 1e-9 * volume, "volume");
+    assert_near(number(&measured["area"]), area, 1e-9 * area, "area");
+    let (min, max) = bounding_box(&measured["bounding_box"]);
+    for (what, actual, expected) in [
+        (
+            "center of mass",
+            point3(&measured["center_of_mass"]),
+            [0.0, 0.0, half],
+        ),
+        ("bounding box min", min, [-half, -half, 0.0]),
+        ("bounding box max", max, [half, half, side]),
+    ] {
+        for axis in 0..3 {
+            assert_near(
+                actual[axis],
+                expected[axis],
+                1e-9 * side,
+                &format!("{what} component {axis} of the cube with {side} mm sides"),
+            );
+        }
+    }
+    assert_eq!(sorted_keys(measured), BODY_MEASUREMENT_KEYS);
+}
+
+#[test]
+fn t165_a_small_body_is_measured_with_its_center_of_mass() {
+    let measured = measure_small_cube("0.00005 mm");
+
+    assert_small_cube_measured(&measured, 0.00005);
+}
+
+#[test]
+fn t165_the_smallest_box_is_measured_with_its_center_of_mass() {
+    let measured = measure_small_cube("0.000001 mm");
+
+    assert_small_cube_measured(&measured, partsmith_model::LINEAR_TOLERANCE);
 }

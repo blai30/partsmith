@@ -333,6 +333,10 @@ double volume_of(const TopTools_IndexedMapOfShape &solids) {
   return volume;
 }
 
+// The smallest volume (mm^3) with a center of mass: below it, GProp_GProps::Add keeps no centroid
+// and reports the origin of its frame instead (kernel spec section 3.6, item 1).
+constexpr double kSmallestCenteredVolume = 1e-20;
+
 }  // namespace
 
 FaceMass detail::face_mass(const TopoDS_Face &face, const BRepAdaptor_Surface &surface) {
@@ -369,7 +373,8 @@ Vec3 shape_center_of_mass(const Shape &shape) {
     BRepGProp::VolumeProperties(shape.solids()(index), solid_properties);
     properties.Add(solid_properties);
   }
-  if (std::abs(properties.Mass()) < 1e-12) {
+  const double volume = properties.Mass();
+  if (!std::isfinite(volume) || std::abs(volume) < kSmallestCenteredVolume) {
     raise_invalid_input("This shape has no volume, so it has no center of mass.");
   }
   return to_vec3(properties.CentreOfMass().XYZ());

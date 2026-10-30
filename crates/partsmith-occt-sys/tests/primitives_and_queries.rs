@@ -1,6 +1,6 @@
 //! Acceptance tests for primitives, element geometry, topology, solid and shell counts and widths
 //! across edges (kernel spec sections 2.2, 2.4, 2.10, 3.4.1, 3.6 and tests 5 to 14, 64 to 67, 69,
-//! 70, 95 to 101, 108, 109, 112 and 116 to 121).
+//! 70, 95 to 101, 108, 109, 112, 116 to 121 and 143).
 
 use crate::common;
 
@@ -1131,6 +1131,33 @@ fn center_of_mass_without_volume_is_rejected() {
         Operation::Measure,
         "This shape has no volume, so it has no center of mass.",
     );
+}
+
+#[test]
+fn t143_small_solids_have_a_center_of_mass() {
+    // A 0.00005 mm cube and the smallest box a feature builds, both below the earlier 1e-12 mm³.
+    for side in [0.00005, LINEAR_TOLERANCE] {
+        let shape = make_box(&Plane::XY, side, side, side)
+            .unwrap_or_else(|error| panic!("a cube with {side} mm sides builds: {error}"))
+            .shape;
+        let half = side / 2.0;
+
+        assert!(shape.is_valid().expect("validity check"));
+        assert_relative(
+            shape.volume().expect("volume"),
+            side.powi(3),
+            1e-9,
+            &format!("volume of the cube with {side} mm sides"),
+        );
+        assert_point_near(
+            shape
+                .center_of_mass()
+                .expect("a small solid has a center of mass"),
+            Point::new(half, half, half),
+            1e-9 * side,
+            &format!("center of mass of the cube with {side} mm sides"),
+        );
+    }
 }
 
 #[test]

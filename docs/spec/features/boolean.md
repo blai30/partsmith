@@ -152,7 +152,7 @@ Conventions from features.md section 6.1. Bodies `[b-1, b-2, b-3]`. Fixtures:
 14. **No tools.** `BOX1`, `BOOL([], "join")`. Expected: error `empty_selection` rendered `Select at least one body for Tool bodies.`
 15. **Tool names survive.** As 3, then `{"id": "f-fil1", "type": "fillet", "body": "b-1", "edges": [{"q": "edge(f-box1/top|f-box2/left)", "fp": "line|n=0,1,0|c=0,0,20|l=20"}], "radius": "2"}`. Expected: fillet ok; b-1 volume 3982.831853, 7 faces.
 16. **Performance.** Test 1 builds in under 15 ms (desktop, release).
-17. **A tool whose feature is suppressed.** `BOX1`, `BOX2` with `"suppressed": true`, `BOOL(["b-2"], "join")`. Expected: error `tool_empty` rendered `Body 'Body 2' is empty here because 'Box 2', which makes it, is suppressed, so it cannot be used as a tool.`, fixes `Unsuppress { feature: "f-box2" }` then `Pick`; b-1 unchanged. Then (`Unsuppress`): as test 1.
+17. **A tool whose feature is suppressed.** `BOX1`, `BOX2` with `"suppressed": true`, `BOOL(["b-2"], "join")`. Expected: error `tool_empty` rendered `Body 'Body 2' is empty here because 'Box 2', which makes it, is suppressed, so it cannot be used as a tool.`, fixes `Unsuppress { feature: "f-box2" }` then `Pick`; b-1 unchanged. Then (`Unsuppress`): as test 1, whose document the test loads from its example, `examples/boolean/join` (features.md section 6.1).
 
 ## Open issues
 

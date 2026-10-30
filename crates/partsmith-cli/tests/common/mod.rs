@@ -284,8 +284,7 @@ impl Workspace {
     /// content-hash name the engine's `import_step` gives them (engine spec section 3.14).
     /// Returns the asset name.
     pub fn store_box_step_asset(&self) -> String {
-        let step = self.box_step();
-        self.store_step_asset(step)
+        self.store_step_asset(self.box_step())
     }
 
     /// Stores `SELF_VOID` (engine spec test 162: the STEP text `partsmith export box.ptsm` writes,

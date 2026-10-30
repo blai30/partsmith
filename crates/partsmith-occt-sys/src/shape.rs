@@ -237,7 +237,8 @@ impl Shape {
         call(Operation::Measure, || sys::shape_area(self.inner()))
     }
 
-    /// Volume centroid; fails for shapes without volume.
+    /// Volume centroid; fails for shapes without volume, below 1e-20 mm³ (spec section 3.6,
+    /// item 1).
     pub fn center_of_mass(&self) -> Result<Point, KernelError> {
         if self.count(SubShapeKind::Solid) == 0 {
             return Err(KernelError::invalid_input(
