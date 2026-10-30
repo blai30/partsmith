@@ -1,7 +1,13 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { confirmCommand, setHoveredField } from '../app/actions/command'
+import {
+  cancelCommand,
+  confirmCommand,
+  setHoveredField,
+  startFeatureCommand,
+} from '../app/actions/command'
 import { undo } from '../app/actions/document'
+import { select as selectItems } from '../app/actions/selection'
 import { enterSketch } from '../app/actions/sketch'
 import type { App } from '../app/createApp'
 import type { BodyMeshData } from '../core/events'
@@ -13,6 +19,7 @@ import type {
   Resolution,
 } from '../generated/protocol'
 import {
+  activeCommandWith,
   bodyMeshEvent,
   boxMesh,
   CUBE_FACES,
@@ -33,11 +40,17 @@ import { onUiRequest } from '../layout/requests'
 import { MESSAGES } from '../messages'
 import { DEFAULT_SETTINGS } from '../settings/settings'
 import { planePickingSession } from '../sketch/fixtures.testing'
-import { INITIAL_STATE, type AppState, type DocumentState } from '../state/store'
+import {
+  INITIAL_STATE,
+  type ActiveCommand,
+  type AppState,
+  type DocumentState,
+} from '../state/store'
 import { createFakeBackend, type FakeBackend } from '../test/fakes/backend'
 import type { FakeCoreApi } from '../test/fakes/core-api'
 import { deferred } from '../test/fakes/deferred'
 import {
+  CUBE_EXTRUDE,
   CUBE_FEATURES_DOCUMENT,
   CUBE_FRONT_FACE,
   CUBE_TOP_FACE,
@@ -49,11 +62,13 @@ import { bodyItem, elementItem, featureItem } from '../test/fakes/selection'
 import { stubResizeObserver, type FakeResizeObservers } from '../test/fakes/resize-observer'
 import { settle } from '../test/fakes/settle'
 import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
-import { ELEMENT_STATE } from './backend'
+import { ELEMENT_STATE, type RenderFrame } from './backend'
 import {
   DEFAULT_CAMERA,
+  eye,
   fitBounds,
   forward,
+  orbit,
   standardViewRotation,
   up,
   windowProjection,
@@ -968,6 +983,269 @@ describe('clicks (3.6)', () => {
     fireEvent.dblClick(fixture.canvas, { button: 0, clientX: 200, clientY: 150 })
     await settle()
     expect(fixture.core.callsTo('beginTransaction')).toEqual([])
+  })
+})
+
+/** Extrude 1 of cube.ptsm edited, as `editFeature` opens it: applied, its preview drawn. */
+const EDITING_EXTRUDE = activeCommandWith({
+  featureType: 'extrude',
+  featureId: 'f-ext1',
+  title: 'Extrude 1',
+  editing: true,
+  applied: true,
+  preview: 'shown',
+  params: {
+    body: CUBE_EXTRUDE['body'],
+    profile: CUBE_EXTRUDE['profile'],
+    extent: CUBE_EXTRUDE['extent'],
+    op: CUBE_EXTRUDE['op'],
+  },
+})
+
+/** A Fillet on the cube's top front edge: complete, its preview drawn. */
+const COMPLETE_FILLET: ActiveCommand = {
+  ...FILLET_EDGES_COMMAND,
+  params: { body: 'b-cube', radius: '2 mm', edges: [CUBE_TOP_FRONT_EDGE.reference] },
+  applied: true,
+  preview: 'shown',
+}
+
+const TOP_FACE_KEY = `element:b-cube:${CUBE_TOP_FACE.name}`
+
+type EndHeld = {
+  readonly fixture: Fixture
+  /** Answers the command's held cancel or commit; the cube's model mesh is drawn from then on. */
+  answerEnd(): void
+  /** The frames the backend picked in, oldest first. */
+  readonly pickFrames: readonly RenderFrame[]
+}
+
+/**
+ * The cube with `command` active and the core's answer to its cancel or commit held. Until that
+ * answer, the backend picks nothing where the cube is, as the scene draws the cube's model mesh
+ * only once the answer's events arrive (3.6); after it, the top face. `pickReference` answers
+ * with `pick` (the top face by default).
+ */
+function withEndHeld(
+  command: ActiveCommand,
+  pick: () => Promise<ElementDescriptor> = () => Promise.resolve(CUBE_TOP_FACE),
+): EndHeld {
+  let drawn = false
+  const ended = deferred<undefined>()
+  const fixture = setUp({
+    state: { command },
+    prepare: (core) => {
+      core.stub('pickReference', pick)
+      core.stub('cancelTransaction', async () => {
+        await ended.promise
+        drawn = true
+        return 2
+      })
+      core.stub('commitTransaction', async () => {
+        await ended.promise
+        drawn = true
+        return { revision: 2, recorded: true }
+      })
+    },
+  })
+  const pickFrames: RenderFrame[] = []
+  fixture.backend.setPickHandler(({ frame }) => {
+    pickFrames.push(frame)
+    const draw = frame.draws.find(
+      (candidate) => candidate.id === fixture.backend.idOf(CUBE_MESH.positions),
+    )
+    return !drawn || draw === undefined || draw.pickBase === null
+      ? []
+      : [{ pickId: draw.pickBase, distance: 0, depth: 100 }]
+  })
+  return {
+    fixture,
+    pickFrames,
+    answerEnd: () => {
+      ended.resolve(undefined)
+    },
+  }
+}
+
+function doubleClick(canvas: HTMLCanvasElement, x: number, y: number): void {
+  click(canvas, x, y)
+  click(canvas, x, y)
+  fireEvent.dblClick(canvas, { button: 0, clientX: x, clientY: y })
+}
+
+function selectionKeys(fixture: Fixture): string[] {
+  return fixture.app.store.getState().selection.map((item) => item.key)
+}
+
+function shownCodes(fixture: Fixture): (string | undefined)[] {
+  return fixture.app.store.getState().notifications.map((notification) => notification.code)
+}
+
+/** The index in the core's calls of the first call to `method` that matches `matches`, or -1. */
+function callIndex(
+  fixture: Fixture,
+  method: keyof App['core'],
+  matches: (args: readonly unknown[]) => boolean = () => true,
+): number {
+  return fixture.core.calls.findIndex((call) => call.method === method && matches(call.args))
+}
+
+describe('U-242 clicks in the view land in the order they were made (3.6, 3.7 step 1)', () => {
+  it('U-242 (a) a click right after Esc is picked once the cancel is answered, against the model it restores', async () => {
+    const { fixture, answerEnd } = withEndHeld(EDITING_EXTRUDE)
+    const canceled = cancelCommand(fixture.app)
+    click(fixture.canvas, 200, 150)
+    await settle()
+    expect(fixture.core.callsTo('pickReference')).toEqual([])
+    answerEnd()
+    await canceled
+    await settle()
+    expect(fixture.core.callsTo('pickReference')).toEqual([
+      [1, { mesh_id: 1, kind: 'face', index: 0 }],
+    ])
+    expect(selectionKeys(fixture)).toEqual([TOP_FACE_KEY])
+  })
+
+  it('U-242 (b) a click while OK runs is picked once the commit is answered, against the confirmed model', async () => {
+    const { fixture, answerEnd } = withEndHeld(COMPLETE_FILLET)
+    const confirmed = confirmCommand(fixture.app)
+    await settle()
+    click(fixture.canvas, 200, 150)
+    await settle()
+    answerEnd()
+    await confirmed
+    await settle()
+    expect(fixture.app.store.getState().command).toBeNull()
+    expect(selectionKeys(fixture)).toEqual([TOP_FACE_KEY])
+  })
+
+  it('U-242 (c) a double-click right after Esc edits what it finds once the cancel is answered', async () => {
+    const { fixture, answerEnd } = withEndHeld(EDITING_EXTRUDE)
+    const canceled = cancelCommand(fixture.app)
+    doubleClick(fixture.canvas, 200, 150)
+    await settle()
+    expect(fixture.core.callsTo('beginTransaction')).toEqual([])
+    answerEnd()
+    await canceled
+    await settle()
+    expect(fixture.core.callsTo('beginTransaction')).toEqual([[1, 'Edit Extrude 1']])
+  })
+
+  it('U-242 (d) guard: "Select Cube" made while a click waits for the cancel lands after that click (E-89)', async () => {
+    const picked = deferred<ElementDescriptor>()
+    const { fixture, answerEnd } = withEndHeld(EDITING_EXTRUDE, () => picked.promise)
+    const canceled = cancelCommand(fixture.app)
+    click(fixture.canvas, 200, 150)
+    selectItems(fixture.app, [bodyItem('b-cube', 'Cube')], 'replace')
+    answerEnd()
+    await canceled
+    await settle()
+    picked.resolve(CUBE_TOP_FACE)
+    await settle()
+    expect(selectionKeys(fixture)).toEqual(['body:b-cube'])
+  })
+
+  it('U-242 (e) a click that waits for the cancel is picked with the camera of the click', async () => {
+    const { fixture, answerEnd, pickFrames } = withEndHeld(EDITING_EXTRUDE)
+    const atClick = fixture.controller.getCamera()
+    const canceled = cancelCommand(fixture.app)
+    click(fixture.canvas, 200, 150)
+    fixture.controller.setCamera(orbit(atClick, 90, 0, [0, 0, 10]))
+    fixture.frames.flush()
+    answerEnd()
+    await canceled
+    await settle()
+    expect(pickFrames).toHaveLength(1)
+    const expected = eye(atClick)
+    pickFrames[0]?.eye.forEach((value, axis) => {
+      expect(value).toBeCloseTo(expected[axis] ?? Number.NaN, 6)
+    })
+    expect(selectionKeys(fixture)).toEqual([TOP_FACE_KEY])
+  })
+
+  it('U-242 (f) Sketch pressed after a click that waits for the cancel puts the new sketch on that face', async () => {
+    const picked = deferred<ElementDescriptor>()
+    const { fixture, answerEnd } = withEndHeld(EDITING_EXTRUDE, () => picked.promise)
+    const canceled = cancelCommand(fixture.app)
+    click(fixture.canvas, 200, 150)
+    const started = startFeatureCommand(fixture.app, 'sketch')
+    answerEnd()
+    await canceled
+    await settle()
+    picked.resolve(CUBE_TOP_FACE)
+    await started
+    await settle()
+    const changes = fixture.core.callsTo('applyEdits')
+    expect(changes.map((call) => call[1])).toEqual(['New sketch'])
+    expect(changes[0]?.[2]).toMatchObject([
+      {
+        type: 'add_feature',
+        feature: {
+          type: 'sketch',
+          plane: { kind: 'face', body: 'b-cube', face: CUBE_TOP_FACE.reference },
+        },
+      },
+    ])
+  })
+
+  it('U-242 (g) Shell started after a click that waits for the cancel preselects that face', async () => {
+    const picked = deferred<ElementDescriptor>()
+    const { fixture, answerEnd } = withEndHeld(EDITING_EXTRUDE, () => picked.promise)
+    const canceled = cancelCommand(fixture.app)
+    click(fixture.canvas, 200, 150)
+    const started = startFeatureCommand(fixture.app, 'shell')
+    answerEnd()
+    await canceled
+    await settle()
+    picked.resolve(CUBE_TOP_FACE)
+    await started
+    await settle()
+    const command = fixture.app.store.getState().command
+    expect(command).toMatchObject({ featureType: 'shell', history: [] })
+    expect(command?.params['remove_faces']).toEqual([CUBE_TOP_FACE.reference])
+  })
+
+  it('U-242 (h) a feature key pressed after a click on a face during plane picking opens after the new sketch', async () => {
+    const picked = deferred<ElementDescriptor>()
+    const fixture = setUp({
+      state: { context: 'sketch', sketch: planePickingSession() },
+      prepare: (core) => {
+        core.stub('pickReference', () => picked.promise)
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    click(fixture.canvas, 400, 300)
+    const started = startFeatureCommand(fixture.app, 'extrude')
+    picked.resolve(CUBE_TOP_FACE)
+    await started
+    await settle()
+    const sketched = callIndex(fixture, 'applyEdits', (args) => args[1] === 'New sketch')
+    expect(sketched).toBeGreaterThanOrEqual(0)
+    expect(sketched).toBeLessThan(callIndex(fixture, 'beginTransaction'))
+    expect(fixture.app.store.getState()).toMatchObject({ context: 'model', sketch: null })
+    expect(fixture.app.store.getState().command?.featureType).toBe('extrude')
+    expect(shownCodes(fixture)).not.toContain('command_canceled')
+  })
+
+  it('U-242 (i) a feature key pressed after a double-click on a face opens after the edit it asks for', async () => {
+    const picked = deferred<ElementDescriptor>()
+    const fixture = setUp({
+      prepare: (core) => {
+        core.stub('pickReference', () => picked.promise)
+      },
+    })
+    pickElement(fixture, 'face', 0)
+    doubleClick(fixture.canvas, 200, 150)
+    const started = startFeatureCommand(fixture.app, 'fillet')
+    picked.resolve(CUBE_TOP_FACE)
+    await started
+    await settle()
+    expect(fixture.core.callsTo('beginTransaction')).toEqual([
+      [1, 'Edit Extrude 1'],
+      [1, 'Fillet'],
+    ])
+    expect(fixture.app.store.getState().command?.featureType).toBe('fillet')
+    expect(shownCodes(fixture)).not.toContain('command_canceled')
   })
 })
 

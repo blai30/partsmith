@@ -1,0 +1,58 @@
+# 0050: Input lands in the order it was made
+
+Status: Accepted. It changes UI behavior only (ui.md 3.5, 3.6, 3.7, 3.16.1, 3.20): no protocol or file-format schema, capability, license or dependency, so no human gate applies.
+
+## Context
+
+The confirm race fixes (a63f1e7 and 722e2a1) made `openFeatureCommand` read the app state once `begin_transaction` has begun, and made every action that arrives while OK commits wait for it (`confirmSettled`). Three timing leftovers remained, each checked on the tree of 2026-10-30.
+
+- **E-89 under late core messages.** A page script loaded in front of a scratch copy of the production build delivered every message of the core worker to the page 60 ms late, in order (a scratch harness, never committed). Under it, E-89 failed in Chromium in 11 of 12 runs of one batch and in 8 of 12 of two smaller ones, in two ways, both read from a log of the page's DOM and of the worker's messages:
+  - *A click right after Escape.* Escape ends an edit of Extrude 1 at once in the UI, so the scene stops drawing its preview, while the model layer still shows the state before Extrude 1, which has no cube, until the answer to `cancel_transaction` brings the cube's model mesh (one round trip later; 230 to 570 ms in the traced runs, four browsers at once). The test's click on the cube fell in that gap: it picked nothing and cleared the selection, and "Made by Extrude 1" never came back. A click there on a later feature's body would have named the mesh the cancel replaces, which the core refuses with `stale_pick`. The same gap opens while OK runs: the click is picked against the model before the feature, then lands after the commit.
+  - *A selection change made while a click is on its way.* After Escape the selection inspector shows the face selected before the edit again, so the test's wait for "Made by Extrude 1" passed on the old selection, and its click on "Select Cube" selected the body before the core answered the canvas click. That answer then selected the face: the title read "1 face" instead of "Cube".
+- **The other ways into sketch mode** (the Sketch context with a sketch selected, a double-click on a sketch item, a browser row, "Back to sketch", "Show '{sketch}'", a plane picked during plane picking, re-attaching) ran beside feature starts instead of after them. With the fake core holding one answer (scratch tests): a browser row's `enterSketch` while a Chamfer began its transaction left the Chamfer command open in Sketch context; Extrude pressed while `enterSketch` still canceled a Fillet opened over sketch mode without the sketch's profile; Extrude pressed while a plane picked in plane picking was being added left a sketch session beside the command in Model context; Extrude pressed while `reattachSketch` canceled a command opened over plane picking; and a click on a face answered after `enterSketch` left the face selected in sketch mode. Nothing was lost; both actions ran, in a state no single order gives.
+- **Enter before the core answers a pick.** The Enter ladder checks completeness when the key is pressed. In a Fillet with Edges empty, a click on an edge and Enter before the core answers did nothing, and the command stayed open, complete, once the edge landed. Repeat (Enter on the viewport with nothing selected) did nothing the same way. OK already waits for clicks made before it when the command is complete (3.7).
+
+A scratch copy of the UI with the first two rules below passed E-89 in 12 of 12 runs under the harness; with the click rule alone, 9 of 12 failed with "1 face".
+
+## Options
+
+Selection changes made while a click on the model is on its way:
+
+1. **They wait for the click and land after it (chosen),** and so does what reads the selection: a registry command whose availability or action reads it (Delete, Rename, Edit feature, Suppress, Unsuppress, Repeat), a feature start's preselection, the Sketch context's choice and `startNewSketch`, and Esc's last step. The last action wins, as the user made them; a Shift-click after a click adds to what the click left. Without the readers waiting, the rule would turn a correct action into a destructive one: with Peg selected, a click on a face of Cube, a click on the row "Cube" and Delete would delete Peg, which no order of the three gives.
+2. A click that lands after a newer selection change is dropped. No waiting, and the selection stays synchronous, so nothing that reads it waits; but a Shift-click on a row after a click on a face loses the face, and every writer of the selection needs a generation count.
+3. As before: the late click undoes "Select Cube".
+
+A click on the model while a command's end is on its way:
+
+1. **It is picked once the end has settled, against the model then drawn, with the camera kept at the click (chosen).** What the user aimed at is there by then: the feature as previewed after OK, the model the cancel restores after Esc; and the camera kept at the click makes an orbit started right after it, or the camera move of a sketch entered meanwhile, change nothing of what it picks.
+2. The ended command's preview stays drawn until the answer. No gap on screen, but preview meshes are not pickable (`preview_not_pickable`), so the click still misses or names a stale mesh.
+3. Every click waits for every change on its way in the mutation queue. Not taken: other changes keep drawing the meshes the click aimed at until their events arrive, so a click during one is at worst ignored (3.6), and the wait would hold back sketch selection, which needs no core, behind every queued sketch commit.
+
+Enter while a click on the model is on its way:
+
+1. **Enter waits for the click, and for a start asked for before it, and then takes the ladder's step 3 when a command is open, else step 4 (chosen).** With a command active at the key it counts as OK running from the key press, so what else acts on the command waits for it as it waits for OK, and a second Enter does nothing; with none, a start asked for after the key wins and the Enter does nothing, so it never confirms or repeats over a command the user opened after it. The wait lives where every Enter confirms, the viewport, the command's inspector and its expression fields alike. `Mod+Z` and `Mod+Shift+Z` in a command wait for the click the same way, since with an empty history `Mod+Z` would otherwise cancel the command the click was going into.
+2. As before: completeness and the selection are read at the key press, so pick, Enter does nothing when the pick is what completes the command or makes the selection.
+3. The OK button waits too. Not taken: while incomplete it is `aria-disabled` with "Fill in the highlighted fields first.", and a button that acts after it looked disabled surprises; Enter shows no such state.
+
+The other ways into sketch mode:
+
+1. **Every way into sketch mode is a start of 3.7 step 1 (chosen),** from the input that asks for it (a click or double-click on the model at the click, before the core answers its pick) until the sketch is set up (its solution shown, the camera on it, its view history begun) or the plane picking is open, and `enterSketch` clears the selection only once the clicks and selection changes before it have landed. A plane pick whose turn comes once plane picking has closed does nothing, a Sketch that waited for a Sketch keeps the unchanged sketch that one added, entering the sketch already edited keeps its session, and Esc, the Model and Print contexts and Finish sketch asked for while a start is in progress wait for it.
+2. Only the three callers named in the report go through `editFeature`. Leaves "Back to sketch", "Show '{sketch}'", plane picks and re-attaching with the same race, measured for the plane pick and re-attaching.
+3. As 1, but the exits (Esc, the Model and Print contexts, Finish sketch) run at once. Less waiting, but an exit asked for right after a way in is lost: Sketch while it cancels a command, then Esc, opens plane picking after Esc found nothing to do, and a double-click on a sketch, then the Model context, ends in sketch mode.
+
+## Decision
+
+1. Clicks and selection changes land in the order they were made: a click on the model is on its way from the click, through any wait for a command's end, until it lands, and a selection change or pick made meanwhile waits for it and lands after it; with none on its way it is made at once. What reads the app selection waits the same way: the registry commands that read it, a feature start's preselection, the Sketch context's choice and `startNewSketch`; Esc's last step and `Mod+Z` and `Mod+Shift+Z` in a command wait for the clicks on their way. A click the core refuses or a restart rejects lands nothing, and what waits for it goes on (ui.md 3.5, 3.6, 3.7 step 4, 3.20).
+2. A click or double-click on the model made while a feature command's end (OK until it has settled, a cancel until the cancel's answer) is on its way is picked once that end has settled, at its point with the camera kept at the click, against the model then drawn, and goes where a click goes then (ui.md 3.6, 3.7).
+3. Steps 3 and 4 of the Enter ladder act on what the clicks and starts asked for before the key leave: such an Enter waits for them, then confirms a complete command when one is open or else repeats on the selection; with a command active at the key it counts as OK running from the key press, with none it yields to a start asked for after the key, and an Enter pressed while OK runs does nothing. Enter takes the key for them only in the command's inspector or on the viewport in Model or Print, and an expression field's Enter confirms through the same wait. The OK button keeps following what it shows (ui.md 3.5, 3.7, 3.20).
+4. Every way into sketch mode starts one at a time with feature commands and edits, from the input that asks for it until the sketch is set up or the plane picking is open; a plane pick after plane picking has closed does nothing; a Sketch that waited for a Sketch keeps the unchanged sketch it added; entering the sketch already edited keeps its session; and Esc, the Model and Print contexts and Finish sketch asked for while a start is in progress wait for it (ui.md 3.5, 3.7 step 1, 3.16.1).
+
+Tests U-241 to U-245 hold each core answer with a deferred promise. Those marked "guard" in ui.md 6.4 (U-241 (e), (g) and (h), U-242 (d), U-243 (f), U-244 (b), (e), (f) and (g)) pass on the code before this decision too: they hold the paths it keeps, which a change that waits in one place only would break. The others fail on the code before it. E-89 is unchanged; it passes under the late-message harness once decisions 1 and 2 hold.
+
+## Consequences
+
+- `select` and `clearSelection` are asynchronous while a click is on its way, by at most the core's answer to that click.
+- A click right after Esc or OK, and an Enter right after a pick, wait one core round trip before they act, which they waited before too, through the worker's request order, but for a result that was wrong.
+- Starts, edits and the ways into sketch mode share one queue, so a way into sketch mode waits for a feature start whose `begin_transaction` is slow, and the reverse.
+- Behind a core busy with a long call, a click waits for it, and so does what waits for the click: a click on a browser row or "Select {name}" then selects nothing, and Delete or Repeat runs nothing, until the core answers the click or a restart rejects it. `pick_reference` is a waited-on request, so the still-working panel shows after 10 s and offers Stop (ui.md 4.4).
+- Esc, Enter and the context switches pressed right after a start wait for it, one core round trip or more, instead of acting on the state before it.

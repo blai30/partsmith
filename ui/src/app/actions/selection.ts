@@ -6,15 +6,24 @@ import type { App } from '../createApp'
 import { capturePick, confirmRunning, confirmSettled } from './command'
 import { showCoreError } from './edits'
 
-// The app selection and hover (ui.md 3.6).
+// The app selection and hover (ui.md 3.6). Clicks on the model and selection changes land in the
+// order they were made: a click holds its place from the moment it is made until the core has
+// answered its pick and it has landed, and what changes the selection meanwhile lands after it.
 
 const ELEMENT_NOUNS = { face: 'Face', edge: 'Edge', vertex: 'Vertex' } as const
 
 /** Pick errors that mean the click hit geometry that is gone or not pickable: ignored silently. */
 const IGNORED_PICK_ERRORS: ReadonlySet<string> = new Set(['stale_pick', 'preview_not_pickable'])
 
-/** Each store's clicks on the model, settled once every one has landed where it goes. */
-const landingClicks = new WeakMap<AppStore, Promise<void>>()
+/** The clicks on the model and selection changes of one store on their way (3.6). */
+type InputOrder = {
+  /** Settles once every place held so far has been left. */
+  landed: Promise<void>
+  /** The places held and not left yet. */
+  held: number
+}
+
+const inputOrders = new WeakMap<AppStore, InputOrder>()
 
 /**
  * The selection with each item toggled by key: removed when it is selected, else added after the
@@ -34,18 +43,106 @@ export function toggledByKey(
   return [...byKey.values()]
 }
 
+/**
+ * Holds a place in the order input lands, from now until `leave` is called: input made meanwhile
+ * lands after it. `turn` resolves once the input made before it has landed.
+ */
+function holdPlace(app: App): { readonly turn: Promise<void>; readonly leave: () => void } {
+  let order = inputOrders.get(app.store)
+  if (order === undefined) {
+    order = { landed: Promise.resolve(), held: 0 }
+    inputOrders.set(app.store, order)
+  }
+  const current = order
+  const turn = current.landed
+  let release = (): void => undefined
+  const left = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  current.landed = turn.then(() => left)
+  current.held += 1
+  let held = true
+  return {
+    turn,
+    leave: () => {
+      if (held) {
+        held = false
+        current.held -= 1
+        release()
+      }
+    },
+  }
+}
+
+/** Whether a click on the model or a selection change is on its way, which what comes next waits for. */
+export function inputOnItsWay(app: App): boolean {
+  return (inputOrders.get(app.store)?.held ?? 0) > 0
+}
+
+/**
+ * Resolves once every click on the model and selection change made so far has landed, however
+ * late the core answered, so what reads the selection then reads what they left (3.6).
+ */
+export function inputLanded(app: App): Promise<void> {
+  return inputOrders.get(app.store)?.landed ?? Promise.resolve()
+}
+
+/**
+ * Lands input in the order it was made (3.6): `land` runs at once when no click on the model or
+ * selection change is on its way and there is no `first` to wait for, else once those have landed
+ * and `first` has settled. The input holds its place from now until `land` has settled, so what is
+ * made meanwhile lands after it. `land` changes the selection with `setSelection` or `landPick`,
+ * which act at once, since its turn has come.
+ */
+export function landInTurn(
+  app: App,
+  land: () => void | Promise<void>,
+  first?: Promise<void>,
+): Promise<void> {
+  if (first === undefined && !inputOnItsWay(app)) {
+    const landing = land()
+    if (landing === undefined) {
+      return Promise.resolve()
+    }
+    // What is made while this lands waits for it.
+    const place = holdPlace(app)
+    return landing.finally(place.leave)
+  }
+  const place = holdPlace(app)
+  return Promise.all([place.turn, first])
+    .then(land)
+    .finally(place.leave)
+}
+
+/**
+ * Replaces or toggles the selection at once. Only a landing whose turn has come (`landInTurn`)
+ * calls it; everything else selects with `select`, which waits for the input on its way.
+ */
+export function setSelection(
+  app: App,
+  items: readonly SelectionItem[],
+  mode: 'replace' | 'toggle',
+): void {
+  app.store.setState((state) => {
+    const selection = mode === 'replace' ? [...items] : toggledByKey(state.selection, items)
+    return selection.length === 0 && state.selection.length === 0 ? {} : { selection }
+  })
+}
+
+/** Replaces or toggles the selection once the clicks and selection changes on their way have landed (3.6). */
 export function select(
   app: App,
   items: readonly SelectionItem[],
   mode: 'replace' | 'toggle',
 ): void {
-  app.store.setState((state) => ({
-    selection: mode === 'replace' ? [...items] : toggledByKey(state.selection, items),
-  }))
+  void landInTurn(app, () => {
+    setSelection(app, items, mode)
+  })
 }
 
+/** Empties the selection once the clicks and selection changes on their way have landed (3.6). */
 export function clearSelection(app: App): void {
-  app.store.setState((state) => (state.selection.length === 0 ? {} : { selection: [] }))
+  select(app, [], 'replace')
 }
 
 export function setHover(app: App, target: HoverTarget | null): void {
@@ -71,8 +168,12 @@ export function elementSelectionItem(app: App, element: ElementDescriptor): Sele
   }
 }
 
-/** The selection item a pick means; mesh picks are converted by the core. Null when the pick is stale. */
-async function itemFor(app: App, sample: PickResult): Promise<SelectionItem | null> {
+/**
+ * The selection item a pick means; mesh picks are converted by the core (3.6). Null when the core
+ * refuses the pick (`stale_pick` and `preview_not_pickable` silently, any other error shown) or
+ * the core stopped.
+ */
+export async function pickedItem(app: App, sample: PickResult): Promise<SelectionItem | null> {
   if (sample.kind === 'item') {
     return sample.item
   }
@@ -96,19 +197,29 @@ async function itemFor(app: App, sample: PickResult): Promise<SelectionItem | nu
   }
 }
 
-/**
- * Resolves once every click on the model made so far has landed in the selection or the command,
- * however late the core answered it, so what reads the selection next sees it (3.16.1).
- */
-export function clicksLanded(app: App): Promise<void> {
-  return landingClicks.get(app.store) ?? Promise.resolve()
+/** Lands a picked item where a click goes now: the active feature command, else the selection. */
+async function landItem(
+  app: App,
+  item: SelectionItem | null,
+  modifiers: { readonly toggle: boolean },
+  pointer: PointerRay | undefined,
+): Promise<void> {
+  if (item === null) {
+    return
+  }
+  if (app.store.getState().command !== null) {
+    await capturePick(app, item, pointer)
+    return
+  }
+  setSelection(app, [item], modifiers.toggle ? 'toggle' : 'replace')
 }
 
 /**
  * A click on a pick target: selects it (toggles with a modifier), or feeds an active feature
- * command. `pointer` is the click's ray, which a face picked for a hole center needs (3.7). A
- * click made before OK lands in the command first, and OK waits for it; one made while OK runs
- * goes where a click goes once OK has settled.
+ * command. `pointer` is the click's ray, which a face picked for a hole center needs (3.7). The
+ * core is asked at once, and the click lands in the order it was made (3.6): a click made before
+ * OK lands in the command first, and OK waits for it; one made while OK runs goes where a click
+ * goes once OK has settled.
  */
 export function pickAt(
   app: App,
@@ -116,33 +227,26 @@ export function pickAt(
   modifiers: { readonly toggle: boolean },
   pointer?: PointerRay,
 ): Promise<void> {
-  const runningConfirm = confirmRunning(app) ? confirmSettled(app) : null
-  const landing = landClick(app, sample, modifiers, runningConfirm, pointer)
-  const earlier = clicksLanded(app)
-  landingClicks.set(
-    app.store,
-    Promise.all([earlier, landing.catch(() => undefined)]).then(() => undefined),
+  const runningConfirm = confirmRunning(app) ? confirmSettled(app) : undefined
+  const picking = pickedItem(app, sample)
+  return landInTurn(
+    app,
+    async () => {
+      await landItem(app, await picking, modifiers, pointer)
+    },
+    runningConfirm,
   )
-  return landing
 }
 
-async function landClick(
+/**
+ * A click whose turn has come (`landInTurn`), such as one that waited for a command's end (3.6):
+ * the core is asked now, and the click lands as `pickAt`'s does.
+ */
+export async function landPick(
   app: App,
   sample: PickResult,
   modifiers: { readonly toggle: boolean },
-  runningConfirm: Promise<void> | null,
   pointer?: PointerRay,
 ): Promise<void> {
-  const item = await itemFor(app, sample)
-  if (item === null) {
-    return
-  }
-  if (runningConfirm !== null) {
-    await runningConfirm
-  }
-  if (app.store.getState().command !== null) {
-    await capturePick(app, item, pointer)
-    return
-  }
-  select(app, [item], modifiers.toggle ? 'toggle' : 'replace')
+  await landItem(app, await pickedItem(app, sample), modifiers, pointer)
 }

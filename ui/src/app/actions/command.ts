@@ -1,7 +1,7 @@
 import { CoreError } from '../../core/client'
 import { generateId, usedIds } from '../../core/ids'
 import { featureLabel, nextBodyName } from '../../core/labels'
-import { createLatestOnly, createOneAtATime, type LatestOnly } from '../../core/queue'
+import { createLatestOnly, type LatestOnly } from '../../core/queue'
 import { CoreFatalError } from '../../core/transport'
 import { activeFeatures, markerPosition } from '../../core/recipe'
 import type {
@@ -73,8 +73,9 @@ import {
   takes,
   withSiblingBody,
 } from './preselection'
-import { clicksLanded } from './selection'
-import { enterSketch, finishSketch, sketchFaceBody, sketchPlaneOf, startNewSketch } from './sketch'
+import { inputLanded, inputOnItsWay } from './selection'
+import { finishSketch, openSketch, sketchFaceBody, sketchPlaneOf, startNewSketch } from './sketch'
+import { afterStarts, startInProgress, startInTurn } from './starts'
 import { setSuppressed } from './timeline'
 
 // Feature commands (ui.md 3.7): an inspector over one feature record inside a transaction, with a
@@ -607,23 +608,6 @@ function withoutCreatedBodies(
   return { params: setParam(session.feature, saved.params, 'target', body.id), newBody: body }
 }
 
-/** Feature command starts, per store: a start waits for the one before it to finish. */
-const startsOneAtATime = createOneAtATime<AppStore>()
-
-/**
- * Runs one start of a feature command after any start still in progress (a double-click, a held
- * key), so the second never begins a transaction while the first is opening one, and after OK
- * while it runs, so the start acts on what OK leaves (3.7). With neither, it starts at once.
- */
-function oneStartAtATime(app: App, start: () => Promise<void>): Promise<void> {
-  return startsOneAtATime(app.store, async () => {
-    if (confirmRunning(app)) {
-      await confirmSettled(app)
-    }
-    await start()
-  })
-}
-
 /**
  * Whether the active command is this one with no change made in it yet, so starting it again (a
  * double-click, a held key) keeps it rather than reopening it without its preselection.
@@ -648,15 +632,18 @@ export function startFeatureCommand(
   options: OpenOptions = {},
 ): Promise<void> {
   if (featureType === 'sketch') {
-    return oneStartAtATime(app, () => startNewSketch(app))
+    return startNewSketch(app)
   }
-  return oneStartAtATime(app, () => openFeatureCommand(app, featureType, options))
+  return startInTurn(app, (inputBefore) =>
+    openFeatureCommand(app, featureType, options, inputBefore),
+  )
 }
 
 async function openFeatureCommand(
   app: App,
   featureType: string,
   options: OpenOptions,
+  inputBefore: Promise<void>,
 ): Promise<void> {
   if (options.restore === undefined && alreadyOpen(app, featureType, null)) {
     return
@@ -684,8 +671,10 @@ async function openFeatureCommand(
     showCoreError(app, error)
     return
   }
-  // Steps 3 and 4 read the app state once the transaction has begun, so a click the core answered
-  // meanwhile (one made right before the key) is preselected rather than cleared.
+  // Steps 3 and 4 read the app state once the transaction has begun and the clicks and selection
+  // changes made before the start have landed (3.6), so a click made right before the key is
+  // preselected rather than cleared, however late the core answers it.
+  await inputBefore
   const begun = app.store.getState()
   const current = begun.document ?? document
   const taken = usedIds(current.recipe)
@@ -807,17 +796,26 @@ function focusFix(
 
 /** Opens the inspector on an existing feature inside a transaction focused on it (3.7). */
 export function editFeature(app: App, featureId: string, options: OpenOptions = {}): Promise<void> {
-  return oneStartAtATime(app, () => openFeatureEdit(app, featureId, options))
+  return startInTurn(app, async (inputBefore) => {
+    // The clicks made before the edit land where they went then (3.6).
+    await inputBefore
+    await openFeatureEdit(app, featureId, options)
+  })
 }
 
-async function openFeatureEdit(app: App, featureId: string, options: OpenOptions): Promise<void> {
+/** The edit of `editFeature` in its turn among the starts (3.7 step 1), such as a double-click's. */
+export async function openFeatureEdit(
+  app: App,
+  featureId: string,
+  options: OpenOptions = {},
+): Promise<void> {
   const document = documentOf(app)
   const record = document?.recipe.features?.find((feature) => feature.id === featureId)
   if (document === null || record === undefined) {
     return
   }
   if (record.type === 'sketch') {
-    await enterSketch(app, featureId)
+    await openSketch(app, featureId)
     return
   }
   if (record.type === 'import') {
@@ -1438,17 +1436,26 @@ export async function capturePick(
  * while it runs does nothing; what else acts on the command meanwhile waits for `confirmSettled`.
  */
 export function confirmCommand(app: App): Promise<void> {
+  return confirm(app, { completeNow: true })
+}
+
+/**
+ * Runs OK unless it runs already. With `completeNow`, only a command complete now is confirmed;
+ * without, as for an Enter with a click on its way (3.5), completeness is checked once the clicks
+ * made before OK have landed, and OK runs from now.
+ */
+function confirm(app: App, { completeNow }: { readonly completeNow: boolean }): Promise<void> {
   const session = sessionOf(app)
   const command = commandOf(app)
   const document = documentOf(app)
-  if (session === null || command === null || document === null) {
+  if (session === null || command === null || document === null || session.confirming !== null) {
     return Promise.resolve()
   }
-  if (session.confirming !== null || !previewable(app, session, command)) {
+  if (completeNow && !previewable(app, session, command)) {
     return Promise.resolve()
   }
   // Clicks on the model made before OK land in the command first, however late the core answers.
-  const committing = commitCommand(app, session, document, clicksLanded(app))
+  const committing = commitCommand(app, session, document, inputLanded(app))
   const settled = (): void => {
     session.confirming = null
   }
@@ -1468,6 +1475,21 @@ export function confirmRunning(app: App): boolean {
  */
 export function confirmSettled(app: App): Promise<void> {
   return sessions.get(app.store)?.confirming ?? Promise.resolve()
+}
+
+/** Each store's cancel on its way to the core, settled once its answer has landed (3.6). */
+const cancelsOnTheirWay = new WeakMap<AppStore, Promise<void>>()
+
+/**
+ * The end of a feature command on its way, settled once it has (3.6): OK until it has settled, or
+ * a cancel until its answer has landed; null with neither. Until then the model drawn is not yet
+ * the one the end leaves, so a click made meanwhile is picked once it has settled.
+ */
+export function commandEnding(app: App): Promise<void> | null {
+  if (confirmRunning(app)) {
+    return confirmSettled(app)
+  }
+  return cancelsOnTheirWay.get(app.store) ?? null
 }
 
 /** The label of the transaction that edits a feature, "Edit {label}" (3.7). */
@@ -1529,12 +1551,45 @@ export function commandComplete(state: AppState): boolean {
   return activeCommandModel(state, state.command?.fieldErrors)?.model.complete === true
 }
 
-/** The Enter ladder's last step (3.5): confirms the active feature command when it is complete. Returns whether it did. */
+/**
+ * The Enter ladder's step 3 (3.5), on the viewport, in the command's inspector or in one of its
+ * expression fields: confirms the active feature command if it is complete, as the starts and the
+ * clicks on the model made before the key leave it. While a start is in progress, it takes its turn
+ * after it; then `confirmAfterClicks`. Returns whether Enter takes the key.
+ */
 export function confirmIfComplete(app: App): boolean {
-  if (!commandComplete(app.store.getState())) {
+  if (commandOf(app) === null) {
     return false
   }
-  confirmCommand(app).catch(reportFailure('Confirming the command'))
+  if (startInProgress(app) && !confirmRunning(app)) {
+    const inputBefore = inputLanded(app)
+    void afterStarts(app, async () => {
+      await inputBefore
+      confirmAfterClicks(app)
+    })
+    return true
+  }
+  return confirmAfterClicks(app)
+}
+
+/**
+ * The Enter ladder's step 3 once the starts asked for before the key have run (3.5): while OK runs
+ * it does nothing; with a click on the model on its way it counts as OK running from now, which
+ * waits for the click and confirms if the click leaves the command complete; otherwise it confirms
+ * a complete command. Returns whether Enter takes the key.
+ */
+export function confirmAfterClicks(app: App): boolean {
+  if (commandOf(app) === null) {
+    return false
+  }
+  if (confirmRunning(app)) {
+    return true
+  }
+  const completeNow = !inputOnItsWay(app)
+  if (completeNow && !commandComplete(app.store.getState())) {
+    return false
+  }
+  confirm(app, { completeNow }).catch(reportFailure('Confirming the command'))
   return true
 }
 
@@ -1553,10 +1608,20 @@ export async function cancelCommand(app: App): Promise<void> {
   if (document === null) {
     return
   }
+  const canceling = app.mutations.run(() => app.core.cancelTransaction(document.documentHandle))
+  const answered = canceling.then(
+    () => undefined,
+    () => undefined,
+  )
+  cancelsOnTheirWay.set(app.store, answered)
   try {
-    await app.mutations.run(() => app.core.cancelTransaction(document.documentHandle))
+    await canceling
   } catch (error) {
     showCoreError(app, error)
+  } finally {
+    if (cancelsOnTheirWay.get(app.store) === answered) {
+      cancelsOnTheirWay.delete(app.store)
+    }
   }
 }
 
@@ -1649,8 +1714,19 @@ function restoreStep(
   refreshPreview(app)
 }
 
+/**
+ * Waits for the clicks on the model on their way into the command, so Mod+Z and Mod+Shift+Z act on
+ * the command as they leave it (3.20).
+ */
+async function clicksIntoCommandLanded(app: App): Promise<void> {
+  if (inputOnItsWay(app)) {
+    await inputLanded(app)
+  }
+}
+
 /** Mod+Z in a command (3.7, 3.20): undoes the last change, or cancels the command when there is none. */
 export async function undoCommandChange(app: App): Promise<void> {
+  await clicksIntoCommandLanded(app)
   const session = sessionOf(app)
   const command = commandOf(app)
   if (session === null || command === null) {
@@ -1669,6 +1745,7 @@ export async function undoCommandChange(app: App): Promise<void> {
 
 /** Mod+Shift+Z in a command (3.7, 3.20): redoes the last undone change. */
 export async function redoCommandChange(app: App): Promise<void> {
+  await clicksIntoCommandLanded(app)
   const session = sessionOf(app)
   const command = commandOf(app)
   const step = command?.future.at(-1)

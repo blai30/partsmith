@@ -1,14 +1,24 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { commandComplete } from '../app/actions/command'
+import { commandComplete, startFeatureCommand } from '../app/actions/command'
+import { pickAt } from '../app/actions/selection'
+import type { App } from '../app/createApp'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
+import type { ElementDescriptor } from '../generated/protocol'
 import { sketchSession } from '../sketch/fixtures.testing'
 import type { ActiveCommand, AppState } from '../state/store'
-import { deferred } from '../test/fakes/deferred'
-import { CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
+import { coreErrorFor, type FakeCoreApi } from '../test/fakes/core-api'
+import { deferred, type Deferred } from '../test/fakes/deferred'
+import { CUBE_TOP_FACE, CUBE_TOP_FRONT_EDGE, RECT_REGION } from '../test/fakes/documents'
 import { bodyItem, elementItem, sketchLineItem } from '../test/fakes/selection'
 import { settle } from '../test/fakes/settle'
-import { cubeDocumentState, readyState, rectSketchDocumentState } from './fixtures.testing'
+import type { PickResult } from '../viewport/picking'
+import {
+  cubeDocumentState,
+  FILLET_EDGES_COMMAND,
+  readyState,
+  rectSketchDocumentState,
+} from './fixtures.testing'
 import { escapeStep } from './ladders'
 import { createModelApp, renderModelApp, renderWithApp, stubMatchMedia } from './test-app.testing'
 
@@ -289,5 +299,303 @@ describe('escapeStep (3.5)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+// Enter, Mod+Z and Esc act on what the input made before the key leaves (ui.md 3.5, 3.20, U-244,
+// U-245). Each test holds a core answer with a deferred promise and answers it after the key.
+
+/** A click on a cube element, which pick_reference turns into `element`. */
+function meshClick(element: ElementDescriptor, index: number): PickResult {
+  return {
+    kind: 'mesh',
+    body: 'b-cube',
+    meshId: 1,
+    element: element.kind,
+    index,
+    key: `mesh:1:${element.kind}:${String(index)}`,
+    world: element.centroid,
+  }
+}
+
+const EDGE_CLICK = meshClick(CUBE_TOP_FRONT_EDGE, 4)
+const FACE_CLICK = meshClick(CUBE_TOP_FACE, 0)
+
+/** A Fillet on the cube's top front edge: complete, its preview drawn. */
+const COMPLETE_FILLET: ActiveCommand = {
+  ...FILLET_EDGES_COMMAND,
+  params: { body: 'b-cube', radius: '2 mm', edges: [CUBE_TOP_FRONT_EDGE.reference] },
+  applied: true,
+  preview: 'shown',
+}
+
+/** Holds the core's answer to every pick until the test resolves or rejects the returned promise. */
+function holdPicks(core: FakeCoreApi): Deferred<ElementDescriptor> {
+  const picked = deferred<ElementDescriptor>()
+  core.stub('pickReference', () => picked.promise)
+  return picked
+}
+
+/** Answers the held picks with `element` and lets what waited for them land. */
+async function answerPick(
+  picked: Deferred<ElementDescriptor>,
+  click: Promise<void>,
+  element: ElementDescriptor = CUBE_TOP_FRONT_EDGE,
+): Promise<void> {
+  await act(async () => {
+    picked.resolve(element)
+    await click
+    await settle()
+  })
+}
+
+function pressEnter(target: Element): boolean {
+  return fireEvent.keyDown(target, { key: 'Enter' })
+}
+
+/** The edges of the open command, or null without one. */
+function commandEdges(app: App): unknown {
+  const command = app.store.getState().command
+  return command === null ? null : (command.params['edges'] ?? [])
+}
+
+/** Whether an `applyEdits` call carried the Fillet with `edges`. */
+function appliedWithEdges(core: FakeCoreApi, edges: unknown): boolean {
+  return core
+    .callsTo('applyEdits')
+    .some((call) => JSON.stringify(call[2]).includes(JSON.stringify(edges)))
+}
+
+describe('U-244 Enter and Mod+Z wait for a click on its way (3.5, 3.20)', () => {
+  it('U-244 (a) a click on an edge and Enter confirm the Fillet the edge completes, however late the core answers', async () => {
+    const { app, core } = renderCube({ command: FILLET_EDGES_COMMAND })
+    const picked = holdPicks(core)
+    const click = pickAt(app, EDGE_CLICK, { toggle: false })
+    viewportSurface().focus()
+    expect(pressEnter(viewportSurface())).toBe(false)
+    pressEnter(viewportSurface())
+    await settle()
+    expect(core.callsTo('commitTransaction')).toEqual([])
+    await answerPick(picked, click)
+    await waitFor(() => {
+      expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    })
+    expect(appliedWithEdges(core, [CUBE_TOP_FRONT_EDGE.reference])).toBe(true)
+    expect(app.store.getState().command).toBeNull()
+  })
+
+  it('U-244 (b) guard: an Enter that waited for a click the core refuses commits nothing, and a later Enter does nothing', async () => {
+    const { app, core } = renderCube({ command: FILLET_EDGES_COMMAND })
+    const picked = holdPicks(core)
+    const click = pickAt(app, EDGE_CLICK, { toggle: false })
+    viewportSurface().focus()
+    pressEnter(viewportSurface())
+    const refusal = await coreErrorFor({
+      code: 'stale_pick',
+      message: 'The picked geometry changed since it was displayed. Pick again.',
+    })
+    await act(async () => {
+      picked.reject(refusal)
+      await click
+      await settle()
+    })
+    pressEnter(viewportSurface())
+    await settle()
+    expect(core.callsTo('commitTransaction')).toEqual([])
+    expect(app.store.getState().command?.featureType).toBe('fillet')
+    expect(commandEdges(app)).toEqual([])
+    expect(app.store.getState().notifications).toEqual([])
+  })
+
+  it('U-244 (c) a click with nothing selected and Enter repeat the last command on what the click selected', async () => {
+    const { app, core } = renderCube({ lastFeatureType: 'fillet' })
+    const picked = holdPicks(core)
+    const click = pickAt(app, EDGE_CLICK, { toggle: false })
+    viewportSurface().focus()
+    pressEnter(viewportSurface())
+    await answerPick(picked, click)
+    await waitFor(() => {
+      expect(app.store.getState().command?.featureType).toBe('fillet')
+    })
+    expect(commandEdges(app)).toEqual([CUBE_TOP_FRONT_EDGE.reference])
+  })
+
+  it('U-244 (d) Esc pressed after an Enter that waits for a click cancels nothing, and the Fillet is committed', async () => {
+    const { app, core } = renderCube({ command: FILLET_EDGES_COMMAND })
+    const picked = holdPicks(core)
+    const click = pickAt(app, EDGE_CLICK, { toggle: false })
+    viewportSurface().focus()
+    pressEnter(viewportSurface())
+    fireEvent.keyDown(viewportSurface(), { key: 'Escape' })
+    await answerPick(picked, click)
+    await waitFor(() => {
+      expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    })
+    expect(core.callsTo('cancelTransaction')).toEqual([])
+    expect(app.store.getState().command).toBeNull()
+  })
+
+  it('U-244 (e) guard: Enter, a click on a face and Enter while OK runs commit once and repeat nothing', async () => {
+    const { app, core } = renderCube({ command: COMPLETE_FILLET })
+    core.stub('pickReference', () => Promise.resolve(CUBE_TOP_FACE))
+    const committed = deferred<{ revision: number; recorded: boolean }>()
+    core.stub('commitTransaction', () => committed.promise)
+    viewportSurface().focus()
+    pressEnter(viewportSurface())
+    await settle()
+    const click = pickAt(app, FACE_CLICK, { toggle: false })
+    pressEnter(viewportSurface())
+    await act(async () => {
+      committed.resolve({ revision: 2, recorded: true })
+      await click
+      await settle()
+    })
+    expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    expect(core.callsTo('beginTransaction')).toEqual([])
+    expect(app.store.getState().command).toBeNull()
+    expect(app.store.getState().selection.map((item) => item.key)).toEqual([
+      `element:b-cube:${CUBE_TOP_FACE.name}`,
+    ])
+  })
+
+  it('U-244 (f) guard: a click, Enter and a feature key open that command with what the click selected and confirm nothing', async () => {
+    const { app, core } = renderCube({ lastFeatureType: 'chamfer' })
+    const picked = holdPicks(core)
+    const begun = deferred<undefined>()
+    core.stub('beginTransaction', () => begun.promise)
+    const click = pickAt(app, EDGE_CLICK, { toggle: false })
+    viewportSurface().focus()
+    pressEnter(viewportSurface())
+    const started = startFeatureCommand(app, 'fillet')
+    // The core answers in request order: the pick, then the transaction.
+    await answerPick(picked, click)
+    await act(async () => {
+      begun.resolve(undefined)
+      await started
+      await settle()
+    })
+    expect(app.store.getState().command).toMatchObject({ featureType: 'fillet', history: [] })
+    expect(commandEdges(app)).toEqual([CUBE_TOP_FRONT_EDGE.reference])
+    expect(core.callsTo('beginTransaction')).toEqual([[1, 'Fillet']])
+    expect(core.callsTo('commitTransaction')).toEqual([])
+  })
+
+  it('U-244 (g) guard: the OK button, disabled while the command is incomplete, does nothing with a click on its way', async () => {
+    const { app, core } = renderCube({ command: FILLET_EDGES_COMMAND })
+    const picked = holdPicks(core)
+    const click = pickAt(app, EDGE_CLICK, { toggle: false })
+    const [ok] = within(screen.getByTestId('inspector')).getAllByRole('button', { name: 'OK' })
+    expect(ok).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(ok ?? document.body)
+    await answerPick(picked, click)
+    expect(core.callsTo('commitTransaction')).toEqual([])
+    expect(commandEdges(app)).toEqual([CUBE_TOP_FRONT_EDGE.reference])
+  })
+
+  it('U-244 (h) Enter in the Radius field waits for a click on its way and confirms the Fillet it completes', async () => {
+    const { app, core } = renderCube({ command: FILLET_EDGES_COMMAND })
+    await act(async () => {
+      await settle()
+    })
+    const picked = holdPicks(core)
+    const click = pickAt(app, EDGE_CLICK, { toggle: false })
+    const radius = within(screen.getByTestId('inspector')).getByRole('combobox', { name: 'Radius' })
+    radius.focus()
+    pressEnter(radius)
+    await settle()
+    expect(core.callsTo('commitTransaction')).toEqual([])
+    await answerPick(picked, click)
+    await waitFor(() => {
+      expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    })
+  })
+
+  it('U-244 (i) a click on an edge, F and Enter confirm the Fillet on that edge, however late the core answers', async () => {
+    const { app, core } = renderCube({ lastFeatureType: 'extrude' })
+    const picked = holdPicks(core)
+    const begun = deferred<undefined>()
+    core.stub('beginTransaction', () => begun.promise)
+    const click = pickAt(app, EDGE_CLICK, { toggle: false })
+    const started = startFeatureCommand(app, 'fillet')
+    viewportSurface().focus()
+    pressEnter(viewportSurface())
+    await answerPick(picked, click)
+    await act(async () => {
+      begun.resolve(undefined)
+      await started
+      await settle()
+    })
+    await waitFor(() => {
+      expect(core.callsTo('commitTransaction')).toEqual([[1]])
+    })
+    expect(core.callsTo('beginTransaction')).toEqual([[1, 'Fillet']])
+    expect(appliedWithEdges(core, [CUBE_TOP_FRONT_EDGE.reference])).toBe(true)
+    expect(app.store.getState().command).toBeNull()
+  })
+
+  it('U-244 (j) a click on an edge and Mod+Z leave the Fillet as it was before the click, not canceled', async () => {
+    const { app, core } = renderCube({ command: FILLET_EDGES_COMMAND })
+    const picked = holdPicks(core)
+    const click = pickAt(app, EDGE_CLICK, { toggle: false })
+    const undone = app.commands.run(app, 'edit.undo', 'shortcut')
+    await answerPick(picked, click)
+    await act(async () => {
+      await undone
+      await settle()
+    })
+    expect(core.callsTo('cancelTransaction')).toEqual([])
+    expect(app.store.getState().command?.featureType).toBe('fillet')
+    expect(commandEdges(app)).toEqual([])
+  })
+})
+
+/** The app on the cube with fakes, not rendered: `escapeStep` is called directly. */
+function cubeApp(state: Partial<AppState> = {}) {
+  return createModelApp({ state: readyState(cubeDocumentState(), state) })
+}
+
+/** The index in the core's calls of the first call to `method`, or -1. */
+function callIndex(core: FakeCoreApi, method: keyof App['core']): number {
+  return core.calls.findIndex((call) => call.method === method)
+}
+
+describe('U-245 Esc waits for what was asked before it (3.5)', () => {
+  it('U-245 (a) a click on a face and Esc end with nothing selected, however late the core answers', async () => {
+    const { app, core } = cubeApp()
+    const picked = holdPicks(core)
+    const click = pickAt(app, FACE_CLICK, { toggle: false })
+    expect(escapeStep(app)).toBe(true)
+    picked.resolve(CUBE_TOP_FACE)
+    await click
+    await settle()
+    expect(app.store.getState().selection).toEqual([])
+  })
+
+  it('U-245 (b) F and Esc cancel the Fillet once it has opened', async () => {
+    const { app, core } = cubeApp()
+    const begun = deferred<undefined>()
+    core.stub('beginTransaction', () => begun.promise)
+    const started = startFeatureCommand(app, 'fillet')
+    expect(escapeStep(app)).toBe(true)
+    begun.resolve(undefined)
+    await started
+    await settle()
+    expect(core.callsTo('cancelTransaction')).toHaveLength(1)
+    expect(callIndex(core, 'cancelTransaction')).toBeGreaterThan(
+      callIndex(core, 'beginTransaction'),
+    )
+    expect(app.store.getState().command).toBeNull()
+  })
+
+  it('U-245 (c) Sketch, while it still cancels a command, and Esc end the plane picking it opens', async () => {
+    const { app, core } = cubeApp({ command: FILLET_EDGES_COMMAND })
+    const canceled = deferred<number>()
+    core.stub('cancelTransaction', () => canceled.promise)
+    const started = startFeatureCommand(app, 'sketch')
+    expect(escapeStep(app)).toBe(true)
+    canceled.resolve(2)
+    await started
+    await settle()
+    expect(app.store.getState()).toMatchObject({ context: 'model', sketch: null, command: null })
   })
 })

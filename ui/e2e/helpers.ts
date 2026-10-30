@@ -112,14 +112,15 @@ export function reportedViolations(): string[] {
 
 /**
  * The `test` of every E-test file but `security.spec.ts` (ui.md 6.3): when a test that used `page`
- * ends, the page must have reported no content security policy violation, so every state a test
- * visits is checked against the policy the preview sends (delivery.md 2.7).
+ * ends in Chromium, the page must have reported no content security policy violation, so every
+ * state a test visits is checked against the policy the preview sends (delivery.md 2.7). Firefox
+ * and WebKit are left out, as E-161 is (delivery.md open issue 19).
  */
 export const test = base.extend({
   // Playwright calls the second argument `use`; this name keeps the lint's React hook rule away.
-  page: async ({ page }, runTest) => {
+  page: async ({ page, browserName }, runTest) => {
     await runTest(page)
-    if (!page.isClosed()) {
+    if (browserName === 'chromium' && !page.isClosed()) {
       expect(
         await page.evaluate(reportedViolations),
         'the content security policy violations of the page',

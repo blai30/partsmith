@@ -7,7 +7,8 @@ import type { AppState, AppStore, DocumentState, SelectionItem } from '../../sta
 import type { App } from '../createApp'
 import { commitBuiltEdits, commitEdits, documentOf } from './edits'
 import { showPickHint } from './notifications'
-import { enterSketch, storedSketchParams } from './sketch'
+import { openSketch, storedSketchParams } from './sketch'
+import { startInTurn } from './starts'
 
 // The plane a sketch goes on (ui.md 3.16.1): the sketch.md plane of a picked plane-like item, a
 // new sketch on it, or the new plane of a re-attached sketch.
@@ -54,13 +55,30 @@ function frameKeepingMotion(stored: SketchPlane): HintFrame {
   return withoutMotion ? 'world' : 'body'
 }
 
+/** Whether a plane is being picked for a new sketch or a re-attached one (3.16.1). */
+export function pickingPlane(state: AppState): boolean {
+  return state.context === 'sketch' && state.sketch !== null && state.sketch.sketchId === null
+}
+
 /**
  * The plane or face picked while a plane is picked (3.16.1): a new sketch on it, or, while a
- * sketch is re-attached, that sketch's new plane.
+ * sketch is re-attached, that sketch's new plane. It takes its turn among the starts when it is
+ * made (3.7 step 1), so `picked` is the item or, for a click on the model, the core's answer to its
+ * pick still on its way; a pick whose turn comes once plane picking has closed does nothing.
  */
-export async function pickPlane(app: App, item: SelectionItem): Promise<void> {
-  const reattaching = selectReattachingSketch(app.store.getState())
-  await (reattaching === null ? createSketchOn(app, item) : attachSketch(app, reattaching, item))
+export function pickPlane(
+  app: App,
+  picked: SelectionItem | Promise<SelectionItem | null>,
+): Promise<void> {
+  return startInTurn(app, async () => {
+    const item = await picked
+    const state = app.store.getState()
+    if (item === null || !pickingPlane(state)) {
+      return
+    }
+    const reattaching = selectReattachingSketch(state)
+    await (reattaching === null ? createSketchOn(app, item) : attachSketch(app, reattaching, item))
+  })
 }
 
 /** Stores whose sketch is being added or attached, so a second plane pick in the meantime does nothing. */
@@ -137,7 +155,7 @@ async function attachSketchOn(app: App, sketchId: string, plane: SketchPlane): P
       : { label, edits: [{ type: 'update_feature', feature: { ...record, plane } }] }
   })
   if (attached) {
-    await enterSketch(app, sketchId)
+    await openSketch(app, sketchId)
   }
 }
 
@@ -167,6 +185,6 @@ async function addSketchOn(
     },
   ])
   if (added) {
-    await enterSketch(app, sketchId)
+    await openSketch(app, sketchId, { added: true })
   }
 }

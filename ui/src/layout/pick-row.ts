@@ -1,6 +1,7 @@
 import { capturePick, confirmRunning, confirmSettled } from '../app/actions/command'
-import { select } from '../app/actions/selection'
+import { landInTurn, setSelection } from '../app/actions/selection'
 import { pickPlane } from '../app/actions/sketch'
+import { pickingPlane } from '../app/actions/sketch-plane'
 import type { App } from '../app/createApp'
 import { reportFailure } from '../app/report'
 import type { SelectionKind } from '../generated/protocol'
@@ -11,7 +12,8 @@ import type { AppState, SelectionItem } from '../state/store'
 // Clicks and keys on timeline items and browser rows (ui.md 3.9, 3.10): while a feature command's
 // active selection field accepts the item, the click fills that field; while a plane is picked for
 // a new sketch or a re-attached one, an origin plane or datum row places the sketch on it (3.16.1);
-// otherwise it selects.
+// otherwise it selects. A click lands in the order it was made, after the clicks on the model on
+// their way (3.6).
 
 /** What the active command's active selection field accepts, or null without one. */
 export function activeFieldAccepts(state: AppState): SelectionKind | null {
@@ -24,36 +26,31 @@ export function activeFieldAccepts(state: AppState): SelectionKind | null {
   return field?.control.type === 'selection' ? field.control.accepts : null
 }
 
-/** Whether a plane is being picked for a new sketch or a re-attached one (3.16.1). */
-function pickingPlane(state: AppState): boolean {
-  return state.context === 'sketch' && state.sketch !== null && state.sketch.sketchId === null
-}
-
 /**
  * Captures the item into the active field when it fits, places the new or re-attached sketch on a
- * plane row while a plane is picked, else selects the item (toggling with Shift or Mod).
+ * plane row while a plane is picked, else selects the item (toggling with Shift or Mod). A click
+ * while OK runs goes where a click goes once it has settled (3.7).
  */
 export function pickRow(app: App, item: SelectionItem, toggle: boolean): void {
-  if (confirmRunning(app)) {
-    // A click while OK runs goes where a click goes once it has settled (3.7).
-    confirmSettled(app)
-      .then(() => {
-        pickRow(app, item, toggle)
-      })
-      .catch(reportFailure('Picking a row'))
-    return
-  }
+  const runningConfirm = confirmRunning(app) ? confirmSettled(app) : undefined
+  landInTurn(app, () => landRow(app, item, toggle), runningConfirm).catch(
+    reportFailure('Picking a row'),
+  )
+}
+
+/** Where a row click goes once its turn has come (3.6). */
+function landRow(app: App, item: SelectionItem, toggle: boolean): Promise<void> | void {
   const state = app.store.getState()
   if (pickingPlane(state) && (item.kind === 'origin_plane' || item.kind === 'datum_plane')) {
+    // A start, which takes its turn among the starts rather than holding the clicks after it.
     pickPlane(app, item).catch(reportFailure('Placing the sketch'))
     return
   }
   const accepts = activeFieldAccepts(state)
   if (accepts !== null && acceptsTarget(accepts, item)) {
-    capturePick(app, item).catch(reportFailure('Capturing the pick'))
-    return
+    return capturePick(app, item)
   }
-  select(app, [item], toggle ? 'toggle' : 'replace')
+  setSelection(app, [item], toggle ? 'toggle' : 'replace')
 }
 
 /** Whether a pointer or key event asks to toggle the selection: Shift, or Mod for the platform. */

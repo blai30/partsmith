@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Command, Edit, ElementDescriptor, Reference } from '../../generated/protocol'
+import { pickRow } from '../../layout/pick-row'
+import { registerMissingCommands } from '../../layout/test-app.testing'
 import { MESSAGES } from '../../messages'
 import { selectSketchRecord } from '../../state/selectors'
-import { currentDocument, type FakeApp, startWithDocument } from '../../test/fakes/app'
+import {
+  activeCommand,
+  currentDocument,
+  type FakeApp,
+  startWithDocument,
+} from '../../test/fakes/app'
 import { deferred, type Deferred } from '../../test/fakes/deferred'
 import {
   CUBE_DOCUMENT,
@@ -12,10 +19,12 @@ import {
   CUBE_SKETCH_SOLUTION,
   CUBE_TOP_FACE,
 } from '../../test/fakes/documents'
-import { elementItem, originItem } from '../../test/fakes/selection'
+import { elementItem, featureItem, originItem } from '../../test/fakes/selection'
 import { stateWithDocument } from '../../test/fakes/state'
 import { editsOf } from '../../test/fakes/protocol'
 import { settle } from '../../test/fakes/settle'
+import { createFakeViewport, type FakeViewport } from '../../test/fakes/viewport'
+import { DEFAULT_CAMERA, orbit, standardViewRotation, type Camera } from '../../viewport/camera'
 import type { PickResult } from '../../viewport/picking'
 import type { App } from '../createApp'
 import { startFeatureCommand } from './command'
@@ -25,10 +34,13 @@ import {
   createSketchOn,
   enterSketch,
   finishSketch,
+  pickPlane,
+  reattachSketch,
   setSketchTool,
   sketchFaceBody,
   startNewSketch,
   storedSketchParams,
+  undoInSketch,
 } from './sketch'
 
 type AddFeature = Extract<Edit, { type: 'add_feature' }>
@@ -449,5 +461,313 @@ describe('sketch record readers', () => {
     expect(sketchFaceBody(state, 'f-sk2')).toBe('b-cube')
     expect(sketchFaceBody(state, 'f-sk1')).toBeNull()
     expect(sketchFaceBody(state, null)).toBeNull()
+  })
+})
+
+// Ways into sketch mode start one at a time with feature commands, and what leaves sketch mode
+// waits for them (ui.md 3.7 step 1, 3.16.1, U-243). The fake core answers in request order, as the
+// worker does, and each test holds one answer to act in the window it leaves open.
+
+/** The command types that start, end or change a transaction or the document, in order. */
+const TRANSACTION_TYPES: ReadonlySet<Command['type']> = new Set<Command['type']>([
+  'begin_transaction',
+  'cancel_transaction',
+  'commit_transaction',
+  'apply_edits',
+])
+
+function transactionTypes(fake: FakeApp): Command['type'][] {
+  return fake.transport.commandTypes().filter((type) => TRANSACTION_TYPES.has(type))
+}
+
+/** Holds the core's answers to one command type until the test resolves the returned promise. */
+function holdAnswers(
+  fake: FakeApp,
+  type: 'begin_transaction' | 'cancel_transaction' | 'apply_edits' | 'solve_sketch',
+): Deferred<undefined> {
+  const held = deferred<undefined>()
+  fake.transport.handle(type, async (command, core, buffers) => {
+    await held.promise
+    return core.reply(command, buffers)
+  })
+  return held
+}
+
+/** cube.ptsm with a Fillet command open and nothing recorded since. */
+async function cubeWithFillet(): Promise<FakeApp> {
+  const fake = await cube()
+  await startFeatureCommand(fake.app, 'fillet')
+  await settle()
+  fake.transport.clearRequests()
+  return fake
+}
+
+/** The region the cube's sketch makes, as an Extrude started from it takes it (3.3). */
+const SKETCH_PROFILE = { sketch: 'f-sk1', regions: [CUBE_REGION.reference] }
+
+/** The camera before a sketch is entered: turned away from the XY plane. */
+const BEFORE_SKETCH = orbit(DEFAULT_CAMERA, 30, 10, [0, 0, 0])
+
+/**
+ * A viewport that keeps its camera: `lookAlong` turns it straight at the XY plane, as the
+ * controller does for the cube's sketch, so finishing the sketch turns it back (3.16.11).
+ */
+function recordingViewport(fake: FakeApp, start: Camera = BEFORE_SKETCH): FakeViewport {
+  let camera = start
+  const viewport = createFakeViewport()
+  viewport.getCamera.mockImplementation(() => camera)
+  viewport.setCamera.mockImplementation((next) => {
+    camera = next
+  })
+  viewport.lookAlong.mockImplementation(() => {
+    camera = { ...camera, rotation: standardViewRotation('top') }
+  })
+  fake.app.attachViewport(viewport)
+  return viewport
+}
+
+/** Removes the sketch's solution from the store, so entering it asks the core for one. */
+function forgetSolution(fake: FakeApp): void {
+  fake.app.store.setState({ document: { ...currentDocument(fake.app), sketches: {} } })
+}
+
+describe('U-243 ways into sketch mode start one at a time with feature commands (3.16.1)', () => {
+  it('U-243 (a) entering a sketch while a Chamfer begins its transaction opens the sketch after it', async () => {
+    const fake = await cube()
+    const begun = holdAnswers(fake, 'begin_transaction')
+    const started = startFeatureCommand(fake.app, 'chamfer')
+    const entered = enterSketch(fake.app, 'f-sk1')
+    begun.resolve(undefined)
+    await Promise.all([started, entered])
+    await settle()
+    expect(transactionTypes(fake)).toEqual(['begin_transaction', 'cancel_transaction'])
+    expect(fake.app.store.getState().notifications).toEqual([])
+    expect(fake.app.store.getState()).toMatchObject({
+      context: 'sketch',
+      sketch: { sketchId: 'f-sk1' },
+      command: null,
+    })
+  })
+
+  it('U-243 (a) the Sketch context with the sketch selected opens it after a Chamfer that begins its transaction', async () => {
+    const fake = await cube()
+    select(fake.app, [featureItem('f-sk1', 'Sketch 1')], 'replace')
+    const begun = holdAnswers(fake, 'begin_transaction')
+    const started = startFeatureCommand(fake.app, 'chamfer')
+    const entered = setContext(fake.app, 'sketch')
+    begun.resolve(undefined)
+    await Promise.all([started, entered])
+    await settle()
+    expect(transactionTypes(fake)).toEqual(['begin_transaction', 'cancel_transaction'])
+    expect(fake.app.store.getState().notifications).toEqual([])
+    expect(fake.app.store.getState()).toMatchObject({
+      context: 'sketch',
+      sketch: { sketchId: 'f-sk1' },
+      command: null,
+    })
+  })
+
+  it('U-243 (b) Extrude pressed while entering a sketch cancels a Fillet opens with the sketch finished and its profile', async () => {
+    const fake = await cubeWithFillet()
+    const canceled = holdAnswers(fake, 'cancel_transaction')
+    const entered = enterSketch(fake.app, 'f-sk1')
+    const started = startFeatureCommand(fake.app, 'extrude')
+    canceled.resolve(undefined)
+    await Promise.all([entered, started])
+    await settle()
+    expect(
+      transactionTypes(fake).filter(
+        (type) => type === 'cancel_transaction' || type === 'begin_transaction',
+      ),
+    ).toEqual(['cancel_transaction', 'begin_transaction'])
+    expect(fake.app.store.getState()).toMatchObject({ context: 'model', sketch: null })
+    expect(activeCommand(fake.app).featureType).toBe('extrude')
+    expect(activeCommand(fake.app).params['profile']).toEqual(SKETCH_PROFILE)
+  })
+
+  it('U-243 (c) Extrude pressed while a plane picked in plane picking is added opens after the new sketch', async () => {
+    const fake = await cube()
+    await startNewSketch(fake.app)
+    await settle()
+    fake.transport.clearRequests()
+    const added = holdAnswers(fake, 'apply_edits')
+    const picked = pickPlane(fake.app, originItem('XY'))
+    const started = startFeatureCommand(fake.app, 'extrude')
+    added.resolve(undefined)
+    await Promise.all([picked, started])
+    await settle()
+    expect(
+      transactionTypes(fake).filter(
+        (type) => type === 'apply_edits' || type === 'begin_transaction',
+      ),
+    ).toEqual(['apply_edits', 'begin_transaction'])
+    expect(newSketchEdit(fake).command?.label).toBe('New sketch')
+    expect(fake.app.store.getState()).toMatchObject({ context: 'model', sketch: null })
+    expect(activeCommand(fake.app).featureType).toBe('extrude')
+  })
+
+  it('U-243 (d) Extrude pressed while re-attaching cancels a Fillet opens after the plane picking it opens', async () => {
+    const fake = await cubeWithFillet()
+    const canceled = holdAnswers(fake, 'cancel_transaction')
+    const reattached = reattachSketch(fake.app, 'f-sk1')
+    const started = startFeatureCommand(fake.app, 'extrude')
+    canceled.resolve(undefined)
+    await Promise.all([reattached, started])
+    await settle()
+    expect(fake.app.store.getState()).toMatchObject({ context: 'model', sketch: null })
+    expect(activeCommand(fake.app).featureType).toBe('extrude')
+  })
+
+  it('U-243 (e) entering a sketch clears the face clicked right before it, however late the core answers', async () => {
+    const fake = await cube()
+    const picked = holdTopFacePicks(fake)
+    const click = pickAt(fake.app, TOP_FACE_PICK, { toggle: false })
+    const entered = enterSketch(fake.app, 'f-sk1')
+    picked.resolve(undefined)
+    await Promise.all([click, entered])
+    await settle()
+    expect(fake.app.store.getState()).toMatchObject({
+      context: 'sketch',
+      sketch: { sketchId: 'f-sk1' },
+      selection: [],
+    })
+  })
+
+  it('U-243 (f) guard: a double-click on the header plane button "Top" adds one sketch', async () => {
+    const fake = await cube()
+    await startNewSketch(fake.app)
+    await settle()
+    fake.transport.clearRequests()
+    const added = holdAnswers(fake, 'apply_edits')
+    const first = pickPlane(fake.app, originItem('XY'))
+    const second = pickPlane(fake.app, originItem('XY'))
+    added.resolve(undefined)
+    await Promise.all([first, second])
+    await settle()
+    const changes = fake.transport.commandsOfType('apply_edits')
+    expect(changes.map((change) => change.label)).toEqual(['New sketch'])
+    expect(fake.app.store.getState()).toMatchObject({
+      context: 'sketch',
+      sketch: { sketchId: newSketchEdit(fake).edit?.feature.id },
+    })
+  })
+
+  it('U-243 (f) guard: a double-click on "Top" while re-attaching attaches the sketch once and adds none', async () => {
+    const fake = await cube()
+    await reattachSketch(fake.app, 'f-sk1')
+    await settle()
+    fake.transport.clearRequests()
+    const attached = holdAnswers(fake, 'apply_edits')
+    const first = pickPlane(fake.app, originItem('XY'))
+    const second = pickPlane(fake.app, originItem('XY'))
+    attached.resolve(undefined)
+    await Promise.all([first, second])
+    await settle()
+    const changes = fake.transport.commandsOfType('apply_edits')
+    expect(changes.map((change) => change.label)).toEqual([MESSAGES.attach_label('Sketch 1')])
+    expect(editsOf(changes[0]).map((edit) => edit.type)).toEqual(['update_feature'])
+    expect(fake.app.store.getState()).toMatchObject({
+      context: 'sketch',
+      sketch: { sketchId: 'f-sk1' },
+    })
+  })
+
+  it('U-243 (g) a double-click on Sketch with a plane selected adds one sketch and stays in it', async () => {
+    const fake = await cube()
+    select(fake.app, [originItem('XY')], 'replace')
+    const added = holdAnswers(fake, 'apply_edits')
+    const first = startFeatureCommand(fake.app, 'sketch')
+    const second = startFeatureCommand(fake.app, 'sketch')
+    added.resolve(undefined)
+    await Promise.all([first, second])
+    await settle()
+    const changes = fake.transport.commandsOfType('apply_edits')
+    expect(changes.map((change) => change.label)).toEqual(['New sketch'])
+    const sketchId = newSketchEdit(fake).edit?.feature.id
+    expect(sketchId).toBeDefined()
+    expect(fake.app.store.getState()).toMatchObject({ context: 'sketch', sketch: { sketchId } })
+  })
+
+  it('U-243 (h) Extrude pressed while an entered sketch is solved finishes it once the camera is on it', async () => {
+    const fake = await cube()
+    const viewport = recordingViewport(fake)
+    forgetSolution(fake)
+    const solved = holdAnswers(fake, 'solve_sketch')
+    const entered = enterSketch(fake.app, 'f-sk1')
+    const started = startFeatureCommand(fake.app, 'extrude')
+    solved.resolve(undefined)
+    await Promise.all([entered, started])
+    await settle()
+    expect(fake.app.store.getState()).toMatchObject({ context: 'model', sketch: null })
+    expect(activeCommand(fake.app).featureType).toBe('extrude')
+    expect(activeCommand(fake.app).params['profile']).toEqual(SKETCH_PROFILE)
+    expect(viewport.lookAlong).toHaveBeenCalledTimes(1)
+    expect(viewport.getCamera()).toEqual(BEFORE_SKETCH)
+  })
+
+  it.each(['model', 'print'] as const)(
+    'U-243 (i) the %s context chosen while entering a sketch cancels a Fillet ends there with no sketch session',
+    async (context) => {
+      const fake = await cubeWithFillet()
+      const canceled = holdAnswers(fake, 'cancel_transaction')
+      const entered = enterSketch(fake.app, 'f-sk1')
+      const switched = setContext(fake.app, context)
+      canceled.resolve(undefined)
+      await Promise.all([entered, switched])
+      await settle()
+      expect(fake.app.store.getState()).toMatchObject({ context, sketch: null, command: null })
+    },
+  )
+
+  it('U-243 (j) Finish sketch pressed while the entered sketch is solved finishes it once the camera is on it', async () => {
+    const fake = await cube()
+    registerMissingCommands(fake.app)
+    const viewport = recordingViewport(fake)
+    forgetSolution(fake)
+    const solved = holdAnswers(fake, 'solve_sketch')
+    const entered = enterSketch(fake.app, 'f-sk1')
+    await settle()
+    expect(fake.app.store.getState()).toMatchObject({
+      context: 'sketch',
+      sketch: { sketchId: 'f-sk1' },
+    })
+    const finished = fake.app.commands.run(fake.app, 'sketch.finish', 'shortcut')
+    solved.resolve(undefined)
+    await Promise.all([entered, finished])
+    await settle()
+    expect(fake.app.store.getState()).toMatchObject({ context: 'model', sketch: null })
+    expect(viewport.lookAlong).toHaveBeenCalledTimes(1)
+    expect(viewport.getCamera()).toEqual(BEFORE_SKETCH)
+  })
+
+  it('U-243 (k) the Sketch context after a click on a face and a click on the sketch row edits that sketch', async () => {
+    const fake = await cube()
+    const picked = holdTopFacePicks(fake)
+    const click = pickAt(fake.app, TOP_FACE_PICK, { toggle: false })
+    pickRow(fake.app, featureItem('f-sk1', 'Sketch 1'), false)
+    const entered = setContext(fake.app, 'sketch')
+    picked.resolve(undefined)
+    await Promise.all([click, entered])
+    await settle()
+    expect(fake.transport.commandTypes()).not.toContain('apply_edits')
+    expect(fake.app.store.getState()).toMatchObject({
+      context: 'sketch',
+      sketch: { sketchId: 'f-sk1' },
+      selection: [],
+    })
+  })
+
+  it('U-243 (l) entering the sketch already being edited keeps its session and moves no camera', async () => {
+    const fake = await cube()
+    const viewport = recordingViewport(fake)
+    await enterSketch(fake.app, 'f-sk1')
+    setSketchTool(fake.app, 'line')
+    viewport.setCamera(orbit(BEFORE_SKETCH, 50, 0, [0, 0, 0]))
+    await enterSketch(fake.app, 'f-sk1')
+    await settle()
+    expect(fake.app.store.getState().sketch).toMatchObject({ sketchId: 'f-sk1', tool: 'line' })
+    expect(viewport.lookAlong).toHaveBeenCalledTimes(1)
+    expect(await undoInSketch(fake.app)).toBe(true)
+    expect(viewport.getCamera()).toEqual(BEFORE_SKETCH)
   })
 })

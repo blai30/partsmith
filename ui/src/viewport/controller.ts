@@ -1,10 +1,17 @@
-import { confirmRunning, confirmSettled, editFeature } from '../app/actions/command'
+import { commandEnding, openFeatureEdit } from '../app/actions/command'
 import { layOnFace } from '../app/actions/print'
-import { clearSelection, elementSelectionItem, pickAt } from '../app/actions/selection'
-import { enterSketch, pickPlane, recordSketchView } from '../app/actions/sketch'
+import {
+  clearSelection,
+  landInTurn,
+  landPick,
+  pickAt,
+  pickedItem,
+  setSelection,
+} from '../app/actions/selection'
+import { openSketch, pickPlane, recordSketchView } from '../app/actions/sketch'
+import { startInTurn } from '../app/actions/starts'
 import { onCoreEvent, type App } from '../app/createApp'
 import { reportFailure } from '../app/report'
-import { CoreError } from '../core/client'
 import type { BoundingBox, ElementDescriptor } from '../generated/protocol'
 import type { Rectangle } from '../inspector/placement'
 import { requestUi } from '../layout/requests'
@@ -126,9 +133,6 @@ const CAMERA_STILL_MILLISECONDS = 100
 // PointerEvent.button values.
 const MIDDLE_BUTTON_INDEX = 1
 const SECONDARY_BUTTON_INDEX = 2
-
-/** Pick errors that mean the geometry under the pointer is gone or not pickable. */
-const IGNORED_PICK_ERRORS: ReadonlySet<string> = new Set(['stale_pick', 'preview_not_pickable'])
 
 type Press = {
   readonly pointerId: number
@@ -588,9 +592,15 @@ export function createViewportController(options: {
     )
   }
 
-  /** The pick the pointer means at (x, y), with the world point under it when the depth is known. */
-  function pickAtPoint(x: number, y: number): PickResult | null {
-    const frame = currentFrame()
+  /**
+   * The pick the pointer means at (x, y), with the world point under it when the depth is known,
+   * as `view` shows the model drawn now: the camera, or the camera kept at a click that waited (3.6).
+   */
+  function pickAtPoint(x: number, y: number, view: Camera = camera): PickResult | null {
+    const frame =
+      view === camera
+        ? currentFrame()
+        : scene.frame(store.getState(), view, { ...viewWindow(), pixelRatio: size.pixelRatio })
     const pickRadius = radius()
     const started = performance.now()
     const picked = backend.pick(frame, x, y, pickRadius)
@@ -624,7 +634,7 @@ export function createViewportController(options: {
       return null
     }
     const world =
-      found.depth === null ? null : pointAtDepth(camera, cursorAt(x, y), aspect(), found.depth)
+      found.depth === null ? null : pointAtDepth(view, cursorAt(x, y), aspect(), found.depth)
     return { ...found.result, world }
   }
 
@@ -716,20 +726,20 @@ export function createViewportController(options: {
   }
 
   /**
-   * The camera ray through the canvas point (x, y), and the world size of one CSS pixel times the
-   * UI scale at the picked point, or at the camera target without one (3.7 hole centers).
+   * The ray of `view` through the canvas point (x, y), and the world size of one CSS pixel times
+   * the UI scale at the picked point, or at the camera target without one (3.7 hole centers).
    */
-  function pointerRay(x: number, y: number, picked: Vector3 | null): PointerRay {
+  function pointerRay(x: number, y: number, picked: Vector3 | null, view: Camera): PointerRay {
     const cursor = cursorAt(x, y)
-    const near = pointAtDepth(camera, cursor, aspect(), 0)
-    const far = pointAtDepth(camera, cursor, aspect(), 1)
+    const near = pointAtDepth(view, cursor, aspect(), 0)
+    const far = pointAtDepth(view, cursor, aspect(), 1)
     const direction =
-      camera.projection === 'perspective'
-        ? (normalize(subtract(far, eye(camera))) ?? forward(camera))
-        : forward(camera)
-    const origin = camera.projection === 'perspective' ? eye(camera) : near
-    const depth = picked === null ? null : dot(subtract(picked, eye(camera)), forward(camera))
-    const visibleHeight = visibleHeightAtDepth(camera, depth ?? camera.distance)
+      view.projection === 'perspective'
+        ? (normalize(subtract(far, eye(view))) ?? forward(view))
+        : forward(view)
+    const origin = view.projection === 'perspective' ? eye(view) : near
+    const depth = picked === null ? null : dot(subtract(picked, eye(view)), forward(view))
+    const visibleHeight = visibleHeightAtDepth(view, depth ?? view.distance)
     const millimetersPerPixel = (visibleHeight / freeHeight()) * store.getState().settings.uiScale
     return { origin, direction, millimetersPerPixel }
   }
@@ -747,39 +757,46 @@ export function createViewportController(options: {
     return pointAtDepth(camera, cursorAt(x, y), aspect(), sample.depth)
   }
 
-  /** The selection item of a mesh pick through the core, or null when the pick went stale. */
-  async function meshItem(
-    result: Extract<PickResult, { kind: 'mesh' }>,
-  ): Promise<SelectionItem | null> {
-    const document = store.getState().document
-    if (document === null) {
-      return null
+  /**
+   * A click: in its place among the clicks and selection changes (3.6). One made while a feature
+   * command's end is on its way holds its place from now and is picked once that end has settled,
+   * against the model drawn then, with the camera kept at the click, and goes where a click goes
+   * then.
+   */
+  function click(x: number, y: number, toggle: boolean): Promise<void> {
+    const ending = commandEnding(app)
+    if (ending === null) {
+      return clickAt(x, y, toggle, camera, false)
     }
-    try {
-      const element = await app.core.pickReference(document.documentHandle, {
-        mesh_id: result.meshId,
-        kind: result.element,
-        index: result.index,
-      })
-      return elementSelectionItem(app, element)
-    } catch (error) {
-      if (error instanceof CoreError && IGNORED_PICK_ERRORS.has(error.code)) {
-        return null
-      }
-      throw error
-    }
+    const atClick = camera
+    return landInTurn(app, () => clickAt(x, y, toggle, atClick, true), ending)
   }
 
-  async function click(x: number, y: number, toggle: boolean): Promise<void> {
+  /**
+   * Where a click at (x, y) with `view` goes now. With `inTurn`, its turn among the clicks has
+   * come, so it lands at once; otherwise it takes its turn.
+   */
+  async function clickAt(
+    x: number,
+    y: number,
+    toggle: boolean,
+    view: Camera,
+    inTurn: boolean,
+  ): Promise<void> {
     const state = store.getState()
     const sketch = state.context === 'sketch' ? state.sketch : null
     // A sketch tool takes the clicks itself (3.16.3).
     if (sketch !== null && sketch.sketchId !== null && sketch.tool !== null) {
       return
     }
-    const result = pickAtPoint(x, y)
+    const result = pickAtPoint(x, y, view)
     if (sketch !== null && sketch.sketchId === null) {
-      await pickSketchPlane(result)
+      // A start, which takes its turn among the starts now (3.7 step 1) rather than holding the
+      // clicks after it.
+      const placed = pickSketchPlane(result)
+      if (!inTurn) {
+        await placed
+      }
       return
     }
     if (state.context === 'print' && state.print.pickingFace && state.command === null) {
@@ -792,7 +809,11 @@ export function createViewportController(options: {
     }
     if (result === null) {
       if (state.command === null) {
-        clearSelection(app)
+        if (inTurn) {
+          setSelection(app, [], 'replace')
+        } else {
+          clearSelection(app)
+        }
       }
       return
     }
@@ -800,7 +821,10 @@ export function createViewportController(options: {
     // A face that stands for its edges adds edge references, which resolve through the core.
     const standsForEdges =
       result.kind === 'mesh' && result.element === 'face' && facesStandForEdges(state)
-    await pickAt(app, result, { toggle }, pointerRay(x, y, result.world))
+    const pointer = pointerRay(x, y, result.world, view)
+    await (inTurn
+      ? landPick(app, result, { toggle }, pointer)
+      : pickAt(app, result, { toggle }, pointer))
     if (result.kind === 'mesh') {
       if (!standsForEdges) {
         highlights.rememberClick(before, result)
@@ -835,61 +859,77 @@ export function createViewportController(options: {
     if (result?.kind !== 'mesh' || result.element !== 'face') {
       return
     }
-    const item = await meshItem(result)
+    const item = await pickedItem(app, result)
     if (item !== null) {
       layOnFace(app, item)
     }
   }
 
+  /**
+   * A click during plane picking: a new sketch or the re-attached one goes on what it picks, and a
+   * face that is not flat is refused with `pick_plane` in the sketch hint (3.16.1). It takes its
+   * turn among the starts now, before the core answers its pick (3.7 step 1).
+   */
   async function pickSketchPlane(result: PickResult | null): Promise<void> {
-    if (result === null) {
-      return
+    if (result !== null) {
+      await pickPlane(app, pickedItem(app, result))
     }
-    const item = result.kind === 'item' ? result.item : await meshItem(result)
-    if (item === null) {
-      return
-    }
-    // A new sketch or the re-attached one goes on it; a face that is not flat is refused with
-    // `pick_plane` in the sketch hint (3.16.1).
-    await pickPlane(app, item)
   }
 
-  async function doubleClick(x: number, y: number): Promise<void> {
-    if (confirmRunning(app)) {
-      // A double-click while OK runs edits once the commit has landed (3.7).
-      await confirmSettled(app)
-    }
-    const state = store.getState()
-    if (state.command !== null || state.context === 'sketch') {
-      return
-    }
-    const result = pickAtPoint(x, y)
-    if (result === null) {
-      return
-    }
-    const features = state.document?.recipe.features ?? []
-    if (result.kind === 'mesh') {
-      if (result.element !== 'face') {
+  /**
+   * A double-click (3.6): edits the feature of a face, or enters the sketch of a sketch item, in
+   * its turn among the starts, which it takes now, before the core answers its pick (3.7 step 1).
+   * One made while a feature command's end is on its way is picked once that end has settled, with
+   * the camera kept at the click.
+   */
+  function doubleClick(x: number, y: number): Promise<void> {
+    const ending = commandEnding(app)
+    const atClick = camera
+    const picking = ending === null ? doubleClickTarget(x, y, atClick) : null
+    return startInTurn(app, async (inputBefore) => {
+      await ending
+      const target = await (picking ?? doubleClickTarget(x, y, atClick))
+      const state = store.getState()
+      if (target === null || state.command !== null || state.context === 'sketch') {
         return
       }
-      const item = await meshItem(result)
-      const feature = item?.element?.feature ?? null
-      if (feature !== null && features.some((record) => record.id === feature)) {
-        await editFeature(app, feature)
+      // The clicks of the double-click land first (3.6).
+      await inputBefore
+      if (target.kind === 'sketch') {
+        await openSketch(app, target.feature)
+      } else if ((state.document?.recipe.features ?? []).some(({ id }) => id === target.feature)) {
+        await openFeatureEdit(app, target.feature)
       }
-      return
+    })
+  }
+
+  /**
+   * What a double-click at (x, y) with `view` edits: the feature of a face, asked of the core now,
+   * a datum plane, or the sketch of a sketch curve, point or region; null for anything else.
+   */
+  async function doubleClickTarget(
+    x: number,
+    y: number,
+    view: Camera,
+  ): Promise<{ readonly kind: 'feature' | 'sketch'; readonly feature: string } | null> {
+    const result = pickAtPoint(x, y, view)
+    if (result?.kind === 'mesh') {
+      const feature =
+        result.element === 'face' ? ((await pickedItem(app, result))?.element?.feature ?? null) : null
+      return feature === null ? null : { kind: 'feature', feature }
     }
-    const item = result.item
+    const item = result?.item ?? null
+    if (item === null || item.feature === null) {
+      return null
+    }
     if (
-      (item.kind === 'sketch_curve' ||
-        item.kind === 'sketch_point' ||
-        item.kind === 'sketch_region') &&
-      item.feature !== null
+      item.kind === 'sketch_curve' ||
+      item.kind === 'sketch_point' ||
+      item.kind === 'sketch_region'
     ) {
-      await enterSketch(app, item.feature)
-    } else if (item.kind === 'datum_plane' && item.feature !== null) {
-      await editFeature(app, item.feature)
+      return { kind: 'sketch', feature: item.feature }
     }
+    return item.kind === 'datum_plane' ? { kind: 'feature', feature: item.feature } : null
   }
 
   // Pointer and wheel input (3.13).

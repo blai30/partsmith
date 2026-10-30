@@ -42,6 +42,7 @@ import {
   selectReattachingSketch,
   selectSketchFaceLost,
   selectSketchRecord,
+  selectSketchToEdit,
 } from '../../state/selectors'
 import type {
   AppState,
@@ -60,9 +61,10 @@ import { coreRedo, coreUndo } from './document'
 import { documentOf, showCoreError } from './edits'
 import { reportChange } from './loss-notifications'
 import { dismiss, notify } from './notifications'
-import { clicksLanded, select, toggledByKey } from './selection'
+import { inputLanded, inputOnItsWay, select, toggledByKey } from './selection'
 import { commitSketchChange } from './sketch-commit'
 import { createSketchOn, pickPlane, sketchPlaneOf } from './sketch-plane'
+import { startInTurn } from './starts'
 import { refreshUses } from './timeline'
 
 export { commitSketchChange, createSketchOn, pickPlane, sketchPlaneOf }
@@ -70,7 +72,8 @@ export { commitSketchChange, createSketchOn, pickPlane, sketchPlaneOf }
 // Sketch mode (ui.md 3.16): entering, leaving and navigating it (3.16.1, 3.16.11, 3.20), plane
 // picking for a new sketch or for re-attaching one whose face is lost (3.16.1; `sketch-plane.ts`
 // places the sketch on the picked plane), and the changes its tools commit: geometry, constraints,
-// dimensions, construction and deletion.
+// dimensions, construction and deletion. Every way into sketch mode is a start of 3.7 step 1
+// (`startInTurn`), so it runs one at a time with feature commands and edits.
 
 /** One step of the sketch view history (3.20): a camera to go back to, or a committed sketch edit. */
 type HistoryEntry =
@@ -83,9 +86,14 @@ type SketchModeRecord = {
   readonly redo: HistoryEntry[]
   /** Feature statuses when the session started; losses and failures since then are reported on finishing (4.2). */
   readonly statusesBefore: Readonly<Record<string, FeatureStatus>>
+  /** Whether the edited sketch is one the session added, on the plane Sketch was given (3.16.1). */
+  readonly added: boolean
 }
 
 const sessionRecords = new WeakMap<AppStore, SketchModeRecord>()
+
+/** Each store's Sketch starts asked for and not run yet (3.16.1). */
+const sketchStarts = new WeakMap<AppStore, number>()
 
 /** The `fitBounds` margin of a framed sketch or profile issue: content fills 80 percent of the view. */
 const SKETCH_FRAME_MARGIN = 0.1
@@ -193,11 +201,62 @@ async function leaveForPlanePicking(app: App): Promise<void> {
   }
 }
 
+/**
+ * Whether the edited sketch is one the session added, with no edit committed in it, which a Sketch
+ * that waited for the Sketch that added it keeps (3.16.1).
+ */
+function editingAddedSketch(app: App): boolean {
+  const record = sessionRecords.get(app.store)
+  return (
+    editedSketch(app) !== null &&
+    record?.added === true &&
+    ![...record.undo, ...record.redo].some((entry) => entry.kind === 'document')
+  )
+}
+
+/**
+ * Starts Sketch, or the edit of the sketch `chosen` names, in its turn among the starts (3.7 step 1,
+ * 3.16.1). A Sketch asked for while an earlier one is in progress keeps the sketch that one added.
+ */
+function sketchStart(app: App, chosen: Promise<string | null>): Promise<void> {
+  const asked = sketchStarts.get(app.store) ?? 0
+  const followsSketch = asked > 0
+  sketchStarts.set(app.store, asked + 1)
+  return startInTurn(app, async (inputBefore) => {
+    try {
+      const sketchId = await chosen
+      if (sketchId !== null) {
+        await openSketch(app, sketchId, { inputBefore })
+      } else if (!followsSketch || !editingAddedSketch(app)) {
+        await openNewSketch(app, inputBefore)
+      }
+    } finally {
+      sketchStarts.set(app.store, (sketchStarts.get(app.store) ?? 1) - 1)
+    }
+  })
+}
+
 /** Sketch mode for a new sketch: on the one selected plane, else plane picking (3.16.1). */
-export async function startNewSketch(app: App): Promise<void> {
+export function startNewSketch(app: App): Promise<void> {
+  return sketchStart(app, Promise.resolve(null))
+}
+
+/**
+ * The Sketch context outside sketch mode (3.3, 3.16.1): edits the selected sketch, or starts a new
+ * one as Sketch does. It chooses from what the clicks and selection changes made before it leave,
+ * as its tooltip named it, and takes its turn among the starts when it is asked for.
+ */
+export function editOrStartSketch(app: App): Promise<void> {
+  const chosen = inputOnItsWay(app)
+    ? inputLanded(app).then(() => selectSketchToEdit(app.store.getState()))
+    : Promise.resolve(selectSketchToEdit(app.store.getState()))
+  return sketchStart(app, chosen)
+}
+
+async function openNewSketch(app: App, inputBefore: Promise<void>): Promise<void> {
   await leaveForPlanePicking(app)
   // A click made right before Sketch is in the selection first, however late the core answers it.
-  await clicksLanded(app)
+  await inputBefore
   const { selection } = app.store.getState()
   const [only] = selection
   if (selection.length === 1 && only !== undefined && sketchPlaneOf(only) !== null) {
@@ -217,24 +276,28 @@ function openPlanePicking(app: App, reattaching: string | null): void {
  * Picks a new plane or face for a sketch whose face is lost (3.16.1, re-attaching): the plane
  * picking of a new sketch for that sketch, while repair mode shows its repair (3.7).
  */
-export async function reattachSketch(app: App, sketchId: string): Promise<void> {
-  if (selectSketchRecord(app.store.getState(), sketchId) === null) {
-    return
-  }
-  await leaveForPlanePicking(app)
-  openPlanePicking(app, sketchId)
+export function reattachSketch(app: App, sketchId: string): Promise<void> {
+  return startInTurn(app, async () => {
+    if (selectSketchRecord(app.store.getState(), sketchId) === null) {
+      return
+    }
+    await leaveForPlanePicking(app)
+    openPlanePicking(app, sketchId)
+  })
 }
 
 /**
  * Ends re-attaching once a fix attached the sketch (3.16.1): with its face no longer lost, the
  * sketch is edited, as after a pick.
  */
-export async function enterAttachedSketch(app: App): Promise<void> {
-  const state = app.store.getState()
-  const sketchId = selectReattachingSketch(state)
-  if (sketchId !== null && !selectSketchFaceLost(state, sketchId)) {
-    await enterSketch(app, sketchId)
-  }
+export function enterAttachedSketch(app: App): Promise<void> {
+  return startInTurn(app, async () => {
+    const state = app.store.getState()
+    const sketchId = selectReattachingSketch(state)
+    if (sketchId !== null && !selectSketchFaceLost(state, sketchId)) {
+      await openSketch(app, sketchId)
+    }
+  })
 }
 
 /**
@@ -324,8 +387,36 @@ function queuedChangesLanded(app: App): Promise<void> | null {
   return app.mutations.pending > 0 ? app.mutations.run(() => Promise.resolve()) : null
 }
 
-/** Edits a sketch: Sketch context, the sketch shown, and the camera on its plane (3.16.1). */
-export async function enterSketch(app: App, sketchId: string): Promise<void> {
+/**
+ * Edits a sketch (3.16.1), in its turn among the starts (3.7 step 1): a browser row, a double-click
+ * on a sketch item, "Back to sketch" and "Show '{sketch}'" open it once the starts asked for before
+ * have run and the clicks made before it have landed.
+ */
+export function enterSketch(app: App, sketchId: string): Promise<void> {
+  return startInTurn(app, (inputBefore) => openSketch(app, sketchId, { inputBefore }))
+}
+
+/** How `openSketch` enters a sketch. */
+export type OpenSketchOptions = {
+  /** Resolves once the input made before the way in has landed, which it waits for first (3.6). */
+  readonly inputBefore?: Promise<void>
+  /** The sketch was added by the start that enters it (`createSketchOn`). */
+  readonly added?: boolean
+}
+
+/**
+ * `enterSketch` in the turn of a start: Sketch context, the sketch shown, and the camera on its
+ * plane (3.16.1). The sketch already being edited keeps its session.
+ */
+export async function openSketch(
+  app: App,
+  sketchId: string,
+  { inputBefore, added = false }: OpenSketchOptions = {},
+): Promise<void> {
+  await inputBefore
+  if (editedSketch(app) === sketchId) {
+    return
+  }
   if (app.store.getState().command !== null) {
     await cancelCommandImplicitly(app)
   }
@@ -379,6 +470,7 @@ export async function enterSketch(app: App, sketchId: string): Promise<void> {
     undo: before === null ? [] : [{ kind: 'view', camera: before }],
     redo: [],
     statusesBefore,
+    added,
   })
 }
 
