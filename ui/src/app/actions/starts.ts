@@ -2,7 +2,7 @@ import { createOneAtATime } from '../../core/queue'
 import type { AppStore } from '../../state/store'
 import type { App } from '../createApp'
 import { confirmRunning, confirmSettled } from './command'
-import { inputLanded } from './selection'
+import { inputLanded, inputOnItsWay } from './selection'
 
 // Starts of ui.md 3.7 step 1, one at a time per store: feature commands, edits and the ways into
 // sketch mode (3.16.1). What acts on what a start opens (Esc, Enter, the Model and Print contexts,
@@ -39,21 +39,22 @@ function inTurn(app: App, turn: () => void | Promise<void>): Promise<void> {
 
 /**
  * A start of 3.7 step 1, run in its turn: after any start still in progress (a double-click, a held
- * key), so the second never begins a transaction while the first is opening one, and after OK
- * while it runs. `start` gets what resolves once the clicks and selection changes made before it
- * have landed (3.6), which it waits for before it reads or clears the selection.
+ * key), so the second never begins a transaction while the first is opening one, after OK while it
+ * runs, and once the clicks and selection changes made before it have landed (3.6), so it ends a
+ * command and reads the selection as they leave them, however late the core answers them.
  */
-export function startInTurn(
-  app: App,
-  start: (inputBefore: Promise<void>) => Promise<void>,
-): Promise<void> {
+export function startInTurn(app: App, start: () => Promise<void>): Promise<void> {
   const starts = startsOf(app)
   starts.asked += 1
   starts.inProgress += 1
-  const inputBefore = inputLanded(app)
+  // With no input on its way, the start runs at once.
+  const inputBefore = inputOnItsWay(app) ? inputLanded(app) : null
   return inTurn(app, async () => {
     try {
-      await start(inputBefore)
+      if (inputBefore !== null) {
+        await inputBefore
+      }
+      await start()
     } finally {
       starts.inProgress -= 1
     }

@@ -634,16 +634,13 @@ export function startFeatureCommand(
   if (featureType === 'sketch') {
     return startNewSketch(app)
   }
-  return startInTurn(app, (inputBefore) =>
-    openFeatureCommand(app, featureType, options, inputBefore),
-  )
+  return startInTurn(app, () => openFeatureCommand(app, featureType, options))
 }
 
 async function openFeatureCommand(
   app: App,
   featureType: string,
   options: OpenOptions,
-  inputBefore: Promise<void>,
 ): Promise<void> {
   if (options.restore === undefined && alreadyOpen(app, featureType, null)) {
     return
@@ -671,10 +668,8 @@ async function openFeatureCommand(
     showCoreError(app, error)
     return
   }
-  // Steps 3 and 4 read the app state once the transaction has begun and the clicks and selection
-  // changes made before the start have landed (3.6), so a click made right before the key is
-  // preselected rather than cleared, however late the core answers it.
-  await inputBefore
+  // Steps 3 and 4 read the app state once the transaction has begun, so a click the core answers
+  // meanwhile is preselected rather than cleared.
   const begun = app.store.getState()
   const current = begun.document ?? document
   const taken = usedIds(current.recipe)
@@ -796,11 +791,7 @@ function focusFix(
 
 /** Opens the inspector on an existing feature inside a transaction focused on it (3.7). */
 export function editFeature(app: App, featureId: string, options: OpenOptions = {}): Promise<void> {
-  return startInTurn(app, async (inputBefore) => {
-    // The clicks made before the edit land where they went then (3.6).
-    await inputBefore
-    await openFeatureEdit(app, featureId, options)
-  })
+  return startInTurn(app, () => openFeatureEdit(app, featureId, options))
 }
 
 /** The edit of `editFeature` in its turn among the starts (3.7 step 1), such as a double-click's. */
@@ -1477,6 +1468,16 @@ export function confirmSettled(app: App): Promise<void> {
   return sessions.get(app.store)?.confirming ?? Promise.resolve()
 }
 
+/**
+ * A check whether the feature command active now still is (3.6): a click made into it lands
+ * nothing once it has ended, as the end discards what the click changed in it. With no command
+ * active now, the check always holds.
+ */
+export function commandLasts(app: App): () => boolean {
+  const session = sessionOf(app)
+  return () => session === null || sessionOf(app) === session
+}
+
 /** Each store's cancel on its way to the core, settled once its answer has landed (3.6). */
 const cancelsOnTheirWay = new WeakMap<AppStore, Promise<void>>()
 
@@ -1555,16 +1556,15 @@ export function commandComplete(state: AppState): boolean {
  * The Enter ladder's step 3 (3.5), on the viewport, in the command's inspector or in one of its
  * expression fields: confirms the active feature command if it is complete, as the starts and the
  * clicks on the model made before the key leave it. While a start is in progress, it takes its turn
- * after it; then `confirmAfterClicks`. Returns whether Enter takes the key.
+ * after it, since OK would wait for a start that waits for OK; then `confirmAfterClicks`. Returns
+ * whether Enter takes the key.
  */
 export function confirmIfComplete(app: App): boolean {
   if (commandOf(app) === null) {
     return false
   }
   if (startInProgress(app) && !confirmRunning(app)) {
-    const inputBefore = inputLanded(app)
-    void afterStarts(app, async () => {
-      await inputBefore
+    void afterStarts(app, () => {
       confirmAfterClicks(app)
     })
     return true

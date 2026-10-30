@@ -3,7 +3,7 @@ import type { ElementDescriptor } from '../../generated/protocol'
 import type { AppStore, HoverTarget, SelectionItem } from '../../state/store'
 import type { PickResult, PointerRay } from '../../viewport/picking'
 import type { App } from '../createApp'
-import { capturePick, confirmRunning, confirmSettled } from './command'
+import { capturePick, commandLasts, confirmRunning, confirmSettled } from './command'
 import { showCoreError } from './edits'
 
 // The app selection and hover (ui.md 3.6). Clicks on the model and selection changes land in the
@@ -55,7 +55,7 @@ function holdPlace(app: App): { readonly turn: Promise<void>; readonly leave: ()
   }
   const current = order
   const turn = current.landed
-  let release = (): void => undefined
+  let release: (() => void) | undefined
   const left = new Promise<void>((resolve) => {
     release = resolve
   })
@@ -68,7 +68,7 @@ function holdPlace(app: App): { readonly turn: Promise<void>; readonly leave: ()
       if (held) {
         held = false
         current.held -= 1
-        release()
+        release?.()
       }
     },
   }
@@ -109,9 +109,7 @@ export function landInTurn(
     return landing.finally(place.leave)
   }
   const place = holdPlace(app)
-  return Promise.all([place.turn, first])
-    .then(land)
-    .finally(place.leave)
+  return Promise.all([place.turn, first]).then(land).finally(place.leave)
 }
 
 /**
@@ -218,8 +216,9 @@ async function landItem(
  * A click on a pick target: selects it (toggles with a modifier), or feeds an active feature
  * command. `pointer` is the click's ray, which a face picked for a hole center needs (3.7). The
  * core is asked at once, and the click lands in the order it was made (3.6): a click made before
- * OK lands in the command first, and OK waits for it; one made while OK runs goes where a click
- * goes once OK has settled.
+ * OK lands in the command first, and OK waits for it; one made into a command that a cancel ends
+ * before the core answers lands nothing, as it is canceled with the command; one made while OK
+ * runs goes where a click goes once OK has settled.
  */
 export function pickAt(
   app: App,
@@ -228,11 +227,15 @@ export function pickAt(
   pointer?: PointerRay,
 ): Promise<void> {
   const runningConfirm = confirmRunning(app) ? confirmSettled(app) : undefined
+  const lasts = runningConfirm === undefined ? commandLasts(app) : () => true
   const picking = pickedItem(app, sample)
   return landInTurn(
     app,
     async () => {
-      await landItem(app, await picking, modifiers, pointer)
+      const item = await picking
+      if (lasts()) {
+        await landItem(app, item, modifiers, pointer)
+      }
     },
     runningConfirm,
   )

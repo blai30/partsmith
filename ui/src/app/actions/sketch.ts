@@ -222,13 +222,13 @@ function sketchStart(app: App, chosen: Promise<string | null>): Promise<void> {
   const asked = sketchStarts.get(app.store) ?? 0
   const followsSketch = asked > 0
   sketchStarts.set(app.store, asked + 1)
-  return startInTurn(app, async (inputBefore) => {
+  return startInTurn(app, async () => {
     try {
       const sketchId = await chosen
       if (sketchId !== null) {
-        await openSketch(app, sketchId, { inputBefore })
+        await openSketch(app, sketchId)
       } else if (!followsSketch || !editingAddedSketch(app)) {
-        await openNewSketch(app, inputBefore)
+        await openNewSketch(app)
       }
     } finally {
       sketchStarts.set(app.store, (sketchStarts.get(app.store) ?? 1) - 1)
@@ -253,10 +253,8 @@ export function editOrStartSketch(app: App): Promise<void> {
   return sketchStart(app, chosen)
 }
 
-async function openNewSketch(app: App, inputBefore: Promise<void>): Promise<void> {
+async function openNewSketch(app: App): Promise<void> {
   await leaveForPlanePicking(app)
-  // A click made right before Sketch is in the selection first, however late the core answers it.
-  await inputBefore
   const { selection } = app.store.getState()
   const [only] = selection
   if (selection.length === 1 && only !== undefined && sketchPlaneOf(only) !== null) {
@@ -393,28 +391,26 @@ function queuedChangesLanded(app: App): Promise<void> | null {
  * have run and the clicks made before it have landed.
  */
 export function enterSketch(app: App, sketchId: string): Promise<void> {
-  return startInTurn(app, (inputBefore) => openSketch(app, sketchId, { inputBefore }))
+  return startInTurn(app, () => openSketch(app, sketchId))
 }
 
 /** How `openSketch` enters a sketch. */
 export type OpenSketchOptions = {
-  /** Resolves once the input made before the way in has landed, which it waits for first (3.6). */
-  readonly inputBefore?: Promise<void>
   /** The sketch was added by the start that enters it (`createSketchOn`). */
   readonly added?: boolean
 }
 
 /**
  * `enterSketch` in the turn of a start: Sketch context, the sketch shown, and the camera on its
- * plane (3.16.1). The sketch already being edited keeps its session.
+ * plane (3.16.1). The sketch already being edited keeps its session; a store assembled in sketch
+ * mode without one gets it.
  */
 export async function openSketch(
   app: App,
   sketchId: string,
-  { inputBefore, added = false }: OpenSketchOptions = {},
+  { added = false }: OpenSketchOptions = {},
 ): Promise<void> {
-  await inputBefore
-  if (editedSketch(app) === sketchId) {
+  if (editedSketch(app) === sketchId && sessionRecords.has(app.store)) {
     return
   }
   if (app.store.getState().command !== null) {

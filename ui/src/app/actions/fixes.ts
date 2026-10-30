@@ -30,7 +30,7 @@ import { undo } from './document'
 import { documentOf, refusedDuringCommand, runChange } from './edits'
 import { listedElementsOrNone } from './element-lists'
 import { announce, notify } from './notifications'
-import { elementSelectionItem } from './selection'
+import { elementSelectionItem, inputLanded, landInTurn } from './selection'
 import { enterAttachedSketch, reattachSketch, recordSketchEdit } from './sketch'
 
 // The actions of messages and cause lines (ui.md 4.2: `runFixAction`), Copy details (4.1) and
@@ -160,6 +160,9 @@ async function show(
   if (ghost !== null) {
     keepCauseGhost(app.store.getState(), ghost)
   }
+  // The clicks made into a command before the action land in it first, so the Restore of its
+  // implicit cancel keeps them (3.6, 3.7).
+  await inputLanded(app)
   const command = app.store.getState().command
   if (command?.featureId === feature) {
     app.viewport()?.fit()
@@ -184,8 +187,11 @@ async function show(
           record.type === 'datum_plane' ? 'datum_plane' : 'feature',
         )
       : entitySelectionItem(feature, drawn)
-  // One change, so the selection change does not clear what is shown.
-  app.store.setState({ selection: [item], shown: { feature, entity, ghost } })
+  // One change, so the selection change does not clear what is shown; it lands after the clicks
+  // on their way, as a selection change does (3.6).
+  await landInTurn(app, () => {
+    app.store.setState({ selection: [item], shown: { feature, entity, ghost } })
+  })
   frameShown(app, await shownItems(app, record, drawn))
 }
 

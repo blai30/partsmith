@@ -1247,6 +1247,36 @@ describe('U-242 clicks in the view land in the order they were made (3.6, 3.7 st
     expect(fixture.app.store.getState().command?.featureType).toBe('fillet')
     expect(shownCodes(fixture)).not.toContain('command_canceled')
   })
+
+  it('U-242 (j) a right click right after Esc selects the face it finds once the cancel is answered, then opens the menu', async () => {
+    const { fixture, answerEnd } = withEndHeld(EDITING_EXTRUDE)
+    const requests = menuRequests(fixture.app)
+    const canceled = cancelCommand(fixture.app)
+    rightClick(fixture.canvas, 200, 150)
+    await settle()
+    expect(requests).toEqual([])
+    answerEnd()
+    await canceled
+    await settle()
+    expect(selectionKeys(fixture)).toEqual([TOP_FACE_KEY])
+    expect(requests).toEqual([{ x: 200, y: 150 }])
+  })
+
+  it('U-242 (k) a right click while OK runs selects the face it finds once the commit is answered, then opens the menu', async () => {
+    const { fixture, answerEnd } = withEndHeld(COMPLETE_FILLET)
+    const requests = menuRequests(fixture.app)
+    const confirmed = confirmCommand(fixture.app)
+    await settle()
+    rightClick(fixture.canvas, 200, 150)
+    await settle()
+    expect(requests).toEqual([])
+    answerEnd()
+    await confirmed
+    await settle()
+    expect(fixture.app.store.getState().command).toBeNull()
+    expect(selectionKeys(fixture)).toEqual([TOP_FACE_KEY])
+    expect(requests).toEqual([{ x: 200, y: 150 }])
+  })
 })
 
 function featuresSetUp(

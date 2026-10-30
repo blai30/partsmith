@@ -125,6 +125,31 @@ const WHEEL_BURST_MILLISECONDS = 300
 /** The side of the cube framed when nothing is visible (3.14). */
 const EMPTY_FIT_SIDE = 100
 
+/**
+ * How a click lands in the selection or the active command (3.6): in its place among the clicks
+ * and selection changes on their way, or at once, for a click whose turn has come after it waited
+ * for a command's end.
+ */
+type ClickLanding = {
+  readonly pick: (
+    app: App,
+    sample: PickResult,
+    modifiers: { readonly toggle: boolean },
+    pointer?: PointerRay,
+  ) => Promise<void>
+  /** Empties the selection, for a click on empty space. */
+  readonly clear: (app: App) => void
+}
+
+const LANDS_IN_ORDER: ClickLanding = { pick: pickAt, clear: clearSelection }
+
+const LANDS_NOW: ClickLanding = {
+  pick: landPick,
+  clear: (app) => {
+    setSelection(app, [], 'replace')
+  },
+}
+
 /** A second middle click within this long of the first is a double-click (3.13). */
 const DOUBLE_CLICK_MILLISECONDS = 500
 /** Hover picking waits until the camera has been still this long (3.13). */
@@ -593,14 +618,25 @@ export function createViewportController(options: {
   }
 
   /**
+   * A frame of the model drawn now as `view` shows it, for a click picked with the camera kept at
+   * the click (3.6). Its pick ids replace those of the frame drawn, so the next draw or pick renders
+   * the current camera's frame again.
+   */
+  function frameWith(view: Camera): RenderFrame {
+    const frame = scene.frame(store.getState(), view, {
+      ...viewWindow(),
+      pixelRatio: size.pixelRatio,
+    })
+    requestRender()
+    return frame
+  }
+
+  /**
    * The pick the pointer means at (x, y), with the world point under it when the depth is known,
    * as `view` shows the model drawn now: the camera, or the camera kept at a click that waited (3.6).
    */
   function pickAtPoint(x: number, y: number, view: Camera = camera): PickResult | null {
-    const frame =
-      view === camera
-        ? currentFrame()
-        : scene.frame(store.getState(), view, { ...viewWindow(), pixelRatio: size.pixelRatio })
+    const frame = view === camera ? currentFrame() : frameWith(view)
     const pickRadius = radius()
     const started = performance.now()
     const picked = backend.pick(frame, x, y, pickRadius)
@@ -764,24 +800,32 @@ export function createViewportController(options: {
    * then.
    */
   function click(x: number, y: number, toggle: boolean): Promise<void> {
-    const ending = commandEnding(app)
-    if (ending === null) {
-      return clickAt(x, y, toggle, camera, false)
-    }
-    const atClick = camera
-    return landInTurn(app, () => clickAt(x, y, toggle, atClick, true), ending)
+    return afterCommandEnd((view, landing) => clickAt(x, y, toggle, view, landing))
   }
 
   /**
-   * Where a click at (x, y) with `view` goes now. With `inTurn`, its turn among the clicks has
-   * come, so it lands at once; otherwise it takes its turn.
+   * Runs `act` with the camera and the way a click lands (3.6): at once with the camera, or, while
+   * a feature command's end is on its way, in the click's place from now, once that end has
+   * settled, with the camera kept at the click.
    */
+  function afterCommandEnd(
+    act: (view: Camera, landing: ClickLanding) => Promise<void>,
+  ): Promise<void> {
+    const ending = commandEnding(app)
+    if (ending === null) {
+      return act(camera, LANDS_IN_ORDER)
+    }
+    const atClick = camera
+    return landInTurn(app, () => act(atClick, LANDS_NOW), ending)
+  }
+
+  /** Where a click at (x, y) with `view` goes now, landing as `landing` says. */
   async function clickAt(
     x: number,
     y: number,
     toggle: boolean,
     view: Camera,
-    inTurn: boolean,
+    landing: ClickLanding,
   ): Promise<void> {
     const state = store.getState()
     const sketch = state.context === 'sketch' ? state.sketch : null
@@ -791,13 +835,8 @@ export function createViewportController(options: {
     }
     const result = pickAtPoint(x, y, view)
     if (sketch !== null && sketch.sketchId === null) {
-      const placed = pickSketchPlane(result)
-      if (inTurn) {
-        // A start takes its turn among the starts (3.7 step 1); the clicks after it go on.
-        placed.catch(reportFailure('Placing the sketch'))
-        return
-      }
-      await placed
+      // A start takes its turn among the starts (3.7 step 1); the clicks after it go on.
+      pickSketchPlane(result).catch(reportFailure('Placing the sketch'))
       return
     }
     if (state.context === 'print' && state.print.pickingFace && state.command === null) {
@@ -810,11 +849,7 @@ export function createViewportController(options: {
     }
     if (result === null) {
       if (state.command === null) {
-        if (inTurn) {
-          setSelection(app, [], 'replace')
-        } else {
-          clearSelection(app)
-        }
+        landing.clear(app)
       }
       return
     }
@@ -822,10 +857,7 @@ export function createViewportController(options: {
     // A face that stands for its edges adds edge references, which resolve through the core.
     const standsForEdges =
       result.kind === 'mesh' && result.element === 'face' && facesStandForEdges(state)
-    const pointer = pointerRay(x, y, result.world, view)
-    await (inTurn
-      ? landPick(app, result, { toggle }, pointer)
-      : pickAt(app, result, { toggle }, pointer))
+    await landing.pick(app, result, { toggle }, pointerRay(x, y, result.world, view))
     if (result.kind === 'mesh') {
       if (!standsForEdges) {
         highlights.rememberClick(before, result)
@@ -896,18 +928,19 @@ export function createViewportController(options: {
     }
     const atClick = camera
     const picking = ending === null ? doubleClickTarget(x, y, atClick) : null
-    return startInTurn(app, async (inputBefore) => {
+    // Its turn comes once the clicks of the double-click have landed (3.6).
+    return startInTurn(app, async () => {
       await ending
       const target = await (picking ?? doubleClickTarget(x, y, atClick))
-      const state = store.getState()
-      if (target === null || state.command !== null || state.context === 'sketch') {
+      const current = store.getState()
+      if (target === null || current.command !== null || current.context === 'sketch') {
         return
       }
-      // The clicks of the double-click land first (3.6).
-      await inputBefore
       if (target.kind === 'sketch') {
         await openSketch(app, target.feature)
-      } else if ((state.document?.recipe.features ?? []).some(({ id }) => id === target.feature)) {
+      } else if (
+        (current.document?.recipe.features ?? []).some(({ id }) => id === target.feature)
+      ) {
         await openFeatureEdit(app, target.feature)
       }
     })
@@ -925,7 +958,9 @@ export function createViewportController(options: {
     const result = pickAtPoint(x, y, view)
     if (result?.kind === 'mesh') {
       const feature =
-        result.element === 'face' ? ((await pickedItem(app, result))?.element?.feature ?? null) : null
+        result.element === 'face'
+          ? ((await pickedItem(app, result))?.element?.feature ?? null)
+          : null
       return feature === null ? null : { kind: 'feature', feature }
     }
     const item = result?.item ?? null
@@ -1105,22 +1140,34 @@ export function createViewportController(options: {
   /**
    * A right click (3.13): a pick target under the pointer that is not selected becomes the
    * selection, as a click would, then the context menu opens there. During a command, a face pick
-   * or a sketch tool the click selects nothing.
+   * or a sketch tool the click selects nothing. One made while a feature command's end is on its
+   * way decides this once that end has settled, as a click does (3.6), and the menu opens then.
    */
   async function contextClick(x: number, y: number): Promise<void> {
+    await afterCommandEnd((view, landing) => selectForMenu(x, y, view, landing))
+    requestUi(app, { kind: 'viewport_menu', x, y })
+  }
+
+  /** What a right click at (x, y) with `view` selects before its menu opens (3.13). */
+  async function selectForMenu(
+    x: number,
+    y: number,
+    view: Camera,
+    landing: ClickLanding,
+  ): Promise<void> {
     const state = store.getState()
     const sketch = state.context === 'sketch' ? state.sketch : null
     const picking =
       state.command !== null ||
       (state.context === 'print' && state.print.pickingFace) ||
       (sketch !== null && (sketch.sketchId === null || sketch.tool !== null))
-    if (!picking) {
-      const result = pickAtPoint(x, y)
-      if (result !== null && !pickSelected(result, state)) {
-        await click(x, y, false)
-      }
+    if (picking) {
+      return
     }
-    requestUi(app, { kind: 'viewport_menu', x, y })
+    const result = pickAtPoint(x, y, view)
+    if (result !== null && !pickSelected(result, state)) {
+      await clickAt(x, y, false, view, landing)
+    }
   }
 
   /** A second middle click close to the first fits the view in presets that ask for it (3.13). */
