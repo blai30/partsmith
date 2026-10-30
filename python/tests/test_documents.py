@@ -1,8 +1,9 @@
-"""Document, export and print check acceptance tests (python-api.md section 6, tests 61 to 67 and 97 to 103)."""
+"""Document, export and print check acceptance tests (python-api.md section 6, tests 61 to 67, 97 to 103 and 116)."""
 
 import errno
 import os
 import re
+import warnings
 from pathlib import Path
 
 import pytest
@@ -10,21 +11,27 @@ from support import (
     IMPORT_ASSET,
     IMPORT_ASSET_BYTES,
     RELATIVE_TOLERANCE,
+    approximately,
     document_with_import,
     fail_fsync_on_call,
     has_temporary_file,
+    near,
     os_error_text,
     record_file_operations,
     record_opened_files,
     recorded_document,
     request_command,
+    self_void,
     write_text,
 )
 
 from partsmith import (
     Axis,
     Document,
+    EngineError,
     Part,
+    PartsmithError,
+    PartsmithWarning,
     box,
     export_3mf,
     export_step,
@@ -521,3 +528,65 @@ def test_t103_a_failed_per_part_export_write_keeps_the_files_written_before_it(t
     assert raised.value.filename2 is None
     assert (folder / "Base.stl").stat().st_size == 684
     assert sorted(os.listdir(folder)) == ["Base.stl", "Lid.stl"]
+
+
+# Parts without volume (python-api.md section 3.3, engine.md section 3.11).
+
+INVALID_SOLID_WARNING = (
+    "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so the shape this import "
+    "gives may be wrong, and features that change it later may fail or give a wrong shape."
+)
+"""The import_warning of a solid that stayed invalid after repair (features/import.md test 13)."""
+
+
+def self_void_step(tmp_path: Path) -> Path:
+    """`self-void.step` of test 116: the STEP export of a 20 x 30 x 40 box in part Block, edited into `SELF_VOID`."""
+    Document()
+    with Part("Block") as block:
+        box(20, 30, 40)
+    export_step(block, tmp_path / "box.step")
+    step = (tmp_path / "box.step").read_bytes().decode("utf-8")
+    return write_text(tmp_path / "self-void.step", self_void(step))
+
+
+def test_t116_importing_a_solid_without_volume_warns_with_the_import_warning(tmp_path):
+    step_path = self_void_step(tmp_path)
+    document = Document()
+
+    with pytest.warns(PartsmithWarning) as record:
+        document.import_step(step_path)
+
+    assert len(record) == 1, [str(warning.message) for warning in record]
+    warning = record[0]
+    assert warning.message.code == "import_warning"
+    assert warning.message.feature == document.features[0].id
+    assert warning.message.detail == "read_step: Solid 1 is not valid after repair; booleans with it may fail."
+    assert warning.message.cause is None
+    assert str(warning.message) == f"Document.import_step(): {INVALID_SOLID_WARNING}"
+    assert warning.filename == __file__
+    assert document.features[0].status == "warning"
+    assert document.features[0].messages[0] == INVALID_SOLID_WARNING
+
+
+def test_t116_a_part_without_volume_is_measured_without_a_center_of_mass(tmp_path):
+    step_path = self_void_step(tmp_path)
+    document = Document()
+    with pytest.warns(PartsmithWarning):
+        part = document.import_step(step_path)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PartsmithWarning)
+        volume = part.volume()
+        area = part.area()
+        bounds = part.bounding_box()
+        with pytest.raises(PartsmithError) as raised:
+            part.center_of_mass()
+
+    assert part.name == "Block"
+    assert volume == pytest.approx(0, abs=1e-9)
+    assert area == approximately(5200)
+    assert bounds.min == near((-10, -15, 0))
+    assert bounds.max == near((10, 15, 40))
+    assert not isinstance(raised.value, EngineError)
+    assert raised.value.code is None
+    assert str(raised.value) == "Part.center_of_mass(): Body 'Block' has no volume, so it has no center of mass."

@@ -1,10 +1,10 @@
-//! Acceptance tests for `partsmith rebuild` (cli spec sections 3.3 and 6, tests 26 to 33).
+//! Acceptance tests for `partsmith rebuild` (cli spec sections 3.3 and 6, tests 26 to 33 and 65).
 
 use crate::common;
 
 use common::{
     BOX, FILLET, Workspace, assert_json_close, assert_pretty_json_layout, assert_relative,
-    box_with_negative_length, entry, items, number,
+    box_with_negative_length, entry, import_document, items, keys, number,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -189,4 +189,80 @@ fn t033_rotate_without_degrees_is_a_usage_error() {
 
     run.assert_code(2);
     run.assert_stderr_line("error: --rotate takes <axis>:<degrees>, for example x:90.");
+}
+
+/// The text report of a body without volume (test 65).
+const SELF_VOID_REPORT: &str = "model.ptsm
+  f-imp1 import warning
+    warning[import_warning] at /features/0: This import kept 1 solid of the STEP file that is not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.
+  b-1 \"Imported\": volume 0 mm^3, area 5200 mm^2, bounding box (-10, -15, 0) to (10, 15, 40) mm, 6 faces, 12 edges, 8 vertices
+";
+
+/// A workspace holding `model.ptsm`, whose one body is imported from `SELF_VOID` (test 65).
+fn self_void_workspace() -> Workspace {
+    let workspace = Workspace::new();
+    let asset = workspace.store_self_void_asset();
+    workspace.write("model.ptsm", import_document(&asset));
+    workspace
+}
+
+#[test]
+fn t065_rebuild_reports_a_body_without_volume() {
+    let workspace = self_void_workspace();
+
+    let run = workspace.run(&["rebuild", "model.ptsm"]);
+
+    run.assert_code(0);
+    assert_eq!(run.stderr, "");
+    assert_eq!(run.stdout, SELF_VOID_REPORT);
+}
+
+#[test]
+fn t065_denied_warnings_fail_the_rebuild_of_a_body_without_volume() {
+    let workspace = self_void_workspace();
+
+    let run = workspace.run(&["rebuild", "--deny-warnings", "model.ptsm"]);
+
+    run.assert_code(1);
+    assert_eq!(run.stdout, SELF_VOID_REPORT);
+}
+
+#[test]
+fn t065_the_json_report_of_a_body_without_volume_has_no_center_of_mass() {
+    let workspace = self_void_workspace();
+
+    let run = workspace.run(&["rebuild", "--json", "model.ptsm"]);
+
+    run.assert_code(0);
+    let report = run.json();
+    let body = entry(&report["bodies"], "id", "b-1");
+    assert_eq!(
+        keys(body),
+        [
+            "id",
+            "name",
+            "volume",
+            "area",
+            "bounding_box",
+            "faces",
+            "edges",
+            "vertices"
+        ]
+    );
+    let volume = number(&body["volume"], "volume");
+    assert!(volume.abs() <= 1e-9, "volume 0 within 1e-9, got {volume}");
+    assert_relative(number(&body["area"], "area"), 5200.0, 1e-6, "area");
+}
+
+#[test]
+fn t065_a_body_without_volume_is_ready_to_print() {
+    let workspace = self_void_workspace();
+
+    let run = workspace.run(&["rebuild", "--checks", "model.ptsm"]);
+
+    run.assert_code(0);
+    assert_eq!(
+        run.stdout_lines().last(),
+        Some(&"  print health: Ready to print (generic-fdm)")
+    );
 }

@@ -1,4 +1,5 @@
-//! Acceptance tests 68, 71 to 84 and 113 of `docs/spec/engine.md` section 6: measure, evaluate, printer profiles and print analysis.
+//! Acceptance tests 68, 71 to 84, 113, 162 and 163 of `docs/spec/engine.md` section 6: measure, evaluate, printer profiles,
+//! print analysis and bodies without volume.
 //!
 //! The spec numbers its tests 68, 71, 72, ...; there are no tests 69 and 70.
 
@@ -7,9 +8,10 @@ use crate::common;
 use std::f64::consts::PI;
 
 use common::{
-    BUFFER_TOLERANCE, GEOMETRY_TOLERANCE, Sent, apply, assert_near, assert_point3, assert_relative,
-    element_named, elements, headless_session, measure_body, number, open, open_doc, point3,
-    revision, send, session, typed_handle,
+    BUFFER_TOLERANCE, GEOMETRY_TOLERANCE, Sent, apply, assert_bounding_box, assert_near,
+    assert_point3, assert_relative, element_named, elements, headless_session, import_step,
+    measure_body, new_doc, number, open, open_doc, point3, python_script, revision,
+    self_void_bytes, send, session, typed_handle,
 };
 use partsmith_engine::Session;
 use partsmith_model::Dimension;
@@ -29,6 +31,18 @@ fn analyze(session: &mut Session, doc: u64, orientation: Value) -> Sent {
 fn rotation_about_x(angle: f64) -> Value {
     let (sine, cosine) = angle.sin_cos();
     json!([[1.0, 0.0, 0.0], [0.0, cosine, -sine], [0.0, sine, cosine]])
+}
+
+/// The keys of a JSON object, sorted.
+fn sorted_keys(value: &Value) -> Vec<&str> {
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("the value is an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    keys
 }
 
 /// The column-major 4 x 4 transform of the only analyzed body.
@@ -75,15 +89,8 @@ fn t068_measuring_a_body_reports_mass_properties_and_counts_only() {
     assert_eq!(measured["face_count"], 6);
     assert_eq!(measured["edge_count"], 12);
     assert_eq!(measured["vertex_count"], 8);
-    let mut keys: Vec<&str> = measured
-        .as_object()
-        .expect("the result is an object")
-        .keys()
-        .map(String::as_str)
-        .collect();
-    keys.sort_unstable();
     assert_eq!(
-        keys,
+        sorted_keys(&measured),
         [
             "area",
             "bounding_box",
@@ -485,4 +492,263 @@ fn t113_the_resolved_printer_profile_is_reported_without_side_effects() {
     assert_eq!(unknown, "generic-fdm");
     assert_eq!(installed, "nope");
     assert_eq!(after, before);
+}
+
+/// The `import_warning` of a solid that stayed invalid after repair (features/import.md test 13,
+/// engine.md test 162).
+const INVALID_SOLID_WARNING: &str = "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.";
+
+/// The detail of that warning: the kernel's sentence for the solid.
+const INVALID_SOLID_DETAIL: &str =
+    "read_step: Solid 1 is not valid after repair; booleans with it may fail.";
+
+/// The keys of a body's measurement without a center of mass: test 68's without `center_of_mass`.
+const KEYS_WITHOUT_CENTER_OF_MASS: [&str; 8] = [
+    "area",
+    "bounding_box",
+    "edge_count",
+    "face_count",
+    "kind",
+    "type",
+    "vertex_count",
+    "volume",
+];
+
+/// A body without volume imported into a new document (engine.md test 162).
+struct SelfVoidImport {
+    /// The new document.
+    doc: u64,
+    /// The `import_step` reply.
+    imported: Sent,
+    /// The imported body's id.
+    body: String,
+    /// The import feature's id.
+    feature: String,
+}
+
+/// Imports `SELF_VOID` made from the STEP export of the fixture `name` (`box.ptsm` for
+/// `SELF_VOID`, `fillet.ptsm` for `SELF_VOID_FILLET`) into a new document of `session`.
+fn import_self_void(session: &mut Session, name: &str) -> SelfVoidImport {
+    let bytes = self_void_bytes(session, name);
+    let doc = new_doc(session);
+    let imported = import_step(session, doc, &bytes, None);
+    let result = imported.ok();
+    let text = |key: &str| {
+        result[key]
+            .as_str()
+            .unwrap_or_else(|| panic!("the import result names its {key}: {result}"))
+            .to_owned()
+    };
+    let (body, feature) = (text("body"), text("feature"));
+    SelfVoidImport {
+        doc,
+        imported,
+        body,
+        feature,
+    }
+}
+
+/// Asserts that the import built with exactly one message, the `import_warning` of a solid that
+/// stayed invalid after repair.
+fn assert_only_the_invalid_solid_warning(import: &SelfVoidImport) {
+    let status = import.imported.feature_status(&import.feature);
+    assert_eq!(status["status"], "warning", "{status}");
+    let messages = status["messages"]
+        .as_array()
+        .expect("statuses list messages");
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert_eq!(messages[0]["severity"], "warning");
+    assert_eq!(messages[0]["code"], "import_warning");
+    assert_eq!(messages[0]["message"], INVALID_SOLID_WARNING);
+    assert_eq!(messages[0]["detail"], INVALID_SOLID_DETAIL);
+}
+
+/// Sends `measure` of a whole body.
+fn measure_whole_body(session: &mut Session, doc: u64, body: &str) -> Sent {
+    send(
+        session,
+        json!({"type": "measure", "doc": doc, "targets": [{"kind": "body", "body": body}]}),
+    )
+}
+
+/// Asserts the measurement of the body of `SELF_VOID`: volume 0, the box's area, bounding box
+/// and counts, and no center of mass.
+fn assert_self_void_box_measured(measured: &Sent) {
+    assert!(measured.events.is_empty(), "{:?}", measured.events);
+    let result = measured.ok();
+    assert_near(number(&result["volume"]), 0.0, 1e-9, "volume");
+    assert_relative(number(&result["area"]), 5200.0, GEOMETRY_TOLERANCE, "area");
+    assert_bounding_box(
+        &result["bounding_box"],
+        [-10.0, -15.0, 0.0],
+        [10.0, 15.0, 40.0],
+    );
+    assert_eq!(result["face_count"], 6);
+    assert_eq!(result["edge_count"], 12);
+    assert_eq!(result["vertex_count"], 8);
+    assert_eq!(sorted_keys(result), KEYS_WITHOUT_CENTER_OF_MASS);
+}
+
+#[test]
+fn t162_a_box_whose_void_is_its_outer_shell_imports_with_the_import_warning() {
+    let mut session = session();
+
+    let import = import_self_void(&mut session, "box.ptsm");
+
+    let document = common::get_document(&mut session, import.doc)["document"].clone();
+    let bodies = document["bodies"]
+        .as_array()
+        .expect("the document lists bodies");
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    assert_eq!(bodies[0]["name"], "Block");
+    assert_eq!(bodies[0]["id"], import.body.as_str());
+    assert_only_the_invalid_solid_warning(&import);
+}
+
+#[test]
+fn t162_a_body_without_volume_is_measured_without_a_center_of_mass() {
+    let mut session = session();
+    let import = import_self_void(&mut session, "box.ptsm");
+
+    let measured = measure_whole_body(&mut session, import.doc, &import.body);
+
+    assert_self_void_box_measured(&measured);
+}
+
+#[test]
+fn t162_a_headless_session_measures_a_body_without_volume_the_same_way() {
+    let mut session = headless_session();
+    let import = import_self_void(&mut session, "box.ptsm");
+
+    let measured = measure_whole_body(&mut session, import.doc, &import.body);
+
+    assert_self_void_box_measured(&measured);
+}
+
+#[test]
+fn t162_a_filleted_body_without_volume_is_measured_without_a_center_of_mass() {
+    let mut session = session();
+    let import = import_self_void(&mut session, "fillet.ptsm");
+
+    let measured = measure_whole_body(&mut session, import.doc, &import.body);
+
+    assert_only_the_invalid_solid_warning(&import);
+    assert!(measured.events.is_empty(), "{:?}", measured.events);
+    let result = measured.ok();
+    assert_near(number(&result["volume"]), 0.0, 1e-9, "volume");
+    assert_relative(
+        number(&result["area"]),
+        5163.946891450772,
+        GEOMETRY_TOLERANCE,
+        "area",
+    );
+    assert_bounding_box(
+        &result["bounding_box"],
+        [-10.0, -15.0, 0.0],
+        [10.0, 15.0, 40.0],
+    );
+    assert_eq!(result["face_count"], 7);
+    assert_eq!(result["edge_count"], 15);
+    assert_eq!(result["vertex_count"], 10);
+    assert_eq!(sorted_keys(result), KEYS_WITHOUT_CENTER_OF_MASS);
+}
+
+#[test]
+fn t163_a_body_without_volume_lists_its_elements() {
+    let mut session = session();
+    let import = import_self_void(&mut session, "box.ptsm");
+
+    let count = |session: &mut Session, kind: &str| {
+        elements(session, import.doc, &import.body, Some(kind)).len()
+    };
+
+    assert_eq!(count(&mut session, "face"), 6);
+    assert_eq!(count(&mut session, "edge"), 12);
+    assert_eq!(count(&mut session, "vertex"), 8);
+}
+
+#[test]
+fn t163_a_body_without_volume_is_ready_to_print() {
+    let mut session = session();
+    let import = import_self_void(&mut session, "box.ptsm");
+
+    let analyzed = analyze(&mut session, import.doc, json!({"kind": "as_modeled"}));
+
+    assert_eq!(analyzed.ok()["health"], "ok");
+    let bodies = analyzed.event("print_health")["report"]["bodies"]
+        .as_array()
+        .expect("the report lists bodies")
+        .clone();
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    assert_eq!(bodies[0]["body"], import.body.as_str());
+    let checks = bodies[0]["report"]["checks"]
+        .as_array()
+        .expect("body reports list checks");
+    for check in checks {
+        assert_eq!(check["findings"], json!([]), "{check}");
+    }
+}
+
+#[test]
+fn t163_a_body_without_volume_exports_to_every_format_without_a_warning() {
+    let mut session = session();
+    let import = import_self_void(&mut session, "box.ptsm");
+    let export = |session: &mut Session, format: Value| {
+        send(
+            session,
+            json!({"type": "export", "doc": import.doc, "format": format}),
+        )
+    };
+
+    let stl = export(
+        &mut session,
+        json!({"kind": "stl", "binary": true, "per_body": false}),
+    );
+
+    let stl_files = stl.ok()["files"]
+        .as_array()
+        .expect("export returns files")
+        .clone();
+    assert_eq!(stl_files.len(), 1, "{stl_files:?}");
+    assert_eq!(stl_files[0]["name"], "model.stl");
+    assert_eq!(stl.file_bytes(&stl_files[0]).len(), 684);
+    assert_eq!(stl.ok()["warnings"], json!([]));
+    for format in [
+        json!({"kind": "3mf"}),
+        json!({"kind": "obj"}),
+        json!({"kind": "step"}),
+    ] {
+        let exported = export(&mut session, format.clone());
+        let files = exported.ok()["files"]
+            .as_array()
+            .expect("export returns files");
+        assert_eq!(files.len(), 1, "{format}: {files:?}");
+        assert_eq!(exported.ok()["warnings"], json!([]), "{format}");
+    }
+}
+
+#[test]
+fn t163_a_body_without_volume_generates_python_and_saves_its_asset() {
+    let mut session = session();
+    let import = import_self_void(&mut session, "box.ptsm");
+
+    let script = python_script(&mut session, import.doc);
+    let saved = send(
+        &mut session,
+        json!({"type": "save_document", "doc": import.doc}),
+    );
+
+    assert!(!script.is_empty(), "export_python returns a script");
+    let assets = saved.ok()["assets"]
+        .as_array()
+        .expect("save returns assets");
+    assert_eq!(assets.len(), 1, "{assets:?}");
+    let asset = assets[0]["name"].as_str().expect("assets have names");
+    assert!(
+        saved.ok()["text"]
+            .as_str()
+            .expect("save returns text")
+            .contains(asset),
+        "the saved document's import names the asset {asset}"
+    );
 }

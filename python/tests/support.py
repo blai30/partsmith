@@ -260,6 +260,29 @@ def reference_text(reference: dict) -> str:
     return f"Ref({', '.join(arguments)})"
 
 
+STEP_ENTITY = re.compile(r"^#(\d+) =", re.MULTILINE)
+"""The number of an entity a line of a STEP text defines."""
+
+
+def self_void(step: str) -> str:
+    """`SELF_VOID` of engine.md test 162 made from `step`, the STEP text of one solid without a void: its entity
+    `#s = MANIFOLD_SOLID_BREP('',#o);` becomes `#s = BREP_WITH_VOIDS('',#o,(#n));`, and
+    `#n = ORIENTED_CLOSED_SHELL('',*,#o,.F.);`, `n` one more than the largest entity number, is added on its own line
+    before the last `ENDSEC;`. A copy of the engine tests' `self_void`, with its checks: exactly one
+    `MANIFOLD_SOLID_BREP` entity and no `BREP_WITH_VOIDS`."""
+    assert step.count("MANIFOLD_SOLID_BREP(") == 1, "the STEP text has one MANIFOLD_SOLID_BREP entity"
+    assert "BREP_WITH_VOIDS(" not in step, "the STEP text has no BREP_WITH_VOIDS entity"
+    solid = next(line for line in step.splitlines() if "MANIFOLD_SOLID_BREP(" in line)
+    number, value = (part.strip() for part in solid.split("=", 1))
+    assert value.startswith("MANIFOLD_SOLID_BREP('',") and value.endswith(");"), solid
+    shell = value.removeprefix("MANIFOLD_SOLID_BREP('',").removesuffix(");")
+    void = max(int(defined) for defined in STEP_ENTITY.findall(step)) + 1
+    end_of_data = step.rindex("ENDSEC;")
+    edited = f"{step[:end_of_data]}#{void} = ORIENTED_CLOSED_SHELL('',*,{shell},.F.);\n{step[end_of_data:]}"
+    assert edited.count(solid) == 1, "the solid's line occurs once"
+    return edited.replace(solid, f"{number} = BREP_WITH_VOIDS('',{shell},(#{void}));")
+
+
 def write_text(path: Path, text: str) -> Path:
     """Writes `text` as UTF-8 bytes without newline translation and returns `path`."""
     path.parent.mkdir(parents=True, exist_ok=True)

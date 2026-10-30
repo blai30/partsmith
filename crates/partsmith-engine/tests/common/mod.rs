@@ -544,7 +544,12 @@ pub fn python_script(session: &mut Session, doc: u64) -> String {
 
 /// Opens `box.ptsm`, exports it as STEP and returns the file bytes.
 pub fn box_step_bytes(session: &mut Session) -> Vec<u8> {
-    let doc = open_doc(session, "box.ptsm");
+    step_bytes(session, "box.ptsm")
+}
+
+/// Opens the fixture `name`, exports it as STEP and returns the file bytes.
+pub fn step_bytes(session: &mut Session, name: &str) -> Vec<u8> {
+    let doc = open_doc(session, name);
     let exported = send(
         session,
         json!({"type": "export", "doc": doc, "format": {"kind": "step"}}),
@@ -555,6 +560,62 @@ pub fn box_step_bytes(session: &mut Session) -> Vec<u8> {
         .clone();
     assert_eq!(files.len(), 1, "a STEP export is one file");
     exported.file_bytes(&files[0])
+}
+
+/// The number of the entity a line of a STEP text defines (`#<n> = ...`), if it defines one.
+fn defined_entity(line: &str) -> Option<u64> {
+    let (reference, _) = line.trim_start().split_once('=')?;
+    reference.trim().strip_prefix('#')?.parse().ok()
+}
+
+/// `SELF_VOID` of engine.md test 162 made from `step`, the STEP text `export` wrote for one solid
+/// without a void: the solid's outer shell listed as its void too. Its entity
+/// `#s = MANIFOLD_SOLID_BREP('',#o);` becomes `#s = BREP_WITH_VOIDS('',#o,(#n));`, and
+/// `#n = ORIENTED_CLOSED_SHELL('',*,#o,.F.);`, `n` one more than the largest entity number, is
+/// added on its own line before the last `ENDSEC;`, as kernel.md test 140 adds `VOID_TWICE`'s
+/// void. Fails unless the text has exactly one `MANIFOLD_SOLID_BREP` entity and no
+/// `BREP_WITH_VOIDS`.
+pub fn self_void(step: &str) -> String {
+    assert_eq!(
+        step.matches("MANIFOLD_SOLID_BREP(").count(),
+        1,
+        "the STEP text has one MANIFOLD_SOLID_BREP entity"
+    );
+    assert!(
+        !step.contains("BREP_WITH_VOIDS("),
+        "the STEP text has no BREP_WITH_VOIDS entity"
+    );
+    let solid = step
+        .lines()
+        .find(|line| line.contains("MANIFOLD_SOLID_BREP("))
+        .expect("the solid is defined on one line");
+    let (number, value) = solid.split_once('=').expect("the solid's line defines it");
+    let shell = value
+        .trim()
+        .strip_prefix("MANIFOLD_SOLID_BREP('',")
+        .and_then(|rest| rest.strip_suffix(");"))
+        .unwrap_or_else(|| panic!("the solid names its one shell: {solid}"));
+    let void = step
+        .lines()
+        .filter_map(defined_entity)
+        .max()
+        .expect("the STEP text defines entities")
+        + 1;
+    let end_of_data = step.rfind("ENDSEC;").expect("the STEP text has sections");
+    let with_void_shell = format!(
+        "{}#{void} = ORIENTED_CLOSED_SHELL('',*,{shell},.F.);\n{}",
+        &step[..end_of_data],
+        &step[end_of_data..]
+    );
+    let with_void = format!("{} = BREP_WITH_VOIDS('',{shell},(#{void}));", number.trim());
+    replace_once(&with_void_shell, solid, &with_void)
+}
+
+/// `self_void` of the STEP export of the fixture `name` (`SELF_VOID` for `box.ptsm`,
+/// `SELF_VOID_FILLET` for `fillet.ptsm`, engine.md test 162).
+pub fn self_void_bytes(session: &mut Session, name: &str) -> Vec<u8> {
+    let step = String::from_utf8(step_bytes(session, name)).expect("STEP text is UTF-8");
+    self_void(&step).into_bytes()
 }
 
 /// Sends `import_step` with `bytes` as request buffer 0.

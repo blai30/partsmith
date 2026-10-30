@@ -119,8 +119,10 @@ struct BodyMetrics {
     volume: f64,
     /// Area in mm^2.
     area: f64,
-    /// Center of mass at uniform density.
-    center_of_mass: Vec3,
+    /// Center of mass at uniform density; none for a body without volume (engine.md section
+    /// 3.11).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    center_of_mass: Option<Vec3>,
     /// Exact bounding box.
     bounding_box: BoundingBox,
     /// Displayed faces.
@@ -310,7 +312,8 @@ fn measure(session: &mut Session, doc: DocHandle, body: &Body) -> Result<BodyRep
     }
 }
 
-/// The metrics of a body measurement, which has every body field (engine.md section 3.11).
+/// The metrics of a body measurement, which has every body field but the center of mass of a body
+/// without volume (engine.md section 3.11).
 fn body_metrics(body: &Body, measurement: Measurement) -> Result<BodyMetrics, CliError> {
     let incomplete = || CliError::Internal {
         detail: format!(
@@ -323,7 +326,7 @@ fn body_metrics(body: &Body, measurement: Measurement) -> Result<BodyMetrics, Cl
         name: body.name.clone(),
         volume: measurement.volume.ok_or_else(incomplete)?,
         area: measurement.area.ok_or_else(incomplete)?,
-        center_of_mass: measurement.center_of_mass.ok_or_else(incomplete)?,
+        center_of_mass: measurement.center_of_mass,
         bounding_box: measurement.bounding_box.ok_or_else(incomplete)?,
         faces: measurement.face_count.ok_or_else(incomplete)?,
         edges: measurement.edge_count.ok_or_else(incomplete)?,
@@ -452,7 +455,7 @@ mod tests {
             name: "Block".to_owned(),
             volume: 24000.0,
             area: 5200.0,
-            center_of_mass: [0.0, 0.0, 20.0],
+            center_of_mass: Some([0.0, 0.0, 20.0]),
             bounding_box: BoundingBox {
                 min: [-10.0, -15.0, 0.0],
                 max: [10.0, 15.0, 40.0],
@@ -794,6 +797,62 @@ mod tests {
         let body = Body::new(id("b-1"), "Block");
 
         let error = body_metrics(&body, Measurement::default()).expect_err("fields are missing");
+
+        assert_eq!(error.status(), Status::Internal);
+    }
+
+    /// The measurement of a body without volume: every body field but the center of mass
+    /// (engine.md section 3.11).
+    fn measured_without_volume() -> Measurement {
+        Measurement {
+            volume: Some(0.0),
+            area: Some(5200.0),
+            bounding_box: Some(BoundingBox {
+                min: [-10.0, -15.0, 0.0],
+                max: [10.0, 15.0, 40.0],
+            }),
+            face_count: Some(6),
+            edge_count: Some(12),
+            vertex_count: Some(8),
+            ..Measurement::default()
+        }
+    }
+
+    /// The report of `measured_without_volume` for the body `b-1` "Imported".
+    fn body_without_volume() -> BodyReport {
+        let body = Body::new(id("b-1"), "Imported");
+        let metrics = body_metrics(&body, measured_without_volume())
+            .expect("a body without volume is measured");
+        BodyReport::Measured(metrics)
+    }
+
+    #[test]
+    fn a_body_without_volume_serializes_without_a_center_of_mass() {
+        let json = serde_json::to_string(&body_without_volume()).expect("serializes");
+
+        assert_eq!(
+            json,
+            r#"{"id":"b-1","name":"Imported","volume":0.0,"area":5200.0,"bounding_box":{"min":[-10.0,-15.0,0.0],"max":[10.0,15.0,40.0]},"faces":6,"edges":12,"vertices":8}"#
+        );
+    }
+
+    #[test]
+    fn a_body_without_volume_prints_the_line_of_any_measured_body() {
+        assert_eq!(
+            body_without_volume().human_line(),
+            "  b-1 \"Imported\": volume 0 mm^3, area 5200 mm^2, bounding box (-10, -15, 0) to (10, 15, 40) mm, 6 faces, 12 edges, 8 vertices"
+        );
+    }
+
+    #[test]
+    fn a_body_measurement_without_its_volume_is_an_internal_error() {
+        let body = Body::new(id("b-1"), "Imported");
+        let measurement = Measurement {
+            volume: None,
+            ..measured_without_volume()
+        };
+
+        let error = body_metrics(&body, measurement).expect_err("the volume is missing");
 
         assert_eq!(error.status(), Status::Internal);
     }

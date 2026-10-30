@@ -196,9 +196,10 @@ class Document:
         return self._client.command("export_python").result["code"]
 
     def import_step(self, path: str | os.PathLike[str], *, name: str | None = None) -> Part:
-        """Imports every solid of a STEP file into a new part."""
+        """Imports every solid of a STEP file into a new part. Each problem the import starts, such
+        as a solid that stayed invalid after repair, is a PartsmithWarning (section 3.2)."""
         data = Path(path).read_bytes()
-        reply = self._client.command("import_step", [data], data=0, name=name)
+        reply = self._command_and_warn("Document.import_step()", "import_step", [data], data=0, name=name)
         return self._part(reply.result["body"])
 
     def check(
@@ -243,11 +244,11 @@ class Document:
         """Applies edits as one undo entry."""
         return self._client.command("apply_edits", label=label, edits=edits)
 
-    def _command_and_warn(self, call: str, command_type: str, **fields: object) -> Reply:
+    def _command_and_warn(self, call: str, command_type: str, buffers: Sequence[bytes] = (), **fields: object) -> Reply:
         """Sends a command that `call` makes, warns about the problems it starts (section 3.2) and
         returns its reply."""
         before = self._problems()
-        reply = self._client.command(command_type, **fields)
+        reply = self._client.command(command_type, buffers, **fields)
         self._warn_new_problems(call, before)
         return reply
 
@@ -551,8 +552,14 @@ class Part:
         return self._measure()["area"]
 
     def center_of_mass(self) -> tuple[float, float, float]:
-        """The center of mass at uniform density, in mm."""
-        return point(self._measure()["center_of_mass"])
+        """The center of mass at uniform density, in mm. A part without volume has none and raises
+        PartsmithError (section 3.3)."""
+        center = self._measure().get("center_of_mass")
+        if center is None:
+            raise PartsmithError(
+                f"Part.center_of_mass(): Body '{self.name}' has no volume, so it has no center of mass."
+            )
+        return point(center)
 
     def bounding_box(self) -> BoundingBox:
         """The exact bounding box, in mm."""

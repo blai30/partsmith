@@ -284,15 +284,35 @@ impl Workspace {
     /// content-hash name the engine's `import_step` gives them (engine spec section 3.14).
     /// Returns the asset name.
     pub fn store_box_step_asset(&self) -> String {
+        let step = self.box_step();
+        self.store_step_asset(step)
+    }
+
+    /// Stores `SELF_VOID` (engine spec test 162: the STEP text `partsmith export box.ptsm` writes,
+    /// with the solid's outer shell listed as its void too) in `assets/` as
+    /// `store_box_step_asset` stores its asset (cli spec test 65). Returns the asset name.
+    pub fn store_self_void_asset(&self) -> String {
+        let step = String::from_utf8(self.box_step()).expect("STEP text is UTF-8");
+        self.store_step_asset(self_void(&step).into_bytes())
+    }
+
+    /// The STEP file `partsmith export box.ptsm -o box.step` writes.
+    fn box_step(&self) -> Vec<u8> {
         self.copy_fixture(BOX);
         self.run(&["export", BOX, "-o", "box.step"]).assert_code(0);
+        self.read("box.step")
+    }
+
+    /// Imports STEP bytes into a headless session and stores the asset its saved document
+    /// returns in `assets/`, under the content-hash name the engine gives it. Returns the name.
+    fn store_step_asset(&self, step: Vec<u8>) -> String {
         let mut session = Session::new(SessionOptions::headless());
         let doc = session
             .new_document(Units::Mm, None)
             .expect("a new document is created");
         session
-            .import_step(doc, self.read("box.step"), None)
-            .expect("the exported STEP file imports");
+            .import_step(doc, step, None)
+            .expect("the STEP file imports");
         let saved = session
             .save_document(doc)
             .expect("the document with the import saves");
@@ -301,6 +321,58 @@ impl Workspace {
         self.write(&format!("assets/{}", asset.name), asset.bytes);
         asset.name
     }
+}
+
+/// The number of the entity a line of a STEP text defines (`#<n> = ...`), if it defines one.
+fn defined_entity(line: &str) -> Option<u64> {
+    let (reference, _) = line.trim_start().split_once('=')?;
+    reference.trim().strip_prefix('#')?.parse().ok()
+}
+
+/// `SELF_VOID` of engine spec test 162 made from `step`, the STEP text of one solid without a
+/// void: its entity `#s = MANIFOLD_SOLID_BREP('',#o);` becomes `#s = BREP_WITH_VOIDS('',#o,(#n));`,
+/// and `#n = ORIENTED_CLOSED_SHELL('',*,#o,.F.);`, `n` one more than the largest entity number, is
+/// added on its own line before the last `ENDSEC;`. A copy of the engine tests' `self_void`, with
+/// its checks: exactly one `MANIFOLD_SOLID_BREP` entity and no `BREP_WITH_VOIDS`.
+pub fn self_void(step: &str) -> String {
+    assert_eq!(
+        step.matches("MANIFOLD_SOLID_BREP(").count(),
+        1,
+        "the STEP text has one MANIFOLD_SOLID_BREP entity"
+    );
+    assert!(
+        !step.contains("BREP_WITH_VOIDS("),
+        "the STEP text has no BREP_WITH_VOIDS entity"
+    );
+    let solid = step
+        .lines()
+        .find(|line| line.contains("MANIFOLD_SOLID_BREP("))
+        .expect("the solid is defined on one line");
+    let (number, value) = solid.split_once('=').expect("the solid's line defines it");
+    let shell = value
+        .trim()
+        .strip_prefix("MANIFOLD_SOLID_BREP('',")
+        .and_then(|rest| rest.strip_suffix(");"))
+        .unwrap_or_else(|| panic!("the solid names its one shell: {solid}"));
+    let void = step
+        .lines()
+        .filter_map(defined_entity)
+        .max()
+        .expect("the STEP text defines entities")
+        + 1;
+    let end_of_data = step.rfind("ENDSEC;").expect("the STEP text has sections");
+    let with_void_shell = format!(
+        "{}#{void} = ORIENTED_CLOSED_SHELL('',*,{shell},.F.);\n{}",
+        &step[..end_of_data],
+        &step[end_of_data..]
+    );
+    assert_eq!(
+        with_void_shell.matches(solid).count(),
+        1,
+        "the solid's line occurs once"
+    );
+    let with_void = format!("{} = BREP_WITH_VOIDS('',{shell},(#{void}));", number.trim());
+    with_void_shell.replacen(solid, &with_void, 1)
 }
 
 /// A fixture parsed as JSON, keys in file order.

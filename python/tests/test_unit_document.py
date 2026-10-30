@@ -557,6 +557,17 @@ def test_setting_the_printer_and_clearing_the_rollback_warn_about_nothing_when_n
         rollback(None)
 
 
+def test_an_import_without_problems_warns_about_nothing():
+    document = Document()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PartsmithWarning)
+        part = document.import_step(IMPORT_ASSET)
+
+    assert document.features[0].status == "ok"
+    assert part.volume() > 0
+
+
 def test_rollback_warns_about_each_problem_it_starts():
     Document()
     with Part("P"):

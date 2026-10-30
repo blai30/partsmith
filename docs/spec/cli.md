@@ -146,7 +146,7 @@ Diagnostic objects have `severity`, `code`, `message`, then `line`, `column` and
 ### 3.3 `rebuild`
 
 1. Opens the file with its assets, applies `--printer` as an in-memory `set_printer` when given (exit 1 with `error: Printer profile "<id>" is not installed.` when unknown), and recomputes.
-2. Measures every body with geometry (engine `measure`).
+2. Measures every body with geometry (engine `measure`). A body without volume (engine.md section 3.11) is measured too, without a center of mass.
 3. With `--checks`, runs `analyze_print` with the effective profile and the orientation from `--rotate` (default `as_modeled`) on the default bodies.
 4. Human output:
 
@@ -251,7 +251,7 @@ A message never has a `cause` here: the CLI opens the document fresh, so no edit
 {"severity": "error", "code": "upstream_failed", "message": "'Sketch 2' cannot be built because 'Datum plane 1' has an error, so this extrude cannot use it either. Fix 'Datum plane 1' first.", "actions": [{"label": "Show 'Datum plane 1'", "kind": "show"}], "root": "f-dp1"}
 ```
 
-A parameter that failed to evaluate has `error` instead of `value` and `dimension`. A body without geometry has only `id`, `name` and `"empty": true`. With `--checks` a final key `checks` holds the protocol `PrintReport` (protocol.md 2.7: `profile`, `orientation`, `summary`, `bodies` with each body's `transform` and print.md `report`), without `mesh_id` and `overhang`.
+A parameter that failed to evaluate has `error` instead of `value` and `dimension`. A body without geometry has only `id`, `name` and `"empty": true`. A body without volume (engine.md section 3.11) has every member but `center_of_mass`, and its text line is that of any measured body (`volume 0 mm^3`); the message that explains it is its import's `import_warning` (test 65). With `--checks` a final key `checks` holds the protocol `PrintReport` (protocol.md 2.7: `profile`, `orientation`, `summary`, `bodies` with each body's `transform` and print.md `report`), without `mesh_id` and `overhang`.
 
 6. Exit 1 when any feature has status `error`, or `warning` with `--deny-warnings`. Print findings never change the exit code.
 
@@ -456,6 +456,21 @@ The other words, among them the shared cases of print.md 3.12, are print.md test
 Test 64 is in `crates/partsmith-cli/tests/budgets.rs`, declared `mod budgets;` in `tests/integration.rs` (ADR 0035), and runs with `cargo test -p partsmith-cli --test integration budgets::`.
 
 64. The 200 KB document of section 5. The text `budget_document()` returns has 200,000 bytes or more and fewer than 210,000, and is the same on every call. Written as `budget.ptsm`, `partsmith validate budget.ptsm` prints `budget.ptsm: ok\n` and exits 0, and `partsmith fmt --check budget.ptsm` prints nothing and exits 0. Parsed as JSON, it has the members of `plate.ptsm` in their order, with `format`, `format_version` and `units` plate's (`partsmith`, 2, `mm`) and `parameters` `[]`; `bodies` has 133 entries, entry `k` (from 1) `{"id": "b-<k>", "name": "Plate <k>"}`, so the first is `{"id": "b-1", "name": "Plate 1"}` and the last `{"id": "b-133", "name": "Plate 133"}`; and `features` has 266 entries, `f-sk1`, `f-ext1`, `f-sk2` and so on to `f-ext133` in this order, where, for each `k`, `f-sk<k>` and `f-ext<k>` equal the sketch and the extrude of `plate.ptsm` with `b-1`, `f-sk1`, `f-ext1`, `e-1` to `e-4` and `c-1` to `c-8` written `b-<k>`, `f-sk<k>`, `f-ext<k>`, `e-<k>01` to `e-<k>04` and `c-<k>01` to `c-<k>08` wherever they occur, region keys and point references such as `e-1.end` included, so the last copy's region key is `e-13301,e-13302,e-13303,e-13304` and its last constraint `c-13308`.
+
+**Bodies without volume**
+
+Test 65 is in `crates/partsmith-cli/tests/rebuild.rs`.
+
+65. A body without volume (3.3, engine.md section 3.11). `store_self_void_asset` of `tests/common`, beside `store_box_step_asset`, stores `SELF_VOID` in the workspace's `assets/` and returns its asset name: the text that `partsmith export box.ptsm -o box.step` writes, edited as engine.md test 162 edits it into `SELF_VOID` (a copy of the engine's helper, with its check of exactly one `MANIFOLD_SOLID_BREP` and no `BREP_WITH_VOIDS`), imported into a headless session with the engine's `import_step` and named by the asset `save_document` returns, as `store_box_step_asset` names its asset (engine.md section 3.14), so no dependency is added. The test writes `model.ptsm` as `import_document` of `tests/common` makes it for that name: its one body `b-1` "Imported" made by one feature, `{"id": "f-imp1", "type": "import", "body": "b-1", "asset": "<name>", "op": "new"}`. `partsmith rebuild model.ptsm` exits 0, writes nothing to standard error and prints exactly:
+
+```text
+model.ptsm
+  f-imp1 import warning
+    warning[import_warning] at /features/0: This import kept 1 solid of the STEP file that is not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.
+  b-1 "Imported": volume 0 mm^3, area 5200 mm^2, bounding box (-10, -15, 0) to (10, 15, 40) mm, 6 faces, 12 edges, 8 vertices
+```
+
+`partsmith rebuild --deny-warnings model.ptsm` prints the same and exits 1. In `partsmith rebuild --json model.ptsm`, which exits 0, `b-1` has exactly the members `id`, `name`, `volume`, `area`, `bounding_box`, `faces`, `edges` and `vertices`, in this order, with `volume` 0 within 1e-9, `area` 5200 and no `center_of_mass`. `partsmith rebuild --checks model.ptsm` exits 0 and ends with the line `  print health: Ready to print (generic-fdm)`. (Before engine.md section 3.11 said so, each of these runs exited 1: the text runs printed nothing to standard output and `error: Partsmith hit a bug while running this command. Your document is unchanged. Save a copy, and report this with the details.` to standard error, and the `--json` run printed `{"path": "model.ptsm", "error": {"severity": "error", "code": "internal_error", "message": <that message>}}`.)
 
 ## 7. Open issues
 
