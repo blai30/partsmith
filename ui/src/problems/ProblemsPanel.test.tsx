@@ -152,6 +152,15 @@ describe('the Problems panel (3.9)', () => {
     expect(app.store.getState().selection.map((item) => item.key)).toEqual(['feature:f-fil1'])
   })
 
+  it('U-240 makes the feature label a target of at least 24 by 24 pixels, however short, laid out in the 20 pixels of its line (3.9, 3.24)', () => {
+    const { panel } = renderPanel(withProblems([FILLET_TOO_LARGE]))
+    expect(within(panel).getByRole('button', { name: 'Fillet 1' })).toHaveClass(
+      'min-h-6',
+      'min-w-6',
+      '-my-0.5',
+    )
+  })
+
   it('edits a feature with its Edit button', async () => {
     const { core, user, panel } = renderPanel(withProblems([FILLET_TOO_LARGE]))
     await user.click(within(panel).getByRole('button', { name: 'Edit' }))

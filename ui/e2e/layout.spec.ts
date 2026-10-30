@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import {
   bodyRow,
   boxOf,
@@ -9,6 +9,7 @@ import {
   fitView,
   openApp,
   runCommand,
+  test,
   viewport,
   type Box,
 } from './helpers'

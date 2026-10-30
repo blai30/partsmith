@@ -1,6 +1,6 @@
 import { clsx } from 'clsx/lite'
 import { CircleCheck, X } from 'lucide-react'
-import { useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { dismiss, pauseNotification, resumeNotification } from '../app/actions/notifications'
 import { useApp, useAppState } from '../app/AppProvider'
 import { IconButton } from '../components/IconButton'
@@ -8,6 +8,7 @@ import { SeverityIcon } from '../print/SeverityIcon'
 import { selectCommandBlock } from '../state/selectors'
 import type { Notification, NotificationAction } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
+import { focusView } from './focus'
 import { WaitingButton } from './WaitingButton'
 
 // Notifications (ui.md 3.22): a stack at the viewport's bottom-right, newest at the bottom. The
@@ -15,7 +16,7 @@ import { WaitingButton } from './WaitingButton'
 // order (3.24). Errors are announced through an alert region and the others through a status
 // region; both regions stay mounted, so a message added to them is announced, which a region
 // inserted with its text often is not. A notification's countdown pauses while the pointer is over
-// it or focus is inside it.
+// it or focus is inside it, and focus still inside it when it goes away moves to the 3D view.
 
 function NotificationIcon({ severity }: { readonly severity: Notification['severity'] }) {
   if (severity === 'success') {
@@ -59,8 +60,20 @@ function NotificationButton({
 
 function NotificationCard({ notification }: { readonly notification: Notification }) {
   const app = useApp()
+  const card = useRef<HTMLDivElement>(null)
   // Whether the pointer is over the card and whether focus is inside it; either holds the countdown.
   const holds = useRef({ pointer: false, focus: false })
+
+  // Focus that is still inside the card when it goes away, which nothing else took, moves to the 3D
+  // view (3.22, 3.24). A layout effect's cleanup runs before the card leaves the page.
+  useLayoutEffect(() => {
+    const element = card.current
+    return () => {
+      if (element?.contains(document.activeElement) === true) {
+        focusView()
+      }
+    }
+  }, [])
 
   function hold(kind: 'pointer' | 'focus', held: boolean): void {
     const wasHeld = holds.current.pointer || holds.current.focus
@@ -75,6 +88,7 @@ function NotificationCard({ notification }: { readonly notification: Notificatio
 
   return (
     <div
+      ref={card}
       data-testid="notification"
       data-severity={notification.severity}
       data-code={notification.code}

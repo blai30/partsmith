@@ -1,5 +1,6 @@
 // Where focus goes when the control that had it goes away (ui.md 3.24): a plane button replacing
-// the Sketch button, the 3D view once a sketch is edited, a panel's opener once the panel closes.
+// the Sketch button, the 3D view once a sketch is edited, a panel's or a command's opener once it
+// closes, and the 3D view when that opener is gone or a notification with focus inside goes away.
 
 /** The id of the 3D view's focusable surface (`role="application"`, 3.13). */
 export const VIEW_ID = 'view'
@@ -18,6 +19,21 @@ export function isView(target: Element): boolean {
 /** Moves focus to the 3D view. */
 export function focusView(): void {
   document.getElementById(VIEW_ID)?.focus()
+}
+
+/** The element that has focus, or null when focus is on nothing. */
+export function focusedElement(): HTMLElement | null {
+  const active = document.activeElement
+  return active instanceof HTMLElement && active !== document.body ? active : null
+}
+
+/** Gives focus back to `opener` while it is in the page, else to the 3D view. */
+export function returnFocus(opener: HTMLElement | null): void {
+  if (opener?.isConnected === true) {
+    opener.focus()
+  } else {
+    focusView()
+  }
 }
 
 /** Input types that take no typed text, so their keys stay shortcuts. */

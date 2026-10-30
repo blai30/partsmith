@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { fileURLToPath } from 'node:url'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 import {
   bodyRow,
   canvas,
@@ -10,6 +10,7 @@ import {
   inspector,
   openApp,
   runCommand,
+  test,
   timelineItem,
   toScreen,
 } from './helpers'
@@ -101,6 +102,11 @@ async function editFailedFillet(page: Page): Promise<void> {
 }
 
 test.describe('visual @visual', () => {
+  // Playwright applies `stylePath` as a `<style>` element, which the preview's `style-src 'self'`
+  // refuses, so the rebuild time would show; the other E-tests check the policy (ui.md 6.6,
+  // delivery.md 2.7).
+  test.use({ bypassCSP: true })
+
   for (const [id, colorScheme] of [
     ['V-1', 'light'],
     ['V-2', 'dark'],

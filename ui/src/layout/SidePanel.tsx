@@ -19,7 +19,7 @@ import { healthProfileName } from '../print/printer'
 import { ProblemsPanel } from '../problems/ProblemsPanel'
 import type { PanelsState } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
-import { focusLost, focusView } from './focus'
+import { focusedElement, focusLost, returnFocus } from './focus'
 import { SIDE_PANEL_ID } from './panel-ids'
 import { useOverlayDismiss } from './use-overlay-dismiss'
 
@@ -88,16 +88,10 @@ function OpenSidePanel({ side }: { readonly side: NonNullable<PanelsState['side'
   // Closing the panel from inside it gives focus back to the control that opened it, or to the
   // 3D view when that control is gone (3.24).
   useEffect(() => {
-    const active = document.activeElement
-    const opener = active instanceof HTMLElement && active !== document.body ? active : null
+    const opener = focusedElement()
     return () => {
-      if (!focusLost()) {
-        return
-      }
-      if (opener?.isConnected === true) {
-        opener.focus()
-      } else {
-        focusView()
+      if (focusLost()) {
+        returnFocus(opener)
       }
     }
   }, [])

@@ -61,7 +61,7 @@ export default defineConfig({
       default: false,
     },
   ],
-  // The production build, served with the cross-origin isolation headers from vite.config.ts.
+  // The production build, served with the headers of public/_headers by vite.config.ts.
   webServer: {
     command: `pnpm build && pnpm preview --port ${String(port)} --strictPort`,
     port,

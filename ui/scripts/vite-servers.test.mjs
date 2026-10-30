@@ -1,7 +1,8 @@
-// Acceptance test 65 of docs/spec/delivery.md section 6: the cross-origin isolation headers on every response of
-// Vite's dev and preview servers, 304 Not Modified included (section 2.7).
+// Acceptance test 65 of docs/spec/delivery.md section 6: the web app's response headers of ui/public/_headers on every
+// response of Vite's preview and dev servers, 304 Not Modified included, the dev server's without the content security
+// policy (section 2.7).
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -11,11 +12,12 @@ import { createServer, preview } from 'vite'
 
 const uiDirectory = fileURLToPath(new URL('..', import.meta.url))
 
-// The headers of section 2.7, which ui/public/_headers sets in production.
-const ISOLATION_HEADERS = {
-  'cross-origin-opener-policy': 'same-origin',
-  'cross-origin-embedder-policy': 'require-corp',
-}
+// The file whose headers production serves (section 2.7).
+const headersPath = join(uiDirectory, 'public/_headers')
+
+// The one header the dev server leaves out: its page needs inline script and style, and it also serves the
+// desktop's dev window (section 2.7).
+const POLICY = 'content-security-policy'
 
 // Where both servers listen: port 0 lets the system pick a free port.
 const LISTEN = { host: '127.0.0.1', port: 0 }
@@ -35,26 +37,60 @@ function serverUrl(server, path) {
   return `http://${LISTEN.host}:${String(server.httpServer.address().port)}${path}`
 }
 
-/** Checks that `response` has `status`, both isolation headers and no `Vary` that names `Origin`. */
-function assertIsolated(response, status, request) {
+/**
+ * The headers of `_headers` text, by lower-case name: after the line `/*`, every line is two spaces, a name, `: ` and a
+ * value (section 2.7).
+ */
+function parseHeaders(text) {
+  const [path, ...lines] = text.split('\n')
+  assert.equal(path, '/*', '_headers starts with the line /*')
+  assert.equal(lines.pop(), '', '_headers ends with a line feed')
+  return Object.fromEntries(
+    lines.map((line) => {
+      const match = /^ {2}([A-Za-z-]+): (.+)$/.exec(line)
+      assert.ok(
+        match,
+        `_headers line ${JSON.stringify(line)} is two spaces, a name, ": " and a value`,
+      )
+      return [match[1].toLowerCase(), match[2]]
+    }),
+  )
+}
+
+/** The headers that production serves, read from ui/public/_headers. */
+async function productionHeaders() {
+  return parseHeaders(await readFile(headersPath, 'utf8'))
+}
+
+/**
+ * Checks that `response` has `status`, each of `expected` with its value, none of `absent`, and no `Vary` that names
+ * `Origin`.
+ */
+function assertHeaders(response, status, expected, absent, request) {
   assert.equal(response.status, status, `${request}: status`)
-  for (const [name, value] of Object.entries(ISOLATION_HEADERS)) {
+  for (const [name, value] of Object.entries(expected)) {
     assert.equal(response.headers.get(name), value, `${request}: ${name}`)
+  }
+  for (const name of absent) {
+    assert.equal(response.headers.get(name), null, `${request}: ${name} is not sent`)
   }
   assert.doesNotMatch(response.headers.get('vary') ?? '', /\borigin\b/i, `${request}: vary`)
 }
 
-/** Requests `path` from `server`, then again with `If-None-Match` set to the first response's `ETag`. */
-async function assertIsolatedWhenRevalidated(server, path) {
+/**
+ * Requests `path` from `server`, then again with `If-None-Match` set to the first response's `ETag`, and checks both
+ * responses' headers.
+ */
+async function assertHeadersWhenRevalidated(server, path, expected, absent = []) {
   const first = await fetch(serverUrl(server, path))
   await first.arrayBuffer()
-  assertIsolated(first, 200, `GET ${path}`)
+  assertHeaders(first, 200, expected, absent, `GET ${path}`)
   const etag = first.headers.get('etag')
   assert.ok(etag, `GET ${path} has no ETag`)
 
   const second = await fetch(serverUrl(server, path), { headers: { 'If-None-Match': etag } })
   await second.arrayBuffer()
-  assertIsolated(second, 304, `GET ${path} with If-None-Match`)
+  assertHeaders(second, 304, expected, absent, `GET ${path} with If-None-Match`)
 }
 
 /**
@@ -72,7 +108,18 @@ async function serveWithTemporaryFolder(context, prefix, start) {
   return server
 }
 
-test('65: the preview server sends the isolation headers on every response, 304s included', async (context) => {
+test('65: _headers holds the five headers of section 2.7', async () => {
+  assert.deepEqual(Object.keys(await productionHeaders()), [
+    'cross-origin-opener-policy',
+    'cross-origin-embedder-policy',
+    POLICY,
+    'x-content-type-options',
+    'referrer-policy',
+  ])
+})
+
+test('65: the preview server sends the headers of _headers on every response, 304s included', async (context) => {
+  const expected = await productionHeaders()
   const server = await serveWithTemporaryFolder(
     context,
     'partsmith-vite-servers-',
@@ -85,11 +132,15 @@ test('65: the preview server sends the isolation headers on every response, 304s
   )
 
   await Promise.all(
-    ['/index.html', '/assets/a.js'].map((path) => assertIsolatedWhenRevalidated(server, path)),
+    ['/index.html', '/assets/a.js'].map((path) =>
+      assertHeadersWhenRevalidated(server, path, expected),
+    ),
   )
 })
 
-test('65: the dev server sends the isolation headers on every response, 304s included', async (context) => {
+test('65: the dev server sends the headers of _headers but the policy on every response, 304s included', async (context) => {
+  const { [POLICY]: policy, ...expected } = await productionHeaders()
+  assert.ok(policy, '_headers sets a content security policy')
   // A cache folder of its own leaves ui/node_modules/.vite as it was. Without discovery, Vite optimizes only the
   // dependencies its plugins name, and listen() returns once they are written, so nothing writes to the folder later.
   const server = await serveWithTemporaryFolder(context, 'partsmith-vite-cache-', (cacheDir) =>
@@ -99,7 +150,7 @@ test('65: the dev server sends the isolation headers on every response, 304s inc
 
   await Promise.all(
     ['/index.html', '/_headers', '/src/main.tsx'].map((path) =>
-      assertIsolatedWhenRevalidated(server, path),
+      assertHeadersWhenRevalidated(server, path, expected, [POLICY]),
     ),
   )
 })

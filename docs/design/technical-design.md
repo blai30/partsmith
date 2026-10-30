@@ -116,7 +116,7 @@ The system is one Rust core (wrapping the C++ OCCT kernel), compiled natively fo
 
 - GitHub Actions builds every crate, runs the tests and model corpus, and builds the web app and desktop installers.
 - The web app deploys automatically to Cloudflare Pages. Every merge to `main` goes to production, and every pull request gets its own preview URL, so reviewers can try a change in the browser.
-- A `_headers` file sets `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Browsers require both before they allow SharedArrayBuffer and WASM threads.
+- A `_headers` file sets `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, which browsers require before they allow SharedArrayBuffer and WASM threads, and a content security policy with two hardening headers (delivery.md 2.7).
 - Pages limits each file to 25 MiB ([Cloudflare limits](https://developers.cloudflare.com/pages/platform/limits/)). A full OCCT WASM build can exceed that, so the core ships as lazily loaded modules (base kernel, booleans and fillets, STEP I/O, mesh tools), each linked with only the OCCT toolkits it needs. Anything still over the limit is served from Cloudflare R2, which Cloudflare recommends for large files.
 - The Tauri bundler signs desktop builds for Windows, macOS and Linux and publishes them to GitHub Releases, with auto-update.
 

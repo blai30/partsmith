@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import {
   canvas,
   download,
@@ -11,6 +11,7 @@ import {
   openApp,
   runCommand,
   sketchToScreen,
+  test,
   timelineItem,
 } from './helpers'
 import {

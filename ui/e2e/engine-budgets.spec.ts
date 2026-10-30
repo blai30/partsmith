@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 import { readFile } from 'node:fs/promises'
-import { expect, test, type Page, type Route } from '@playwright/test'
-import { percentile } from './helpers'
+import { expect, type Page, type Route } from '@playwright/test'
+import { percentile, test } from './helpers'
 import type { Answer } from './pages/engine-worker'
 import {
   MEMORY_ROW,

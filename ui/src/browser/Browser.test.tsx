@@ -243,6 +243,18 @@ describe('body rows (3.10)', () => {
     ).toBeInTheDocument()
   })
 
+  it('U-240 makes the swatch a 24-pixel button laid out in the 16 pixels of a row icon, showing a bordered square (3.10, 3.24)', () => {
+    renderBrowser()
+    const swatch = within(row('body', 'b-cube')).getByRole('button', {
+      name: 'Color of Cube',
+      hidden: true,
+    })
+    expect(swatch).toHaveClass('size-6', '-m-1')
+    const square = swatch.querySelector('.size-4')
+    expect(square).toHaveClass('border')
+    expect(square?.querySelector('rect')).not.toBeNull()
+  })
+
   it('marks a body without model-layer geometry as "(empty)"', () => {
     renderBrowser(cubeDocumentState({ meshes: {} }))
     expect(row('body', 'b-cube')).toHaveTextContent('(empty)')

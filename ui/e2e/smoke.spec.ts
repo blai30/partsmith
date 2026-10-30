@@ -3,8 +3,8 @@ import { execFile } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { expect, test } from '@playwright/test'
-import { longTasks, measures, openApp, pageTime, percentile, watchLongTasks } from './helpers'
+import { expect } from '@playwright/test'
+import { longTasks, measures, openApp, pageTime, percentile, test, watchLongTasks } from './helpers'
 
 /** How long the busy task of the long task check runs, and the least duration it must report. */
 const BUSY_MILLISECONDS = 120

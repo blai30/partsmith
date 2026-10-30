@@ -1,6 +1,7 @@
 import { act, cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { dismiss, notify } from '../app/actions/notifications'
 import { installPopoverPolyfill } from '../components/popover-polyfill.testing'
 import { MESSAGES } from '../messages'
 import type { ActiveCommand, Notification } from '../state/store'
@@ -227,5 +228,86 @@ describe('cause lines in notifications (3.22, U-132)', () => {
   it('U-132 shows no cause line for a notification without a cause', () => {
     renderWith([notification('n-1', 'warning', LOST)])
     expect(screen.queryByTestId('cause-line')).toBeNull()
+  })
+})
+
+/** The 3D view's focusable surface, where focus goes when its notification is gone (3.24). */
+function view(): HTMLElement {
+  return screen.getByRole('application', { name: '3D view' })
+}
+
+/** The button named `name` of the notification whose message is `message`. */
+function buttonOf(message: string, name: string): HTMLElement {
+  const card = screen
+    .getAllByTestId('notification')
+    .find((candidate) => candidate.textContent?.includes(message) === true)
+  if (card === undefined) {
+    throw new Error(`No notification reads "${message}".`)
+  }
+  return within(card).getByRole('button', { name })
+}
+
+describe('focus after a notification (3.22, 3.24, U-238)', () => {
+  it('U-238 (a) gives focus to the 3D view when its focused Dismiss removes it', async () => {
+    const { app, user } = renderWith([notification('n-1', 'error', 'Could not open notes.txt.')])
+    buttonOf('Could not open notes.txt.', 'Dismiss').focus()
+    await user.keyboard('{Enter}')
+    expect(app.store.getState().notifications).toEqual([])
+    expect(view()).toHaveFocus()
+  })
+
+  it('U-238 (b) gives focus to the 3D view after an action that moves focus nowhere', async () => {
+    const run = vi.fn<() => void>()
+    const { app, user } = renderWith([
+      notification('n-1', 'info', 'Deleted Fillet 1.', [{ label: 'Undo', run }]),
+    ])
+    buttonOf('Deleted Fillet 1.', 'Undo').focus()
+    await user.keyboard('{Enter}')
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(app.store.getState().notifications).toEqual([])
+    expect(view()).toHaveFocus()
+  })
+
+  it('U-238 (c) leaves focus where an action put it', async () => {
+    const run = vi.fn<() => void>(() => {
+      screen.getByTestId('document-name').focus()
+    })
+    const { app, user } = renderWith([
+      notification('n-1', 'info', 'Deleted Fillet 1.', [{ label: 'Rename', run }]),
+    ])
+    buttonOf('Deleted Fillet 1.', 'Rename').focus()
+    await user.keyboard('{Enter}')
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(app.store.getState().notifications).toEqual([])
+    expect(screen.getByTestId('document-name')).toHaveFocus()
+  })
+
+  it('U-238 (d) gives focus to the 3D view when a fourth notification pushes out the focused one', () => {
+    const { app } = renderWith([
+      notification('n-1', 'info', 'First.'),
+      notification('n-2', 'info', 'Second.'),
+      notification('n-3', 'info', 'Third.'),
+    ])
+    buttonOf('First.', 'Dismiss').focus()
+    act(() => {
+      notify(app, { severity: 'info', message: 'Fourth.', actions: [] })
+    })
+    expect(app.store.getState().notifications.map((shown) => shown.message)).toEqual([
+      'Second.',
+      'Third.',
+      'Fourth.',
+    ])
+    expect(view()).toHaveFocus()
+  })
+
+  it('U-238 (e) leaves focus outside the stack where it is when a notification goes away', () => {
+    const { app } = renderWith([notification('n-1', 'info', 'Exported cube.3mf.')])
+    const name = screen.getByTestId('document-name')
+    name.focus()
+    act(() => {
+      dismiss(app, 'n-1')
+    })
+    expect(app.store.getState().notifications).toEqual([])
+    expect(name).toHaveFocus()
   })
 })

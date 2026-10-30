@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import { expect, test, type Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 import {
   bodyRow,
   canvas,
@@ -16,6 +16,7 @@ import {
   originRow,
   runCommand,
   sketchToScreen,
+  test,
   timelineItem,
   viewport,
   type PagePoint,

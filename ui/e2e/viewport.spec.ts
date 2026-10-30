@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
-import { expect, test, type Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
+import { test } from './helpers'
 import type { Sample } from './pages/viewport-harness'
 import { serveTestPage } from './support/test-pages'
 

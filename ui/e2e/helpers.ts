@@ -2,7 +2,7 @@
 /// <reference lib="dom.asynciterable" />
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { expect, type Locator, type Page } from '@playwright/test'
+import { test as base, expect, type Locator, type Page } from '@playwright/test'
 
 // The shared end-to-end helpers of ui.md 6.3: opening the app and fixtures, the canvas geometry
 // the spec's positions are relative to, the mapping from model and sketch millimeters to page
@@ -87,6 +87,46 @@ export function fixturePath(name: string): string {
 export function fixtureBytes(name: string): Promise<Buffer> {
   return readFile(new URL(name, fixtures))
 }
+
+/** The fields of a `csp-violation` report's body that a failure shows. */
+type ViolationReportBody = { readonly effectiveDirective: string; readonly blockedURL: string }
+
+/**
+ * Every content security policy violation reported in the scope that runs it (a page or a worker)
+ * since that scope started, one line each as `{directive} {URL}` (ui.md 6.3, delivery.md 2.7): a
+ * `ReportingObserver` made with `buffered` is also given the reports made before it existed.
+ */
+export function reportedViolations(): string[] {
+  const observer = new ReportingObserver(() => undefined, {
+    types: ['csp-violation'],
+    buffered: true,
+  })
+  observer.observe()
+  const reports = observer.takeRecords()
+  observer.disconnect()
+  return reports.map((report) => {
+    const body = report.body as ViolationReportBody
+    return `${body.effectiveDirective} ${body.blockedURL}`
+  })
+}
+
+/**
+ * The `test` of every E-test file but `security.spec.ts` (ui.md 6.3): when a test that used `page`
+ * ends, the page must have reported no content security policy violation, so every state a test
+ * visits is checked against the policy the preview sends (delivery.md 2.7).
+ */
+export const test = base.extend({
+  // Playwright calls the second argument `use`; this name keeps the lint's React hook rule away.
+  page: async ({ page }, runTest) => {
+    await runTest(page)
+    if (!page.isClosed()) {
+      expect(
+        await page.evaluate(reportedViolations),
+        'the content security policy violations of the page',
+      ).toEqual([])
+    }
+  },
+})
 
 /**
  * Opens the app and waits for the core to be ready (ui.md 6.3). Without File System Access an

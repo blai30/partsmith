@@ -62,15 +62,24 @@ export function BodyColorButton({ body, tabbable = true, size = 'row' }: BodyCol
       onDoubleClick={(event) => {
         event.stopPropagation()
       }}
+      // A target of 24 pixels; in a row it shows a 16-pixel square and takes the 16 pixels of the
+      // other rows' icons, so names stay aligned (3.10, 3.24).
       className={clsx(
-        'inline-flex shrink-0 overflow-hidden rounded-sm border',
-        size === 'row' ? 'size-4' : 'size-6',
-        COLOR_CLASSES.borderControl.border,
+        'inline-flex size-6 shrink-0 items-center justify-center rounded-sm',
+        size === 'row' && '-m-1',
         COLOR_CLASSES.focusRing.outline,
         blocked !== null && 'cursor-not-allowed',
       )}
     >
-      <SwatchGraphic hex={hex} />
+      <span
+        className={clsx(
+          'flex overflow-hidden rounded-sm border',
+          size === 'row' ? 'size-4' : 'size-full',
+          COLOR_CLASSES.borderControl.border,
+        )}
+      >
+        <SwatchGraphic hex={hex} />
+      </span>
     </button>
   )
   return (

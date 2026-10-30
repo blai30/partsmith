@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import { expect, test, type Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 import {
   bodyRow,
   download,
@@ -11,6 +11,7 @@ import {
   originRow,
   renameBody,
   runCommand,
+  test,
   timelineItem,
   viewCubeButton,
 } from './helpers'

@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import {
   bodyRow,
   browserRow,
@@ -18,6 +18,7 @@ import {
   openApp,
   originRow,
   runCommand,
+  test,
   timelineItem,
 } from './helpers'
 import { openProblems } from './support/documents'

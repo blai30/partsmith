@@ -11,6 +11,7 @@ import { FEATURE_ICONS } from '../commands/icons'
 import { IconButton } from '../components/IconButton'
 import { useOverflowEdges } from '../components/overflow-edges'
 import { Tooltip } from '../components/Tooltip'
+import { focusedElement, focusLost, returnFocus } from '../layout/focus'
 import { selectInspectedItems } from '../state/selectors'
 import type { AppState, SelectionItem } from '../state/store'
 import { COLOR_CLASSES } from '../theme/roles'
@@ -184,13 +185,15 @@ function Panel({
     }
   }, [app])
 
-  // A command's inspector takes focus when it opens and gives it back when it closes (3.24).
+  // A command's inspector takes focus when it opens and gives it back when it closes, to the 3D
+  // view when the control that had it is gone, such as a suggestion of the selection the command
+  // took (3.24).
   useEffect(() => {
     const element = panel.current
     if (mode !== 'command' || element === null) {
       return undefined
     }
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previous = focusedElement()
     // The first of the opening fields that is shown takes focus.
     const target =
       openingFocus(app.store.getState())
@@ -201,10 +204,8 @@ function Panel({
       target.select()
     }
     return () => {
-      const active = document.activeElement
-      const lost = active === null || active === document.body || element.contains(active)
-      if (lost && previous?.isConnected === true) {
-        previous.focus()
+      if (focusLost() || element.contains(document.activeElement)) {
+        returnFocus(previous)
       }
     }
   }, [app, mode])

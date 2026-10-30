@@ -1085,6 +1085,58 @@ describe('the selection inspector (3.8)', () => {
   })
 })
 
+/** The 3D view's focusable surface (3.13), where focus goes when nothing else can take it (3.24). */
+function viewSurface(): HTMLElement {
+  return screen.getByRole('application', { name: '3D view' })
+}
+
+describe("focus when a command's inspector closes (3.24, U-239)", () => {
+  it('U-239 gives focus to the 3D view when the suggestion that opened the command is gone', async () => {
+    const { app, user } = renderInspector(cubeDocumentState(), {
+      selection: [bodyItem('b-cube', 'Cube')],
+    })
+    const move = within(inspector()).getByRole('button', { name: 'Move body' })
+    move.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => {
+      expect(inspector()).toHaveAttribute('data-mode', 'command')
+    })
+    expect(app.store.getState().command?.params['body']).toBe('b-cube')
+    // The command took the selection, so the selection inspector and its suggestion are gone (3.7).
+    expect(app.store.getState().selection).toEqual([])
+    expect(move).not.toBeInTheDocument()
+    expect(inspector()).toContainElement(document.activeElement as HTMLElement | null)
+
+    await user.keyboard('{Escape}')
+    await settle()
+    expect(app.store.getState().command).toBeNull()
+    expect(screen.queryByTestId('inspector')).toBeNull()
+    expect(viewSurface()).toHaveFocus()
+  })
+
+  it('U-239 gives focus back to the timeline item that opened the command', async () => {
+    const { app, user } = renderInspector(cubeDocumentState())
+    const item = screen
+      .getAllByTestId('timeline-item')
+      .find((candidate) => candidate.getAttribute('data-feature-id') === 'f-ext1')
+      ?.querySelector('button')
+    if (!(item instanceof HTMLElement)) {
+      throw new Error('The timeline item "Extrude 1" has no button.')
+    }
+    item.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => {
+      expect(inspector()).toHaveAttribute('data-mode', 'command')
+    })
+    expect(inspector()).toContainElement(document.activeElement as HTMLElement | null)
+
+    await user.keyboard('{Escape}')
+    await settle()
+    expect(app.store.getState().command).toBeNull()
+    expect(item).toHaveFocus()
+  })
+})
+
 /** The inspector's runtime translate (3.12), read from its style attribute. */
 function translate(): string {
   return /^translate: ([^;]+);?$/.exec(inspector().getAttribute('style') ?? '')?.[1] ?? ''

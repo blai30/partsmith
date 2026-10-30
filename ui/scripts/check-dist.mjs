@@ -17,7 +17,12 @@ export const INITIAL_JAVASCRIPT_LIMIT = 250_000
 
 /** The exact text of `_headers` (2.7). */
 export const EXPECTED_HEADERS =
-  '/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: require-corp\n'
+  '/*\n' +
+  '  Cross-Origin-Opener-Policy: same-origin\n' +
+  '  Cross-Origin-Embedder-Policy: require-corp\n' +
+  "  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\n" +
+  '  X-Content-Type-Options: nosniff\n' +
+  '  Referrer-Policy: no-referrer\n'
 
 /** The first line of the web app's notices (2.9), defined once in the generator. */
 export { WEB_NOTICES_HEADING }
@@ -105,12 +110,12 @@ async function isDirectory(path) {
 async function headersProblems(directory, files) {
   if (!files.some((file) => file.path === '_headers')) {
     return [
-      `${directory}/_headers is missing. It must set Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy (docs/spec/delivery.md section 2.7).`,
+      `${directory}/_headers is missing. Keep ui/public/_headers, which sets the response headers of docs/spec/delivery.md section 2.7.`,
     ]
   }
   if ((await readFile(join(directory, '_headers'), 'utf8')) !== EXPECTED_HEADERS) {
     return [
-      `${directory}/_headers does not match the cross-origin isolation headers of docs/spec/delivery.md section 2.7.`,
+      `${directory}/_headers does not match the response headers of docs/spec/delivery.md section 2.7. Make ui/public/_headers equal EXPECTED_HEADERS in scripts/check-dist.mjs, then run pnpm build again.`,
     ]
   }
   return []

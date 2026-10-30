@@ -44,8 +44,10 @@ function FeatureLabel({ featureId }: { readonly featureId: string }) {
       onClick={() => {
         select(app, [featureSelectionItem(featureId, label)], 'replace')
       }}
+      // A target of 24 pixels laid out in the 20 pixels of its line, so the row keeps its layout
+      // and the label stays level with the status icon (3.9, 3.24).
       className={clsx(
-        'min-w-0 truncate self-start rounded-xs text-left text-sm font-medium hover:underline',
+        '-my-0.5 min-h-6 min-w-6 truncate self-start rounded-xs text-left text-sm font-medium hover:underline',
         COLOR_CLASSES.focusRing.outline,
       )}
     >

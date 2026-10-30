@@ -23,7 +23,7 @@ Per-area behavior specs for M1. Each spec is the definition of done for its crat
 | [python-api.md](python-api.md) | `partsmith-py`, `python/` | The build123d-style Python API, Python code generation and the round-trip rules. |
 | [ui.md](ui.md) | `ui/` | The React app: layout, interaction, sketching, inspectors, print context, the core bridge and end-to-end tests. |
 | [desktop.md](desktop.md) | `partsmith-desktop` (`desktop/src-tauri`), `ui/src/files`, `ui/src/app/close-guard.ts` | The Tauri 2 host: the `call` command, file grants with native dialogs, the close guard, the Tauri configuration, content security policy and capability, the desktop `FileService` and bundles. |
-| [delivery.md](delivery.md) | `.github/workflows/`, `ui/scripts/check-dist.mjs`, `examples/` | CI jobs, the Cloudflare Pages deploy, the 25 MiB per-file gate, cross-origin isolation headers, the desktop release workflow and the examples corpus with its runners. |
+| [delivery.md](delivery.md) | `.github/workflows/`, `ui/scripts/check-dist.mjs`, `examples/` | CI jobs, the Cloudflare Pages deploy, the 25 MiB per-file gate, the web app's response headers, the desktop release workflow and the examples corpus with its runners. |
 
 Per-feature specs in [features/](features/), one per built-in feature type, each building on [features.md](features.md):
 

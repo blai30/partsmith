@@ -25,9 +25,15 @@ const scriptPath = fileURLToPath(new URL('check-dist.mjs', import.meta.url))
 const publicHeadersPath = fileURLToPath(new URL('../public/_headers', import.meta.url))
 const uiDirectory = fileURLToPath(new URL('..', import.meta.url))
 
-// The cross-origin isolation headers exactly as section 2.7 gives them.
-const isolationHeaders =
-  '/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: require-corp\n'
+// The response headers of the web app exactly as sections 2.6 and 2.7 give them: the two cross-origin isolation
+// headers, the content security policy and two hardening headers.
+const responseHeaders =
+  '/*\n' +
+  '  Cross-Origin-Opener-Policy: same-origin\n' +
+  '  Cross-Origin-Embedder-Policy: require-corp\n' +
+  "  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\n" +
+  '  X-Content-Type-Options: nosniff\n' +
+  '  Referrer-Policy: no-referrer\n'
 
 const usageLine = 'usage: node scripts/check-dist.mjs [directory]'
 
@@ -53,12 +59,12 @@ function oversizedMessage(directory, path, size) {
 
 /** The section 4 message for a missing `_headers` file. */
 function missingHeadersMessage(directory) {
-  return `${directory}/_headers is missing. It must set Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy (docs/spec/delivery.md section 2.7).`
+  return `${directory}/_headers is missing. Keep ui/public/_headers, which sets the response headers of docs/spec/delivery.md section 2.7.`
 }
 
 /** The section 4 message for a `_headers` file with other contents. */
 function mismatchedHeadersMessage(directory) {
-  return `${directory}/_headers does not match the cross-origin isolation headers of docs/spec/delivery.md section 2.7.`
+  return `${directory}/_headers does not match the response headers of docs/spec/delivery.md section 2.7. Make ui/public/_headers equal EXPECTED_HEADERS in scripts/check-dist.mjs, then run pnpm build again.`
 }
 
 /** The section 4 message for a build without the web notices. */
@@ -167,7 +173,7 @@ async function writeNotices(directory) {
 
 /** Writes a directory that is ready for Pages: four files, the largest 4096 bytes. */
 async function writeReadyDistribution(directory) {
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
   await writeNotices(directory)
   await writeFileAt(join(directory, 'index.html'), '<!doctype html>\n')
   await writeFileAt(join(directory, 'core', 'partsmith_core.wasm'), Buffer.alloc(4096))
@@ -179,7 +185,7 @@ async function writeReadyDistribution(directory) {
  * `initialJavaScript` lists them.
  */
 async function writeInitialScripts(directory, entryContents, workerContents) {
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
   await writeNotices(directory)
   await writeFileAt(join(directory, 'index.html'), pageWith([entryScriptTag]))
   await writeFileAt(join(directory, 'assets', 'index-a1.js'), entryContents)
@@ -198,7 +204,7 @@ async function writeUnresolvedDistribution(workspace) {
   const directory = join(workspace, 'dist')
   const outsideFile = join(workspace, 'outside', 'link.js')
   await writeFileAt(outsideFile, 'export const outside = 1\n')
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
   await writeNotices(directory)
   await writeFileAt(join(directory, 'assets', 'index-a1.js'), 'export const entry = 1\n')
   await writeFileAt(join(directory, 'assets', 'folder', 'x.js'), 'export const nested = 1\n')
@@ -228,6 +234,10 @@ const unresolvedReferences = [
 
 test('14: PAGES_FILE_LIMIT is 26214400', () => {
   assert.equal(PAGES_FILE_LIMIT, 26_214_400)
+})
+
+test('14: EXPECTED_HEADERS is the text of section 2.6', () => {
+  assert.equal(EXPECTED_HEADERS, responseHeaders)
 })
 
 test('14: EXPECTED_HEADERS equals the bytes of ui/public/_headers', async () => {
@@ -288,7 +298,7 @@ test('17: a symbolic link to a folder outside the directory is not followed', as
 test('18: checkDist finds no problem in a small file next to the exact _headers', async (context) => {
   const directory = await temporaryDirectory(context)
   await writeFileAt(join(directory, 'index.html'), '<!doctype html>\n')
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
   await writeNotices(directory)
 
   assert.deepEqual(await checkDist(directory), [])
@@ -305,7 +315,7 @@ test('18: checkDist reports a missing _headers', async (context) => {
 test('18: checkDist reports a _headers without its trailing newline as different', async (context) => {
   const directory = await temporaryDirectory(context)
   await writeFileAt(join(directory, 'index.html'), '<!doctype html>\n')
-  await writeFileAt(join(directory, '_headers'), isolationHeaders.slice(0, -1))
+  await writeFileAt(join(directory, '_headers'), responseHeaders.slice(0, -1))
   await writeNotices(directory)
 
   assert.deepEqual(await checkDist(directory), [mismatchedHeadersMessage(directory)])
@@ -328,7 +338,7 @@ test('19: the command without an argument checks dist in the working directory',
 test('19: the command on a directory with an oversized file exits 1 and names it', async (context) => {
   const workspace = await temporaryDirectory(context)
   const directory = join(workspace, 'dist')
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
   await writeNotices(directory)
   await writeFileAt(join(directory, 'index.html'), '<!doctype html>\n')
   await writeSparseFileAt(join(directory, 'core', 'big.wasm'), 26_214_401)
@@ -572,7 +582,7 @@ test('31: the command on a ready directory prints the initial JavaScript total a
   const workspace = await temporaryDirectory(context)
   const directory = join(workspace, 'dist')
   const script = Buffer.from(generatedScript())
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
   await writeNotices(directory)
   await writeFileAt(join(directory, 'index.html'), pageWith([entryScriptTag]))
   await writeFileAt(join(directory, 'assets', 'index-a1.js'), script)
@@ -653,7 +663,7 @@ test('34: the distribution check reads the web heading from the notices generato
 test('34: checkDist reports a build without THIRD-PARTY-NOTICES.txt', async (context) => {
   const directory = await temporaryDirectory(context)
   await writeFileAt(join(directory, 'index.html'), '<!doctype html>\n')
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
 
   assert.deepEqual(await checkDist(directory), [missingNoticesMessage(directory)])
 })
@@ -661,7 +671,7 @@ test('34: checkDist reports a build without THIRD-PARTY-NOTICES.txt', async (con
 test("34: checkDist reports notices that start with the desktop app's heading", async (context) => {
   const directory = await temporaryDirectory(context)
   await writeFileAt(join(directory, 'index.html'), '<!doctype html>\n')
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
   await writeFileAt(
     join(directory, 'THIRD-PARTY-NOTICES.txt'),
     `${desktopHeading}\n\nThe notices.\n`,
@@ -673,7 +683,7 @@ test("34: checkDist reports notices that start with the desktop app's heading", 
 test('34: checkDist accepts notices that hold only the web heading, with no LF', async (context) => {
   const directory = await temporaryDirectory(context)
   await writeFileAt(join(directory, 'index.html'), '<!doctype html>\n')
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
   await writeFileAt(join(directory, 'THIRD-PARTY-NOTICES.txt'), webHeading)
 
   assert.deepEqual(await checkDist(directory), [])
@@ -685,7 +695,7 @@ test('34: checkDist reports notices that are a symbolic link to a file outside t
   const outsideFile = join(workspace, 'outside', 'THIRD-PARTY-NOTICES.txt')
   await writeFileAt(outsideFile, webNotices)
   await writeFileAt(join(directory, 'index.html'), '<!doctype html>\n')
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
   await symlink(outsideFile, join(directory, 'THIRD-PARTY-NOTICES.txt'))
 
   assert.deepEqual(await checkDist(directory), [missingNoticesMessage(directory)])
@@ -707,7 +717,7 @@ test('34: the command on a build without notices exits 1 with the missing-notice
   const workspace = await temporaryDirectory(context)
   const directory = join(workspace, 'dist')
   await writeFileAt(join(directory, 'index.html'), '<!doctype html>\n')
-  await writeFileAt(join(directory, '_headers'), isolationHeaders)
+  await writeFileAt(join(directory, '_headers'), responseHeaders)
 
   assert.deepEqual(runCommand(workspace, ['dist']), {
     status: 1,

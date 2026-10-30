@@ -608,6 +608,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
   - Add an E-test that sees no `securitypolicyviolation`.
 - **Impact:** low. **Size:** S.
 - **Depends on:** B-1 (a preview deploy to check it) and B-9.
+- **Status (2026-10-30):** done; the security review of ADR 0049 (proposed) is the gate. `ui/public/_headers` holds the five headers of delivery.md 2.7 (409 bytes), `EXPECTED_HEADERS` and the two messages of section 4 in `check-dist.mjs` match them, and the Vite plugin `webHeaders` reads the file when the configuration loads and sends all five from the preview and all but the policy from the dev server (ADR 0049 option (h)), 304s included; the visual tests run with `bypassCSP` (ui.md 6.6). E-161 reads the page's and the core worker's violations from their start through a buffered `ReportingObserver` (`reportedViolations` in `e2e/helpers.ts`), so a refusal during the worker's startup that does not stop the core fails it, and every other E-test imports a `test` from `e2e/helpers.ts` that fails it when its page reported a violation (ui.md 6.3); `ui/AGENTS.md` states what the policy refuses. Tests 14, 18 and 65 pass, `pnpm check:dist` passes on a fresh build, and E-161 and the other tests of `pnpm e2e` pass in Chromium under the policy. Not run here: the `@visual` and `@perf` tests under the policy, Firefox and WebKit (the platforms workflow) and the headers as Pages serves them (delivery.md open issue 19, human checks).
 
 **UI-3. Tab order and target size have no tests**
 - **Spec:** ui.md 1.1, 3.24; technical design 13.
@@ -618,6 +619,7 @@ ENG-1, ENG-4 and SK-1 can share one wasm-target CI job.
 - **Human gate:** only if the axe dependency is added (with an ADR entry).
 - **Impact:** low. **Size:** M.
 - **Depends on:** nothing.
+- **Status (2026-10-30):** done without axe. A notification that goes away with focus inside it gives focus to the 3D view (a layout effect of its card, U-238), and a command's inspector that closes after the control that had focus is gone gives it to the 3D view (`returnFocus` in `src/layout/focus.ts`, which the side panel shares, U-239); the browser row's swatch is a `size-6 -m-1` button around a bordered `size-4` square and the Problems panel's feature label is `min-h-6 min-w-6 -my-0.5`, 24 pixels high in the 20 pixels of its line (U-240), so neither row moves and no visual baseline changes for them (a screenshot of the Problems panel on `fillet-error.ptsm` matched the one taken before ADR 0049 byte for byte). E-162 and E-163 pass in Chromium. Tab order on macOS is ui.md open issue 43's human check.
 
 **UI-4. Two ui.md 5 budget rows have no measurement point**
 - **Spec:** ui.md 5, 2.18, 6.7.
