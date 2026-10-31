@@ -205,15 +205,17 @@ pub(crate) enum Outcome {
     Failed,
 }
 
-/// Runs dog-leg from `start` with the step tolerance. When it does not converge, dog-leg with
-/// `RANK_TOLERANCE` and then Levenberg-Marquardt run from `start` again, as the solve ran before the
-/// step tolerance (section 3.7.4). A converged point is refined with the tolerance of its pass,
-/// `RANK_TOLERANCE` after Levenberg-Marquardt, before it is returned.
+/// Runs dog-leg from `start` with the step tolerance and, when it does not converge, with
+/// `RANK_TOLERANCE`, then Levenberg-Marquardt, each from `start`: the passes after the first are the
+/// solve as it ran before the step tolerance (section 3.7.4). A converged point is refined with the
+/// tolerance of its pass, `RANK_TOLERANCE` after Levenberg-Marquardt, before it is returned.
 pub(crate) fn solve(problem: &mut Problem<'_>, start: &[f64]) -> Outcome {
-    if let Some((solution, evaluation)) = dog_leg(problem, start, STEP_RANK_TOLERANCE) {
-        return Outcome::Converged(refine(problem, solution, evaluation, STEP_RANK_TOLERANCE));
+    for tolerance in [STEP_RANK_TOLERANCE, RANK_TOLERANCE] {
+        if let Some((solution, evaluation)) = dog_leg(problem, start, tolerance) {
+            return Outcome::Converged(refine(problem, solution, evaluation, tolerance));
+        }
     }
-    match dog_leg(problem, start, RANK_TOLERANCE).or_else(|| levenberg_marquardt(problem, start)) {
+    match levenberg_marquardt(problem, start) {
         Some((solution, evaluation)) => {
             Outcome::Converged(refine(problem, solution, evaluation, RANK_TOLERANCE))
         }
