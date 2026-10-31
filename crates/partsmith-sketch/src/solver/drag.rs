@@ -6,6 +6,7 @@ use super::system::System;
 use super::{
     DragSession, DragTarget, Outcome, SolveResult, measure, solve_checked, solve_component,
 };
+use crate::DRAG_WEIGHT;
 use crate::entity::{EntityKind, SketchEntity};
 use crate::error::SketchError;
 use crate::params::{DimensionValues, SketchParams};
@@ -134,13 +135,22 @@ impl DragSession for NativeDragSession {
         let warm = self.system.layout.vector(&self.previous);
         let targets = self.targets(cursor, &warm);
         let component = &self.system.components[self.component];
-        let (solved, failed) = match solve_component(
-            &self.system,
-            component,
-            &warm,
-            &targets,
-            &mut self.factorization,
-        ) {
+        let mut solve = |drag_weight| {
+            solve_component(
+                &self.system,
+                component,
+                &warm,
+                &targets,
+                drag_weight,
+                &mut self.factorization,
+            )
+        };
+        // A frame that fails with the drag weight is solved again without it (section 3.9, step 5).
+        let outcome = match solve(DRAG_WEIGHT) {
+            Outcome::Failed => solve(1.0),
+            converged => converged,
+        };
+        let (solved, failed) = match outcome {
             Outcome::Converged(x) => (x, false),
             Outcome::Failed => (warm.clone(), true),
         };
@@ -263,6 +273,7 @@ mod tests {
             component,
             &warm,
             &targets,
+            DRAG_WEIGHT,
             &mut session.factorization,
         );
 

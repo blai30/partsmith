@@ -202,7 +202,7 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
         let failed = if untouched {
             false
         } else {
-            match solve_component(&system, component, warm, &[], &mut factorization) {
+            match solve_component(&system, component, warm, &[], 1.0, &mut factorization) {
                 Outcome::Converged(x) => {
                     copy_parameters(component, &x, &mut solved);
                     false
@@ -236,19 +236,22 @@ fn solve_checked(sketch: &SketchParams, values: &DimensionValues) -> Solved {
 /// Substitutes and solves one component from the warm start `warm` (sections 3.7.3 to 3.7.5).
 ///
 /// `drag_targets` lists dragged parameters with their targets (section 3.9); it is empty outside a drag.
-/// `factorization` is reused between calls so that repeated solves of one component plan their
-/// factorizations once. A converged outcome holds the full parameter vector at the solution.
+/// The classes they start get `1 / drag_weight` in `D`: `DRAG_WEIGHT` pins them weakly, and 1 solves
+/// without the weight (section 3.9, step 5). `factorization` is reused between calls so that repeated
+/// solves of one component plan their factorizations once. A converged outcome holds the full
+/// parameter vector at the solution.
 fn solve_component(
     system: &System,
     component: &Component,
     warm: &[f64],
     drag_targets: &[(usize, f64)],
+    drag_weight: f64,
     factorization: &mut SparseQr,
 ) -> Outcome {
     let mut substitution = Substitution::new(system, component, warm);
     let mut scales = vec![1.0; substitution.variable_count()];
     for variable in substitution.drag(drag_targets) {
-        scales[variable] = 1.0 / crate::DRAG_WEIGHT;
+        scales[variable] = 1.0 / drag_weight;
     }
     let start = substitution.variable_values();
     let mut problem = Problem::new(system, &substitution, scales, warm.to_vec(), factorization);

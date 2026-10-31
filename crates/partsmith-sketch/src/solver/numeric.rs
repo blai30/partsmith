@@ -6,7 +6,12 @@ use super::sparse_qr::{Added, SparseQr};
 use super::substitution::Substitution;
 use super::system::System;
 use crate::vector::{dot, length};
-use crate::{MAX_ITERATIONS, RANK_TOLERANCE, SOLVER_TOLERANCE};
+use crate::{MAX_ITERATIONS, SOLVER_TOLERANCE};
+
+/// Relative norm below which a Jacobian row counts as dependent for the Gauss-Newton step; larger
+/// than the diagnosis's `RANK_TOLERANCE`, so a row that only repeats others near a solution is left
+/// out instead of driving the step through a part of rounding size (section 3.7.4).
+const STEP_RANK_TOLERANCE: f64 = 1e-6;
 
 /// Smallest initial trust radius.
 const MIN_TRUST_RADIUS: f64 = 1e-6;
@@ -24,7 +29,7 @@ const MAX_REFINEMENT_STEPS: usize = 3;
 pub(crate) struct Problem<'a> {
     system: &'a System,
     substitution: &'a Substitution,
-    /// The diagonal of `D`: `1 / DRAG_WEIGHT` for dragged variables, else 1.
+    /// The diagonal of `D`: `1 / drag_weight` for dragged variables (section 3.9), else 1.
     scales: Vec<f64>,
     /// The full parameter vector; the component's parameters are rewritten on each evaluation.
     x: Vec<f64>,
@@ -156,7 +161,7 @@ impl<'a> Problem<'a> {
         self.factorization.clear(self.scales.len());
         let mut accepted_residuals = Vec::new();
         for (row, &residual) in evaluation.rows().zip(&evaluation.residuals) {
-            if self.factorization.add(row, RANK_TOLERANCE) == Added::Accepted {
+            if self.factorization.add(row, STEP_RANK_TOLERANCE) == Added::Accepted {
                 accepted_residuals.push(-residual);
             }
         }
