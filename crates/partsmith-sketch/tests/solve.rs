@@ -1,4 +1,4 @@
-//! Acceptance tests for solving (spec sections 6.5 and 6.6, tests 54 to 103 and 256).
+//! Acceptance tests for solving (spec sections 6.5 and 6.6, tests 54 to 103, 256 and 258).
 
 use crate::common;
 
@@ -943,4 +943,56 @@ fn t256_the_moved_sketch_solves_to_the_moved_result() {
     assert!(!original.failed, "the original solve converged");
     assert!(!result.failed, "the moved solve converged");
     assert_translated(&result.entities, &original.entities, offset, TOLERANCE);
+}
+
+/// Test 258: a line, an arc tangent to it, the line's length and the distances from its ends to the
+/// arc's end, which exceed the length by 3e-8: at the solution the arc's end lies 9.33e-4 from the
+/// line, next to the fold where the triangle of the line's ends and the arc's end is flat.
+fn triangle_next_to_a_fold() -> Sketch {
+    Sketch::new(vec![
+        line("e-1", [88.467, -91.485], [146.015, -105.715]),
+        arc("e-2", [120.313, -104.504], 4.98, 5.5924, 7.6306),
+    ])
+    .with("c-1", tangent("e-1", "e-2"))
+    .with_value("c-2", distance_line("e-1", "59.268405 mm"), 59.268405)
+    .with_value(
+        "c-3",
+        distance_points("e-1.end", "e-2.end", "25.327127 mm"),
+        25.327127,
+    )
+    .with_value(
+        "c-4",
+        distance_points("e-1.start", "e-2.end", "33.94127803 mm"),
+        33.94127803,
+    )
+}
+
+#[test]
+fn t258_a_solution_next_to_a_fold_converges() {
+    let sketch = triangle_next_to_a_fold();
+
+    let result = sketch.solve();
+
+    assert!(!result.failed, "the solve converged");
+    assert!(
+        result.conflicting.is_empty(),
+        "conflicting is empty: {:?}",
+        result.conflicting
+    );
+    assert_constraints_hold(
+        &sketch.params,
+        &sketch.params.entities,
+        &result.entities,
+        &sketch.values,
+        TOLERANCE,
+    );
+    assert_measured_match_values(&sketch.params, &result, &sketch.values, TOLERANCE);
+    let (start, end) = line_ends(find(&result.entities, "e-1"));
+    let parts = arc_parts(find(&result.entities, "e-2"));
+    let arc_end = point_at_angle(parts.center, parts.radius, parts.end_angle);
+    let direction = [end[0] - start[0], end[1] - start[1]];
+    let height = (direction[0] * (arc_end[1] - start[1]) - direction[1] * (arc_end[0] - start[0]))
+        .abs()
+        / direction[0].hypot(direction[1]);
+    assert_close(height, 9.33e-4, 1e-5, "distance from e-2.end to e-1");
 }

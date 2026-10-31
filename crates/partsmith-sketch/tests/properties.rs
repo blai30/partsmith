@@ -395,6 +395,21 @@ fn t194_recorded_frames_converge() {
     }
 }
 
+/// The fold rule of spec section 6.13: the two generated cases whose solution lies next to a fold,
+/// which failed from their warm starts, are discarded.
+#[test]
+fn generator_discards_solutions_next_to_a_fold() {
+    // A distance and a vertical distance leave 9.1e-4 between their points across the other axis
+    // (test 192 failed on it once in 968 nightly runs); three distances leave a triangle 9.33e-4 high
+    // (test 258's sketch, whose drag frame of test 194 fails).
+    for seed in [2825233946436231350, 1947428] {
+        assert!(
+            generate(seed).is_none(),
+            "seed {seed} is generated, next to a fold"
+        );
+    }
+}
+
 /// The generator itself (spec section 6.13): 1000 cases from a fixed seed use all 19 constraint types.
 #[test]
 fn generator_covers_every_constraint_type() {

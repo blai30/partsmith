@@ -6,11 +6,12 @@ use super::sparse_qr::{Added, SparseQr};
 use super::substitution::Substitution;
 use super::system::System;
 use crate::vector::{dot, length};
-use crate::{MAX_ITERATIONS, SOLVER_TOLERANCE};
+use crate::{MAX_ITERATIONS, RANK_TOLERANCE, SOLVER_TOLERANCE};
 
-/// Relative norm below which a Jacobian row counts as dependent for the Gauss-Newton step; larger
-/// than the diagnosis's `RANK_TOLERANCE`, so a row that only repeats others near a solution is left
-/// out instead of driving the step through a part of rounding size (section 3.7.4).
+/// Relative norm below which a Jacobian row counts as dependent for the Gauss-Newton step of the
+/// first dog-leg pass; larger than the diagnosis's `RANK_TOLERANCE`, so a row that only repeats
+/// others near a solution is left out instead of driving the step through a part of rounding size
+/// (section 3.7.4).
 const STEP_RANK_TOLERANCE: f64 = 1e-6;
 
 /// Smallest initial trust radius.
@@ -29,7 +30,7 @@ const MAX_REFINEMENT_STEPS: usize = 3;
 pub(crate) struct Problem<'a> {
     system: &'a System,
     substitution: &'a Substitution,
-    /// The diagonal of `D`: `1 / drag_weight` for dragged variables (section 3.9), else 1.
+    /// The diagonal of `D`: the inverse drag weight for dragged variables (section 3.9), else 1.
     scales: Vec<f64>,
     /// The full parameter vector; the component's parameters are rewritten on each evaluation.
     x: Vec<f64>,
@@ -156,12 +157,13 @@ impl<'a> Problem<'a> {
         }
     }
 
-    /// The minimum-norm Gauss-Newton step at `evaluation` on the rows that pass the sequential rank test.
-    fn gauss_newton_step(&mut self, evaluation: &Evaluation) -> Vec<f64> {
+    /// The minimum-norm Gauss-Newton step at `evaluation` on the rows that pass the sequential rank
+    /// test with `tolerance`.
+    fn gauss_newton_step(&mut self, evaluation: &Evaluation, tolerance: f64) -> Vec<f64> {
         self.factorization.clear(self.scales.len());
         let mut accepted_residuals = Vec::new();
         for (row, &residual) in evaluation.rows().zip(&evaluation.residuals) {
-            if self.factorization.add(row, STEP_RANK_TOLERANCE) == Added::Accepted {
+            if self.factorization.add(row, tolerance) == Added::Accepted {
                 accepted_residuals.push(-residual);
             }
         }
@@ -203,17 +205,20 @@ pub(crate) enum Outcome {
     Failed,
 }
 
-/// Runs dog-leg from `start`, then Levenberg-Marquardt from `start` again when dog-leg does not converge.
-/// A converged point is refined before it is returned.
+/// Runs dog-leg from `start` with the step tolerance. When it does not converge, dog-leg with
+/// `RANK_TOLERANCE` and then Levenberg-Marquardt run from `start` again, as the solve ran before the
+/// step tolerance (section 3.7.4). A converged point is refined with the tolerance of its pass,
+/// `RANK_TOLERANCE` after Levenberg-Marquardt, before it is returned.
 pub(crate) fn solve(problem: &mut Problem<'_>, start: &[f64]) -> Outcome {
-    let (solution, evaluation) = match dog_leg(problem, start) {
-        Some(converged) => converged,
-        None => match levenberg_marquardt(problem, start) {
-            Some(converged) => converged,
-            None => return Outcome::Failed,
-        },
-    };
-    Outcome::Converged(refine(problem, solution, evaluation))
+    if let Some((solution, evaluation)) = dog_leg(problem, start, STEP_RANK_TOLERANCE) {
+        return Outcome::Converged(refine(problem, solution, evaluation, STEP_RANK_TOLERANCE));
+    }
+    match dog_leg(problem, start, RANK_TOLERANCE).or_else(|| levenberg_marquardt(problem, start)) {
+        Some((solution, evaluation)) => {
+            Outcome::Converged(refine(problem, solution, evaluation, RANK_TOLERANCE))
+        }
+        None => Outcome::Failed,
+    }
 }
 
 /// `F(z) - F(z + h)` computed from the two residual vectors without cancellation of the squares.
@@ -234,18 +239,23 @@ fn gain_ratio(actual: f64, predicted: f64) -> f64 {
     }
 }
 
-/// Powell's dog-leg method: the converged point with its evaluation, or `None` when it stops without converging.
+/// Powell's dog-leg method with Gauss-Newton steps ranked at `tolerance`: the converged point with
+/// its evaluation, or `None` when it stops without converging.
 ///
 /// A step at most `MIN_RELATIVE_STEP` long ends the iteration, but only after it was tried, so a last
 /// tiny step that completes convergence is kept.
-fn dog_leg(problem: &mut Problem<'_>, start: &[f64]) -> Option<(Vec<f64>, Evaluation)> {
+fn dog_leg(
+    problem: &mut Problem<'_>,
+    start: &[f64],
+    tolerance: f64,
+) -> Option<(Vec<f64>, Evaluation)> {
     let variable_count = start.len();
     let mut variables = start.to_vec();
     let mut current = problem.evaluate(&variables);
     if current.converged() {
         return Some((variables, current));
     }
-    let mut gauss_newton = problem.gauss_newton_step(&current);
+    let mut gauss_newton = problem.gauss_newton_step(&current, tolerance);
     let mut radius = length(&gauss_newton).max(MIN_TRUST_RADIUS);
     for _ in 0..MAX_ITERATIONS {
         let gradient = current.transpose_times(&current.residuals, variable_count);
@@ -289,7 +299,7 @@ fn dog_leg(problem: &mut Problem<'_>, start: &[f64]) -> Option<(Vec<f64>, Evalua
             if current.converged() {
                 return Some((variables, current));
             }
-            gauss_newton = problem.gauss_newton_step(&current);
+            gauss_newton = problem.gauss_newton_step(&current, tolerance);
         }
         if stalled {
             return None;
@@ -378,21 +388,26 @@ fn levenberg_marquardt(problem: &mut Problem<'_>, start: &[f64]) -> Option<(Vec<
     None
 }
 
-/// Takes minimum-norm Gauss-Newton steps from a converged point while they lower its largest residual,
-/// until that is at most `REFINED_RESIDUAL`.
+/// Takes minimum-norm Gauss-Newton steps, ranked at `tolerance`, from a converged point while they
+/// lower its largest residual, until that is at most `REFINED_RESIDUAL`.
 ///
 /// Converged rows hold within `SOLVER_TOLERANCE` only. Returning arcs moves their end points by up to
 /// half the arc rule's residual (section 3.7.6), so a solution that barely converged could come back
 /// with a row slightly above the tolerance, and solving the output again would move it. Refined, the
 /// conversion moves points far less than the tolerance, so the output solves back to itself bitwise.
 /// Every accepted step lowers the largest residual, so the point stays converged.
-fn refine(problem: &mut Problem<'_>, mut variables: Vec<f64>, mut current: Evaluation) -> Vec<f64> {
+fn refine(
+    problem: &mut Problem<'_>,
+    mut variables: Vec<f64>,
+    mut current: Evaluation,
+    tolerance: f64,
+) -> Vec<f64> {
     for _ in 0..MAX_REFINEMENT_STEPS {
         let largest = current.largest_residual();
         if largest <= REFINED_RESIDUAL {
             break;
         }
-        let step = problem.gauss_newton_step(&current);
+        let step = problem.gauss_newton_step(&current, tolerance);
         let candidate = problem.advance(&variables, &step);
         let trial = problem.evaluate(&candidate);
         let finite = trial.residuals.iter().all(|residual| residual.is_finite());
@@ -428,22 +443,18 @@ fn damped_step(evaluation: &Evaluation, damping: f64, variable_count: usize) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::horizontal_distance_beside_a_distance;
+    use crate::params::{DimensionValues, SketchParams};
+    use crate::test_support::{horizontal_distance_beside_a_distance, triangle_next_to_a_fold};
 
-    /// The first Gauss-Newton step of two points 10.5 apart in u and `10.5 * slope` in v, with a
-    /// horizontal distance and a distance both set to 10: the distance row lies `slope` outside the
-    /// span of the horizontal distance row. Returns the step and the variables of e-1's and e-2's
-    /// coordinates (u, v, u, v).
-    fn first_step(slope: f64) -> (Vec<f64>, [usize; 4]) {
-        let (sketch, values) =
-            horizontal_distance_beside_a_distance([10.5, 10.5 * slope], 10.0, 10.0);
-        let system = System::new(&sketch, &values, &sketch.entities);
+    /// Runs `check` on the numerical problem of the first component of `sketch`, without drag
+    /// scaling, with its substitution and the warm start's variable values.
+    fn with_problem<T>(
+        sketch: &SketchParams,
+        values: &DimensionValues,
+        check: impl FnOnce(&mut Problem<'_>, &Substitution, &[f64]) -> T,
+    ) -> T {
+        let system = System::new(sketch, values, &sketch.entities);
         let substitution = Substitution::new(&system, &system.components[0], &system.warm_start);
-        let variables = [0, 1, 2, 3].map(|parameter| {
-            substitution
-                .variable(parameter)
-                .expect("every coordinate is a variable")
-        });
         let start = substitution.variable_values();
         let mut factorization = SparseQr::default();
         let mut problem = Problem::new(
@@ -453,8 +464,28 @@ mod tests {
             system.warm_start.clone(),
             &mut factorization,
         );
-        let evaluation = problem.evaluate(&start);
-        (problem.gauss_newton_step(&evaluation), variables)
+        check(&mut problem, &substitution, &start)
+    }
+
+    /// The first Gauss-Newton step of two points 10.5 apart in u and `10.5 * slope` in v, with a
+    /// horizontal distance and a distance both set to 10: the distance row lies `slope` outside the
+    /// span of the horizontal distance row. Returns the step and the variables of e-1's and e-2's
+    /// coordinates (u, v, u, v).
+    fn first_step(slope: f64) -> (Vec<f64>, [usize; 4]) {
+        let (sketch, values) =
+            horizontal_distance_beside_a_distance([10.5, 10.5 * slope], 10.0, 10.0);
+        with_problem(&sketch, &values, |problem, substitution, start| {
+            let variables = [0, 1, 2, 3].map(|parameter| {
+                substitution
+                    .variable(parameter)
+                    .expect("every coordinate is a variable")
+            });
+            let evaluation = problem.evaluate(start);
+            (
+                problem.gauss_newton_step(&evaluation, STEP_RANK_TOLERANCE),
+                variables,
+            )
+        })
     }
 
     #[test]
@@ -477,6 +508,48 @@ mod tests {
         assert!(
             step[first_v] != 0.0 && step[second_v] != 0.0,
             "the distance row moves the points in v: {step:?}"
+        );
+    }
+
+    #[test]
+    fn dog_leg_with_the_step_tolerance_stops_short_next_to_a_fold() {
+        // Test 258's solve: next to the fold the step tolerance leaves out a row whose residual
+        // steps through the other rows cannot make up.
+        let (sketch, values) = triangle_next_to_a_fold();
+
+        let outcome = with_problem(&sketch, &values, |problem, _, start| {
+            dog_leg(problem, start, STEP_RANK_TOLERANCE)
+        });
+
+        assert!(
+            outcome.is_none(),
+            "dog-leg converged with the step tolerance"
+        );
+    }
+
+    #[test]
+    fn levenberg_marquardt_stops_short_next_to_a_fold() {
+        // With dog-leg's step tolerance and this, test 258 would fail without the second dog-leg pass.
+        let (sketch, values) = triangle_next_to_a_fold();
+
+        let outcome = with_problem(&sketch, &values, |problem, _, start| {
+            levenberg_marquardt(problem, start)
+        });
+
+        assert!(outcome.is_none(), "Levenberg-Marquardt converged");
+    }
+
+    #[test]
+    fn dog_leg_with_the_rank_tolerance_converges_next_to_a_fold() {
+        let (sketch, values) = triangle_next_to_a_fold();
+
+        let outcome = with_problem(&sketch, &values, |problem, _, start| {
+            dog_leg(problem, start, RANK_TOLERANCE)
+        });
+
+        assert!(
+            outcome.is_some(),
+            "dog-leg did not converge with RANK_TOLERANCE"
         );
     }
 

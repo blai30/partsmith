@@ -29,6 +29,9 @@ pub struct NativeDragSession {
     previous: Vec<SketchEntity>,
     /// True when a component other than the dragged one failed in the initial solve.
     other_failed: bool,
+    /// True when the dragged component failed in the initial solve with a conflict, which the drag
+    /// weight does not cause, so its frames are not solved again without it (section 3.9, step 5).
+    dragged_conflicting: bool,
     /// The factorization of the dragged component, whose plans every frame reuses.
     factorization: SparseQr,
 }
@@ -69,6 +72,11 @@ impl NativeDragSession {
             .iter()
             .enumerate()
             .any(|(index, failed)| *failed && index != component);
+        let dragged_conflicting = solved.failed_components[component]
+            && system.components[component]
+                .constraints
+                .iter()
+                .any(|&index| initial.conflicting.contains(&sketch.constraints[index].id));
         Ok(NativeDragSession {
             sketch: sketch.clone(),
             system,
@@ -77,6 +85,7 @@ impl NativeDragSession {
             previous: initial.entities.clone(),
             initial,
             other_failed,
+            dragged_conflicting,
             factorization: SparseQr::default(),
         })
     }
@@ -145,10 +154,11 @@ impl DragSession for NativeDragSession {
                 &mut self.factorization,
             )
         };
-        // A frame that fails with the drag weight is solved again without it (section 3.9, step 5).
+        // A frame that fails with the drag weight is solved again without it, unless its component
+        // conflicts (section 3.9, step 5).
         let outcome = match solve(DRAG_WEIGHT) {
-            Outcome::Failed => solve(1.0),
-            converged => converged,
+            Outcome::Failed if !self.dragged_conflicting => solve(1.0),
+            outcome => outcome,
         };
         let (solved, failed) = match outcome {
             Outcome::Converged(x) => (x, false),
@@ -228,7 +238,89 @@ mod tests {
     use super::*;
     use crate::constraint::ConstraintKind;
     use crate::entity::Geometry;
-    use crate::test_support::{dimension, entity, id, point, sketch};
+    use crate::test_support::{
+        dimension, entity, id, point, point_entity, points_distance, sketch,
+    };
+
+    /// The drag session on `dragged` of a sketch of points and driving distances `(first, second,
+    /// value)`, which get the ids `c-0` onward.
+    fn begin_on_point(
+        points: &[(&str, [f64; 2])],
+        distances: &[(&str, &str, f64)],
+        dragged: &str,
+    ) -> NativeDragSession {
+        let entities = points
+            .iter()
+            .map(|&(name, position)| point_entity(name, position))
+            .collect();
+        let constraints = distances
+            .iter()
+            .map(|&(first, second, value)| points_distance(first, second, value))
+            .collect();
+        let values: DimensionValues = distances
+            .iter()
+            .enumerate()
+            .map(|(index, &(_, _, value))| (id(&format!("c-{index}")), value))
+            .collect();
+        NativeDragSession::begin(
+            &sketch(entities, constraints),
+            &values,
+            &DragTarget::Point {
+                point: point(dragged),
+            },
+        )
+        .expect("the drag begins")
+    }
+
+    #[test]
+    fn a_dragged_component_with_a_conflict_is_not_solved_again_without_the_weight() {
+        // Test 143's sketch: two distances 10 and 12 between the same points.
+        let session = begin_on_point(
+            &[("e-1", [0.0, 0.0]), ("e-2", [3.0, 4.0])],
+            &[("e-1", "e-2", 10.0), ("e-1", "e-2", 12.0)],
+            "e-2",
+        );
+
+        assert!(session.initial.failed && !session.initial.conflicting.is_empty());
+        assert!(session.dragged_conflicting);
+    }
+
+    #[test]
+    fn a_dragged_component_that_fails_without_a_conflict_is_solved_again_without_the_weight() {
+        // Sides 30, 40 and 80 that no triangle has (test 251): not converged, nothing conflicting.
+        let session = begin_on_point(
+            &[
+                ("e-1", [0.0, 0.0]),
+                ("e-2", [30.0, 0.0]),
+                ("e-3", [30.0, 40.0]),
+            ],
+            &[
+                ("e-1", "e-2", 30.0),
+                ("e-2", "e-3", 40.0),
+                ("e-3", "e-1", 80.0),
+            ],
+            "e-3",
+        );
+
+        assert!(session.initial.failed && session.initial.conflicting.is_empty());
+        assert!(!session.dragged_conflicting);
+    }
+
+    #[test]
+    fn a_conflict_in_another_component_leaves_the_retry_to_the_dragged_one() {
+        let session = begin_on_point(
+            &[
+                ("e-1", [0.0, 0.0]),
+                ("e-2", [3.0, 4.0]),
+                ("e-3", [9.0, 9.0]),
+            ],
+            &[("e-1", "e-2", 10.0), ("e-1", "e-2", 12.0)],
+            "e-3",
+        );
+
+        assert!(!session.initial.conflicting.is_empty());
+        assert!(!session.dragged_conflicting);
+    }
 
     #[test]
     fn the_weighted_solve_alone_fails_past_the_reach_of_an_arc() {

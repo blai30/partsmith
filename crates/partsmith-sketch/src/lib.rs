@@ -48,7 +48,7 @@ pub const SOLVER_TOLERANCE: f64 = 1e-10;
 /// Iteration limit for each of the dog-leg and Levenberg-Marquardt passes on one component.
 pub const MAX_ITERATIONS: u32 = 100;
 /// Relative norm below which a Jacobian row counts as dependent on earlier rows in the diagnosis
-/// (section 3.8); the Gauss-Newton step uses 1e-6 (section 3.7.4).
+/// (section 3.8) and in the second dog-leg pass; the first pass uses 1e-6 (section 3.7.4).
 pub const RANK_TOLERANCE: f64 = 1e-8;
 /// Inconsistency (mm) above which a dependent row counts as conflicting rather than redundant.
 pub const CONFLICT_TOLERANCE: f64 = 1e-9;

@@ -1008,7 +1008,76 @@ impl Builder {
                 }
             }
         }
+        self.next_to_a_fold(&classes)
+    }
+
+    /// The fold rule of spec section 6.13: driving dimensions that leave the known solution above
+    /// rounding and under `FOLD_MARGIN` from a shape where their rows become dependent, either a
+    /// distance beside a horizontal or vertical distance on the same two points, or three distances
+    /// between three points. `classes` identifies points as the discard rules above do.
+    fn next_to_a_fold(&self, classes: &CoordinateClasses) -> bool {
+        let near = |separation: f64| separation > ROUNDING && separation < FOLD_MARGIN;
+        let identity = |point: &PointRef| classes.root(&coordinate_key(point, 0));
+        let mut distances = Vec::new();
+        let mut axis_distances = Vec::new();
+        for constraint in &self.constraints {
+            if !self.values.contains_key(&constraint.id) {
+                continue;
+            }
+            match &constraint.kind {
+                ConstraintKind::Distance {
+                    target: DistanceTarget::Points { points },
+                    ..
+                } => distances.push(points.clone()),
+                ConstraintKind::Distance {
+                    target: DistanceTarget::Line { line },
+                    ..
+                } => distances.push(line_ends(line)),
+                ConstraintKind::HorizontalDistance { target, .. } => {
+                    axis_distances.push((alignment_pair(target), 1));
+                }
+                ConstraintKind::VerticalDistance { target, .. } => {
+                    axis_distances.push((alignment_pair(target), 0));
+                }
+                _ => {}
+            }
+        }
+
+        let pair_near_a_fold = axis_distances.iter().any(|(pair, other_axis)| {
+            let separation =
+                self.position(&pair[1])[*other_axis] - self.position(&pair[0])[*other_axis];
+            let same_pair = |distance: &[PointRef; 2]| {
+                pair_identity(distance, &identity) == pair_identity(pair, &identity)
+            };
+            distances.iter().any(same_pair) && near(separation.abs())
+        });
+        if pair_near_a_fold {
+            return true;
+        }
+
+        for (i, first) in distances.iter().enumerate() {
+            for (second_index, second) in distances.iter().enumerate().skip(i + 1) {
+                for third in distances.iter().skip(second_index + 1) {
+                    if let Some(corners) = triangle_corners([first, second, third], &identity)
+                        && near(self.smallest_height(&corners))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
         false
+    }
+
+    /// The smallest height of the triangle with these corners: twice its area over its longest side.
+    fn smallest_height(&self, corners: &[PointRef; 3]) -> f64 {
+        let [first, second, third] = corners.each_ref().map(|corner| self.position(corner));
+        let doubled_area = cross(subtract(second, first), subtract(third, first)).abs();
+        let longest = [(first, second), (second, third), (third, first)]
+            .iter()
+            .map(|&(start, end)| norm(subtract(end, start)))
+            .fold(0.0, f64::max);
+        doubled_area / longest
     }
 
     /// The known solution plus uniform noise; entities referenced by a `fix` keep the known solution.
@@ -1062,6 +1131,59 @@ impl Builder {
             point[0] + self.rng.uniform(-0.01, 0.01),
             point[1] + self.rng.uniform(-0.01, 0.01),
         ]
+    }
+}
+
+/// Distance from the shape where dimensions become dependent below which a case is discarded:
+/// ten times the warm start's noise, as for points that are not identified (spec section 6.13).
+const FOLD_MARGIN: f64 = 0.1;
+
+/// A separation or height at most this large is zero up to rounding: a shape other constraints keep.
+const ROUNDING: f64 = 1e-9;
+
+/// A line's start and end.
+fn line_ends(line: &Id) -> [PointRef; 2] {
+    [PointRole::Start, PointRole::End].map(|role| PointRef {
+        entity: line.clone(),
+        role,
+    })
+}
+
+/// The two points an axis distance measures between.
+fn alignment_pair(alignment: &Alignment) -> [PointRef; 2] {
+    let (first, second) = alignment_refs(alignment);
+    [first, second]
+}
+
+/// The identities of two points in sorted order, so that a pair compares equal either way round.
+fn pair_identity(pair: &[PointRef; 2], identity: &impl Fn(&PointRef) -> String) -> [String; 2] {
+    let mut names = pair.each_ref().map(identity);
+    names.sort();
+    names
+}
+
+/// The three corners of the triangle whose sides are these three pairs of points, one point of each
+/// identified class, or `None` when the pairs are not the sides of one triangle.
+fn triangle_corners(
+    sides: [&[PointRef; 2]; 3],
+    identity: &impl Fn(&PointRef) -> String,
+) -> Option<[PointRef; 3]> {
+    let pairs = sides.map(|side| pair_identity(side, identity));
+    let proper = pairs.iter().all(|[start, end]| start != end);
+    let distinct = pairs[0] != pairs[1] && pairs[1] != pairs[2] && pairs[0] != pairs[2];
+    let mut corners: Vec<(String, &PointRef)> = Vec::new();
+    for point in sides.iter().flat_map(|side| side.iter()) {
+        let name = identity(point);
+        if !corners.iter().any(|(known, _)| *known == name) {
+            corners.push((name, point));
+        }
+    }
+    // Three distinct pairs of three corners are the triangle's three sides.
+    match corners.as_slice() {
+        [(_, first), (_, second), (_, third)] if proper && distinct => {
+            Some([(*first).clone(), (*second).clone(), (*third).clone()])
+        }
+        _ => None,
     }
 }
 
