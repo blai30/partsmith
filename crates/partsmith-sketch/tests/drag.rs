@@ -1,16 +1,17 @@
-//! Acceptance tests for drag solving (spec section 6.9, tests 128 to 143).
+//! Acceptance tests for drag solving (spec section 6.9, tests 128 to 143 and 257).
 
 use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, PI};
 
+use common::residuals::{assert_constraints_hold, assert_measured_match_values};
 use common::{
     Sketch, TOLERANCE, arc, arc_parts, assert_bitwise, assert_close, assert_ids,
     assert_point_bitwise, assert_point_close, circle, circle_parts, distance_line, distance_points,
     drag_entity, drag_point, find, fix, frame, horizontal, initial, line, line_ends, parallel,
-    point, point_on_object, position, rect,
+    point, point_at_angle, point_on_object, position, radius, rect,
 };
-use partsmith_sketch::{DragSession, SketchError, SketchStatus};
+use partsmith_sketch::{DragSession, SketchEntity, SketchError, SketchStatus};
 
 /// Test 129: a horizontal line.
 fn horizontal_line() -> Sketch {
@@ -335,4 +336,56 @@ fn t143_conflicting_component_cannot_be_dragged() {
 
     assert!(result.failed);
     assert_bitwise(&result.entities, &initial(&session).entities, "entities");
+}
+
+/// Test 257: an arc with a fixed start and a set radius, whose end reaches at most 10 from (5, 0).
+fn arc_with_fixed_start_and_radius() -> Sketch {
+    Sketch::new(vec![arc("e-1", [0.0, 0.0], 5.0, 0.0, 3.1)])
+        .with("c-1", fix("e-1.start"))
+        .with_value("c-2", radius("e-1", "5 mm"), 5.0)
+}
+
+/// The end point of an arc entity.
+fn arc_end(entity: &SketchEntity) -> [f64; 2] {
+    let parts = arc_parts(entity);
+    point_at_angle(parts.center, parts.radius, parts.end_angle)
+}
+
+#[test]
+fn t257_a_cursor_past_the_reach_of_an_arc_still_moves_its_end() {
+    let sketch = arc_with_fixed_start_and_radius();
+    let mut session = sketch.begin_drag(&drag_point("e-1.end"));
+    assert_bitwise(
+        &initial(&session).entities,
+        &sketch.params.entities,
+        "initial() returns the arc unchanged",
+    );
+    let fix_reference = initial(&session).entities.clone();
+    let start = arc_end(find(&fix_reference, "e-1"));
+    let cursor = [start[0] - 0.07, start[1]];
+    let initial_distance = (cursor[0] - start[0]).hypot(cursor[1] - start[1]);
+    assert_close(
+        (cursor[0] - 5.0).hypot(cursor[1]),
+        10.0678,
+        1e-4,
+        "the cursor's distance from the fixed start",
+    );
+
+    let result = frame(&mut session, cursor);
+
+    assert!(!result.failed, "the frame converged");
+    assert_constraints_hold(
+        &sketch.params,
+        &fix_reference,
+        &result.entities,
+        &sketch.values,
+        TOLERANCE,
+    );
+    assert_measured_match_values(&sketch.params, &result, &sketch.values, TOLERANCE);
+    let end = arc_end(find(&result.entities, "e-1"));
+    let distance = (cursor[0] - end[0]).hypot(cursor[1] - end[1]);
+    assert!(
+        distance < initial_distance,
+        "e-1.end at {end:?} is {distance} from the cursor, not closer than initial()'s {initial_distance}"
+    );
 }

@@ -1,6 +1,6 @@
 # 0004: Native Rust sketch solver instead of PlaneGCS
 
-Status: Accepted, needs human review
+Status: Accepted, needs human review. Drag frames that do not converge with the weak pin are solved again without it, as amended by [ADR 0052](0052-step-rank-tolerance-and-unweighted-drag-retry.md).
 
 ## Context
 

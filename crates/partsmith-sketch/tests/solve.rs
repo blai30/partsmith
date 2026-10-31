@@ -1,19 +1,21 @@
-//! Acceptance tests for solving (spec sections 6.5 and 6.6, tests 54 to 103).
+//! Acceptance tests for solving (spec sections 6.5 and 6.6, tests 54 to 103 and 256).
 
 use crate::common;
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 use std::thread;
 
+use common::residuals::{assert_constraints_hold, assert_measured_match_values};
 use common::{
     Sketch, TOLERANCE, angle, arc, arc_parts, as_construction, assert_bits, assert_bitwise,
-    assert_close, assert_ids, assert_point_bitwise, assert_point_close, circle, circle_parts,
-    coincident, collinear, concentric, diameter, distance_line, distance_point_line,
-    distance_points, equal, find, fix, horizontal, horizontal_distance_points, line, line_ends,
-    measured, midpoint, parallel, perpendicular, plate, point, point_at_angle, point_on_object,
-    position, radius, symmetric, tangent, vertical, vertical_distance_line,
+    assert_close, assert_ids, assert_point_bitwise, assert_point_close, assert_translated, circle,
+    circle_parts, coincident, collinear, concentric, diameter, distance_line, distance_point_line,
+    distance_points, equal, find, fix, horizontal, horizontal_distance_line,
+    horizontal_distance_points, line, line_ends, measured, midpoint, parallel, perpendicular,
+    plate, point, point_at_angle, point_on_object, position, radius, symmetric, tangent,
+    translated, vertical, vertical_distance_line,
 };
-use partsmith_sketch::{EntityState, SketchStatus, SolveResult};
+use partsmith_sketch::{EntityState, SketchEntity, SketchStatus, SolveResult};
 
 /// The default expectation of section 6.5: not failed, no redundant and no conflicting constraints.
 #[track_caller]
@@ -858,4 +860,87 @@ fn t103_plate_follows_a_new_width() {
     assert_point_close(center, [50.0, 25.0], TOLERANCE, "e-5 center");
     assert_close(circle_radius, 5.0, TOLERANCE, "e-5 radius");
     assert_line(&result, "e-6", [50.0, 0.0], [50.0, 50.0]);
+}
+
+/// Test 256: a vertical line, a free line collinear with it, and a line perpendicular to that one
+/// whose length is dimensioned twice (`c-6` repeats `c-5` once `c-4` holds), drawn within 0.01 of
+/// the known solution (0,0)->(0,30), (0,-15)->(0,10), (-60,-100)->(0,-100).
+fn repeated_length_beside_a_free_line() -> Sketch {
+    Sketch::new(vec![
+        line("e-1", [-0.007, 0.007], [0.005, 29.995]),
+        line("e-2", [0.0, -15.001], [0.003, 10.006]),
+        line("e-3", [-60.008, -100.009], [0.007, -100.001]),
+    ])
+    .with("c-1", vertical("e-1"))
+    .with_value("c-2", distance_line("e-1", "30 mm"), 30.0)
+    .with("c-3", collinear("e-1", "e-2"))
+    .with("c-4", perpendicular("e-2", "e-3"))
+    .with_value("c-5", distance_line("e-3", "60 mm"), 60.0)
+    .with_value("c-6", horizontal_distance_line("e-3", "60 mm"), 60.0)
+    .with_value(
+        "c-7",
+        distance_points("e-3.start", "e-1.end", "143.17821063276352 mm"),
+        143.17821063276352,
+    )
+}
+
+/// Every coordinate of a line entity: start u, start v, end u, end v.
+fn line_coordinates(entity: &SketchEntity) -> [f64; 4] {
+    let (start, end) = line_ends(entity);
+    [start[0], start[1], end[0], end[1]]
+}
+
+#[test]
+fn t256_a_constraint_that_repeats_others_moves_no_free_geometry() {
+    let sketch = repeated_length_beside_a_free_line();
+
+    let result = sketch.solve();
+
+    assert!(!result.failed, "the solve converged");
+    assert!(
+        result.conflicting.is_empty(),
+        "conflicting is empty: {:?}",
+        result.conflicting
+    );
+    assert_eq!(result.dof, 5);
+    assert_ids(&result.redundant, &["c-6"], "redundant");
+    assert_constraints_hold(
+        &sketch.params,
+        &sketch.params.entities,
+        &result.entities,
+        &sketch.values,
+        TOLERANCE,
+    );
+    assert_measured_match_values(&sketch.params, &result, &sketch.values, TOLERANCE);
+    for input in &sketch.params.entities {
+        let solved = line_coordinates(find(&result.entities, input.id.as_str()));
+        for (index, (value, given)) in solved.iter().zip(line_coordinates(input)).enumerate() {
+            assert_close(
+                *value,
+                given,
+                0.02,
+                &format!("coordinate {index} of {}", input.id),
+            );
+        }
+    }
+    let (start, end) = line_ends(find(&result.entities, "e-2"));
+    assert_close(start[1], -15.001, 0.001, "v of e-2.start");
+    assert_close(end[1], 10.006, 0.001, "v of e-2.end");
+}
+
+#[test]
+fn t256_the_moved_sketch_solves_to_the_moved_result() {
+    let sketch = repeated_length_beside_a_free_line();
+    let offset = [500.0, -500.0];
+    let moved = Sketch {
+        params: translated(&sketch.params, offset),
+        values: sketch.values.clone(),
+    };
+
+    let original = sketch.solve();
+    let result = moved.solve();
+
+    assert!(!original.failed, "the original solve converged");
+    assert!(!result.failed, "the moved solve converged");
+    assert_translated(&result.entities, &original.entities, offset, TOLERANCE);
 }

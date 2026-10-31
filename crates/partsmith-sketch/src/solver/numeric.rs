@@ -423,6 +423,57 @@ fn damped_step(evaluation: &Evaluation, damping: f64, variable_count: usize) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::horizontal_distance_beside_a_distance;
+
+    /// The first Gauss-Newton step of two points 10.5 apart in u and `10.5 * slope` in v, with a
+    /// horizontal distance and a distance both set to 10: the distance row lies `slope` outside the
+    /// span of the horizontal distance row. Returns the step and the variables of e-1's and e-2's
+    /// coordinates (u, v, u, v).
+    fn first_step(slope: f64) -> (Vec<f64>, [usize; 4]) {
+        let (sketch, values) =
+            horizontal_distance_beside_a_distance([10.5, 10.5 * slope], 10.0, 10.0);
+        let system = System::new(&sketch, &values, &sketch.entities);
+        let substitution = Substitution::new(&system, &system.components[0], &system.warm_start);
+        let variables = [0, 1, 2, 3].map(|parameter| {
+            substitution
+                .variable(parameter)
+                .expect("every coordinate is a variable")
+        });
+        let start = substitution.variable_values();
+        let mut factorization = SparseQr::default();
+        let mut problem = Problem::new(
+            &system,
+            &substitution,
+            vec![1.0; substitution.variable_count()],
+            system.warm_start.clone(),
+            &mut factorization,
+        );
+        let evaluation = problem.evaluate(&start);
+        (problem.gauss_newton_step(&evaluation), variables)
+    }
+
+    #[test]
+    fn a_row_within_the_step_tolerance_of_the_span_is_left_out_of_the_step() {
+        // 1e-7 outside the span: above RANK_TOLERANCE (1e-8), within the step tolerance (1e-6).
+        let (step, [first_u, first_v, second_u, second_v]) = first_step(1e-7);
+
+        assert_eq!(step[first_v], 0.0, "e-1 does not move in v");
+        assert_eq!(step[second_v], 0.0, "e-2 does not move in v");
+        assert!(
+            (step[second_u] - step[first_u] + 0.5).abs() <= 1e-12,
+            "the step makes up the horizontal distance: {step:?}"
+        );
+    }
+
+    #[test]
+    fn a_row_farther_than_the_step_tolerance_from_the_span_is_taken_in() {
+        let (step, [_, first_v, _, second_v]) = first_step(1e-5);
+
+        assert!(
+            step[first_v] != 0.0 && step[second_v] != 0.0,
+            "the distance row moves the points in v: {step:?}"
+        );
+    }
 
     #[test]
     fn blend_lands_on_the_trust_radius() {

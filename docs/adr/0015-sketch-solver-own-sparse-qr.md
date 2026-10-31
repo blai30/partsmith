@@ -1,6 +1,6 @@
 # 0015: Sketch solver uses its own sparse rank-revealing QR instead of faer
 
-Status: Accepted, needs human review. Supersedes the addendum of ADR 0004 and the `faer` row of ADR 0012.
+Status: Accepted, needs human review. Supersedes the addendum of ADR 0004 and the `faer` row of ADR 0012. The rank tolerance of the Gauss-Newton step is amended by [ADR 0052](0052-step-rank-tolerance-and-unweighted-drag-retry.md); the diagnosis keeps the test named here.
 
 ## Context
 

@@ -2,7 +2,9 @@
 
 use partsmith_model::Id;
 
-use crate::constraint::{ConstraintKind, SketchConstraint};
+use crate::constraint::{
+    Alignment, ConstraintKind, DimensionExpr, DistanceTarget, SketchConstraint,
+};
 use crate::entity::{Geometry, SketchEntity};
 use crate::message::MessageContext;
 use crate::params::{DimensionValues, SketchParams};
@@ -107,4 +109,48 @@ pub(crate) fn message_context<'a>(
         measured: None,
         units: partsmith_model::Units::Mm,
     }
+}
+
+/// A driving dimension written as `value` mm.
+pub(crate) fn dimension(value: f64) -> DimensionExpr {
+    DimensionExpr {
+        expr: partsmith_model::Expr::new(format!("{value} mm")),
+        driving: true,
+    }
+}
+
+/// Point `e-1` at the origin and point `e-2` at `position`, with `c-0 horizontal_distance [e-1, e-2]`
+/// and `c-1 distance [e-1, e-2]`. With `e-2` at `(u, u * slope)`, the distance row lies `slope`
+/// (relative to its norm) outside the span of the horizontal distance row.
+pub(crate) fn horizontal_distance_beside_a_distance(
+    position: [f64; 2],
+    horizontal: f64,
+    distance: f64,
+) -> (SketchParams, DimensionValues) {
+    let pair = || [point("e-1"), point("e-2")];
+    let params = sketch(
+        vec![
+            entity(
+                "e-1",
+                Geometry::Point {
+                    position: [0.0, 0.0],
+                },
+            ),
+            entity("e-2", Geometry::Point { position }),
+        ],
+        vec![
+            ConstraintKind::HorizontalDistance {
+                target: Alignment::Points { points: pair() },
+                dimension: dimension(horizontal),
+            },
+            ConstraintKind::Distance {
+                target: DistanceTarget::Points { points: pair() },
+                dimension: dimension(distance),
+            },
+        ],
+    );
+    let values = [(id("c-0"), horizontal), (id("c-1"), distance)]
+        .into_iter()
+        .collect();
+    (params, values)
 }

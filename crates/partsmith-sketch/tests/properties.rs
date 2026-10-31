@@ -7,14 +7,13 @@
 use crate::common;
 
 use std::collections::BTreeSet;
-use std::f64::consts::TAU;
 
 use common::generator::{CONSTRAINT_TYPES, GeneratedCase, generate, reference_position};
 use common::random::Rng;
 use common::residuals::{assert_constraints_hold, assert_measured_match_values};
-use common::{TOLERANCE, assert_bitwise, id, line};
+use common::{TOLERANCE, assert_bitwise, assert_translated, id, line, translated};
 use partsmith_sketch::{
-    DimensionValues, DragSession, DragTarget, Geometry, KeyEdge, NativeSolver, PointRef, PointRole,
+    DimensionValues, DragSession, DragTarget, KeyEdge, NativeSolver, PointRef, PointRole,
     RegionFingerprint, RegionKey, RegionLoop, SketchEntity, SketchParams, SketchStatus,
     SolveResult, Solver, build_profile,
 };
@@ -32,106 +31,6 @@ fn solve(params: &SketchParams, values: &DimensionValues) -> SolveResult {
     NativeSolver
         .solve(params, values)
         .unwrap_or_else(|error| panic!("a generated sketch solves without an error: {error}"))
-}
-
-/// Every coordinate moved by `offset`; radii and angles unchanged.
-fn translated(params: &SketchParams, offset: [f64; 2]) -> SketchParams {
-    let shift = |point: [f64; 2]| [point[0] + offset[0], point[1] + offset[1]];
-    let mut moved = params.clone();
-    for entity in &mut moved.entities {
-        entity.geometry = match entity.geometry.clone() {
-            Geometry::Point { position } => Geometry::Point {
-                position: shift(position),
-            },
-            Geometry::Line { start, end } => Geometry::Line {
-                start: shift(start),
-                end: shift(end),
-            },
-            Geometry::Circle { center, radius } => Geometry::Circle {
-                center: shift(center),
-                radius,
-            },
-            Geometry::Arc {
-                center,
-                radius,
-                start_angle,
-                end_angle,
-            } => Geometry::Arc {
-                center: shift(center),
-                radius,
-                start_angle,
-                end_angle,
-            },
-        };
-    }
-    moved
-}
-
-/// Difference of two angles on the circle, in [0, pi].
-fn angle_difference(first: f64, second: f64) -> f64 {
-    let wrapped = (first - second).rem_euclid(TAU);
-    wrapped.min(TAU - wrapped)
-}
-
-/// Asserts `moved` equals `original` moved by `offset`, within `tolerance`.
-#[track_caller]
-fn assert_translated(
-    moved: &[SketchEntity],
-    original: &[SketchEntity],
-    offset: [f64; 2],
-    tolerance: f64,
-) {
-    assert_eq!(moved.len(), original.len());
-    let close = |moved_point: [f64; 2], original_point: [f64; 2]| {
-        (moved_point[0] - offset[0] - original_point[0]).abs() <= tolerance
-            && (moved_point[1] - offset[1] - original_point[1]).abs() <= tolerance
-    };
-    for (moved_entity, original_entity) in moved.iter().zip(original) {
-        let matches = match (&moved_entity.geometry, &original_entity.geometry) {
-            (Geometry::Point { position }, Geometry::Point { position: other }) => {
-                close(*position, *other)
-            }
-            (
-                Geometry::Line { start, end },
-                Geometry::Line {
-                    start: other_start,
-                    end: other_end,
-                },
-            ) => close(*start, *other_start) && close(*end, *other_end),
-            (
-                Geometry::Circle { center, radius },
-                Geometry::Circle {
-                    center: other_center,
-                    radius: other_radius,
-                },
-            ) => close(*center, *other_center) && (radius - other_radius).abs() <= tolerance,
-            (
-                Geometry::Arc {
-                    center,
-                    radius,
-                    start_angle,
-                    end_angle,
-                },
-                Geometry::Arc {
-                    center: other_center,
-                    radius: other_radius,
-                    start_angle: other_start,
-                    end_angle: other_end,
-                },
-            ) => {
-                close(*center, *other_center)
-                    && (radius - other_radius).abs() <= tolerance
-                    && angle_difference(*start_angle, *other_start) <= tolerance
-                    && angle_difference(*end_angle, *other_end) <= tolerance
-            }
-            _ => false,
-        };
-        assert!(
-            matches,
-            "{} after translation by {offset:?}: {:?}, expected {:?} moved",
-            moved_entity.id, moved_entity.geometry, original_entity.geometry
-        );
-    }
 }
 
 /// The generated case for a seed, or a proptest rejection when the generator discards it.
@@ -156,6 +55,55 @@ fn assert_solved_back(case: &GeneratedCase, fix_reference: &[SketchEntity], resu
         TOLERANCE,
     );
     assert_measured_match_values(&case.warm_start, result, &case.values, TOLERANCE);
+}
+
+/// Test 192 on one case: the warm start moved by `offset` solves to the original result moved by it.
+fn check_translation(seed: u64, offset: [f64; 2]) -> Result<(), TestCaseError> {
+    let case = case_for(seed)?;
+
+    let original = solve(&case.warm_start, &case.values);
+    let moved = solve(&translated(&case.warm_start, offset), &case.values);
+
+    prop_assert!(!original.failed, "the original solve converged");
+    prop_assert!(!moved.failed, "the translated solve converged");
+    assert_translated(&moved.entities, &original.entities, offset, 1e-6);
+    Ok(())
+}
+
+/// Test 194 on one case: a drag frame `offset` away from the point `choice` picks converges and
+/// satisfies every constraint.
+fn check_drag_frame(seed: u64, choice: u64, offset: [f64; 2]) -> Result<(), TestCaseError> {
+    let case = case_for(seed)?;
+    let draggable = case.draggable_points();
+    prop_assume!(!draggable.is_empty(), "the case has a point that can move");
+    let point: PointRef = draggable[(choice % draggable.len() as u64) as usize].clone();
+
+    let mut session = NativeSolver
+        .begin_drag(
+            &case.warm_start,
+            &case.values,
+            &DragTarget::Point {
+                point: point.clone(),
+            },
+        )
+        .unwrap_or_else(|error| panic!("the drag on {point} begins: {error}"));
+    let fix_reference = session.initial().entities.clone();
+    let start = reference_position(&fix_reference, &point);
+    let cursor = [start[0] + offset[0], start[1] + offset[1]];
+    let result = session
+        .update(cursor)
+        .unwrap_or_else(|error| panic!("the drag frame at {cursor:?} succeeds: {error}"));
+
+    assert_solved_back(&case, &fix_reference, &result);
+    Ok(())
+}
+
+/// Panics with the case's inputs when a check of a recorded case fails or rejects it.
+#[track_caller]
+fn assert_recorded(outcome: Result<(), TestCaseError>, case: &str) {
+    if let Err(error) = outcome {
+        panic!("{case}: {error}");
+    }
 }
 
 /// Strategy for one axis-aligned rectangle: width, height and where it sits in its grid cell.
@@ -210,15 +158,7 @@ proptest! {
         offset_u in -500.0..=500.0_f64,
         offset_v in -500.0..=500.0_f64,
     ) {
-        let case = case_for(seed)?;
-        let offset = [offset_u, offset_v];
-
-        let original = solve(&case.warm_start, &case.values);
-        let moved = solve(&translated(&case.warm_start, offset), &case.values);
-
-        prop_assert!(!original.failed, "the original solve converged");
-        prop_assert!(!moved.failed, "the translated solve converged");
-        assert_translated(&moved.entities, &original.entities, offset, 1e-6);
+        check_translation(seed, [offset_u, offset_v])?;
     }
 
     #[test]
@@ -253,22 +193,7 @@ proptest! {
         offset_u in -0.07..=0.07_f64,
         offset_v in -0.07..=0.07_f64,
     ) {
-        let case = case_for(seed)?;
-        let draggable = case.draggable_points();
-        prop_assume!(!draggable.is_empty(), "the case has a point that can move");
-        let point: PointRef = draggable[(choice % draggable.len() as u64) as usize].clone();
-
-        let mut session = NativeSolver
-            .begin_drag(&case.warm_start, &case.values, &DragTarget::Point { point: point.clone() })
-            .unwrap_or_else(|error| panic!("the drag on {point} begins: {error}"));
-        let fix_reference = session.initial().entities.clone();
-        let start = reference_position(&fix_reference, &point);
-        let cursor = [start[0] + offset_u, start[1] + offset_v];
-        let result = session
-            .update(cursor)
-            .unwrap_or_else(|error| panic!("the drag frame at {cursor:?} succeeds: {error}"));
-
-        assert_solved_back(&case, &fix_reference, &result);
+        check_drag_frame(seed, choice, [offset_u, offset_v])?;
     }
 
     #[test]
@@ -422,6 +347,51 @@ proptest! {
 
         prop_assert!(!result.failed, "the mirrored known solution converges");
         assert_translated(&result.entities, &mirrored.entities, [0.0, 0.0], TOLERANCE);
+    }
+}
+
+/// Test 192's failing cases that the gap list records (SK-2, 2026-10-27), replayed on every target.
+#[test]
+fn t192_recorded_cases_translate() {
+    let cases = [
+        // Nightly run 40484421689, whose log printed the `cc` line committed for it.
+        (4349971845757929081, [0.0, -188.8237558036373]),
+        (1152530511282187205, [0.0, 105.07068264498119]),
+        (15957013116401757264, [0.0, 465.96742262759614]),
+    ];
+    for (seed, offset) in cases {
+        assert_recorded(
+            check_translation(seed, offset),
+            &format!("seed {seed}, offset {offset:?}"),
+        );
+    }
+}
+
+/// Test 194's failing cases that the gap list records (SK-2, 2026-10-27), replayed on every target.
+#[test]
+fn t194_recorded_frames_converge() {
+    let cases = [
+        (
+            17871216647167640405,
+            822554227111491894,
+            [0.06655742848476154, 0.0],
+        ),
+        (
+            17307699197065700453,
+            5947579853394604854,
+            [0.0301811009152872, 0.0],
+        ),
+        (
+            12268459693006179818,
+            6275455837359716385,
+            [0.0, -0.06627064037391135],
+        ),
+    ];
+    for (seed, choice, offset) in cases {
+        assert_recorded(
+            check_drag_frame(seed, choice, offset),
+            &format!("seed {seed}, choice {choice}, offset {offset:?}"),
+        );
     }
 }
 

@@ -212,3 +212,60 @@ fn resolve_target(layout: &Layout, target: &DragTarget) -> Result<(usize, Dragge
     };
     Ok((index, dragged))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constraint::ConstraintKind;
+    use crate::entity::Geometry;
+    use crate::test_support::{dimension, entity, id, point, sketch};
+
+    #[test]
+    fn the_weighted_solve_alone_fails_past_the_reach_of_an_arc() {
+        // Test 257's frame: the end of an arc with a fixed start and radius 5 dragged to 10.0678
+        // from that start, past the 10 it can reach. Section 3.9's step 5 makes this frame converge.
+        let params = sketch(
+            vec![entity(
+                "e-1",
+                Geometry::Arc {
+                    center: [0.0, 0.0],
+                    radius: 5.0,
+                    start_angle: 0.0,
+                    end_angle: 3.1,
+                },
+            )],
+            vec![
+                ConstraintKind::Fix {
+                    target: point("e-1.start"),
+                },
+                ConstraintKind::Radius {
+                    curve: id("e-1"),
+                    dimension: dimension(5.0),
+                },
+            ],
+        );
+        let values: DimensionValues = [(id("c-1"), 5.0)].into_iter().collect();
+        let mut session = NativeDragSession::begin(
+            &params,
+            &values,
+            &DragTarget::Point {
+                point: point("e-1.end"),
+            },
+        )
+        .expect("the drag begins");
+        let end = [5.0 * 3.1_f64.cos(), 5.0 * 3.1_f64.sin()];
+        let warm = session.system.layout.vector(&session.previous);
+        let targets = session.targets([end[0] - 0.07, end[1]], &warm);
+        let component = &session.system.components[session.component];
+
+        let outcome = solve_component(
+            &session.system,
+            component,
+            &warm,
+            &targets,
+            &mut session.factorization,
+        );
+
+        assert_eq!(outcome, Outcome::Failed);
+    }
+}

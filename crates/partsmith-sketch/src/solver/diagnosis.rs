@@ -117,3 +117,29 @@ fn mark(owner: RowOwner, flags: &mut [bool]) {
         flags[constraint] = true;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::horizontal_distance_beside_a_distance;
+
+    #[test]
+    fn a_row_within_the_step_tolerance_of_the_span_still_counts_as_independent() {
+        // The distance row lies 1e-7 outside the span of the horizontal distance row: within the
+        // Gauss-Newton step's tolerance (1e-6), above RANK_TOLERANCE, which the diagnosis keeps.
+        let position = [10.0, 1e-6];
+        let (sketch, values) =
+            horizontal_distance_beside_a_distance(position, 10.0, position[0].hypot(position[1]));
+        let system = System::new(&sketch, &values, &sketch.entities);
+
+        let diagnosis = diagnose(&sketch, &system, &system.warm_start);
+
+        assert_eq!(diagnosis.dof, 2);
+        assert!(diagnosis.redundant.is_empty(), "{:?}", diagnosis.redundant);
+        assert!(
+            diagnosis.conflicting.is_empty(),
+            "{:?}",
+            diagnosis.conflicting
+        );
+    }
+}

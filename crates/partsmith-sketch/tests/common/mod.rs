@@ -8,7 +8,7 @@ pub mod plane;
 pub mod random;
 pub mod residuals;
 
-use std::f64::consts::FRAC_PI_2;
+use std::f64::consts::{FRAC_PI_2, TAU};
 use std::fmt::Debug;
 
 use partsmith_sketch::{
@@ -446,6 +446,39 @@ impl Sketch {
     }
 }
 
+/// Every coordinate moved by `offset`; radii and angles unchanged.
+pub fn translated(params: &SketchParams, offset: [f64; 2]) -> SketchParams {
+    let shift = |point: [f64; 2]| [point[0] + offset[0], point[1] + offset[1]];
+    let mut moved = params.clone();
+    for entity in &mut moved.entities {
+        entity.geometry = match entity.geometry.clone() {
+            Geometry::Point { position } => Geometry::Point {
+                position: shift(position),
+            },
+            Geometry::Line { start, end } => Geometry::Line {
+                start: shift(start),
+                end: shift(end),
+            },
+            Geometry::Circle { center, radius } => Geometry::Circle {
+                center: shift(center),
+                radius,
+            },
+            Geometry::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+            } => Geometry::Arc {
+                center: shift(center),
+                radius,
+                start_angle,
+                end_angle,
+            },
+        };
+    }
+    moved
+}
+
 /// The chain benchmark of spec section 5.2 (`benchmark::chain_benchmark`).
 pub fn chain_sketch() -> Sketch {
     let (params, values) = benchmark::chain_benchmark();
@@ -848,6 +881,73 @@ pub fn assert_bitwise<T: Debug + ?Sized>(actual: &T, expected: &T, what: &str) {
         actual_text == expected_text,
         "{what}: not bitwise equal\n  actual: {actual_text}\nexpected: {expected_text}"
     );
+}
+
+/// Difference of two angles on the circle, in [0, pi].
+fn angle_difference(first: f64, second: f64) -> f64 {
+    let wrapped = (first - second).rem_euclid(TAU);
+    wrapped.min(TAU - wrapped)
+}
+
+/// Asserts `moved` equals `original` moved by `offset`, within `tolerance`.
+#[track_caller]
+pub fn assert_translated(
+    moved: &[SketchEntity],
+    original: &[SketchEntity],
+    offset: [f64; 2],
+    tolerance: f64,
+) {
+    assert_eq!(moved.len(), original.len());
+    let close = |moved_point: [f64; 2], original_point: [f64; 2]| {
+        (moved_point[0] - offset[0] - original_point[0]).abs() <= tolerance
+            && (moved_point[1] - offset[1] - original_point[1]).abs() <= tolerance
+    };
+    for (moved_entity, original_entity) in moved.iter().zip(original) {
+        let matches = match (&moved_entity.geometry, &original_entity.geometry) {
+            (Geometry::Point { position }, Geometry::Point { position: other }) => {
+                close(*position, *other)
+            }
+            (
+                Geometry::Line { start, end },
+                Geometry::Line {
+                    start: other_start,
+                    end: other_end,
+                },
+            ) => close(*start, *other_start) && close(*end, *other_end),
+            (
+                Geometry::Circle { center, radius },
+                Geometry::Circle {
+                    center: other_center,
+                    radius: other_radius,
+                },
+            ) => close(*center, *other_center) && (radius - other_radius).abs() <= tolerance,
+            (
+                Geometry::Arc {
+                    center,
+                    radius,
+                    start_angle,
+                    end_angle,
+                },
+                Geometry::Arc {
+                    center: other_center,
+                    radius: other_radius,
+                    start_angle: other_start,
+                    end_angle: other_end,
+                },
+            ) => {
+                close(*center, *other_center)
+                    && (radius - other_radius).abs() <= tolerance
+                    && angle_difference(*start_angle, *other_start) <= tolerance
+                    && angle_difference(*end_angle, *other_end) <= tolerance
+            }
+            _ => false,
+        };
+        assert!(
+            matches,
+            "{} after translation by {offset:?}: {:?}, expected {:?} moved",
+            moved_entity.id, moved_entity.geometry, original_entity.geometry
+        );
+    }
 }
 
 /// Asserts that a list of ids is exactly the expected texts.
