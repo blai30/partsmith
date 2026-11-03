@@ -119,6 +119,10 @@ void raise_invalid_result(const std::string &message) {
   throw Partsmith_InvalidResult(message.c_str());
 }
 
+void raise_invalid_input_shape(const std::string &message) {
+  throw Partsmith_InvalidInputShape(message.c_str());
+}
+
 void raise_empty_result(const std::string &message) {
   throw Partsmith_EmptyResult(message.c_str());
 }

@@ -57,7 +57,7 @@ pub use naming::{Named, modified_sources, name_by_history, name_shape, topology_
 pub use output::{
     Absence, AbsentFace, BodyChange, BodyUpdate, DatumResult, Direction, FeatureOutput,
     Measurements, OutputData, SketchResult, Tool, VOLUME_TOLERANCE, apply_op, apply_op_result,
-    reverse_hits,
+    has_volume, reverse_hits,
 };
 pub use params::{
     AxisRef, BodyOp, CopyOp, OriginAxis, PlacementExt, PlaneRef, ProfileRef, point, vector,

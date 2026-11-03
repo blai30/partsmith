@@ -10,7 +10,8 @@ use crate::feature_support;
 use std::sync::Arc;
 
 use feature_support::import::{
-    assets, block, block_bytes, block_solid, step_body, step_bytes, void_listed_twice,
+    assets, block, block_bytes, block_solid, hollow, hollow_bytes_with_the_void_twice,
+    import_record, self_void_bytes, step_body, step_bytes, void_twice_bytes,
 };
 use feature_support::{
     Assets, Run, aliases, assert_bounding_box, assert_empty, assert_examples_canonical,
@@ -21,7 +22,7 @@ use feature_support::{
 use partsmith_features::FeatureError;
 use partsmith_occt_sys::{
     PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, ShapeKind, SubShapeKind,
-    TaggedCurve, compound, cut, make_box, make_profile, write_step,
+    TaggedCurve, compound, make_profile,
 };
 use partsmith_recompute::Message;
 
@@ -47,8 +48,8 @@ const TWO_SHAPES_LEFT_OUT: &str =
 const ONE_SHAPE_LEFT_OUT: &str =
     "This import left out 1 shape of the STEP file that is not a closed solid.";
 
-/// The message of tests 13 to 15: the solid of `VOID_TWICE` or `BOTH` kept invalid, the same for
-/// every op.
+/// The message of tests 13 to 15 and 17: the solid of `VOID_TWICE`, `BOTH` or `SELF_VOID` kept
+/// invalid, the same for every op.
 const ONE_SOLID_KEPT: &str = "This import kept 1 solid of the STEP file that is not valid and could not be repaired, so the shape this import gives may be wrong, and features that change it later may fail or give a wrong shape.";
 
 /// The detail of test 10: the kernel's sentence for the two faces of `SKIPPED`.
@@ -57,7 +58,8 @@ const TWO_SHAPES_DETAIL: &str = "read_step: Skipped 2 shapes that are not closed
 /// The detail of test 12: the kernel's sentence for the face of `ONE_FACE`.
 const ONE_SHAPE_DETAIL: &str = "read_step: Skipped 1 shape that is not a closed solid.";
 
-/// The detail of test 13: the kernel's sentence for the solid of `VOID_TWICE`.
+/// The detail of tests 13 and 17: the kernel's sentence for the solid of `VOID_TWICE` or
+/// `SELF_VOID`.
 const ONE_SOLID_DETAIL: &str =
     "read_step: Solid 1 is not valid after repair; booleans with it may fail.";
 
@@ -156,35 +158,6 @@ fn one_face_bytes() -> Arc<[u8]> {
     block_beside(one_face())
 }
 
-/// `HOLLOW` of kernel.md test 140: the block of `BYTES` with the closed cavity [2,8]x[2,18]x[2,28].
-fn hollow() -> Shape {
-    let solid = block_solid();
-    let cavity_corner = Plane {
-        origin: Point::new(2.0, 2.0, 2.0),
-        ..Plane::XY
-    };
-    let cavity = make_box(&cavity_corner, 6.0, 16.0, 26.0)
-        .expect("the kernel makes the cavity box")
-        .shape;
-    cut(&solid, &[cavity])
-        .expect("the kernel cuts the cavity out")
-        .shape
-}
-
-/// The STEP text `write_step` gives for `shape` as one body named `Hollow`, with its void listed
-/// twice (kernel.md tests 140 and 141).
-fn hollow_bytes_with_the_void_twice(shape: Shape) -> Arc<[u8]> {
-    let bytes = write_step(&[step_body("Hollow", shape)]).expect("the kernel writes STEP");
-    let step = String::from_utf8(bytes).expect("STEP text is UTF-8");
-    Arc::from(void_listed_twice(&step).into_bytes())
-}
-
-/// The fixture `VOID_TWICE`: `HOLLOW` written as one body named `Hollow`, its void listed twice,
-/// so its solid is still invalid after repair.
-fn void_twice_bytes() -> Arc<[u8]> {
-    hollow_bytes_with_the_void_twice(hollow())
-}
-
 /// The fixture `BOTH`: `VOID_TWICE` made from `HOLLOW` with the square of `ONE_FACE` in the same
 /// part.
 fn both_bytes() -> Arc<[u8]> {
@@ -196,11 +169,10 @@ fn both_bytes() -> Arc<[u8]> {
 
 /// Runs `box_record` in b-1, then `IMP("join")` with the asset map `{A: bytes}` (tests 15 and 16).
 fn run_join(box_record: &str, bytes: Arc<[u8]>) -> Run {
-    let import = format!(
-        r#"{{"id": "f-imp1", "type": "import", "body": "b-1", "asset": "{}", "op": "join"}}"#,
-        asset_name('0')
-    );
-    Run::with_assets(document(&["b-1"], &[box_record, &import]), &assets(bytes))
+    Run::with_assets(
+        document(&["b-1"], &[box_record, &import_record("join")]),
+        &assets(bytes),
+    )
 }
 
 /// The messages of the import, failing the test when it has none, so that the assertions over
@@ -715,6 +687,61 @@ fn t016_the_block_is_joined_apart_from_the_box() {
     let shape = run.shape("b-1");
     assert_solid_count(shape, 2);
     assert_volume(shape, 7000.0);
+}
+
+#[test]
+fn t017_a_solid_without_volume_warns_as_an_invalid_solid() {
+    let run = run_example("import/new-body.ptsm", self_void_bytes());
+
+    run.assert_warnings("f-imp1", &["import_warning"]);
+    assert_eq!(run.messages("f-imp1"), [ONE_SOLID_KEPT]);
+    assert_messages_hold_no_kernel_sentence(&run);
+}
+
+#[test]
+fn t017_a_solid_without_volume_warning_has_the_kernels_sentence_in_its_detail() {
+    let run = run_example("import/new-body.ptsm", self_void_bytes());
+
+    assert_import_warning_details(&run, ONE_SOLID_DETAIL);
+}
+
+#[test]
+fn t017_the_solid_without_volume_is_kept_as_the_kernel_read_it() {
+    let run = run_example("import/new-body.ptsm", self_void_bytes());
+
+    let shape = run.shape("b-1");
+    assert_solid_count(shape, 1);
+    assert_face_count(shape, 6);
+    assert_face_names(run.body("b-1"), &BLOCK_FACES);
+    let volume = shape.volume().expect("the kernel measures the solid");
+    assert!(volume.abs() <= 1e-9, "volume {volume} is 0 within 1e-9");
+    let area = shape.area().expect("the kernel measures the solid");
+    assert!(
+        (area - 2200.0).abs() <= 2200.0 * 1e-6,
+        "area {area} is 2200"
+    );
+    assert!(
+        !shape.is_valid().expect("the kernel checks the solid"),
+        "the solid is still invalid after repair"
+    );
+    assert_bounding_box(shape, [0.0, 0.0, 0.0], [10.0, 20.0, 30.0]);
+}
+
+#[test]
+fn t017_the_solid_without_volume_starts_the_body() {
+    let run = run_example("import/new-body.ptsm", self_void_bytes());
+
+    assert_eq!(body_changes(&run, "f-imp1"), ["b-1 New"]);
+}
+
+#[test]
+fn self_void_fixture_lists_the_outer_shell_as_the_void() {
+    let block = String::from_utf8(block_bytes().to_vec()).expect("STEP text is UTF-8");
+    let edited = String::from_utf8(self_void_bytes().to_vec()).expect("STEP text is UTF-8");
+
+    assert!(!edited.contains("MANIFOLD_SOLID_BREP("), "{edited}");
+    assert_eq!(edited.matches("BREP_WITH_VOIDS(").count(), 1);
+    assert_eq!(edited.lines().count(), block.lines().count() + 1);
 }
 
 #[test]

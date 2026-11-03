@@ -52,6 +52,9 @@ DEFINE_STANDARD_EXCEPTION(Partsmith_InvalidInput, Standard_Failure)
 // The result stayed invalid after repair.
 DEFINE_STANDARD_HANDLE(Partsmith_InvalidResult, Standard_Failure)
 DEFINE_STANDARD_EXCEPTION(Partsmith_InvalidResult, Standard_Failure)
+// A copy stayed invalid after repair, and the shape it copied was not valid either.
+DEFINE_STANDARD_HANDLE(Partsmith_InvalidInputShape, Standard_Failure)
+DEFINE_STANDARD_EXCEPTION(Partsmith_InvalidInputShape, Standard_Failure)
 // The result has no solid where one is required.
 DEFINE_STANDARD_HANDLE(Partsmith_EmptyResult, Standard_Failure)
 DEFINE_STANDARD_EXCEPTION(Partsmith_EmptyResult, Standard_Failure)

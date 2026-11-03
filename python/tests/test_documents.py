@@ -1,4 +1,4 @@
-"""Document, export and print check acceptance tests (python-api.md section 6, tests 61 to 67, 97 to 103 and 116)."""
+"""Document, export and print check acceptance tests (python-api.md section 6, tests 61 to 67, 97 to 103, 116 and 117)."""
 
 import errno
 import os
@@ -29,14 +29,18 @@ from partsmith import (
     Axis,
     Document,
     EngineError,
+    FeatureError,
     Part,
     PartsmithError,
     PartsmithWarning,
+    Plane,
     box,
     export_3mf,
     export_step,
     export_stl,
     faces,
+    linear_pattern,
+    mirror,
 )
 
 
@@ -590,3 +594,56 @@ def test_t116_a_part_without_volume_is_measured_without_a_center_of_mass(tmp_pat
     assert not isinstance(raised.value, EngineError)
     assert raised.value.code is None
     assert str(raised.value) == "Part.center_of_mass(): Body 'Block' has no volume, so it has no center of mass."
+
+
+# Copies of a part without volume (python-api.md test 117, features.md section 3.5).
+
+
+def not_valid_text(copy: str) -> str:
+    """The body_not_valid text of test 117 for the copy feature `copy` (its type in words)."""
+    return (
+        f"Body 'Block' holds a solid from 'Import 1' that is not valid, so this {copy} cannot copy it. "
+        "Repair the STEP file, or export it again from the program that made it."
+    )
+
+
+def imported_self_void(tmp_path: Path) -> tuple[Document, Part]:
+    """The document of test 116 after its import, and the imported part."""
+    step_path = self_void_step(tmp_path)
+    document = Document()
+    with pytest.warns(PartsmithWarning):
+        part = document.import_step(step_path)
+    return document, part
+
+
+def assert_body_not_valid(error: FeatureError, call: str, feature_type: str, copy: str) -> None:
+    """Asserts the body_not_valid error of test 117 raised by `call`."""
+    assert error.code == "body_not_valid"
+    assert error.field == "/body"
+    assert error.feature_type == feature_type
+    assert error.actions == ["Show 'Import 1'"]
+    assert error.detail is None
+    assert error.cause is None
+    assert str(error) == f"{call}: {not_valid_text(copy)}"
+
+
+@pytest.mark.parametrize("plane", [Plane.YZ, Plane.XY], ids=["yz", "xy"])
+def test_t117_a_mirror_of_a_part_without_volume_raises_and_adds_nothing(tmp_path, plane):
+    document, part = imported_self_void(tmp_path)
+
+    with part, pytest.raises(FeatureError) as raised:
+        mirror(plane)
+
+    assert_body_not_valid(raised.value, "mirror()", "mirror", "mirror")
+    assert len(document.features) == 1
+
+
+def test_t117_a_linear_pattern_of_a_part_without_volume_raises_and_gains_no_material(tmp_path):
+    document, part = imported_self_void(tmp_path)
+
+    with part, pytest.raises(FeatureError) as raised:
+        linear_pattern(Axis.X, 3, 30)
+
+    assert_body_not_valid(raised.value, "linear_pattern()", "linear_pattern", "linear pattern")
+    assert len(document.features) == 1
+    assert part.volume() == pytest.approx(0, abs=1e-9)

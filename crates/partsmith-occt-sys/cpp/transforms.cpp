@@ -155,8 +155,9 @@ OpResultData transform(const Shape &shape, rust::Slice<const double> matrix) {
     merge_history(history, history_of(shape.get(), transformer));
     if (has_solid(shape.get())) {
       require_solid(result, "BRepBuilderAPI_Transform");
-      // Every element is a transformed copy, so the whole result is checked.
-      ensure_valid(result, history, CheckInputs(), "BRepBuilderAPI_Transform");
+      // Every element is a transformed copy, so the whole result is checked, and the input too
+      // when the copy stays invalid (kernel spec section 3.5).
+      ensure_valid_copy(result, history, shape.get(), "BRepBuilderAPI_Transform");
     }
   }
   return op_result(result, history, {shape.get()});

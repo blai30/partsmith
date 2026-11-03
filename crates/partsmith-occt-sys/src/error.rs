@@ -30,6 +30,10 @@ pub enum KernelErrorKind {
     Failed,
     /// The operation produced a shape that stayed invalid after repair.
     InvalidResult,
+    /// A mirror or scale `transform` produced a shape that stayed invalid after repair, and the
+    /// shape it was given was not valid either, such as a solid `read_step` kept although repair
+    /// could not fix it (section 3.5).
+    InvalidInputShape,
     /// The operation produced no solid where one is required.
     EmptyResult,
     /// Input bytes could not be parsed.
@@ -206,6 +210,7 @@ impl KernelErrorKind {
             KernelErrorKind::InvalidInput => "invalid_input",
             KernelErrorKind::Failed => "failed",
             KernelErrorKind::InvalidResult => "invalid_result",
+            KernelErrorKind::InvalidInputShape => "invalid_input_shape",
             KernelErrorKind::EmptyResult => "empty_result",
             KernelErrorKind::ReadFailed => "read_failed",
             KernelErrorKind::Internal => "internal",
@@ -223,6 +228,8 @@ impl fmt::Display for Operation {
 const INVALID_INPUT_EXCEPTION: &str = "Partsmith_InvalidInput";
 /// Exception type name of results that stayed invalid after repair.
 const INVALID_RESULT_EXCEPTION: &str = "Partsmith_InvalidResult";
+/// Exception type name of copies that stayed invalid after repair because their input was.
+const INVALID_INPUT_SHAPE_EXCEPTION: &str = "Partsmith_InvalidInputShape";
 /// Exception type name of results without a required solid.
 const EMPTY_RESULT_EXCEPTION: &str = "Partsmith_EmptyResult";
 /// Exception type name of unreadable input bytes.
@@ -235,6 +242,9 @@ const UNKNOWN_EXCEPTION: &str = "unknown";
 /// The hint of every `InvalidInput` error: features check what they pass first, so a rejection
 /// that reaches them means Partsmith's own checks disagree (section 4.3).
 const INVALID_INPUT_HINT: &str = "It rejected the shapes or values it was given, which is likely a bug; report it with the details.";
+/// The hint of every `InvalidInputShape` error: in Partsmith's own use, only a STEP file that
+/// repair could not fix gives a shape that is not valid (section 4.3).
+const INVALID_INPUT_SHAPE_HINT: &str = "The shape it was given was already not valid, so repair the STEP file that shape came from, or export the file again.";
 /// The hint of every `Internal` error.
 const INTERNAL_HINT: &str = "It hit an unexpected problem; report it with the details.";
 /// The user message of every `Internal` error.
@@ -284,6 +294,7 @@ impl KernelError {
         let kind = match exception {
             INVALID_INPUT_EXCEPTION => KernelErrorKind::InvalidInput,
             INVALID_RESULT_EXCEPTION => KernelErrorKind::InvalidResult,
+            INVALID_INPUT_SHAPE_EXCEPTION => KernelErrorKind::InvalidInputShape,
             EMPTY_RESULT_EXCEPTION => KernelErrorKind::EmptyResult,
             READ_ERROR_EXCEPTION => KernelErrorKind::ReadFailed,
             STD_EXCEPTION | UNKNOWN_EXCEPTION => KernelErrorKind::Internal,
@@ -305,6 +316,7 @@ impl KernelError {
             KernelErrorKind::Internal => INTERNAL_MESSAGE.to_owned(),
             KernelErrorKind::Failed
             | KernelErrorKind::InvalidResult
+            | KernelErrorKind::InvalidInputShape
             | KernelErrorKind::EmptyResult
             | KernelErrorKind::ReadFailed => match self.operation.noun() {
                 Some(noun) => format!(
@@ -327,6 +339,7 @@ impl KernelError {
     fn static_hint(&self) -> &'static str {
         match (self.kind, self.operation) {
             (KernelErrorKind::InvalidInput, _) => INVALID_INPUT_HINT,
+            (KernelErrorKind::InvalidInputShape, _) => INVALID_INPUT_SHAPE_HINT,
             (KernelErrorKind::Internal, _) => INTERNAL_HINT,
             (KernelErrorKind::ReadFailed, Operation::ReadStep) => NOT_STEP_HINT,
             (KernelErrorKind::EmptyResult, Operation::ReadStep) => NO_SOLID_IN_STEP_HINT,
@@ -404,6 +417,29 @@ mod tests {
             let error = KernelError::from_shim(Operation::Shell, &format!("{exception}: text"));
             assert_eq!(error.kind, kind, "{exception}");
         }
+    }
+
+    #[test]
+    fn the_input_shape_exception_maps_to_its_kind() {
+        let error = KernelError::from_shim(
+            Operation::Transform,
+            "Partsmith_InvalidInputShape: BRepBuilderAPI_Transform produced a shape that stays invalid after ShapeFix_Shape; input 1 was not valid before it ran",
+        );
+
+        assert_eq!(error.kind, KernelErrorKind::InvalidInputShape);
+        assert_eq!(error.exception, "Partsmith_InvalidInputShape");
+        assert_eq!(
+            error.message,
+            "BRepBuilderAPI_Transform produced a shape that stays invalid after ShapeFix_Shape; input 1 was not valid before it ran"
+        );
+    }
+
+    #[test]
+    fn the_input_shape_kind_has_a_snake_case_name() {
+        assert_eq!(
+            KernelErrorKind::InvalidInputShape.name(),
+            "invalid_input_shape"
+        );
     }
 
     #[test]

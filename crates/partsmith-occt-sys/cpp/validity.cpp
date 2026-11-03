@@ -445,13 +445,14 @@ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs) {
   }
 }
 
-void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
-                  const CheckInputs &inputs, const char *algorithm) {
-  if (changed_part_valid(shape, inputs)) {
-    return;
-  }
+namespace {
+
+// Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
+// the operation's inputs). When the whole repaired result is valid, and still holds a solid if
+// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true;
+// otherwise leaves both as they were and returns false.
+bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
   initialize();
-  // Repair a copy: the result may share sub-shapes with the operation's inputs.
   BRepBuilderAPI_Copy copier(shape, Standard_True, Standard_False);
   const Handle(BRepTools_History) copy_history = history_of(shape, copier);
   ShapeFix_Shape fixer(copier.Shape());
@@ -460,12 +461,37 @@ void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
   const TopoDS_Shape fixed = fixer.Shape();
   const bool lost_solids = has_solid(shape) && !has_solid(fixed);
   if (lost_solids || !BRepCheck_Analyzer(fixed).IsValid()) {
-    raise_invalid_result(std::string(algorithm) +
-                         " produced a shape that stays invalid after ShapeFix_Shape");
+    return false;
   }
   merge_history(history, copy_history);
   merge_history(history, fixer.Context()->History());
   shape = fixed;
+  return true;
+}
+
+// The message of a result that stays invalid after repair.
+std::string stays_invalid(const char *algorithm) {
+  return std::string(algorithm) + " produced a shape that stays invalid after ShapeFix_Shape";
+}
+
+}  // namespace
+
+void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
+                  const CheckInputs &inputs, const char *algorithm) {
+  if (!changed_part_valid(shape, inputs) && !repair(shape, history)) {
+    raise_invalid_result(stays_invalid(algorithm));
+  }
+}
+
+void ensure_valid_copy(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
+                       const TopoDS_Shape &input, const char *algorithm) {
+  if (BRepCheck_Analyzer(shape).IsValid() || repair(shape, history)) {
+    return;
+  }
+  if (BRepCheck_Analyzer(input).IsValid()) {
+    raise_invalid_result(stays_invalid(algorithm));
+  }
+  raise_invalid_input_shape(stays_invalid(algorithm) + "; input 1 was not valid before it ran");
 }
 
 TopoDS_Shape finish_solid(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history,

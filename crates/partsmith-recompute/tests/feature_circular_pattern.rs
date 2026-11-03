@@ -6,14 +6,17 @@
 
 use crate::feature_support;
 
+use feature_support::import::{
+    assert_body_not_valid, assert_self_void_block, assets, import_record, self_void_bytes,
+};
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, assert_absolute,
     assert_axis_stored_as_picked, assert_bore_through, assert_bounding_box, assert_choice_between,
-    assert_coordinates, assert_error_field, assert_examples_canonical, assert_face_area,
-    assert_face_centroid, assert_face_count, assert_face_kind, assert_placement,
+    assert_coordinates, assert_empty, assert_error_field, assert_examples_canonical,
+    assert_face_area, assert_face_centroid, assert_face_count, assert_face_kind, assert_placement,
     assert_quarter_turns_about_z, assert_same_body, assert_solid_count, assert_unchanged,
-    assert_volume, body_changes, edge_axis, face, feature_record_mut, l_shaped_body, link_ids,
-    load_example, remove_axis_direction, sketch_result, with_shared_point_moved,
+    assert_volume, body_changes, document, edge_axis, face, feature_record_mut, l_shaped_body,
+    link_ids, load_example, remove_axis_direction, sketch_result, with_shared_point_moved,
 };
 use partsmith_model::Units;
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
@@ -410,4 +413,43 @@ fn t018_canceled_build_returns_canceled() {
     let run = Run::example("circular_pattern/six-around.ptsm");
 
     run.assert_build_canceled("f-cp1");
+}
+
+/// The text of the error of test 19: the source holds a solid from 'Import 1' that has no volume.
+const NOT_VALID: &str = "Body 'Body 1' holds a solid from 'Import 1' that is not valid, so this circular pattern cannot copy it. Repair the STEP file, or export it again from the program that made it.";
+
+/// Runs `IMP("new")` of `SELF_VOID`, then `CP` of 4 copies with `extra` (test 19).
+fn four_around_self_void(extra: &str) -> Run {
+    let members = if extra.is_empty() {
+        r#""count": "4""#.to_string()
+    } else {
+        format!(r#""count": "4", {extra}"#)
+    };
+    Run::with_assets(
+        document(&BODIES, &[&import_record("new"), &pattern(&members)]),
+        &assets(self_void_bytes()),
+    )
+}
+
+#[test]
+fn t019_a_body_without_volume_is_not_valid() {
+    let run = four_around_self_void("");
+
+    assert_body_not_valid(&run, "f-cp1", NOT_VALID, None);
+}
+
+#[test]
+fn t019_the_body_gains_no_material() {
+    let run = four_around_self_void("");
+
+    assert_self_void_block(&run, "b-1", [0.0, 0.0, 0.0], [10.0, 20.0, 30.0]);
+    assert_unchanged(&run, "f-cp1", "b-1");
+}
+
+#[test]
+fn t019_a_new_body_stays_empty() {
+    let run = four_around_self_void(r#""op": "new", "target": "b-2""#);
+
+    assert_body_not_valid(&run, "f-cp1", NOT_VALID, None);
+    assert_empty(&run, "b-2");
 }

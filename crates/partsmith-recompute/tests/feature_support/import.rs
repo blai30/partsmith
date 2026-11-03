@@ -1,13 +1,19 @@
 //! The STEP fixtures of `feature_import.rs`, shared with the import budget of `budgets.rs` and,
 //! through `box_step_asset`, with the document tests that import a box (`feature_messages.rs` and
-//! `feature_sketch.rs`), and `void_listed_twice`, the STEP text edit that makes the solid of
-//! features/import.md's `VOID_TWICE` and `BOTH` invalid after repair.
+//! `feature_sketch.rs`); `void_listed_twice` and `self_void`, the STEP text edits that make the
+//! solids of features/import.md's `VOID_TWICE`, `BOTH` and `SELF_VOID` invalid after repair, with
+//! those fixtures, which the copy features' documents import too (`feature_mirror.rs`,
+//! `feature_linear_pattern.rs` and `feature_circular_pattern.rs`).
 
 use std::sync::Arc;
 
-use partsmith_occt_sys::{Plane, Shape, StepBody, make_box, write_step};
+use partsmith_features::Fix;
+use partsmith_occt_sys::{Plane, Point, Shape, StepBody, SubShapeKind, cut, make_box, write_step};
 
-use super::{Assets, asset_name};
+use super::{
+    Assets, Run, assert_bounding_box, assert_error_field, assert_face_count, assert_solid_count,
+    asset_name, id, message,
+};
 
 /// A STEP body named `name` holding `shape`, without a color.
 pub fn step_body(name: &str, shape: Shape) -> StepBody {
@@ -107,4 +113,134 @@ pub fn void_listed_twice(step: &str) -> String {
         &step[end_of_data..]
     );
     edited.replacen(entity, &listed_twice, 1)
+}
+
+/// `HOLLOW` of kernel.md test 140: the block of `BYTES` with the closed cavity [2,8]x[2,18]x[2,28].
+pub fn hollow() -> Shape {
+    let solid = block_solid();
+    let cavity_corner = Plane {
+        origin: Point::new(2.0, 2.0, 2.0),
+        ..Plane::XY
+    };
+    let cavity = make_box(&cavity_corner, 6.0, 16.0, 26.0)
+        .expect("the kernel makes the cavity box")
+        .shape;
+    cut(&solid, &[cavity])
+        .expect("the kernel cuts the cavity out")
+        .shape
+}
+
+/// The STEP text `write_step` gives for `shape` as one body named `Hollow`, with its void listed
+/// twice (kernel.md tests 140 and 141).
+pub fn hollow_bytes_with_the_void_twice(shape: Shape) -> Arc<[u8]> {
+    let bytes = write_step(&[step_body("Hollow", shape)]).expect("the kernel writes STEP");
+    let step = String::from_utf8(bytes).expect("STEP text is UTF-8");
+    Arc::from(void_listed_twice(&step).into_bytes())
+}
+
+/// The fixture `VOID_TWICE`: `HOLLOW` written as one body named `Hollow`, its void listed twice,
+/// so its solid is still invalid after repair.
+pub fn void_twice_bytes() -> Arc<[u8]> {
+    hollow_bytes_with_the_void_twice(hollow())
+}
+
+/// The fixture edit of `SELF_VOID` (features/import.md section 6) on `step`, the STEP text of one
+/// solid without a void: the edit engine.md test 162 makes. The solid's entity
+/// `#s = MANIFOLD_SOLID_BREP('',#o);` becomes `#s = BREP_WITH_VOIDS('',#o,(#n));`, and
+/// `#n = ORIENTED_CLOSED_SHELL('',*,#o,.F.);`, `n` one more than the largest entity number, is
+/// added on its own line before the last `ENDSEC;`. A copy of the engine tests' `self_void`, with
+/// its checks: exactly one `MANIFOLD_SOLID_BREP` entity and no `BREP_WITH_VOIDS`.
+pub fn self_void(step: &str) -> String {
+    assert_eq!(
+        step.matches("MANIFOLD_SOLID_BREP(").count(),
+        1,
+        "the STEP text has one MANIFOLD_SOLID_BREP entity"
+    );
+    assert!(
+        !step.contains("BREP_WITH_VOIDS("),
+        "the STEP text has no BREP_WITH_VOIDS entity"
+    );
+    let solid = step
+        .lines()
+        .find(|line| line.contains("MANIFOLD_SOLID_BREP("))
+        .expect("the solid is defined on one line");
+    let (number, value) = solid.split_once('=').expect("the solid's line defines it");
+    let outer_shell = value
+        .trim()
+        .strip_prefix("MANIFOLD_SOLID_BREP('',")
+        .and_then(|rest| rest.strip_suffix(");"))
+        .unwrap_or_else(|| panic!("the solid names its one shell: {solid}"));
+    let void = step
+        .lines()
+        .filter_map(defined_entity)
+        .max()
+        .expect("the STEP text defines entities")
+        + 1;
+    let end_of_data = step.rfind("ENDSEC;").expect("the STEP text has sections");
+    let edited = format!(
+        "{}#{void} = ORIENTED_CLOSED_SHELL('',*,{outer_shell},.F.);\n{}",
+        &step[..end_of_data],
+        &step[end_of_data..]
+    );
+    let with_void = format!(
+        "{} = BREP_WITH_VOIDS('',{outer_shell},(#{void}));",
+        number.trim()
+    );
+    edited.replacen(solid, &with_void, 1)
+}
+
+/// The fixture `SELF_VOID`: `BYTES` with the block's outer shell listed as its void too, so its
+/// one solid stays invalid after repair and bounds no material.
+pub fn self_void_bytes() -> Arc<[u8]> {
+    let step = String::from_utf8(block_bytes().to_vec()).expect("STEP text is UTF-8");
+    Arc::from(self_void(&step).into_bytes())
+}
+
+/// The `IMP(op)` fixture of features/import.md: the import `f-imp1` of the asset `A` into b-1.
+pub fn import_record(op: &str) -> String {
+    format!(
+        r#"{{"id": "f-imp1", "type": "import", "body": "b-1", "asset": "{}", "op": "{op}"}}"#,
+        asset_name('0')
+    )
+}
+
+/// Asserts that `feature`, a copy feature, failed with `body_not_valid` on its field `body`,
+/// rendered `text`, with `Show` of the import `f-imp1` as its one fix and `detail` as its detail
+/// (features.md sections 3.5 and 4.1).
+pub fn assert_body_not_valid(run: &Run, feature: &str, text: &str, detail: Option<&str>) {
+    let error = run.assert_error(feature, "body_not_valid");
+    assert_error_field(error, "body");
+    assert_eq!(run.messages(feature), [text]);
+    let message = message(run, feature, "body_not_valid");
+    assert_eq!(message.pointer.as_deref(), Some("/body"));
+    assert_eq!(
+        message.fixes,
+        [Fix::Show {
+            feature: id("f-imp1"),
+            entity: None,
+        }]
+    );
+    assert_eq!(message.detail.as_deref(), detail);
+}
+
+/// Asserts that `body` holds the solid of `SELF_VOID` as the import read it, within `min` and
+/// `max`: one solid of 6 faces, volume 0 within 1e-9, not valid (features/import.md test 17).
+pub fn assert_self_void_block(run: &Run, body: &str, min: [f64; 3], max: [f64; 3]) {
+    let shape = run.shape(body);
+    assert_solid_count(shape, 1);
+    assert_face_count(shape, 6);
+    let volume = shape.volume().expect("the kernel measures the solid");
+    assert!(volume.abs() <= 1e-9, "volume {volume} is 0 within 1e-9");
+    assert!(
+        !shape.is_valid().expect("the kernel checks the solid"),
+        "the solid is still invalid after repair"
+    );
+    assert_bounding_box(shape, min, max);
+}
+
+/// The number of solids `body` holds at the end of the run, 0 for an empty body.
+pub fn solid_count(run: &Run, body: &str) -> u32 {
+    run.body(body)
+        .shape()
+        .map_or(0, |shape| shape.count(SubShapeKind::Solid))
 }

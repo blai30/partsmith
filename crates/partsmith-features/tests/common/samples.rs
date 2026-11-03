@@ -26,7 +26,7 @@ use super::{field, id, record, show};
 
 /// The number of variants of `FeatureError`. `every_error` holds a sample of each; a new variant adds one and raises
 /// this count.
-pub const ERROR_VARIANTS: usize = 50;
+pub const ERROR_VARIANTS: usize = 51;
 
 /// The number of variants of `FeatureWarning`. `every_warning` holds a sample of each; a new variant adds one and
 /// raises this count.
@@ -1123,6 +1123,15 @@ pub fn every_error() -> Vec<(FeatureError, &'static str)> {
             SAMPLE_SKETCH,
         ),
         (FeatureError::SketchNotSolved, SAMPLE_SKETCH),
+        (
+            FeatureError::BodyNotValid {
+                field: field("body", "Body"),
+                body: id("b-1"),
+                made_by: id("f-imp1"),
+                cause: None,
+            },
+            "f-mir1",
+        ),
     ]);
     samples
 }

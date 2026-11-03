@@ -1,5 +1,5 @@
 //! Acceptance tests for the value types, constants and errors (kernel spec sections 2.1, 2.13,
-//! 4 and tests 1 to 4, 87 to 89, 93 and 127 to 130).
+//! 4 and tests 1 to 4, 87 to 89, 93, 127 to 130 and 145).
 
 use crate::common;
 
@@ -41,6 +41,10 @@ const INTERNAL_HINT: &str = "It hit an unexpected problem; report it with the de
 const INTERNAL_MESSAGE: &str = "Partsmith's geometry kernel hit an unexpected problem.";
 /// The hint and user message of `read_step` with `EmptyResult`.
 const NO_SOLID_IN_STEP: &str = "The STEP file contains no solid bodies.";
+/// The hint of every `InvalidInputShape` error (test 145).
+const INVALID_INPUT_SHAPE_HINT: &str = "The shape it was given was already not valid, so repair the STEP file that shape came from, or export the file again.";
+/// The raw message of the `InvalidInputShape` errors of test 145.
+const INVALID_INPUT_SHAPE_MESSAGE: &str = "BRepBuilderAPI_Transform produced a shape that stays invalid after ShapeFix_Shape; input 1 was not valid before it ran";
 /// The kinds whose texts the operation tables of section 4.3 give.
 const BUILD_FAILURES: [KernelErrorKind; 3] = [
     KernelErrorKind::Failed,
@@ -255,6 +259,16 @@ fn not_done(operation: Operation, kind: KernelErrorKind) -> KernelError {
         kind,
         "StdFail_NotDone",
         "BRep_API: command not done",
+    )
+}
+
+/// The `InvalidInputShape` error of test 145 for `operation`.
+fn invalid_input_shape(operation: Operation) -> KernelError {
+    kernel_error(
+        operation,
+        KernelErrorKind::InvalidInputShape,
+        "Partsmith_InvalidInputShape",
+        INVALID_INPUT_SHAPE_MESSAGE,
     )
 }
 
@@ -777,6 +791,77 @@ fn t130_every_hint_is_one_sentence() {
                 "{:?} {kind:?}: {hint:?}",
                 texts.operation
             );
+        }
+    }
+}
+
+#[test]
+fn t145_invalid_input_shape_has_one_hint_for_every_operation() {
+    for texts in &OPERATION_TEXTS {
+        let error = invalid_input_shape(texts.operation);
+
+        assert_eq!(error.hint(), INVALID_INPUT_SHAPE_HINT, "{error:?}");
+    }
+}
+
+#[test]
+fn t145_invalid_input_shape_names_what_could_not_be_built() {
+    for texts in &OPERATION_TEXTS {
+        let error = invalid_input_shape(texts.operation);
+        let expected = match texts.noun {
+            Some(noun) => format!(
+                "Partsmith's geometry kernel could not build the {noun}. {INVALID_INPUT_SHAPE_HINT}"
+            ),
+            None => INVALID_INPUT_SHAPE_HINT.to_owned(),
+        };
+
+        assert_eq!(error.user_message(), expected, "{error:?}");
+        assert_eq!(error.to_string(), expected, "{error:?}");
+    }
+}
+
+#[test]
+fn t145_transform_texts_named_in_the_spec() {
+    let error = invalid_input_shape(Operation::Transform);
+
+    assert_eq!(
+        error.user_message(),
+        "Partsmith's geometry kernel could not build the moved or copied body. The shape it was given was already not valid, so repair the STEP file that shape came from, or export the file again."
+    );
+    assert_eq!(
+        error.detail(),
+        "transform invalid_input_shape: Partsmith_InvalidInputShape: BRepBuilderAPI_Transform produced a shape that stays invalid after ShapeFix_Shape; input 1 was not valid before it ran"
+    );
+}
+
+#[test]
+fn t145_an_operation_without_a_noun_shows_the_hint() {
+    let error = invalid_input_shape(Operation::Section);
+
+    assert_eq!(error.user_message(), INVALID_INPUT_SHAPE_HINT);
+}
+
+#[test]
+fn t145_the_texts_pass_the_checks_of_test_130() {
+    for texts in &OPERATION_TEXTS {
+        let error = invalid_input_shape(texts.operation);
+        let hint = error.hint();
+
+        assert_plain_message(&hint);
+        assert_plain_message(&error.user_message());
+        assert_eq!(hint.matches('.').count(), 1, "{hint:?}");
+    }
+}
+
+#[test]
+fn t145_no_text_holds_the_raw_message() {
+    for texts in &OPERATION_TEXTS {
+        let error = invalid_input_shape(texts.operation);
+
+        for text in [error.hint(), error.user_message()] {
+            for word in ["Partsmith_", "ShapeFix", "BRep", "input 1"] {
+                assert!(!text.contains(word), "{text:?} contains {word:?}");
+            }
         }
     }
 }

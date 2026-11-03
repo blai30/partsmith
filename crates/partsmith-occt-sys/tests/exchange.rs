@@ -1,17 +1,18 @@
 //! Acceptance tests for STEP and BRep exchange (kernel spec sections 2.12, 3.8 and tests 78 to
-//! 86, 135 and 139 to 141).
+//! 86, 135 and 139 to 141), and for mirrors and scales of the solids that repair could not fix
+//! (section 3.5 and test 144).
 
 use crate::common;
 
 use common::{
-    assert_argument_error, assert_invalid_input, assert_leaves_unchanged, assert_near,
-    assert_relative, box_primitive, cube_a, cylinder_primitive, face_with_role, fully_rounded_box,
-    rectangle, region, uncolored_body, volume, xy_plane_at,
+    ORIGIN, assert_argument_error, assert_bounds, assert_invalid_input, assert_leaves_unchanged,
+    assert_near, assert_relative, box_primitive, cube_a, cylinder_primitive, face_with_role,
+    fully_rounded_box, rectangle, region, uncolored_body, volume, xy_plane_at,
 };
 use partsmith_occt_sys::{
-    Color, KernelError, KernelErrorKind, Operation, PlanarRegion, Plane, PrimitiveFace, Shape,
-    ShapeKind, StepBody, StepImport, SubShapeKind, compound, cut, make_box, make_profile,
-    read_step, shell, write_step,
+    Color, EdgeRadius, KernelError, KernelErrorKind, OpResult, Operation, PlanarRegion, Plane,
+    PrimitiveFace, Shape, ShapeKind, StepBody, StepImport, SubShapeKind, Transform, Vector,
+    compound, cut, fillet, make_box, make_profile, read_step, shell, transform, write_step,
 };
 
 /// The color of test 78.
@@ -242,6 +243,101 @@ fn hollow_beside_one_face() -> String {
         .expect("the shapes are grouped")
         .shape;
     void_listed_twice(&hollow_step(shape))
+}
+
+/// `SELF_VOID` of test 144, from `step`, the STEP text of one solid without a void: the edit
+/// engine.md test 162 makes. Its entity `#s = MANIFOLD_SOLID_BREP('',#o);` becomes
+/// `#s = BREP_WITH_VOIDS('',#o,(#n));`, and `#n = ORIENTED_CLOSED_SHELL('',*,#o,.F.);`, `n` one
+/// more than the largest entity number, is added on its own line before the last `ENDSEC;`. Fails
+/// unless the text has exactly one `MANIFOLD_SOLID_BREP` entity and no `BREP_WITH_VOIDS`, as the
+/// engine's helper does.
+fn self_void(step: &str) -> String {
+    assert_eq!(
+        step.matches("MANIFOLD_SOLID_BREP(").count(),
+        1,
+        "the STEP text has one MANIFOLD_SOLID_BREP entity"
+    );
+    assert!(
+        !step.contains("BREP_WITH_VOIDS("),
+        "the STEP text has no BREP_WITH_VOIDS entity"
+    );
+    let solid = step
+        .lines()
+        .find(|line| line.contains("MANIFOLD_SOLID_BREP("))
+        .expect("the solid is defined on one line");
+    let (number, value) = solid.split_once('=').expect("the solid's line defines it");
+    let outer_shell = value
+        .trim()
+        .strip_prefix("MANIFOLD_SOLID_BREP('',")
+        .and_then(|rest| rest.strip_suffix(");"))
+        .unwrap_or_else(|| panic!("the solid names its one shell: {solid}"));
+    let void = defined_entities(step)
+        .max()
+        .expect("the STEP text defines entities")
+        + 1;
+    let end_of_data = step.rfind("ENDSEC;").expect("the STEP text has sections");
+    let mut edited = String::with_capacity(step.len() + 64);
+    edited.push_str(&step[..end_of_data]);
+    edited.push_str(&format!(
+        "#{void} = ORIENTED_CLOSED_SHELL('',*,{outer_shell},.F.);\n"
+    ));
+    edited.push_str(&step[end_of_data..]);
+    let with_void = format!(
+        "{} = BREP_WITH_VOIDS('',{outer_shell},(#{void}));",
+        number.trim()
+    );
+    edited.replacen(solid, &with_void, 1)
+}
+
+/// `SELF_VOID` of test 144: `self_void` of the STEP text of `BOX` written as one body named
+/// `Block`.
+fn block_with_self_void() -> String {
+    self_void(&text(
+        &write_step(&[uncolored_body(box_primitive().shape, "Block")])
+            .expect("the body contains a solid"),
+    ))
+}
+
+/// `S` of test 144: the solid `read_step(VOID_TWICE)` returns.
+fn void_twice_solid() -> Shape {
+    only_body(&read_text(&void_twice()), "Hollow").shape.clone()
+}
+
+/// `S0` of test 144: the solid `read_step(SELF_VOID)` returns.
+fn self_void_solid() -> Shape {
+    only_body(&read_text(&block_with_self_void()), "Block")
+        .shape
+        .clone()
+}
+
+/// The transforms of test 144 that copy the geometry, each with a name for failure messages: the
+/// mirrors through `Plane::YZ` and `Plane::XY` and the scale by 2 about the origin.
+fn copying_transforms() -> [(&'static str, Transform); 3] {
+    [
+        ("the mirror through YZ", Transform::mirror(&Plane::YZ)),
+        ("the mirror through XY", Transform::mirror(&Plane::XY)),
+        ("the scale by 2", Transform::scale(ORIGIN, 2.0)),
+    ]
+}
+
+/// The detail of every `InvalidInputShape` error of test 144.
+const INVALID_INPUT_SHAPE_DETAIL: &str = "transform invalid_input_shape: Partsmith_InvalidInputShape: BRepBuilderAPI_Transform produced a shape that stays invalid after ShapeFix_Shape; input 1 was not valid before it ran";
+
+/// Asserts that a transform failed because the shape it was given was already not valid (test
+/// 144).
+fn assert_invalid_input_shape(result: Result<OpResult, KernelError>, what: &str) {
+    let Err(error) = result else {
+        panic!("{what}: the copy of an invalid solid fails");
+    };
+    assert_eq!(error.operation, Operation::Transform, "{what}");
+    assert_eq!(error.kind, KernelErrorKind::InvalidInputShape, "{what}");
+    assert_eq!(error.exception, "Partsmith_InvalidInputShape", "{what}");
+    assert_eq!(error.detail(), INVALID_INPUT_SHAPE_DETAIL, "{what}");
+}
+
+/// The translation by 100 mm along X of test 144.
+fn hundred_along_x() -> Transform {
+    Transform::translation(Vector::new(100.0, 0.0, 0.0))
 }
 
 /// Reads a STEP text that must parse.
@@ -703,6 +799,142 @@ fn t141_both_names_the_solid_before_the_skipped_shape() {
     let import = read_text(&hollow_beside_one_face());
 
     assert_eq!(import.warnings, [FIRST_SOLID_INVALID, ONE_SHAPE_SKIPPED]);
+}
+
+#[test]
+fn t144_self_void_lists_the_outer_shell_as_its_void() {
+    let original = text(
+        &write_step(&[uncolored_body(box_primitive().shape, "Block")])
+            .expect("the body contains a solid"),
+    );
+    let largest = defined_entities(&original).max().expect("entities");
+
+    let edited = block_with_self_void();
+
+    let entity = brep_with_voids(&edited);
+    let voids = void_references(entity);
+    assert_eq!(voids, [format!("#{}", largest + 1)], "{entity}");
+    let void_shell = entity_text(&edited, largest + 1);
+    let outer_shell = entity
+        .strip_prefix("BREP_WITH_VOIDS('',")
+        .and_then(|rest| rest.split(',').next())
+        .expect("the solid names its outer shell");
+    assert_eq!(
+        void_shell,
+        format!("ORIENTED_CLOSED_SHELL('',*,{outer_shell},.F.)")
+    );
+    assert!(!edited.contains("MANIFOLD_SOLID_BREP("), "{entity}");
+}
+
+#[test]
+fn t144_self_void_reads_as_one_solid_without_volume() {
+    let import = read_text(&block_with_self_void());
+
+    let imported = only_body(&import, "Block");
+    assert_eq!(imported.shape.count(SubShapeKind::Solid), 1);
+    assert_eq!(imported.shape.count(SubShapeKind::Face), 6);
+    assert_near(volume(&imported.shape), 0.0, 1e-9, "volume");
+    assert_relative(
+        imported.shape.area().expect("the solid has an area"),
+        2200.0,
+        1e-9,
+        "area",
+    );
+    assert!(!imported.shape.is_valid().expect("validity"));
+}
+
+#[test]
+fn t144_self_void_is_counted_as_one_invalid_solid() {
+    let import = read_text(&block_with_self_void());
+
+    assert_eq!(import.invalid_solids, 1);
+    assert_eq!(import.warnings, [FIRST_SOLID_INVALID]);
+}
+
+#[test]
+fn t144_mirrors_and_scale_of_void_twice_fail_on_their_input() {
+    let solid = void_twice_solid();
+
+    for (name, copy) in copying_transforms() {
+        assert_invalid_input_shape(transform(&solid, &copy), &format!("{name} of S"));
+    }
+}
+
+#[test]
+fn t144_mirrors_and_scale_of_self_void_fail_on_their_input() {
+    let solid = self_void_solid();
+
+    for (name, copy) in copying_transforms() {
+        assert_invalid_input_shape(transform(&solid, &copy), &format!("{name} of S0"));
+    }
+}
+
+#[test]
+fn t144_a_translation_of_void_twice_moves_it_as_it_is() {
+    let moved = transform(&void_twice_solid(), &hundred_along_x())
+        .expect("a rigid move is not checked")
+        .shape;
+
+    assert_eq!(moved.count(SubShapeKind::Solid), 1);
+    assert_eq!(moved.count(SubShapeKind::Face), 12);
+    assert_relative(volume(&moved), 1008.0, 1e-6, "volume");
+    assert_bounds(&moved, [100.0, 0.0, 0.0], [110.0, 20.0, 30.0], 1e-6);
+    assert!(!moved.is_valid().expect("validity"));
+}
+
+#[test]
+fn t144_a_translation_of_self_void_moves_it_as_it_is() {
+    let moved = transform(&self_void_solid(), &hundred_along_x())
+        .expect("a rigid move is not checked")
+        .shape;
+
+    assert_eq!(moved.count(SubShapeKind::Solid), 1);
+    assert_eq!(moved.count(SubShapeKind::Face), 6);
+    assert_near(volume(&moved), 0.0, 1e-9, "volume");
+    assert_bounds(&moved, [100.0, 0.0, 0.0], [110.0, 20.0, 30.0], 1e-6);
+    assert!(!moved.is_valid().expect("validity"));
+}
+
+#[test]
+fn t144_a_valid_hollow_read_back_mirrors() {
+    let solid = only_body(&read_text(&hollow_step(hollow())), "Hollow")
+        .shape
+        .clone();
+
+    let mirrored = transform(&solid, &Transform::mirror(&Plane::YZ))
+        .expect("a valid solid mirrors")
+        .shape;
+
+    assert!(mirrored.is_valid().expect("validity"));
+    assert_relative(volume(&mirrored), 3504.0, 1e-6, "volume");
+    assert_eq!(mirrored.count(SubShapeKind::Face), 12);
+    assert_bounds(&mirrored, [-10.0, 0.0, 0.0], [0.0, 20.0, 30.0], 1e-6);
+}
+
+#[test]
+fn t144_a_fillet_of_void_twice_keeps_invalid_result() {
+    let error = fillet(
+        &void_twice_solid(),
+        &[EdgeRadius {
+            edge: 1,
+            radius: 1.0,
+        }],
+    )
+    .map(|_| ())
+    .expect_err("the filleted solid stays invalid");
+
+    assert_eq!(error.operation, Operation::Fillet);
+    assert_eq!(error.kind, KernelErrorKind::InvalidResult);
+}
+
+#[test]
+fn t144_a_shell_of_self_void_keeps_invalid_result() {
+    let error = shell(&self_void_solid(), &[], 2.0)
+        .map(|_| ())
+        .expect_err("the shelled solid stays invalid");
+
+    assert_eq!(error.operation, Operation::Shell);
+    assert_eq!(error.kind, KernelErrorKind::InvalidResult);
 }
 
 #[test]

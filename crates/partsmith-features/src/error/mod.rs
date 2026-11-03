@@ -39,6 +39,8 @@ use render::{
 };
 use too_large::{Subject, TooLarge};
 
+use crate::builtin::import::Import;
+use crate::feature::Feature;
 use crate::params::BodyOp;
 
 /// Why a feature could not be built. Stores ids and internal-unit numbers, never display names, formatted values or
@@ -196,6 +198,19 @@ pub enum FeatureError {
         field: FieldRef,
         /// The tool body.
         body: Id,
+    },
+    /// The source body of a copy feature holds a solid that is not valid: one without volume, or one whose mirror
+    /// the kernel finds was already invalid (section 3.5).
+    BodyNotValid {
+        /// The body field.
+        field: FieldRef,
+        /// The body.
+        body: Id,
+        /// The feature that put the solid in the body.
+        made_by: Id,
+        /// The kernel's error, when the kernel found the solid not valid.
+        #[source]
+        cause: Option<KernelError>,
     },
     /// A cut or intersect leaves nothing of the body.
     EmptyResult {
@@ -467,6 +482,9 @@ impl FeatureError {
             ),
             FeatureError::BodyEmpty { body, use_new, .. } => {
                 body_empty_text(renderer, body, *use_new)
+            }
+            FeatureError::BodyNotValid { body, made_by, .. } => {
+                body_not_valid_text(renderer, body, made_by)
             }
             FeatureError::ToolEmpty { body, .. } => {
                 let subject = renderer.body_subject(body);
@@ -862,6 +880,7 @@ impl FeatureError {
             FeatureError::BodyNotEmpty { .. } => "body_not_empty",
             FeatureError::BodyEmpty { .. } => "body_empty",
             FeatureError::ToolEmpty { .. } => "tool_empty",
+            FeatureError::BodyNotValid { .. } => "body_not_valid",
             FeatureError::EmptyResult { .. } => "empty_result",
             FeatureError::ReferencesNotFound { .. } => "references_not_found",
             FeatureError::ReferenceNotFound { .. } => "reference_not_found",
@@ -913,6 +932,7 @@ impl FeatureError {
             | FeatureError::AssetMissing { field, .. }
             | FeatureError::BodyEmpty { field, .. }
             | FeatureError::ToolEmpty { field, .. }
+            | FeatureError::BodyNotValid { field, .. }
             | FeatureError::ReferencesNotFound { field, .. }
             | FeatureError::ReferenceNotFound { field, .. }
             | FeatureError::ProfileNotFound { field, .. }
@@ -1075,6 +1095,7 @@ impl FeatureError {
                 fixes.push(Fix::pick(field.pointer()));
                 fixes
             }
+            FeatureError::BodyNotValid { made_by, .. } => vec![Fix::show(made_by)],
             FeatureError::ReferencesNotFound { field, losses, .. } => losses
                 .iter()
                 .flat_map(|loss| {
@@ -1177,6 +1198,9 @@ impl FeatureError {
                 max: None,
                 cause: error,
                 ..
+            }
+            | FeatureError::BodyNotValid {
+                cause: Some(error), ..
             } => Some(error.detail()),
             FeatureError::Internal { message } => Some(message.clone()),
             FeatureError::InvalidParams { detail, .. } => Some(detail.clone()),
@@ -1330,6 +1354,27 @@ fn body_empty_text(renderer: &Renderer<'_>, body: &Id, use_new: bool) -> String 
             renderer.this()
         ),
     }
+}
+
+/// The text of `BodyNotValid` (section 4.1): it names `made_by` when the names know its record as an import, the
+/// way a STEP file's solid gets into a body.
+fn body_not_valid_text(renderer: &Renderer<'_>, body: &Id, made_by: &Id) -> String {
+    let subject = renderer.body_subject(body);
+    let this = renderer.this();
+    let from_import = renderer
+        .record(made_by)
+        .is_some_and(|record| record.kind == Import::TYPE);
+    let (from, file) = if from_import {
+        (
+            format!(" from {}", renderer.quoted_feature(made_by)),
+            "the STEP file",
+        )
+    } else {
+        (String::new(), "the STEP file it came from")
+    };
+    format!(
+        "{subject} holds a solid{from} that is not valid, so {this} cannot copy it. Repair {file}, or export it again from the program that made it."
+    )
 }
 
 /// The JSON Pointer of the stored reference inside a plane or axis param (section 4.1): `/base/face` for the faces

@@ -7,15 +7,18 @@
 
 use crate::feature_support;
 
+use feature_support::import::{
+    assert_body_not_valid, assert_self_void_block, assets, import_record, self_void_bytes,
+};
 use feature_support::linear_pattern::{BODIES, CUBE10, X, direction, pattern};
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, Run, assert_axis_stored_as_picked,
-    assert_bore_through, assert_bounding_box, assert_choice_between, assert_error_field,
-    assert_examples_canonical, assert_face_area, assert_face_centroid, assert_face_count,
-    assert_face_kind, assert_face_position, assert_face_translated, assert_has_face,
-    assert_same_body, assert_solid_count, assert_unchanged, assert_volume, body_changes, edge_axis,
-    face, feature_record_mut, l_shaped_body, link_ids, load_example, remove_axis_direction,
-    set_field, with_shared_point_moved,
+    assert_bore_through, assert_bounding_box, assert_choice_between, assert_empty,
+    assert_error_field, assert_examples_canonical, assert_face_area, assert_face_centroid,
+    assert_face_count, assert_face_kind, assert_face_position, assert_face_translated,
+    assert_has_face, assert_same_body, assert_solid_count, assert_unchanged, assert_volume,
+    body_changes, document, edge_axis, face, feature_record_mut, l_shaped_body, link_ids,
+    load_example, remove_axis_direction, set_field, with_shared_point_moved,
 };
 use partsmith_model::{Document, Units};
 use partsmith_occt_sys::GeometryKind;
@@ -569,4 +572,49 @@ fn t024_the_second_round_face_direction_is_stored_as_a_pick_stores_it() {
         "b-2",
         "f-cyl1/side",
     );
+}
+
+/// The text of the error of test 25: the source holds a solid from 'Import 1' that has no volume.
+const NOT_VALID: &str = "Body 'Body 1' holds a solid from 'Import 1' that is not valid, so this linear pattern cannot copy it. Repair the STEP file, or export it again from the program that made it.";
+
+/// Runs `IMP("new")` of `SELF_VOID`, then the linear pattern `pattern` (test 25).
+fn pattern_self_void(pattern: &str) -> Run {
+    Run::with_assets(
+        document(&BODIES, &[&import_record("new"), pattern]),
+        &assets(self_void_bytes()),
+    )
+}
+
+#[test]
+fn t025_a_body_without_volume_is_not_valid() {
+    let run = pattern_self_void(&pattern(&direction(X, "3", "30"), ""));
+
+    assert_body_not_valid(&run, "f-lp1", NOT_VALID, None);
+}
+
+#[test]
+fn t025_the_body_gains_no_material() {
+    let run = pattern_self_void(&pattern(&direction(X, "3", "30"), ""));
+
+    assert_self_void_block(&run, "b-1", [0.0, 0.0, 0.0], [10.0, 20.0, 30.0]);
+    assert_unchanged(&run, "f-lp1", "b-1");
+}
+
+#[test]
+fn t025_copies_that_overlap_the_block_are_not_valid_either() {
+    let run = pattern_self_void(&pattern(&direction(X, "3", "5"), ""));
+
+    assert_body_not_valid(&run, "f-lp1", NOT_VALID, None);
+    assert_unchanged(&run, "f-lp1", "b-1");
+}
+
+#[test]
+fn t025_a_new_body_stays_empty() {
+    let run = pattern_self_void(&pattern(
+        &direction(X, "3", "30"),
+        r#""op": "new", "target": "b-2""#,
+    ));
+
+    assert_body_not_valid(&run, "f-lp1", NOT_VALID, None);
+    assert_empty(&run, "b-2");
 }

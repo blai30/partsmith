@@ -56,6 +56,7 @@ std::vector<TopoDS_Shape> shapes_of(rust::Slice<const ShapeHandle> handles);
 // Throws the shim's exception types with a message.
 [[noreturn]] void raise_invalid_input(const std::string &message);
 [[noreturn]] void raise_invalid_result(const std::string &message);
+[[noreturn]] void raise_invalid_input_shape(const std::string &message);
 [[noreturn]] void raise_empty_result(const std::string &message);
 [[noreturn]] void raise_read_error(const std::string &message);
 // Throws StdFail_NotDone for an algorithm that reported failure without throwing.
@@ -191,6 +192,13 @@ bool changed_part_valid(const TopoDS_Shape &shape, const CheckInputs &inputs);
 // is checked; a result still invalid raises Partsmith_InvalidResult (kernel spec section 3.5).
 void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
                   const CheckInputs &inputs, const char *algorithm);
+
+// Checks the whole of a result built anew from a copy of `input` and repairs it as ensure_valid
+// does. A result still invalid raises Partsmith_InvalidInputShape when `input` is not valid
+// either, and Partsmith_InvalidResult otherwise; `input` is checked only then (kernel spec
+// section 3.5).
+void ensure_valid_copy(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
+                       const TopoDS_Shape &input, const char *algorithm);
 
 // Normalizes the result of an operation that must produce a solid: keeps its solids, checks
 // and repairs it relative to `inputs` (see ensure_valid), and raises Partsmith_EmptyResult

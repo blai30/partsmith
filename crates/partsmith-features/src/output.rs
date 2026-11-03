@@ -21,6 +21,17 @@ use crate::params::BodyOp;
 /// volume, of at most `VOLUME_TOLERANCE` times the body's volume counts as none.
 pub const VOLUME_TOLERANCE: f64 = 1e-9;
 
+/// The largest volume of a body without volume, as a fraction of its area to the power 3/2 (engine.md section 3.11).
+/// A ball, the most volume an area bounds, has about 0.094.
+const NO_VOLUME_RATIO: f64 = 1e-9;
+
+/// Whether a body with this volume (mm³) and area (mm²), both of the same shape, bounds material: false when the
+/// absolute volume is at most 1e-9 times the area to the power 3/2, as for a solid whose void is its own outer shell
+/// (engine.md section 3.11). The copy features (section 3.5) and the engine's `measure` share it.
+pub fn has_volume(volume: f64, area: f64) -> bool {
+    volume.abs() > NO_VOLUME_RATIO * area.powf(1.5)
+}
+
 /// A kernel boolean of a target with every tool (`fuse`, `cut` or `common`).
 type KernelBoolean = fn(&Shape, &[Shape]) -> Result<OpResult, KernelError>;
 

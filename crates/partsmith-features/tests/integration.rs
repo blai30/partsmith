@@ -6,6 +6,7 @@
 
 mod common;
 
+mod body_not_valid;
 mod body_rules;
 mod context_evaluation;
 mod context_lookups;
