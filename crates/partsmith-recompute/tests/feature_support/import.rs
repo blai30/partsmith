@@ -1,9 +1,9 @@
 //! The STEP fixtures of `feature_import.rs`, shared with the import budget of `budgets.rs` and,
 //! through `box_step_asset`, with the document tests that import a box (`feature_messages.rs` and
 //! `feature_sketch.rs`); `void_listed_twice` and `self_void`, the STEP text edits that make the
-//! solids of features/import.md's `VOID_TWICE`, `BOTH` and `SELF_VOID` invalid after repair, with
-//! those fixtures, which the copy features' documents import too (`feature_mirror.rs`,
-//! `feature_linear_pattern.rs` and `feature_circular_pattern.rs`).
+//! solids of features/import.md's `VOID_TWICE`, `BOTH`, `SELF_VOID` and `TWO_SELF_VOID` invalid
+//! after repair, with those fixtures, which the copy features' documents import too
+//! (`feature_mirror.rs`, `feature_linear_pattern.rs` and `feature_circular_pattern.rs`).
 
 use std::sync::Arc;
 
@@ -45,6 +45,18 @@ pub fn block_solid() -> Shape {
 /// The fixture `BYTES`: a STEP file with one body named `Block` holding `block_solid`.
 pub fn block_bytes() -> Arc<[u8]> {
     step_bytes(&[step_body("Block", block_solid())])
+}
+
+/// The fixture `TWO`: a STEP file with two 10 mm cubes named `A` and `B`, the second moved to x = 50.
+pub fn two_cubes_bytes() -> Arc<[u8]> {
+    let moved = Plane {
+        origin: Point::new(50.0, 0.0, 0.0),
+        ..Plane::XY
+    };
+    step_bytes(&[
+        block("A", &Plane::XY, [10.0, 10.0, 10.0]),
+        block("B", &moved, [10.0, 10.0, 10.0]),
+    ])
 }
 
 /// The asset map `{A: bytes}`.
@@ -144,17 +156,17 @@ pub fn void_twice_bytes() -> Arc<[u8]> {
     hollow_bytes_with_the_void_twice(hollow())
 }
 
-/// The fixture edit of `SELF_VOID` (features/import.md section 6) on `step`, the STEP text of one
-/// solid without a void: the edit engine.md test 162 makes. The solid's entity
-/// `#s = MANIFOLD_SOLID_BREP('',#o);` becomes `#s = BREP_WITH_VOIDS('',#o,(#n));`, and
+/// The fixture edit of `SELF_VOID` (features/import.md section 6) on `step`, the STEP text of
+/// `solids` solids without a void: the edit engine.md test 162 makes, applied to the first solid.
+/// Its entity `#s = MANIFOLD_SOLID_BREP('',#o);` becomes `#s = BREP_WITH_VOIDS('',#o,(#n));`, and
 /// `#n = ORIENTED_CLOSED_SHELL('',*,#o,.F.);`, `n` one more than the largest entity number, is
 /// added on its own line before the last `ENDSEC;`. A copy of the engine tests' `self_void`, with
-/// its checks: exactly one `MANIFOLD_SOLID_BREP` entity and no `BREP_WITH_VOIDS`.
-pub fn self_void(step: &str) -> String {
+/// its checks: one `MANIFOLD_SOLID_BREP` entity per solid and no `BREP_WITH_VOIDS`.
+pub fn self_void(step: &str, solids: usize) -> String {
     assert_eq!(
         step.matches("MANIFOLD_SOLID_BREP(").count(),
-        1,
-        "the STEP text has one MANIFOLD_SOLID_BREP entity"
+        solids,
+        "the STEP text has one MANIFOLD_SOLID_BREP entity per solid"
     );
     assert!(
         !step.contains("BREP_WITH_VOIDS("),
@@ -189,11 +201,22 @@ pub fn self_void(step: &str) -> String {
     edited.replacen(solid, &with_void, 1)
 }
 
+/// `bytes`, the STEP file of `solids` solids, with the first edited by `self_void`.
+fn with_self_void(bytes: &[u8], solids: usize) -> Arc<[u8]> {
+    let step = String::from_utf8(bytes.to_vec()).expect("STEP text is UTF-8");
+    Arc::from(self_void(&step, solids).into_bytes())
+}
+
 /// The fixture `SELF_VOID`: `BYTES` with the block's outer shell listed as its void too, so its
 /// one solid stays invalid after repair and bounds no material.
 pub fn self_void_bytes() -> Arc<[u8]> {
-    let step = String::from_utf8(block_bytes().to_vec()).expect("STEP text is UTF-8");
-    Arc::from(self_void(&step).into_bytes())
+    with_self_void(&block_bytes(), 1)
+}
+
+/// The fixture `TWO_SELF_VOID`: `TWO` with its first cube edited as in `SELF_VOID`. The import
+/// gives one body of two solids, one without volume and one with 1000 mm³.
+pub fn two_self_void_bytes() -> Arc<[u8]> {
+    with_self_void(&two_cubes_bytes(), 2)
 }
 
 /// The `IMP(op)` fixture of features/import.md: the import `f-imp1` of the asset `A` into b-1.
@@ -236,6 +259,23 @@ pub fn assert_self_void_block(run: &Run, body: &str, min: [f64; 3], max: [f64; 3
         "the solid is still invalid after repair"
     );
     assert_bounding_box(shape, min, max);
+}
+
+/// Asserts that `body` holds the two solids of `TWO_SELF_VOID` as the import read them: 1000 mm³
+/// in all, not valid, within [0,0,0]-[60,10,10].
+pub fn assert_two_self_void(run: &Run, body: &str) {
+    let shape = run.shape(body);
+    assert_solid_count(shape, 2);
+    let volume = shape.volume().expect("the kernel measures the solids");
+    assert!(
+        (volume - 1000.0).abs() <= 1e-6 * 1000.0,
+        "volume {volume} is the second cube's 1000"
+    );
+    assert!(
+        !shape.is_valid().expect("the kernel checks the solids"),
+        "the first solid is still invalid after repair"
+    );
+    assert_bounding_box(shape, [0.0, 0.0, 0.0], [60.0, 10.0, 10.0]);
 }
 
 /// The number of solids `body` holds at the end of the run, 0 for an empty body.

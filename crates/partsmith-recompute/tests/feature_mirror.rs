@@ -10,8 +10,8 @@ use crate::feature_support;
 use std::sync::Arc;
 
 use feature_support::import::{
-    assert_body_not_valid, assert_self_void_block, assets, import_record, self_void_bytes,
-    solid_count, void_twice_bytes,
+    assert_body_not_valid, assert_self_void_block, assert_two_self_void, assets, import_record,
+    self_void_bytes, solid_count, two_self_void_bytes, void_twice_bytes,
 };
 use feature_support::{
     AXIS_TOLERANCE, Run, assert_bore_through, assert_bounding_box, assert_coordinates,
@@ -355,6 +355,18 @@ fn t014_a_moved_solid_still_names_the_import() {
     run.assert_ok("f-mv1");
     assert_body_not_valid(&run, "f-mir1", NOT_VALID, None);
     assert_self_void_block(&run, "b-1", [5.0, 0.0, 0.0], [15.0, 20.0, 30.0]);
+}
+
+#[test]
+fn t014_a_body_with_one_solid_without_volume_is_not_valid() {
+    let run = run_with(
+        two_self_void_bytes(),
+        &[&import_record("new"), &mirror(YZ, "")],
+    );
+
+    assert_body_not_valid(&run, "f-mir1", NOT_VALID, None);
+    assert_two_self_void(&run, "b-1");
+    assert_unchanged(&run, "f-mir1", "b-1");
 }
 
 #[test]

@@ -7,7 +7,9 @@ use partsmith_model::{FeatureManifest, FieldHint, Id};
 use partsmith_naming::Instance;
 use partsmith_occt_sys::{KernelError, KernelErrorKind, Shape, SubShapeKind, Transform, transform};
 
-use super::common::{bodies, naming_motion, options_hint, unchanged, without_separate_solids};
+use super::common::{
+    bodies, body_empty, naming_motion, options_hint, solid_body, unchanged, without_separate_solids,
+};
 use crate::context::{BodyState, BuildContext};
 use crate::deps::Dependencies;
 use crate::error::{FeatureError, FeatureWarning, FieldRef, NoEffectHow};
@@ -75,7 +77,7 @@ pub(super) fn check_instance_limit(total: u64) -> Result<(), FeatureError> {
     }
 }
 
-/// The source body of a copy feature, which must hold a solid with volume (features.md section 3.5).
+/// The source body of a copy feature, whose every solid must have volume (features.md section 3.5).
 pub(super) struct Source<'a> {
     /// The source body.
     body: &'a Id,
@@ -87,29 +89,16 @@ pub(super) struct Source<'a> {
 
 impl<'a> Source<'a> {
     /// The source `body` just before this feature (features.md section 3.5): a body whose shape holds no solid is
-    /// `BodyEmpty`, and one without volume `BodyNotValid`.
+    /// `BodyEmpty`, and one that holds a solid without volume `BodyNotValid`.
     pub(super) fn new(
         context: &BuildContext<'a>,
         body: &'a Id,
     ) -> Result<Source<'a>, FeatureError> {
-        let state = context.body(body)?;
-        let Some(shape) = state
-            .shape()
-            .filter(|shape| shape.count(SubShapeKind::Solid) > 0)
-        else {
-            return Err(FeatureError::BodyEmpty {
-                field: context.field("body"),
-                body: body.clone(),
-                use_new: false,
-            });
-        };
-        let area = state
-            .topology()?
-            .faces
-            .iter()
-            .filter_map(|face| face.fingerprint.size)
-            .sum();
-        if !has_volume(state.volume()?, area) {
+        let (state, shape) = solid_body(context, "body", body)?;
+        if shape.count(SubShapeKind::Solid) == 0 {
+            return Err(body_empty(context, "body", body));
+        }
+        if holds_solid_without_volume(state)? {
             return Err(body_not_valid(context, body, None));
         }
         Ok(Source { body, state, shape })
@@ -201,14 +190,56 @@ impl<'a> Source<'a> {
     }
 }
 
+/// True when a solid of `state` bounds no material (features.md section 3.5): `has_volume` is false for the body's
+/// volume and area when it holds one solid, and for a solid's own volume and area when it holds several. The areas
+/// are sums of the face sizes in the state's topology. Only a body of several solids is measured again, one volume
+/// per solid.
+fn holds_solid_without_volume(state: &BodyState) -> Result<bool, FeatureError> {
+    let Some(shape) = state.shape() else {
+        return Ok(false);
+    };
+    let faces = &state.topology()?.faces;
+    if shape.count(SubShapeKind::Solid) == 1 {
+        let area = faces.iter().filter_map(|face| face.fingerprint.size).sum();
+        return Ok(!has_volume(state.volume()?, area));
+    }
+    for solid in shape.solids()? {
+        let area = shape
+            .locate(&solid, SubShapeKind::Face)?
+            .into_iter()
+            .flatten()
+            .filter_map(|face| faces.get(face as usize - 1)?.fingerprint.size)
+            .sum();
+        if !has_volume(solid.volume()?, area) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// True when `state` holds a shape that `Shape::is_valid` finds not valid, the kernel's own check of a mirror's
+/// input (kernel.md section 3.5).
+fn holds_invalid_shape(state: &BodyState) -> Result<bool, FeatureError> {
+    match state.shape() {
+        Some(shape) => Ok(!shape.is_valid()?),
+        None => Ok(false),
+    }
+}
+
 /// `BodyNotValid` of the source `body` (features.md section 3.5), with the kernel error `cause` when there is one,
-/// or the error that kept the feature that put the solid in the body from being found.
+/// or the error that kept the feature that put the solid in the body from being found. That feature is found by the
+/// check the source failed: the kernel's validity check with a cause, else the volume check.
 fn body_not_valid(
     context: &BuildContext<'_>,
     body: &Id,
     cause: Option<KernelError>,
 ) -> FeatureError {
-    match made_by(context, body) {
+    let made_by = if cause.is_some() {
+        made_by(context, body, holds_invalid_shape)
+    } else {
+        made_by(context, body, holds_solid_without_volume)
+    };
+    match made_by {
         Ok(made_by) => FeatureError::BodyNotValid {
             field: context.field("body"),
             body: body.clone(),
@@ -219,21 +250,26 @@ fn body_not_valid(
     }
 }
 
-/// The feature that put the not valid solid in `body` (features.md section 3.5): its newest writer whose state just
-/// before it holds no shape or a valid one. A body starts empty, so only a chain without a writer has none.
-fn made_by(context: &BuildContext<'_>, body: &Id) -> Result<Id, FeatureError> {
-    for (writer, before) in context.body_history(body)?.iter().rev() {
-        let valid_before = match before.shape() {
-            None => true,
-            Some(shape) => shape.is_valid()?,
-        };
-        if valid_before {
+/// The feature that put the solid that is not valid in `body` (features.md section 3.5): the oldest writer of the body
+/// (`body_history`) whose result `not_valid` finds, else the newest, whose result is the source. The result of a
+/// writer is the state just before the next one. Only a chain without a writer has none.
+fn made_by(
+    context: &BuildContext<'_>,
+    body: &Id,
+    not_valid: fn(&BodyState) -> Result<bool, FeatureError>,
+) -> Result<Id, FeatureError> {
+    let history = context.body_history(body)?;
+    let Some((newest, _)) = history.last() else {
+        return Err(FeatureError::internal(format!(
+            "body {body} holds a solid that is not valid, but no writer put it there"
+        )));
+    };
+    for ((writer, _), (_, result)) in history.iter().zip(&history[1..]) {
+        if not_valid(result)? {
             return Ok(writer.clone());
         }
     }
-    Err(FeatureError::internal(format!(
-        "body {body} holds a solid that is not valid, but no writer put it there"
-    )))
+    Ok(newest.clone())
 }
 
 #[cfg(test)]
@@ -243,18 +279,15 @@ mod tests {
     use partsmith_model::Category;
     use partsmith_naming::ElementKind;
     use partsmith_occt_sys::{
-        KernelError, KernelErrorKind, Operation, Plane, StepBody, Vector, compound, make_box,
-        write_step,
+        KernelError, KernelErrorKind, Operation, Plane, StepBody, Vector, compound, write_step,
     };
-    use serde_json::json;
 
     use super::*;
     use crate::builtin::common::{essential, manifest, selection_hint};
-    use crate::builtin::import::Import;
-    use crate::feature::Feature;
+    use crate::output::{BodyUpdate, Measurements};
     use crate::test_support::{
-        Fixture, assert_volume, box_body, face_names, fixture, id, named_box, params, update,
-        updated_shape, updates,
+        Fixture, assert_volume, box_body, face_names, id, imported, named_box, self_void_step,
+        step_box, update, updated_shape, updates,
     };
 
     fn manifest_with_target() -> FeatureManifest {
@@ -547,8 +580,43 @@ mod tests {
     }
 
     #[test]
-    fn made_by_passes_over_writers_that_found_the_solid_not_valid() {
-        // A move of the imported solid keeps it invalid, so the import put it in the body.
+    fn a_source_with_one_solid_without_volume_is_not_valid() {
+        let state = self_void_and_cube_state();
+        // The body as a whole has the cube's volume. Only a check per solid finds the block.
+        assert_volume(state.shape().expect("the import holds both solids"), 1000.0);
+        let mut fixture = Fixture::new("f-lp1").with_body("b-1", state);
+        fixture
+            .history
+            .insert(id("b-1"), vec![(id("f-imp1"), BodyState::empty())]);
+        let context = fixture.context();
+        let body = id("b-1");
+
+        let result = Source::new(&context, &body);
+
+        assert_eq!(result.map(|_| ()), Err(not_valid(&context, "f-imp1", None)));
+    }
+
+    #[test]
+    fn a_source_whose_solids_all_have_volume_is_valid() {
+        let cubes = imported(
+            write_step(&[
+                step_box("A", [0.0, 0.0, 0.0], [10.0, 10.0, 10.0]),
+                step_box("B", [50.0, 0.0, 0.0], [10.0, 10.0, 10.0]),
+            ])
+            .expect("the kernel writes STEP"),
+        );
+        let fixture = Fixture::new("f-lp1").with_body("b-1", cubes);
+        let context = fixture.context();
+        let body = id("b-1");
+
+        let result = Source::new(&context, &body);
+
+        assert!(result.is_ok(), "{:?}", result.map(|_| ()));
+    }
+
+    #[test]
+    fn made_by_is_the_import_whose_result_holds_the_solid() {
+        // A move of the imported solid keeps it without volume. The import put it in the body.
         let fixture = self_void_fixture(vec![
             (id("f-imp1"), BodyState::empty()),
             (id("f-mv1"), self_void_state()),
@@ -562,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn made_by_is_the_writer_just_after_the_last_valid_state() {
+    fn made_by_passes_over_results_with_volume() {
         let fixture = self_void_fixture(vec![
             (id("f-box1"), BodyState::empty()),
             (id("f-bool1"), box_body("f-box1", [0.0, 0.0, 0.0], 10.0)),
@@ -576,6 +644,38 @@ mod tests {
             result.map(|_| ()),
             Err(not_valid(&context, "f-bool1", None))
         );
+    }
+
+    #[test]
+    fn made_by_of_a_source_without_volume_reads_volume_not_validity() {
+        // The import's result is valid but has no volume, as a STEP solid whose void is a copy of
+        // its outer shell can be. The import put the solid in the body, not the move after it.
+        let fixture = self_void_fixture(vec![
+            (id("f-imp1"), BodyState::empty()),
+            (id("f-mv1"), valid_without_volume()),
+        ]);
+        let context = fixture.context();
+        let body = id("b-1");
+
+        let result = Source::new(&context, &body);
+
+        assert_eq!(result.map(|_| ()), Err(not_valid(&context, "f-imp1", None)));
+    }
+
+    #[test]
+    fn made_by_stops_at_the_oldest_result_that_holds_the_solid() {
+        // No state after the import's result is read. The box the boolean left does not count.
+        let fixture = self_void_fixture(vec![
+            (id("f-imp1"), BodyState::empty()),
+            (id("f-bool1"), self_void_state()),
+            (id("f-mv1"), box_body("f-box1", [0.0, 0.0, 0.0], 10.0)),
+        ]);
+        let context = fixture.context();
+        let body = id("b-1");
+
+        let result = Source::new(&context, &body);
+
+        assert_eq!(result.map(|_| ()), Err(not_valid(&context, "f-imp1", None)));
     }
 
     #[test]
@@ -597,25 +697,13 @@ mod tests {
     fn a_mirror_of_a_solid_repair_could_not_fix_is_not_valid() {
         let fixture = self_void_fixture(vec![(id("f-imp1"), BodyState::empty())]);
         let context = fixture.context();
-        let body = id("b-1");
-        let state = self_void_state();
-        let source = unchecked_source(&body, &state);
-
-        let result = source.copy(
-            &context,
-            &Transform::mirror(&Plane::YZ),
-            Instance {
-                first: 1,
-                second: 0,
-            },
-        );
 
         let Err(FeatureError::BodyNotValid {
             field,
             body,
             made_by,
             cause: Some(cause),
-        }) = result.map(|_| ())
+        }) = mirror_unchecked(&context)
         else {
             panic!("the mirror of an invalid solid is BodyNotValid with its kernel error");
         };
@@ -624,6 +712,24 @@ mod tests {
         assert_eq!(made_by, id("f-imp1"));
         assert_eq!(cause.operation, Operation::Transform);
         assert_eq!(cause.kind, KernelErrorKind::InvalidInputShape);
+    }
+
+    #[test]
+    fn made_by_of_a_mirror_the_kernel_refused_reads_validity() {
+        // The kernel found the source not valid. The move's input is valid, and the move put the
+        // solid in the body however much volume its input has.
+        let fixture = self_void_fixture(vec![
+            (id("f-imp1"), BodyState::empty()),
+            (id("f-mv1"), valid_without_volume()),
+        ]);
+        let context = fixture.context();
+
+        let result = mirror_unchecked(&context);
+
+        assert!(
+            matches!(&result, Err(FeatureError::BodyNotValid { made_by, .. }) if *made_by == id("f-mv1")),
+            "{result:?}"
+        );
     }
 
     #[test]
@@ -647,69 +753,40 @@ mod tests {
         assert!(copy.is_ok(), "{:?}", copy.map(|_| ()));
     }
 
-    /// The asset name of the import of these tests.
-    const ASSET: &str = "0000000000000000000000000000000000000000000000000000000000000000.step";
-
-    /// `SELF_VOID` of features/import.md: the STEP text `write_step` gives for the block
-    /// [0,10]x[0,20]x[0,30] named `Block`, with its outer shell listed as its void too (the edit
-    /// of engine.md test 162). Fails unless the text has exactly one `MANIFOLD_SOLID_BREP`
-    /// entity and no `BREP_WITH_VOIDS`, as the engine's helper does.
-    fn self_void_step() -> Vec<u8> {
-        let block = StepBody {
-            shape: make_box(&Plane::XY, 10.0, 20.0, 30.0)
-                .expect("the box builds")
-                .shape,
-            name: "Block".to_string(),
-            color: None,
-        };
-        let step = String::from_utf8(write_step(&[block]).expect("the kernel writes STEP"))
-            .expect("STEP text is UTF-8");
-        assert_eq!(step.matches("MANIFOLD_SOLID_BREP(").count(), 1);
-        assert!(!step.contains("BREP_WITH_VOIDS("));
-        let solid = step
-            .lines()
-            .find(|line| line.contains("MANIFOLD_SOLID_BREP("))
-            .expect("the solid is defined on one line");
-        let (number, value) = solid.split_once('=').expect("the solid's line defines it");
-        let outer_shell = value
-            .trim()
-            .strip_prefix("MANIFOLD_SOLID_BREP('',")
-            .and_then(|rest| rest.strip_suffix(");"))
-            .expect("the solid names its one shell");
-        let void = step
-            .lines()
-            .filter_map(|line| {
-                let (reference, _) = line.trim_start().split_once('=')?;
-                reference.trim().strip_prefix('#')?.parse::<u64>().ok()
-            })
-            .max()
-            .expect("the STEP text defines entities")
-            + 1;
-        let end_of_data = step.rfind("ENDSEC;").expect("the STEP text has sections");
-        let edited = format!(
-            "{}#{void} = ORIENTED_CLOSED_SHELL('',*,{outer_shell},.F.);\n{}",
-            &step[..end_of_data],
-            &step[end_of_data..]
-        );
-        let with_void = format!(
-            "{} = BREP_WITH_VOIDS('',{outer_shell},(#{void}));",
-            number.trim()
-        );
-        edited.replacen(solid, &with_void, 1).into_bytes()
+    /// The block of `SELF_VOID` of features/import.md, [0,10]x[0,20]x[0,30], named `Block`.
+    fn block() -> StepBody {
+        step_box("Block", [0.0, 0.0, 0.0], [10.0, 20.0, 30.0])
     }
 
-    /// The state of `b-1` after `f-imp1` imports `SELF_VOID` with op new, as recompute makes it:
-    /// one solid without volume that repair could not fix.
+    /// The state of `b-1` after `f-imp1` imports `SELF_VOID` with op new: one solid without
+    /// volume that repair could not fix.
     fn self_void_state() -> BodyState {
-        let params = params::<Import>(json!({
-            "id": "f-imp1", "type": "import", "body": "b-1", "asset": ASSET, "op": "new"
-        }));
-        let mut fixture = fixture::<Import>("f-imp1", &params, Vec::new(), Vec::new());
-        fixture
-            .assets
-            .insert(ASSET.to_string(), Arc::from(self_void_step()));
-        let output = Import::build(&params, &fixture.context()).expect("the import builds");
-        BodyState::from_update(update(&output, "b-1"))
+        imported(self_void_step(&[block()]))
+    }
+
+    /// The state of `b-1` after `f-imp1` imports the block of `SELF_VOID` and a valid 10 mm cube
+    /// 50 mm away along X with op new: two solids, the first without volume.
+    fn self_void_and_cube_state() -> BodyState {
+        imported(self_void_step(&[
+            block(),
+            step_box("Cube", [50.0, 0.0, 0.0], [10.0, 10.0, 10.0]),
+        ]))
+    }
+
+    /// A valid 10 mm box whose state carries a volume of 0: a solid that `Shape::is_valid`
+    /// accepts and that bounds no material.
+    fn valid_without_volume() -> BodyState {
+        let state = box_body("f-box1", [0.0, 0.0, 0.0], 10.0);
+        BodyState::from_update(&BodyUpdate {
+            body: id("b-1"),
+            shape: state.shape().cloned(),
+            naming: Arc::clone(state.naming()),
+            change: BodyChange::New,
+            measured: Measurements {
+                topology: None,
+                volume: Some(0.0),
+            },
+        })
     }
 
     /// A copy feature `f-mir1` whose source `b-1` holds `SELF_VOID`, with `history` as the
@@ -718,6 +795,23 @@ mod tests {
         let mut fixture = Fixture::new("f-mir1").with_body("b-1", self_void_state());
         fixture.history.insert(id("b-1"), history);
         fixture
+    }
+
+    /// The mirror image through `YZ` of the source `b-1` of `context`, `SELF_VOID`, without the
+    /// checks of `Source::new`.
+    fn mirror_unchecked(context: &BuildContext<'_>) -> Result<(), FeatureError> {
+        let body = id("b-1");
+        let state = self_void_state();
+        unchecked_source(&body, &state)
+            .copy(
+                context,
+                &Transform::mirror(&Plane::YZ),
+                Instance {
+                    first: 1,
+                    second: 0,
+                },
+            )
+            .map(|_| ())
     }
 
     /// The source `body` in `state` without the checks of `Source::new`, for the copy's own

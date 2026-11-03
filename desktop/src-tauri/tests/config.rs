@@ -121,7 +121,7 @@ fn expected_configuration() -> Value {
             "shortDescription": "Parametric CAD for 3D printing",
             "longDescription": "Partsmith is an open-source parametric CAD application for designing parts for 3D printing.",
             "publisher": "The Partsmith Contributors",
-            "copyright": "Copyright the Partsmith contributors",
+            "copyright": "Copyright the Partsmith contributors. Includes Open CASCADE Technology, copyright OPEN CASCADE SAS, under the GNU LGPL 2.1; see THIRD-PARTY-NOTICES.txt.",
             "license": "Apache-2.0",
             "homepage": "https://github.com/blai30/partsmith",
             "macOS": {
@@ -164,6 +164,26 @@ fn bundle_icons() -> Vec<String> {
 #[test]
 fn t033_the_tauri_configuration_is_exactly_the_one_of_the_spec() {
     assert_eq!(json_file("tauri.conf.json"), expected_configuration());
+}
+
+#[test]
+fn t033_the_copyright_points_at_the_name_the_bundle_installs_the_notices_under() {
+    let bundle = &json_file("tauri.conf.json")["bundle"];
+    let copyright = bundle["copyright"]
+        .as_str()
+        .expect("bundle.copyright is a string");
+    let installed_names: Vec<&str> = bundle["resources"]
+        .as_object()
+        .expect("bundle.resources is an object")
+        .values()
+        .map(|name| name.as_str().expect("each installed name is a string"))
+        .collect();
+
+    assert_eq!(installed_names, ["THIRD-PARTY-NOTICES.txt"]);
+    assert!(
+        copyright.ends_with(&format!("see {}.", installed_names[0])),
+        "the copyright ends by pointing at the installed notices: {copyright}"
+    );
 }
 
 #[test]

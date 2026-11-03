@@ -20,6 +20,8 @@ Drawing tools (ui.md 3.16.4, 3.16.5): `src/sketch/recipes.ts` and the commits of
 
 Engine web budgets (engine.md section 5, ADR 0043): `e2e/engine-budgets.spec.ts` measures the engine's web column by hand (`@perf`, `PARTSMITH_PERF=1`) on `e2e/pages/engine.html`, whose module worker `e2e/pages/engine-worker.ts` compiles `public/core/partsmith_core.wasm` once and times `callCore` on new instances of it. `e2e/support/engine-budgets.ts` holds the driver (`openEngine`, `ok`), the warm-up before the rows (`warmUp`) and the rows of `crates/partsmith-engine/benches/budgets.rs` ported under the same names (`MEMORY_ROW`, `TIMED_ROWS`), so a change to a row of `budgets.rs` (its documents, edits, samples or checks) changes its row here in the same change; engine test 156 checks the names on every e2e run. `e2e/support/perf.ts` holds `expectWithinBudgets`, which `perf.spec.ts` shares.
 
+Third-party notices (ui.md 3.5, delivery.md open issue 11, ADR 0034's amendment of 2026-11-03): the palette command `app.notices` runs `showNotices` in `src/app/actions/notices.ts`. On the web it opens `THIRD-PARTY-NOTICES.txt` under Vite's base in a new tab before anything is awaited, since a browser opens a tab only from the click or key press itself. On the desktop it shows the persistent notification `notices_installed` with the place where the bundle of that operating system installs the file (`NOTICES_PLACES`). It reads no file and calls no host command.
+
 ## Commands
 
 ```sh

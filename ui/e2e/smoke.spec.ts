@@ -4,7 +4,17 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { expect } from '@playwright/test'
-import { longTasks, measures, openApp, pageTime, percentile, test, watchLongTasks } from './helpers'
+import {
+  longTasks,
+  measures,
+  openApp,
+  pageTime,
+  percentile,
+  reportedViolations,
+  runCommand,
+  test,
+  watchLongTasks,
+} from './helpers'
 
 /** How long the busy task of the long task check runs, and the least duration it must report. */
 const BUSY_MILLISECONDS = 120
@@ -214,4 +224,45 @@ test('E-157 Firefox and WebKit list the engine subset, and the default project i
   const defaultPlaces = byDefault.map((entry) => entry.place)
   expect(new Set(defaultPlaces).size, 'each test once').toBe(defaultPlaces.length)
   expect(new Set(defaultPlaces)).toEqual(new Set(everyProject.map((entry) => entry.place)))
+})
+
+// Third-party notices (ui.md 3.5, delivery.md 2.9 and open issue 11).
+
+test('E-164 the command opens the web notices in a new tab', async ({ page }) => {
+  await openApp(page)
+  // The context's page event, unlike the page's popup event, holds for a tab opened with noopener.
+  const opened = page.context().waitForEvent('page')
+  await runCommand(page, 'Third-party notices')
+  const notices = await opened
+  await notices.waitForLoadState()
+
+  expect(notices.url()).toBe(`${new URL(page.url()).origin}/THIRD-PARTY-NOTICES.txt`)
+  expect(await notices.evaluate(() => window.opener === null)).toBe(true)
+  // Only lines in ASCII: the preview sends no charset, and Chromium reads the file as windows-1252 there.
+  const lines = (await notices.locator('body').innerText()).split('\n')
+  expect(lines[0]).toBe('Third-party notices for the Partsmith web app')
+  expect(
+    lines.some(
+      (line) =>
+        line.startsWith('Open CASCADE Technology ') &&
+        line.includes(', LGPL-2.1-only WITH OCCT-exception-1.0, '),
+    ),
+    'a line of the OCCT entry',
+  ).toBe(true)
+
+  // The text view sets its line wrapping in a style attribute, which the policy refuses (ui.md open issue 44).
+  await expect
+    .poll(() => notices.evaluate(reportedViolations), {
+      message: 'the content security policy violations of the notices tab',
+    })
+    .toEqual(['style-src-attr inline'])
+  expect(
+    await notices.evaluate(() => {
+      const text = document.querySelector('pre')
+      return text === null ? null : getComputedStyle(text).whiteSpace
+    }),
+  ).toBe('pre')
+
+  await expect(page.getByTestId('notification')).toHaveCount(0)
+  await expect(page.getByTestId('document-name')).toHaveText('Untitled')
 })

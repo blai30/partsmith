@@ -300,7 +300,7 @@ pub(crate) fn check_canceled(context: &BuildContext<'_>) -> Result<(), FeatureEr
 }
 
 /// The state and shape of a declared body, named at `field`, that holds a solid. An empty body is
-/// `BodyEmpty` for a feature that works on an existing solid (`use_new: false`).
+/// `body_empty`.
 pub(crate) fn solid_body<'a>(
     context: &BuildContext<'a>,
     field: &str,
@@ -309,11 +309,17 @@ pub(crate) fn solid_body<'a>(
     let state = context.body(body)?;
     match state.shape() {
         Some(shape) => Ok((state, shape)),
-        None => Err(FeatureError::BodyEmpty {
-            field: context.field(field),
-            body: body.clone(),
-            use_new: false,
-        }),
+        None => Err(body_empty(context, field, body)),
+    }
+}
+
+/// `BodyEmpty` of `body`, named at `field`, for a feature that works on an existing solid
+/// (`use_new: false`).
+pub(crate) fn body_empty(context: &BuildContext<'_>, field: &str, body: &Id) -> FeatureError {
+    FeatureError::BodyEmpty {
+        field: context.field(field),
+        body: body.clone(),
+        use_new: false,
     }
 }
 

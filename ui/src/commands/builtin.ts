@@ -36,6 +36,7 @@ import {
   SaveAll,
   ScanEye,
   ScanLine,
+  ScrollText,
   Search,
   SlidersHorizontal,
   Slash,
@@ -76,6 +77,7 @@ import {
 } from '../app/actions/document'
 import { commitEdits } from '../app/actions/edits'
 import { exportModel, type ExportRequest } from '../app/actions/export'
+import { showNotices } from '../app/actions/notices'
 import { deleteParameter } from '../app/actions/parameters'
 import { openSidePanel, setBrowserOpen, togglePanel } from '../app/actions/panels'
 import {
@@ -727,6 +729,16 @@ export function builtinCommands(platform: Platform): CommandDefinition[] {
       checked: (app) => stateOf(app).panels.side === 'keys',
       run: (app) => {
         openSidePanel(app, 'keys')
+      },
+    }),
+    command({
+      id: 'app.notices',
+      title: 'Third-party notices',
+      category: 'View',
+      icon: ScrollText,
+      contexts: ALL,
+      run: (app) => {
+        showNotices(app)
       },
     }),
 

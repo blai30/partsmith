@@ -6,8 +6,11 @@
 
 use crate::feature_support;
 
+use std::sync::Arc;
+
 use feature_support::import::{
-    assert_body_not_valid, assert_self_void_block, assets, import_record, self_void_bytes,
+    assert_body_not_valid, assert_self_void_block, assert_two_self_void, assets, import_record,
+    self_void_bytes, two_self_void_bytes,
 };
 use feature_support::{
     BOTH_FRONT_TOP_EDGES, FRONT_TOP_EDGES_OF_BOTH_BOXES, LENGTH_TOLERANCE, Run, assert_absolute,
@@ -420,6 +423,11 @@ const NOT_VALID: &str = "Body 'Body 1' holds a solid from 'Import 1' that is not
 
 /// Runs `IMP("new")` of `SELF_VOID`, then `CP` of 4 copies with `extra` (test 19).
 fn four_around_self_void(extra: &str) -> Run {
+    four_around_import(self_void_bytes(), extra)
+}
+
+/// Runs `IMP("new")` with the asset map `{A: bytes}`, then `CP` of 4 copies with `extra`.
+fn four_around_import(bytes: Arc<[u8]>, extra: &str) -> Run {
     let members = if extra.is_empty() {
         r#""count": "4""#.to_string()
     } else {
@@ -427,7 +435,7 @@ fn four_around_self_void(extra: &str) -> Run {
     };
     Run::with_assets(
         document(&BODIES, &[&import_record("new"), &pattern(&members)]),
-        &assets(self_void_bytes()),
+        &assets(bytes),
     )
 }
 
@@ -452,4 +460,19 @@ fn t019_a_new_body_stays_empty() {
 
     assert_body_not_valid(&run, "f-cp1", NOT_VALID, None);
     assert_empty(&run, "b-2");
+}
+
+#[test]
+fn t020_a_body_with_one_solid_without_volume_is_not_valid() {
+    let run = four_around_import(two_self_void_bytes(), "");
+
+    assert_body_not_valid(&run, "f-cp1", NOT_VALID, None);
+}
+
+#[test]
+fn t020_the_body_gains_no_material() {
+    let run = four_around_import(two_self_void_bytes(), "");
+
+    assert_two_self_void(&run, "b-1");
+    assert_unchanged(&run, "f-cp1", "b-1");
 }

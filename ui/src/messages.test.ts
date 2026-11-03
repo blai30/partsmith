@@ -455,6 +455,11 @@ const CASES: readonly Case[] = [
     () => MESSAGES.details_not_copied(),
     'The details could not be copied, because the browser did not allow access to the clipboard.',
   ],
+  [
+    'notices_installed',
+    () => MESSAGES.notices_installed('/usr/lib/Partsmith/THIRD-PARTY-NOTICES.txt'),
+    'The licenses of Open CASCADE Technology and the other software in Partsmith are in /usr/lib/Partsmith/THIRD-PARTY-NOTICES.txt.',
+  ],
 ]
 
 describe('MESSAGES', () => {
@@ -464,7 +469,7 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(114)
+    expect(CASES).toHaveLength(115)
   })
 
   it('U-73 has no dimension_unsolvable: an edited dimension shows the probe message (3.16.7)', () => {

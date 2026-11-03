@@ -201,6 +201,9 @@ export const MESSAGES = {
   details_copied: () => 'Details copied.',
   details_not_copied: () =>
     'The details could not be copied, because the browser did not allow access to the clipboard.',
+  /** `place` is where the desktop bundle installed the notices (3.5). */
+  notices_installed: (place: string) =>
+    `The licenses of Open CASCADE Technology and the other software in Partsmith are in ${place}.`,
 } as const
 
 /** The id of a UI-owned message, such as 'not_ptsm'. */

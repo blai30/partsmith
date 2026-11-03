@@ -10,8 +10,8 @@ use crate::feature_support;
 use std::sync::Arc;
 
 use feature_support::import::{
-    assets, block, block_bytes, block_solid, hollow, hollow_bytes_with_the_void_twice,
-    import_record, self_void_bytes, step_body, step_bytes, void_twice_bytes,
+    assets, block_bytes, block_solid, hollow, hollow_bytes_with_the_void_twice, import_record,
+    self_void_bytes, step_body, step_bytes, two_cubes_bytes, two_self_void_bytes, void_twice_bytes,
 };
 use feature_support::{
     Assets, Run, aliases, assert_bounding_box, assert_empty, assert_examples_canonical,
@@ -21,7 +21,7 @@ use feature_support::{
 };
 use partsmith_features::FeatureError;
 use partsmith_occt_sys::{
-    PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point, Point2, Shape, ShapeKind, SubShapeKind,
+    PlanarCurve, PlanarLoop, PlanarRegion, Plane, Point2, Shape, ShapeKind, SubShapeKind,
     TaggedCurve, compound, make_profile,
 };
 use partsmith_recompute::Message;
@@ -77,19 +77,6 @@ fn hollow_face_names() -> Vec<String> {
     (1..=12)
         .map(|number| format!("f-imp1/face#{number}"))
         .collect()
-}
-
-/// The fixture `TWO`: a STEP file with two 10 mm cubes named `A` and `B`, the second moved to x = 50.
-fn two_cubes_bytes() -> Arc<[u8]> {
-    let moved = Plane {
-        origin: Point::new(50.0, 0.0, 0.0),
-        ..Plane::XY
-    };
-    let bodies = [
-        block("A", &Plane::XY, [10.0, 10.0, 10.0]),
-        block("B", &moved, [10.0, 10.0, 10.0]),
-    ];
-    step_bytes(&bodies)
 }
 
 /// A region bounded by a square with 10 mm sides whose lower left corner is at (`left`, 0) in plane
@@ -742,6 +729,32 @@ fn self_void_fixture_lists_the_outer_shell_as_the_void() {
     assert!(!edited.contains("MANIFOLD_SOLID_BREP("), "{edited}");
     assert_eq!(edited.matches("BREP_WITH_VOIDS(").count(), 1);
     assert_eq!(edited.lines().count(), block.lines().count() + 1);
+}
+
+#[test]
+fn two_self_void_fixture_leaves_the_first_cube_without_volume() {
+    let run = Run::with_assets(
+        document(&["b-1"], &[&import_record("new")]),
+        &assets(two_self_void_bytes()),
+    );
+
+    let solids = run
+        .shape("b-1")
+        .solids()
+        .expect("the kernel lists the solids");
+    let volume_at = |left: f64| {
+        let solid = solids
+            .iter()
+            .find(|solid| solid.bounding_box().expect("a solid has bounds").min[0] == left)
+            .unwrap_or_else(|| panic!("no solid starts at x = {left}"));
+        solid.volume().expect("the kernel measures the solid")
+    };
+    assert_eq!(solids.len(), 2);
+    assert!(volume_at(0.0).abs() <= 1e-9, "A has no volume");
+    assert!(
+        (volume_at(50.0) - 1000.0).abs() <= 1e-6,
+        "B keeps its volume"
+    );
 }
 
 #[test]

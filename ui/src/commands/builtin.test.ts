@@ -86,6 +86,7 @@ const UNBOUND_TABLE: readonly (readonly [string, string, readonly AppContext[]])
   ['context.model', 'Model', ALL],
   ['context.sketch', 'Sketch', ALL],
   ['context.print', 'Print', ALL],
+  ['app.notices', 'Third-party notices', ALL],
   ['edit.edit_feature', 'Edit feature', MODEL_PRINT],
   ['edit.suppress', 'Suppress', MODEL_PRINT],
   ['edit.unsuppress', 'Unsuppress', MODEL_PRINT],

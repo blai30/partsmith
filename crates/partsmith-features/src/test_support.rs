@@ -1,6 +1,7 @@
 //! Fixtures shared by the unit tests: ids, a build context over owned inputs, named boxes, script
-//! names for Python hooks, and features built from JSON params without a timeline. Documents of
-//! built-in features are tested in `partsmith-recompute`.
+//! names for Python hooks, features built from JSON params without a timeline, and imported STEP
+//! files with a solid that is not valid. Documents of built-in features are tested in
+//! `partsmith-recompute`.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -10,11 +11,12 @@ use partsmith_model::{
     ParameterValues, Scope, Units,
 };
 use partsmith_naming::{ElementKind, NamingMap, Reference};
-use partsmith_occt_sys::{Plane, Point, Primitive, Shape, make_box};
+use partsmith_occt_sys::{Plane, Point, Primitive, Shape, StepBody, make_box, write_step};
 use partsmith_sketch::RegionRef;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::builtin::common::primitive_tool;
+use crate::builtin::import::Import;
 use crate::context::{BodyState, BuildContext, BuildInputs, CancelToken, Values};
 use crate::deps::ExprUse;
 use crate::error::FeatureError;
@@ -142,6 +144,76 @@ pub(crate) fn named_box(feature: &str, corner: [f64; 3], size: f64) -> Tool {
 pub(crate) fn box_body(feature: &str, corner: [f64; 3], size: f64) -> BodyState {
     let tool = named_box(feature, corner, size);
     BodyState::new(tool.shape, Arc::new(tool.naming))
+}
+
+/// A STEP body named `name` holding the box from `corner` with these sizes along X, Y and Z.
+pub(crate) fn step_box(name: &str, corner: [f64; 3], size: [f64; 3]) -> StepBody {
+    let placement = Plane {
+        origin: Point::new(corner[0], corner[1], corner[2]),
+        ..Plane::XY
+    };
+    let [length, width, height] = size;
+    StepBody {
+        shape: make_box(&placement, length, width, height)
+            .expect("the box builds")
+            .shape,
+        name: name.to_string(),
+        color: None,
+    }
+}
+
+/// The STEP text `write_step` gives for `bodies`, with the first solid edited as `SELF_VOID` of
+/// features/import.md (the edit of engine.md test 162): its outer shell is listed as its void
+/// too. That solid stays invalid after repair and bounds no material. Fails unless the text has
+/// one `MANIFOLD_SOLID_BREP` entity per body and no `BREP_WITH_VOIDS`.
+pub(crate) fn self_void_step(bodies: &[StepBody]) -> Vec<u8> {
+    let step = String::from_utf8(write_step(bodies).expect("the kernel writes STEP"))
+        .expect("STEP text is UTF-8");
+    assert_eq!(step.matches("MANIFOLD_SOLID_BREP(").count(), bodies.len());
+    assert!(!step.contains("BREP_WITH_VOIDS("));
+    let solid = step
+        .lines()
+        .find(|line| line.contains("MANIFOLD_SOLID_BREP("))
+        .expect("the solid is defined on one line");
+    let (number, value) = solid.split_once('=').expect("the solid's line defines it");
+    let outer_shell = value
+        .trim()
+        .strip_prefix("MANIFOLD_SOLID_BREP('',")
+        .and_then(|rest| rest.strip_suffix(");"))
+        .expect("the solid names its one shell");
+    let void = step
+        .lines()
+        .filter_map(|line| {
+            let (reference, _) = line.trim_start().split_once('=')?;
+            reference.trim().strip_prefix('#')?.parse::<u64>().ok()
+        })
+        .max()
+        .expect("the STEP text defines entities")
+        + 1;
+    let end_of_data = step.rfind("ENDSEC;").expect("the STEP text has sections");
+    let edited = format!(
+        "{}#{void} = ORIENTED_CLOSED_SHELL('',*,{outer_shell},.F.);\n{}",
+        &step[..end_of_data],
+        &step[end_of_data..]
+    );
+    let with_void = format!(
+        "{} = BREP_WITH_VOIDS('',{outer_shell},(#{void}));",
+        number.trim()
+    );
+    edited.replacen(solid, &with_void, 1).into_bytes()
+}
+
+/// The state of `b-1` after the import `f-imp1` of the STEP file `bytes` with op new, as
+/// recompute makes it.
+pub(crate) fn imported(bytes: Vec<u8>) -> BodyState {
+    let asset = format!("{}.step", "0".repeat(64));
+    let params = params::<Import>(json!({
+        "id": "f-imp1", "type": "import", "body": "b-1", "asset": asset, "op": "new"
+    }));
+    let mut fixture = fixture::<Import>("f-imp1", &params, Vec::new(), Vec::new());
+    fixture.assets.insert(asset, Arc::from(bytes));
+    let output = Import::build(&params, &fixture.context()).expect("the import builds");
+    BodyState::from_update(update(&output, "b-1"))
 }
 
 /// The face names of a naming map, sorted.

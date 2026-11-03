@@ -7,8 +7,11 @@
 
 use crate::feature_support;
 
+use std::sync::Arc;
+
 use feature_support::import::{
-    assert_body_not_valid, assert_self_void_block, assets, import_record, self_void_bytes,
+    assert_body_not_valid, assert_self_void_block, assert_two_self_void, assets, import_record,
+    self_void_bytes, two_self_void_bytes,
 };
 use feature_support::linear_pattern::{BODIES, CUBE10, X, direction, pattern};
 use feature_support::{
@@ -579,9 +582,14 @@ const NOT_VALID: &str = "Body 'Body 1' holds a solid from 'Import 1' that is not
 
 /// Runs `IMP("new")` of `SELF_VOID`, then the linear pattern `pattern` (test 25).
 fn pattern_self_void(pattern: &str) -> Run {
+    pattern_import(self_void_bytes(), pattern)
+}
+
+/// Runs `IMP("new")` with the asset map `{A: bytes}`, then the linear pattern `pattern`.
+fn pattern_import(bytes: Arc<[u8]>, pattern: &str) -> Run {
     Run::with_assets(
         document(&BODIES, &[&import_record("new"), pattern]),
-        &assets(self_void_bytes()),
+        &assets(bytes),
     )
 }
 
@@ -617,4 +625,25 @@ fn t025_a_new_body_stays_empty() {
 
     assert_body_not_valid(&run, "f-lp1", NOT_VALID, None);
     assert_empty(&run, "b-2");
+}
+
+#[test]
+fn t026_a_body_with_one_solid_without_volume_is_not_valid() {
+    let run = pattern_import(
+        two_self_void_bytes(),
+        &pattern(&direction(X, "3", "20"), ""),
+    );
+
+    assert_body_not_valid(&run, "f-lp1", NOT_VALID, None);
+}
+
+#[test]
+fn t026_the_body_gains_no_material() {
+    let run = pattern_import(
+        two_self_void_bytes(),
+        &pattern(&direction(X, "3", "20"), ""),
+    );
+
+    assert_two_self_void(&run, "b-1");
+    assert_unchanged(&run, "f-lp1", "b-1");
 }
