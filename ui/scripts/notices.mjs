@@ -7,7 +7,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 import {
-  commandFailureMessage,
+  checkedRun,
   compareNameAndVersion,
   compareText,
   licenseAllowed,
@@ -286,7 +286,7 @@ export async function prebuiltLibraries(folder) {
 }
 
 /** The workspace package named `name` in parsed `cargo metadata` output. */
-function workspacePackage(metadata, name) {
+export function workspacePackage(metadata, name) {
   const found = metadata.packages.find((listed) => listed.source === null && listed.name === name)
   if (found === undefined) {
     throw new Error(
@@ -297,18 +297,16 @@ function workspacePackage(metadata, name) {
 }
 
 /**
- * The external crates that `rootName` builds in one parsed `cargo metadata` output (input 1), each once as
- * `{ name, version, license, licenseFile, folder, repository }`, sorted by name and then by version precedence.
+ * The package ids that `startIds` reach in one parsed `cargo metadata` output through the dependencies built into
+ * what depends on them (input 1), `startIds` included.
  */
-export function artifactCrates(metadata, rootName) {
-  const rootPackage = workspacePackage(metadata, rootName)
-  const packagesById = new Map(metadata.packages.map((listed) => [listed.id, listed]))
+export function reachableIds(metadata, startIds) {
   const nodesById = new Map(metadata.resolve.nodes.map((node) => [node.id, node]))
-  const reached = new Set([rootPackage.id])
-  const pending = [rootPackage.id]
+  const reached = new Set(startIds)
+  const pending = [...startIds]
   while (pending.length > 0) {
     for (const dependency of nodesById.get(pending.pop())?.deps ?? []) {
-      // Normal (kind null) and build dependencies are built into the artifact; dev-dependencies are not.
+      // Normal (kind null) and build dependencies are built in; dev-dependencies are not.
       const built = dependency.dep_kinds.some(({ kind }) => kind === null || kind === 'build')
       if (built && !reached.has(dependency.pkg)) {
         reached.add(dependency.pkg)
@@ -316,7 +314,17 @@ export function artifactCrates(metadata, rootName) {
       }
     }
   }
-  return [...reached]
+  return reached
+}
+
+/**
+ * The external crates that `rootName` builds in one parsed `cargo metadata` output (input 1), each once as
+ * `{ name, version, license, licenseFile, folder, repository }`, sorted by name and then by version precedence.
+ */
+export function artifactCrates(metadata, rootName) {
+  const rootPackage = workspacePackage(metadata, rootName)
+  const packagesById = new Map(metadata.packages.map((listed) => [listed.id, listed]))
+  return [...reachableIds(metadata, [rootPackage.id])]
     .map((id) => packagesById.get(id))
     .filter((listed) => listed.source !== null)
     .map((listed) => ({
@@ -570,27 +578,14 @@ async function windowsInstallerEntries(root) {
   )
 }
 
-/** Runs a command through `run`, turning a failure into the message of section 4. */
-async function checkedRun(run, command, commandArguments, directory) {
-  try {
-    return await run(command, commandArguments, directory)
-  } catch (error) {
-    throw new Error(commandFailureMessage(command, commandArguments, error), { cause: error })
-  }
-}
-
-/** The parsed `cargo metadata` of `root` for `triple` (input 1). */
-async function cargoMetadata(root, run, triple) {
-  const commandArguments = [
-    'metadata',
-    '--format-version',
-    '1',
-    '--locked',
-    '--all-features',
-    '--filter-platform',
-    triple,
-  ]
-  return JSON.parse(await checkedRun(run, 'cargo', commandArguments, root))
+/**
+ * The parsed output of the command of input 1 for `triple`, sent through `run` in `root`, or of the same command
+ * without `--filter-platform` when `triple` is null.
+ */
+export async function cargoMetadata(root, run, triple = null) {
+  const filter = triple === null ? [] : ['--filter-platform', triple]
+  const commandArguments = ['metadata', '--format-version', '1', '--locked', '--all-features']
+  return JSON.parse(await checkedRun(run, 'cargo', [...commandArguments, ...filter], root))
 }
 
 /** The key of a package or crate: its name and version. */

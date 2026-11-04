@@ -61,10 +61,16 @@ cmake_args=(
 )
 
 # On Windows, OCCT installs into inc/ and win64/vc14/lib/ by default; partsmith-occt-sys expects
-# include/opencascade/ and lib/, as on Unix (delivery.md section 3.6).
+# include/opencascade/ and lib/, as on Unix. OCCT links the Visual C++ runtime and the C++ standard library statically
+# (/MT), as the shim and every Rust crate do there (.cargo/config.toml). CMake reads CMAKE_MSVC_RUNTIME_LIBRARY only
+# under policy CMP0091, which OCCT's minimum CMake version leaves unset (delivery.md section 3.6, ADR 0038).
 case "$(uname -s)" in
   MINGW* | MSYS* | CYGWIN*)
-    cmake_args+=(-DINSTALL_DIR_LAYOUT=Unix)
+    cmake_args+=(
+      -DINSTALL_DIR_LAYOUT=Unix
+      -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      -DCMAKE_POLICY_DEFAULT_CMP0091=NEW
+    )
     ;;
 esac
 

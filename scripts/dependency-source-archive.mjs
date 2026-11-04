@@ -10,15 +10,23 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import process from 'node:process'
+import { setTimeout as wait } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import {
+  checkedRun,
   commandFailureMessage,
   compareNameAndVersion,
   runCommand,
 } from '../ui/scripts/check-licenses.mjs'
-import { DESKTOP_TARGETS, scopeCrates } from '../ui/scripts/notices.mjs'
+import {
+  DESKTOP_TARGETS,
+  cargoMetadata,
+  reachableIds,
+  scopeCrates,
+  workspacePackage,
+} from '../ui/scripts/notices.mjs'
 
 /**
  * The two scopes: the root crate and the triples whose crates each archive holds (2.9 input 1), and the platforms whose
@@ -47,6 +55,12 @@ export const PART_SIZE = 25165824
 /** The registry the command downloads the tarballs from. */
 export const NPM_REGISTRY = 'https://registry.npmjs.org/'
 
+/**
+ * How long a download waits before its second and its third attempt, in milliseconds. Only a network error and an
+ * answer of 408, 429 or 500 and above are tried again.
+ */
+export const DOWNLOAD_RETRY_DELAYS = [2000, 10000]
+
 const USAGE = 'usage: node scripts/dependency-source-archive.mjs web|desktop <directory>'
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -73,6 +87,11 @@ const TAR_OPTIONS = [
 const DOWNLOADS_AT_ONCE = 8
 
 const execute = promisify(execFile)
+
+/** Whether a download is tried again after the HTTP status `status`: 408, 429, or a server error of 500 and above. */
+function isRetriedStatus(status) {
+  return status === 408 || status === 429 || status >= 500
+}
 
 /** The folder of the Rust crates' archive of `scope`, whose name the archive takes. */
 function cratesFolder(scope) {
@@ -263,15 +282,6 @@ export function summaryLine({ archive, bytes, sha256, lastPart }, directory) {
   return `Wrote ${archive} to ${directory}: ${bytes} bytes, SHA-256 ${sha256}, last part ${lastPart}.`
 }
 
-/** Runs a command through `run`, turning a failure into the message of section 4. */
-async function checkedRun(run, command, commandArguments, directory) {
-  try {
-    return await run(command, commandArguments, directory)
-  } catch (error) {
-    throw new Error(commandFailureMessage(command, commandArguments, error), { cause: error })
-  }
-}
-
 /**
  * Runs `tar` or `gzip` in `directory` with `LC_ALL=C` and resolves to its standard output, turning a failure into the
  * message of section 4.
@@ -287,12 +297,6 @@ async function runDirectly(command, commandArguments, directory) {
     const failure = { status: error.code ?? error.signal, stderr: error.stderr || error.message }
     throw new Error(commandFailureMessage(command, commandArguments, failure), { cause: error })
   }
-}
-
-/** The parsed `cargo metadata` of `root` with every feature, filtered by `filter` (section 2.9 input 1). */
-async function cargoMetadata(root, run, filter) {
-  const commandArguments = ['metadata', '--format-version', '1', '--locked', '--all-features']
-  return JSON.parse(await checkedRun(run, 'cargo', [...commandArguments, ...filter], root))
 }
 
 /** Rejects with the message of section 4 unless `directory` is a folder. */
@@ -320,7 +324,10 @@ async function requireGnuTar() {
   }
 }
 
-/** The npm packages of `scope` from the lock file of `root`, rejecting before any download when one has no integrity. */
+/**
+ * The npm packages of `scope` from the lock file of `root`. Rejects before any download when one of them has no
+ * integrity.
+ */
 async function scopePackages(root, scope) {
   const lockText = await readFile(join(root, 'ui', 'pnpm-lock.yaml'), 'utf8')
   const packages = platformPackages(lockPackages(lockText), SCOPES[scope].platforms)
@@ -333,39 +340,15 @@ async function scopePackages(root, scope) {
   return packages
 }
 
-/** Whether a dependency of `cargo metadata` is built into what depends on it: a normal or a build dependency. */
-function isBuilt(dependency) {
-  return dependency.dep_kinds.some(({ kind }) => kind === null || kind === 'build')
-}
-
-/** The package ids that `start` reaches in one parsed `cargo metadata` output through built dependencies. */
-function reachedIds(metadata, start) {
-  const nodesById = new Map(metadata.resolve.nodes.map((node) => [node.id, node]))
-  const reached = new Set(start)
-  const pending = [...start]
-  while (pending.length > 0) {
-    for (const dependency of nodesById.get(pending.pop())?.deps ?? []) {
-      if (isBuilt(dependency) && !reached.has(dependency.pkg)) {
-        reached.add(dependency.pkg)
-        pending.push(dependency.pkg)
-      }
-    }
-  }
-  return reached
-}
-
 /**
  * Rejects with the build-machine message of section 4 when a registry crate that the web core's build compiles for
  * the machine that builds it, a procedural macro, a build dependency or a crate these reach, is not in `crates`.
  */
 async function requireBuildMachineCrates(root, run, rootCrate, crates) {
-  const metadata = await cargoMetadata(root, run, ['--filter-platform', BUILD_MACHINE_TRIPLE])
+  const metadata = await cargoMetadata(root, run, BUILD_MACHINE_TRIPLE)
   const packagesById = new Map(metadata.packages.map((listed) => [listed.id, listed]))
-  const rootPackage = metadata.packages.find(
-    (listed) => listed.source === null && listed.name === rootCrate,
-  )
-  const built = [...reachedIds(metadata, [rootPackage.id])]
   const nodesById = new Map(metadata.resolve.nodes.map((node) => [node.id, node]))
+  const built = [...reachableIds(metadata, [workspacePackage(metadata, rootCrate).id])]
   const procMacros = built.filter((id) =>
     packagesById.get(id).targets.some((target) => target.kind.includes('proc-macro')),
   )
@@ -375,7 +358,7 @@ async function requireBuildMachineCrates(root, run, rootCrate, crates) {
       .map((dependency) => dependency.pkg),
   )
   const inScope = new Set(crates.map((crate) => `${crate.name} ${crate.version}`))
-  const [missing] = [...reachedIds(metadata, [...procMacros, ...buildDependencies])]
+  const [missing] = [...reachableIds(metadata, [...procMacros, ...buildDependencies])]
     .map((id) => packagesById.get(id))
     .filter((listed) => listed.source !== null && !inScope.has(`${listed.name} ${listed.version}`))
     .toSorted(compareNameAndVersion)
@@ -417,7 +400,7 @@ async function stubCrate(folder, listed) {
 async function vendorCrates(root, run, scope, folder, crates) {
   const vendor = join(folder, 'vendor')
   await checkedRun(run, 'cargo', ['vendor', '--locked', '--versioned-dirs', vendor], root)
-  const metadata = await cargoMetadata(root, run, [])
+  const metadata = await cargoMetadata(root, run)
   const registryPackages = new Map(
     metadata.packages
       .filter((listed) => listed.source !== null)
@@ -431,50 +414,76 @@ async function vendorCrates(root, run, scope, folder, crates) {
   await writeFile(join(folder, 'config.toml'), cargoConfig(scope))
 }
 
-/** The bytes of the tarball of `listed` from `registry`, checked against its integrity. */
-async function downloadTarball(listed, registry, fetch) {
-  const url = `${registry}${tarballPath(listed.name, listed.version)}`
-  const failure = (reason) => new Error(`npm package ${listed.name} ${listed.version}: ${reason}`)
+/**
+ * One request for `url` with `fetch`. Resolves to `{ bytes }` for a successful answer, and otherwise to
+ * `{ failure, retry }`: the status or the error's message, and whether the download is tried again for it.
+ */
+async function requestTarball(url, fetch) {
   let response
   try {
     response = await fetch(url)
+    if (response.ok) {
+      return { bytes: Buffer.from(await response.arrayBuffer()) }
+    }
   } catch (error) {
-    throw failure(`${url} answered ${error.message}.`)
+    // No answer, or the connection broke while the body came.
+    return { failure: error.message, retry: true }
   }
-  if (!response.ok) {
-    await response.body?.cancel()
-    throw failure(`${url} answered ${response.status}.`)
+  await response.body?.cancel()
+  return { failure: response.status, retry: isRetriedStatus(response.status) }
+}
+
+/** `requestTarball` of `url`, tried again after each of `retryDelays` while it fails in a way that is retried. */
+async function requestWithRetries(url, fetch, retryDelays) {
+  const answer = await requestTarball(url, fetch)
+  if (answer.bytes !== undefined || !answer.retry || retryDelays.length === 0) {
+    return answer
   }
-  const bytes = Buffer.from(await response.arrayBuffer())
-  const actual = integrityMismatch(bytes, listed.integrity)
+  await wait(retryDelays[0])
+  return requestWithRetries(url, fetch, retryDelays.slice(1))
+}
+
+/**
+ * The bytes of the tarball of `listed` from `registry`, tried again after each of `retryDelays` as
+ * `requestWithRetries` does, and checked against its integrity.
+ */
+async function downloadTarball(listed, { registry, fetch, retryDelays }) {
+  const url = `${registry}${tarballPath(listed.name, listed.version)}`
+  const failure = (reason) => new Error(`npm package ${listed.name} ${listed.version}: ${reason}`)
+  const answer = await requestWithRetries(url, fetch, retryDelays)
+  if (answer.bytes === undefined) {
+    throw failure(`${url} answered ${answer.failure}.`)
+  }
+  const actual = integrityMismatch(answer.bytes, listed.integrity)
   if (actual !== null) {
     throw failure(
       `${url} sent a tarball whose integrity is ${actual}, not ${listed.integrity}, which ui/pnpm-lock.yaml records. Nothing was written.`,
     )
   }
-  return bytes
+  return answer.bytes
 }
 
 /** Downloads the tarball of `listed` and writes it into `folder` at its `tarballPath`. */
-async function saveTarball(listed, folder, registry, fetch) {
-  const bytes = await downloadTarball(listed, registry, fetch)
+async function saveTarball(listed, folder, downloadOptions) {
+  const bytes = await downloadTarball(listed, downloadOptions)
   const path = join(folder, tarballPath(listed.name, listed.version))
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, bytes)
 }
 
 /**
- * Downloads the tarball of each of `packages` into `folder` at its `tarballPath`, a few at a time. The first failure
- * stops the downloads that have not started and rejects once the others have settled.
+ * Downloads the tarball of each of `packages` into `folder` at its `tarballPath`, a few at a time, with
+ * `downloadOptions`, `{ registry, fetch, retryDelays }`. The first failure stops the downloads that have not started
+ * and rejects once the others have settled.
  */
-async function downloadPackages(packages, folder, { registry, fetch }) {
+async function downloadPackages(packages, folder, downloadOptions) {
   let next = 0
   let failure
   const download = async () => {
     while (failure === undefined && next < packages.length) {
       try {
         // oxlint-disable-next-line no-await-in-loop -- each of the DOWNLOADS_AT_ONCE loops saves one tarball at a time
-        await saveTarball(packages[next++], folder, registry, fetch)
+        await saveTarball(packages[next++], folder, downloadOptions)
       } catch (error) {
         failure ??= error
       }
@@ -502,12 +511,18 @@ async function sizeAndSha256(path) {
 
 /**
  * Writes the parts of both archives of `scope` for the repository at `root` into `directory`, downloading each tarball
- * from `registry` with `fetch` and sending every `cargo` command through `run`. Resolves to one
+ * from `registry` with `fetch` and sending every `cargo` command through `run`. A download that fails with a network
+ * error or a retried status waits each of `retryDelays` in turn and tries again. Resolves to one
  * `{ archive, bytes, sha256, lastPart }` per archive, crates first, where `bytes` is the archive's size, `sha256` its
  * SHA-256 in hexadecimal and `lastPart` the name of its last part. Rejects with the message of section 4 and leaves
  * `directory` as it was on any failure.
  */
-export async function writeDependencySources(root, scope, directory, { registry, fetch, run }) {
+export async function writeDependencySources(
+  root,
+  scope,
+  directory,
+  { registry, fetch, run, retryDelays = DOWNLOAD_RETRY_DELAYS },
+) {
   await requireDirectory(directory)
   await requireGnuTar()
   const packages = await scopePackages(root, scope)
@@ -520,7 +535,11 @@ export async function writeDependencySources(root, scope, directory, { registry,
   const work = await mkdtemp(join(tmpdir(), 'partsmith-dependencies-'))
   try {
     await vendorCrates(root, run, scope, join(work, cratesFolder(scope)), crates)
-    await downloadPackages(packages, join(work, packagesFolder(scope)), { registry, fetch })
+    await downloadPackages(packages, join(work, packagesFolder(scope)), {
+      registry,
+      fetch,
+      retryDelays,
+    })
     await packFolder(work, cratesFolder(scope))
     await runDirectly('gzip', ['-9', '-n', `${cratesFolder(scope)}.tar`], work)
     await packFolder(work, packagesFolder(scope))

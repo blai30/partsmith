@@ -1,4 +1,4 @@
-// The OCCT pins, the archive's name and the fixture repository that acceptance tests 55, 58, 86 and 87 of
+// The OCCT pins, the archive's name and the fixture repository that acceptance tests 55, 58, 86, 87 and 99 of
 // docs/spec/delivery.md section 6 share: a stand-in for OCCT whose tag names its first commit (section 2.13).
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'

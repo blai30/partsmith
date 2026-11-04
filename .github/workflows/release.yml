@@ -1,7 +1,7 @@
 name: Release
 
 # A version tag builds the desktop bundles and drafts a GitHub Release that a human publishes.
-# A manual run is a dry run: it builds the bundles without a release.
+# A manual run is a dry run: it builds the bundles and writes the desktop dependency source archives, with no release.
 # Start a dry run from main before each tag: it proves the bundles, and it saves the Windows and macOS
 # caches on main, the only scope a tag run can restore them from (GitHub drops caches unused for 7 days).
 on:
@@ -147,6 +147,31 @@ jobs:
         run: cargo install tauri-cli --version 2.12.2 --locked
       - run: cargo tauri build --bundles ${{ matrix.bundles }} --ci
         working-directory: desktop/src-tauri
+      # The app the installer holds imports no DLL of the Visual C++ Redistributable (delivery.md 3.6, ADR 0038).
+      # The run text is the one of platforms.yml's rust-platforms job, character for character.
+      - name: Check the imports of the app
+        if: runner.os == 'Windows'
+        env:
+          EXECUTABLE: target/release/partsmith-desktop.exe
+        run: |
+          # Options start with -, since Git Bash turns an argument that starts with / into a path. dumpbin's exit status
+          # is not used: the listing decides, and a missing dumpbin lists nothing.
+          listing="$(dumpbin -nologo -dependents "$EXECUTABLE" | tr -d '\r')" || true
+          echo "$listing"
+          # Each line of the listing without its leading spaces.
+          lines="$(sed 's/^ *//' <<< "$listing")"
+          if ! grep -q -x -F 'Image has the following dependencies:' <<< "$lines"; then
+            echo "::error title=Imports not checked::dumpbin listed no imports of $EXECUTABLE, so the C runtime it imports was not checked. The steps that set up MSVC and build the app run before this one (docs/spec/delivery.md section 3.6)."
+            exit 1
+          fi
+          # The DLLs of the Visual C++ Redistributable, delay-loaded ones included, in the listing's order. The digit
+          # after the prefix leaves out msvcp_win.dll and msvcrt.dll, which are part of Windows.
+          mapfile -t runtime < <(grep -i -E '^(msvcp|msvcr|vcruntime|concrt|vcomp|vccorlib|vcamp|mfc|mfcm)[0-9][^ ]*\.dll$' <<< "$lines")
+          if [ "${#runtime[@]}" -gt 0 ]; then
+            names="$(printf ', %s' "${runtime[@]}")"
+            echo "::error title=Visual C++ runtime imported::$EXECUTABLE imports ${names#, }, which only the Visual C++ Redistributable installs. On Windows, OCCT, the shim and every Rust crate link the Visual C++ runtime and the C++ standard library statically (docs/spec/delivery.md section 3.6)."
+            exit 1
+          fi
       # One flat folder, so the release assets and SHA256SUMS name the files without folders.
       - name: Collect the bundles
         env:
@@ -209,3 +234,21 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Partsmith $VERSION" --generate-notes release/*
+
+  dependency-sources:
+    name: Dependency source archives (dry run)
+    # The dry run writes the desktop scope's archives as draft would and keeps none. A lock file the script cannot
+    # archive then fails the dry run, not the tag (delivery.md 2.13).
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+      - name: Write the dependency source archives
+        run: |
+          mkdir "$RUNNER_TEMP/dependencies"
+          node scripts/dependency-source-archive.mjs desktop "$RUNNER_TEMP/dependencies"

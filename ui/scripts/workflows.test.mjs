@@ -1,5 +1,5 @@
-// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87 and 93 to 95 of docs/spec/delivery.md
-// section 6 for the workflow files and the copies of section 3.6.
+// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87, 93 to 95, 100 and 101 of
+// docs/spec/delivery.md section 6 for the workflow files and the copies of section 3.6.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -73,11 +73,22 @@ const DEPENDENCY_WRITER_RUN = [
 ].join('\n')
 const DEPENDENCY_RELEASE_RUN = `node ${DEPENDENCY_SCRIPT} desktop release`
 
+// The job of release.yml that writes the desktop scope's archives in a dry run and keeps none (section 2.5, test 94),
+// and the exact run of its step DEPENDENCY_WRITER.
+const DEPENDENCY_DRY_RUN = 'dependency-sources'
+const DEPENDENCY_DRY_RUN_RUN = [
+  'mkdir "$RUNNER_TEMP/dependencies"',
+  `node ${DEPENDENCY_SCRIPT} desktop "$RUNNER_TEMP/dependencies"`,
+  '',
+].join('\n')
+
 // The step that installs the toolchain of rust-toolchain.toml in the jobs that run cargo (sections 2.4 and 2.13).
 const TOOLCHAIN_STEP = 'rustup show active-toolchain || rustup toolchain install'
 
-// The lint script of ui/package.json, which also reaches the dependency script from the repository root (test 94).
+// The lint and format scripts of ui/package.json, which also reach the dependency script from the repository root
+// (test 94).
 const LINT_SCRIPT = `oxlint --deny-warnings && oxfmt --check && cd .. && oxlint --deny-warnings -c ui/.oxlintrc.json ${DEPENDENCY_SCRIPT} && oxfmt --check -c ui/.oxfmtrc.json ${DEPENDENCY_SCRIPT}`
+const FORMAT_SCRIPT = `oxfmt && cd .. && oxfmt -c ui/.oxfmtrc.json ${DEPENDENCY_SCRIPT}`
 
 // The parts of the web archives that the stand-in for the script writes (test 93), in byte order of their names.
 const WEB_PARTS = [
@@ -140,7 +151,7 @@ const EXPECTED_TIMEOUTS = {
     desktop: 60,
     deploy: 60,
   },
-  'release.yml': { verify: 60, bundle: 150, draft: 60 },
+  'release.yml': { verify: 60, bundle: 150, draft: 60, 'dependency-sources': 60 },
   'nightly.yml': { properties: 20 },
   'platforms.yml': {
     'occt-platforms': 150,
@@ -193,6 +204,48 @@ const EXAMPLES_RUNNER = 'cargo test -p partsmith-cli --test integration examples
 const PLATFORM_CLIPPY =
   'cargo clippy -p partsmith-occt-sys -p partsmith-engine -p partsmith-desktop --all-targets -- -D warnings'
 const AFTER_CRATE_TESTS = "${{ !cancelled() && steps.crates.outcome != 'skipped' }}"
+
+// The step of rust-platforms and of the release's bundle job that checks the imports of the Windows app, the condition
+// it runs on in rust-platforms, the app each job checks, and the command of the bundle job that it follows (section
+// 3.6, The check of the imports).
+const IMPORT_CHECK = 'Check the imports of the app'
+const IMPORT_CHECK_CONDITION =
+  "${{ !cancelled() && steps.crates.outcome != 'skipped' && runner.os == 'Windows' }}"
+const DEBUG_APP = 'target/debug/partsmith-desktop.exe'
+const RELEASE_APP = 'target/release/partsmith-desktop.exe'
+const TAURI_BUILD = 'cargo tauri build --bundles ${{ matrix.bundles }} --ci'
+
+// A stand-in for dumpbin that appends its arguments, separated by NUL, as one line to $DUMPBIN_CALLS, prints the file
+// $DUMPBIN_LISTING and exits with $DUMPBIN_STATUS.
+const DUMPBIN_STUB = `#!/usr/bin/env bash
+printf '%s\\0' "$@" >> "$DUMPBIN_CALLS"
+printf '\\n' >> "$DUMPBIN_CALLS"
+cat "$DUMPBIN_LISTING"
+exit "$DUMPBIN_STATUS"
+`
+
+// The imports of an app that takes its C runtime from Windows alone, as dumpbin names them (test 101).
+const WINDOWS_IMPORTS = [
+  'KERNEL32.dll',
+  'USER32.dll',
+  'ole32.dll',
+  'api-ms-win-crt-runtime-l1-1-0.dll',
+  'api-ms-win-crt-heap-l1-1-0.dll',
+]
+
+// DLLs of the Visual C++ Redistributable whose names start neither with MSVCP nor with VCRUNTIME (test 101).
+const OTHER_REDISTRIBUTABLE_DLLS = [
+  'MSVCR120.dll',
+  'CONCRT140.dll',
+  'VCCORLIB140.dll',
+  'VCOMP140.DLL',
+  'VCAMP140.dll',
+  'MFC140u.dll',
+  'MFCM140.dll',
+]
+
+// What dumpbin prints when it cannot open the app (test 101).
+const UNREADABLE_APP_LISTING = `LINK : fatal error LNK1181: cannot open input file '${DEBUG_APP}'\r\n`
 
 // The step of e2e-engines that installs its engine with the engine's system packages, and its name (section 2.14).
 const ENGINE_INSTALL = 'pnpm exec playwright install --with-deps ${{ matrix.browser }}'
@@ -597,16 +650,20 @@ async function runSkipCheck(context, answer) {
       STUB_FAILS: answer === null ? '1' : '0',
     },
   })
-  const calls = (await readFile(callsPath, 'utf8'))
-    .split('\n')
-    .filter((call) => call !== '')
-    .map((call) => call.split('\0').slice(0, -1))
   return {
     status: result.status,
     stdout: result.stdout,
     output: await readFile(outputPath, 'utf8'),
-    calls,
+    calls: await recordedCalls(callsPath),
   }
+}
+
+/** The argument lists a stub recorded in `path`: one per line, each argument followed by NUL. */
+async function recordedCalls(path) {
+  return (await readFile(path, 'utf8'))
+    .split('\n')
+    .filter((call) => call !== '')
+    .map((call) => call.split('\0').slice(0, -1))
 }
 
 test('49: every job sets the timeout-minutes of sections 2.4, 2.5, 2.11 and 2.14', async () => {
@@ -692,15 +749,23 @@ function stampErrorMessage(commit) {
 }
 
 /**
- * Runs a step's `run` script with `bash -e` in `directory` and `environment`, as GitHub runs a step without a `shell`.
- * With `ignorePipe`, the shell that starts it ignores SIGPIPE (`trap '' PIPE`), which the step's commands inherit.
+ * Runs a step's `run` script with `bash -e` in `directory` and `environment`, as GitHub runs a step without a `shell`,
+ * or with `bash -e -o pipefail` when `pipefail` is set, as GitHub runs a step whose `shell` is `bash`. With
+ * `ignorePipe`, the shell that starts it ignores SIGPIPE (`trap '' PIPE`), which the step's commands inherit.
  */
-async function runStep(context, step, directory, environment, { ignorePipe = false } = {}) {
+async function runStep(
+  context,
+  step,
+  directory,
+  environment,
+  { ignorePipe = false, pipefail = false } = {},
+) {
   const scriptPath = join(await temporaryDirectory(context), 'step.sh')
   await writeFile(scriptPath, stepValue(step, 'run'))
+  const options = pipefail ? ['-e', '-o', 'pipefail'] : ['-e']
   const command = ignorePipe
-    ? ['-c', `trap '' PIPE; bash -e "$1"`, 'bash', scriptPath]
-    : ['-e', scriptPath]
+    ? ['-c', `trap '' PIPE; bash ${options.join(' ')} "$1"`, 'bash', scriptPath]
+    : [...options, scriptPath]
   return spawnSync('bash', command, {
     cwd: directory,
     env: environment,
@@ -1197,7 +1262,9 @@ test('61: rust-platforms saves its Rust cache only on main, also when its tests 
 test('61: rust-platforms runs the crate tests, the examples runner and clippy, then prints the free disk space', async () => {
   const steps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
   const crates = idStep(steps, 'crates')
-  const [examples, clippy, disk] = steps.slice(crates + 1)
+  const [examples, clippy] = steps.slice(crates + 1)
+  // The last step, whatever steps run between clippy and it, such as the import check of test 100.
+  const disk = steps.at(-1)
 
   assert.equal(stepValue(steps[crates], 'run'), CRATE_TESTS)
   assert.ok(examples, 'no step after the crate tests')
@@ -1207,7 +1274,6 @@ test('61: rust-platforms runs the crate tests, the examples runner and clippy, t
   assert.ok(clippy, 'no step after the examples runner')
   assert.equal(stepValue(clippy, 'run'), PLATFORM_CLIPPY)
   assert.equal(stepValue(clippy, 'if'), AFTER_CRATE_TESTS)
-  assert.equal(disk, steps.at(-1), 'the free disk space is not the last step')
   assert.equal(stepValue(disk, 'name'), 'Disk space after the tests')
   assert.equal(stepValue(disk, 'run'), 'df -h .')
   assert.equal(stepValue(disk, 'if'), 'always()')
@@ -2207,12 +2273,72 @@ test('94: the draft job installs the toolchain and Node, then adds the dependenc
   assert.deepEqual(stepMapping(steps[node], 'with'), { 'node-version': '22' })
 })
 
-test('94: the dependency script is a regular file, and pnpm lint lints it and checks its format from the repository root', async () => {
+test('94: a dry run writes the desktop dependency archives into a temporary folder, after the toolchain and Node', async () => {
+  const job = await workflowJob('release.yml', DEPENDENCY_DRY_RUN)
+  const steps = jobSteps(job)
+  const checkout = usesStep(steps, 'actions/checkout')
+  const toolchain = commandStep(steps, TOOLCHAIN_STEP)
+  const node = usesStep(steps, 'actions/setup-node')
+  const writer = namedStep(steps, DEPENDENCY_WRITER)
+
+  assert.equal(jobValue(job, 'if'), "github.event_name == 'workflow_dispatch'")
+  assert.equal(jobValue(job, 'runs-on'), 'ubuntu-24.04')
+  assert.deepEqual(jobNeeds(job), [])
+  assert.equal(steps.length, 4)
+  assert.ok(
+    checkout < toolchain && toolchain < node && node < writer,
+    `${DEPENDENCY_DRY_RUN} does not check out, install the toolchain and set up Node before ${DEPENDENCY_WRITER}`,
+  )
+  assert.deepEqual(stepMapping(steps[node], 'with'), { 'node-version': '22' })
+  assert.equal(stepValue(steps[writer], 'shell'), undefined)
+  assert.equal(stepMapping(steps[writer], 'env'), undefined)
+  assert.equal(stepValue(steps[writer], 'run'), DEPENDENCY_DRY_RUN_RUN)
+})
+
+test("94: the dry run's writer runs the script for the desktop scope into a new folder of RUNNER_TEMP", async (context) => {
+  const steps = jobSteps(await workflowJob('release.yml', DEPENDENCY_DRY_RUN))
+  const root = await temporaryDirectory(context)
+  const runnerTemp = join(root, 'runner-temp')
+  const stubs = join(root, 'stubs')
+  const calls = join(root, 'node-calls')
+  await mkdir(runnerTemp)
+  await mkdir(stubs)
+  await writeFile(join(stubs, 'node'), NODE_STUB)
+  await chmod(join(stubs, 'node'), 0o755)
+  await writeFile(calls, '')
+  const environment = {
+    ...process.env,
+    PATH: `${stubs}:${process.env.PATH}`,
+    RUNNER_TEMP: runnerTemp,
+    NODE_CALLS: calls,
+  }
+
+  const passed = await runStep(context, steps[namedStep(steps, DEPENDENCY_WRITER)], root, {
+    ...environment,
+    NODE_FAILS: '0',
+  })
+  assert.equal(passed.status, 0, passed.stderr)
+  assert.deepEqual((await readFile(calls, 'utf8')).split('\n').slice(0, -1), [
+    DEPENDENCY_SCRIPT,
+    'desktop',
+    join(runnerTemp, 'dependencies'),
+  ])
+
+  await rm(join(runnerTemp, 'dependencies'), { recursive: true })
+  const failed = await runStep(context, steps[namedStep(steps, DEPENDENCY_WRITER)], root, {
+    ...environment,
+    NODE_FAILS: '1',
+  })
+  assert.notEqual(failed.status, 0)
+})
+
+test('94: the dependency script is a regular file, and pnpm lint and pnpm format reach it from the repository root', async () => {
   const status = await lstat(join(repositoryRoot, DEPENDENCY_SCRIPT))
   const scripts = JSON.parse(await repositoryText('ui/package.json')).scripts
 
   assert.ok(status.isFile(), `${DEPENDENCY_SCRIPT} is not a regular file`)
   assert.equal(scripts.lint, LINT_SCRIPT)
+  assert.equal(scripts.format, FORMAT_SCRIPT)
 })
 
 test('95: the notices statements name the dependency archives, the folder of each deployment and the script', async () => {
@@ -2242,4 +2368,236 @@ test("95: the web job writes the archives into the folder that the web statement
     `${DEPENDENCY_WRITER} does not make dist/dependencies`,
   )
   assert.ok((await repositoryText('ui/public/THIRD-PARTY-NOTICES.txt')).includes('/dependencies/'))
+})
+
+/** The steps of rust-platforms in platforms.yml and of the bundle job in release.yml, as `{ platforms, release }`. */
+async function importCheckJobs() {
+  const [platforms, release] = await Promise.all([
+    workflowJob('platforms.yml', 'rust-platforms'),
+    workflowJob('release.yml', 'bundle'),
+  ])
+  return { platforms: jobSteps(platforms), release: jobSteps(release) }
+}
+
+test('100: rust-platforms checks the imports of the debug app on Windows after clippy, also after failing crate tests', async () => {
+  const { platforms: steps } = await importCheckJobs()
+  const clippy = commandStep(steps, PLATFORM_CLIPPY)
+  const check = namedStep(steps, IMPORT_CHECK)
+
+  assert.ok(clippy < check, `${IMPORT_CHECK} comes before clippy`)
+  assert.equal(stepValue(steps[check], 'if'), IMPORT_CHECK_CONDITION)
+  assert.deepEqual(stepMapping(steps[check], 'env'), { EXECUTABLE: DEBUG_APP })
+})
+
+test('100: the Windows bundle job checks the imports of the app the installer holds, right after cargo tauri build', async () => {
+  const { release: steps } = await importCheckJobs()
+  const build = commandStep(steps, TAURI_BUILD)
+  const check = namedStep(steps, IMPORT_CHECK)
+  const collect = namedStep(steps, 'Collect the bundles')
+
+  assert.equal(check, build + 1, `${IMPORT_CHECK} is not right after cargo tauri build`)
+  assert.equal(collect, check + 1, `${IMPORT_CHECK} is not right before Collect the bundles`)
+  assert.equal(stepValue(steps[check], 'if'), "runner.os == 'Windows'")
+  assert.deepEqual(stepMapping(steps[check], 'env'), { EXECUTABLE: RELEASE_APP })
+})
+
+test("100: both import checks run one script in their job's shell and folder, and may not fail", async () => {
+  const { platforms, release } = await importCheckJobs()
+  const checks = [
+    platforms[namedStep(platforms, IMPORT_CHECK)],
+    release[namedStep(release, IMPORT_CHECK)],
+  ]
+
+  for (const check of checks) {
+    for (const key of ['shell', 'working-directory', 'continue-on-error']) {
+      assert.equal(stepValue(check, key), undefined, `${IMPORT_CHECK} sets ${key}`)
+    }
+  }
+  assert.ok(stepValue(checks[0], 'run'), `${IMPORT_CHECK} runs nothing`)
+  assert.equal(stepValue(checks[0], 'run'), stepValue(checks[1], 'run'))
+})
+
+test('100: each job sets up the MSVC developer environment on Windows before its import check', async () => {
+  for (const [job, steps] of Object.entries(await importCheckJobs())) {
+    const msvc = usesStep(steps, 'ilammy/msvc-dev-cmd')
+
+    assert.equal(stepValue(steps[msvc], 'if'), "runner.os == 'Windows'", job)
+    assert.ok(msvc < namedStep(steps, IMPORT_CHECK), `${job}: MSVC is set up after ${IMPORT_CHECK}`)
+  }
+})
+
+/** The lines of a section of a dumpbin listing: its heading, then `names`, one per line, each set off by a blank line. */
+function dumpbinSection(heading, names) {
+  return [`  ${heading}`, '', ...names.map((name) => `    ${name}`), '']
+}
+
+/**
+ * The listing of `dumpbin -nologo -dependents` for the debug app that imports `dependencies` and, when `delayLoaded`
+ * is not empty, delay-loads it under the second heading, with the CR LF line ends dumpbin writes.
+ */
+function dumpbinListing(dependencies, delayLoaded = []) {
+  return [
+    '',
+    `Dump of file ${DEBUG_APP}`,
+    '',
+    'File Type: EXECUTABLE IMAGE',
+    '',
+    ...dumpbinSection('Image has the following dependencies:', dependencies),
+    ...(delayLoaded.length > 0
+      ? dumpbinSection('Image has the following delay load dependencies:', delayLoaded)
+      : []),
+    '  Summary',
+    '',
+    '        5000 .data',
+    '       2E000 .pdata',
+    '      1B6000 .rdata',
+    '        7000 .reloc',
+    '      43C000 .text',
+    '',
+  ].join('\r\n')
+}
+
+/** The error of section 4 for the app `executable` that imports the Visual C++ runtime DLLs `names`, in order. */
+function runtimeImportedMessage(executable, names) {
+  return `::error title=Visual C++ runtime imported::${executable} imports ${names.join(', ')}, which only the Visual C++ Redistributable installs. On Windows, OCCT, the shim and every Rust crate link the Visual C++ runtime and the C++ standard library statically (docs/spec/delivery.md section 3.6).`
+}
+
+/** The error of section 4 for the app `executable` whose imports dumpbin did not list. */
+function importsNotCheckedMessage(executable) {
+  return `::error title=Imports not checked::dumpbin listed no imports of ${executable}, so the C runtime it imports was not checked. The steps that set up MSVC and build the app run before this one (docs/spec/delivery.md section 3.6).`
+}
+
+/**
+ * Runs rust-platforms' import check as GitHub runs a `bash` step, in a new folder, with `EXECUTABLE` the debug app and
+ * the dumpbin stub first on `PATH`, printing `listing` and exiting with `status`; with `listing` null, no dumpbin is on
+ * `PATH`. Resolves to the result and the argument lists dumpbin received.
+ */
+async function runImportCheck(context, listing, { status = 0 } = {}) {
+  const { platforms: steps } = await importCheckJobs()
+  const directory = await temporaryDirectory(context)
+  const workspace = join(directory, 'workspace')
+  const stubDirectory = join(directory, 'stub')
+  const callsPath = join(directory, 'calls')
+  const listingPath = join(directory, 'listing')
+  await Promise.all([mkdir(workspace), mkdir(stubDirectory), writeFile(callsPath, '')])
+  const environment = { ...process.env, EXECUTABLE: DEBUG_APP }
+  if (listing !== null) {
+    await writeFile(join(stubDirectory, 'dumpbin'), DUMPBIN_STUB)
+    await chmod(join(stubDirectory, 'dumpbin'), 0o755)
+    await writeFile(listingPath, listing)
+    Object.assign(environment, {
+      PATH: `${stubDirectory}:${process.env.PATH}`,
+      DUMPBIN_CALLS: callsPath,
+      DUMPBIN_LISTING: listingPath,
+      DUMPBIN_STATUS: String(status),
+    })
+  }
+  const result = await runStep(
+    context,
+    steps[namedStep(steps, IMPORT_CHECK)],
+    workspace,
+    environment,
+    {
+      pipefail: true,
+    },
+  )
+  return { ...result, calls: await recordedCalls(callsPath) }
+}
+
+/** The last line of `text`, without its line break. */
+function lastLine(text) {
+  return text.replace(/\n$/, '').split('\n').at(-1)
+}
+
+/** Asserts that the import check passed: it exited 0 and printed no error. */
+function assertImportsAccepted(result) {
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`)
+  assert.doesNotMatch(result.stdout, /^::error/m)
+}
+
+/** Asserts that the import check exited 1 and that the last line of its standard output is `message`. */
+function assertImportCheckFailed(result, message) {
+  assert.equal(result.status, 1, `${result.stdout}${result.stderr}`)
+  assert.equal(lastLine(result.stdout), message)
+}
+
+test('101: the import check passes on an app that takes its C runtime from Windows, after dumpbin -nologo -dependents', async (context) => {
+  const result = await runImportCheck(context, dumpbinListing(WINDOWS_IMPORTS))
+
+  assertImportsAccepted(result)
+  assert.deepEqual(result.calls, [['-nologo', '-dependents', DEBUG_APP]])
+  for (const name of WINDOWS_IMPORTS) {
+    assert.ok(result.stdout.includes(name), `the listing printed lacks ${name}`)
+  }
+})
+
+test('101: the import check prints the listing without its carriage returns', async (context) => {
+  const result = await runImportCheck(context, dumpbinListing(WINDOWS_IMPORTS))
+
+  assert.ok(result.stdout.includes(`    ${WINDOWS_IMPORTS[0]}\n`), result.stdout)
+  assert.ok(!result.stdout.includes('\r'), 'the listing printed keeps a carriage return')
+})
+
+test('101: the import check passes on msvcp_win.dll and msvcrt.dll, which are part of Windows', async (context) => {
+  const result = await runImportCheck(
+    context,
+    dumpbinListing([...WINDOWS_IMPORTS, 'msvcp_win.dll', 'msvcrt.dll']),
+  )
+
+  assertImportsAccepted(result)
+})
+
+test('101: the import check fails on MSVCP140.dll and VCRUNTIME140.dll, naming each runtime DLL in the order of the listing', async (context) => {
+  const [kernel, user, ...rest] = WINDOWS_IMPORTS
+  const listing = dumpbinListing([
+    kernel,
+    user,
+    'MSVCP140.dll',
+    ...rest,
+    'VCRUNTIME140.dll',
+    'VCRUNTIME140_1.dll',
+  ])
+
+  const result = await runImportCheck(context, listing)
+
+  assertImportCheckFailed(
+    result,
+    runtimeImportedMessage(DEBUG_APP, ['MSVCP140.dll', 'VCRUNTIME140.dll', 'VCRUNTIME140_1.dll']),
+  )
+})
+
+for (const name of OTHER_REDISTRIBUTABLE_DLLS) {
+  test(`101: the import check fails on ${name}, a DLL of the Visual C++ Redistributable`, async (context) => {
+    const result = await runImportCheck(context, dumpbinListing([...WINDOWS_IMPORTS, name]))
+
+    assertImportCheckFailed(result, runtimeImportedMessage(DEBUG_APP, [name]))
+  })
+}
+
+test('101: the import check fails on runtime DLLs that the app loads with a delay', async (context) => {
+  const listing = dumpbinListing(WINDOWS_IMPORTS, ['vcruntime140.dll', 'VCOMP140.DLL'])
+
+  const result = await runImportCheck(context, listing)
+
+  assertImportCheckFailed(
+    result,
+    runtimeImportedMessage(DEBUG_APP, ['vcruntime140.dll', 'VCOMP140.DLL']),
+  )
+})
+
+for (const status of [1, 0]) {
+  test(`101: the import check fails with Imports not checked when dumpbin cannot open the app and exits ${status}`, async (context) => {
+    const result = await runImportCheck(context, UNREADABLE_APP_LISTING, { status })
+
+    assertImportCheckFailed(result, importsNotCheckedMessage(DEBUG_APP))
+  })
+}
+
+test('101: the import check fails with Imports not checked when dumpbin is not on PATH', async (context) => {
+  const lookup = spawnSync('bash', ['-c', 'command -v dumpbin'], { encoding: 'utf8' })
+  assert.notEqual(lookup.status, 0, `this machine has a dumpbin on PATH: ${lookup.stdout}`)
+
+  const result = await runImportCheck(context, null)
+
+  assertImportCheckFailed(result, importsNotCheckedMessage(DEBUG_APP))
 })

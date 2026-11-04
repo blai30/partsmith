@@ -1,5 +1,6 @@
-// Acceptance tests 55 and 58 of docs/spec/delivery.md section 6 for scripts/occt-source-archive.sh and the commit
-// check of scripts/build-occt.sh (section 2.13).
+// Acceptance tests 55, 58 and 99 of docs/spec/delivery.md section 6 for scripts/occt-source-archive.sh, the commit
+// check of scripts/build-occt.sh (section 2.13), the arguments that script gives CMake on Windows and the Windows
+// rustflags of .cargo/config.toml (section 3.6, The C runtime on Windows).
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { chmod, copyFile, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -22,6 +23,7 @@ const archiveScriptPath = fileURLToPath(
   new URL('../../scripts/occt-source-archive.sh', import.meta.url),
 )
 const buildScriptPath = fileURLToPath(new URL('../../scripts/build-occt.sh', import.meta.url))
+const cargoConfigurationPath = fileURLToPath(new URL('../../.cargo/config.toml', import.meta.url))
 
 const usageLine = 'usage: scripts/occt-source-archive.sh <directory>'
 const OCCT_URL = 'https://github.com/Open-Cascade-SAS/OCCT.git'
@@ -85,6 +87,32 @@ const CMAKE_STUB = `#!/usr/bin/env bash
 printf '%s\\0' "$@" >> "$CMAKE_CALLS"
 printf '\\n' >> "$CMAKE_CALLS"
 `
+
+// A stand-in for emcmake that records its arguments as one line, separated by NUL, in $EMCMAKE_CALLS and exits 0.
+const EMCMAKE_STUB = `#!/usr/bin/env bash
+printf '%s\\0' "$@" >> "$EMCMAKE_CALLS"
+printf '\\n' >> "$EMCMAKE_CALLS"
+`
+
+// A stand-in for uname that prints $UNAME_NAME, whatever its arguments.
+const UNAME_STUB = `#!/usr/bin/env bash
+printf '%s\\n' "$UNAME_NAME"
+`
+
+// The three arguments that scripts/build-occt.sh gives CMake on Windows, in their order (section 3.6).
+const WINDOWS_ARGUMENTS = [
+  '-DINSTALL_DIR_LAYOUT=Unix',
+  '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded',
+  '-DCMAKE_POLICY_DEFAULT_CMP0091=NEW',
+]
+
+// What uname -s prints in Git Bash, MSYS2 and Cygwin on Windows, and on Linux and macOS.
+const WINDOWS_SYSTEMS = ['MINGW64_NT-10.0-26100', 'MSYS_NT-10.0-26100', 'CYGWIN_NT-10.0-26100']
+const OTHER_SYSTEMS = ['Linux', 'Darwin']
+
+// The Cargo table of the Windows target and the rustflags of the static runtime it holds (section 3.6).
+const WINDOWS_TARGET_TABLE = 'target.x86_64-pc-windows-msvc'
+const STATIC_RUNTIME_RUSTFLAGS = ['-C', 'target-feature=+crt-static']
 
 // The git that the stub hands its commands to.
 const realGit = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim()
@@ -171,9 +199,12 @@ function runArchive(scriptArguments, options) {
   return runScript(archiveScriptPath, scriptArguments, options)
 }
 
-/** Runs a copy of scripts/build-occt.sh with `native <work>/prefix` and `OCCT_JOBS=1`, as `runScript` does. */
-function runBuild({ work, environment, ...options }) {
-  return runScript(buildScriptPath, ['native', join(work, 'prefix')], {
+/**
+ * Runs a copy of scripts/build-occt.sh with `<target> <work>/prefix` (`native` unless `target` names another) and
+ * `OCCT_JOBS=1`, as `runScript` does.
+ */
+function runBuild({ target = 'native', work, environment, ...options }) {
+  return runScript(buildScriptPath, [target, join(work, 'prefix')], {
     ...options,
     work,
     environment: { OCCT_JOBS: '1', ...environment },
@@ -189,13 +220,7 @@ async function stubs() {
   const folder = await mkdtemp(join(fixture.root, 'stub-'))
   const cloneCalls = join(folder, 'clone-calls')
   const cmakeCalls = join(folder, 'cmake-calls')
-  const stubTexts = { git: GIT_STUB, cmake: CMAKE_STUB }
-  await Promise.all(
-    Object.entries(stubTexts).map(async ([name, text]) => {
-      await writeFile(join(folder, name), text)
-      await chmod(join(folder, name), 0o755)
-    }),
-  )
+  await writeStubs(folder, { git: GIT_STUB, cmake: CMAKE_STUB })
   await Promise.all([writeFile(cloneCalls, ''), writeFile(cmakeCalls, '')])
   return {
     environment: {
@@ -208,6 +233,16 @@ async function stubs() {
     clones: () => recordedCalls(cloneCalls),
     cmakeCalls: () => recordedCalls(cmakeCalls),
   }
+}
+
+/** Writes each stub of `stubTexts`, a map from a command's name to its script, into `folder` as a file its owner can run. */
+async function writeStubs(folder, stubTexts) {
+  await Promise.all(
+    Object.entries(stubTexts).map(async ([name, text]) => {
+      await writeFile(join(folder, name), text)
+      await chmod(join(folder, name), 0o755)
+    }),
+  )
 }
 
 /** The argument lists a stub recorded in `path`: one per line, each argument followed by NUL. */
@@ -498,4 +533,157 @@ test('58: build-occt.sh builds an existing src as it is, without cloning or chec
   assert.deepEqual(await stub.clones(), [])
   assert.equal(cmakeCalls.length, 3)
   assert.deepEqual(cmakeCalls[0].slice(0, 2), ['-S', join(work, 'src')])
+})
+
+/** A new folder whose src holds the files of test 55's first commit, as a plain folder (nothing is cloned). */
+async function plainWork() {
+  const work = await mkdtemp(join(fixture.root, 'work-'))
+  await writeFiles(join(work, 'src'), TAGGED_FILES)
+  return work
+}
+
+/**
+ * Runs a copy of scripts/build-occt.sh for `target` in `work`, with the cmake, emcmake and uname stubs first on
+ * `PATH` and `uname` printing `system`. Resolves to the result and the argument lists of the cmake and emcmake calls.
+ */
+async function runForSystem(target, system, work) {
+  const folder = await mkdtemp(join(fixture.root, 'stub-'))
+  const cmakeCalls = join(folder, 'cmake-calls')
+  const emcmakeCalls = join(folder, 'emcmake-calls')
+  await writeStubs(folder, { cmake: CMAKE_STUB, emcmake: EMCMAKE_STUB, uname: UNAME_STUB })
+  await Promise.all([writeFile(cmakeCalls, ''), writeFile(emcmakeCalls, '')])
+  const result = await runBuild({
+    target,
+    pinned: fixture.tagged,
+    work,
+    environment: {
+      PATH: `${folder}:${process.env.PATH}`,
+      CMAKE_CALLS: cmakeCalls,
+      EMCMAKE_CALLS: emcmakeCalls,
+      UNAME_NAME: system,
+    },
+  })
+  return {
+    result,
+    cmakeCalls: await recordedCalls(cmakeCalls),
+    emcmakeCalls: await recordedCalls(emcmakeCalls),
+  }
+}
+
+/** The arguments of the first cmake call of a native run of `runForSystem`, which must have exited 0. */
+async function configureArguments(system, work) {
+  const { result, cmakeCalls } = await runForSystem('native', system, work)
+  assert.equal(result.status, 0, `${system}: ${result.stderr}`)
+  assert.ok(cmakeCalls.length > 0, `${system}: cmake was never called`)
+  return cmakeCalls[0]
+}
+
+/** Asserts that `callArguments` holds none of the three Windows arguments, naming `label` when one is there. */
+function assertNoWindowsArgument(callArguments, label) {
+  for (const argument of WINDOWS_ARGUMENTS) {
+    assert.ok(
+      !callArguments.includes(argument),
+      `${label}: ${argument} is in ${callArguments.join(' ')}`,
+    )
+  }
+}
+
+/**
+ * The tables of a Cargo configuration's text, as a map from each table's name ('' for the keys above the first
+ * table) to its entries, each key mapped to its value as written, with the lines of a value that runs over several
+ * lines joined by spaces. Blank lines and comments, which sit on lines of their own, are left out.
+ */
+function configurationTables(text) {
+  const tables = new Map([['', {}]])
+  let entries = tables.get('')
+  let key
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed === '' || trimmed.startsWith('#')) {
+      continue
+    }
+    const header = /^\[([^\]]+)\]$/.exec(trimmed)
+    const entry = /^([\w.-]+)\s*=\s*(.*)$/.exec(trimmed)
+    if (header !== null) {
+      entries = {}
+      tables.set(header[1], entries)
+      key = undefined
+    } else if (entry !== null) {
+      key = entry[1]
+      entries[key] = entry[2]
+    } else {
+      assert.ok(key !== undefined, `the configuration line ${trimmed} belongs to no key`)
+      entries[key] += ` ${trimmed}`
+    }
+  }
+  return tables
+}
+
+/** The strings of a TOML array of basic strings written as `value`, a trailing comma allowed. */
+function stringArray(value) {
+  return JSON.parse(value.replace(/,\s*\]$/, ']'))
+}
+
+test('99: the configuration reader takes the keys above the first table, comments and arrays over several lines', () => {
+  const tables = configurationTables(
+    'jobs = 2\n# A comment\n[target.a]\nrustflags = [\n  "-C",\n  "x=1",\n]\n\nrunner = "node"\n[b]\nkey = "value"\n',
+  )
+
+  assert.deepEqual(
+    [...tables],
+    [
+      ['', { jobs: '2' }],
+      ['target.a', { rustflags: '[ "-C", "x=1", ]', runner: '"node"' }],
+      ['b', { key: '"value"' }],
+    ],
+  )
+  assert.deepEqual(stringArray(tables.get('target.a').rustflags), ['-C', 'x=1'])
+})
+
+for (const system of WINDOWS_SYSTEMS) {
+  test(`99: with uname printing ${system}, build-occt.sh gives CMake the Linux arguments, then the three Windows arguments`, async () => {
+    const work = await plainWork()
+
+    const linux = await configureArguments('Linux', work)
+    const windows = await configureArguments(system, work)
+
+    assert.deepEqual(windows, [...linux, ...WINDOWS_ARGUMENTS])
+  })
+}
+
+for (const system of OTHER_SYSTEMS) {
+  test(`99: with uname printing ${system}, build-occt.sh gives CMake none of the Windows arguments`, async () => {
+    const callArguments = await configureArguments(system, await plainWork())
+
+    assertNoWindowsArgument(callArguments, system)
+  })
+}
+
+test('99: for WebAssembly, build-occt.sh calls emcmake once, with none of the Windows arguments', async () => {
+  const { result, emcmakeCalls } = await runForSystem('wasm', 'Linux', await plainWork())
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(emcmakeCalls.length, 1)
+  assertNoWindowsArgument(emcmakeCalls[0], 'emcmake')
+})
+
+test('99: .cargo/config.toml gives x86_64-pc-windows-msvc the rustflags of the static runtime and no other entry', async () => {
+  const tables = configurationTables(await readFile(cargoConfigurationPath, 'utf8'))
+  const windows = tables.get(WINDOWS_TARGET_TABLE)
+
+  assert.ok(windows, `.cargo/config.toml has no table [${WINDOWS_TARGET_TABLE}]`)
+  assert.deepEqual(Object.keys(windows), ['rustflags'])
+  assert.deepEqual(stringArray(windows.rustflags), STATIC_RUNTIME_RUSTFLAGS)
+})
+
+test('99: no other table of .cargo/config.toml holds crt-static', async () => {
+  const tables = configurationTables(await readFile(cargoConfigurationPath, 'utf8'))
+
+  for (const [name, entries] of tables) {
+    if (name !== WINDOWS_TARGET_TABLE) {
+      for (const [key, value] of Object.entries(entries)) {
+        assert.ok(!value.includes('crt-static'), `[${name}] ${key} holds crt-static`)
+      }
+    }
+  }
 })

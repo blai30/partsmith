@@ -145,6 +145,18 @@ export function commandFailureMessage(command, commandArguments, error) {
   return `${[command, ...commandArguments].join(' ')} failed with exit status ${error.status}: ${String(error.stderr ?? '').trim()}`
 }
 
+/**
+ * Runs `command` with `commandArguments` in `directory` through `run`, which rejects as `runCommand` does, and resolves
+ * to its standard output. A failure rejects with the message of `commandFailureMessage`.
+ */
+export async function checkedRun(run, command, commandArguments, directory) {
+  try {
+    return await run(command, commandArguments, directory)
+  } catch (error) {
+    throw new Error(commandFailureMessage(command, commandArguments, error), { cause: error })
+  }
+}
+
 /** The lines of the `[licenses]` table of `denyToml`, from its header to the next table header. */
 function licensesTable(denyToml) {
   const lines = denyToml.split(/\r?\n/)
@@ -342,13 +354,8 @@ export function licenseProblems(packages, allowed) {
 }
 
 /** The standard output of `pnpm licenses list` with `commandArguments` in ui/, or the failure message of section 4. */
-async function pnpmListing(commandArguments) {
-  const pnpmArguments = ['licenses', 'list', ...commandArguments]
-  try {
-    return await runCommand('pnpm', pnpmArguments, uiDirectory)
-  } catch (error) {
-    throw new Error(commandFailureMessage('pnpm', pnpmArguments, error), { cause: error })
-  }
+function pnpmListing(commandArguments) {
+  return checkedRun(runCommand, 'pnpm', ['licenses', 'list', ...commandArguments], uiDirectory)
 }
 
 /** Runs the command with its arguments and returns its exit status. */

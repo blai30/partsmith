@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 import {
+  DOWNLOAD_RETRY_DELAYS,
   NPM_REGISTRY,
   PART_SIZE,
   SCOPES,
@@ -53,6 +54,10 @@ const DESKTOP_TRIPLES = DESKTOP_TARGETS.map((target) => target.triple)
 const LINUX = { os: 'linux', cpu: 'x64', libc: 'glibc' }
 const WINDOWS = { os: 'win32', cpu: 'x64', libc: null }
 const MACOS = { os: 'darwin', cpu: 'arm64', libc: null }
+
+// The waits of the tests before the second and the third attempt of a download, short ones in place of
+// DOWNLOAD_RETRY_DELAYS.
+const TEST_RETRY_DELAYS = [1, 1]
 
 // The cargo commands of section 2.13 as the fake `run` records them, with the vendor folder as a placeholder.
 const UNFILTERED_METADATA = 'cargo metadata --format-version 1 --locked --all-features'
@@ -331,13 +336,17 @@ function filteredMetadata(triple) {
   return `${UNFILTERED_METADATA} --filter-platform ${triple}`
 }
 
+// How a command that `fakeRun` fails rejects: the exit status and standard error of a failed cargo.
+const CARGO_FAILURE = { status: 101, stderr: 'error: failed to sync\n' }
+
 /**
  * A fake `run` for the repository root `root`. It answers each metadata command of `answers` (keyed by its command
  * line), and `cargo vendor --locked --versioned-dirs <folder>` by copying `vendorFixture` into `<folder>`. It records
  * every call as `{folder}: {command line}`, with `folder` relative to `root` and the vendor folder as a placeholder,
- * and keeps the vendor folders it was given. Any other command rejects as a failed command does.
+ * and keeps the vendor folders it was given. The command line `failing` (with the placeholder) rejects with
+ * CARGO_FAILURE, and any other command rejects as a failed command does.
  */
-function fakeRun(root, answers, vendorFixture) {
+function fakeRun(root, answers, vendorFixture, failing) {
   const calls = []
   const vendorFolders = []
   async function run(command, commandArguments, directory) {
@@ -349,6 +358,11 @@ function fakeRun(root, answers, vendorFixture) {
     calls.push(`${relative(root, directory) || '.'}: ${line}`)
     if (isVendor) {
       vendorFolders.push(commandArguments[3])
+    }
+    if (line === failing) {
+      throw Object.assign(new Error(`${command} exited with status 101`), CARGO_FAILURE)
+    }
+    if (isVendor) {
       await cp(vendorFixture, commandArguments[3], { recursive: true })
       return `[source.crates-io]\nreplace-with = "vendored-sources"\n`
     }
@@ -366,13 +380,28 @@ function fakeRun(root, answers, vendorFixture) {
 
 /**
  * Starts a registry on 127.0.0.1, port 0, that serves the files of `folder` at their paths and answers 404 for any
- * other path. Resolves to its base URL and the paths it was asked for, in order; it stops when the test ends.
+ * other path. `failures` maps a path to the answers it gets before the file, in order: an HTTP status, or `'drop'`,
+ * which closes the connection with no answer. Resolves to its base URL and the paths it was asked for, in order; it
+ * stops when the test ends.
  */
-async function startRegistry(context, folder) {
+async function startRegistry(context, folder, failures = {}) {
   const requests = []
+  const failuresLeft = new Map(
+    Object.entries(failures).map(([path, answers]) => [path, [...answers]]),
+  )
   const server = createServer(async (request, response) => {
     const path = decodeURIComponent(new URL(request.url, 'http://registry.invalid').pathname)
     requests.push(path)
+    const failure = failuresLeft.get(path)?.shift()
+    if (failure === 'drop') {
+      request.socket.destroy()
+      return
+    }
+    if (failure !== undefined) {
+      response.writeHead(failure)
+      response.end()
+      return
+    }
     try {
       const bytes = await readFile(join(folder, path))
       response.writeHead(200, { 'content-type': 'application/octet-stream' })
@@ -516,16 +545,46 @@ async function writeFixture(
   return { root, output, npmFolder, vendorFixture, answers }
 }
 
-/** Runs writeDependencySources for `scope` on `fixture`, with its registry and a fake `run`. */
-async function writeSources(context, fixture, scope, { output = fixture.output, vendor } = {}) {
-  const registry = await startRegistry(context, fixture.npmFolder)
+/**
+ * Runs writeDependencySources for `scope` on `fixture`, with its registry and a fake `run`. The registry gives the
+ * answers of `failures` first (as `startRegistry` takes them), and a failed download waits `retryDelays`.
+ */
+async function writeSources(
+  context,
+  fixture,
+  scope,
+  { output = fixture.output, vendor, failures, retryDelays = TEST_RETRY_DELAYS } = {},
+) {
+  const registry = await startRegistry(context, fixture.npmFolder, failures)
   const cargo = fakeRun(fixture.root, fixture.answers, vendor ?? fixture.vendorFixture)
   const result = await writeDependencySources(fixture.root, scope, output, {
     registry: registry.url,
     fetch,
     run: cargo.run,
+    retryDelays,
   })
   return { result, registry, cargo }
+}
+
+/**
+ * Runs writeDependencySources for `web` on `fixture` into its output folder, downloading from `registry` (as
+ * `startRegistry` resolves it), with the fake `run` of the fixture and TEST_RETRY_DELAYS unless `run` or `retryDelays`
+ * is given.
+ */
+function writeWebSources(
+  fixture,
+  registry,
+  {
+    run = fakeRun(fixture.root, fixture.answers, fixture.vendorFixture).run,
+    retryDelays = TEST_RETRY_DELAYS,
+  } = {},
+) {
+  return writeDependencySources(fixture.root, 'web', fixture.output, {
+    registry: registry.url,
+    fetch,
+    run,
+    retryDelays,
+  })
 }
 
 /** The parts of `archive` in `directory`, in name order. */
@@ -594,8 +653,8 @@ function runCommand(commandArguments, directory, environment = process.env) {
 
 /**
  * A folder of stand-ins for the command tests of test 92: `cargo`, which records its arguments in $CARGO_CALLS and
- * fails, and, with `bsdTar`, a `tar` whose --version names bsdtar. Resolves to the environment that puts them first on
- * PATH and the path of the calls file.
+ * fails with `error: no network` on standard error, and, with `bsdTar`, a `tar` whose --version names bsdtar. Resolves
+ * to the environment that puts them first on PATH and the path of the calls file.
  */
 async function stubEnvironment(context, { bsdTar = false } = {}) {
   const directory = await temporaryDirectory(context)
@@ -605,7 +664,7 @@ async function stubEnvironment(context, { bsdTar = false } = {}) {
   await writeFile(calls, '')
   await writeFile(
     join(stubs, 'cargo'),
-    '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$CARGO_CALLS"\nexit 1\n',
+    '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$CARGO_CALLS"\necho \'error: no network\' >&2\nexit 1\n',
   )
   await chmod(join(stubs, 'cargo'), 0o755)
   if (bsdTar) {
@@ -624,6 +683,17 @@ async function stubEnvironment(context, { bsdTar = false } = {}) {
 /** The integrity message of section 4 for `listed`, whose tarball at `url` has the integrity `actual`. */
 function integrityMessage(listed, url, actual, expected) {
   return `npm package ${listed.name} ${listed.version}: ${url} sent a tarball whose integrity is ${actual}, not ${expected}, which ui/pnpm-lock.yaml records. Nothing was written.`
+}
+
+/** How many requests `registry` answered for the tarball of `listed`. */
+function requestCount(registry, listed) {
+  const path = `/${tarballPath(listed.name, listed.version)}`
+  return registry.requests.filter((requested) => requested === path).length
+}
+
+/** The download message of section 4 for `listed`, whose tarball at `url` got the answer or error `answer`. */
+function downloadMessage(listed, url, answer) {
+  return `npm package ${listed.name} ${listed.version}: ${url} answered ${answer}.`
 }
 
 /** The build-machine message of section 4 for the crate `name` at `version`. */
@@ -737,22 +807,16 @@ test('90: a tarball whose bytes changed on the server fails with the integrity m
   const registry = await startRegistry(context, fixture.npmFolder)
   const url = `${registry.url}${tarballPath(changed.name, changed.version)}`
 
-  await assert.rejects(
-    writeDependencySources(fixture.root, 'web', fixture.output, {
-      registry: registry.url,
-      fetch,
-      run: fakeRun(fixture.root, fixture.answers, fixture.vendorFixture).run,
-    }),
-    {
-      message: integrityMessage(
-        changed,
-        url,
-        integrityOf(changed.algorithm, changedBytes),
-        integrityOf(changed.algorithm, tarballBytes(changed.name, changed.version)),
-      ),
-    },
-  )
+  await assert.rejects(writeWebSources(fixture, registry), {
+    message: integrityMessage(
+      changed,
+      url,
+      integrityOf(changed.algorithm, changedBytes),
+      integrityOf(changed.algorithm, tarballBytes(changed.name, changed.version)),
+    ),
+  })
   assert.deepEqual(await readdir(fixture.output), [])
+  assert.equal(requestCount(registry, changed), 1)
 })
 
 test('90: a tarball the server answers with 404 fails with the download message and writes nothing', async (context) => {
@@ -762,15 +826,71 @@ test('90: a tarball the server answers with 404 fails with the download message 
   const registry = await startRegistry(context, fixture.npmFolder)
   const url = `${registry.url}${tarballPath(missing.name, missing.version)}`
 
-  await assert.rejects(
-    writeDependencySources(fixture.root, 'web', fixture.output, {
-      registry: registry.url,
-      fetch,
-      run: fakeRun(fixture.root, fixture.answers, fixture.vendorFixture).run,
-    }),
-    { message: `npm package ${missing.name} ${missing.version}: ${url} answered 404.` },
-  )
+  await assert.rejects(writeWebSources(fixture, registry), {
+    message: downloadMessage(missing, url, 404),
+  })
   assert.deepEqual(await readdir(fixture.output), [])
+  assert.equal(requestCount(registry, missing), 1)
+})
+
+test('90: DOWNLOAD_RETRY_DELAYS waits 2 s before the second attempt of a download and 10 s before the third', () => {
+  assert.deepEqual(DOWNLOAD_RETRY_DELAYS, [2000, 10000])
+})
+
+test('90: a download that fails with a dropped connection, 408, 429 or 5xx is tried again, up to three times', async (context) => {
+  const fixture = await writeFixture(context)
+  const [one, two, three] = WEB_NPM_PACKAGES
+  const failures = {
+    [`/${tarballPath(one.name, one.version)}`]: [429, 408],
+    [`/${tarballPath(two.name, two.version)}`]: ['drop'],
+    [`/${tarballPath(three.name, three.version)}`]: [503, 500],
+  }
+
+  const { registry } = await writeSources(context, fixture, 'web', { failures })
+
+  const [, npmArchive] = archiveNames('web')
+  const extracted = await extractTar(context, await joinedArchive(fixture.output, npmArchive))
+  const extractedTarballs = await Promise.all(
+    WEB_NPM_PACKAGES.map(({ name, version }) =>
+      readFile(join(extracted, 'npm-packages-web', tarballPath(name, version))),
+    ),
+  )
+  assert.deepEqual(
+    extractedTarballs,
+    WEB_NPM_PACKAGES.map(({ name, version }) => tarballBytes(name, version)),
+  )
+  assert.deepEqual(
+    WEB_NPM_PACKAGES.map((listed) => requestCount(registry, listed)),
+    [3, 2, 3],
+  )
+})
+
+/**
+ * Asserts that writeDependencySources for `web` fails with the download message `answer` and writes nothing when the
+ * registry gives the third tarball the three `answers`, after three requests and the two waits of 30 ms between them.
+ */
+async function assertDownloadGivesUp(context, answers, answer) {
+  const fixture = await writeFixture(context)
+  const failing = WEB_NPM_PACKAGES[2]
+  const path = tarballPath(failing.name, failing.version)
+  const registry = await startRegistry(context, fixture.npmFolder, { [`/${path}`]: answers })
+  const started = performance.now()
+
+  await assert.rejects(writeWebSources(fixture, registry, { retryDelays: [30, 30] }), {
+    message: downloadMessage(failing, `${registry.url}${path}`, answer),
+  })
+  // A timer may fire a little early, never 5 ms early.
+  assert.ok(performance.now() - started >= 55, 'the download did not wait between its attempts')
+  assert.equal(requestCount(registry, failing), 3)
+  assert.deepEqual(await readdir(fixture.output), [])
+}
+
+test('90: a download that gets a server error three times fails with the last status and writes nothing', async (context) => {
+  await assertDownloadGivesUp(context, [503, 502, 504], 504)
+})
+
+test("90: a download whose connection drops three times fails with the error's message and writes nothing", async (context) => {
+  await assertDownloadGivesUp(context, ['drop', 'drop', 'drop'], 'fetch failed')
 })
 
 test('90: a lock entry without integrity fails with its message before any request and writes nothing', async (context) => {
@@ -778,17 +898,10 @@ test('90: a lock entry without integrity fails with its message before any reque
   const fixture = await writeFixture(context, { packages })
   const registry = await startRegistry(context, fixture.npmFolder)
 
-  await assert.rejects(
-    writeDependencySources(fixture.root, 'web', fixture.output, {
-      registry: registry.url,
-      fetch,
-      run: fakeRun(fixture.root, fixture.answers, fixture.vendorFixture).run,
-    }),
-    {
-      message:
-        'npm package three@3.0.0 has no integrity in ui/pnpm-lock.yaml, so its tarball cannot be checked (docs/spec/delivery.md section 2.13).',
-    },
-  )
+  await assert.rejects(writeWebSources(fixture, registry), {
+    message:
+      'npm package three@3.0.0 has no integrity in ui/pnpm-lock.yaml, so its tarball cannot be checked (docs/spec/delivery.md section 2.13).',
+  })
   assert.deepEqual(registry.requests, [])
   assert.deepEqual(await readdir(fixture.output), [])
 })
@@ -885,14 +998,7 @@ test('91: the vendor folder is a temporary folder outside the output folder, gon
 async function assertWebRejected(context, fixture, message) {
   const registry = await startRegistry(context, fixture.npmFolder)
 
-  await assert.rejects(
-    writeDependencySources(fixture.root, 'web', fixture.output, {
-      registry: registry.url,
-      fetch,
-      run: fakeRun(fixture.root, fixture.answers, fixture.vendorFixture).run,
-    }),
-    { message },
-  )
+  await assert.rejects(writeWebSources(fixture, registry), { message })
   assert.deepEqual(await readdir(fixture.output), [])
 }
 
@@ -1212,4 +1318,100 @@ test('92: the command exits 1 with the GNU tar message when tar is not GNU tar, 
   )
   assert.deepEqual(await readdir(output), [])
   assert.equal(await readFile(calls, 'utf8'), '')
+})
+
+test('92: the command exits 1 with the message of a failed cargo command and writes nothing', async (context) => {
+  const directory = await temporaryDirectory(context)
+  const output = join(directory, 'out')
+  await mkdir(output)
+  const { environment, calls } = await stubEnvironment(context)
+  const metadata = `metadata --format-version 1 --locked --all-features --filter-platform ${WEB_TRIPLE}`
+
+  const result = runCommand(['web', output], directory, environment)
+
+  assert.equal(result.status, 1)
+  assert.equal(result.stderr, `cargo ${metadata} failed with exit status 1: error: no network\n`)
+  assert.equal(result.stdout, '')
+  assert.deepEqual(await readdir(output), [])
+  assert.equal(await readFile(calls, 'utf8'), `${metadata}\n`)
+})
+
+test('92: a failed cargo vendor rejects with its command message, writes nothing and removes the temporary folder', async (context) => {
+  const fixture = await writeFixture(context)
+  const registry = await startRegistry(context, fixture.npmFolder)
+  const cargo = fakeRun(fixture.root, fixture.answers, fixture.vendorFixture, VENDOR_COMMAND)
+
+  await assert.rejects(writeWebSources(fixture, registry, { run: cargo.run }), (error) => {
+    const [vendorFolder] = cargo.vendorFolders
+    assert.equal(
+      error.message,
+      `cargo vendor --locked --versioned-dirs ${vendorFolder} failed with exit status 101: error: failed to sync`,
+    )
+    return true
+  })
+  assert.deepEqual(await readdir(fixture.output), [])
+  // The vendor folder is <temporary folder>/rust-crates-web/vendor.
+  assert.equal(await exists(join(cargo.vendorFolders[0], '..', '..')), false)
+})
+
+/**
+ * Puts a stand-in for `command` first on PATH until the test ends: it answers `--version` with `version` and fails
+ * any other call with `{command}: stand-in failure` on standard error.
+ */
+async function failingTool(context, command, version) {
+  const stubs = await temporaryDirectory(context)
+  await writeFile(
+    join(stubs, command),
+    `#!/usr/bin/env bash\nif [ "$1" = --version ]; then\n  echo '${version}'\n  exit 0\nfi\necho '${command}: stand-in failure' >&2\nexit 1\n`,
+  )
+  await chmod(join(stubs, command), 0o755)
+  const path = process.env.PATH
+  process.env.PATH = `${stubs}:${path}`
+  context.after(() => {
+    process.env.PATH = path
+  })
+}
+
+/**
+ * Asserts that writeDependencySources for `web` fails with the command message of `line` when the stand-in of
+ * `failingTool` replaces `command`, writes nothing and removes its temporary folder.
+ */
+async function assertToolFailure(context, command, version, line) {
+  const fixture = await writeFixture(context)
+  await failingTool(context, command, version)
+  const registry = await startRegistry(context, fixture.npmFolder)
+  const cargo = fakeRun(fixture.root, fixture.answers, fixture.vendorFixture)
+
+  await assert.rejects(writeWebSources(fixture, registry, { run: cargo.run }), {
+    message: `${line} failed with exit status 1: ${command}: stand-in failure`,
+  })
+  assert.deepEqual(await readdir(fixture.output), [])
+  // The vendor folder is <temporary folder>/rust-crates-web/vendor.
+  assert.equal(await exists(join(cargo.vendorFolders[0], '..', '..')), false)
+}
+
+test('92: a failed tar rejects with its command message, writes nothing and removes the temporary folder', async (context) => {
+  await assertToolFailure(
+    context,
+    'tar',
+    'tar (GNU tar) 1.35',
+    'tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --format=pax --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime --mode=u+rwX,go+rX,go-w --create --file=rust-crates-web.tar rust-crates-web',
+  )
+})
+
+test('92: a failed gzip rejects with its command message, writes nothing and removes the temporary folder', async (context) => {
+  await assertToolFailure(context, 'gzip', 'gzip 1.12', 'gzip -9 -n rust-crates-web.tar')
+})
+
+test('92: a part already in the output folder rejects, stays as it was, and the parts written before it are removed', async (context) => {
+  const fixture = await writeFixture(context)
+  const [, npmArchive] = archiveNames('web')
+  const existing = `${npmArchive}.part-00`
+  const existingBytes = Buffer.from('a part from an earlier run\n')
+  await writeFile(join(fixture.output, existing), existingBytes)
+
+  await assert.rejects(writeSources(context, fixture, 'web'), { code: 'EEXIST' })
+
+  assert.deepEqual(await readdir(fixture.output), [existing])
+  assert.deepEqual(await readFile(join(fixture.output, existing)), existingBytes)
 })

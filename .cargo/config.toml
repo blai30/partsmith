@@ -7,3 +7,8 @@ rustflags = [
   "-C", "link-arg=-sSTACK_SIZE=4MB",
 ]
 runner = "node"
+
+[target.x86_64-pc-windows-msvc]
+# The Visual C++ runtime and the C++ standard library linked statically, as OCCT and the shim link them on Windows.
+# The app then imports no DLL of the Visual C++ Redistributable (delivery.md section 3.6, ADR 0038).
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -82,6 +82,9 @@ fn main() {
         // Standard C++ unwinding, so an exception releases the locks of the frames it leaves
         // (kernel spec section 3.9 item 9); cl.exe destroys no automatic object without it.
         build.flag("/EHsc");
+        // The shim takes the Rust target's runtime library: cc compiles with /MT when the target
+        // has crt-static, which .cargo/config.toml gives x86_64-pc-windows-msvc (kernel spec
+        // section 3.12 item 5).
     } else {
         // No multiplication and addition fused into one operation, which the double-double
         // arithmetic of the shim's triangulation relies on (kernel spec section 3.7 item 2).
