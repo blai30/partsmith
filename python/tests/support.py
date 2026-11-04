@@ -540,6 +540,25 @@ def resolved(path: Path) -> Path:
     return Path(os.path.realpath(path))
 
 
+def refuse_to_follow(monkeypatch: pytest.MonkeyPatch, link: Path) -> None:
+    """Makes `os.stat` of `link` raise `PermissionError` (`EACCES`), as Linux's `fs.protected_symlinks` does for a link
+    another user owns in a sticky folder such as `/tmp` (python-api.md section 6, test 120 (e)); every other path is
+    looked at as before."""
+    original_stat = os.stat
+
+    def stat_refusing_the_link(path, *arguments, **options) -> os.stat_result:
+        if isinstance(path, str | os.PathLike) and Path(path) == link:
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return original_stat(path, *arguments, **options)
+
+    monkeypatch.setattr(os, "stat", stat_refusing_the_link)
+
+
+def mode_of(path: Path) -> int:
+    """The permission bits of the file at `path` (`stat.S_IMODE` of `os.stat`)."""
+    return stat.S_IMODE(os.stat(path).st_mode)
+
+
 def assert_missing_file_error(error: OSError, link: Path) -> None:
     """Checks the error of a write through `link`, a link that leads to no file (python-api.md section 6, tests 120 (a)
     and 121 (c)): `FileNotFoundError` with `ENOENT`, the link as its only file name and the text of section 3.1 with

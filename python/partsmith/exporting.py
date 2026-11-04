@@ -6,7 +6,7 @@ import os
 from collections.abc import Sequence
 from pathlib import Path
 
-from ._files import write_atomic
+from ._files import write_through_link
 from .document import Document, Part, warn
 from .errors import PartsmithWarning
 from .expressions import DEGREE, raw_number
@@ -70,7 +70,7 @@ def _export(
     rotate: Rotations,
     into_directory: bool,
 ) -> list[Path]:
-    """Sends `export` and writes each file it returns atomically."""
+    """Sends `export` and writes each file it returns atomically, through a symbolic link at its path."""
     selected = [parts] if isinstance(parts, Part) else list(parts)
     if not selected:
         raise ValueError(f"{function}() needs at least one part.")
@@ -95,7 +95,7 @@ def _export(
     else:
         written = [target]
     for file_path, file in zip(written, files, strict=True):
-        write_atomic(file_path, reply.buffers[file["data"]])
+        write_through_link(file_path, reply.buffers[file["data"]])
     return written
 
 

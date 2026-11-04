@@ -1,11 +1,11 @@
 //! The examples runner (delivery spec section 2.8): the layout, canonical form and feature coverage
 //! of `examples/`, every example rebuilt and compared with its expected results, every example that
-//! builds exported to STL, 3MF, OBJ and STEP, what the corpus covers (every sketch record form,
-//! option value and plane or axis reference kind, a finding of every check on each printer
-//! technology, and every committed asset imported), and the own tests of the comparison rules, the
-//! export check and the coverage checks (delivery spec section 6, tests 20 to 25, 68 to 70 and 74
-//! to 78). The export check and its tests are in `examples/export.rs`, the coverage checks and
-//! theirs in `examples/coverage.rs`.
+//! builds exported to STL, 3MF, OBJ and STEP with each STEP file imported back and its volume
+//! checked, what the corpus covers (every sketch record form, option value and plane or axis
+//! reference kind, a finding of every check on each printer technology, and every committed asset
+//! imported), and the own tests of the comparison rules, the export check and the coverage checks
+//! (delivery spec section 6, tests 20 to 25, 68 to 70, 74 to 78 and 107). The export check and its
+//! tests are in `examples/export.rs`, the coverage checks and theirs in `examples/coverage.rs`.
 //!
 //! After an intended change, regenerate the expected results, run the module again without
 //! `PARTSMITH_BLESS` (the export check reads the expected results the bless rewrites), and review
@@ -21,7 +21,7 @@ mod export;
 
 use std::collections::BTreeSet;
 use std::env;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
@@ -40,7 +40,7 @@ use coverage::{
     asset_problems, by_path, finding_problems, manifest_hints, option_and_kind_problems,
     printer_technologies, protocol_schema_json, ptsm_schema_json, sketch_form_problems,
 };
-use export::{EXPORT_FORMATS, builds, check_export, export_arguments, export_output};
+use export::{EXPORT_FORMATS, builds, expected_volume, export_and_check, export_output};
 
 /// The failure of a bless requested in CI (delivery spec section 4).
 const BLESS_IN_CI: &str =
@@ -92,6 +92,11 @@ impl Problems {
     /// Records a problem that names no file, sorted by its text (runner tests 6 to 8).
     fn add_by_text(&mut self, message: String) {
         self.entries.push((message.clone(), message));
+    }
+
+    /// Records every problem of `other` after the problems already recorded.
+    fn append(&mut self, other: Self) {
+        self.entries.extend(other.entries);
     }
 
     /// Every message sorted by its key. The sort is stable, so problems of one path keep their
@@ -301,13 +306,12 @@ impl Example {
         read_json(&repository_root().join(self.expected()))
     }
 
-    /// Whether the example builds by its expected results and its document, so the export check
-    /// exports it (delivery spec section 2.8, "Export examples").
-    fn builds(&self) -> bool {
-        match (self.expected_results(), self.document()) {
-            (Some(results), Some(document)) => builds(&results, &document),
-            _ => false,
-        }
+    /// The volume the example's STEP file must import with when the example builds by its expected
+    /// results and its document, so the export check exports it; `None` otherwise (delivery spec
+    /// section 2.8, "Export examples" and "STEP round trip").
+    fn exported_volume(&self) -> Option<f64> {
+        let (results, document) = (self.expected_results()?, self.document()?);
+        builds(&results, &document).then(|| expected_volume(&results, &document))
     }
 
     /// The `type` of every feature record of the example.
@@ -511,37 +515,49 @@ fn expected_text(report: &Value) -> String {
     format!("{text}\n")
 }
 
-/// Runs `partsmith` once with each argument list of `runs`, in parallel over
-/// `available_parallelism()` workers, and returns the outputs in the order of `runs`. Each output
-/// then belongs to exactly one run, even when it spans several lines.
-fn run_each<S: AsRef<OsStr> + Sync>(runs: &[Vec<S>]) -> Vec<io::Result<Output>> {
+/// Does `work` on each of `items`, in parallel over `available_parallelism()` workers, and returns
+/// the results in the order of `items`. Each worker makes one state with `state` and gives it to
+/// `work` for each item it takes.
+fn each_in_parallel<T: Sync, S, R: Send>(
+    items: &[T],
+    state: impl Fn() -> S + Sync,
+    work: impl Fn(&mut S, &T) -> R + Sync,
+) -> Vec<R> {
     let workers = thread::available_parallelism()
         .map_or(1, NonZeroUsize::get)
-        .min(runs.len())
+        .min(items.len())
         .max(1);
     let next = AtomicUsize::new(0);
     thread::scope(|scope| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
                 scope.spawn(|| {
-                    let mut outputs = Vec::new();
+                    let mut worker_state = state();
+                    let mut results = Vec::new();
                     loop {
                         let index = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(arguments) = runs.get(index) else {
-                            break outputs;
+                        let Some(item) = items.get(index) else {
+                            break results;
                         };
-                        outputs.push((index, partsmith(arguments)));
+                        results.push((index, work(&mut worker_state, item)));
                     }
                 })
             })
             .collect();
-        let mut outputs: Vec<(usize, io::Result<Output>)> = handles
+        let mut results: Vec<(usize, R)> = handles
             .into_iter()
-            .flat_map(|handle| handle.join().expect("a partsmith worker does not panic"))
+            .flat_map(|handle| handle.join().expect("a worker does not panic"))
             .collect();
-        outputs.sort_by_key(|(index, _)| *index);
-        outputs.into_iter().map(|(_, output)| output).collect()
+        results.sort_by_key(|(index, _)| *index);
+        results.into_iter().map(|(_, result)| result).collect()
     })
+}
+
+/// Runs `partsmith` once with each argument list of `runs`, in parallel, and returns the outputs in
+/// the order of `runs`. Each output then belongs to exactly one run, even when it spans several
+/// lines.
+fn run_each<S: AsRef<OsStr> + Sync>(runs: &[Vec<S>]) -> Vec<io::Result<Output>> {
+    each_in_parallel(runs, || (), |(), arguments| partsmith(arguments))
 }
 
 /// The arguments of `partsmith <command> <model>` for each of `examples`, in their order.
@@ -843,25 +859,35 @@ fn examples_rebuild_as_expected() {
 #[test]
 fn examples_export_to_every_format() {
     let directory = tempfile::tempdir().expect("a temporary directory can be created");
-    let examples: Vec<Example> = examples().into_iter().filter(Example::builds).collect();
+    // Each example that builds, with the volume its STEP file must import with.
+    let examples: Vec<(Example, f64)> = examples()
+        .into_iter()
+        .filter_map(|example| example.exported_volume().map(|volume| (example, volume)))
+        .collect();
     // Within an example, the exports and so its problems follow the format order of
     // `EXPORT_FORMATS`.
-    let exports: Vec<(&Example, &str, PathBuf)> = examples
+    let exports: Vec<(&Example, f64, &str, PathBuf)> = examples
         .iter()
-        .flat_map(|example| {
+        .flat_map(|(example, volume)| {
             EXPORT_FORMATS.map(|format| {
                 let output = export_output(directory.path(), example, format);
-                (example, format, output)
+                (example, *volume, format, output)
             })
         })
         .collect();
-    let runs: Vec<Vec<OsString>> = exports
-        .iter()
-        .map(|(example, _, output)| export_arguments(example, output))
-        .collect();
+    // Each worker imports the STEP files it exports in a session of its own, right after each
+    // export: the kernel reads one STEP file at a time in a process, while the other workers'
+    // exports run in theirs.
+    let checks = each_in_parallel(
+        &exports,
+        || Session::new(SessionOptions::headless()),
+        |session, (example, volume, format, output)| {
+            export_and_check(session, example, format, output, *volume)
+        },
+    );
     let mut problems = Problems::default();
-    for ((example, format, output), export) in exports.iter().zip(run_each(&runs)) {
-        check_export(example, format, output, export, &mut problems);
+    for checked in checks {
+        problems.append(checked);
     }
     problems.assert_none();
 }
@@ -1015,6 +1041,23 @@ fn problems_sort_by_path_and_keep_messages_of_several_lines_whole() {
         Some(
             "examples/a.ptsm: error[parse_error]: 2 problems:\n- one\n- two\nexamples/b.ptsm: not canonical."
         )
+    );
+}
+
+#[test]
+fn appended_problems_keep_their_order_within_a_path() {
+    // Runner test 5 appends each export's problems in the format order of its example.
+    let mut problems = Problems::default();
+    problems.add("examples/b.ptsm", "examples/b.ptsm: stl".to_owned());
+    let mut later = Problems::default();
+    later.add("examples/a.ptsm", "examples/a.ptsm: step".to_owned());
+    later.add("examples/b.ptsm", "examples/b.ptsm: step".to_owned());
+
+    problems.append(later);
+
+    assert_eq!(
+        problems.report().as_deref(),
+        Some("examples/a.ptsm: step\nexamples/b.ptsm: stl\nexamples/b.ptsm: step")
     );
 }
 
@@ -1300,6 +1343,40 @@ fn model_runs_end_each_command_with_the_example() {
     let runs = model_runs(&[box_default()], &["fmt", "--check"]);
 
     assert_eq!(runs, [["fmt", "--check", "examples/box/default.ptsm"]]);
+}
+
+#[test]
+fn each_in_parallel_returns_the_results_in_the_order_of_the_items() {
+    let items: Vec<usize> = (0..100).collect();
+
+    let results = each_in_parallel(&items, || (), |(), item| item * 2);
+
+    assert_eq!(
+        results,
+        items.iter().map(|item| item * 2).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn each_worker_keeps_one_state_for_the_items_it_takes() {
+    let items: Vec<usize> = (0..100).collect();
+    let workers = thread::available_parallelism().map_or(1, NonZeroUsize::get);
+
+    // Each result is how many items its worker had taken by then.
+    let taken = each_in_parallel(
+        &items,
+        || 0,
+        |count: &mut usize, _| {
+            *count += 1;
+            *count
+        },
+    );
+
+    // At most one state per worker, and some worker took at least its share of the items.
+    let states = taken.iter().filter(|count| **count == 1).count();
+    let most = taken.iter().max().copied().unwrap_or_default();
+    assert!((1..=workers).contains(&states), "{states} states");
+    assert!(most >= items.len().div_ceil(workers), "{most} items");
 }
 
 #[test]

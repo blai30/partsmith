@@ -22,6 +22,7 @@ from support import (
     recorded_document,
     stored,
     stored_feature,
+    symbolic_link,
 )
 
 from partsmith import (
@@ -285,7 +286,7 @@ def link_to_the_asset_bytes(entry):
     shared = entry.parent.parent / "shared.step"
     shared.write_bytes(IMPORT_ASSET_BYTES)
     entry.unlink(missing_ok=True)
-    entry.symlink_to(shared)
+    symbolic_link(entry, shared)
 
 
 def test_a_symbolic_link_to_the_asset_bytes_is_replaced_by_a_regular_file(tmp_path):
@@ -369,8 +370,7 @@ def test_a_file_of_another_size_under_an_asset_name_is_replaced_without_being_re
 def test_a_linked_assets_folder_is_followed(tmp_path):
     shared = tmp_path / "shared"
     shared.mkdir()
-    folder = tmp_path / "assets"
-    folder.symlink_to(shared, target_is_directory=True)
+    folder = symbolic_link(tmp_path / "assets", shared, target_is_directory=True)
 
     document_with_import().save(tmp_path / "a.ptsm")
 
@@ -380,8 +380,7 @@ def test_a_linked_assets_folder_is_followed(tmp_path):
 
 
 def test_a_linked_assets_folder_that_leads_to_no_folder_fails_the_save(tmp_path):
-    folder = tmp_path / "assets"
-    folder.symlink_to(tmp_path / "gone", target_is_directory=True)
+    folder = symbolic_link(tmp_path / "assets", tmp_path / "gone", target_is_directory=True)
     (tmp_path / "a.ptsm").write_bytes(b"old")
 
     with pytest.raises(FileExistsError) as raised:

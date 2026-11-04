@@ -20,11 +20,13 @@ from support import (
     has_temporary_file,
     is_same_link,
     link_snapshot,
+    mode_of,
     near,
     os_error_text,
     record_file_operations,
     record_opened_files,
     recorded_document,
+    refuse_to_follow,
     replaced_targets,
     request_command,
     resolved,
@@ -835,6 +837,69 @@ def test_t120_a_link_to_a_folder_fails_like_a_folder_and_leaves_no_temporary_fil
     assert "mark_saved" not in sent_command_types(session, first_exchange)
 
 
+def assert_nothing_written_through(raised: OSError, link: Path, number: int, operations, opened) -> None:
+    """Checks a save through `link` that failed before its document write began (test 120 (e) and (f)): the error has
+    `errno` `number` and names the link alone, and no file was opened or replaced."""
+    assert raised.errno == number
+    assert raised.filename == str(link)
+    assert raised.filename2 is None
+    assert opened == []
+    assert replaced_targets(operations) == []
+
+
+def test_t120_a_link_the_operating_system_refuses_to_follow_fails_before_anything_is_written(tmp_path, monkeypatch):
+    link = linked_file(tmp_path, "link.ptsm", "synced", "part.ptsm")
+    before = link_snapshot(link)
+    document, session = recorded_document(monkeypatch)
+    Part("P")
+    first_exchange = len(session.exchanges)
+    refuse_to_follow(monkeypatch, link)
+    operations = record_file_operations(monkeypatch)
+    opened = record_opened_files(monkeypatch)
+
+    with pytest.raises(PermissionError) as raised:
+        document.save(link)
+
+    assert_nothing_written_through(raised.value, link, errno.EACCES, operations, opened)
+    assert (tmp_path / "synced" / "part.ptsm").read_bytes() == b"old"
+    assert is_same_link(link, before)
+    assert "mark_saved" not in sent_command_types(session, first_exchange)
+
+
+def resolve_link_to(monkeypatch, link: Path, other: Path) -> None:
+    """Makes `os.path.realpath` give `other` for `link`, as if the link had been changed after the look of python-api.md
+    section 3.1 (test 120 (f)); every other path resolves as before."""
+    original_realpath = os.path.realpath
+
+    def realpath(path, *, strict=False):
+        if Path(path) == link:
+            return str(other)
+        return original_realpath(path, strict=strict)
+
+    monkeypatch.setattr(os.path, "realpath", realpath)
+
+
+def test_t120_a_link_that_changed_during_the_save_fails_before_anything_is_written(tmp_path, monkeypatch):
+    link = linked_file(tmp_path, "link.ptsm", "synced", "part.ptsm")
+    before = link_snapshot(link)
+    other = write_text(tmp_path / "other.ptsm", "other")
+    document, session = recorded_document(monkeypatch)
+    Part("P")
+    first_exchange = len(session.exchanges)
+    resolve_link_to(monkeypatch, link, other)
+    operations = record_file_operations(monkeypatch)
+    opened = record_opened_files(monkeypatch)
+
+    with pytest.raises(OSError) as raised:
+        document.save(link)
+
+    assert_nothing_written_through(raised.value, link, errno.ESTALE, operations, opened)
+    assert (tmp_path / "synced" / "part.ptsm").read_bytes() == b"old"
+    assert other.read_text(encoding="utf-8") == "other"
+    assert is_same_link(link, before)
+    assert "mark_saved" not in sent_command_types(session, first_exchange)
+
+
 def test_t121_an_export_to_a_link_replaces_the_file_it_points_to(tmp_path, monkeypatch):
     _document, part = box_document()
     link = linked_file(tmp_path, "out.stl", "printer", "part.stl")
@@ -946,3 +1011,64 @@ def test_t122_a_build_onto_a_link_that_leads_to_no_file_names_the_link(tmp_path,
         assert error_output == f"error: Cannot write {link}: {os.strerror(errno.ENOENT)}\n"
     assert is_same_link(link, before)
     assert os.listdir(tmp_path / "synced") == []
+
+
+# The file a save or an export replaces keeps its permissions (test 123).
+
+POSIX_ONLY = pytest.mark.skipif(os.name != "posix", reason="python-api.md test 123 runs on Linux and macOS")
+
+
+@pytest.fixture
+def umask_022():
+    """Sets the umask to 0o022 for the test and restores it afterwards (test 123)."""
+    previous = os.umask(0o022)
+    yield
+    os.umask(previous)
+
+
+def file_with_mode(path: Path, mode: int) -> Path:
+    """Creates the folders of `path`, writes `old` to it and gives it `mode`; returns `path`."""
+    write_text(path, "old").chmod(mode)
+    return path
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("mode", [0o664, 0o444], ids=["shared", "read-only"])
+def test_t123_a_file_behind_a_link_keeps_its_permissions(tmp_path, umask_022, mode):
+    target = file_with_mode(tmp_path / "synced" / "part.ptsm", mode)
+    link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
+    document, _part = box_document()
+
+    document.save(link)
+
+    assert target.read_bytes() == document.to_text().encode("utf-8")
+    assert mode_of(target) == mode
+
+
+@POSIX_ONLY
+def test_t123_a_saved_document_keeps_its_permissions(tmp_path, umask_022):
+    path = file_with_mode(tmp_path / "a.ptsm", 0o600)
+    document, _part = box_document()
+
+    document.save(path)
+
+    assert mode_of(path) == 0o600
+
+
+@POSIX_ONLY
+def test_t123_an_exported_file_keeps_its_permissions(tmp_path, umask_022):
+    path = file_with_mode(tmp_path / "out.stl", 0o640)
+    _document, part = box_document()
+
+    export_stl(part, path)
+
+    assert mode_of(path) == 0o640
+
+
+@POSIX_ONLY
+def test_t123_a_new_file_gets_the_default_permissions(tmp_path, umask_022):
+    document, _part = box_document()
+
+    document.save(tmp_path / "new.ptsm")
+
+    assert mode_of(tmp_path / "new.ptsm") == 0o644

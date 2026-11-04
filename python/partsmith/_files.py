@@ -1,7 +1,9 @@
 """Atomic, flushed file writes and the check of an existing asset (python-api.md sections 3.1 and 3.7).
 
-A failed operation raises its `OSError` again for the file or folder being written, never a
-temporary file, so the error names what could not be written.
+A failed operation raises its `OSError` again for the file or folder being written as the caller
+named it, never a temporary file or the file a symbolic link leads to, so the error names what
+could not be written. The document and export writes keep the permissions of the file they replace
+on Linux and macOS; an asset's entry gets the default permissions.
 """
 
 import errno
@@ -40,18 +42,74 @@ def write_atomic(path: Path, data: bytes) -> None:
     The bytes go to a new temporary file next to `path`, which is flushed with `os.fsync` and then
     moved over `path` with `os.replace`, which replaces the entry itself, even a symbolic link.
     """
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
     with _reported_as(path):
-        descriptor = os.open(temporary, NEW_FILE_FLAGS, NEW_FILE_MODE)
-        try:
-            with os.fdopen(descriptor, "wb") as file:
-                file.write(data)
-                file.flush()
-                os.fsync(file.fileno())
-            os.replace(temporary, path)
-        except BaseException:
-            temporary.unlink(missing_ok=True)
-            raise
+        _replace(path, data)
+
+
+def write_through_link(path: Path, data: bytes) -> None:
+    """Writes `data` atomically as `write_atomic` does, through `path` when it is a symbolic link,
+    keeping the permissions of the file it replaces.
+
+    The write then replaces the file the link leads to, as `os.path.realpath(path, strict=True)`
+    names it after every link on the way, and leaves the link as it is. A link that leads to no
+    file (a missing file or a loop) fails before a temporary file is created.
+    """
+    with _reported_as(path):
+        target = _link_target(path)
+        _replace(target, data, _kept_mode(target))
+
+
+def _link_target(path: Path) -> Path:
+    """The file a write to `path` replaces: the file a symbolic link at `path` leads to, else `path`.
+
+    `os.path.islink` looks with `os.lstat`. It is false for an entry that is missing or cannot be
+    looked at, and the write to `path` then raises that entry's error. For a link, `os.stat` has
+    the operating system follow it first, under its own limits (Linux's `fs.protected_symlinks`
+    raises `PermissionError`), and raises for a link that leads to no file. `realpath` reads the
+    links itself, and the file it names must be the one `os.stat` reached (`ESTALE` otherwise).
+    """
+    if not os.path.islink(path):
+        return path
+    reached = os.stat(path)
+    target = Path(os.path.realpath(path, strict=True))
+    if not os.path.samestat(reached, os.stat(target)):
+        raise OSError(errno.ESTALE, os.strerror(errno.ESTALE))
+    return target
+
+
+def _kept_mode(target: Path) -> int | None:
+    """The permission bits of the regular file at `target`, which its replacement keeps on Linux and
+    macOS; None (the default permissions) for a missing entry, any other entry, an entry that cannot
+    be looked at, and on Windows."""
+    if os.name != "posix":
+        return None
+    try:
+        status = os.stat(target)
+    except OSError:
+        return None
+    return stat.S_IMODE(status.st_mode) if stat.S_ISREG(status.st_mode) else None
+
+
+def _replace(target: Path, data: bytes, mode: int | None = None) -> None:
+    """Writes `data` to a new temporary file next to `target`, flushes it and moves it over `target`.
+
+    With a `mode`, the temporary file is created with it and then given it exactly with `os.fchmod`
+    before any byte is written, since the umask can narrow the first; without one it gets the
+    default permissions.
+    """
+    temporary = target.with_name(f".{target.name}.{secrets.token_hex(8)}.tmp")
+    descriptor = os.open(temporary, NEW_FILE_FLAGS, NEW_FILE_MODE if mode is None else mode)
+    try:
+        with os.fdopen(descriptor, "wb") as file:
+            if mode is not None:
+                os.fchmod(file.fileno(), mode)
+            file.write(data)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def holds(path: Path, data: bytes) -> bool:

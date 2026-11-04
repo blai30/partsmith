@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._client import Client, Reply
-from ._files import holds, write_atomic
+from ._files import holds, write_atomic, write_through_link
 from .errors import EngineError, ExpressionError, FeatureError, PartsmithError, PartsmithWarning
 from .expressions import ATOM, LENGTH_FACTORS, Expr, choices_text, render_value
 from .reports import BoundingBox, PrintReport, bounding_box, point, print_report
@@ -175,7 +175,8 @@ class Document:
 
     def save(self, path: str | os.PathLike[str]) -> None:
         """Writes the assets the document uses to `assets/` next to `path`, then the canonical text
-        to `path`, then marks the document saved (file-format.md section 3.11)."""
+        to `path` (to the file it leads to when it is a symbolic link), then marks the document saved
+        (file-format.md section 3.11)."""
         path = Path(path)
         reply = self._client.command("save_document")
         assets = reply.result["assets"]
@@ -188,7 +189,7 @@ class Document:
                 data = reply.buffers[asset["data"]]
                 if not holds(target, data):
                     write_atomic(target, data)
-        write_atomic(path, reply.result["text"].encode("utf-8"))
+        write_through_link(path, reply.result["text"].encode("utf-8"))
         self._client.command("mark_saved", revision=reply.result["revision"])
 
     def to_python(self) -> str:

@@ -1,10 +1,10 @@
 """Unit tests of writes through a symbolic link (python-api.md sections 3.1 and 3.7, ADR 0037 option (A)):
-`write_through_link` of partsmith._files, the save and export functions that use it, and the skip rule of the
-`symbolic_link` test helper (python-api.md section 6, tests 118 to 122)."""
+`write_through_link` of partsmith._files, the permissions it keeps, the save and export functions that use it, and the
+skip rule of the `symbolic_link` test helper (python-api.md section 6, tests 118 to 123)."""
 
 import errno
 import os
-import stat
+import re
 from pathlib import Path
 
 import pytest
@@ -13,29 +13,24 @@ from support import (
     fail_fsync_on_call,
     is_same_link,
     link_snapshot,
+    mode_of,
     record_file_operations,
     record_opened_files,
+    refuse_to_follow,
     replaced_targets,
     resolved,
     symbolic_link,
+    write_text,
 )
 
 from partsmith import Document, Part, box, export_step, export_stl
-from partsmith._files import write_through_link
-
-
-def file_holding(path: Path, contents: bytes) -> Path:
-    """Creates the folders of `path` and writes `contents` to it; returns `path`."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(contents)
-    return path
-
+from partsmith._files import write_atomic, write_through_link
 
 # write_through_link: the target.
 
 
 def test_a_path_that_is_no_link_is_replaced_itself(tmp_path, monkeypatch):
-    path = file_holding(tmp_path / "part.ptsm", b"old")
+    path = write_text(tmp_path / "part.ptsm", "old")
     operations = record_file_operations(monkeypatch)
 
     write_through_link(path, b"new")
@@ -55,7 +50,7 @@ def test_a_missing_path_that_is_no_link_is_created(tmp_path):
 
 
 def test_a_relative_link_replaces_the_file_it_points_to_and_stays_a_link(tmp_path, monkeypatch):
-    target = file_holding(tmp_path / "synced" / "part.ptsm", b"old")
+    target = write_text(tmp_path / "synced" / "part.ptsm", "old")
     link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
     before = link_snapshot(link)
     operations = record_file_operations(monkeypatch)
@@ -70,7 +65,7 @@ def test_a_relative_link_replaces_the_file_it_points_to_and_stays_a_link(tmp_pat
 
 
 def test_an_absolute_link_replaces_the_file_it_points_to(tmp_path):
-    target = file_holding(tmp_path / "real" / "part.ptsm", b"old")
+    target = write_text(tmp_path / "real" / "part.ptsm", "old")
     link = symbolic_link(tmp_path / "link.ptsm", target)
     before = link_snapshot(link)
 
@@ -81,7 +76,7 @@ def test_an_absolute_link_replaces_the_file_it_points_to(tmp_path):
 
 
 def test_a_link_through_a_linked_folder_follows_both_links(tmp_path, monkeypatch):
-    target = file_holding(tmp_path / "real" / "part.ptsm", b"old")
+    target = write_text(tmp_path / "real" / "part.ptsm", "old")
     folder_link = symbolic_link(tmp_path / "shared", "real", target_is_directory=True)
     link = symbolic_link(tmp_path / "link.ptsm", Path("shared") / "part.ptsm")
     folder_before = link_snapshot(folder_link)
@@ -98,7 +93,7 @@ def test_a_link_through_a_linked_folder_follows_both_links(tmp_path, monkeypatch
 
 
 def test_a_path_in_a_linked_folder_that_is_no_link_is_replaced_by_its_own_path(tmp_path, monkeypatch):
-    target = file_holding(tmp_path / "real" / "part.ptsm", b"old")
+    target = write_text(tmp_path / "real" / "part.ptsm", "old")
     symbolic_link(tmp_path / "shared", "real", target_is_directory=True)
     path = tmp_path / "shared" / "part.ptsm"
     operations = record_file_operations(monkeypatch)
@@ -111,7 +106,7 @@ def test_a_path_in_a_linked_folder_that_is_no_link_is_replaced_by_its_own_path(t
 
 
 def test_the_temporary_file_goes_in_the_folder_of_the_file_the_link_points_to(tmp_path, monkeypatch):
-    file_holding(tmp_path / "synced" / "part.ptsm", b"old")
+    write_text(tmp_path / "synced" / "part.ptsm", "old")
     link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
     opened = record_opened_files(monkeypatch)
 
@@ -172,6 +167,26 @@ def test_a_link_to_itself_fails_as_a_loop(tmp_path, monkeypatch):
     assert is_same_link(link, before)
 
 
+def test_a_link_the_operating_system_refuses_to_follow_fails_before_anything_is_opened(tmp_path, monkeypatch):
+    target = write_text(tmp_path / "synced" / "part.ptsm", "old")
+    link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
+    before = link_snapshot(link)
+    refuse_to_follow(monkeypatch, link)
+    operations = record_file_operations(monkeypatch)
+    opened = record_opened_files(monkeypatch)
+
+    with pytest.raises(PermissionError) as raised:
+        write_through_link(link, b"new")
+
+    assert raised.value.errno == errno.EACCES
+    assert raised.value.filename == str(link)
+    assert raised.value.filename2 is None
+    assert opened == []
+    assert operations == []
+    assert target.read_bytes() == b"old"
+    assert is_same_link(link, before)
+
+
 def test_a_link_to_a_folder_fails_and_removes_its_temporary_file(tmp_path):
     (tmp_path / "shared" / "box").mkdir(parents=True)
     link = symbolic_link(tmp_path / "link.ptsm", Path("shared") / "box", target_is_directory=True)
@@ -190,7 +205,7 @@ def test_a_link_to_a_folder_fails_and_removes_its_temporary_file(tmp_path):
 
 
 def test_a_failed_flush_through_a_link_names_the_link_and_keeps_the_file(tmp_path, monkeypatch):
-    target = file_holding(tmp_path / "synced" / "part.ptsm", b"old")
+    target = write_text(tmp_path / "synced" / "part.ptsm", "old")
     link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
     fail_fsync_on_call(monkeypatch, 1)
 
@@ -205,25 +220,60 @@ def test_a_failed_flush_through_a_link_names_the_link_and_keeps_the_file(tmp_pat
     assert os.listdir(tmp_path / "synced") == ["part.ptsm"]
 
 
-@pytest.mark.skipif(os.name != "posix", reason="a rename replaces a read-only file only on Linux and macOS")
-def test_a_read_only_file_behind_a_link_is_replaced_with_the_default_permissions(tmp_path):
-    target = file_holding(tmp_path / "synced" / "part.ptsm", b"old")
+# write_through_link: permissions (python-api.md section 3.1, test 123).
+
+POSIX_ONLY = pytest.mark.skipif(os.name != "posix", reason="python-api.md 3.1 keeps permissions on Linux and macOS")
+
+
+@POSIX_ONLY
+def test_a_read_only_file_behind_a_link_is_replaced_and_stays_read_only(tmp_path):
+    target = write_text(tmp_path / "synced" / "part.ptsm", "old")
     target.chmod(0o444)
     link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
-    reference = tmp_path / "reference"
-    os.close(os.open(reference, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666))
 
     write_through_link(link, b"new")
 
     assert target.read_bytes() == b"new"
-    assert stat.S_IMODE(os.stat(target).st_mode) == stat.S_IMODE(os.stat(reference).st_mode)
+    assert mode_of(target) == 0o444
+
+
+@POSIX_ONLY
+def test_the_permissions_are_set_before_any_byte_is_written(tmp_path, monkeypatch):
+    path = write_text(tmp_path / "part.ptsm", "old")
+    path.chmod(0o664)
+    changes = []
+    original_fchmod = os.fchmod
+
+    def fchmod(descriptor: int, mode: int) -> None:
+        changes.append((mode, os.fstat(descriptor).st_size))
+        original_fchmod(descriptor, mode)
+
+    monkeypatch.setattr(os, "fchmod", fchmod)
+
+    write_through_link(path, b"new")
+
+    assert changes == [(0o664, 0)]
+    assert mode_of(path) == 0o664
+
+
+@POSIX_ONLY
+def test_an_asset_entry_gets_the_default_permissions(tmp_path):
+    entry = write_text(tmp_path / "entry.step", "stale")
+    entry.chmod(0o600)
+    reference = tmp_path / "reference"
+    os.close(os.open(reference, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666))
+
+    write_atomic(entry, b"asset")
+
+    assert entry.read_bytes() == b"asset"
+    assert mode_of(entry) == mode_of(reference)
 
 
 # Saves and exports through a link (sections 3.1 and 3.7).
 
 
 def test_a_document_without_assets_saved_through_a_link_creates_no_assets_folder(tmp_path):
-    file_holding(tmp_path / "synced" / "part.ptsm", b"old")
+    write_text(tmp_path / "synced" / "part.ptsm", "old")
     link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
     document = Document()
     Part("P")
@@ -239,7 +289,7 @@ def test_a_step_export_to_a_link_writes_through_it(tmp_path):
     Document()
     with Part("P") as part:
         box(20, 30, 40)
-    target = file_holding(tmp_path / "printer" / "part.step", b"old")
+    target = write_text(tmp_path / "printer" / "part.step", "old")
     link = symbolic_link(tmp_path / "out.step", Path("printer") / "part.step")
     before = link_snapshot(link)
 
@@ -273,7 +323,7 @@ def test_a_per_part_export_stops_at_a_link_that_leads_to_no_file(tmp_path):
     assert is_same_link(link, before)
 
 
-# The skip rule of the `symbolic_link` helper (python-api.md section 6, tests 98 and 118 to 122).
+# The skip rule of the `symbolic_link` helper (python-api.md section 6, tests 98 and 118 to 123).
 
 
 def refuse_links(monkeypatch, error: BaseException) -> None:
@@ -314,3 +364,18 @@ def test_the_link_helper_fails_on_any_other_error(tmp_path, monkeypatch, error):
 
     with pytest.raises(type(error)):
         symbolic_link(tmp_path / "link.ptsm", "part.ptsm")
+
+
+LINK_CALL = re.compile(r"\.symlink_to\(|\bos\.symlink\(")
+"""A call that makes a symbolic link without the `symbolic_link` helper."""
+
+
+def test_every_link_in_the_tests_is_made_with_the_helper():
+    tests = Path(__file__).parent
+    callers = [
+        path.name
+        for path in sorted(tests.glob("*.py"))
+        if path.name != "support.py" and LINK_CALL.search(path.read_text(encoding="utf-8"))
+    ]
+
+    assert callers == []
