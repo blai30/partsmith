@@ -6,8 +6,9 @@
 //! -- plan cancel`. Each operation runs several times and its median time is compared with its
 //! budget; the benchmark fails when any median is over budget or when a selected budget cannot be
 //! measured (the bench50 budgets need `examples/bench/fifty-features/model.ptsm`). The budgets hold
-//! for a release build on the reference machine (technical design section 14), single thread. Web
-//! budgets are three times these and are not measured here.
+//! for a release build on the reference machine (technical design section 14), single thread,
+//! except the run of bench50 from an empty cache, which is judged on the macOS arm64 runner of
+//! `platforms.yml` (ADR 0054). Web budgets are three times these and are not measured here.
 
 #[path = "../tests/common/mod.rs"]
 mod common;

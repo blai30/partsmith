@@ -1,4 +1,4 @@
-// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87, 93 to 95, 100 and 101 of
+// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87, 93 to 95, 100, 101, 104 and 105 of
 // docs/spec/delivery.md section 6 for the workflow files and the copies of section 3.6.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -156,6 +156,7 @@ const EXPECTED_TIMEOUTS = {
   'platforms.yml': {
     'occt-platforms': 150,
     'rust-platforms': 60,
+    'full-rebuild': 60,
     'occt-wasm': 150,
     'core-wasm': 60,
     'e2e-engines': 60,
@@ -246,6 +247,30 @@ const OTHER_REDISTRIBUTABLE_DLLS = [
 
 // What dumpbin prints when it cannot open the app (test 101).
 const UNREADABLE_APP_LISTING = `LINK : fatal error LNK1181: cannot open input file '${DEBUG_APP}'\r\n`
+
+// The job of platforms.yml that times technical design section 14's full rebuild, its step, the row of the recompute
+// benchmark that the step reads, and the files that name the row and lay it out (section 2.14, tests 104 and 105).
+const FULL_REBUILD = 'full-rebuild'
+const FULL_REBUILD_STEP = 'Time the full rebuild of bench50'
+const FULL_REBUILD_OPERATION = 'run of bench50 from an empty cache'
+const RECOMPUTE_BENCHMARK = 'crates/partsmith-recompute/benches/budgets.rs'
+const BUDGETS_REPORT = 'crates/partsmith-budgets/src/report.rs'
+
+// The verdicts of the full-rebuild summary and its error, as section 2.14 and section 4 write them.
+const WITHIN_BUDGET = 'Within the budget of technical design section 14.'
+const OVER_BUDGET =
+  'Over the budget of technical design section 14. The owner decides with an ADR that raises the budget or schedules speed work (ADR 0054).'
+const NOT_MEASURED = `::error title=Full rebuild not measured::The benchmark printed no row for ${FULL_REBUILD_OPERATION}. The build or the benchmark failed, or bench50 is missing: the lines above say which (docs/spec/delivery.md section 2.14).`
+
+// A stand-in for cargo that appends its arguments, separated by NUL, as one line to $CARGO_CALLS, prints the file
+// $CARGO_STDOUT on standard output and the file $CARGO_STDERR on standard error, and exits with $CARGO_STATUS.
+const CARGO_STUB = `#!/usr/bin/env bash
+printf '%s\\0' "$@" >> "$CARGO_CALLS"
+printf '\\n' >> "$CARGO_CALLS"
+cat "$CARGO_STDOUT"
+cat "$CARGO_STDERR" >&2
+exit "$CARGO_STATUS"
+`
 
 // The step of e2e-engines that installs its engine with the engine's system packages, and its name (section 2.14).
 const ENGINE_INSTALL = 'pnpm exec playwright install --with-deps ${{ matrix.browser }}'
@@ -404,14 +429,30 @@ function timeoutMinutes(job) {
   return value === undefined ? undefined : Number(value)
 }
 
+/** The entries of a value written alone or as a list `[a, b]`, in order. */
+function listEntries(value) {
+  const list = /^\[(.*)\]$/.exec(value)
+  return list === null ? [value] : list[1].split(',').map((entry) => entry.trim())
+}
+
 /** The jobs a job needs, in order: none, one written alone, or a list written `[a, b]`. */
 function jobNeeds(job) {
   const value = jobValue(job, 'needs')
-  if (value === undefined) {
-    return []
+  return value === undefined ? [] : listEntries(value)
+}
+
+/** The runners of a job: its matrix `runner` when it runs on `${{ matrix.runner }}`, otherwise its `runs-on`. */
+function jobRunners(job) {
+  const runsOn = jobValue(job, 'runs-on')
+  if (runsOn !== '${{ matrix.runner }}') {
+    return [runsOn]
   }
-  const list = /^\[(.*)\]$/.exec(value)
-  return list === null ? [value] : list[1].split(',').map((need) => need.trim())
+  const prefix = '  runner: '
+  const line = (jobBlock(job, 'strategy') ?? []).find((strategyLine) =>
+    strategyLine.startsWith(prefix),
+  )
+  assert.ok(line, `${job.id} runs on \${{ matrix.runner }} but its matrix has no runner`)
+  return listEntries(line.slice(prefix.length).trim())
 }
 
 /**
@@ -1116,6 +1157,7 @@ test('60: the platforms jobs need only the jobs of their own workflow', async ()
     [
       ['occt-platforms', []],
       ['rust-platforms', ['occt-platforms']],
+      ['full-rebuild', ['occt-platforms']],
       ['occt-wasm', []],
       ['core-wasm', ['occt-wasm']],
       ['e2e-engines', ['core-wasm']],
@@ -2601,3 +2643,187 @@ test('101: the import check fails with Imports not checked when dumpbin is not o
 
   assertImportCheckFailed(result, importsNotCheckedMessage(DEBUG_APP))
 })
+
+test('104: full-rebuild runs on macos-15 right after rust-platforms, after both OCCT rows, for the macOS of OCCT and the app', async () => {
+  const jobs = workflowJobs(await workflowText('platforms.yml'))
+  const ids = jobs.map((job) => job.id)
+  const job = findJob(jobs, 'platforms.yml', FULL_REBUILD)
+
+  assert.equal(ids.indexOf(FULL_REBUILD), ids.indexOf('rust-platforms') + 1)
+  assert.equal(jobValue(job, 'name'), 'Full rebuild of bench50 (macos-15)')
+  assert.deepEqual(jobNeeds(job), ['occt-platforms'])
+  assert.equal(jobValue(job, 'if'), '${{ !cancelled() }}')
+  assert.equal(jobValue(job, 'runs-on'), 'macos-15')
+  assert.equal(jobBlock(job, 'strategy'), undefined)
+  assert.deepEqual(jobBlock(job, 'defaults'), ['run:', '  shell: bash'])
+  assert.deepEqual(mappingEntries(jobBlock(job, 'env')), { MACOSX_DEPLOYMENT_TARGET: '"13.0"' })
+})
+
+test('104: platforms.yml keeps the macos-15 row of occt-platforms that full-rebuild needs, whatever promotion moved', async () => {
+  const jobs = workflowJobs(await workflowText('platforms.yml'))
+  const runners = jobRunners(findJob(jobs, 'platforms.yml', 'occt-platforms'))
+
+  assert.ok(
+    runners.includes('macos-15'),
+    `occt-platforms runs on ${runners.join(', ')}, not on macos-15`,
+  )
+})
+
+test('104: full-rebuild restores OCCT, sets up Rust and its own Rust cache, then times the full rebuild, in five steps', async () => {
+  const steps = jobSteps(await workflowJob('platforms.yml', FULL_REBUILD))
+  const rustSteps = jobSteps(await workflowJob('platforms.yml', 'rust-platforms'))
+  const [checkout, occt, toolchain, cache, timing] = steps
+
+  assert.equal(steps.length, 5)
+  assert.equal(stepValue(checkout, 'uses'), pinned('actions/checkout'))
+  assert.equal(stepValue(occt, 'uses'), pinned('actions/cache/restore'))
+  assert.deepEqual(stepMapping(occt, 'with'), {
+    path: '.occt/native',
+    key: await bundleOcctKey(),
+    'fail-on-cache-miss': 'true',
+  })
+  assert.equal(stepValue(toolchain, 'run'), TOOLCHAIN_STEP)
+  assert.equal(stepValue(cache, 'uses'), pinned('Swatinem/rust-cache'))
+  assert.deepEqual(
+    stepMapping(cache, 'with'),
+    stepMapping(rustSteps[usesStep(rustSteps, 'Swatinem/rust-cache')], 'with'),
+  )
+  assert.equal(stepValue(timing, 'name'), FULL_REBUILD_STEP)
+  assert.deepEqual(stepMapping(timing, 'env'), { OPERATION: FULL_REBUILD_OPERATION })
+  for (const key of ['if', 'shell', 'working-directory', 'timeout-minutes', 'continue-on-error']) {
+    assert.equal(stepValue(timing, key), undefined, `${FULL_REBUILD_STEP} sets ${key}`)
+  }
+})
+
+test('104: the step reads a row that the recompute benchmark names and partsmith-budgets lays out', async () => {
+  const [benchmark, report] = await Promise.all([
+    repositoryText(RECOMPUTE_BENCHMARK),
+    repositoryText(BUDGETS_REPORT),
+  ])
+
+  assert.ok(
+    benchmark.includes(`"${FULL_REBUILD_OPERATION}"`),
+    `${RECOMPUTE_BENCHMARK} names no row "${FULL_REBUILD_OPERATION}"`,
+  )
+  for (const format of ['"{:<width$}  {:>12}   budget {:>12}"', '"Over budget: {} ({} > {})"']) {
+    assert.ok(report.includes(format), `${BUDGETS_REPORT} lays out no line as ${format}`)
+  }
+})
+
+/** The row that `Report` of partsmith-budgets prints for the full rebuild alone, with `median` against `budget`. */
+function fullRebuildRow(median, budget) {
+  return `${FULL_REBUILD_OPERATION}  ${median.padStart(12)}   budget ${budget.padStart(12)}`
+}
+
+/** The job summary of section 2.14 for `median` against `budget` with `verdict`, on the macOS arm64 runner. */
+function fullRebuildSummary(median, budget, verdict) {
+  return [
+    '## Full rebuild of bench50',
+    '',
+    '| Runner | Operation | Median | Budget |',
+    '| --- | --- | --- | --- |',
+    `| macOS ARM64 | ${FULL_REBUILD_OPERATION} | ${median} | ${budget} |`,
+    '',
+    verdict,
+    '',
+  ].join('\n')
+}
+
+/** The warning of section 4 for a full rebuild whose `median` is over its `budget`. */
+function overBudgetWarning(median, budget) {
+  return `::warning title=Full rebuild over budget::The median of ${FULL_REBUILD_OPERATION} is ${median}, over its budget of ${budget} (technical design section 14). The owner decides with an ADR that raises the budget or schedules speed work (ADR 0054).`
+}
+
+/**
+ * Runs the step of full-rebuild as GitHub runs a `bash` step, in a new folder, with the step's `env`, the runner of
+ * macos-15 and an empty job summary, and the cargo stub first on `PATH` printing `stdout` and `stderr` and exiting
+ * with `status`. Resolves to the result, the argument lists cargo received and the summary the step wrote.
+ */
+async function runFullRebuild(context, { stdout = '', stderr = '', status = 0 }) {
+  const steps = jobSteps(await workflowJob('platforms.yml', FULL_REBUILD))
+  const step = steps[namedStep(steps, FULL_REBUILD_STEP)]
+  const directory = await temporaryDirectory(context)
+  const workspace = join(directory, 'workspace')
+  const stubDirectory = join(directory, 'stub')
+  const callsPath = join(directory, 'calls')
+  const stdoutPath = join(directory, 'stdout')
+  const stderrPath = join(directory, 'stderr')
+  const summaryPath = join(directory, 'summary')
+  await Promise.all([mkdir(workspace), mkdir(stubDirectory)])
+  await Promise.all([
+    writeFile(join(stubDirectory, 'cargo'), CARGO_STUB),
+    writeFile(callsPath, ''),
+    writeFile(stdoutPath, stdout),
+    writeFile(stderrPath, stderr),
+    writeFile(summaryPath, ''),
+  ])
+  await chmod(join(stubDirectory, 'cargo'), 0o755)
+  const environment = {
+    ...process.env,
+    ...stepMapping(step, 'env'),
+    PATH: `${stubDirectory}:${process.env.PATH}`,
+    RUNNER_OS: 'macOS',
+    RUNNER_ARCH: 'ARM64',
+    GITHUB_STEP_SUMMARY: summaryPath,
+    CARGO_CALLS: callsPath,
+    CARGO_STDOUT: stdoutPath,
+    CARGO_STDERR: stderrPath,
+    CARGO_STATUS: String(status),
+  }
+  const result = await runStep(context, step, workspace, environment, { pipefail: true })
+  return {
+    ...result,
+    calls: await recordedCalls(callsPath),
+    summary: await readFile(summaryPath, 'utf8'),
+  }
+}
+
+/** Asserts that cargo ran the row once, as the step runs it, and that the step printed what cargo printed first. */
+function assertBenchmarkRan(result, stdout) {
+  assert.deepEqual(result.calls, [
+    ['bench', '-p', 'partsmith-recompute', '--bench', 'budgets', '--', FULL_REBUILD_OPERATION],
+  ])
+  assert.ok(result.stdout.startsWith(stdout), result.stdout)
+}
+
+test('105: a median within the budget goes to the job summary with no warning', async (context) => {
+  const stdout = `${fullRebuildRow('812.345ms', '1.000s')}\nEvery measured operation is within its budget.\n`
+
+  const result = await runFullRebuild(context, { stdout })
+
+  assertBenchmarkRan(result, stdout)
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`)
+  assert.doesNotMatch(result.stdout, /^::/m)
+  assert.equal(result.summary, fullRebuildSummary('812.345ms', '1.000s', WITHIN_BUDGET))
+})
+
+test('105: a median over the budget goes to the job summary with a warning, and the step passes', async (context) => {
+  const stdout = `${fullRebuildRow('1.780s', '1.000s')}\nOver budget: ${FULL_REBUILD_OPERATION} (1.780s > 1.000s)\n`
+
+  const result = await runFullRebuild(context, { stdout, status: 1 })
+
+  assertBenchmarkRan(result, stdout)
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`)
+  assert.equal(lastLine(result.stdout), overBudgetWarning('1.780s', '1.000s'))
+  assert.equal(result.summary, fullRebuildSummary('1.780s', '1.000s', OVER_BUDGET))
+})
+
+for (const [what, run] of [
+  [
+    'bench50 is missing',
+    {
+      stdout: `examples/bench/fifty-features/model.ptsm does not exist yet (engine.md open issue 4).\nNot measured: ${FULL_REBUILD_OPERATION}\n`,
+      status: 1,
+    },
+  ],
+  ['the build fails', { stderr: 'error: could not compile partsmith-recompute\n', status: 101 }],
+]) {
+  test(`105: the step fails with Full rebuild not measured and writes no summary when ${what}`, async (context) => {
+    const result = await runFullRebuild(context, run)
+
+    assertBenchmarkRan(result, run.stdout ?? '')
+    assert.equal(result.status, 1, `${result.stdout}${result.stderr}`)
+    assert.equal(lastLine(result.stdout), NOT_MEASURED)
+    assert.equal(result.summary, '')
+  })
+}

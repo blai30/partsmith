@@ -44,6 +44,8 @@ cargo fmt -p partsmith-recompute
 # timing budgets (recompute.md section 5, test 37), all or by words of their names
 cargo bench -p partsmith-recompute --bench budgets
 cargo bench -p partsmith-recompute --bench budgets -- plan cancel
+# the full-rebuild row alone, as platforms.yml's full-rebuild job runs it on macos-15 and reads it by this name (delivery.md 2.14, ADR 0054)
+cargo bench -p partsmith-recompute --bench budgets -- "run of bench50 from an empty cache"
 ```
 
 Every test runs by default against `Registry::with_builtins()` (all 20 types are registered). The only ignored tests are the release-only feature budgets of `tests/budgets.rs`, a test target of its own (`[[test]] budgets`), so that no median is timed beside the tests of `integration`, where `feature_shell::t012_performance` missed its 250 ms with more test threads than cores, and `median_duration` of `tests/feature_support` times one median at a time, since in their own target the budgets still slowed each other at 8 test threads on 4 cores (ADR 0035). Each sits in a module named after the file of the feature it times, so its test id is `feature_<type>::<name>`. Every budget but `feature_hole::t033_ten_holes_in_a_200_face_body_within_80_ms`, which fails until its budget is decided (features.md open issue 5), holds in a release build on an otherwise idle machine at any thread count.

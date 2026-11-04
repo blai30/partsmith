@@ -12,3 +12,5 @@ runner = "node"
 # The Visual C++ runtime and the C++ standard library linked statically, as OCCT and the shim link them on Windows.
 # The app then imports no DLL of the Visual C++ Redistributable (delivery.md section 3.6, ADR 0038).
 rustflags = ["-C", "target-feature=+crt-static"]
+# Rustdoc reads these flags and not the rustflags. Doc tests then link the same runtime.
+rustdocflags = ["-C", "target-feature=+crt-static"]

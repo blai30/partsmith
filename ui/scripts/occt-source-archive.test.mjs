@@ -1,6 +1,6 @@
 // Acceptance tests 55, 58 and 99 of docs/spec/delivery.md section 6 for scripts/occt-source-archive.sh, the commit
 // check of scripts/build-occt.sh (section 2.13), the arguments that script gives CMake on Windows and the Windows
-// rustflags of .cargo/config.toml (section 3.6, The C runtime on Windows).
+// rustflags and rustdocflags of .cargo/config.toml (section 3.6, The C runtime on Windows).
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { chmod, copyFile, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -110,9 +110,9 @@ const WINDOWS_ARGUMENTS = [
 const WINDOWS_SYSTEMS = ['MINGW64_NT-10.0-26100', 'MSYS_NT-10.0-26100', 'CYGWIN_NT-10.0-26100']
 const OTHER_SYSTEMS = ['Linux', 'Darwin']
 
-// The Cargo table of the Windows target and the rustflags of the static runtime it holds (section 3.6).
+// The Cargo table of the Windows target and the flags of the static runtime it gives rustc and rustdoc (section 3.6).
 const WINDOWS_TARGET_TABLE = 'target.x86_64-pc-windows-msvc'
-const STATIC_RUNTIME_RUSTFLAGS = ['-C', 'target-feature=+crt-static']
+const STATIC_RUNTIME_FLAGS = ['-C', 'target-feature=+crt-static']
 
 // The git that the stub hands its commands to.
 const realGit = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim()
@@ -667,13 +667,14 @@ test('99: for WebAssembly, build-occt.sh calls emcmake once, with none of the Wi
   assertNoWindowsArgument(emcmakeCalls[0], 'emcmake')
 })
 
-test('99: .cargo/config.toml gives x86_64-pc-windows-msvc the rustflags of the static runtime and no other entry', async () => {
+test('99: .cargo/config.toml gives x86_64-pc-windows-msvc the rustflags and rustdocflags of the static runtime and no other entry', async () => {
   const tables = configurationTables(await readFile(cargoConfigurationPath, 'utf8'))
   const windows = tables.get(WINDOWS_TARGET_TABLE)
 
   assert.ok(windows, `.cargo/config.toml has no table [${WINDOWS_TARGET_TABLE}]`)
-  assert.deepEqual(Object.keys(windows), ['rustflags'])
-  assert.deepEqual(stringArray(windows.rustflags), STATIC_RUNTIME_RUSTFLAGS)
+  assert.deepEqual(Object.keys(windows), ['rustflags', 'rustdocflags'])
+  assert.deepEqual(stringArray(windows.rustflags), STATIC_RUNTIME_FLAGS)
+  assert.deepEqual(stringArray(windows.rustdocflags), STATIC_RUNTIME_FLAGS)
 })
 
 test('99: no other table of .cargo/config.toml holds crt-static', async () => {

@@ -1,10 +1,12 @@
 name: Platforms
 
 # What CI does not test on every pull request (delivery.md 2.14, ADR 0038): the crates whose code differs by platform
-# and the examples runner on Windows and macOS, and the end-to-end tests tagged @engines in Firefox and WebKit.
-# It gates nothing: no job of ci.yml or release.yml waits for it. A job, or one row of its matrix, moves into ci.yml
-# once it has passed in the two latest runs on main (gh run list --workflow platforms.yml --branch main), following the
-# promotion steps of delivery.md 2.14. Start a run with: gh workflow run platforms.yml --ref main
+# and the examples runner on Windows and macOS, and the end-to-end tests tagged @engines in Firefox and WebKit. It
+# also times the full rebuild of technical design section 14 on macOS (full-rebuild, ADR 0054).
+# It gates nothing: no job of ci.yml or release.yml waits for it. A job other than full-rebuild, or one row of its
+# matrix, moves into ci.yml once it has passed in the two latest runs on main
+# (gh run list --workflow platforms.yml --branch main), following the promotion steps of delivery.md 2.14.
+# Start a run with: gh workflow run platforms.yml --ref main
 on:
   schedule:
     # Mondays at 05:41 UTC, off the hour, when scheduled runs are delayed least. A week without a change to main
@@ -31,7 +33,8 @@ env:
 # issue 41 until it is fixed.
 jobs:
   # A job of its own, so a cold OCCT build is saved even when the tests after it fail: actions/cache saves in its post
-  # step only when its job succeeds. The steps and the key are those of release.yml's bundle job.
+  # step only when its job succeeds. The steps and the key are those of release.yml's bundle job. When this job or its
+  # macos-15 row moves into ci.yml, a copy of that row stays here for full-rebuild (delivery.md 2.14, promotion step 1).
   occt-platforms:
     name: OCCT (${{ matrix.runner }})
     strategy:
@@ -157,6 +160,67 @@ jobs:
       - name: Disk space after the tests
         if: always()
         run: df -h .
+
+  # Technical design section 14's full-rebuild gate, judged on this macOS arm64 runner (delivery.md 2.14, ADR 0054).
+  # It gates nothing and never moves into ci.yml: a median over the budget warns, and the owner decides.
+  full-rebuild:
+    name: Full rebuild of bench50 (macos-15)
+    needs: occt-platforms
+    # needs waits for both OCCT rows; without this, a failed Windows build would skip the measurement.
+    if: ${{ !cancelled() }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    # The macOS that OCCT and the app are built for (desktop.md 2.8).
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: .occt/native
+          key: occt-native-${{ runner.os }}-${{ hashFiles('scripts/build-occt.sh', 'scripts/occt-version.sh') }}
+          fail-on-cache-miss: true
+      - run: rustup show active-toolchain || rustup toolchain install
+      # Release builds of the benchmark's dependencies, kept apart from rust-platforms' debug builds by rust-cache's job
+      # key, and saved on main alone.
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      # The benchmark builds in the release profile and times the median of 7 runs of bench50, each on a new Recompute.
+      - name: Time the full rebuild of bench50
+        env:
+          OPERATION: run of bench50 from an empty cache
+        run: |
+          # The benchmark exits 1 when the median is over its budget, which is the owner's call (ADR 0054). Its exit
+          # status is not used: the row it prints decides.
+          output="$(cargo bench -p partsmith-recompute --bench budgets -- "$OPERATION")" || true
+          echo "$output"
+          # The row that partsmith-budgets' Report prints: the operation, two spaces, the median, the word budget
+          # and the budget.
+          row="$(awk -v operation="$OPERATION" 'index($0, operation "  ") == 1 { print $(NF - 2), $NF }' <<< "$output")"
+          if [ -z "$row" ]; then
+            echo "::error title=Full rebuild not measured::The benchmark printed no row for $OPERATION. The build or the benchmark failed, or bench50 is missing: the lines above say which (docs/spec/delivery.md section 2.14)."
+            exit 1
+          fi
+          read -r median budget <<< "$row"
+          verdict="Within the budget of technical design section 14."
+          if grep -q -F "Over budget: $OPERATION (" <<< "$output"; then
+            verdict="Over the budget of technical design section 14. The owner decides with an ADR that raises the budget or schedules speed work (ADR 0054)."
+            echo "::warning title=Full rebuild over budget::The median of $OPERATION is $median, over its budget of $budget (technical design section 14). The owner decides with an ADR that raises the budget or schedules speed work (ADR 0054)."
+          fi
+          {
+            echo "## Full rebuild of bench50"
+            echo
+            echo "| Runner | Operation | Median | Budget |"
+            echo "| --- | --- | --- | --- |"
+            echo "| $RUNNER_OS $RUNNER_ARCH | $OPERATION | $median | $budget |"
+            echo
+            echo "$verdict"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ci.yml's occt-wasm, step for step, so a run after GitHub dropped that cache (7 days unused) builds it.
   occt-wasm:
