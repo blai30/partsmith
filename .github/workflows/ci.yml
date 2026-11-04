@@ -27,6 +27,20 @@ jobs:
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7.0.1
+      # The OCCT source archive that web writes into every deployment, made once per pin (delivery.md 2.13). The
+      # lookup downloads nothing. Both steps come before the OCCT build: a failing step after it would throw away a
+      # cold build's cache.
+      - id: occt-source
+        uses: actions/cache@v6.1.0
+        with:
+          path: .occt/source
+          key: occt-source-${{ hashFiles('scripts/occt-source-archive.sh', 'scripts/occt-version.sh') }}
+          lookup-only: true
+      # When the OCCT cache misses too, build-occt.sh builds from the clone this step made.
+      - if: steps.occt-source.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .occt/source
+          scripts/occt-source-archive.sh .occt/source
       - id: cache
         uses: actions/cache@v6.1.0
         with:
@@ -238,7 +252,8 @@ jobs:
 
   web:
     name: Web build
-    needs: core-wasm
+    # occt-native saves the cache of the OCCT source archive.
+    needs: [occt-native, core-wasm]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     defaults:
@@ -251,6 +266,11 @@ jobs:
         with:
           name: core-wasm
           path: ui/public
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: .occt/source
+          key: occt-source-${{ hashFiles('scripts/occt-source-archive.sh', 'scripts/occt-version.sh') }}
+          fail-on-cache-miss: true
       - uses: pnpm/action-setup@v6.1.0
         with:
           package_json_file: ui/package.json
@@ -285,6 +305,21 @@ jobs:
               echo "Tree: $tree"
             fi
           } >dist/SOURCE.txt
+      # OCCT's source next to the stamp, at /occt-<version>-source.tar.gz of every deployment (delivery.md 2.13).
+      # check:dist then holds it to the 25 MiB limit with every other file. Every run prints its SHA-256 and warns,
+      # without failing, when the runner's git or gzip wrote other bytes than the ones 2.13 measured.
+      - name: Write the OCCT source archive
+        env:
+          OCCT_SOURCE_SHA256: bb71bf7473f9a278648f3ff96e28bd50afe49bf8d6e53ab55e883b54d0220155
+        run: |
+          source ../scripts/occt-version.sh
+          archive="occt-$OCCT_VERSION-source.tar.gz"
+          cp "../.occt/source/$archive" dist/
+          sha256="$(sha256sum "dist/$archive" | cut -d ' ' -f 1)"
+          echo "$sha256  $archive"
+          if [ "$sha256" != "$OCCT_SOURCE_SHA256" ]; then
+            echo "::warning title=OCCT source archive changed::$archive has the SHA-256 $sha256, not $OCCT_SOURCE_SHA256, the one docs/spec/delivery.md section 2.13 records. A new pin, git or gzip wrote other bytes: record the new SHA-256 there and in OCCT_SOURCE_SHA256 of the step Write the OCCT source archive."
+          fi
       - run: pnpm check:dist
       # check:dist does not look for the core, which acceptance test 8 requires.
       - name: Check that the build contains the web core
@@ -473,6 +508,19 @@ jobs:
         run: |
           if ! grep -qxF "Commit: $GITHUB_SHA" ui/dist/SOURCE.txt 2>/dev/null; then
             echo "::error title=Source stamp missing::ui/dist/SOURCE.txt does not name the commit $GITHUB_SHA, so nothing was deployed. The web job writes it (docs/spec/delivery.md section 2.13)."
+            exit 1
+          fi
+      # Nor without OCCT's source: a whole gzip file whose tar names the pinned OCCT commit (delivery.md 2.13). gzip -t
+      # reads all of it, because a cut-off archive still names the commit in its first header. git get-tar-commit-id
+      # exits after that header, and the gzip that feeds it may then report a broken pipe: only what git prints counts.
+      - if: steps.secrets.outputs.available == 'true'
+        name: Check the OCCT source archive
+        run: |
+          source scripts/occt-version.sh
+          archive="ui/dist/occt-$OCCT_VERSION-source.tar.gz"
+          if ! gzip -t "$archive" 2>/dev/null ||
+            [ "$(gzip -dc "$archive" 2>/dev/null | git get-tar-commit-id 2>/dev/null)" != "$OCCT_COMMIT" ]; then
+            echo "::error title=OCCT source missing::$archive is missing or does not hold the source of the OCCT commit $OCCT_COMMIT, so nothing was deployed. The web job writes it (docs/spec/delivery.md section 2.13)."
             exit 1
           fi
       - if: steps.secrets.outputs.available == 'true'

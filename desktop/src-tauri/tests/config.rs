@@ -106,7 +106,7 @@ fn expected_configuration() -> Value {
         },
         "bundle": {
             "active": true,
-            "targets": ["deb", "rpm", "appimage", "nsis", "app", "dmg"],
+            "targets": ["deb", "rpm", "nsis", "app", "dmg"],
             "icon": [
                 "icons/32x32.png",
                 "icons/128x128.png",

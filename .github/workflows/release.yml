@@ -75,8 +75,8 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-24.04
-            bundles: deb,rpm,appimage
-            files: target/release/bundle/deb/*.deb target/release/bundle/rpm/*.rpm target/release/bundle/appimage/*.AppImage
+            bundles: deb,rpm
+            files: target/release/bundle/deb/*.deb target/release/bundle/rpm/*.rpm
           - runner: windows-2025
             bundles: nsis
             files: target/release/bundle/nsis/*-setup.exe

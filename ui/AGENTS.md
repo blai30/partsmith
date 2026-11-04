@@ -31,7 +31,7 @@ pnpm lint                # oxlint, then oxfmt --check
 pnpm format              # oxfmt
 pnpm typecheck
 pnpm test                # Vitest
-pnpm test:scripts        # node:test tests of scripts/, of the workflow files and of the crates' test roots (delivery.md test 80, ADR 0035)
+pnpm test:scripts        # node:test tests of scripts/, of the workflow files, of the release checklist's copies and the item numbers named elsewhere (delivery.md tests 82 and 83) and of the crates' test roots (delivery.md test 80, ADR 0035)
 pnpm check:licenses      # the npm packages that ship against the allow list of deny.toml (docs/spec/delivery.md 2.10)
 pnpm notices             # rewrite both third-party notices files after changing a lock file, a Cargo.toml, rust-toolchain.toml or ../scripts/*-version.sh (delivery.md 2.9)
 pnpm check:notices       # both notices files against what the lock files give, as CI's schema job runs it

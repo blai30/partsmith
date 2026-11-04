@@ -89,4 +89,4 @@ Three ways to produce the notices were weighed:
 - About thirty small committed texts join `ui/scripts/notices/`, each made once per crate, pin or version and reviewed in the pull request that adds it.
 - The `schema` job downloads the crate sources of all four platforms through `cargo metadata`; the notices need no OCCT install there or locally.
 - The web build gains one 0.4 MB text file; it is not initial JavaScript and is far from the 25 MiB per-file limit.
-- The notices do not cover the system libraries and the runtime that the AppImage bundles, the NSIS installer's own code, nor the CLI and the Python wheel, which M1 does not distribute (delivery.md 2.9 and open issue 10, ADR 0034).
+- The notices do not cover the NSIS installer's own code, nor the CLI and the Python wheel, which M1 does not distribute (delivery.md 2.9 and open issue 10, ADR 0034). They did not cover the system libraries and the runtime that the AppImage bundled either, and the AppImage left M1 on 2026-11-04 (ADR 0034 choice 1).

@@ -20,12 +20,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 import { git, isolatedGitEnvironment } from './isolated-git.mjs'
+import {
+  makeTaggedRepository,
+  occtVersionText,
+  readOcctPins,
+  sourceArchiveName,
+  writeFiles,
+} from './occt-fixture.mjs'
 
 const archiveScriptPath = fileURLToPath(
   new URL('../../scripts/occt-source-archive.sh', import.meta.url),
 )
 const buildScriptPath = fileURLToPath(new URL('../../scripts/build-occt.sh', import.meta.url))
-const versionPath = fileURLToPath(new URL('../../scripts/occt-version.sh', import.meta.url))
 
 const usageLine = 'usage: scripts/occt-source-archive.sh <directory>'
 const OCCT_URL = 'https://github.com/Open-Cascade-SAS/OCCT.git'
@@ -50,8 +56,7 @@ const TAGGED_FILES = {
   '.gitattributes': '*.bat eol=crlf\n',
 }
 
-// The second commit's change, and the uncommitted change of the working tree.
-const STANDARD_AFTER_TAG = '// Standard, after the tag\n'
+// The uncommitted change of the working tree, after the second commit.
 const CMAKE_UNCOMMITTED = 'project (Changed)\n'
 
 // The files the archive holds, in the order git archive writes them (section 2.13).
@@ -94,18 +99,8 @@ printf '\\n' >> "$CMAKE_CALLS"
 // The git that the stub hands its commands to.
 const realGit = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim()
 
-const versionText = await readFile(versionPath, 'utf8')
-
-/** The value that scripts/occt-version.sh gives `name`. */
-function pin(name) {
-  const match = new RegExp(`^${name}=(\\S+)$`, 'm').exec(versionText)
-  assert.ok(match, `scripts/occt-version.sh sets no ${name}`)
-  return match[1]
-}
-
-const version = pin('OCCT_VERSION')
-const tag = pin('OCCT_TAG')
-const archiveName = `occt-${version}-source.tar.gz`
+const { version, tag, commit: pinnedCommit } = await readOcctPins()
+const archiveName = sourceArchiveName(version)
 
 /** The no-tag message of section 4. */
 function noTagMessage(src) {
@@ -117,33 +112,14 @@ function tagCommitMessage(src, commit, pinned) {
   return `The tag ${tag} in ${src} names the commit ${commit}, not ${pinned}, which scripts/occt-version.sh pins. Upstream may have moved the tag; nothing was built or archived from it (docs/spec/delivery.md section 2.13).`
 }
 
-/** Writes `files`, a map from paths relative to `directory` to texts, creating their folders. */
-async function writeFiles(directory, files) {
-  await Promise.all(
-    Object.entries(files).map(async ([path, text]) => {
-      await mkdir(dirname(join(directory, path)), { recursive: true })
-      await writeFile(join(directory, path), text)
-    }),
-  )
-}
-
 /**
  * Makes a fixture repository at `directory`: a commit of `files` tagged `{tag}` (annotated), a second commit that
  * changes `src/Standard/Standard.cxx`, and an uncommitted change to `CMakeLists.txt`. Returns both commits.
  */
 async function makeFixture(environment, directory, files) {
-  await mkdir(directory, { recursive: true })
-  git(environment, directory, 'init', '--initial-branch=main')
-  await writeFiles(directory, files)
-  git(environment, directory, 'add', '--all')
-  git(environment, directory, 'commit', '--message', 'OCCT')
-  git(environment, directory, 'tag', '--annotate', tag, '--message', `OCCT ${version}`)
-  const tagged = git(environment, directory, 'rev-parse', 'HEAD')
-  await writeFile(join(directory, 'src/Standard/Standard.cxx'), STANDARD_AFTER_TAG)
-  git(environment, directory, 'commit', '--all', '--message', 'After the tag')
-  const second = git(environment, directory, 'rev-parse', 'HEAD')
+  const commits = await makeTaggedRepository(environment, directory, files, { version, tag })
   await writeFile(join(directory, 'CMakeLists.txt'), CMAKE_UNCOMMITTED)
-  return { tagged, second }
+  return commits
 }
 
 // The fixture every test shares: its temporary root, the isolated Git environment, the folder whose src is the
@@ -180,7 +156,7 @@ async function scriptCopy(scriptPath, pinned) {
   await copyFile(scriptPath, copy)
   await writeFile(
     join(folder, 'occt-version.sh'),
-    `OCCT_VERSION=${version}\nOCCT_TAG=${tag}\nOCCT_COMMIT=${pinned}\n`,
+    occtVersionText({ version, tag, commit: pinned }),
   )
   return copy
 }
@@ -308,7 +284,7 @@ async function changingSettings() {
 }
 
 test('55: scripts/occt-version.sh pins the commit of its tag as 40 lowercase hexadecimal digits', () => {
-  assert.match(pin('OCCT_COMMIT'), /^[0-9a-f]{40}$/)
+  assert.match(pinnedCommit, /^[0-9a-f]{40}$/)
 })
 
 test('55: the script writes the archive into an empty folder and prints what it wrote', async () => {

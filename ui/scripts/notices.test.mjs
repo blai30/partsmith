@@ -1,4 +1,4 @@
-// Acceptance tests 35 to 42 of docs/spec/delivery.md section 6 for the third-party notices generator.
+// Acceptance tests 35 to 42 and 84 of docs/spec/delivery.md section 6 for the third-party notices generator.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
@@ -18,6 +18,7 @@ import {
   normalizeText,
   prebuiltLibraries,
   renderNotices,
+  wrapParagraph,
 } from './notices.mjs'
 
 const scriptPath = fileURLToPath(new URL('notices.mjs', import.meta.url))
@@ -41,18 +42,19 @@ const COPIED_INPUTS = [
   'ui/scripts/notices',
 ]
 
-// The OCCT statements of section 2.9 for 7.9.3, V7_9_3 and the Partsmith repository.
+// The paragraphs of the OCCT statements of section 2.9 for 7.9.3, V7_9_3 and the Partsmith repository, each on one
+// line as section 2.9 writes it.
 const DESKTOP_STATEMENT = [
   'The Partsmith desktop app uses Open CASCADE Technology (OCCT) 7.9.3, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.',
   'OCCT is linked statically into the app. It is the unmodified source of the tag V7_9_3 of https://github.com/Open-Cascade-SAS/OCCT, built as static libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.',
   "You may modify OCCT and use your version with Partsmith. The source of each release is on its page under https://github.com/blai30/partsmith/releases: the Partsmith source is the release's tag, v followed by the app's version (for example v0.1.0), with every script, tool version and lock file the build uses, and the OCCT source the build reads is the release's asset occt-7.9.3-source.tar.gz, which scripts/occt-source-archive.sh makes from the tag V7_9_3. To relink: put your OCCT source in <work>/src (from the asset: mkdir -p <work>/src && tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src), run OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>, and build the app with OCCT_ROOT=<prefix> as README.md describes (pnpm -C ui build, then cargo tauri build in desktop/src-tauri). The exact commands for each platform, including the environment Windows and macOS need, are the steps of the bundle job in .github/workflows/release.yml at that tag.",
-].join('\n\n')
+]
 
 const WEB_STATEMENT = [
   'The Partsmith web app uses Open CASCADE Technology (OCCT) 7.9.3, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.',
   "OCCT is linked statically into the app's geometry core, core/partsmith_core.wasm. It is the unmodified source of the tag V7_9_3 of https://github.com/Open-Cascade-SAS/OCCT, built as static WebAssembly libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.",
-  "You may modify OCCT and use your version with Partsmith. Each deployment of this site names the commit of https://github.com/blai30/partsmith it was built from in /SOURCE.txt, with a link to that commit's source archive; that commit holds every script, tool version and lock file the build uses. Production is built from the main branch, and a preview from the commit GitHub makes by merging its pull request into the base branch; for a preview, /SOURCE.txt also names the two commits that merge joins and its tree: if the merge commit is gone, check out the first, run git merge --no-ff with the second, and compare the tree that git log -1 --format=%T prints with that tree. The OCCT source the build reads is occt-7.9.3-source.tar.gz, which scripts/occt-source-archive.sh at that commit makes from the tag V7_9_3; each Partsmith desktop release built with OCCT 7.9.3 carries that file as an asset under https://github.com/blai30/partsmith/releases. To relink: put your OCCT source in <work>/src (from the archive: mkdir -p <work>/src && tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src), run OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix> with the Emscripten SDK of scripts/emsdk-version.sh active, and build the core with OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md describes (scripts/build-wasm.sh, then pnpm -C ui build). The exact commands are the steps of the core-wasm and web jobs in .github/workflows/ci.yml at that commit.",
-].join('\n\n')
+  "You may modify OCCT and use your version with Partsmith. Each deployment of this site names the commit of https://github.com/blai30/partsmith it was built from in /SOURCE.txt, with a link to that commit's source archive; that commit holds every script, tool version and lock file the build uses. Production is built from the main branch, and a preview from the commit GitHub makes by merging its pull request into the base branch; for a preview, /SOURCE.txt also names the two commits that merge joins and its tree: if the merge commit is gone, check out the first, run git merge --no-ff with the second, and compare the tree that git log -1 --format=%T prints with that tree. Each deployment also holds the OCCT source the build reads, at /occt-7.9.3-source.tar.gz. The script scripts/occt-source-archive.sh at that commit makes that file from the tag V7_9_3. To relink: put your OCCT source in <work>/src (from the archive: mkdir -p <work>/src && tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src), run OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix> with the Emscripten SDK of scripts/emsdk-version.sh active, and build the core with OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md describes (scripts/build-wasm.sh, then pnpm -C ui build). The exact commands are the steps of the core-wasm and web jobs in .github/workflows/ci.yml at that commit.",
+]
 
 // The entry lines of OCCT and the four notices of bundled.json for 7.9.3, numbered as both files number them.
 const OCCT_LINES = [
@@ -68,8 +70,54 @@ const FONT_LINES = [
   'JetBrains Mono 2.304, OFL-1.1, https://github.com/JetBrains/JetBrainsMono, texts [9]',
 ]
 
-const CRATES_SOURCE_LINE =
-  "Each crate's source code is at its crates.io URL; for the crates under MPL-2.0 that is where to obtain their Source Code Form."
+// The crates' source line as the files hold it, wrapped at 80 characters (section 2.9).
+const CRATES_SOURCE_LINES = [
+  "Each crate's source code is at its crates.io URL; for the crates under MPL-2.0",
+  'that is where to obtain their Source Code Form.',
+].join('\n')
+
+// The commands of section 2.9 (Wrapping) that each file holds on one line, for OCCT 7.9.3.
+const EXTRACT_COMMANDS = [
+  'mkdir -p <work>/src &&',
+  'tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src',
+]
+
+const DESKTOP_COMMANDS = [
+  'pnpm -C ui notices',
+  ...EXTRACT_COMMANDS,
+  'OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>',
+  'pnpm -C ui build',
+  'cargo tauri build',
+]
+
+const WEB_COMMANDS = [
+  'pnpm -C ui notices',
+  'git merge --no-ff',
+  'git log -1 --format=%T',
+  ...EXTRACT_COMMANDS,
+  'OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix>',
+  'pnpm -C ui build',
+]
+
+// The committed notices files, each with the commands it holds (test 84).
+const COMMITTED_FILES = [
+  { file: 'THIRD-PARTY-NOTICES.txt', commands: DESKTOP_COMMANDS },
+  { file: 'ui/public/THIRD-PARTY-NOTICES.txt', commands: WEB_COMMANDS },
+]
+
+const NO_BREAK_SPACE = '\u00A0'
+
+// The literal paragraphs of test 84, each with the lines that wrapParagraph gives it.
+const WRAPPING_CASES = {
+  short: ['Statement.', ['Statement.']],
+  fullLine: [`${'a'.repeat(39)} ${'b'.repeat(40)} c`, [`${'a'.repeat(39)} ${'b'.repeat(40)}`, 'c']],
+  oneOver: [`${'a'.repeat(40)} ${'b'.repeat(40)}`, ['a'.repeat(40), 'b'.repeat(40)]],
+  longWord: [`short ${'u'.repeat(90)} end`, ['short', 'u'.repeat(90), 'end']],
+  noBreak: [
+    `${'a'.repeat(70)} run${NO_BREAK_SPACE}it${NO_BREAK_SPACE}now end`,
+    ['a'.repeat(70), 'run it now end'],
+  ],
+}
 
 /** Creates a temporary directory that is removed when the test ends. */
 async function temporaryDirectory(context) {
@@ -329,6 +377,32 @@ function entry(name, version, license, url, texts, options = {}) {
 /** The entry line of an npm package under MIT with one text, numbered `number`. */
 function packageLine(name, version, number) {
   return `${name} ${version}, MIT, https://www.npmjs.com/package/${name}/v/${version}, texts [${number}]`
+}
+
+/** `count` times the word `word`, with single spaces between. */
+function words(count) {
+  return Array.from({ length: count }, () => 'word').join(' ')
+}
+
+/** `paragraph` with the words of each of `commands` joined by no-break spaces, as the statements mark them. */
+function markCommands(paragraph, commands) {
+  return commands.reduce(
+    (marked, command) => marked.replaceAll(command, command.replaceAll(' ', NO_BREAK_SPACE)),
+    paragraph,
+  )
+}
+
+/** Each of COMMITTED_FILES with its text in the repository, as `{ file, commands, text }`. */
+async function committedNotices() {
+  const texts = await Promise.all(
+    COMMITTED_FILES.map(({ file }) => readFile(join(repositoryRoot, file), 'utf8')),
+  )
+  return COMMITTED_FILES.map(({ file, commands }, i) => ({ file, commands, text: texts[i] }))
+}
+
+/** Asserts that wrapParagraph gives the lines of the case. */
+function assertWraps([paragraph, lines]) {
+  assert.equal(wrapParagraph(paragraph), lines.join('\n'))
 }
 
 /** Asserts that `generateNotices` rejects with `message` and that the repository holds no notices file after. */
@@ -621,9 +695,13 @@ test('39: renderNotices lays out the entries and numbers each distinct text once
   const expected = [
     'Third-party notices for the Partsmith desktop app',
     '',
-    'Generated by pnpm -C ui notices from the lock files (docs/spec/delivery.md section 2.9). Do not edit it by hand.',
+    'Generated by pnpm -C ui notices from the lock files (docs/spec/delivery.md',
+    'section 2.9). Do not edit it by hand.',
     '',
-    'Partsmith is licensed under the Apache License 2.0, text [1]. Models you make with Partsmith belong to you. The Partsmith desktop app for Linux, Windows and macOS also contains the software listed below, each part under its own license; the license texts follow the list.',
+    'Partsmith is licensed under the Apache License 2.0, text [1]. Models you make',
+    'with Partsmith belong to you. The Partsmith desktop app for Linux, Windows and',
+    'macOS also contains the software listed below, each part under its own license;',
+    'the license texts follow the list.',
     '',
     '== Open CASCADE Technology ==',
     '',
@@ -638,7 +716,7 @@ test('39: renderNotices lays out the entries and numbers each distinct text once
     '',
     '== Rust crates ==',
     '',
-    CRATES_SOURCE_LINE,
+    CRATES_SOURCE_LINES,
     '',
     'b 1.0.0, MIT, https://crates.io/crates/b/1.0.0, texts [6]',
     'a 1.0.0, MIT OR Apache-2.0, https://crates.io/crates/a/1.0.0, only Windows, texts [1] [7]',
@@ -725,13 +803,13 @@ test('40: generateNotices builds both files from the inputs, with no OCCT instal
   ])
   assert.ok(desktop.startsWith(`${DESKTOP_NOTICES_HEADING}\n\n`))
   assert.ok(web.startsWith(`${WEB_NOTICES_HEADING}\n\n`))
-  for (const [notices, statement] of [
-    [desktop, DESKTOP_STATEMENT],
-    [web, WEB_STATEMENT],
+  for (const [notices, statement, commands] of [
+    [desktop, DESKTOP_STATEMENT, DESKTOP_COMMANDS],
+    [web, WEB_STATEMENT, WEB_COMMANDS],
   ]) {
     const occtAndFonts = [
       '== Open CASCADE Technology ==',
-      statement,
+      statement.map((paragraph) => wrapParagraph(markCommands(paragraph, commands))).join('\n\n'),
       OCCT_LINES.join('\n'),
       '== Fonts ==',
       FONT_LINES.join('\n'),
@@ -744,7 +822,7 @@ test('40: generateNotices builds both files from the inputs, with no OCCT instal
       [
         '== Rust crates ==',
         '',
-        CRATES_SOURCE_LINE,
+        CRATES_SOURCE_LINES,
         '',
         'alpha 1.0.0, MIT, https://crates.io/crates/alpha/1.0.0, texts [10]',
         `webview2-com-sys ${webView2Version}, MIT, https://crates.io/crates/webview2-com-sys/${webView2Version}, only Windows, text from its repository, texts [11]`,
@@ -771,7 +849,7 @@ test('40: generateNotices builds both files from the inputs, with no OCCT instal
       [
         '== Rust crates ==',
         '',
-        CRATES_SOURCE_LINE,
+        CRATES_SOURCE_LINES,
         '',
         'alpha 1.0.0, MIT, https://crates.io/crates/alpha/1.0.0, texts [10]',
         '',
@@ -1047,5 +1125,78 @@ test('42: the command with no argument, a wrong argument or two arguments exits 
       stdout: '',
       stderr: `${usageLine}\n`,
     })
+  }
+})
+
+test('84: wrapParagraph keeps a paragraph of 80 characters or fewer as it is', () => {
+  assertWraps(WRAPPING_CASES.short)
+})
+
+test('84: wrapParagraph fills each line with words up to 80 characters', () => {
+  assertWraps(WRAPPING_CASES.fullLine)
+  assertWraps(WRAPPING_CASES.oneOver)
+})
+
+test('84: wrapParagraph gives a word longer than 80 characters a line of its own', () => {
+  assertWraps(WRAPPING_CASES.longWord)
+})
+
+test('84: wrapParagraph keeps the words that no-break spaces join on one line, with spaces between', () => {
+  assertWraps(WRAPPING_CASES.noBreak)
+})
+
+test('84: joining the lines of wrapParagraph with single spaces gives the paragraph back', () => {
+  for (const [paragraph] of Object.values(WRAPPING_CASES)) {
+    assert.equal(
+      wrapParagraph(paragraph).split('\n').join(' '),
+      paragraph.replaceAll(NO_BREAK_SPACE, ' '),
+    )
+  }
+})
+
+test('84: renderNotices wraps the OCCT statement and keeps entry lines and license texts whole', () => {
+  const name = 'n'.repeat(100)
+  const longText = 'x'.repeat(200)
+  const notices = renderNotices({
+    heading: WEB_NOTICES_HEADING,
+    scope: 'The Partsmith web app',
+    partsmith: `${longText}\n`,
+    occt: {
+      statement: `${words(30)}\n\n${words(30)}`,
+      entries: [entry(name, null, 'MIT', 'https://example.com/n', ['Bundled\n'])],
+    },
+    fonts: [],
+    crates: [],
+    packages: [],
+    libraries: [],
+  })
+
+  const statement = [words(16), words(14), '', words(16), words(14)].join('\n')
+  const entryLine = `${name}, MIT, https://example.com/n, texts [2]`
+  assert.ok(notices.includes(`\n== Open CASCADE Technology ==\n\n${statement}\n\n${entryLine}\n`))
+  assert.ok(notices.includes(`\n[1]\n\n${longText}\n`))
+})
+
+test('84: every line above the license texts of both notices files that is longer than 80 characters is an entry line', async () => {
+  for (const { file, text } of await committedNotices()) {
+    const listed = text.slice(0, text.indexOf('\n== License texts ==\n'))
+    const longLines = listed.split('\n').filter((line) => line.length > 80)
+    assert.deepEqual(
+      longLines.filter((line) => !/, texts(?: \[\d+\])+$/.test(line)),
+      [],
+      `${file} has long lines that are not entry lines`,
+    )
+  }
+})
+
+test('84: both notices files hold each command of their paragraphs on one line', async () => {
+  for (const { file, commands, text } of await committedNotices()) {
+    const lines = text.split('\n')
+    for (const command of commands) {
+      assert.ok(
+        lines.some((line) => line.includes(command)),
+        `${file} holds ${command} on one line`,
+      )
+    }
   }
 })

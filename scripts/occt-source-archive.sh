@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Writes the OCCT source that scripts/build-occt.sh reads, from the tag scripts/occt-version.sh pins, as
 # <directory>/occt-<version>-source.tar.gz: the same bytes on every run, whatever the Git configuration
-# (delivery.md section 2.13, ADR 0034). The release workflow attaches it to every release.
+# (delivery.md section 2.13, ADR 0034). The release workflow attaches it to every release, and CI writes it into
+# every web deployment.
 #
 # Usage: scripts/occt-source-archive.sh <directory>
 #

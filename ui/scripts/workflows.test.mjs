@@ -1,13 +1,33 @@
-// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73 and 79 of docs/spec/delivery.md section 6 for the workflow files.
+// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83 and 85 to 87 of docs/spec/delivery.md section 6
+// for the workflow files and the copies of section 3.6.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import {
+  chmod,
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { gunzipSync } from 'node:zlib'
 
 import { git, isolatedGitEnvironment } from './isolated-git.mjs'
+import {
+  makeTaggedRepository,
+  occtVersionText,
+  readOcctPins,
+  sourceArchiveName,
+  writeFiles,
+} from './occt-fixture.mjs'
 
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
 const workflowsDirectory = join(repositoryRoot, '.github/workflows')
@@ -15,8 +35,37 @@ const workflowsDirectory = join(repositoryRoot, '.github/workflows')
 // The source stamp at the root of every web build, which tests 52, 53 and 57 name (section 2.13).
 const SOURCE_STAMP = 'SOURCE.txt'
 
-// The script that writes the OCCT source archive of a release, which tests 54 and 57 name (section 2.13).
+// The script that writes the OCCT source archive of a release and of every web deployment, which tests 54, 57 and 85
+// name (section 2.13).
 const ARCHIVE_SCRIPT = 'scripts/occt-source-archive.sh'
+
+// The pins of OCCT that the archive's name and the fixtures of tests 86 and 87 read (sections 2.9 and 2.13).
+const OCCT_PINS = 'scripts/occt-version.sh'
+
+// The cache of the OCCT source archive (section 2.13): its folder, the key under which occt-native saves it and web
+// restores it, and the two lines of occt-native's step that makes the archive on a miss.
+const ARCHIVE_CACHE_PATH = '.occt/source'
+const ARCHIVE_CACHE_KEY =
+  "occt-source-${{ hashFiles('scripts/occt-source-archive.sh', 'scripts/occt-version.sh') }}"
+const ARCHIVE_STEP_RUN = `mkdir -p .occt/source\n${ARCHIVE_SCRIPT} .occt/source\n`
+
+// The line of occt-native's build step that builds OCCT on a miss of its own cache (section 2.4).
+const OCCT_NATIVE_BUILD = 'scripts/build-occt.sh native "$OCCT_ROOT"'
+
+// The steps of section 2.13 that write the archive into the build (web) and check it before Wrangler (deploy).
+const ARCHIVE_WRITER = 'Write the OCCT source archive'
+const ARCHIVE_CHECK = 'Check the OCCT source archive'
+
+// The Measured paragraph of section 2.13: the tag and commit it measured, and the archive's SHA-256 (test 86).
+const MEASURED_ARCHIVE =
+  /^\*\*Measured\*\* \([^)]*?the tag `([^`]+)`, commit `([0-9a-f]{40})`.*?SHA-256 `([0-9a-f]{64})`/m
+
+// The size of big.bin in the fixture of test 87: its tar is larger than a pipe's buffer (64 KiB on Linux), so gzip
+// is still writing when git get-tar-commit-id has read the first header and exits.
+const PIPE_BREAKING_SIZE = 1_048_576
+
+// An OCCT version that no pin names, for an archive the steps must not take for the pinned one (tests 86 and 87).
+const OTHER_OCCT_VERSION = '9.9.9'
 
 // The repository and a pull request as GitHub gives them to the source stamp's writer (section 2.13).
 const REPOSITORY_URL = 'https://github.com/blai30/partsmith'
@@ -156,6 +205,47 @@ const PYTHON_BUDGETS = 'pytest python/tests -m budgets -s'
 const PYTHON_BUDGETS_STEP = 'Measure the Python budgets'
 const PYTHON_PACKAGING = 'pytest python/tests -m packaging'
 
+// The rows of release.yml's bundle matrix (section 3.6, test 81): the Linux packages without an AppImage (ADR 0034
+// choice 1), the Windows installer and the macOS disk image.
+const RELEASE_MATRIX = [
+  {
+    runner: 'ubuntu-24.04',
+    bundles: 'deb,rpm',
+    files: 'target/release/bundle/deb/*.deb target/release/bundle/rpm/*.rpm',
+  },
+  { runner: 'windows-2025', bundles: 'nsis', files: 'target/release/bundle/nsis/*-setup.exe' },
+  { runner: 'macos-15', bundles: 'app,dmg', files: 'target/release/bundle/dmg/*.dmg' },
+]
+
+// The start of the unsigned-bundle paragraph, one line, and the files that carry it word for word (section 3.6, test 82).
+const UNSIGNED_PARAGRAPH = 'These builds are not signed yet.'
+const UNSIGNED_PARAGRAPH_FILES = [
+  'docs/spec/delivery.md',
+  '.github/workflows/AGENTS.md',
+  'README.md',
+]
+
+// A reference by number to items of the release checklist: `checklist item 2`, `checklist items 4 to 6` or
+// `(3.6, item 2)` (section 3.6, test 83).
+const CHECKLIST_REFERENCE = /(?:checklist|\(3\.6,) items? (\d+)(?: to (\d+))?/g
+
+// The references to the release checklist by number outside the checklist itself, in the order each file holds them,
+// each with words of every item it names (section 3.6, test 83).
+const CHECKLIST_REFERENCES = {
+  'docs/spec/delivery.md': [
+    ['platforms workflow'],
+    ['platforms workflow'],
+    ['platforms workflow'],
+    ['source route'],
+    ['platforms workflow'],
+    ['platforms workflow'],
+  ],
+  '.github/workflows/AGENTS.md': [
+    ['platforms workflow'],
+    ['release dry run', 'Push the tag', 'When `draft` finishes'],
+  ],
+}
+
 /** Creates a temporary directory that is removed when the test ends. */
 async function temporaryDirectory(context) {
   const directory = await mkdtemp(join(tmpdir(), 'partsmith-workflows-'))
@@ -247,6 +337,22 @@ function jobNeeds(job) {
  */
 function jobBlock(job, key) {
   return blockBelow(job.lines, `    ${key}:`, 6)
+}
+
+/**
+ * The rows of a job's `strategy` matrix `include`, each as an object of its entries as written. A row starts at a line
+ * `    - ` of the strategy block, and the lines indented below it belong to it.
+ */
+function matrixRows(job) {
+  const include = blockBelow(jobBlock(job, 'strategy') ?? [], '  include:', 4) ?? []
+  const rows = []
+  for (const line of include) {
+    if (line.startsWith('- ')) {
+      rows.push([])
+    }
+    rows.at(-1)?.push(line.slice(2))
+  }
+  return rows.map(mappingEntries)
 }
 
 /**
@@ -555,11 +661,17 @@ function stampErrorMessage(commit) {
   return `::error title=Source stamp missing::ui/dist/${SOURCE_STAMP} does not name the commit ${commit}, so nothing was deployed. The web job writes it (docs/spec/delivery.md section 2.13).`
 }
 
-/** Runs a step's `run` script with `bash -e` in `directory` and `environment`, as GitHub runs a step without a `shell`. */
-async function runStep(context, step, directory, environment) {
+/**
+ * Runs a step's `run` script with `bash -e` in `directory` and `environment`, as GitHub runs a step without a `shell`.
+ * With `ignorePipe`, the shell that starts it ignores SIGPIPE (`trap '' PIPE`), which the step's commands inherit.
+ */
+async function runStep(context, step, directory, environment, { ignorePipe = false } = {}) {
   const scriptPath = join(await temporaryDirectory(context), 'step.sh')
   await writeFile(scriptPath, stepValue(step, 'run'))
-  return spawnSync('bash', ['-e', scriptPath], {
+  const command = ignorePipe
+    ? ['-c', `trap '' PIPE; bash -e "$1"`, 'bash', scriptPath]
+    : ['-e', scriptPath]
+  return spawnSync('bash', command, {
     cwd: directory,
     env: environment,
     encoding: 'utf8',
@@ -801,14 +913,13 @@ test('54: the archive script is a regular file its owner can run', async () => {
 })
 
 test('57: the notices statements name the stamp, the archive and its script', async () => {
-  const pins = await readFile(join(repositoryRoot, 'scripts/occt-version.sh'), 'utf8')
-  const version = /^OCCT_VERSION=(\S+)$/m.exec(pins)?.[1]
-  assert.ok(version, 'scripts/occt-version.sh sets no OCCT_VERSION')
-  const archiveName = `occt-${version}-source.tar.gz`
-  const web = await readFile(join(repositoryRoot, 'ui/public/THIRD-PARTY-NOTICES.txt'), 'utf8')
-  const desktop = await readFile(join(repositoryRoot, 'THIRD-PARTY-NOTICES.txt'), 'utf8')
+  const { version } = await readOcctPins()
+  const archiveName = sourceArchiveName(version)
+  const web = await repositoryText('ui/public/THIRD-PARTY-NOTICES.txt')
+  const desktop = await repositoryText('THIRD-PARTY-NOTICES.txt')
 
-  for (const name of [`/${SOURCE_STAMP}`, archiveName, ARCHIVE_SCRIPT]) {
+  // The web statement names the archive at its path in the deployment, where test 86 sees web write it.
+  for (const name of [`/${SOURCE_STAMP}`, `/${archiveName}`, ARCHIVE_SCRIPT]) {
     assert.ok(web.includes(name), `ui/public/THIRD-PARTY-NOTICES.txt does not name ${name}`)
   }
   for (const name of [archiveName, ARCHIVE_SCRIPT]) {
@@ -1301,4 +1412,494 @@ test('79: after a failed install, the report upload only warns that it found no 
 
   assert.equal(stepValue(upload, 'uses'), pinned('actions/upload-artifact'))
   assert.equal(stepMapping(upload, 'with')['if-no-files-found'], undefined)
+})
+
+test('81: the release matrix builds the bundles of section 3.6 and no AppImage', async () => {
+  const rows = matrixRows(await workflowJob('release.yml', 'bundle'))
+
+  assert.deepEqual(rows, RELEASE_MATRIX)
+})
+
+/**
+ * The items of the first numbered list below the first line of the repository file `path` that starts with `start`,
+ * each without its number; fails the test when there is no such line or list, or when the list is not numbered from
+ * 1 with no gap.
+ */
+async function checklistItems(path, start) {
+  const lines = (await repositoryText(path)).split('\n')
+  const first = lines.findIndex((line) => line.startsWith(start))
+  assert.notEqual(first, -1, `${path} has no line that starts with ${start}`)
+  const items = []
+  for (const line of lines.slice(first + 1)) {
+    const item = /^(\d+)\. (.*)$/.exec(line)
+    if (item === null) {
+      if (items.length > 0) {
+        break
+      }
+      continue
+    }
+    assert.equal(
+      Number(item[1]),
+      items.length + 1,
+      `${path} numbers its checklist item ${items.length + 1} as ${item[1]}`,
+    )
+    items.push(item[2])
+  }
+  assert.ok(items.length > 0, `${path} has no numbered list below ${start}`)
+  return items
+}
+
+test('82: the release checklist of the workflows AGENTS.md is the one of section 3.6, word for word', async () => {
+  assert.deepEqual(
+    await checklistItems('.github/workflows/AGENTS.md', '## Release checklist'),
+    await checklistItems('docs/spec/delivery.md', '**Release checklist**'),
+  )
+})
+
+test('82: the unsigned-bundle paragraph is the same one line in section 3.6, the workflows AGENTS.md and README.md', async () => {
+  const texts = await Promise.all(UNSIGNED_PARAGRAPH_FILES.map(repositoryText))
+  const paragraphs = UNSIGNED_PARAGRAPH_FILES.map((path, i) => {
+    const lines = texts[i].split('\n').filter((line) => line.startsWith(UNSIGNED_PARAGRAPH))
+    assert.equal(
+      lines.length,
+      1,
+      `${path} holds ${lines.length} lines that start with ${UNSIGNED_PARAGRAPH}`,
+    )
+    return lines[0]
+  })
+
+  for (const [i, path] of UNSIGNED_PARAGRAPH_FILES.entries()) {
+    assert.equal(
+      paragraphs[i],
+      paragraphs[0],
+      `${path} words the paragraph unlike ${UNSIGNED_PARAGRAPH_FILES[0]}`,
+    )
+  }
+})
+
+test('83: each release checklist item named by number outside the checklist is the item meant', async () => {
+  const items = await checklistItems('docs/spec/delivery.md', '**Release checklist**')
+  const files = Object.entries(CHECKLIST_REFERENCES)
+  const texts = await Promise.all(files.map(([path]) => repositoryText(path)))
+
+  for (const [i, [path, expected]] of files.entries()) {
+    const references = [...texts[i].matchAll(CHECKLIST_REFERENCE)]
+    assert.equal(
+      references.length,
+      expected.length,
+      `${path} names checklist items by number in: ${references.map((reference) => reference[0]).join(', ')}`,
+    )
+    for (const [position, reference] of references.entries()) {
+      const first = Number(reference[1])
+      const last = Number(reference[2] ?? reference[1])
+      assert.equal(
+        last - first + 1,
+        expected[position].length,
+        `${path}: ${reference[0]} names another number of items`,
+      )
+      for (const [offset, words] of expected[position].entries()) {
+        assert.ok(
+          items[first + offset - 1]?.includes(words),
+          `${path}: ${reference[0]} names item ${first + offset}, which does not hold "${words}"`,
+        )
+      }
+    }
+  }
+})
+
+/** The steps of the job `id` of ci.yml. */
+async function ciJobSteps(id) {
+  return jobSteps(await workflowJob('ci.yml', id))
+}
+
+/** The index of the step of `steps` whose `run` holds the line `line`; fails the test when there is none. */
+function lineStep(steps, line) {
+  return stepIndex(steps, `that runs ${line}`, (step) =>
+    stepValue(step, 'run')?.split('\n').includes(line),
+  )
+}
+
+test('85: occt-native looks up the archive cache before its OCCT cache, without downloading it', async () => {
+  const steps = await ciJobSteps('occt-native')
+  const lookup = idStep(steps, 'occt-source')
+
+  assert.ok(lookup < idStep(steps, 'cache'), 'the step occt-source is not before the step cache')
+  assert.ok(
+    lookup < lineStep(steps, OCCT_NATIVE_BUILD),
+    'the step occt-source is not before the OCCT build',
+  )
+  assert.equal(stepValue(steps[lookup], 'uses'), pinned('actions/cache'))
+  assert.deepEqual(stepMapping(steps[lookup], 'with'), {
+    path: ARCHIVE_CACHE_PATH,
+    key: ARCHIVE_CACHE_KEY,
+    'lookup-only': 'true',
+  })
+})
+
+test('85: on a miss, occt-native makes the archive with the two lines of section 2.13, before its OCCT cache', async () => {
+  const steps = await ciJobSteps('occt-native')
+  const archive = steps[idStep(steps, 'occt-source') + 1]
+
+  assert.ok(archive, 'occt-native has no step after the step occt-source')
+  assert.ok(
+    idStep(steps, 'occt-source') + 1 < idStep(steps, 'cache'),
+    'the archive step is not before the step cache',
+  )
+  assert.equal(stepValue(archive, 'if'), "steps.occt-source.outputs.cache-hit != 'true'")
+  assert.equal(stepValue(archive, 'shell'), undefined)
+  assert.equal(stepValue(archive, 'run'), ARCHIVE_STEP_RUN)
+})
+
+test('85: web needs occt-native, which saves the archive cache, and core-wasm', async () => {
+  assert.deepEqual(jobNeeds(await workflowJob('ci.yml', 'web')), ['occt-native', 'core-wasm'])
+})
+
+test('85: web restores the archive cache under the key occt-native saves it with, before writing the archive', async () => {
+  const steps = await ciJobSteps('web')
+  const restore = cacheStep(steps, 'actions/cache/restore', ARCHIVE_CACHE_PATH)
+
+  assert.equal(stepValue(steps[restore], 'uses'), pinned('actions/cache/restore'))
+  assert.deepEqual(stepMapping(steps[restore], 'with'), {
+    path: ARCHIVE_CACHE_PATH,
+    key: ARCHIVE_CACHE_KEY,
+    'fail-on-cache-miss': 'true',
+  })
+  assert.ok(
+    restore < namedStep(steps, ARCHIVE_WRITER),
+    `the cache restore is not before ${ARCHIVE_WRITER}`,
+  )
+})
+
+test('86: the web job writes the archive after the source stamp and before the distribution check', async () => {
+  const steps = await ciJobSteps('web')
+  const stamp = namedStep(steps, 'Write the source stamp')
+  const writer = namedStep(steps, ARCHIVE_WRITER)
+  const check = commandStep(steps, 'pnpm check:dist')
+
+  assert.ok(
+    stamp < writer && writer < check,
+    `${ARCHIVE_WRITER} is not between the source stamp and pnpm check:dist`,
+  )
+  assert.equal(stepValue(steps[writer], 'shell'), undefined)
+})
+
+/** The tag, commit and SHA-256 of the archive that the Measured paragraph of section 2.13 records. */
+async function measuredArchive() {
+  const match = MEASURED_ARCHIVE.exec(await repositoryText('docs/spec/delivery.md'))
+  assert.ok(match, 'docs/spec/delivery.md has no Measured paragraph with a tag, a commit and a SHA-256')
+  return { tag: match[1], commit: match[2], sha256: match[3] }
+}
+
+/** The SHA-256 of the archive that the archive writer's `env` holds. */
+async function writerSha256() {
+  const steps = await ciJobSteps('web')
+  return stepMapping(steps[namedStep(steps, ARCHIVE_WRITER)], 'env')?.OCCT_SOURCE_SHA256
+}
+
+test('86: the archive writer holds the SHA-256 that section 2.13 measured for the pinned tag and commit', async () => {
+  const steps = await ciJobSteps('web')
+  const { tag, commit } = await readOcctPins()
+  const measured = await measuredArchive()
+
+  assert.deepEqual({ tag: measured.tag, commit: measured.commit }, { tag, commit })
+  assert.deepEqual(stepMapping(steps[namedStep(steps, ARCHIVE_WRITER)], 'env'), {
+    OCCT_SOURCE_SHA256: measured.sha256,
+  })
+})
+
+/** The SHA-256 of `bytes` in hexadecimal, as sha256sum prints it. */
+function sha256Of(bytes) {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+/** The warning of section 4 for the archive `name` whose SHA-256 is `sha256`, not `expected`. */
+function archiveChangedWarning(name, sha256, expected) {
+  return `::warning title=OCCT source archive changed::${name} has the SHA-256 ${sha256}, not ${expected}, the one docs/spec/delivery.md section 2.13 records. A new pin, git or gzip wrote other bytes: record the new SHA-256 there and in OCCT_SOURCE_SHA256 of the step ${ARCHIVE_WRITER}.`
+}
+
+/**
+ * Runs the web job's archive writer in `<root>/ui` with `OCCT_SOURCE_SHA256` set to `expected`, where `<root>` is a
+ * new folder that holds a copy of scripts/occt-version.sh, an empty `ui/dist/` and, in `.occt/source/`, the files of
+ * `cached` (name to bytes). Resolves to the step's result and the folder `ui/dist`.
+ */
+async function runArchiveWriter(context, cached, expected) {
+  const steps = await ciJobSteps('web')
+  const root = await temporaryDirectory(context)
+  const dist = join(root, 'ui', 'dist')
+  const cache = join(root, ARCHIVE_CACHE_PATH)
+  await mkdir(join(root, 'scripts'))
+  await copyFile(join(repositoryRoot, OCCT_PINS), join(root, OCCT_PINS))
+  await mkdir(dist, { recursive: true })
+  await mkdir(cache, { recursive: true })
+  await writeFiles(cache, cached)
+
+  const result = await runStep(context, steps[namedStep(steps, ARCHIVE_WRITER)], join(root, 'ui'), {
+    ...process.env,
+    OCCT_SOURCE_SHA256: expected,
+  })
+  return { result, dist }
+}
+
+/** `length` bytes that differ from one position to the next, as a stand-in for an archive. */
+function testBytes(length) {
+  return Buffer.from(Array.from({ length }, (_, i) => i % 251))
+}
+
+test('86: the archive writer copies the archive of the pinned OCCT into the build and prints its SHA-256', async (context) => {
+  const name = sourceArchiveName((await readOcctPins()).version)
+  const archive = testBytes(1000)
+  const sha256 = sha256Of(archive)
+
+  const { result, dist } = await runArchiveWriter(context, { [name]: archive }, sha256)
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(await readdir(dist), [name])
+  assert.deepEqual(await readFile(join(dist, name)), archive)
+  assert.equal(result.stdout, `${sha256}  ${name}\n`)
+  assert.equal(result.stderr, '')
+})
+
+test('86: the archive writer copies an archive with other bytes than section 2.13 records and warns without failing', async (context) => {
+  const name = sourceArchiveName((await readOcctPins()).version)
+  const archive = testBytes(1000)
+  const sha256 = sha256Of(archive)
+  const expected = await writerSha256()
+
+  const { result, dist } = await runArchiveWriter(context, { [name]: archive }, expected)
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(await readdir(dist), [name])
+  assert.deepEqual(await readFile(join(dist, name)), archive)
+  assert.equal(
+    result.stdout,
+    `${sha256}  ${name}\n${archiveChangedWarning(name, sha256, expected)}\n`,
+  )
+  assert.equal(result.stderr, '')
+})
+
+test('86: the archive writer fails and writes nothing when the cache holds no archive', async (context) => {
+  const { result, dist } = await runArchiveWriter(context, {}, await writerSha256())
+
+  assert.notEqual(result.status, 0)
+  assert.deepEqual(await readdir(dist), [])
+})
+
+test("86: the archive writer fails and writes nothing when the cache holds only another version's archive", async (context) => {
+  const { result, dist } = await runArchiveWriter(
+    context,
+    { [sourceArchiveName(OTHER_OCCT_VERSION)]: testBytes(1000) },
+    await writerSha256(),
+  )
+
+  assert.notEqual(result.status, 0)
+  assert.deepEqual(await readdir(dist), [])
+})
+
+test('87: the deploy job checks the OCCT source archive after the source stamp and before Wrangler', async () => {
+  const steps = await ciJobSteps('deploy')
+  const stamp = namedStep(steps, 'Check the source stamp')
+  const check = namedStep(steps, ARCHIVE_CHECK)
+
+  assert.equal(stepValue(steps[check], 'if'), "steps.secrets.outputs.available == 'true'")
+  assert.ok(
+    stamp < check && check < idStep(steps, 'pages'),
+    `${ARCHIVE_CHECK} is not between the source stamp check and Wrangler`,
+  )
+})
+
+// The files of the tagged commit of test 87's fixture: a short text, and big.bin, whose tar is larger than a pipe
+// holds.
+const TAGGED_ARCHIVE_FILES = {
+  'README.md': '# Open CASCADE Technology\n',
+  'src/Standard/Standard.cxx': '// Standard, as tagged\n',
+  'big.bin': Buffer.alloc(PIPE_BREAKING_SIZE),
+}
+
+/**
+ * Writes `git archive --format=tar --prefix=occt-{version}/ <commit>` of `repository`, piped to `gzip -9 -n`, to
+ * `path`, as scripts/occt-source-archive.sh packs its tag (section 2.13).
+ */
+function writeCommitArchive(environment, repository, version, commit, path) {
+  const result = spawnSync(
+    'bash',
+    [
+      '-c',
+      'set -o pipefail; git archive --format=tar --prefix="$1" "$2" | gzip -9 -n > "$3"',
+      'bash',
+      `occt-${version}/`,
+      commit,
+      path,
+    ],
+    { cwd: repository, env: environment, encoding: 'utf8' },
+  )
+  assert.equal(result.status, 0, result.stderr)
+}
+
+/**
+ * Makes the fixture of test 87 in a new folder: a repository whose first commit holds TAGGED_ARCHIVE_FILES and is
+ * tagged `{tag}` (annotated), and whose second commit changes `src/Standard/Standard.cxx`, and the archives of both
+ * commits. Resolves to the folder, the Git environment, the pins, both commits and both archives' paths.
+ */
+async function archiveCheckFixture(context) {
+  const directory = await temporaryDirectory(context)
+  const environment = await isolatedGitEnvironment(directory)
+  const { version, tag } = await readOcctPins()
+  const repository = join(directory, 'repository')
+  const { tagged, second } = await makeTaggedRepository(
+    environment,
+    repository,
+    TAGGED_ARCHIVE_FILES,
+    { version, tag },
+  )
+  const taggedArchive = join(directory, 'tagged.tar.gz')
+  const secondArchive = join(directory, 'second.tar.gz')
+  writeCommitArchive(environment, repository, version, tagged, taggedArchive)
+  writeCommitArchive(environment, repository, version, second, secondArchive)
+  return { directory, environment, version, tag, tagged, second, taggedArchive, secondArchive }
+}
+
+/** The OCCT-source error of section 4 for the archive of OCCT `version` and the pinned commit `commit`. */
+function archiveErrorMessage(version, commit) {
+  return `::error title=OCCT source missing::ui/dist/${sourceArchiveName(version)} is missing or does not hold the source of the OCCT commit ${commit}, so nothing was deployed. The web job writes it (docs/spec/delivery.md section 2.13).`
+}
+
+/**
+ * Runs the deploy job's archive check in a new folder whose scripts/occt-version.sh pins the fixture's version, its tag
+ * and its tagged commit, after writing `files` into `ui/dist/` (name to bytes; no `ui/dist` when `files` is
+ * undefined), in the fixture's Git environment. With `ignorePipe`, the shell that starts the step ignores SIGPIPE.
+ */
+async function runArchiveCheck(context, fixture, files, { ignorePipe = false } = {}) {
+  const steps = await ciJobSteps('deploy')
+  const workspace = await temporaryDirectory(context)
+  await writeFiles(workspace, {
+    [OCCT_PINS]: occtVersionText({
+      version: fixture.version,
+      tag: fixture.tag,
+      commit: fixture.tagged,
+    }),
+  })
+  if (files !== undefined) {
+    await mkdir(join(workspace, 'ui', 'dist'), { recursive: true })
+    await writeFiles(join(workspace, 'ui', 'dist'), files)
+  }
+  return runStep(context, steps[namedStep(steps, ARCHIVE_CHECK)], workspace, fixture.environment, {
+    ignorePipe,
+  })
+}
+
+/** Asserts that the archive check fails with exactly the OCCT-source error, as `runArchiveCheck` takes `files`. */
+async function assertArchiveRejected(context, fixture, files) {
+  const result = await runArchiveCheck(context, fixture, files)
+
+  assert.equal(result.status, 1, result.stderr)
+  assert.equal(result.stdout, `${archiveErrorMessage(fixture.version, fixture.tagged)}\n`)
+  assert.equal(result.stderr, '')
+}
+
+/** Runs `script` with `bash -c`, its arguments after it, in `environment`. */
+function runShell(environment, script, ...scriptArguments) {
+  return spawnSync('bash', ['-c', script, 'bash', ...scriptArguments], {
+    env: environment,
+    encoding: 'utf8',
+  })
+}
+
+test('87: the archive check passes silently on the archive of the pinned commit, with SIGPIPE at its default and ignored', async (context) => {
+  const fixture = await archiveCheckFixture(context)
+  const files = { [sourceArchiveName(fixture.version)]: await readFile(fixture.taggedArchive) }
+
+  // The fixture breaks the pipe: git exits after the first header while gzip is still writing.
+  const brokenPipe = runShell(
+    fixture.environment,
+    `trap '' PIPE; gzip -dc "$1" | git get-tar-commit-id`,
+    fixture.taggedArchive,
+  )
+  assert.equal(brokenPipe.stdout, `${fixture.tagged}\n`)
+  assert.match(brokenPipe.stderr, /^gzip: stdout: Broken pipe$/m)
+
+  const runs = [false, true]
+  const results = await Promise.all(
+    runs.map((ignorePipe) => runArchiveCheck(context, fixture, files, { ignorePipe })),
+  )
+
+  for (const [i, result] of results.entries()) {
+    const label = `SIGPIPE ${runs[i] ? 'ignored' : 'at its default'}`
+    assert.equal(result.status, 0, `${label}: ${result.stdout}${result.stderr}`)
+    assert.equal(result.stdout, '', label)
+    assert.equal(result.stderr, '', label)
+  }
+})
+
+test('87: the archive check fails with the OCCT-source error when the archive is missing', async (context) => {
+  await assertArchiveRejected(context, await archiveCheckFixture(context), {})
+})
+
+test('87: the archive check fails with the OCCT-source error when ui/dist is missing', async (context) => {
+  await assertArchiveRejected(context, await archiveCheckFixture(context), undefined)
+})
+
+test('87: the archive check fails with the OCCT-source error when the archive holds another commit', async (context) => {
+  const fixture = await archiveCheckFixture(context)
+
+  await assertArchiveRejected(context, fixture, {
+    [sourceArchiveName(fixture.version)]: await readFile(fixture.secondArchive),
+  })
+})
+
+test("87: the archive check fails with the OCCT-source error when the archive lacks gzip's checksum and length", async (context) => {
+  const fixture = await archiveCheckFixture(context)
+  const cutOff = join(fixture.directory, 'cut-off.tar.gz')
+  await writeFile(cutOff, (await readFile(fixture.taggedArchive)).subarray(0, -8))
+
+  // Its first header still names the tagged commit, so only gzip -t tells it apart.
+  assert.equal(
+    runShell(fixture.environment, 'gzip -dc "$1" 2>/dev/null | git get-tar-commit-id', cutOff)
+      .stdout,
+    `${fixture.tagged}\n`,
+  )
+  await assertArchiveRejected(context, fixture, {
+    [sourceArchiveName(fixture.version)]: await readFile(cutOff),
+  })
+})
+
+test('87: the archive check fails with the OCCT-source error when the archive is a tar without gzip', async (context) => {
+  const fixture = await archiveCheckFixture(context)
+
+  await assertArchiveRejected(context, fixture, {
+    [sourceArchiveName(fixture.version)]: gunzipSync(await readFile(fixture.taggedArchive)),
+  })
+})
+
+test('87: the archive check fails with the OCCT-source error when the archive is empty', async (context) => {
+  const fixture = await archiveCheckFixture(context)
+
+  await assertArchiveRejected(context, fixture, { [sourceArchiveName(fixture.version)]: '' })
+})
+
+test('87: the archive check fails with the OCCT-source error when the archive is a whole gzip file whose tar names no commit', async (context) => {
+  const fixture = await archiveCheckFixture(context)
+  const folder = join(fixture.directory, 'plain')
+  const plain = join(fixture.directory, 'plain.tar.gz')
+  await writeFiles(join(folder, `occt-${fixture.version}`), TAGGED_ARCHIVE_FILES)
+  const packed = runShell(
+    fixture.environment,
+    'tar -czf "$1" -C "$2" "$3"',
+    plain,
+    folder,
+    `occt-${fixture.version}`,
+  )
+  assert.equal(packed.status, 0, packed.stderr)
+  assert.equal(runShell(fixture.environment, 'gzip -t "$1"', plain).status, 0)
+
+  await assertArchiveRejected(context, fixture, {
+    [sourceArchiveName(fixture.version)]: await readFile(plain),
+  })
+})
+
+test("87: the archive check fails with the OCCT-source error when only another version's archive exists", async (context) => {
+  const fixture = await archiveCheckFixture(context)
+
+  await assertArchiveRejected(context, fixture, {
+    [sourceArchiveName(OTHER_OCCT_VERSION)]: await readFile(fixture.taggedArchive),
+  })
 })

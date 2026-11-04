@@ -1,4 +1,5 @@
-// Acceptance tests 14 to 19 and 26 to 34 of docs/spec/delivery.md section 6 for the distribution check.
+// Acceptance tests 14 to 19 and 26 to 34 of docs/spec/delivery.md section 6 for the distribution check, and the part of
+// test 8 that it checks: the OCCT source archive of section 2.13 held to the Pages limit like every other file.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -46,6 +47,10 @@ const webNotices = `${webHeading}\n\nThe notices.\n`
 
 // The tag Vite writes in index.html for the entry script assets/index-a1.js.
 const entryScriptTag = '<script type="module" crossorigin src="/assets/index-a1.js"></script>'
+
+// The OCCT source archive at the root of every deployment, for OCCT 7.9.3, and its size (section 2.13).
+const sourceArchive = 'occt-7.9.3-source.tar.gz'
+const sourceArchiveSize = 17_457_358
 
 // Standard output of the command on the directory that writeReadyDistribution writes.
 const readyOutput =
@@ -723,5 +728,29 @@ test('34: the command on a build without notices exits 1 with the missing-notice
     status: 1,
     stdout: '',
     stderr: `${missingNoticesMessage('dist')}\n`,
+  })
+})
+
+test('8: checkDist reports an OCCT source archive over the limit with the message of every oversized file', async (context) => {
+  const directory = await temporaryDirectory(context)
+  await writeReadyDistribution(directory)
+  await writeSparseFileAt(join(directory, sourceArchive), 26_214_401)
+
+  assert.deepEqual(await checkDist(directory), [
+    oversizedMessage(directory, sourceArchive, 26_214_401),
+  ])
+})
+
+test('8: the command on a build that holds the OCCT source archive at its size for 7.9.3 exits 0 and names it as the largest file', async (context) => {
+  const workspace = await temporaryDirectory(context)
+  await writeReadyDistribution(join(workspace, 'dist'))
+  await writeSparseFileAt(join(workspace, 'dist', sourceArchive), sourceArchiveSize)
+
+  assert.deepEqual(runCommand(workspace, ['dist']), {
+    status: 0,
+    stdout:
+      `dist is ready for Cloudflare Pages: 5 files, the largest is ${sourceArchive} (${sourceArchiveSize} bytes).\n` +
+      `${initialJavaScriptLine(0)}\n`,
+    stderr: '',
   })
 })

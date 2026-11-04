@@ -32,7 +32,7 @@ pytest python/tests -m packaging
 # The nightly property run
 PROPTEST_CASES=4096 cargo test -p partsmith-sketch --release --test integration properties::
 
-# The platforms run on main (release checklist item 3), and its latest runs, which promotion reads
+# The platforms run on main (release checklist item 2), and its latest runs, which promotion reads
 gh workflow run platforms.yml --ref main
 gh run list --workflow platforms.yml --branch main --limit 2
 gh run list --workflow platforms.yml --branch main --commit <sha> --status success
@@ -41,7 +41,7 @@ gh run list --workflow platforms.yml --branch main --commit <sha> --status succe
 pnpm e2e --project chromium --grep @engines
 pnpm e2e --grep E-157
 
-# Release checklist items 5 to 7: the dry run from main, the tag, and the draft's assets checked
+# Release checklist items 4 to 6: the dry run from main, the tag, and the draft's assets checked
 gh workflow run release.yml --ref main
 git tag vX.Y.Z <commit> && git push origin vX.Y.Z
 gh release download vX.Y.Z --dir release-vX.Y.Z && (cd release-vX.Y.Z && sha256sum -c SHA256SUMS)
@@ -63,17 +63,16 @@ gh release download vX.Y.Z --dir release-vX.Y.Z && (cd release-vX.Y.Z && sha256s
 Every release follows these steps (delivery.md 3.6):
 
 1. The source route of ADR 0034 is in place for this commit: the repository is public, so the tag holds the Partsmith source, and `draft` attaches the OCCT source archive (2.13); a release without that archive stays a draft.
-2. Until the AppImage question of ADR 0034 is decided, no release whose assets include an `.AppImage` is published, and no release run, dry run or tag, starts while the Linux row of the matrix builds one: the repository is public, so any signed-in GitHub user can download a run's `bundle-Linux` artifact.
-3. CI passed on the `main` commit to release, including `check:notices` (2.4), and a run of the platforms workflow on `main` passed on that commit (2.14): the weekly one, or one started with `gh workflow run platforms.yml --ref main`; `gh run list --workflow platforms.yml --branch main --commit <sha> --status success` shows it.
-4. The version is the same in the workspace `Cargo.toml` (`[workspace.package] version`) and `ui/package.json`, as `verify` checks; a version bump is its own pull request.
-5. A release dry run (`workflow_dispatch` of `release.yml`) from `main` passed on that commit (test 13), and each bundle installed and started on its OS (the manual checks of desktop.md section 6).
-6. Push the tag `vX.Y.Z` on that commit.
-7. When `draft` finishes, download the assets, check them with `sha256sum -c SHA256SUMS`, and install each bundle once more.
-8. Edit the draft's notes: the unsigned-bundle paragraph first, then the generated notes.
-9. Publish the release.
+2. CI passed on the `main` commit to release, including `check:notices` (2.4), and a run of the platforms workflow on `main` passed on that commit (2.14): the weekly one, or one started with `gh workflow run platforms.yml --ref main`; `gh run list --workflow platforms.yml --branch main --commit <sha> --status success` shows it.
+3. The version is the same in the workspace `Cargo.toml` (`[workspace.package] version`) and `ui/package.json`, as `verify` checks; a version bump is its own pull request.
+4. A release dry run (`workflow_dispatch` of `release.yml`) from `main` passed on that commit (test 13), and each bundle installed and started on its OS (the manual checks of desktop.md section 6).
+5. Push the tag `vX.Y.Z` on that commit.
+6. When `draft` finishes, download the assets, check them with `sha256sum -c SHA256SUMS`, and install each bundle once more.
+7. Edit the draft's notes: the unsigned-bundle paragraph first, then the generated notes.
+8. Publish the release.
 
 The unsigned-bundle paragraph, word for word (README.md carries it too):
 
 ```text
-These builds are not signed yet. On Windows, SmartScreen may say "Windows protected your PC": choose More info, then Run anyway. On macOS, the first open is blocked: open System Settings, then Privacy & Security, and choose Open Anyway for Partsmith. On Linux, the .deb, .rpm and .AppImage need glibc 2.39 or later and WebKitGTK 4.1, as on Ubuntu 24.04. To check a download, run sha256sum -c SHA256SUMS --ignore-missing in the folder that holds it.
+These builds are not signed yet. On Windows, SmartScreen may say "Windows protected your PC": choose More info, then Run anyway. On macOS, the first open is blocked: open System Settings, then Privacy & Security, and choose Open Anyway for Partsmith. On Linux, the .deb and .rpm need glibc 2.39 or later and WebKitGTK 4.1, as on Ubuntu 24.04. To check a download, run sha256sum -c SHA256SUMS --ignore-missing in the folder that holds it.
 ```

@@ -12,9 +12,9 @@ Open-source parametric CAD for people who design parts for 3D printing. Sketch, 
 
 - Windows x64: `Partsmith_{version}_x64-setup.exe`, a per-user installer that downloads WebView2 when it is missing.
 - macOS 13 or later on Apple silicon, with Safari 17 or later, whose engine the app draws with: `Partsmith_{version}_aarch64.dmg`.
-- Linux x86_64 with glibc 2.39 or later and WebKitGTK 4.1, such as Ubuntu 24.04: `Partsmith_{version}_amd64.deb`, `Partsmith-{version}-1.x86_64.rpm` or `Partsmith_{version}_amd64.AppImage`.
+- Linux x86_64 with glibc 2.39 or later and WebKitGTK 4.1, such as Ubuntu 24.04: `Partsmith_{version}_amd64.deb` or `Partsmith-{version}-1.x86_64.rpm`.
 
-These builds are not signed yet. On Windows, SmartScreen may say "Windows protected your PC": choose More info, then Run anyway. On macOS, the first open is blocked: open System Settings, then Privacy & Security, and choose Open Anyway for Partsmith. On Linux, the .deb, .rpm and .AppImage need glibc 2.39 or later and WebKitGTK 4.1, as on Ubuntu 24.04. To check a download, run sha256sum -c SHA256SUMS --ignore-missing in the folder that holds it.
+These builds are not signed yet. On Windows, SmartScreen may say "Windows protected your PC": choose More info, then Run anyway. On macOS, the first open is blocked: open System Settings, then Privacy & Security, and choose Open Anyway for Partsmith. On Linux, the .deb and .rpm need glibc 2.39 or later and WebKitGTK 4.1, as on Ubuntu 24.04. To check a download, run sha256sum -c SHA256SUMS --ignore-missing in the folder that holds it.
 
 ## Building
 
@@ -134,4 +134,4 @@ pnpm -C ui notices
 
 Partsmith is licensed under the [Apache License 2.0](LICENSE), one license for the code, the specifications, the file format, the examples and the test corpus ([ADR 0028](docs/adr/0028-single-license-apache-2.md)). Models you make with Partsmith belong to you.
 
-The third-party software in Partsmith and its licenses are listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) for the desktop app and in [ui/public/THIRD-PARTY-NOTICES.txt](ui/public/THIRD-PARTY-NOTICES.txt) for the web app. OCCT 7.9.3 is used under the LGPL 2.1 with the Open CASCADE exception. It is linked statically, and every build comes with a way to its source: each web deployment names the commit it was built from in `/SOURCE.txt`, and each release carries OCCT's source as `occt-7.9.3-source.tar.gz` next to its tag ([ADR 0034](docs/adr/0034-occt-linking-and-lgpl-obligations.md)). The notices say how to build Partsmith with a modified OCCT.
+The third-party software in Partsmith and its licenses are listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) for the desktop app and in [ui/public/THIRD-PARTY-NOTICES.txt](ui/public/THIRD-PARTY-NOTICES.txt) for the web app. OCCT 7.9.3 is used under the LGPL 2.1 with the Open CASCADE exception. It is linked statically, and every build comes with a way to its source: each web deployment names the commit it was built from in `/SOURCE.txt` and holds OCCT's source as `/occt-7.9.3-source.tar.gz`, and each release carries `occt-7.9.3-source.tar.gz` next to its tag ([ADR 0034](docs/adr/0034-occt-linking-and-lgpl-obligations.md)). The notices say how to build Partsmith with a modified OCCT.
