@@ -1,6 +1,6 @@
 // Writes the archives of the Rust crates and the npm packages that the desktop app's executables or the web build are
 // compiled from, made from Cargo.lock and ui/pnpm-lock.yaml, as parts under Cloudflare Pages' file limit. CI writes the
-// web scope's into every web deployment and the release workflow attaches the desktop scope's to every release
+// web scope's into every web deployment. The release workflow attaches the desktop scope's to every release
 // (docs/spec/delivery.md section 2.13, ADR 0034).
 // Usage: node scripts/dependency-source-archive.mjs web|desktop <directory>
 import { execFile } from 'node:child_process'
@@ -227,8 +227,8 @@ export function integrityMismatch(bytes, integrity) {
 
 /**
  * The values of `writes`, promises that each resolve to the name or names they wrote into `directory`. When one
- * rejects, the names the others wrote are removed once all have settled, and the first failure in their order is the
- * one that rejects, so `directory` is left as it was.
+ * rejects, the names the others wrote are removed once all have settled. The first failure in their order is the one
+ * that rejects. `directory` is then left as it was.
  */
 async function allOrNothing(directory, writes) {
   const results = await Promise.allSettled(writes)
@@ -283,7 +283,7 @@ export function summaryLine({ archive, bytes, sha256, lastPart }, directory) {
 }
 
 /**
- * Runs `tar` or `gzip` in `directory` with `LC_ALL=C` and resolves to its standard output, turning a failure into the
+ * Runs `tar` or `gzip` in `directory` with `LC_ALL=C` and resolves to its standard output. A failure rejects with the
  * message of section 4.
  */
 async function runDirectly(command, commandArguments, directory) {
@@ -510,8 +510,8 @@ async function sizeAndSha256(path) {
 }
 
 /**
- * Writes the parts of both archives of `scope` for the repository at `root` into `directory`, downloading each tarball
- * from `registry` with `fetch` and sending every `cargo` command through `run`. A download that fails with a network
+ * Writes the parts of both archives of `scope` for the repository at `root` into `directory`. It downloads each tarball
+ * from `registry` with `fetch` and sends every `cargo` command through `run`. A download that fails with a network
  * error or a retried status waits each of `retryDelays` in turn and tries again. Resolves to one
  * `{ archive, bytes, sha256, lastPart }` per archive, crates first, where `bytes` is the archive's size, `sha256` its
  * SHA-256 in hexadecimal and `lastPart` the name of its last part. Rejects with the message of section 4 and leaves

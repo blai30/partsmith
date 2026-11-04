@@ -179,8 +179,8 @@ fn check_export(
     problems
 }
 
-/// Runs the export of `example` to `format` at `output` and checks it, a `step` file imported in
-/// `session` and its volume compared with `expected_volume`: runner test 5's work for one export.
+/// Runs the export of `example` to `format` at `output` and checks it: runner test 5's work for one
+/// export. A `step` file is imported in `session` and its volume compared with `expected_volume`.
 pub(super) fn export_and_check(
     session: &mut Session,
     example: &Example,
@@ -856,8 +856,8 @@ fn bytes_that_are_not_step_give_the_message_of_the_engine() {
 }
 
 /// Whether the one document an import made in a new session is closed. Handles start at 1 and are
-/// never reused (engine spec section 3.2), so the import's document had the handle 1 when the next
-/// new document has the handle 2.
+/// never reused (engine spec section 3.2). The import's document had the handle 1 when the next new
+/// document has the handle 2.
 fn only_document_closed(session: &mut Session) -> bool {
     let next = session
         .new_document(Units::Mm, None)

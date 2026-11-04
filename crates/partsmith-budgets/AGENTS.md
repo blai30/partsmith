@@ -11,7 +11,7 @@ The harness of the performance budget benchmarks (`crates/*/benches/budgets.rs`)
 
 - No dependencies; the crate is a dev-dependency of benchmarks only, never of a library, binary or test.
 - Each benchmark keeps its own `RUNS`, workloads and budgets; the timed closures are the benchmark's, the harness only times and reports them.
-- The `full-rebuild` job of `platforms.yml` reads what `finish` prints for one row (delivery.md 2.14, ADR 0054): the line that starts with the operation and two spaces, whose last three fields are the value, `budget` and the budget, and the line `Over budget:` of that row. A change to that layout changes the job's step and delivery.md tests 104 and 105 with it.
+- The `full-rebuild` job of `platforms.yml` reads what `finish` prints for one row (delivery.md 2.14, ADR 0054): the line that starts with the operation and two spaces, and the line `Over budget:` of that row. The last three fields of the first line are the value, `budget` and the budget. A change to that layout changes the job's step and delivery.md tests 104 and 105 with it.
 - The desktop benchmark (`desktop/src-tauri/benches`, warm-up and 21 runs of desktop.md) and the sketch solver benchmark (`crates/partsmith-sketch/benches/solver.rs`, the scheme of sketch.md section 5) keep their own harnesses, which their specs define.
 
 ## Commands

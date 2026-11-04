@@ -91,7 +91,7 @@ impl Session {
         feature: &Id,
         plane: &SketchPlane,
     ) -> Result<Option<SketchPlane>, EngineError> {
-        // Borrowed by field, so that `whole_run` can still use the recompute.
+        // Borrowed by field. `whole_run` can then still use the recompute.
         let open = self
             .documents
             .get(&doc)
@@ -332,7 +332,7 @@ fn plane_motion(plane: &SketchPlane, computed: &Computed, position: usize) -> Op
 /// motion is `kept`, stores in place of the picked `plane` (section 3.22). An origin or datum
 /// plane comes back when it gives the sketch a motion that matches `kept`. A face plane's
 /// fallback stands where the face stood just before the sketch, or, for a sketch without motion,
-/// where `shown`, the latest recompute the host picked in, displays it; the face comes back as
+/// where `shown`, the latest recompute the host picked in, displays it. The face comes back as
 /// picked when its own coordinates keep the motion and place it there, else with that placement
 /// in the coordinates that keep the motion (`kept_face_plane`). `None` when no plane keeps it.
 fn kept_pick(

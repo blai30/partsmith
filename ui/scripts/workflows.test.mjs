@@ -101,8 +101,8 @@ const WEB_PARTS = [
 const MEASURED_ARCHIVE =
   /^\*\*Measured\*\* \([^)]*?the tag `([^`]+)`, commit `([0-9a-f]{40})`.*?SHA-256 `([0-9a-f]{64})`/m
 
-// The size of big.bin in the fixture of test 87: its tar is larger than a pipe's buffer (64 KiB on Linux), so gzip
-// is still writing when git get-tar-commit-id has read the first header and exits.
+// The size of big.bin in the fixture of test 87: its tar is larger than a pipe's buffer (64 KiB on Linux). gzip is
+// then still writing when git get-tar-commit-id has read the first header and exits.
 const PIPE_BREAKING_SIZE = 1_048_576
 
 // An OCCT version that no pin names, for an archive the steps must not take for the pinned one (tests 86 and 87).
@@ -1992,7 +1992,7 @@ test("87: the archive check fails with the OCCT-source error when the archive la
   const cutOff = join(fixture.directory, 'cut-off.tar.gz')
   await writeFile(cutOff, (await readFile(fixture.taggedArchive)).subarray(0, -8))
 
-  // Its first header still names the tagged commit, so only gzip -t tells it apart.
+  // Its first header still names the tagged commit. Only gzip -t tells it apart.
   assert.equal(
     runShell(fixture.environment, 'gzip -dc "$1" 2>/dev/null | git get-tar-commit-id', cutOff)
       .stdout,

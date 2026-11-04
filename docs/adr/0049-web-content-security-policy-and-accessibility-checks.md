@@ -1,6 +1,6 @@
 # 0049: The web build sends a content security policy and two hardening headers, and keyboard and target size are tested without axe
 
-Status: Accepted (owner, 2026-11-04), as built. Decision 1, the security review of gap list item UI-2, takes option (a), the five headers enforced. Decision 2 takes option (a), focus to the 3D view. Decision 3 takes option (a) for M1: the marks keep their sizes. The owner knows that the sketch's glyphs (18 pixels, stacked 20 apart) and its dimension labels stay under WCAG 2.2's 24-pixel minimum and its spacing exception, which is revisited after M1. No file format, protocol, license, dependency or desktop capability change.
+Status: Accepted (owner, 2026-11-04), as built. Decision 1, the security review of gap list item UI-2, takes option (a), the five headers enforced. Decision 2 takes option (a), focus to the 3D view. Decision 3 takes option (a) for M1: the marks keep their sizes. The owner knows that the sketch's glyphs (18 pixels, stacked 20 apart) and its dimension labels stay under WCAG 2.2's 24-pixel minimum and its spacing exception. This is revisited after M1. No file format, protocol, license, dependency or desktop capability change.
 
 ## Context
 

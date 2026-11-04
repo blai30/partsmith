@@ -2848,8 +2848,8 @@ fn opened_rolled_back_to_the_move(session: &mut Session, text: &str) -> (u64, Se
 #[test]
 fn t166_a_sketch_before_a_later_move_takes_the_moved_top_where_it_is_shown() {
     // The descriptor's fallback has the later move undone: (-100, 0, 10) is where the top is shown, moved back with
-    // the cube. A sketch without motion stands where the host showed the face, (0, 0, 10), in body coordinates,
-    // which keep its identity motion since the top has not moved just before it.
+    // the cube. A sketch without motion stands where the host showed the face, (0, 0, 10), in body coordinates. Body
+    // coordinates keep its identity motion since the top has not moved just before it.
     let mut session = headless_session();
     let (doc, _, _) = opened(&mut session, &sketch_on_xy_before_a_move());
     let top = picked_face_plane(&mut session, doc, "f-box1/top");
@@ -2865,8 +2865,8 @@ fn t166_a_sketch_before_a_later_move_takes_the_moved_top_where_it_is_shown() {
 
 #[test]
 fn t166_a_sketch_before_a_later_move_stands_on_the_top_wherever_the_marker_is() {
-    // With the marker at the move, the top is shown where it stands just before the sketch: the pick comes back
-    // unchanged, as the same plane the pick at the end of the timeline gives, and the stored plane puts the sketch's
+    // With the marker at the move, the top is shown where it stands just before the sketch. The pick comes back
+    // unchanged, as the same plane the pick at the end of the timeline gives. The stored plane puts the sketch's
     // origin on the top of the cube, not 100 mm beside it.
     let mut session = headless_session();
     let (doc, _) = opened_rolled_back_to_the_move(&mut session, &sketch_on_xy_before_a_move());
@@ -2910,7 +2910,7 @@ fn moved_cube_with_a_sketch_in_body_coordinates() -> String {
 #[test]
 fn t166_a_rolled_back_sketch_is_read_as_it_builds_without_the_marker() {
     // With the marker at the move, the latest recompute ran neither the move nor the sketch. Read there, the sketch
-    // would have the identity motion and take XY, which gives it another motion once the marker moves to the end.
+    // would have the identity motion and take XY. XY gives it another motion once the marker moves to the end.
     let mut session = headless_session();
     let (doc, rolled_back) = opened_rolled_back_to_the_move(
         &mut session,
@@ -3055,7 +3055,7 @@ fn t167_a_re_attach_by_pick_moves_no_later_feature() {
 
 #[test]
 fn t167_storing_the_pick_itself_moves_the_upper_boss() {
-    // The move section 3.22's rule prevents: hosts stored the pick as built before `attach_plane`, which gave the
+    // The move section 3.22's rule prevents: hosts stored the pick as built before `attach_plane`. That gave the
     // sketch, and the cap the upper boss's sketch stands on, the Move body's motion.
     let mut session = headless_session();
     let text = bosses_on_a_moved_box(

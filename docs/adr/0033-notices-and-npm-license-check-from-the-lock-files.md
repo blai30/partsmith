@@ -1,6 +1,6 @@
 # 0033: Third-party notices and the npm license check, generated from the lock files by two Node scripts
 
-Status: Accepted (owner, 2026-11-04), as built: what the notices hold, the OCCT statements, the texts given to crates that ship none, the objc2 crates' entries with the Apple SDK caveat, the Unicode data license (Unicode-DFS-2016) of `regex-syntax`'s tables, two scripts and no new tool, and the npm packages that ship (below). The em dash rule takes way 1: third-party license texts copied verbatim keep their em dashes. The root AGENTS.md gained the `pnpm -C ui notices` command line the same day. Whether its em dash rule also names way 1's exception is proposed, needs human review. The owner's leave of 2026-11-04 changed only the license invariant and the command line, and the exception is written here alone until the owner adds it there or keeps it here.
+Status: Accepted (owner, 2026-11-04), as built: what the notices hold, the OCCT statements, the texts given to crates that ship none, the objc2 crates' entries with the Apple SDK caveat, the Unicode data license (Unicode-DFS-2016) of `regex-syntax`'s tables, two scripts and no new tool, and the npm packages that ship (below). The em dash rule takes way 1: third-party license texts copied verbatim keep their em dashes. The root AGENTS.md gained the `pnpm -C ui notices` command line the same day. Whether its em dash rule also names way 1's exception is proposed, needs human review. The owner's leave of 2026-11-04 changed only the license invariant and the command line. The exception is written here alone until the owner adds it there or keeps it here.
 
 ## Context
 
@@ -89,4 +89,4 @@ Three ways to produce the notices were weighed:
 - About thirty small committed texts join `ui/scripts/notices/`, each made once per crate, pin or version and reviewed in the pull request that adds it.
 - The `schema` job downloads the crate sources of all four platforms through `cargo metadata`; the notices need no OCCT install there or locally.
 - The web build gains one 0.4 MB text file; it is not initial JavaScript and is far from the 25 MiB per-file limit.
-- The notices do not cover the NSIS installer's own code, nor the CLI and the Python wheel, which M1 does not distribute (delivery.md 2.9 and open issue 10, ADR 0034). They did not cover the system libraries and the runtime that the AppImage bundled either, and the AppImage left M1 on 2026-11-04 (ADR 0034 choice 1).
+- The notices do not cover the NSIS installer's own code, nor the CLI and the Python wheel, which M1 does not distribute (delivery.md 2.9 and open issue 10, ADR 0034). They did not cover the system libraries and the runtime that the AppImage bundled either. The AppImage left M1 on 2026-11-04 (ADR 0034 choice 1).

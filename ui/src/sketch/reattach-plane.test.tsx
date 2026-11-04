@@ -38,8 +38,8 @@ import { CUBE_BOUNDS, meshSummary } from '../test/fakes/state'
 
 // Re-attaching asks the core for the plane (ui.md 3.16.1, U-250): the pick builds the plane as a
 // new sketch's, asks the core with `attachPlane` and commits the plane it returns, both in one
-// task of the mutation queue; a pick the core gives no plane for shows `attach_moved` and stays
-// open, and a datum plane that does not build is refused with `attach_datum_unbuilt` first.
+// task of the mutation queue. A pick the core gives no plane for shows `attach_moved` and stays
+// open. A datum plane that does not build is refused with `attach_datum_unbuilt` first.
 
 // The WebGL2 backend cannot run in jsdom; the viewport gets a FakeBackend instead.
 vi.mock('../viewport/webgl2/backend', async () => {

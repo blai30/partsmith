@@ -306,7 +306,7 @@ jobs:
             fi
           } >dist/SOURCE.txt
       # OCCT's source next to the stamp, at /occt-<version>-source.tar.gz of every deployment (delivery.md 2.13).
-      # check:dist then holds it to the 25 MiB limit with every other file. Every run prints its SHA-256 and warns,
+      # check:dist then holds it to the 25 MiB limit with every other file. Every run prints its SHA-256. It warns,
       # without failing, when the runner's git or gzip wrote other bytes than the ones 2.13 measured.
       - name: Write the OCCT source archive
         env:
@@ -524,7 +524,7 @@ jobs:
           fi
       # Nor without OCCT's source: a whole gzip file whose tar names the pinned OCCT commit (delivery.md 2.13). gzip -t
       # reads all of it, because a cut-off archive still names the commit in its first header. git get-tar-commit-id
-      # exits after that header, and the gzip that feeds it may then report a broken pipe: only what git prints counts.
+      # exits after that header. The gzip that feeds it may then report a broken pipe: only what git prints counts.
       - if: steps.secrets.outputs.available == 'true'
         name: Check the OCCT source archive
         run: |
@@ -537,8 +537,8 @@ jobs:
           fi
       # Nor without the source of the Rust crates and npm packages it is made from (delivery.md 2.13): SHA256SUMS lists
       # the first part of both archives and every part of the folder, each part has the SHA-256 it lists, and the
-      # joined parts make whole archives. GNU tar reads a tar cut between two entries as whole, and only SHA256SUMS
-      # then shows the missing part.
+      # joined parts make whole archives. GNU tar reads a tar cut between two entries as whole. Only SHA256SUMS then
+      # shows the missing part.
       - if: steps.secrets.outputs.available == 'true'
         name: Check the dependency source archives
         run: |

@@ -33,4 +33,4 @@ Status: Accepted (owner, 2026-11-04), signed off as built
 - Builds that read only version 1 cannot open version 2 files; they show `NewerFormatVersion` ("This file uses format version 2, which is newer than this version of Partsmith supports (up to 1). Update Partsmith to open it.").
 - `docs/format/ptsm.schema.json` (the generated `.ptsm` schema, file-format.md section 3.10) and `docs/format/protocol.schema.json` describe the new fields; each check-in is logged in ADR 0016.
 - Examples whose references are re-picked gain anchors and outlines and are re-blessed with the sign-off of technical design section 16.
-- This changes the file format, which needs human review. The owner signed it off as built on 2026-11-04. With ADRs 0021 and 0024 it gates all code of the study's plan.
+- This changes the file format. That needs human review. The owner signed it off as built on 2026-11-04. With ADRs 0021 and 0024 it gates all code of the study's plan.

@@ -65,8 +65,8 @@ pub(crate) fn run(
     }
 }
 
-/// A recompute of the recipe of `open` without its stop point and rollback marker, so that every
-/// feature that is not suppressed runs, and the recipe it ran.
+/// A recompute of the recipe of `open` without its stop point and rollback marker, and the recipe
+/// it ran. Every feature that is not suppressed runs in it.
 pub(crate) fn whole_run(recompute: &mut Recompute, open: &OpenDocument) -> (Document, Computed) {
     let mut document = Document::clone(&open.document);
     document.rollback = None;

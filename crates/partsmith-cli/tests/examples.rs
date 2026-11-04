@@ -307,8 +307,8 @@ impl Example {
     }
 
     /// The volume the example's STEP file must import with when the example builds by its expected
-    /// results and its document, so the export check exports it; `None` otherwise (delivery spec
-    /// section 2.8, "Export examples" and "STEP round trip").
+    /// results and its document; `None` otherwise (delivery spec section 2.8, "Export examples" and
+    /// "STEP round trip"). The export check exports each example that builds.
     fn exported_volume(&self) -> Option<f64> {
         let (results, document) = (self.expected_results()?, self.document()?);
         builds(&results, &document).then(|| expected_volume(&results, &document))

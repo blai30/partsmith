@@ -36,4 +36,4 @@ Input that can be checked is checked before the kernel by the features (the mode
 - Three additions to the facade's safe API and C++ shim, using OCCT algorithms already linked (`BRepExtrema_DistShapeShape` for widths, the existing meshing for display geometry); no new dependency, and the WebAssembly build changes only by the added code. The dependency log (ADR 0020) is unchanged.
 - kernel.md gains acceptance tests (solid and shell counts of a join around a void, `width_across` on the NC05 step, `element_display` of a face and an edge, every hint text) and two budget rows.
 - Features can state measured facts ("which is only 2.4 mm across", "its rounded faces have radius 1 mm, smaller than the wall") and warn about sealed cavities and floating joins.
-- This changes the kernel facade, which needs human review. The owner signed it off as built on 2026-11-04. It gates the phase 3 kernel code of the study's plan; K3 is used by the engine's ghosts in phase 4.
+- This changes the kernel facade. That needs human review. The owner signed it off as built on 2026-11-04. It gates the phase 3 kernel code of the study's plan; K3 is used by the engine's ghosts in phase 4.
