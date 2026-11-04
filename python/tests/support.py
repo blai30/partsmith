@@ -529,6 +529,11 @@ def is_same_link(link: Path, snapshot: LinkSnapshot) -> bool:
     return stat.S_ISLNK(after.st_mode) and os.path.samestat(before, after) and os.readlink(link) == text
 
 
+def replaced_targets(operations: list[tuple]) -> list[Path]:
+    """The targets of the `os.replace` calls among the operations `record_file_operations` recorded, in call order."""
+    return [operation[1] for operation in operations if operation[0] == "replace"]
+
+
 def resolved(path: Path) -> Path:
     """The path `os.path.realpath` gives for `path`, which names an `os.replace` target behind a link (python-api.md
     section 6, tests 118 to 122)."""

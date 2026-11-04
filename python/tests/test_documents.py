@@ -25,6 +25,7 @@ from support import (
     record_file_operations,
     record_opened_files,
     recorded_document,
+    replaced_targets,
     request_command,
     resolved,
     self_void,
@@ -661,11 +662,6 @@ def is_binary_stl_of_a_box(path: Path) -> bool:
     is 12."""
     data = path.read_bytes()
     return len(data) == 684 and int.from_bytes(data[STL_HEADER_BYTES : STL_HEADER_BYTES + 4], "little") == 12
-
-
-def replaced_targets(operations: list[tuple]) -> list[Path]:
-    """The targets of the `os.replace` calls among recorded file operations, in call order."""
-    return [operation[1] for operation in operations if operation[0] == "replace"]
 
 
 def linked_file(tmp_path: Path, link_name: str, folder_name: str, file_name: str) -> Path:
