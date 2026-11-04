@@ -3,7 +3,7 @@
 //! `examples/mirror/`, that of test 13 (a sketch on the mirror image, ADR 0023) among them
 //! (`sketch-on-image`), from which the test makes its document with the mirror plane moved. Tests
 //! 14 to 16 import the solids of features/import.md that repair could not fix (`SELF_VOID` and
-//! `VOID_TWICE`), whose STEP bytes the kernel writes and the test edits.
+//! `VOID_TWICE`). The kernel writes their STEP bytes and the test edits them.
 
 use crate::feature_support;
 

@@ -1012,9 +1012,10 @@ impl Builder {
     }
 
     /// The fold rule of spec section 6.13: driving dimensions that leave the known solution above
-    /// rounding and under `FOLD_MARGIN` from a shape where their rows become dependent, either a
-    /// distance beside a horizontal or vertical distance on the same two points, or three distances
-    /// between three points. `classes` identifies points as the discard rules above do.
+    /// rounding and under `FOLD_MARGIN` from a shape where their rows become dependent. The
+    /// dimensions are either a distance beside a horizontal or vertical distance on the same two
+    /// points, or three distances between three points. `classes` identifies points as the discard
+    /// rules above do.
     fn next_to_a_fold(&self, classes: &CoordinateClasses) -> bool {
         let near = |separation: f64| separation > ROUNDING && separation < FOLD_MARGIN;
         let identity = |point: &PointRef| classes.root(&coordinate_key(point, 0));
@@ -1155,7 +1156,7 @@ fn alignment_pair(alignment: &Alignment) -> [PointRef; 2] {
     [first, second]
 }
 
-/// The identities of two points in sorted order, so that a pair compares equal either way round.
+/// The identities of two points in sorted order. A pair compares equal either way round.
 fn pair_identity(pair: &[PointRef; 2], identity: &impl Fn(&PointRef) -> String) -> [String; 2] {
     let mut names = pair.each_ref().map(identity);
     names.sort();

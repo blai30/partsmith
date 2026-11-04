@@ -716,8 +716,8 @@ mod tests {
 
     #[test]
     fn made_by_of_a_mirror_the_kernel_refused_reads_validity() {
-        // The kernel found the source not valid. The move's input is valid, and the move put the
-        // solid in the body however much volume its input has.
+        // The kernel found the source not valid. The move's input is valid. The move put the solid
+        // in the body however much volume its input has.
         let fixture = self_void_fixture(vec![
             (id("f-imp1"), BodyState::empty()),
             (id("f-mv1"), valid_without_volume()),

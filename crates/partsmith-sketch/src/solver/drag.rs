@@ -30,7 +30,8 @@ pub struct NativeDragSession {
     /// True when a component other than the dragged one failed in the initial solve.
     other_failed: bool,
     /// True when the dragged component failed in the initial solve with a conflict, which the drag
-    /// weight does not cause, so its frames are not solved again without it (section 3.9, step 5).
+    /// weight does not cause. Its frames are then not solved again without the weight (section 3.9,
+    /// step 5).
     dragged_conflicting: bool,
     /// The factorization of the dragged component, whose plans every frame reuses.
     factorization: SparseQr,

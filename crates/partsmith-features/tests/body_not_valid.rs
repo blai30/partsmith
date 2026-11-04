@@ -1,8 +1,8 @@
 //! Acceptance tests for bodies that are not valid (features.md sections 2.7, 3.5 and 4.1, section 6.5 test 19): the
 //! `body_not_valid` error of the copy features, rendered with and without the import that put the solid in the body,
-//! and `has_volume`, the limit of a body without volume, whose cases moved here from engine.md test 164. The copy
-//! features' documents are in `crates/partsmith-recompute/tests/feature_mirror.rs`, `feature_linear_pattern.rs` and
-//! `feature_circular_pattern.rs`.
+//! and `has_volume`, the limit of a body without volume. The `has_volume` cases moved here from engine.md test 164.
+//! The copy features' documents are in `crates/partsmith-recompute/tests/feature_mirror.rs`,
+//! `feature_linear_pattern.rs` and `feature_circular_pattern.rs`.
 
 use crate::common;
 

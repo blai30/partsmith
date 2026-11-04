@@ -164,8 +164,8 @@ pub(crate) fn horizontal_distance_beside_a_distance(
 }
 
 /// Test 258: `line e-1`, `arc e-2` tangent to it (`c-0`), `e-1`'s length 59.268405 (`c-1`) and the
-/// distances 25.327127 from `e-1.end` (`c-2`) and 33.94127803 from `e-1.start` (`c-3`) to `e-2.end`,
-/// which exceed the length by 3e-8: at the solution `e-2.end` lies 9.33e-4 from the line.
+/// distances 25.327127 from `e-1.end` (`c-2`) and 33.94127803 from `e-1.start` (`c-3`) to `e-2.end`.
+/// The distances exceed the length by 3e-8. At the solution `e-2.end` lies 9.33e-4 from the line.
 pub(crate) fn triangle_next_to_a_fold() -> (SketchParams, DimensionValues) {
     let length = 59.268405;
     let from_end = 25.327127;

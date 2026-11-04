@@ -195,7 +195,7 @@ void ensure_valid(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
 
 // Checks the whole of a result built anew from a copy of `input` and repairs it as ensure_valid
 // does. A result still invalid raises Partsmith_InvalidInputShape when `input` is not valid
-// either, and Partsmith_InvalidResult otherwise; `input` is checked only then (kernel spec
+// either, and Partsmith_InvalidResult otherwise. `input` is checked only then (kernel spec
 // section 3.5).
 void ensure_valid_copy(TopoDS_Shape &shape, const Handle(BRepTools_History) &history,
                        const TopoDS_Shape &input, const char *algorithm);

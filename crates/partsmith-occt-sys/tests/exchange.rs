@@ -247,10 +247,10 @@ fn hollow_beside_one_face() -> String {
 
 /// `SELF_VOID` of test 144, from `step`, the STEP text of one solid without a void: the edit
 /// engine.md test 162 makes. Its entity `#s = MANIFOLD_SOLID_BREP('',#o);` becomes
-/// `#s = BREP_WITH_VOIDS('',#o,(#n));`, and `#n = ORIENTED_CLOSED_SHELL('',*,#o,.F.);`, `n` one
-/// more than the largest entity number, is added on its own line before the last `ENDSEC;`. Fails
-/// unless the text has exactly one `MANIFOLD_SOLID_BREP` entity and no `BREP_WITH_VOIDS`, as the
-/// engine's helper does.
+/// `#s = BREP_WITH_VOIDS('',#o,(#n));`. The entity `#n = ORIENTED_CLOSED_SHELL('',*,#o,.F.);`, `n`
+/// one more than the largest entity number, is added on its own line before the last `ENDSEC;`.
+/// Fails unless the text has exactly one `MANIFOLD_SOLID_BREP` entity and no `BREP_WITH_VOIDS`, as
+/// the engine's helper does.
 fn self_void(step: &str) -> String {
     assert_eq!(
         step.matches("MANIFOLD_SOLID_BREP(").count(),

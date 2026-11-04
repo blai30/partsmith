@@ -946,8 +946,8 @@ fn t256_the_moved_sketch_solves_to_the_moved_result() {
 }
 
 /// Test 258: a line, an arc tangent to it, the line's length and the distances from its ends to the
-/// arc's end, which exceed the length by 3e-8: at the solution the arc's end lies 9.33e-4 from the
-/// line, next to the fold where the triangle of the line's ends and the arc's end is flat.
+/// arc's end. The distances exceed the length by 3e-8. At the solution the arc's end lies 9.33e-4
+/// from the line, next to the fold where the triangle of the line's ends and the arc's end is flat.
 fn triangle_next_to_a_fold() -> Sketch {
     Sketch::new(vec![
         line("e-1", [88.467, -91.485], [146.015, -105.715]),

@@ -2,7 +2,7 @@
 //! through `box_step_asset`, with the document tests that import a box (`feature_messages.rs` and
 //! `feature_sketch.rs`); `void_listed_twice` and `self_void`, the STEP text edits that make the
 //! solids of features/import.md's `VOID_TWICE`, `BOTH`, `SELF_VOID` and `TWO_SELF_VOID` invalid
-//! after repair, with those fixtures, which the copy features' documents import too
+//! after repair, with those fixtures. The copy features' documents import those fixtures too
 //! (`feature_mirror.rs`, `feature_linear_pattern.rs` and `feature_circular_pattern.rs`).
 
 use std::sync::Arc;
@@ -150,18 +150,18 @@ pub fn hollow_bytes_with_the_void_twice(shape: Shape) -> Arc<[u8]> {
     Arc::from(void_listed_twice(&step).into_bytes())
 }
 
-/// The fixture `VOID_TWICE`: `HOLLOW` written as one body named `Hollow`, its void listed twice,
-/// so its solid is still invalid after repair.
+/// The fixture `VOID_TWICE`: `HOLLOW` written as one body named `Hollow`, its void listed twice.
+/// Its solid is still invalid after repair.
 pub fn void_twice_bytes() -> Arc<[u8]> {
     hollow_bytes_with_the_void_twice(hollow())
 }
 
 /// The fixture edit of `SELF_VOID` (features/import.md section 6) on `step`, the STEP text of
 /// `solids` solids without a void: the edit engine.md test 162 makes, applied to the first solid.
-/// Its entity `#s = MANIFOLD_SOLID_BREP('',#o);` becomes `#s = BREP_WITH_VOIDS('',#o,(#n));`, and
-/// `#n = ORIENTED_CLOSED_SHELL('',*,#o,.F.);`, `n` one more than the largest entity number, is
-/// added on its own line before the last `ENDSEC;`. A copy of the engine tests' `self_void`, with
-/// its checks: one `MANIFOLD_SOLID_BREP` entity per solid and no `BREP_WITH_VOIDS`.
+/// Its entity `#s = MANIFOLD_SOLID_BREP('',#o);` becomes `#s = BREP_WITH_VOIDS('',#o,(#n));`. The
+/// entity `#n = ORIENTED_CLOSED_SHELL('',*,#o,.F.);`, `n` one more than the largest entity number,
+/// is added on its own line before the last `ENDSEC;`. A copy of the engine tests' `self_void`,
+/// with its checks: one `MANIFOLD_SOLID_BREP` entity per solid and no `BREP_WITH_VOIDS`.
 pub fn self_void(step: &str, solids: usize) -> String {
     assert_eq!(
         step.matches("MANIFOLD_SOLID_BREP(").count(),
@@ -207,8 +207,8 @@ fn with_self_void(bytes: &[u8], solids: usize) -> Arc<[u8]> {
     Arc::from(self_void(&step, solids).into_bytes())
 }
 
-/// The fixture `SELF_VOID`: `BYTES` with the block's outer shell listed as its void too, so its
-/// one solid stays invalid after repair and bounds no material.
+/// The fixture `SELF_VOID`: `BYTES` with the block's outer shell listed as its void too. Its one
+/// solid stays invalid after repair and bounds no material.
 pub fn self_void_bytes() -> Arc<[u8]> {
     with_self_void(&block_bytes(), 1)
 }

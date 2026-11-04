@@ -449,8 +449,8 @@ namespace {
 
 // Repairs an invalid result with ShapeFix_Shape on a copy (the result may share sub-shapes with
 // the operation's inputs). When the whole repaired result is valid, and still holds a solid if
-// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true;
-// otherwise leaves both as they were and returns false.
+// `shape` held one, replaces `shape` with it, merges the repair into `history` and returns true.
+// Otherwise leaves both as they were and returns false.
 bool repair(TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
   initialize();
   BRepBuilderAPI_Copy copier(shape, Standard_True, Standard_False);

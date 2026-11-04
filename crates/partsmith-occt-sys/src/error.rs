@@ -30,9 +30,9 @@ pub enum KernelErrorKind {
     Failed,
     /// The operation produced a shape that stayed invalid after repair.
     InvalidResult,
-    /// A mirror or scale `transform` produced a shape that stayed invalid after repair, and the
-    /// shape it was given was not valid either, such as a solid `read_step` kept although repair
-    /// could not fix it (section 3.5).
+    /// A mirror or scale `transform` produced a shape that stayed invalid after repair. The shape
+    /// it was given was not valid either, such as a solid `read_step` kept although repair could
+    /// not fix it (section 3.5).
     InvalidInputShape,
     /// The operation produced no solid where one is required.
     EmptyResult,

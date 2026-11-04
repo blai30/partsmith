@@ -9,7 +9,7 @@ use crate::vector::{dot, length};
 use crate::{MAX_ITERATIONS, RANK_TOLERANCE, SOLVER_TOLERANCE};
 
 /// Relative norm below which a Jacobian row counts as dependent for the Gauss-Newton step of the
-/// first dog-leg pass; larger than the diagnosis's `RANK_TOLERANCE`, so a row that only repeats
+/// first dog-leg pass. It is larger than the diagnosis's `RANK_TOLERANCE`. A row that only repeats
 /// others near a solution is left out instead of driving the step through a part of rounding size
 /// (section 3.7.4).
 const STEP_RANK_TOLERANCE: f64 = 1e-6;
@@ -206,7 +206,7 @@ pub(crate) enum Outcome {
 }
 
 /// Runs dog-leg from `start` with the step tolerance and, when it does not converge, with
-/// `RANK_TOLERANCE`, then Levenberg-Marquardt, each from `start`: the passes after the first are the
+/// `RANK_TOLERANCE`, then Levenberg-Marquardt, each from `start`. The passes after the first are the
 /// solve as it ran before the step tolerance (section 3.7.4). A converged point is refined with the
 /// tolerance of its pass, `RANK_TOLERANCE` after Levenberg-Marquardt, before it is returned.
 pub(crate) fn solve(problem: &mut Problem<'_>, start: &[f64]) -> Outcome {
