@@ -64,6 +64,7 @@ ui/scripts/test-roots.test.mjs    every test file of a crate declared by a test 
 scripts/occt-source-archive.sh    the OCCT source archive of every release and every web deployment (2.13)
 ui/scripts/occt-source-archive.test.mjs  its tests and those of the commit check of scripts/build-occt.sh (node:test, tests 55 and 58)
 ui/scripts/isolated-git.mjs       the Git environment of tests 52, 55, 58 and 87 (section 6)
+ui/scripts/occt-fixture.mjs       the OCCT pins, the archive's name and the fixture repository of tests 55, 58, 86 and 87 (section 6)
 ui/package.json                   scripts "check:dist", "test:scripts", "notices", "check:notices" and "check:licenses"
 README.md                         what users and contributors read first (2.12)
 crates/partsmith-cli/tests/examples.rs   examples runner: layout, coverage, rebuild and export checks (2.8)
