@@ -1,6 +1,6 @@
 # 0046: The examples runner exports every example that builds to STL, 3MF, OBJ and STEP and checks each report against the file written
 
-Status: Accepted. No capability, schema, license or dependency changes: runner test 5 runs the built `partsmith` binary with `tempfile` and `serde_json`, which the CLI's tests already use, and stores no expected results.
+Status: Accepted (owner, 2026-11-04): option (c). Runner test 5 also imports each STEP file it exports and checks its volume within technical design section 16's tolerance (delivery.md open issue 18), which wave F builds. No capability, schema, license or dependency changes: runner test 5 runs the built `partsmith` binary with `tempfile` and `serde_json`, which the CLI's tests already use, and stores no expected results.
 
 ## Context
 
@@ -20,7 +20,7 @@ Status: Accepted. No capability, schema, license or dependency changes: runner t
 
 - (a) **Every format's report** (chosen): covers the four formats over the whole corpus with no stored results, in one test function and a few helpers beside runner test 4's, and finds an export that fails, panics or reports a file other than the one it wrote, on any geometry the corpus holds. It does not read what a file holds.
 - (b) **The STEP round trip for every example that builds**: about as much code, plus an engine session per worker. It covers one format of four, though it is the only one of these checks that reads what a file holds, and the only one technical design section 16 gives a tolerance for.
-- (c) **Both**: (a) with the STEP file it writes imported and measured, about 20 more lines and a few seconds on 4 cores. It adds the round trip over curved faces, which no test has, and can be added later; delivery.md section 8 asks the owner about it (open issue 18).
+- (c) **Both**: (a) with the STEP file it writes imported and measured, about 20 more lines and a few seconds on 4 cores. It adds the round trip over curved faces, which no test has, and can be added later (open issue 18). The owner chose it on 2026-11-04.
 - (d) **Stored export reports**, each format's byte count as an expected result: a new file per example or a new member in each of the 256 expected files, all blessed again, for numbers that change with the zip crate and the tessellation and say no more than (a) about whether an export works.
 - (e) **A few examples per format**: less time, but the corpus is there for its spread of geometry.
 - For the warnings: (w1) not compared (chosen); (w2) none allowed, which fails `extrude/union-touching-itself`, whose two parts touch along an edge on purpose; (w3) each warning's code among the codes of the example's `mesh_validity` findings, a check that export and print agree, which ties io's codes to print's for meshes that runner test 4 already covers.

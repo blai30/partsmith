@@ -1,6 +1,6 @@
 # 0053: Copy features refuse a body that is not valid, and the kernel tells a mirror of an invalid solid from its own failure
 
-Status: Proposed, needs human review: a public API change of `partsmith-occt-sys` (the variant `KernelErrorKind::InvalidInputShape` and the exception `Partsmith_InvalidInputShape`) and of `partsmith-features` (the variant `FeatureError::BodyNotValid` and the function `has_volume`, which moves there from `partsmith-engine`), the human gate of item ENG-8 of the M1 gap list. No file format, protocol schema, license, dependency or capability change: the message code `body_not_valid` travels in the diagnostic's `code` string, which no schema lists. The kernel's kind never leaves the Rust API.
+Status: Accepted (owner, 2026-11-04): option (a), as built, a public API change of `partsmith-occt-sys` (the variant `KernelErrorKind::InvalidInputShape` and the exception `Partsmith_InvalidInputShape`) and of `partsmith-features` (the variant `FeatureError::BodyNotValid` and the function `has_volume`, which moves there from `partsmith-engine`), the human gate of item ENG-8 of the M1 gap list. No file format, protocol schema, license, dependency or capability change: the message code `body_not_valid` travels in the diagnostic's `code` string, which no schema lists. The kernel's kind never leaves the Rust API.
 
 ## Context
 
@@ -19,7 +19,7 @@ Status: Proposed, needs human review: a public API change of `partsmith-occt-sys
 
 ## Options considered
 
-The owner can still pick another of these:
+The owner chose (a) among these on 2026-11-04:
 
 - **(a) The kernel tells a mirror or scale of an invalid solid apart, and the copy features refuse a body without volume or one whose mirror the kernel finds invalid** (chosen). The least code that keeps every kernel hint true and stops a pattern of a body without volume from gaining material.
 - **(b) No new kernel kind.** On `InvalidResult` from `transform`, the mirror asks `Shape::is_valid` of its source itself. No kernel API change, but the `transform` hint `Report it with the details.` stays untrue for any other caller.

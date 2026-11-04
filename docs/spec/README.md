@@ -79,7 +79,7 @@ A cross-spec review reconciled the drafts. These decisions are binding on the sp
 - **D10.** Renaming a parameter rewrites every expression that uses it in the same transaction: the model builds the edit set and the protocol has a `rename_parameter` command.
 - **D11.** `Document.rollback` names the first rolled-back feature, and `None` means nothing is rolled back, so rolling back before the first feature is possible and a feature inserted at the marker stays active.
 - **D12.** `partsmith-wasm` may use `unsafe` only on its three C ABI exports (ADR 0010); its thread-local session is host state, and the kernel's STEP and blend mutexes and one-time OCCT setup guard OCCT's own process-wide state.
-- **D13.** Print values the technical design does not give stay as specified and are listed in print.md under "Needs human review".
+- **D13.** Print values the technical design does not give stay as specified and are listed in print.md under "Needs human review". The owner accepted them as built for M1 on 2026-11-04.
 - **D14.** `FeatureManifest` and other pure data the protocol needs live in `partsmith-model` or `partsmith-protocol`, so the protocol carries no untyped JSON for core data and the UI gets generated types.
 - **D15.** Protocol sketch regions include the region fingerprint; the protocol sends no tessellated sketch curves, and the UI draws curves from the entities.
 - **D16.** Protocol element data names the feature that created each face, edge and vertex, so the UI never parses element names.
@@ -89,7 +89,7 @@ A cross-spec review reconciled the drafts. These decisions are binding on the sp
 - **D20.** The 120-character line width rule of `.ptsm` stays; expanded records still give one-line diffs per changed member.
 - **D21.** A hole at an unknown sketch point is an error, and through-all extends 1 mm past the body's bounding box.
 - **D22.** The kernel exports its OCCT version as a constant, used in recompute cache keys.
-- **D23.** Fit-class defaults, print values and the theme tokens (violet accent) stand for now and are marked "needs human review" where they appear.
+- **D23.** Fit-class defaults, print values and the theme tokens (violet accent) stand for now and are marked "needs human review" where they appear. The owner accepted the print values and the design-system values of ui.md open issue 13 (since then with an orange accent) as built for M1 on 2026-11-04.
 - **E1.** Generated Python escapes characters below U+0020 and U+007F as `\xNN`, as Python's `repr` does, and wraps calls longer than 88 characters.
 - **E2.** The Python hook is the provided method `Feature::python(params, names) -> Option<PythonCall>`; `PythonValue` gains `Name`, `Call` and `Tuple`; `Registry::python` falls back to the generic form. During reconciliation `PythonNames` grew to seven lookups (`units`, `body`, `feature`, `entity`, `parameter`, `regions`, `default_op`), and `Registry::python` appends the `name=`, `suppressed=True` and `id=` keywords itself, so the engine's generator owns only the script layout and variables (ADR 0011).
 - **E3.** The sketch reserves `origin` (a point) and `x_axis` and `y_axis` (lines) as fixed references that constraints can use without stored entities; entity and constraint ids cannot use these names.

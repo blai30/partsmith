@@ -1,6 +1,6 @@
 # 0017: Keep the web build; the desktop app leads where the platforms differ
 
-Status: Accepted, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built
 
 ## Context
 

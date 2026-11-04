@@ -1,6 +1,6 @@
 # 0014: Tauri 2 desktop host, its dependencies, and no Tauri npm package
 
-Status: Proposed, needs human review
+Status: Accepted (owner, 2026-11-04): Tauri 2 with the dependencies below and the two RUSTSEC ignores of `deny.toml`, as built. Its six commands and its "No fs plugin" bullet are amended by [ADR 0037](0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md), accepted the same day.
 
 ## Context
 
@@ -26,4 +26,4 @@ The technical design proposes a Tauri 2 shell for the desktop app (section 4), a
 
 ## Consequences
 
-The desktop app shares the UI, the protocol and the engine with the web app, and its webview gets only the commands it needs: the engine, dialogs, the files the user chose, and the unsaved flag. Linux builds need the WebKitGTK development packages, and because the crate is a workspace member, `cargo test --workspace` and the CI `rust` job need them too (delivery.md 3.2). The workspace grows by about 290 crates, which adds build time and supply-chain surface; that is why this decision waits for human review. Upgrades move `tauri`, `tauri-build`, `tauri-plugin-dialog` and `tauri-cli` together. Adding slicer launching, auto-update, single-instance handling or file associations later needs further plugins or permissions, each with its own ADR (desktop.md 1.2).
+The desktop app shares the UI, the protocol and the engine with the web app, and its webview gets only the commands it needs: the engine, dialogs, the files the user chose, and the unsaved flag. Linux builds need the WebKitGTK development packages, and because the crate is a workspace member, `cargo test --workspace` and the CI `rust` job need them too (delivery.md 3.2). The workspace grows by about 290 crates, which adds build time and supply-chain surface; that is why this decision needed human review. The owner accepted it on 2026-11-04. Upgrades move `tauri`, `tauri-build`, `tauri-plugin-dialog` and `tauri-cli` together. Adding slicer launching, auto-update, single-instance handling or file associations later needs further plugins or permissions, each with its own ADR (desktop.md 1.2).

@@ -1,6 +1,6 @@
 # 0021: Resolve references by meaning, never by a fingerprint guess
 
-Status: Accepted, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built with its amendments of 2026-10-13 and 2026-10-15
 
 ## Context
 
@@ -46,9 +46,9 @@ The resolver uses an element only when recorded history connects it to the refer
 - naming.md tests 61 to 77, 80 and 89 change and tests 91 to 118 are added (study N16), with new budgets for `ElementSet::new`, `resolve` with merged names and `from_element` (N15). The review of the spec text added tests 119 to 141 and budgets for nested merged names and `NameSet::new`. `partsmith_features::VERSION` is bumped so persisted caches built with the old naming maps are never reused.
 - `NamingMap::build` takes the map index of every source and the motion of the geometry new faces are built on, and records successions apart from aliases; the features spec passes them (naming.md section 3.6).
 - The crate graph gains the edge `partsmith-recompute -> partsmith-naming` (architecture.md, "Crate graph"): the loss diagnosis builds `NameSet` from the naming maps of the writer chains and reports `Instance` in `LossReason::CopyGone` (recompute.md sections 1 and 3.10). Recompute already depended on naming through `partsmith-features`; the edge makes the direct use explicit and is logged here, as ADR 0019 logged its change of the graph.
-- This changes the naming algorithm, so it waits for human review at the next gate (AGENTS.md). With ADRs 0024 and 0025 it gates all code of the study's plan.
+- This changes the naming algorithm, which needs human review (AGENTS.md). The owner signed it off as built on 2026-11-04. With ADRs 0024 and 0025 it gates all code of the study's plan.
 
-## Amendments (needs human review)
+## Amendments
 
 Changes to the naming.md text made while implementing phase 1. Each fixes a contradiction or a gap the code found; none changes the decision above.
 

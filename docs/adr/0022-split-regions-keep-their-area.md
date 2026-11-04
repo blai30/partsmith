@@ -1,6 +1,6 @@
 # 0022: A profile region follows its boundary and keeps covering its area when split
 
-Status: Accepted, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built
 
 ## Context
 
@@ -29,4 +29,4 @@ One case is a product decision the corpus left open (R50): a circle drawn inside
 - Phase 1 of the study makes the profile part of R01 to R07, R50, R51 and R64 pass for every size, and lets R06a, R07a and R49 follow through successions. R50's corpus expectation becomes this rule, and R66 is added to the corpus.
 - `outline` is an optional field of file format version 2 (ADR 0025). A region reference without it still matches, but infers extensions only: its stored key does not say where a removed entity was, so a deleted bevel plus a chamfer drawn at another corner would read as a replacement. A version 1 reference to the face of a replaced line is therefore reported lost, with the new face offered as a candidate that keeps a face of the lost element, and Keep these regions stores the outline.
 - A user who wanted the inner circle as a hole removes the disc from the profile once; the notice says so.
-- This changes a product rule and sketch.md section 3.14, so it waits for human review at the next gate.
+- This changes a product rule and sketch.md section 3.14, which needs human review. The owner signed it off as built on 2026-11-04.

@@ -1,6 +1,6 @@
 # 0012: New dependencies for M1: blake3, zip and faer
 
-Status: Accepted, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built
 
 ## Context
 
@@ -20,4 +20,4 @@ Each crate is added to `[workspace.dependencies]` and to the dependencies of onl
 
 ## Consequences
 
-Content hashing, 3MF export and fast sketch solving use maintained, widely used crates instead of hand-written code, in line with "battle-tested pattern only when it solves a problem the code actually has". Each crate adds build time and supply-chain surface, which is why the decision waits for human review. Removing or replacing one later needs a new ADR.
+Content hashing, 3MF export and fast sketch solving use maintained, widely used crates instead of hand-written code, in line with "battle-tested pattern only when it solves a problem the code actually has". Each crate adds build time and supply-chain surface, which is why the decision needed human review. The owner signed it off as built on 2026-11-04. Removing or replacing one later needs a new ADR.

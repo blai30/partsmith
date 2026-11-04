@@ -1194,6 +1194,8 @@ The print check examples of gap list item EX-2: bed fit, islands, tall and thin,
 
 The technical design does not give these values. They are the M1 defaults and stay as specified until a reviewer confirms or changes them at the next gate; the monthly print validation checks them against real prints. Each place that uses them is marked "needs human review, section 8".
 
+Decided by the owner on 2026-11-04: every value below is accepted as built for M1, `WALL_FACING_ANGLE` of 30 degrees included (ADR 0041). The places marked "needs human review, section 8" point here.
+
 - Fit class defaults: FDM 0.05, 0.1, 0.2, 0.4 mm; resin 0.02, 0.05, 0.1, 0.2 mm (section 3.2).
 - Resin check thresholds: minimum wall 0.5 mm, minimum feature 0.2 mm, minimum hole 0.5 mm, maximum overhang 30° (section 3.6).
 - The generic resin printer: 130 × 80 × 160 mm bed, 0.05 mm layers, 5 mm bridges (section 2.2).

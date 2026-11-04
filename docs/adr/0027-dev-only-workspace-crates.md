@@ -1,6 +1,6 @@
 # 0027: Dev-only workspace crates for the budget benchmarks and the mesh test fixtures
 
-Status: Accepted, needs human review; the amendment of 2026-10-30 proposed, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built with its amendments of 2026-10-18 and 2026-10-30 (`partsmith-cli`'s budget benchmark, gap list item CLI-2)
 
 ## Context
 
@@ -30,7 +30,7 @@ Both are path entries of `[workspace.dependencies]`, after the eleven of ADR 002
 
 The ten benchmarks print one format and select operations the same way, and a harness change is one edit. Their output text changes (time formats, column widths, `Over budget: <operation> (<time> > <budget>)` on standard output), which nothing parses. The fixtures of mesh.md section 6.1 exist once; a change to one changes it for the three crates' tests together. `partsmith-mesh` dev-depends on a crate that depends on it, which Cargo allows; only its integration tests and benchmarks may use the fixtures, since its unit tests would see a second copy of its types. The workspace has two more members to build and lint.
 
-## Amendments (needs human review)
+## Amendments
 
 | Date | Specs | Change |
 | --- | --- | --- |

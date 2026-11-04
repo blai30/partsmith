@@ -1,6 +1,6 @@
 # 0039: Tessellation triangulates with the shim's copy of Delabella in double-double arithmetic, the same on every platform
 
-Status: Proposed, needs human review: third-party code copied into the repository (MIT) and changed, its notices entry, and the shim's glue to OCCT's mesher, written against OCCT's installed headers.
+Status: Accepted (owner, 2026-11-04): the copy is kept as built, with the third-party code copied into the repository (MIT) and changed, its notices entry, and the shim's glue to OCCT's mesher, written against OCCT's installed headers.
 
 ## Context
 

@@ -1,6 +1,6 @@
 # 0020: Dependency log of the workspace
 
-Status: Accepted, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built
 
 ## Context
 
@@ -34,7 +34,7 @@ The workspace depends on exactly the external crates below. Every one is declare
 - **Removed.** `indexmap`, `nalgebra`, `quick-xml` and `approx` are deleted from `[workspace.dependencies]`. No crate declared them and no source file names them, so `Cargo.lock` does not change. `indexmap` stays in the tree as the map behind `serde_json`'s `preserve_order` feature. ADR 0015 already settled that the sketch solver needs no linear algebra crate, and ADR 0012 that no XML crate is added before 3MF import.
 - **Path dependencies.** The eleven `partsmith-*` entries of `[workspace.dependencies]` are the workspace's own crates; their edges are architecture.md's crate graph.
 - **Transitive check.** With all features, `Cargo.lock` resolves 348 external crates on x86_64 Linux, 309 on x86_64 Windows and 303 on arm64 macOS (481 over every platform). Every license among them satisfies `deny.toml`'s allow list, and `cargo deny --all-features check` (cargo-deny 0.20.2) passes advisories, bans, licenses and sources with no exception beyond the two advisory ignores ADR 0014 approved.
-- **Update (2026-10-16).** `zip` moves from 9.0.1 to 9.0.3 in `Cargo.lock` because crates.io yanked 9.0.1 and `deny.toml` denies yanked crates, which failed the `deny` job on `main`. The requirement `9` in the root manifest, the features and the license are unchanged; the notices were regenerated with `pnpm -C ui notices`. Needs human review at the next gate.
+- **Update (2026-10-16).** `zip` moves from 9.0.1 to 9.0.3 in `Cargo.lock` because crates.io yanked 9.0.1 and `deny.toml` denies yanked crates, which failed the `deny` job on `main`. The requirement `9` in the root manifest, the features and the license are unchanged; the notices were regenerated with `pnpm -C ui notices`. Signed off as built by the owner on 2026-11-04.
 - **Rule.** A crate is added to `[workspace.dependencies]` only together with the first crate that uses it, and removed when its last user goes. Each addition, removal or license change is a new row or a new ADR.
 
 ## Consequences

@@ -1,6 +1,6 @@
 # 0008: Short random ids with kind prefixes
 
-Status: Accepted, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built
 
 ## Context
 

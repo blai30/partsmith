@@ -1,6 +1,6 @@
 # 0007: WebGL2 renderer first, WebGPU behind the same interface
 
-Status: Accepted, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built
 
 ## Context
 

@@ -1,6 +1,6 @@
 # 0036: Hosts write a document's assets before the document and check them against the engine's bytes
 
-Status: Accepted for Python (PY-1); the rule for the web and desktop hosts is proposed, needs human review with B-5's capability review
+Status: Accepted (owner, 2026-11-04): for Python (PY-1), and for the web and desktop hosts as [ADR 0037](0037-save-checks-the-file-and-hosts-reach-the-assets-folder.md) decides them (option (a) on the desktop, which follows no link in `assets/`)
 
 ## Context
 
@@ -21,7 +21,7 @@ The web and desktop hosts do not write assets yet (gap list B-5) and will follow
 6. **Hosts without the folder.** A host that cannot write the document's folder (the web with only a file handle, or a download) does not write assets; its own spec decides what it does instead (ui.md section 3.19, gap list B-5).
 7. **A linked `assets/` folder.** Python follows `assets/` when it is a symbolic link to a folder, like any folder of the document's path, so a folder of assets shared by several project folders keeps working, and `Document.open` already reads through the same link. A link that leads to no folder fails the save. The desktop's rule is decided with B-5's capability review.
 
-## Options for the desktop host (B-5, needs human review)
+## Options for the desktop host (B-5)
 
 The desktop grants single files (desktop.md section 3.2), so writing assets needs a new grant for the granted document's sibling `assets/` folder. Two options:
 

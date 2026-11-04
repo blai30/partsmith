@@ -26,6 +26,7 @@ cargo test -p partsmith-model            # one crate
 pnpm -C ui install
 pnpm -C ui lint && pnpm -C ui typecheck && pnpm -C ui test
 pnpm -C ui e2e                           # Playwright against the WebAssembly build
+pnpm -C ui notices                       # after changing Cargo.lock, a Cargo.toml, ui/pnpm-lock.yaml, rust-toolchain.toml or scripts/*-version.sh
 
 scripts/build-wasm.sh                    # needs an activated Emscripten SDK and OCCT built for wasm
 cargo run -p partsmith-cli -- schema --write   # regenerate docs/format/*.schema.json
@@ -47,7 +48,7 @@ cargo run -p partsmith-cli -- schema --write   # regenerate docs/format/*.schema
 - No C++ types, exceptions or `unsafe` outside `partsmith-occt-sys`. The one exception is `unsafe` on `partsmith-wasm`'s three C ABI exports (ADR 0010).
 - No global mutable state in the core; every API takes a document or session handle.
 - The UI depends only on the protocol (generated types), never on core internals.
-- License policy: only permissive dependencies, plus OCCT (LGPL, linked as a separate library). No GPL code.
+- License policy: only permissive dependencies, plus OCCT (LGPL 2.1 with the Open CASCADE exception, linked statically; every distributed build comes with a way to get its exact source and OCCT's so users can relink, ADR 0034). No GPL code.
 
 ## Process
 

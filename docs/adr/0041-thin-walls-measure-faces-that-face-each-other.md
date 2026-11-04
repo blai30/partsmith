@@ -1,6 +1,6 @@
 # 0041: Thin walls are measured only between faces that face each other, so no diagonal at an acute edge decides a finding
 
-Status: Accepted, except the value of `WALL_FACING_ANGLE` (30 degrees), which needs human review with print.md section 8's thresholds; the four blessed expected files and the new `shell/thin-wall` example are reviewed in the pull request (delivery.md 2.8).
+Status: Accepted (owner, 2026-11-04), as built: `WALL_FACING_ANGLE` of 30 degrees with print.md section 8's values, the four expected files blessed again and the new `shell/thin-wall` example.
 
 ## Context
 

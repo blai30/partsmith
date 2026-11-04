@@ -1,6 +1,6 @@
 # 0011: Feature contract extensions and manifests in the model crate
 
-Status: Accepted, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built
 
 ## Context
 

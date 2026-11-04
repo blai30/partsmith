@@ -1,6 +1,6 @@
 # 0033: Third-party notices and the npm license check, generated from the lock files by two Node scripts
 
-Status: Proposed, needs human review (licenses: what the notices hold, the OCCT statements, the texts given to crates that ship none, the Apple SDK caveat of the objc2 crates, and the choice for the em dash rule; tools: no new tool, two scripts; dependency log: the npm packages that ship, below)
+Status: Accepted (owner, 2026-11-04), as built: what the notices hold, the OCCT statements, the texts given to crates that ship none, the objc2 crates' entries with the Apple SDK caveat, the Unicode data license (Unicode-DFS-2016) of `regex-syntax`'s tables, two scripts and no new tool, and the npm packages that ship (below). The em dash rule takes way 1: third-party license texts copied verbatim keep their em dashes. The root AGENTS.md gained the `pnpm -C ui notices` command line the same day. Whether its em dash rule also names way 1's exception is proposed, needs human review. The owner's leave of 2026-11-04 changed only the license invariant and the command line, and the exception is written here alone until the owner adds it there or keeps it here.
 
 ## Context
 
@@ -78,11 +78,13 @@ Three ways to produce the notices were weighed:
   1. Keep the texts verbatim and amend the rule, with the wording this ADR proposes: "Never write the em dash character in any file, except third-party license texts copied verbatim: the notices that `pnpm -C ui notices` writes and the copies it reads under `ui/scripts/notices/` (delivery.md 2.9)." Cost: one exception to a project-wide rule, limited to generated files and committed copies.
   2. Write U+2014 as `--` in the generator's normalization. Cost: the rule stays as it is, but the notices then reproduce an altered license text, while Unicode-3.0, the license whose texts hold the em dashes, asks that its notice appear in all copies.
   3. Hold the notices back until the owner accepts a wording. Cost: B-2 is blocked, and with it the first green `main` (delivery.md section 8).
+
+  The owner chose way 1 on 2026-11-04.
 - **npm dependency log.** The eleven packages above, with their licenses, are the log this ADR records for the UI; later additions are new rows or a new ADR, as ADR 0020 does for crates.
 
 ## Consequences
 
-- Every pull request that changes a lock file, a manifest, a toolchain pin, OCCT, the fonts, `LICENSE` or the generator also regenerates the notices (`pnpm -C ui notices`); CI says so when it does not. The root AGENTS.md, which every other change reads, gains that command when this work merges `main`; the file is the owner's, so the owner adds it (delivery.md 2.9).
+- Every pull request that changes a lock file, a manifest, a toolchain pin, OCCT, the fonts, `LICENSE` or the generator also regenerates the notices (`pnpm -C ui notices`); CI says so when it does not. The root AGENTS.md, which every other change reads, gains that command when this work merges `main`; the file is the owner's, so the owner adds it (delivery.md 2.9). It was added on 2026-11-04 with the owner's leave.
 - Two generated text files join the repository, about 0.8 MB for the desktop and 0.4 MB for the web. They hold more than ships: build dependencies, the two type-only npm packages and, in one desktop file, the crates of all three platforms are listed, which is harmless; nothing that ships is left out.
 - About thirty small committed texts join `ui/scripts/notices/`, each made once per crate, pin or version and reviewed in the pull request that adds it.
 - The `schema` job downloads the crate sources of all four platforms through `cargo metadata`; the notices need no OCCT install there or locally.

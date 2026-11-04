@@ -1,6 +1,6 @@
 # 0040: Hosts word print suggestions from their geometry; applying one in one click waits
 
-Status: Accepted, except the Python API of the decision (`Finding.suggestion`, `Suggestion` and `SplitPlane` in `partsmith.reports`), which is proposed, needs human review (a public API change, a human gate of the M1 gap list)
+Status: Accepted (owner, 2026-11-04), the Python API of the decision with option (a), as built: `Finding.suggestion`, `Suggestion` and `SplitPlane` in `partsmith.reports`, kept out of `partsmith.__all__` (a public API change, a human gate of the M1 gap list)
 
 ## Context
 

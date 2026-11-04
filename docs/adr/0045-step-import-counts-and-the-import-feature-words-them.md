@@ -1,6 +1,6 @@
 # 0045: STEP import counts the shapes it leaves out and the solids it cannot repair, and the import feature words the counts
 
-Status: Proposed, needs human review: a public API change of `partsmith-occt-sys` (two fields of `StepImport`) and of `partsmith-features` (the fields of `FeatureWarning::ImportWarning` and the new `ImportContent`), the human gate of item IMP-1 of the M1 gap list. No file format, protocol schema, license, dependency or capability change: the warning keeps its code `import_warning`, and its detail travels in the diagnostic's existing `detail` field (ADR 0024).
+Status: Accepted (owner, 2026-11-04): option (b), as built, a public API change of `partsmith-occt-sys` (two fields of `StepImport`) and of `partsmith-features` (the fields of `FeatureWarning::ImportWarning` and the new `ImportContent`), the human gate of item IMP-1 of the M1 gap list. No file format, protocol schema, license, dependency or capability change: the warning keeps its code `import_warning`, and its detail travels in the diagnostic's existing `detail` field (ADR 0024).
 
 ## Context
 
@@ -18,7 +18,7 @@ Status: Proposed, needs human review: a public API change of `partsmith-occt-sys
 
 ## Options considered
 
-The owner can still pick another of these:
+The owner chose (b) among these on 2026-11-04:
 
 - **(a) Reword only the kernel's sentences** (`Skipped 1 shape that is not a closed solid.`, a repair sentence without the solid's position), with no API change and no gate; users would still read kernel text, and features.md section 4.2 would still contradict test 14.
 - **(b) Counts that the feature words, the sentences kept for the detail** (chosen): the only option that keeps kernel text out of messages without changing `partsmith-io`.

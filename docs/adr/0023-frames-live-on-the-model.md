@@ -1,6 +1,6 @@
 # 0023: Sketch frames, axis directions and chamfer sides live on the model
 
-Status: Accepted, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built with its amendments of 2026-10-17. A host's re-attach by pick follows the rule of engine.md section 3.22, as `Attach` does: a re-attach that no stored frame keeps the sketch's motion for is not offered (engine.md open issue 16, ui.md open issue 25). Wave F builds that rule.
 
 ## Context
 
@@ -36,9 +36,9 @@ A face can also turn over: a reversed extrude (R32b) makes its outward normal po
 - The corpus amends two expectations: R32b warns `sketch_turned_over` and, after Turn the drawing back, drills at (20, 10); after R26's delete the sketch uses its saved position with a true message, and the engine's cause line offers "Keep the sketch where it was".
 - `fallback_frame` and `direction` are optional fields of file format version 2 (ADR 0025). A version 1 document rebuilds with the same placements, volumes and statuses, which a recompute test checks.
 - A sketch on a reversed extrude cap now warns instead of silently mirroring or missing; a sketch on a mirror copy face keeps its placement, also when the mirror plane moves; a reference that resolves to faces in several planes or edges on several lines asks instead of letting name order decide.
-- This changes the naming maps and the sketch placement rule, so it waits for human review at the next gate. It gates the phase 2 code of the study's plan; motions are built in phase 1 and read from phase 2.
+- This changes the naming maps and the sketch placement rule, which needs human review. The owner signed it off as built on 2026-11-04. It gates the phase 2 code of the study's plan; motions are built in phase 1 and read from phase 2.
 
-## Amendments (needs human review)
+## Amendments
 
 Changes made while implementing phase 2. Each fixes a silent wrong result the review of the engine step found; neither changes where a sketch is placed.
 

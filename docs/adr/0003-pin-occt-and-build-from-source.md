@@ -1,6 +1,6 @@
 # 0003: Pin OCCT 7.9.3, built from source as static libraries
 
-Status: Accepted
+Status: Accepted (owner, 2026-11-04), signed off as built with its amendment of 2026-10-17 (fillets and chamfers built one at a time)
 
 ## Context
 
@@ -16,7 +16,7 @@ OCCT 8.0 is released; moving to it is a separate decision gated by a full corpus
 
 Native and web builds run the identical kernel version, so corpus baselines agree across platforms. First builds take tens of minutes; caches make later builds fast.
 
-## Amendments (needs human review)
+## Amendments
 
 | Date | Specs | Change |
 | --- | --- | --- |

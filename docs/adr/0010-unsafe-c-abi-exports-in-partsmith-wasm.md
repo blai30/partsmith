@@ -1,6 +1,6 @@
 # 0010: `unsafe` on the three C ABI exports of `partsmith-wasm`
 
-Status: Accepted, needs human review
+Status: Accepted (owner, 2026-11-04), signed off as built with the test helper of the note below
 
 ## Context
 
@@ -19,3 +19,7 @@ The architecture allows C++ and `unsafe` only in `partsmith-occt-sys`, and the w
 ## Consequences
 
 `unsafe` outside the kernel crate is limited to three small, reviewed functions, and the lint fails the build if `unsafe` appears anywhere else in `partsmith-wasm`. The web host needs no generated glue (ADR 0009). Any further exception needs a new ADR.
+
+## Note (2026-11-04)
+
+The decision names only the three exports. One more item of the crate uses `unsafe`: `Block`, the test helper in `crates/partsmith-wasm/tests/common/block.rs`. The integration tests and the budget benchmark (`benches/budgets.rs`, which includes `tests/common` with `#[path]`) call the exports through it with raw pointers, as JavaScript does. Five of its methods (`holding`, `call`, `call_without_length_slot`, `bytes` and `Drop::drop`) carry `#[allow(unsafe_code)]`, and each `unsafe` block has a `// SAFETY:` comment that states the part of the caller contract it relies on (protocol.md section 2.10). It is test code and never part of the module. The crate's AGENTS.md names it as the only `unsafe` code outside `src/exports.rs`. The owner signed it off with this ADR on 2026-11-04.

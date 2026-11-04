@@ -6,7 +6,7 @@ Open-source parametric CAD for people who design parts for 3D printing. Sketch, 
 
 ## Try it
 
-**On the web.** The web app deploys to Cloudflare Pages from `main` once CI passes there; its address goes here with the first production deployment. Each pull request gets a preview, linked from the pull request. The web app runs in the current Chrome, Edge, Firefox and Safari on desktop computers, from Chrome and Edge 114, Firefox 128 and Safari 17, and every change is tested in Chromium and every week in Firefox and WebKit.
+**On the web.** The web app is at [https://partsmith.pages.dev](https://partsmith.pages.dev), deployed from `main` once CI passes there. Each pull request gets a preview, linked from the pull request. The web app runs in the current Chrome, Edge, Firefox and Safari on desktop computers, from Chrome and Edge 114, Firefox 128 and Safari 17, and every change is tested in Chromium and every week in Firefox and WebKit.
 
 **On the desktop.** Desktop builds appear on [GitHub Releases](https://github.com/blai30/partsmith/releases) once the first release is published; until then there is nothing to download. Each release holds:
 

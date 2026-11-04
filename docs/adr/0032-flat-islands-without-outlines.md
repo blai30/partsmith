@@ -1,6 +1,6 @@
 # 0032: Flat islands: no outlines, surfaces a step lighter than one flat viewport, and edges drawn only in forced colors
 
-Status: Accepted (owner request and lead decisions, 2026-10-16), needs human review (the visual values join ui.md open issue 13). Amends the outline and surface choices of [ADR 0030](0030-islands-over-a-full-window-viewport-and-rgb-axes.md); everything else of ADR 0030 stands, and type stays as [ADR 0031](0031-self-hosted-geist-and-jetbrains-mono-for-code.md) decided.
+Status: Accepted (owner, 2026-11-04): the owner's request and the lead decisions of 2026-10-16, with the visual values accepted as built for M1 (ui.md open issue 13). Amends the outline and surface choices of [ADR 0030](0030-islands-over-a-full-window-viewport-and-rgb-axes.md); everything else of ADR 0030 stands, and type stays as [ADR 0031](0031-self-hosted-geist-and-jetbrains-mono-for-code.md) decided.
 
 ## Context
 

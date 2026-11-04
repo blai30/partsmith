@@ -1,6 +1,6 @@
 # 0031: Geist with a serifed I and tabular figures for interface text and numbers, JetBrains Mono for code only, both self-hosted
 
-Status: Accepted (owner decision, 2026-10-15), needs human review (license policy: two SIL OFL 1.1 font files ship with the app; the Windows rendering check of ui.md open issue 33). Supersedes the font loading of [ADR 0013](0013-oxc-tooling-and-theme-stylesheet.md): its Google Fonts import, Inter for interface text and JetBrains Mono for values.
+Status: Accepted (owner, 2026-11-04): decided by the owner on 2026-10-15, and the two SIL OFL 1.1 font files that ship with the app accepted as built for M1. How Geist renders on Windows stays a manual check at the gate (ui.md open issue 33). Supersedes the font loading of [ADR 0013](0013-oxc-tooling-and-theme-stylesheet.md): its Google Fonts import, Inter for interface text and JetBrains Mono for values.
 
 ## Context
 
