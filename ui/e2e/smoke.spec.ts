@@ -250,18 +250,23 @@ test('E-164 the command opens the web notices in a new tab', async ({ page }) =>
     'a line of the OCCT entry',
   ).toBe(true)
 
-  // The text view sets its line wrapping in a style attribute, which the policy refuses (ui.md open issue 44).
-  await expect
-    .poll(() => notices.evaluate(reportedViolations), {
-      message: 'the content security policy violations of the notices tab',
-    })
-    .toEqual(['style-src-attr inline'])
-  expect(
-    await notices.evaluate(() => {
-      const text = document.querySelector('pre')
-      return text === null ? null : getComputedStyle(text).whiteSpace
-    }),
-  ).toBe('pre')
+  // Chromium 141's text view sets its line wrapping in a style attribute, which the policy refuses.
+  // Chromium 156 reports no violation there (ui.md open issue 44).
+  // The report of a refused attribute can arrive after the page has loaded, so the check is retried.
+  await expect(async () => {
+    const violations = await notices.evaluate(reportedViolations)
+    expect(
+      violations.filter((violation) => violation !== 'style-src-attr inline'),
+      'the content security policy violations of the notices tab',
+    ).toEqual([])
+    expect(
+      await notices.evaluate(() => {
+        const text = document.querySelector('pre')
+        return text === null ? null : getComputedStyle(text).whiteSpace
+      }),
+      'the line wrapping of the notices tab',
+    ).toBe(violations.length === 0 ? 'pre-wrap' : 'pre')
+  }).toPass({ timeout: 5000 })
 
   await expect(page.getByTestId('notification')).toHaveCount(0)
   await expect(page.getByTestId('document-name')).toHaveText('Untitled')
