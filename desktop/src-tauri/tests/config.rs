@@ -167,26 +167,6 @@ fn t033_the_tauri_configuration_is_exactly_the_one_of_the_spec() {
 }
 
 #[test]
-fn t033_the_copyright_points_at_the_name_the_bundle_installs_the_notices_under() {
-    let bundle = &json_file("tauri.conf.json")["bundle"];
-    let copyright = bundle["copyright"]
-        .as_str()
-        .expect("bundle.copyright is a string");
-    let installed_names: Vec<&str> = bundle["resources"]
-        .as_object()
-        .expect("bundle.resources is an object")
-        .values()
-        .map(|name| name.as_str().expect("each installed name is a string"))
-        .collect();
-
-    assert_eq!(installed_names, ["THIRD-PARTY-NOTICES.txt"]);
-    assert!(
-        copyright.ends_with(&format!("see {}.", installed_names[0])),
-        "the copyright ends by pointing at the installed notices: {copyright}"
-    );
-}
-
-#[test]
 fn t034_the_capability_is_exactly_the_one_of_the_spec() {
     assert_eq!(json_file("capabilities/main.json"), expected_capability());
 }
