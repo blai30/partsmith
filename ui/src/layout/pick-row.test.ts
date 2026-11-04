@@ -172,6 +172,7 @@ describe('pickRow while a sketch is re-attached (3.16.1)', () => {
     const { app, core } = reattachingApp()
     pickRow(app, originItem('XY'), false)
     await settle()
+    expect(core.callsTo('attachPlane')).toEqual([[1, 'f-sk2', { kind: 'origin', plane: 'XY' }]])
     expect(core.callsTo('applyEdits')).toEqual([
       attachCall(SKETCH_2, { kind: 'origin', plane: 'XY' }),
     ])
@@ -198,6 +199,7 @@ describe('pickRow while a sketch is re-attached (3.16.1)', () => {
     const { app, core } = reattachingApp([datum])
     pickRow(app, datumItem('f-dp1', 'Datum plane 1'), false)
     await settle()
+    expect(core.callsTo('attachPlane')).toEqual([])
     expect(core.callsTo('applyEdits')).toEqual([])
     expect(app.store.getState().pickHint).toEqual({
       message: MESSAGES.attach_after('Sketch 2', 'Datum plane 1'),

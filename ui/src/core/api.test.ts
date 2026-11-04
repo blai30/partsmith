@@ -185,6 +185,36 @@ describe('createCoreApi', () => {
     expect(lastCommand(transport)).toEqual({ type: 'list_uses', doc: 1 })
   })
 
+  it('U-250 (f) attachPlane sends attach_plane and resolves its plane, or null without one (2.6)', async () => {
+    const { api, transport } = await setUp()
+    const { documentHandle } = await api.openDocument(documentText(RECT_SKETCH_DOCUMENT))
+    const picked = { kind: 'origin', plane: 'XY' } as const
+    const stored = { kind: 'origin', plane: 'XZ' } as const
+    transport.handle('attach_plane', () => ({ result: { type: 'attach_plane', plane: stored } }))
+    await expect(api.attachPlane(documentHandle, 'f-sk1', picked)).resolves.toEqual(stored)
+    expect(lastCommand(transport)).toEqual({
+      type: 'attach_plane',
+      doc: 1,
+      feature: 'f-sk1',
+      plane: picked,
+    })
+    transport.handle('attach_plane', () => ({ result: { type: 'attach_plane' } }))
+    await expect(api.attachPlane(documentHandle, 'f-sk1', picked)).resolves.toBeNull()
+  })
+
+  it('attachPlane rejects a refusal with its CoreError', async () => {
+    const { api, transport } = await setUp()
+    const { documentHandle } = await api.openDocument(documentText(RECT_SKETCH_DOCUMENT))
+    transport.handle('attach_plane', () => ({
+      error: { code: 'unknown_feature', message: 'There is no feature with id f-sk9.' },
+    }))
+    const error = await api
+      .attachPlane(documentHandle, 'f-sk9', { kind: 'origin', plane: 'XY' })
+      .catch((rejection: unknown) => rejection)
+    expect(error).toBeInstanceOf(CoreError)
+    expect(error instanceof CoreError ? error.code : null).toBe('unknown_feature')
+  })
+
   it('maps the transaction commands', async () => {
     const { api, transport } = await setUp()
     const { documentHandle } = await api.openDocument(documentText(CUBE_DOCUMENT))

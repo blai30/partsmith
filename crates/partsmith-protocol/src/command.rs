@@ -4,7 +4,7 @@ use partsmith_mesh::{BoundingBox, TessellationTolerance};
 use partsmith_model::{Dimension, Document, Edit, Expr, FeatureManifest, Id, Units};
 use partsmith_naming::{ElementKind, Reference};
 use partsmith_print::{Health, PrinterProfile, ProfileInput};
-use partsmith_sketch::{PointRef, SketchParams};
+use partsmith_sketch::{PointRef, SketchParams, SketchPlane};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -175,6 +175,16 @@ pub enum Command {
         /// Whether to record the dragged geometry.
         commit: bool,
     },
+    /// The plane a re-attach of the sketch by pick stores in place of `plane`, without recording anything (engine.md
+    /// section 3.22).
+    AttachPlane {
+        /// The document.
+        doc: DocHandle,
+        /// The sketch feature.
+        feature: Id,
+        /// The plane the host built from the pick, as for a new sketch.
+        plane: SketchPlane,
+    },
     /// Sets the display quality and re-tessellates.
     SetTessellation {
         /// The document.
@@ -313,6 +323,7 @@ impl Command {
             Command::SolveSketch { .. } => "solve_sketch",
             Command::DragSketch { .. } => "drag_sketch",
             Command::EndSketchDrag { .. } => "end_sketch_drag",
+            Command::AttachPlane { .. } => "attach_plane",
             Command::SetTessellation { .. } => "set_tessellation",
             Command::Evaluate { .. } => "evaluate",
             Command::ListElements { .. } => "list_elements",
@@ -454,6 +465,12 @@ pub enum CommandResult {
     EndSketchDrag {
         /// The current revision.
         revision: u64,
+    },
+    /// Result of `attach_plane`.
+    AttachPlane {
+        /// The plane to store; absent when no stored plane keeps the sketch's motion.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        plane: Option<SketchPlane>,
     },
     /// Result of `set_tessellation`.
     SetTessellation {

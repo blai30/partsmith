@@ -1,8 +1,10 @@
-"""Document, export and print check acceptance tests (python-api.md section 6, tests 61 to 67, 97 to 103, 116 and 117)."""
+"""Document, export and print check acceptance tests (python-api.md section 6, tests 61 to 67, 97 to 103 and 116 to 122)."""
 
 import errno
+import json
 import os
 import re
+import stat
 import warnings
 from pathlib import Path
 
@@ -12,16 +14,21 @@ from support import (
     IMPORT_ASSET_BYTES,
     RELATIVE_TOLERANCE,
     approximately,
+    assert_missing_file_error,
     document_with_import,
     fail_fsync_on_call,
     has_temporary_file,
+    is_same_link,
+    link_snapshot,
     near,
     os_error_text,
     record_file_operations,
     record_opened_files,
     recorded_document,
     request_command,
+    resolved,
     self_void,
+    symbolic_link,
     write_text,
 )
 
@@ -41,7 +48,9 @@ from partsmith import (
     faces,
     linear_pattern,
     mirror,
+    run_code,
 )
+from partsmith.__main__ import IO_ERROR, SUCCESS, main
 
 
 def box_document():
@@ -199,14 +208,6 @@ def record_commands(monkeypatch, session, operations):
 def sent_command_types(session, first_exchange):
     """The types of the commands `session` was sent from exchange `first_exchange` on."""
     return [command["type"] for command, _result in session.exchanges[first_exchange:]]
-
-
-def symbolic_link(link: Path, target: Path) -> None:
-    """Creates `link` pointing at `target`, or skips the test where links cannot be created."""
-    try:
-        link.symlink_to(target)
-    except (NotImplementedError, OSError) as error:
-        pytest.skip(f"symbolic links cannot be created here: {error}")
 
 
 def test_t097_assets_first_then_the_document_then_mark_saved(tmp_path, monkeypatch):
@@ -647,3 +648,305 @@ def test_t117_a_linear_pattern_of_a_part_without_volume_raises_and_gains_no_mate
     assert_body_not_valid(raised.value, "linear_pattern()", "linear_pattern", "linear pattern")
     assert len(document.features) == 1
     assert part.volume() == pytest.approx(0, abs=1e-9)
+
+
+# Linked document and export files (tests 118 to 122, ADR 0037 option (A)).
+
+STL_HEADER_BYTES = 80
+"""The header of a binary STL file, before its triangle count."""
+
+
+def is_binary_stl_of_a_box(path: Path) -> bool:
+    """Whether `path` is a binary STL file of a box's 12 triangles: 684 bytes, whose count after the 80-byte header
+    is 12."""
+    data = path.read_bytes()
+    return len(data) == 684 and int.from_bytes(data[STL_HEADER_BYTES : STL_HEADER_BYTES + 4], "little") == 12
+
+
+def replaced_targets(operations: list[tuple]) -> list[Path]:
+    """The targets of the `os.replace` calls among recorded file operations, in call order."""
+    return [operation[1] for operation in operations if operation[0] == "replace"]
+
+
+def linked_file(tmp_path: Path, link_name: str, folder_name: str, file_name: str) -> Path:
+    """`tmp/<folder_name>/<file_name>` holding `old`, and `tmp/<link_name>` a link to it; returns the link."""
+    (tmp_path / folder_name).mkdir()
+    (tmp_path / folder_name / file_name).write_bytes(b"old")
+    return symbolic_link(tmp_path / link_name, Path(folder_name) / file_name)
+
+
+def link_to_a_missing_file(tmp_path: Path, link_name: str, folder_name: str, file_name: str) -> Path:
+    """`tmp/<folder_name>` an empty folder, and `tmp/<link_name>` a link to `<folder_name>/<file_name>`, which does not
+    exist; returns the link."""
+    (tmp_path / folder_name).mkdir()
+    return symbolic_link(tmp_path / link_name, Path(folder_name) / file_name)
+
+
+def saved_body_names(path: Path) -> list[str]:
+    """The names of the bodies stored in the document file at `path`."""
+    return [body["name"] for body in json.loads(path.read_text(encoding="utf-8"))["bodies"]]
+
+
+BUILD_SCRIPT = 'from partsmith import *\nDocument()\nPart("P")\n'
+"""The script of test 122 (b) and (d): it creates `Document()` and `Part("P")`."""
+
+
+def test_t118_a_linked_document_is_saved_through_its_link(tmp_path, monkeypatch):
+    link = linked_file(tmp_path, "link.ptsm", "synced", "part.ptsm")
+    before = link_snapshot(link)
+    document, session = recorded_document_with_import(monkeypatch)
+    operations = record_file_operations(monkeypatch)
+    record_commands(monkeypatch, session, operations)
+    opened = record_opened_files(monkeypatch)
+    first_exchange = len(session.exchanges)
+
+    document.save(link)
+
+    assert operations == [
+        ("command", "save_document"),
+        ("fsync",),
+        ("replace", tmp_path / "assets" / ASSET_NAME),
+        ("fsync",),
+        ("replace", resolved(tmp_path / "synced" / "part.ptsm")),
+        ("command", "mark_saved"),
+    ]
+    (_save_command, save_result), (mark_command, _mark_result) = session.exchanges[first_exchange:]
+    assert mark_command["revision"] == save_result["revision"]
+    assert [temporary.parent for temporary in opened] == [tmp_path / "assets", resolved(tmp_path / "synced")]
+    assert all(temporary.name.startswith(".") and temporary.name.endswith(".tmp") for temporary in opened)
+    assert (tmp_path / "synced" / "part.ptsm").read_bytes() == document.to_text().encode("utf-8")
+    assert is_same_link(link, before)
+    assert (tmp_path / "assets" / ASSET_NAME).read_bytes() == IMPORT_ASSET_BYTES
+    assert os.listdir(tmp_path / "synced") == ["part.ptsm"]
+    assert sorted(os.listdir(tmp_path)) == ["assets", "link.ptsm", "synced"]
+
+
+def test_t118_a_document_saved_through_its_link_reopens_with_its_asset_next_to_the_link(tmp_path):
+    link = linked_file(tmp_path, "link.ptsm", "synced", "part.ptsm")
+    document = document_with_import()
+    document.save(link)
+
+    reopened = Document.open(link)
+
+    assert reopened.to_text() == document.to_text()
+    assert reopened.parts[0].volume() == pytest.approx(ASSET_VOLUME, rel=RELATIVE_TOLERANCE)
+
+
+def test_t119_a_link_to_a_link_is_followed_to_the_file(tmp_path, monkeypatch):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "part.ptsm").write_bytes(b"old")
+    second = symbolic_link(tmp_path / "b.ptsm", Path("real") / "part.ptsm")
+    first = symbolic_link(tmp_path / "a.ptsm", "b.ptsm")
+    first_before = link_snapshot(first)
+    second_before = link_snapshot(second)
+    document, _part = box_document()
+    operations = record_file_operations(monkeypatch)
+
+    document.save(first)
+
+    assert replaced_targets(operations) == [resolved(tmp_path / "real" / "part.ptsm")]
+    assert (tmp_path / "real" / "part.ptsm").read_bytes() == document.to_text().encode("utf-8")
+    assert is_same_link(first, first_before)
+    assert is_same_link(second, second_before)
+    assert os.listdir(tmp_path / "real") == ["part.ptsm"]
+    assert sorted(os.listdir(tmp_path)) == ["a.ptsm", "b.ptsm", "real"]
+
+
+def test_t120_a_link_that_leads_to_no_file_fails_after_the_assets_and_creates_nothing(tmp_path, monkeypatch):
+    link = link_to_a_missing_file(tmp_path, "link.ptsm", "synced", "part.ptsm")
+    before = link_snapshot(link)
+    document, session = recorded_document_with_import(monkeypatch)
+    operations = record_file_operations(monkeypatch)
+    first_exchange = len(session.exchanges)
+
+    with pytest.raises(FileNotFoundError) as raised:
+        document.save(link)
+
+    assert_missing_file_error(raised.value, link)
+    assert (tmp_path / "assets" / ASSET_NAME).read_bytes() == IMPORT_ASSET_BYTES
+    assert replaced_targets(operations) == [tmp_path / "assets" / ASSET_NAME]
+    assert os.listdir(tmp_path / "synced") == []
+    assert sorted(os.listdir(tmp_path)) == ["assets", "link.ptsm", "synced"]
+    assert is_same_link(link, before)
+    assert "mark_saved" not in sent_command_types(session, first_exchange)
+
+
+def test_t120_a_loop_of_links_fails_without_a_replace(tmp_path, monkeypatch):
+    first = symbolic_link(tmp_path / "a.ptsm", "b.ptsm")
+    second = symbolic_link(tmp_path / "b.ptsm", "a.ptsm")
+    first_before = link_snapshot(first)
+    second_before = link_snapshot(second)
+    document, session = recorded_document(monkeypatch)
+    Part("P")
+    operations = record_file_operations(monkeypatch)
+    first_exchange = len(session.exchanges)
+
+    with pytest.raises(OSError) as raised:
+        document.save(first)
+
+    assert raised.value.filename == str(first)
+    assert raised.value.filename2 is None
+    if os.name == "posix":
+        assert raised.value.errno == errno.ELOOP
+    assert replaced_targets(operations) == []
+    assert sorted(os.listdir(tmp_path)) == ["a.ptsm", "b.ptsm"]
+    assert is_same_link(first, first_before)
+    assert is_same_link(second, second_before)
+    assert "mark_saved" not in sent_command_types(session, first_exchange)
+
+
+def test_t120_a_failed_write_of_the_linked_file_names_the_link(tmp_path, monkeypatch):
+    link = linked_file(tmp_path, "link.ptsm", "synced", "part.ptsm")
+    before = link_snapshot(link)
+    document, session = recorded_document(monkeypatch)
+    Part("P")
+    first_exchange = len(session.exchanges)
+    fail_fsync_on_call(monkeypatch, 1)
+
+    with pytest.raises(OSError) as raised:
+        document.save(link)
+
+    assert raised.value.errno == errno.ENOSPC
+    assert raised.value.filename == str(link)
+    assert raised.value.filename2 is None
+    assert os.listdir(tmp_path / "synced") == ["part.ptsm"]
+    assert (tmp_path / "synced" / "part.ptsm").read_bytes() == b"old"
+    assert not has_temporary_file(tmp_path)
+    assert is_same_link(link, before)
+    assert "mark_saved" not in sent_command_types(session, first_exchange)
+
+
+def test_t120_a_link_to_a_folder_fails_like_a_folder_and_leaves_no_temporary_file(tmp_path, monkeypatch):
+    (tmp_path / "shared" / "box").mkdir(parents=True)
+    link = symbolic_link(tmp_path / "link.ptsm", Path("shared") / "box", target_is_directory=True)
+    before = link_snapshot(link)
+    document, session = recorded_document(monkeypatch)
+    Part("P")
+    first_exchange = len(session.exchanges)
+
+    with pytest.raises(OSError) as raised:
+        document.save(link)
+
+    assert raised.value.filename == str(link)
+    assert raised.value.filename2 is None
+    if os.name == "posix":
+        assert isinstance(raised.value, IsADirectoryError)
+        assert raised.value.errno == errno.EISDIR
+    assert os.listdir(tmp_path / "shared" / "box") == []
+    assert os.listdir(tmp_path / "shared") == ["box"]
+    assert sorted(os.listdir(tmp_path)) == ["link.ptsm", "shared"]
+    assert is_same_link(link, before)
+    assert "mark_saved" not in sent_command_types(session, first_exchange)
+
+
+def test_t121_an_export_to_a_link_replaces_the_file_it_points_to(tmp_path, monkeypatch):
+    _document, part = box_document()
+    link = linked_file(tmp_path, "out.stl", "printer", "part.stl")
+    before = link_snapshot(link)
+    operations = record_file_operations(monkeypatch)
+
+    written = export_stl(part, link)
+
+    assert written == [tmp_path / "out.stl"]
+    assert replaced_targets(operations) == [resolved(tmp_path / "printer" / "part.stl")]
+    assert is_binary_stl_of_a_box(tmp_path / "printer" / "part.stl")
+    assert is_same_link(link, before)
+    assert os.listdir(tmp_path / "printer") == ["part.stl"]
+
+
+def test_t121_a_per_part_export_writes_through_a_link_in_the_folder(tmp_path):
+    base, lid = two_part_document()
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "lid.stl").write_bytes(b"old")
+    (tmp_path / "parts").mkdir()
+    link = symbolic_link(tmp_path / "parts" / "Lid.stl", Path("..") / "shared" / "lid.stl")
+    before = link_snapshot(link)
+
+    written = export_stl([base, lid], tmp_path / "parts", per_part=True)
+
+    assert written == [tmp_path / "parts" / "Base.stl", tmp_path / "parts" / "Lid.stl"]
+    assert stat.S_ISREG(os.lstat(tmp_path / "parts" / "Base.stl").st_mode)
+    assert (tmp_path / "parts" / "Base.stl").stat().st_size == 684
+    assert is_same_link(link, before)
+    assert is_binary_stl_of_a_box(tmp_path / "shared" / "lid.stl")
+    assert os.listdir(tmp_path / "shared") == ["lid.stl"]
+    assert sorted(os.listdir(tmp_path / "parts")) == ["Base.stl", "Lid.stl"]
+
+
+def test_t121_an_export_to_a_link_that_leads_to_no_file_fails_and_creates_nothing(tmp_path, monkeypatch):
+    _document, part = box_document()
+    link = link_to_a_missing_file(tmp_path, "out.stl", "printer", "part.stl")
+    before = link_snapshot(link)
+    operations = record_file_operations(monkeypatch)
+
+    with pytest.raises(FileNotFoundError) as raised:
+        export_stl(part, link)
+
+    assert_missing_file_error(raised.value, link)
+    assert replaced_targets(operations) == []
+    assert is_same_link(link, before)
+    assert os.listdir(tmp_path / "printer") == []
+    assert sorted(os.listdir(tmp_path)) == ["out.stl", "printer"]
+
+
+def test_t122_a_link_saved_twice_stays_the_same_link(tmp_path):
+    link = linked_file(tmp_path, "link.ptsm", "synced", "part.ptsm")
+    before = link_snapshot(link)
+    document = Document()
+    Part("P")
+
+    document.save(link)
+    assert is_same_link(link, before)
+    Part("Q")
+    document.save(link)
+
+    assert is_same_link(link, before)
+    assert (tmp_path / "synced" / "part.ptsm").read_bytes() == document.to_text().encode("utf-8")
+    assert "Q" in saved_body_names(tmp_path / "synced" / "part.ptsm")
+
+
+def test_t122_a_build_onto_a_link_writes_through_it(tmp_path):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "out.ptsm").write_bytes(b"old")
+    link = symbolic_link(tmp_path / "out.ptsm", tmp_path / "real" / "out.ptsm")
+    before = link_snapshot(link)
+    script = write_text(tmp_path / "part.py", BUILD_SCRIPT)
+
+    assert main(["build", str(script), "-o", str(link)]) == SUCCESS
+
+    assert (tmp_path / "real" / "out.ptsm").read_bytes() == run_code(BUILD_SCRIPT)[0].to_text().encode("utf-8")
+    assert is_same_link(link, before)
+
+
+def test_t122_an_asset_entry_is_never_written_through_a_link(tmp_path):
+    link = linked_file(tmp_path, "link.ptsm", "synced", "part.ptsm")
+    before = link_snapshot(link)
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "outside.step").write_bytes(b"stale")
+    symbolic_link(tmp_path / "assets" / ASSET_NAME, Path("..") / "outside.step")
+    document = document_with_import()
+
+    document.save(link)
+
+    assert (tmp_path / "synced" / "part.ptsm").read_bytes() == document.to_text().encode("utf-8")
+    entry = tmp_path / "assets" / ASSET_NAME
+    assert stat.S_ISREG(os.lstat(entry).st_mode)
+    assert entry.read_bytes() == IMPORT_ASSET_BYTES
+    assert (tmp_path / "outside.step").read_bytes() == b"stale"
+    assert is_same_link(link, before)
+
+
+def test_t122_a_build_onto_a_link_that_leads_to_no_file_names_the_link(tmp_path, capsys):
+    link = link_to_a_missing_file(tmp_path, "out.ptsm", "synced", "out.ptsm")
+    before = link_snapshot(link)
+    script = write_text(tmp_path / "part.py", BUILD_SCRIPT)
+
+    assert main(["build", str(script), "-o", str(link)]) == IO_ERROR
+
+    error_output = capsys.readouterr().err
+    assert error_output.startswith(f"error: Cannot write {link}: ")
+    assert error_output.endswith("\n")
+    if os.name != "nt":
+        assert error_output == f"error: Cannot write {link}: {os.strerror(errno.ENOENT)}\n"
+    assert is_same_link(link, before)
+    assert os.listdir(tmp_path / "synced") == []

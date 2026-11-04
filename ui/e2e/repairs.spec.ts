@@ -5,6 +5,7 @@ import {
   download,
   dropFile,
   expectHover,
+  fitView,
   fixtureBytes,
   inspector,
   inspectorInput,
@@ -14,6 +15,7 @@ import {
   sketchToScreen,
   test,
   timelineItem,
+  toScreen,
 } from './helpers'
 import {
   buttonNames,
@@ -33,7 +35,14 @@ import {
   openTimelineMenu,
   timelineGap,
 } from './support/modeling'
-import { app, clickAt, editSketchFromBrowser, expectNoHover, sketchHint } from './support/sketch'
+import {
+  app,
+  clickAt,
+  editSketchFromBrowser,
+  expectNoHover,
+  sketchHeader,
+  sketchHint,
+} from './support/sketch'
 
 // Lost references with the real core (ui.md 6.5, E-109 and E-122 to E-126; the reference
 // stability study section 6.3): a notification for every new loss with its cause line, repair mode
@@ -47,6 +56,11 @@ const STALE_FIX =
 /** The loss notification of 'Fillet 1' (ui.md 4.2), whatever else is shown. */
 function filletLoss(page: Page): Locator {
   return page.getByTestId('notification').filter({ hasText: "'Fillet 1' lost" })
+}
+
+/** The text of `attach_moved` for 'Sketch 1' on `target` (ui.md 4.3). */
+function attachMoved(target: string): string {
+  return `'Sketch 1' cannot be placed on ${target}: the two do not move together, and what later features place on the faces made from 'Sketch 1' could shift with no message. Pick a plane or face that moves the same way as 'Sketch 1'.`
 }
 
 /** Edits 'Linear pattern 1' of pattern-fillet.ptsm to Count 2 and confirms, as E-122 and E-124 do. */
@@ -305,5 +319,61 @@ test.describe('lost references and their fixes', () => {
     await keep.click()
     await expect(fillet).toHaveAttribute('data-notes', '0')
     await expect(panel.getByRole('button', { name: 'Keep this match', exact: true })).toHaveCount(0)
+  })
+
+  test('E-165 a re-attach that would move later features is refused', async ({ page }) => {
+    // In a 720-pixel window the sketch header and its five candidates cover both tops the test clicks.
+    await page.setViewportSize({ width: 1280, height: 1600 })
+    await openApp(page, { fileSystemAccess: false })
+    await dropFile(page, 'reattach-moved.ptsm')
+    const sketch = timelineItem(page, 'Sketch 1')
+    await expect(sketch).toHaveAttribute('data-status', 'warning')
+
+    await runCommand(page, 'Problems')
+    await problemRow(page, 'f-sk1')
+      .getByRole('button', { name: 'Pick a face again', exact: true })
+      .click()
+    await expect(app(page)).toHaveAttribute('data-context', 'sketch')
+    await expect(sketchHeader(page)).toHaveAttribute('data-state', 'picking')
+    await expect(sketchHeader(page)).toContainText("Pick a plane or a flat face for 'Sketch 1'")
+
+    // The sketch moves with the cube; the Top plane did not move.
+    await sketchHeader(page)
+      .getByRole('button', { name: /Top plane \(XY\)/ })
+      .click()
+    await expect(sketchHint(page)).toHaveText(attachMoved('the Top plane (XY)'))
+    await expect(sketchHeader(page)).toHaveAttribute('data-state', 'picking')
+
+    // The clicks stay away from the numbered markers at the candidates' centroids (3.7).
+    await fitView(page, 'Top')
+    const mapping = toScreen(await canvas(page), { min: [95, -5, 0], max: [105, 13, 20] }, 'Top')
+    await clickAt(page, mapping.toPage([97, 4, 20]))
+    await expect(sketchHint(page)).toHaveText(attachMoved("this face of 'Box 2'"))
+    await expect(sketchHeader(page)).toHaveAttribute('data-state', 'picking')
+
+    await clickAt(page, mapping.toPage([97, -4, 10]))
+    await expect(sketchHeader(page)).not.toHaveAttribute('data-state', 'picking')
+    await expect(app(page)).toHaveAttribute('data-context', 'sketch')
+    await page.keyboard.press('ControlOrMeta+Enter')
+    await expect(sketch).toHaveAttribute('data-status', 'ok')
+
+    const saved = await download(page, () => page.keyboard.press('ControlOrMeta+S'))
+    const savedDocument = JSON.parse(saved.bytes.toString('utf8')) as {
+      readonly features: readonly { readonly id: string; readonly plane?: unknown }[]
+    }
+    const plane = savedDocument.features.find((feature) => feature.id === 'f-sk1')?.plane as {
+      readonly face: { readonly q: string }
+      readonly fallback: { readonly origin: readonly number[] }
+      readonly fallback_frame?: string
+    }
+    expect(plane.face.q.startsWith('f-box1/top')).toBe(true)
+    const [x, y, z] = plane.fallback.origin
+    expect(x).toBeCloseTo(-100, 9)
+    expect(y).toBeCloseTo(0, 9)
+    expect(z).toBeCloseTo(10, 9)
+    expect(plane.fallback_frame).toBe('body')
+
+    await page.keyboard.press('ControlOrMeta+Z')
+    await expect(sketch).toHaveAttribute('data-status', 'warning')
   })
 })

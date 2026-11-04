@@ -38,7 +38,7 @@ fn maximum_of(schema: &Value, subschema: &Value, name: &str) -> Option<u64> {
 }
 
 /// The closed types of section 3.6 that results and events carry, sorted.
-const CLOSED_IN_RESULTS_AND_EVENTS: [&str; 10] = [
+const CLOSED_IN_RESULTS_AND_EVENTS: [&str; 11] = [
     "Bed",
     "Body",
     "Document",
@@ -49,6 +49,7 @@ const CLOSED_IN_RESULTS_AND_EVENTS: [&str; 10] = [
     "PrinterProfile",
     "Reference",
     "RegionRef",
+    "SketchPlane",
 ];
 
 /// Adds to `names` the `$defs` entry of every `$ref` inside `value`.

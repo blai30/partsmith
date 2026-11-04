@@ -81,6 +81,8 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     solveSketch: async () => null,
     dragSketch: async () => null,
     endSketchDrag: async () => ++revision,
+    // Every plane keeps the sketch's motion unless a test says otherwise (engine.md 3.22).
+    attachPlane: async (_documentHandle, _feature, plane) => plane,
     evaluate: async (_documentHandle, expression) => {
       const result = evaluateExpression(expression, new Map())
       if ('error' in result) {
@@ -204,6 +206,10 @@ export function createFakeCoreApi(stubs: Partial<CoreApi> = {}): FakeCoreApi {
     endSketchDrag: (...args: Parameters<CoreApi['endSketchDrag']>) => {
       record('endSketchDrag', args)
       return implementation.endSketchDrag(...args)
+    },
+    attachPlane: (...args: Parameters<CoreApi['attachPlane']>) => {
+      record('attachPlane', args)
+      return implementation.attachPlane(...args)
     },
     evaluate: (...args: Parameters<CoreApi['evaluate']>) => {
       record('evaluate', args)

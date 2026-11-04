@@ -10,18 +10,17 @@ mod labels;
 mod renames;
 
 use partsmith_features::Fix;
-use partsmith_model::{Document, Edit, Id};
+use partsmith_model::{Edit, Id};
 use partsmith_protocol::{DocHandle, FixAction, FixKind, FixRef, Repair};
-use partsmith_recompute::{Message, Recompute};
+use partsmith_recompute::Message;
 
 use crate::causes::{CauseLines, CauseOffer};
-use crate::document::OpenDocument;
 use crate::error::EngineError;
 use crate::ids::NewIds;
 use crate::run::{FeatureView, RunView};
 use crate::session::Session;
 use crate::sketch::is_finding_field;
-use crate::state::{self, Computed};
+use crate::state::whole_run;
 use labels::Labels;
 
 pub(crate) use edits::{constraint_pointer, index_beside, updated};
@@ -189,22 +188,6 @@ impl Session {
         let label = label.clone();
         self.apply_batch(doc, &label, edits)
     }
-}
-
-/// A recompute of the recipe of `open` without its stop point and rollback marker, so that every
-/// feature that is not suppressed runs, and the recipe it ran.
-fn whole_run(recompute: &mut Recompute, open: &OpenDocument) -> (Document, Computed) {
-    let mut document = Document::clone(&open.document);
-    document.rollback = None;
-    let computed = state::run(
-        recompute,
-        &document,
-        &open.assets,
-        open.computed.profile.clone(),
-        None,
-        open.computed.run,
-    );
-    (document, computed)
 }
 
 #[cfg(test)]

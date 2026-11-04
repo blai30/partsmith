@@ -173,6 +173,17 @@ export const MESSAGES = {
   attach_label: (label: string) => `Attach '${label}'`,
   attach_after: (label: string, feature: string) =>
     `'${label}' cannot be placed on '${feature}', which comes after it. Pick an origin plane, or a flat face or datum plane made before '${label}'.`,
+  /** `state` is the datum plane's status: suppressed, or an error. */
+  attach_datum_unbuilt: (label: string, datum: string, state: 'suppressed' | 'error') =>
+    state === 'suppressed'
+      ? `'${label}' cannot be placed on '${datum}', which is suppressed. Unsuppress '${datum}', or pick another plane or face.`
+      : `'${label}' cannot be placed on '${datum}', which has an error. Fix '${datum}' first, or pick another plane or face.`,
+  /**
+   * `target` names the picked plane: "the Top plane (XY)" for an origin plane, the datum plane's
+   * label in quotes, or "this face of '{feature}'" for a face.
+   */
+  attach_moved: (label: string, target: string) =>
+    `'${label}' cannot be placed on ${target}: the two do not move together, and what later features place on the faces made from '${label}' could shift with no message. Pick a plane or face that moves the same way as '${label}'.`,
   /**
    * `what` names the used thing with its article ("an edge", 3.9); `dragged` says which of the two
    * features is being dragged: the user, or the used feature.

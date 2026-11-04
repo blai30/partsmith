@@ -1,7 +1,7 @@
-//! Acceptance tests 126 to 135 of `docs/spec/engine.md` section 6: the labels and kinds of fix actions, `apply_fix`
-//! of each kind of fix with its undo label, re-anchoring for `KeepMatch` and `KeepRegions`, timeline fixes, fixes
-//! inside a transaction, `stale_fix`, actions that hold no session data, and the frame fixes `Attach` and
-//! `TurnDrawingBack` (section 3.22). A test named `tNNN` is section 6 test NNN; a test with several documents is one
+//! Acceptance tests 126 to 135, 166 and 167 of `docs/spec/engine.md` section 6: the labels and kinds of fix actions,
+//! `apply_fix` of each kind of fix with its undo label, re-anchoring for `KeepMatch` and `KeepRegions`, timeline fixes,
+//! fixes inside a transaction, `stale_fix`, actions that hold no session data, the frame fixes `Attach` and
+//! `TurnDrawingBack`, and the plane a re-attach by pick stores, `attach_plane` (section 3.22). A test named `tNNN` is section 6 test NNN; a test with several documents is one
 //! test per document.
 //!
 //! Scenarios come from `corpus`: each setup is opened with its references picked, and "after its edit" is the corpus
@@ -22,22 +22,23 @@ use crate::corpus;
 use common::{
     GEOMETRY_TOLERANCE, Sent, X_AXIS, Z_AXIS, apply, assert_bounding_box, assert_fallback,
     assert_near, assert_placement, assert_point2, assert_point3, assert_relative, doc_handle,
-    drag_sketch, element_named, fixture, get_document, measure_body, number, open_text, point2,
-    point3, replace_once, revision, saved_text, send, session, set_rollback,
+    drag_sketch, element_named, fixture, get_document, headless_session, measure_body, number,
+    open_text, point2, point3, replace_once, revision, saved_text, send, session, set_rollback,
+    typed_handle,
 };
 use corpus::{
     EDIT_LABEL, UPPER_BOSS_WALL, action, actions, after_edit, apply_as_one_entry, apply_fix,
     assert_ok_without_messages, assert_stale, assert_undo_restores, axis_xy, back_line_notched,
     block_back_side, block_edited, block_right_side, block_then, bosses_on_a_moved_box, box_record,
     coincident, constrained_sketch, cube10, datum_offset, datum_on_a_split_side, datum_on_face,
-    document, document_with, edited_text, extrude, face_names, face_plane, faces_of, features,
-    fix_ref, labels, line, linear_pattern, message, messages, moved_by_100, nc01, nc03, nc04, nc05,
-    nc07, nc10, nc11, opened, origin_plane, parameter, picked_before, point, r03, r06a, r16, r23a,
-    r26_recreated, r28, r32b, r32b_chamfered_hole_at_an_arc_end, r32b_moved, r32b_pocket, r33, r50,
-    r56b, r66, record, rectangle, rectangle_region, redrawn_beside_a_split,
-    redrawn_beside_a_split_with_a_face_sketch, reference, repairs, right_side_redrawn_in_two,
-    send_fix, shell_with_a_misspelled_key, sketch, solution_messages, statuses, through_all,
-    two_areas, volume, with, without_keys,
+    datum_plane, document, document_with, edited_text, extrude, face_names, face_plane, faces_of,
+    features, fix_ref, labels, line, linear_pattern, message, messages, moved_by_100, nc01, nc03,
+    nc04, nc05, nc07, nc10, nc11, opened, origin_plane, parameter, pick_named, picked_before,
+    point, r03, r06a, r16, r23a, r26_recreated, r28, r32b, r32b_chamfered_hole_at_an_arc_end,
+    r32b_moved, r32b_pocket, r33, r50, r56b, r66, record, rectangle, rectangle_region,
+    redrawn_beside_a_split, redrawn_beside_a_split_with_a_face_sketch, reference, repairs,
+    right_side_redrawn_in_two, send_fix, shell_with_a_misspelled_key, sketch, solution_messages,
+    statuses, through_all, two_areas, volume, with, without_keys,
 };
 use partsmith_engine::Session;
 use partsmith_sketch::{HintFrame, RegionRef, SketchParams, SketchPlane};
@@ -2502,5 +2503,590 @@ fn t135_r32b_moved_turn_the_drawing_back_stores_the_placement_without_the_move()
         [120.0, 10.0],
         GEOMETRY_TOLERANCE,
         "bore axis",
+    );
+}
+
+// Re-attaching by pick (engine.md section 3.22, tests 166 and 167).
+
+/// The lost face of test 135's sketches: a face of `b-1` the cube does not have.
+fn lost_face() -> Value {
+    reference("f-box1/nothing", "plane|n=0,0,1|c=500,500,500|a=1")
+}
+
+/// The sketch `f-sk1` on `plane` with the point `e-p1` at (0, 0).
+fn sketch_with_a_point(plane: Value) -> Value {
+    sketch("f-sk1", plane, vec![point("e-p1", [0.0, 0.0])])
+}
+
+/// The face plane of `f-sk1` on the lost face with its fallback at (3, 4, 0), in body coordinates when `frame` is
+/// `Some("body")` and in world coordinates when it is `None`.
+fn on_the_lost_face(frame: Option<&str>) -> Value {
+    let plane = face_plane("b-1", lost_face(), [3.0, 4.0, 0.0], X_AXIS, Z_AXIS);
+    match frame {
+        Some(frame) => with(plane, "fallback_frame", json!(frame)),
+        None => plane,
+    }
+}
+
+/// The datum plane `f-dp2` on the face of CUBE10 at x = 105, after the Move body by (100, 0, 0).
+fn datum_on_the_moved_right_side() -> Value {
+    datum_on_face(
+        "f-dp2",
+        "b-1",
+        reference("f-box1/right", "plane|n=1,0,0|c=105,0,5|a=100|adj=4,4"),
+        "0",
+    )
+}
+
+/// Test 166's document: CUBE10 moved by (100, 0, 0), `f-dp2` on the moved face at x = 105, `f-box2` joined after the
+/// move (a 10 x 10 x 20 box at (100, 8, 0)), `f-dp1` on XY with offset 30, then `f-sk1` on `plane`. `suppressed` lists
+/// the features that are suppressed.
+fn moved_cube_with_a_box_and_datums(plane: Value, suppressed: &[&str]) -> String {
+    let records = [
+        cube10(),
+        moved_by_100(),
+        datum_on_the_moved_right_side(),
+        box_record(
+            "f-box2",
+            "b-1",
+            ["10", "10", "20"],
+            Some(["100", "8", "0"]),
+            "join",
+        ),
+        datum_offset("f-dp1", "XY", "30"),
+        sketch_with_a_point(plane),
+    ];
+    let features: Vec<Value> = records
+        .into_iter()
+        .map(|record| {
+            let named = record["id"].as_str().expect("records have ids").to_owned();
+            if suppressed.contains(&named.as_str()) {
+                with(record, "suppressed", json!(true))
+            } else {
+                record
+            }
+        })
+        .collect();
+    document(&["b-1"], &features)
+}
+
+/// The plane a host builds from the `pick_reference` descriptor of the face of `b-1` named `name`, as it builds a new
+/// sketch's (ui.md section 3.16.1): its full reference and its descriptor's `fallback` in body coordinates.
+fn picked_face_plane(session: &mut Session, doc: u64, name: &str) -> Value {
+    let descriptor = pick_named(session, doc, "b-1", name);
+    json!({
+        "kind": "face",
+        "body": "b-1",
+        "face": descriptor["reference"],
+        "fallback": descriptor["fallback"],
+        "fallback_frame": "body"
+    })
+}
+
+/// The same face plane with its descriptor's `placement` in world coordinates (no `fallback_frame`), as hosts stored a
+/// pick for a sketch without motion before section 3.22's `attach_plane`.
+fn picked_face_plane_in_world(session: &mut Session, doc: u64, name: &str) -> Value {
+    let descriptor = pick_named(session, doc, "b-1", name);
+    json!({
+        "kind": "face",
+        "body": "b-1",
+        "face": descriptor["reference"],
+        "fallback": descriptor["placement"]
+    })
+}
+
+/// The planes of test 166 for one opened document: `T`, the cube's top, and `B`, the top of `f-box2`.
+struct PickedTops {
+    cube: Value,
+    cube_in_world: Value,
+    joined_box: Value,
+}
+
+/// `T`, `T` in world coordinates and `B` of a document of [`moved_cube_with_a_box_and_datums`].
+fn picked_tops(session: &mut Session, doc: u64) -> PickedTops {
+    PickedTops {
+        cube: picked_face_plane(session, doc, "f-box1/top"),
+        cube_in_world: picked_face_plane_in_world(session, doc, "f-box1/top"),
+        joined_box: picked_face_plane(session, doc, "f-box2/top"),
+    }
+}
+
+/// Sends `attach_plane` and checks what every call keeps (test 166, last item): the reply holds no event, and the
+/// revision and the saved text are what they were before it.
+fn attach_plane_sent(session: &mut Session, doc: u64, feature: &str, plane: &Value) -> Sent {
+    let revision_before = revision(session, doc);
+    let text_before = saved_text(session, doc);
+
+    let sent = send(
+        session,
+        json!({"type": "attach_plane", "doc": doc, "feature": feature, "plane": plane}),
+    );
+
+    assert!(sent.events.is_empty(), "{:?}", sent.event_types());
+    assert_eq!(revision(session, doc), revision_before);
+    assert_eq!(saved_text(session, doc), text_before);
+    sent
+}
+
+/// The plane `attach_plane` returns for `plane`, or `None` when its result has no plane.
+fn attach_plane(session: &mut Session, doc: u64, feature: &str, plane: &Value) -> Option<Value> {
+    let sent = attach_plane_sent(session, doc, feature, plane);
+    let result = sent.ok();
+    assert_eq!(result["type"], "attach_plane", "{result}");
+    result.get("plane").cloned()
+}
+
+/// Asserts that `attach_plane` gives `plane` back unchanged, equal as JSON.
+fn assert_unchanged(session: &mut Session, doc: u64, plane: &Value) {
+    assert_eq!(
+        attach_plane(session, doc, "f-sk1", plane).as_ref(),
+        Some(plane),
+        "{plane} comes back unchanged"
+    );
+}
+
+/// Asserts that `attach_plane` gives no plane for `plane`.
+fn assert_no_plane(session: &mut Session, doc: u64, plane: &Value) {
+    let result = attach_plane(session, doc, "f-sk1", plane);
+    assert_eq!(result, None, "no plane for {plane}");
+}
+
+/// Asserts that `actual` is the face plane `expected` on the same body and face, with a fallback equal within the
+/// geometry tolerance and the same `fallback_frame`.
+fn assert_same_face_plane(actual: &Value, expected: &Value) {
+    assert_eq!(actual["kind"], "face", "{actual}");
+    assert_eq!(actual["body"], expected["body"], "{actual}");
+    assert_eq!(actual["face"], expected["face"], "{actual}");
+    assert_eq!(
+        actual.get("fallback_frame"),
+        expected.get("fallback_frame"),
+        "{actual}"
+    );
+    for field in ["origin", "x_axis", "normal"] {
+        assert_point3(
+            point3(&actual["fallback"][field]),
+            point3(&expected["fallback"][field]),
+            GEOMETRY_TOLERANCE,
+            &format!("fallback {field}"),
+        );
+    }
+}
+
+#[test]
+fn t166_a_sketch_in_body_coordinates_of_the_moved_cube_takes_its_top_and_its_datum() {
+    let mut session = headless_session();
+    let text = moved_cube_with_a_box_and_datums(on_the_lost_face(Some("body")), &[]);
+    let (doc, _, _) = opened(&mut session, &text);
+    let tops = picked_tops(&mut session, doc);
+
+    assert_unchanged(&mut session, doc, &tops.cube);
+    assert_unchanged(&mut session, doc, &datum_plane("f-dp2"));
+    let from_world = attach_plane(&mut session, doc, "f-sk1", &tops.cube_in_world)
+        .expect("body coordinates keep the Move body's motion");
+    assert_same_face_plane(&from_world, &tops.cube);
+}
+
+#[test]
+fn t166_a_sketch_in_body_coordinates_of_the_moved_cube_gets_no_plane_that_moved_otherwise() {
+    let mut session = headless_session();
+    let text = moved_cube_with_a_box_and_datums(on_the_lost_face(Some("body")), &[]);
+    let (doc, _, _) = opened(&mut session, &text);
+    let tops = picked_tops(&mut session, doc);
+
+    assert_no_plane(&mut session, doc, &tops.joined_box);
+    assert_no_plane(&mut session, doc, &origin_plane("XY"));
+    assert_no_plane(&mut session, doc, &datum_plane("f-dp1"));
+}
+
+/// Test 166 (b) for `f-sk1` on `plane`, whose motion is the identity.
+fn assert_a_sketch_without_motion_takes_unmoved_planes_and_the_moved_top_in_world(plane: Value) {
+    let mut session = headless_session();
+    let text = moved_cube_with_a_box_and_datums(plane, &[]);
+    let (doc, _, _) = opened(&mut session, &text);
+    let tops = picked_tops(&mut session, doc);
+
+    assert_unchanged(&mut session, doc, &tops.joined_box);
+    assert_unchanged(&mut session, doc, &origin_plane("XY"));
+    assert_unchanged(&mut session, doc, &datum_plane("f-dp1"));
+    assert_unchanged(&mut session, doc, &tops.cube_in_world);
+    assert_no_plane(&mut session, doc, &datum_plane("f-dp2"));
+
+    let top = attach_plane(&mut session, doc, "f-sk1", &tops.cube)
+        .expect("world coordinates keep the identity motion");
+    assert_eq!(top["kind"], "face", "{top}");
+    assert_eq!(top["body"], "b-1", "{top}");
+    assert_eq!(top["face"], tops.cube["face"], "{top}");
+    assert_fallback(&top, [0.0, 0.0, 10.0], Z_AXIS, None);
+}
+
+#[test]
+fn t166_a_sketch_with_its_fallback_in_world_coordinates_takes_the_moved_top_in_world_coordinates() {
+    assert_a_sketch_without_motion_takes_unmoved_planes_and_the_moved_top_in_world(
+        on_the_lost_face(None),
+    );
+}
+
+#[test]
+fn t166_a_sketch_on_xy_takes_the_moved_top_in_world_coordinates() {
+    assert_a_sketch_without_motion_takes_unmoved_planes_and_the_moved_top_in_world(origin_plane(
+        "XY",
+    ));
+}
+
+#[test]
+fn t166_a_sketch_on_the_datum_of_the_moved_face_takes_that_datum_and_the_moved_top() {
+    let mut session = headless_session();
+    let text = moved_cube_with_a_box_and_datums(datum_plane("f-dp2"), &[]);
+    let (doc, _, _) = opened(&mut session, &text);
+    let tops = picked_tops(&mut session, doc);
+
+    assert_unchanged(&mut session, doc, &datum_plane("f-dp2"));
+    assert_unchanged(&mut session, doc, &tops.cube);
+    assert_no_plane(&mut session, doc, &tops.joined_box);
+    assert_no_plane(&mut session, doc, &origin_plane("XY"));
+    assert_no_plane(&mut session, doc, &datum_plane("f-dp1"));
+}
+
+#[test]
+fn t166_a_sketch_on_a_suppressed_datum_has_an_unknown_motion_and_takes_any_plane() {
+    let mut session = headless_session();
+    let text = moved_cube_with_a_box_and_datums(datum_plane("f-dp2"), &["f-dp2"]);
+    let (doc, opened_sent, _) = opened(&mut session, &text);
+    assert_eq!(opened_sent.feature_status("f-sk1")["status"], "error");
+    let tops = picked_tops(&mut session, doc);
+
+    assert_unchanged(&mut session, doc, &tops.cube);
+    assert_unchanged(&mut session, doc, &tops.joined_box);
+    assert_unchanged(&mut session, doc, &origin_plane("XY"));
+    assert_unchanged(&mut session, doc, &datum_plane("f-dp1"));
+}
+
+#[test]
+fn t166_a_picked_datum_that_is_suppressed_gives_a_sketch_with_a_motion_no_plane() {
+    let mut session = headless_session();
+    let text = moved_cube_with_a_box_and_datums(on_the_lost_face(Some("body")), &["f-dp2"]);
+    let (doc, _, _) = opened(&mut session, &text);
+
+    assert_no_plane(&mut session, doc, &datum_plane("f-dp2"));
+}
+
+#[test]
+fn t166_an_unknown_feature_fails_with_unknown_feature() {
+    let mut session = headless_session();
+    let text = moved_cube_with_a_box_and_datums(on_the_lost_face(Some("body")), &[]);
+    let (doc, _, _) = opened(&mut session, &text);
+
+    let sent = attach_plane_sent(&mut session, doc, "f-nope", &origin_plane("XY"));
+
+    assert_eq!(sent.error_code(), "unknown_feature");
+}
+
+#[test]
+fn t166_a_feature_that_is_not_a_sketch_fails_with_not_a_sketch() {
+    let mut session = headless_session();
+    let text = moved_cube_with_a_box_and_datums(on_the_lost_face(Some("body")), &[]);
+    let (doc, _, _) = opened(&mut session, &text);
+
+    let sent = attach_plane_sent(&mut session, doc, "f-box1", &origin_plane("XY"));
+
+    assert_eq!(sent.error_code(), "not_a_sketch");
+}
+
+#[test]
+fn t166_a_face_of_a_body_the_document_does_not_have_fails_with_unknown_body() {
+    let mut session = headless_session();
+    let text = moved_cube_with_a_box_and_datums(on_the_lost_face(Some("body")), &[]);
+    let (doc, _, _) = opened(&mut session, &text);
+    let on_another_body = with(picked_tops(&mut session, doc).cube, "body", json!("b-9"));
+
+    let sent = attach_plane_sent(&mut session, doc, "f-sk1", &on_another_body);
+
+    assert_eq!(sent.error_code(), "unknown_body");
+}
+
+#[test]
+fn t166_a_sketch_whose_record_does_not_validate_fails_with_invalid_params() {
+    let mut session = headless_session();
+    let invalid = sketch(
+        "f-sk1",
+        origin_plane("XY"),
+        vec![json!({"id": "e-1", "type": "circle", "center": [0, 0], "radius": -1})],
+    );
+    let text = document(&["b-1"], &[cube10(), invalid]);
+    let (doc, _, _) = opened(&mut session, &text);
+
+    let sent = attach_plane_sent(&mut session, doc, "f-sk1", &origin_plane("XY"));
+
+    assert_eq!(sent.error_code(), "invalid_params");
+}
+
+/// Test 166 (f)'s document: CUBE10, `f-sk1` on XY with a point at (0, 0), then `f-mv1`, the Move body by (100, 0, 0).
+fn sketch_on_xy_before_a_move() -> String {
+    document(
+        &["b-1"],
+        &[
+            cube10(),
+            sketch_with_a_point(origin_plane("XY")),
+            moved_by_100(),
+        ],
+    )
+}
+
+/// Opens `text` and sets the rollback marker at `f-mv1`, as a host does; returns the document and the reply to that
+/// edit.
+fn opened_rolled_back_to_the_move(session: &mut Session, text: &str) -> (u64, Sent) {
+    let (doc, _, _) = opened(session, text);
+    let rolled_back = apply(
+        session,
+        doc,
+        Some("Roll back"),
+        json!([set_rollback(Some("f-mv1"))]),
+    );
+    (doc, rolled_back)
+}
+
+#[test]
+fn t166_a_sketch_before_a_later_move_takes_the_moved_top_where_it_is_shown() {
+    // The descriptor's fallback has the later move undone: (-100, 0, 10) is where the top is shown, moved back with
+    // the cube. A sketch without motion stands where the host showed the face, (0, 0, 10), in body coordinates,
+    // which keep its identity motion since the top has not moved just before it.
+    let mut session = headless_session();
+    let (doc, _, _) = opened(&mut session, &sketch_on_xy_before_a_move());
+    let top = picked_face_plane(&mut session, doc, "f-box1/top");
+    assert_fallback(&top, [-100.0, 0.0, 10.0], Z_AXIS, Some("body"));
+
+    let stored = attach_plane(&mut session, doc, "f-sk1", &top)
+        .expect("body coordinates keep the sketch's identity motion");
+
+    assert_eq!(stored["face"], top["face"], "{stored}");
+    assert_fallback(&stored, [0.0, 0.0, 10.0], Z_AXIS, Some("body"));
+    assert_unchanged(&mut session, doc, &origin_plane("XY"));
+}
+
+#[test]
+fn t166_a_sketch_before_a_later_move_stands_on_the_top_wherever_the_marker_is() {
+    // With the marker at the move, the top is shown where it stands just before the sketch: the pick comes back
+    // unchanged, as the same plane the pick at the end of the timeline gives, and the stored plane puts the sketch's
+    // origin on the top of the cube, not 100 mm beside it.
+    let mut session = headless_session();
+    let (doc, _) = opened_rolled_back_to_the_move(&mut session, &sketch_on_xy_before_a_move());
+    let top = picked_face_plane(&mut session, doc, "f-box1/top");
+    assert_fallback(&top, [0.0, 0.0, 10.0], Z_AXIS, Some("body"));
+    assert_unchanged(&mut session, doc, &top);
+
+    let mut sketch_record = record(&mut session, doc, "f-sk1");
+    sketch_record["plane"] = top;
+    apply(
+        &mut session,
+        doc,
+        Some("Attach 'Sketch 1'"),
+        json!([{"type": "update_feature", "feature": sketch_record}]),
+    )
+    .ok();
+
+    let solved = solve_stored(&mut session, doc, "f-sk1");
+    assert_placement(
+        &solved.ok()["solution"]["placement"],
+        [0.0, 0.0, 10.0],
+        X_AXIS,
+        Z_AXIS,
+        "the sketch's placement",
+    );
+}
+
+/// Test 166 (h)'s document: CUBE10, `f-mv1`, the Move body by (100, 0, 0), then `f-sk1` on a face the cube does not
+/// have with its fallback (3, 4, 0) in body coordinates.
+fn moved_cube_with_a_sketch_in_body_coordinates() -> String {
+    document(
+        &["b-1"],
+        &[
+            cube10(),
+            moved_by_100(),
+            sketch_with_a_point(on_the_lost_face(Some("body"))),
+        ],
+    )
+}
+
+#[test]
+fn t166_a_rolled_back_sketch_is_read_as_it_builds_without_the_marker() {
+    // With the marker at the move, the latest recompute ran neither the move nor the sketch. Read there, the sketch
+    // would have the identity motion and take XY, which gives it another motion once the marker moves to the end.
+    let mut session = headless_session();
+    let (doc, rolled_back) = opened_rolled_back_to_the_move(
+        &mut session,
+        &moved_cube_with_a_sketch_in_body_coordinates(),
+    );
+    assert_eq!(rolled_back.feature_status("f-sk1")["status"], "rolled_back");
+
+    assert_no_plane(&mut session, doc, &origin_plane("XY"));
+    let top = picked_face_plane(&mut session, doc, "f-box1/top");
+    assert_unchanged(&mut session, doc, &top);
+}
+
+#[test]
+fn t166_a_sketch_after_the_focus_feature_is_read_as_it_builds_without_the_stop_point() {
+    let mut session = headless_session();
+    let (doc, _, _) = opened(
+        &mut session,
+        &moved_cube_with_a_sketch_in_body_coordinates(),
+    );
+    send(
+        &mut session,
+        json!({"type": "begin_transaction", "doc": doc, "label": "Look"}),
+    )
+    .ok();
+    let focused = send(
+        &mut session,
+        json!({"type": "set_focus", "doc": doc, "feature": "f-box1"}),
+    );
+    assert_eq!(focused.feature_status("f-sk1")["status"], "rolled_back");
+    let revision_before = revision(&mut session, doc);
+
+    let sent = send(
+        &mut session,
+        json!({"type": "attach_plane", "doc": doc, "feature": "f-sk1", "plane": origin_plane("XY")}),
+    );
+
+    assert!(sent.events.is_empty(), "{:?}", sent.event_types());
+    assert_eq!(sent.ok().get("plane"), None, "no plane for XY");
+    assert_eq!(revision(&mut session, doc), revision_before);
+}
+
+#[test]
+fn t166_a_datum_whose_motion_differs_from_its_face_s_by_rounding_only_is_taken() {
+    // A datum's motion is computed from its frames: lifted by 0.1 mm, its translation is 0.09999999999999964 mm, where
+    // the Move body's is 0.1 mm (section 3.22).
+    let mut session = headless_session();
+    let lifted = json!({
+        "id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["0", "0", "0.1"]
+    });
+    let text = document(
+        &["b-1"],
+        &[
+            cube10(),
+            lifted,
+            datum_on_face(
+                "f-dp3",
+                "b-1",
+                reference("f-box1/top", "plane|n=0,0,1|c=0,0,10.1|a=100|adj=4,4"),
+                "0",
+            ),
+            sketch_with_a_point(on_the_lost_face(Some("body"))),
+        ],
+    );
+    let (doc, opened_sent, _) = opened(&mut session, &text);
+    assert_eq!(opened_sent.feature_status("f-dp3")["status"], "ok");
+
+    assert_unchanged(&mut session, doc, &datum_plane("f-dp3"));
+}
+
+#[test]
+fn t166_the_typed_method_gives_what_the_command_gives() {
+    let mut session = headless_session();
+    let text = moved_cube_with_a_box_and_datums(on_the_lost_face(None), &[]);
+    let (doc, _, _) = opened(&mut session, &text);
+    let top = picked_tops(&mut session, doc).cube;
+    let sent_plane = attach_plane(&mut session, doc, "f-sk1", &top);
+    let typed: SketchPlane = serde_json::from_value(top).expect("the pick is a sketch plane");
+
+    let returned = session
+        .attach_plane(
+            typed_handle(doc),
+            &partsmith_model::Id::new("f-sk1").expect("a valid id"),
+            &typed,
+        )
+        .expect("attach_plane of a sketch succeeds");
+
+    assert_eq!(
+        returned.map(|plane| serde_json::to_value(plane).expect("planes serialize")),
+        sent_plane
+    );
+}
+
+#[test]
+fn t167_a_re_attach_by_pick_moves_no_later_feature() {
+    let mut session = headless_session();
+    let text = bosses_on_a_moved_box(
+        vec![moved_by_100()],
+        face_plane(
+            "b-1",
+            reference("f-box1/nothing", "plane|n=0,0,1|c=100,0,40|a=600"),
+            [0.0, 0.0, 40.0],
+            X_AXIS,
+            Z_AXIS,
+        ),
+        [0.0, 0.0, 50.0],
+        Z_AXIS,
+    );
+    let (doc, _, before) = opened(&mut session, &text);
+    let picked = picked_face_plane(&mut session, doc, "f-box1/top");
+    assert_fallback(&picked, [-100.0, 0.0, 40.0], Z_AXIS, Some("body"));
+
+    let stored = attach_plane(&mut session, doc, "f-sk1", &picked)
+        .expect("world coordinates keep the sketch's identity motion");
+    assert_eq!(stored["face"], picked["face"], "{stored}");
+    assert_fallback(&stored, [0.0, 0.0, 40.0], Z_AXIS, None);
+
+    let mut sketch_record = record(&mut session, doc, "f-sk1");
+    sketch_record["plane"] = stored;
+    let applied = apply(
+        &mut session,
+        doc,
+        Some("Attach 'Sketch 1'"),
+        json!([{"type": "update_feature", "feature": sketch_record}]),
+    );
+
+    for status in statuses(&applied) {
+        assert_eq!(status["status"], "ok", "{status}");
+    }
+    assert_point2(
+        axis_xy(&mut session, doc, UPPER_BOSS_WALL),
+        [100.0, 0.0],
+        GEOMETRY_TOLERANCE,
+        "boss axis after the re-attach",
+    );
+    assert_bounding_box(
+        &measure_body(&mut session, doc, "b-1")["bounding_box"],
+        [90.0, -15.0, 0.0],
+        [110.0, 15.0, 55.0],
+    );
+    assert_undo_restores(&mut session, doc, &json!("Attach 'Sketch 1'"), &before);
+}
+
+#[test]
+fn t167_storing_the_pick_itself_moves_the_upper_boss() {
+    // The move section 3.22's rule prevents: hosts stored the pick as built before `attach_plane`, which gave the
+    // sketch, and the cap the upper boss's sketch stands on, the Move body's motion.
+    let mut session = headless_session();
+    let text = bosses_on_a_moved_box(
+        vec![moved_by_100()],
+        face_plane(
+            "b-1",
+            reference("f-box1/nothing", "plane|n=0,0,1|c=100,0,40|a=600"),
+            [0.0, 0.0, 40.0],
+            X_AXIS,
+            Z_AXIS,
+        ),
+        [0.0, 0.0, 50.0],
+        Z_AXIS,
+    );
+    let (doc, _, _) = opened(&mut session, &text);
+    let picked = picked_face_plane(&mut session, doc, "f-box1/top");
+
+    let mut sketch_record = record(&mut session, doc, "f-sk1");
+    sketch_record["plane"] = picked;
+    apply(
+        &mut session,
+        doc,
+        Some("Attach 'Sketch 1'"),
+        json!([{"type": "update_feature", "feature": sketch_record}]),
+    )
+    .ok();
+
+    assert_point2(
+        axis_xy(&mut session, doc, UPPER_BOSS_WALL),
+        [200.0, 0.0],
+        GEOMETRY_TOLERANCE,
+        "boss axis with the pick stored as built",
     );
 }

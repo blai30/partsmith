@@ -326,6 +326,13 @@ impl Session {
                 self.events(doc, &mut output)?;
                 CommandResult::EndSketchDrag { revision }
             }
+            Command::AttachPlane {
+                doc,
+                feature,
+                plane,
+            } => CommandResult::AttachPlane {
+                plane: self.attach_plane(doc, &feature, &plane)?,
+            },
             Command::SetTessellation { doc, quality } => {
                 let tolerance = self.set_tessellation(doc, quality)?;
                 self.events(doc, &mut output)?;
@@ -504,6 +511,7 @@ fn document_of(command: &Command) -> Option<DocHandle> {
         | Command::SolveSketch { doc, .. }
         | Command::DragSketch { doc, .. }
         | Command::EndSketchDrag { doc, .. }
+        | Command::AttachPlane { doc, .. }
         | Command::SetTessellation { doc, .. }
         | Command::Evaluate { doc, .. }
         | Command::ListElements { doc, .. }

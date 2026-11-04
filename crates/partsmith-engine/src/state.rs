@@ -12,6 +12,7 @@ use partsmith_occt_sys::Shape;
 use partsmith_print::PrinterValues;
 use partsmith_recompute::{CacheKey, FeatureReport, Input, Recompute, Report, Status};
 
+use crate::document::OpenDocument;
 use crate::error::EngineError;
 use crate::profiles::ResolvedProfile;
 
@@ -64,6 +65,22 @@ pub(crate) fn run(
     }
 }
 
+/// A recompute of the recipe of `open` without its stop point and rollback marker, so that every
+/// feature that is not suppressed runs, and the recipe it ran.
+pub(crate) fn whole_run(recompute: &mut Recompute, open: &OpenDocument) -> (Document, Computed) {
+    let mut document = Document::clone(&open.document);
+    document.rollback = None;
+    let computed = run(
+        recompute,
+        &document,
+        &open.assets,
+        open.computed.profile.clone(),
+        None,
+        open.computed.run,
+    );
+    (document, computed)
+}
+
 /// Identifies one body state: the cache key of the feature that last changed the body, and the
 /// body. Equal identities mean equal shapes, whatever the cache did.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -108,6 +125,12 @@ pub(crate) fn ran(status: Status) -> bool {
         Status::Ok | Status::Warning | Status::Error => true,
         Status::Suppressed | Status::RolledBack | Status::NotRun => false,
     }
+}
+
+/// True when the stop point or the rollback marker kept a feature of status `status` from
+/// running: it comes after the focus feature, or at or after the marker.
+pub(crate) fn held_back(status: Status) -> bool {
+    matches!(status, Status::RolledBack | Status::NotRun)
 }
 
 /// The output of a feature that built (status ok or warning); `None` for every other status.
@@ -190,23 +213,31 @@ fn view(body: &Id, state: BodyState, writers: &BTreeMap<Id, Option<(CacheKey, Id
 /// the run, or just before the focus feature when the run stopped at one.
 pub(crate) fn display_bodies(document: &Document, computed: &Computed) -> Vec<BodyView> {
     let report = &computed.report;
-    let focus = computed
-        .focus
-        .as_ref()
-        .and_then(|focus| computed.feature(focus));
-    let writers = match focus {
+    let writers = match focused(computed) {
         Some((position, _)) => writers(&report.features[..position]),
         None => writers(&report.features),
     };
     document
         .bodies
         .iter()
-        .map(|body| {
-            let before = focus.and_then(|(_, feature)| body_before(feature, &body.id).cloned());
-            let state = before.unwrap_or_else(|| final_state(report, &body.id));
-            view(&body.id, state, &writers)
-        })
+        .map(|body| view(&body.id, display_state(computed, &body.id), &writers))
         .collect()
+}
+
+/// The state of `body` at the display state of `computed` (section 3.5): the end of the run, or
+/// just before the focus feature when the run stopped at one and that feature reads the body.
+pub(crate) fn display_state(computed: &Computed, body: &Id) -> BodyState {
+    focused(computed)
+        .and_then(|(_, feature)| body_before(feature, body).cloned())
+        .unwrap_or_else(|| final_state(&computed.report, body))
+}
+
+/// The position and report entry of the focus feature the run of `computed` stopped at, if any.
+fn focused(computed: &Computed) -> Option<(usize, &FeatureReport)> {
+    computed
+        .focus
+        .as_ref()
+        .and_then(|focus| computed.feature(focus))
 }
 
 /// The state of `body` just before the feature at timeline position `position`: the state the

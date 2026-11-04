@@ -1,28 +1,36 @@
 //! Sketch commands: candidate solves, drag frames and committing a drag (engine.md section 3.6),
-//! the stored sketch's latest solution (`stored_solution`), and the context a stored sketch is
-//! solved in: its dimension values and its placement.
+//! the plane a re-attach by pick stores (`attach_plane`, section 3.22), the stored sketch's latest
+//! solution (`stored_solution`), and the context a stored sketch is solved in: its dimension values
+//! and its placement.
 
 use std::sync::Arc;
 
 use partsmith_features::{DatumResult, OutputData, Registry};
 use partsmith_model::{Document, Edit, FeatureRecord, Id};
+use partsmith_naming::Motion;
 use partsmith_protocol::{DocHandle, SketchSolution};
 use partsmith_recompute::Status;
 use partsmith_sketch::{
-    DimensionValues, NativeSolver, OriginPlane, Placement, PointRef, Region, RegionRef,
+    DimensionValues, HintFrame, NativeSolver, OriginPlane, Placement, PointRef, Region, RegionRef,
     SketchParams, SketchPlane, Solver, build_profile,
 };
 use serde_json::Value;
 
 use crate::error::EngineError;
 use crate::fixes::offer_finding_fixes;
-use crate::frames::{face_placement, kept_face_plane, placement_hint, sketch_motion};
+use crate::frames::{
+    face_placement, frame_keeps, is_identity, kept_face_plane, motions_match, placement_hint,
+    sketch_motion,
+};
 use crate::session::{Session, evaluate_in};
 use crate::sketch::{
     Drag, SketchWords, Solved, built, dimension_values, has_point, sketch_params, sketch_record,
     solve, solve_values,
 };
-use crate::state::{Computed, built_output, built_sketch, feature_label, ran, state_before};
+use crate::state::{
+    Computed, built_output, built_sketch, display_state, feature_label, held_back, ran,
+    state_before, whole_run,
+};
 
 impl Session {
     /// Solves the stored sketch or a candidate in its place; records nothing.
@@ -71,6 +79,42 @@ impl Session {
             return Ok(revision);
         };
         self.apply_batch(doc, "Drag", vec![Edit::UpdateFeature { feature: record }])
+    }
+
+    /// The plane a re-attach of the sketch by pick stores in place of `plane`, or `None` when no
+    /// stored plane keeps the sketch's motion (section 3.22); records nothing. A sketch that the
+    /// stop point or the rollback marker kept from running is read in a recompute without them,
+    /// made for this command only.
+    pub fn attach_plane(
+        &mut self,
+        doc: DocHandle,
+        feature: &Id,
+        plane: &SketchPlane,
+    ) -> Result<Option<SketchPlane>, EngineError> {
+        // Borrowed by field, so that `whole_run` can still use the recompute.
+        let open = self
+            .documents
+            .get(&doc)
+            .ok_or(EngineError::UnknownDocument { doc })?;
+        let (position, record) = sketch_record(&open.document, feature)?;
+        let stored = sketch_params(&self.registry, &open.document, record)?.plane;
+        if let SketchPlane::Face { body, .. } = plane
+            && open.document.body(body).is_none()
+        {
+            return Err(EngineError::UnknownBody { id: body.clone() });
+        }
+        let whole = open
+            .computed
+            .report
+            .features
+            .get(position)
+            .is_some_and(|report| held_back(report.status))
+            .then(|| whole_run(&mut self.recompute, open).1);
+        let run = whole.as_ref().unwrap_or(&open.computed);
+        let Some(kept) = plane_motion(&stored, run, position) else {
+            return Ok(Some(plane.clone()));
+        };
+        Ok(kept_pick(plane, &kept, run, &open.computed, position))
     }
 
     /// `solve_sketch` with the regions its display fills come from. A solve of the stored sketch
@@ -263,6 +307,71 @@ fn commit_plane(
         .ok_or_else(|| EngineError::internal("a drag commit keeps its sketch's motion"))
 }
 
+/// The motion a sketch at timeline position `position` on `plane` has, which the faces built from
+/// it inherit (features/sketch.md section 3.3 step 1): the identity on an origin plane, the
+/// datum's motion on a datum plane, and on a face the motion of the face in the state just before
+/// the sketch for a fallback in body coordinates, else the identity. `None`, an unknown motion,
+/// on a datum plane whose datum has no plane in the run of `computed`.
+fn plane_motion(plane: &SketchPlane, computed: &Computed, position: usize) -> Option<Motion> {
+    match plane {
+        SketchPlane::Origin { .. } => Some(Motion::IDENTITY),
+        SketchPlane::Datum { feature } => built_datum(computed, feature).map(|(_, motion)| *motion),
+        SketchPlane::Face {
+            body,
+            face,
+            fallback_frame,
+            ..
+        } => {
+            let face_motion = state_before(&computed.report, position, body).motion(&face.query);
+            Some(sketch_motion(*fallback_frame, &face_motion))
+        }
+    }
+}
+
+/// The plane a re-attach by pick of the sketch at timeline position `position` of `run`, whose
+/// motion is `kept`, stores in place of the picked `plane` (section 3.22). An origin or datum
+/// plane comes back when it gives the sketch a motion that matches `kept`. A face plane's
+/// fallback stands where the face stood just before the sketch, or, for a sketch without motion,
+/// where `shown`, the latest recompute the host picked in, displays it; the face comes back as
+/// picked when its own coordinates keep the motion and place it there, else with that placement
+/// in the coordinates that keep the motion (`kept_face_plane`). `None` when no plane keeps it.
+fn kept_pick(
+    plane: &SketchPlane,
+    kept: &Motion,
+    run: &Computed,
+    shown: &Computed,
+    position: usize,
+) -> Option<SketchPlane> {
+    let SketchPlane::Face {
+        body,
+        face,
+        fallback,
+        fallback_frame,
+    } = plane
+    else {
+        return plane_motion(plane, run, position)
+            .filter(|motion| motions_match(motion, kept))
+            .map(|_| plane.clone());
+    };
+    let before = state_before(&run.report, position, body);
+    let face_motion = before.motion(&face.query);
+    // A body-coordinate fallback of a face that moved between the sketch and the display state
+    // stands, for a sketch without motion, where the host showed the face.
+    let displayed = (*fallback_frame == HintFrame::Body && is_identity(kept))
+        .then(|| display_state(shown, body))
+        .filter(|state| !motions_match(&state.motion(&face.query), &face_motion));
+    if displayed.is_none() && frame_keeps(*fallback_frame, &face_motion, kept) {
+        return Some(plane.clone());
+    }
+    let standing = placement_hint(
+        displayed.as_ref().unwrap_or(&before),
+        face,
+        fallback,
+        *fallback_frame,
+    );
+    kept_face_plane(body, face, &standing, &face_motion, kept)
+}
+
 /// The placement of a sketch at timeline position `position` on `plane`, resolved against the
 /// state before it (features/sketch.md section 3.3): an origin plane's placement, the datum's
 /// plane (the XY plane when the datum has no result), or the face's plane with the fallback as
@@ -289,9 +398,15 @@ fn placement(plane: &SketchPlane, computed: &Computed, position: usize) -> Place
 
 /// The plane a datum feature built, if it built one.
 pub(crate) fn datum_placement(computed: &Computed, feature: &Id) -> Option<Placement> {
+    built_datum(computed, feature).map(|(placement, _)| *placement)
+}
+
+/// The plane a datum feature built and the motion of its frame (features/datum_plane.md section
+/// 3.2 step 4), if it built one.
+fn built_datum<'c>(computed: &'c Computed, feature: &Id) -> Option<(&'c Placement, &'c Motion)> {
     let (_, report) = computed.feature(feature)?;
     match &built_output(report)?.data {
-        OutputData::Datum(DatumResult::Plane { placement, .. }) => Some(*placement),
+        OutputData::Datum(DatumResult::Plane { placement, motion }) => Some((placement, motion)),
         _ => None,
     }
 }

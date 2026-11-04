@@ -6,7 +6,6 @@ use std::collections::BTreeSet;
 use partsmith_features::{BodyOp, FeatureWarning, Fix, Names, Place};
 use partsmith_model::{Body, Document, Edit, FeatureRecord, Id, IdKind};
 use partsmith_naming::{ElementName, Generator, Reference, Resolution, resolve, roles};
-use partsmith_recompute::Status;
 use partsmith_sketch::{MatchMethod, RegionMatch, RegionRef, match_region};
 use serde_json::Value;
 
@@ -17,6 +16,7 @@ use crate::params::{
     is_list_entry, parent, remove, replace, replace_each, set, stored_references, value_at,
 };
 use crate::run::{FeatureView, RunView};
+use crate::state::held_back;
 
 impl FeatureView<'_> {
     /// The edits of an offered `apply` fix of this feature's message, built from the current
@@ -191,7 +191,7 @@ impl FeatureView<'_> {
     pub(super) fn later_features_ran(&self) -> bool {
         self.run.report.features[self.position + 1..]
             .iter()
-            .all(|feature| !matches!(feature.status, Status::RolledBack | Status::NotRun))
+            .all(|feature| !held_back(feature.status))
     }
 
     /// The re-anchoring of `KeepRegions` (section 3.22) for the region entry at `pointer`: the

@@ -230,6 +230,20 @@ type: "end_sketch_drag"
  */
 doc: DocHandle
 /**
+ * The sketch feature.
+ */
+feature: Id
+/**
+ * The plane the host built from the pick, as for a new sketch.
+ */
+plane: SketchPlane
+type: "attach_plane"
+} | {
+/**
+ * The document.
+ */
+doc: DocHandle
+/**
  * The display quality.
  */
 quality: TessellationQuality
@@ -1179,6 +1193,12 @@ type: "drag_sketch"
  */
 revision: number
 type: "end_sketch_drag"
+} | {
+/**
+ * The plane to store; absent when no stored plane keeps the sketch's motion.
+ */
+plane?: (SketchPlane | null)
+type: "attach_plane"
 } | {
 /**
  * The resolved tolerances.

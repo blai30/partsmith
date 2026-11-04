@@ -1,4 +1,4 @@
-//! Acceptance tests for `Files`, `FileKind`, `FileError`, `grant_of` and `Unsaved` (desktop.md section 6, tests 14 to 32, and the Windows tests 68 and 70), with a fake for the native dialogs.
+//! Acceptance tests for `Files`, `FileKind`, `FileError`, `grant_of` and `Unsaved` (desktop.md section 6, tests 14 to 32, 51, 52 and 72, and the Windows tests 68 and 70), with a fake for the native dialogs.
 
 use crate::common;
 
@@ -205,6 +205,46 @@ fn write_through_a_symbolic_link_replaces_the_file_it_points_to_and_keeps_the_li
     );
     assert_eq!(fs::read(&real).expect("the linked file exists"), b"new");
     assert_eq!(folder_entries(&synced), vec!["part.ptsm".to_owned()]);
+    assert_eq!(
+        folder_entries(folder.path()),
+        vec!["link.ptsm".to_owned(), "synced".to_owned()]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn t072_a_link_that_leads_to_no_file_fails_with_not_found_and_creates_nothing() {
+    let folder = temporary_folder();
+    let synced = folder.path().join("synced");
+    fs::create_dir(&synced).expect("the test can create a folder");
+    let missing = synced.join("part.ptsm");
+    let link = folder.path().join("link.ptsm");
+    std::os::unix::fs::symlink(&missing, &link).expect("the test can create a symbolic link");
+    let files = Files::in_memory();
+    let grant = grant_by_open(&files, &link).grant;
+
+    let error = files
+        .write(&grant, b"new")
+        .expect_err("a link that leads to no file is not written");
+
+    assert_eq!(
+        error,
+        FileError::NotFound {
+            name: "link.ptsm".to_owned()
+        }
+    );
+    assert_eq!(error.reason(), "not_found");
+    let link_metadata = fs::symlink_metadata(&link).expect("the link exists");
+    assert!(
+        link_metadata.file_type().is_symlink(),
+        "the link is still a link"
+    );
+    assert_eq!(
+        fs::read_link(&link).expect("the link can be read"),
+        missing,
+        "the link points where it pointed"
+    );
+    assert_eq!(folder_entries(&synced), Vec::<String>::new());
     assert_eq!(
         folder_entries(folder.path()),
         vec!["link.ptsm".to_owned(), "synced".to_owned()]

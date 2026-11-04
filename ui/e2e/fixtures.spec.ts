@@ -10,7 +10,7 @@ import {
   test,
   timelineItem,
 } from './helpers'
-import { expectTimeline } from './support/documents'
+import { expectStatuses, expectTimeline } from './support/documents'
 import { fillInspector } from './support/modeling'
 import { chooseContext, expectCurrentReport, healthItems, openPrintCheck } from './support/print'
 
@@ -171,6 +171,18 @@ const FIXTURES: readonly FixtureCheck[] = [
       await expect(
         healthItems(page, 'bed_fit').and(page.locator('[data-severity=error]')),
       ).not.toHaveCount(0)
+    },
+  },
+  {
+    file: 'reattach-moved.ptsm',
+    check: async (page) => {
+      await expectStatuses(page, [
+        ['Box 1', 'ok'],
+        ['Move body 1', 'ok'],
+        ['Box 2', 'ok'],
+        ['Sketch 1', 'warning'],
+      ])
+      await expectBody(page, 'Body 1', '10 × 18 × 20 mm', '100, 4, 10 mm')
     },
   },
   {

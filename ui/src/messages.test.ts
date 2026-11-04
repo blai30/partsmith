@@ -448,6 +448,16 @@ const CASES: readonly Case[] = [
     () => MESSAGES.attach_after('Sketch 2', 'Extrude 2'),
     "'Sketch 2' cannot be placed on 'Extrude 2', which comes after it. Pick an origin plane, or a flat face or datum plane made before 'Sketch 2'.",
   ],
+  [
+    'attach_datum_unbuilt',
+    () => MESSAGES.attach_datum_unbuilt('Sketch 2', 'Datum plane 1', 'suppressed'),
+    "'Sketch 2' cannot be placed on 'Datum plane 1', which is suppressed. Unsuppress 'Datum plane 1', or pick another plane or face.",
+  ],
+  [
+    'attach_moved',
+    () => MESSAGES.attach_moved('Sketch 2', 'the Top plane (XY)'),
+    "'Sketch 2' cannot be placed on the Top plane (XY): the two do not move together, and what later features place on the faces made from 'Sketch 2' could shift with no message. Pick a plane or face that moves the same way as 'Sketch 2'.",
+  ],
   ['preview_pending', () => MESSAGES.preview_pending(), 'Wait for the preview to update.'],
   ['details_copied', () => MESSAGES.details_copied(), 'Details copied.'],
   [
@@ -469,7 +479,7 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(115)
+    expect(CASES).toHaveLength(117)
   })
 
   it('U-73 has no dimension_unsolvable: an edited dimension shows the probe message (3.16.7)', () => {
@@ -517,6 +527,21 @@ describe('MESSAGES', () => {
   it('U-137 entity_used of a point says only what uses it', () => {
     expect(MESSAGES.entity_used('Chamfer 1', 'edge', 'point')).toBe(
       "'Chamfer 1' uses the edge made from this point.",
+    )
+  })
+
+  it('U-250 attach_datum_unbuilt names an error and asks to fix the datum first', () => {
+    expect(MESSAGES.attach_datum_unbuilt('Sketch 2', 'Datum plane 1', 'error')).toBe(
+      "'Sketch 2' cannot be placed on 'Datum plane 1', which has an error. Fix 'Datum plane 1' first, or pick another plane or face.",
+    )
+  })
+
+  it('U-250 attach_moved names a datum plane in quotes and a face by its feature', () => {
+    expect(MESSAGES.attach_moved('Sketch 2', "'Datum plane 1'")).toBe(
+      "'Sketch 2' cannot be placed on 'Datum plane 1': the two do not move together, and what later features place on the faces made from 'Sketch 2' could shift with no message. Pick a plane or face that moves the same way as 'Sketch 2'.",
+    )
+    expect(MESSAGES.attach_moved('Sketch 2', "this face of 'Extrude 3'")).toContain(
+      "cannot be placed on this face of 'Extrude 3': the two",
     )
   })
 

@@ -1,7 +1,7 @@
 //! Frames on the model (ADR 0023): placements and directions in body coordinates, which a
 //! descriptor's `fallback` and `axis_direction` are in (engine.md section 3.9), the face plane a
-//! drag commit or a fix stores, in the coordinates that keep the sketch's motion (sections 3.6 and
-//! 3.22), and the placement of a sketch on a flat face.
+//! drag commit, a fix or a re-attach by pick stores, in the coordinates that keep the sketch's
+//! motion (sections 3.6 and 3.22), and the placement of a sketch on a flat face.
 
 use partsmith_features::{BodyState, PlacementExt};
 use partsmith_model::Id;
@@ -31,19 +31,49 @@ pub(crate) fn sketch_motion(frame: HintFrame, face_motion: &Motion) -> Motion {
     }
 }
 
+/// The largest difference of one component of two motions that match (engine.md section 3.22):
+/// a matrix entry, or a coordinate of the translation in mm.
+const MOTION_TOLERANCE: f64 = 1e-9;
+
+/// True when each of the 12 components of the two motions differs by at most
+/// `MOTION_TOLERANCE` (engine.md section 3.22). A datum's motion is computed from its frames and
+/// can differ from its face's motion by rounding.
+pub(crate) fn motions_match(first: &Motion, second: &Motion) -> bool {
+    components(first)
+        .zip(components(second))
+        .all(|(one, other)| (one - other).abs() <= MOTION_TOLERANCE)
+}
+
+/// True when `motion` matches the identity (`motions_match`): a sketch with this motion has none.
+pub(crate) fn is_identity(motion: &Motion) -> bool {
+    motions_match(motion, &Motion::IDENTITY)
+}
+
+/// The 12 components of a motion: the axes its matrix turns the unit axes to, then its
+/// translation, where it moves the origin.
+fn components(motion: &Motion) -> impl Iterator<Item = f64> {
+    let axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        .map(|axis| motion.apply_direction(axis));
+    axes.into_iter()
+        .chain([motion.apply_point([0.0; 3])])
+        .flatten()
+}
+
+/// True when a face sketch whose fallback is in `frame`, on a face whose motion is
+/// `face_motion`, has the motion `kept` (`sketch_motion`, compared by `motions_match`).
+pub(crate) fn frame_keeps(frame: HintFrame, face_motion: &Motion, kept: &Motion) -> bool {
+    motions_match(&sketch_motion(frame, face_motion), kept)
+}
+
 /// The coordinates a face sketch stores its fallback in to keep its motion `kept`, so that what
 /// later features store on the faces built from it keeps its meaning (engine.md section 3.22, ADR
 /// 0023): body coordinates when `face_motion`, the motion of the face in the state the sketch is
-/// placed in (`BodyState::motion` of its query), is `kept`; else world coordinates when `kept` is
-/// the identity; `None` when neither keeps it.
+/// placed in (`BodyState::motion` of its query), matches `kept`; else world coordinates when
+/// `kept` matches the identity; `None` when neither keeps it.
 pub(crate) fn keeping_frame(face_motion: &Motion, kept: &Motion) -> Option<HintFrame> {
-    if face_motion == kept {
-        Some(HintFrame::Body)
-    } else if *kept == Motion::IDENTITY {
-        Some(HintFrame::World)
-    } else {
-        None
-    }
+    [HintFrame::Body, HintFrame::World]
+        .into_iter()
+        .find(|frame| frame_keeps(*frame, face_motion, kept))
 }
 
 /// The face plane a sketch stores to stand at `placement` on `face` of `body` while keeping its
@@ -247,6 +277,65 @@ mod tests {
         );
 
         assert_eq!(plane, Some(on_top(top_at(40.0), HintFrame::World)));
+    }
+
+    /// A translation by `(0, 0, z)`.
+    fn lifted_by(z: f64) -> Motion {
+        Motion::new(
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [0.0, 0.0, z],
+        )
+    }
+
+    #[test]
+    fn a_face_motion_that_matches_the_sketch_s_within_1e_9_keeps_body_coordinates() {
+        // engine.md section 3.22: a datum on the top of a cube lifted by 0.1 mm has a translation of
+        // 0.09999999999999964 mm, computed from its frames, where the face's motion is 0.1 mm.
+        let face_motion = lifted_by(0.1);
+        let datum_motion = lifted_by(0.099_999_999_999_999_64);
+
+        assert_eq!(
+            keeping_frame(&face_motion, &datum_motion),
+            Some(HintFrame::Body)
+        );
+    }
+
+    #[test]
+    fn a_face_motion_further_than_1e_9_from_the_sketch_s_does_not_match() {
+        let face_motion = lifted_by(0.1);
+        let kept = lifted_by(0.1 + 2e-9);
+
+        assert_eq!(keeping_frame(&face_motion, &kept), None);
+    }
+
+    #[test]
+    fn a_turn_that_matches_within_1e_9_in_every_matrix_entry_keeps_body_coordinates() {
+        let turn = turned_and_moved();
+        let rounded = Motion::new(
+            [[1e-10, -1.0, 0.0], [1.0, 1e-10, 0.0], [0.0, 0.0, 1.0]],
+            [100.0, 0.0, 0.0],
+        );
+
+        assert_eq!(keeping_frame(&turn, &rounded), Some(HintFrame::Body));
+    }
+
+    #[test]
+    fn a_sketch_motion_within_1e_9_of_the_identity_keeps_world_coordinates() {
+        // The identity is matched with the same comparison: a sketch whose motion is the identity
+        // to rounding stays in world coordinates on a face that moved.
+        let kept = lifted_by(4e-16);
+
+        assert_eq!(
+            keeping_frame(&moved_by_100(), &kept),
+            Some(HintFrame::World)
+        );
+    }
+
+    #[test]
+    fn a_sketch_motion_further_than_1e_9_from_the_identity_has_no_world_coordinates() {
+        let kept = lifted_by(1e-6);
+
+        assert_eq!(keeping_frame(&moved_by_100(), &kept), None);
     }
 
     #[test]

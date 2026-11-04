@@ -2,7 +2,7 @@
 //! The last group, `ENGINE_EXAMPLES`, holds engine-filled records: compact uses, causes, messages and repairs as the engine writes them (engine.md and the corpora), which are not spec examples of this crate.
 
 /// Every command type of section 2.5, in the order of test 34.
-pub const COMMAND_TYPES: [&str; 34] = [
+pub const COMMAND_TYPES: [&str; 35] = [
     "engine_info",
     "feature_catalog",
     "list_printer_profiles",
@@ -37,6 +37,7 @@ pub const COMMAND_TYPES: [&str; 34] = [
     "apply_fix",
     "set_document_units",
     "list_uses",
+    "attach_plane",
 ];
 
 /// Every event type of section 2.7, in the order of test 36.
@@ -211,6 +212,19 @@ pub const SET_DOCUMENT_UNITS_REQUEST: &str =
 pub const SET_DOCUMENT_UNITS_RESULT: &str =
     r#"{"type": "set_document_units", "revision": 5, "kept": 4}"#;
 
+/// The first `attach_plane` request example of section 2.5 (command 35): an origin plane.
+pub const ATTACH_PLANE_REQUEST: &str = r#"{"type": "attach_plane", "doc": 1, "feature": "f-sk1", "plane": {"kind": "origin", "plane": "XY"}}"#;
+
+/// The first `attach_plane` result example of section 2.5: the origin plane comes back unchanged.
+pub const ATTACH_PLANE_RESULT: &str =
+    r#"{"type": "attach_plane", "plane": {"kind": "origin", "plane": "XY"}}"#;
+
+/// The second `attach_plane` request example of section 2.5: the top of a box with its fallback in body coordinates.
+pub const ATTACH_FACE_REQUEST: &str = r#"{"type": "attach_plane", "doc": 1, "feature": "f-sk1", "plane": {"kind": "face", "body": "b-1", "face": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "fallback": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "fallback_frame": "body"}}"#;
+
+/// The second `attach_plane` result example of section 2.5: no stored plane keeps the sketch's motion.
+pub const ATTACH_NO_PLANE_RESULT: &str = r#"{"type": "attach_plane"}"#;
+
 /// The `list_uses` request example of section 2.5.
 pub const LIST_USES_REQUEST: &str = r#"{"type": "list_uses", "doc": 1}"#;
 
@@ -270,7 +284,7 @@ pub const MESSAGE_EXAMPLES: [&str; 11] = [
 ];
 
 /// The command examples of section 2.5 (request side), in spec order.
-pub const COMMAND_EXAMPLES: [&str; 33] = [
+pub const COMMAND_EXAMPLES: [&str; 35] = [
     r#"{"type": "engine_info"}"#,
     r#"{"type": "feature_catalog"}"#,
     r#"{"type": "list_printer_profiles"}"#,
@@ -290,6 +304,8 @@ pub const COMMAND_EXAMPLES: [&str; 33] = [
     r#"{"type": "commit_transaction", "doc": 1}"#,
     r#"{"type": "solve_sketch", "doc": 1, "feature": "f-sk1"}"#,
     r#"{"type": "drag_sketch", "doc": 1, "feature": "f-sk1", "point": "e-1.end", "to": [20.0, 5.0]}"#,
+    ATTACH_PLANE_REQUEST,
+    ATTACH_FACE_REQUEST,
     r#"{"type": "set_tessellation", "doc": 1, "quality": "fine"}"#,
     r#"{"type": "evaluate", "doc": 1, "expr": "2 * height"}"#,
     r#"{"type": "list_elements", "doc": 1, "body": "b-1", "kind": "face"}"#,
@@ -307,7 +323,7 @@ pub const COMMAND_EXAMPLES: [&str; 33] = [
 ];
 
 /// The result examples of section 2.5 (the `ok` value of a response), in spec order.
-pub const RESULT_EXAMPLES: [&str; 27] = [
+pub const RESULT_EXAMPLES: [&str; 29] = [
     r#"{"type": "engine_info", "protocol_version": 1, "engine_version": "0.1.0", "format_version": 2, "kernel": "OCCT 7.9.3"}"#,
     r#"{"type": "feature_catalog", "features": [{"type": "box", "manifest": {"label": "Box", "category": "create", "icon": "box", "version": 1, "fields": []}, "params_schema": {"type": "object", "properties": {"body": {"type": "string"}}, "required": ["body"]}}]}"#,
     LIST_PRINTER_PROFILES_RESULT,
@@ -324,6 +340,8 @@ pub const RESULT_EXAMPLES: [&str; 27] = [
     r#"{"type": "begin_transaction"}"#,
     r#"{"type": "commit_transaction", "revision": 7, "recorded": true}"#,
     r#"{"type": "drag_sketch", "solution": {"feature": "f-sk1", "status": "under_constrained", "failed": false, "dof": 1, "redundant": [], "conflicting": [], "placement": {"origin": [0.0, 0.0, 0.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "entities": [{"id": "e-1", "type": "line", "start": [0.0, 0.0], "end": [20.0, 0.0], "constrained": "under_constrained"}], "points": [{"point": "e-1.start", "at": [0.0, 0.0]}, {"point": "e-1.end", "at": [20.0, 0.0]}], "constraints": [{"id": "c-1", "state": "satisfied"}, {"id": "c-2", "state": "satisfied"}], "regions": [], "profile_findings": [{"type": "open_endpoint", "entity": "e-1", "point": [0.0, 0.0]}, {"type": "open_endpoint", "entity": "e-1", "point": [20.0, 0.0]}], "messages": [{"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (20, 0) at (0, 0) is not connected to other geometry.", "field": "/profile_findings/0", "detail": "open_endpoint entity=e-1 point=0,0"}, {"severity": "warning", "code": "open_endpoint", "message": "The end of the line from (0, 0) to (20, 0) at (20, 0) is not connected to other geometry.", "field": "/profile_findings/1", "detail": "open_endpoint entity=e-1 point=20,0"}], "display": {"region_positions": 0, "region_indices": 1, "region_ids": 2}}}"#,
+    ATTACH_PLANE_RESULT,
+    ATTACH_NO_PLANE_RESULT,
     r#"{"type": "set_tessellation", "tolerance": {"chord_deviation": 0.025, "angular_deviation": 0.04363323129985824}}"#,
     r#"{"type": "evaluate", "value": 80.0, "dimension": {"length": 1, "angle": 0}}"#,
     r#"{"type": "pick_reference", "element": {"name": "f-box1/top", "kind": "face", "body": "b-1", "feature": "f-box1", "reference": {"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,40|a=600|adj=4,4"}, "surface": "plane", "centroid": [0.0, 0.0, 40.0], "area": 600.0, "normal": [0.0, 0.0, 1.0], "placement": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "fallback": {"origin": [0.0, 0.0, 40.0], "x_axis": [1.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0]}, "adjacent": ["edge(f-box1/back|f-box1/top)", "edge(f-box1/front|f-box1/top)", "edge(f-box1/left|f-box1/top)", "edge(f-box1/right|f-box1/top)"]}}"#,

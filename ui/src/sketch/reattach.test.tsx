@@ -259,6 +259,8 @@ describe('re-attaching a sketch (3.16.1, U-146)', () => {
     await run(() => reattachSketch(app, 'f-sk2'))
     await user.click(within(header()).getByRole('button', { name: /Top plane \(XY\)/ }))
     await settleShell()
+    // The fake core keeps every plane as it is given (engine.md 3.22).
+    expect(core.callsTo('attachPlane')).toEqual([[1, 'f-sk2', { kind: 'origin', plane: 'XY' }]])
     expect(core.callsTo('applyEdits')).toEqual([
       attachCall(SKETCH_2, { kind: 'origin', plane: 'XY' }),
     ])

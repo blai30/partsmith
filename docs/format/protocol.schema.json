@@ -642,6 +642,35 @@
           ]
         },
         {
+          "description": "The plane a re-attach of the sketch by pick stores in place of `plane`, without recording anything (engine.md\nsection 3.22).",
+          "type": "object",
+          "properties": {
+            "doc": {
+              "description": "The document.",
+              "$ref": "#/$defs/DocHandle"
+            },
+            "feature": {
+              "description": "The sketch feature.",
+              "$ref": "#/$defs/Id"
+            },
+            "plane": {
+              "description": "The plane the host built from the pick, as for a new sketch.",
+              "$ref": "#/$defs/SketchPlane"
+            },
+            "type": {
+              "type": "string",
+              "const": "attach_plane"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "doc",
+            "feature",
+            "plane"
+          ]
+        },
+        {
           "description": "Sets the display quality and re-tessellates.",
           "type": "object",
           "properties": {
@@ -6238,6 +6267,30 @@
           "required": [
             "type",
             "revision"
+          ]
+        },
+        {
+          "description": "Result of `attach_plane`.",
+          "type": "object",
+          "properties": {
+            "plane": {
+              "description": "The plane to store; absent when no stored plane keeps the sketch's motion.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SketchPlane"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "attach_plane"
+            }
+          },
+          "required": [
+            "type"
           ]
         },
         {

@@ -1,13 +1,14 @@
 import { generateId, usedIds } from '../../core/ids'
+import { originPlaneName } from '../../core/labels'
 import { comesAfter, markerPosition, sketchRecord } from '../../core/recipe'
-import type { HintFrame, SketchPlane } from '../../generated/protocol'
+import type { SketchPlane } from '../../generated/protocol'
 import { MESSAGES } from '../../messages'
 import { selectFeatureLabel, selectReattachingSketch } from '../../state/selectors'
 import type { AppState, AppStore, DocumentState, SelectionItem } from '../../state/store'
 import type { App } from '../createApp'
-import { commitBuiltEdits, commitEdits, documentOf } from './edits'
+import { commitEdits, documentOf, runChange } from './edits'
 import { showPickHint } from './notifications'
-import { openSketch, storedSketchParams } from './sketch'
+import { openSketch } from './sketch'
 import { startInTurn } from './starts'
 
 // The plane a sketch goes on (ui.md 3.16.1): the sketch.md plane of a picked plane-like item, a
@@ -17,10 +18,9 @@ import { startInTurn } from './starts'
  * The sketch.md plane of a plane-like selection item, or null for anything else (3.16.1). A flat
  * face gives its full reference and, as the fallback, its descriptor's `fallback`: the placement in
  * body coordinates (`fallback_frame: body`), so the sketch keeps its place on the face when a Move
- * body or a copy moves the face later (features/sketch.md section 2); with `frame` `world`, its
- * descriptor's `placement` in world coordinates, without `fallback_frame`.
+ * body or a copy moves the face later (features/sketch.md section 2).
  */
-export function sketchPlaneOf(item: SelectionItem, frame: HintFrame = 'body'): SketchPlane | null {
+export function sketchPlaneOf(item: SelectionItem): SketchPlane | null {
   if (
     item.kind === 'origin_plane' &&
     (item.origin === 'XY' || item.origin === 'XZ' || item.origin === 'YZ')
@@ -34,25 +34,17 @@ export function sketchPlaneOf(item: SelectionItem, frame: HintFrame = 'body'): S
   if (item.kind !== 'face' || element?.surface !== 'plane') {
     return null
   }
-  const fallback = frame === 'body' ? element.fallback : element.placement
+  const fallback = element.fallback
   if (fallback === undefined || fallback === null) {
     return null
   }
-  const face = { kind: 'face' as const, body: element.body, face: element.reference, fallback }
-  return frame === 'body' ? { ...face, fallback_frame: 'body' } : face
-}
-
-/**
- * The coordinates a re-attached sketch stores a face's placement in (3.16.1): world coordinates
- * when its stored plane gives it no motion (an origin plane, or a face whose fallback is in world
- * coordinates), which keeps it without one, so the faces built from it and what later features
- * store on them stay in place (engine.md section 3.22); else body coordinates, as a new sketch
- * stores them (engine.md open issue 16).
- */
-function frameKeepingMotion(stored: SketchPlane): HintFrame {
-  const withoutMotion =
-    stored.kind === 'origin' || (stored.kind === 'face' && stored.fallback_frame !== 'body')
-  return withoutMotion ? 'world' : 'body'
+  return {
+    kind: 'face',
+    body: element.body,
+    face: element.reference,
+    fallback,
+    fallback_frame: 'body',
+  }
 }
 
 /** Whether a plane is being picked for a new sketch or a re-attached one (3.16.1). */
@@ -121,40 +113,100 @@ export async function createSketchOn(app: App, plane: SelectionItem): Promise<vo
 
 /**
  * Attaches the sketch to a plane-like item (3.16.1). The entities keep their sketch coordinates,
- * so the drawing lands on the new plane as it lay on the old one. A face is stored in the
- * coordinates that keep the sketch's motion where its stored plane tells it (`frameKeepingMotion`);
- * what a feature after the sketch made is refused with `attach_after`, since the sketch is built
- * before it.
+ * so the drawing lands on the new plane as it lay on the old one (`attachSketchOn`).
  */
 async function attachSketch(app: App, sketchId: string, item: SelectionItem): Promise<void> {
-  const state = app.store.getState()
-  const stored = storedSketchParams(state, sketchId)?.plane
-  if (stored === undefined) {
-    return
-  }
-  const pickedPlane = sketchPlaneOf(item, frameKeepingMotion(stored))
-  const maker = pickedPlane === null ? null : makerAfter(state, sketchId, item)
-  if (maker !== null) {
-    const message = MESSAGES.attach_after(
-      selectFeatureLabel(state, sketchId),
-      selectFeatureLabel(state, maker),
-    )
-    showPickHint(app, message, null)
-    return
-  }
-  await placeSketch(app, pickedPlane, (sketchPlane) => attachSketchOn(app, sketchId, sketchPlane))
+  await placeSketch(app, sketchPlaneOf(item), (sketchPlane) =>
+    attachSketchOn(app, sketchId, item, sketchPlane),
+  )
 }
 
-/** Stores a sketch's new plane in one edit labeled "Attach '{label}'", then edits the sketch (3.16.1). */
-async function attachSketchOn(app: App, sketchId: string, plane: SketchPlane): Promise<void> {
-  const label = MESSAGES.attach_label(selectFeatureLabel(app.store.getState(), sketchId))
-  const attached = await commitBuiltEdits(app, (document) => {
+/**
+ * The hint that refuses a picked plane-like item before the core is asked (3.16.1), read from
+ * `state` when the pick's turn in the mutation queue comes: `attach_after` for what a feature after
+ * the sketch made, since the sketch is built before it, `attach_datum_unbuilt` for a datum plane
+ * that is suppressed or has an error, since its motion is unknown; null for any other item.
+ */
+function attachRefusal(state: AppState, sketchId: string, item: SelectionItem): string | null {
+  const label = selectFeatureLabel(state, sketchId)
+  const maker = makerAfter(state, sketchId, item)
+  if (maker !== null) {
+    return MESSAGES.attach_after(label, selectFeatureLabel(state, maker))
+  }
+  if (item.kind !== 'datum_plane' || item.feature === null) {
+    return null
+  }
+  const unbuilt = unbuiltState(state, item.feature)
+  return unbuilt === null
+    ? null
+    : MESSAGES.attach_datum_unbuilt(label, selectFeatureLabel(state, item.feature), unbuilt)
+}
+
+/** Why a feature does not build: suppressed, or an error; null when it builds. */
+function unbuiltState(state: AppState, feature: string): 'suppressed' | 'error' | null {
+  const document = state.document
+  const record = document?.recipe.features?.find((candidate) => candidate.id === feature)
+  const status = document?.featureStatus[feature]?.status
+  if (record?.suppressed === true || status === 'suppressed') {
+    return 'suppressed'
+  }
+  return status === 'error' ? 'error' : null
+}
+
+/**
+ * How `attach_moved` names a picked plane (4.3): the origin plane, the datum plane's label in
+ * quotes, or a face by the feature that made it.
+ */
+function attachTarget(state: AppState, item: SelectionItem, plane: SketchPlane): string {
+  switch (plane.kind) {
+    case 'origin':
+      return `the ${originPlaneName(plane.plane)}`
+    case 'datum':
+      return `'${selectFeatureLabel(state, plane.feature)}'`
+    case 'face':
+      return item.feature === null
+        ? 'this face'
+        : `this face of '${selectFeatureLabel(state, item.feature)}'`
+  }
+}
+
+/**
+ * Stores a sketch's new plane in one edit labeled "Attach '{label}'", then edits the sketch
+ * (3.16.1). In one task of the mutation queue, with no change between them, it checks the picked
+ * `item` against the document as it is then (`attachRefusal`), asks the core for the plane to
+ * store for `plane` (`attachPlane`, engine.md section 3.22) and commits it. A sketch record that is
+ * gone by then sends nothing. A refused item, or a plane the core gives none for (`attach_moved`),
+ * shows its hint in the sketch hint and the pick stays open.
+ */
+async function attachSketchOn(
+  app: App,
+  sketchId: string,
+  item: SelectionItem,
+  plane: SketchPlane,
+): Promise<void> {
+  const { sent } = await runChange(app, async (document) => {
     const record = sketchRecord(document.recipe, sketchId)
-    return record === null
-      ? null
-      : { label, edits: [{ type: 'update_feature', feature: { ...record, plane } }] }
+    if (record === null) {
+      return false
+    }
+    const state = app.store.getState()
+    const refusal = attachRefusal(state, sketchId, item)
+    if (refusal !== null) {
+      showPickHint(app, refusal, null)
+      return false
+    }
+    const stored = await app.core.attachPlane(document.documentHandle, sketchId, plane)
+    const label = selectFeatureLabel(state, sketchId)
+    if (stored === null) {
+      showPickHint(app, MESSAGES.attach_moved(label, attachTarget(state, item, plane)), null)
+      return false
+    }
+    await app.core.applyEdits(document.documentHandle, MESSAGES.attach_label(label), [
+      { type: 'update_feature', feature: { ...record, plane: stored } },
+    ])
+    return true
   })
-  if (attached) {
+  if (sent) {
     await openSketch(app, sketchId)
   }
 }

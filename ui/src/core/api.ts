@@ -20,6 +20,7 @@ import type {
   PrinterProfile,
   Resolution,
   SketchParams,
+  SketchPlane,
   SketchSolution,
   Units,
   Use,
@@ -104,6 +105,15 @@ export type CoreApi = {
     to: readonly [number, number],
   ): Promise<SolvedSketch | null>
   endSketchDrag(documentHandle: DocHandle, feature: string, commit: boolean): Promise<number>
+  /**
+   * `attach_plane` (engine.md 3.22): the plane a re-attach of the sketch by pick stores in place of
+   * `plane`, or null when no stored plane keeps the sketch's motion; changes nothing.
+   */
+  attachPlane(
+    documentHandle: DocHandle,
+    feature: string,
+    plane: SketchPlane,
+  ): Promise<SketchPlane | null>
   evaluate(
     documentHandle: DocHandle,
     expression: string,
@@ -356,6 +366,10 @@ export function createCoreApi(client: CoreClient): CoreApi {
         commit,
       })
       return result.revision
+    },
+    async attachPlane(documentHandle, feature, plane) {
+      const { result } = await call({ type: 'attach_plane', doc: documentHandle, feature, plane })
+      return result.plane ?? null
     },
     async evaluate(documentHandle, expression) {
       const { result } = await call({ type: 'evaluate', doc: documentHandle, expr: expression })

@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import stat
 import warnings
 from collections.abc import Callable
 from contextlib import closing
@@ -488,6 +489,63 @@ def has_temporary_file(folder: Path) -> bool:
     """Whether `folder` holds a temporary file, a file whose name starts with `.` (python-api.md section 6, tests 97
     to 103)."""
     return any(name.startswith(".") for name in os.listdir(folder))
+
+
+WINDOWS_PRIVILEGE_NOT_HELD = 1314
+"""`winerror` of `ERROR_PRIVILEGE_NOT_HELD`, which Windows raises for a symbolic link without Developer Mode or the
+"Create symbolic links" privilege."""
+
+
+def symbolic_link(link: Path, text: str | Path, *, target_is_directory: bool = False) -> Path:
+    """Creates `link` as a symbolic link whose text is `text` and returns `link` (python-api.md section 6, tests 98 and
+    118 to 122). The test skips only where the OS refuses the link: a `NotImplementedError`, or an `OSError` whose
+    `winerror` is 1314. Any other error fails the test. `target_is_directory` is for Windows, which makes links to
+    folders and to files differently."""
+    try:
+        link.symlink_to(text, target_is_directory=target_is_directory)
+    except NotImplementedError as error:
+        pytest.skip(f"symbolic links cannot be created here: {error}")
+    except OSError as error:
+        if getattr(error, "winerror", None) != WINDOWS_PRIVILEGE_NOT_HELD:
+            raise
+        pytest.skip(f"symbolic links cannot be created here: {error}")
+    return link
+
+
+LinkSnapshot = tuple[os.stat_result, str]
+"""A symbolic link's own `os.lstat` and its text (`os.readlink`)."""
+
+
+def link_snapshot(link: Path) -> LinkSnapshot:
+    """What "the same link" of python-api.md section 6 (tests 118 to 122) compares, taken before the save."""
+    return os.lstat(link), os.readlink(link)
+
+
+def is_same_link(link: Path, snapshot: LinkSnapshot) -> bool:
+    """Whether `link` is still the symbolic link `snapshot` was taken of: the same entry (`os.path.samestat` of its
+    `os.lstat`), still a link, with the same text."""
+    before, text = snapshot
+    after = os.lstat(link)
+    return stat.S_ISLNK(after.st_mode) and os.path.samestat(before, after) and os.readlink(link) == text
+
+
+def resolved(path: Path) -> Path:
+    """The path `os.path.realpath` gives for `path`, which names an `os.replace` target behind a link (python-api.md
+    section 6, tests 118 to 122)."""
+    return Path(os.path.realpath(path))
+
+
+def assert_missing_file_error(error: OSError, link: Path) -> None:
+    """Checks the error of a write through `link`, a link that leads to no file (python-api.md section 6, tests 120 (a)
+    and 121 (c)): `FileNotFoundError` with `ENOENT`, the link as its only file name and the text of section 3.1 with
+    the error's own `strerror`, which is the C library's text everywhere but Windows."""
+    assert isinstance(error, FileNotFoundError)
+    assert error.errno == errno.ENOENT
+    assert error.filename == str(link)
+    assert error.filename2 is None
+    assert str(error) == f"[Errno {error.errno}] {error.strerror}: {str(link)!r}"
+    if os.name != "nt":
+        assert error.strerror == os.strerror(errno.ENOENT)
 
 
 Point3 = tuple[float, float, float]

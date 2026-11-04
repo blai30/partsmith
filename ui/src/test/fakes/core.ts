@@ -1080,6 +1080,18 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         }
         return { result: { type: 'drag_sketch', solution: solutionFor(feature) } }
       }
+      case 'attach_plane': {
+        // Every plane keeps the sketch's motion in the fake (engine.md 3.22); tests that need a
+        // refusal answer attach_plane themselves.
+        const entry = entryFor(command.doc)
+        const feature = featuresOf(entry.recipe)[
+          indexOfId(featuresOf(entry.recipe), command.feature, 'feature')
+        ]
+        if (feature === undefined || feature.type !== 'sketch') {
+          return reject('not_a_sketch', `${command.feature} is not a sketch.`)
+        }
+        return { result: { type: 'attach_plane', plane: command.plane } }
+      }
       case 'end_sketch_drag': {
         const entry = entryFor(command.doc)
         if (!command.commit) {

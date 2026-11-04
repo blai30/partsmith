@@ -9,4 +9,5 @@ mod frame_decoding;
 mod frame_encoding;
 mod json_shapes;
 mod printer_profiles;
+mod reattach;
 mod schema;

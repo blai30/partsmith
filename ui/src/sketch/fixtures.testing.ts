@@ -321,6 +321,7 @@ export function createFakeCore(methods: Partial<CoreApi>): CoreApi {
     solveSketch: unexpected('solveSketch'),
     dragSketch: unexpected('dragSketch'),
     endSketchDrag: unexpected('endSketchDrag'),
+    attachPlane: unexpected('attachPlane'),
     evaluate: unexpected('evaluate'),
     listElements: unexpected('listElements'),
     pickReference: unexpected('pickReference'),
