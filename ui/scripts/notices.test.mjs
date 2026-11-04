@@ -1,4 +1,4 @@
-// Acceptance tests 35 to 42 and 84 of docs/spec/delivery.md section 6 for the third-party notices generator.
+// Acceptance tests 35 to 42, 84 and 96 of docs/spec/delivery.md section 6 for the third-party notices generator.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
@@ -48,12 +48,14 @@ const DESKTOP_STATEMENT = [
   'The Partsmith desktop app uses Open CASCADE Technology (OCCT) 7.9.3, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.',
   'OCCT is linked statically into the app. It is the unmodified source of the tag V7_9_3 of https://github.com/Open-Cascade-SAS/OCCT, built as static libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.',
   "You may modify OCCT and use your version with Partsmith. The source of each release is on its page under https://github.com/blai30/partsmith/releases: the Partsmith source is the release's tag, v followed by the app's version (for example v0.1.0), with every script, tool version and lock file the build uses, and the OCCT source the build reads is the release's asset occt-7.9.3-source.tar.gz, which scripts/occt-source-archive.sh makes from the tag V7_9_3. To relink: put your OCCT source in <work>/src (from the asset: mkdir -p <work>/src && tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src), run OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>, and build the app with OCCT_ROOT=<prefix> as README.md describes (pnpm -C ui build, then cargo tauri build in desktop/src-tauri). The exact commands for each platform, including the environment Windows and macOS need, are the steps of the bundle job in .github/workflows/release.yml at that tag.",
+  "The release also carries the source of every Rust crate and npm package the app is built from on Linux x86_64 with glibc, Windows x86_64 and macOS arm64, in the archives rust-crates-desktop.tar.gz and npm-packages-desktop.tar, which scripts/dependency-source-archive.mjs at that tag makes from Cargo.lock and ui/pnpm-lock.yaml. Each is in the assets that end in .part-00, .part-01 and so on, which SHA256SUMS covers. Download them and SHA256SUMS, check them with sha256sum -c SHA256SUMS --ignore-missing, join the parts of each archive in order, for example cat rust-crates-desktop.tar.gz.part-* > rust-crates-desktop.tar.gz, and extract it. The archives take the place of crates.io and the npm registry, with the tools of README.md installed: set CARGO_HOME to the full path of the folder rust-crates-desktop that the first archive holds, serve the folder npm-packages-desktop with python3 -m http.server --bind 127.0.0.1 8080 --directory npm-packages-desktop, and install the packages with pnpm -C ui install --frozen-lockfile --registry http://127.0.0.1:8080/ before the build. On Windows, cargo tauri build still downloads NSIS and Tauri's NSIS plugin for the installer.",
 ]
 
 const WEB_STATEMENT = [
   'The Partsmith web app uses Open CASCADE Technology (OCCT) 7.9.3, https://dev.opencascade.org, copyright OPEN CASCADE SAS and the OCCT contributors. OCCT is free software under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception version 1.0. It includes code from the other projects listed after it, under their own notices. All these texts are below.',
   "OCCT is linked statically into the app's geometry core, core/partsmith_core.wasm. It is the unmodified source of the tag V7_9_3 of https://github.com/Open-Cascade-SAS/OCCT, built as static WebAssembly libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.",
   "You may modify OCCT and use your version with Partsmith. Each deployment of this site names the commit of https://github.com/blai30/partsmith it was built from in /SOURCE.txt, with a link to that commit's source archive; that commit holds every script, tool version and lock file the build uses. Production is built from the main branch, and a preview from the commit GitHub makes by merging its pull request into the base branch; for a preview, /SOURCE.txt also names the two commits that merge joins and its tree: if the merge commit is gone, check out the first, run git merge --no-ff with the second, and compare the tree that git log -1 --format=%T prints with that tree. Each deployment also holds the OCCT source the build reads, at /occt-7.9.3-source.tar.gz. The script scripts/occt-source-archive.sh at that commit makes that file from the tag V7_9_3. To relink: put your OCCT source in <work>/src (from the archive: mkdir -p <work>/src && tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src), run OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix> with the Emscripten SDK of scripts/emsdk-version.sh active, and build the core with OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md describes (scripts/build-wasm.sh, then pnpm -C ui build). The exact commands are the steps of the core-wasm and web jobs in .github/workflows/ci.yml at that commit.",
+  'Each deployment also holds the source of every Rust crate and npm package the app is built from on Linux x86_64 with glibc, where the web job builds it, in the archives rust-crates-web.tar.gz and npm-packages-web.tar, which scripts/dependency-source-archive.mjs at that commit makes from Cargo.lock and ui/pnpm-lock.yaml. Their parts, which end in .part-00, .part-01 and so on, are in /dependencies/, and /dependencies/SHA256SUMS lists each part with its SHA-256. Download SHA256SUMS and each part it lists, check them with sha256sum -c SHA256SUMS, join the parts of each archive in order, for example cat npm-packages-web.tar.part-* > npm-packages-web.tar, and extract it. The archives take the place of crates.io and the npm registry, with the tools of README.md installed: set CARGO_HOME to the full path of the folder rust-crates-web that the first archive holds, serve the folder npm-packages-web with python3 -m http.server --bind 127.0.0.1 8080 --directory npm-packages-web, and install the packages with pnpm -C ui install --frozen-lockfile --registry http://127.0.0.1:8080/ before the build.',
 ]
 
 // The entry lines of OCCT and the four notices of bundled.json for 7.9.3, numbered as both files number them.
@@ -70,6 +72,25 @@ const FONT_LINES = [
   'JetBrains Mono 2.304, OFL-1.1, https://github.com/JetBrains/JetBrainsMono, texts [9]',
 ]
 
+// The entry lines of the code the NSIS installer adds, in the desktop file only, after the WebView2 loader's line,
+// with the versions of WINDOWS_INSTALLER (section 2.9 input 6), numbered as test 40's desktop file numbers them.
+const INSTALLER_LINES = [
+  'NSIS with its LZMA decompressor, Modern UI 2 and the plugins System, nsDialogs, StartMenu and NSISdl, in the Windows installer 3.11, Zlib AND CPL-1.0, https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/, only Windows, texts [18] [19] [20]',
+  "nsis_tauri_utils, Tauri's NSIS plugin, with the crates semver and windows-sys, in the Windows installer 0.5.3, MIT OR Apache-2.0, https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3, only Windows, text from its repository, texts [21] [22]",
+  'NSIS installer script of tauri-bundler, in the Windows installer 2.10.2, Apache-2.0 OR MIT, https://crates.io/crates/tauri-bundler/2.10.2, only Windows, texts [23] [24]',
+]
+
+// The committed copies under ui/scripts/notices/ that the installer's entries carry, in the order of their texts.
+const INSTALLER_TEXTS = [
+  'nsis-3.11/COPYING',
+  'nsis-3.11/ModernUI2-License.txt',
+  'nsis-3.11/NSISdl-License.txt',
+  'nsis_tauri_utils-0.5.3/LICENSE_MIT',
+  'nsis_tauri_utils-0.5.3/LICENSE_APACHE-2.0',
+  'tauri-bundler-2.10.2/License-Apache.md.txt',
+  'tauri-bundler-2.10.2/License-MIT.md.txt',
+]
+
 // The crates' source line as the files hold it, wrapped at 80 characters (section 2.9).
 const CRATES_SOURCE_LINES = [
   "Each crate's source code is at its crates.io URL; for the crates under MPL-2.0",
@@ -82,12 +103,19 @@ const EXTRACT_COMMANDS = [
   'tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src',
 ]
 
+// The command of the fourth paragraph of both statements, which installs the packages from the served archive.
+const OFFLINE_INSTALL = 'pnpm -C ui install --frozen-lockfile --registry http://127.0.0.1:8080/'
+
 const DESKTOP_COMMANDS = [
   'pnpm -C ui notices',
   ...EXTRACT_COMMANDS,
   'OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>',
   'pnpm -C ui build',
   'cargo tauri build',
+  'sha256sum -c SHA256SUMS --ignore-missing',
+  'cat rust-crates-desktop.tar.gz.part-* > rust-crates-desktop.tar.gz',
+  'python3 -m http.server --bind 127.0.0.1 8080 --directory npm-packages-desktop',
+  OFFLINE_INSTALL,
 ]
 
 const WEB_COMMANDS = [
@@ -97,6 +125,10 @@ const WEB_COMMANDS = [
   ...EXTRACT_COMMANDS,
   'OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix>',
   'pnpm -C ui build',
+  'sha256sum -c SHA256SUMS',
+  'cat npm-packages-web.tar.part-* > npm-packages-web.tar',
+  'python3 -m http.server --bind 127.0.0.1 8080 --directory npm-packages-web',
+  OFFLINE_INSTALL,
 ]
 
 // The committed notices files, each with the commands it holds (test 84).
@@ -838,6 +870,7 @@ test('40: generateNotices builds both files from the inputs, with no OCCT instal
         '',
         `Rust standard library ${channel}, (MIT OR Apache-2.0) AND Unicode-3.0, https://www.rust-lang.org, texts [1] [16]`,
         `Microsoft Edge WebView2 SDK loader, in webview2-com-sys ${webView2Version}, BSD-3-Clause, https://www.nuget.org/packages/Microsoft.Web.WebView2, only Windows, texts [17]`,
+        ...INSTALLER_LINES,
         '',
         '== License texts ==',
         '',
@@ -874,11 +907,12 @@ test('40: generateNotices builds both files from the inputs, with no OCCT instal
   )
   assert.equal(desktop.includes('Emscripten'), false)
   assert.equal(web.includes('WebView2'), false)
+  assert.equal(web.includes('in the Windows installer'), false)
 
   const copies = join(root, 'ui', 'scripts', 'notices')
   const normalizedCopy = async (path) => normalizeText(await readFile(join(copies, path), 'utf8'))
   const desktopTexts = numberedTexts(desktop)
-  assert.equal(desktopTexts.size, 17)
+  assert.equal(desktopTexts.size, 24)
   assert.equal(desktopTexts.get(1), normalizeText(await readFile(join(root, 'LICENSE'), 'utf8')))
   assert.equal(desktopTexts.get(2), await normalizedCopy('occt-7.9.3/LICENSE_LGPL_21.txt'))
   assert.equal(desktopTexts.get(3), await normalizedCopy('occt-7.9.3/OCCT_LGPL_EXCEPTION.txt'))
@@ -890,6 +924,10 @@ test('40: generateNotices builds both files from the inputs, with no OCCT instal
   assert.equal(
     desktopTexts.get(17),
     await normalizedCopy(`webview2-com-sys-${webView2Version}/LICENSE.txt`),
+  )
+  assert.deepEqual(
+    [18, 19, 20, 21, 22, 23, 24].map((number) => desktopTexts.get(number)),
+    await Promise.all(INSTALLER_TEXTS.map(normalizedCopy)),
   )
   const webTexts = numberedTexts(web)
   assert.equal(webTexts.size, 21)
@@ -1199,4 +1237,122 @@ test('84: both notices files hold each command of their paragraphs on one line',
       )
     }
   }
+})
+
+// The versions of the code the NSIS installer adds (section 2.9 input 6, test 96).
+const EXPECTED_WINDOWS_INSTALLER = {
+  tauriCli: '2.12.2',
+  tauriBundler: '2.10.2',
+  nsis: '3.11',
+  nsisTauriUtils: '0.5.3',
+}
+
+// The workflow files that install tauri-cli, each by version and with a cache key that names it (section 2.2).
+const TAURI_CLI_WORKFLOWS = ['.github/workflows/ci.yml', '.github/workflows/release.yml']
+
+/** The lines of the committed desktop notices that start with `prefix`. */
+function linesStartingWith(notices, prefix) {
+  return notices.split('\n').filter((line) => line.startsWith(prefix))
+}
+
+test('96: WINDOWS_INSTALLER holds the versions of section 2.9', async () => {
+  const { WINDOWS_INSTALLER } = await import('./notices.mjs')
+
+  assert.deepEqual(WINDOWS_INSTALLER, EXPECTED_WINDOWS_INSTALLER)
+})
+
+test('96: every tauri-cli install and cache key of the workflows names the tauri-cli of WINDOWS_INSTALLER', async () => {
+  const { WINDOWS_INSTALLER } = await import('./notices.mjs')
+  const texts = await Promise.all(
+    TAURI_CLI_WORKFLOWS.map((file) => readFile(join(repositoryRoot, file), 'utf8')),
+  )
+
+  for (const [i, text] of texts.entries()) {
+    const installs = [...text.matchAll(/cargo install tauri-cli --version (\S+) --locked/g)]
+    const keys = [...text.matchAll(/\btauri-cli-(\d[^-\s]*)-/g)]
+    assert.ok(installs.length > 0, `${TAURI_CLI_WORKFLOWS[i]} installs no tauri-cli`)
+    assert.ok(keys.length > 0, `${TAURI_CLI_WORKFLOWS[i]} has no tauri-cli cache key`)
+    for (const [, version] of [...installs, ...keys]) {
+      assert.equal(version, WINDOWS_INSTALLER?.tauriCli, TAURI_CLI_WORKFLOWS[i])
+    }
+  }
+})
+
+test('96: the copies of the installer texts exist as UTF-8 with LF line endings and hold their notices', async () => {
+  const copies = join(repositoryRoot, 'ui', 'scripts', 'notices')
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  const texts = Object.fromEntries(
+    await Promise.all(
+      INSTALLER_TEXTS.map(async (path) => [
+        path,
+        decoder.decode(await readFile(join(copies, path))),
+      ]),
+    ),
+  )
+
+  for (const [path, text] of Object.entries(texts)) {
+    assert.equal(text.includes('\r'), false, `${path} holds a CR`)
+  }
+  assert.ok(
+    texts['nsis-3.11/ModernUI2-License.txt'].startsWith('Copyright © 2002-2025 Joost Verburg'),
+  )
+  assert.ok(
+    texts['nsis-3.11/COPYING']
+      .split('\n')
+      .some((line) => line.trim() === 'SPECIAL EXCEPTION FOR LZMA COMPRESSION MODULE'),
+  )
+  assert.ok(
+    texts['tauri-bundler-2.10.2/License-Apache.md.txt'].startsWith(
+      'Copyright 2017 Cargo-Bundle developers',
+    ),
+  )
+  const mit = texts['tauri-bundler-2.10.2/License-MIT.md.txt']
+  assert.ok(mit.includes('Copyright 2017 Cargo-Bundle developers'))
+  assert.ok(mit.includes('Copyright (c) 2017 - Present Tauri Apps Contributors'))
+})
+
+test("96: the committed desktop notices list the installer's three entries after the WebView2 loader, for Windows only", async () => {
+  const desktop = await readFile(join(repositoryRoot, 'THIRD-PARTY-NOTICES.txt'), 'utf8')
+  const lines = desktop.split('\n')
+  const loader = lines.findIndex((line) =>
+    line.startsWith('Microsoft Edge WebView2 SDK loader, in webview2-com-sys '),
+  )
+  assert.notEqual(loader, -1, 'the desktop notices have no WebView2 loader line')
+  const [nsis, plugin, script] = lines.slice(loader + 1, loader + 4)
+
+  assert.ok(nsis.startsWith('NSIS with its LZMA decompressor, Modern UI 2 and the plugins'), nsis)
+  assert.ok(plugin.startsWith("nsis_tauri_utils, Tauri's NSIS plugin"), plugin)
+  assert.ok(script.startsWith('NSIS installer script of tauri-bundler'), script)
+  for (const line of [nsis, plugin, script]) {
+    assert.ok(line.includes(', only Windows,'), line)
+  }
+  assert.match(nsis, /, texts \[\d+\] \[\d+\] \[\d+\]$/)
+  assert.match(plugin, /, text from its repository, texts \[\d+\] \[\d+\]$/)
+  assert.match(script, /, only Windows, texts \[\d+\] \[\d+\]$/)
+  assert.equal(script.includes(', standard text'), false)
+  assert.equal(script.includes(', text from its repository'), false)
+})
+
+test('96: the desktop notices list semver and windows-sys, whose code the plugin holds, with their texts', async () => {
+  const desktop = await readFile(join(repositoryRoot, 'THIRD-PARTY-NOTICES.txt'), 'utf8')
+
+  for (const name of ['semver', 'windows-sys']) {
+    const entries = linesStartingWith(desktop, `${name} `)
+    assert.ok(entries.length > 0, `the desktop notices list no ${name}`)
+    for (const line of entries) {
+      assert.match(
+        line,
+        new RegExp(`^${name} \\S+, .*https://crates\\.io/crates/${name}/.*, texts( \\[\\d+\\])+$`),
+      )
+    }
+  }
+})
+
+test('96: the web notices name none of the installer entries', async () => {
+  const web = await readFile(
+    join(repositoryRoot, 'ui', 'public', 'THIRD-PARTY-NOTICES.txt'),
+    'utf8',
+  )
+
+  assert.equal(web.includes('in the Windows installer'), false)
 })

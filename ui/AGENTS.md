@@ -27,7 +27,7 @@ Third-party notices (ui.md 3.5, delivery.md open issue 11, ADR 0034's amendment 
 ```sh
 pnpm install
 pnpm dev                 # Vite dev server
-pnpm lint                # oxlint, then oxfmt --check
+pnpm lint                # oxlint, then oxfmt --check, also on ../scripts/dependency-source-archive.mjs (delivery.md 2.13)
 pnpm format              # oxfmt
 pnpm typecheck
 pnpm test                # Vitest

@@ -52,6 +52,17 @@ export const PREBUILT_LIBRARY_CRATES = [
   },
 ]
 
+/**
+ * The versions of the code the NSIS installer adds to the Windows setup executable (input 6): the tauri-cli of
+ * section 2.2, the tauri-bundler its lock file pins, and the NSIS and nsis_tauri_utils that tauri-bundler downloads.
+ */
+export const WINDOWS_INSTALLER = {
+  tauriCli: '2.12.2',
+  tauriBundler: '2.10.2',
+  nsis: '3.11',
+  nsisTauriUtils: '0.5.3',
+}
+
 const USAGE = 'usage: node scripts/notices.mjs write|check'
 
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
@@ -96,10 +107,13 @@ const CRATES_SOURCE_LINE =
 
 const OCCT_LICENSE = 'LGPL-2.1-only WITH OCCT-exception-1.0'
 
-// What the statements name from section 2.13: the source stamp of every web deployment, at the site's root, and the
-// script that makes the OCCT source archive of every release and every web deployment.
+// What the statements name from section 2.13: the source stamp of every web deployment, at the site's root, the
+// script that makes the OCCT source archive of every release and every web deployment, and the script that makes the
+// archives of the Rust crates and npm packages, whose parts every web deployment holds in its folder dependencies.
 const SOURCE_STAMP = 'SOURCE.txt'
 const ARCHIVE_SCRIPT = 'scripts/occt-source-archive.sh'
+const DEPENDENCY_SCRIPT = 'scripts/dependency-source-archive.mjs'
+const DEPENDENCY_FOLDER = 'dependencies'
 
 // The self-hosted fonts of ADR 0031 (input 5).
 const FONTS = [
@@ -516,6 +530,46 @@ async function webView2Entries(root, desktopCrates) {
   )
 }
 
+/** The entries of the code the NSIS installer adds to the Windows setup executable (input 6), for Windows only. */
+async function windowsInstallerEntries(root) {
+  const { tauriBundler, nsis, nsisTauriUtils } = WINDOWS_INSTALLER
+  // Each entry's texts are the committed copies `files` in the folder `folder` of ui/scripts/notices/, in order.
+  const entries = [
+    {
+      name: 'NSIS with its LZMA decompressor, Modern UI 2 and the plugins System, nsDialogs, StartMenu and NSISdl, in the Windows installer',
+      version: nsis,
+      license: 'Zlib AND CPL-1.0',
+      url: `https://sourceforge.net/projects/nsis/files/NSIS%203/${nsis}/`,
+      folder: `nsis-${nsis}`,
+      files: ['COPYING', 'ModernUI2-License.txt', 'NSISdl-License.txt'],
+    },
+    {
+      name: "nsis_tauri_utils, Tauri's NSIS plugin, with the crates semver and windows-sys, in the Windows installer",
+      version: nsisTauriUtils,
+      license: 'MIT OR Apache-2.0',
+      url: `https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v${nsisTauriUtils}`,
+      textSource: 'repository',
+      folder: `nsis_tauri_utils-${nsisTauriUtils}`,
+      files: ['LICENSE_MIT', 'LICENSE_APACHE-2.0'],
+    },
+    {
+      name: 'NSIS installer script of tauri-bundler, in the Windows installer',
+      version: tauriBundler,
+      license: 'Apache-2.0 OR MIT',
+      url: `https://crates.io/crates/tauri-bundler/${tauriBundler}`,
+      folder: `tauri-bundler-${tauriBundler}`,
+      files: ['License-Apache.md.txt', 'License-MIT.md.txt'],
+    },
+  ]
+  return readInOrder(entries, async ({ folder, files, ...entry }) =>
+    noticesEntry({
+      ...entry,
+      platforms: ['Windows'],
+      texts: await readInOrder(files, (file) => normalizedCopy(root, `${folder}/${file}`)),
+    }),
+  )
+}
+
 /** Runs a command through `run`, turning a failure into the message of section 4. */
 async function checkedRun(run, command, commandArguments, directory) {
   try {
@@ -542,6 +596,20 @@ async function cargoMetadata(root, run, triple) {
 /** The key of a package or crate: its name and version. */
 function keyOf(listed) {
   return `${listed.name} ${listed.version}`
+}
+
+/**
+ * The external crates of one artifact (input 1): for each of `triples`, in order, the parsed output of the command of
+ * input 1 for that triple, sent through `run` in `root`, and the crates `rootName` builds in it. Each crate is once in
+ * the result, as `artifactCrates` gives it, sorted as `artifactCrates` sorts. The dependency source archives take
+ * their crate set from it (2.13).
+ */
+export async function scopeCrates(root, run, triples, rootName) {
+  const graphs = await readInOrder(triples, (triple) => cargoMetadata(root, run, triple))
+  const crates = graphs.flatMap((metadata) => artifactCrates(metadata, rootName))
+  return [...new Map(crates.map((crate) => [keyOf(crate), crate])).values()].toSorted(
+    compareNameAndVersion,
+  )
 }
 
 /**
@@ -694,23 +762,42 @@ function occtSourceArchive(occtVersion) {
   return { archive, extract }
 }
 
-/** The OCCT statement of the desktop file: three paragraphs, each one line, with its commands marked. */
+/** The folders of the Rust crates' and the npm packages' archives of `scope`, `web` or `desktop` (section 2.13). */
+function dependencyFolders(scope) {
+  return { crates: `rust-crates-${scope}`, packages: `npm-packages-${scope}` }
+}
+
+/** The sentence of the fourth paragraph of each statement that builds from the archives of `scope` offline. */
+function offlineBuildSentence(scope) {
+  const { crates, packages } = dependencyFolders(scope)
+  const serve = shellCommand(`python3 -m http.server --bind 127.0.0.1 8080 --directory ${packages}`)
+  const install = shellCommand(
+    'pnpm -C ui install --frozen-lockfile --registry http://127.0.0.1:8080/',
+  )
+  return `The archives take the place of crates.io and the npm registry, with the tools of README.md installed: set CARGO_HOME to the full path of the folder ${crates} that the first archive holds, serve the folder ${packages} with ${serve}, and install the packages with ${install} before the build.`
+}
+
+/** The OCCT statement of the desktop file: four paragraphs, each one line, with its commands marked. */
 function desktopStatement({ occtVersion, occtTag }, repository) {
   const { archive, extract } = occtSourceArchive(occtVersion)
+  const { crates, packages } = dependencyFolders('desktop')
   return [
     occtUsedParagraph('desktop app', occtVersion),
     `OCCT is linked statically into the app. It is the unmodified source of the tag ${occtTag} of https://github.com/Open-Cascade-SAS/OCCT, built as static libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.`,
     `You may modify OCCT and use your version with Partsmith. The source of each release is on its page under ${repository}/releases: the Partsmith source is the release's tag, v followed by the app's version (for example v0.1.0), with every script, tool version and lock file the build uses, and the OCCT source the build reads is the release's asset ${archive}, which ${ARCHIVE_SCRIPT} makes from the tag ${occtTag}. To relink: put your OCCT source in <work>/src (from the asset: ${extract}), run ${shellCommand('OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>')}, and build the app with OCCT_ROOT=<prefix> as README.md describes (${shellCommand('pnpm -C ui build')}, then ${shellCommand('cargo tauri build')} in desktop/src-tauri). The exact commands for each platform, including the environment Windows and macOS need, are the steps of the bundle job in .github/workflows/release.yml at that tag.`,
+    `The release also carries the source of every Rust crate and npm package the app is built from on Linux x86_64 with glibc, Windows x86_64 and macOS arm64, in the archives ${crates}.tar.gz and ${packages}.tar, which ${DEPENDENCY_SCRIPT} at that tag makes from Cargo.lock and ui/pnpm-lock.yaml. Each is in the assets that end in .part-00, .part-01 and so on, which SHA256SUMS covers. Download them and SHA256SUMS, check them with ${shellCommand('sha256sum -c SHA256SUMS --ignore-missing')}, join the parts of each archive in order, for example ${shellCommand(`cat ${crates}.tar.gz.part-* > ${crates}.tar.gz`)}, and extract it. ${offlineBuildSentence('desktop')} On Windows, ${shellCommand('cargo tauri build')} still downloads NSIS and Tauri's NSIS plugin for the installer.`,
   ].join('\n\n')
 }
 
-/** The OCCT statement of the web file: three paragraphs, each one line, with its commands marked. */
+/** The OCCT statement of the web file: four paragraphs, each one line, with its commands marked. */
 function webStatement({ occtVersion, occtTag }, repository) {
   const { archive, extract } = occtSourceArchive(occtVersion)
+  const { crates, packages } = dependencyFolders('web')
   return [
     occtUsedParagraph('web app', occtVersion),
     `OCCT is linked statically into the app's geometry core, core/partsmith_core.wasm. It is the unmodified source of the tag ${occtTag} of https://github.com/Open-Cascade-SAS/OCCT, built as static WebAssembly libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.`,
     `You may modify OCCT and use your version with Partsmith. Each deployment of this site names the commit of ${repository} it was built from in /${SOURCE_STAMP}, with a link to that commit's source archive; that commit holds every script, tool version and lock file the build uses. Production is built from the main branch, and a preview from the commit GitHub makes by merging its pull request into the base branch; for a preview, /${SOURCE_STAMP} also names the two commits that merge joins and its tree: if the merge commit is gone, check out the first, run ${shellCommand('git merge --no-ff')} with the second, and compare the tree that ${shellCommand('git log -1 --format=%T')} prints with that tree. Each deployment also holds the OCCT source the build reads, at /${archive}. The script ${ARCHIVE_SCRIPT} at that commit makes that file from the tag ${occtTag}. To relink: put your OCCT source in <work>/src (from the archive: ${extract}), run ${shellCommand('OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix>')} with the Emscripten SDK of scripts/emsdk-version.sh active, and build the core with OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md describes (scripts/build-wasm.sh, then ${shellCommand('pnpm -C ui build')}). The exact commands are the steps of the core-wasm and web jobs in .github/workflows/ci.yml at that commit.`,
+    `Each deployment also holds the source of every Rust crate and npm package the app is built from on Linux x86_64 with glibc, where the web job builds it, in the archives ${crates}.tar.gz and ${packages}.tar, which ${DEPENDENCY_SCRIPT} at that commit makes from Cargo.lock and ui/pnpm-lock.yaml. Their parts, which end in .part-00, .part-01 and so on, are in /${DEPENDENCY_FOLDER}/, and /${DEPENDENCY_FOLDER}/SHA256SUMS lists each part with its SHA-256. Download SHA256SUMS and each part it lists, check them with ${shellCommand('sha256sum -c SHA256SUMS')}, join the parts of each archive in order, for example ${shellCommand(`cat ${packages}.tar.part-* > ${packages}.tar`)}, and extract it. ${offlineBuildSentence('web')}`,
   ].join('\n\n')
 }
 
@@ -759,6 +846,7 @@ export async function generateNotices(root, { run }) {
       null,
     )
   const webView2 = await webView2Entries(root, graphs.desktop)
+  const windowsInstaller = await windowsInstallerEntries(root)
 
   const desktop = renderNotices({
     heading: DESKTOP_NOTICES_HEADING,
@@ -774,7 +862,7 @@ export async function generateNotices(root, { run }) {
     fonts: onEveryPlatform(fonts),
     crates: graphs.desktop.map((crate) => crateEntry(crate, crate.platforms)),
     packages: onEveryPlatform(packages.map(npmEntry)),
-    libraries: [...onEveryPlatform([rust]), ...webView2],
+    libraries: [...onEveryPlatform([rust]), ...webView2, ...windowsInstaller],
   })
   const web = renderNotices({
     heading: WEB_NOTICES_HEADING,

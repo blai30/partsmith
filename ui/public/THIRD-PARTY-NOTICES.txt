@@ -44,6 +44,23 @@ describes (scripts/build-wasm.sh, then pnpm -C ui build). The exact commands are
 the steps of the core-wasm and web jobs in .github/workflows/ci.yml at that
 commit.
 
+Each deployment also holds the source of every Rust crate and npm package the
+app is built from on Linux x86_64 with glibc, where the web job builds it, in
+the archives rust-crates-web.tar.gz and npm-packages-web.tar, which
+scripts/dependency-source-archive.mjs at that commit makes from Cargo.lock and
+ui/pnpm-lock.yaml. Their parts, which end in .part-00, .part-01 and so on, are
+in /dependencies/, and /dependencies/SHA256SUMS lists each part with its
+SHA-256. Download SHA256SUMS and each part it lists, check them with
+sha256sum -c SHA256SUMS, join the parts of each archive in order, for example
+cat npm-packages-web.tar.part-* > npm-packages-web.tar, and extract it. The
+archives take the place of crates.io and the npm registry, with the tools of
+README.md installed: set CARGO_HOME to the full path of the folder
+rust-crates-web that the first archive holds, serve the folder npm-packages-web
+with python3 -m http.server --bind 127.0.0.1 8080 --directory npm-packages-web,
+and install the packages with
+pnpm -C ui install --frozen-lockfile --registry http://127.0.0.1:8080/ before
+the build.
+
 Open CASCADE Technology 7.9.3, LGPL-2.1-only WITH OCCT-exception-1.0, https://github.com/Open-Cascade-SAS/OCCT/tree/V7_9_3, texts [2] [3]
 flex, in OCCT's STEP reader (FlexLexer.h and the generated scanner), see texts, https://github.com/Open-Cascade-SAS/OCCT/blob/V7_9_3/src/FlexLexer/FlexLexer.h, texts [4]
 DELABELLA, in OCCT's mesher and in its copy in partsmith-occt-sys, MIT, https://github.com/Open-Cascade-SAS/OCCT/blob/V7_9_3/src/BRepMesh/delabella.cpp, texts [5]

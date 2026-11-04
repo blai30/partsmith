@@ -173,8 +173,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      # The tagged commit, for its THIRD-PARTY-NOTICES.txt and its OCCT pin; checkout empties the workspace, so it
-      # comes first.
+      # The tagged commit, for its THIRD-PARTY-NOTICES.txt, its OCCT pin and its lock files; checkout empties the
+      # workspace, so it comes first.
       - uses: actions/checkout@v7.0.1
       - uses: actions/download-artifact@v8.0.2
         with:
@@ -187,6 +187,15 @@ jobs:
       # OCCT's source as the build reads it, from the pinned tag, which the desktop notices name (delivery.md 2.13).
       - name: Add the OCCT source archive
         run: scripts/occt-source-archive.sh release
+      # The next step runs cargo vendor and cargo metadata with the toolchain of rust-toolchain.toml, under Node 22.
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+      # The source of every Rust crate and npm package the bundles are made from, from the tagged commit's lock files,
+      # as parts that SHA256SUMS covers too (delivery.md 2.13).
+      - name: Add the dependency source archives
+        run: node scripts/dependency-source-archive.mjs desktop release
       - name: Write SHA256SUMS
         working-directory: release
         run: |

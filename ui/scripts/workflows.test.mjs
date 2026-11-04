@@ -1,5 +1,5 @@
-// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83 and 85 to 87 of docs/spec/delivery.md section 6
-// for the workflow files and the copies of section 3.6.
+// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87 and 93 to 95 of docs/spec/delivery.md
+// section 6 for the workflow files and the copies of section 3.6.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { gunzipSync } from 'node:zlib'
+import { gunzipSync, gzipSync } from 'node:zlib'
 
 import { git, isolatedGitEnvironment } from './isolated-git.mjs'
 import {
@@ -55,6 +55,36 @@ const OCCT_NATIVE_BUILD = 'scripts/build-occt.sh native "$OCCT_ROOT"'
 // The steps of section 2.13 that write the archive into the build (web) and check it before Wrangler (deploy).
 const ARCHIVE_WRITER = 'Write the OCCT source archive'
 const ARCHIVE_CHECK = 'Check the OCCT source archive'
+
+// The script that writes the dependency source archives, and the steps of section 2.13 that write them into the web
+// build (web), check them before Wrangler (deploy) and add them to a release (draft), with the exact runs of web and
+// draft (tests 93 to 95).
+const DEPENDENCY_SCRIPT = 'scripts/dependency-source-archive.mjs'
+const DEPENDENCY_WRITER = 'Write the dependency source archives'
+const DEPENDENCY_CHECK = 'Check the dependency source archives'
+const DEPENDENCY_RELEASE = 'Add the dependency source archives'
+const DEPENDENCY_WRITER_RUN = [
+  'mkdir dist/dependencies',
+  `node ../${DEPENDENCY_SCRIPT} web dist/dependencies`,
+  'cd dist/dependencies',
+  'export LC_ALL=C',
+  'sha256sum -- * > SHA256SUMS',
+  '',
+].join('\n')
+const DEPENDENCY_RELEASE_RUN = `node ${DEPENDENCY_SCRIPT} desktop release`
+
+// The step that installs the toolchain of rust-toolchain.toml in the jobs that run cargo (sections 2.4 and 2.13).
+const TOOLCHAIN_STEP = 'rustup show active-toolchain || rustup toolchain install'
+
+// The lint script of ui/package.json, which also reaches the dependency script from the repository root (test 94).
+const LINT_SCRIPT = `oxlint --deny-warnings && oxfmt --check && cd .. && oxlint --deny-warnings -c ui/.oxlintrc.json ${DEPENDENCY_SCRIPT} && oxfmt --check -c ui/.oxfmtrc.json ${DEPENDENCY_SCRIPT}`
+
+// The parts of the web archives that the stand-in for the script writes (test 93), in byte order of their names.
+const WEB_PARTS = [
+  'npm-packages-web.tar.part-00',
+  'npm-packages-web.tar.part-01',
+  'rust-crates-web.tar.gz.part-00',
+]
 
 // The Measured paragraph of section 2.13: the tag and commit it measured, and the archive's SHA-256 (test 86).
 const MEASURED_ARCHIVE =
@@ -1905,4 +1935,311 @@ test("87: the archive check fails with the OCCT-source error when only another v
   await assertArchiveRejected(context, fixture, {
     [sourceArchiveName(OTHER_OCCT_VERSION)]: await readFile(fixture.taggedArchive),
   })
+})
+
+test('93: the web job installs the toolchain, then writes the dependency archives after the OCCT archive and before the distribution check', async () => {
+  const steps = await ciJobSteps('web')
+  const toolchain = commandStep(steps, TOOLCHAIN_STEP)
+  const occtArchive = namedStep(steps, ARCHIVE_WRITER)
+  const writer = namedStep(steps, DEPENDENCY_WRITER)
+  const check = commandStep(steps, 'pnpm check:dist')
+
+  assert.ok(toolchain < writer, `the toolchain is not installed before ${DEPENDENCY_WRITER}`)
+  assert.ok(
+    occtArchive < writer && writer < check,
+    `${DEPENDENCY_WRITER} is not between ${ARCHIVE_WRITER} and pnpm check:dist`,
+  )
+  assert.equal(stepValue(steps[writer], 'shell'), undefined)
+  assert.equal(stepMapping(steps[writer], 'env'), undefined)
+  assert.equal(stepValue(steps[writer], 'run'), DEPENDENCY_WRITER_RUN)
+})
+
+// A stand-in for node that writes its arguments, one per line, to $NODE_CALLS, then writes WEB_PARTS with known bytes
+// into the folder of its third argument, or fails when $NODE_FAILS is 1.
+const NODE_STUB = `#!/usr/bin/env bash
+printf '%s\n' "$@" > "$NODE_CALLS"
+if [ "$NODE_FAILS" = 1 ]; then
+  exit 1
+fi
+for part in ${WEB_PARTS.join(' ')}; do
+  printf 'the bytes of %s\n' "$part" > "$3/$part"
+done
+`
+
+/**
+ * Runs the web job's dependency writer in `<root>/ui`, where `<root>` is a new folder holding an empty `ui/dist/`,
+ * with NODE_STUB first on PATH, failing when `fails` is set. Resolves to the step's result, the folder `ui/dist` and
+ * the arguments the stub received.
+ */
+async function runDependencyWriter(context, { fails = false } = {}) {
+  const steps = await ciJobSteps('web')
+  const root = await temporaryDirectory(context)
+  const dist = join(root, 'ui', 'dist')
+  const stubs = join(root, 'stubs')
+  const calls = join(root, 'node-calls')
+  await mkdir(dist, { recursive: true })
+  await mkdir(stubs)
+  await writeFile(join(stubs, 'node'), NODE_STUB)
+  await chmod(join(stubs, 'node'), 0o755)
+  await writeFile(calls, '')
+
+  const result = await runStep(
+    context,
+    steps[namedStep(steps, DEPENDENCY_WRITER)],
+    join(root, 'ui'),
+    {
+      ...process.env,
+      PATH: `${stubs}:${process.env.PATH}`,
+      NODE_CALLS: calls,
+      NODE_FAILS: fails ? '1' : '0',
+    },
+  )
+  return { result, dist, nodeArguments: (await readFile(calls, 'utf8')).split('\n').slice(0, -1) }
+}
+
+test('93: the dependency writer runs the script for the web scope and lists every part in SHA256SUMS in byte order', async (context) => {
+  const { result, dist, nodeArguments } = await runDependencyWriter(context)
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(nodeArguments, [`../${DEPENDENCY_SCRIPT}`, 'web', 'dist/dependencies'])
+  const folder = join(dist, 'dependencies')
+  assert.deepEqual((await readdir(folder)).toSorted(), [...WEB_PARTS, 'SHA256SUMS'].toSorted())
+  assert.equal(
+    await readFile(join(folder, 'SHA256SUMS'), 'utf8'),
+    WEB_PARTS.map((part) => `${sha256Of(Buffer.from(`the bytes of ${part}\n`))}  ${part}\n`).join(
+      '',
+    ),
+  )
+})
+
+test('93: the dependency writer fails and writes no SHA256SUMS when the script fails', async (context) => {
+  const { result, dist } = await runDependencyWriter(context, { fails: true })
+
+  assert.notEqual(result.status, 0)
+  assert.deepEqual(await readdir(join(dist, 'dependencies')), [])
+})
+
+test('93: the deploy job checks the dependency archives after the OCCT archive and before Wrangler', async () => {
+  const steps = await ciJobSteps('deploy')
+  const occtCheck = namedStep(steps, ARCHIVE_CHECK)
+  const check = namedStep(steps, DEPENDENCY_CHECK)
+
+  assert.equal(stepValue(steps[check], 'if'), "steps.secrets.outputs.available == 'true'")
+  assert.ok(
+    occtCheck < check && check < idStep(steps, 'pages'),
+    `${DEPENDENCY_CHECK} is not between ${ARCHIVE_CHECK} and Wrangler`,
+  )
+})
+
+// The dependency-source error of section 4.
+const DEPENDENCY_ERROR =
+  '::error title=Dependency source missing::ui/dist/dependencies does not hold every part of rust-crates-web.tar.gz and npm-packages-web.tar with the SHA-256 that its SHA256SUMS lists, so nothing was deployed. The web job writes them (docs/spec/delivery.md section 2.13).'
+
+// The byte at which the fixture's packages tar is cut into two parts: inside the data of its second file, b.bin, whose
+// header takes bytes 3,584 to 4,095 (test 93). GNU tar reads a tar that ends inside a header as whole.
+const NPM_PART_CUT = 6000
+
+/**
+ * The parts of the web archives of the deploy check's fixture, as name to bytes: a whole gzip file as the crates'
+ * only part, and a tar of two files, a.bin of 3,000 bytes and b.bin of 5,000, cut at NPM_PART_CUT into two parts.
+ */
+async function webParts(context) {
+  const folder = await temporaryDirectory(context)
+  await writeFiles(folder, { 'a.bin': testBytes(3000), 'b.bin': testBytes(5000) })
+  const packed = spawnSync('tar', ['-cf', '-', '-C', folder, 'a.bin', 'b.bin'])
+  assert.equal(packed.status, 0, String(packed.stderr))
+  const tar = packed.stdout
+  return {
+    'rust-crates-web.tar.gz.part-00': gzipSync(testBytes(2000)),
+    'npm-packages-web.tar.part-00': tar.subarray(0, NPM_PART_CUT),
+    'npm-packages-web.tar.part-01': tar.subarray(NPM_PART_CUT),
+  }
+}
+
+/** The SHA256SUMS text that `sha256sum -- *` writes for `parts` (name to bytes), in byte order of the names. */
+function sha256Sums(parts) {
+  return Object.keys(parts)
+    .toSorted()
+    .map((name) => `${sha256Of(parts[name])}  ${name}\n`)
+    .join('')
+}
+
+/**
+ * Runs the deploy job's dependency check in a new folder after writing `files` into `ui/dist/dependencies/` (name to
+ * bytes; no such folder when `files` is undefined).
+ */
+async function runDependencyCheck(context, files) {
+  const steps = await ciJobSteps('deploy')
+  const workspace = await temporaryDirectory(context)
+  if (files !== undefined) {
+    const folder = join(workspace, 'ui', 'dist', 'dependencies')
+    await mkdir(folder, { recursive: true })
+    await writeFiles(folder, files)
+  }
+  return runStep(context, steps[namedStep(steps, DEPENDENCY_CHECK)], workspace, process.env)
+}
+
+/** Asserts that the dependency check fails with exactly the dependency-source error for `files`. */
+async function assertDependenciesRejected(context, files) {
+  const result = await runDependencyCheck(context, files)
+
+  assert.equal(result.status, 1, result.stderr)
+  assert.equal(result.stdout, `${DEPENDENCY_ERROR}\n`)
+  assert.equal(result.stderr, '')
+}
+
+/** `parts` without `name`, with the SHA256SUMS written for what is left. */
+function withoutPart(parts, name) {
+  const left = Object.fromEntries(Object.entries(parts).filter(([listed]) => listed !== name))
+  return { ...left, SHA256SUMS: sha256Sums(left) }
+}
+
+/** `parts` with the part `name` cut to its first `length` bytes, and SHA256SUMS written again for them. */
+function withCutPart(parts, name, length) {
+  const cut = { ...parts, [name]: parts[name].subarray(0, length) }
+  return { ...cut, SHA256SUMS: sha256Sums(cut) }
+}
+
+test('93: the dependency check passes silently when every part matches SHA256SUMS and the parts join into whole archives', async (context) => {
+  const parts = await webParts(context)
+
+  const result = await runDependencyCheck(context, { ...parts, SHA256SUMS: sha256Sums(parts) })
+
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`)
+  assert.equal(result.stdout, '')
+  assert.equal(result.stderr, '')
+})
+
+test('93: the dependency check fails when ui/dist/dependencies or its SHA256SUMS is missing', async (context) => {
+  const parts = await webParts(context)
+
+  await assertDependenciesRejected(context, undefined)
+  await assertDependenciesRejected(context, parts)
+})
+
+test('93: the dependency check fails when a part has one byte changed', async (context) => {
+  const parts = await webParts(context)
+  const changed = Buffer.from(parts['npm-packages-web.tar.part-01'])
+  changed[10] ^= 0xff
+
+  await assertDependenciesRejected(context, {
+    ...parts,
+    'npm-packages-web.tar.part-01': changed,
+    SHA256SUMS: sha256Sums(parts),
+  })
+})
+
+test('93: the dependency check fails when a part that SHA256SUMS lists is missing', async (context) => {
+  const parts = await webParts(context)
+  const { 'npm-packages-web.tar.part-01': _missing, ...left } = parts
+
+  await assertDependenciesRejected(context, { ...left, SHA256SUMS: sha256Sums(parts) })
+})
+
+test('93: the dependency check fails when SHA256SUMS lacks the first part of either archive', async (context) => {
+  const parts = await webParts(context)
+
+  await assertDependenciesRejected(context, withoutPart(parts, 'rust-crates-web.tar.gz.part-00'))
+  await assertDependenciesRejected(context, withoutPart(parts, 'npm-packages-web.tar.part-00'))
+})
+
+test('93: the dependency check fails when SHA256SUMS holds a line that is not in the format of sha256sum', async (context) => {
+  const parts = await webParts(context)
+
+  await assertDependenciesRejected(context, {
+    ...parts,
+    SHA256SUMS: `${sha256Sums(parts)}not a checksum line\n`,
+  })
+})
+
+test('93: the dependency check fails when the last packages part is missing from both the folder and SHA256SUMS', async (context) => {
+  const parts = await webParts(context)
+
+  await assertDependenciesRejected(context, withoutPart(parts, 'npm-packages-web.tar.part-01'))
+})
+
+test('93: the dependency check fails when a part is cut short and SHA256SUMS is written again for it', async (context) => {
+  const parts = await webParts(context)
+
+  await assertDependenciesRejected(context, withCutPart(parts, 'npm-packages-web.tar.part-01', 100))
+  await assertDependenciesRejected(
+    context,
+    withCutPart(
+      parts,
+      'rust-crates-web.tar.gz.part-00',
+      parts['rust-crates-web.tar.gz.part-00'].length - 8,
+    ),
+  )
+})
+
+test('93: the dependency check fails when the folder holds a part that SHA256SUMS does not list', async (context) => {
+  const parts = await webParts(context)
+
+  await assertDependenciesRejected(context, {
+    ...parts,
+    'npm-packages-web.tar.part-02': testBytes(10),
+    SHA256SUMS: sha256Sums(parts),
+  })
+})
+
+test('94: the draft job installs the toolchain and Node, then adds the dependency archives after the OCCT archive and before SHA256SUMS', async () => {
+  const steps = jobSteps(await workflowJob('release.yml', 'draft'))
+  const checkout = usesStep(steps, 'actions/checkout')
+  const toolchain = commandStep(steps, TOOLCHAIN_STEP)
+  const node = usesStep(steps, 'actions/setup-node')
+  const occtArchive = commandStep(steps, `${ARCHIVE_SCRIPT} release`)
+  const dependencies = namedStep(steps, DEPENDENCY_RELEASE)
+  const sums = namedStep(steps, 'Write SHA256SUMS')
+
+  assert.equal(stepValue(steps[dependencies], 'run'), DEPENDENCY_RELEASE_RUN)
+  assert.ok(
+    occtArchive < dependencies && dependencies < sums,
+    `${DEPENDENCY_RELEASE} is not between the OCCT archive and SHA256SUMS`,
+  )
+  assert.ok(
+    checkout < toolchain && toolchain < dependencies,
+    'the toolchain is not installed between the checkout and the dependency archives',
+  )
+  assert.ok(
+    checkout < node && node < dependencies,
+    'Node is not set up between the checkout and the dependency archives',
+  )
+  assert.deepEqual(stepMapping(steps[node], 'with'), { 'node-version': '22' })
+})
+
+test('94: the dependency script is a regular file, and pnpm lint lints it and checks its format from the repository root', async () => {
+  const status = await lstat(join(repositoryRoot, DEPENDENCY_SCRIPT))
+  const scripts = JSON.parse(await repositoryText('ui/package.json')).scripts
+
+  assert.ok(status.isFile(), `${DEPENDENCY_SCRIPT} is not a regular file`)
+  assert.equal(scripts.lint, LINT_SCRIPT)
+})
+
+test('95: the notices statements name the dependency archives, the folder of each deployment and the script', async () => {
+  const { archiveNames } = await import(pathToFileURL(join(repositoryRoot, DEPENDENCY_SCRIPT)).href)
+  const web = await repositoryText('ui/public/THIRD-PARTY-NOTICES.txt')
+  const desktop = await repositoryText('THIRD-PARTY-NOTICES.txt')
+
+  for (const name of [
+    ...archiveNames('web'),
+    '/dependencies/',
+    '/dependencies/SHA256SUMS',
+    DEPENDENCY_SCRIPT,
+  ]) {
+    assert.ok(web.includes(name), `ui/public/THIRD-PARTY-NOTICES.txt does not name ${name}`)
+  }
+  for (const name of [...archiveNames('desktop'), DEPENDENCY_SCRIPT]) {
+    assert.ok(desktop.includes(name), `THIRD-PARTY-NOTICES.txt does not name ${name}`)
+  }
+})
+
+test("95: the web job writes the archives into the folder that the web statement names, dist/ being the deployment's root", async () => {
+  const steps = await ciJobSteps('web')
+  const run = stepValue(steps[namedStep(steps, DEPENDENCY_WRITER)], 'run')
+
+  assert.ok(
+    run.split('\n').includes('mkdir dist/dependencies'),
+    `${DEPENDENCY_WRITER} does not make dist/dependencies`,
+  )
+  assert.ok((await repositoryText('ui/public/THIRD-PARTY-NOTICES.txt')).includes('/dependencies/'))
 })
