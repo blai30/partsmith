@@ -2,17 +2,7 @@
 // check of scripts/build-occt.sh (section 2.13).
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import {
-  chmod,
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises'
+import { chmod, copyFile, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { after, before, test } from 'node:test'

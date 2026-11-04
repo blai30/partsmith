@@ -15,7 +15,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
@@ -1586,7 +1586,10 @@ test('86: the web job writes the archive after the source stamp and before the d
 /** The tag, commit and SHA-256 of the archive that the Measured paragraph of section 2.13 records. */
 async function measuredArchive() {
   const match = MEASURED_ARCHIVE.exec(await repositoryText('docs/spec/delivery.md'))
-  assert.ok(match, 'docs/spec/delivery.md has no Measured paragraph with a tag, a commit and a SHA-256')
+  assert.ok(
+    match,
+    'docs/spec/delivery.md has no Measured paragraph with a tag, a commit and a SHA-256',
+  )
   return { tag: match[1], commit: match[2], sha256: match[3] }
 }
 
