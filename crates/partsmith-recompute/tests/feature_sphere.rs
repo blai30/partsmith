@@ -97,9 +97,7 @@ fn t007_radius_below_the_tolerance_is_out_of_range() {
     assert_error_field(error, "radius");
     assert_eq!(
         run.messages("f-sph1"),
-        [
-            "Radius must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
-        ],
+        ["Radius must be at least 0.000001 mm, but it is 0.0000001 mm. Use 0.000001 mm or more."],
     );
     assert_empty(&run, "b-1");
 }

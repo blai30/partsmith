@@ -15,6 +15,7 @@ from support import (
     RELATIVE_TOLERANCE,
     approximately,
     assert_missing_file_error,
+    assert_read_only_refusal,
     document_with_import,
     fail_fsync_on_call,
     has_temporary_file,
@@ -1084,17 +1085,6 @@ def read_only_file(path: Path) -> Path:
     return file_with_mode(path, READ_ONLY)
 
 
-def assert_refused(error: OSError, path: Path) -> None:
-    """Checks the refusal of test 124: `PermissionError` with `EACCES`, the system's text for it, `path` as its only
-    file name, and the text of python-api.md section 3.1."""
-    assert isinstance(error, PermissionError)
-    assert error.errno == errno.EACCES
-    assert error.strerror == os.strerror(errno.EACCES)
-    assert error.filename == str(path)
-    assert error.filename2 is None
-    assert str(error) == os_error_text(errno.EACCES, path)
-
-
 def assert_untouched_read_only(path: Path) -> None:
     """Checks that a refused file still holds `old` and is still read-only."""
     assert path.read_bytes() == b"old"
@@ -1120,7 +1110,7 @@ def test_t124_a_read_only_document_is_refused_after_its_assets(tmp_path, monkeyp
     with pytest.raises(PermissionError) as raised:
         document.save(target)
 
-    assert_refused(raised.value, target)
+    assert_read_only_refusal(raised.value, target)
     assert (tmp_path / "assets" / ASSET_NAME).read_bytes() == IMPORT_ASSET_BYTES
     assert replaced_targets(operations) == [tmp_path / "assets" / ASSET_NAME]
     assert [temporary.parent for temporary in opened] == [tmp_path / "assets"]
@@ -1142,7 +1132,7 @@ def test_t124_a_read_only_file_behind_a_link_is_refused_under_the_links_name(tmp
     with pytest.raises(PermissionError) as raised:
         document.save(link)
 
-    assert_refused(raised.value, link)
+    assert_read_only_refusal(raised.value, link)
     assert opened == []
     assert replaced_targets(operations) == []
     assert_untouched_read_only(target)
@@ -1161,7 +1151,7 @@ def test_t124_a_read_only_export_file_is_refused(tmp_path, monkeypatch):
     with pytest.raises(PermissionError) as raised:
         export_stl(part, target)
 
-    assert_refused(raised.value, target)
+    assert_read_only_refusal(raised.value, target)
     assert opened == []
     assert replaced_targets(operations) == []
     assert_untouched_read_only(target)
@@ -1176,7 +1166,7 @@ def test_t124_a_per_part_export_stops_at_a_read_only_file(tmp_path):
     with pytest.raises(PermissionError) as raised:
         export_stl([base, lid], folder, per_part=True)
 
-    assert_refused(raised.value, lid_file)
+    assert_read_only_refusal(raised.value, lid_file)
     assert is_binary_stl_of_a_box(folder / "Base.stl")
     assert_untouched_read_only(lid_file)
     assert sorted(os.listdir(folder)) == ["Base.stl", "Lid.stl"]

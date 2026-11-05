@@ -172,9 +172,7 @@ fn t012_height_below_the_tolerance_is_out_of_range() {
     assert_error_field(error, "height");
     assert_eq!(
         run.messages("f-cone1"),
-        [
-            "Height must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
-        ],
+        ["Height must be at least 0.000001 mm, but it is 0.0000001 mm. Use 0.000001 mm or more."],
     );
     assert_empty(&run, "b-1");
 }

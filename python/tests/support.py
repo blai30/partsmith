@@ -572,6 +572,18 @@ def assert_missing_file_error(error: OSError, link: Path) -> None:
         assert error.strerror == os.strerror(errno.ENOENT)
 
 
+def assert_read_only_refusal(error: OSError, path: Path) -> None:
+    """Checks the refusal of a read-only document or export file (python-api.md section 3.1, test 124):
+    `PermissionError` with `EACCES` and the system's text for it, `path` as its only file name, and the text of
+    section 3.1."""
+    assert isinstance(error, PermissionError)
+    assert error.errno == errno.EACCES
+    assert error.strerror == os.strerror(errno.EACCES)
+    assert error.filename == str(path)
+    assert error.filename2 is None
+    assert str(error) == os_error_text(errno.EACCES, path)
+
+
 Point3 = tuple[float, float, float]
 """A point or direction in model coordinates."""
 

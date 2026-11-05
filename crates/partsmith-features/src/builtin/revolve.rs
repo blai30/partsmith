@@ -14,9 +14,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    bodies, body_hint, body_op_hint, call, essential, face_name, flag, hint, is_false, manifest,
-    op_keyword, options_hint, out_of_range, profile_arguments, require_selection, reverse_checked,
-    selection_hint, swept_tool, unit_hint,
+    bodies, body_hint, body_op_hint, call, check_within_tolerance, essential, face_name, flag,
+    hint, is_false, manifest, op_keyword, options_hint, out_of_range, profile_arguments,
+    require_selection, reverse_checked, selection_hint, swept_tool, unit_hint,
 };
 use crate::context::{BuildContext, ResolvedProfile};
 use crate::deps::Dependencies;
@@ -205,22 +205,22 @@ fn full_turn_caps(feature: &Id) -> Result<Vec<AbsentFace>, FeatureError> {
 
 /// The turn of the extent with the range checks of features/revolve.md section 3.3 step 4: an
 /// angle within the angular tolerance of 0 is out of range like 0, since the kernel sweeps nothing,
-/// and one within the angular tolerance of 360 deg is a full turn.
+/// with that tolerance as its bound when it is above 0, and one within the angular tolerance of
+/// 360 deg is a full turn.
 fn turn(params: &RevolveParams, context: &BuildContext<'_>) -> Result<Turn, FeatureError> {
     let RevolveExtent::Angle { expr } = &params.extent else {
         return Ok(Turn::Full);
     };
     let angle = context.eval_angle("extent.expr", expr)?;
-    if angle <= ANGULAR_TOLERANCE {
-        return Err(out_of_range(
-            context,
-            "extent.expr",
-            FieldUnit::Angle,
-            angle,
-            Bound::GreaterThan(0.0),
-            None,
-        ));
-    }
+    check_within_tolerance(
+        context,
+        "extent.expr",
+        FieldUnit::Angle,
+        angle,
+        Bound::GreaterThan(0.0),
+        Bound::GreaterThan(ANGULAR_TOLERANCE),
+        None,
+    )?;
     if angle > TAU + ANGULAR_TOLERANCE {
         return Err(out_of_range(
             context,

@@ -91,8 +91,11 @@ const GRID_COUNT: usize = 13;
 const MEMORY_FEATURES: usize = 300;
 
 /// Radius of the sphere whose `standard` display mesh with the `generic-resin` profile has about
-/// 200 000 triangles.
+/// 200 000 triangles. The sphere is 500 mm tall, taller than that printer's 160 mm.
 const SPHERE_RADIUS: &str = "250 mm";
+
+/// Radius of each ball of the ball batch: 50 mm tall, like the body of print.md section 5.
+const BALL_RADIUS: &str = "25 mm";
 
 /// A decoded response frame.
 struct Answer(Sent);
@@ -437,6 +440,31 @@ fn drag_sketch() -> String {
     .to_string()
 }
 
+/// One body of 20 balls of `BALL_RADIUS` on the bed, 5 along X and 4 along Y, 51 mm apart, for
+/// the `generic-fdm` profile: 254 x 203 x 50 mm, within its build volume, with 250 layers and
+/// about 200 000 triangles.
+fn ball_batch() -> String {
+    let direction = |axis: &str, count: usize| {
+        json!({
+            "axis": {"kind": "origin", "axis": axis},
+            "count": count.to_string(),
+            "spacing": "51 mm"
+        })
+    };
+    json!({
+        "format": "partsmith",
+        "format_version": 1,
+        "units": "mm",
+        "parameters": [],
+        "bodies": [{"id": "b-1", "name": "Balls"}],
+        "features": [
+            {"id": "f-sph1", "type": "sphere", "body": "b-1", "radius": BALL_RADIUS, "position": ["0", "0", BALL_RADIUS], "op": "new"},
+            {"id": "f-lp1", "type": "linear_pattern", "body": "b-1", "direction": direction("X", 5), "second_direction": direction("Y", 4)}
+        ]
+    })
+    .to_string()
+}
+
 /// A sphere of `SPHERE_RADIUS` for the `generic-resin` profile.
 fn sphere() -> String {
     json!({
@@ -475,6 +503,20 @@ fn many_bodies() -> String {
         "features": features
     })
     .to_string()
+}
+
+/// The median time of `analyze_print` of the one body of `text`, as modeled, in a session that
+/// opened it.
+fn print_analysis_time(text: &str) -> Duration {
+    let mut driver = Driver::new();
+    let doc = driver.open(text).doc();
+    median(RUNS, |_| {
+        let (time, answer) = driver.timed(json!({
+            "type": "analyze_print", "doc": doc, "orientation": {"kind": "as_modeled"}
+        }));
+        answer.ok();
+        time
+    })
 }
 
 /// The resident memory of this process in bytes, on Linux.
@@ -829,17 +871,12 @@ fn main() -> ExitCode {
     report.measure(
         "analyze_print of one 200 000-triangle body",
         Duration::from_millis(300),
-        || {
-            let mut driver = Driver::new();
-            let doc = driver.open(&sphere()).doc();
-            median(RUNS, |_| {
-                let (time, answer) = driver.timed(json!({
-                    "type": "analyze_print", "doc": doc, "orientation": {"kind": "as_modeled"}
-                }));
-                answer.ok();
-                time
-            })
-        },
+        || print_analysis_time(&ball_batch()),
+    );
+    report.measure(
+        "analyze_print of a 500 mm sphere, taller than the printer",
+        Duration::from_millis(1),
+        || print_analysis_time(&sphere()),
     );
 
     report.finish()

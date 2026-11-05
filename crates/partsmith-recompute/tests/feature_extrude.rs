@@ -64,10 +64,17 @@ fn extrude(profile: &str, extent: &str, op: &str) -> String {
 
 /// Runs `SK-RECT` then `EXT(P-RECT, extent, "new")` in body `b-1`.
 fn run_rectangle(extent: &str) -> Run {
-    Run::records(
+    run_rectangle_in("mm", extent)
+}
+
+/// Runs `SK-RECT` then `EXT(P-RECT, extent, "new")` in body `b-1` of a document in `units`.
+fn run_rectangle_in(units: &str, extent: &str) -> Run {
+    Run::new(parse_document(&document_text(
+        units,
+        &[],
         &["b-1"],
         &[RECTANGLE_SKETCH, &extrude(RECTANGLE_PROFILE, extent, "new")],
-    )
+    )))
 }
 
 /// Asserts the volume and the bounding box of `b-1` at the end of the run.
@@ -895,12 +902,10 @@ fn t045_distance_below_the_tolerance() {
 
     let error = run.assert_error("f-ext1", "out_of_range");
     assert_error_field(error, "extent.expr");
-    // The value is written with the digits that tell it apart from the bound (features.md section 3.12).
+    // A value within the tolerance of 0 gets the bound the check applies (features.md section 3.4).
     assert_eq!(
         run.messages("f-ext1"),
-        [
-            "Distance must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
-        ],
+        ["Distance must be at least 0.000001 mm, but it is 0.0000001 mm. Use 0.000001 mm or more."],
     );
     assert_empty(&run, "b-1");
 }
@@ -910,6 +915,27 @@ fn t046_two_sides_below_the_tolerance() {
     let run = run_rectangle(&two_sides("0.0000005", "0.0000004"));
 
     run.assert_error("f-ext1", "both_sides_zero");
+    assert_eq!(
+        run.messages("f-ext1"),
+        [
+            "Both sides of the extrusion add up to less than 0.000001 mm. Give at least one side a distance."
+        ],
+    );
+    assert_empty(&run, "b-1");
+}
+
+#[test]
+fn t046_two_sides_below_the_tolerance_in_an_inch_document() {
+    let run = run_rectangle_in("in", &two_sides("0.0000005 mm", "0.0000004 mm"));
+
+    run.assert_error("f-ext1", "both_sides_zero");
+    // The tolerance is written next to a total of 0 (features.md section 4.1).
+    assert_eq!(
+        run.messages("f-ext1"),
+        [
+            "Both sides of the extrusion add up to less than 0.00000004 in. Give at least one side a distance."
+        ],
+    );
     assert_empty(&run, "b-1");
 }
 

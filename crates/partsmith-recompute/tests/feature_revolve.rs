@@ -453,7 +453,7 @@ fn t026_angle_within_the_tolerance_of_zero() {
     assert_eq!(
         run.messages("f-rev1"),
         [
-            "Angle must be greater than 0 deg, but it is 0.00000001 deg. Use a value greater than 0 deg."
+            "Angle must be greater than 0.000000058 deg, but it is 0.00000001 deg. Use a value greater than 0.000000058 deg."
         ],
     );
     assert_empty(&run, "b-1");

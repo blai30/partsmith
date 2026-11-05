@@ -1828,7 +1828,7 @@ fn t057_r30a_a_cut_whose_end_reaches_the_outside_no_longer_makes_its_rim() {
     );
     assert_eq!(
         error.text,
-        "The top rim of 'Extrude 2' selected for Edges is no longer made by 'Extrude 2', whose end now reaches the outside of the body."
+        "The top rim of 'Extrude 2' selected for Edges is no longer made by 'Extrude 2', which now ends outside the body."
     );
     assert_volume(session.shape("b-1"), 113716.814693);
 }

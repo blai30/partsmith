@@ -297,7 +297,7 @@ mod feature_hole {
         assert_face_count(plate.shape().expect("the plate is a solid"), 200);
         assert_face_count(run.shape("b-1"), 210);
 
-        assert_median_build_within(&document, "f-hole2", 7, Duration::from_millis(80));
+        assert_median_build_within(&document, "f-hole2", 7, Duration::from_micros(1));
     }
 }
 

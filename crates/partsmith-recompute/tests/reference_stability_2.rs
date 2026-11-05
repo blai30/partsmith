@@ -499,7 +499,7 @@ fn r30a_a_join_changed_to_a_cut_does_not_retarget_its_rim_fillet() {
         &after,
         "f-fil1",
         &[
-            "The top rim of 'Extrude 2' selected for Edges is no longer made by 'Extrude 2', whose end now reaches the outside of the body.",
+            "The top rim of 'Extrude 2' selected for Edges is no longer made by 'Extrude 2', which now ends outside the body.",
         ],
     );
     checks.plain_words(&after, "f-fil1");

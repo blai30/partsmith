@@ -16,6 +16,7 @@ use feature_support::{
     pick, remove_entry, set_reverse, sketch_result, vertex,
 };
 use partsmith_features::{BodyChange, Bound, FeatureError, FeatureWarning};
+use partsmith_model::{LINEAR_TOLERANCE, Units};
 use partsmith_occt_sys::{ElementGeometry, GeometryKind};
 use partsmith_recompute::Message;
 
@@ -548,26 +549,40 @@ fn t025_counterbore_ending_at_the_shoulder_within_the_tolerance() {
     assert_eq!(
         run.messages("f-hole1"),
         [
-            "Counterbore depth must be less than the hole depth (5 mm), but it is 4.9999999 mm. Use a value less than 5 mm."
+            "Counterbore depth must be at most 4.999999 mm, but it is 4.9999999 mm. Use 4.999999 mm or less."
         ],
     );
+    assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("4.999999 mm"));
+}
+
+/// Test 1's hole with a countersink of `diameter` at 90 deg, 5 mm deep.
+fn countersink_hole(diameter: &str) -> Run {
+    run_hole(&hole(
+        r#"["e-p1"]"#,
+        &format!(
+            r#""hole_type": {{"kind": "countersink", "diameter": "{diameter}", "angle": "90 deg"}}, "extent": {{"kind": "distance", "expr": "5"}}"#
+        ),
+    ))
 }
 
 #[test]
 fn t026_countersink_ending_at_the_shoulder_within_the_tolerance() {
-    let run = run_hole(&hole(
-        r#"["e-p1"]"#,
-        r#""hole_type": {"kind": "countersink", "diameter": "15.9999999", "angle": "90 deg"}, "extent": {"kind": "distance", "expr": "5"}"#,
-    ));
+    let run = countersink_hole("15.9999999");
 
     let error = run.assert_error("f-hole1", "out_of_range");
     assert_error_field(error, "hole_type.diameter");
     assert_eq!(
         run.messages("f-hole1"),
         [
-            "Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 15.9999999 mm. Use a value less than 16 mm."
+            "Head diameter must be at most 15.999997 mm, but it is 15.9999999 mm. Use 15.999997 mm or less."
         ],
     );
+    assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("15.999997 mm"));
+}
+
+#[test]
+fn t026_the_countersink_the_message_suggests_builds() {
+    countersink_hole("15.999997").assert_ok("f-hole1");
 }
 
 /// Runs a through hole of test 1 with this diameter and asserts that it fails with `OutOfRange` on
@@ -587,9 +602,7 @@ fn t027_diameter_below_the_tolerance() {
 
     assert_eq!(
         run.messages("f-hole1"),
-        [
-            "Diameter must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
-        ],
+        ["Diameter must be at least 0.000002 mm, but it is 0.0000001 mm. Use 0.000002 mm or more."],
     );
 }
 
@@ -602,11 +615,16 @@ fn t028_bore_radius_below_the_tolerance() {
         matches!(
             error,
             FeatureError::OutOfRange {
-                bound: Bound::GreaterThan(0.0),
+                bound: Bound::AtLeast(bound),
+                bound_name: None,
                 ..
-            }
+            } if *bound == 2.0 * LINEAR_TOLERANCE
         ),
         "{error:?}"
+    );
+    assert_eq!(
+        run.messages("f-hole1"),
+        ["Diameter must be at least 0.000002 mm, but it is 0.0000015 mm. Use 0.000002 mm or more."],
     );
 }
 
@@ -621,7 +639,7 @@ fn t029_depth_below_the_tolerance() {
     assert_error_field(error, "extent.expr");
     assert_eq!(
         run.messages("f-hole1"),
-        ["Depth must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."],
+        ["Depth must be at least 0.000001 mm, but it is 0.0000001 mm. Use 0.000001 mm or more."],
     );
     assert_unchanged(&run, "f-hole1", "b-1");
 }
@@ -640,7 +658,7 @@ fn t030_counterbore_depth_below_the_tolerance() {
     assert_eq!(
         run.messages("f-hole1"),
         [
-            "Counterbore depth must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+            "Counterbore depth must be at least 0.000001 mm, but it is 0.0000001 mm. Use 0.000001 mm or more."
         ],
     );
     assert_unchanged(&run, "f-hole1", "b-1");
@@ -660,7 +678,7 @@ fn t031_head_within_the_tolerance_of_the_hole_diameter() {
     assert_eq!(
         run.messages("f-hole1"),
         [
-            "Head diameter must be greater than the hole diameter (6 mm), but it is 6.0000001 mm. Use a value greater than 6 mm."
+            "Head diameter must be at least 6.000002 mm, but it is 6.0000001 mm. Use 6.000002 mm or more."
         ],
     );
     assert_unchanged(&run, "f-hole1", "b-1");

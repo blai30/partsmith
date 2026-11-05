@@ -239,8 +239,9 @@ fn kept_permissions(target: &Path) -> io::Result<Option<Permissions>> {
     }
 }
 
-/// A new, empty temporary file for a write in `folder`, whose name starts with `.partsmith-`, with `permissions` in
-/// full when given (those of the file it replaces), else the default ones (cli.md section 3.7 step 3).
+/// A new, empty temporary file for a write in `folder`, whose name starts with `.partsmith-`, with
+/// `permissions` in full when given (those of the file it replaces), else the default ones (cli.md
+/// section 3.7 step 3).
 fn create_temporary(folder: &Path, permissions: Option<&Permissions>) -> io::Result<NamedTempFile> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);

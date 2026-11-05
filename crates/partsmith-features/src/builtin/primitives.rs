@@ -108,11 +108,13 @@ impl PrimitiveParams<'_> {
 mod tests {
     use serde_json::json;
 
+    use partsmith_model::LINEAR_TOLERANCE;
     use partsmith_occt_sys::make_sphere;
 
     use super::*;
     use crate::builtin::cylinder::Cylinder;
     use crate::default_position;
+    use crate::error::Bound;
     use crate::params::{PlacementExt, PlaneRef};
     use crate::test_support::{ScriptNames, build, fixture, id, params};
 
@@ -253,16 +255,23 @@ mod tests {
         let zero = cylinder_error("0");
 
         assert_eq!(tiny.code(), "out_of_range");
-        // The same field and bound as 0 (features.md section 3.4, the positive length rule).
+        // The same field as 0, with the bound the check applies (features.md section 3.4, the positive length
+        // rule): the value meets the bound 0 as written.
         let bound = |error: &FeatureError| match error {
-            FeatureError::OutOfRange { field, bound, .. } => Some((field.clone(), *bound)),
+            FeatureError::OutOfRange { field, bound, .. } => Some((field.path.clone(), *bound)),
             _ => None,
         };
-        assert_eq!(bound(&tiny), bound(&zero));
-        // Features.md section 3.12: next to a strict bound the value gets the digits that tell it apart.
+        assert_eq!(
+            bound(&tiny),
+            Some(("radius".to_string(), Bound::AtLeast(LINEAR_TOLERANCE)))
+        );
+        assert_eq!(
+            bound(&zero),
+            Some(("radius".to_string(), Bound::GreaterThan(0.0)))
+        );
         assert_eq!(
             tiny.to_string(),
-            "Radius must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+            "Radius must be at least 0.000001 mm, but it is 0.0000001 mm. Use 0.000001 mm or more."
         );
         assert_eq!(
             zero.to_string(),

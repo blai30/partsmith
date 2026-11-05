@@ -141,16 +141,6 @@ pub(crate) fn require_selection<T>(
     Ok(())
 }
 
-/// True when `value` satisfies `bound`.
-fn satisfies(value: f64, bound: Bound) -> bool {
-    match bound {
-        Bound::GreaterThan(limit) => value > limit,
-        Bound::AtLeast(limit) => value >= limit,
-        Bound::LessThan(limit) => value < limit,
-        Bound::AtMost(limit) => value <= limit,
-    }
-}
-
 /// `OutOfRange` at `field` for `value`, with the `bound` its message names (features.md section
 /// 4.1). `bound_name` says what the bound is when it comes from another value.
 pub(crate) fn out_of_range(
@@ -180,10 +170,33 @@ pub(crate) fn check_range(
     bound: Bound,
     bound_name: Option<&str>,
 ) -> Result<f64, FeatureError> {
-    if satisfies(value, bound) {
+    if bound.accepts(value) {
         Ok(value)
     } else {
         Err(out_of_range(context, field, kind, value, bound, bound_name))
+    }
+}
+
+/// `value` when it meets `applied`, the bound a check applies a tolerance past the strict bound `written`, else
+/// `OutOfRange` at `field` (features.md section 3.4). The error names `written`, with `bound_name`, when the value fails
+/// it too, else `applied` with no name, so a message never states a bound the value meets.
+pub(crate) fn check_within_tolerance(
+    context: &BuildContext<'_>,
+    field: &str,
+    kind: FieldUnit,
+    value: f64,
+    written: Bound,
+    applied: Bound,
+    bound_name: Option<&str>,
+) -> Result<f64, FeatureError> {
+    if applied.accepts(value) {
+        Ok(value)
+    } else if written.accepts(value) {
+        Err(out_of_range(context, field, kind, value, applied, None))
+    } else {
+        Err(out_of_range(
+            context, field, kind, value, written, bound_name,
+        ))
     }
 }
 
@@ -268,26 +281,24 @@ pub(crate) fn is_positive_length(length: f64) -> bool {
 }
 
 /// The declared length at `field`, which must be greater than 0 and within the modeling limit. A value below
-/// `LINEAR_TOLERANCE` is `OutOfRange` (`GreaterThan(0)`) like 0, so it never reaches the kernel (features.md section
-/// 3.4).
+/// `LINEAR_TOLERANCE` is `OutOfRange` like 0, so it never reaches the kernel: `GreaterThan(0)` for 0 or less,
+/// `AtLeast(LINEAR_TOLERANCE)` above 0 (features.md section 3.4).
 pub(crate) fn positive_length(
     context: &BuildContext<'_>,
     field: &str,
     expr: &Expr,
 ) -> Result<f64, FeatureError> {
     let value = context.eval_length(field, expr)?;
-    if is_positive_length(value) {
-        within_model_limit(context, field, value)
-    } else {
-        Err(out_of_range(
-            context,
-            field,
-            FieldUnit::Length,
-            value,
-            Bound::GreaterThan(0.0),
-            None,
-        ))
-    }
+    check_within_tolerance(
+        context,
+        field,
+        FieldUnit::Length,
+        value,
+        Bound::GreaterThan(0.0),
+        Bound::AtLeast(LINEAR_TOLERANCE),
+        None,
+    )?;
+    within_model_limit(context, field, value)
 }
 
 /// `Canceled` once the run has been canceled. Long builds check it before each kernel step.
@@ -804,13 +815,54 @@ mod tests {
         assert!((reach - 30.0 * diagonal).abs() < 1e-9, "{reach}");
     }
 
+    /// `check_within_tolerance` of a counterbore depth `value` in a 5 mm hole (features/hole.md section 3.3 step 2).
+    fn counterbore_depth(value: f64) -> Result<f64, FeatureError> {
+        let fixture = Fixture::new("f-test1");
+        check_within_tolerance(
+            &fixture.context(),
+            "hole_type.depth",
+            FieldUnit::Length,
+            value,
+            Bound::LessThan(5.0),
+            Bound::AtMost(5.0 - LINEAR_TOLERANCE),
+            Some("the hole depth"),
+        )
+    }
+
+    /// The bound and its name of an `OutOfRange` error.
+    fn bound_of(error: FeatureError) -> Option<(Bound, Option<String>)> {
+        match error {
+            FeatureError::OutOfRange {
+                bound, bound_name, ..
+            } => Some((bound, bound_name)),
+            _ => None,
+        }
+    }
+
     #[test]
-    fn bounds_are_strict_or_inclusive() {
-        assert!(satisfies(1.0, Bound::GreaterThan(0.0)));
-        assert!(!satisfies(0.0, Bound::GreaterThan(0.0)));
-        assert!(satisfies(0.0, Bound::AtLeast(0.0)));
-        assert!(!satisfies(5.0, Bound::LessThan(5.0)));
-        assert!(satisfies(5.0, Bound::AtMost(5.0)));
+    fn a_value_the_tolerance_check_accepts_passes() {
+        assert_eq!(counterbore_depth(4.0), Ok(4.0));
+        assert_eq!(counterbore_depth(5.0 - LINEAR_TOLERANCE), Ok(4.999999));
+    }
+
+    #[test]
+    fn a_value_within_the_tolerance_gets_the_bound_the_check_applies() {
+        let error = counterbore_depth(4.9999999).expect_err("within the tolerance of 5");
+
+        assert_eq!(
+            bound_of(error),
+            Some((Bound::AtMost(5.0 - LINEAR_TOLERANCE), None))
+        );
+    }
+
+    #[test]
+    fn a_value_past_the_bound_as_written_keeps_it_and_its_name() {
+        let error = counterbore_depth(6.0).expect_err("6 is not less than 5");
+
+        assert_eq!(
+            bound_of(error),
+            Some((Bound::LessThan(5.0), Some("the hole depth".to_string())))
+        );
     }
 
     #[test]

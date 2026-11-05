@@ -87,7 +87,9 @@ def _writable_mode(target: Path) -> int | None:
     be looked at, and on Windows.
 
     A regular file with no write bit set raises `PermissionError` (`EACCES`) on every OS, whoever
-    runs the write: a rename would replace it (python-api.md section 3.1).
+    runs the write (python-api.md section 3.1). On Linux and macOS a rename would replace it. On
+    Windows `os.replace` refuses it, and the check fails the write before the temporary file is
+    written.
     """
     try:
         status = os.stat(target)

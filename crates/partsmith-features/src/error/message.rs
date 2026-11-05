@@ -26,8 +26,11 @@ const EXPONENT_FORM_DIGITS: usize = 6;
 /// The decimals a value is usually written with (expressions.md section 3.16).
 const USUAL_DECIMALS: usize = 6;
 
-/// The most significant digits of a value written apart from a strict bound (section 3.12).
-const APART_DIGITS: i32 = 15;
+/// The most significant digits of a value or bound written with more decimals than usual (section 3.12).
+const NEAR_DIGITS: i32 = 15;
+
+/// The share of the distance between a value and its bound that writing either may move it by (section 3.12).
+const NEAR_SHARE: f64 = 0.01;
 
 /// A limit in a range error.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -50,6 +53,16 @@ impl Bound {
             | Bound::AtLeast(value)
             | Bound::LessThan(value)
             | Bound::AtMost(value) => value,
+        }
+    }
+
+    /// True when `value` meets the bound.
+    pub(crate) fn accepts(self, value: f64) -> bool {
+        match self {
+            Bound::GreaterThan(limit) => value > limit,
+            Bound::AtLeast(limit) => value >= limit,
+            Bound::LessThan(limit) => value < limit,
+            Bound::AtMost(limit) => value <= limit,
         }
     }
 }
@@ -339,26 +352,93 @@ pub fn format_value(kind: FieldUnit, value: f64, units: Units) -> String {
     quantity.display(units)
 }
 
-/// `value` as `format_value` writes it, with more decimals when it would read like `bound`: the fewest that tell
-/// it apart, up to 15 significant digits (section 3.12, "Values next to a strict bound"), so a message never says
-/// that a value is out of range while showing the bound itself.
-pub(crate) fn format_value_apart(kind: FieldUnit, value: f64, bound: f64, units: Units) -> String {
-    let usual = format_value(kind, value, units);
-    if usual != format_value(kind, bound, units) {
-        return usual;
+/// `value` as `format_value` writes it, with more decimals when the usual ones would move it by a hundredth of its
+/// distance to `other` or more: the fewest that keep it within that, up to 15 significant digits (section 3.12,
+/// "Values and bounds near each other"). So a message never shows a value that reads like its bound.
+pub(crate) fn format_value_near(kind: FieldUnit, value: f64, other: f64, units: Units) -> String {
+    match decimals_near(kind, value, other, units) {
+        Some(decimals) => with_unit_label(
+            kind,
+            fixed(display_number(kind, value, units), decimals),
+            units,
+        ),
+        None => format_value(kind, value, units),
     }
+}
+
+/// The bound of an `OutOfRange` message, written as `format_value_near` writes it next to `value`. When the number
+/// written for a lower bound (`GreaterThan`, `AtLeast`), read back, would be below its limit, or the number written
+/// for an upper bound (`LessThan`, `AtMost`) above it, its last decimal moves one step toward the values the bound
+/// accepts (section 3.12, "Bounds written on the side they accept"). Then every value the message's advice names,
+/// and the fix that sets an `AtLeast` or `AtMost` bound, pass the check. A strict bound whose number equals its limit
+/// to the most significant digits a message writes keeps it: only values with more digits lie between the two.
+pub(crate) fn format_bound(kind: FieldUnit, bound: Bound, value: f64, units: Units) -> String {
+    let limit = bound.value();
+    let number = display_number(kind, limit, units);
+    if !number.is_finite() || number.abs() >= EXPONENT_FORM_FROM {
+        return format_value(kind, limit, units);
+    }
+    let decimals = decimals_near(kind, limit, value, units).unwrap_or(USUAL_DECIMALS);
+    let factor = dimension_of(kind).display_factor(units);
+    let written = read_back(&fixed(number, decimals));
+    let (outside, step) = match bound {
+        Bound::GreaterThan(_) | Bound::AtLeast(_) => (written * factor < limit, 1.0),
+        Bound::LessThan(_) | Bound::AtMost(_) => (written * factor > limit, -1.0),
+    };
+    // A strict bound's advice names the values beyond its text, which pass when the text is its limit to the digits a
+    // message writes. A fix sets an `AtLeast` or `AtMost` bound to its text, which must pass to the last bit.
+    let strict_at_limit = matches!(bound, Bound::GreaterThan(_) | Bound::LessThan(_))
+        && same_to_message_digits(written, number);
+    let inside = if outside && !strict_at_limit {
+        written + step * 10f64.powi(-exponent(decimals))
+    } else {
+        written
+    };
+    with_unit_label(kind, fixed(inside, decimals), units)
+}
+
+/// True when a written number and the limit it stands for, both in display units, are equal to the most significant
+/// digits a message writes (`NEAR_DIGITS`): a limit of 16 mm computed as 15.999999999999998 mm is 16 mm to a message.
+fn same_to_message_digits(written: f64, limit: f64) -> bool {
+    let decimals = usize::try_from(NEAR_DIGITS - 1).unwrap_or(0);
+    format!("{written:.decimals$e}") == format!("{limit:.decimals$e}")
+}
+
+/// The decimals, more than the usual 6, that write `value` within a hundredth of its distance to `other`, in display
+/// units, up to 15 significant digits; None when the usual decimals do, when the two are equal, and for a value in
+/// exponent form.
+fn decimals_near(kind: FieldUnit, value: f64, other: f64, units: Units) -> Option<usize> {
     let number = display_number(kind, value, units);
-    let limit = display_number(kind, bound, units);
-    if number == 0.0 || !number.is_finite() {
-        return usual;
+    let distance = (number - display_number(kind, other, units)).abs();
+    if !number.is_finite()
+        || number.abs() >= EXPONENT_FORM_FROM
+        || distance.is_nan()
+        || distance == 0.0
+    {
+        return None;
     }
-    let magnitude = number.abs().log10().floor();
-    // The decimals that keep the value within the significant digits; `magnitude` is a small whole number.
-    let most = usize::try_from(APART_DIGITS - 1 - magnitude as i32).unwrap_or(0);
+    let within =
+        |decimals| (read_back(&fixed(number, decimals)) - number).abs() < distance * NEAR_SHARE;
+    if within(USUAL_DECIMALS) {
+        return None;
+    }
+    // The decimals that keep the number within the significant digits; its magnitude is a small whole number.
+    let magnitude = number.abs().log10().floor() as i32;
+    let most = usize::try_from(NEAR_DIGITS - 1 - magnitude).unwrap_or(0);
     (USUAL_DECIMALS + 1..=most)
-        .map(|decimals| (fixed(number, decimals), fixed(limit, decimals)))
-        .find(|(value, limit)| value != limit)
-        .map_or(usual, |(value, _)| with_unit_label(kind, value, units))
+        .find(|&decimals| within(decimals))
+        .or_else(|| (most > USUAL_DECIMALS).then_some(most))
+}
+
+/// The number a decimal text written by `fixed` stands for.
+fn read_back(text: &str) -> f64 {
+    text.parse()
+        .expect("fixed writes a decimal number that parses back")
+}
+
+/// `decimals` as the exponent of a power of ten; a count of decimals is a small whole number.
+fn exponent(decimals: usize) -> i32 {
+    i32::try_from(decimals).unwrap_or(i32::MAX)
 }
 
 /// The value in display units: millimeters, radians and plain numbers divided by the display factor.
@@ -608,23 +688,196 @@ mod tests {
     }
 
     #[test]
-    fn a_value_reading_like_its_bound_gets_the_digits_that_tell_it_apart() {
+    fn bounds_accept_the_values_on_their_side() {
+        assert!(Bound::GreaterThan(0.0).accepts(1.0));
+        assert!(!Bound::GreaterThan(0.0).accepts(0.0));
+        assert!(Bound::AtLeast(0.0).accepts(0.0));
+        assert!(!Bound::LessThan(5.0).accepts(5.0));
+        assert!(Bound::AtMost(5.0).accepts(5.0));
+    }
+
+    #[test]
+    fn a_value_near_its_bound_gets_the_digits_that_tell_it_apart() {
         assert_eq!(
-            format_value_apart(FieldUnit::Length, 1e-7, 0.0, Units::Mm),
+            format_value_near(FieldUnit::Length, 1e-7, 0.0, Units::Mm),
             "0.0000001 mm"
         );
         assert_eq!(
-            format_value_apart(FieldUnit::Length, 6.0000001, 6.0, Units::Mm),
+            format_value_near(FieldUnit::Length, 1e-7, 1e-6, Units::Mm),
+            "0.0000001 mm"
+        );
+        assert_eq!(
+            format_value_near(FieldUnit::Length, 6.0000001, 6.000002, Units::Mm),
             "6.0000001 mm"
         );
         assert_eq!(
-            format_value_apart(FieldUnit::Length, 0.0, 0.0, Units::Mm),
+            format_value_near(FieldUnit::Length, 0.0, 0.0, Units::Mm),
             "0 mm"
         );
         assert_eq!(
-            format_value_apart(FieldUnit::Length, 4.0, 5.0, Units::Mm),
+            format_value_near(FieldUnit::Length, 4.0, 5.0, Units::Mm),
             "4 mm"
         );
+    }
+
+    #[test]
+    fn a_value_far_from_its_bound_keeps_the_usual_decimals() {
+        assert_eq!(
+            format_value_near(FieldUnit::Angle, 7.0, std::f64::consts::TAU, Units::Mm),
+            "401.070457 deg"
+        );
+        assert_eq!(
+            format_value_near(FieldUnit::Length, 1e200, 1_000_000.0, Units::Mm),
+            "1e200 mm"
+        );
+    }
+
+    #[test]
+    fn a_bound_near_its_value_gets_the_digits_that_tell_it_apart() {
+        assert_eq!(
+            format_bound(FieldUnit::Length, Bound::AtLeast(1e-6), 1e-7, Units::Mm),
+            "0.000001 mm"
+        );
+        assert_eq!(
+            format_bound(FieldUnit::Length, Bound::AtLeast(1e-6), 1e-7, Units::In),
+            "0.0000000394 in"
+        );
+        assert_eq!(
+            format_bound(FieldUnit::Length, Bound::GreaterThan(0.0), -5.0, Units::Mm),
+            "0 mm"
+        );
+    }
+
+    #[test]
+    fn a_bound_whose_text_would_fail_it_moves_one_step_inside() {
+        // Written to the nearest, 1e-6 mm in inches would be 0.000000039 in, below the bound.
+        assert_eq!(
+            format_bound(FieldUnit::Length, Bound::AtLeast(1e-6), 0.0, Units::In),
+            "0.00000004 in"
+        );
+        assert_eq!(
+            format_bound(
+                FieldUnit::Length,
+                Bound::AtMost(15.999997999999998),
+                15.9999999,
+                Units::Mm
+            ),
+            "15.999997 mm"
+        );
+        assert_eq!(
+            format_bound(
+                FieldUnit::Length,
+                Bound::AtMost(5.0 - 1e-6),
+                4.9999999,
+                Units::Mm
+            ),
+            "4.999999 mm"
+        );
+        assert_eq!(
+            format_bound(
+                FieldUnit::Length,
+                Bound::AtMost(1_000_000.0),
+                1e200,
+                Units::In
+            ),
+            "39370.07874 in"
+        );
+    }
+
+    #[test]
+    fn a_strict_bound_whose_text_would_fall_outside_it_moves_one_step_inside() {
+        // Written to the nearest, 1e-9 rad would be 0.000000057 deg, below the limit of 0.0000000572958 deg, and an
+        // angle of 0.0000000571 deg would follow the advice and still fail.
+        assert_eq!(
+            format_bound(
+                FieldUnit::Angle,
+                Bound::GreaterThan(1e-9),
+                0.00000001_f64.to_radians(),
+                Units::Mm
+            ),
+            "0.000000058 deg"
+        );
+        // Written to the nearest, 10 mm would be 0.393701 in, above the limit.
+        assert_eq!(
+            format_bound(FieldUnit::Length, Bound::LessThan(10.0), 12.7, Units::In),
+            "0.3937 in"
+        );
+        // A strict bound written exactly keeps its text.
+        assert_eq!(
+            format_bound(FieldUnit::Length, Bound::LessThan(5.0), 6.0, Units::Mm),
+            "5 mm"
+        );
+    }
+
+    #[test]
+    fn a_strict_bound_equal_to_its_text_to_fifteen_digits_keeps_it() {
+        // The largest countersink of a 6 mm hole 5 mm deep at 90 deg: 16 mm, computed as 15.999999999999998 mm.
+        let largest = 6.0 + 2.0 * 5.0 * std::f64::consts::FRAC_PI_4.tan();
+        assert!(largest < 16.0);
+        assert_eq!(
+            format_bound(FieldUnit::Length, Bound::LessThan(largest), 20.0, Units::Mm),
+            "16 mm"
+        );
+        // A fix sets an `AtMost` bound to its text, which must pass the check to the last bit.
+        assert_eq!(
+            format_bound(FieldUnit::Length, Bound::AtMost(largest), 20.0, Units::Mm),
+            "15.999999 mm"
+        );
+    }
+
+    /// True when the number of `text`, a bound as `format_bound` writes it, read back, lies on the side of the limit
+    /// that the bound accepts, or equals a strict bound's limit to the digits a message writes.
+    fn written_inside(kind: FieldUnit, bound: Bound, text: &str, units: Units) -> bool {
+        let factor = dimension_of(kind).display_factor(units);
+        let number: f64 = text
+            .split(' ')
+            .next()
+            .and_then(|number| number.parse().ok())
+            .expect("a bound is written as a number and its unit");
+        let (written, limit) = (number * factor, bound.value());
+        let at_limit = same_to_message_digits(number, limit / factor);
+        match bound {
+            Bound::AtLeast(_) => written >= limit,
+            Bound::AtMost(_) => written <= limit,
+            Bound::GreaterThan(_) => written >= limit || at_limit,
+            Bound::LessThan(_) => written <= limit || at_limit,
+        }
+    }
+
+    #[test]
+    fn every_written_bound_lies_on_the_side_its_bound_accepts() {
+        let countersink = 6.0 + 2.0 * 5.0 * std::f64::consts::FRAC_PI_4.tan();
+        let limits = [
+            1e-9,
+            1e-6,
+            0.1,
+            5.0 - 1e-6,
+            10.0,
+            countersink,
+            25.4,
+            1000.0 / 3.0,
+        ];
+        for kind in [FieldUnit::Length, FieldUnit::Angle] {
+            for units in [Units::Mm, Units::Cm, Units::M, Units::In] {
+                for limit in limits {
+                    let bounds = [
+                        Bound::GreaterThan(limit),
+                        Bound::AtLeast(limit),
+                        Bound::LessThan(limit),
+                        Bound::AtMost(limit),
+                    ];
+                    for value in [0.0, limit * 0.1, limit * 0.999, limit * 1.001, limit * 3.0] {
+                        for bound in bounds {
+                            let text = format_bound(kind, bound, value, units);
+                            assert!(
+                                written_inside(kind, bound, &text, units),
+                                "{bound:?} next to {value} in {units:?} reads {text}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

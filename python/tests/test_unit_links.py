@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from support import (
     WINDOWS_PRIVILEGE_NOT_HELD,
+    assert_read_only_refusal,
     fail_fsync_on_call,
     is_same_link,
     link_snapshot,
@@ -266,16 +267,6 @@ POSIX_RENAME = pytest.mark.skipif(
 )
 
 
-def assert_refused(error: OSError, path: Path) -> None:
-    """Checks the refusal of a read-only file: `PermissionError` with `EACCES` and the system's text for it, `path` as
-    its only file name."""
-    assert isinstance(error, PermissionError)
-    assert error.errno == errno.EACCES
-    assert error.strerror == os.strerror(errno.EACCES)
-    assert error.filename == str(path)
-    assert error.filename2 is None
-
-
 def test_a_read_only_file_behind_a_link_is_refused_before_anything_is_opened(tmp_path, monkeypatch):
     target = write_text(tmp_path / "synced" / "part.ptsm", "old")
     target.chmod(0o444)
@@ -287,7 +278,7 @@ def test_a_read_only_file_behind_a_link_is_refused_before_anything_is_opened(tmp
     with pytest.raises(PermissionError) as raised:
         write_through_link(link, b"new")
 
-    assert_refused(raised.value, link)
+    assert_read_only_refusal(raised.value, link)
     assert opened == []
     assert operations == []
     assert target.read_bytes() == b"old"
@@ -304,7 +295,7 @@ def test_a_read_only_file_is_refused_before_anything_is_opened(tmp_path, monkeyp
     with pytest.raises(PermissionError) as raised:
         write_through_link(path, b"new")
 
-    assert_refused(raised.value, path)
+    assert_read_only_refusal(raised.value, path)
     assert opened == []
     assert path.read_bytes() == b"old"
     assert os.listdir(tmp_path) == ["part.ptsm"]
@@ -313,13 +304,15 @@ def test_a_read_only_file_is_refused_before_anything_is_opened(tmp_path, monkeyp
 def test_a_file_only_its_owner_may_read_is_refused(tmp_path):
     path = write_text(tmp_path / "part.ptsm", "old")
     path.chmod(0o400)
+    # On Windows `os.chmod` only sets the read-only attribute, which `os.stat` reports as 0o444.
+    mode = mode_of(path)
 
     with pytest.raises(PermissionError) as raised:
         write_through_link(path, b"new")
 
-    assert_refused(raised.value, path)
+    assert_read_only_refusal(raised.value, path)
     assert path.read_bytes() == b"old"
-    assert mode_of(path) == 0o400
+    assert mode_of(path) == mode
 
 
 @POSIX_RENAME

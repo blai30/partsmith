@@ -24,12 +24,19 @@ use common::{
 use partsmith_features::{
     Bound, Diagnosis, FeatureError, FieldUnit, Fix, Limit, Noun, Place, Severity,
 };
-use partsmith_model::Units;
+use partsmith_model::{ANGULAR_TOLERANCE, LINEAR_TOLERANCE, Units};
 use serde_json::{Value, json};
 
 /// `error` rendered on `feature` with the standard labels in a millimeter document, without a diagnosis.
 fn rendered(error: &FeatureError, feature: &str) -> String {
     labeled_error(error, feature, &Diagnosis::default())
+}
+
+/// `error` rendered on `feature` with the standard labels in a document of `units`, without a diagnosis.
+fn rendered_in(error: &FeatureError, feature: &str, units: Units) -> String {
+    with_standard_labels(feature, units, &Diagnosis::default(), |context| {
+        error.render(context)
+    })
 }
 
 /// The fixes of `error` on `feature` with the standard labels in a millimeter document, without a diagnosis.
@@ -364,10 +371,14 @@ fn through_all_into_a_body_without_a_solid_asks_for_a_distance() {
 }
 
 #[test]
-fn an_extrusion_whose_sides_are_both_zero_asks_for_a_distance() {
+fn an_extrusion_whose_sides_add_up_to_nothing_asks_for_a_distance() {
     assert_eq!(
         rendered(&FeatureError::BothSidesZero, "f-ext1"),
-        "Both sides of the extrusion are 0. Give at least one side a distance."
+        "Both sides of the extrusion add up to less than 0.000001 mm. Give at least one side a distance."
+    );
+    assert_eq!(
+        rendered_in(&FeatureError::BothSidesZero, "f-ext1", Units::In),
+        "Both sides of the extrusion add up to less than 0.00000004 in. Give at least one side a distance."
     );
 }
 
@@ -409,28 +420,103 @@ fn a_canceled_build_names_the_feature() {
 }
 
 #[test]
-fn t009_a_value_next_to_a_strict_bound_gets_the_digits_that_tell_it_apart() {
-    let error = length_out_of_range("extent.expr", "Distance", 1e-7, Bound::GreaterThan(0.0));
+fn t009_a_value_within_the_tolerance_of_0_gets_the_bound_the_check_applies() {
+    let error = length_out_of_range(
+        "extent.expr",
+        "Distance",
+        1e-7,
+        Bound::AtLeast(LINEAR_TOLERANCE),
+    );
 
     assert_eq!(
         rendered(&error, "f-ext1"),
-        "Distance must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+        "Distance must be at least 0.000001 mm, but it is 0.0000001 mm. Use 0.000001 mm or more."
+    );
+    assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("0.000001 mm"));
+    assert_eq!(
+        fixes_of(&error, "f-ext1"),
+        [use_value("extent.expr", "Distance", "0.000001 mm")]
     );
 }
 
 #[test]
-fn t009_a_value_next_to_a_named_strict_bound_gets_the_digits_that_tell_it_apart() {
+fn t009_the_tolerance_in_inches_gets_the_digits_that_tell_it_from_the_value() {
+    let error = length_out_of_range(
+        "extent.expr",
+        "Distance",
+        1e-7,
+        Bound::AtLeast(LINEAR_TOLERANCE),
+    );
+
+    assert_eq!(
+        rendered_in(&error, "f-ext1", Units::In),
+        "Distance must be at least 0.0000000394 in, but it is 0.000000004 in. Use 0.0000000394 in or more."
+    );
+    assert_eq!(
+        error.suggestion(Units::In).as_deref(),
+        Some("0.0000000394 in")
+    );
+}
+
+#[test]
+fn t009_a_value_just_below_a_strict_bound_gets_the_digits_that_tell_it_apart() {
+    let error = length_out_of_range("extent.expr", "Distance", -1e-7, Bound::GreaterThan(0.0));
+
+    assert_eq!(
+        rendered(&error, "f-ext1"),
+        "Distance must be greater than 0 mm, but it is -0.0000001 mm. Use a value greater than 0 mm."
+    );
+}
+
+#[test]
+fn t009_a_value_within_the_tolerance_under_another_value_gets_the_bound_the_check_applies() {
     let error = FeatureError::OutOfRange {
         field: field("hole_type.depth", "Counterbore depth"),
         kind: FieldUnit::Length,
         value: 4.9999999,
+        bound: Bound::AtMost(5.0 - LINEAR_TOLERANCE),
+        bound_name: None,
+    };
+
+    assert_eq!(
+        rendered(&error, "f-hole1"),
+        "Counterbore depth must be at most 4.999999 mm, but it is 4.9999999 mm. Use 4.999999 mm or less."
+    );
+}
+
+#[test]
+fn t009_a_bound_whose_text_would_fail_it_is_written_one_step_inside() {
+    // The countersink of features/hole.md test 26: 6 + 2 (5 - 0.000001) tan(45 deg), just below 15.999998.
+    let largest = 6.0 + 2.0 * (5.0 - LINEAR_TOLERANCE) * std::f64::consts::FRAC_PI_4.tan();
+    let error = FeatureError::OutOfRange {
+        field: field("hole_type.diameter", "Head diameter"),
+        kind: FieldUnit::Length,
+        value: 15.9999999,
+        bound: Bound::AtMost(largest),
+        bound_name: None,
+    };
+
+    assert!(largest < 15.999998);
+    assert_eq!(
+        rendered(&error, "f-hole1"),
+        "Head diameter must be at most 15.999997 mm, but it is 15.9999999 mm. Use 15.999997 mm or less."
+    );
+    assert_eq!(error.suggestion(Units::Mm).as_deref(), Some("15.999997 mm"));
+}
+
+#[test]
+fn t009_a_value_past_a_named_strict_bound_keeps_its_name() {
+    let error = FeatureError::OutOfRange {
+        field: field("hole_type.depth", "Counterbore depth"),
+        kind: FieldUnit::Length,
+        value: 6.0,
         bound: Bound::LessThan(5.0),
         bound_name: Some("the hole depth".to_string()),
     };
 
     assert_eq!(
         rendered(&error, "f-hole1"),
-        "Counterbore depth must be less than the hole depth (5 mm), but it is 4.9999999 mm. Use a value less than 5 mm."
+        "Counterbore depth must be less than the hole depth (5 mm), but it is 6 mm. Use a value less than 5 mm."
     );
 }
 
@@ -480,34 +566,36 @@ fn a_huge_negative_size_reports_its_own_bound_in_exponent_form() {
 }
 
 #[test]
-fn an_angle_next_to_its_strict_bound_gets_the_digits_that_tell_it_apart() {
+fn an_angle_within_the_angular_tolerance_states_that_tolerance() {
     let error = FeatureError::OutOfRange {
         field: field("extent.expr", "Angle"),
         kind: FieldUnit::Angle,
         value: 1e-8_f64.to_radians(),
-        bound: Bound::GreaterThan(0.0),
+        bound: Bound::GreaterThan(ANGULAR_TOLERANCE),
         bound_name: None,
     };
 
+    // 1e-9 rad is 0.0000000572958 deg. The bound is written above it, and every angle the advice names passes.
     assert_eq!(
         rendered(&error, "f-rev1"),
-        "Angle must be greater than 0 deg, but it is 0.00000001 deg. Use a value greater than 0 deg."
+        "Angle must be greater than 0.000000058 deg, but it is 0.00000001 deg. Use a value greater than 0.000000058 deg."
     );
+    assert_eq!(error.suggestion(Units::Mm), None);
 }
 
 #[test]
-fn a_value_just_under_a_named_upper_bound_gets_the_digits_that_tell_it_apart() {
+fn a_value_within_the_tolerance_under_the_ring_gets_the_bound_the_check_applies() {
     let error = FeatureError::OutOfRange {
         field: field("minor_radius", "Tube radius"),
         kind: FieldUnit::Length,
         value: 9.9999999,
-        bound: Bound::LessThan(10.0),
-        bound_name: Some("the ring radius".to_string()),
+        bound: Bound::AtMost(10.0 - LINEAR_TOLERANCE),
+        bound_name: None,
     };
 
     assert_eq!(
         rendered(&error, "f-tor1"),
-        "Tube radius must be less than the ring radius (10 mm), but it is 9.9999999 mm. Use a value less than 10 mm."
+        "Tube radius must be at most 9.999999 mm, but it is 9.9999999 mm. Use 9.999999 mm or less."
     );
 }
 
@@ -648,7 +736,7 @@ fn a_fillet_without_a_useful_limit_still_names_the_limiting_face() {
     assert_eq!(
         rendered_on(&timeline, "f-fil1", &error),
         format!(
-            "Fillet radius 3 mm does not work on the selected edges, even when smaller. {RISER_SENTENCE}"
+            "Fillet radius 3 mm does not work on the selected edges, and no radius near it does. {RISER_SENTENCE}"
         )
     );
     assert_eq!(
@@ -672,7 +760,7 @@ fn a_fillet_without_a_limit_or_a_face_says_partsmith_could_not_tell_why() {
 
     assert_eq!(
         rendered_on(&timeline, "f-fil1", &error),
-        "Fillet radius 3 mm does not work on the selected edges, even when smaller, and Partsmith could not tell why."
+        "Fillet radius 3 mm does not work on the selected edges, and no radius near it does. Partsmith could not tell why."
     );
     assert_eq!(fixes_on(&timeline, "f-fil1", &error), [suppress("f-fil1")]);
     // Without a working value, the kernel's text is what a report needs (section 2.8).
@@ -718,7 +806,7 @@ fn a_chamfer_without_a_limit_or_a_face_says_partsmith_could_not_tell_why() {
 
     assert_eq!(
         rendered_on(&timeline, "f-cha1", &error),
-        "Chamfer distance 3 mm does not work on the selected edges, even when smaller, and Partsmith could not tell why."
+        "Chamfer distance 3 mm does not work on the selected edges, and no distance near it does. Partsmith could not tell why."
     );
     assert_eq!(fixes_on(&timeline, "f-cha1", &error), [suppress("f-cha1")]);
 }
@@ -810,7 +898,7 @@ fn rounds_without_a_working_wall_offer_the_radius_the_move_and_suppress() {
 
     assert_eq!(
         rendered_on(&timeline, "f-sh1", &error),
-        "Shell thickness 2.1 mm does not work on body 'Body 1', even when thinner. Its rounded faces made by 'Fillet 1' have radius 1 mm, smaller than the wall."
+        "Shell thickness 2.1 mm does not work on body 'Body 1', and no thickness near it does. Its rounded faces made by 'Fillet 1' have radius 1 mm, smaller than the wall."
     );
     assert_eq!(
         fixes_on(&timeline, "f-sh1", &error),
@@ -861,7 +949,7 @@ fn a_shell_without_a_limit_or_round_faces_says_partsmith_could_not_tell_why() {
 
     assert_eq!(
         rendered(&error, "f-sh1"),
-        "Shell thickness 30 mm does not work on body 'Body 1', even when thinner. Partsmith could not tell why."
+        "Shell thickness 30 mm does not work on body 'Body 1', and no thickness near it does. Partsmith could not tell why."
     );
     assert_eq!(fixes_of(&error, "f-sh1"), [suppress("f-sh1")]);
 }

@@ -458,12 +458,10 @@ fn t017_radius_below_the_tolerance() {
 
     let error = run.assert_error("f-fil1", "out_of_range");
     assert_error_field(error, "radius");
-    // The value is written with the digits that tell it apart from the bound (features.md section 3.12).
+    // A value within the tolerance of 0 gets the bound the check applies (features.md section 3.4).
     assert_eq!(
         run.messages("f-fil1"),
-        [
-            "Radius must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
-        ]
+        ["Radius must be at least 0.000001 mm, but it is 0.0000001 mm. Use 0.000001 mm or more."]
     );
     assert_unchanged(&run, "f-fil1", "b-1");
 }
@@ -628,8 +626,14 @@ fn t021_a_limit_far_below_the_request_counts_as_none() {
             feature: id("f-fil1")
         }]
     );
-    let text = run.messages("f-fil1")[0];
-    assert!(text.ends_with(RISER_SENTENCE), "{text:?}");
+    // The first sentence of a search whose limit counts as none (features.md section 4.3, open issue 14).
+    assert_eq!(
+        run.messages("f-fil1"),
+        [format!(
+            "Fillet radius 30 mm does not work on the selected edges, and no radius near it does. {RISER_SENTENCE}"
+        )
+        .as_str()]
+    );
     assert_messages_pass_lint(&run, "f-fil1");
 }
 

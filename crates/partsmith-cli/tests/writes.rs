@@ -11,9 +11,6 @@ use std::path::Path;
 use common::{BOX, Run, Workspace, fixture_text, reindent_with_four_spaces};
 use pretty_assertions::assert_eq;
 
-/// The message of a write onto a symbolic link that leads to no file (cli spec section 4).
-const LINK_TO_NO_FILE: &str = "it is a symbolic link to a file that does not exist. Create that file first, or remove the link.";
-
 /// The message of a write onto a read-only file (cli spec section 4).
 const READ_ONLY: &str = "the file is read-only. Make it writable first.";
 
@@ -151,8 +148,7 @@ fn t069_schema_write_refuses_a_stale_read_only_file_and_leaves_an_up_to_date_one
 #[cfg(unix)]
 mod links {
     use super::{
-        BOX, LINK_TO_NO_FILE, READ_ONLY, assert_failed_write, entries, is_read_only,
-        make_read_only, write_error,
+        BOX, READ_ONLY, assert_failed_write, entries, is_read_only, make_read_only, write_error,
     };
     use crate::common::{
         BOX_STL_BYTES, TWO_BODIES, Workspace, binary_stl_triangles, fixture_text,
@@ -164,6 +160,9 @@ mod links {
 
     use pretty_assertions::assert_eq;
     use serde_json::json;
+
+    /// The message of a write onto a symbolic link that leads to no file (cli spec section 4).
+    const LINK_TO_NO_FILE: &str = "it is a symbolic link to a file that does not exist. Create that file first, or remove the link.";
 
     /// A symbolic link the test made: where it is and the text it holds.
     struct Link {

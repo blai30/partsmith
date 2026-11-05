@@ -8,8 +8,8 @@ use partsmith_model::{Expr, FieldUnit, LINEAR_TOLERANCE};
 use super::tool::Role;
 use super::{HoleExtent, HoleParams, HoleType};
 use crate::builtin::common::{
-    THROUGH_ALL_MARGIN, angle_in_range, check_range, is_positive_length, out_of_range,
-    positive_length, within_model_limit,
+    THROUGH_ALL_MARGIN, angle_in_range, check_range, check_within_tolerance, positive_length,
+    within_model_limit,
 };
 use crate::context::BuildContext;
 use crate::error::{Bound, FeatureError, FeatureWarning, IgnoredReason};
@@ -60,16 +60,15 @@ impl HoleSize {
     ) -> Result<HoleSize, FeatureError> {
         let diameter = context.eval_length("diameter", &params.diameter)?;
         // The entry and bottom segments of the cross-section are as long as the bore radius.
-        if !is_positive_length(diameter / 2.0) {
-            return Err(out_of_range(
-                context,
-                "diameter",
-                FieldUnit::Length,
-                diameter,
-                Bound::GreaterThan(0.0),
-                None,
-            ));
-        }
+        check_within_tolerance(
+            context,
+            "diameter",
+            FieldUnit::Length,
+            diameter,
+            Bound::GreaterThan(0.0),
+            Bound::AtLeast(2.0 * LINEAR_TOLERANCE),
+            None,
+        )?;
         within_model_limit(context, "diameter", diameter)?;
         let depth = match &params.extent {
             HoleExtent::Distance { expr } => Some(positive_length(context, "extent.expr", expr)?),
@@ -78,18 +77,16 @@ impl HoleSize {
         let wider = |field: &str, expr: &Expr| {
             let head_diameter = context.eval_length(field, expr)?;
             // The step in from the head radius to the bore radius is a segment of its own.
-            if is_positive_length((head_diameter - diameter) / 2.0) {
-                within_model_limit(context, field, head_diameter)
-            } else {
-                Err(out_of_range(
-                    context,
-                    field,
-                    FieldUnit::Length,
-                    head_diameter,
-                    Bound::GreaterThan(diameter),
-                    Some("the hole diameter"),
-                ))
-            }
+            check_within_tolerance(
+                context,
+                field,
+                FieldUnit::Length,
+                head_diameter,
+                Bound::GreaterThan(diameter),
+                Bound::AtLeast(diameter + 2.0 * LINEAR_TOLERANCE),
+                Some("the hole diameter"),
+            )?;
+            within_model_limit(context, field, head_diameter)
         };
         let head = match &params.hole_type {
             HoleType::Simple => Head::Simple,
@@ -99,17 +96,18 @@ impl HoleSize {
             } => {
                 let head_diameter = wider("hole_type.diameter", head_diameter)?;
                 let head_depth = positive_length(context, "hole_type.depth", head_depth)?;
-                if let Some(depth) = depth
-                    && !ends_above_shoulder(head_depth, depth)
-                {
-                    return Err(out_of_range(
+                // The counterbore ends a tolerance above the shoulder, so the bore between them is long enough
+                // for the kernel.
+                if let Some(depth) = depth {
+                    check_within_tolerance(
                         context,
                         "hole_type.depth",
                         FieldUnit::Length,
                         head_depth,
                         Bound::LessThan(depth),
+                        Bound::AtMost(depth - LINEAR_TOLERANCE),
                         Some("the hole depth"),
-                    ));
+                    )?;
                 }
                 Head::Counterbore {
                     radius: head_diameter / 2.0,
@@ -123,20 +121,20 @@ impl HoleSize {
                 let head_diameter = wider("hole_type.diameter", head_diameter)?;
                 let head_angle = included_angle(context, "hole_type.angle", head_angle)?;
                 let slope = (head_angle / 2.0).tan();
-                let head_depth = (head_diameter - diameter) / 2.0 / slope;
-                // The message names the head diameter whose cone ends exactly at the shoulder.
-                if let Some(depth) = depth
-                    && !ends_above_shoulder(head_depth, depth)
-                {
-                    return Err(out_of_range(
+                // The cone ends a tolerance above the shoulder; the bound as written is the head diameter whose
+                // cone ends exactly at the shoulder.
+                if let Some(depth) = depth {
+                    check_within_tolerance(
                         context,
                         "hole_type.diameter",
                         FieldUnit::Length,
                         head_diameter,
                         Bound::LessThan(diameter + 2.0 * depth * slope),
+                        Bound::AtMost(diameter + 2.0 * (depth - LINEAR_TOLERANCE) * slope),
                         Some("the largest that fits the hole depth"),
-                    ));
+                    )?;
                 }
+                let head_depth = (head_diameter - diameter) / 2.0 / slope;
                 Head::Countersink {
                     radius: head_diameter / 2.0,
                     depth: head_depth,
@@ -207,13 +205,6 @@ impl HoleSize {
     }
 }
 
-/// True when a head whose lower end is at `head_depth` ends at least `LINEAR_TOLERANCE` above the
-/// shoulder at `depth`, so the bore between them is long enough for the kernel (features/hole.md
-/// section 3.3 step 2).
-fn ends_above_shoulder(head_depth: f64, depth: f64) -> bool {
-    head_depth <= depth - LINEAR_TOLERANCE
-}
-
 /// The included angle at `field` of a countersink or a drill-point tip: greater than 0 and less
 /// than 180 deg (features/hole.md section 3.3 step 2).
 fn included_angle(
@@ -241,12 +232,16 @@ mod tests {
     use crate::builtin::hole::tests::{params, record};
     use crate::test_support::fixture;
 
-    /// The error of checking the values of `HOLE(["e-p1"], extra)`.
-    fn size_error(extra: serde_json::Value) -> FeatureError {
+    /// The error of checking the values of `HOLE(["e-p1"], extra)`, or None when every value is in range.
+    fn size_error_or_none(extra: serde_json::Value) -> Option<FeatureError> {
         let hole = params(record(json!(["e-p1"]), extra));
         let fixture = fixture::<Hole>("f-hole1", &hole, Vec::new(), Vec::new());
-        HoleSize::checked(&hole, &fixture.context(), &mut Vec::new())
-            .expect_err("a value is out of range")
+        HoleSize::checked(&hole, &fixture.context(), &mut Vec::new()).err()
+    }
+
+    /// The error of checking the values of `HOLE(["e-p1"], extra)`.
+    fn size_error(extra: serde_json::Value) -> FeatureError {
+        size_error_or_none(extra).expect("a value is out of range")
     }
 
     fn size(head: Head, depth: Option<f64>, tip: Option<f64>) -> HoleSize {
@@ -345,13 +340,6 @@ mod tests {
     }
 
     #[test]
-    fn a_head_must_end_a_tolerance_above_the_shoulder() {
-        assert!(ends_above_shoulder(4.0, 5.0));
-        assert!(!ends_above_shoulder(4.9999999, 5.0));
-        assert!(!ends_above_shoulder(5.0, 5.0));
-    }
-
-    #[test]
     fn the_depth_is_checked_before_the_head() {
         let error = size_error(json!({
             "hole_type": {"kind": "counterbore", "diameter": "5", "depth": "4"},
@@ -371,10 +359,10 @@ mod tests {
             "extent": {"kind": "distance", "expr": "5"}
         }));
 
-        // Features.md section 3.12: next to a strict bound the value gets the digits that tell it apart.
+        // Features.md section 3.4: a value within the tolerance gets the bound the check applies.
         assert_eq!(
             error.to_string(),
-            "Counterbore depth must be less than the hole depth (5 mm), but it is 4.9999999 mm. Use a value less than 5 mm."
+            "Counterbore depth must be at most 4.999999 mm, but it is 4.9999999 mm. Use 4.999999 mm or less."
         );
     }
 
@@ -385,10 +373,21 @@ mod tests {
             "extent": {"kind": "distance", "expr": "5"}
         }));
 
-        // Features.md section 3.12: next to a strict bound the value gets the digits that tell it apart.
+        // Features.md section 3.12: the bound 15.999998 mm, a little under it after rounding, is written one step
+        // lower so its fix passes the check.
         assert_eq!(
             error.to_string(),
-            "Head diameter must be less than the largest that fits the hole depth (16 mm), but it is 15.9999999 mm. Use a value less than 16 mm."
+            "Head diameter must be at most 15.999997 mm, but it is 15.9999999 mm. Use 15.999997 mm or less."
         );
+    }
+
+    #[test]
+    fn a_countersink_at_its_written_bound_is_accepted() {
+        let error = size_error_or_none(json!({
+            "hole_type": {"kind": "countersink", "diameter": "15.999997", "angle": "90 deg"},
+            "extent": {"kind": "distance", "expr": "5"}
+        }));
+
+        assert_eq!(error, None);
     }
 }

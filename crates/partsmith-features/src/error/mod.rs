@@ -11,7 +11,7 @@ mod render;
 mod too_large;
 mod warning;
 
-use partsmith_model::{Expr, ExprError, FieldUnit, Id, Units};
+use partsmith_model::{Expr, ExprError, FieldUnit, Id, LINEAR_TOLERANCE, Units};
 use partsmith_naming::{ElementKind, NamingError, Reference};
 use partsmith_occt_sys::KernelError;
 use partsmith_sketch::{DimensionValues, SketchError, SketchFix, SolveIssue};
@@ -32,7 +32,7 @@ pub use render::{Because, Diagnosis, Explanation, RenderContext, joined};
 pub use too_large::Limit;
 pub use warning::FeatureWarning;
 
-use message::{format_value_apart, plural};
+use message::{format_bound, format_value_near, plural};
 use render::{
     Entry, Renderer, capitalized, entry_pointer, loss_fixes, lost_reference_text, region_gone_text,
     region_matches_text, region_reasons, selected_for,
@@ -784,9 +784,16 @@ impl FeatureError {
                 "Through all goes through an existing solid, and {} has none here. Use a distance instead.",
                 renderer.body_phrase(body)
             ),
-            FeatureError::BothSidesZero => {
-                "Both sides of the extrusion are 0. Give at least one side a distance.".to_string()
-            }
+            FeatureError::BothSidesZero => format!(
+                "Both sides of the extrusion add up to less than {}. Give at least one side a distance.",
+                // The tolerance the sides' total must reach, written as a bound next to a total of 0.
+                format_bound(
+                    FieldUnit::Length,
+                    Bound::AtLeast(LINEAR_TOLERANCE),
+                    0.0,
+                    renderer.units()
+                )
+            ),
             FeatureError::ConeRadiiZero => {
                 "Cone bottom and top radius cannot both be 0. Give one of them a size.".to_string()
             }
@@ -981,9 +988,10 @@ impl FeatureError {
             | FeatureError::ShellTooThick { .. } => self.too_large()?.suggestion(units),
             FeatureError::OutOfRange {
                 kind,
-                bound: Bound::AtLeast(limit) | Bound::AtMost(limit),
+                value,
+                bound: bound @ (Bound::AtLeast(_) | Bound::AtMost(_)),
                 ..
-            } => Some(format_value(*kind, *limit, units)),
+            } => Some(format_bound(*kind, *bound, *value, units)),
             _ => None,
         }
     }
@@ -1461,8 +1469,8 @@ pub(crate) fn candidate_detail(candidates: &[LossCandidate]) -> String {
         .join(",")
 }
 
-/// The `OutOfRange` message for one bound (section 4.1). Next to a strict bound the value is written with the
-/// digits that tell it apart from the bound (section 3.12).
+/// The `OutOfRange` message for one bound (section 4.1). A value and a bound near each other are written with the
+/// digits that tell them apart (section 3.12).
 fn out_of_range(
     renderer: &Renderer<'_>,
     field: &FieldRef,
@@ -1472,13 +1480,8 @@ fn out_of_range(
     bound_name: Option<&str>,
 ) -> String {
     let label = &field.label;
-    let limit = renderer.value(kind, bound.value());
-    let value = match bound {
-        Bound::GreaterThan(strict) | Bound::LessThan(strict) => {
-            format_value_apart(kind, value, strict, renderer.units())
-        }
-        Bound::AtLeast(_) | Bound::AtMost(_) => renderer.value(kind, value),
-    };
+    let limit = format_bound(kind, bound, value, renderer.units());
+    let value = format_value_near(kind, value, bound.value(), renderer.units());
     let name = match bound_name {
         Some(bound_name) => format!("{bound_name} ({limit})"),
         None => limit.clone(),
@@ -1676,7 +1679,7 @@ mod tests {
 
         assert_eq!(
             render(&error),
-            "Shell thickness 2 mm does not work on body 'b-1', even when thinner. Partsmith could not tell why."
+            "Shell thickness 2 mm does not work on body 'b-1', and no thickness near it does. Partsmith could not tell why."
         );
         assert_eq!(error.detail(), Some(kernel_error().detail()));
         assert_eq!(error.suggestion(Units::Mm), None);

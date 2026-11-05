@@ -199,7 +199,7 @@ impl Explainer<'_> {
             Removal::NoLongerMade { absence } => {
                 let why = match absence {
                     Some(Absence::Through) => ", which goes all the way through the body",
-                    Some(Absence::EndOutside) => ", whose end now reaches the outside of the body",
+                    Some(Absence::EndOutside) => ", which now ends outside the body",
                     Some(Absence::FullTurn) => ", which turns all the way round",
                     None => "",
                 };

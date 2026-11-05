@@ -80,7 +80,7 @@ pub(super) struct TooLarge<'a> {
 
 impl TooLarge<'_> {
     /// The message (section 4.3): what happened, then the bare-number sentence, else the limit or round-face
-    /// sentence, else that Partsmith could not tell why.
+    /// sentence. Without a `max`, the second sentence says Partsmith could not tell why when there is no other.
     pub(super) fn text(&self, renderer: &Renderer<'_>) -> String {
         let value = format!("{} {}", self.noun(), renderer.length(self.requested));
         let reason = self
@@ -101,17 +101,17 @@ impl TooLarge<'_> {
                 renderer.limit(max),
                 second_sentence(reason)
             ),
-            (None, Subject::Shell { body }, reason) => format!(
-                "{value} does not work on {}, even when thinner. {}",
-                renderer.body_phrase(body),
-                reason.unwrap_or_else(|| "Partsmith could not tell why.".to_string())
-            ),
-            (None, _, Some(reason)) => {
-                format!("{value} does not work on the selected edges, even when smaller. {reason}")
+            (None, subject, reason) => {
+                let reason = reason.unwrap_or_else(|| "Partsmith could not tell why.".to_string());
+                let target = match subject {
+                    Subject::Shell { body } => renderer.body_phrase(body),
+                    Subject::Fillet | Subject::Chamfer => "the selected edges".to_string(),
+                };
+                format!(
+                    "{value} does not work on {target}, and no {} near it does. {reason}",
+                    self.quantity()
+                )
             }
-            (None, _, None) => format!(
-                "{value} does not work on the selected edges, even when smaller, and Partsmith could not tell why."
-            ),
         }
     }
 
@@ -168,6 +168,15 @@ impl TooLarge<'_> {
             });
         }
         fixes
+    }
+
+    /// `radius`, `distance` or `thickness`, the word of `and no radius near it does` (section 4.3).
+    fn quantity(&self) -> &'static str {
+        match self.subject {
+            Subject::Fillet => "radius",
+            Subject::Chamfer => "distance",
+            Subject::Shell { .. } => "thickness",
+        }
     }
 
     /// `Fillet radius`, `Chamfer distance` or `Shell thickness`.

@@ -11,7 +11,8 @@ use partsmith_features::{
     Placed, RegionLost,
 };
 use partsmith_model::{
-    Dimension, EmptyContext, Expr, ExprError, FeatureRecord, ParameterValues, Scope, Units,
+    Dimension, EmptyContext, Expr, ExprError, FeatureRecord, LINEAR_TOLERANCE, ParameterValues,
+    Scope, Units,
 };
 use partsmith_naming::{ElementKind, ElementName, Follow, Lost, Reference};
 use partsmith_occt_sys::{KernelError, KernelErrorKind, Operation};
@@ -952,7 +953,12 @@ pub fn phase_3_errors() -> Vec<(FeatureError, &'static str)> {
             "f-box1",
         ),
         (
-            length_out_of_range("extent.expr", "Distance", 1e-7, Bound::GreaterThan(0.0)),
+            length_out_of_range(
+                "extent.expr",
+                "Distance",
+                1e-7,
+                Bound::AtLeast(LINEAR_TOLERANCE),
+            ),
             "f-ext1",
         ),
         (

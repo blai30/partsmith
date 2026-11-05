@@ -1,11 +1,11 @@
 //! The `torus` feature: a ring torus centered on the placement origin (features/torus.md).
 
-use partsmith_model::{Expr, FeatureManifest, FieldUnit, Id};
+use partsmith_model::{Expr, FeatureManifest, FieldUnit, Id, LINEAR_TOLERANCE};
 use partsmith_occt_sys::make_torus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{is_positive_length, out_of_range};
+use super::common::check_within_tolerance;
 use super::primitives::{PrimitiveParams, primitive_manifest};
 use crate::context::BuildContext;
 use crate::deps::Dependencies;
@@ -87,16 +87,15 @@ impl Feature for Torus {
         let primitive = params.primitive();
         let [major, minor] = primitive.positive_sizes(context)?;
         // The kernel needs the ring at least `LINEAR_TOLERANCE` wider than the tube.
-        if !is_positive_length(major - minor) {
-            return Err(out_of_range(
-                context,
-                "minor_radius",
-                FieldUnit::Length,
-                minor,
-                Bound::LessThan(major),
-                Some("the ring radius"),
-            ));
-        }
+        check_within_tolerance(
+            context,
+            "minor_radius",
+            FieldUnit::Length,
+            minor,
+            Bound::LessThan(major),
+            Bound::AtMost(major - LINEAR_TOLERANCE),
+            Some("the ring radius"),
+        )?;
         primitive.build(context, |frame| {
             make_torus(&frame.to_kernel(), major, minor)
         })

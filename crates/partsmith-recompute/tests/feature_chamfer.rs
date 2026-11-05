@@ -369,7 +369,7 @@ fn t014_distance_below_the_tolerance() {
     assert_eq!(
         run.messages("f-cha1"),
         [
-            "Second distance must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+            "Second distance must be at least 0.000001 mm, but it is 0.0000001 mm. Use 0.000001 mm or more."
         ]
     );
     assert_unchanged(&run, "f-cha1", "b-1");

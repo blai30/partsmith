@@ -508,7 +508,7 @@ fn t013_thickness_below_the_tolerance() {
     assert_eq!(
         run.messages("f-sh1"),
         [
-            "Thickness must be greater than 0 mm, but it is 0.0000001 mm. Use a value greater than 0 mm."
+            "Thickness must be at least 0.000001 mm, but it is 0.0000001 mm. Use 0.000001 mm or more."
         ]
     );
     assert_unchanged(&run, "f-sh1", "b-1");
