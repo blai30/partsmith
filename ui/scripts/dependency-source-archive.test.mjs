@@ -45,12 +45,13 @@ import {
   writeDependencySources,
   writeParts,
 } from '../../scripts/dependency-source-archive.mjs'
-import { allowedLicenses } from './check-licenses.mjs'
+import { allowedLicenses, compareNameAndVersion } from './check-licenses.mjs'
 import { git, isolatedGitEnvironment } from './isolated-git.mjs'
 import {
   DESKTOP_TARGETS,
   EXCLUDED_LICENSE_FILES,
   WINDOWS_INSTALLER,
+  renderCrateNotices,
   scopeCrates,
 } from './notices.mjs'
 import { writeFiles } from './occt-fixture.mjs'
@@ -225,7 +226,7 @@ const EXPECTED_NATIVE_PACKAGES = [
     source: 'https://github.com/oxc-project/oxc',
     tag: 'oxfmt_v0.72.0',
     crates: [],
-    notices: true,
+    notices: { crate: 'oxfmt', commit: '2bd08ebe8f36fcf1954a675ffdeb4c6d0129f609' },
   },
   {
     name: '@oxlint/binding',
@@ -233,7 +234,7 @@ const EXPECTED_NATIVE_PACKAGES = [
     source: 'https://github.com/oxc-project/oxc',
     tag: 'oxlint_v1.87.0',
     crates: [],
-    notices: true,
+    notices: { crate: 'oxlint', commit: '2bd08ebe8f36fcf1954a675ffdeb4c6d0129f609' },
   },
   {
     name: '@rolldown/binding',
@@ -241,7 +242,7 @@ const EXPECTED_NATIVE_PACKAGES = [
     source: 'https://github.com/rolldown/rolldown',
     tag: 'v1.2.13',
     crates: [],
-    notices: true,
+    notices: { crate: 'rolldown_binding', commit: 'f7de35f45bcd4cb8e4b6d8d11e74fbfb20b03127' },
   },
   {
     name: '@tailwindcss/oxide',
@@ -255,7 +256,7 @@ const EXPECTED_NATIVE_PACKAGES = [
         sha256: '045d7d9db8390cf2c59f39f3bd138f1962ef616b096d1b9f5651c7acba19e5a7',
       },
     ],
-    notices: true,
+    notices: { crate: 'tailwind-oxide', commit: 'c2b24dd15fed1c59dd521bd86082f520c9f5ad0d' },
   },
   {
     name: 'fsevents',
@@ -1166,7 +1167,7 @@ function temporaryFolderMessage(folder, root) {
 
 /** The native-notices message of section 4 for the table entry `entry`. */
 function nativeNoticesMessage(entry) {
-  return `ui/scripts/notices/native/${stemOf(entry.name)}-${entry.version}.txt is missing. Make it from the source of ${entry.name} ${entry.version} as docs/spec/delivery.md section 2.13 describes.`
+  return `ui/scripts/notices/native/${stemOf(entry.name)}-${entry.version}.txt is missing. Write it from the source of ${entry.name} ${entry.version} with node scripts/native-notices.mjs in ui/ (docs/spec/delivery.md section 2.13).`
 }
 
 /** The `{stem}` of section 2.13: an entry's name without its leading `@` and with `/` written as `-`. */
@@ -1965,6 +1966,24 @@ test('108: tarballLicense is Unknown without a package.json one folder deep or w
   )
 })
 
+test('108: tarballLicense reads a package.json whose path is longer than 100 bytes as ustar, pax and GNU tar write it', async (context) => {
+  // A folder of 99 bytes: ustar splits the path into a prefix and a name, pax writes a path record and GNU tar a long
+  // name.
+  const folder = 'f'.repeat(99)
+  const files = { [`${folder}/package.json`]: packageJson({ license: 'ISC' }) }
+  const formats = ['ustar', 'pax', 'gnu']
+
+  const licenses = await Promise.all(
+    formats.map(async (format) => {
+      const file = join(await temporaryDirectory(context), 'package.tgz')
+      await writeFile(file, await gnuTarball(context, files, format, folder))
+      return tarballLicense(file)
+    }),
+  )
+
+  assert.deepEqual(licenses, ['ISC', 'ISC', 'ISC'])
+})
+
 test('108: tarballLicense reads the tarball in Node and runs no command', async (context) => {
   const file = await tarballFile(context, {
     'package/package.json': packageJson({ license: 'ISC' }),
@@ -2191,12 +2210,12 @@ test('109: a tarball that holds a .wasm file makes its package native', async (c
 })
 
 /**
- * The npm tarball of `files` that GNU tar writes with `--format={format}`, the folder `package` and its files in name
+ * The npm tarball of `files` that GNU tar writes with `--format={format}`, the folder `folder` and its files in name
  * order, compressed with Node's gzip.
  */
-async function gnuTarball(context, files, format) {
-  const folder = await temporaryDirectory(context)
-  await writeFiles(folder, files)
+async function gnuTarball(context, files, format, folder = 'package') {
+  const directory = await temporaryDirectory(context)
+  await writeFiles(directory, files)
   const result = spawnSync(
     'tar',
     [
@@ -2207,18 +2226,19 @@ async function gnuTarball(context, files, format) {
       '--numeric-owner',
       '--create',
       '--file=-',
-      'package',
+      folder,
     ],
-    { cwd: folder, env: { ...process.env, LC_ALL: 'C' }, maxBuffer: 1 << 26 },
+    { cwd: directory, env: { ...process.env, LC_ALL: 'C' }, maxBuffer: 1 << 26 },
   )
   assert.equal(result.status, 0, String(result.stderr))
   return gzipSync(result.stdout)
 }
 
-test('109: a .node file whose path is longer than 100 bytes is found under a ustar prefix and under a pax path', async (context) => {
+test('109: a .node file whose path is longer than 100 bytes is found under a ustar prefix, a pax path and a GNU long name', async (context) => {
   const cases = [
     ['ustar', `package/${'deep/'.repeat(20)}addon.node`],
     ['pax', `package/lib/${'a'.repeat(120)}.node`],
+    ['gnu', `package/lib/${'g'.repeat(120)}.node`],
   ]
 
   await Promise.all(
@@ -2229,6 +2249,52 @@ test('109: a .node file whose path is longer than 100 bytes is found under a ust
       const bytes = await gnuTarball(context, files, format)
       await assertPrebuiltRejected(context, { ...packageWith(name, {}), bytes })
     }),
+  )
+})
+
+// The first bytes of the prebuilt files that a name does not show (section 2.13, Native packages), each followed by
+// bytes of no meaning.
+const PREBUILT_MAGIC_CASES = {
+  ELF: '7f454c46',
+  'Mach-O 32-bit': 'feedface',
+  'Mach-O 64-bit': 'feedfacf',
+  'Mach-O 32-bit, little-endian': 'cefaedfe',
+  'Mach-O 64-bit, little-endian': 'cffaedfe',
+  'Mach-O universal': 'cafebabe',
+  'Mach-O universal, 64-bit': 'cafebabf',
+  PE: '4d5a',
+  WebAssembly: '0061736d',
+  'ar archive': '213c617263683e0a',
+}
+
+test('109: a file with no telling name whose first bytes are those of prebuilt code makes its package native', async (context) => {
+  await Promise.all(
+    Object.entries(PREBUILT_MAGIC_CASES).map(async ([kind, hex], i) => {
+      const name = `magic-${i}`
+      const files = {
+        ...packageFiles(name, '1.0.0'),
+        'package/bin/tool': Buffer.concat([Buffer.from(hex, 'hex'), Buffer.from('rest')]),
+      }
+      await assert.doesNotReject(assertPrebuiltRejected(context, packageWith(name, files)), kind)
+    }),
+  )
+})
+
+test('109: a script, a short file and magic bytes after the start are no prebuilt files', async (context) => {
+  const listed = packageWith('plain-pkg', {
+    ...packageFiles('plain-pkg', '1.0.0'),
+    'package/bin/run': '#!/usr/bin/env node\nconsole.log(1)\n',
+    'package/short': 'M',
+    'package/empty': '',
+    'package/later.txt': Buffer.concat([Buffer.from('text '), Buffer.from('7f454c46', 'hex')]),
+  })
+  const fixture = await writeFixture(context, { packages: [...WEB_NPM_PACKAGES, listed] })
+
+  await writeSources(context, fixture, 'web')
+
+  const extracted = await extractedPackages(context, fixture.output, 'web')
+  assert.ok(
+    await exists(join(extracted, 'npm-packages-web', tarballPath(listed.name, listed.version))),
   )
 })
 
@@ -2880,7 +2946,10 @@ test('113: EXCLUDED_LICENSE_FILES is still the one entry of libdbus-sys and vend
 })
 
 // The table entry of test 115, whose tarballs lack the notices of the crates it compiles in.
-const NOTICES_ENTRY = { ...plainEntry('native-ui', '2.0.0'), notices: true }
+const NOTICES_ENTRY = {
+  ...plainEntry('native-ui', '2.0.0'),
+  notices: { crate: 'native_ui', commit: '0'.repeat(40) },
+}
 const NOTICES_TEXT = 'cssparser 0.33.0, MPL-2.0\n\nMozilla Public License Version 2.0\n'
 
 /**
@@ -2969,4 +3038,113 @@ test('115: every entry of NATIVE_PACKAGES with notices has its notices file, and
     assert.equal(text.includes('\r'), false, `${name} has a CR`)
     assert.match(text.split('\n')[0], /^\S+ \S+, \S.*$/, `${name} does not start with a crate line`)
   }
+})
+
+// An entry line of a native package's notices file (section 2.13): name, version, license (`see texts` for none),
+// URL, where its texts come from when not shipped, and the numbers of its texts.
+const NOTICES_LINE =
+  /^(\S+) (\S+), (.+), (https:\/\/[^ ,]+)(?:, (standard text|text from its repository))?, texts ((?:\[\d+\])(?: \[\d+\])*)$/
+
+// The `textSource` of an entry for the words its line ends with before its texts; `shipped` when it has none.
+const TEXT_SOURCES = { 'standard text': 'standard', 'text from its repository': 'repository' }
+
+/**
+ * The entries of a native package's notices file `text`, as renderCrateNotices takes them, read back from its entry
+ * lines and its numbered texts. Throws when a line or a text block does not have the layout of section 2.13.
+ */
+function parsedNotices(text) {
+  const listEnd = text.indexOf('\n\n')
+  const textBlocks = text.slice(listEnd + 2, -1).split(/\n\n(?=\[\d+\]\n\n)/)
+  const texts = new Map(
+    textBlocks.map((block) => {
+      const header = /^\[(\d+)\]\n\n/.exec(block)
+      assert.ok(header !== null, `a text block starts with ${block.slice(0, 20)}`)
+      return [header[1], `${block.slice(header[0].length)}\n`]
+    }),
+  )
+  assert.equal(texts.size, textBlocks.length, 'a text number is defined twice')
+  return text
+    .slice(0, listEnd)
+    .split('\n')
+    .map((line) => {
+      const match = NOTICES_LINE.exec(line)
+      assert.ok(match !== null, `not an entry line: ${line}`)
+      const [, name, version, license, url, from, numbers] = match
+      return {
+        name,
+        version,
+        license: license === 'see texts' ? null : license,
+        url,
+        platforms: null,
+        textSource: TEXT_SOURCES[from] ?? 'shipped',
+        texts: numbers.match(/\d+/g).map((number) => texts.get(number)),
+      }
+    })
+}
+
+test('115: each notices file lists its crates sorted, each text once, numbered in first use, none unreferenced', async () => {
+  const folder = join(repositoryRoot, 'ui', 'scripts', 'notices', 'native')
+  const files = NATIVE_PACKAGES.filter((entry) => entry.notices !== undefined).map(
+    (entry) => `${stemOf(entry.name)}-${entry.version}.txt`,
+  )
+
+  for (const name of files) {
+    // oxlint-disable-next-line no-await-in-loop -- one file of about 500 KB at a time
+    const text = await readFile(join(folder, name), 'utf8')
+    const entries = parsedNotices(text)
+    assert.deepEqual(
+      entries.map(({ name: crate, version }) => `${crate} ${version}`),
+      entries
+        .toSorted(compareNameAndVersion)
+        .map(({ name: crate, version }) => `${crate} ${version}`),
+      `${name} is not sorted by name and version`,
+    )
+    assert.ok(
+      entries.every((entry) => entry.texts.every((listed) => listed !== undefined)),
+      `${name} names a text it does not hold`,
+    )
+    // Rendering the entries again numbers the texts in first use and drops a text no line names.
+    assert.equal(renderCrateNotices(entries), text, `${name} does not have the layout of 2.13`)
+  }
+})
+
+test('115: the layout check reads back what renderCrateNotices writes and refuses a text no line names', () => {
+  const entries = [
+    {
+      name: 'a',
+      version: '1.0.0',
+      license: 'MIT',
+      url: 'https://crates.io/crates/a/1.0.0',
+      platforms: null,
+      textSource: 'shipped',
+      texts: ['first\n', 'second\n'],
+    },
+    {
+      name: 'b',
+      version: '0.1.0',
+      license: null,
+      url: 'https://example.com/tree/v1',
+      platforms: null,
+      textSource: 'repository',
+      texts: ['second\n'],
+    },
+    {
+      name: 'c',
+      version: '2.0.0',
+      license: 'MIT/Apache-2.0',
+      url: 'https://crates.io/crates/c/2.0.0',
+      platforms: null,
+      textSource: 'standard',
+      texts: ['third\n'],
+    },
+  ]
+  const text = renderCrateNotices(entries)
+
+  assert.equal(
+    text,
+    'a 1.0.0, MIT, https://crates.io/crates/a/1.0.0, texts [1] [2]\nb 0.1.0, see texts, https://example.com/tree/v1, text from its repository, texts [2]\nc 2.0.0, MIT/Apache-2.0, https://crates.io/crates/c/2.0.0, standard text, texts [3]\n\n[1]\n\nfirst\n\n[2]\n\nsecond\n\n[3]\n\nthird\n',
+  )
+  assert.deepEqual(parsedNotices(text), entries)
+  const unreferenced = `${text}\n[4]\n\nfourth\n`
+  assert.notEqual(renderCrateNotices(parsedNotices(unreferenced)), unreferenced)
 })

@@ -2,7 +2,7 @@
 // committed files are current (docs/spec/delivery.md section 2.9).
 // Usage: node scripts/notices.mjs write|check
 import { readFile, readdir, realpath, writeFile } from 'node:fs/promises'
-import { dirname, join, posix } from 'node:path'
+import { basename, dirname, join, posix } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
@@ -39,6 +39,11 @@ export const EXCLUDED_LICENSE_FILES = [
       'the vendored libdbus, compiled only with the vendored feature, which no Partsmith build enables',
   },
 ]
+
+/** The paths of `EXCLUDED_LICENSE_FILES` for the crate named `crateName`, as its entries write them. */
+export function excludedPaths(crateName) {
+  return EXCLUDED_LICENSE_FILES.filter(({ crate }) => crate === crateName).map(({ path }) => path)
+}
 
 /** The crates allowed to ship prebuilt libraries (input 8), as `{ crate, reason }`. */
 export const PREBUILT_LIBRARY_CRATES = [
@@ -227,7 +232,7 @@ async function folderListing(folder) {
  * The results of `read` for each of `items`, in order. The items are read in parallel, and the first failure in
  * their order is the one that rejects, so the message does not depend on timing.
  */
-async function readInOrder(items, read) {
+export async function readInOrder(items, read) {
   const results = await Promise.allSettled(items.map(read))
   const failure = results.find((result) => result.status === 'rejected')
   if (failure !== undefined) {
@@ -378,10 +383,11 @@ function entryLine(listed, numberOf) {
   return parts.join(', ')
 }
 
-/** The text of one notices file from its parts, in the layout below, with no input or output. */
-export function renderNotices(notices) {
-  const { heading, scope, partsmith, occt, fonts, crates, packages, libraries } = notices
-  // Texts are numbered in the order the file first refers to them, reading from the top.
+/**
+ * A numbering of license texts in the order a file first refers to them, reading from the top: `numberOf` gives a
+ * text's number, and `numberedTexts` each numbered text once, as `[{n}]`, a blank line and the text, in number order.
+ */
+function textNumbering() {
   const numbers = new Map()
   const numberOf = (text) => {
     if (!numbers.has(text)) {
@@ -389,6 +395,25 @@ export function renderNotices(notices) {
     }
     return numbers.get(text)
   }
+  const numberedTexts = () =>
+    [...numbers].map(([text, number]) => `[${number}]\n\n${text.replace(/\n$/, '')}`)
+  return { numberOf, numberedTexts }
+}
+
+/**
+ * The text of the notices file of a native npm package (2.13): the entry line of each of `entries`, entries as
+ * `renderNotices` takes them, and then each distinct text once, numbered in the order the lines first name it.
+ */
+export function renderCrateNotices(entries) {
+  const { numberOf, numberedTexts } = textNumbering()
+  const lines = entries.map((listed) => entryLine(listed, numberOf)).join('\n')
+  return `${[lines, ...numberedTexts()].join('\n\n')}\n`
+}
+
+/** The text of one notices file from its parts, in the layout below, with no input or output. */
+export function renderNotices(notices) {
+  const { heading, scope, partsmith, occt, fonts, crates, packages, libraries } = notices
+  const { numberOf, numberedTexts } = textNumbering()
   const lines = (entries) => entries.map((listed) => entryLine(listed, numberOf)).join('\n')
   // The paragraphs Partsmith writes itself are wrapped. Headings, entry lines and license texts keep their lines.
   const blocks = [
@@ -411,8 +436,7 @@ export function renderNotices(notices) {
     lines(libraries),
     '== License texts ==',
   ]
-  const texts = [...numbers].map(([text, number]) => `[${number}]\n\n${text.replace(/\n$/, '')}`)
-  return `${[...blocks, ...texts].join('\n\n')}\n`
+  return `${[...blocks, ...numberedTexts()].join('\n\n')}\n`
 }
 
 /** The value that the pattern's first group captures in the pin file `file` of `root`. */
@@ -584,12 +608,16 @@ async function windowsInstallerEntries(root) {
 
 /**
  * The parsed output of the command of input 1 for `triple`, sent through `run` in `root`, or of the same command
- * without `--filter-platform` when `triple` is null.
+ * without `--filter-platform` when `triple` is null. With `manifestPath` it reads that workspace in place of `root`'s,
+ * still with `root`'s toolchain (2.13, the notices of the native packages).
  */
-export async function cargoMetadata(root, run, triple = null) {
+export async function cargoMetadata(root, run, triple = null, manifestPath = null) {
   const filter = triple === null ? [] : ['--filter-platform', triple]
+  const manifest = manifestPath === null ? [] : ['--manifest-path', manifestPath]
   const commandArguments = ['metadata', '--format-version', '1', '--locked', '--all-features']
-  return JSON.parse(await checkedRun(run, 'cargo', [...commandArguments, ...filter], root))
+  return JSON.parse(
+    await checkedRun(run, 'cargo', [...commandArguments, ...manifest, ...filter], root),
+  )
 }
 
 /** The key of a package or crate: its name and version. */
@@ -668,33 +696,70 @@ async function regularFilesIn(folder) {
   }
 }
 
+/** The normalized texts of the files at `paths`, each distinct text once, in order, without empty ones. */
+async function textsOf(paths) {
+  return distinctTexts(await Promise.all(paths.map(normalizedFile)))
+}
+
+/** The normalized license texts (input 3) of the package folder `folder`, each once, in order. */
+export async function folderTexts(folder, licenseFile, excluded = []) {
+  const files = await licenseFiles(folder, licenseFile, excluded)
+  return textsOf(files.map((path) => join(folder, path)))
+}
+
+/**
+ * The normalized texts of the regular files directly in `folder`, committed copies of license files, each once, in
+ * byte order of names. None when `folder` does not exist.
+ */
+export async function copiedTexts(folder) {
+  return textsOf(await regularFilesIn(folder))
+}
+
+/**
+ * The normalized texts of the regular files directly in `folder` whose names start like a license file's (input 3),
+ * each once, in byte order of names: the license files at the root of a repository.
+ */
+export async function rootLicenseTexts(folder) {
+  const files = await regularFilesIn(folder)
+  return textsOf(files.filter((path) => LICENSE_FILE_PATTERN.test(basename(path))))
+}
+
+/** The standard license (input 3) that the license expression `expression` allows alone, or undefined. */
+export function standardLicense(expression) {
+  return STANDARD_LICENSES.find(
+    (candidate) => expression !== null && licenseAllowed(expression, [candidate]),
+  )
+}
+
+/**
+ * The normalized standard text of `identifier` (input 3) under `root`, for the package `listed` that takes it. Rejects
+ * with the missing-standard-text message of section 4 when its copy is missing.
+ */
+export async function standardText(root, identifier, listed) {
+  const path = `licenses/${identifier}.txt`
+  try {
+    return await normalizedFile(join(root, COPIES_FOLDER, path))
+  } catch (error) {
+    if (isMissing(error)) {
+      throw new Error(
+        `${keyOf(listed)} ships no license text, and ${COPIES_FOLDER}/${path} is missing. Add the SPDX License List text of ${identifier} there.`,
+        { cause: error },
+      )
+    }
+    throw error
+  }
+}
+
 /**
  * The texts of a package without license files (input 3): the standard text that its expression allows alone, or
  * the committed copies from its repository.
  */
 async function fallbackTexts(root, listed) {
-  const identifier = STANDARD_LICENSES.find(
-    (candidate) => listed.license !== null && licenseAllowed(listed.license, [candidate]),
-  )
+  const identifier = standardLicense(listed.license)
   if (identifier !== undefined) {
-    const path = `licenses/${identifier}.txt`
-    try {
-      return {
-        textSource: 'standard',
-        texts: [await normalizedFile(join(root, COPIES_FOLDER, path))],
-      }
-    } catch (error) {
-      if (isMissing(error)) {
-        throw new Error(
-          `${keyOf(listed)} ships no license text, and ${COPIES_FOLDER}/${path} is missing. Add the SPDX License List text of ${identifier} there.`,
-          { cause: error },
-        )
-      }
-      throw error
-    }
+    return { textSource: 'standard', texts: [await standardText(root, identifier, listed)] }
   }
-  const copies = await regularFilesIn(join(root, COPIES_FOLDER, 'crates', listed.name))
-  const texts = distinctTexts(await Promise.all(copies.map(normalizedFile)))
+  const texts = await copiedTexts(join(root, COPIES_FOLDER, 'crates', listed.name))
   if (texts.length === 0) {
     throw new Error(
       `${keyOf(listed)} ships no license text, and ${COPIES_FOLDER}/crates/${listed.name}/ is missing. Commit a copy of the license file of its repository there (docs/spec/delivery.md section 2.9).`,
@@ -717,13 +782,9 @@ async function packageTexts(root, listed, isCrate) {
       )
     }
   }
-  const excluded = isCrate
-    ? EXCLUDED_LICENSE_FILES.filter(({ crate }) => crate === listed.name).map(({ path }) => path)
-    : []
+  const excluded = isCrate ? excludedPaths(listed.name) : []
   const files = licenseFilesOf(paths, listed.licenseFile, excluded)
-  const texts = distinctTexts(
-    await Promise.all(files.map((path) => normalizedFile(join(listed.folder, path)))),
-  )
+  const texts = await textsOf(files.map((path) => join(listed.folder, path)))
   return texts.length > 0 ? { textSource: 'shipped', texts } : fallbackTexts(root, listed)
 }
 

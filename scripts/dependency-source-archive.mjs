@@ -37,9 +37,9 @@ import {
 } from '../ui/scripts/check-licenses.mjs'
 import {
   DESKTOP_TARGETS,
-  EXCLUDED_LICENSE_FILES,
   WINDOWS_INSTALLER,
   cargoMetadata,
+  excludedPaths,
   isExcluded,
   reachableIds,
   scopeCrates,
@@ -97,7 +97,9 @@ export const TAURI_CLI = {
  * `version`. `source` and `tag` name what it is built from. `commit` is the commit of `tag` when the archives hold the
  * tag's whole tree, with the crates of the lock file of `manifest`. `crates` are the crates under MPL-2.0 that it
  * compiles in, as `{ name, version, sha256 }` with the checksum that the lock file of its source records. `notices` is
- * true when its tarballs lack the notices of the crates it compiles in, which `ui/scripts/notices/native/` holds.
+ * there when its tarballs lack the notices of the crates it compiles in, which `ui/scripts/notices/native/` holds, as
+ * `{ crate, commit }`: the crate of its source that builds it and the commit of `tag` that `ui/scripts/native-notices.mjs`
+ * makes the file from.
  */
 export const NATIVE_PACKAGES = [
   {
@@ -106,7 +108,7 @@ export const NATIVE_PACKAGES = [
     source: 'https://github.com/oxc-project/oxc',
     tag: 'oxfmt_v0.72.0',
     crates: [],
-    notices: true,
+    notices: { crate: 'oxfmt', commit: '2bd08ebe8f36fcf1954a675ffdeb4c6d0129f609' },
   },
   {
     name: '@oxlint/binding',
@@ -114,7 +116,7 @@ export const NATIVE_PACKAGES = [
     source: 'https://github.com/oxc-project/oxc',
     tag: 'oxlint_v1.87.0',
     crates: [],
-    notices: true,
+    notices: { crate: 'oxlint', commit: '2bd08ebe8f36fcf1954a675ffdeb4c6d0129f609' },
   },
   {
     name: '@rolldown/binding',
@@ -122,7 +124,10 @@ export const NATIVE_PACKAGES = [
     source: 'https://github.com/rolldown/rolldown',
     tag: 'v1.2.13',
     crates: [],
-    notices: true,
+    notices: {
+      crate: 'rolldown_binding',
+      commit: 'f7de35f45bcd4cb8e4b6d8d11e74fbfb20b03127',
+    },
   },
   {
     name: '@tailwindcss/oxide',
@@ -136,7 +141,7 @@ export const NATIVE_PACKAGES = [
         sha256: '045d7d9db8390cf2c59f39f3bd138f1962ef616b096d1b9f5651c7acba19e5a7',
       },
     ],
-    notices: true,
+    notices: { crate: 'tailwind-oxide', commit: 'c2b24dd15fed1c59dd521bd86082f520c9f5ad0d' },
   },
   {
     name: 'fsevents',
@@ -179,8 +184,8 @@ const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 // The machine that builds the web core. Its build scripts and procedural macros compile for it.
 const BUILD_MACHINE_TRIPLE = 'x86_64-unknown-linux-gnu'
 
-// The source that Cargo lock files write for a crate from crates.io, the one source the archives' config.toml replaces.
-const CRATES_IO_SOURCE = 'registry+https://github.com/rust-lang/crates.io-index'
+/** The source that Cargo lock files write for a crate from crates.io, the one source the archives' config.toml replaces. */
+export const CRATES_IO_SOURCE = 'registry+https://github.com/rust-lang/crates.io-index'
 
 // The file in which cargo vendor records the SHA-256 of each file of a crate and of the crate's package.
 const CHECKSUM_FILE = '.cargo-checksum.json'
@@ -215,6 +220,21 @@ const TAR_BLOCK = 512
 
 // The file names of prebuilt native code in an npm tarball.
 const PREBUILT_FILE_PATTERN = /\.(?:node|wasm|so|dylib|dll|exe)$/i
+
+// The first bytes of prebuilt native code whatever its name: ELF, Mach-O (32 and 64 bits in either byte order, and a
+// universal file), PE (`MZ`), WebAssembly and an `ar` archive of objects, a static library.
+const PREBUILT_MAGIC_NUMBERS = [
+  '7f454c46',
+  'feedface',
+  'feedfacf',
+  'cefaedfe',
+  'cffaedfe',
+  'cafebabe',
+  'cafebabf',
+  '4d5a',
+  '0061736d',
+  '213c617263683e0a',
+].map((hex) => Buffer.from(hex, 'hex'))
 
 // How many tarballs the command downloads at the same time.
 const DOWNLOADS_AT_ONCE = 8
@@ -493,6 +513,14 @@ function manifestLicense(manifest) {
   }
 }
 
+/** Whether the regular file `entry` of a tarball holds prebuilt native code: by its name or by its first bytes. */
+function isPrebuilt(entry) {
+  return (
+    PREBUILT_FILE_PATTERN.test(entry.path) ||
+    PREBUILT_MAGIC_NUMBERS.some((magic) => entry.contents.subarray(0, magic.length).equals(magic))
+  )
+}
+
 /**
  * What the license check and the native-package check read from an npm tarball's `bytes`: the `license` of its
  * `package.json` one folder deep (the first in the tarball's order), `Unknown` without one, and whether it holds a
@@ -503,14 +531,14 @@ async function tarballFacts(bytes) {
   const manifest = files.find((entry) => /^[^/]+\/package\.json$/.test(entry.path))
   return {
     license: manifest === undefined ? 'Unknown' : manifestLicense(manifest),
-    prebuilt: files.some((entry) => PREBUILT_FILE_PATTERN.test(entry.path)),
+    prebuilt: files.some(isPrebuilt),
   }
 }
 
 /**
  * The license of the npm tarball at `file`: the `license` string of its `package.json`, or `Unknown` (2.13). It reads
- * the tarball in Node (`zlib`'s gunzip, then the tar headers: the ustar name with its prefix, or a pax `path`) and runs
- * no command.
+ * the tarball in Node (`zlib`'s gunzip, then the tar headers: the ustar name with its prefix, or the pax `path` or GNU
+ * long name before it) and runs no command.
  */
 export async function tarballLicense(file) {
   return (await tarballFacts(await readFile(file))).license
@@ -890,9 +918,7 @@ async function vendorCrates(root, run, scope, work, crates, tool) {
     stubbed.map((name) => stubCrate(join(vendor, name), registryPackages.get(name))),
   )
   const excluded = [...whole].flatMap(([name, crate]) =>
-    EXCLUDED_LICENSE_FILES.filter((entry) => entry.crate === crate.name).map((entry) =>
-      leaveOut(join(vendor, name), entry.path),
-    ),
+    excludedPaths(crate.name).map((path) => leaveOut(join(vendor, name), path)),
   )
   await Promise.all(excluded)
   if (tool !== null) {
@@ -985,22 +1011,30 @@ async function cloneTag(entry, clone, retryDelays) {
 }
 
 /**
+ * Clones the tag of the table entry `entry` into the new folder `clone`, as `cloneTag` does, and checks that the tag
+ * names `commit`, the commit the entry pins. Rejects with the tag-commit message of section 4 when it names another.
+ */
+export async function cloneCheckedTag(entry, commit, clone, retryDelays) {
+  await mkdir(dirname(clone), { recursive: true })
+  await cloneTag(entry, clone, retryDelays)
+  const tagged = (
+    await runDirectly('git', ['-C', clone, 'rev-parse', `${entry.tag}^{commit}`], clone)
+  ).trim()
+  if (tagged !== commit) {
+    throw new Error(
+      `The tag ${entry.tag} of ${entry.source} names the commit ${tagged}, not ${commit}, which NATIVE_PACKAGES of scripts/dependency-source-archive.mjs pins for ${entry.name} ${entry.version}. Upstream may have moved the tag; nothing was written (docs/spec/delivery.md section 2.13).`,
+    )
+  }
+}
+
+/**
  * Clones the tag of `entry` into `{work}/clones/{stem}-{version}`, checks that it names the commit the entry pins,
  * and writes `{stem}-{version}-source.tar.gz` of its tree into `sources`. Resolves to the clone's folder.
  */
 async function archiveTag(work, sources, entry, retryDelays) {
   const name = `${stemOf(entry.name)}-${entry.version}`
   const clone = join(work, 'clones', name)
-  await mkdir(dirname(clone), { recursive: true })
-  await cloneTag(entry, clone, retryDelays)
-  const commit = (
-    await runDirectly('git', ['-C', clone, 'rev-parse', `${entry.tag}^{commit}`], work)
-  ).trim()
-  if (commit !== entry.commit) {
-    throw new Error(
-      `The tag ${entry.tag} of ${entry.source} names the commit ${commit}, not ${entry.commit}, which NATIVE_PACKAGES of scripts/dependency-source-archive.mjs pins for ${entry.name} ${entry.version}. Upstream may have moved the tag; nothing was written (docs/spec/delivery.md section 2.13).`,
-    )
-  }
+  await cloneCheckedTag(entry, entry.commit, clone, retryDelays)
   const tar = join(sources, `${name}-source.tar`)
   const archiveArguments = ['archive', '--format=tar', `--prefix=${name}/`, `--output=${tar}`]
   await runDirectly(
@@ -1055,19 +1089,24 @@ async function saveCrate(crate, sources, downloads) {
   )
 }
 
+/** The committed notices file of a table entry with `notices`, relative to the repository root. */
+export function nativeNoticesFile(entry) {
+  return `${NATIVE_NOTICES_FOLDER}/${stemOf(entry.name)}-${entry.version}.txt`
+}
+
 /**
  * Copies the committed notices file of `entry` from `root` into `sources` as `{stem}-{version}-notices.txt`, or
  * rejects with the native-notices message of section 4 when it is missing.
  */
 async function copyNotices(root, sources, entry) {
-  const name = `${stemOf(entry.name)}-${entry.version}`
-  const committed = `${NATIVE_NOTICES_FOLDER}/${name}.txt`
+  const committed = nativeNoticesFile(entry)
+  const copy = `${stemOf(entry.name)}-${entry.version}-notices.txt`
   try {
-    await copyFile(join(root, committed), join(sources, `${name}-notices.txt`))
+    await copyFile(join(root, committed), join(sources, copy))
   } catch (error) {
     if (error.code === 'ENOENT') {
       throw new Error(
-        `${committed} is missing. Make it from the source of ${entry.name} ${entry.version} as docs/spec/delivery.md section 2.13 describes.`,
+        `${committed} is missing. Write it from the source of ${entry.name} ${entry.version} with node scripts/native-notices.mjs in ui/ (docs/spec/delivery.md section 2.13).`,
         { cause: error },
       )
     }
@@ -1077,7 +1116,7 @@ async function copyNotices(root, sources, entry) {
 
 /** Whether a table entry asks the archives for something: a whole source, crates or notices. */
 function asksForSource(entry) {
-  return entry.commit !== undefined || entry.crates.length > 0 || entry.notices === true
+  return entry.commit !== undefined || entry.crates.length > 0 || entry.notices !== undefined
 }
 
 /**
@@ -1104,7 +1143,7 @@ async function writeNativeSources(root, run, scope, work, entries, downloads) {
     ),
     ...[...crates.values()].map((crate) => saveCrate(crate, sources, downloads)),
     ...entries
-      .filter((entry) => entry.notices === true)
+      .filter((entry) => entry.notices !== undefined)
       .map((entry) => copyNotices(root, sources, entry)),
   ])
   return [sourcesFolder(scope)]
