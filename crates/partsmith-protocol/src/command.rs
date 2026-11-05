@@ -175,12 +175,12 @@ pub enum Command {
         /// Whether to record the dragged geometry.
         commit: bool,
     },
-    /// The plane a re-attach of the sketch by pick stores in place of `plane`, without recording anything (engine.md
-    /// section 3.22).
+    /// The plane a re-attach of the sketch by pick stores in place of `plane`, or the datum plane's new base, without
+    /// recording anything (engine.md section 3.22).
     AttachPlane {
         /// The document.
         doc: DocHandle,
-        /// The sketch feature.
+        /// The sketch feature, or a datum plane whose new base `plane` is.
         feature: Id,
         /// The plane the host built from the pick, as for a new sketch.
         plane: SketchPlane,
@@ -468,7 +468,7 @@ pub enum CommandResult {
     },
     /// Result of `attach_plane`.
     AttachPlane {
-        /// The plane to store; absent when no stored plane keeps the sketch's motion.
+        /// The plane to store; absent when no stored plane keeps the motion of the sketch or the datum plane.
         #[serde(skip_serializing_if = "Option::is_none")]
         plane: Option<SketchPlane>,
     },

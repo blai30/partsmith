@@ -458,6 +458,16 @@ const CASES: readonly Case[] = [
     () => MESSAGES.attach_moved('Sketch 2', 'the Top plane (XY)'),
     "'Sketch 2' cannot be placed on the Top plane (XY): the two do not move together, and what later features place on the faces made from 'Sketch 2' could shift with no message. Pick a plane or face that moves the same way as 'Sketch 2'.",
   ],
+  [
+    'datum_base_moved',
+    () => MESSAGES.datum_base_moved('Datum plane 2', 'the Top plane (XY)'),
+    "'Datum plane 2' cannot be placed on the Top plane (XY): the two do not move together, and what later features place on the faces made from the sketches that build on 'Datum plane 2' could shift with no message. Pick a plane or face that moves the same way as 'Datum plane 2'.",
+  ],
+  [
+    'datum_base_self',
+    () => MESSAGES.datum_base_self('Datum plane 2'),
+    "'Datum plane 2' cannot be placed on itself. Pick an origin plane, or a flat face or datum plane made before 'Datum plane 2'.",
+  ],
   ['preview_pending', () => MESSAGES.preview_pending(), 'Wait for the preview to update.'],
   ['details_copied', () => MESSAGES.details_copied(), 'Details copied.'],
   [
@@ -479,7 +489,7 @@ describe('MESSAGES', () => {
 
   it('U-73 has an entry for every message id of 4.3', () => {
     expect(Object.keys(MESSAGES)).toEqual(expect.arrayContaining(CASES.map(([id]) => id)))
-    expect(CASES).toHaveLength(117)
+    expect(CASES).toHaveLength(119)
   })
 
   it('U-73 has no dimension_unsolvable: an edited dimension shows the probe message (3.16.7)', () => {
@@ -542,6 +552,15 @@ describe('MESSAGES', () => {
     )
     expect(MESSAGES.attach_moved('Sketch 2', "this face of 'Extrude 3'")).toContain(
       "cannot be placed on this face of 'Extrude 3': the two",
+    )
+  })
+
+  it('U-251 datum_base_moved names a datum plane in quotes and a face by its feature', () => {
+    expect(MESSAGES.datum_base_moved('Datum plane 2', "'Datum plane 1'")).toBe(
+      "'Datum plane 2' cannot be placed on 'Datum plane 1': the two do not move together, and what later features place on the faces made from the sketches that build on 'Datum plane 2' could shift with no message. Pick a plane or face that moves the same way as 'Datum plane 2'.",
+    )
+    expect(MESSAGES.datum_base_moved('Datum plane 2', "this face of 'Box 1'")).toContain(
+      "cannot be placed on this face of 'Box 1': the two",
     )
   })
 

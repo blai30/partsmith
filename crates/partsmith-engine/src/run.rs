@@ -1,6 +1,7 @@
 //! A finished run of a document as its messages are projected and its fixes are built (engine.md
 //! sections 3.4 and 3.22): `RunView` is the recipe, the registry and the report with the outputs
-//! that name sketch results and absent faces, and `FeatureView` one feature of it.
+//! that name sketch results and absent faces, and the recipe the open transaction began with, and
+//! `FeatureView` one feature of it.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -13,7 +14,8 @@ use crate::params::value_at;
 use crate::state::{feature_label, state_before};
 
 /// A finished run of a document as its messages are projected: the recipe, the registry, the
-/// report and the outputs that name sketch results and absent faces.
+/// report, the outputs that name sketch results and absent faces, and the recipe the open
+/// transaction began with.
 pub(crate) struct RunView<'a> {
     /// The recipe the run built.
     pub(crate) document: &'a Document,
@@ -23,6 +25,8 @@ pub(crate) struct RunView<'a> {
     pub(crate) report: &'a Report,
     /// The outputs of the run by feature.
     outputs: BTreeMap<Id, Arc<FeatureOutput>>,
+    /// The recipe when the open transaction began; `None` outside a transaction.
+    began: Option<&'a Document>,
 }
 
 impl<'a> RunView<'a> {
@@ -43,7 +47,20 @@ impl<'a> RunView<'a> {
             registry,
             report,
             outputs,
+            began: None,
         }
+    }
+
+    /// The view with `began`, the recipe when the open transaction began, if one is open. A datum
+    /// plane's old base is read from it (section 3.22).
+    pub(crate) fn began_with(self, began: Option<&'a Document>) -> Self {
+        RunView { began, ..self }
+    }
+
+    /// The record of `feature` when the open transaction began, or outside a transaction now;
+    /// `None` when the open transaction added it.
+    pub(crate) fn record_before_transaction(&self, feature: &Id) -> Option<&'a FeatureRecord> {
+        self.began.unwrap_or(self.document).feature(feature)
     }
 
     /// The document's names with the run's outputs, as recompute renders messages with them.

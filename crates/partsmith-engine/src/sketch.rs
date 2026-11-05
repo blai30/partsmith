@@ -98,11 +98,22 @@ pub(crate) fn sketch_params(
     document: &Document,
     record: &FeatureRecord,
 ) -> Result<SketchParams, EngineError> {
-    let validated = registry
-        .validate_and_canonicalize(record)
-        .map_err(|error| rejected_record(&error, registry, document, record))?;
-    serde_json::from_value(serde_json::Value::Object(validated.record.params))
+    let validated = validated_record(registry, document, record)?;
+    serde_json::from_value(serde_json::Value::Object(validated.params))
         .map_err(EngineError::unexpected)
+}
+
+/// The record of a sketch command's feature with canonical params; `invalid_params` when the
+/// registry rejects it.
+pub(crate) fn validated_record(
+    registry: &Registry,
+    document: &Document,
+    record: &FeatureRecord,
+) -> Result<FeatureRecord, EngineError> {
+    registry
+        .validate_and_canonicalize(record)
+        .map(|validated| validated.record)
+        .map_err(|error| rejected_record(&error, registry, document, record))
 }
 
 /// The `invalid_params` error of a sketch record the registry rejects. A sketch error is
@@ -146,21 +157,34 @@ pub(crate) fn sketch_record<'d>(
     document: &'d Document,
     feature: &Id,
 ) -> Result<(usize, &'d FeatureRecord), EngineError> {
-    let (position, record) = document
+    let (position, record) = timeline_record(document, feature)?;
+    if record.kind != SKETCH_TYPE {
+        return Err(not_a_sketch(record));
+    }
+    Ok((position, record))
+}
+
+/// The timeline position and record of a command's feature: `unknown_feature` when missing.
+pub(crate) fn timeline_record<'d>(
+    document: &'d Document,
+    feature: &Id,
+) -> Result<(usize, &'d FeatureRecord), EngineError> {
+    document
         .features
         .iter()
         .enumerate()
         .find(|(_, record)| record.id == *feature)
         .ok_or_else(|| EngineError::UnknownFeature {
             id: feature.clone(),
-        })?;
-    if record.kind != SKETCH_TYPE {
-        return Err(EngineError::NotASketch {
-            id: feature.clone(),
-            feature_type: record.kind.clone(),
-        });
+        })
+}
+
+/// The `not_a_sketch` error of a sketch command whose feature is `record`.
+pub(crate) fn not_a_sketch(record: &FeatureRecord) -> EngineError {
+    EngineError::NotASketch {
+        id: record.id.clone(),
+        feature_type: record.kind.clone(),
     }
-    Ok((position, record))
 }
 
 /// The values of the driving dimensions, evaluated in `scope` (`expression_error` otherwise).

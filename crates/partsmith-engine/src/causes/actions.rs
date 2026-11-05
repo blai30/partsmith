@@ -1,7 +1,8 @@
 //! A cause and its actions (engine.md section 3.21, "Cause actions"): the cause keeps its text and
 //! what its primary change was, and its actions are made again from the current records after
-//! every recompute, so a revert that would change nothing, or whose feature, parameter or
-//! neighbor is gone, and `Undo` of an entry that is no longer the newest are left out.
+//! every recompute, so a revert that would change nothing, whose feature, parameter or neighbor is
+//! gone, or that gives a datum plane a base it refuses (section 3.22), and `Undo` of an entry that
+//! is no longer the newest are left out.
 
 use partsmith_features::{FieldUnit, Place};
 use partsmith_model::{
@@ -14,6 +15,7 @@ use serde_json::{Map, Value};
 
 use super::changes::{Change, RecordChange, SketchItem};
 use super::words::{Side, Words};
+use crate::datum_base::refused_by_its_datum;
 use crate::fixes::{constraint_pointer, index_beside, offered_edits, updated};
 use crate::frames::placement_in_body;
 use crate::ghosts::GhostShape;
@@ -277,8 +279,9 @@ impl MadeCause {
     }
 
     /// The revert of the primary change as it applies to the current records, with its label;
-    /// one per number without a unit for a units change; none when it would change nothing or
-    /// its feature, parameter or neighbor is gone.
+    /// one per number without a unit for a units change; none when it would change nothing, its
+    /// feature, parameter or neighbor is gone, or it gives a datum plane a base the datum plane
+    /// refuses (section 3.22).
     fn reverts(&self, view: &FeatureView<'_>) -> Vec<(String, Vec<Edit>)> {
         let Some(revert) = &self.revert else {
             return Vec::new();
@@ -287,6 +290,7 @@ impl MadeCause {
             return units_reverts(view, *old);
         }
         single_revert(view, revert)
+            .filter(|(_, edit)| !refused_by_its_datum(view.run, edit))
             .into_iter()
             .map(|(label, edit)| (label, vec![edit]))
             .collect()

@@ -1,5 +1,6 @@
 //! Sketch commands: candidate solves, drag frames and committing a drag (engine.md section 3.6),
-//! the plane a re-attach by pick stores (`attach_plane`, section 3.22), the stored sketch's latest
+//! the plane a re-attach by pick stores and a datum plane's new base (`attach_plane`, section
+//! 3.22), the stored sketch's latest
 //! solution (`stored_solution`), and the context a stored sketch is solved in: its dimension values
 //! and its placement.
 
@@ -16,16 +17,19 @@ use partsmith_sketch::{
 };
 use serde_json::Value;
 
+use crate::datum_base::{BaseRule, picked_base};
 use crate::error::EngineError;
 use crate::fixes::offer_finding_fixes;
 use crate::frames::{
     face_placement, frame_keeps, is_identity, kept_face_plane, motions_match, placement_hint,
     sketch_motion,
 };
+use crate::run::RunView;
 use crate::session::{Session, evaluate_in};
 use crate::sketch::{
-    Drag, SketchWords, Solved, built, dimension_values, has_point, sketch_params, sketch_record,
-    solve, solve_values,
+    DATUM_PLANE_TYPE, Drag, SKETCH_TYPE, SketchWords, Solved, built, dimension_values, has_point,
+    not_a_sketch, sketch_params, sketch_record, solve, solve_values, timeline_record,
+    validated_record,
 };
 use crate::state::{
     Computed, built_output, built_sketch, display_state, feature_label, held_back, ran,
@@ -81,10 +85,11 @@ impl Session {
         self.apply_batch(doc, "Drag", vec![Edit::UpdateFeature { feature: record }])
     }
 
-    /// The plane a re-attach of the sketch by pick stores in place of `plane`, or `None` when no
-    /// stored plane keeps the sketch's motion (section 3.22); records nothing. A sketch that the
-    /// stop point or the rollback marker kept from running is read in a recompute without them,
-    /// made for this command only.
+    /// The plane a re-attach by pick of the sketch, or a new base of the datum plane, `feature`
+    /// stores in place of `plane`, or `None` when no stored plane keeps the motion it passes on
+    /// (section 3.22); records nothing. A datum plane gets `plane` itself unless it refuses that
+    /// base. A feature that the stop point or the rollback marker kept from running is read in a
+    /// recompute without them, made for this command only.
     pub fn attach_plane(
         &mut self,
         doc: DocHandle,
@@ -96,8 +101,15 @@ impl Session {
             .documents
             .get(&doc)
             .ok_or(EngineError::UnknownDocument { doc })?;
-        let (position, record) = sketch_record(&open.document, feature)?;
-        let stored = sketch_params(&self.registry, &open.document, record)?.plane;
+        let (position, record) = timeline_record(&open.document, feature)?;
+        let stored = match record.kind.as_str() {
+            SKETCH_TYPE => Some(sketch_params(&self.registry, &open.document, record)?.plane),
+            DATUM_PLANE_TYPE => {
+                validated_record(&self.registry, &open.document, record)?;
+                None
+            }
+            _ => return Err(not_a_sketch(record)),
+        };
         if let SketchPlane::Face { body, .. } = plane
             && open.document.body(body).is_none()
         {
@@ -109,8 +121,20 @@ impl Session {
             .features
             .get(position)
             .is_some_and(|report| held_back(report.status))
-            .then(|| whole_run(&mut self.recompute, open).1);
-        let run = whole.as_ref().unwrap_or(&open.computed);
+            .then(|| whole_run(&mut self.recompute, open));
+        let (document, run) = whole.as_ref().map_or(
+            (open.document.as_ref(), &open.computed),
+            |(document, computed)| (document, computed),
+        );
+        let Some(stored) = stored else {
+            let run = RunView::new(document, &self.registry, &run.report)
+                .began_with(open.transaction_began());
+            let datum = run
+                .feature_at(position)
+                .ok_or_else(|| EngineError::internal("a datum plane's run has its report"))?;
+            let base = serde_json::to_value(picked_base(plane)).map_err(EngineError::unexpected)?;
+            return Ok((!BaseRule::of(&datum).refuses(&base)).then(|| plane.clone()));
+        };
         let Some(kept) = plane_motion(&stored, run, position) else {
             return Ok(Some(plane.clone()));
         };

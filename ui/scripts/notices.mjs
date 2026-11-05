@@ -569,15 +569,28 @@ async function webView2Entries(root, desktopCrates) {
   )
 }
 
+/**
+ * The entry of the Visual C++ runtime and the C++ standard library that the linker copies into the Windows app from
+ * Visual Studio's static libraries (input 6), for Windows only. Its text is Partsmith's own, on Microsoft's terms.
+ */
+async function msvcRuntimeEntry(root) {
+  return noticesEntry({
+    name: 'Microsoft Visual C++ runtime (libcmt, libvcruntime and libcpmt), in the Windows app',
+    url: 'https://visualstudio.microsoft.com/license-terms/',
+    platforms: ['Windows'],
+    texts: [await normalizedCopy(root, 'msvc-runtime/Distributable-Code.txt')],
+  })
+}
+
 /** The entries of the code the NSIS installer adds to the Windows setup executable (input 6), for Windows only. */
 async function windowsInstallerEntries(root) {
   const { tauriBundler, nsis, nsisTauriUtils } = WINDOWS_INSTALLER
   // Each entry's texts are the committed copies `files` in the folder `folder` of ui/scripts/notices/, in order.
   const entries = [
     {
-      name: 'NSIS with its LZMA decompressor, Modern UI 2 and the plugins System, nsDialogs, StartMenu and NSISdl, in the Windows installer',
+      name: 'NSIS with its zlib decompressor, Modern UI 2 and the plugins System, nsDialogs, StartMenu and NSISdl, in the Windows installer',
       version: nsis,
-      license: 'Zlib AND CPL-1.0',
+      license: 'Zlib',
       url: `https://sourceforge.net/projects/nsis/files/NSIS%203/${nsis}/`,
       folder: `nsis-${nsis}`,
       files: ['COPYING', 'ModernUI2-License.txt', 'NSISdl-License.txt'],
@@ -923,6 +936,7 @@ export async function generateNotices(root, { run }) {
       null,
     )
   const webView2 = await webView2Entries(root, graphs.desktop)
+  const msvcRuntime = await msvcRuntimeEntry(root)
   const windowsInstaller = await windowsInstallerEntries(root)
 
   const desktop = renderNotices({
@@ -939,7 +953,7 @@ export async function generateNotices(root, { run }) {
     fonts: onEveryPlatform(fonts),
     crates: graphs.desktop.map((crate) => crateEntry(crate, crate.platforms)),
     packages: onEveryPlatform(packages.map(npmEntry)),
-    libraries: [...onEveryPlatform([rust]), ...webView2, ...windowsInstaller],
+    libraries: [...onEveryPlatform([rust]), ...webView2, msvcRuntime, ...windowsInstaller],
   })
   const web = renderNotices({
     heading: WEB_NOTICES_HEADING,

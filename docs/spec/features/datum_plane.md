@@ -87,6 +87,8 @@ feature(
 
 A datum on a face follows that face through later edits by name; if the face is lost, the datum fails with `ReferenceNotFound` (with the loss and its candidates, features.md section 4.1), and features that use the datum report `UpstreamFailed` with the datum as the root.
 
+The build takes any base. A host's pick of a new base is refused, and the engine does not offer `UseReferences`, `KeepMatch` or a revert of the base, when later features build on the datum's sketches, the old base gives a motion by step 4, and the new base gives another motion or none (engine.md section 3.22, *A datum plane's new base*).
+
 ### 3.3 Element names
 
 None. Features address the datum by its feature id.

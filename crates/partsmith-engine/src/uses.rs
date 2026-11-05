@@ -23,7 +23,7 @@ impl Session {
 }
 
 /// What every feature of `document` uses (section 3.24).
-fn uses(registry: &Registry, document: &Document) -> Vec<Use> {
+pub(crate) fn uses(registry: &Registry, document: &Document) -> Vec<Use> {
     let mut found: Vec<(usize, Use)> = Vec::new();
     for (position, record) in document.features.iter().enumerate() {
         for link in feature_links(registry, record) {

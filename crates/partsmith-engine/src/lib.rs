@@ -13,6 +13,7 @@ mod analysis;
 mod assets;
 mod causes;
 mod counts;
+mod datum_base;
 mod diagnostics;
 mod dispatch;
 mod display;

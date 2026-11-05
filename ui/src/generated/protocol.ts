@@ -230,7 +230,7 @@ type: "end_sketch_drag"
  */
 doc: DocHandle
 /**
- * The sketch feature.
+ * The sketch feature, or a datum plane whose new base `plane` is.
  */
 feature: Id
 /**
@@ -1195,7 +1195,7 @@ revision: number
 type: "end_sketch_drag"
 } | {
 /**
- * The plane to store; absent when no stored plane keeps the sketch's motion.
+ * The plane to store; absent when no stored plane keeps the motion of the sketch or the datum plane.
  */
 plane?: (SketchPlane | null)
 type: "attach_plane"

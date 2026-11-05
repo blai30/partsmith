@@ -21,12 +21,14 @@ use crate::profiles::tolerance;
 use crate::sketch::Drag;
 use crate::state::Computed;
 
-/// An open transaction: its label, the serial its undo entry gets, the recorded edits and the
-/// focus feature.
+/// An open transaction: its label, the serial its undo entry gets, the recipe it began with, the
+/// recorded edits and the focus feature.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct OpenTransaction {
     /// The undo label.
     pub(crate) label: String,
+    /// The recipe when it began, which a datum plane's old base is read from (section 3.22).
+    pub(crate) began: Arc<Document>,
     /// The serial of the undo entry it becomes when it is committed (`History::serial`).
     pub(crate) entry: u64,
     /// Recorded `(edit, inverse)` pairs, coalesced (section 3.3).
@@ -133,6 +135,13 @@ impl OpenDocument {
             self.text.revision = self.revision;
         }
         Ok(())
+    }
+
+    /// The recipe when the open transaction began; `None` outside a transaction.
+    pub(crate) fn transaction_began(&self) -> Option<&Document> {
+        self.transaction
+            .as_ref()
+            .map(|transaction| transaction.began.as_ref())
     }
 
     /// The tolerance of the document's display meshes.

@@ -1,5 +1,7 @@
 //! Edits, transactions, coalescing, undo and redo, and parameter renames (engine.md section 3.3).
 
+use std::sync::Arc;
+
 use partsmith_features::{FeatureError, Registry};
 use partsmith_model::{Document, Edit, FeatureRecord, Id, RecordKind, Step, Transaction};
 use partsmith_protocol::DocHandle;
@@ -64,6 +66,7 @@ impl Session {
         let entry = open.history.serial();
         open.transaction = Some(OpenTransaction {
             label: label.to_string(),
+            began: Arc::clone(&open.document),
             entry,
             steps: Vec::new(),
             focus: None,
@@ -73,7 +76,7 @@ impl Session {
 
     /// Sets or clears the focus feature of the open transaction.
     pub fn set_focus(&mut self, doc: DocHandle, feature: Option<&Id>) -> Result<(), EngineError> {
-        let registry = std::sync::Arc::clone(&self.registry);
+        let registry = Arc::clone(&self.registry);
         let open = self.open_mut(doc)?;
         let transaction = open
             .transaction

@@ -57,7 +57,8 @@ pub(crate) fn feature_statuses(
     let failures = open.emitted.display_failures();
     let revision = open.revision;
     let causes = CauseLines::of(open);
-    let run = RunView::new(document, registry, &computed.report);
+    let run =
+        RunView::new(document, registry, &computed.report).began_with(open.transaction_began());
     computed
         .report
         .features

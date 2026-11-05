@@ -132,31 +132,16 @@ jobs:
       # #[cfg(target_os = "macos")], such as desktop.md tests 68 to 70.
       - if: ${{ !cancelled() && steps.crates.outcome != 'skipped' }}
         run: cargo clippy -p partsmith-occt-sys -p partsmith-engine -p partsmith-desktop --all-targets -- -D warnings
-      # The app that the crate tests built imports no DLL of the Visual C++ Redistributable (delivery.md 3.6, ADR 0038).
-      # The run text is the one of release.yml's bundle job, character for character.
+      # The app that the crate tests built imports the Universal C Runtime of Windows and no DLL of the Visual C++
+      # Redistributable (delivery.md 3.6, ADR 0038).
       - name: Check the imports of the app
         if: ${{ !cancelled() && steps.crates.outcome != 'skipped' && runner.os == 'Windows' }}
-        env:
-          EXECUTABLE: target/debug/partsmith-desktop.exe
-        run: |
-          # Options start with -, since Git Bash turns an argument that starts with / into a path. dumpbin's exit status
-          # is not used: the listing decides, and a missing dumpbin lists nothing.
-          listing="$(dumpbin -nologo -dependents "$EXECUTABLE" | tr -d '\r')" || true
-          echo "$listing"
-          # Each line of the listing without its leading spaces.
-          lines="$(sed 's/^ *//' <<< "$listing")"
-          if ! grep -q -x -F 'Image has the following dependencies:' <<< "$lines"; then
-            echo "::error title=Imports not checked::dumpbin listed no imports of $EXECUTABLE, so the C runtime it imports was not checked. The steps that set up MSVC and build the app run before this one (docs/spec/delivery.md section 3.6)."
-            exit 1
-          fi
-          # The DLLs of the Visual C++ Redistributable, delay-loaded ones included, in the listing's order. The digit
-          # after the prefix leaves out msvcp_win.dll and msvcrt.dll, which are part of Windows.
-          mapfile -t runtime < <(grep -i -E '^(msvcp|msvcr|vcruntime|concrt|vcomp|vccorlib|vcamp|mfc|mfcm)[0-9][^ ]*\.dll$' <<< "$lines")
-          if [ "${#runtime[@]}" -gt 0 ]; then
-            names="$(printf ', %s' "${runtime[@]}")"
-            echo "::error title=Visual C++ runtime imported::$EXECUTABLE imports ${names#, }, which only the Visual C++ Redistributable installs. On Windows, OCCT, the shim and every Rust crate link the Visual C++ runtime and the C++ standard library statically (docs/spec/delivery.md section 3.6)."
-            exit 1
-          fi
+        run: scripts/check-windows-imports.sh target/debug/partsmith-desktop.exe
+      # The CLI that the examples runner ran. Its link takes the two link arguments of the Universal C Runtime from
+      # .cargo/config.toml alone, where tauri-build gives them to the app by itself (delivery.md 3.6).
+      - name: Check the imports of the CLI
+        if: ${{ !cancelled() && steps.crates.outcome != 'skipped' && runner.os == 'Windows' }}
+        run: scripts/check-windows-imports.sh target/debug/partsmith.exe
       - name: Disk space after the tests
         if: always()
         run: df -h .

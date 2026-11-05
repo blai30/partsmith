@@ -67,6 +67,11 @@
     "homepage": "https://github.com/blai30/partsmith",
     "macOS": {
       "minimumSystemVersion": "13.0"
+    },
+    "windows": {
+      "nsis": {
+        "compression": "zlib"
+      }
     }
   }
 }

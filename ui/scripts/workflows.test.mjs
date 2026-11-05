@@ -1,6 +1,6 @@
 // Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87, 93 to 95, 100, 101, 104, 105, 118 to
-// 120 and 122 to 124 of docs/spec/delivery.md section 6 for the workflow files, the copies of section 3.6 and
-// scripts/check-source-archive.sh.
+// 120 and 122 to 124 of docs/spec/delivery.md section 6 for the workflow files, the copies of section 3.6,
+// scripts/check-source-archive.sh and scripts/check-windows-imports.sh.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -253,11 +253,20 @@ const DEBUG_APP = 'target/debug/partsmith-desktop.exe'
 const RELEASE_APP = 'target/release/partsmith-desktop.exe'
 const TAURI_BUILD = 'cargo tauri build --bundles ${{ matrix.bundles }} --ci'
 
-// The step of rust-platforms that checks the imports of the CLI with the app's script, the CLI that Cargo builds for
-// the examples runner, and the step that follows the check (section 3.6, The check of the imports, test 124).
+// The step of rust-platforms that checks the imports of the CLI, the CLI that Cargo builds for the examples runner, and
+// the step that follows the check (section 3.6, The check of the imports, test 124).
 const CLI_IMPORT_CHECK = 'Check the imports of the CLI'
 const DEBUG_CLI = 'target/debug/partsmith.exe'
 const DISK_SPACE = 'Disk space after the tests'
+
+// The script that each import check runs, and its usage line (section 3.6, The check of the imports, and section 4).
+const IMPORT_SCRIPT = 'scripts/check-windows-imports.sh'
+const IMPORT_USAGE = `usage: ${IMPORT_SCRIPT} <executable>`
+
+/** The `run` of an import check of the program `executable`: the import script with that one argument. */
+function importCheckRun(executable) {
+  return `${IMPORT_SCRIPT} ${executable}`
+}
 
 // A stand-in for dumpbin that appends its arguments, separated by NUL, as one line to $DUMPBIN_CALLS, prints the file
 // $DUMPBIN_LISTING and exits with $DUMPBIN_STATUS.
@@ -1986,11 +1995,11 @@ function writeCommitArchive(environment, repository, version, commit, path) {
   assert.equal(result.status, 0, result.stderr)
 }
 
-/** Copies scripts/check-source-archive.sh to the same path in `folder`, as the checkout of a job holds it. */
-async function copyCheckScript(folder) {
+/** Copies the script `script` of the repository to the same path in `folder`, as the checkout of a job holds it. */
+async function copyScript(script, folder) {
   await mkdir(join(folder, 'scripts'), { recursive: true })
-  await copyFile(join(repositoryRoot, CHECK_SCRIPT), join(folder, CHECK_SCRIPT))
-  await chmod(join(folder, CHECK_SCRIPT), 0o755)
+  await copyFile(join(repositoryRoot, script), join(folder, script))
+  await chmod(join(folder, script), 0o755)
 }
 
 /**
@@ -2003,7 +2012,7 @@ async function runDeployCheck(context, name, { checkout = {}, files, environment
   const steps = await ciJobSteps('deploy')
   const workspace = await temporaryDirectory(context)
   await writeFiles(workspace, checkout)
-  await copyCheckScript(workspace)
+  await copyScript(CHECK_SCRIPT, workspace)
   if (files !== undefined) {
     await mkdir(join(workspace, 'ui', 'dist'), { recursive: true })
     await writeFiles(join(workspace, 'ui', 'dist'), files)
@@ -2050,7 +2059,7 @@ async function runArchiveWriter(context, fixture, cached, expected) {
       commit: fixture.tagged,
     }),
   })
-  await copyCheckScript(root)
+  await copyScript(CHECK_SCRIPT, root)
   await mkdir(join(root, ARCHIVE_CACHE_PATH), { recursive: true })
   await writeFiles(join(root, ARCHIVE_CACHE_PATH), cached)
 
@@ -2686,7 +2695,7 @@ test('100: rust-platforms checks the imports of the debug app on Windows after c
 
   assert.ok(clippy < check, `${IMPORT_CHECK} comes before clippy`)
   assert.equal(stepValue(steps[check], 'if'), IMPORT_CHECK_CONDITION)
-  assert.deepEqual(stepMapping(steps[check], 'env'), { EXECUTABLE: DEBUG_APP })
+  assert.equal(stepValue(steps[check], 'run'), importCheckRun(DEBUG_APP))
 })
 
 test('100: the Windows bundle job checks the imports of the app the installer holds, right after cargo tauri build', async () => {
@@ -2698,23 +2707,21 @@ test('100: the Windows bundle job checks the imports of the app the installer ho
   assert.equal(check, build + 1, `${IMPORT_CHECK} is not right after cargo tauri build`)
   assert.equal(collect, check + 1, `${IMPORT_CHECK} is not right before Collect the bundles`)
   assert.equal(stepValue(steps[check], 'if'), "runner.os == 'Windows'")
-  assert.deepEqual(stepMapping(steps[check], 'env'), { EXECUTABLE: RELEASE_APP })
+  assert.equal(stepValue(steps[check], 'run'), importCheckRun(RELEASE_APP))
 })
 
-test("100: both import checks run one script in their job's shell and folder, and may not fail", async () => {
-  const { platforms, release } = await importCheckJobs()
-  const checks = [
-    platforms[namedStep(platforms, IMPORT_CHECK)],
-    release[namedStep(release, IMPORT_CHECK)],
-  ]
-
-  for (const check of checks) {
-    for (const key of ['shell', 'working-directory', 'continue-on-error']) {
-      assert.equal(stepValue(check, key), undefined, `${IMPORT_CHECK} sets ${key}`)
-    }
+/** Asserts that the import check `check`, named `name`, runs in its job's shell and folder and may not fail. */
+function assertPlainImportCheck(check, name) {
+  for (const key of ['env', 'shell', 'working-directory', 'continue-on-error']) {
+    assert.equal(stepValue(check, key), undefined, `${name} sets ${key}`)
   }
-  assert.ok(stepValue(checks[0], 'run'), `${IMPORT_CHECK} runs nothing`)
-  assert.equal(stepValue(checks[0], 'run'), stepValue(checks[1], 'run'))
+}
+
+test("100: both import checks run in their job's shell and folder, with no env, and may not fail", async () => {
+  const { platforms, release } = await importCheckJobs()
+
+  assertPlainImportCheck(platforms[namedStep(platforms, IMPORT_CHECK)], IMPORT_CHECK)
+  assertPlainImportCheck(release[namedStep(release, IMPORT_CHECK)], IMPORT_CHECK)
 })
 
 test('100: each job sets up the MSVC developer environment on Windows before its import check', async () => {
@@ -2723,6 +2730,19 @@ test('100: each job sets up the MSVC developer environment on Windows before its
 
     assert.equal(stepValue(steps[msvc], 'if'), "runner.os == 'Windows'", job)
     assert.ok(msvc < namedStep(steps, IMPORT_CHECK), `${job}: MSVC is set up after ${IMPORT_CHECK}`)
+  }
+})
+
+test('100: no step of the workflows runs dumpbin itself: the import script is the one copy of the check', async () => {
+  for (const [file, text] of await workflowTexts(WORKFLOW_FILES)) {
+    for (const job of workflowJobs(text)) {
+      for (const step of jobSteps(job)) {
+        assert.ok(
+          !(stepValue(step, 'run') ?? '').includes('dumpbin'),
+          `${file}: a step of ${job.id} runs dumpbin`,
+        )
+      }
+    }
   }
 })
 
@@ -2774,24 +2794,24 @@ function ucrtNotImportedMessage(executable) {
 }
 
 /**
- * Runs the import check `step` of rust-platforms, by default the app's, as GitHub runs a `bash` step, in a new folder,
- * with `EXECUTABLE` set to `executable`, by default the debug app, and the dumpbin stub first on `PATH`, printing
+ * Runs the import check `step` of rust-platforms, by default the app's, as GitHub runs a `bash` step, in a new folder
+ * that holds a copy of the import script, as the job's checkout does, with the dumpbin stub first on `PATH`, printing
  * `listing` and exiting with `status`; with `listing` null, no dumpbin is on `PATH`. Resolves to the result and the
  * argument lists dumpbin received.
  */
-async function runImportCheck(
-  context,
-  listing,
-  { status = 0, step = IMPORT_CHECK, executable = DEBUG_APP } = {},
-) {
+async function runImportCheck(context, listing, { status = 0, step = IMPORT_CHECK } = {}) {
   const { platforms: steps } = await importCheckJobs()
   const directory = await temporaryDirectory(context)
   const workspace = join(directory, 'workspace')
   const stubDirectory = join(directory, 'stub')
   const callsPath = join(directory, 'calls')
   const listingPath = join(directory, 'listing')
-  await Promise.all([mkdir(workspace), mkdir(stubDirectory), writeFile(callsPath, '')])
-  const environment = { ...process.env, EXECUTABLE: executable }
+  await Promise.all([
+    copyScript(IMPORT_SCRIPT, workspace),
+    mkdir(stubDirectory),
+    writeFile(callsPath, ''),
+  ])
+  const environment = { ...process.env }
   if (listing !== null) {
     await writeFile(join(stubDirectory, 'dumpbin'), DUMPBIN_STUB)
     await chmod(join(stubDirectory, 'dumpbin'), 0o755)
@@ -2909,6 +2929,24 @@ test('101: the import check fails with Imports not checked when dumpbin is not o
   assertImportCheckFailed(result, importsNotCheckedMessage(DEBUG_APP))
 })
 
+test('101: the import script exits 2 with its usage line for other than one argument', () => {
+  for (const scriptArguments of [[], [DEBUG_APP, RELEASE_APP]]) {
+    const result = spawnSync('bash', [join(repositoryRoot, IMPORT_SCRIPT), ...scriptArguments], {
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 2, `${scriptArguments.length} arguments`)
+    assert.equal(result.stdout, '')
+    assert.equal(result.stderr, `${IMPORT_USAGE}\n`)
+  }
+})
+
+test('101: the import script is executable, since each import check runs it by its path', async () => {
+  const { mode } = await lstat(join(repositoryRoot, IMPORT_SCRIPT))
+
+  assert.equal(mode & 0o111, 0o111, `${IMPORT_SCRIPT} has the mode ${(mode & 0o777).toString(8)}`)
+})
+
 test('123: every listing of test 101 that passes imports the two api-ms-win-crt DLLs', () => {
   for (const name of ['api-ms-win-crt-runtime-l1-1-0.dll', 'api-ms-win-crt-heap-l1-1-0.dll']) {
     assert.ok(WINDOWS_IMPORTS.includes(name), `WINDOWS_IMPORTS lacks ${name}`)
@@ -2973,22 +3011,13 @@ test('124: rust-platforms checks the imports of the CLI right after those of the
     `${CLI_IMPORT_CHECK} is not right before ${DISK_SPACE}`,
   )
   assert.equal(stepValue(steps[cli], 'if'), IMPORT_CHECK_CONDITION)
-  assert.deepEqual(stepMapping(steps[cli], 'env'), { EXECUTABLE: DEBUG_CLI })
+  assert.equal(stepValue(steps[cli], 'run'), importCheckRun(DEBUG_CLI))
 })
 
-test("124: the CLI's check runs the script of both app checks in its job's shell and folder, and may not fail", async () => {
-  const { platforms, release } = await importCheckJobs()
-  const check = platforms[namedStep(platforms, CLI_IMPORT_CHECK)]
+test("124: the CLI's check runs in its job's shell and folder, with no env, and may not fail", async () => {
+  const { platforms } = await importCheckJobs()
 
-  for (const key of ['shell', 'working-directory', 'continue-on-error']) {
-    assert.equal(stepValue(check, key), undefined, `${CLI_IMPORT_CHECK} sets ${key}`)
-  }
-  assert.ok(stepValue(check, 'run'), `${CLI_IMPORT_CHECK} runs nothing`)
-  assert.equal(
-    stepValue(check, 'run'),
-    stepValue(platforms[namedStep(platforms, IMPORT_CHECK)], 'run'),
-  )
-  assert.equal(stepValue(check, 'run'), stepValue(release[namedStep(release, IMPORT_CHECK)], 'run'))
+  assertPlainImportCheck(platforms[namedStep(platforms, CLI_IMPORT_CHECK)], CLI_IMPORT_CHECK)
 })
 
 test('124: no job of the release workflow checks the imports of the CLI', async () => {
@@ -3024,10 +3053,7 @@ test("124: the CLI's check passes on a CLI that imports the Universal C Runtime 
     { executable: DEBUG_CLI },
   )
 
-  const result = await runImportCheck(context, listing, {
-    step: CLI_IMPORT_CHECK,
-    executable: DEBUG_CLI,
-  })
+  const result = await runImportCheck(context, listing, { step: CLI_IMPORT_CHECK })
 
   assertImportsAccepted(result)
   assert.deepEqual(result.calls, [['-nologo', '-dependents', DEBUG_CLI]])
@@ -3036,10 +3062,7 @@ test("124: the CLI's check passes on a CLI that imports the Universal C Runtime 
 test("124: the CLI's check fails with Universal C Runtime not imported on a CLI that links it statically", async (context) => {
   const listing = dumpbinListing(['KERNEL32.dll'], { executable: DEBUG_CLI })
 
-  const result = await runImportCheck(context, listing, {
-    step: CLI_IMPORT_CHECK,
-    executable: DEBUG_CLI,
-  })
+  const result = await runImportCheck(context, listing, { step: CLI_IMPORT_CHECK })
 
   assertImportCheckFailed(result, ucrtNotImportedMessage(DEBUG_CLI))
 })
@@ -3047,7 +3070,6 @@ test("124: the CLI's check fails with Universal C Runtime not imported on a CLI 
 test("124: the CLI's check fails with Imports not checked, naming the program, when dumpbin cannot open it", async (context) => {
   const result = await runImportCheck(context, unreadableListing(DEBUG_CLI), {
     step: CLI_IMPORT_CHECK,
-    executable: DEBUG_CLI,
   })
 
   assertImportCheckFailed(result, importsNotCheckedMessage(DEBUG_CLI))

@@ -15,6 +15,7 @@ use partsmith_protocol::{DocHandle, FixAction, FixKind, FixRef, Repair};
 use partsmith_recompute::Message;
 
 use crate::causes::{CauseLines, CauseOffer};
+use crate::datum_base::BaseRule;
 use crate::error::EngineError;
 use crate::ids::NewIds;
 use crate::run::{FeatureView, RunView};
@@ -26,6 +27,9 @@ use labels::Labels;
 pub(crate) use edits::{constraint_pointer, index_beside, updated};
 pub(crate) use findings::offer_finding_fixes;
 pub(crate) use labels::is_plain_value;
+
+/// The pointer of a datum plane's base face.
+const BASE_FACE: &str = "/base/face";
 
 /// One action a message offers: its label and how it runs.
 pub(crate) struct Offer<'m> {
@@ -77,7 +81,7 @@ impl Offer<'_> {
 }
 
 /// The actions a message of `feature` offers, in the order of its fixes, labeled with the words
-/// of its `repairs`.
+/// of its `repairs`. A fix that would give a datum plane a base it refuses is not offered.
 pub(crate) fn offers<'m>(
     feature: &FeatureView<'_>,
     message: &'m Message,
@@ -88,11 +92,25 @@ pub(crate) fn offers<'m>(
         message,
         repairs,
     };
+    let bases = BaseRule::of(feature);
     message
         .fixes
         .iter()
+        .filter(|fix| !stores_refused_base(feature, &bases, fix))
         .filter_map(|fix| labels.offer(fix))
         .collect()
+}
+
+/// True when `fix` is a `UseReferences` or `KeepMatch` at a datum plane's `/base/face` whose
+/// base the datum plane refuses (section 3.22, *A datum plane's new base*).
+fn stores_refused_base(feature: &FeatureView<'_>, bases: &BaseRule<'_, '_>, fix: &Fix) -> bool {
+    let (Fix::UseReferences { pointer, .. } | Fix::KeepMatch { pointer }) = fix else {
+        return false;
+    };
+    pointer == BASE_FACE
+        && feature
+            .own_edits(fix)
+            .is_ok_and(|edits| bases.refuses_edits(&edits))
 }
 
 /// The edits of each `apply` action of `message` of `feature` that a cause action is compared
@@ -148,7 +166,8 @@ impl Session {
         if !fix.cause && fix.field.as_deref().is_some_and(is_finding_field) {
             return self.apply_finding_fix(doc, fix);
         }
-        let run = RunView::new(&open.document, &self.registry, &open.computed.report);
+        let run = RunView::new(&open.document, &self.registry, &open.computed.report)
+            .began_with(open.transaction_began());
         let feature = run.feature(&fix.feature).ok_or(EngineError::StaleFix)?;
         let message = feature
             .message(&fix.code, fix.field.as_deref())
@@ -192,8 +211,13 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
+    use partsmith_naming::Reference;
+    use partsmith_recompute::Severity;
+    use serde_json::{Value, json};
+
     use super::*;
-    use crate::test_support::id;
+    use crate::SessionOptions;
+    use crate::test_support::{id, opened_with};
 
     fn fix_ref() -> FixRef {
         FixRef {
@@ -255,6 +279,128 @@ mod tests {
                 feature: id("f-sk1"),
                 entity: None
             }
+        );
+    }
+    // Test 170: the offers of a datum plane's new base (engine.md section 3.22).
+
+    /// The cube's top as `examples/datum_plane/on-moved-face` stores it.
+    const TOP: &str = r#"{"q": "f-box1/top", "fp": "plane|n=0,0,1|c=0,0,10|a=100"}"#;
+
+    /// A face the cube does not have (test 135's lost face).
+    const LOST: &str = r#"{"q": "f-box1/nothing", "fp": "plane|n=0,0,1|c=500,500,500|a=1"}"#;
+
+    /// The cube's front side (y = -5) in body coordinates.
+    const FRONT: &str = r#"{"q": "f-box1/front", "fp": "plane|n=0,-1,0|c=0,-5,5|a=100"}"#;
+
+    /// The cube's bottom in body coordinates.
+    const BOTTOM: &str = r#"{"q": "f-box1/bottom", "fp": "plane|n=0,0,-1|c=0,0,0|a=100"}"#;
+
+    /// A reference written as JSON.
+    fn reference(text: &str) -> Value {
+        serde_json::from_str(text).expect("a reference is JSON")
+    }
+
+    /// Test 168's `LIFTED`: CUBE10 lifted by (0, 0, 20), `f-dp0` and `f-dp1` on `f-dp1_face`, `f-sk1` on `f-dp1` with
+    /// a circle of radius 2 at (0, 0), and, when `extruded`, `f-ext1`, which joins its extrusion into `b-1`.
+    fn lifted(f_dp1_face: &str, extruded: bool) -> String {
+        let mut features = vec![
+            json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}),
+            json!({"id": "f-mv1", "type": "move_body", "body": "b-1", "translation": ["0", "0", "20"]}),
+            json!({"id": "f-dp0", "type": "datum_plane", "base": {"kind": "face", "body": "b-1", "face": reference(TOP)}}),
+            json!({"id": "f-dp1", "type": "datum_plane", "base": {"kind": "face", "body": "b-1", "face": reference(f_dp1_face)}}),
+            json!({
+                "id": "f-sk1", "type": "sketch", "plane": {"kind": "datum", "feature": "f-dp1"},
+                "entities": [{"id": "e-1", "type": "circle", "center": [0, 0], "radius": 2}]
+            }),
+        ];
+        if extruded {
+            features.push(json!({
+                "id": "f-ext1", "type": "extrude", "body": "b-1",
+                "profile": {"sketch": "f-sk1", "regions": [{"key": "e-1", "fp": "c=0,0|a=12.566371"}]},
+                "extent": {"kind": "distance", "expr": "5"}, "op": "join"
+            }));
+        }
+        json!({
+            "format": "partsmith", "format_version": 2, "units": "mm", "parameters": [],
+            "bodies": [{"id": "b-1", "name": "Body 1"}], "features": features
+        })
+        .to_string()
+    }
+
+    /// A `reference_guessed` warning of `f-dp1` at `/base/face` whose fixes store the front side and the bottom, in
+    /// that order.
+    fn guessed_base() -> Message {
+        let use_face = |face: &str| Fix::UseReferences {
+            pointer: "/base/face".to_string(),
+            references: vec![serde_json::from_str::<Reference>(face).expect("a valid reference")],
+        };
+        Message {
+            severity: Severity::Warning,
+            code: "reference_guessed",
+            pointer: Some("/base/face".to_string()),
+            text: "The top of 'Box 1' no longer exists as named.".to_string(),
+            suggestion: None,
+            repairs: Vec::new(),
+            fixes: vec![use_face(FRONT), use_face(BOTTOM)],
+            detail: None,
+            root: None,
+            reason: None,
+        }
+    }
+
+    /// The element repair at `/base/face` whose candidates the two fixes of [`guessed_base`] store.
+    fn base_repair() -> Repair {
+        let candidate = |face: &str, description: &str| {
+            json!({
+                "reference": reference(face), "description": description, "relation": "on the cube",
+                "meaning": false, "distance": 0.0, "score": 0.5
+            })
+        };
+        serde_json::from_value(json!({
+            "kind": "element", "path": "/base/face", "body": "b-1", "reference": reference(TOP),
+            "resolution": "ambiguous", "description": "the top of 'Box 1'",
+            "candidates": [
+                candidate(FRONT, "the front side of 'Box 1'"),
+                candidate(BOTTOM, "the bottom of 'Box 1'")
+            ]
+        }))
+        .expect("a valid repair")
+    }
+
+    /// The labels `offers` gives [`guessed_base`] for `f-dp1` of `text` in the latest recompute.
+    fn offered_labels(text: &str) -> Vec<String> {
+        let (session, doc) = opened_with(SessionOptions::headless(), text);
+        let open = session.open(doc).expect("the document is open");
+        let run = RunView::new(&open.document, &session.registry, &open.computed.report);
+        let datum = run.feature(&id("f-dp1")).expect("the run has f-dp1");
+        let message = guessed_base();
+        offers(&datum, &message, &[base_repair()])
+            .into_iter()
+            .map(|offer| offer.label)
+            .collect()
+    }
+
+    #[test]
+    fn t170_a_base_that_moves_otherwise_is_not_offered_under_later_features() {
+        assert_eq!(
+            offered_labels(&lifted(TOP, true)),
+            ["Use the bottom of 'Box 1'"]
+        );
+    }
+
+    #[test]
+    fn t170_every_base_is_offered_when_nothing_builds_on_the_sketch() {
+        assert_eq!(
+            offered_labels(&lifted(TOP, false)),
+            ["Use the front side of 'Box 1'", "Use the bottom of 'Box 1'"]
+        );
+    }
+
+    #[test]
+    fn t170_every_base_is_offered_when_the_old_base_is_lost() {
+        assert_eq!(
+            offered_labels(&lifted(LOST, true)),
+            ["Use the front side of 'Box 1'", "Use the bottom of 'Box 1'"]
         );
     }
 }

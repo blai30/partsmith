@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import { expect, type Locator, type Page } from '@playwright/test'
 import {
+  browserRow,
   canvas,
   download,
   dropFile,
@@ -8,9 +9,11 @@ import {
   fitView,
   fixtureBytes,
   inspector,
+  inspectorField,
   inspectorInput,
   notificationCoded,
   openApp,
+  originRow,
   runCommand,
   sketchToScreen,
   test,
@@ -61,6 +64,23 @@ function filletLoss(page: Page): Locator {
 /** The text of `attach_moved` for 'Sketch 1' on `target` (ui.md 4.3). */
 function attachMoved(target: string): string {
   return `'Sketch 1' cannot be placed on ${target}: the two do not move together, and what later features place on the faces made from 'Sketch 1' could shift with no message. Pick a plane or face that moves the same way as 'Sketch 1'.`
+}
+
+/** The text of `datum_base_moved` (ui.md 4.3) for 'Datum plane 2' on `target`. */
+function datumBaseMoved(target: string): string {
+  return `'Datum plane 2' cannot be placed on ${target}: the two do not move together, and what later features place on the faces made from the sketches that build on 'Datum plane 2' could shift with no message. Pick a plane or face that moves the same way as 'Datum plane 2'.`
+}
+
+/** Expects every timeline item of datum-base-lifted.ptsm to build without a problem. */
+async function expectLiftedOk(page: Page): Promise<void> {
+  await expectStatuses(page, [
+    ['Box 1', 'ok'],
+    ['Move body 1', 'ok'],
+    ['Datum plane 1', 'ok'],
+    ['Datum plane 2', 'ok'],
+    ['Sketch 1', 'ok'],
+    ['Extrude 1', 'ok'],
+  ])
 }
 
 /** Edits 'Linear pattern 1' of pattern-fillet.ptsm to Count 2 and confirms, as E-122 and E-124 do. */
@@ -375,5 +395,47 @@ test.describe('lost references and their fixes', () => {
 
     await page.keyboard.press('ControlOrMeta+Z')
     await expect(sketch).toHaveAttribute('data-status', 'warning')
+  })
+  test('E-166 a new base of a datum plane that would move later features is refused', async ({
+    page,
+  }) => {
+    await openApp(page, { fileSystemAccess: false })
+    await dropFile(page, 'datum-base-lifted.ptsm')
+    await expectLiftedOk(page)
+
+    await editFeatureFromTimeline(page, 'Datum plane 2')
+    const base = inspectorField(page, 'base')
+    const field = base.getByTestId('selection-field')
+    await field.click()
+    await expect(field).toHaveAttribute('data-active', 'true')
+
+    // The datum moves with the lifted cube; the Top plane did not move.
+    await (await originRow(page, 'Top plane (XY)')).click()
+    await expect(base).toContainText(datumBaseMoved('the Top plane (XY)'))
+    await expect(field).toHaveAttribute('data-active', 'true')
+    await expect(field).toHaveAttribute('data-count', '1')
+
+    // The lift slides along the front side, so the front side did not move the datum's way.
+    await fitView(page, 'Front')
+    const mapping = toScreen(await canvas(page), { min: [-5, -5, 20], max: [5, 5, 30] }, 'Front')
+    await clickAt(page, mapping.toPage([3, -5, 25]))
+    await expect(base).toContainText(datumBaseMoved("this face of 'Box 1'"))
+    await expect(field).toHaveAttribute('data-active', 'true')
+
+    // 'Datum plane 1' sits on the same top and moves the same way.
+    await browserRow(page, 'datum', 'Datum plane 1').click()
+    await expect(field).toHaveText('Datum plane 1')
+    await page.getByTestId('inspector-ok').click()
+    await expect(inspector(page)).toHaveCount(0)
+    await expectLiftedOk(page)
+
+    const saved = await download(page, () => page.keyboard.press('ControlOrMeta+S'))
+    const savedDocument = JSON.parse(saved.bytes.toString('utf8')) as {
+      readonly features: readonly { readonly id: string; readonly base?: unknown }[]
+    }
+    expect(savedDocument.features.find((feature) => feature.id === 'f-dp2')?.base).toEqual({
+      kind: 'datum',
+      feature: 'f-dp1',
+    })
   })
 })

@@ -186,6 +186,20 @@ const FIXTURES: readonly FixtureCheck[] = [
     },
   },
   {
+    file: 'datum-base-lifted.ptsm',
+    check: async (page) => {
+      await expectStatuses(page, [
+        ['Box 1', 'ok'],
+        ['Move body 1', 'ok'],
+        ['Datum plane 1', 'ok'],
+        ['Datum plane 2', 'ok'],
+        ['Sketch 1', 'ok'],
+        ['Extrude 1', 'ok'],
+      ])
+      await expectBody(page, 'Body 1', '10 × 10 × 15 mm', '0, 0, 27.5 mm')
+    },
+  },
+  {
     file: 'hollow-resin.ptsm',
     check: async (page) => {
       await chooseContext(page, 'Print')

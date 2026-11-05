@@ -9,8 +9,18 @@ rustflags = [
 runner = "node"
 
 [target.x86_64-pc-windows-msvc]
-# The Visual C++ runtime and the C++ standard library linked statically, as OCCT and the shim link them on Windows.
-# The app then imports no DLL of the Visual C++ Redistributable (delivery.md section 3.6, ADR 0038).
-rustflags = ["-C", "target-feature=+crt-static"]
+# The hybrid C runtime (delivery.md section 3.6, ADR 0038). The Visual C++ runtime and the C++ standard library are
+# linked statically, as OCCT and the shim link them on Windows. The Universal C Runtime comes from Windows: the linker
+# skips the static libucrt.lib that libcmt.lib names and takes the import library ucrt.lib in its place. Every program
+# then imports Windows' api-ms-win-crt DLLs and no DLL of the Visual C++ Redistributable.
+rustflags = [
+  "-C", "target-feature=+crt-static",
+  "-C", "link-arg=/NODEFAULTLIB:libucrt.lib",
+  "-C", "link-arg=/DEFAULTLIB:ucrt.lib",
+]
 # Rustdoc reads these flags and not the rustflags. Doc tests then link the same runtime.
-rustdocflags = ["-C", "target-feature=+crt-static"]
+rustdocflags = [
+  "-C", "target-feature=+crt-static",
+  "-C", "link-arg=/NODEFAULTLIB:libucrt.lib",
+  "-C", "link-arg=/DEFAULTLIB:ucrt.lib",
+]

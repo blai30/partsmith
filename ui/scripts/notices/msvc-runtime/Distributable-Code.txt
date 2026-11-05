@@ -1,0 +1,21 @@
+The Windows app of Partsmith, partsmith-desktop.exe, contains code from the
+Microsoft Visual C++ runtime (libcmt and libvcruntime) and the Microsoft C++
+standard library (libcpmt), copyright Microsoft Corporation. The linker copied
+this code into the app from the static libraries of the Visual Studio that built
+it. It is Distributable Code under the Microsoft Visual Studio license terms. It
+is not open source software, and no other license in this file covers it.
+
+If you distribute the Windows app, or another program that contains this code,
+follow the Distributable Code terms of that license. Among other things, they
+ask you to distribute the code only in a program that adds significant primary
+functionality to it, to have the people you distribute it to agree to terms that
+protect it and Microsoft at least as much as Microsoft's terms do, not to use
+Microsoft's trademarks in a way that suggests your program comes from Microsoft
+or is endorsed by it, and not to put any part of the code under a license that
+requires it to be shared as source code or lets others modify it.
+
+Microsoft's license terms decide, not this summary. They cover only Microsoft's
+code: Partsmith, OCCT and every other part of the app keep the licenses listed
+in this file. The terms are at
+https://visualstudio.microsoft.com/license-terms/, one set for each edition and
+version of Visual Studio.

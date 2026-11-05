@@ -642,7 +642,7 @@
           ]
         },
         {
-          "description": "The plane a re-attach of the sketch by pick stores in place of `plane`, without recording anything (engine.md\nsection 3.22).",
+          "description": "The plane a re-attach of the sketch by pick stores in place of `plane`, or the datum plane's new base, without\nrecording anything (engine.md section 3.22).",
           "type": "object",
           "properties": {
             "doc": {
@@ -650,7 +650,7 @@
               "$ref": "#/$defs/DocHandle"
             },
             "feature": {
-              "description": "The sketch feature.",
+              "description": "The sketch feature, or a datum plane whose new base `plane` is.",
               "$ref": "#/$defs/Id"
             },
             "plane": {
@@ -6274,7 +6274,7 @@
           "type": "object",
           "properties": {
             "plane": {
-              "description": "The plane to store; absent when no stored plane keeps the sketch's motion.",
+              "description": "The plane to store; absent when no stored plane keeps the motion of the sketch or the datum plane.",
               "anyOf": [
                 {
                   "$ref": "#/$defs/SketchPlane"
