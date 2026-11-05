@@ -2,7 +2,7 @@
 
 Tauri 2 desktop host: one engine `Session` behind the `call` command, native open and save dialogs, read and write access to exactly the files the user chose and the asset-named files of the `assets/` folder next to a chosen document, and the close guard. No modeling logic.
 
-Spec: `docs/spec/desktop.md`. Decisions: ADR 0014 (Tauri, its dependencies, no fs plugin, no Tauri npm package), amended by ADR 0037 (the two asset commands, proposed, needs human review). The UI half lives in `ui/src/files/desktop-file-service.ts`, `ui/src/files/choose-file-service.ts` and `ui/src/app/close-guard.ts`.
+Spec: `docs/spec/desktop.md`. Decisions: ADR 0014 (Tauri, its dependencies, no fs plugin, no Tauri npm package), amended by ADR 0037 (the two asset commands, accepted by the owner on 2026-11-04, and the stored grants, accepted in the owner's desktop security review of 2026-11-05). The UI half lives in `ui/src/files/desktop-file-service.ts`, `ui/src/files/choose-file-service.ts` and `ui/src/app/close-guard.ts`.
 
 ## Interface
 

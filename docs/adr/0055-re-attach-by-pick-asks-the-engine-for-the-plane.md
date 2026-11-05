@@ -1,6 +1,6 @@
 # 0055: A re-attach by pick asks the engine for the plane
 
-Status: Proposed, needs human review. It changes the protocol schema: a new command, `attach_plane`, and its result (ADR 0016's entry of 2026-11-04). The rule it builds is the owner's decision of 2026-11-04 on ADR 0023: a host's re-attach by pick follows engine.md section 3.22's rule. This ADR does not reopen that decision. The options the owner can still pick are under "Options considered". Option (a) is the one wave F's reattach track specifies and builds. Two points the decision does not settle are under "Open choices", also proposed, needs human review: what happens when a motion is unknown, and how a pick reads "not offered".
+Status: Accepted (owner, 2026-11-05): option (a), the query command `attach_plane`, as wave F's reattach track built it. It changes the protocol schema: a new command, `attach_plane`, and its result (ADR 0016's entry of 2026-11-04, accepted with it). The rule it builds is the owner's decision of 2026-11-04 on ADR 0023: a host's re-attach by pick follows engine.md section 3.22's rule. This ADR does not reopen that decision. The owner also accepted the two open choices as built: (ii) for unknown motions and (i) for what "not offered" means for a pick. A new base of a datum plane follows the same rule (engine.md open issue 23, option (a), decided on 2026-11-05).
 
 ## Context
 
@@ -18,27 +18,27 @@ Status: Proposed, needs human review. It changes the protocol schema: a new comm
 
 ## Options considered
 
-- **(a) A query command, `attach_plane` (proposed; wave F builds it).** One command and one result, no new error code. The UI keeps building the edit and its undo label. The rule stays in one place in the engine with `Attach`.
+- **(a) A query command, `attach_plane` (chosen by the owner on 2026-11-05; built in wave F).** One command and one result, no new error code. The UI keeps building the edit and its undo label. The rule stays in one place in the engine with `Attach`.
 - **(b) An applying command, `attach_sketch {doc, feature, plane}`.** The engine stores the plane itself as one undo entry and fails with a new error code when no plane keeps the motion. That saves one round trip, but the undo label, the refusal message and the `attach_after` check move into the engine. The protocol gains an error code as well as a command.
 - **(c) A field on `pick_reference`.** `Pick` gains an optional `sketch`. The descriptor of a flat face gains the plane that keeps that sketch's motion. Origin and datum planes are not picked through `pick_reference`. They would need a second addition (a flag on the sketch's solution, and a motion for each datum), two schema changes for one rule.
 - **(d) `apply_edits` refuses the edit.** An `update_feature` that changes a sketch's motion fails with `edit_rejected`. No schema change, but the same edit from Python, the CLI or a file is refused too. The UI can show only the core's message, not the hint.
 - **No change in the core.** The UI alone would have to refuse every pick of a sketch whose motion it cannot see (almost every re-attach of a sketch made since format version 2), or keep its old rule. The owner's decision replaced that rule.
 
-## Open choices (proposed, needs human review)
+## Open choices (accepted by the owner on 2026-11-05)
 
 ### 1. Unknown motions
 
 The owner's decision names re-attaches that no stored frame keeps the sketch's motion for. It does not say what happens when a motion is unknown: a sketch on a datum plane whose datum has no plane in the latest recompute (suppressed, failed or not run), or a picked datum plane in that state. Once such a datum builds again, its motion becomes the motion of the sketches on it. The options:
 
 - **(i) Take the plane in both cases.** This was the spec before the review of 2026-11-04. A sketch picked onto a datum that does not build can move later features once that datum builds again.
-- **(ii) Refuse a picked datum plane with an unknown motion, and take any plane for a sketch whose own motion is unknown (wave F builds this).** The engine gives no plane for such a datum. The UI refuses one that is suppressed or has an error with `attach_datum_unbuilt` before it asks. A sketch whose own datum does not build can still be moved off it. The motion that datum gave it before is unknown. Later features that stored placements on its faces read them with the new plane's motion.
+- **(ii) Refuse a picked datum plane with an unknown motion, and take any plane for a sketch whose own motion is unknown (chosen by the owner on 2026-11-05; built in wave F).** The engine gives no plane for such a datum. The UI refuses one that is suppressed or has an error with `attach_datum_unbuilt` before it asks. A sketch whose own datum does not build can still be moved off it. The motion that datum gave it before is unknown. Later features that stored placements on its faces read them with the new plane's motion.
 - **(iii) Refuse both.** A sketch on a datum that does not build cannot be re-attached by pick until that datum builds again.
 
 ### 2. What "not offered" means for a pick
 
 The owner's decision says a re-attach that no stored frame keeps the sketch's motion for is not offered. For `Attach` that means the action is not in the message's list. A pick has no list: any face in the view and any plane row can be clicked. The header's three origin plane buttons are the one place the UI offers planes. The options:
 
-- **(i) Refuse when picked (wave F builds this).** Every plane and face stays pickable, the three buttons included. A pick the engine gives no plane for stores nothing and shows `attach_moved`. A sketch on a moved face sees Top, Front and Right enabled. Each click shows the hint.
+- **(i) Refuse when picked (chosen by the owner on 2026-11-05; built in wave F).** Every plane and face stays pickable, the three buttons included. A pick the engine gives no plane for stores nothing and shows `attach_moved`. A sketch on a moved face sees Top, Front and Right enabled. Each click shows the hint.
 - **(ii) Dim the refused origin planes.** When plane picking opens for a re-attach, and again after each change while it stays open, the UI asks `attach_plane` for XY, XZ and YZ. It marks the buttons the engine refuses as unavailable, with `attach_moved` as their reason. Faces and plane rows are still refused when picked. That is three more queries per opening and per change. Each is a whole recompute for a sketch the marker holds back. No schema change.
 
 ## Consequences
@@ -49,5 +49,5 @@ The owner's decision says a re-attach that no stored frame keeps the sketch's mo
 - A re-attach of a sketch at or after the rollback marker, or after the focus feature, costs one more recompute: the whole recipe without them.
 - `attach_moved` says that the sketch and the picked plane do not move together. It names no feature that moved either of them: the engine does not report one. Naming it needs a field in `attach_plane`'s result, another schema change, left for after M1.
 - Two motions match within 1e-9 per component (engine.md section 3.22). A datum's motion is computed from its frames and can differ from its face's motion by rounding (0.09999999999999964 mm for 0.1 mm, engine.md test 166 (g)). An exact comparison would refuse such a datum with a hint that is not true. `Attach` and drag commits use the same comparison, also for a sketch on a datum plane.
-- A new base of a datum plane can move later features the same way a re-attach could (an inspector pick, or `UseReferences` or `KeepMatch` on its `base`). The owner's decision does not cover it. engine.md open issue 23 records it with its options, proposed, needs human review.
-- If the owner picks (b), (c) or (d), the UI's re-attach and the tests above change with it. The rule of engine.md section 3.22 stays the same. Open choice 2 (ii) changes only the UI: the header buttons, ui.md section 3.16.1 and U-250.
+- A new base of a datum plane can move later features the same way a re-attach could (an inspector pick, or `UseReferences` or `KeepMatch` on its `base`). The owner's decision of 2026-11-04 does not cover it. On 2026-11-05 the owner chose option (a) of engine.md open issue 23: such a new base is refused while later features build on the datum's sketches, as `attach_plane` refuses a re-attach. Wave G builds it.
+- The owner's choices of 2026-11-05 are the ones wave F built. The code and the tests above stay as they are.
