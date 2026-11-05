@@ -1,6 +1,6 @@
-// The Git environment of acceptance tests 52, 55, 58 and 87 of docs/spec/delivery.md section 6, so that the machine's
-// Git configuration (an identity, commit signing, a default branch, a global attributes file) neither stops nor
-// changes the repositories they make or the scripts they run.
+// The Git environment of acceptance tests 52, 55, 58, 86, 87, 117, 119 and 120 of docs/spec/delivery.md section 6, so
+// that the machine's Git configuration (an identity, commit signing, a default branch, a global attributes file)
+// neither stops nor changes the repositories they make or the scripts they run.
 import { spawnSync } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'

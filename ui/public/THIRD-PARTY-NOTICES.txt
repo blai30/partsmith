@@ -26,7 +26,9 @@ toolkits and options used.
 You may modify OCCT and use your version with Partsmith. Each deployment of this
 site names the commit of https://github.com/blai30/partsmith it was built from
 in /SOURCE.txt, with a link to that commit's source archive; that commit holds
-every script, tool version and lock file the build uses. Production is built
+every script, tool version and lock file the build uses. Each deployment holds
+that commit's source too, at /partsmith-source.tar.gz, which
+scripts/partsmith-source-archive.sh at that commit makes. Production is built
 from the main branch, and a preview from the commit GitHub makes by merging its
 pull request into the base branch; for a preview, /SOURCE.txt also names the two
 commits that merge joins and its tree: if the merge commit is gone, check out

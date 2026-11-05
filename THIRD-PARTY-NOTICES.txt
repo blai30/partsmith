@@ -26,10 +26,11 @@ You may modify OCCT and use your version with Partsmith. The source of each
 release is on its page under https://github.com/blai30/partsmith/releases: the
 Partsmith source is the release's tag, v followed by the app's version (for
 example v0.1.0), with every script, tool version and lock file the build uses,
-and the OCCT source the build reads is the release's asset
-occt-7.9.3-source.tar.gz, which scripts/occt-source-archive.sh makes from the
-tag V7_9_3. To relink: put your OCCT source in <work>/src (from the asset:
-mkdir -p <work>/src &&
+also as the release's asset partsmith-source.tar.gz, which
+scripts/partsmith-source-archive.sh makes from that tag; the OCCT source the
+build reads is the release's asset occt-7.9.3-source.tar.gz, which
+scripts/occt-source-archive.sh makes from the tag V7_9_3. To relink: put your
+OCCT source in <work>/src (from the asset: mkdir -p <work>/src &&
 tar -xzf occt-7.9.3-source.tar.gz --strip-components=1 -C <work>/src), run
 OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>, and build the app
 with OCCT_ROOT=<prefix> as README.md describes (pnpm -C ui build, then

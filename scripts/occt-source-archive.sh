@@ -49,9 +49,10 @@ paths=(.clang-format CMakeLists.txt LICENSE_LGPL_21.txt OCCT_LGPL_EXCEPTION.txt 
 temporary="$archive.$$.partial"
 trap 'rm -f -- "$temporary"' EXIT
 # The -c options keep the configuration from changing the bytes: the line endings of files without an eol
-# attribute, the file modes, and attributes such as export-ignore from a global attributes file. git archive of a
-# tag gives every entry the commit's time, and gzip -n leaves the name and time out of its header.
-git -C "$src" -c core.autocrlf=false -c tar.umask=0002 -c core.attributesFile=/dev/null \
+# attribute (core.autocrlf, and core.eol for text files), the file modes, and attributes such as export-ignore from a
+# global attributes file. git archive of a tag gives every entry the commit's time, and gzip -n leaves the name and
+# time out of its header.
+git -C "$src" -c core.autocrlf=false -c core.eol=lf -c tar.umask=0002 -c core.attributesFile=/dev/null \
   archive --format=tar --prefix="occt-${OCCT_VERSION}/" "$OCCT_TAG" -- "${paths[@]}" |
   gzip -9 -n >"$temporary"
 mv -- "$temporary" "$archive"

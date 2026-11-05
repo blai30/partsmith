@@ -1,5 +1,6 @@
-// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87, 93 to 95, 100, 101, 104 and 105 of
-// docs/spec/delivery.md section 6 for the workflow files and the copies of section 3.6.
+// Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87, 93 to 95, 100, 101, 104, 105, 118 to
+// 120 and 122 of docs/spec/delivery.md section 6 for the workflow files, the copies of section 3.6 and
+// scripts/check-source-archive.sh.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -18,6 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { isDeepStrictEqual } from 'node:util'
 import { gunzipSync, gzipSync } from 'node:zlib'
 
 import { git, isolatedGitEnvironment } from './isolated-git.mjs'
@@ -28,6 +30,7 @@ import {
   sourceArchiveName,
   writeFiles,
 } from './occt-fixture.mjs'
+import { PARTSMITH_ARCHIVE, PARTSMITH_SCRIPT, writePartsmithArchive } from './partsmith-fixture.mjs'
 
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
 const workflowsDirectory = join(repositoryRoot, '.github/workflows')
@@ -42,43 +45,74 @@ const ARCHIVE_SCRIPT = 'scripts/occt-source-archive.sh'
 // The pins of OCCT that the archive's name and the fixtures of tests 86 and 87 read (sections 2.9 and 2.13).
 const OCCT_PINS = 'scripts/occt-version.sh'
 
-// The cache of the OCCT source archive (section 2.13): its folder, the key under which occt-native saves it and web
-// restores it, and the two lines of occt-native's step that makes the archive on a miss.
+// The cache of the OCCT source archive (section 2.13): its folder, the key under which the sources jobs of ci.yml and
+// platforms.yml restore it and save it, and the two lines of the step that makes the archive on a miss, which
+// release.yml's sources job runs in every run.
 const ARCHIVE_CACHE_PATH = '.occt/source'
 const ARCHIVE_CACHE_KEY =
   "occt-source-${{ hashFiles('scripts/occt-source-archive.sh', 'scripts/occt-version.sh') }}"
 const ARCHIVE_STEP_RUN = `mkdir -p .occt/source\n${ARCHIVE_SCRIPT} .occt/source\n`
 
-// The line of occt-native's build step that builds OCCT on a miss of its own cache (section 2.4).
-const OCCT_NATIVE_BUILD = 'scripts/build-occt.sh native "$OCCT_ROOT"'
-
-// The steps of section 2.13 that write the archive into the build (web) and check it before Wrangler (deploy).
+// The steps of section 2.13 that write the archive into the source artifact (sources) and check it before Wrangler
+// (deploy).
 const ARCHIVE_WRITER = 'Write the OCCT source archive'
 const ARCHIVE_CHECK = 'Check the OCCT source archive'
 
-// The script that writes the dependency source archives, and the steps of section 2.13 that write them into the web
-// build (web), check them before Wrangler (deploy) and add them to a release (draft), with the exact runs of web and
-// draft (tests 93 to 95).
+// The script that checks a source archive, which those steps and the Partsmith check run (section 2.13, The archive
+// check, tests 86, 87, 120 and 122), and its usage line (section 4).
+const CHECK_SCRIPT = 'scripts/check-source-archive.sh'
+const CHECK_USAGE = `usage: ${CHECK_SCRIPT} <archive> <commit>`
+
+// The script that writes the dependency source archives, and the steps of section 2.13 that write them into the source
+// artifact (sources) and check them before Wrangler (deploy), with the exact runs of the web and desktop scopes (tests
+// 93 to 95).
 const DEPENDENCY_SCRIPT = 'scripts/dependency-source-archive.mjs'
 const DEPENDENCY_WRITER = 'Write the dependency source archives'
 const DEPENDENCY_CHECK = 'Check the dependency source archives'
-const DEPENDENCY_RELEASE = 'Add the dependency source archives'
 const DEPENDENCY_WRITER_RUN = [
-  'mkdir dist/dependencies',
-  `node ../${DEPENDENCY_SCRIPT} web dist/dependencies`,
-  'cd dist/dependencies',
+  'mkdir sources/dependencies',
+  `node ${DEPENDENCY_SCRIPT} web sources/dependencies`,
+  'cd sources/dependencies',
   'export LC_ALL=C',
   'sha256sum -- * > SHA256SUMS',
   '',
 ].join('\n')
-const DEPENDENCY_RELEASE_RUN = `node ${DEPENDENCY_SCRIPT} desktop release`
+const DEPENDENCY_RELEASE_RUN = `node ${DEPENDENCY_SCRIPT} desktop sources`
 
-// The job of release.yml that writes the desktop scope's archives in a dry run and keeps none (section 2.5, test 94),
-// and the exact run of its step DEPENDENCY_WRITER.
+// The job of release.yml that wrote the desktop scope's archives in a dry run before wave G, which the release's
+// sources job replaces (section 2.5, test 94).
 const DEPENDENCY_DRY_RUN = 'dependency-sources'
-const DEPENDENCY_DRY_RUN_RUN = [
-  'mkdir "$RUNNER_TEMP/dependencies"',
-  `node ${DEPENDENCY_SCRIPT} desktop "$RUNNER_TEMP/dependencies"`,
+
+// The job of each workflow that writes the source artifact, its name, the artifact, the folder its steps write and the
+// step that writes Partsmith's source archive there, with its exact run (section 2.13, The source with every artifact,
+// tests 118 to 120).
+const SOURCES_JOB = 'sources'
+const SOURCES_FOLDER = 'sources'
+const SOURCE_ARTIFACTS = {
+  'ci.yml': { name: 'Source archives (web)', artifact: 'sources-web' },
+  'platforms.yml': { name: 'Source archives (web)', artifact: 'sources-web' },
+  'release.yml': { name: 'Source archives (desktop)', artifact: 'sources-desktop' },
+}
+const PARTSMITH_WRITER = 'Write the Partsmith source archive'
+const PARTSMITH_WRITER_RUN = `${PARTSMITH_SCRIPT} ${SOURCES_FOLDER}`
+
+// The `if` of release.yml's sources job and of its bundle job (section 2.5).
+const RELEASE_SOURCES_CONDITION =
+  "${{ !cancelled() && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}"
+const BUNDLE_CONDITION = "${{ !cancelled() && needs.sources.result == 'success' }}"
+
+// The days each source artifact is kept, one more than every other artifact's 7 (section 2.13, Kept a day longer).
+const SOURCE_RETENTION_DAYS = '8'
+const ARTIFACT_RETENTION_DAYS = '7'
+
+// The step of the deploy job that checks Partsmith's source archive, and its exact run (sections 2.4 and 2.13).
+const PARTSMITH_CHECK = 'Check the Partsmith source archive'
+const PARTSMITH_CHECK_RUN = [
+  `archive=ui/dist/${PARTSMITH_ARCHIVE}`,
+  `if ! ${CHECK_SCRIPT} "$archive" "$GITHUB_SHA"; then`,
+  '  echo "::error title=Partsmith source missing::$archive is missing or does not hold the source of the commit $GITHUB_SHA, so nothing was deployed. The sources job writes it, and the web job puts it into the build (docs/spec/delivery.md section 2.13)."',
+  '  exit 1',
+  'fi',
   '',
 ].join('\n')
 
@@ -101,8 +135,8 @@ const WEB_PARTS = [
 const MEASURED_ARCHIVE =
   /^\*\*Measured\*\* \([^)]*?the tag `([^`]+)`, commit `([0-9a-f]{40})`.*?SHA-256 `([0-9a-f]{64})`/m
 
-// The size of big.bin in the fixture of test 87: its tar is larger than a pipe's buffer (64 KiB on Linux). gzip is
-// then still writing when git get-tar-commit-id has read the first header and exits.
+// The size of big.bin in the fixtures of tests 86, 87 and 120: its tar is larger than a pipe's buffer (64 KiB on
+// Linux). gzip is then still writing when git get-tar-commit-id has read the first header and exits.
 const PIPE_BREAKING_SIZE = 1_048_576
 
 // An OCCT version that no pin names, for an archive the steps must not take for the pinned one (tests 86 and 87).
@@ -144,6 +178,7 @@ const EXPECTED_TIMEOUTS = {
     deny: 60,
     ui: 60,
     schema: 60,
+    sources: 60,
     'core-wasm': 60,
     web: 60,
     e2e: 60,
@@ -151,23 +186,25 @@ const EXPECTED_TIMEOUTS = {
     desktop: 60,
     deploy: 60,
   },
-  'release.yml': { verify: 60, bundle: 150, draft: 60, 'dependency-sources': 60 },
+  'release.yml': { verify: 60, sources: 60, bundle: 150, draft: 60 },
   'nightly.yml': { properties: 20 },
   'platforms.yml': {
     'occt-platforms': 150,
     'rust-platforms': 60,
     'full-rebuild': 60,
     'occt-wasm': 150,
+    sources: 60,
     'core-wasm': 60,
     'e2e-engines': 60,
   },
 }
 
-// The artifacts each workflow file uploads, in the order of its steps, every one kept 7 days (sections 2.4, 2.5 and 2.14).
+// The artifacts each workflow file uploads, in the order of its steps (sections 2.4, 2.5 and 2.14): its source artifact
+// first, kept 8 days, and the others, kept 7 (section 2.13).
 const EXPECTED_UPLOADS = {
-  'ci.yml': ['core-wasm', 'web-dist', 'playwright-report'],
-  'release.yml': ['bundle-${{ runner.os }}'],
-  'platforms.yml': ['core-wasm', 'playwright-report-${{ matrix.browser }}'],
+  'ci.yml': ['sources-web', 'core-wasm', 'web-dist', 'playwright-report'],
+  'release.yml': ['sources-desktop', 'bundle-${{ runner.os }}'],
+  'platforms.yml': ['sources-web', 'core-wasm', 'playwright-report-${{ matrix.browser }}'],
 }
 
 // The jobs that download core-wasm into ui/public, by workflow file (sections 2.4 and 2.14).
@@ -767,13 +804,14 @@ test('51: the nightly skip check tests with a warning when gh fails', async (con
   )
 })
 
-/** The four lines of the source stamp of section 2.13 for `commit`, each with its LF. */
+/** The five lines of the source stamp of section 2.13 for `commit`, each with its LF. */
 function stampText(commit) {
   return [
     'Source of this deployment of the Partsmith web app',
     `Repository: ${REPOSITORY_URL}`,
     `Commit: ${commit}`,
     `Source archive: ${REPOSITORY_URL}/archive/${commit}.tar.gz`,
+    `Source archive in this deployment: /${PARTSMITH_ARCHIVE}`,
   ]
     .map((line) => `${line}\n`)
     .join('')
@@ -1028,42 +1066,80 @@ test('53: the stamp check fails with the source-stamp error when the commit line
     stampText(HEAD_COMMIT).replace(`Commit: ${HEAD_COMMIT}\n`, `Commit: ${HEAD_COMMIT}0\n`),
   ))
 
-test('54: the draft job adds the OCCT source archive after the notices and before SHA256SUMS', async () => {
+/** Whether `step` downloads the artifact `name` into `path` with a `with` of exactly those two entries. */
+function downloadsArtifact(step, name, path) {
+  return (
+    stepValue(step, 'uses') === pinned('actions/download-artifact') &&
+    isDeepStrictEqual(stepMapping(step, 'with'), { name, path })
+  )
+}
+
+test('54: the draft job downloads the source artifact after the bundles and before the notices and SHA256SUMS', async () => {
   const steps = jobSteps(await workflowJob('release.yml', 'draft'))
+  const bundles = stepIndex(
+    steps,
+    'that downloads the bundle-* artifacts',
+    (step) =>
+      usesAction(step, 'actions/download-artifact') &&
+      stepMapping(step, 'with')?.pattern === 'bundle-*',
+  )
+  const sources = stepIndex(steps, 'that downloads sources-desktop into release', (step) =>
+    downloadsArtifact(step, 'sources-desktop', 'release'),
+  )
   const notices = commandStep(steps, 'cp THIRD-PARTY-NOTICES.txt release/')
-  const archive = commandStep(steps, `${ARCHIVE_SCRIPT} release`)
   const sums = namedStep(steps, 'Write SHA256SUMS')
 
   assert.ok(
-    notices < archive && archive < sums,
-    'the archive step is not between the notices and SHA256SUMS',
+    bundles < sources && sources < notices && notices < sums,
+    'the download of sources-desktop is not between the bundles and the notices, before SHA256SUMS',
   )
   assert.match(stepValue(steps.at(-1), 'run'), /^gh release create .* release\/\*$/m)
 })
 
-test('54: the archive script is a regular file its owner can run', async () => {
-  const status = await lstat(join(repositoryRoot, ARCHIVE_SCRIPT))
+test('54: the draft job makes none of the archives again', async () => {
+  const steps = jobSteps(await workflowJob('release.yml', 'draft'))
 
-  assert.ok(status.isFile(), `${ARCHIVE_SCRIPT} is not a regular file`)
-  assert.notEqual(status.mode & 0o100, 0, `${ARCHIVE_SCRIPT} is not executable by its owner`)
+  assert.ok(!steps.some((step) => usesAction(step, 'actions/setup-node')), 'draft sets up Node')
+  for (const word of ['rustup', ARCHIVE_SCRIPT, PARTSMITH_SCRIPT, DEPENDENCY_SCRIPT]) {
+    assert.ok(
+      !steps.some((step) => stepValue(step, 'run')?.includes(word)),
+      `a step of draft runs ${word}`,
+    )
+  }
 })
 
-test('57: the notices statements name the stamp, the archive and its script', async () => {
+test('54: both archive scripts are regular files their owner can run', async () => {
+  const scripts = [ARCHIVE_SCRIPT, PARTSMITH_SCRIPT]
+  const statuses = await Promise.all(scripts.map((script) => lstat(join(repositoryRoot, script))))
+
+  for (const [i, status] of statuses.entries()) {
+    assert.ok(status.isFile(), `${scripts[i]} is not a regular file`)
+    assert.notEqual(status.mode & 0o100, 0, `${scripts[i]} is not executable by its owner`)
+  }
+})
+
+test('57: the notices statements name the stamp, both source archives and their scripts', async () => {
   const { version } = await readOcctPins()
   const archiveName = sourceArchiveName(version)
   const web = await repositoryText('ui/public/THIRD-PARTY-NOTICES.txt')
   const desktop = await repositoryText('THIRD-PARTY-NOTICES.txt')
 
-  // The web statement names the archive at its path in the deployment, where test 86 sees web write it.
-  for (const name of [`/${SOURCE_STAMP}`, `/${archiveName}`, ARCHIVE_SCRIPT]) {
+  // The web statement names each archive at its path in the deployment, where tests 87 and 120 see deploy check it.
+  for (const name of [
+    `/${SOURCE_STAMP}`,
+    `/${PARTSMITH_ARCHIVE}`,
+    PARTSMITH_SCRIPT,
+    `/${archiveName}`,
+    ARCHIVE_SCRIPT,
+  ]) {
     assert.ok(web.includes(name), `ui/public/THIRD-PARTY-NOTICES.txt does not name ${name}`)
   }
-  for (const name of [archiveName, ARCHIVE_SCRIPT]) {
+  for (const name of [PARTSMITH_ARCHIVE, PARTSMITH_SCRIPT, archiveName, ARCHIVE_SCRIPT]) {
     assert.ok(desktop.includes(name), `THIRD-PARTY-NOTICES.txt does not name ${name}`)
   }
 })
 
-test('59: every artifact the workflows upload is kept 7 days', async () => {
+test('59: every artifact the workflows upload is kept 7 days, and each source artifact 8', async () => {
   for (const [file, text] of await workflowTexts(Object.keys(EXPECTED_UPLOADS))) {
     const uploads = actionSteps(text, 'actions/upload-artifact').map((step) =>
       stepMapping(step, 'with'),
@@ -1071,7 +1147,31 @@ test('59: every artifact the workflows upload is kept 7 days', async () => {
 
     assert.deepEqual(
       uploads.map((upload) => [upload?.name, upload?.['retention-days']]),
-      EXPECTED_UPLOADS[file].map((name) => [name, '7']),
+      EXPECTED_UPLOADS[file].map((name) => [
+        name,
+        name.startsWith('sources-') ? SOURCE_RETENTION_DAYS : ARTIFACT_RETENTION_DAYS,
+      ]),
+      file,
+    )
+  }
+})
+
+test('59: each source artifact is the folder sources/, stored as it is, and never missing', async () => {
+  for (const [file, text] of await workflowTexts(Object.keys(SOURCE_ARTIFACTS))) {
+    const upload = actionSteps(text, 'actions/upload-artifact').find(
+      (step) => stepMapping(step, 'with')?.name === SOURCE_ARTIFACTS[file].artifact,
+    )
+    assert.ok(upload, `${file} uploads no ${SOURCE_ARTIFACTS[file].artifact}`)
+
+    assert.deepEqual(
+      stepMapping(upload, 'with'),
+      {
+        name: SOURCE_ARTIFACTS[file].artifact,
+        path: `${SOURCES_FOLDER}/`,
+        'retention-days': SOURCE_RETENTION_DAYS,
+        'if-no-files-found': 'error',
+        'compression-level': '0',
+      },
       file,
     )
   }
@@ -1159,7 +1259,8 @@ test('60: the platforms jobs need only the jobs of their own workflow', async ()
       ['rust-platforms', ['occt-platforms']],
       ['full-rebuild', ['occt-platforms']],
       ['occt-wasm', []],
-      ['core-wasm', ['occt-wasm']],
+      ['sources', []],
+      ['core-wasm', ['occt-wasm', 'sources']],
       ['e2e-engines', ['core-wasm']],
     ],
   )
@@ -1650,75 +1751,106 @@ async function ciJobSteps(id) {
   return jobSteps(await workflowJob('ci.yml', id))
 }
 
-/** The index of the step of `steps` whose `run` holds the line `line`; fails the test when there is none. */
-function lineStep(steps, line) {
-  return stepIndex(steps, `that runs ${line}`, (step) =>
-    stepValue(step, 'run')?.split('\n').includes(line),
+/** The sources job of each workflow file of SOURCE_ARTIFACTS, in that order, as `{ file, job, steps }`. */
+async function sourcesJobs() {
+  return Promise.all(
+    Object.keys(SOURCE_ARTIFACTS).map(async (file) => {
+      const job = await workflowJob(file, SOURCES_JOB)
+      return { file, job, steps: jobSteps(job) }
+    }),
   )
 }
 
-test('85: occt-native looks up the archive cache before its OCCT cache, without downloading it', async () => {
-  const steps = await ciJobSteps('occt-native')
-  const lookup = idStep(steps, 'occt-source')
+// The workflow whose sources job makes the OCCT archive in every run, with no cache (section 2.13, Made in the sources
+// jobs).
+const UNCACHED_ARCHIVE_FILE = 'release.yml'
 
-  assert.ok(lookup < idStep(steps, 'cache'), 'the step occt-source is not before the step cache')
-  assert.ok(
-    lookup < lineStep(steps, OCCT_NATIVE_BUILD),
-    'the step occt-source is not before the OCCT build',
-  )
-  assert.equal(stepValue(steps[lookup], 'uses'), pinned('actions/cache'))
-  assert.deepEqual(stepMapping(steps[lookup], 'with'), {
-    path: ARCHIVE_CACHE_PATH,
-    key: ARCHIVE_CACHE_KEY,
-    'lookup-only': 'true',
-  })
+/** The sources jobs of `sourcesJobs` that restore the OCCT archive's cache: those of ci.yml and platforms.yml. */
+async function cachingSourcesJobs() {
+  return (await sourcesJobs()).filter(({ file }) => file !== UNCACHED_ARCHIVE_FILE)
+}
+
+/** The index of the step of a sources job's `steps` that makes the OCCT archive, after the cache step if there is one. */
+function archiveStep(steps) {
+  return commandStep(steps, ARCHIVE_STEP_RUN)
+}
+
+test('85: the sources jobs of ci.yml and platforms.yml restore the archive cache right after their checkout and make the archive on a miss', async () => {
+  for (const { file, steps } of await cachingSourcesJobs()) {
+    const lookup = idStep(steps, 'occt-source')
+    const archive = steps[lookup + 1]
+
+    assert.equal(lookup, 1, `${file}: the step occt-source does not come right after the checkout`)
+    assert.equal(stepValue(steps[lookup], 'uses'), pinned('actions/cache'), file)
+    assert.deepEqual(
+      stepMapping(steps[lookup], 'with'),
+      { path: ARCHIVE_CACHE_PATH, key: ARCHIVE_CACHE_KEY },
+      file,
+    )
+    assert.ok(archive, `${file}: the sources job has no step after the step occt-source`)
+    assert.equal(stepValue(archive, 'if'), "steps.occt-source.outputs.cache-hit != 'true'", file)
+    assert.equal(stepValue(archive, 'shell'), undefined, file)
+    assert.equal(stepValue(archive, 'run'), ARCHIVE_STEP_RUN, file)
+    assert.ok(
+      lookup + 1 < namedStep(steps, ARCHIVE_WRITER),
+      `${file}: the archive step does not come before ${ARCHIVE_WRITER}`,
+    )
+  }
 })
 
-test('85: on a miss, occt-native makes the archive with the two lines of section 2.13, before its OCCT cache', async () => {
-  const steps = await ciJobSteps('occt-native')
-  const archive = steps[idStep(steps, 'occt-source') + 1]
+test("85: release.yml's sources job restores no archive cache and makes the archive right after its checkout in every run", async () => {
+  const { steps } = (await sourcesJobs()).find(({ file }) => file === UNCACHED_ARCHIVE_FILE)
+  const archive = archiveStep(steps)
 
-  assert.ok(archive, 'occt-native has no step after the step occt-source')
+  for (const action of ['actions/cache', 'actions/cache/restore']) {
+    assert.ok(
+      !steps.some((step) => usesAction(step, action)),
+      `the sources job of ${UNCACHED_ARCHIVE_FILE} uses ${action}`,
+    )
+  }
+  assert.equal(archive, 1, 'the archive step does not come right after the checkout')
+  assert.equal(stepValue(steps[archive], 'if'), undefined)
+  assert.equal(stepValue(steps[archive], 'shell'), undefined)
   assert.ok(
-    idStep(steps, 'occt-source') + 1 < idStep(steps, 'cache'),
-    'the archive step is not before the step cache',
-  )
-  assert.equal(stepValue(archive, 'if'), "steps.occt-source.outputs.cache-hit != 'true'")
-  assert.equal(stepValue(archive, 'shell'), undefined)
-  assert.equal(stepValue(archive, 'run'), ARCHIVE_STEP_RUN)
-})
-
-test('85: web needs occt-native, which saves the archive cache, and core-wasm', async () => {
-  assert.deepEqual(jobNeeds(await workflowJob('ci.yml', 'web')), ['occt-native', 'core-wasm'])
-})
-
-test('85: web restores the archive cache under the key occt-native saves it with, before writing the archive', async () => {
-  const steps = await ciJobSteps('web')
-  const restore = cacheStep(steps, 'actions/cache/restore', ARCHIVE_CACHE_PATH)
-
-  assert.equal(stepValue(steps[restore], 'uses'), pinned('actions/cache/restore'))
-  assert.deepEqual(stepMapping(steps[restore], 'with'), {
-    path: ARCHIVE_CACHE_PATH,
-    key: ARCHIVE_CACHE_KEY,
-    'fail-on-cache-miss': 'true',
-  })
-  assert.ok(
-    restore < namedStep(steps, ARCHIVE_WRITER),
-    `the cache restore is not before ${ARCHIVE_WRITER}`,
+    archive < namedStep(steps, ARCHIVE_WRITER),
+    `the archive step does not come before ${ARCHIVE_WRITER}`,
   )
 })
 
-test('86: the web job writes the archive after the source stamp and before the distribution check', async () => {
-  const steps = await ciJobSteps('web')
-  const stamp = namedStep(steps, 'Write the source stamp')
-  const writer = namedStep(steps, ARCHIVE_WRITER)
-  const check = commandStep(steps, 'pnpm check:dist')
+test('85: no job but sources names the archive cache or runs the archive script', async () => {
+  for (const [file, text] of await workflowTexts(Object.keys(SOURCE_ARTIFACTS))) {
+    for (const job of workflowJobs(text).filter((listed) => listed.id !== SOURCES_JOB)) {
+      for (const step of jobSteps(job)) {
+        const stepText = step.join('\n')
 
-  assert.ok(
-    stamp < writer && writer < check,
-    `${ARCHIVE_WRITER} is not between the source stamp and pnpm check:dist`,
-  )
-  assert.equal(stepValue(steps[writer], 'shell'), undefined)
+        assert.ok(
+          !stepText.includes(ARCHIVE_CACHE_PATH) && !stepText.includes(ARCHIVE_SCRIPT),
+          `${file}: a step of ${job.id} names ${ARCHIVE_CACHE_PATH} or ${ARCHIVE_SCRIPT}`,
+        )
+      }
+    }
+  }
+})
+
+test('85: web needs exactly core-wasm and sources', async () => {
+  assert.deepEqual(jobNeeds(await workflowJob('ci.yml', 'web')), ['core-wasm', 'sources'])
+})
+
+test("86: each sources job writes the OCCT archive after the steps that make it and before Partsmith's, with one run", async () => {
+  const jobs = await sourcesJobs()
+  const runs = new Set()
+  for (const { file, steps } of jobs) {
+    const writer = namedStep(steps, ARCHIVE_WRITER)
+
+    assert.ok(
+      archiveStep(steps) < writer && writer < namedStep(steps, PARTSMITH_WRITER),
+      `${file}: ${ARCHIVE_WRITER} is not between the archive step and ${PARTSMITH_WRITER}`,
+    )
+    assert.equal(stepValue(steps[writer], 'shell'), undefined, file)
+    assert.equal(stepValue(steps[writer], 'working-directory'), undefined, file)
+    runs.add(stepValue(steps[writer], 'run'))
+  }
+  assert.equal(runs.size, 1, `the run of ${ARCHIVE_WRITER} differs between the three files`)
 })
 
 /** The tag, commit and SHA-256 of the archive that the Measured paragraph of section 2.13 records. */
@@ -1731,21 +1863,24 @@ async function measuredArchive() {
   return { tag: match[1], commit: match[2], sha256: match[3] }
 }
 
-/** The SHA-256 of the archive that the archive writer's `env` holds. */
+/** The SHA-256 of the archive that the `env` of the archive writer of ci.yml's sources job holds. */
 async function writerSha256() {
-  const steps = await ciJobSteps('web')
+  const steps = jobSteps(await workflowJob('ci.yml', SOURCES_JOB))
   return stepMapping(steps[namedStep(steps, ARCHIVE_WRITER)], 'env')?.OCCT_SOURCE_SHA256
 }
 
-test('86: the archive writer holds the SHA-256 that section 2.13 measured for the pinned tag and commit', async () => {
-  const steps = await ciJobSteps('web')
+test('86: each archive writer holds the SHA-256 that section 2.13 measured for the pinned tag and commit', async () => {
   const { tag, commit } = await readOcctPins()
   const measured = await measuredArchive()
 
   assert.deepEqual({ tag: measured.tag, commit: measured.commit }, { tag, commit })
-  assert.deepEqual(stepMapping(steps[namedStep(steps, ARCHIVE_WRITER)], 'env'), {
-    OCCT_SOURCE_SHA256: measured.sha256,
-  })
+  for (const { file, steps } of await sourcesJobs()) {
+    assert.deepEqual(
+      stepMapping(steps[namedStep(steps, ARCHIVE_WRITER)], 'env'),
+      { OCCT_SOURCE_SHA256: measured.sha256 },
+      file,
+    )
+  }
 })
 
 /** The SHA-256 of `bytes` in hexadecimal, as sha256sum prints it. */
@@ -1753,102 +1888,32 @@ function sha256Of(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-/** The warning of section 4 for the archive `name` whose SHA-256 is `sha256`, not `expected`. */
-function archiveChangedWarning(name, sha256, expected) {
-  return `::warning title=OCCT source archive changed::${name} has the SHA-256 ${sha256}, not ${expected}, the one docs/spec/delivery.md section 2.13 records. A new pin, git or gzip wrote other bytes: record the new SHA-256 there and in OCCT_SOURCE_SHA256 of the step ${ARCHIVE_WRITER}.`
-}
-
-/**
- * Runs the web job's archive writer in `<root>/ui` with `OCCT_SOURCE_SHA256` set to `expected`, where `<root>` is a
- * new folder that holds a copy of scripts/occt-version.sh, an empty `ui/dist/` and, in `.occt/source/`, the files of
- * `cached` (name to bytes). Resolves to the step's result and the folder `ui/dist`.
- */
-async function runArchiveWriter(context, cached, expected) {
-  const steps = await ciJobSteps('web')
-  const root = await temporaryDirectory(context)
-  const dist = join(root, 'ui', 'dist')
-  const cache = join(root, ARCHIVE_CACHE_PATH)
-  await mkdir(join(root, 'scripts'))
-  await copyFile(join(repositoryRoot, OCCT_PINS), join(root, OCCT_PINS))
-  await mkdir(dist, { recursive: true })
-  await mkdir(cache, { recursive: true })
-  await writeFiles(cache, cached)
-
-  const result = await runStep(context, steps[namedStep(steps, ARCHIVE_WRITER)], join(root, 'ui'), {
-    ...process.env,
-    OCCT_SOURCE_SHA256: expected,
-  })
-  return { result, dist }
-}
-
-/** `length` bytes that differ from one position to the next, as a stand-in for an archive. */
+/** `length` bytes that differ from one position to the next, as a stand-in for an archive or a part. */
 function testBytes(length) {
   return Buffer.from(Array.from({ length }, (_, i) => i % 251))
 }
 
-test('86: the archive writer copies the archive of the pinned OCCT into the build and prints its SHA-256', async (context) => {
-  const name = sourceArchiveName((await readOcctPins()).version)
-  const archive = testBytes(1000)
-  const sha256 = sha256Of(archive)
+/** The warning of section 4 for the archive `name` whose SHA-256 is `sha256`, not `expected`. */
+function archiveChangedWarning(name, sha256, expected) {
+  return `::warning title=OCCT source archive changed::${name} has the SHA-256 ${sha256}, not ${expected}, the one docs/spec/delivery.md section 2.13 records. A new pin, git or gzip wrote other bytes: record the new SHA-256 there and in OCCT_SOURCE_SHA256 of each step ${ARCHIVE_WRITER}.`
+}
 
-  const { result, dist } = await runArchiveWriter(context, { [name]: archive }, sha256)
+/** The cached-archive error of section 4 for the archive of OCCT `version` and the pinned commit `commit`. */
+function cachedArchiveErrorMessage(version, commit) {
+  return `::error title=OCCT source missing::${SOURCES_FOLDER}/${sourceArchiveName(version)} from the cache ${ARCHIVE_CACHE_PATH} is not a whole gzip file or does not hold the source of the OCCT commit ${commit}, so nothing was uploaded. Delete that cache entry (gh cache list --key occt-source-) and run the job again, which makes the archive anew (docs/spec/delivery.md section 2.13).`
+}
 
-  assert.equal(result.status, 0, result.stderr)
-  assert.deepEqual(await readdir(dist), [name])
-  assert.deepEqual(await readFile(join(dist, name)), archive)
-  assert.equal(result.stdout, `${sha256}  ${name}\n`)
-  assert.equal(result.stderr, '')
-})
+/** The names of the files in `folder`, or none when it does not exist. */
+async function filesIn(folder) {
+  return readdir(folder).catch((error) => {
+    if (error.code === 'ENOENT') {
+      return []
+    }
+    throw error
+  })
+}
 
-test('86: the archive writer copies an archive with other bytes than section 2.13 records and warns without failing', async (context) => {
-  const name = sourceArchiveName((await readOcctPins()).version)
-  const archive = testBytes(1000)
-  const sha256 = sha256Of(archive)
-  const expected = await writerSha256()
-
-  const { result, dist } = await runArchiveWriter(context, { [name]: archive }, expected)
-
-  assert.equal(result.status, 0, result.stderr)
-  assert.deepEqual(await readdir(dist), [name])
-  assert.deepEqual(await readFile(join(dist, name)), archive)
-  assert.equal(
-    result.stdout,
-    `${sha256}  ${name}\n${archiveChangedWarning(name, sha256, expected)}\n`,
-  )
-  assert.equal(result.stderr, '')
-})
-
-test('86: the archive writer fails and writes nothing when the cache holds no archive', async (context) => {
-  const { result, dist } = await runArchiveWriter(context, {}, await writerSha256())
-
-  assert.notEqual(result.status, 0)
-  assert.deepEqual(await readdir(dist), [])
-})
-
-test("86: the archive writer fails and writes nothing when the cache holds only another version's archive", async (context) => {
-  const { result, dist } = await runArchiveWriter(
-    context,
-    { [sourceArchiveName(OTHER_OCCT_VERSION)]: testBytes(1000) },
-    await writerSha256(),
-  )
-
-  assert.notEqual(result.status, 0)
-  assert.deepEqual(await readdir(dist), [])
-})
-
-test('87: the deploy job checks the OCCT source archive after the source stamp and before Wrangler', async () => {
-  const steps = await ciJobSteps('deploy')
-  const stamp = namedStep(steps, 'Check the source stamp')
-  const check = namedStep(steps, ARCHIVE_CHECK)
-
-  assert.equal(stepValue(steps[check], 'if'), "steps.secrets.outputs.available == 'true'")
-  assert.ok(
-    stamp < check && check < idStep(steps, 'pages'),
-    `${ARCHIVE_CHECK} is not between the source stamp check and Wrangler`,
-  )
-})
-
-// The files of the tagged commit of test 87's fixture: a short text, and big.bin, whose tar is larger than a pipe
+// The files of the tagged commit of the fixture of tests 86 and 87: a short text, and big.bin, whose tar is larger than a pipe
 // holds.
 const TAGGED_ARCHIVE_FILES = {
   'README.md': '# Open CASCADE Technology\n',
@@ -1876,8 +1941,33 @@ function writeCommitArchive(environment, repository, version, commit, path) {
   assert.equal(result.status, 0, result.stderr)
 }
 
+/** Copies scripts/check-source-archive.sh to the same path in `folder`, as the checkout of a job holds it. */
+async function copyCheckScript(folder) {
+  await mkdir(join(folder, 'scripts'), { recursive: true })
+  await copyFile(join(repositoryRoot, CHECK_SCRIPT), join(folder, CHECK_SCRIPT))
+  await chmod(join(folder, CHECK_SCRIPT), 0o755)
+}
+
 /**
- * Makes the fixture of test 87 in a new folder: a repository whose first commit holds TAGGED_ARCHIVE_FILES and is
+ * Runs the step `name` of the deploy job with `bash -e` in a new folder that holds the files of `checkout` (path to
+ * contents) and a copy of the check script, as the job's checkout does, after writing `files` into `ui/dist/` (name to
+ * bytes; no `ui/dist` when `files` is undefined), in `environment`. With `ignorePipe`, the shell that starts the step
+ * ignores SIGPIPE.
+ */
+async function runDeployCheck(context, name, { checkout = {}, files, environment, ignorePipe }) {
+  const steps = await ciJobSteps('deploy')
+  const workspace = await temporaryDirectory(context)
+  await writeFiles(workspace, checkout)
+  await copyCheckScript(workspace)
+  if (files !== undefined) {
+    await mkdir(join(workspace, 'ui', 'dist'), { recursive: true })
+    await writeFiles(join(workspace, 'ui', 'dist'), files)
+  }
+  return runStep(context, steps[namedStep(steps, name)], workspace, environment, { ignorePipe })
+}
+
+/**
+ * Makes the fixture of tests 86 and 87 in a new folder: a repository whose first commit holds TAGGED_ARCHIVE_FILES and is
  * tagged `{tag}` (annotated), and whose second commit changes `src/Standard/Standard.cxx`, and the archives of both
  * commits. Resolves to the folder, the Git environment, the pins, both commits and both archives' paths.
  */
@@ -1899,31 +1989,157 @@ async function archiveCheckFixture(context) {
   return { directory, environment, version, tag, tagged, second, taggedArchive, secondArchive }
 }
 
-/** The OCCT-source error of section 4 for the archive of OCCT `version` and the pinned commit `commit`. */
-function archiveErrorMessage(version, commit) {
-  return `::error title=OCCT source missing::ui/dist/${sourceArchiveName(version)} is missing or does not hold the source of the OCCT commit ${commit}, so nothing was deployed. The web job writes it (docs/spec/delivery.md section 2.13).`
-}
-
 /**
- * Runs the deploy job's archive check in a new folder whose scripts/occt-version.sh pins the fixture's version, its tag
- * and its tagged commit, after writing `files` into `ui/dist/` (name to bytes; no `ui/dist` when `files` is
- * undefined), in the fixture's Git environment. With `ignorePipe`, the shell that starts the step ignores SIGPIPE.
+ * Runs the archive writer of ci.yml's sources job with `bash -e` in a new folder `<root>` whose
+ * scripts/occt-version.sh pins the fixture's version, its tag and its tagged commit, with a copy of the check script,
+ * the files of `cached` (name to bytes) in `.occt/source/` and no `sources/`, in the fixture's Git environment with
+ * `OCCT_SOURCE_SHA256` set to `expected`. Resolves to the step's result and the folder `<root>/sources`.
  */
-async function runArchiveCheck(context, fixture, files, { ignorePipe = false } = {}) {
-  const steps = await ciJobSteps('deploy')
-  const workspace = await temporaryDirectory(context)
-  await writeFiles(workspace, {
+async function runArchiveWriter(context, fixture, cached, expected) {
+  const steps = jobSteps(await workflowJob('ci.yml', SOURCES_JOB))
+  const root = await temporaryDirectory(context)
+  await writeFiles(root, {
     [OCCT_PINS]: occtVersionText({
       version: fixture.version,
       tag: fixture.tag,
       commit: fixture.tagged,
     }),
   })
-  if (files !== undefined) {
-    await mkdir(join(workspace, 'ui', 'dist'), { recursive: true })
-    await writeFiles(join(workspace, 'ui', 'dist'), files)
-  }
-  return runStep(context, steps[namedStep(steps, ARCHIVE_CHECK)], workspace, fixture.environment, {
+  await copyCheckScript(root)
+  await mkdir(join(root, ARCHIVE_CACHE_PATH), { recursive: true })
+  await writeFiles(join(root, ARCHIVE_CACHE_PATH), cached)
+
+  const result = await runStep(context, steps[namedStep(steps, ARCHIVE_WRITER)], root, {
+    ...fixture.environment,
+    OCCT_SOURCE_SHA256: expected,
+  })
+  return { result, sources: join(root, SOURCES_FOLDER) }
+}
+
+test('86: the archive writer copies the archive of the pinned OCCT commit into sources/ and prints its SHA-256', async (context) => {
+  const fixture = await archiveCheckFixture(context)
+  const name = sourceArchiveName(fixture.version)
+  const archive = await readFile(fixture.taggedArchive)
+  const sha256 = sha256Of(archive)
+
+  const { result, sources } = await runArchiveWriter(context, fixture, { [name]: archive }, sha256)
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(await filesIn(sources), [name])
+  assert.deepEqual(await readFile(join(sources, name)), archive)
+  assert.equal(result.stdout, `${sha256}  ${name}\n`)
+  assert.equal(result.stderr, '')
+})
+
+test('86: the archive writer copies an archive with other bytes than section 2.13 records and warns without failing', async (context) => {
+  const fixture = await archiveCheckFixture(context)
+  const name = sourceArchiveName(fixture.version)
+  const archive = await readFile(fixture.taggedArchive)
+  const sha256 = sha256Of(archive)
+  const expected = await writerSha256()
+
+  const { result, sources } = await runArchiveWriter(
+    context,
+    fixture,
+    { [name]: archive },
+    expected,
+  )
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(await filesIn(sources), [name])
+  assert.deepEqual(await readFile(join(sources, name)), archive)
+  assert.equal(
+    result.stdout,
+    `${sha256}  ${name}\n${archiveChangedWarning(name, sha256, expected)}\n`,
+  )
+})
+
+/** Asserts that the archive writer fails with exactly the cached-archive error when the cache holds `archive`. */
+async function assertCachedArchiveRejected(context, fixture, archive) {
+  const name = sourceArchiveName(fixture.version)
+
+  const { result } = await runArchiveWriter(
+    context,
+    fixture,
+    { [name]: archive },
+    sha256Of(archive),
+  )
+
+  assert.equal(result.status, 1, result.stderr)
+  assert.equal(result.stdout, `${cachedArchiveErrorMessage(fixture.version, fixture.tagged)}\n`)
+  assert.equal(result.stderr, '')
+}
+
+test('86: the archive writer fails with the cached-archive error when the cache holds the archive of another commit', async (context) => {
+  const fixture = await archiveCheckFixture(context)
+
+  await assertCachedArchiveRejected(context, fixture, await readFile(fixture.secondArchive))
+})
+
+test("86: the archive writer fails with the cached-archive error when the cached archive lacks gzip's checksum and length", async (context) => {
+  const fixture = await archiveCheckFixture(context)
+  const cutOff = (await readFile(fixture.taggedArchive)).subarray(0, -8)
+
+  await assertCachedArchiveRejected(context, fixture, cutOff)
+})
+
+test('86: the archive writer fails and writes nothing when the cache holds no archive', async (context) => {
+  const fixture = await archiveCheckFixture(context)
+
+  const { result, sources } = await runArchiveWriter(context, fixture, {}, await writerSha256())
+
+  assert.notEqual(result.status, 0)
+  assert.deepEqual(await filesIn(sources), [])
+})
+
+test("86: the archive writer fails and writes nothing when the cache holds only another version's archive", async (context) => {
+  const fixture = await archiveCheckFixture(context)
+
+  const { result, sources } = await runArchiveWriter(
+    context,
+    fixture,
+    { [sourceArchiveName(OTHER_OCCT_VERSION)]: await readFile(fixture.taggedArchive) },
+    await writerSha256(),
+  )
+
+  assert.notEqual(result.status, 0)
+  assert.deepEqual(await filesIn(sources), [])
+})
+
+test('87: the deploy job checks the OCCT source archive after the source stamp and before Wrangler', async () => {
+  const steps = await ciJobSteps('deploy')
+  const stamp = namedStep(steps, 'Check the source stamp')
+  const check = namedStep(steps, ARCHIVE_CHECK)
+
+  assert.equal(stepValue(steps[check], 'if'), "steps.secrets.outputs.available == 'true'")
+  assert.ok(
+    stamp < check && check < idStep(steps, 'pages'),
+    `${ARCHIVE_CHECK} is not between the source stamp check and Wrangler`,
+  )
+})
+
+/** The OCCT-source error of section 4 for the archive of OCCT `version` and the pinned commit `commit`. */
+function archiveErrorMessage(version, commit) {
+  return `::error title=OCCT source missing::ui/dist/${sourceArchiveName(version)} is missing or does not hold the source of the OCCT commit ${commit}, so nothing was deployed. The sources job writes it, and the web job puts it into the build (docs/spec/delivery.md section 2.13).`
+}
+
+/**
+ * Runs the deploy job's archive check in a new folder whose scripts/occt-version.sh pins the fixture's version, its tag
+ * and its tagged commit, with a copy of the check script, after writing `files` into `ui/dist/` (name to bytes; no
+ * `ui/dist` when `files` is undefined), in the fixture's Git environment. With `ignorePipe`, the shell that starts the
+ * step ignores SIGPIPE.
+ */
+function runArchiveCheck(context, fixture, files, { ignorePipe = false } = {}) {
+  return runDeployCheck(context, ARCHIVE_CHECK, {
+    checkout: {
+      [OCCT_PINS]: occtVersionText({
+        version: fixture.version,
+        tag: fixture.tag,
+        commit: fixture.tagged,
+      }),
+    },
+    files,
+    environment: fixture.environment,
     ignorePipe,
   })
 }
@@ -2045,21 +2261,26 @@ test("87: the archive check fails with the OCCT-source error when only another v
   })
 })
 
-test('93: the web job installs the toolchain, then writes the dependency archives after the OCCT archive and before the distribution check', async () => {
-  const steps = await ciJobSteps('web')
-  const toolchain = commandStep(steps, TOOLCHAIN_STEP)
-  const occtArchive = namedStep(steps, ARCHIVE_WRITER)
-  const writer = namedStep(steps, DEPENDENCY_WRITER)
-  const check = commandStep(steps, 'pnpm check:dist')
+test("93: the web sources jobs install the toolchain, then write the dependency archives after Partsmith's and before the upload", async () => {
+  const webJobs = (await sourcesJobs()).filter(({ file }) => file !== 'release.yml')
+  for (const { file, steps } of webJobs) {
+    const toolchain = commandStep(steps, TOOLCHAIN_STEP)
+    const partsmith = namedStep(steps, PARTSMITH_WRITER)
+    const writer = namedStep(steps, DEPENDENCY_WRITER)
+    const upload = usesStep(steps, 'actions/upload-artifact')
 
-  assert.ok(toolchain < writer, `the toolchain is not installed before ${DEPENDENCY_WRITER}`)
-  assert.ok(
-    occtArchive < writer && writer < check,
-    `${DEPENDENCY_WRITER} is not between ${ARCHIVE_WRITER} and pnpm check:dist`,
-  )
-  assert.equal(stepValue(steps[writer], 'shell'), undefined)
-  assert.equal(stepMapping(steps[writer], 'env'), undefined)
-  assert.equal(stepValue(steps[writer], 'run'), DEPENDENCY_WRITER_RUN)
+    assert.ok(
+      toolchain < writer,
+      `${file}: the toolchain is not installed before ${DEPENDENCY_WRITER}`,
+    )
+    assert.ok(
+      partsmith < writer && writer < upload,
+      `${file}: ${DEPENDENCY_WRITER} is not between ${PARTSMITH_WRITER} and the upload`,
+    )
+    assert.equal(stepValue(steps[writer], 'shell'), undefined, file)
+    assert.equal(stepMapping(steps[writer], 'env'), undefined, file)
+    assert.equal(stepValue(steps[writer], 'run'), DEPENDENCY_WRITER_RUN, file)
+  }
 })
 
 // A stand-in for node that writes its arguments, one per line, to $NODE_CALLS, then writes WEB_PARTS with known bytes
@@ -2075,42 +2296,45 @@ done
 `
 
 /**
- * Runs the web job's dependency writer in `<root>/ui`, where `<root>` is a new folder holding an empty `ui/dist/`,
- * with NODE_STUB first on PATH, failing when `fails` is set. Resolves to the step's result, the folder `ui/dist` and
- * the arguments the stub received.
+ * Runs the step `name` of the sources job of `file` with `bash -e` in a new folder `<root>` that holds an empty
+ * `sources/`, with NODE_STUB first on PATH, failing when `fails` is set. Resolves to the step's result, the folder
+ * `<root>/sources` and the arguments the stub received.
  */
-async function runDependencyWriter(context, { fails = false } = {}) {
-  const steps = await ciJobSteps('web')
+async function runWithNodeStub(context, file, name, { fails = false } = {}) {
+  const steps = jobSteps(await workflowJob(file, SOURCES_JOB))
   const root = await temporaryDirectory(context)
-  const dist = join(root, 'ui', 'dist')
+  const sources = join(root, SOURCES_FOLDER)
   const stubs = join(root, 'stubs')
   const calls = join(root, 'node-calls')
-  await mkdir(dist, { recursive: true })
+  await mkdir(sources)
   await mkdir(stubs)
   await writeFile(join(stubs, 'node'), NODE_STUB)
   await chmod(join(stubs, 'node'), 0o755)
   await writeFile(calls, '')
 
-  const result = await runStep(
-    context,
-    steps[namedStep(steps, DEPENDENCY_WRITER)],
-    join(root, 'ui'),
-    {
-      ...process.env,
-      PATH: `${stubs}:${process.env.PATH}`,
-      NODE_CALLS: calls,
-      NODE_FAILS: fails ? '1' : '0',
-    },
-  )
-  return { result, dist, nodeArguments: (await readFile(calls, 'utf8')).split('\n').slice(0, -1) }
+  const result = await runStep(context, steps[namedStep(steps, name)], root, {
+    ...process.env,
+    PATH: `${stubs}:${process.env.PATH}`,
+    NODE_CALLS: calls,
+    NODE_FAILS: fails ? '1' : '0',
+  })
+  return {
+    result,
+    sources,
+    nodeArguments: (await readFile(calls, 'utf8')).split('\n').slice(0, -1),
+  }
 }
 
 test('93: the dependency writer runs the script for the web scope and lists every part in SHA256SUMS in byte order', async (context) => {
-  const { result, dist, nodeArguments } = await runDependencyWriter(context)
+  const { result, sources, nodeArguments } = await runWithNodeStub(
+    context,
+    'ci.yml',
+    DEPENDENCY_WRITER,
+  )
 
   assert.equal(result.status, 0, result.stderr)
-  assert.deepEqual(nodeArguments, [`../${DEPENDENCY_SCRIPT}`, 'web', 'dist/dependencies'])
-  const folder = join(dist, 'dependencies')
+  assert.deepEqual(nodeArguments, [DEPENDENCY_SCRIPT, 'web', `${SOURCES_FOLDER}/dependencies`])
+  const folder = join(sources, 'dependencies')
   assert.deepEqual((await readdir(folder)).toSorted(), [...WEB_PARTS, 'SHA256SUMS'].toSorted())
   assert.equal(
     await readFile(join(folder, 'SHA256SUMS'), 'utf8'),
@@ -2121,10 +2345,12 @@ test('93: the dependency writer runs the script for the web scope and lists ever
 })
 
 test('93: the dependency writer fails and writes no SHA256SUMS when the script fails', async (context) => {
-  const { result, dist } = await runDependencyWriter(context, { fails: true })
+  const { result, sources } = await runWithNodeStub(context, 'ci.yml', DEPENDENCY_WRITER, {
+    fails: true,
+  })
 
   assert.notEqual(result.status, 0)
-  assert.deepEqual(await readdir(join(dist, 'dependencies')), [])
+  assert.deepEqual(await filesIn(join(sources, 'dependencies')), [])
 })
 
 test('93: the deploy job checks the dependency archives after the OCCT archive and before Wrangler', async () => {
@@ -2141,7 +2367,7 @@ test('93: the deploy job checks the dependency archives after the OCCT archive a
 
 // The dependency-source error of section 4.
 const DEPENDENCY_ERROR =
-  '::error title=Dependency source missing::ui/dist/dependencies does not hold every part of rust-crates-web.tar.gz and npm-packages-web.tar with the SHA-256 that its SHA256SUMS lists, so nothing was deployed. The web job writes them (docs/spec/delivery.md section 2.13).'
+  '::error title=Dependency source missing::ui/dist/dependencies does not hold every part of rust-crates-web.tar.gz and npm-packages-web.tar with the SHA-256 that its SHA256SUMS lists, so nothing was deployed. The sources job writes them, and the web job puts them into the build (docs/spec/delivery.md section 2.13).'
 
 // The byte at which the fixture's packages tar is cut into two parts: inside the data of its second file, b.bin, whose
 // header takes bytes 3,584 to 4,095 (test 93). GNU tar reads a tar that ends inside a header as whole.
@@ -2290,88 +2516,49 @@ test('93: the dependency check fails when the folder holds a part that SHA256SUM
   })
 })
 
-test('94: the draft job installs the toolchain and Node, then adds the dependency archives after the OCCT archive and before SHA256SUMS', async () => {
-  const steps = jobSteps(await workflowJob('release.yml', 'draft'))
+test("94: the release's sources job installs the toolchain and Node, then writes the desktop archives after Partsmith's and before the upload", async () => {
+  const steps = jobSteps(await workflowJob('release.yml', SOURCES_JOB))
   const checkout = usesStep(steps, 'actions/checkout')
   const toolchain = commandStep(steps, TOOLCHAIN_STEP)
   const node = usesStep(steps, 'actions/setup-node')
-  const occtArchive = commandStep(steps, `${ARCHIVE_SCRIPT} release`)
-  const dependencies = namedStep(steps, DEPENDENCY_RELEASE)
-  const sums = namedStep(steps, 'Write SHA256SUMS')
+  const partsmith = namedStep(steps, PARTSMITH_WRITER)
+  const writer = namedStep(steps, DEPENDENCY_WRITER)
+  const upload = usesStep(steps, 'actions/upload-artifact')
 
-  assert.equal(stepValue(steps[dependencies], 'run'), DEPENDENCY_RELEASE_RUN)
+  assert.equal(stepValue(steps[writer], 'run'), DEPENDENCY_RELEASE_RUN)
+  assert.equal(stepValue(steps[writer], 'shell'), undefined)
+  assert.equal(stepMapping(steps[writer], 'env'), undefined)
   assert.ok(
-    occtArchive < dependencies && dependencies < sums,
-    `${DEPENDENCY_RELEASE} is not between the OCCT archive and SHA256SUMS`,
+    partsmith < writer && writer < upload,
+    `${DEPENDENCY_WRITER} is not between ${PARTSMITH_WRITER} and the upload`,
   )
   assert.ok(
-    checkout < toolchain && toolchain < dependencies,
+    checkout < toolchain && toolchain < writer,
     'the toolchain is not installed between the checkout and the dependency archives',
   )
   assert.ok(
-    checkout < node && node < dependencies,
+    checkout < node && node < writer,
     'Node is not set up between the checkout and the dependency archives',
   )
   assert.deepEqual(stepMapping(steps[node], 'with'), { 'node-version': '22' })
 })
 
-test('94: a dry run writes the desktop dependency archives into a temporary folder, after the toolchain and Node', async () => {
-  const job = await workflowJob('release.yml', DEPENDENCY_DRY_RUN)
-  const steps = jobSteps(job)
-  const checkout = usesStep(steps, 'actions/checkout')
-  const toolchain = commandStep(steps, TOOLCHAIN_STEP)
-  const node = usesStep(steps, 'actions/setup-node')
-  const writer = namedStep(steps, DEPENDENCY_WRITER)
+test("94: the release's dependency writer runs the script for the desktop scope into sources/", async (context) => {
+  const passed = await runWithNodeStub(context, 'release.yml', DEPENDENCY_WRITER)
+  assert.equal(passed.result.status, 0, passed.result.stderr)
+  assert.deepEqual(passed.nodeArguments, [DEPENDENCY_SCRIPT, 'desktop', SOURCES_FOLDER])
 
-  assert.equal(jobValue(job, 'if'), "github.event_name == 'workflow_dispatch'")
-  assert.equal(jobValue(job, 'runs-on'), 'ubuntu-24.04')
-  assert.deepEqual(jobNeeds(job), [])
-  assert.equal(steps.length, 4)
-  assert.ok(
-    checkout < toolchain && toolchain < node && node < writer,
-    `${DEPENDENCY_DRY_RUN} does not check out, install the toolchain and set up Node before ${DEPENDENCY_WRITER}`,
-  )
-  assert.deepEqual(stepMapping(steps[node], 'with'), { 'node-version': '22' })
-  assert.equal(stepValue(steps[writer], 'shell'), undefined)
-  assert.equal(stepMapping(steps[writer], 'env'), undefined)
-  assert.equal(stepValue(steps[writer], 'run'), DEPENDENCY_DRY_RUN_RUN)
+  const failed = await runWithNodeStub(context, 'release.yml', DEPENDENCY_WRITER, { fails: true })
+  assert.notEqual(failed.result.status, 0)
 })
 
-test("94: the dry run's writer runs the script for the desktop scope into a new folder of RUNNER_TEMP", async (context) => {
-  const steps = jobSteps(await workflowJob('release.yml', DEPENDENCY_DRY_RUN))
-  const root = await temporaryDirectory(context)
-  const runnerTemp = join(root, 'runner-temp')
-  const stubs = join(root, 'stubs')
-  const calls = join(root, 'node-calls')
-  await mkdir(runnerTemp)
-  await mkdir(stubs)
-  await writeFile(join(stubs, 'node'), NODE_STUB)
-  await chmod(join(stubs, 'node'), 0o755)
-  await writeFile(calls, '')
-  const environment = {
-    ...process.env,
-    PATH: `${stubs}:${process.env.PATH}`,
-    RUNNER_TEMP: runnerTemp,
-    NODE_CALLS: calls,
-  }
+test('94: release.yml has no dry-run job of its own for the dependency archives', async () => {
+  const jobs = workflowJobs(await workflowText('release.yml'))
 
-  const passed = await runStep(context, steps[namedStep(steps, DEPENDENCY_WRITER)], root, {
-    ...environment,
-    NODE_FAILS: '0',
-  })
-  assert.equal(passed.status, 0, passed.stderr)
-  assert.deepEqual((await readFile(calls, 'utf8')).split('\n').slice(0, -1), [
-    DEPENDENCY_SCRIPT,
-    'desktop',
-    join(runnerTemp, 'dependencies'),
-  ])
-
-  await rm(join(runnerTemp, 'dependencies'), { recursive: true })
-  const failed = await runStep(context, steps[namedStep(steps, DEPENDENCY_WRITER)], root, {
-    ...environment,
-    NODE_FAILS: '1',
-  })
-  assert.notEqual(failed.status, 0)
+  assert.ok(
+    !jobs.some((job) => job.id === DEPENDENCY_DRY_RUN),
+    `release.yml still has the job ${DEPENDENCY_DRY_RUN}`,
+  )
 })
 
 test('94: the dependency script is a regular file, and pnpm lint and pnpm format reach it from the repository root', async () => {
@@ -2421,13 +2608,19 @@ test('95: the statements name the folder of the native sources, and the desktop 
   )
 })
 
-test("95: the web job writes the archives into the folder that the web statement names, dist/ being the deployment's root", async () => {
-  const steps = await ciJobSteps('web')
-  const run = stepValue(steps[namedStep(steps, DEPENDENCY_WRITER)], 'run')
+test("95: the dependency writer's folder is dependencies/ of sources-web, which web downloads into ui/dist, the deployment's root", async () => {
+  const sources = jobSteps(await workflowJob('ci.yml', SOURCES_JOB))
+  const run = stepValue(sources[namedStep(sources, DEPENDENCY_WRITER)], 'run')
+  const upload = stepMapping(sources[usesStep(sources, 'actions/upload-artifact')], 'with')
+  const web = await ciJobSteps('web')
 
   assert.ok(
-    run.split('\n').includes('mkdir dist/dependencies'),
-    `${DEPENDENCY_WRITER} does not make dist/dependencies`,
+    run.split('\n').includes(`mkdir ${SOURCES_FOLDER}/dependencies`),
+    `${DEPENDENCY_WRITER} does not make ${SOURCES_FOLDER}/dependencies`,
+  )
+  assert.equal(upload?.path, `${SOURCES_FOLDER}/`)
+  stepIndex(web, 'in web that downloads sources-web into ui/dist', (step) =>
+    downloadsArtifact(step, 'sources-web', 'ui/dist'),
   )
   assert.ok((await repositoryText('ui/public/THIRD-PARTY-NOTICES.txt')).includes('/dependencies/'))
 })
@@ -2847,3 +3040,474 @@ for (const [what, run] of [
     assert.equal(result.summary, '')
   })
 }
+
+test('118: each workflow has a sources job on ubuntu-24.04, with its name, its needs and its steps in order', async () => {
+  for (const { file, job, steps } of await sourcesJobs()) {
+    assert.equal(unquoted(jobValue(job, 'name') ?? ''), SOURCE_ARTIFACTS[file].name, file)
+    assert.equal(jobValue(job, 'runs-on'), 'ubuntu-24.04', file)
+    assert.equal(timeoutMinutes(job), 60, file)
+    for (const key of ['strategy', 'defaults', 'env', 'permissions']) {
+      assert.equal(jobValue(job, key), undefined, `${file}: the sources job sets ${key}`)
+    }
+    if (file === 'release.yml') {
+      assert.deepEqual(jobNeeds(job), ['verify'], file)
+      assert.equal(jobValue(job, 'if'), RELEASE_SOURCES_CONDITION, file)
+    } else {
+      assert.deepEqual(jobNeeds(job), [], file)
+      assert.equal(jobValue(job, 'if'), undefined, file)
+    }
+
+    // The cache step comes before the archive step in ci.yml and platforms.yml, and release.yml has none.
+    const cached = file !== UNCACHED_ARCHIVE_FILE
+    const archive = cached ? 2 : 1
+    const [toolchain, node, writer, partsmith, dependencies, upload] = steps.slice(archive + 1)
+
+    assert.equal(steps.length, archive + 7, `${file}: the sources job has ${steps.length} steps`)
+    assert.equal(stepValue(steps[0], 'uses'), pinned('actions/checkout'), file)
+    if (cached) {
+      assert.equal(stepValue(steps[1], 'id'), 'occt-source', file)
+    }
+    assert.equal(stepValue(steps[archive], 'run'), ARCHIVE_STEP_RUN, file)
+    assert.equal(stepValue(toolchain, 'run'), TOOLCHAIN_STEP, file)
+    assert.equal(stepValue(node, 'uses'), pinned('actions/setup-node'), file)
+    assert.deepEqual(stepMapping(node, 'with'), { 'node-version': '22' }, file)
+    assert.equal(stepValue(writer, 'name'), ARCHIVE_WRITER, file)
+    assert.equal(stepValue(partsmith, 'name'), PARTSMITH_WRITER, file)
+    assert.equal(stepValue(partsmith, 'run'), PARTSMITH_WRITER_RUN, file)
+    for (const key of ['env', 'shell', 'working-directory']) {
+      assert.equal(stepValue(partsmith, key), undefined, `${file}: ${PARTSMITH_WRITER} sets ${key}`)
+    }
+    assert.equal(stepValue(dependencies, 'name'), DEPENDENCY_WRITER, file)
+    assert.equal(stepValue(upload, 'uses'), pinned('actions/upload-artifact'), file)
+    assert.equal(stepMapping(upload, 'with')?.name, SOURCE_ARTIFACTS[file].artifact, file)
+  }
+})
+
+/** The lines of `step` without its `run` and the lines of a block scalar below it. */
+function withoutRun(step) {
+  return step.filter((line) => !line.startsWith('run:') && !line.startsWith('  '))
+}
+
+/** The lines of `step` without the `name` entry of its `with`. */
+function withoutArtifactName(step) {
+  return step.filter((line) => !line.startsWith('  name:'))
+}
+
+/** The steps of a sources job without the cache step and without the `if` of the archive step, as release.yml has them. */
+function withoutArchiveCache(steps) {
+  return steps
+    .filter((step) => stepValue(step, 'id') !== 'occt-source')
+    .map((step) =>
+      stepValue(step, 'run') === ARCHIVE_STEP_RUN
+        ? step.filter((line) => !line.startsWith('if:'))
+        : step,
+    )
+}
+
+test('118: the sources jobs of ci.yml and platforms.yml are the same, and release.yml differs only in its archive cache, scope and artifact', async () => {
+  const [ci, platforms, release] = await sourcesJobs()
+  const expected = withoutArchiveCache(ci.steps)
+  const writer = namedStep(expected, DEPENDENCY_WRITER)
+  const upload = expected.length - 1
+
+  assert.deepEqual(platforms.steps, ci.steps)
+  assert.equal(release.steps.length, expected.length)
+  for (const [i, step] of release.steps.entries()) {
+    if (i === writer) {
+      assert.deepEqual(withoutRun(step), withoutRun(expected[i]), `release.yml step ${i}`)
+    } else if (i === upload) {
+      assert.deepEqual(
+        withoutArtifactName(step),
+        withoutArtifactName(expected[i]),
+        `release.yml step ${i}`,
+      )
+    } else {
+      assert.deepEqual(step, expected[i], `release.yml step ${i}`)
+    }
+  }
+})
+
+/** Whether a job's `if` lets it run after a failed job it needs, unless it asks for a passing sources job. */
+function runsAfterFailure(condition) {
+  return (
+    condition !== undefined &&
+    /\b(?:always|cancelled|failure|success)\(\)/.test(condition) &&
+    !condition.includes("needs.sources.result == 'success'")
+  )
+}
+
+/**
+ * The jobs of `jobs` from `id` up to sources through their `needs`, `id` included and sources left out: every job on a
+ * way from `id` to sources. Empty when `id` does not reach sources.
+ */
+function waysToSources(jobs, id, seen = new Set()) {
+  if (id === SOURCES_JOB) {
+    return [SOURCES_JOB]
+  }
+  if (seen.has(id)) {
+    return []
+  }
+  seen.add(id)
+  const job = jobs.find((listed) => listed.id === id)
+  const above = (job === undefined ? [] : jobNeeds(job)).flatMap((needed) =>
+    waysToSources(jobs, needed, seen),
+  )
+  return above.length === 0 ? [] : [id, ...above.filter((listed) => listed !== SOURCES_JOB)]
+}
+
+test('118: every job that uploads an artifact reaches sources through its needs, and none runs after sources failed', async () => {
+  for (const [file, text] of await workflowTexts(Object.keys(SOURCE_ARTIFACTS))) {
+    const jobs = workflowJobs(text)
+    const uploaders = jobs.filter(
+      (job) =>
+        job.id !== SOURCES_JOB &&
+        jobSteps(job).some((step) => usesAction(step, 'actions/upload-artifact')),
+    )
+
+    assert.ok(uploaders.length > 0, `${file} has no job that uploads an artifact`)
+    for (const uploader of uploaders) {
+      const way = waysToSources(jobs, uploader.id)
+      assert.ok(
+        way.length > 0,
+        `${file}: ${uploader.id} does not reach ${SOURCES_JOB} through its needs`,
+      )
+      for (const id of new Set(way)) {
+        const condition = jobValue(findJob(jobs, file, id), 'if')
+        assert.ok(
+          !runsAfterFailure(condition),
+          `${file}: ${id} runs after a failed job it needs with if: ${condition}`,
+        )
+      }
+    }
+  }
+})
+
+test("118: today's jobs that upload an artifact need what section 2.13 lists", async () => {
+  const expected = {
+    'ci.yml': {
+      'core-wasm': ['occt-native', 'occt-wasm', 'sources'],
+      web: ['core-wasm', 'sources'],
+      e2e: ['core-wasm'],
+    },
+    'platforms.yml': { 'core-wasm': ['occt-wasm', 'sources'], 'e2e-engines': ['core-wasm'] },
+    'release.yml': { bundle: ['verify', 'sources'] },
+  }
+  for (const [file, text] of await workflowTexts(Object.keys(expected))) {
+    const jobs = workflowJobs(text)
+    const uploaders = jobs.filter(
+      (job) =>
+        job.id !== SOURCES_JOB &&
+        jobSteps(job).some((step) => usesAction(step, 'actions/upload-artifact')),
+    )
+
+    assert.deepEqual(
+      Object.fromEntries(uploaders.map((job) => [job.id, jobNeeds(job)])),
+      expected[file],
+      file,
+    )
+  }
+  const release = workflowJobs(await workflowText('release.yml'))
+  assert.equal(jobValue(findJob(release, 'release.yml', 'bundle'), 'if'), BUNDLE_CONDITION)
+  assert.deepEqual(jobNeeds(findJob(release, 'release.yml', 'draft')), ['bundle', 'sources'])
+})
+
+/** A job as `workflowJobs` reads it, with only the `needs` and `if` lines given. */
+function literalJob(id, needs, condition) {
+  return {
+    id,
+    lines: [
+      ...(needs === undefined ? [] : [`    needs: ${needs}`]),
+      ...(condition === undefined ? [] : [`    if: ${condition}`]),
+    ],
+  }
+}
+
+test('118: a job that uploads an artifact without reaching sources, or after a failed sources job, fails the walk', () => {
+  const jobs = [
+    literalJob(SOURCES_JOB),
+    literalJob('build'),
+    literalJob('core', `[build, ${SOURCES_JOB}]`),
+    literalJob('web', 'core'),
+    literalJob('loose', 'build'),
+    literalJob('always', 'core', '${{ always() }}'),
+    literalJob('guarded', SOURCES_JOB, "${{ !cancelled() && needs.sources.result == 'success' }}"),
+  ]
+
+  assert.deepEqual(waysToSources(jobs, 'web'), ['web', 'core'])
+  assert.deepEqual(waysToSources(jobs, 'loose'), [])
+  assert.ok(runsAfterFailure(jobValue(findJob(jobs, 'test', 'always'), 'if')))
+  assert.ok(!runsAfterFailure(jobValue(findJob(jobs, 'test', 'guarded'), 'if')))
+  assert.ok(!runsAfterFailure(undefined))
+})
+
+test('119: web downloads sources-web into ui/dist after the source stamp and before the distribution check', async () => {
+  const steps = await ciJobSteps('web')
+  const stamp = namedStep(steps, 'Write the source stamp')
+  const download = stepIndex(steps, 'that downloads sources-web into ui/dist', (step) =>
+    downloadsArtifact(step, 'sources-web', 'ui/dist'),
+  )
+  const check = commandStep(steps, 'pnpm check:dist')
+
+  assert.ok(
+    stamp < download && download < check,
+    'the download of sources-web is not between the source stamp and pnpm check:dist',
+  )
+})
+
+test('119: web makes none of the archives itself and restores no cache', async () => {
+  const steps = await ciJobSteps('web')
+
+  for (const action of ['actions/cache', 'actions/cache/restore']) {
+    assert.ok(!steps.some((step) => usesAction(step, action)), `web uses ${action}`)
+  }
+  for (const name of [ARCHIVE_WRITER, DEPENDENCY_WRITER]) {
+    assert.ok(!steps.some((step) => stepValue(step, 'name') === name), `web has the step ${name}`)
+  }
+  for (const word of ['rustup', 'dependency-source-archive.mjs']) {
+    assert.ok(
+      !steps.some((step) => stepValue(step, 'run')?.includes(word)),
+      `a step of web runs ${word}`,
+    )
+  }
+})
+
+test("119: the Partsmith writer of the sources job writes the archive of the checkout's commit into sources/", async (context) => {
+  const directory = await temporaryDirectory(context)
+  const environment = await isolatedGitEnvironment(directory)
+  const repository = join(directory, 'repository')
+  await mkdir(join(repository, 'scripts'), { recursive: true })
+  git(environment, repository, 'init', '--initial-branch=main')
+  await writeFile(join(repository, 'README.md'), '# Partsmith\n')
+  await copyFile(join(repositoryRoot, PARTSMITH_SCRIPT), join(repository, PARTSMITH_SCRIPT))
+  await chmod(join(repository, PARTSMITH_SCRIPT), 0o755)
+  git(environment, repository, 'add', '--all')
+  git(environment, repository, 'commit', '--message', 'Partsmith')
+  const commit = git(environment, repository, 'rev-parse', 'HEAD')
+  // The checkout of a CI job is a clone at depth 1.
+  const clone = join(directory, 'clone')
+  git(
+    environment,
+    directory,
+    'clone',
+    '--quiet',
+    '--depth',
+    '1',
+    pathToFileURL(repository).href,
+    clone,
+  )
+  await mkdir(join(clone, SOURCES_FOLDER))
+  const steps = jobSteps(await workflowJob('ci.yml', SOURCES_JOB))
+  const expected = join(directory, 'expected.tar.gz')
+  writePartsmithArchive(environment, repository, commit, expected)
+
+  const result = await runStep(
+    context,
+    steps[namedStep(steps, PARTSMITH_WRITER)],
+    clone,
+    environment,
+  )
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(await readdir(join(clone, SOURCES_FOLDER)), [PARTSMITH_ARCHIVE])
+  assert.deepEqual(
+    await readFile(join(clone, SOURCES_FOLDER, PARTSMITH_ARCHIVE)),
+    await readFile(expected),
+  )
+})
+
+test("120: the deploy job checks Partsmith's archive after the dependency archives and before Wrangler, with the run of section 2.4", async () => {
+  const steps = await ciJobSteps('deploy')
+  const dependencies = namedStep(steps, DEPENDENCY_CHECK)
+  const check = namedStep(steps, PARTSMITH_CHECK)
+
+  assert.equal(stepValue(steps[check], 'if'), "steps.secrets.outputs.available == 'true'")
+  assert.ok(
+    dependencies < check && check < idStep(steps, 'pages'),
+    `${PARTSMITH_CHECK} is not between ${DEPENDENCY_CHECK} and Wrangler`,
+  )
+  assert.equal(stepValue(steps[check], 'run'), PARTSMITH_CHECK_RUN)
+})
+
+/** The Partsmith-source error of section 4 for the run's commit `commit`. */
+function partsmithErrorMessage(commit) {
+  return `::error title=Partsmith source missing::ui/dist/${PARTSMITH_ARCHIVE} is missing or does not hold the source of the commit ${commit}, so nothing was deployed. The sources job writes it, and the web job puts it into the build (docs/spec/delivery.md section 2.13).`
+}
+
+/**
+ * Makes the fixture of test 120 in a new folder: a repository with two commits, the second adding big.bin, whose tar
+ * is larger than a pipe holds, and the archives of both commits. Resolves to the folder, the Git environment, the
+ * repository, both commits and both archives' paths.
+ */
+async function partsmithCheckFixture(context) {
+  const directory = await temporaryDirectory(context)
+  const environment = await isolatedGitEnvironment(directory)
+  const repository = join(directory, 'repository')
+  await mkdir(repository)
+  git(environment, repository, 'init', '--initial-branch=main')
+  await writeFile(join(repository, 'README.md'), '# Partsmith\n')
+  git(environment, repository, 'add', '--all')
+  git(environment, repository, 'commit', '--message', 'First')
+  const first = git(environment, repository, 'rev-parse', 'HEAD')
+  await writeFile(join(repository, 'big.bin'), Buffer.alloc(PIPE_BREAKING_SIZE))
+  git(environment, repository, 'add', '--all')
+  git(environment, repository, 'commit', '--message', 'Second')
+  const second = git(environment, repository, 'rev-parse', 'HEAD')
+  const firstArchive = join(directory, 'first.tar.gz')
+  const secondArchive = join(directory, 'second.tar.gz')
+  writePartsmithArchive(environment, repository, first, firstArchive)
+  writePartsmithArchive(environment, repository, second, secondArchive)
+  return { directory, environment, repository, first, second, firstArchive, secondArchive }
+}
+
+/**
+ * Runs the deploy job's Partsmith check in a new folder that holds a copy of the check script, with `GITHUB_SHA` the
+ * fixture's second commit, after writing `files` into `ui/dist/` (name to bytes; no `ui/dist` when `files` is
+ * undefined), in the fixture's Git environment. With `ignorePipe`, the shell that starts the step ignores SIGPIPE.
+ */
+function runPartsmithCheck(context, fixture, files, { ignorePipe = false } = {}) {
+  return runDeployCheck(context, PARTSMITH_CHECK, {
+    files,
+    environment: { ...fixture.environment, GITHUB_SHA: fixture.second },
+    ignorePipe,
+  })
+}
+
+/** Asserts that the Partsmith check fails with exactly the Partsmith-source error, as `runPartsmithCheck` takes `files`. */
+async function assertPartsmithRejected(context, fixture, files) {
+  const result = await runPartsmithCheck(context, fixture, files)
+
+  assert.equal(result.status, 1, result.stderr)
+  assert.equal(result.stdout, `${partsmithErrorMessage(fixture.second)}\n`)
+  assert.equal(result.stderr, '')
+}
+
+test("120: the Partsmith check passes silently on the run's commit's archive, with SIGPIPE at its default and ignored", async (context) => {
+  const fixture = await partsmithCheckFixture(context)
+  const files = { [PARTSMITH_ARCHIVE]: await readFile(fixture.secondArchive) }
+
+  // The fixture breaks the pipe: git exits after the first header while gzip is still writing.
+  const brokenPipe = runShell(
+    fixture.environment,
+    `trap '' PIPE; gzip -dc "$1" | git get-tar-commit-id`,
+    fixture.secondArchive,
+  )
+  assert.equal(brokenPipe.stdout, `${fixture.second}\n`)
+  assert.match(brokenPipe.stderr, /^gzip: stdout: Broken pipe$/m)
+
+  const runs = [false, true]
+  const results = await Promise.all(
+    runs.map((ignorePipe) => runPartsmithCheck(context, fixture, files, { ignorePipe })),
+  )
+
+  for (const [i, result] of results.entries()) {
+    const label = `SIGPIPE ${runs[i] ? 'ignored' : 'at its default'}`
+    assert.equal(result.status, 0, `${label}: ${result.stdout}${result.stderr}`)
+    assert.equal(result.stdout, '', label)
+    assert.equal(result.stderr, '', label)
+  }
+})
+
+test('120: the Partsmith check fails with the Partsmith-source error when the archive is missing', async (context) => {
+  await assertPartsmithRejected(context, await partsmithCheckFixture(context), {})
+})
+
+test('120: the Partsmith check fails with the Partsmith-source error when ui/dist is missing', async (context) => {
+  await assertPartsmithRejected(context, await partsmithCheckFixture(context), undefined)
+})
+
+test('120: the Partsmith check fails with the Partsmith-source error when the archive holds another commit', async (context) => {
+  const fixture = await partsmithCheckFixture(context)
+
+  await assertPartsmithRejected(context, fixture, {
+    [PARTSMITH_ARCHIVE]: await readFile(fixture.firstArchive),
+  })
+})
+
+test('120: the Partsmith check fails with the Partsmith-source error when the archive is a tar without gzip', async (context) => {
+  const fixture = await partsmithCheckFixture(context)
+
+  await assertPartsmithRejected(context, fixture, {
+    [PARTSMITH_ARCHIVE]: gunzipSync(await readFile(fixture.secondArchive)),
+  })
+})
+
+test('120: the Partsmith check fails with the Partsmith-source error when the archive is empty', async (context) => {
+  await assertPartsmithRejected(context, await partsmithCheckFixture(context), {
+    [PARTSMITH_ARCHIVE]: '',
+  })
+})
+
+test("120: the Partsmith check fails with the Partsmith-source error when the archive is a whole gzip file of the commit's tree, whose tar names no commit", async (context) => {
+  const fixture = await partsmithCheckFixture(context)
+  const treeArchive = join(fixture.directory, 'tree.tar.gz')
+  writePartsmithArchive(
+    fixture.environment,
+    fixture.repository,
+    `${fixture.second}^{tree}`,
+    treeArchive,
+  )
+
+  assert.equal(runShell(fixture.environment, 'gzip -t "$1"', treeArchive).status, 0)
+  assert.equal(
+    runShell(fixture.environment, 'gzip -dc "$1" | git get-tar-commit-id', treeArchive).stdout,
+    '',
+  )
+  await assertPartsmithRejected(context, fixture, {
+    [PARTSMITH_ARCHIVE]: await readFile(treeArchive),
+  })
+})
+
+test("120: the Partsmith check fails with the Partsmith-source error when the archive lacks gzip's checksum and length", async (context) => {
+  const fixture = await partsmithCheckFixture(context)
+  const cutOff = join(fixture.directory, 'cut-off.tar.gz')
+  await writeFile(cutOff, (await readFile(fixture.secondArchive)).subarray(0, -8))
+
+  // Its first header still names the commit. Only gzip -t tells it apart.
+  assert.equal(
+    runShell(fixture.environment, 'gzip -dc "$1" 2>/dev/null | git get-tar-commit-id', cutOff)
+      .stdout,
+    `${fixture.second}\n`,
+  )
+  await assertPartsmithRejected(context, fixture, { [PARTSMITH_ARCHIVE]: await readFile(cutOff) })
+})
+
+test('122: the check script exits 2 with its usage line for other than two arguments', () => {
+  for (const scriptArguments of [[], ['archive.tar.gz'], ['archive.tar.gz', 'commit', 'extra']]) {
+    const result = spawnSync('bash', [join(repositoryRoot, CHECK_SCRIPT), ...scriptArguments], {
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 2, `${scriptArguments.length} arguments`)
+    assert.equal(result.stdout, '')
+    assert.equal(result.stderr, `${CHECK_USAGE}\n`)
+  }
+})
+
+test('122: no step reads the commit of a source archive itself, and each archive check runs the check script once', async () => {
+  for (const [file, text] of await workflowTexts(Object.keys(SOURCE_ARTIFACTS))) {
+    for (const job of workflowJobs(text)) {
+      for (const step of jobSteps(job)) {
+        assert.ok(
+          !(stepValue(step, 'run') ?? '').includes('get-tar-commit-id'),
+          `${file}: a step of ${job.id} runs git get-tar-commit-id`,
+        )
+      }
+    }
+  }
+  const checks = [
+    ...Object.keys(SOURCE_ARTIFACTS).map((file) => [file, SOURCES_JOB, ARCHIVE_WRITER]),
+    ['ci.yml', 'deploy', ARCHIVE_CHECK],
+    ['ci.yml', 'deploy', PARTSMITH_CHECK],
+  ]
+  const runs = await Promise.all(
+    checks.map(async ([file, id, name]) => {
+      const steps = jobSteps(await workflowJob(file, id))
+      return stepValue(steps[namedStep(steps, name)], 'run')
+    }),
+  )
+
+  for (const [i, run] of runs.entries()) {
+    const [file, , name] = checks[i]
+    assert.equal(run.split(CHECK_SCRIPT).length - 1, 1, `${file}: ${name} runs ${CHECK_SCRIPT}`)
+  }
+})

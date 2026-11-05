@@ -29,7 +29,8 @@ const usageLine = 'usage: scripts/occt-source-archive.sh <directory>'
 const OCCT_URL = 'https://github.com/Open-Cascade-SAS/OCCT.git'
 
 // The files of the fixture's tagged commit, each with a text of its own and LF line endings. `.gitattributes` names
-// only *.bat, so no attribute covers the others, and the .cmake file has two lines.
+// only *.bat and *.cmake, so no attribute covers the others, and the .cmake file has two lines and is text without an
+// eol attribute, whose line endings core.eol decides.
 const TAGGED_FILES = {
   '.clang-format': 'BasedOnStyle: Google\n',
   'CMakeLists.txt': 'project (OCCT)\n',
@@ -45,7 +46,7 @@ const TAGGED_FILES = {
   'tests/bugs/begin.tcl': '# Test setup\n',
   'tools/tool.cxx': '// A tool\n',
   '.github/workflows/build.yml': 'name: Build\n',
-  '.gitattributes': '*.bat eol=crlf\n',
+  '.gitattributes': '*.bat eol=crlf\n*.cmake text\n',
 }
 
 // The uncommitted change of the working tree, after the second commit.
@@ -296,7 +297,8 @@ function configurationVariables(settings) {
 
 /**
  * The Git settings, as `[key, value]`, that would change the archive's bytes without the script's -c options: line
- * endings, file modes, and a global attributes file, written in the fixture's root, that leaves out the .cmake file.
+ * endings, file modes, a global attributes file, written in the fixture's root, that leaves out the .cmake file, and
+ * the line endings of the .cmake file, which is text without an eol attribute.
  */
 async function changingSettings() {
   const attributes = join(fixture.root, 'global-attributes')
@@ -305,6 +307,7 @@ async function changingSettings() {
     ['core.autocrlf', 'true'],
     ['tar.umask', '0077'],
     ['core.attributesFile', attributes],
+    ['core.eol', 'crlf'],
   ]
 }
 
