@@ -1,5 +1,5 @@
 // Acceptance tests 49 to 54, 57, 59 to 63, 66, 67, 73, 79, 81 to 83, 85 to 87, 93 to 95, 100, 101, 104, 105, 118 to
-// 120 and 122 of docs/spec/delivery.md section 6 for the workflow files, the copies of section 3.6 and
+// 120 and 122 to 124 of docs/spec/delivery.md section 6 for the workflow files, the copies of section 3.6 and
 // scripts/check-source-archive.sh.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -253,6 +253,12 @@ const DEBUG_APP = 'target/debug/partsmith-desktop.exe'
 const RELEASE_APP = 'target/release/partsmith-desktop.exe'
 const TAURI_BUILD = 'cargo tauri build --bundles ${{ matrix.bundles }} --ci'
 
+// The step of rust-platforms that checks the imports of the CLI with the app's script, the CLI that Cargo builds for
+// the examples runner, and the step that follows the check (section 3.6, The check of the imports, test 124).
+const CLI_IMPORT_CHECK = 'Check the imports of the CLI'
+const DEBUG_CLI = 'target/debug/partsmith.exe'
+const DISK_SPACE = 'Disk space after the tests'
+
 // A stand-in for dumpbin that appends its arguments, separated by NUL, as one line to $DUMPBIN_CALLS, prints the file
 // $DUMPBIN_LISTING and exits with $DUMPBIN_STATUS.
 const DUMPBIN_STUB = `#!/usr/bin/env bash
@@ -262,13 +268,50 @@ cat "$DUMPBIN_LISTING"
 exit "$DUMPBIN_STATUS"
 `
 
-// The imports of an app that takes its C runtime from Windows alone, as dumpbin names them (test 101).
+// DLLs of Windows that hold no C runtime, as dumpbin names them (tests 101 and 123).
+const SYSTEM_IMPORTS = ['KERNEL32.dll', 'USER32.dll', 'ole32.dll']
+
+// The imports of an app that takes its C runtime from Windows alone, as dumpbin names them (tests 101 and 123).
 const WINDOWS_IMPORTS = [
-  'KERNEL32.dll',
-  'USER32.dll',
-  'ole32.dll',
+  ...SYSTEM_IMPORTS,
   'api-ms-win-crt-runtime-l1-1-0.dll',
   'api-ms-win-crt-heap-l1-1-0.dll',
+]
+
+// API sets of Windows' core, which the debug app imports and which are not the Universal C Runtime (test 123).
+const CORE_API_SETS = ['api-ms-win-core-synch-l1-2-0.dll', 'api-ms-win-core-winrt-error-l1-1-0.dll']
+
+// The dependencies dumpbin listed for the debug app in platforms run 14 (41926898084, job 126946230717), in order
+// (test 123).
+const RUN_14_APP_IMPORTS = [
+  'bcryptprimitives.dll',
+  'advapi32.dll',
+  'ntdll.dll',
+  'kernel32.dll',
+  'shlwapi.dll',
+  'comctl32.dll',
+  'ole32.dll',
+  'api-ms-win-core-synch-l1-2-0.dll',
+  'user32.dll',
+  'combase.dll',
+  'shell32.dll',
+  'gdi32.dll',
+  'dwmapi.dll',
+  'imm32.dll',
+  'oleaut32.dll',
+  'api-ms-win-core-winrt-error-l1-1-0.dll',
+  'ADVAPI32.dll',
+  'WSOCK32.dll',
+  'api-ms-win-crt-math-l1-1-0.dll',
+  'api-ms-win-crt-string-l1-1-0.dll',
+  'api-ms-win-crt-heap-l1-1-0.dll',
+  'api-ms-win-crt-stdio-l1-1-0.dll',
+  'api-ms-win-crt-locale-l1-1-0.dll',
+  'api-ms-win-crt-runtime-l1-1-0.dll',
+  'api-ms-win-crt-utility-l1-1-0.dll',
+  'api-ms-win-crt-convert-l1-1-0.dll',
+  'api-ms-win-crt-filesystem-l1-1-0.dll',
+  'api-ms-win-crt-time-l1-1-0.dll',
 ]
 
 // DLLs of the Visual C++ Redistributable whose names start neither with MSVCP nor with VCRUNTIME (test 101).
@@ -282,8 +325,10 @@ const OTHER_REDISTRIBUTABLE_DLLS = [
   'MFCM140.dll',
 ]
 
-// What dumpbin prints when it cannot open the app (test 101).
-const UNREADABLE_APP_LISTING = `LINK : fatal error LNK1181: cannot open input file '${DEBUG_APP}'\r\n`
+/** What dumpbin prints when it cannot open the program `executable` (tests 101 and 124). */
+function unreadableListing(executable) {
+  return `LINK : fatal error LNK1181: cannot open input file '${executable}'\r\n`
+}
 
 // The job of platforms.yml that times technical design section 14's full rebuild, its step, the row of the recompute
 // benchmark that the step reads, and the files that name the row and lay it out (section 2.14, tests 104 and 105).
@@ -2687,13 +2732,14 @@ function dumpbinSection(heading, names) {
 }
 
 /**
- * The listing of `dumpbin -nologo -dependents` for the debug app that imports `dependencies` and, when `delayLoaded`
- * is not empty, delay-loads it under the second heading, with the CR LF line ends dumpbin writes.
+ * The listing of `dumpbin -nologo -dependents` for the program `executable`, by default the debug app, that imports
+ * `dependencies` and, when `delayLoaded` is not empty, delay-loads it under the second heading, with the CR LF line
+ * ends dumpbin writes.
  */
-function dumpbinListing(dependencies, delayLoaded = []) {
+function dumpbinListing(dependencies, { delayLoaded = [], executable = DEBUG_APP } = {}) {
   return [
     '',
-    `Dump of file ${DEBUG_APP}`,
+    `Dump of file ${executable}`,
     '',
     'File Type: EXECUTABLE IMAGE',
     '',
@@ -2712,22 +2758,32 @@ function dumpbinListing(dependencies, delayLoaded = []) {
   ].join('\r\n')
 }
 
-/** The error of section 4 for the app `executable` that imports the Visual C++ runtime DLLs `names`, in order. */
+/** The error of section 4 for the program `executable` that imports the Visual C++ runtime DLLs `names`, in order. */
 function runtimeImportedMessage(executable, names) {
   return `::error title=Visual C++ runtime imported::${executable} imports ${names.join(', ')}, which only the Visual C++ Redistributable installs. On Windows, OCCT, the shim and every Rust crate link the Visual C++ runtime and the C++ standard library statically (docs/spec/delivery.md section 3.6).`
 }
 
-/** The error of section 4 for the app `executable` whose imports dumpbin did not list. */
+/** The error of section 4 for the program `executable` whose imports dumpbin did not list. */
 function importsNotCheckedMessage(executable) {
-  return `::error title=Imports not checked::dumpbin listed no imports of ${executable}, so the C runtime it imports was not checked. The steps that set up MSVC and build the app run before this one (docs/spec/delivery.md section 3.6).`
+  return `::error title=Imports not checked::dumpbin listed no imports of ${executable}, so the C runtime it imports was not checked. The steps that set up MSVC and build the program run before this one (docs/spec/delivery.md section 3.6).`
+}
+
+/** The error of section 4 for the program `executable` that imports no DLL of the Universal C Runtime of Windows. */
+function ucrtNotImportedMessage(executable) {
+  return `::error title=Universal C Runtime not imported::${executable} imports no api-ms-win-crt DLL. Every Windows program takes the Universal C Runtime from Windows through ucrt.lib, and .cargo/config.toml links ucrt.lib in place of the static libucrt.lib (docs/spec/delivery.md section 3.6).`
 }
 
 /**
- * Runs rust-platforms' import check as GitHub runs a `bash` step, in a new folder, with `EXECUTABLE` the debug app and
- * the dumpbin stub first on `PATH`, printing `listing` and exiting with `status`; with `listing` null, no dumpbin is on
- * `PATH`. Resolves to the result and the argument lists dumpbin received.
+ * Runs the import check `step` of rust-platforms, by default the app's, as GitHub runs a `bash` step, in a new folder,
+ * with `EXECUTABLE` set to `executable`, by default the debug app, and the dumpbin stub first on `PATH`, printing
+ * `listing` and exiting with `status`; with `listing` null, no dumpbin is on `PATH`. Resolves to the result and the
+ * argument lists dumpbin received.
  */
-async function runImportCheck(context, listing, { status = 0 } = {}) {
+async function runImportCheck(
+  context,
+  listing,
+  { status = 0, step = IMPORT_CHECK, executable = DEBUG_APP } = {},
+) {
   const { platforms: steps } = await importCheckJobs()
   const directory = await temporaryDirectory(context)
   const workspace = join(directory, 'workspace')
@@ -2735,7 +2791,7 @@ async function runImportCheck(context, listing, { status = 0 } = {}) {
   const callsPath = join(directory, 'calls')
   const listingPath = join(directory, 'listing')
   await Promise.all([mkdir(workspace), mkdir(stubDirectory), writeFile(callsPath, '')])
-  const environment = { ...process.env, EXECUTABLE: DEBUG_APP }
+  const environment = { ...process.env, EXECUTABLE: executable }
   if (listing !== null) {
     await writeFile(join(stubDirectory, 'dumpbin'), DUMPBIN_STUB)
     await chmod(join(stubDirectory, 'dumpbin'), 0o755)
@@ -2747,15 +2803,9 @@ async function runImportCheck(context, listing, { status = 0 } = {}) {
       DUMPBIN_STATUS: String(status),
     })
   }
-  const result = await runStep(
-    context,
-    steps[namedStep(steps, IMPORT_CHECK)],
-    workspace,
-    environment,
-    {
-      pipefail: true,
-    },
-  )
+  const result = await runStep(context, steps[namedStep(steps, step)], workspace, environment, {
+    pipefail: true,
+  })
   return { ...result, calls: await recordedCalls(callsPath) }
 }
 
@@ -2830,7 +2880,9 @@ for (const name of OTHER_REDISTRIBUTABLE_DLLS) {
 }
 
 test('101: the import check fails on runtime DLLs that the app loads with a delay', async (context) => {
-  const listing = dumpbinListing(WINDOWS_IMPORTS, ['vcruntime140.dll', 'VCOMP140.DLL'])
+  const listing = dumpbinListing(WINDOWS_IMPORTS, {
+    delayLoaded: ['vcruntime140.dll', 'VCOMP140.DLL'],
+  })
 
   const result = await runImportCheck(context, listing)
 
@@ -2842,7 +2894,7 @@ test('101: the import check fails on runtime DLLs that the app loads with a dela
 
 for (const status of [1, 0]) {
   test(`101: the import check fails with Imports not checked when dumpbin cannot open the app and exits ${status}`, async (context) => {
-    const result = await runImportCheck(context, UNREADABLE_APP_LISTING, { status })
+    const result = await runImportCheck(context, unreadableListing(DEBUG_APP), { status })
 
     assertImportCheckFailed(result, importsNotCheckedMessage(DEBUG_APP))
   })
@@ -2855,6 +2907,151 @@ test('101: the import check fails with Imports not checked when dumpbin is not o
   const result = await runImportCheck(context, null)
 
   assertImportCheckFailed(result, importsNotCheckedMessage(DEBUG_APP))
+})
+
+test('123: every listing of test 101 that passes imports the two api-ms-win-crt DLLs', () => {
+  for (const name of ['api-ms-win-crt-runtime-l1-1-0.dll', 'api-ms-win-crt-heap-l1-1-0.dll']) {
+    assert.ok(WINDOWS_IMPORTS.includes(name), `WINDOWS_IMPORTS lacks ${name}`)
+  }
+})
+
+test('123: the import check fails with Universal C Runtime not imported on a program that imports no api-ms-win-crt DLL', async (context) => {
+  const result = await runImportCheck(context, dumpbinListing(SYSTEM_IMPORTS))
+
+  assertImportCheckFailed(result, ucrtNotImportedMessage(DEBUG_APP))
+})
+
+for (const name of ['api-ms-win-crt-runtime-l1-1-0.dll', 'API-MS-WIN-CRT-RUNTIME-L1-1-0.DLL']) {
+  test(`123: the import check passes on a program that imports ${name}`, async (context) => {
+    const result = await runImportCheck(context, dumpbinListing([...SYSTEM_IMPORTS, name]))
+
+    assertImportsAccepted(result)
+  })
+}
+
+test("123: the import check does not count the API sets of Windows' core as the Universal C Runtime", async (context) => {
+  const result = await runImportCheck(
+    context,
+    dumpbinListing([...SYSTEM_IMPORTS, ...CORE_API_SETS]),
+  )
+
+  assertImportCheckFailed(result, ucrtNotImportedMessage(DEBUG_APP))
+})
+
+test('123: the import check asks for the API sets of ucrt.lib, not ucrtbase.dll itself', async (context) => {
+  const result = await runImportCheck(context, dumpbinListing([...SYSTEM_IMPORTS, 'ucrtbase.dll']))
+
+  assertImportCheckFailed(result, ucrtNotImportedMessage(DEBUG_APP))
+})
+
+test('123: the import check names the Visual C++ runtime DLLs before it looks for the Universal C Runtime', async (context) => {
+  const listing = dumpbinListing([...SYSTEM_IMPORTS, 'MSVCP140.dll', 'VCRUNTIME140.dll'])
+
+  const result = await runImportCheck(context, listing)
+
+  assertImportCheckFailed(
+    result,
+    runtimeImportedMessage(DEBUG_APP, ['MSVCP140.dll', 'VCRUNTIME140.dll']),
+  )
+})
+
+test('123: the import check passes on the listing of the debug app in platforms run 14', async (context) => {
+  const result = await runImportCheck(context, dumpbinListing(RUN_14_APP_IMPORTS))
+
+  assertImportsAccepted(result)
+})
+
+test('124: rust-platforms checks the imports of the CLI right after those of the app, on the same condition', async () => {
+  const { platforms: steps } = await importCheckJobs()
+  const app = namedStep(steps, IMPORT_CHECK)
+  const cli = namedStep(steps, CLI_IMPORT_CHECK)
+
+  assert.equal(cli, app + 1, `${CLI_IMPORT_CHECK} is not right after ${IMPORT_CHECK}`)
+  assert.equal(
+    namedStep(steps, DISK_SPACE),
+    cli + 1,
+    `${CLI_IMPORT_CHECK} is not right before ${DISK_SPACE}`,
+  )
+  assert.equal(stepValue(steps[cli], 'if'), IMPORT_CHECK_CONDITION)
+  assert.deepEqual(stepMapping(steps[cli], 'env'), { EXECUTABLE: DEBUG_CLI })
+})
+
+test("124: the CLI's check runs the script of both app checks in its job's shell and folder, and may not fail", async () => {
+  const { platforms, release } = await importCheckJobs()
+  const check = platforms[namedStep(platforms, CLI_IMPORT_CHECK)]
+
+  for (const key of ['shell', 'working-directory', 'continue-on-error']) {
+    assert.equal(stepValue(check, key), undefined, `${CLI_IMPORT_CHECK} sets ${key}`)
+  }
+  assert.ok(stepValue(check, 'run'), `${CLI_IMPORT_CHECK} runs nothing`)
+  assert.equal(
+    stepValue(check, 'run'),
+    stepValue(platforms[namedStep(platforms, IMPORT_CHECK)], 'run'),
+  )
+  assert.equal(stepValue(check, 'run'), stepValue(release[namedStep(release, IMPORT_CHECK)], 'run'))
+})
+
+test('124: no job of the release workflow checks the imports of the CLI', async () => {
+  for (const job of workflowJobs(await workflowText('release.yml'))) {
+    const names = jobSteps(job).map((step) => stepValue(step, 'name'))
+    assert.equal(
+      names.includes(CLI_IMPORT_CHECK),
+      false,
+      `release.yml ${job.id} has ${CLI_IMPORT_CHECK}`,
+    )
+  }
+})
+
+test('124: the CLI the check reads is the binary partsmith of partsmith-cli', async () => {
+  const manifest = await repositoryText('crates/partsmith-cli/Cargo.toml')
+  // The name of each [[bin]] table, read up to the next table.
+  const binaries = manifest
+    .split(/^\[\[bin\]\]$/m)
+    .slice(1)
+    .map((table) => /^name = "([^"]+)"$/m.exec(table.split(/^\[/m)[0])?.[1])
+  const checked = /^target\/debug\/(.+)\.exe$/.exec(DEBUG_CLI)?.[1]
+
+  assert.equal(checked, 'partsmith')
+  assert.ok(
+    binaries.includes(checked),
+    `crates/partsmith-cli/Cargo.toml names the binaries ${binaries}`,
+  )
+})
+
+test("124: the CLI's check passes on a CLI that imports the Universal C Runtime of Windows, after dumpbin -nologo -dependents", async (context) => {
+  const listing = dumpbinListing(
+    ['KERNEL32.dll', 'api-ms-win-crt-runtime-l1-1-0.dll', 'api-ms-win-crt-math-l1-1-0.dll'],
+    { executable: DEBUG_CLI },
+  )
+
+  const result = await runImportCheck(context, listing, {
+    step: CLI_IMPORT_CHECK,
+    executable: DEBUG_CLI,
+  })
+
+  assertImportsAccepted(result)
+  assert.deepEqual(result.calls, [['-nologo', '-dependents', DEBUG_CLI]])
+})
+
+test("124: the CLI's check fails with Universal C Runtime not imported on a CLI that links it statically", async (context) => {
+  const listing = dumpbinListing(['KERNEL32.dll'], { executable: DEBUG_CLI })
+
+  const result = await runImportCheck(context, listing, {
+    step: CLI_IMPORT_CHECK,
+    executable: DEBUG_CLI,
+  })
+
+  assertImportCheckFailed(result, ucrtNotImportedMessage(DEBUG_CLI))
+})
+
+test("124: the CLI's check fails with Imports not checked, naming the program, when dumpbin cannot open it", async (context) => {
+  const result = await runImportCheck(context, unreadableListing(DEBUG_CLI), {
+    step: CLI_IMPORT_CHECK,
+    executable: DEBUG_CLI,
+  })
+
+  assertImportCheckFailed(result, importsNotCheckedMessage(DEBUG_CLI))
+  assert.ok(lastLine(result.stdout).includes('build the program run before this one'))
 })
 
 test('104: full-rebuild runs on macos-15 right after rust-platforms, after both OCCT rows, for the macOS of OCCT and the app', async () => {

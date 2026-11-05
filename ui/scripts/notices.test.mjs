@@ -1,4 +1,5 @@
-// Acceptance tests 35 to 42, 84 and 96 of docs/spec/delivery.md section 6 for the third-party notices generator.
+// Acceptance tests 35 to 42, 84, 96, 125 and 126 of docs/spec/delivery.md section 6 for the third-party notices
+// generator.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
@@ -72,12 +73,24 @@ const FONT_LINES = [
   'JetBrains Mono 2.304, OFL-1.1, https://github.com/JetBrains/JetBrainsMono, texts [9]',
 ]
 
-// The entry lines of the code the NSIS installer adds, in the desktop file only, after the WebView2 loader's line,
+// The start of the entry line of the Visual C++ runtime built into the Windows app, in the desktop file only, right
+// after the WebView2 loader's line, the committed copy of its text, and the paragraphs of that text (section 2.9
+// input 6, test 125).
+const MSVC_RUNTIME_PREFIX =
+  'Microsoft Visual C++ runtime (libcmt, libvcruntime and libcpmt), in the Windows app, see texts, https://visualstudio.microsoft.com/license-terms/, only Windows, texts ['
+const MSVC_RUNTIME_TEXT = 'msvc-runtime/Distributable-Code.txt'
+const MSVC_RUNTIME_PARAGRAPHS = [
+  'The Windows app of Partsmith, partsmith-desktop.exe, contains code from the Microsoft Visual C++ runtime (libcmt and libvcruntime) and the Microsoft C++ standard library (libcpmt), copyright Microsoft Corporation. The linker copied this code into the app from the static libraries of the Visual Studio that built it. It is Distributable Code under the Microsoft Visual Studio license terms. It is not open source software, and no other license in this file covers it.',
+  "If you distribute the Windows app, or another program that contains this code, follow the Distributable Code terms of that license. Among other things, they ask you to distribute the code only in a program that adds significant primary functionality to it, to have the people you distribute it to agree to terms that protect it and Microsoft at least as much as Microsoft's terms do, not to use Microsoft's trademarks in a way that suggests your program comes from Microsoft or is endorsed by it, and not to put any part of the code under a license that requires it to be shared as source code or lets others modify it.",
+  "Microsoft's license terms decide, not this summary. They cover only Microsoft's code: Partsmith, OCCT and every other part of the app keep the licenses listed in this file. The terms are at https://visualstudio.microsoft.com/license-terms/, one set for each edition and version of Visual Studio.",
+]
+
+// The entry lines of the code the NSIS installer adds, in the desktop file only, after the Visual C++ runtime's line,
 // with the versions of WINDOWS_INSTALLER (section 2.9 input 6), numbered as test 40's desktop file numbers them.
 const INSTALLER_LINES = [
-  'NSIS with its LZMA decompressor, Modern UI 2 and the plugins System, nsDialogs, StartMenu and NSISdl, in the Windows installer 3.11, Zlib AND CPL-1.0, https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/, only Windows, texts [18] [19] [20]',
-  "nsis_tauri_utils, Tauri's NSIS plugin, with the crates semver and windows-sys, in the Windows installer 0.5.3, MIT OR Apache-2.0, https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3, only Windows, text from its repository, texts [21] [22]",
-  'NSIS installer script of tauri-bundler, in the Windows installer 2.10.2, Apache-2.0 OR MIT, https://crates.io/crates/tauri-bundler/2.10.2, only Windows, texts [23] [24]',
+  'NSIS with its zlib decompressor, Modern UI 2 and the plugins System, nsDialogs, StartMenu and NSISdl, in the Windows installer 3.11, Zlib, https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/, only Windows, texts [19] [20] [21]',
+  "nsis_tauri_utils, Tauri's NSIS plugin, with the crates semver and windows-sys, in the Windows installer 0.5.3, MIT OR Apache-2.0, https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3, only Windows, text from its repository, texts [22] [23]",
+  'NSIS installer script of tauri-bundler, in the Windows installer 2.10.2, Apache-2.0 OR MIT, https://crates.io/crates/tauri-bundler/2.10.2, only Windows, texts [24] [25]',
 ]
 
 // The committed copies under ui/scripts/notices/ that the installer's entries carry, in the order of their texts.
@@ -871,6 +884,7 @@ test('40: generateNotices builds both files from the inputs, with no OCCT instal
         '',
         `Rust standard library ${channel}, (MIT OR Apache-2.0) AND Unicode-3.0, https://www.rust-lang.org, texts [1] [16]`,
         `Microsoft Edge WebView2 SDK loader, in webview2-com-sys ${webView2Version}, BSD-3-Clause, https://www.nuget.org/packages/Microsoft.Web.WebView2, only Windows, texts [17]`,
+        `${MSVC_RUNTIME_PREFIX}18]`,
         ...INSTALLER_LINES,
         '',
         '== License texts ==',
@@ -908,12 +922,13 @@ test('40: generateNotices builds both files from the inputs, with no OCCT instal
   )
   assert.equal(desktop.includes('Emscripten'), false)
   assert.equal(web.includes('WebView2'), false)
+  assert.equal(web.includes('Microsoft Visual C++ runtime'), false)
   assert.equal(web.includes('in the Windows installer'), false)
 
   const copies = join(root, 'ui', 'scripts', 'notices')
   const normalizedCopy = async (path) => normalizeText(await readFile(join(copies, path), 'utf8'))
   const desktopTexts = numberedTexts(desktop)
-  assert.equal(desktopTexts.size, 24)
+  assert.equal(desktopTexts.size, 25)
   assert.equal(desktopTexts.get(1), normalizeText(await readFile(join(root, 'LICENSE'), 'utf8')))
   assert.equal(desktopTexts.get(2), await normalizedCopy('occt-7.9.3/LICENSE_LGPL_21.txt'))
   assert.equal(desktopTexts.get(3), await normalizedCopy('occt-7.9.3/OCCT_LGPL_EXCEPTION.txt'))
@@ -926,8 +941,9 @@ test('40: generateNotices builds both files from the inputs, with no OCCT instal
     desktopTexts.get(17),
     await normalizedCopy(`webview2-com-sys-${webView2Version}/LICENSE.txt`),
   )
+  assert.equal(desktopTexts.get(18), await normalizedCopy(MSVC_RUNTIME_TEXT))
   assert.deepEqual(
-    [18, 19, 20, 21, 22, 23, 24].map((number) => desktopTexts.get(number)),
+    [19, 20, 21, 22, 23, 24, 25].map((number) => desktopTexts.get(number)),
     await Promise.all(INSTALLER_TEXTS.map(normalizedCopy)),
   )
   const webTexts = numberedTexts(web)
@@ -1297,11 +1313,7 @@ test('96: the copies of the installer texts exist as UTF-8 with LF line endings 
   assert.ok(
     texts['nsis-3.11/ModernUI2-License.txt'].startsWith('Copyright © 2002-2025 Joost Verburg'),
   )
-  assert.ok(
-    texts['nsis-3.11/COPYING']
-      .split('\n')
-      .some((line) => line.trim() === 'SPECIAL EXCEPTION FOR LZMA COMPRESSION MODULE'),
-  )
+  assert.ok(texts['nsis-3.11/COPYING'].split('\n').includes('ZLIB/LIBPNG LICENSE'))
   assert.ok(
     texts['tauri-bundler-2.10.2/License-Apache.md.txt'].startsWith(
       'Copyright 2017 Cargo-Bundle developers',
@@ -1312,16 +1324,17 @@ test('96: the copies of the installer texts exist as UTF-8 with LF line endings 
   assert.ok(mit.includes('Copyright (c) 2017 - Present Tauri Apps Contributors'))
 })
 
-test("96: the committed desktop notices list the installer's three entries after the WebView2 loader, for Windows only", async () => {
+test("96: the committed desktop notices list the installer's three entries after the Visual C++ runtime, for Windows only", async () => {
   const desktop = await readFile(join(repositoryRoot, 'THIRD-PARTY-NOTICES.txt'), 'utf8')
   const lines = desktop.split('\n')
   const loader = lines.findIndex((line) =>
     line.startsWith('Microsoft Edge WebView2 SDK loader, in webview2-com-sys '),
   )
   assert.notEqual(loader, -1, 'the desktop notices have no WebView2 loader line')
-  const [nsis, plugin, script] = lines.slice(loader + 1, loader + 4)
+  const [runtime, nsis, plugin, script] = lines.slice(loader + 1, loader + 5)
 
-  assert.ok(nsis.startsWith('NSIS with its LZMA decompressor, Modern UI 2 and the plugins'), nsis)
+  assert.ok(runtime.startsWith(MSVC_RUNTIME_PREFIX), runtime)
+  assert.ok(nsis.startsWith('NSIS with its zlib decompressor, Modern UI 2 and the plugins'), nsis)
   assert.ok(plugin.startsWith("nsis_tauri_utils, Tauri's NSIS plugin"), plugin)
   assert.ok(script.startsWith('NSIS installer script of tauri-bundler'), script)
   for (const line of [nsis, plugin, script]) {
@@ -1356,4 +1369,224 @@ test('96: the web notices name none of the installer entries', async () => {
   )
 
   assert.equal(web.includes('in the Windows installer'), false)
+})
+
+// The em dash, which the project's own text never holds (AGENTS.md).
+const EM_DASH = '\u2014'
+
+/** The text of the committed copy `path` under ui/scripts/notices/, decoded as UTF-8 that fails on an invalid byte. */
+async function committedCopy(path) {
+  const bytes = await readFile(join(repositoryRoot, 'ui', 'scripts', 'notices', path))
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+}
+
+/** The paragraphs of a text, split at its blank lines, each as its lines. */
+function paragraphLines(text) {
+  return text
+    .replace(/\n$/, '')
+    .split('\n\n')
+    .map((paragraph) => paragraph.split('\n'))
+}
+
+/** The entry lines of a notices file: its lines above the license texts. */
+function entryLines(notices) {
+  return notices.slice(0, notices.indexOf('\n== License texts ==\n')).split('\n')
+}
+
+/**
+ * The paragraphs of the text block of section 2.9 input 6 that the runtime's copy holds, each on one line as the
+ * spec writes it: the lines of the first `text` block after the sentence that introduces them, without their indent.
+ */
+async function specifiedRuntimeParagraphs() {
+  const spec = await readFile(join(repositoryRoot, 'docs', 'spec', 'delivery.md'), 'utf8')
+  const introduction = spec.indexOf('The file holds the three paragraphs below')
+  assert.notEqual(introduction, -1, 'delivery.md 2.9 input 6 does not introduce the paragraphs')
+  const start = spec.indexOf('```text\n', introduction) + '```text\n'.length
+  const block = spec.slice(start, spec.indexOf('```', start))
+  return block
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+}
+
+test('125: the paragraphs the test holds are those of section 2.9 input 6', async () => {
+  assert.deepEqual(await specifiedRuntimeParagraphs(), MSVC_RUNTIME_PARAGRAPHS)
+})
+
+test("125: the runtime's text is UTF-8 with LF line ends, no em dash and one LF at its end", async () => {
+  const text = await committedCopy(MSVC_RUNTIME_TEXT)
+
+  assert.equal(text.includes('\r'), false, `${MSVC_RUNTIME_TEXT} holds a CR`)
+  assert.equal(text.includes(EM_DASH), false, `${MSVC_RUNTIME_TEXT} holds an em dash`)
+  assert.ok(text.endsWith('\n'), `${MSVC_RUNTIME_TEXT} does not end with an LF`)
+  assert.equal(text.endsWith('\n\n'), false, `${MSVC_RUNTIME_TEXT} ends with a blank line`)
+})
+
+test("125: the runtime's text holds no line longer than 80 characters", async () => {
+  const text = await committedCopy(MSVC_RUNTIME_TEXT)
+
+  for (const line of text.replace(/\n$/, '').split('\n')) {
+    assert.ok(line.length <= 80, `${MSVC_RUNTIME_TEXT} has a line of ${line.length}: ${line}`)
+  }
+})
+
+test("125: the runtime's text is the three paragraphs of section 2.9 input 6, each as wrapParagraph gives it", async () => {
+  const paragraphs = paragraphLines(await committedCopy(MSVC_RUNTIME_TEXT))
+
+  assert.equal(paragraphs.length, 3)
+  for (const [i, lines] of paragraphs.entries()) {
+    assert.equal(lines.join(' '), MSVC_RUNTIME_PARAGRAPHS[i], `paragraph ${i + 1}`)
+    assert.equal(lines.join('\n'), wrapParagraph(MSVC_RUNTIME_PARAGRAPHS[i]), `paragraph ${i + 1}`)
+  }
+})
+
+test('125: the committed desktop notices list the Visual C++ runtime once, right after the WebView2 loader, with its text', async () => {
+  const desktop = await readFile(join(repositoryRoot, 'THIRD-PARTY-NOTICES.txt'), 'utf8')
+  const lines = desktop.split('\n')
+  const entries = linesStartingWith(desktop, MSVC_RUNTIME_PREFIX)
+  const runtime = lines.indexOf(entries[0])
+
+  assert.equal(entries.length, 1, `${entries.length} lines start with ${MSVC_RUNTIME_PREFIX}`)
+  assert.match(entries[0], /, texts \[\d+\]$/)
+  assert.ok(
+    lines[runtime - 1].startsWith('Microsoft Edge WebView2 SDK loader, in webview2-com-sys '),
+    `the line before the runtime's is ${lines[runtime - 1]}`,
+  )
+  assert.deepEqual(entryTexts(desktop, MSVC_RUNTIME_PREFIX), [
+    normalizeText(await committedCopy(MSVC_RUNTIME_TEXT)),
+  ])
+})
+
+test("125: neither the runtime's entry nor its text names the Universal C Runtime", async () => {
+  const desktop = await readFile(join(repositoryRoot, 'THIRD-PARTY-NOTICES.txt'), 'utf8')
+  const line = linesStartingWith(desktop, MSVC_RUNTIME_PREFIX)[0] ?? ''
+  const [text = ''] = entryTexts(desktop, MSVC_RUNTIME_PREFIX)
+
+  for (const [what, value] of [
+    ['entry line', line],
+    ['text', text],
+  ]) {
+    assert.equal(/ucrt/i.test(value), false, `the runtime's ${what} names ucrt`)
+    assert.equal(
+      value.includes('Universal C Runtime'),
+      false,
+      `the runtime's ${what} names the UCRT`,
+    )
+  }
+})
+
+test('125: the web notices list no Visual C++ runtime', async () => {
+  const web = await readFile(
+    join(repositoryRoot, 'ui', 'public', 'THIRD-PARTY-NOTICES.txt'),
+    'utf8',
+  )
+
+  assert.deepEqual(linesStartingWith(web, 'Microsoft Visual C++ runtime'), [])
+})
+
+test("125: generateNotices fails without the runtime's text", async (context) => {
+  const { root, answers } = await writeRepository(context)
+  await rm(join(root, 'ui', 'scripts', 'notices', MSVC_RUNTIME_TEXT), { force: true })
+
+  await assertRejects(root, fakeRun(root, answers()).run, missingCopyMessage(MSVC_RUNTIME_TEXT))
+})
+
+// Lines 1 to 14 and 19 to 30 of the COPYING of nsis-3.11.zip: NSIS's copyright, the lines that put its code, plugins,
+// graphics and zlib module under the zlib/libpng license, and that license (section 2.9 input 6, test 126).
+const NSIS_ZLIB_COPYING_LINES = [
+  'COPYRIGHT',
+  '---------',
+  '',
+  'Copyright (C) 1999-2025 Contributors',
+  '',
+  'More detailed copyright information can be found in the individual source code files.',
+  '',
+  'APPLICABLE LICENSES',
+  '-------------------',
+  '',
+  '* All NSIS source code, plug-ins, documentation, examples, header files and graphics, with the exception of the compression modules and where otherwise noted, are licensed under the zlib/libpng license.',
+  '',
+  '* The zlib compression module for NSIS is licensed under the zlib/libpng license.',
+  '',
+  'ZLIB/LIBPNG LICENSE',
+  '-------------------',
+  '',
+  "This software is provided 'as-is', without any express or implied warranty. In no event will the authors be held liable for any damages arising from the use of this software.",
+  '',
+  'Permission is granted to anyone to use this software for any purpose, including commercial applications, and to alter it and redistribute it freely, subject to the following restrictions:',
+  '',
+  '      1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.',
+  '',
+  '      2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.',
+  '',
+  '      3. This notice may not be removed or altered from any source distribution.',
+]
+
+// The start of the NSIS entry line of the desktop notices for NSIS 3.11 (section 2.9 input 6, test 126).
+const NSIS_ZLIB_PREFIX =
+  'NSIS with its zlib decompressor, Modern UI 2 and the plugins System, nsDialogs, StartMenu and NSISdl, in the Windows installer 3.11, Zlib, https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/, only Windows, texts ['
+
+test('126: the Windows installer compresses with zlib', async () => {
+  const configuration = JSON.parse(
+    await readFile(join(repositoryRoot, 'desktop', 'src-tauri', 'tauri.conf.json'), 'utf8'),
+  )
+
+  assert.equal(configuration.bundle?.windows?.nsis?.compression, 'zlib')
+})
+
+test("126: the copy of NSIS's COPYING is its lines 1 to 14 and 19 to 30, with LF line ends", async () => {
+  const { WINDOWS_INSTALLER } = await import('./notices.mjs')
+  const text = await committedCopy(`nsis-${WINDOWS_INSTALLER.nsis}/COPYING`)
+  const lines = text.replace(/\n$/, '').split('\n')
+
+  assert.equal(text.includes('\r'), false, 'COPYING holds a CR')
+  assert.equal(text, `${NSIS_ZLIB_COPYING_LINES.join('\n')}\n`)
+  assert.equal(lines.length, 26)
+  assert.equal(lines[0], 'COPYRIGHT')
+  assert.equal(lines[13], '')
+  assert.equal(lines[14], 'ZLIB/LIBPNG LICENSE')
+  assert.equal(
+    lines.at(-1),
+    '      3. This notice may not be removed or altered from any source distribution.',
+  )
+})
+
+test("126: the copy of NSIS's COPYING names the zlib module and neither the bzip2 nor the LZMA module", async () => {
+  const { WINDOWS_INSTALLER } = await import('./notices.mjs')
+  const lines = (await committedCopy(`nsis-${WINDOWS_INSTALLER.nsis}/COPYING`)).split('\n')
+
+  assert.ok(
+    lines.includes(
+      '* The zlib compression module for NSIS is licensed under the zlib/libpng license.',
+    ),
+  )
+  for (const word of ['bzip2', 'lzma', 'common public license']) {
+    assert.deepEqual(
+      lines.filter((line) => line.toLowerCase().includes(word)),
+      [],
+      `COPYING names ${word}`,
+    )
+  }
+})
+
+test('126: the desktop notices name NSIS with its zlib decompressor under Zlib', async () => {
+  const desktop = await readFile(join(repositoryRoot, 'THIRD-PARTY-NOTICES.txt'), 'utf8')
+
+  assert.equal(linesStartingWith(desktop, NSIS_ZLIB_PREFIX).length, 1)
+})
+
+test('126: neither notices file carries the Common Public License or its LZMA exception', async () => {
+  for (const { file, text } of await committedNotices()) {
+    assert.deepEqual(
+      entryLines(text).filter((line) => line.includes('CPL-1.0')),
+      [],
+      `${file} has an entry under CPL-1.0`,
+    )
+    for (const heading of [
+      'COMMON PUBLIC LICENSE VERSION 1.0',
+      'SPECIAL EXCEPTION FOR LZMA COMPRESSION MODULE',
+    ]) {
+      assert.equal(text.split('\n').includes(heading), false, `${file} holds ${heading}`)
+    }
+  }
 })

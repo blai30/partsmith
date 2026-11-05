@@ -111,9 +111,20 @@ const WINDOWS_ARGUMENTS = [
 const WINDOWS_SYSTEMS = ['MINGW64_NT-10.0-26100', 'MSYS_NT-10.0-26100', 'CYGWIN_NT-10.0-26100']
 const OTHER_SYSTEMS = ['Linux', 'Darwin']
 
-// The Cargo table of the Windows target and the flags of the static runtime it gives rustc and rustdoc (section 3.6).
+// The Cargo table of the Windows target and the flags it gives rustc and rustdoc: the static Visual C++ runtime, and
+// the Universal C Runtime of Windows through ucrt.lib in place of the static libucrt.lib (section 3.6 item 2).
 const WINDOWS_TARGET_TABLE = 'target.x86_64-pc-windows-msvc'
-const STATIC_RUNTIME_FLAGS = ['-C', 'target-feature=+crt-static']
+const WINDOWS_RUNTIME_FLAGS = [
+  '-C',
+  'target-feature=+crt-static',
+  '-C',
+  'link-arg=/NODEFAULTLIB:libucrt.lib',
+  '-C',
+  'link-arg=/DEFAULTLIB:ucrt.lib',
+]
+
+// What only the Windows table of .cargo/config.toml may name: the static runtime and either Universal C Runtime.
+const WINDOWS_ONLY_WORDS = ['crt-static', 'libucrt', 'ucrt.lib']
 
 // The git that the stub hands its commands to.
 const realGit = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim()
@@ -670,23 +681,25 @@ test('99: for WebAssembly, build-occt.sh calls emcmake once, with none of the Wi
   assertNoWindowsArgument(emcmakeCalls[0], 'emcmake')
 })
 
-test('99: .cargo/config.toml gives x86_64-pc-windows-msvc the rustflags and rustdocflags of the static runtime and no other entry', async () => {
+test('99: .cargo/config.toml gives x86_64-pc-windows-msvc the static Visual C++ runtime and the Universal C Runtime of Windows in its rustflags and rustdocflags, and no other entry', async () => {
   const tables = configurationTables(await readFile(cargoConfigurationPath, 'utf8'))
   const windows = tables.get(WINDOWS_TARGET_TABLE)
 
   assert.ok(windows, `.cargo/config.toml has no table [${WINDOWS_TARGET_TABLE}]`)
   assert.deepEqual(Object.keys(windows), ['rustflags', 'rustdocflags'])
-  assert.deepEqual(stringArray(windows.rustflags), STATIC_RUNTIME_FLAGS)
-  assert.deepEqual(stringArray(windows.rustdocflags), STATIC_RUNTIME_FLAGS)
+  assert.deepEqual(stringArray(windows.rustflags), WINDOWS_RUNTIME_FLAGS)
+  assert.deepEqual(stringArray(windows.rustdocflags), WINDOWS_RUNTIME_FLAGS)
 })
 
-test('99: no other table of .cargo/config.toml holds crt-static', async () => {
+test('99: no other table of .cargo/config.toml holds crt-static, libucrt or ucrt.lib', async () => {
   const tables = configurationTables(await readFile(cargoConfigurationPath, 'utf8'))
 
   for (const [name, entries] of tables) {
     if (name !== WINDOWS_TARGET_TABLE) {
       for (const [key, value] of Object.entries(entries)) {
-        assert.ok(!value.includes('crt-static'), `[${name}] ${key} holds crt-static`)
+        for (const word of WINDOWS_ONLY_WORDS) {
+          assert.ok(!value.includes(word), `[${name}] ${key} holds ${word}`)
+        }
       }
     }
   }

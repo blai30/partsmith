@@ -49,7 +49,8 @@ fn file_names(relative: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// The object of desktop.md 2.8.
+/// The object of desktop.md 2.8: the Windows installer compresses with zlib, and `build` has no `windows` key, which
+/// keeps tauri-build's `staticVCRuntime` at its default (desktop.md 2.2).
 fn expected_configuration() -> Value {
     json!({
         "$schema": "https://schema.tauri.app/config/2",
@@ -126,6 +127,11 @@ fn expected_configuration() -> Value {
             "homepage": "https://github.com/blai30/partsmith",
             "macOS": {
                 "minimumSystemVersion": "13.0"
+            },
+            "windows": {
+                "nsis": {
+                    "compression": "zlib"
+                }
             }
         }
     })
