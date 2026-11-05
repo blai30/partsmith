@@ -2,8 +2,9 @@
 
 A failed operation raises its `OSError` again for the file or folder being written as the caller
 named it, never a temporary file or the file a symbolic link leads to, so the error names what
-could not be written. The document and export writes keep the permissions of the file they replace
-on Linux and macOS; an asset's entry gets the default permissions.
+could not be written. The document and export writes refuse a read-only file and keep the
+permissions of the file they replace on Linux and macOS; an asset's entry is not checked and gets
+the default permissions.
 """
 
 import errno
@@ -19,6 +20,9 @@ NEW_FILE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 
 
 NEW_FILE_MODE = 0o666
 """Permissions of a new file before the umask, as `open()` uses."""
+
+WRITE_BITS = 0o222
+"""The write bits of a mode; a file with none of them set is read-only (on Windows, the read-only attribute)."""
 
 EXISTING_FILE_FLAGS = (
     os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
@@ -52,11 +56,11 @@ def write_through_link(path: Path, data: bytes) -> None:
 
     The write then replaces the file the link leads to, as `os.path.realpath(path, strict=True)`
     names it after every link on the way, and leaves the link as it is. A link that leads to no
-    file (a missing file or a loop) fails before a temporary file is created.
+    file (a missing file or a loop) and a read-only file fail before a temporary file is created.
     """
     with _reported_as(path):
         target = _link_target(path)
-        _replace(target, data, _kept_mode(target))
+        _replace(target, data, _writable_mode(target))
 
 
 def _link_target(path: Path) -> Path:
@@ -77,17 +81,24 @@ def _link_target(path: Path) -> Path:
     return target
 
 
-def _kept_mode(target: Path) -> int | None:
+def _writable_mode(target: Path) -> int | None:
     """The permission bits of the regular file at `target`, which its replacement keeps on Linux and
     macOS; None (the default permissions) for a missing entry, any other entry, an entry that cannot
-    be looked at, and on Windows."""
-    if os.name != "posix":
-        return None
+    be looked at, and on Windows.
+
+    A regular file with no write bit set raises `PermissionError` (`EACCES`) on every OS, whoever
+    runs the write: a rename would replace it (python-api.md section 3.1).
+    """
     try:
         status = os.stat(target)
     except OSError:
         return None
-    return stat.S_IMODE(status.st_mode) if stat.S_ISREG(status.st_mode) else None
+    if not stat.S_ISREG(status.st_mode):
+        return None
+    mode = stat.S_IMODE(status.st_mode)
+    if mode & WRITE_BITS == 0:
+        raise PermissionError(errno.EACCES, os.strerror(errno.EACCES))
+    return mode if os.name == "posix" else None
 
 
 def _replace(target: Path, data: bytes, mode: int | None = None) -> None:

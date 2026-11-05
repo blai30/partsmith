@@ -17,3 +17,4 @@ mod rebuild;
 mod regressions;
 mod schema;
 mod validate;
+mod writes;

@@ -10,6 +10,7 @@ import {
 } from '../../app/actions/command'
 import { useApp, useAppState } from '../../app/AppProvider'
 import { reportFailure } from '../../app/report'
+import { landInTurn } from '../../app/actions/selection'
 import { featureLabel } from '../../core/labels'
 import { Button } from '../../components/Button'
 import { describedBy } from '../../components/described-by'
@@ -222,7 +223,8 @@ export function SelectionField({
         label: item.label,
         onSelect: () => {
           setActiveField(app, field.path)
-          capturePick(app, item).catch(reportFailure('Choosing a selection'))
+          // A choice lands in the order input was made, as a click does, and OK waits for it (3.6).
+          landInTurn(app, () => capturePick(app, item)).catch(reportFailure('Choosing a selection'))
         },
       }))
     : []

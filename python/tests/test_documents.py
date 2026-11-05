@@ -1,4 +1,4 @@
-"""Document, export and print check acceptance tests (python-api.md section 6, tests 61 to 67, 97 to 103 and 116 to 122)."""
+"""Document, export and print check acceptance tests (python-api.md section 6, tests 61 to 67, 97 to 103 and 116 to 124)."""
 
 import errno
 import json
@@ -1033,16 +1033,15 @@ def file_with_mode(path: Path, mode: int) -> Path:
 
 
 @POSIX_ONLY
-@pytest.mark.parametrize("mode", [0o664, 0o444], ids=["shared", "read-only"])
-def test_t123_a_file_behind_a_link_keeps_its_permissions(tmp_path, umask_022, mode):
-    target = file_with_mode(tmp_path / "synced" / "part.ptsm", mode)
+def test_t123_a_file_behind_a_link_keeps_its_permissions(tmp_path, umask_022):
+    target = file_with_mode(tmp_path / "synced" / "part.ptsm", 0o664)
     link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
     document, _part = box_document()
 
     document.save(link)
 
     assert target.read_bytes() == document.to_text().encode("utf-8")
-    assert mode_of(target) == mode
+    assert mode_of(target) == 0o664
 
 
 @POSIX_ONLY
@@ -1072,3 +1071,139 @@ def test_t123_a_new_file_gets_the_default_permissions(tmp_path, umask_022):
     document.save(tmp_path / "new.ptsm")
 
     assert mode_of(tmp_path / "new.ptsm") == 0o644
+
+
+# A read-only document or export file is refused (test 124, ADR 0037's second amendment, option (a)).
+
+READ_ONLY = 0o444
+"""The mode of a read-only file, which `os.chmod` gives it (on Windows, the read-only attribute)."""
+
+
+def read_only_file(path: Path) -> Path:
+    """Creates the folders of `path`, writes `old` to it and makes it read-only; returns `path`."""
+    return file_with_mode(path, READ_ONLY)
+
+
+def assert_refused(error: OSError, path: Path) -> None:
+    """Checks the refusal of test 124: `PermissionError` with `EACCES`, the system's text for it, `path` as its only
+    file name, and the text of python-api.md section 3.1."""
+    assert isinstance(error, PermissionError)
+    assert error.errno == errno.EACCES
+    assert error.strerror == os.strerror(errno.EACCES)
+    assert error.filename == str(path)
+    assert error.filename2 is None
+    assert str(error) == os_error_text(errno.EACCES, path)
+
+
+def assert_untouched_read_only(path: Path) -> None:
+    """Checks that a refused file still holds `old` and is still read-only."""
+    assert path.read_bytes() == b"old"
+    assert mode_of(path) == READ_ONLY
+
+
+def recorded_box_document(monkeypatch):
+    """`E` of test 124 with a `RecordingSession`: a new document with no import holding `Part("P")` with
+    `box(20, 30, 40)`; returns (document, session, part)."""
+    document, session = recorded_document(monkeypatch)
+    with Part("P") as part:
+        box(20, 30, 40)
+    return document, session, part
+
+
+def test_t124_a_read_only_document_is_refused_after_its_assets(tmp_path, monkeypatch):
+    target = read_only_file(tmp_path / "a.ptsm")
+    document, session = recorded_document_with_import(monkeypatch)
+    first_exchange = len(session.exchanges)
+    operations = record_file_operations(monkeypatch)
+    opened = record_opened_files(monkeypatch)
+
+    with pytest.raises(PermissionError) as raised:
+        document.save(target)
+
+    assert_refused(raised.value, target)
+    assert (tmp_path / "assets" / ASSET_NAME).read_bytes() == IMPORT_ASSET_BYTES
+    assert replaced_targets(operations) == [tmp_path / "assets" / ASSET_NAME]
+    assert [temporary.parent for temporary in opened] == [tmp_path / "assets"]
+    assert_untouched_read_only(target)
+    assert sorted(os.listdir(tmp_path)) == ["a.ptsm", "assets"]
+    assert os.listdir(tmp_path / "assets") == [ASSET_NAME]
+    assert "mark_saved" not in sent_command_types(session, first_exchange)
+
+
+def test_t124_a_read_only_file_behind_a_link_is_refused_under_the_links_name(tmp_path, monkeypatch):
+    target = read_only_file(tmp_path / "synced" / "part.ptsm")
+    link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
+    before = link_snapshot(link)
+    document, session, _part = recorded_box_document(monkeypatch)
+    first_exchange = len(session.exchanges)
+    operations = record_file_operations(monkeypatch)
+    opened = record_opened_files(monkeypatch)
+
+    with pytest.raises(PermissionError) as raised:
+        document.save(link)
+
+    assert_refused(raised.value, link)
+    assert opened == []
+    assert replaced_targets(operations) == []
+    assert_untouched_read_only(target)
+    assert os.listdir(tmp_path / "synced") == ["part.ptsm"]
+    assert sorted(os.listdir(tmp_path)) == ["link.ptsm", "synced"]
+    assert is_same_link(link, before)
+    assert "mark_saved" not in sent_command_types(session, first_exchange)
+
+
+def test_t124_a_read_only_export_file_is_refused(tmp_path, monkeypatch):
+    _document, part = box_document()
+    target = read_only_file(tmp_path / "out.stl")
+    operations = record_file_operations(monkeypatch)
+    opened = record_opened_files(monkeypatch)
+
+    with pytest.raises(PermissionError) as raised:
+        export_stl(part, target)
+
+    assert_refused(raised.value, target)
+    assert opened == []
+    assert replaced_targets(operations) == []
+    assert_untouched_read_only(target)
+    assert os.listdir(tmp_path) == ["out.stl"]
+
+
+def test_t124_a_per_part_export_stops_at_a_read_only_file(tmp_path):
+    base, lid = two_part_document()
+    folder = tmp_path / "parts"
+    lid_file = read_only_file(folder / "Lid.stl")
+
+    with pytest.raises(PermissionError) as raised:
+        export_stl([base, lid], folder, per_part=True)
+
+    assert_refused(raised.value, lid_file)
+    assert is_binary_stl_of_a_box(folder / "Base.stl")
+    assert_untouched_read_only(lid_file)
+    assert sorted(os.listdir(folder)) == ["Base.stl", "Lid.stl"]
+
+
+@POSIX_ONLY
+def test_t124_a_read_only_asset_entry_is_still_replaced(tmp_path, monkeypatch):
+    entry = write_text(tmp_path / "assets" / ASSET_NAME, "stale")
+    entry.chmod(READ_ONLY)
+    document, session = recorded_document_with_import(monkeypatch)
+    first_exchange = len(session.exchanges)
+
+    document.save(tmp_path / "a.ptsm")
+
+    assert stat.S_ISREG(os.lstat(entry).st_mode)
+    assert entry.read_bytes() == IMPORT_ASSET_BYTES
+    assert (tmp_path / "a.ptsm").read_bytes() == document.to_text().encode("utf-8")
+    assert "mark_saved" in sent_command_types(session, first_exchange)
+    assert not has_temporary_file(tmp_path / "assets")
+
+
+def test_t124_a_build_onto_a_read_only_file_fails_with_its_text(tmp_path, capsys):
+    target = read_only_file(tmp_path / "out.ptsm")
+    script = write_text(tmp_path / "part.py", BUILD_SCRIPT)
+
+    assert main(["build", str(script), "-o", str(target)]) == IO_ERROR
+
+    assert capsys.readouterr().err == f"error: Cannot write {target}: Permission denied\n"
+    assert_untouched_read_only(target)
+    assert sorted(os.listdir(tmp_path)) == ["out.ptsm", "part.py"]

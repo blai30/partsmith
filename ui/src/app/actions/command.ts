@@ -61,6 +61,13 @@ import {
   toggledValue,
   type Params,
 } from './command-values'
+import {
+  asksCoreForBase,
+  BASE_FIELD,
+  pickedBaseRefusal,
+  restoredBaseRefusal,
+  showBaseRefusal,
+} from './datum-base'
 import { commitEdits, documentOf, showCoreError } from './edits'
 import { listedElements } from './element-lists'
 import { helperFor, helperOnFace, holeCenter } from './hole-placement'
@@ -865,6 +872,26 @@ export async function openFeatureEdit(
     return
   }
   const { recordExtras, params } = splitRecord(record)
+  const saved = options.restore ?? null
+  // The Restore of an edit of a datum plane asks for its saved base before its first preview.
+  const baseRefusal =
+    saved === null || record.type !== 'datum_plane'
+      ? null
+      : await restoredBaseRefusal(
+          app,
+          handle,
+          featureId,
+          params[BASE_FIELD],
+          saved.params[BASE_FIELD],
+        )
+  // A core that stopped meanwhile took the transaction with it, as above (4.4).
+  if (
+    baseRefusal !== null &&
+    'error' in baseRefusal &&
+    baseRefusal.error instanceof CoreFatalError
+  ) {
+    return
+  }
   const session = createSession(app, {
     featureId,
     feature,
@@ -875,11 +902,21 @@ export async function openFeatureEdit(
   // The record is applied already: it is the focused feature.
   session.submitted = params
   session.repairs = repairSlots(feature, params, document.featureStatus[featureId])
-  const saved = options.restore ?? null
   const restored = saved === null ? null : restoredOpening(app, session, saved)
   const status = document.featureStatus[featureId]
   const activeField =
-    saved === null ? openingEditField(feature, status, options.field) : saved.activeField
+    baseRefusal !== null
+      ? BASE_FIELD
+      : saved === null
+        ? openingEditField(feature, status, options.field)
+        : saved.activeField
+  // A refused saved base gives way to the record's.
+  const reopenedParams =
+    restored === null
+      ? params
+      : baseRefusal === null
+        ? restored.params
+        : setParam(feature, restored.params, BASE_FIELD, params[BASE_FIELD])
   app.store.setState({
     context: 'model',
     command: openedCommand({
@@ -887,7 +924,7 @@ export async function openFeatureEdit(
       featureId,
       editing: true,
       title: label,
-      params: restored?.params ?? params,
+      params: reopenedParams,
       activeField,
       applied: true,
       newBody: restored?.newBody ?? null,
@@ -895,6 +932,9 @@ export async function openFeatureEdit(
       preview: previewStateAfter(app, featureId),
     }),
   })
+  if (baseRefusal !== null) {
+    showBaseRefusal(app, baseRefusal)
+  }
   if (saved !== null) {
     refreshPreview(app)
   }
@@ -1412,6 +1452,60 @@ export async function capturePick(
   if (refusedForBody(app, field, accepts, command.params, item.body)) {
     return
   }
+  if (asksCoreForBase(command, field.path)) {
+    await pickBase(app, session, field.path, item)
+    return
+  }
+  landInField(app, session, command, field, item)
+}
+
+/**
+ * A pick into the Base plane field of an edited datum plane (3.7): it lands once the core takes
+ * it as the datum's new base, else its refusal shows. Until the core answers it is on its way as a
+ * click on the model is (3.6), and a cancel meanwhile ends the command at once: the answer then
+ * lands nothing.
+ */
+async function pickBase(
+  app: App,
+  session: CommandSession,
+  path: string,
+  item: SelectionItem,
+): Promise<void> {
+  const document = documentOf(app)
+  if (document === null) {
+    return
+  }
+  const lasts = commandLasts(app)
+  const refusal = await pickedBaseRefusal(app, document.documentHandle, session.featureId, item)
+  const command = commandOf(app)
+  if (!lasts() || command === null) {
+    return
+  }
+  if (refusal !== null) {
+    showBaseRefusal(app, refusal)
+    return
+  }
+  const field = fieldsOf(modelOf(session, command)).find((candidate) => candidate.path === path)
+  if (field !== undefined) {
+    landInField(app, session, command, field, item)
+  }
+}
+
+/**
+ * Lands a pick in a selection field (3.7 selection capture): in place of the lost reference the
+ * field waits to replace, else toggled into its value.
+ */
+function landInField(
+  app: App,
+  session: CommandSession,
+  command: ActiveCommand,
+  field: InspectorField,
+  item: SelectionItem,
+): void {
+  if (field.control.type !== 'selection') {
+    return
+  }
+  const { accepts, multiple } = field.control
   const currentSketch = getParam(command.params, siblingPath(field.path, 'sketch'))
   const repaired = repairedValue(session.repairs, accepts, multiple, field.path, field.value, item)
   const value =

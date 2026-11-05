@@ -2,11 +2,15 @@ import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installPopoverPolyfill } from '../../components/popover-polyfill.testing'
+import { CoreFatalError } from '../../core/transport'
 import type {
   Diagnostic,
   Document,
   ElementDescriptor,
   FeatureStatus,
+  FixAction,
+  Reference,
+  RepairCandidate,
   SketchPlane,
 } from '../../generated/protocol'
 import { inspectorField } from '../../inspector/inspector.testing'
@@ -146,6 +150,9 @@ const BOX_1_FRONT_PLANE: SketchPlane = {
   fallback_frame: 'body',
 }
 
+/** The bottom of 'Box 1' in body coordinates. */
+const BOX_1_BOTTOM: Reference = { q: 'f-box1/bottom', fp: 'plane|n=0,0,-1|c=0,0,0|a=100|adj=4,4' }
+
 /** The base the Base plane field holds for the front side of 'Box 1': no fallback, no frame. */
 const BOX_1_FRONT_BASE = { kind: 'face', body: 'b-1', face: BOX_1_FRONT.reference }
 
@@ -180,8 +187,8 @@ async function editingDatum2(document: DocumentState = documentFor()): Promise<H
 }
 
 /** The whole shell, editing 'Datum plane 2' with its Base plane field made active. */
-async function renderedEditingDatum2(): Promise<Harness> {
-  const { app, core } = createModelApp({ state: readyState(documentFor()) })
+async function renderedEditingDatum2(document: DocumentState = documentFor()): Promise<Harness> {
+  const { app, core } = createModelApp({ state: readyState(document) })
   renderWithApp(app)
   flush()
   await act(async () => {
@@ -253,6 +260,78 @@ function expectRefused(app: App, core: FakeCoreApi, previewsBefore: number): voi
   expect(historyOf(app)).toEqual([])
   expect(previews(core)).toHaveLength(previewsBefore)
   expect(app.store.getState().command?.activeField).toBe('base')
+}
+
+/** A `reference_guessed` warning of 'Datum plane 2' at `/base/face` with these actions. */
+function guessedBase(actions: readonly FixAction[]): Diagnostic {
+  return {
+    severity: 'warning',
+    code: 'reference_guessed',
+    message:
+      "The top of 'Box 1' no longer exists as named, so the face that fits its shape best, the top of 'Box 1', is used. Check it, then keep it or pick another.",
+    field: '/base/face',
+    actions: [...actions],
+  }
+}
+
+/** The status of 'Datum plane 2' with `guessedBase` and its element repair at `/base/face`. */
+function guessedBaseStatus(
+  actions: readonly FixAction[],
+  candidates: readonly RepairCandidate[],
+): FeatureStatus {
+  const repair: ElementRepair = {
+    kind: 'element',
+    path: '/base/face',
+    body: 'b-1',
+    reference: TOP_OF_BOX_1,
+    resolution: 'ambiguous',
+    description: "the top of 'Box 1'",
+    candidates: [...candidates],
+  }
+  return { id: 'f-dp2', status: 'warning', messages: [guessedBase(actions)], repairs: [repair] }
+}
+
+/** A candidate of the repair of 'Datum plane 2''s base. */
+function baseCandidate(face: Reference, description: string): RepairCandidate {
+  return {
+    reference: face,
+    description,
+    relation: "on 'Box 1'",
+    meaning: false,
+    distance: 0,
+    score: 0.5,
+  }
+}
+
+/** The core's `Use` action of the bottom of 'Box 1' at `/base/face` of 'Datum plane 2'. */
+const USE_THE_BOTTOM: FixAction = {
+  label: "Use the bottom of 'Box 1'",
+  run: {
+    kind: 'apply',
+    fix: {
+      feature: 'f-dp2',
+      code: 'reference_guessed',
+      field: '/base/face',
+      cause: false,
+      index: 1,
+      revision: 1,
+    },
+  },
+}
+
+/** The core's `Pick a face again` action at `/base/face` of 'Datum plane 2'. */
+const PICK_A_FACE_AGAIN: FixAction = {
+  label: 'Pick a face again',
+  run: { kind: 'pick', feature: 'f-dp2', path: '/base/face' },
+}
+
+/** Edits 'Datum plane 2', picks XY into its Base plane field, and cancels the edit with Restore. */
+async function canceledWithXy(): Promise<Harness> {
+  const { app, core } = await editingDatum2()
+  await clickRow(app, originItem('XY'))
+  await startFeatureCommand(app, 'extrude')
+  await settle()
+  return { app, core }
 }
 
 /** Runs the Restore action of the `command_canceled` notification. */
@@ -452,30 +531,7 @@ describe('a datum plane new base asks the core (3.7, U-251)', () => {
   })
 
   it('U-251 (j) in repair mode a refused pick keeps the stored reference in the repair field', async () => {
-    const guessed: Diagnostic = {
-      severity: 'warning',
-      code: 'reference_guessed',
-      message:
-        "The top of 'Box 1' no longer exists as named, so the face that fits its shape best, the top of 'Box 1', is used. Check it, then keep it or pick another.",
-      field: '/base/face',
-      actions: [],
-    }
-    const repair: ElementRepair = {
-      kind: 'element',
-      path: '/base/face',
-      body: 'b-1',
-      reference: TOP_OF_BOX_1,
-      resolution: 'ambiguous',
-      description: "the top of 'Box 1'",
-      candidates: [],
-    }
-    const status: FeatureStatus = {
-      id: 'f-dp2',
-      status: 'warning',
-      messages: [guessed],
-      repairs: [repair],
-    }
-    const { app, core } = await editingDatum2(documentFor([status]))
+    const { app, core } = await editingDatum2(documentFor([guessedBaseStatus([], [])]))
     expect(app.store.getState().command?.activeField).toBe('base')
     core.stub('attachPlane', () => Promise.resolve(null))
     const previewsBefore = previews(core).length
@@ -520,10 +576,7 @@ describe('a datum plane new base asks the core (3.7, U-251)', () => {
   })
 
   it('U-251 (l) the Restore of a canceled edit asks for its saved base and then for the next row pick', async () => {
-    const { app, core } = await editingDatum2()
-    await clickRow(app, originItem('XY'))
-    await startFeatureCommand(app, 'extrude')
-    await settle()
+    const { app, core } = await canceledWithXy()
     await restore(app)
     expect(core.callsTo('attachPlane')).toEqual([
       [1, 'f-dp2', XY],
@@ -537,10 +590,7 @@ describe('a datum plane new base asks the core (3.7, U-251)', () => {
   })
 
   it("U-251 (m) a Restore whose saved base the core refuses reopens the edit with the record's base and the hint", async () => {
-    const { app, core } = await editingDatum2()
-    await clickRow(app, originItem('XY'))
-    await startFeatureCommand(app, 'extrude')
-    await settle()
+    const { app, core } = await canceledWithXy()
     core.stub('attachPlane', () => Promise.resolve(null))
     const sentBeforeRestore = core.callsTo('applyEdits').length
     await restore(app)
@@ -551,5 +601,56 @@ describe('a datum plane new base asks the core (3.7, U-251)', () => {
     const basesAfterRestore = basesSent(core.callsTo('applyEdits').slice(sentBeforeRestore))
     expect(basesAfterRestore).not.toContainEqual(XY)
     expect(baseHint(app)).toBe(datumBaseMoved('the Top plane (XY)'))
+  })
+
+  it('U-251 (m) a refused saved face asks with the Top plane as its fallback and is named this face', async () => {
+    const harness = await editingDatum2()
+    await clickBoxFront(harness)
+    await startFeatureCommand(harness.app, 'extrude')
+    await settle()
+    harness.core.stub('attachPlane', () => Promise.resolve(null))
+    await restore(harness.app)
+    expect(harness.core.callsTo('attachPlane').at(-1)).toEqual([
+      1,
+      'f-dp2',
+      {
+        kind: 'face',
+        body: 'b-1',
+        face: BOX_1_FRONT.reference,
+        fallback: { origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, 0, 1] },
+      },
+    ])
+    expect(baseOf(harness.app)).toEqual(ON_THE_TOP)
+    expect(baseHint(harness.app)).toBe(datumBaseMoved('this face'))
+  })
+
+  it('U-251 (n) a core that stops during the Restore request leaves the edit closed', async () => {
+    const { app, core } = await canceledWithXy()
+    core.stub('attachPlane', () =>
+      Promise.reject(new CoreFatalError('The geometry core was stopped.')),
+    )
+    const sentBeforeRestore = core.callsTo('applyEdits').length
+    const notificationsBefore = app.store.getState().notifications
+    await restore(app)
+    expect(core.callsTo('attachPlane').at(-1)).toEqual([1, 'f-dp2', XY])
+    expect(app.store.getState().command).toBeNull()
+    expect(core.callsTo('applyEdits')).toHaveLength(sentBeforeRestore)
+    expect(app.store.getState().notifications).toEqual(notificationsBefore)
+  })
+
+  it('U-251 (o) a base candidate the core leaves without an action says why in its tooltip', async () => {
+    const status = guessedBaseStatus(
+      [USE_THE_BOTTOM, PICK_A_FACE_AGAIN],
+      [
+        baseCandidate(BOX_1_FRONT.reference, "the front side of 'Box 1'"),
+        baseCandidate(BOX_1_BOTTOM, "the bottom of 'Box 1'"),
+      ],
+    )
+    await renderedEditingDatum2(documentFor([status]))
+    const [front, bottom] = screen.getAllByTestId('repair-candidate-button')
+    expect(front).toHaveAttribute('aria-disabled', 'true')
+    expect(front).toHaveAccessibleDescription(datumBaseMoved("the front side of 'Box 1'"))
+    expect(bottom).not.toHaveAttribute('aria-disabled')
+    expect(bottom).toHaveAccessibleDescription('')
   })
 })

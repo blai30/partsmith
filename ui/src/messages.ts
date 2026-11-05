@@ -184,6 +184,12 @@ export const MESSAGES = {
    */
   attach_moved: (label: string, target: string) =>
     `'${label}' cannot be placed on ${target}: the two do not move together, and what later features place on the faces made from '${label}' could shift with no message. Pick a plane or face that moves the same way as '${label}'.`,
+  /** `label` is the edited datum plane; `target` names the picked plane as for `attach_moved`. */
+  datum_base_moved: (label: string, target: string) =>
+    `'${label}' cannot be placed on ${target}: the two do not move together, and what later features place on the faces made from the sketches that build on '${label}' could shift with no message. Pick a plane or face that moves the same way as '${label}'.`,
+  /** `label` is the edited datum plane. */
+  datum_base_self: (label: string) =>
+    `'${label}' cannot be placed on itself. Pick an origin plane, or a flat face or datum plane made before '${label}'.`,
   /**
    * `what` names the used thing with its article ("an edge", 3.9); `dragged` says which of the two
    * features is being dragged: the user, or the used feature.

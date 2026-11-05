@@ -1,8 +1,7 @@
 //! Sketch commands: candidate solves, drag frames and committing a drag (engine.md section 3.6),
 //! the plane a re-attach by pick stores and a datum plane's new base (`attach_plane`, section
-//! 3.22), the stored sketch's latest
-//! solution (`stored_solution`), and the context a stored sketch is solved in: its dimension values
-//! and its placement.
+//! 3.22), the stored sketch's latest solution (`stored_solution`), and the context a stored sketch
+//! is solved in: its dimension values and its placement.
 
 use std::sync::Arc;
 

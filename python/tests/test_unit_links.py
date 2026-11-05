@@ -1,6 +1,7 @@
-"""Unit tests of writes through a symbolic link (python-api.md sections 3.1 and 3.7, ADR 0037 option (A)):
-`write_through_link` of partsmith._files, the permissions it keeps, the save and export functions that use it, and the
-skip rule of the `symbolic_link` test helper (python-api.md section 6, tests 118 to 123)."""
+"""Unit tests of writes through a symbolic link (python-api.md sections 3.1 and 3.7, ADR 0037 option (A) and its second
+amendment): `write_through_link` of partsmith._files, the permissions it keeps, its refusal of a read-only file, the save
+and export functions that use it, and the skip rule of the `symbolic_link` test helper (python-api.md section 6, tests
+118 to 124)."""
 
 import errno
 import os
@@ -226,18 +227,6 @@ POSIX_ONLY = pytest.mark.skipif(os.name != "posix", reason="python-api.md 3.1 ke
 
 
 @POSIX_ONLY
-def test_a_read_only_file_behind_a_link_is_replaced_and_stays_read_only(tmp_path):
-    target = write_text(tmp_path / "synced" / "part.ptsm", "old")
-    target.chmod(0o444)
-    link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
-
-    write_through_link(link, b"new")
-
-    assert target.read_bytes() == b"new"
-    assert mode_of(target) == 0o444
-
-
-@POSIX_ONLY
 def test_the_permissions_are_set_before_any_byte_is_written(tmp_path, monkeypatch):
     path = write_text(tmp_path / "part.ptsm", "old")
     path.chmod(0o664)
@@ -267,6 +256,97 @@ def test_an_asset_entry_gets_the_default_permissions(tmp_path):
 
     assert entry.read_bytes() == b"asset"
     assert mode_of(entry) == mode_of(reference)
+
+
+# write_through_link: a read-only file (python-api.md section 3.1, test 124).
+
+POSIX_RENAME = pytest.mark.skipif(
+    os.name != "posix",
+    reason="on Windows a rename onto a folder or a read-only file fails with PermissionError (python-api.md 3.1)",
+)
+
+
+def assert_refused(error: OSError, path: Path) -> None:
+    """Checks the refusal of a read-only file: `PermissionError` with `EACCES` and the system's text for it, `path` as
+    its only file name."""
+    assert isinstance(error, PermissionError)
+    assert error.errno == errno.EACCES
+    assert error.strerror == os.strerror(errno.EACCES)
+    assert error.filename == str(path)
+    assert error.filename2 is None
+
+
+def test_a_read_only_file_behind_a_link_is_refused_before_anything_is_opened(tmp_path, monkeypatch):
+    target = write_text(tmp_path / "synced" / "part.ptsm", "old")
+    target.chmod(0o444)
+    link = symbolic_link(tmp_path / "link.ptsm", Path("synced") / "part.ptsm")
+    before = link_snapshot(link)
+    operations = record_file_operations(monkeypatch)
+    opened = record_opened_files(monkeypatch)
+
+    with pytest.raises(PermissionError) as raised:
+        write_through_link(link, b"new")
+
+    assert_refused(raised.value, link)
+    assert opened == []
+    assert operations == []
+    assert target.read_bytes() == b"old"
+    assert mode_of(target) == 0o444
+    assert is_same_link(link, before)
+    assert os.listdir(tmp_path / "synced") == ["part.ptsm"]
+
+
+def test_a_read_only_file_is_refused_before_anything_is_opened(tmp_path, monkeypatch):
+    path = write_text(tmp_path / "part.ptsm", "old")
+    path.chmod(0o444)
+    opened = record_opened_files(monkeypatch)
+
+    with pytest.raises(PermissionError) as raised:
+        write_through_link(path, b"new")
+
+    assert_refused(raised.value, path)
+    assert opened == []
+    assert path.read_bytes() == b"old"
+    assert os.listdir(tmp_path) == ["part.ptsm"]
+
+
+def test_a_file_only_its_owner_may_read_is_refused(tmp_path):
+    path = write_text(tmp_path / "part.ptsm", "old")
+    path.chmod(0o400)
+
+    with pytest.raises(PermissionError) as raised:
+        write_through_link(path, b"new")
+
+    assert_refused(raised.value, path)
+    assert path.read_bytes() == b"old"
+    assert mode_of(path) == 0o400
+
+
+@POSIX_RENAME
+def test_a_read_only_folder_is_left_to_the_write(tmp_path, monkeypatch):
+    folder = tmp_path / "part.ptsm"
+    folder.mkdir()
+    folder.chmod(0o555)
+    opened = record_opened_files(monkeypatch)
+
+    with pytest.raises(IsADirectoryError) as raised:
+        write_through_link(folder, b"new")
+
+    assert raised.value.filename == str(folder)
+    assert len(opened) == 1
+    assert os.listdir(tmp_path) == ["part.ptsm"]
+    assert os.listdir(folder) == []
+
+
+@POSIX_RENAME
+def test_a_read_only_asset_entry_is_still_replaced(tmp_path):
+    entry = write_text(tmp_path / "entry.step", "stale")
+    entry.chmod(0o444)
+
+    write_atomic(entry, b"asset")
+
+    assert entry.read_bytes() == b"asset"
+    assert os.listdir(tmp_path) == ["entry.step"]
 
 
 # Saves and exports through a link (sections 3.1 and 3.7).

@@ -281,6 +281,7 @@ mod tests {
             }
         );
     }
+
     // Test 170: the offers of a datum plane's new base (engine.md section 3.22).
 
     /// The cube's top as `examples/datum_plane/on-moved-face` stores it.
@@ -300,8 +301,9 @@ mod tests {
         serde_json::from_str(text).expect("a reference is JSON")
     }
 
-    /// Test 168's `LIFTED`: CUBE10 lifted by (0, 0, 20), `f-dp0` and `f-dp1` on `f-dp1_face`, `f-sk1` on `f-dp1` with
-    /// a circle of radius 2 at (0, 0), and, when `extruded`, `f-ext1`, which joins its extrusion into `b-1`.
+    /// Test 168's `LIFTED`: CUBE10 lifted by (0, 0, 20), `f-dp0` and `f-dp1` on `f-dp1_face`,
+    /// `f-sk1` on `f-dp1` with a circle of radius 2 at (0, 0), and, when `extruded`, `f-ext1`,
+    /// which joins its extrusion into `b-1`.
     fn lifted(f_dp1_face: &str, extruded: bool) -> String {
         let mut features = vec![
             json!({"id": "f-box1", "type": "box", "body": "b-1", "size": ["10", "10", "10"], "op": "new"}),
@@ -327,8 +329,8 @@ mod tests {
         .to_string()
     }
 
-    /// A `reference_guessed` warning of `f-dp1` at `/base/face` whose fixes store the front side and the bottom, in
-    /// that order.
+    /// A `reference_guessed` warning of `f-dp1` at `/base/face` whose fixes store the front side
+    /// and the bottom, in that order.
     fn guessed_base() -> Message {
         let use_face = |face: &str| Fix::UseReferences {
             pointer: "/base/face".to_string(),

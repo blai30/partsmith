@@ -143,7 +143,7 @@ function attachRefusal(state: AppState, sketchId: string, item: SelectionItem): 
 }
 
 /** Why a feature does not build: suppressed, or an error; null when it builds. */
-function unbuiltState(state: AppState, feature: string): 'suppressed' | 'error' | null {
+export function unbuiltState(state: AppState, feature: string): 'suppressed' | 'error' | null {
   const document = state.document
   const record = document?.recipe.features?.find((candidate) => candidate.id === feature)
   const status = document?.featureStatus[feature]?.status
@@ -154,19 +154,17 @@ function unbuiltState(state: AppState, feature: string): 'suppressed' | 'error' 
 }
 
 /**
- * How `attach_moved` names a picked plane (4.3): the origin plane, the datum plane's label in
- * quotes, or a face by the feature that made it.
+ * How `attach_moved` and `datum_base_moved` name a picked plane (4.3): the origin plane, the datum
+ * plane's label in quotes, or a face by `maker`, the feature that made it, when it is known.
  */
-function attachTarget(state: AppState, item: SelectionItem, plane: SketchPlane): string {
+export function planeTarget(state: AppState, plane: SketchPlane, maker: string | null): string {
   switch (plane.kind) {
     case 'origin':
       return `the ${originPlaneName(plane.plane)}`
     case 'datum':
       return `'${selectFeatureLabel(state, plane.feature)}'`
     case 'face':
-      return item.feature === null
-        ? 'this face'
-        : `this face of '${selectFeatureLabel(state, item.feature)}'`
+      return maker === null ? 'this face' : `this face of '${selectFeatureLabel(state, maker)}'`
   }
 }
 
@@ -198,7 +196,7 @@ async function attachSketchOn(
     const stored = await app.core.attachPlane(document.documentHandle, sketchId, plane)
     const label = selectFeatureLabel(state, sketchId)
     if (stored === null) {
-      showPickHint(app, MESSAGES.attach_moved(label, attachTarget(state, item, plane)), null)
+      showPickHint(app, MESSAGES.attach_moved(label, planeTarget(state, plane, item.feature)), null)
       return false
     }
     await app.core.applyEdits(document.documentHandle, MESSAGES.attach_label(label), [

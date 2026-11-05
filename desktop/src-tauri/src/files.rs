@@ -26,6 +26,10 @@ const ASSETS_FOLDER: &str = "assets";
 /// The detail of `Denied` for a read-only file, which an atomic write would otherwise replace (3.4 step 4.2).
 const READ_ONLY: &str = "the file is read-only";
 
+/// The message of `Io` for a granted link that changed while the write followed it (3.4 step 4.1).
+#[cfg(unix)]
+const LINK_CHANGED: &str = "the symbolic link changed while Partsmith was following it. Try again.";
+
 /// The waits before the second to the seventh attempt of a rename that another program blocks on Windows.
 const RENAME_WAITS: [Duration; 6] = [
     Duration::from_millis(10),
@@ -478,7 +482,7 @@ impl Files {
     /// Replaces the contents of `target` atomically: the original is either untouched or fully replaced.
     /// A symbolic link stays and the file it points to is replaced; a read-only file is not replaced.
     fn replace(&self, target: &Path, bytes: &[u8]) -> io::Result<()> {
-        let target = followed(target)?;
+        let target = link_target(target, fs::metadata, fs::canonicalize)?;
         let permissions = writable_permissions(&target)?;
         self.replace_entry(&target, permissions.as_ref(), bytes)
     }
@@ -507,13 +511,47 @@ impl Files {
     }
 }
 
-/// The file a path names: the file a symbolic link points to, else the path itself.
-fn followed(path: &Path) -> io::Result<PathBuf> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path),
-        // A path that is no link, or cannot be inspected, is used as it is; its own errors come later.
-        _ => Ok(path.to_owned()),
+/// The file a write to `path` replaces: the file a symbolic link at `path` leads to, as `resolve` names it and `look`
+/// reached it through the link, else `path` itself (3.4 step 4.1).
+fn link_target<'path>(
+    path: &'path Path,
+    look: impl FnOnce(&'path Path) -> io::Result<Metadata>,
+    resolve: impl FnOnce(&'path Path) -> io::Result<PathBuf>,
+) -> io::Result<PathBuf> {
+    let is_link =
+        fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink());
+    if !is_link {
+        // A path that is no link, or cannot be looked at, is the target itself; its own errors come later.
+        return Ok(path.to_owned());
     }
+    // The operating system follows the link for this look, under its own limits.
+    let reached = look(path)?;
+    let target = resolve(path)?;
+    ensure_reached(&reached, &target)?;
+    Ok(target)
+}
+
+/// Fails unless the file at `target` is the one `reached` describes (the same device and inode), with the error of a
+/// link that changed between the look through it and its resolve.
+#[cfg(unix)]
+fn ensure_reached(reached: &Metadata, target: &Path) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let resolved = fs::metadata(target)?;
+    if (resolved.dev(), resolved.ino()) == (reached.dev(), reached.ino()) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::StaleNetworkFileHandle,
+            LINK_CHANGED,
+        ))
+    }
+}
+
+/// Nothing to compare on Windows: `canonicalize` opens the file through the link itself, under the system's own rules.
+#[cfg(not(unix))]
+fn ensure_reached(_reached: &Metadata, _target: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 /// The permissions of an existing `target`, None when it does not exist yet, and `PermissionDenied` when it is read-only.
@@ -825,5 +863,159 @@ mod tests {
         assert!(!is_busy(&io::Error::from_raw_os_error(2)));
         // An error without an operating system code.
         assert!(!is_busy(&io::Error::other("x")));
+    }
+
+    // Test 73: the look through a link (3.4 step 4.1, open issue 14).
+
+    /// The text of a link that changed while the write followed it (3.4 step 4.1).
+    #[cfg(unix)]
+    const LINK_CHANGED: &str =
+        "the symbolic link changed while Partsmith was following it. Try again.";
+
+    /// Test 73's folder: `<dir>/synced/part.ptsm` holding `old` and `<dir>/link.ptsm` a symbolic link to it;
+    /// returns the folder and the link.
+    #[cfg(unix)]
+    fn linked_folder() -> (tempfile::TempDir, PathBuf) {
+        let folder = tempfile::tempdir().expect("a temporary folder can be created");
+        let synced = folder.path().join("synced");
+        fs::create_dir(&synced).expect("the test can create a folder");
+        fs::write(synced.join("part.ptsm"), b"old").expect("the test file can be written");
+        let link = folder.path().join("link.ptsm");
+        std::os::unix::fs::symlink(synced.join("part.ptsm"), &link)
+            .expect("the test can create a symbolic link");
+        (folder, link)
+    }
+
+    /// A look that test 73 never expects to be called.
+    #[cfg(unix)]
+    fn no_look(path: &Path) -> io::Result<Metadata> {
+        panic!("the look was called for {}", path.display())
+    }
+
+    /// A resolve that test 73 never expects to be called.
+    #[cfg(unix)]
+    fn no_resolve(path: &Path) -> io::Result<PathBuf> {
+        panic!("the resolve was called for {}", path.display())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn t073_a_link_resolves_to_the_file_it_leads_to() {
+        let (folder, link) = linked_folder();
+
+        let target =
+            link_target(&link, fs::metadata, fs::canonicalize).expect("the link leads to a file");
+
+        assert_eq!(
+            target,
+            fs::canonicalize(folder.path().join("synced").join("part.ptsm"))
+                .expect("the file exists")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn t073_a_look_the_system_refuses_is_denied_and_resolves_nothing() {
+        let (_folder, link) = linked_folder();
+
+        let error = link_target(
+            &link,
+            |_| {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Permission denied",
+                ))
+            },
+            no_resolve,
+        )
+        .expect_err("the look is refused");
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(error.to_string(), "Permission denied");
+        let file_error = FileError::from_io(&error, &link);
+        assert_eq!(
+            file_error,
+            FileError::Denied {
+                name: "link.ptsm".to_owned(),
+                detail: "Permission denied".to_owned(),
+            }
+        );
+        assert_eq!(file_error.reason(), "permission");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn t073_a_link_that_changed_after_the_look_is_an_io_error() {
+        let (folder, link) = linked_folder();
+        let other = folder.path().join("other.ptsm");
+        fs::write(&other, b"other").expect("the test file can be written");
+
+        let error = link_target(&link, fs::metadata, |_| Ok(other.clone()))
+            .expect_err("the resolved file is not the one looked at");
+
+        assert_eq!(error.kind(), io::ErrorKind::StaleNetworkFileHandle);
+        assert_eq!(error.to_string(), LINK_CHANGED);
+        let file_error = FileError::from_io(&error, &link);
+        assert_eq!(
+            file_error,
+            FileError::Io {
+                detail: LINK_CHANGED.to_owned(),
+            }
+        );
+        assert_eq!(file_error.to_string(), LINK_CHANGED);
+        assert_eq!(file_error.reason(), "io");
+        assert_eq!(fs::read(&other).expect("the file is still there"), b"other");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn t073_a_path_that_is_no_link_is_the_target_itself() {
+        let (folder, _link) = linked_folder();
+        let plain = folder.path().join("plain.ptsm");
+        fs::write(&plain, b"plain").expect("the test file can be written");
+        let missing = folder.path().join("missing.ptsm");
+
+        assert_eq!(
+            link_target(&plain, no_look, no_resolve).expect("the path itself"),
+            plain
+        );
+        assert_eq!(
+            link_target(&missing, no_look, no_resolve).expect("the path itself"),
+            missing
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_look_that_finds_no_file_gives_its_own_error_and_resolves_nothing() {
+        let (_folder, link) = linked_folder();
+
+        let error = link_target(
+            &link,
+            |_| Err(io::Error::from(io::ErrorKind::NotFound)),
+            no_resolve,
+        )
+        .expect_err("the link leads to no file");
+
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert_eq!(
+            FileError::from_io(&error, &link),
+            FileError::NotFound {
+                name: "link.ptsm".to_owned(),
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_resolved_file_that_is_gone_gives_the_second_looks_error() {
+        let (folder, link) = linked_folder();
+        let gone = folder.path().join("gone.ptsm");
+
+        let error = link_target(&link, fs::metadata, |_| Ok(gone.clone()))
+            .expect_err("the resolved file is missing");
+
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(!gone.exists());
     }
 }

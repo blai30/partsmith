@@ -277,7 +277,11 @@ function StatusBanner({
                 </button>
               )}
               {view !== null && message === repairMessage ? (
-                <RepairCandidates candidates={view.candidates} onRan={focusAfter(message)} />
+                <RepairCandidates
+                  candidates={view.candidates}
+                  repairPath={view.repair.path}
+                  onRan={focusAfter(message)}
+                />
               ) : null}
               <MessageActions
                 message={message}

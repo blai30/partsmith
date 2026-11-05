@@ -70,7 +70,8 @@ def _export(
     rotate: Rotations,
     into_directory: bool,
 ) -> list[Path]:
-    """Sends `export` and writes each file it returns atomically, through a symbolic link at its path."""
+    """Sends `export` and writes each file it returns atomically, through a symbolic link at its path; a read-only
+    file raises `PermissionError` and stops the export (python-api.md section 3.7)."""
     selected = [parts] if isinstance(parts, Part) else list(parts)
     if not selected:
         raise ValueError(f"{function}() needs at least one part.")

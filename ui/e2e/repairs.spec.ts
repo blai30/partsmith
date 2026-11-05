@@ -426,7 +426,8 @@ test.describe('lost references and their fixes', () => {
     await browserRow(page, 'datum', 'Datum plane 1').click()
     await expect(field).toHaveText('Datum plane 1')
     await page.getByTestId('inspector-ok').click()
-    await expect(inspector(page)).toHaveCount(0)
+    // The edit ends; the inspector shows the selection of 'Datum plane 2' (ui.md E-166).
+    await expect(page.locator('[data-testid=inspector][data-mode=command]')).toHaveCount(0)
     await expectLiftedOk(page)
 
     const saved = await download(page, () => page.keyboard.press('ControlOrMeta+S'))

@@ -176,7 +176,8 @@ class Document:
     def save(self, path: str | os.PathLike[str]) -> None:
         """Writes the assets the document uses to `assets/` next to `path`, then the canonical text
         to `path` (to the file it leads to when it is a symbolic link), then marks the document saved
-        (file-format.md section 3.11)."""
+        (file-format.md section 3.11). A read-only file at `path` is not replaced: the save raises
+        `PermissionError` after writing the assets (python-api.md section 3.1)."""
         path = Path(path)
         reply = self._client.command("save_document")
         assets = reply.result["assets"]

@@ -1,4 +1,5 @@
 import { clsx } from 'clsx/lite'
+import { unofferedBaseHint } from '../app/actions/datum-base'
 import { useApp, useAppState } from '../app/AppProvider'
 import { Tooltip } from '../components/Tooltip'
 import { capitalized } from '../messages'
@@ -13,19 +14,26 @@ import type { RepairCandidateView } from './repair'
 
 function CandidateButton({
   candidate,
+  repairPath,
   onRan,
 }: {
   readonly candidate: RepairCandidateView
+  readonly repairPath: string | null
   readonly onRan?: (() => void) | undefined
 }) {
   const app = useApp()
   const action = candidate.action
-  const blocked = useAppState((state) =>
-    action === null ? null : selectFixBlock(state, action, 'banner'),
+  // Why the button does nothing: its action waits, or the core left out the action of a base.
+  const reason = useAppState((state) =>
+    action !== null
+      ? selectFixBlock(state, action, 'banner')
+      : repairPath === null
+        ? null
+        : unofferedBaseHint(state, repairPath, candidate.description),
   )
-  const inactive = action === null || blocked !== null
+  const inactive = action === null || reason !== null
   return (
-    <Tooltip label={blocked}>
+    <Tooltip label={reason}>
       <button
         type="button"
         data-testid="repair-candidate-button"
@@ -53,18 +61,28 @@ function CandidateButton({
   )
 }
 
-/** The candidates of the current repair as buttons, in the order received (3.7). */
+/**
+ * The candidates of the current repair as buttons, in the order received (3.7). `repairPath` is
+ * the path of the repair in an edit, which says why a candidate without an action has none.
+ */
 export function RepairCandidates({
   candidates,
+  repairPath = null,
   onRan,
 }: {
   readonly candidates: readonly RepairCandidateView[]
+  readonly repairPath?: string | null
   readonly onRan?: (() => void) | undefined
 }) {
   return (
     <div className="flex flex-col items-start gap-2">
       {candidates.map((candidate) => (
-        <CandidateButton key={candidate.number} candidate={candidate} onRan={onRan} />
+        <CandidateButton
+          key={candidate.number}
+          candidate={candidate}
+          repairPath={repairPath}
+          onRan={onRan}
+        />
       ))}
     </div>
   )
