@@ -31,6 +31,9 @@ const repositoryLicenses = [
   'CC0-1.0',
   'MPL-2.0',
   'BSL-1.0',
+  'MIT-0',
+  'Python-2.0',
+  'BlueOak-1.0.0',
 ]
 
 const denyTomlMessage =
@@ -84,7 +87,7 @@ function runCommand(commandArguments) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 
-test("43: allowedLicenses of the repository's deny.toml is the eleven identifiers, in order", async () => {
+test("43: allowedLicenses of the repository's deny.toml is the fourteen identifiers, in order", async () => {
   assert.deepEqual(allowedLicenses(await readFile(denyTomlPath, 'utf8')), repositoryLicenses)
 })
 
@@ -150,6 +153,9 @@ test("44: licenseAllowed accepts expressions the repository's list satisfies", (
     'MIT AND (Apache-2.0 OR BSD-3-Clause)',
     'MIT OR GPL-3.0-only AND Zlib',
     '((ISC))',
+    'MIT-0',
+    'Python-2.0',
+    'BlueOak-1.0.0',
   ]
 
   for (const expression of satisfied) {
@@ -161,10 +167,10 @@ test("44: licenseAllowed rejects expressions the repository's list does not sati
   const rejected = [
     'GPL-3.0-only',
     'MIT AND GPL-2.0-only',
-    '(GPL-3.0-only OR MIT) AND BlueOak-1.0.0',
+    '(GPL-3.0-only OR MIT) AND CDLA-Permissive-2.0',
     'MIT WITH LLVM-exception',
     'GPL-2.0-only WITH Classpath-exception-2.0',
-    'BlueOak-1.0.0',
+    'CDLA-Permissive-2.0',
     'UNLICENSED',
     'SEE LICENSE IN LICENSE.txt',
     'Unknown',
@@ -246,10 +252,11 @@ test('46: licenseProblems reports only the package whose license the list does n
   const packages = [
     shipped('react', '19.3.0', 'MIT'),
     shipped('lru-cache', '11.5.3', 'BlueOak-1.0.0'),
+    shipped('data-x', '1.0.0', 'CDLA-Permissive-2.0'),
   ]
 
   assert.deepEqual(licenseProblems(packages, repositoryLicenses), [
-    notAllowedMessage('lru-cache', '11.5.3', 'BlueOak-1.0.0'),
+    notAllowedMessage('data-x', '1.0.0', 'CDLA-Permissive-2.0'),
   ])
 })
 

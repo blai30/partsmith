@@ -48,10 +48,16 @@ Each deployment also holds the source of every Rust crate and npm package the
 app is built from on Linux x86_64 with glibc, where the web job builds it, in
 the archives rust-crates-web.tar.gz and npm-packages-web.tar, which
 scripts/dependency-source-archive.mjs at that commit makes from Cargo.lock and
-ui/pnpm-lock.yaml. Their parts, which end in .part-00, .part-01 and so on, are
-in /dependencies/, and /dependencies/SHA256SUMS lists each part with its
-SHA-256. Download SHA256SUMS and each part it lists, check them with
-sha256sum -c SHA256SUMS, join the parts of each archive in order, for example
+ui/pnpm-lock.yaml. The second archive also holds the folder npm-sources-web,
+with the source of the code under MPL-2.0 in its native packages: lightningcss
+at the tag of each of its versions, with the crates its Node module compiles in,
+and the crates under MPL-2.0 that other native packages compile in. It also
+holds the license notices of the crates compiled into native packages whose
+tarballs do not carry them. The parts of the two archives, which end in
+.part-00, .part-01 and so on, are in /dependencies/, and
+/dependencies/SHA256SUMS lists each part with its SHA-256. Download SHA256SUMS
+and each part it lists, check them with sha256sum -c SHA256SUMS, join the parts
+of each archive in order, for example
 cat npm-packages-web.tar.part-* > npm-packages-web.tar, and extract it. The
 archives take the place of crates.io and the npm registry, with the tools of
 README.md installed: set CARGO_HOME to the full path of the folder

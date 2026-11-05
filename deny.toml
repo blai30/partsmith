@@ -16,6 +16,10 @@ allow = [
   "CC0-1.0",
   "MPL-2.0",
   "BSL-1.0",
+  # npm packages that the dependency source archives give out (ADR 0033, amendment of 2026-11-05).
+  "MIT-0",
+  "Python-2.0",
+  "BlueOak-1.0.0",
 ]
 
 [bans]

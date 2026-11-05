@@ -1,6 +1,6 @@
 # 0055: A re-attach by pick asks the engine for the plane
 
-Status: Accepted (owner, 2026-11-05): option (a), the query command `attach_plane`, as wave F's reattach track built it. It changes the protocol schema: a new command, `attach_plane`, and its result (ADR 0016's entry of 2026-11-04, accepted with it). The rule it builds is the owner's decision of 2026-11-04 on ADR 0023: a host's re-attach by pick follows engine.md section 3.22's rule. This ADR does not reopen that decision. The owner also accepted the two open choices as built: (ii) for unknown motions and (i) for what "not offered" means for a pick. A new base of a datum plane follows the same rule (engine.md open issue 23, option (a), decided on 2026-11-05).
+Status: Accepted (owner, 2026-11-05): option (a), the query command `attach_plane`, as wave F's reattach track built it. It changes the protocol schema: a new command, `attach_plane`, and its result (ADR 0016's entry of 2026-11-04, accepted with it). The rule it builds is the owner's decision of 2026-11-04 on ADR 0023: a host's re-attach by pick follows engine.md section 3.22's rule. This ADR does not reopen that decision. The owner also accepted the two open choices as built: (ii) for unknown motions and (i) for what "not offered" means for a pick. A new base of a datum plane follows the same rule (Accepted (owner, 2026-11-05): option (a) of engine.md open issue 23).
 
 ## Context
 

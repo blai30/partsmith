@@ -27,8 +27,9 @@ export const DESKTOP_TARGETS = [
 ]
 
 /**
- * Nested license files of code that no artifact builds (input 3), as `{ crate, path, reason }`, with `path` relative
- * to the crate's folder: a file, or a folder ending in `/` for every file below it.
+ * Code that no artifact builds, as `{ crate, path, reason }`: the notices leave out its license files (input 3) and the
+ * crate archives of 2.13 leave out its files. `path` is relative to the crate's folder: a file, or a folder ending in
+ * `/` for every file below it.
  */
 export const EXCLUDED_LICENSE_FILES = [
   {
@@ -240,8 +241,11 @@ function fileName(path) {
   return path.slice(path.lastIndexOf('/') + 1)
 }
 
-/** Whether `excluded` (paths as EXCLUDED_LICENSE_FILES writes them) names the relative path `path`. */
-function isExcluded(path, excluded) {
+/**
+ * Whether `excluded` (paths as EXCLUDED_LICENSE_FILES writes them) names the relative path `path`. The notices and the
+ * dependency source archives (2.13) leave out the same files with it.
+ */
+export function isExcluded(path, excluded) {
   return excluded.some((exclusion) =>
     exclusion.endsWith('/') ? path.startsWith(exclusion) : path === exclusion,
   )
@@ -762,25 +766,39 @@ function dependencyFolders(scope) {
   return { crates: `rust-crates-${scope}`, packages: `npm-packages-${scope}` }
 }
 
-/** The sentence of the fourth paragraph of each statement that builds from the archives of `scope` offline. */
-function offlineBuildSentence(scope) {
+/** The folder of the npm archive of `scope` that holds the source of its native packages (section 2.13). */
+function nativeSourcesFolder(scope) {
+  return `npm-sources-${scope}`
+}
+
+/** The sentences of the fourth paragraph of each statement on what `npm-sources-{scope}` holds (section 2.13). */
+function nativeSourcesSentences(scope) {
+  return `The second archive also holds the folder ${nativeSourcesFolder(scope)}, with the source of the code under MPL-2.0 in its native packages: lightningcss at the tag of each of its versions, with the crates its Node module compiles in, and the crates under MPL-2.0 that other native packages compile in. It also holds the license notices of the crates compiled into native packages whose tarballs do not carry them.`
+}
+
+/**
+ * The sentence of the fourth paragraph of each statement that builds from the archives of `scope` offline, with the
+ * clause `toolInstall` after setting CARGO_HOME (none for the web).
+ */
+function offlineBuildSentence(scope, toolInstall = '') {
   const { crates, packages } = dependencyFolders(scope)
   const serve = shellCommand(`python3 -m http.server --bind 127.0.0.1 8080 --directory ${packages}`)
   const install = shellCommand(
     'pnpm -C ui install --frozen-lockfile --registry http://127.0.0.1:8080/',
   )
-  return `The archives take the place of crates.io and the npm registry, with the tools of README.md installed: set CARGO_HOME to the full path of the folder ${crates} that the first archive holds, serve the folder ${packages} with ${serve}, and install the packages with ${install} before the build.`
+  return `The archives take the place of crates.io and the npm registry, with the tools of README.md installed: set CARGO_HOME to the full path of the folder ${crates} that the first archive holds, ${toolInstall}serve the folder ${packages} with ${serve}, and install the packages with ${install} before the build.`
 }
 
 /** The OCCT statement of the desktop file: four paragraphs, each one line, with its commands marked. */
 function desktopStatement({ occtVersion, occtTag }, repository) {
   const { archive, extract } = occtSourceArchive(occtVersion)
   const { crates, packages } = dependencyFolders('desktop')
+  const { tauriCli } = WINDOWS_INSTALLER
   return [
     occtUsedParagraph('desktop app', occtVersion),
     `OCCT is linked statically into the app. It is the unmodified source of the tag ${occtTag} of https://github.com/Open-Cascade-SAS/OCCT, built as static libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.`,
     `You may modify OCCT and use your version with Partsmith. The source of each release is on its page under ${repository}/releases: the Partsmith source is the release's tag, v followed by the app's version (for example v0.1.0), with every script, tool version and lock file the build uses, and the OCCT source the build reads is the release's asset ${archive}, which ${ARCHIVE_SCRIPT} makes from the tag ${occtTag}. To relink: put your OCCT source in <work>/src (from the asset: ${extract}), run ${shellCommand('OCCT_WORK_DIR=<work> scripts/build-occt.sh native <prefix>')}, and build the app with OCCT_ROOT=<prefix> as README.md describes (${shellCommand('pnpm -C ui build')}, then ${shellCommand('cargo tauri build')} in desktop/src-tauri). The exact commands for each platform, including the environment Windows and macOS need, are the steps of the bundle job in .github/workflows/release.yml at that tag.`,
-    `The release also carries the source of every Rust crate and npm package the app is built from on Linux x86_64 with glibc, Windows x86_64 and macOS arm64, in the archives ${crates}.tar.gz and ${packages}.tar, which ${DEPENDENCY_SCRIPT} at that tag makes from Cargo.lock and ui/pnpm-lock.yaml. Each is in the assets that end in .part-00, .part-01 and so on, which SHA256SUMS covers. Download them and SHA256SUMS, check them with ${shellCommand('sha256sum -c SHA256SUMS --ignore-missing')}, join the parts of each archive in order, for example ${shellCommand(`cat ${crates}.tar.gz.part-* > ${crates}.tar.gz`)}, and extract it. ${offlineBuildSentence('desktop')} On Windows, ${shellCommand('cargo tauri build')} still downloads NSIS and Tauri's NSIS plugin for the installer.`,
+    `The release also carries the source of every Rust crate and npm package the app is built from on Linux x86_64 with glibc, Windows x86_64 and macOS arm64, and of tauri-cli ${tauriCli} and the crates of its own lock file, in the archives ${crates}.tar.gz and ${packages}.tar, which ${DEPENDENCY_SCRIPT} at that tag makes from Cargo.lock, ui/pnpm-lock.yaml and the Cargo.lock of tauri-cli. ${nativeSourcesSentences('desktop')} Each archive is in the assets that end in .part-00, .part-01 and so on, which SHA256SUMS covers. Download them and SHA256SUMS, check them with ${shellCommand('sha256sum -c SHA256SUMS --ignore-missing')}, join the parts of each archive in order, for example ${shellCommand(`cat ${crates}.tar.gz.part-* > ${crates}.tar.gz`)}, and extract it. ${offlineBuildSentence('desktop', `install tauri-cli with ${shellCommand(`cargo install tauri-cli --version ${tauriCli} --locked`)}, `)} On Windows, ${shellCommand('cargo tauri build')} still downloads NSIS and Tauri's NSIS plugin for the installer.`,
   ].join('\n\n')
 }
 
@@ -792,7 +810,7 @@ function webStatement({ occtVersion, occtTag }, repository) {
     occtUsedParagraph('web app', occtVersion),
     `OCCT is linked statically into the app's geometry core, core/partsmith_core.wasm. It is the unmodified source of the tag ${occtTag} of https://github.com/Open-Cascade-SAS/OCCT, built as static WebAssembly libraries by the script scripts/build-occt.sh in the Partsmith source, which lists the toolkits and options used.`,
     `You may modify OCCT and use your version with Partsmith. Each deployment of this site names the commit of ${repository} it was built from in /${SOURCE_STAMP}, with a link to that commit's source archive; that commit holds every script, tool version and lock file the build uses. Production is built from the main branch, and a preview from the commit GitHub makes by merging its pull request into the base branch; for a preview, /${SOURCE_STAMP} also names the two commits that merge joins and its tree: if the merge commit is gone, check out the first, run ${shellCommand('git merge --no-ff')} with the second, and compare the tree that ${shellCommand('git log -1 --format=%T')} prints with that tree. Each deployment also holds the OCCT source the build reads, at /${archive}. The script ${ARCHIVE_SCRIPT} at that commit makes that file from the tag ${occtTag}. To relink: put your OCCT source in <work>/src (from the archive: ${extract}), run ${shellCommand('OCCT_WORK_DIR=<work> scripts/build-occt.sh wasm <prefix>')} with the Emscripten SDK of scripts/emsdk-version.sh active, and build the core with OCCT_ROOT_WASM32_UNKNOWN_EMSCRIPTEN=<prefix> and then the app as README.md describes (scripts/build-wasm.sh, then ${shellCommand('pnpm -C ui build')}). The exact commands are the steps of the core-wasm and web jobs in .github/workflows/ci.yml at that commit.`,
-    `Each deployment also holds the source of every Rust crate and npm package the app is built from on Linux x86_64 with glibc, where the web job builds it, in the archives ${crates}.tar.gz and ${packages}.tar, which ${DEPENDENCY_SCRIPT} at that commit makes from Cargo.lock and ui/pnpm-lock.yaml. Their parts, which end in .part-00, .part-01 and so on, are in /${DEPENDENCY_FOLDER}/, and /${DEPENDENCY_FOLDER}/SHA256SUMS lists each part with its SHA-256. Download SHA256SUMS and each part it lists, check them with ${shellCommand('sha256sum -c SHA256SUMS')}, join the parts of each archive in order, for example ${shellCommand(`cat ${packages}.tar.part-* > ${packages}.tar`)}, and extract it. ${offlineBuildSentence('web')}`,
+    `Each deployment also holds the source of every Rust crate and npm package the app is built from on Linux x86_64 with glibc, where the web job builds it, in the archives ${crates}.tar.gz and ${packages}.tar, which ${DEPENDENCY_SCRIPT} at that commit makes from Cargo.lock and ui/pnpm-lock.yaml. ${nativeSourcesSentences('web')} The parts of the two archives, which end in .part-00, .part-01 and so on, are in /${DEPENDENCY_FOLDER}/, and /${DEPENDENCY_FOLDER}/SHA256SUMS lists each part with its SHA-256. Download SHA256SUMS and each part it lists, check them with ${shellCommand('sha256sum -c SHA256SUMS')}, join the parts of each archive in order, for example ${shellCommand(`cat ${packages}.tar.part-* > ${packages}.tar`)}, and extract it. ${offlineBuildSentence('web')}`,
   ].join('\n\n')
 }
 

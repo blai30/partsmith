@@ -38,17 +38,25 @@ including the environment Windows and macOS need, are the steps of the bundle
 job in .github/workflows/release.yml at that tag.
 
 The release also carries the source of every Rust crate and npm package the app
-is built from on Linux x86_64 with glibc, Windows x86_64 and macOS arm64, in the
-archives rust-crates-desktop.tar.gz and npm-packages-desktop.tar, which
-scripts/dependency-source-archive.mjs at that tag makes from Cargo.lock and
-ui/pnpm-lock.yaml. Each is in the assets that end in .part-00, .part-01 and so
-on, which SHA256SUMS covers. Download them and SHA256SUMS, check them with
+is built from on Linux x86_64 with glibc, Windows x86_64 and macOS arm64, and of
+tauri-cli 2.12.2 and the crates of its own lock file, in the archives
+rust-crates-desktop.tar.gz and npm-packages-desktop.tar, which
+scripts/dependency-source-archive.mjs at that tag makes from Cargo.lock,
+ui/pnpm-lock.yaml and the Cargo.lock of tauri-cli. The second archive also holds
+the folder npm-sources-desktop, with the source of the code under MPL-2.0 in its
+native packages: lightningcss at the tag of each of its versions, with the
+crates its Node module compiles in, and the crates under MPL-2.0 that other
+native packages compile in. It also holds the license notices of the crates
+compiled into native packages whose tarballs do not carry them. Each archive is
+in the assets that end in .part-00, .part-01 and so on, which SHA256SUMS covers.
+Download them and SHA256SUMS, check them with
 sha256sum -c SHA256SUMS --ignore-missing, join the parts of each archive in
 order, for example
 cat rust-crates-desktop.tar.gz.part-* > rust-crates-desktop.tar.gz, and extract
 it. The archives take the place of crates.io and the npm registry, with the
 tools of README.md installed: set CARGO_HOME to the full path of the folder
-rust-crates-desktop that the first archive holds, serve the folder
+rust-crates-desktop that the first archive holds, install tauri-cli with
+cargo install tauri-cli --version 2.12.2 --locked, serve the folder
 npm-packages-desktop with
 python3 -m http.server --bind 127.0.0.1 8080 --directory npm-packages-desktop,
 and install the packages with

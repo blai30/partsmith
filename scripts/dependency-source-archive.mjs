@@ -1,28 +1,46 @@
 // Writes the archives of the Rust crates and the npm packages that the desktop app's executables or the web build are
-// compiled from, made from Cargo.lock and ui/pnpm-lock.yaml, as parts under Cloudflare Pages' file limit. CI writes the
-// web scope's into every web deployment. The release workflow attaches the desktop scope's to every release
-// (docs/spec/delivery.md section 2.13, ADR 0034).
+// compiled from, made from Cargo.lock and ui/pnpm-lock.yaml, as parts under Cloudflare Pages' file limit. The npm
+// archives also hold the source of the code under MPL-2.0 in their native packages, and the desktop crate archive also
+// holds tauri-cli and the crates of its own lock file. CI writes the web scope's into every web deployment. The
+// release workflow attaches the desktop scope's to every release (docs/spec/delivery.md section 2.13, ADR 0034).
 // Usage: node scripts/dependency-source-archive.mjs web|desktop <directory>
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, relative } from 'node:path'
+import { basename, dirname, join, relative, sep } from 'node:path'
 import process from 'node:process'
 import { setTimeout as wait } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { gunzip } from 'node:zlib'
 
 import {
+  allowedLicenses,
   checkedRun,
   commandFailureMessage,
   compareNameAndVersion,
+  licenseProblems,
   runCommand,
 } from '../ui/scripts/check-licenses.mjs'
 import {
   DESKTOP_TARGETS,
+  EXCLUDED_LICENSE_FILES,
+  WINDOWS_INSTALLER,
   cargoMetadata,
+  isExcluded,
   reachableIds,
   scopeCrates,
   workspacePackage,
@@ -61,6 +79,99 @@ export const NPM_REGISTRY = 'https://registry.npmjs.org/'
  */
 export const DOWNLOAD_RETRY_DELAYS = [2000, 10000]
 
+/** crates.io's download host, the `dl` of its index's `config.json`. Its storage serves a crate at `{name}/{name}-{version}.crate`. */
+export const CRATE_REGISTRY = 'https://static.crates.io/crates/'
+
+/**
+ * The tauri-cli of 2.2, `WINDOWS_INSTALLER.tauriCli` of 2.9, and the SHA-256 of its `.crate`, which the crates.io index
+ * records for that version. The desktop crate archive holds it and the crates of its own lock file.
+ */
+export const TAURI_CLI = {
+  version: WINDOWS_INSTALLER.tauriCli,
+  sha256: '7a08bf51957aad7b46276ba4242b2edeb80b6afae2b42b9547f9b9ae485db465',
+}
+
+/**
+ * The npm packages of prebuilt native code, each at the version whose source was checked (Native packages, checked).
+ * A package belongs to an entry when its name is `name` or starts with `name` followed by `-`, and its version is
+ * `version`. `source` and `tag` name what it is built from. `commit` is the commit of `tag` when the archives hold the
+ * tag's whole tree, with the crates of the lock file of `manifest`. `crates` are the crates under MPL-2.0 that it
+ * compiles in, as `{ name, version, sha256 }` with the checksum that the lock file of its source records. `notices` is
+ * true when its tarballs lack the notices of the crates it compiles in, which `ui/scripts/notices/native/` holds.
+ */
+export const NATIVE_PACKAGES = [
+  {
+    name: '@oxfmt/binding',
+    version: '0.72.0',
+    source: 'https://github.com/oxc-project/oxc',
+    tag: 'oxfmt_v0.72.0',
+    crates: [],
+    notices: true,
+  },
+  {
+    name: '@oxlint/binding',
+    version: '1.87.0',
+    source: 'https://github.com/oxc-project/oxc',
+    tag: 'oxlint_v1.87.0',
+    crates: [],
+    notices: true,
+  },
+  {
+    name: '@rolldown/binding',
+    version: '1.2.13',
+    source: 'https://github.com/rolldown/rolldown',
+    tag: 'v1.2.13',
+    crates: [],
+    notices: true,
+  },
+  {
+    name: '@tailwindcss/oxide',
+    version: '4.3.3',
+    source: 'https://github.com/tailwindlabs/tailwindcss',
+    tag: 'v4.3.3',
+    crates: [
+      {
+        name: 'bexpand',
+        version: '1.2.0',
+        sha256: '045d7d9db8390cf2c59f39f3bd138f1962ef616b096d1b9f5651c7acba19e5a7',
+      },
+    ],
+    notices: true,
+  },
+  {
+    name: 'fsevents',
+    version: '2.3.3',
+    source: 'https://github.com/fsevents/fsevents',
+    tag: 'v2.3.3',
+    crates: [],
+  },
+  {
+    name: 'lightningcss',
+    version: '1.32.0',
+    source: 'https://github.com/parcel-bundler/lightningcss',
+    tag: 'v1.32.0',
+    commit: '7f8a861bdee476fe90c89a8badeb3fd33a99c51a',
+    manifest: 'node/Cargo.toml',
+    crates: [],
+  },
+  {
+    name: 'lightningcss',
+    version: '1.33.0',
+    source: 'https://github.com/parcel-bundler/lightningcss',
+    tag: 'v1.33.0',
+    commit: 'c6a0c3cebf3395635e61075d2c81a96a710d4910',
+    manifest: 'node/Cargo.toml',
+    crates: [],
+  },
+  {
+    name: 'playwright-core',
+    version: '1.64.0',
+    source: 'https://github.com/microsoft/playwright',
+    tag: 'v1.64.0',
+    crates: [],
+  },
+]
+
 const USAGE = 'usage: node scripts/dependency-source-archive.mjs web|desktop <directory>'
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -68,8 +179,14 @@ const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 // The machine that builds the web core. Its build scripts and procedural macros compile for it.
 const BUILD_MACHINE_TRIPLE = 'x86_64-unknown-linux-gnu'
 
+// The source that Cargo lock files write for a crate from crates.io, the one source the archives' config.toml replaces.
+const CRATES_IO_SOURCE = 'registry+https://github.com/rust-lang/crates.io-index'
+
 // The file in which cargo vendor records the SHA-256 of each file of a crate and of the crate's package.
 const CHECKSUM_FILE = '.cargo-checksum.json'
+
+// The committed notices of the crates compiled into native packages whose tarballs lack them.
+const NATIVE_NOTICES_FOLDER = 'ui/scripts/notices/native'
 
 // The options that give GNU tar the same bytes on every run: the order, the times, the owners and the modes.
 const TAR_OPTIONS = [
@@ -83,10 +200,27 @@ const TAR_OPTIONS = [
   '--mode=u+rwX,go+rX,go-w',
 ]
 
+// The options that keep a user's or the system's Git configuration out of the bytes of `git archive` (2.13, Bytes).
+const GIT_ARCHIVE_OPTIONS = [
+  '-c',
+  'core.autocrlf=false',
+  '-c',
+  'tar.umask=0002',
+  '-c',
+  'core.attributesFile=/dev/null',
+]
+
+// The size of a tar block: a header, or a piece of a file's contents.
+const TAR_BLOCK = 512
+
+// The file names of prebuilt native code in an npm tarball.
+const PREBUILT_FILE_PATTERN = /\.(?:node|wasm|so|dylib|dll|exe)$/i
+
 // How many tarballs the command downloads at the same time.
 const DOWNLOADS_AT_ONCE = 8
 
 const execute = promisify(execFile)
+const gunzipBytes = promisify(gunzip)
 
 /** Whether a download is tried again after the HTTP status `status`: 408, 429, or a server error of 500 and above. */
 function isRetriedStatus(status) {
@@ -103,25 +237,48 @@ function packagesFolder(scope) {
   return `npm-packages-${scope}`
 }
 
+/** The folder of the npm archive of `scope` that holds the source of its native packages. */
+function sourcesFolder(scope) {
+  return `npm-sources-${scope}`
+}
+
+/** The `{stem}` of a native package's entry: its name without the leading `@` and with `/` written as `-`. */
+function stemOf(name) {
+  return name.replace(/^@/, '').replace('/', '-')
+}
+
+/** The vendor folder name of a crate: `{name}-{version}`. */
+function crateFolder({ name, version }) {
+  return `${name}-${version}`
+}
+
 /** The names of the two archives of `scope`, crates first: `[rust-crates-{scope}.tar.gz, npm-packages-{scope}.tar]`. */
 export function archiveNames(scope) {
   return [`${cratesFolder(scope)}.tar.gz`, `${packagesFolder(scope)}.tar`]
 }
 
-/** The exact text of `rust-crates-{scope}/config.toml`. */
-export function cargoConfig(scope) {
+/**
+ * The exact text of `{folder}/config.toml` for the crates that build `subject` without the network: the text of 2.13
+ * with `{folder}/vendor` as the directory and `subject` in its first line.
+ */
+export function vendorConfig(folder, subject) {
   return [
-    '# Set CARGO_HOME to this folder to build Partsmith from these crates without the network (docs/spec/delivery.md section 2.13).',
+    `# Set CARGO_HOME to this folder to build ${subject} from these crates without the network (docs/spec/delivery.md section 2.13).`,
     '[source.crates-io]',
     'replace-with = "vendored-sources"',
     '',
     '[source.vendored-sources]',
-    `directory = "${cratesFolder(scope)}/vendor"`,
+    `directory = "${folder}/vendor"`,
     '',
     '[net]',
     'offline = true',
     '',
   ].join('\n')
+}
+
+/** The exact text of `rust-crates-{scope}/config.toml`: `vendorConfig('rust-crates-{scope}', 'Partsmith')`. */
+export function cargoConfig(scope) {
+  return vendorConfig(cratesFolder(scope), 'Partsmith')
 }
 
 /** The values of a YAML flow sequence such as `[x64]` or `['!win32']`, without quotes. */
@@ -225,6 +382,189 @@ export function integrityMismatch(bytes, integrity) {
   return actual === integrity ? null : actual
 }
 
+/** Whether the lock entry `listed` has an `os`, `cpu` or `libc` list: it is built for some platforms only. */
+function hasPlatformList(listed) {
+  return listed.os !== null || listed.cpu !== null || listed.libc !== null
+}
+
+/** Whether the lock entry `listed` belongs to the table entry `entry` (Native packages, 2.13). */
+function belongsTo(listed, entry) {
+  return (
+    (listed.name === entry.name || listed.name.startsWith(`${entry.name}-`)) &&
+    listed.version === entry.version
+  )
+}
+
+/** The native-package message of section 4 for the lock entry `listed`. */
+function nativePackageMessage(listed) {
+  return `npm package ${listed.name} ${listed.version} holds prebuilt native code, and NATIVE_PACKAGES of scripts/dependency-source-archive.mjs records no check of its source at that version. Check its source for code under MPL-2.0 or a copyleft license that it compiles in, and record the result there and in docs/spec/delivery.md section 2.13.`
+}
+
+/**
+ * The entries of `nativePackages` that the native packages `native` belong to, each once, in the table's order. Throws
+ * the native-package message for the first of `native`, in their order, that belongs to none.
+ */
+function recordedEntries(native, nativePackages) {
+  const unrecorded = native.find(
+    (listed) => !nativePackages.some((entry) => belongsTo(listed, entry)),
+  )
+  if (unrecorded !== undefined) {
+    throw new Error(nativePackageMessage(unrecorded))
+  }
+  return nativePackages.filter((entry) => native.some((listed) => belongsTo(listed, entry)))
+}
+
+/**
+ * The entries of `nativePackages` that the packages of `packages` with an `os`, `cpu` or `libc` list belong to, each
+ * once, in the table's order. Throws an `Error` with the native-package message of section 4 for the first such
+ * package, in the order of `packages`, that belongs to none.
+ */
+export function nativeEntries(packages, nativePackages) {
+  return recordedEntries(packages.filter(hasPlatformList), nativePackages)
+}
+
+/** The text of the NUL-terminated field of `length` bytes at `offset` of `block`. */
+function fieldText(block, offset, length) {
+  const field = block.subarray(offset, offset + length)
+  const end = field.indexOf(0)
+  return field.subarray(0, end === -1 ? field.length : end).toString('utf8')
+}
+
+/** The `path` of a pax extended header's records, `{length} {key}={value}` each followed by LF, or null. */
+function paxPath(records) {
+  let offset = 0
+  let path = null
+  while (offset < records.length) {
+    const space = records.indexOf(0x20, offset)
+    const length = Number.parseInt(records.subarray(offset, space).toString('latin1'), 10)
+    if (space === -1 || !(length > space - offset)) {
+      break
+    }
+    const record = records.subarray(space + 1, offset + length - 1).toString('utf8')
+    if (record.startsWith('path=')) {
+      path = record.slice('path='.length)
+    }
+    offset += length
+  }
+  return path
+}
+
+/**
+ * The entries of the tar `bytes` in their order, as `{ path, regular, contents }`. The path is the pax `path` or the
+ * GNU long name that comes before an entry, or else its ustar name after its prefix.
+ */
+function tarEntries(bytes) {
+  const entries = []
+  let longPath = null
+  let offset = 0
+  while (offset + TAR_BLOCK <= bytes.length) {
+    const header = bytes.subarray(offset, offset + TAR_BLOCK)
+    // The archive ends with blocks of zeros.
+    if (header.every((byte) => byte === 0)) {
+      break
+    }
+    const size = Number.parseInt(fieldText(header, 124, 12).trim() || '0', 8)
+    const type = String.fromCharCode(header[156])
+    const contents = bytes.subarray(offset + TAR_BLOCK, offset + TAR_BLOCK + size)
+    offset += TAR_BLOCK * (1 + Math.ceil(size / TAR_BLOCK))
+    if (type === 'x') {
+      longPath = paxPath(contents) ?? longPath
+    } else if (type === 'L') {
+      longPath = fieldText(contents, 0, contents.length)
+    } else if (type !== 'g') {
+      const isUstar = header.subarray(257, 263).toString('latin1') === 'ustar\0'
+      const prefix = isUstar ? fieldText(header, 345, 155) : ''
+      const name = fieldText(header, 0, 100)
+      const path = longPath ?? (prefix === '' ? name : `${prefix}/${name}`)
+      entries.push({ path, regular: ['0', '\0', '7'].includes(type), contents })
+      longPath = null
+    }
+  }
+  return entries
+}
+
+/** The `license` string of the `package.json` file `manifest`, or `Unknown` when it has none or is not valid JSON. */
+function manifestLicense(manifest) {
+  try {
+    const { license } = JSON.parse(manifest.contents.toString('utf8'))
+    return typeof license === 'string' ? license : 'Unknown'
+  } catch {
+    return 'Unknown'
+  }
+}
+
+/**
+ * What the license check and the native-package check read from an npm tarball's `bytes`: the `license` of its
+ * `package.json` one folder deep (the first in the tarball's order), `Unknown` without one, and whether it holds a
+ * prebuilt file.
+ */
+async function tarballFacts(bytes) {
+  const files = tarEntries(await gunzipBytes(bytes)).filter((entry) => entry.regular)
+  const manifest = files.find((entry) => /^[^/]+\/package\.json$/.test(entry.path))
+  return {
+    license: manifest === undefined ? 'Unknown' : manifestLicense(manifest),
+    prebuilt: files.some((entry) => PREBUILT_FILE_PATTERN.test(entry.path)),
+  }
+}
+
+/**
+ * The license of the npm tarball at `file`: the `license` string of its `package.json`, or `Unknown` (2.13). It reads
+ * the tarball in Node (`zlib`'s gunzip, then the tar headers: the ustar name with its prefix, or a pax `path`) and runs
+ * no command.
+ */
+export async function tarballLicense(file) {
+  return (await tarballFacts(await readFile(file))).license
+}
+
+/**
+ * Every `[[package]]` of a Cargo lock file's text, in the file's order, as `{ name, version, source }`, with `source`
+ * null for a package that has none (a member of the lock file's workspace).
+ */
+export function lockCrates(lockText) {
+  const crates = []
+  let current = null
+  for (const line of lockText.split(/\r?\n/)) {
+    if (line.trim() === '[[package]]') {
+      current = { name: null, version: null, source: null }
+      crates.push(current)
+      continue
+    }
+    // Any other table, such as `[metadata]`, ends the package before it.
+    if (line.startsWith('[')) {
+      current = null
+      continue
+    }
+    const field = /^(name|version|source) = "(.*)"$/.exec(line)
+    if (current !== null && field !== null) {
+      current[field[1]] = field[2]
+    }
+  }
+  return crates
+}
+
+/**
+ * Throws the tool-lock source message of section 4 for the first of `crates`, packages of the Cargo lock file of
+ * `subject`, that comes from a source other than crates.io.
+ */
+function requireCratesIo(crates, subject) {
+  const foreign = crates.find((crate) => crate.source !== null && crate.source !== CRATES_IO_SOURCE)
+  if (foreign !== undefined) {
+    throw new Error(
+      `Rust crate ${foreign.name} ${foreign.version} in the Cargo.lock of ${subject} comes from ${foreign.source}, not from crates.io. The config.toml of the dependency source archives replaces only crates.io, and an offline build would not find it. Nothing was written (docs/spec/delivery.md section 2.13).`,
+    )
+  }
+}
+
+/** Resolves to the values of `promises` once all have settled, or rejects with the first failure in their order. */
+async function inOrder(promises) {
+  const results = await Promise.allSettled(promises)
+  const failure = results.find((result) => result.status === 'rejected')
+  if (failure !== undefined) {
+    throw failure.reason
+  }
+  return results.map((result) => result.value)
+}
+
 /**
  * The values of `writes`, promises that each resolve to the name or names they wrote into `directory`. When one
  * rejects, the names the others wrote are removed once all have settled. The first failure in their order is the one
@@ -283,8 +623,8 @@ export function summaryLine({ archive, bytes, sha256, lastPart }, directory) {
 }
 
 /**
- * Runs `tar` or `gzip` in `directory` with `LC_ALL=C` and resolves to its standard output. A failure rejects with the
- * message of section 4.
+ * Runs `git`, `tar` or `gzip` in `directory` with `LC_ALL=C` and resolves to its standard output. A failure rejects
+ * with the message of section 4.
  */
 async function runDirectly(command, commandArguments, directory) {
   try {
@@ -325,10 +665,23 @@ async function requireGnuTar() {
 }
 
 /**
- * The npm packages of `scope` from the lock file of `root`. Rejects before any download when one of them has no
- * integrity.
+ * Rejects with the temporary-folder message of section 4 when Node's temporary folder is the repository at `root` or
+ * inside it, where Cargo would take the extracted tauri-cli for a member of Partsmith's workspace.
  */
-async function scopePackages(root, scope) {
+async function requireTemporaryFolderOutside(root) {
+  const [folder, repository] = await Promise.all([realpath(tmpdir()), realpath(root)])
+  if (folder === repository || folder.startsWith(`${repository}${sep}`)) {
+    throw new Error(
+      `The temporary folder ${folder} is inside ${repository}, where Cargo would take tauri-cli for a member of Partsmith's workspace. Set TMPDIR to a folder outside the repository (docs/spec/delivery.md section 2.13).`,
+    )
+  }
+}
+
+/**
+ * The npm packages of `scope` from the lock file of `root`. Rejects before any download when one of them has no
+ * integrity, or when one with an `os`, `cpu` or `libc` list belongs to no entry of `nativePackages`.
+ */
+async function scopePackages(root, scope, nativePackages) {
   const lockText = await readFile(join(root, 'ui', 'pnpm-lock.yaml'), 'utf8')
   const packages = platformPackages(lockPackages(lockText), SCOPES[scope].platforms)
   const unchecked = packages.find((listed) => listed.integrity === null)
@@ -337,6 +690,7 @@ async function scopePackages(root, scope) {
       `npm package ${unchecked.key} has no integrity in ui/pnpm-lock.yaml, so its tarball cannot be checked (docs/spec/delivery.md section 2.13).`,
     )
   }
+  nativeEntries(packages, nativePackages)
   return packages
 }
 
@@ -370,6 +724,79 @@ async function requireBuildMachineCrates(root, run, rootCrate, crates) {
 }
 
 /**
+ * One request for `url` with `fetch`. Resolves to `{ bytes }` for a successful answer, and otherwise to
+ * `{ failure, retry }`: the status or the error's message, and whether the download is tried again for it.
+ */
+async function request(url, fetch) {
+  let response
+  try {
+    response = await fetch(url)
+    if (response.ok) {
+      return { bytes: Buffer.from(await response.arrayBuffer()) }
+    }
+  } catch (error) {
+    // No answer, or the connection broke while the body came.
+    return { failure: error.message, retry: true }
+  }
+  await response.body?.cancel()
+  return { failure: response.status, retry: isRetriedStatus(response.status) }
+}
+
+/**
+ * The bytes at `url`, requested with `fetch` and tried again after each of `retryDelays` while a request fails in a
+ * way that is retried. Rejects with the download message of section 4 for `subject` after the last attempt.
+ */
+async function download(url, subject, { fetch, retryDelays }) {
+  const answer = await request(url, fetch)
+  if (answer.bytes !== undefined) {
+    return answer.bytes
+  }
+  if (!answer.retry || retryDelays.length === 0) {
+    throw new Error(`${subject}: ${url} answered ${answer.failure}.`)
+  }
+  await wait(retryDelays[0])
+  return download(url, subject, { fetch, retryDelays: retryDelays.slice(1) })
+}
+
+/**
+ * The bytes of the `.crate` of `crate`, `{ name, version, sha256 }`, from `crateRegistry`, tried again as `download`
+ * does and checked against its SHA-256.
+ */
+async function downloadCrate(crate, { crateRegistry, ...downloads }) {
+  const subject = `Rust crate ${crate.name} ${crate.version}`
+  const url = `${crateRegistry}${crate.name}/${crateFolder(crate)}.crate`
+  const bytes = await download(url, subject, downloads)
+  const actual = createHash('sha256').update(bytes).digest('hex')
+  if (actual !== crate.sha256) {
+    throw new Error(
+      `${subject}: ${url} sent a file whose SHA-256 is ${actual}, not ${crate.sha256}, which scripts/dependency-source-archive.mjs records. Nothing was written.`,
+    )
+  }
+  return bytes
+}
+
+/**
+ * Downloads, checks and extracts the `.crate` of `tauriCli` into `work` as `tauri-cli-{version}/`, and resolves to
+ * that folder, the crate's SHA-256 and the crates of its own lock file that come from crates.io. Rejects when a crate
+ * of that lock file comes from another source.
+ */
+async function extractTauriCli(work, tauriCli, downloads) {
+  const crate = { name: 'tauri-cli', ...tauriCli }
+  const file = `${crateFolder(crate)}.crate`
+  await writeFile(join(work, file), await downloadCrate(crate, downloads))
+  await runDirectly('tar', ['--extract', '--gzip', `--file=${file}`], work)
+  await rm(join(work, file))
+  const folder = join(work, crateFolder(crate))
+  const locked = lockCrates(await readFile(join(folder, 'Cargo.lock'), 'utf8'))
+  requireCratesIo(locked, `tauri-cli ${tauriCli.version}`)
+  return {
+    folder,
+    sha256: tauriCli.sha256,
+    crates: locked.filter((listed) => listed.source !== null),
+  }
+}
+
+/**
  * Turns the vendored crate in `folder` into a stub that Cargo can resolve: its manifest, its checksum file with no
  * files, and an empty file at the path of each target of `listed`, its package in `cargo metadata` (none when absent).
  */
@@ -394,125 +821,306 @@ async function stubCrate(folder, listed) {
 }
 
 /**
- * Writes `folder` (`rust-crates-{scope}`) with `config.toml` and `vendor/`, every crate of Cargo.lock vendored, those
- * of `crates` whole and every other one as a stub.
+ * Removes `path` (a file, or a folder ending in `/`, as EXCLUDED_LICENSE_FILES writes it) from the vendored crate in
+ * `folder` and from `files` of its checksum file, which keeps `package`.
  */
-async function vendorCrates(root, run, scope, folder, crates) {
+async function leaveOut(folder, path) {
+  await rm(join(folder, path), { recursive: true, force: true })
+  const checksum = JSON.parse(await readFile(join(folder, CHECKSUM_FILE), 'utf8'))
+  const files = Object.entries(checksum.files).filter(([listed]) => !isExcluded(listed, [path]))
+  await writeFile(
+    join(folder, CHECKSUM_FILE),
+    JSON.stringify({ ...checksum, files: Object.fromEntries(files) }),
+  )
+}
+
+/** The paths of the regular files below `folder`, relative to it with `/`, in byte order. */
+async function regularFiles(folder) {
+  const entries = await readdir(folder, { recursive: true, withFileTypes: true })
+  return entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => relative(folder, join(entry.parentPath, entry.name)).split(sep).join('/'))
+    .toSorted((first, second) => Buffer.compare(Buffer.from(first), Buffer.from(second)))
+}
+
+/** The SHA-256 of the file at `path` in hexadecimal. */
+async function sha256Of(path) {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk)
+  }
+  return hash.digest('hex')
+}
+
+/**
+ * Moves the extracted crate `tool` into `vendor` and writes its checksum file as `cargo vendor` writes one: the
+ * SHA-256 of every regular file, by path in byte order, and the SHA-256 of its `.crate` as `package`.
+ */
+async function vendorTool(tool, vendor) {
+  const folder = join(vendor, basename(tool.folder))
+  await rename(tool.folder, folder)
+  const paths = await regularFiles(folder)
+  const hashes = await Promise.all(paths.map((path) => sha256Of(join(folder, path))))
+  const files = Object.fromEntries(paths.map((path, i) => [path, hashes[i]]))
+  await writeFile(join(folder, CHECKSUM_FILE), JSON.stringify({ files, package: tool.sha256 }))
+}
+
+/**
+ * Writes `rust-crates-{scope}` into `work` with `config.toml` and `vendor/`: every crate of Cargo.lock vendored, and
+ * for `desktop` every crate of the lock file of `tool`, the extracted tauri-cli (null for `web`). Those of `crates`
+ * and of the tool's lock file stay whole, without the files EXCLUDED_LICENSE_FILES names, and every other one becomes
+ * a stub. The tool's own folder moves into `vendor/` last.
+ */
+async function vendorCrates(root, run, scope, work, crates, tool) {
+  const folder = join(work, cratesFolder(scope))
   const vendor = join(folder, 'vendor')
-  await checkedRun(run, 'cargo', ['vendor', '--locked', '--versioned-dirs', vendor], root)
+  const sync = tool === null ? [] : ['--sync', join(tool.folder, 'Cargo.toml')]
+  await checkedRun(run, 'cargo', ['vendor', '--locked', '--versioned-dirs', ...sync, vendor], root)
   const metadata = await cargoMetadata(root, run)
   const registryPackages = new Map(
     metadata.packages
       .filter((listed) => listed.source !== null)
-      .map((listed) => [`${listed.name}-${listed.version}`, listed]),
+      .map((listed) => [crateFolder(listed), listed]),
   )
-  const kept = new Set(crates.map((crate) => `${crate.name}-${crate.version}`))
-  const stubbed = (await readdir(vendor)).filter((name) => !kept.has(name))
+  const whole = new Map(
+    [...crates, ...(tool?.crates ?? [])].map((crate) => [crateFolder(crate), crate]),
+  )
+  const stubbed = (await readdir(vendor)).filter((name) => !whole.has(name))
   await Promise.all(
     stubbed.map((name) => stubCrate(join(vendor, name), registryPackages.get(name))),
   )
+  const excluded = [...whole].flatMap(([name, crate]) =>
+    EXCLUDED_LICENSE_FILES.filter((entry) => entry.crate === crate.name).map((entry) =>
+      leaveOut(join(vendor, name), entry.path),
+    ),
+  )
+  await Promise.all(excluded)
+  if (tool !== null) {
+    await vendorTool(tool, vendor)
+  }
   await writeFile(join(folder, 'config.toml'), cargoConfig(scope))
 }
 
 /**
- * One request for `url` with `fetch`. Resolves to `{ bytes }` for a successful answer, and otherwise to
- * `{ failure, retry }`: the status or the error's message, and whether the download is tried again for it.
+ * Downloads the tarball of `listed` from `registry`, tried again as `download` does, checks it against its integrity,
+ * writes it into `folder` at its `tarballPath` and resolves to what `tarballFacts` reads from it.
  */
-async function requestTarball(url, fetch) {
-  let response
-  try {
-    response = await fetch(url)
-    if (response.ok) {
-      return { bytes: Buffer.from(await response.arrayBuffer()) }
-    }
-  } catch (error) {
-    // No answer, or the connection broke while the body came.
-    return { failure: error.message, retry: true }
-  }
-  await response.body?.cancel()
-  return { failure: response.status, retry: isRetriedStatus(response.status) }
-}
-
-/** `requestTarball` of `url`, tried again after each of `retryDelays` while it fails in a way that is retried. */
-async function requestWithRetries(url, fetch, retryDelays) {
-  const answer = await requestTarball(url, fetch)
-  if (answer.bytes !== undefined || !answer.retry || retryDelays.length === 0) {
-    return answer
-  }
-  await wait(retryDelays[0])
-  return requestWithRetries(url, fetch, retryDelays.slice(1))
-}
-
-/**
- * The bytes of the tarball of `listed` from `registry`, tried again after each of `retryDelays` as
- * `requestWithRetries` does, and checked against its integrity.
- */
-async function downloadTarball(listed, { registry, fetch, retryDelays }) {
+async function saveTarball(listed, folder, { registry, ...downloads }) {
   const url = `${registry}${tarballPath(listed.name, listed.version)}`
-  const failure = (reason) => new Error(`npm package ${listed.name} ${listed.version}: ${reason}`)
-  const answer = await requestWithRetries(url, fetch, retryDelays)
-  if (answer.bytes === undefined) {
-    throw failure(`${url} answered ${answer.failure}.`)
-  }
-  const actual = integrityMismatch(answer.bytes, listed.integrity)
+  const bytes = await download(url, `npm package ${listed.name} ${listed.version}`, downloads)
+  const actual = integrityMismatch(bytes, listed.integrity)
   if (actual !== null) {
-    throw failure(
-      `${url} sent a tarball whose integrity is ${actual}, not ${listed.integrity}, which ui/pnpm-lock.yaml records. Nothing was written.`,
+    throw new Error(
+      `npm package ${listed.name} ${listed.version}: ${url} sent a tarball whose integrity is ${actual}, not ${listed.integrity}, which ui/pnpm-lock.yaml records. Nothing was written.`,
     )
   }
-  return answer.bytes
-}
-
-/** Downloads the tarball of `listed` and writes it into `folder` at its `tarballPath`. */
-async function saveTarball(listed, folder, downloadOptions) {
-  const bytes = await downloadTarball(listed, downloadOptions)
   const path = join(folder, tarballPath(listed.name, listed.version))
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, bytes)
+  return tarballFacts(bytes)
 }
 
 /**
  * Downloads the tarball of each of `packages` into `folder` at its `tarballPath`, a few at a time, with
- * `downloadOptions`, `{ registry, fetch, retryDelays }`. The first failure stops the downloads that have not started
- * and rejects once the others have settled.
+ * `downloads`, `{ registry, fetch, retryDelays }`, and resolves to what `tarballFacts` reads from each, in the order
+ * of `packages`. The first failure stops the downloads that have not started and rejects once the others have
+ * settled.
  */
-async function downloadPackages(packages, folder, downloadOptions) {
+async function downloadPackages(packages, folder, downloads) {
+  const facts = []
   let next = 0
   let failure
-  const download = async () => {
+  const downloadNext = async () => {
     while (failure === undefined && next < packages.length) {
+      const i = next++
       try {
         // oxlint-disable-next-line no-await-in-loop -- each of the DOWNLOADS_AT_ONCE loops saves one tarball at a time
-        await saveTarball(packages[next++], folder, downloadOptions)
+        facts[i] = await saveTarball(packages[i], folder, downloads)
       } catch (error) {
         failure ??= error
       }
     }
   }
-  await Promise.all(Array.from({ length: DOWNLOADS_AT_ONCE }, download))
+  await Promise.all(Array.from({ length: DOWNLOADS_AT_ONCE }, downloadNext))
   if (failure !== undefined) {
     throw failure
   }
+  return facts
 }
 
-/** Packs the folder `name` of `work` into `work/{name}.tar` with GNU tar, the same bytes on every run. */
-async function packFolder(work, name) {
-  await runDirectly('tar', [...TAR_OPTIONS, '--create', `--file=${name}.tar`, name], work)
+/**
+ * Rejects with one line per package of `packages` whose license, as `facts` read it from its tarball, the allow list
+ * of `root`'s deny.toml does not allow (2.10), in the order of `packages`.
+ */
+async function requireAllowedLicenses(root, packages, facts) {
+  const allowed = allowedLicenses(await readFile(join(root, 'deny.toml'), 'utf8'))
+  const licensed = packages.map((listed, i) => ({ ...listed, license: facts[i].license }))
+  const problems = licenseProblems(licensed, allowed)
+  if (problems.length > 0) {
+    throw new Error(problems.join('\n'))
+  }
+}
+
+/** Packs the folders `folders` of `directory` into the tar `file` with GNU tar, the same bytes on every run. */
+async function packFolders(directory, file, folders) {
+  await runDirectly('tar', [...TAR_OPTIONS, '--create', `--file=${file}`, ...folders], directory)
+}
+
+/**
+ * Clones the tag of `entry` into `clone` with a shallow `git clone`, tried again after each of `retryDelays` with the
+ * partial clone removed first. Rejects with the command message of the last attempt.
+ */
+async function cloneTag(entry, clone, retryDelays) {
+  await rm(clone, { recursive: true, force: true })
+  const cloneArguments = ['clone', '--quiet', '--depth', '1', '--branch', entry.tag]
+  try {
+    await runDirectly('git', [...cloneArguments, entry.source, clone], dirname(clone))
+  } catch (error) {
+    if (retryDelays.length === 0) {
+      throw error
+    }
+    await wait(retryDelays[0])
+    await cloneTag(entry, clone, retryDelays.slice(1))
+  }
+}
+
+/**
+ * Clones the tag of `entry` into `{work}/clones/{stem}-{version}`, checks that it names the commit the entry pins,
+ * and writes `{stem}-{version}-source.tar.gz` of its tree into `sources`. Resolves to the clone's folder.
+ */
+async function archiveTag(work, sources, entry, retryDelays) {
+  const name = `${stemOf(entry.name)}-${entry.version}`
+  const clone = join(work, 'clones', name)
+  await mkdir(dirname(clone), { recursive: true })
+  await cloneTag(entry, clone, retryDelays)
+  const commit = (
+    await runDirectly('git', ['-C', clone, 'rev-parse', `${entry.tag}^{commit}`], work)
+  ).trim()
+  if (commit !== entry.commit) {
+    throw new Error(
+      `The tag ${entry.tag} of ${entry.source} names the commit ${commit}, not ${entry.commit}, which NATIVE_PACKAGES of scripts/dependency-source-archive.mjs pins for ${entry.name} ${entry.version}. Upstream may have moved the tag; nothing was written (docs/spec/delivery.md section 2.13).`,
+    )
+  }
+  const tar = join(sources, `${name}-source.tar`)
+  const archiveArguments = ['archive', '--format=tar', `--prefix=${name}/`, `--output=${tar}`]
+  await runDirectly(
+    'git',
+    ['-C', clone, ...GIT_ARCHIVE_OPTIONS, ...archiveArguments, entry.tag],
+    work,
+  )
+  await runDirectly('gzip', ['-9', '-n', basename(tar)], sources)
+  return clone
+}
+
+/**
+ * Writes the source of the entries of `group`, the entries with a `commit` and one name, into `sources`: the tree of
+ * each tag, and `{stem}-crates.tar.gz` with `config.toml` and every crate of their lock files, vendored with one
+ * `cargo vendor` sent through `run` in `root`.
+ */
+async function archiveWholeSource(root, run, work, sources, group, retryDelays) {
+  const clones = await inOrder(group.map((entry) => archiveTag(work, sources, entry, retryDelays)))
+  const locks = await Promise.all(
+    clones.map((clone) => readFile(join(clone, 'Cargo.lock'), 'utf8')),
+  )
+  for (const [i, entry] of group.entries()) {
+    requireCratesIo(lockCrates(locks[i]), `${entry.name} ${entry.version}`)
+  }
+  const [first, ...others] = group.map((entry, i) => join(clones[i], entry.manifest))
+  const folder = `${stemOf(group[0].name)}-crates`
+  const vendor = join(work, folder, 'vendor')
+  const manifests = [
+    '--manifest-path',
+    first,
+    ...others.flatMap((manifest) => ['--sync', manifest]),
+  ]
+  await checkedRun(
+    run,
+    'cargo',
+    ['vendor', '--locked', '--versioned-dirs', ...manifests, vendor],
+    root,
+  )
+  await writeFile(join(work, folder, 'config.toml'), vendorConfig(folder, group[0].name))
+  await packFolders(work, `${basename(sources)}/${folder}.tar`, [folder])
+  await runDirectly('gzip', ['-9', '-n', `${folder}.tar`], sources)
+  await Promise.all(
+    [join(work, folder), ...clones].map((path) => rm(path, { recursive: true, force: true })),
+  )
+}
+
+/** Downloads and checks the `.crate` of `crate` and writes it into `sources` as `{name}-{version}.crate`. */
+async function saveCrate(crate, sources, downloads) {
+  await writeFile(
+    join(sources, `${crateFolder(crate)}.crate`),
+    await downloadCrate(crate, downloads),
+  )
+}
+
+/**
+ * Copies the committed notices file of `entry` from `root` into `sources` as `{stem}-{version}-notices.txt`, or
+ * rejects with the native-notices message of section 4 when it is missing.
+ */
+async function copyNotices(root, sources, entry) {
+  const name = `${stemOf(entry.name)}-${entry.version}`
+  const committed = `${NATIVE_NOTICES_FOLDER}/${name}.txt`
+  try {
+    await copyFile(join(root, committed), join(sources, `${name}-notices.txt`))
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new Error(
+        `${committed} is missing. Make it from the source of ${entry.name} ${entry.version} as docs/spec/delivery.md section 2.13 describes.`,
+        { cause: error },
+      )
+    }
+    throw error
+  }
+}
+
+/** Whether a table entry asks the archives for something: a whole source, crates or notices. */
+function asksForSource(entry) {
+  return entry.commit !== undefined || entry.crates.length > 0 || entry.notices === true
+}
+
+/**
+ * Writes `npm-sources-{scope}` into `work` with what `entries` ask for (Source of the native packages, 2.13), with
+ * `downloads`, `{ crateRegistry, fetch, retryDelays }`. Resolves to the folders the npm archive holds after
+ * `npm-packages-{scope}`: that one, or none when no entry asks for anything.
+ */
+async function writeNativeSources(root, run, scope, work, entries, downloads) {
+  if (!entries.some(asksForSource)) {
+    return []
+  }
+  const sources = join(work, sourcesFolder(scope))
+  await mkdir(sources)
+  const wholeSources = Map.groupBy(
+    entries.filter((entry) => entry.commit !== undefined),
+    (entry) => entry.name,
+  )
+  const crates = new Map(
+    entries.flatMap((entry) => entry.crates).map((crate) => [crateFolder(crate), crate]),
+  )
+  await inOrder([
+    ...[...wholeSources.values()].map((group) =>
+      archiveWholeSource(root, run, work, sources, group, downloads.retryDelays),
+    ),
+    ...[...crates.values()].map((crate) => saveCrate(crate, sources, downloads)),
+    ...entries
+      .filter((entry) => entry.notices === true)
+      .map((entry) => copyNotices(root, sources, entry)),
+  ])
+  return [sourcesFolder(scope)]
 }
 
 /** The size and SHA-256 of the file at `path`. */
 async function sizeAndSha256(path) {
-  const hash = createHash('sha256')
-  for await (const chunk of createReadStream(path)) {
-    hash.update(chunk)
-  }
-  return { bytes: (await stat(path)).size, sha256: hash.digest('hex') }
+  return { bytes: (await stat(path)).size, sha256: await sha256Of(path) }
 }
 
 /**
- * Writes the parts of both archives of `scope` for the repository at `root` into `directory`. It downloads each tarball
- * from `registry` with `fetch` and sends every `cargo` command through `run`. A download that fails with a network
- * error or a retried status waits each of `retryDelays` in turn and tries again. Resolves to one
+ * Writes the parts of both archives of `scope` for the repository at `root` into `directory`, downloading each tarball
+ * from `registry` and each crate from `crateRegistry` with `fetch` and sending every `cargo` command through `run`. A
+ * download that fails with a network error or a retried status, and a failed `git clone`, wait each of `retryDelays`
+ * in turn and try again.
+ * `nativePackages` and `tauriCli` take the place of NATIVE_PACKAGES and TAURI_CLI. Resolves to one
  * `{ archive, bytes, sha256, lastPart }` per archive, crates first, where `bytes` is the archive's size, `sha256` its
  * SHA-256 in hexadecimal and `lastPart` the name of its last part. Rejects with the message of section 4 and leaves
  * `directory` as it was on any failure.
@@ -521,30 +1129,44 @@ export async function writeDependencySources(
   root,
   scope,
   directory,
-  { registry, fetch, run, retryDelays = DOWNLOAD_RETRY_DELAYS },
+  {
+    registry,
+    crateRegistry,
+    fetch,
+    run,
+    retryDelays = DOWNLOAD_RETRY_DELAYS,
+    nativePackages = NATIVE_PACKAGES,
+    tauriCli = TAURI_CLI,
+  },
 ) {
   await requireDirectory(directory)
   await requireGnuTar()
-  const packages = await scopePackages(root, scope)
+  if (scope === 'desktop') {
+    await requireTemporaryFolderOutside(root)
+  }
+  const packages = await scopePackages(root, scope, nativePackages)
   const { rootCrate, triples } = SCOPES[scope]
   const crates = await scopeCrates(root, run, triples, rootCrate)
   if (scope === 'web') {
     await requireBuildMachineCrates(root, run, rootCrate, crates)
   }
 
+  const downloads = { registry, crateRegistry, fetch, retryDelays }
   const work = await mkdtemp(join(tmpdir(), 'partsmith-dependencies-'))
   try {
-    await vendorCrates(root, run, scope, join(work, cratesFolder(scope)), crates)
-    await downloadPackages(packages, join(work, packagesFolder(scope)), {
-      registry,
-      fetch,
-      retryDelays,
-    })
-    await packFolder(work, cratesFolder(scope))
+    const tool = scope === 'desktop' ? await extractTauriCli(work, tauriCli, downloads) : null
+    await vendorCrates(root, run, scope, work, crates, tool)
+    const facts = await downloadPackages(packages, join(work, packagesFolder(scope)), downloads)
+    const native = packages.filter((listed, i) => hasPlatformList(listed) || facts[i].prebuilt)
+    const entries = recordedEntries(native, nativePackages)
+    await requireAllowedLicenses(root, packages, facts)
+    const sources = await writeNativeSources(root, run, scope, work, entries, downloads)
+    const [cratesArchive, packagesArchive] = archiveNames(scope)
+    await packFolders(work, `${cratesFolder(scope)}.tar`, [cratesFolder(scope)])
     await runDirectly('gzip', ['-9', '-n', `${cratesFolder(scope)}.tar`], work)
-    await packFolder(work, packagesFolder(scope))
+    await packFolders(work, packagesArchive, [packagesFolder(scope), ...sources])
 
-    const archives = archiveNames(scope)
+    const archives = [cratesArchive, packagesArchive]
     const measures = await Promise.all(
       archives.map((archive) => sizeAndSha256(join(work, archive))),
     )
@@ -571,6 +1193,7 @@ async function main(commandArguments) {
   try {
     const results = await writeDependencySources(repositoryRoot, scope, directory, {
       registry: NPM_REGISTRY,
+      crateRegistry: CRATE_REGISTRY,
       fetch,
       run: runCommand,
     })

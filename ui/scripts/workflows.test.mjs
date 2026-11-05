@@ -2401,6 +2401,26 @@ test('95: the notices statements name the dependency archives, the folder of eac
   }
 })
 
+test('95: the statements name the folder of the native sources, and the desktop one installs tauri-cli from the archive', async () => {
+  const { TAURI_CLI } = await import(pathToFileURL(join(repositoryRoot, DEPENDENCY_SCRIPT)).href)
+  const web = await repositoryText('ui/public/THIRD-PARTY-NOTICES.txt')
+  const desktop = await repositoryText('THIRD-PARTY-NOTICES.txt')
+  const install = `cargo install tauri-cli --version ${TAURI_CLI.version} --locked`
+
+  assert.ok(
+    web.includes('npm-sources-web'),
+    'ui/public/THIRD-PARTY-NOTICES.txt does not name npm-sources-web',
+  )
+  assert.ok(
+    desktop.includes('npm-sources-desktop'),
+    'THIRD-PARTY-NOTICES.txt does not name npm-sources-desktop',
+  )
+  assert.ok(
+    desktop.split('\n').some((line) => line.includes(install)),
+    `THIRD-PARTY-NOTICES.txt does not hold ${install} on one line`,
+  )
+})
+
 test("95: the web job writes the archives into the folder that the web statement names, dist/ being the deployment's root", async () => {
   const steps = await ciJobSteps('web')
   const run = stepValue(steps[namedStep(steps, DEPENDENCY_WRITER)], 'run')
